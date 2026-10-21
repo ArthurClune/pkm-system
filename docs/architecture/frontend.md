@@ -26,7 +26,7 @@ their fixes are indexed by symptom in
 | UI | React 18.3, react-router-dom 6.30 (v7 future flags), TypeScript 5.9 |
 | Build | Vite 6, `vite-plugin-pwa` (Workbox service worker), pnpm (overrides in `pnpm-workspace.yaml` — pnpm 11 ignores `package.json` overrides) |
 | Offline | `@sqlite.org/sqlite-wasm` (replica in a Web Worker on the OPFS SAHPool VFS) |
-| Rendering extras (all lazy-loaded) | KaTeX (math), beautiful-mermaid + Mermaid fallback (diagrams), react-pdf/pdf.js (PDF viewer), highlight.js (code) |
+| Rendering extras (all lazy-loaded) | KaTeX (math), beautiful-mermaid + Mermaid fallback (diagrams), react-pdf/pdf.js (PDF viewer), highlight.js (code), the /link-local-file picker with fzf |
 | Tests | Vitest + jsdom (enforced coverage), Playwright e2e, Testing Library, type-aware ESLint |
 | API types | `openapi-typescript` (Node API) via `pnpm gen-types` → `web/tooling/genTypes.mjs` |
 
@@ -92,8 +92,9 @@ web/src/
 │   ├── slashCommands.ts / calendar.ts   Core  Slash commands; the /date month grid
 │   ├── blockSelection.ts / history.ts / paste.ts / dnd.ts  Core  Selection, undo
 │   │                                      history, outline paste, drag planning
-│   ├── localFiles.ts         Core         /link-local-file: folder listing, fzf search,
-│   │                                      the Local copy:: attribute text
+│   ├── localFiles.ts         Core         /link-local-file: folder listing, the
+│   │                                      Local copy:: attribute text
+│   ├── localSearch.ts        Core         fzf search + highlight ranges (picker-only chunk)
 │   ├── blockStamps.ts        Core         Stamp bands; which ops count as a change
 │   ├── baseTextHash.ts       Core         Stamps update_text and delete ops at build time
 │   ├── textareaHeight.ts     Core         Auto-grow reset/write decisions (JS fallback)

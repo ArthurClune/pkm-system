@@ -3,7 +3,8 @@
 // ImageOverlay. One fetch of GET /api/local-index on mount, then either a
 // folder browser (empty query) or fzf search over the whole tree. Keyboard
 // handling stays on the search input because useOverlayDismiss pins Tab
-// there; the list is a listbox driven by aria-activedescendant.
+// there; Backspace on an empty query goes up a folder, and Cancel is for
+// touch. The list is a listbox driven by aria-activedescendant.
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ApiError } from "../api/client";
@@ -12,9 +13,9 @@ import {
   fileName,
   folderListing,
   folderOf,
-  searchLocalFiles,
   type LocalFile,
 } from "../outline/localFiles";
+import { searchLocalFiles } from "../outline/localSearch";
 import { useOverlayDismiss } from "./useOverlayDismiss";
 
 type IndexState =
@@ -27,6 +28,10 @@ type Row =
   | { kind: "file"; key: string; file: LocalFile; nameRanges: [number, number][]; folderRanges: [number, number][] };
 
 const SEPARATOR = " › ";
+
+// The search ranges index the NFC form of the path, so the name and folder
+// are rendered from it; file.path and file.href stay as the server sent them.
+const shownPath = (file: LocalFile) => file.path.normalize("NFC");
 
 function failureMessage(err: unknown): string {
   if (err instanceof ApiError && err.status === 404) return "Local files aren't set up on this server";
@@ -123,10 +128,13 @@ export function LocalFilePicker({ onPick, onClose }: {
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setSelected((i) => Math.min(i + 1, rows.length - 1));
+      setSelected((i) => Math.max(0, Math.min(i + 1, rows.length - 1)));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       setSelected((i) => Math.max(i - 1, 0));
+    } else if (event.key === "Backspace" && query === "" && folder !== "") {
+      event.preventDefault();
+      openFolder(folderOf(folder));
     } else if (event.key === "Enter") {
       event.preventDefault();
       activate(rows[selected]);
@@ -151,22 +159,25 @@ export function LocalFilePicker({ onPick, onClose }: {
       }}
     >
       <div className="local-picker">
-        <input
-          ref={searchRef}
-          className="input-control local-picker-search"
-          type="text"
-          role="combobox"
-          aria-expanded={message === null}
-          aria-controls="local-picker-list"
-          aria-activedescendant={message === null ? `local-picker-row-${selected}` : undefined}
-          aria-label="Search local files"
-          placeholder="Search all files…"
-          autoComplete="off"
-          spellCheck={false}
-          value={query}
-          onChange={(event) => { setQuery(event.target.value); setSelected(0); }}
-          onKeyDown={onKeyDown}
-        />
+        <div className="local-picker-header">
+          <input
+            ref={searchRef}
+            className="input-control local-picker-search"
+            type="text"
+            role="combobox"
+            aria-expanded={message === null}
+            aria-controls="local-picker-list"
+            aria-activedescendant={message === null ? `local-picker-row-${selected}` : undefined}
+            aria-label="Search local files"
+            placeholder="Search all files…"
+            autoComplete="off"
+            spellCheck={false}
+            value={query}
+            onChange={(event) => { setQuery(event.target.value); setSelected(0); }}
+            onKeyDown={onKeyDown}
+          />
+          <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+        </div>
         {!searching && state.status === "ok" && (
           <nav className="local-picker-crumbs" aria-label="Folder">
             <button type="button" onClick={() => openFolder("")}>pkm</button>
@@ -195,11 +206,11 @@ export function LocalFilePicker({ onPick, onClose }: {
                 {row.kind === "folder" ? row.name : (
                   <>
                     <span className="local-picker-name">
-                      {highlighted(fileName(row.file.path), row.nameRanges)}
+                      {highlighted(fileName(shownPath(row.file)), row.nameRanges)}
                     </span>
-                    {searching && folderOf(row.file.path) !== "" && (
+                    {searching && folderOf(shownPath(row.file)) !== "" && (
                       <span className="local-picker-folder-path">
-                        {folderText(folderOf(row.file.path), row.folderRanges)}
+                        {folderText(folderOf(shownPath(row.file)), row.folderRanges)}
                       </span>
                     )}
                   </>

@@ -193,3 +193,58 @@ it("unmounting before the fetch settles sets no state", async () => {
   expect(error).not.toHaveBeenCalled();
   error.mockRestore();
 });
+
+it("renders an NFD result's highlights over the NFC name and folder", async () => {
+  const path = "Résumés/Café notes.pdf";
+  stubIndex([{ path, href: "/local/x" }]);
+  await open();
+  type("sum notes");
+  const marks = [...screen.getByRole("option").querySelectorAll("mark")].map((m) => m.textContent);
+  expect(marks).toEqual(["notes", "sum"]);
+  expect(screen.getByRole("option")).toHaveTextContent("Résumés");
+});
+
+it("ArrowDown before the index arrives still selects the first row", async () => {
+  let resolve: (r: Response) => void = () => {};
+  stub(() => new Promise<Response>((r) => { resolve = r; }));
+  const onPick = vi.fn();
+  render(<LocalFilePicker onPick={onPick} onClose={vi.fn()} />);
+  press("ArrowDown");
+  resolve(jsonResponse({ files: [{ path: "a.txt", href: "/local/a.txt" }] }));
+  await screen.findByRole("listbox");
+  expect(screen.getByRole("option")).toHaveAttribute("aria-selected", "true");
+  press("Enter");
+  expect(onPick).toHaveBeenCalledWith({ path: "a.txt", href: "/local/a.txt" });
+});
+
+it("Backspace on an empty query goes up one folder and stops at the root", async () => {
+  stubIndex();
+  await open();
+  click(screen.getByRole("option", { name: "Papers" }));
+  click(screen.getByRole("option", { name: "Machine Learning" }));
+  expect(optionNames()).toEqual(["Deep.pdf", "Notes.md"]);
+  expect(fireEvent.keyDown(box(), { key: "Backspace" })).toBe(false);
+  expect(optionNames()).toEqual(["Machine Learning", "intro.pdf"]);
+  press("Backspace");
+  expect(optionNames()).toEqual(["Papers", "root.txt"]);
+  expect(fireEvent.keyDown(box(), { key: "Backspace" })).toBe(true);
+  expect(optionNames()).toEqual(["Papers", "root.txt"]);
+});
+
+it("Backspace with text in the box is left to the input", async () => {
+  stubIndex();
+  await open();
+  click(screen.getByRole("option", { name: "Papers" }));
+  type("i");
+  expect(fireEvent.keyDown(box(), { key: "Backspace" })).toBe(true);
+  type("");
+  expect(optionNames()).toEqual(["Machine Learning", "intro.pdf"]);
+});
+
+it("the Cancel button closes without picking", async () => {
+  stubIndex();
+  const { onPick, onClose } = await open();
+  click(screen.getByRole("button", { name: "Cancel" }));
+  expect(onClose).toHaveBeenCalledTimes(1);
+  expect(onPick).not.toHaveBeenCalled();
+});

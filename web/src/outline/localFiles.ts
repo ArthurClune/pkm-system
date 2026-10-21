@@ -1,25 +1,12 @@
 // pattern: Functional Core
-// The /link-local-file picker's pure half: folder browsing over the flat
-// local index, fzf search with highlight ranges, and the `Local copy::`
-// attribute text the command inserts.
-import {
-  Fzf,
-  byLengthAsc,
-  extendedMatch,
-  type FzfResultItem,
-  type Tiebreaker,
-} from "fzf";
+// The /link-local-file picker's pure half that the outline imports: folder
+// browsing over the flat local index and the `Local copy::` attribute text
+// the command inserts. The fzf search lives in localSearch.ts so the entry
+// chunk does not carry it.
 import type { components } from "../api/types";
 import { scanMarkdownLinkAt } from "../grammar/markdown";
 
 export type LocalFile = components["schemas"]["LocalIndexFile"];
-
-export interface LocalMatch {
-  file: LocalFile;
-  score: number;
-  nameRanges: [number, number][];
-  folderRanges: [number, number][];
-}
 
 const byName = (a: string, b: string) =>
   a.localeCompare(b, undefined, { sensitivity: "base" });
@@ -51,57 +38,6 @@ export function folderListing(
     folders: [...folders].sort(byName),
     files: direct.sort((a, b) => byName(a.path, b.path)),
   };
-}
-
-// Prefers the item whose matched characters all sit in the file name.
-const byNameMatch: Tiebreaker<LocalFile> = (a, b, selector) => {
-  const inName = (r: FzfResultItem<LocalFile>) => {
-    const path = selector(r.item);
-    const start = path.lastIndexOf("/") + 1;
-    return [...r.positions].every((p) => p >= start);
-  };
-  return Number(inName(b)) - Number(inName(a));
-};
-
-// Merges sorted indices into half-open runs, shifted by `offset`.
-function runs(indices: number[], offset: number): [number, number][] {
-  const out: [number, number][] = [];
-  for (const i of indices) {
-    const at = i - offset;
-    const last = out[out.length - 1];
-    if (last && last[1] === at) last[1] = at + 1;
-    else out.push([at, at + 1]);
-  }
-  return out;
-}
-
-export function searchLocalFiles(
-  files: readonly LocalFile[],
-  query: string,
-): LocalMatch[] {
-  if (query.trim() === "") return [];
-  const fzf = new Fzf(files, {
-    selector: (f) => f.path,
-    match: extendedMatch,
-    casing: "case-insensitive",
-    tiebreakers: [byNameMatch, byLengthAsc],
-  });
-  return fzf.find(query).map((r) => {
-    const nameStart = r.item.path.lastIndexOf("/") + 1;
-    const sorted = [...r.positions].sort((a, b) => a - b);
-    return {
-      file: r.item,
-      score: r.score,
-      nameRanges: runs(
-        sorted.filter((p) => p >= nameStart),
-        nameStart,
-      ),
-      folderRanges: runs(
-        sorted.filter((p) => p < nameStart - 1),
-        0,
-      ),
-    };
-  });
 }
 
 const ATTRIBUTE_PREFIX = "Local copy:: ";

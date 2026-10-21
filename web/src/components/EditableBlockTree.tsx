@@ -5,7 +5,7 @@
 // textarea is BlockInput.tsx. Every semantic decision is delegated — key
 // meanings to outline/keyboardPolicy.ts, mutations to the OutlineHandlers
 // port (implemented by useOutline).
-import { memo, useCallback, useEffect, useMemo, useRef,
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef,
          useState } from "react";
 import type { BlockUid } from "../api/brands";
 import type { HeadingLevel } from "../api/ops";
@@ -21,16 +21,21 @@ import { ancestorChain, findNode, hidesChildren } from "../outline/tree";
 import { roamTableRows } from "../outline/roamTableRows";
 import { formatStamp, formatStampTitle, stampBand,
          stampTs } from "../outline/blockStamps";
+import type { LocalFile } from "../outline/localFiles";
 import { BlockInput } from "./BlockInput";
 import { BlockMenu } from "./BlockMenu";
 import { BlockRefBacklinksPopover } from "./BlockRefBacklinksPopover";
-import { LocalFilePicker } from "./LocalFilePicker";
 import { InlineSegments } from "./InlineSegments";
 import { RoamTable } from "./roamTable";
 import { TocBlock } from "./TableOfContents";
 import { quoteContent } from "./blockPresentation";
 import { effectiveChildView, type EffectiveBlockView } from "./blockView";
 import { isTocMacro } from "./tocEntries";
+
+// Lazy so the picker and fzf, which only it reaches, stay out of the entry
+// chunk.
+const LocalFilePicker = lazy(() =>
+  import("./LocalFilePicker").then((m) => ({ default: m.LocalFilePicker })));
 
 interface TreeProps {
   blocks: BlockNode[];
@@ -97,6 +102,20 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   const requestLocalFile = useCallback((uid: BlockUid, at: number) => {
     setLocalFileTarget({ uid, at });
   }, []);
+  // Stable, so the picker's dismissal hook does not re-run on tree renders.
+  const closeLocalFile = useCallback(() => setLocalFileTarget(null), []);
+  const pickLocalFile = useCallback((file: LocalFile) => {
+    if (localFileTarget) {
+      handlers.onLinkLocalFile(localFileTarget.uid, localFileTarget.at, file);
+    }
+    setLocalFileTarget(null);
+  }, [handlers, localFileTarget]);
+  // A target left set while editing is off would reopen the picker uninvited
+  // when editing returns.
+  const editingOff = fallback || readOnly;
+  useEffect(() => {
+    if (editingOff) setLocalFileTarget(null);
+  }, [editingOff]);
   // Bullet context menu; one per tree, anchored at the pointer.
   const [menu, setMenu] = useState<{
     uid: BlockUid;
@@ -218,13 +237,10 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                  + "text/csv,application/json,.doc,.docx,.xls,.xlsx,.ppt,.pptx"}
                onChange={onPickUpload} />
       )}
-      {!fallback && !readOnly && localFileTarget && (
-        <LocalFilePicker
-          onPick={(file) => {
-            handlers.onLinkLocalFile(localFileTarget.uid, localFileTarget.at, file);
-            setLocalFileTarget(null);
-          }}
-          onClose={() => setLocalFileTarget(null)} />
+      {!editingOff && localFileTarget && (
+        <Suspense fallback={null}>
+          <LocalFilePicker onPick={pickLocalFile} onClose={closeLocalFile} />
+        </Suspense>
       )}
       {!fallback && menu && (
         <BlockMenu x={menu.x} y={menu.y} onClose={closeMenu}

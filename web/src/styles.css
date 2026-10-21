@@ -1195,7 +1195,8 @@ button.file-badge.status-failed:hover { color: var(--color-error); }
   max-height: 100%; box-sizing: border-box; padding: 12px;
   background: var(--color-bg-surface); border: 1px solid var(--color-border);
   border-radius: var(--radius-panel); box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); }
-.local-picker-search { width: 100%; box-sizing: border-box; padding: 6px 10px; }
+.local-picker-header { display: flex; gap: 8px; align-items: center; }
+.local-picker-search { flex: 1; min-width: 0; box-sizing: border-box; padding: 6px 10px; }
 .local-picker-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px;
   font-size: 13px; color: var(--color-text-muted); }
 .local-picker-crumbs button { background: none; border: 0; padding: 2px 4px; font: inherit;
@@ -1213,4 +1214,9 @@ button.file-badge.status-failed:hover { color: var(--color-error); }
 @media (max-width: 600px) {
   .local-picker-backdrop { padding: 16px; }
   .local-picker { width: 100%; }
+}
+@media (pointer: coarse) {
+  .local-picker-crumbs button { padding: 10px 8px; min-height: 44px; }
+  .local-picker-row { padding: 12px 8px; min-height: 44px; box-sizing: border-box; justify-content: center; }
+  .local-picker-header .btn-secondary { min-height: 44px; }
 }

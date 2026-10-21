@@ -1555,6 +1555,25 @@
         }
       }
     },
+    "/api/local-index": {
+      "get": {
+        "summary": "Get Local Index",
+        "description": "Every visible file under the local documents folder with its\n/api/local/ href, for the link-to-local-file picker. 404 when no\nfolder is configured; 503 with Retry-After when the host cannot list\nit in time.",
+        "operationId": "get_local_index_api_local_index_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalIndexPayload"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/local/{path}": {
       "get": {
         "summary": "Get Local File",
@@ -3691,6 +3710,41 @@
           "status"
         ],
         "title": "LocalCheckProblem"
+      },
+      "LocalIndexFile": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "href": {
+            "type": "string",
+            "title": "Href"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "href"
+        ],
+        "title": "LocalIndexFile"
+      },
+      "LocalIndexPayload": {
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/LocalIndexFile"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "LocalIndexPayload",
+        "description": "GET /api/local-index: every visible file under local_docs_root, as\na relative `/`-separated path (the real name for an evicted iCloud\nstub) and the /api/local/ href that serves it. Hrefs come from\n`local_href`, so clients never percent-encode a path themselves."
       },
       "LoginBody": {
         "properties": {

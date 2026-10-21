@@ -108,6 +108,7 @@ Inside `pkm/server/`:
 | `auth.py` / `auth_core.py` / `throttle_core.py` | Shell / Core / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens; per-source login backoff policy (see [Auth](#auth)) |
 | `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_local.py`, `routes_goodlinks.py`, `routes_export.py`, `routes_migrations.py` | Shell | The HTTP surface (table below) |
 | `goodlinks_gateway.py` | Shell | httpx2 edge to the GoodLinks local API |
+| `local_open.py` / `local_index.py` | Shell / Shell | `OpenProber` (timed open probe) and `TreeScanner` (timed listing of `local_docs_root`), both on abandonable daemon threads (see [Local documents](#local-documents)) |
 | `title_migration.py` / `sync_meta.py` | Shell / Shell | Transaction-owned title inventory/apply; durable activation/generation accessors, and `read_title`, which canonicalises a title arriving as a lookup key (`title_reader` reads the flag once for several) |
 | `ops_core.py` | Core | Pure `plan_op()` → effect tuples, over the op models in `pkm/contracts/ops.py`; the op classifiers (`classify_skip`, `classify_text_edit`) and one context type per way an op plans |
 | `ops_hash.py` / `conflict_notes.py` | Core / Core | The `applied_batches` request hashes; the text of `[[conflict]]` headers and skip notes |
@@ -952,6 +953,7 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | POST | `/api/assets/export.zip` | Zip the selected assets (form-encoded `sha256s`, download) |
 | **Local documents** (`routes_local.py`) | | |
 | GET | `/api/local/check` | Every `/api/local/` href in block text, classified `ok` / `missing` / `evicted` / `invalid` / `unreadable` / `unchecked` against disk (a dataless file is `evicted` and is never opened; any other file is probe-opened: a failed probe is `unreadable`, a full probe cap is `unchecked`); `enabled: false` when `local_docs_root` is unset |
+| GET | `/api/local-index` | Every visible file under `local_docs_root` as `{files: [{path, href}]}`, case-insensitively sorted, no cap; an evicted `.Name.ext.icloud` stub is listed as `Name.ext`; dotfiles, dot-directories and symlinks that resolve outside the root are omitted; `href` is `local_href(path)`. 404 when `local_docs_root` is unset; 503 + `Retry-After` (`the host can't read the local documents folder`) when the listing fails or exceeds its timeout |
 | GET | `/api/local/{path}` | Serve one regular file under `local_docs_root` (inline for PDF/image extensions, attachment otherwise, `nosniff`); 404 for anything outside the root, missing, or not a regular file; 503 + `Retry-After` for an iCloud-evicted or dataless file, and for a file the host cannot open within the probe timeout (`the host can't open this file`) or a full probe cap (`too many file opens are in flight…`). Failures are JSON, except to a browser navigation, which gets an HTML page with the same status (see [Local documents](#local-documents)) |
 | **GoodLinks copies** (`routes_goodlinks.py`, see [goodlinks.md](goodlinks.md)) | | |
 | POST | `/api/goodlinks/resolve` | Resolve a URL to a GoodLinks link (exact, query-stripped, trailing-slash-toggled, single search hit); with `save` true, save it read-marked when absent |
@@ -992,6 +994,15 @@ callers asking about the same path, and caps distinct in-flight probes (a probe
 past the cap is `busy` without starting a thread). A blocked `open()` cannot be
 cancelled, so the bound on stuck threads is the cap, and daemon threads keep a
 stuck one from holding up shutdown. A failed or timed-out probe is `unreadable`: a 503 `the host can't open this file` on the file route and `unreadable` in `/api/local/check`. `busy` is a different 503 detail (`too many file opens are in flight on the host; see the server log`) and the `unchecked` status in the check, because it says nothing about the file itself. A caller joining a probe already in flight waits only for what is left of its timeout.
+
+`/api/local-index` lists the folder for the link-to-local-file picker and
+never opens a file, so listing does not download an evicted one. A directory
+listing can block as an `open()` can, so `local_index.TreeScanner` runs the walk
+on a daemon thread and abandons it after its timeout. Only one scan is ever in
+flight: a later caller joins it, waits for what is left of its timeout and gets
+503 at once if the walk has overrun, rather than starting a second walker.
+Hrefs come from `local_href`, and the path sits outside `/api/local/` so the
+catch-all cannot shadow it.
 
 A failure on the file route is JSON for `fetch()` and pdf.js callers, which read only the status. A browser navigation gets a short HTML page instead, with the same status and `Retry-After`, plus `no-store`. A navigation is `Sec-Fetch-Mode: navigate` or `Sec-Fetch-Dest: document`, or, from a browser that sends neither, an `Accept` naming `text/html` (`local_docs.wants_html_error`). Without it, a person who opens the link sees raw JSON, and Safari saves it as `<name>.pdf.json`.
 

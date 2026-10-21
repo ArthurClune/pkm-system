@@ -319,6 +319,19 @@ class LocalCheckPayload(StrictModel):
     problems: list[LocalCheckProblem]
 
 
+class LocalIndexFile(StrictModel):
+    path: str
+    href: str
+
+
+class LocalIndexPayload(StrictModel):
+    """GET /api/local-index: every visible file under local_docs_root, as
+    a relative `/`-separated path (the real name for an evicted iCloud
+    stub) and the /api/local/ href that serves it. Hrefs come from
+    `local_href`, so clients never percent-encode a path themselves."""
+    files: list[LocalIndexFile]
+
+
 class GoodlinksResolveRequest(StrictModel):
     """POST /api/goodlinks/resolve body. `save` lets the slash command add
     a page GoodLinks does not have yet; the migration script never sets it."""

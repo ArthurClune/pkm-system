@@ -698,6 +698,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/local-index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Local Index
+         * @description Every visible file under the local documents folder with its
+         *     /api/local/ href, for the link-to-local-file picker. 404 when no
+         *     folder is configured; 503 with Retry-After when the host cannot list
+         *     it in time.
+         */
+        get: operations["get_local_index_api_local_index_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/local/{path}": {
         parameters: {
             query?: never;
@@ -1592,6 +1615,24 @@ export interface components {
              * @enum {string}
              */
             status: "missing" | "evicted" | "invalid" | "unreadable" | "unchecked";
+        };
+        /** LocalIndexFile */
+        LocalIndexFile: {
+            /** Path */
+            path: string;
+            /** Href */
+            href: string;
+        };
+        /**
+         * LocalIndexPayload
+         * @description GET /api/local-index: every visible file under local_docs_root, as
+         *     a relative `/`-separated path (the real name for an evicted iCloud
+         *     stub) and the /api/local/ href that serves it. Hrefs come from
+         *     `local_href`, so clients never percent-encode a path themselves.
+         */
+        LocalIndexPayload: {
+            /** Files */
+            files: components["schemas"]["LocalIndexFile"][];
         };
         /** LoginBody */
         LoginBody: {
@@ -3066,6 +3107,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LocalCheckPayload"];
+                };
+            };
+        };
+    };
+    get_local_index_api_local_index_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalIndexPayload"];
                 };
             };
         };

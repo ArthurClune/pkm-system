@@ -5,8 +5,8 @@
 // textarea is BlockInput.tsx. Every semantic decision is delegated — key
 // meanings to outline/keyboardPolicy.ts, mutations to the OutlineHandlers
 // port (implemented by useOutline).
-import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef,
-         useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef,
+         useState, type ComponentType } from "react";
 import type { BlockUid } from "../api/brands";
 import type { HeadingLevel } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
@@ -32,10 +32,27 @@ import { quoteContent } from "./blockPresentation";
 import { effectiveChildView, type EffectiveBlockView } from "./blockView";
 import { isTocMacro } from "./tocEntries";
 
-// Lazy so the picker and fzf, which only it reaches, stay out of the entry
-// chunk.
-const LocalFilePicker = lazy(() =>
-  import("./LocalFilePicker").then((m) => ({ default: m.LocalFilePicker })));
+type PickerComponent = ComponentType<{
+  onPick: (file: LocalFile) => void;
+  onClose: () => void;
+}>;
+
+const PICKER_LOAD_FAILED = "Couldn't load the file picker; try again";
+
+// Loaded on first use so the picker and fzf, which only it reaches, stay out
+// of the entry chunk. The cached promise is cleared on failure, so the next
+// request retries instead of replaying the rejection.
+let pickerPromise: Promise<PickerComponent> | null = null;
+
+function loadPicker(): Promise<PickerComponent> {
+  if (!pickerPromise) {
+    pickerPromise = import("./LocalFilePicker").then((m) => m.LocalFilePicker);
+    pickerPromise.catch(() => {
+      pickerPromise = null;
+    });
+  }
+  return pickerPromise;
+}
 
 interface TreeProps {
   blocks: BlockNode[];
@@ -99,11 +116,41 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   const [localFileTarget, setLocalFileTarget] = useState<{
     uid: BlockUid; at: number;
   } | null>(null);
+  const [Picker, setPicker] = useState<PickerComponent | null>(null);
+  const [localFileNotice, setLocalFileNotice] = useState<string | null>(null);
+  // Bumped by every request and cancel, so a load that settles after the user
+  // gave up neither opens the picker nor shows a notice.
+  const localFileRequest = useRef(0);
   const requestLocalFile = useCallback((uid: BlockUid, at: number) => {
+    const request = ++localFileRequest.current;
+    setLocalFileNotice(null);
     setLocalFileTarget({ uid, at });
+    loadPicker().then(
+      (component) => setPicker(() => component),
+      () => {
+        if (request !== localFileRequest.current) return;
+        setLocalFileTarget(null);
+        setLocalFileNotice(PICKER_LOAD_FAILED);
+      },
+    );
   }, []);
   // Stable, so the picker's dismissal hook does not re-run on tree renders.
-  const closeLocalFile = useCallback(() => setLocalFileTarget(null), []);
+  const closeLocalFile = useCallback(() => {
+    localFileRequest.current++;
+    setLocalFileTarget(null);
+  }, []);
+  // The picker's own Escape handling only exists once it has mounted.
+  const loadingLocalFile = localFileTarget !== null && Picker === null;
+  useEffect(() => {
+    if (!loadingLocalFile) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      closeLocalFile();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [loadingLocalFile, closeLocalFile]);
   const pickLocalFile = useCallback((file: LocalFile) => {
     if (localFileTarget) {
       handlers.onLinkLocalFile(localFileTarget.uid, localFileTarget.at, file);
@@ -114,7 +161,9 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   // when editing returns.
   const editingOff = fallback || readOnly;
   useEffect(() => {
-    if (editingOff) setLocalFileTarget(null);
+    if (!editingOff) return;
+    localFileRequest.current++;
+    setLocalFileTarget(null);
   }, [editingOff]);
   // Bullet context menu; one per tree, anchored at the pointer.
   const [menu, setMenu] = useState<{
@@ -237,10 +286,17 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                  + "text/csv,application/json,.doc,.docx,.xls,.xlsx,.ppt,.pptx"}
                onChange={onPickUpload} />
       )}
-      {!editingOff && localFileTarget && (
-        <Suspense fallback={null}>
-          <LocalFilePicker onPick={pickLocalFile} onClose={closeLocalFile} />
-        </Suspense>
+      {!editingOff && localFileNotice && (
+        <p className="editor-notice" role="status">
+          {localFileNotice}
+          <button type="button" className="btn-secondary"
+                  onClick={() => setLocalFileNotice(null)}>
+            Dismiss
+          </button>
+        </p>
+      )}
+      {!editingOff && localFileTarget && Picker && (
+        <Picker onPick={pickLocalFile} onClose={closeLocalFile} />
       )}
       {!fallback && menu && (
         <BlockMenu x={menu.x} y={menu.y} onClose={closeMenu}

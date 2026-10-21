@@ -341,9 +341,10 @@ there. `/upload`'s blur ordering is a rule of its own, above. `/goodlinks`
 follows `/upload`'s blur-first shape and hands off to
 `useOutline.onGoodlinks`; see [goodlinks.md](goodlinks.md).
 `/link-local-file` follows the same blur-first, tree-owned shape: it opens
-`LocalFilePicker` (a `React.lazy` chunk, so fzf stays out of the entry) from
-`EditableBlockTree` and splices the pick synchronously
-through `useOutline.onLinkLocalFile`.
+`LocalFilePicker` (a cached `import()` chunk, so fzf stays out of the entry)
+from `EditableBlockTree` and splices the pick synchronously
+through `useOutline.onLinkLocalFile`. A failed chunk load closes the request
+with an `editor-notice`, and Escape cancels an open that is still loading.
 
 ### The bullet and the block menu
 

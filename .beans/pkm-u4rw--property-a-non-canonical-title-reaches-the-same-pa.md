@@ -1,10 +1,11 @@
 ---
 # pkm-u4rw
 title: 'Property: a non-canonical title reaches the same page through every route'
-status: todo
+status: in-progress
 type: task
+priority: normal
 created_at: 2026-10-21T14:01:04Z
-updated_at: 2026-10-21T14:01:04Z
+updated_at: 2026-10-21T16:13:06Z
 parent: pkm-a1xk
 ---
 
@@ -13,7 +14,7 @@ A cluster of past bugs where a padded or otherwise non-canonical title reached a
 ## Checklist
 
 - [ ] Server: for any title and any padding or whitespace variant that canonicalises to it (`refs.target_canonical_title`), every route and CLI verb that takes a title (page get, delete, rename, todos/changed filters, queries, sidebar entries, journal) resolves the variant to the same page as the canonical form.
-- [ ] Web/replica parity: the replica's `canonicalTitle` and `titleSyntaxReason` (`web/src/replica/titles.ts`) agree with the server's `target_canonical_title` and `title_syntax_reason` on a generated fixture (extend `title_syntax.json` the way the refs corpus does).
+- [x] Web/replica parity: the replica's `canonicalTitle` and `titleSyntaxReason` (`web/src/replica/titles.ts`) agree with the server's `target_canonical_title` and `title_syntax_reason` on a generated fixture (extend `title_syntax.json` the way the refs corpus does).
 - [ ] Web: every surface that keys a session by title (`useOutlinePageLoad`, `EditableSidebarPanel`, the page loader) keys by the canonical title for any variant.
 - [ ] This needs the real server and many routes, so it may belong in the `proptest/check.sh` gate as a new suite; decide after the unit-level parity part.
 - [ ] Mutants: one route that skips canonicalisation; key a sidebar panel by the raw title.

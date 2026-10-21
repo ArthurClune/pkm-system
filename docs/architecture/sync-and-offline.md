@@ -462,6 +462,12 @@ fresh importer databases run that same path before publication.
 | Inactive | Preserve leading/trailing ordinary U+0020 exactly, allowing legacy padded rows to resolve to themselves | Persist `"0"`; preserve boundary ordinary spaces and keep queued wire operations unchanged |
 | Active | Strip only boundary U+0020 on creation/read; keep internal ordinary spaces and NBSP exact | Persist `"1"`; strip boundary U+0020 before local page lookup/creation and optimistic replay |
 
+"The same normalization" means Python's whitespace. `grammar/scan.ts` trims
+titles and anchors tags with the set `str.strip()` and `re`'s `\s` use, not
+JS `trim()`'s, and `isBlankTitle` is the replica's one blank-title test.
+`shared/fixtures/title_parity.json` replays the server's verdicts on a
+generated corpus ([Generated artifacts](backend.md#generated-artifacts-and-parity-fixtures)).
+
 `findOpTitleViolation()` checks every explicit page target and ref-derived title
 in a batch, and refuses the whole gesture on a title `titleSyntaxReason` forbids before any
 optimistic mutation. `enqueueBatch()` repeats the check before its transaction,

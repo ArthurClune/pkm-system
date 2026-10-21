@@ -12,7 +12,7 @@ import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
 import { canonicalTitle } from "../meta";
 import { enqueueBatch } from "../queue";
-import { titleSyntaxReason } from "../titles";
+import { isBlankTitle, titleSyntaxReason } from "../titles";
 import { journalPayload } from "./journal";
 import { blockBacklinks, currentWorkPayload, fetchPage, pagePayload,
          unlinked } from "./pages";
@@ -98,7 +98,7 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
   }
   if (method === "POST" && path === "/api/pages") {
     const pageTitle = canonicalTitle(db, bodyText(req.body, "title"));
-    if (pageTitle.trim().length === 0) {
+    if (isBlankTitle(pageTitle)) {
       return err(422, "title must not be blank");
     }
     if (titleSyntaxReason(pageTitle) !== null) {

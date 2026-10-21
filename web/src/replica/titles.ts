@@ -6,6 +6,8 @@
 import type { CanonicalTitle, NormalizedTitle, RawTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { normalizeRefTitle } from "../grammar/scan";
+
+export { isBlankRefTitle as isBlankTitle } from "../grammar/scan";
 import { extractRefs } from "./refs";
 
 // The general mint of RawTitle: text no check has run on.

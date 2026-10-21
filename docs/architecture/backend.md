@@ -64,6 +64,7 @@ pkm/
 ├── edn.py               Core   Minimal EDN parser for Roam exports
 ├── schema_dump.py       Shell  Generates web/src/replica/baseSchema.gen.ts
 ├── refs_parity_dump.py  Shell  Generates shared/fixtures/refs_parity.json
+├── title_parity_dump.py Shell  Generates shared/fixtures/title_parity.json
 ├── rows_dump.py         Shell  Generates web/src/replica/columns.gen.ts and
 │                               web/tooling/brandRegistry.gen.json
 ├── assets_disk.py       Shell  asset_on_disk_needs_repair(): stats/hashes a stored asset
@@ -1083,6 +1084,7 @@ with the change that invalidates them.
 | `shared/fixtures/ref_grammar.json` | hand-maintained cases | both parsers' test suites | Pins Python `refs.py` and the TS grammar scanner to identical behaviour |
 | `shared/fixtures/title_syntax.json` | hand-maintained cases | `tests/test_refs.py` | Pins `refs.title_syntax_reason` and the replica's `titleSyntaxReason` to the same verdicts (`web/src/replica/titles.test.ts`, `localApi/router.test.ts`) |
 | `shared/fixtures/refs_parity.json` | `pkm.refs_parity_dump` | `tests/test_refs_parity_fixture.py` | TS extractors replay the exact Python outputs. The file holds the hand `CASES` plus a seeded generated corpus of bracket-heavy texts (`generated_cases()`); the test tallies the corpus's shapes so it cannot go vacuous |
+| `shared/fixtures/title_parity.json` | `pkm.title_parity_dump` | `tests/test_title_parity_fixture.py` | The replica's `canonicalizeTitle`, `titleSyntaxReason`, `isBlankTitle` and `extractRefs` replay the server's `normalize_title`, `target_canonical_title`, `title_syntax_reason`, `is_blank_title` and `extract` verdicts on a seeded corpus of whitespace- and syntax-heavy titles (`web/src/replica/titleParity.test.ts`). The test tallies the corpus's shapes so it cannot go vacuous |
 | `shared/fixtures/local_links_parity.json` | `web/src/outline/localLinksParity.test.ts` with `UPDATE_LOCAL_LINKS_FIXTURE=1` (fixed fast-check seed over `localCopyAttribute`) | that test fails when the file differs; `tests/test_local_links_parity.py` | `local_docs.extract_local_hrefs` must read the same hrefs from `Local copy::` texts as the web's markdown-link reader. Written by the web side, like `upload_links_parity.json` and `text_hash_parity.json` |
 | `shared/fixtures/upload_links_parity.json` | `web/src/sync/assetsParity.test.ts` with `UPDATE_UPLOAD_LINKS_FIXTURE=1` (fixed fast-check seed over `assetMarkdown`, encoded and raw-name tokens) | that test fails when the file differs; `tests/test_upload_links_parity.py` | `assets_core.strip_asset_tokens` must remove exactly the tokens the web's upload path writes and leave the rest. Written by the web side |
 | `shared/fixtures/shim_parity.json` | `pkm.server.shim_parity_dump` | `tests/test_shim_parity_fixture.py` | The offline API shim (`web/src/replica/localApi/`) must return byte-identical JSON to the real routes |

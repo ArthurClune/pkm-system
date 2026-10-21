@@ -18,7 +18,8 @@ export type TitleSyntaxReason = "forbidden_syntax";
 export function titleSyntaxReason(text: string): TitleSyntaxReason | null {
   const normalized = normalizeRefTitle(text);
   return normalized.includes("#") || normalized.includes("[[")
-    || normalized.includes("]]")
+    || normalized.includes("]]") || normalized.endsWith("]")
+    || normalized.includes("`")
     ? "forbidden_syntax"
     : null;
 }

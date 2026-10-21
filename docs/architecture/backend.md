@@ -448,7 +448,7 @@ the page:
 | Block still exists (mismatch) | `` [[conflict]] [[Page]] — overwritten by ((uid)) ``, `Page` read from the live block's own row |
 | Block gone, hint usable and names a page that still exists | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
 | Block gone, hint usable but names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
-| Block gone, hint missing, blank, syntactically invalid, or (naming no current page) itself containing a backtick | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
+| Block gone, hint missing, blank, or syntactically invalid (including a trailing `]` or a backtick) | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
 | Block exists, but its move's target parent is gone, is the block itself, or is its descendant | `` [[conflict]] [[Page]] — ((uid)) ``, `Page` read from the live block's own row |
 | Guarded `delete` whose subtree changed since the deleting device saw it | `` [[conflict]] [[Page]] — deleted while edited elsewhere ``, `Page` read from the block's own row before the delete; no `((uid))`, since the block is gone |
 
@@ -460,9 +460,8 @@ it) is shown as inline code, which the ref extractor skips, so the header
 cannot re-create that page (`ops_apply._hint_page_exists`). An existing page
 is linked only when `[[Page]]` reads back through `refs.extract` as that same
 title (`conflict_notes.existing_page_label`). A title ending in `]` or holding
-paired backticks reads back as another title, which the ref indexer would
-create. Such a title is shown in inline code instead, or as `(page unknown)`
-if it holds a backtick. Header and child uids are minted (`contracts.ops.new_uid`)
+a backtick has no `[[..]]` spelling and is refused as a page title
+(`refs.title_syntax_reason`), so a hint naming one is `(page unknown)`. Header and child uids are minted (`contracts.ops.new_uid`)
 with an alphanumeric first character so the CLI can address them without `--`
 (see [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)); a
 second conflict on the same block the same day reuses its header's uid.
@@ -692,9 +691,14 @@ It never rewrites a day, so a link to a journal day cannot dangle.
 missed: an indented `Title::` is a ref to both. What is left in it is which
 span wins when refs nest — a replaced title takes its whole `[[..]]` run — and
 how to spell the replacement. Its `normalize` argument maps a spelling in the
-text onto a replacement key: rename and the title migration take the default
-and match the stored title byte for byte, the importer passes
-`refs.normalize_title`. The web scanner shares that anchoring convention,
+text onto a replacement key: the title migration takes the default and
+matches the stored title byte for byte, the importer passes
+`refs.normalize_title`, and rename, merge and their replay pass
+`rename.spelled_or_canonical`: a spelling that is itself a key, else its
+canonical form under the live flag. That last rule is why `[[ Old ]]`, which
+the ref index resolves to `Old` once plain-space canonicalisation is active,
+is rewritten with the rest; matched byte for byte it would survive and the
+reindex would recreate the retitled page. The web scanner shares that anchoring convention,
 pinned by `web/src/grammar/scan.test.ts` as `"  Key:: v"` starting at offset 2.
 
 Code spans take precedence over refs by position: `strip_code()` makes one
@@ -771,7 +775,8 @@ applies the existing-data migration. Activation is an operator action:
 
 `pkm/title_migration.py` is the pure planner. It groups padded titles under a
 canonical spelling, picks a survivor and reports `all_space` or
-`forbidden_syntax` blockers. Replacement values are opaque —
+`forbidden_syntax` blockers (a title with `#`, `[[`, `]]`, a backtick or a
+trailing `]`: none has a ref spelling). Replacement values are opaque —
 `rename.rewrite_title_refs_map()` never rescans a mapped value as another
 source — and the plan's SHA-256 digest covers the full relevant snapshot, so an
 unchanged audit yields a stable digest.

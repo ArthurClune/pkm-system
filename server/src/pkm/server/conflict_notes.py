@@ -40,8 +40,7 @@ def conflict_label(page_title: RawTitle | None,
 
     - unusable (missing, blank, or syntactically invalid): the generic label
     - page exists: `existing_page_label`
-    - no such page: the title as inline code, or the generic label for a
-      title holding a backtick
+    - no such page: the title as inline code
     """
     if (page_title is None or not page_title.strip()
             or title_syntax_reason(page_title) is not None):
@@ -54,10 +53,10 @@ def conflict_label(page_title: RawTitle | None,
 
 def missing_page_code_span(page_title: RawTitle | None) -> str | None:
     """A page that does not exist, as inline code (which the ref extractor
-    never scans); None for an unusable title or one holding a backtick."""
+    never scans); None for an unusable title. A backtick is one, so the
+    code span can never be cut short."""
     if (page_title is None or not page_title.strip()
-            or title_syntax_reason(page_title) is not None
-            or "`" in page_title):
+            or title_syntax_reason(page_title) is not None):
         return None
     return f"`{page_title}`"
 

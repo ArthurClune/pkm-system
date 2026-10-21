@@ -116,6 +116,53 @@ def test_rename_blank_title_422(client):
     assert _rename(client, "AI", "   ").status_code == 422
 
 
+@pytest.mark.parametrize("title_text", ["a]", "a`b", "`", "x #y"])
+def test_rename_to_unspellable_title_422(client, title_text):
+    r = _rename(client, "AI", title_text)
+    assert r.status_code == 422
+    assert "unsupported page-title syntax" in r.json()["detail"]
+    assert client.get("/api/page/AI").status_code == 200
+
+
+def test_rename_follows_a_padded_ref_once_plain_space_titles_are_active(
+        client, seeded_config):
+    from pkm.server.sync_meta import set_plain_space_title_canonicalization
+    con = connect(seeded_config.db_path)
+    set_plain_space_title_canonicalization(con, True)
+    con.commit()
+    con.close()
+    r = client.post("/api/ops", json={
+        "client_id": "c1", "batch_id": "padded01",
+        "ops": [{"op": "update_text", "uid": "uid_b4",
+                 "text": "see [[ AI ]] and #[[ AI ]]"}]})
+    assert r.status_code == 200
+    ai_id = _page_id(seeded_config, "AI")
+
+    assert _rename(client, "AI", "Artificial").status_code == 200
+
+    con = connect(seeded_config.db_path)
+    try:
+        text = con.select("SELECT text FROM blocks WHERE uid = 'uid_b4'")
+        targets = con.select(
+            "SELECT DISTINCT target_page_id FROM refs"
+            " WHERE src_block_uid = 'uid_b4'")
+        titles = [row["title"] for row in con.select("SELECT title FROM pages")]
+    finally:
+        con.close()
+    assert text[0]["text"] == "see [[Artificial]] and #[[Artificial]]"
+    assert [row["target_page_id"] for row in targets] == [ai_id]
+    assert "AI" not in titles
+
+
+def _page_id(config, title_text: str):
+    con = connect(config.db_path)
+    try:
+        return con.select("SELECT id AS page_id FROM pages WHERE title = ?",
+                          (title_text,))[0]["page_id"]
+    finally:
+        con.close()
+
+
 def test_rename_daily_note_source_400(client):
     r = _rename(client, "July 7th, 2026", "Old Diary")
     assert r.status_code == 400

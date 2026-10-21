@@ -97,6 +97,8 @@ FORBIDDEN_TITLES = (
     "Project [[Acme",
     "Project Acme]]",
     "Project [[Acme]]",
+    "Acme]",
+    "Acme`s",
 )
 
 _batch_counter = 0

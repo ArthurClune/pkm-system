@@ -25,12 +25,12 @@ from pkm.test_data.ids import canonical_title_of, order_idx_of, raw_title_of, ui
         # time (e.g. it names a real page's title that happens to hold
         # `[[`) -- unusable always wins.
         ("a[[b", True, "(page unknown)"),
-        # the page exists, but `[[title]]` would read back as a different
-        # title (a trailing `]`, paired backticks), and the ref indexer
-        # would create THAT page -- so it is named, not linked
-        ("x]", True, "`x]`"),
-        ("[x]", True, "`[x]`"),
-        ("a}]", True, "`a}]`"),
+        # `[[title]]` would read back as a different title (a trailing `]`,
+        # paired backticks), and the ref indexer would create THAT page, so
+        # such a title is unusable even when a legacy page holds it
+        ("x]", True, "(page unknown)"),
+        ("[x]", True, "(page unknown)"),
+        ("a}]", True, "(page unknown)"),
         ("a`b`c", True, "(page unknown)"),
         ("  Padded  ", True, "[[  Padded  ]]"),
     ])

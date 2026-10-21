@@ -113,6 +113,26 @@ def _rewrite_range(
     _rewrite_tags(clean, lookup, index, stop, spans)
 
 
+def spelled_or_canonical(
+    canonical: Callable[[str], str], replacements: Mapping[str, RawTitle]
+) -> Callable[[str], str]:
+    """A `normalize` for rename and merge: the spelling as written when it is
+    itself a key, else its canonical form.
+
+    A rename's key is the stored page title, but a block may spell the page
+    with padding (`[[ Old ]]`) that canonicalises to it once plain-space
+    canonicalisation is active. The ref index resolves that spelling to the
+    page, so a rewrite that only matched byte for byte would leave the ref
+    behind and the index would recreate the page the rename had retitled.
+    The key itself is tried first so a pre-activation padded key (the title
+    migration's) still matches exactly.
+    """
+    def normalize(raw: str) -> str:
+        return raw if raw in replacements else canonical(raw)
+
+    return normalize
+
+
 def rewrite_title_refs_map(
     text: str,
     replacements: Mapping[str, RawTitle],

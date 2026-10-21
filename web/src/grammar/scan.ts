@@ -55,7 +55,10 @@ export function normalizeRefTitle(text: string): NormalizedTitle {
 }
 
 const TODO_RE = /^\{\{(\[\[)?(TODO|DONE)(\]\])?\}\}/;
-const ATTRIBUTE_RE = /^\s*([^\[\]{}:\n]+?)::/;
+// No leading \s* in the pattern: it overlaps the lazy name class and is
+// quadratic to fail on an all-blank text (a block that is one big fence).
+// scanGrammar skips the leading whitespace itself, as refs.py does.
+const ATTRIBUTE_RE = /([^\[\]{}:\n]+?)::/y;
 // A uid's shape, matching server/src/pkm/refs.py's BLOCK_REF_TOKEN (itself
 // built from contracts/ops.py's UID_RE): a token outside {6,32} can never
 // have been minted. replica/localApi/router.ts's UID_RE and
@@ -68,6 +71,7 @@ const EMBED_RE = /\{\{\s*(?:\[\[)?embed(?:\]\])?\s*[:}]/y;
 const TAG_CHARS_RE = /[\p{L}\p{N}_./\-]+/uy;
 const TAG_BOUNDARY_RE = /[\s(]/;
 const WORD_CHAR_RE = /[\p{L}\p{N}_]/u;
+const INLINE_CODE_RE = /`[^`\n]*`/y;
 
 /** Left-to-right opaque-code pass: closed fences win over inline code, and
  * inline code must close before the next newline. Returns the code tokens
@@ -83,8 +87,13 @@ function scanCode(text: string): { codeTokens: GrammarToken[]; clean: string } {
     last = end;
     i = end;
   };
+  // A closer search that finds nothing from one opener finds nothing from
+  // any later opener (its window is a suffix of the first), so one failure
+  // retires the fence rule. Without it, many ```lang openers and no closer
+  // rescan the whole text each.
+  let fencePossible = true;
   while (i < text.length) {
-    if (text.startsWith("```", i)) {
+    if (fencePossible && text.startsWith("```", i)) {
       // A ``` run followed by a word character is a fence *opener* with an
       // info string (```css, ```mermaid), never a closer — without this
       // skip, an outer fence pairs with the first inner example's opener,
@@ -96,12 +105,15 @@ function scanCode(text: string): { codeTokens: GrammarToken[]; clean: string } {
         close = text.indexOf("```", close + 1);
       }
       if (close !== -1) { blank("code-fence", close + 3); continue; }
+      fencePossible = false;
     }
     if (text[i] === "`") {
-      const close = text.indexOf("`", i + 1);
-      const nl = text.indexOf("\n", i + 1);
-      if (close !== -1 && (nl === -1 || close < nl)) {
-        blank("inline-code", close + 1);
+      // Sticky, so a miss stops at the next backtick or newline instead of
+      // scanning to a newline that may be far away.
+      INLINE_CODE_RE.lastIndex = i;
+      const m = INLINE_CODE_RE.exec(text);
+      if (m !== null) {
+        blank("inline-code", i + m[0].length);
         continue;
       }
     }
@@ -241,9 +253,10 @@ export function scanGrammar(text: string): { tokens: readonly GrammarToken[] } {
     });
   }
 
+  ATTRIBUTE_RE.lastIndex = clean.length - clean.trimStart().length;
   const attr = ATTRIBUTE_RE.exec(clean);
   if (attr) {
-    const end = attr[0].length;
+    const end = ATTRIBUTE_RE.lastIndex;
     tokens.push({ kind: "attribute", title: normalizeRefTitle(attr[1].trim()),
                   start: end - 2 - attr[1].length, end });
   }

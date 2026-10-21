@@ -36,10 +36,14 @@ one alternation regex, fence branch first, applied leftmost-first.
 - `test_refs_parity_fixture.py`: reach test and ordering test.
 - `refs.strip_code`: left-to-right code pass; shrunk case kept in
   `test_refs.py`, plus an `ref_grammar.json` case both sides replay.
-- Fast-extract check on long generated inputs (generous 5s bound). The
-  `` ```a\n `` repeated input stays quadratic on both sides (every closer is
-  followed by a word character, so each opener rescans to the end) and is
-  excluded from that check; not fixed here.
+- Fast-extract checks on 200k-character inputs (5s bound) on both sides,
+  including `` ```a\n `` repeated, `` ```\n ``, `` ``` ```a `` and
+  `` ```a```a ``. They found two quadratic scans: a rescan for a closer per
+  unclosed opener, fixed by a failure memo in `refs.strip_code` (now a
+  left-to-right loop) and `scanCode`; and the web's `^\s*` attribute pattern
+  on all-blank text, fixed by skipping the whitespace first as refs.py does.
+  Mutant: removing the memo fails the `` ```a\n `` and `` ```a```a `` checks
+  on each side.
 - Docs: backend.md fixture row and precedence note, troubleshooting row.
 
 ## Ground rules (shared by this epic)

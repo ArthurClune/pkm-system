@@ -308,3 +308,15 @@ describe("scanGrammar: token stream contract", () => {
     });
   });
 });
+
+describe("scanGrammar: long code-heavy inputs stay fast", () => {
+  // Generous bound: a quadratic scan of this size takes minutes, so this
+  // catches a rescan per opener, not a slow machine.
+  const units = ["```a\n", "```\n", "``` ```a", "`a", "`", "```a```a"];
+  it.each(units)("%j repeated", (unit) => {
+    const text = unit.repeat(Math.floor(200_000 / unit.length));
+    const started = performance.now();
+    scanGrammar(text);
+    expect(performance.now() - started).toBeLessThan(5000);
+  });
+});

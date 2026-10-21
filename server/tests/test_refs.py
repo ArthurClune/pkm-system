@@ -279,7 +279,8 @@ def test_strip_code_keeps_offsets_for_left_to_right_code():
 
 
 @pytest.mark.parametrize("unit", [
-    "`", "``` ", "[[`", "`a```", "#[[", "((", " ", "\n", "Key:: ",
+    "`", "``` ", "[[`", "`a```", "```a\n", "```\n", "``` ```a", "```a```a",
+    "`a", "#[[", "((", " ", "\n", "Key:: ",
 ])
 def test_extract_stays_fast_on_long_generated_inputs(unit):
     """Generous bound (a quadratic scan of this size takes minutes): catches

@@ -686,6 +686,9 @@ left-to-right pass, and whichever of a closed fence or an inline span starts
 first wins, exactly as `scanCode` in `web/src/grammar/scan.ts` does. A lone
 backtick followed by a fence run on the same line is therefore an inline span
 ending at the fence's first backtick, and the text after it is not code.
+Both scanners stay linear because a failed closer search retires the fence
+rule for the rest of the text: any later opener would search a suffix of the
+same window.
 
 Sidebar pinning is a separate write path. `POST /api/sidebar` takes SQLite's
 writer reservation with `BEGIN IMMEDIATE` before it checks title uniqueness and

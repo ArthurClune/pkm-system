@@ -12,10 +12,12 @@ import fc from "fast-check";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
+import type { Sha256Hex } from "../api/brands";
 import { scanMarkdownLinks } from "../grammar/markdown";
 import { tokenizeBlock } from "../grammar/tokenize";
+import { shaOf } from "../test-helpers";
 import { assetHref, KINDS, legacyNameArb, shaArb, uploadNameArb } from "./assetUploadArbs";
-import { assetMarkdown, type AssetInfo } from "./assets";
+import { assetMarkdown } from "./assets";
 
 const FIXTURE = join(__dirname, "../../../shared/fixtures/upload_links_parity.json");
 
@@ -25,13 +27,13 @@ function tokenText(
   kind: TokenKind,
   name: string,
   mime: string,
-  sha: string,
+  sha: Sha256Hex,
   legacy: boolean,
 ): string {
   const href = legacy ? `/assets/${sha}/${name}` : assetHref(sha, name);
   if (kind === "macro") return `{{[[pdf]]: ${href}}}`;
   if (kind === "bare") return href;
-  if (!legacy) return assetMarkdown({ filename: name, mime, url: href } as AssetInfo);
+  if (!legacy) return assetMarkdown({ filename: name, mime, url: href });
   return `${mime.startsWith("image/") ? "!" : ""}[${name}](${href})`;
 }
 
@@ -78,7 +80,7 @@ const caseArb = fc
     fc.array(tokenArb(true), { minLength: 4, maxLength: 4 }),
   )
   .map(([sha, otherRaw, legacy, pieces, seps, fresh, old]) => {
-    const other = otherRaw === sha ? `${otherRaw.slice(1)}0` : otherRaw;
+    const other = otherRaw === sha ? shaOf(`${otherRaw.slice(1)}0`) : otherRaw;
     const toks = legacy ? old : fresh;
     let text = "";
     const spans: [number, number][] = [];
@@ -106,7 +108,7 @@ const caseArb = fc
 
 // Hrefs the web's own readers find for the asset: markdown links and
 // images through the link scanner, bare URLs through the tokenizer.
-function webHrefs(text: string, sha: string): string[] {
+function webHrefs(text: string, sha: Sha256Hex): string[] {
   const prefix = `/assets/${sha}/`;
   const hrefs: string[] = [];
   for (const link of scanMarkdownLinks(text)) {

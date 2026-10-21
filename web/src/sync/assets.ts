@@ -15,7 +15,9 @@ export async function uploadAsset(file: File): Promise<AssetInfo> {
   return apiFetch<AssetInfo>("/api/assets", { method: "POST", body: form });
 }
 
-export function assetMarkdown(info: AssetInfo): string {
+export function assetMarkdown(
+  info: Pick<AssetInfo, "filename" | "mime" | "url">,
+): string {
   const bang = info.mime.startsWith("image/") ? "!" : "";
   return `${bang}[${assetLabel(info.filename)}](${info.url})`;
 }

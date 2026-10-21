@@ -76,13 +76,11 @@ const scenario = filesArb.chain((files) =>
     .map((words) => ({ files, words })),
 );
 
-const lower = (s: string) => s.toLowerCase();
-// fzf lowercases one code point at a time and keeps only the first code point
-// of the result, so "\u0130" (which lowercases to two) is never found by
-// typing itself. Containment is asserted only for words free of such code
-// points; their highlights are still checked wherever they match.
-const foldsCleanly = (s: string) =>
-  [...s].every((c) => [...c.toLowerCase()].length === 1);
+// Case folding as fzf applies it to every character: the first code point of
+// its lowercase. A plain toLowerCase would also equate "\u0130" with "i" plus
+// a combining dot, which fzf never does.
+const lower = (s: string) =>
+  [...s].map((c) => String.fromCodePoint(c.toLowerCase().codePointAt(0)!)).join("");
 // fzf folds case and strips Latin diacritics ("U" finds "\u00FC", "s" finds
 // "\u00DF"), so a
 // highlight spells a word up to that folding.
@@ -101,7 +99,7 @@ describe("searchLocalFiles over hostile paths", () => {
         if (words.length > 1) tally.multiWord += 1;
         if (files.some((f) => f.path !== f.path.normalize("NFC"))) tally.nfd += 1;
         if (words.some((w) => w.includes("/"))) tally.slashWord += 1;
-        if (words.some((w) => lower(w).length !== w.length)) tally.caseFold += 1;
+        if (words.some((w) => w.toLowerCase().length !== w.length)) tally.caseFold += 1;
 
         const results = searchLocalFiles(files, words.join(" "));
         const inputs = new Set(files);
@@ -112,8 +110,7 @@ describe("searchLocalFiles over hostile paths", () => {
         for (const f of files) {
           const hay = f.path.normalize("NFC");
           if (
-            foldsCleanly(hay) &&
-            words.every((w) => foldsCleanly(w) && lower(hay).includes(lower(w)))
+            words.every((w) => lower(hay).includes(lower(w)))
           ) {
             expect(found.has(f), `${JSON.stringify(f.path)} missing`).toBe(true);
           }

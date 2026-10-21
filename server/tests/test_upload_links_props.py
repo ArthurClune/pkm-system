@@ -144,11 +144,13 @@ def test_strip_asset_tokens_removes_exactly_the_asset_tokens():
         seen["cases"] += 1
 
     prop()
+    # About half the lowest rate each shape reached over 60 seeds: a floor
+    # near the typical rate fails on an unlucky seed with nothing wrong.
     floor = {
-        "encoded": 0.3, "legacy": 0.3, "markdown": 0.3, "macro": 0.1, "bare": 0.05,
-        "image": 0.2, "pdf": 0.1, "space": 0.05, "paren": 0.15, "bracket": 0.06,
-        "backslash": 0.03, "percent": 0.05, "nested": 0.04, "leading-bracket": 0.01,
-        "unicode": 0.2, "other-token": 0.5,
+        "encoded": 0.2, "legacy": 0.15, "markdown": 0.3, "macro": 0.07, "bare": 0.03,
+        "image": 0.2, "pdf": 0.06, "space": 0.03, "paren": 0.07, "bracket": 0.07,
+        "backslash": 0.015, "percent": 0.03, "nested": 0.018, "leading-bracket": 0.03,
+        "unicode": 0.16, "other-token": 0.4,
     }
     cases_run = seen["cases"]
     for shape, share in floor.items():

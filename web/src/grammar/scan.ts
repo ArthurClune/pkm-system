@@ -39,13 +39,11 @@ export type GrammarToken =
        suffixEnd: number } & Span)
   | ({ kind: "inline-code" | "code-fence" } & Span);
 
-// Mirrors refs.py normalize_title. A page title holding control
-// whitespace is unreachable through the API (Starlette compiles
-// {title:path} to `.*` with no DOTALL, so /api/page/<title> 404s on a
-// newline), so a multi-line [[link]] resolves to the one-line title — for
-// extraction, for the rendered link's href, and for Ctrl-O navigation
-// alike. Deliberately narrow: a title with no control whitespace is
-// returned unchanged, so "Two  Spaces" keeps its double space.
+// Mirrors refs.py normalize_title. Titles are normalized where they are
+// born, so no page holds control whitespace: a multi-line [[link]] resolves
+// to the one-line title — for extraction, for the rendered link's href, and
+// for Ctrl-O navigation alike. Deliberately narrow: a title with no control
+// whitespace is returned unchanged, so "Two  Spaces" keeps its double space.
 const CONTROL_WS_RE = /[\t\n\r\f\v]/;
 const WS_RUN_RE = /[ \t\n\r\f\v]+/g;
 
@@ -95,6 +93,13 @@ export function hasUnreachableSegment(text: string): boolean {
  * replica refuses or files as Untitled) goes through this one predicate. */
 export function isBlankRefTitle(text: string): boolean {
   return stripLikePython(normalizeRefTitle(text)).length === 0;
+}
+
+/** Does a ref token's title name a page? False for a blank title and for
+ * one with no URL. The ref extractor and the inline renderer both ask this,
+ * so a token is a link exactly when it is a ref. */
+export function isRefTitle(text: string): boolean {
+  return !isBlankRefTitle(text) && !hasUnreachableSegment(text);
 }
 
 const TODO_RE = /^\{\{(\[\[)?(TODO|DONE)(\]\])?\}\}/;

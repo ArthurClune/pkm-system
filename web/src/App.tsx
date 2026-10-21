@@ -49,8 +49,7 @@ function NotFound() {
 }
 
 /** The /page/ URL a title holding control whitespace (a hand-typed %0A)
- * folds to, or null: the router's `*` compiles to a `.*` that matches no
- * newline, so no route would render the URL as it is. */
+ * folds to, or null: the title is one line everywhere else. */
 function foldedPagePath(pathname: string): string | null {
   if (!pathname.startsWith(PAGE_ROUTE_PREFIX)) return null;
   const title = titleFromPathname(pathname);
@@ -63,11 +62,13 @@ export function MainRoutes() {
   const { pathname, search, hash } = useLocation();
   const folded = foldedPagePath(pathname);
   if (folded !== null) return <Navigate replace to={`${folded}${search}${hash}`} />;
+  // The router's `*` compiles to a `.*` that matches no newline, U+2028 or
+  // U+2029, so a title holding one would match no route: the prefix decides.
+  if (pathname.startsWith(PAGE_ROUTE_PREFIX)) return <PageView />;
   return (
     <Routes>
       <Route path={ROUTES.journal} element={<Journal />} />
       <Route path={ROUTES.currentWork} element={<CurrentWork />} />
-      <Route path={ROUTES.page} element={<PageView />} />
       <Route path={ROUTES.help} element={<Help />} />
       <Route path={ROUTES.files} element={<Files />} />
       <Route path={ROUTES.settings} element={<Settings />} />

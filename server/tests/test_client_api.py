@@ -101,7 +101,7 @@ def test_get_page_and_block(pkm_client):
 
 def test_get_page_quotes_title(pkm_client):
     # daily titles contain a comma+space; slash titles pass through the
-    # {title:path} converter unencoded
+    # {title:wholepath} converter unencoded
     page = pkm_client.get_page("July 7th, 2026")
     assert page.page.title == "July 7th, 2026"
 
@@ -280,7 +280,7 @@ def test_rename_page_collision_raises_without_allow_merge(pkm_client):
 def test_rename_page_round_trips_a_namespaced_title(pkm_client):
     """The motivating case: moving pages under an "LLM/" title namespace.
     The source title is the URL path, and the route's param is
-    `{title:path}`, so the slash must survive unescaped (quote(safe="/"))
+    `{title:wholepath}`, so the slash must survive unescaped (quote(safe="/"))
     while the space is percent-encoded -- otherwise the second rename,
     which addresses the namespaced page, 404s."""
     assert pkm_client.rename_page("Paper", "LLM/Open Weights").title == \

@@ -6,7 +6,7 @@
 // attribute first, then page refs (outer before inner), then hashtags.
 
 import type { BlockUid, NormalizedTitle } from "../api/brands";
-import { hasUnreachableSegment, isBlankRefTitle, scanGrammar } from "./scan";
+import { isRefTitle, scanGrammar } from "./scan";
 
 export type RefKind = "link" | "tag" | "attribute";
 
@@ -40,7 +40,7 @@ export function extractRefs(text: string): ParsedRefs {
     // a title that is blank once normalized is not a reference: `[[]]`,
     // `[[\n]]`, and `[[   ]]` used to mint blank-titled pages. Nor is one
     // with no URL (`#work/` mid-typing, `[[a/../b]]`).
-    if (isBlankRefTitle(r.title) || hasUnreachableSegment(r.title)) return false;
+    if (!isRefTitle(r.title)) return false;
     const key = `${r.kind}\x00${r.title}`;
     if (seen.has(key)) return false;
     seen.add(key);

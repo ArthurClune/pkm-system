@@ -50,7 +50,10 @@ const word = fc.string({
   minLength: 1, maxLength: 5,
 });
 
-// One plain space or NBSP between words, so canonicalisation has no edge
+// The router's `*` matches neither U+2028 nor U+2029, so they join the gaps.
+const GAPS = [" ", "\u00a0", "\u2028", "\u2029"];
+
+// One gap between words, so canonicalisation has no edge
 // or run of whitespace to remove. A title with a `.`, `..` or empty path
 // segment has no URL and is refused; a quarter of the draws make one.
 const unreachable = fc.constantFrom(
@@ -58,7 +61,7 @@ const unreachable = fc.constantFrom(
   (t: string) => `${t}/./x`, (t: string) => `${t}/../x`, () => ".", () => "..");
 const canonicalTitle = fc
   .tuple(fc.array(word, { minLength: 1, maxLength: 4 }),
-         fc.array(fc.constantFrom(" ", " ", " "), { minLength: 3, maxLength: 3 }),
+         fc.array(fc.constantFrom(...GAPS), { minLength: 3, maxLength: 3 }),
          fc.integer({ min: 0, max: 3 }), unreachable)
   .map(([words, gaps, coin, spoil]) => {
     const text = words.reduce((acc, w, i) => acc + gaps[i - 1] + w);

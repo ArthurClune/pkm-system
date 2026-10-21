@@ -222,9 +222,8 @@ def test_extract_attribute_still_recognised_after_leading_whitespace():
 
 
 # A [[link]] spanning a newline must not mint a page whose title holds
-# that newline: such a page is unreachable through the API --
-# Starlette's {title:path} converter compiles to `.*` with no re.DOTALL, so
-# GET/DELETE/rename/export all 404 on it. Titles are normalized where they
+# that newline: it would be a second page beside the one-line title, and no
+# page route or ref could tell them apart. Titles are normalized where they
 # are born instead.
 def test_normalize_title_collapses_control_whitespace():
     assert normalize_title("Levels of AGI:\nthe Path") == "Levels of AGI: the Path"

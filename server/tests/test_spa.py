@@ -113,3 +113,11 @@ def test_setup_writes_web_dist_only_when_given(tmp_path):
     assert setup_main(["--data-dir", str(tmp_path / "b"),
                        "--password", "pw"]) == 0
     assert load_config(tmp_path / "b" / "config.json").web_dist is None
+
+
+def test_a_cold_load_of_a_title_with_a_newline_serves_the_spa(tmp_path):
+    client = TestClient(create_app(_config(tmp_path, web_dist=_dist(tmp_path))))
+    root = client.get("/")
+    for path in ("/page/Fo%0Ao", "/page/Foo%0A"):
+        r = client.get(path)
+        assert r.status_code == 200 and r.text == root.text, path

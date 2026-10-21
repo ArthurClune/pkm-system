@@ -238,8 +238,9 @@ The SPA's routes:
 
 `App.tsx`'s `MainRoutes` holds them. A `/page/` URL whose title holds control
 whitespace (a hand-typed `%0A`) is first redirected to the one-line title it
-folds to, because react-router compiles `*` to a `.*` that matches no
-newline. PageView, a sidebar panel and the Journal key their outline session
+folds to. Every pathname under `/page/` then renders PageView directly,
+because react-router compiles `*` to a `.*` that matches no newline, U+2028 or
+U+2029, so a route match would drop such titles. PageView, a sidebar panel and the Journal key their outline session
 by the page's stored title, whatever spelling opened them
 (`outline/titleKeys.props.test.tsx`).
 

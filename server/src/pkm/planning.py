@@ -332,6 +332,10 @@ class Planner:
         created: set[BlockUid] = set()
         stack: list[BlockUid | None] = [parent]
         for depth, text in items:
+            # An item nested deeper than the stack (a nested list first, or
+            # two levels past its predecessor) attaches one level below the
+            # deepest ancestor, as parse_outline clamps a jumping indent.
+            depth = min(depth, len(stack) - 1)
             del stack[depth + 1:]
             target = stack[depth]
             off_page = target in created \

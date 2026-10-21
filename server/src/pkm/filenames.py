@@ -10,9 +10,20 @@ that a browser's file picker never would.
 from __future__ import annotations
 
 import re
+import unicodedata
 from urllib.parse import quote
 
 _UNSAFE_RE = re.compile(r"[/\\:\x00-\x1f]")
+
+
+def dash_unwritable(text: str) -> str:
+    """`text` with each code point a filesystem may refuse as a name
+    replaced by '-'. APFS answers EILSEQ to every unassigned code point
+    (category Cn, noncharacters included) and accepts every assigned one,
+    so a page titled with one cannot be written under its own name."""
+    return "".join("-" if unicodedata.category(c) == "Cn" else c
+                   for c in text)
+
 
 # Most filesystems (APFS included) cap a path component at 255 bytes;
 # leave headroom for callers that append a "(N)" dedup suffix or similar.
@@ -60,7 +71,7 @@ def safe_filename(name: str, max_bytes: int = MAX_FILENAME_BYTES) -> str:
       character), bounding the extension so it can't consume the whole
       budget, while preserving a usable extension.
     """
-    cleaned = _UNSAFE_RE.sub("-", name)
+    cleaned = dash_unwritable(_UNSAFE_RE.sub("-", name))
     if cleaned.strip(" .") == "":
         cleaned = DEFAULT_STEM
     stem, ext = _split_extension(cleaned)

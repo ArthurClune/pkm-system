@@ -56,19 +56,19 @@ def _query(values: dict[str, object]) -> str:
 
 
 # Half the requests go to a route that takes titles, uids or block text.
-_FOCUS = {"/api/ops", "/api/pages", "/api/page/{title:path}",
-          "/api/page/{title:path}/rename", "/api/search", "/api/titles",
+_FOCUS = {"/api/ops", "/api/pages", "/api/page/{title:wholepath}",
+          "/api/page/{title:wholepath}/rename", "/api/search", "/api/titles",
           "/api/unlinked", "/api/delete-preview", "/api/sidebar",
           "/api/sync/changes", "/api/sync/snapshot", "/api/journal",
-          "/api/block/{uid}", "/api/export/page/{title:path}",
+          "/api/block/{uid}", "/api/export/page/{title:wholepath}",
           "/api/current-work"}
 
 
 # The write routes that take a title or block text; their bodies are
 # drawn well-typed but for one request in ten, so most reach the write.
 _WRITES = {("POST", "/api/ops"), ("POST", "/api/pages"),
-           ("POST", "/api/page/{title:path}/rename"),
-           ("DELETE", "/api/page/{title:path}"), ("POST", "/api/sidebar")}
+           ("POST", "/api/page/{title:wholepath}/rename"),
+           ("DELETE", "/api/page/{title:wholepath}"), ("POST", "/api/sidebar")}
 
 
 def _op_labels(body: object) -> set[str]:
@@ -140,6 +140,17 @@ def requests(draw, routes: st.SearchStrategy[APIRoute],
     return f"{method} {route.path}", method, url, kwargs, labels
 
 
+# Production runs with plain-space title canonicalization on, so two draws in
+# three start from a database that has it; the rest keep the old mode.
+_TITLE_MODES = st.sampled_from([False, True, True])
+
+
+def _reset(harness: Harness, data) -> None:
+    plain_space = data.draw(_TITLE_MODES)
+    event("title mode: flag on" if plain_space else "title mode: flag off")
+    harness.reset(plain_space=plain_space)
+
+
 def _send_checked(harness: Harness,
                   drawn: tuple[str, str, str, dict, set[str]]
                   ) -> httpx.Response:
@@ -148,6 +159,8 @@ def _send_checked(harness: Harness,
     response = harness.send(method, url, **kwargs)
     status = f"{response.status_code // 100}xx"
     event(f"{name} -> {status}")
+    if harness.plain_space:
+        event(f"flag on: {name} -> {status}")
     for label in sorted(labels):
         event(f"input: {label}")
         if label.startswith("op "):
@@ -164,7 +177,7 @@ _SUPPRESSED = [HealthCheck.function_scoped_fixture, HealthCheck.too_slow,
 
 # Floors: see `with_floors` in hostile.py for how they were set.
 @with_floors({
-    "GET /api/current-work -> 2xx": 0.011, "input: blank": 0.014, "input: lone surrogate": 0.02,
+    "input: blank": 0.015, "input: lone surrogate": 0.024,
 }, per="request")
 @settings(max_examples=300, deadline=None, suppress_health_check=_SUPPRESSED)
 @given(st.data())
@@ -172,15 +185,16 @@ def test_no_route_answers_hostile_input_with_a_500(harness, data):
     focus = [r for r in harness.routes if r.path in _FOCUS]
     routes = st.one_of(st.sampled_from(focus),
                        st.sampled_from(harness.routes))
-    harness.reset()
+    _reset(harness, data)
     for _ in range(data.draw(st.integers(1, 3))):
         _send_checked(harness, data.draw(requests(routes, loose_in=4)))
 
 
 @with_floors({
-    "POST /api/ops -> 2xx": 0.05, "POST /api/page/{title:path}/rename -> 2xx": 0.012,
-    "input: NUL": 0.018, "input: blank": 0.077, "input: lone surrogate": 0.052,
-    "input: very long": 0.035,
+    "POST /api/ops -> 2xx": 0.045, "POST /api/page/{title:wholepath}/rename -> 2xx": 0.0082,
+    "flag on: POST /api/ops -> 2xx": 0.024, "flag on: POST /api/ops -> 4xx": 0.033,
+    "flag on: POST /api/page/{title:wholepath}/rename -> 4xx": 0.062, "input: NUL": 0.02,
+    "input: blank": 0.076, "input: lone surrogate": 0.058, "input: very long": 0.024,
 }, per="request")
 @settings(max_examples=200, deadline=None, suppress_health_check=_SUPPRESSED)
 @given(st.data())
@@ -193,7 +207,7 @@ def test_hostile_writes_leave_every_read_serialisable(harness, data):
     renames = [r for r in writes if r.path.endswith("/rename")]
     routes = st.one_of(st.sampled_from(ops), st.sampled_from(renames),
                        st.sampled_from(renames), st.sampled_from(writes))
-    harness.reset()
+    _reset(harness, data)
     for _ in range(data.draw(st.integers(1, 4))):
         _send_checked(harness, data.draw(requests(routes, loose_in=10)))
     for url in ("/api/sync/snapshot", "/api/sync/changes?since=0",
@@ -264,7 +278,8 @@ _OUTSIDE_THE_DB = ("/api/assistant", "/api/login")
 
 
 @with_floors({
-    "twins: lone surrogate spliced": 0.36,
+    "twins: lone surrogate spliced": 0.37, "title mode: flag on": 0.15,
+    "title mode: flag off": 0.14,
 }, per="case")
 @settings(max_examples=150, deadline=None, suppress_health_check=_SUPPRESSED)
 @given(st.data())
@@ -281,8 +296,10 @@ def test_a_lone_surrogate_is_answered_as_its_replacement(harness, data):
     if hostile is None:
         return
     answers = []
+    plain_space = data.draw(_TITLE_MODES)
+    event("title mode: flag on" if plain_space else "title mode: flag off")
     for body in (hostile, twin):
-        harness.reset()
+        harness.reset(plain_space=plain_space)
         response = harness.send(method, url, content=json.dumps(body),
                                 headers={"content-type": "application/json"})
         answers.append(response)
@@ -295,9 +312,10 @@ def test_a_lone_surrogate_is_answered_as_its_replacement(harness, data):
 
 
 @with_floors({
-    "batch input: NUL": 0.056, "batch input: blank": 0.08, "batch input: lone surrogate": 0.11,
-    "batch input: very long": 0.051, "batch: applied": 0.076,
-    "batch: refused by the planner": 0.13,
+    "batch input: NUL": 0.039, "batch input: blank": 0.086, "batch input: lone surrogate": 0.1,
+    "batch input: very long": 0.029, "batch: applied": 0.078,
+    "batch: refused by the planner": 0.17, "title mode: flag on": 0.1,
+    "title mode: flag off": 0.19,
 }, per="case")
 @settings(max_examples=150, deadline=None, suppress_health_check=_SUPPRESSED)
 @given(st.data())
@@ -312,7 +330,7 @@ def test_a_hostile_cli_batch_is_applied_or_refused(harness, data):
         for_annotation(BatchCommand, loose=loose), min_size=1, max_size=4))
     for label in sorted(value_labels(commands)):
         event(f"batch input: {label}")
-    harness.reset()
+    _reset(harness, data)
     config = CliConfig(url="http://testserver", token=harness.token)
     try:
         apply_batch(PkmClient(config, http=TestClient(harness.app)), commands)

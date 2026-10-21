@@ -1069,3 +1069,19 @@ def test_validate_batch_rejects_a_non_integer_index(index):
         validate_batch([{"command": "move",
                          "params": {"uid": "abcdef", "page": "A",
                                     "index": index}}])
+
+
+@pytest.mark.parametrize("items, parents", [
+    ([[""]], [None]),
+    (["a", [["b"]]], [None, "a"]),
+    ([["a"], "b"], [None, None]),
+])
+def test_an_outline_item_nested_past_the_stack_is_clamped_not_an_error(
+        items, parents):
+    cmds = [{"command": "outline",
+             "params": {"page": "Machine Learning", "items": items}}]
+    ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen()))
+    by_text = {o.text: o.uid for o in ops}
+    assert [o.parent_uid if o.parent_uid is None else
+            next(t for t, u in by_text.items() if u == o.parent_uid)
+            for o in ops] == parents

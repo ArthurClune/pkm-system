@@ -73,3 +73,13 @@ def test_page_filename_truncation_respects_multibyte_boundaries():
     name = page_filename(canonical_title_of("é" * 200), taken)  # 400 utf-8 bytes
     assert len(name.encode("utf-8")) <= 255
     name.encode("utf-8").decode("utf-8")  # no split code point
+
+
+def test_page_filename_for_a_title_the_filesystem_refuses_is_writable(tmp_path):
+    taken: set[str] = set()
+    first = page_filename(canonical_title_of("�\U00018d1f"), taken)
+    second = page_filename(canonical_title_of("�\U00018d20"), taken)
+    assert first != second
+    for name in (first, second):
+        (tmp_path / name).write_text("x", encoding="utf-8")
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([first, second])

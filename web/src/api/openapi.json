@@ -3084,6 +3084,8 @@
           },
           "order_idx": {
             "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
             "title": "Order Idx",
             "x-brand": "OrderIdx"
           },
@@ -3817,6 +3819,8 @@
           },
           "order_idx": {
             "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
             "title": "Order Idx",
             "x-brand": "OrderIdx"
           },

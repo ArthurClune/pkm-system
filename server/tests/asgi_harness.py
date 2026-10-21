@@ -36,15 +36,21 @@ class Harness:
     app: FastAPI
     db_path: Path
     template: Db
+    flag_on_template: Db
     loop: asyncio.AbstractEventLoop
     client: httpx.AsyncClient
     routes: list[APIRoute]
     token: str
+    plain_space: bool = False
 
-    def reset(self, source: Db | None = None) -> None:
+    def reset(self, source: Db | None = None, *,
+              plain_space: bool = False) -> None:
         """Restore the database from the seeded template, or from
-        `source`."""
-        (source or self.template).backup_to(self.db_path)
+        `source`. With `plain_space` the seeded template is the one whose
+        plain-space title canonicalization flag is on, as production's is."""
+        self.plain_space = plain_space
+        template = self.flag_on_template if plain_space else self.template
+        (source or template).backup_to(self.db_path)
 
     def send(self, method: str, url: str, **kwargs) -> httpx.Response:
         request = self.client.build_request(method, url, **kwargs)
@@ -59,8 +65,14 @@ def open_harness(root: Path, **app_kwargs) -> Generator[Harness]:
     seed_db(config.db_path)
     seeded = open_db(config.db_path)
     seeded.backup_to(root / "template.sqlite3")
+    seeded.execute(
+        "UPDATE sync_meta SET value = '1'"
+        " WHERE key = 'plain_space_title_canonicalization'")
+    seeded.commit()
+    seeded.backup_to(root / "template-flag-on.sqlite3")
     seeded.close()
     template = open_db(root / "template.sqlite3")
+    flag_on_template = open_db(root / "template-flag-on.sqlite3")
     with pytest.MonkeyPatch.context() as env:
         # Built once per module, before conftest's per-test scrub runs: a
         # key in the environment would switch on a real upstream.
@@ -75,12 +87,13 @@ def open_harness(root: Path, **app_kwargs) -> Generator[Harness]:
         base_url="http://testserver", cookies={COOKIE_NAME: token})
     routes = sorted(_api_routes(app.routes), key=lambda r: r.path)
     try:
-        yield Harness(app, config.db_path, template, loop, client, routes,
-                      token)
+        yield Harness(app, config.db_path, template, flag_on_template, loop,
+                      client, routes, token)
     finally:
         loop.run_until_complete(client.aclose())
         loop.close()
         template.close()
+        flag_on_template.close()
 
 
 def encode_segment(value: object) -> str:

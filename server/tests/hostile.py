@@ -33,6 +33,7 @@ _PIECES = [
     "　", "[[", "]]", "[[]]", "[[   ]]", "((", "))", "#", "#[[", "::",
     "{{", "}}", "`", "```", '"', "'", "\\", "/", "%", "%00", "%ED%A0%80",
     "..", "?", "&", "=", "+", "*", "-", "^", "NEAR(", " OR ", "x", "2026-07-07",
+    "X] ", " X ]", " /x ", ".", "..",
     *REAL_TITLES, *REAL_UIDS,
 ]
 _BLANKS = [" ", "\t", "\n", " ", "　", " "]
@@ -115,9 +116,17 @@ json_value = st.recursive(
 
 # A blank title is the one every title-taking route must refuse or
 # replace, so it is drawn as often as a hostile one.
+# Spellings the title rules judge once their boundary spaces are stripped:
+# a trailing `]` or a path segment that only shows after the strip.
+SPACED_TITLES = ["X] ", " X ]", "a] ", " /x", "/x ", " /x ", "x/", ".", "..",
+                 " . ", " .. ", " [[x]] "]
+_padded_real = st.tuples(st.sampled_from(REAL_TITLES), st.integers(1, 2),
+                         st.integers(0, 2)).map(
+    lambda t: " " * t[1] + t[0] + " " * t[2])
 _TITLE_KINDS: list[st.SearchStrategy[str]] = [
     st.sampled_from(REAL_TITLES), hostile_text, blank_text,
-    st.sampled_from(REAL_TITLES)]
+    st.sampled_from(REAL_TITLES), st.sampled_from(SPACED_TITLES),
+    _padded_real]
 
 # Small ints, the edges of SQLite's 64-bit range on both sides, and any.
 _wide_int = st.sampled_from(
@@ -133,7 +142,8 @@ _PLAUSIBLE: dict[str, st.SearchStrategy[object]] = {
     "BlockUid": st.one_of(
         st.sampled_from(REAL_UIDS),
         st.from_regex(r"[a-zA-Z0-9_-]{6,12}", fullmatch=True)),
-    "RawTitle": st.integers(0, 3).flatmap(lambda i: _TITLE_KINDS[i]),
+    "RawTitle": st.integers(0, len(_TITLE_KINDS) - 1).flatmap(
+        lambda i: _TITLE_KINDS[i]),
     "ClientId": st.just("client-1"),
     "BatchId": _hex.map(lambda h: "batch-" + h),
     # An order key at the edge of SQLite's range in one draw in four.

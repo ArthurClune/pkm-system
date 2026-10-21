@@ -1515,6 +1515,31 @@ def test_a_create_op_refuses_a_coerced_order_idx(client, raw_idx):
     assert r.json()["detail"][0]["loc"][-1] == "order_idx"
 
 
+@pytest.mark.parametrize("op, idx, status", [
+    ("create", 2 ** 53 - 1, 200), ("create", 2 ** 53, 422),
+    ("create", -1, 422), ("create", 2 ** 63 - 1, 422),
+    ("move", 2 ** 53, 422), ("move", -1, 422)])
+def test_an_op_order_idx_stays_in_the_js_safe_range(client, op, idx, status):
+    body = {"op": op, "uid": "uid_b4" if op == "move" else "range_new1",
+            "parent_uid": None, "page_title": "Machine Learning",
+            "order_idx": idx}
+    if op == "create":
+        body["text"] = "x"
+    r = _post_one_op(client, batch_id_of("order_range"), body)
+    assert r.status_code == status, r.text
+
+
+def test_two_creates_at_the_widest_order_idx_shift_without_overflow(client):
+    top = 2 ** 53 - 1
+    for uid, idx in (("wide_new1", top), ("wide_new2", 0), ("wide_new3", 0)):
+        r = _post_one_op(client, batch_id_of(f"wide_{uid}"), {
+            "op": "create", "uid": uid, "parent_uid": None,
+            "page_title": "Machine Learning", "order_idx": idx, "text": uid})
+        assert r.status_code == 200, r.text
+    blocks = client.get("/api/page/Machine Learning").json()["blocks"]
+    assert all(isinstance(b["order_idx"], int) for b in blocks)
+
+
 def test_a_set_collapsed_op_refuses_an_int_for_a_bool(client):
     r = _post_one_op(client, batch_id_of("strict_collapsed"), {
         "op": "set_collapsed", "uid": "uid_b1", "collapsed": 1})

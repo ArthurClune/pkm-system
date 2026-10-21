@@ -22,19 +22,21 @@ export function localHref(path: string): string {
 const PIECES = [
   "a", "b", "Z", "x y", " ", "  ", ".", "..", "_", "-", "~", "%", "%41", "#",
   "?", "&", "+", "=", "[", "]", "(", ")", "'", '"', "`", "*", "!", "$", "{",
-  "}", ":", "::", "<", ">", "\\", "|", "@", ";", "\t", "\r", "\u0001",
+  "}", ":", "::", "<", ">", "|", "@", ";",
   "\u{1F4C4}", "\u{1F4C4}", "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}",
   "\u00E9", "e\u0301", "\u00FC", "u\u0308", "\u00DF", "\u0130", "i\u0307",
   "\u4E2D\u6587", ".pdf", "[draft]", "(Public)", "[[x]]", "](", "](x)",
   "[a](b)",
 ];
 
-// Names never hold "/" or NUL (the file system forbids both) and are never
-// empty. A newline is a separate piece so a test can leave it out.
-export const NEWLINE_PIECE = "\n";
+// Names are exactly what the server lists: clean_relative in
+// server/src/pkm/local_docs.py rejects control characters and backslashes, so
+// neither is drawn; "/" and NUL cannot occur in a file name; names are never
+// empty; the server hides dot-names, so none starts with ".".
+const ILLEGAL = /[/\\\u0000-\u001f\u007f-\u009f]/g;
 
 export function hostileNameWith(
-  pieces: readonly string[] = [...PIECES, NEWLINE_PIECE],
+  pieces: readonly string[] = PIECES,
 ): fc.Arbitrary<string> {
   return fc
     .array(
@@ -44,10 +46,7 @@ export function hostileNameWith(
       ),
       { minLength: 1, maxLength: 6 },
     )
-    .map((parts) => parts.join("").replace(/[/\0\n]/g, (c) =>
-      pieces.includes(c) ? c : "_"))
-    .filter((s) => s !== "");
+    .map((parts) => parts.join("").replace(ILLEGAL, "_").replace(/^\./, "_") || "a");
 }
 
 export const hostileName = hostileNameWith();
-export const hostileNameNoNewline = hostileNameWith(PIECES);

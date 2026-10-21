@@ -1,15 +1,15 @@
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 import { type LocalFile } from "./localFiles";
-import { hostileNameNoNewline, localHref } from "./localLinkArbs";
+import { hostileName, localHref } from "./localLinkArbs";
 import { searchLocalFiles } from "./localSearch";
 
 const toFile = (path: string): LocalFile => ({ path, href: localHref(path) });
 
 const fileArb = fc
   .tuple(
-    fc.array(hostileNameNoNewline, { maxLength: 2 }),
-    hostileNameNoNewline,
+    fc.array(hostileName, { maxLength: 2 }),
+    hostileName,
     fc.constantFrom("nfc", "nfd"),
   )
   .map(([dirs, name, form]) =>

@@ -7,7 +7,7 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { scanMarkdownLinkAt } from "../grammar/markdown";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { fileName, localCopyAttribute } from "./localFiles";
-import { hostileNameNoNewline, localHref } from "./localLinkArbs";
+import { hostileName, localHref } from "./localLinkArbs";
 
 const PREFIX = "Local copy:: ";
 
@@ -16,10 +16,8 @@ const PREFIX = "Local copy:: ";
 const bracketsSwapped = (name: string) =>
   name.replace(/\[/g, "(").replace(/\]/g, ")");
 
-// Names without a newline: a link label cannot span lines and the attribute
-// swaps only brackets, so a name holding a newline has no readable link yet.
 const fileArb = fc
-  .tuple(fc.array(hostileNameNoNewline, { maxLength: 2 }), hostileNameNoNewline)
+  .tuple(fc.array(hostileName, { maxLength: 2 }), hostileName)
   .map(([dirs, name]) => {
     const path = [...dirs, name].join("/");
     return { path, name, href: localHref(path) };

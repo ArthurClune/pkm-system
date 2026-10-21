@@ -11,12 +11,12 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { scanMarkdownLinks } from "../grammar/markdown";
 import { localCopyAttribute } from "./localFiles";
-import { hostileNameNoNewline, localHref } from "./localLinkArbs";
+import { hostileName, localHref } from "./localLinkArbs";
 
 const FIXTURE = join(__dirname, "../../../shared/fixtures/local_links_parity.json");
 
 const attributeArb = fc
-  .tuple(fc.array(hostileNameNoNewline, { maxLength: 2 }), hostileNameNoNewline)
+  .tuple(fc.array(hostileName, { maxLength: 2 }), hostileName)
   .map(([dirs, name]) => {
     const path = [...dirs, name].join("/");
     return localCopyAttribute({ path, href: localHref(path) });

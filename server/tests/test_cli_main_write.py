@@ -835,3 +835,11 @@ def test_batch_keeps_padded_spellings_apart_without_the_plain_space_flag(
     assert code == 0
     assert _page_texts(pkm_client, " Kept Apart") == ["one"]
     assert _page_texts(pkm_client, "Kept Apart") == ["two"]
+
+
+def test_batch_page_that_folds_to_nothing_still_lands(run, pkm_client):
+    # A whitespace-only page spelling folded to "", which no op may carry.
+    code, _, _ = run("batch", stdin=json.dumps([
+        {"command": "create", "params": {"page": "\n", "text": "kept"}}]))
+    assert code == 0
+    assert "kept" in _page_texts(pkm_client, "Untitled")

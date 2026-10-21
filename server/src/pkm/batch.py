@@ -266,11 +266,13 @@ def page_keys(spellings: Sequence[RawTitle],
 
     `plain_space` is the server's flag; None when `title_flag_needed` said
     the spellings do not depend on it, and then the flag-free fold
-    (`normalize_title`) already joins every pair that names one page."""
+    (`normalize_title`) already joins every pair that names one page. A
+    spelling that folds to nothing keeps itself: an op's page title is
+    never empty, and the server files a blank one as Untitled."""
     def key(page: RawTitle) -> RawTitle:
-        if plain_space is None:
-            return normalize_title(page)
-        return canonicalize_title(page, plain_space=plain_space)
+        folded = (normalize_title(page) if plain_space is None
+                  else canonicalize_title(page, plain_space=plain_space))
+        return folded or page
     return {s: key(s) for s in spellings}
 
 

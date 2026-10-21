@@ -3,6 +3,7 @@
 // the imperative shell; everything testable without I/O lives here.
 import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { AssetSearchItem, BacklinkItem } from "../api/payloads";
+import { assetLabel } from "../sync/assetNames";
 
 export interface FileFilters {
   q: string;
@@ -66,7 +67,7 @@ export function clipboardToken(
   item: Pick<AssetSearchItem, "filename" | "mime" | "url">,
 ): string {
   const bang = item.mime.startsWith("image/") ? "!" : "";
-  return `${bang}[${item.filename}](${item.url})`;
+  return `${bang}[${assetLabel(item.filename)}](${item.url})`;
 }
 
 const plural = (n: number, word: string) =>

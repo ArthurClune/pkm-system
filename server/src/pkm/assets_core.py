@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import PurePosixPath
+from urllib.parse import quote
 from typing import Literal
 
 from pkm.contracts.ops import SHA256_HEX_RE, Sha256Hex
@@ -55,6 +56,23 @@ def type_where(category: AssetCategory) -> tuple[str, list[str]]:
         return doc, list(_DOCUMENT_MIME)
     return (f"NOT (mime LIKE 'image/%' OR mime = 'application/pdf'"
             f" OR {doc})", list(_DOCUMENT_MIME))
+
+
+def asset_url(sha256: Sha256Hex, filename: str) -> str:
+    """The /assets/<sha256>/<name> URL of an upload. The name segment is
+    percent-encoded (only letters, digits and `_.-~` stay), so spaces,
+    brackets, parens, `%` and non-ASCII can never end a markdown link
+    early. GET /assets/{sha256}/{filename} serves by sha and ignores the
+    segment, so links written with a raw name before this keep working,
+    and strip_asset_tokens removes both spellings."""
+    return f"/assets/{sha256}/{quote(filename, safe='')}"
+
+
+def asset_label(filename: str) -> str:
+    """A file name as markdown link text: "[" and "]" become "(" and ")"
+    so the label can never open "[[" or close early. Display only; the
+    stored and downloaded name is untouched."""
+    return filename.replace("[", "(").replace("]", ")")
 
 
 def _markdown_destination_close(text: str, start: int) -> int:
@@ -105,11 +123,11 @@ def _markdown_link_span_at(text: str, start: int) -> tuple[int, int, str] | None
     return start, close + 1, text[cursor + 1:close]
 
 
-def _strip_markdown_asset_links(text: str, prefix: str) -> str:
-    """Remove every "[label](url)" / "![alt](url)" span whose destination
-    starts with `prefix`, scanning left to right as the web's
+def _markdown_asset_spans(text: str, prefix: str) -> list[tuple[int, int]]:
+    """(start, end) of every "[label](url)" / "![alt](url)" span whose
+    destination starts with `prefix`, scanning left to right as the web's
     scanMarkdownLinks does. "[[page]]" never opens a span."""
-    out: list[str] = []
+    spans: list[tuple[int, int]] = []
     cursor = 0
     n = len(text)
     while cursor < n:
@@ -119,31 +137,56 @@ def _strip_markdown_asset_links(text: str, prefix: str) -> str:
         span = _markdown_link_span_at(text, cursor) if looks_like_link else None
         if span is not None:
             span_start, span_end, destination = span
-            if not destination.startswith(prefix):
-                out.append(text[span_start:span_end])
+            if destination.startswith(prefix):
+                spans.append((span_start, span_end))
             cursor = span_end
         else:
-            out.append(text[cursor])
             cursor += 1
-    return "".join(out)
+    return spans
+
+
+def _remove_spans(text: str, spans: list[tuple[int, int]]) -> str:
+    """`text` without the spans, plus one space beside each: the one
+    before the span if there is one, else the one after it. Every other
+    character is kept. Overlapping spans count once."""
+    drop = bytearray(len(text))
+    end_of_last = 0
+    for start, end in sorted(spans):
+        if start < end_of_last:
+            continue
+        end_of_last = end
+        for i in range(start, end):
+            drop[i] = 1
+        if start > 0 and text[start - 1] == " " and not drop[start - 1]:
+            drop[start - 1] = 1
+        elif end < len(text) and text[end] == " ":
+            drop[end] = 1
+    return "".join(c for c, d in zip(text, drop) if not d)
 
 
 def strip_asset_tokens(text: str, sha256: Sha256Hex) -> str:
     """Remove every reference to /assets/<sha256>/... from block text.
-    Uploads write the raw filename into the URL, so it may hold spaces
-    and parens. Three passes, in order: markdown link and image tokens,
-    found with the web's scan; {{[[pdf]]: url}} and {{pdf: url}} macros,
-    whose url runs to the closing "}}" on its line; then any bare URL
-    left over, which ends at whitespace. Collapses doubled spaces and
-    trims, so callers can test emptiness with a plain falsy check."""
+    Uploads now carry the percent-encoded name (asset_url), but older ones
+    wrote the raw filename, which may hold spaces and parens. Three kinds
+    of token: markdown link and image tokens, found with the web's scan;
+    {{[[pdf]]: url}} and {{pdf: url}} macros, whose url runs to the
+    closing "}}" on its line; and any bare URL left over, which ends at
+    whitespace. A removed token takes one adjacent space with it (the one
+    before it, else the one after), so "see X here" becomes "see here";
+    every other character is kept byte for byte. Text left holding only
+    whitespace becomes "", so callers can test emptiness with a plain
+    falsy check."""
     prefix = f"/assets/{sha256}/"
-    text = _strip_markdown_asset_links(text, prefix)
+    spans = _markdown_asset_spans(text, prefix)
     macro = (r"\{\{(?:\[\[pdf\]\]|pdf):\s*" + re.escape(prefix)
              + r"[^\n]*?\}\}")
-    text = re.sub(macro, "", text)
+    spans += [m.span() for m in re.finditer(macro, text)]
     bare_url = re.escape(prefix) + r"[^\s)}]*"
-    text = re.sub(bare_url, "", text)
-    return re.sub(r" {2,}", " ", text).strip()
+    spans += [m.span() for m in re.finditer(bare_url, text)]
+    if not spans:
+        return text
+    rest = _remove_spans(text, spans)
+    return rest if rest.strip() else ""
 
 
 def sha256_hex(data: bytes) -> Sha256Hex:

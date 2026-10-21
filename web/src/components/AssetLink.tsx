@@ -13,6 +13,7 @@ import type { Sha256Hex } from "../api/brands";
 import { apiGet } from "../api/typedClient";
 import { SidebarContext } from "../contexts";
 import { pagePath } from "../paths";
+import { assetNameFromSegment } from "../sync/assetNames";
 
 export function AssetLink({ url, sha, filename }: {
   url: string; sha: Sha256Hex; filename: string;
@@ -53,7 +54,7 @@ export function AssetLink({ url, sha, filename }: {
         }
       }}
     >
-      {filename}
+      {assetNameFromSegment(filename)}
     </a>
   );
 }

@@ -24,3 +24,9 @@ test("assetMarkdown: image embed for images, plain link otherwise", () => {
   expect(assetMarkdown({ ...INFO, filename: "doc.pdf", mime: "application/pdf" }))
     .toBe(`[doc.pdf](${INFO.url})`);
 });
+
+test("assetMarkdown: a label cannot open [[ or close early", () => {
+  const url = `/assets/${"ab".repeat(32)}/%5Bdraft%5D.png`;
+  expect(assetMarkdown({ ...INFO, filename: "[draft].png", url }))
+    .toBe(`![(draft).png](${url})`);
+});

@@ -25,7 +25,7 @@ import { TodoCheckbox } from "./TodoCheckbox";
 /** PDFs the in-app viewer can fetch same-origin: content-addressed assets
  * and files served from the configured local document root.
  * Path only: a query string means a download intent, not an embed. */
-function isPdfHref(href: string): boolean {
+export function isPdfHref(href: string): boolean {
   if (!href.startsWith("/assets/") && !href.startsWith("/api/local/")) return false;
   return href.toLowerCase().endsWith(".pdf");
 }

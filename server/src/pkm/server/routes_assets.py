@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Upl
 from fastapi.responses import FileResponse
 
 from pkm.assets_core import (
-    AssetCategory, export_limit_violation, hasher_hex, parse_sha256,
+    AssetCategory, asset_url, export_limit_violation, hasher_hex, parse_sha256,
     strip_asset_tokens, type_where, zip_arcnames)
 from pkm.contracts.ops import Sha256Hex
 from pkm.contracts.responses import (
@@ -154,7 +154,7 @@ def search_assets(q: str = "", limit: int = 50, offset: int = 0,
         sha256=r["sha256"], filename=r["filename"],
         mime=r["mime"], size=r["size"],
         created_at=r["created_at"],
-        url=f"/assets/{r['sha256']}/{r['filename']}",
+        url=asset_url(r['sha256'], r['filename']),
         description=r["description"],
         status=derive_status(r["description"], r["describe_error"]),
         describe_error=r["describe_error"],
@@ -411,5 +411,5 @@ async def upload_asset(request: Request, file: UploadFile,
     request.app.state.describe.maybe_enqueue(sha, mime, size)
     return AssetUploadResponse(
         sha256=sha, filename=row["filename"], mime=row["mime"],
-        size=row["size"], url=f"/assets/{sha}/{row['filename']}",
+        size=row["size"], url=asset_url(sha, row['filename']),
         existing=existing)

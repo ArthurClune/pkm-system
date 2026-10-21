@@ -1,12 +1,13 @@
 // pattern: Imperative Shell
 // Shared modal-overlay behaviour: body scroll lock, Escape closes in the
 // capture phase (so hosts that also close on Escape never see it), Tab is
-// pinned to the Close button, and focus returns to the trigger on unmount.
+// pinned to the focus target (the Close button, or the picker's search box),
+// and focus returns to the trigger on unmount.
 // Extracted from ImageOverlay so the GoodLinks reader behaves identically.
 import { useEffect, type RefObject } from "react";
 
 export function useOverlayDismiss(
-  closeRef: RefObject<HTMLButtonElement | null>,
+  closeRef: RefObject<HTMLElement | null>,
   onClose: () => void,
   triggerRef?: RefObject<HTMLButtonElement | null>,
 ): void {

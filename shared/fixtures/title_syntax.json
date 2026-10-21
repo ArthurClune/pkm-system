@@ -13,6 +13,20 @@
     {"name": "lone-bracket", "title": "]", "reason": "forbidden_syntax"},
     {"name": "backtick", "title": "Acme`s", "reason": "forbidden_syntax"},
     {"name": "backtick-alone", "title": "`", "reason": "forbidden_syntax"},
-    {"name": "control-plus-hash", "title": "Project\n#Acme", "reason": "forbidden_syntax"}
+    {"name": "control-plus-hash", "title": "Project\n#Acme", "reason": "forbidden_syntax"},
+    {"name": "padded-trailing-bracket", "title": " Acme] ", "reason": "forbidden_syntax"},
+    {"name": "dot", "title": ".", "reason": "forbidden_syntax"},
+    {"name": "dot-dot", "title": "..", "reason": "forbidden_syntax"},
+    {"name": "leading-slash", "title": "/Acme", "reason": "forbidden_syntax"},
+    {"name": "trailing-slash", "title": "Acme/", "reason": "forbidden_syntax"},
+    {"name": "padded-trailing-slash", "title": "Acme/ ", "reason": "forbidden_syntax"},
+    {"name": "double-slash", "title": "Acme//Notes", "reason": "forbidden_syntax"},
+    {"name": "dot-segment", "title": "Acme/./Notes", "reason": "forbidden_syntax"},
+    {"name": "dot-dot-segment", "title": "Acme/../Notes", "reason": "forbidden_syntax"},
+    {"name": "three-dots", "title": "...", "reason": null},
+    {"name": "dotted-name", "title": "a.b", "reason": null},
+    {"name": "version-namespace", "title": "v1.2/Notes", "reason": null},
+    {"name": "spaced-slash", "title": "Acme / Notes", "reason": null},
+    {"name": "blank", "title": "  ", "reason": null}
   ]
 }

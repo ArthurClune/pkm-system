@@ -65,6 +65,7 @@ pkm/
 ├── edn.py               Core   Minimal EDN parser for Roam exports
 ├── schema_dump.py       Shell  Generates web/src/replica/baseSchema.gen.ts
 ├── refs_parity_dump.py  Shell  Generates shared/fixtures/refs_parity.json
+├── title_parity_dump.py Shell  Generates shared/fixtures/title_parity.json
 ├── rows_dump.py         Shell  Generates web/src/replica/columns.gen.ts and
 │                               web/tooling/brandRegistry.gen.json
 ├── assets_disk.py       Shell  asset_on_disk_needs_repair(): stats/hashes a stored asset
@@ -454,7 +455,7 @@ the page:
 | Block still exists (mismatch) | `` [[conflict]] [[Page]] — overwritten by ((uid)) ``, `Page` read from the live block's own row |
 | Block gone, hint usable and names a page that still exists | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
 | Block gone, hint usable but names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
-| Block gone, hint missing, blank, or syntactically invalid (including a trailing `]` or a backtick) | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
+| Block gone, hint missing, blank, or [refused](#refused-titles) | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
 | Block exists, but its move's target parent is gone, is the block itself, or is its descendant | `` [[conflict]] [[Page]] — ((uid)) ``, `Page` read from the live block's own row |
 | Guarded `delete` whose subtree changed since the deleting device saw it | `` [[conflict]] [[Page]] — deleted while edited elsewhere ``, `Page` read from the block's own row before the delete; no `((uid))`, since the block is gone |
 
@@ -463,11 +464,10 @@ changes whether or where an op applies. An invalid hint can't fail the
 batch: `find_op_title_violation`, whose violations are a 400, never looks at
 it. A hint naming no current page (renamed or deleted since the client saw
 it) is shown as inline code, which the ref extractor skips, so the header
-cannot re-create that page (`ops_apply._hint_page_exists`). An existing page
-is linked only when `[[Page]]` reads back through `refs.extract` as that same
-title (`conflict_notes.existing_page_label`). A title ending in `]` or holding
-a backtick has no `[[..]]` spelling and is refused as a page title
-(`refs.title_syntax_reason`), so a hint naming one is `(page unknown)`. Header and child uids are minted (`contracts.ops.new_uid`)
+cannot re-create that page (`ops_apply._hint_page`). An existing page is
+named by its stored title, not the hint's spelling, and linked only when `[[Page]]` reads back through `refs.extract` as that same
+title (`conflict_notes.existing_page_label`). A hint naming a
+[refused title](#refused-titles) is `(page unknown)`. Header and child uids are minted (`contracts.ops.new_uid`)
 with an alphanumeric first character so the CLI can address them without `--`
 (see [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)); a
 second conflict on the same block the same day reuses its header's uid.
@@ -732,6 +732,29 @@ durable `plain_space_title_canonicalization` flag selects the second:
 | inactive (default) | a control character makes ASCII-whitespace runs collapse to one space and trims their boundary; plain-space padding stays byte-exact, so legacy rows still resolve |
 | active | the above, plus stripping leading and trailing U+0020; internal ordinary spaces and NBSP are unchanged |
 
+### Refused titles
+
+`refs.title_syntax_reason` refuses a page title, with the reason
+`forbidden_syntax`, when it holds:
+
+| Syntax | Why |
+|---|---|
+| `#`, `[[`, `]]` | ref syntax |
+| a trailing `]` | `[[a]]]` reads back as `a` |
+| a backtick | it pairs with another on the line into a code span that hides the ref |
+| a `.`, `..` or empty `/` segment (`.`, `/x`, `x/`, `a//b`, `a/../b`) | no URL: URL clients drop dot segments and the SPA's router collapses `//` (`refs.has_unreachable_segment`) |
+
+Every rule judges the title edge-stripped of U+0020 (`target_canonical_title`),
+whatever the flag. The pure ops check never knows the flag, so judging the
+padded spelling would pass ` a] ` that the store then refuses as `a]`. The
+replica's `titleSyntaxReason` is pinned to the same verdicts by
+`title_syntax.json` and `title_parity.json`. A title is refused at creation,
+rename, move, `POST /api/sidebar`, import, and as a `forbidden_syntax`
+blocker in the migration audit. In block text a ref with the first three is
+refused (the batch is a 400), while a ref with no URL is no ref at all, like
+`[[   ]]`: a tag typed through `#work/` on its way to `#work/notes` is never
+refused. `...`, `a.b` and `v1.2/x` are ordinary titles.
+
 The title brands are a chain declared in `contracts/titles.py`; each passes
 where the one before it is expected, never the reverse:
 
@@ -766,10 +789,18 @@ before it meets `pages.title` or `sidebar_entries.title`.** Both are exact
 matches. A raw title, or a link's normalized one, therefore misses its page
 once the flag is active. The entry points are:
 
-- a `{title:path}` route parameter
+- a `{title:wholepath}` route parameter (page read, delete, rename and export)
 - the `page` filter on `/api/todos` and `/api/changed`
 - a `[[Page]]` operand in `{{query}}`, via `query_exec.parse_canonical_query`
 - the `POST /api/sidebar` title
+
+The page routes use the DOTALL `wholepath` convertor (`server/wholepath.py`),
+not Starlette's `path`. `path` stops before a final newline, so `Foo%20%0A`
+would reach the route as `Foo ` and miss `Foo`, and an inner newline matches
+no route. The SPA fallback uses it too, so a cold load of `/page/Fo%0Ao`
+serves index.html. `tests/test_title_routes_props.py` checks every title-taking route
+and CLI verb against a generated spelling of each title; its route list comes
+from the OpenAPI document, so a new title-taking route fails it until covered.
 
 The web's sidebar form sends its input untrimmed. `trim()` would also strip
 NBSP, which canonicalisation keeps.
@@ -781,8 +812,7 @@ applies the existing-data migration. Activation is an operator action:
 
 `pkm/title_migration.py` is the pure planner. It groups padded titles under a
 canonical spelling, picks a survivor and reports `all_space` or
-`forbidden_syntax` blockers (a title with `#`, `[[`, `]]`, a backtick or a
-trailing `]`: none has a ref spelling). Replacement values are opaque —
+`forbidden_syntax` blockers (a [refused title](#refused-titles)). Replacement values are opaque —
 `rename.rewrite_title_refs_map()` never rescans a mapped value as another
 source — and the plan's SHA-256 digest covers the full relevant snapshot, so an
 unchanged audit yields a stable digest.
@@ -1109,6 +1139,7 @@ with the change that invalidates them.
 | `shared/fixtures/ref_grammar.json` | hand-maintained cases | both parsers' test suites | Pins Python `refs.py` and the TS grammar scanner to identical behaviour |
 | `shared/fixtures/title_syntax.json` | hand-maintained cases | `tests/test_refs.py` | Pins `refs.title_syntax_reason` and the replica's `titleSyntaxReason` to the same verdicts (`web/src/replica/titles.test.ts`, `localApi/router.test.ts`) |
 | `shared/fixtures/refs_parity.json` | `pkm.refs_parity_dump` | `tests/test_refs_parity_fixture.py` | TS extractors replay the exact Python outputs. The file holds the hand `CASES` plus a seeded generated corpus of bracket-heavy texts (`generated_cases()`); the test tallies the corpus's shapes so it cannot go vacuous |
+| `shared/fixtures/title_parity.json` | `pkm.title_parity_dump` | `tests/test_title_parity_fixture.py` | The replica's `canonicalizeTitle`, `titleSyntaxReason`, `isBlankTitle` and `extractRefs` replay the server's `normalize_title`, `target_canonical_title`, `title_syntax_reason`, `is_blank_title` and `extract` verdicts on a seeded corpus of whitespace- and syntax-heavy titles (`web/src/replica/titleParity.test.ts`). The test tallies the corpus's shapes so it cannot go vacuous |
 | `shared/fixtures/local_links_parity.json` | `web/src/outline/localLinksParity.test.ts` with `UPDATE_LOCAL_LINKS_FIXTURE=1` (fixed fast-check seed over `localCopyAttribute`) | that test fails when the file differs; `tests/test_local_links_parity.py` | `local_docs.extract_local_hrefs` must read the same hrefs from `Local copy::` texts as the web's markdown-link reader. Written by the web side, like `upload_links_parity.json` and `text_hash_parity.json` |
 | `shared/fixtures/upload_links_parity.json` | `web/src/sync/assetsParity.test.ts` with `UPDATE_UPLOAD_LINKS_FIXTURE=1` (fixed fast-check seed over `assetMarkdown`, encoded and raw-name tokens) | that test fails when the file differs; `tests/test_upload_links_parity.py` | `assets_core.strip_asset_tokens` must remove exactly the tokens the web's upload path writes and leave the rest. Written by the web side |
 | `shared/fixtures/shim_parity.json` | `pkm.server.shim_parity_dump` | `tests/test_shim_parity_fixture.py` | The offline API shim (`web/src/replica/localApi/`) must return byte-identical JSON to the real routes |

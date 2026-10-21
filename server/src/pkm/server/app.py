@@ -37,6 +37,7 @@ from pkm.server.routes_search import router as search_router
 from pkm.server.routes_sidebar import router as sidebar_router
 from pkm.server.routes_sync import router as sync_router
 from pkm.server.validation_echo import echo_errors
+from pkm.server import wholepath  # noqa: F401 -- registers {full_path:wholepath}
 from pkm.server.ws import Hub, router as ws_router
 
 
@@ -176,7 +177,7 @@ def create_app(
 
         web_dist_root = config.web_dist.resolve()
 
-        @app.get("/{full_path:path}", include_in_schema=False)
+        @app.get("/{full_path:wholepath}", include_in_schema=False)
         def spa(full_path: str) -> FileResponse:
             # Real API/asset routes are registered earlier and win; anything
             # still hitting these prefixes is a miss, not a client-side route.

@@ -132,7 +132,13 @@ bookkeeping.
 
 `batch.py` owns the `pkm batch` command language: `create`, `todo`, `update`,
 `move`, `delete`, `outline`, `as`-aliases, matched-or-created `## Heading`
-parents. `plan_batch` threads a `_BatchCtx` through the commands — the shared
+parents. Two spellings of one page share one fetch and one sibling model
+(`page_keys`): planned apart, each would append from the same blocks and a
+later command's block would take an earlier one's slot. Only the server's
+plain-space flag says whether ` Foo` and `Foo` are one page, so
+`workflows.apply_batch` reads it (`PkmClient.plain_space_title_canonicalization`,
+a one-change `/api/sync/changes` window) when, and only when, boundary spaces
+alone tell two spellings apart (`title_flag_needed`). `plan_batch` threads a `_BatchCtx` through the commands — the shared
 `Planner`, the fetched pages, the alias map, the uids created so far, and a
 `_SubtreeModel` per fetched delete uid — resolving each parent spec by its form:
 

@@ -24,7 +24,8 @@ from pkm.contracts.text import WellFormedModel
 from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, DeleteOp, MoveOp,
                                Sha256Hex, UpdateTextOp, subtree_hash)
 from pkm.contracts.responses import BlockNode, walk_blocks
-from pkm.contracts.titles import RawTitle
+from pkm.contracts.titles import UNTITLED_PAGE_TITLE, RawTitle
+from pkm.refs import canonicalize_title, is_blank_title, normalize_title
 from pkm.planning import (BuildError, Planner, parse_uid_spec, plan_update,
                           resolve_parent)
 
@@ -248,6 +249,32 @@ def referenced_pages(commands: Sequence[BatchCommand]) -> list[RawTitle]:
     return seen
 
 
+def title_flag_needed(spellings: Sequence[RawTitle]) -> bool:
+    """Do two of these page spellings differ only in boundary U+0020 once
+    normalized? Only the server's plain-space flag says whether they name
+    one page, so the shell asks for it then, and only then."""
+    normalized = {normalize_title(s) for s in spellings}
+    return len({n.strip(" ") for n in normalized}) < len(normalized)
+
+
+def page_keys(spellings: Sequence[RawTitle],
+              plain_space: bool | None) -> dict[RawTitle, RawTitle]:
+    """Each page spelling a batch names -> the one spelling its page is
+    fetched and planned under, so two spellings of one page share one copy
+    of it. Planned apart, each would append from the same fetched blocks,
+    and a later command's block would take an earlier one's slot.
+
+    `plain_space` is the server's flag; None when `title_flag_needed` said
+    the spellings do not depend on it, and then the flag-free fold
+    (`normalize_title`) already joins every pair that names one page. A
+    blank spelling takes the key of Untitled, where the server files it."""
+    def key(page: RawTitle) -> RawTitle:
+        folded = (normalize_title(page) if plain_space is None
+                  else canonicalize_title(page, plain_space=plain_space))
+        return UNTITLED_PAGE_TITLE if is_blank_title(folded) else folded
+    return {s: key(s) for s in spellings}
+
+
 def delete_uids(commands: Sequence[BatchCommand]) -> list[BlockUid]:
     """The uids a batch's `delete` commands name (first-seen order), so the
     shell knows which subtrees to fetch before planning. An `{{alias}}` is
@@ -337,9 +364,15 @@ class _BatchCtx:
     subtree as the batch has changed it so far."""
     planner: Planner
     pages: PageBlocks
+    keys: Mapping[RawTitle, RawTitle] = field(default_factory=dict)
     aliases: dict[str, BlockUid] = field(default_factory=dict)
     created: set[BlockUid] = field(default_factory=set)
     subtrees: dict[str, _SubtreeModel] = field(default_factory=dict)
+
+    def page(self, title: RawTitle) -> RawTitle:
+        """The spelling `title`'s page is fetched and planned under
+        (`page_keys`)."""
+        return self.keys.get(title, title)
 
     def blocks(self, title: RawTitle) -> Sequence[BlockNode]:
         if title not in self.pages:
@@ -379,15 +412,16 @@ class _BatchCtx:
 def _batch_create(cmd: CreateCommand | TodoCommand,
                   ctx: _BatchCtx) -> list[CreateOp]:
     p = cmd.params
-    blocks = ctx.blocks(p.page)
+    page = ctx.page(p.page)
+    blocks = ctx.blocks(page)
     spec = _resolve_alias(p.parent, ctx.aliases)
-    parent, off_page, ops = ctx.resolve_parent(blocks, p.page, spec)
+    parent, off_page, ops = ctx.resolve_parent(blocks, page, spec)
     todo = cmd.command == "todo"
     if p.index is None:
-        ops = [*ops, *ctx.planner.creates(blocks, p.page, parent,
+        ops = [*ops, *ctx.planner.creates(blocks, page, parent,
                                           [(0, p.text)], todo, off_page)]
     else:
-        ops = [*ops, ctx.planner.create_at(blocks, p.page, parent, p.index,
+        ops = [*ops, ctx.planner.create_at(blocks, page, parent, p.index,
                                            p.text, todo, off_page)]
     if p.as_:
         # The content block, never a heading this command had to create
@@ -398,10 +432,11 @@ def _batch_create(cmd: CreateCommand | TodoCommand,
 
 def _batch_outline(cmd: OutlineCommand, ctx: _BatchCtx) -> list[CreateOp]:
     p = cmd.params
-    blocks = ctx.blocks(p.page)
+    page = ctx.page(p.page)
+    blocks = ctx.blocks(page)
     spec = _resolve_alias(p.parent, ctx.aliases)
-    parent, off_page, ops = ctx.resolve_parent(blocks, p.page, spec)
-    return [*ops, *ctx.planner.creates(blocks, p.page, parent,
+    parent, off_page, ops = ctx.resolve_parent(blocks, page, spec)
+    return [*ops, *ctx.planner.creates(blocks, page, parent,
                                        _nested_items(p.items), todo=False,
                                        parent_off_page=off_page)]
 
@@ -413,7 +448,8 @@ def _batch_update(cmd: UpdateCommand, ctx: _BatchCtx) -> list[BlockOp]:
 
 def _batch_move(cmd: MoveCommand, ctx: _BatchCtx) -> list[MoveOp]:
     p = cmd.params
-    blocks = ctx.blocks(p.page)
+    page = ctx.page(p.page)
+    blocks = ctx.blocks(page)
     uid = _alias_uid(p.uid_spec, ctx.aliases)
     spec = _resolve_alias(p.parent, ctx.aliases)
     # Not `ctx.resolve_parent`: `move` never creates its target. A missing
@@ -427,10 +463,10 @@ def _batch_move(cmd: MoveCommand, ctx: _BatchCtx) -> list[MoveOp]:
         if missing is not None:
             raise BuildError("move target heading does not exist")
         off_page = False
-    idx = ctx.planner.move(blocks, p.page, parent, uid, p.index, off_page)
+    idx = ctx.planner.move(blocks, page, parent, uid, p.index, off_page)
     return [MoveOp(op="move", uid=uid, parent_uid=parent,
                    order_idx=idx,
-                   page_title=None if parent else p.page)]
+                   page_title=None if parent else page)]
 
 
 def _batch_delete(cmd: DeleteCommand, ctx: _BatchCtx) -> list[DeleteOp]:
@@ -444,6 +480,7 @@ def _batch_delete(cmd: DeleteCommand, ctx: _BatchCtx) -> list[DeleteOp]:
 def plan_batch(commands: Sequence[object], pages: PageBlocks,
                uids: Iterator[BlockUid],
                subtrees: Mapping[str, BlockNode | None] | None = None,
+               keys: Mapping[RawTitle, RawTitle] | None = None,
                ) -> list[BlockOp]:
     """Translate a batch of `{command, params}` items into one op list.
 
@@ -474,7 +511,7 @@ def plan_batch(commands: Sequence[object], pages: PageBlocks,
     planner = Planner(uids)
     for title, blocks in pages.items():
         planner.seed_page(title, blocks)
-    ctx = _BatchCtx(planner=planner, pages=pages,
+    ctx = _BatchCtx(planner=planner, pages=pages, keys=keys or {},
                     subtrees={uid: _SubtreeModel.of(node)
                               for uid, node in (subtrees or {}).items()
                               if node is not None})

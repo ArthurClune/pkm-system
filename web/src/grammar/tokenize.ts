@@ -12,7 +12,7 @@
 import type { BlockUid, NormalizedTitle, Sha256Hex } from "../api/brands";
 import { parseSha256Hex } from "../replica/sha256";
 import { scanMarkdownLinkAt } from "./markdown";
-import { normalizeRefTitle, scanGrammar, type GrammarToken } from "./scan";
+import { isRefTitle, normalizeRefTitle, scanGrammar, type GrammarToken } from "./scan";
 
 export type EmphasisKind = "bold" | "italic" | "strike" | "highlight";
 
@@ -110,6 +110,12 @@ function inlineSegment(text: string, tok: GrammarToken): InlineSegment | null {
   }
 }
 
+/** A page-ref, hashtag or attribute token whose title extractRefs drops. */
+function isDeadRef(tok: GrammarToken): boolean {
+  return (tok.kind === "page-ref" || tok.kind === "hashtag"
+    || tok.kind === "attribute") && !isRefTitle(tok.title);
+}
+
 /** Render [from, to) as inline segments, consuming scanner tokens that lie
  * fully inside the range. `from` is a chunk boundary for autolinking (the
  * old per-chunk scan treated chunk starts like whitespace). */
@@ -133,6 +139,24 @@ function tokenizeInline(
     }
     const tok = byStart.get(i);
     if (tok && tok.end <= to) {
+      // A ref token that names no page is not a ref: show its source. A
+      // page ref's delimiters are text but its content is still tokenized,
+      // since a ref nested in it is a ref of its own.
+      if (isDeadRef(tok)) {
+        if (tok.kind === "page-ref") {
+          buf += text.slice(tok.start, tok.content.start);
+          for (const seg of tokenizeInline(
+            text, byStart, tok.content.start, tok.content.end)) {
+            if (seg.kind === "text") buf += seg.text;
+            else { flushText(); out.push(seg); }
+          }
+          buf += text.slice(tok.content.end, tok.end);
+        } else {
+          buf += text.slice(tok.start, tok.end);
+        }
+        i = tok.end;
+        continue;
+      }
       const seg = inlineSegment(text, tok);
       if (seg) {
         flushText();

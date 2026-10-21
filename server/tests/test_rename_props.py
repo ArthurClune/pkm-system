@@ -51,12 +51,15 @@ _TITLE_FRAGMENTS = [
 
 def _fix_title(raw: str) -> str:
     """Make a drawn string a title `title_syntax_reason` accepts: no `#`,
-    `[[` or `]]`, no backtick, no trailing `]`, no control whitespace, no
-    boundary padding, not blank."""
+    `[[` or `]]`, no backtick, no trailing `]`, no `.`, `..` or empty `/`
+    segment, no control whitespace, no boundary padding, not blank."""
     title = raw.replace("#", "").replace("`", "")
     while "[[" in title or "]]" in title:
         title = title.replace("[[", "[ [").replace("]]", "] ]")
     title = title.strip(" ")
+    if title:
+        title = "/".join(seg if seg not in ("", ".", "..") else "s"
+                         for seg in title.split("/"))
     if title.endswith("]"):
         title += "z"
     return title or "T"

@@ -39,6 +39,7 @@ from pkm.server.store import (BlankTitleError, DeleteBlockedError,
                               plan_delete, rename_page_rows)
 from pkm.server.sync_meta import read_title, title_reader
 from pkm.server.tree import build_tree, collect_block_ref_uids, find_node
+from pkm.server import wholepath  # noqa: F401 -- registers {title:wholepath}
 from pkm.unlink import DeleteBlocker
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -237,7 +238,7 @@ def get_block(uid: BlockUid, db: Db = Depends(get_db)) -> BlockPayload:
     )
 
 
-@router.get("/api/page/{title:path}", response_model=PagePayload)
+@router.get("/api/page/{title:wholepath}", response_model=PagePayload)
 def get_page(request: Request, title: RawTitle, bl_offset: Int64 = 0, bl_limit: Int64 = 20,
              db: Db = Depends(get_db)) -> PagePayload:
     bl_limit = max(1, min(bl_limit, 100))
@@ -300,7 +301,7 @@ def delete_preview(title: RawTitle,
     blocks that would make DELETE refuse (a query macro naming the page, or a
     rewrite that would change the leading attribute name, as for
     `[[page]]:: v`, or still reference the page). Read-only; 404 when the page
-    does not exist. Not under /api/page/ because GET /api/page/{title:path}
+    does not exist. Not under /api/page/ because GET /api/page/{title:wholepath}
     would swallow it."""
     canonical_title = read_title(db, title)
     page = fetch_page(db, canonical_title)
@@ -313,7 +314,7 @@ def delete_preview(title: RawTitle,
         blockers=_blocker_models(plan.blockers))
 
 
-@router.delete("/api/page/{title:path}", response_model=OkAck)
+@router.delete("/api/page/{title:wholepath}", response_model=OkAck)
 def delete_page(request: Request, title: RawTitle,
                 db: Db = Depends(get_db)) -> OkAck:
     """Deletes the page, its blocks, and any sidebar entry for it. Inbound
@@ -353,7 +354,7 @@ def delete_page(request: Request, title: RawTitle,
     return OkAck(ok=True)
 
 
-@router.post("/api/page/{title:path}/rename", response_model=RenamePageResponse)
+@router.post("/api/page/{title:wholepath}/rename", response_model=RenamePageResponse)
 def rename_page(request: Request, title: RawTitle, body: RenamePageRequest,
                 db: Db = Depends(get_db)) -> RenamePageResponse:
     """Rename a page, rewriting every [[link]]/#tag/attr:: in block text.

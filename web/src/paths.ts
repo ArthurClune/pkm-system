@@ -1,6 +1,6 @@
 // pattern: Functional Core
 // Titles may contain "/" (namespace pages): encode per segment so the slash
-// stays literal for the server's path-typed {title:path} routes.
+// stays literal for the server's whole-path {title:wholepath} routes.
 
 import type { RawTitle } from "./api/brands";
 import { asRawTitle } from "./replica/titles";

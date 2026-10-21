@@ -85,4 +85,11 @@ describe("refTitleAtCaret", () => {
     expect(refTitleAtCaret("```\n[[x]]\n``` [[y]]", 6)).toBeNull();
     expect(refTitleAtCaret("```\n[[x]]\n``` [[y]]", 17)).toBe("y");
   });
+
+  test("a ref that names no page is no link", () => {
+    expect(refTitleAtCaret("see [[Paper/]]", 8)).toBeNull();
+    expect(refTitleAtCaret("see [[   ]]", 7)).toBeNull();
+    expect(refTitleAtCaret("see [[..]]", 7)).toBeNull();
+    expect(refTitleAtCaret("see [[Paper/x]]", 8)).toBe("Paper/x");
+  });
 });

@@ -507,9 +507,9 @@ class SkipContext:
 @dataclass(frozen=True)
 class LandedSkipContext:
     """An orphan_edit, diverted_create or orphan_structural with an entry
-    to land. `hint_page_exists` says whether op.page_title, the client's
-    hint, names a page now; it picks the header's link-vs-code-span label
-    (`conflict_notes.conflict_label`).
+    to land. `hint_page` is the stored title of the page op.page_title, the
+    client's hint, names now, or None; it picks the header's
+    link-vs-code-span label (`conflict_notes.conflict_label`).
 
     `siblings`: the live blocks of an orphan move's destination sibling
     group, which the client's optimistic apply shifted and the server did
@@ -521,7 +521,7 @@ class LandedSkipContext:
     would a deleted block's."""
     skip: Skip
     landing: ConflictLanding
-    hint_page_exists: bool
+    hint_page: CanonicalTitle | None
     siblings: tuple[BlockUid, ...] = ()
     ghost_page: PageId | None = None
 
@@ -798,13 +798,13 @@ def _plan_skip_own(op: BlockOp, ctx: SkippedContext) -> tuple[Effect, ...]:
         return tombstones
     if isinstance(op, (CreateOp, UpdateTextOp)):
         lost_text = op.text
-        header_text = orphan_header_text(op.page_title, ctx.hint_page_exists)
+        header_text = orphan_header_text(op.page_title, ctx.hint_page)
     else:
         # a structural op carries no page hint worth naming: a move's
         # page_title is where it was going, not where the block was
         assert isinstance(op, (MoveOp, SetHeadingOp, SetViewTypeOp))
         lost_text = block_missing_note(op)
-        header_text = orphan_header_text(None, False)
+        header_text = orphan_header_text(None, None)
     assert skip.landing_uid is not None
     return (*tombstones,
             *conflict_entry_effects(skip.landing_uid, lost_text, header_text,

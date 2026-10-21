@@ -6,12 +6,13 @@
 import type { CanonicalTitle, PageId, RawTitle } from "../api/brands";
 import type { ReplicaDb } from "./db";
 import { type TitleReader, titleReader } from "./meta";
+import { isBlankTitle } from "./titles";
 
 /** The title a page is stored under: canonicalised, blank as "Untitled". */
 export const storedPageTitle = (read: TitleReader,
                                 title: RawTitle): CanonicalTitle => {
   const canonical = read(title);
-  return canonical.trim().length === 0 ? read("Untitled") : canonical;
+  return isBlankTitle(canonical) ? read("Untitled") : canonical;
 };
 
 export const localPageTitle = (db: ReplicaDb, title: RawTitle): CanonicalTitle =>

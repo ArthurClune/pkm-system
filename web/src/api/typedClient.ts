@@ -103,7 +103,7 @@ interface RawOptions {
   init?: RequestExtras["init"];
 }
 
-/** Path parameters are encoded per segment: the `{title:path}` routes take
+/** Path parameters are encoded per segment: the `{title:wholepath}` routes take
  * namespace titles ("Work/Q3") whose slashes must stay literal. Every other
  * path parameter (uid, sha256, entry id, stored filename) is slash-free by
  * construction, so segment-wise encoding is plain encodeURIComponent there. */

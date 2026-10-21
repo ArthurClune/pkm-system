@@ -15,7 +15,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                UpdateTextOp, new_uid)
 from pkm.contracts.responses import SkippedOp
 from pkm.database import Db
-from pkm.contracts.titles import RawTitle, as_raw_title
+from pkm.contracts.titles import UNTITLED_PAGE_TITLE, RawTitle
 from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
                       normalize_title)
 from pkm.rows import Row
@@ -55,7 +55,6 @@ _AddressedOp = Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
 # so instead of raising BlankTitleError up to the caller it resolves to this
 # fixed, always-valid title -- get_or_create semantics, so repeated blank
 # titles all land on the same page rather than minting one each.
-UNTITLED_PAGE_TITLE = as_raw_title("Untitled")
 
 
 def _resolve_page(db: Db, title: RawTitle,
@@ -69,15 +68,16 @@ def _resolve_page(db: Db, title: RawTitle,
         return get_or_create_page(db, UNTITLED_PAGE_TITLE, now_ms)
 
 
-def _hint_page_exists(db: Db, page_title: RawTitle | None) -> bool:
-    """Does check 1's page_title hint name a page that exists now?
-    Canonicalized the way get_or_create_page looks pages up. A hint whose
-    page was renamed or deleted since the client saw it simply doesn't
-    exist: block_rewrites can't map it to the new title, being keyed by
+def _hint_page(db: Db, page_title: RawTitle | None) -> CanonicalTitle | None:
+    """The stored title of the page check 1's page_title hint names now, or
+    None. Canonicalized the way get_or_create_page looks pages up. A hint
+    whose page was renamed or deleted since the client saw it simply names
+    none: block_rewrites can't map it to the new title, being keyed by
     referencing block, with rows only where some block referenced the page."""
     if page_title is None:
-        return False
-    return fetch_page(db, read_title(db, page_title)) is not None
+        return None
+    page = fetch_page(db, read_title(db, page_title))
+    return page["title"] if page is not None else None
 
 
 def _block_info(db: Db, uid: BlockUid) -> BlockInfo | None:
@@ -277,19 +277,20 @@ def _destination_siblings(db: Db, op: _AddressedOp, skip: Skip,
     return tuple(r["uid"] for r in rows)
 
 
-def _diverted_create_page(db: Db,
-                          op: CreateOp) -> tuple[bool, PageId | None]:
-    """(whether op.page_title names a page now, the page the client placed
-    the diverted block on). The client placed it on its parent's page
-    (placement.ts), and page_title is the page its outline showed that
-    parent on, so an existing page by that title comes first. A title that
-    names no page (renamed since, or blank) falls back to the page the
-    parent's own delete row recorded; None when neither is known."""
+def _diverted_create_page(db: Db, op: CreateOp
+                          ) -> tuple[CanonicalTitle | None, PageId | None]:
+    """(the stored title of the page op.page_title names now, the page the
+    client placed the diverted block on). The client placed it on its
+    parent's page (placement.ts), and page_title is the page its outline
+    showed that parent on, so an existing page by that title comes first.
+    A title that names no page (renamed since, or blank) falls back to the
+    page the parent's own delete row recorded; None when neither is
+    known."""
     hint = fetch_page(db, read_title(db, op.page_title))
     if hint is not None:
-        return True, hint["page_id"]
+        return hint["title"], hint["page_id"]
     assert op.parent_uid is not None  # a diverted create names its parent
-    return False, _deleted_block_page(db, op.parent_uid)
+    return None, _deleted_block_page(db, op.parent_uid)
 
 
 def _skip_context(db: Db, op: _AddressedOp, skip: Skip,
@@ -298,19 +299,19 @@ def _skip_context(db: Db, op: _AddressedOp, skip: Skip,
     """Context for an op classify_skip flagged. Resolves no op page_title
     (get_or_create would create a page for an op that isn't applied), and
     pays for today's daily page only when an entry lands."""
-    hint_page_exists = False
+    hint_page: CanonicalTitle | None = None
     ghost_page: PageId | None = None
     if skip.kind == "diverted_create" and isinstance(op, CreateOp):
-        hint_page_exists, ghost_page = _diverted_create_page(db, op)
+        hint_page, ghost_page = _diverted_create_page(db, op)
     if skip.landing_uid is None:
         return SkipContext(skip, ghost_page)
     if isinstance(op, UpdateTextOp):
-        hint_page_exists = _hint_page_exists(db, op.page_title)
+        hint_page = _hint_page(db, op.page_title)
     if skip.kind == "stale_page" and isinstance(op, CreateOp):
         # the header names the deleted page as a code span even when a
         # newer batch has re-created it since
         return LandedSkipContext(
-            skip, _conflict_landing(db, skip.landing_uid, now_ms), False,
+            skip, _conflict_landing(db, skip.landing_uid, now_ms), None,
             _destination_siblings(db, op, skip, parent_exists), ghost_page)
     if skip.kind in ("move_parent_missing", "move_cycle", "stale_page"):
         assert block is not None  # the block exists; its target does not fit
@@ -321,7 +322,7 @@ def _skip_context(db: Db, op: _AddressedOp, skip: Skip,
             page_title, subtree)
     return LandedSkipContext(
         skip, _conflict_landing(db, skip.landing_uid, now_ms),
-        hint_page_exists, _destination_siblings(db, op, skip, parent_exists),
+        hint_page, _destination_siblings(db, op, skip, parent_exists),
         ghost_page)
 
 

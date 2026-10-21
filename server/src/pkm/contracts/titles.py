@@ -29,3 +29,7 @@ brand(CanonicalTitle)
 def as_raw_title(text: str) -> RawTitle:
     """Mark text as a title no check has run on."""
     return RawTitle(text)
+
+
+# The page a blank page title in an op is filed under.
+UNTITLED_PAGE_TITLE = as_raw_title("Untitled")

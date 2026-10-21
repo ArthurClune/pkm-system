@@ -429,4 +429,17 @@ describe("create page", () => {
     expect(JSON.parse(rows[0].ops_json)).toEqual(
       [{ op: "create_page", page_title: "Levels of AGI: the Path" }]);
   });
+
+  test("stores and enqueues a lone surrogate as U+FFFD", () => {
+    // The page row through sqlite-wasm's UTF-8 binding, the queued op
+    // through enqueueBatch's normalisation.
+    const body = expectStatus(
+      call("POST", "/api/pages", { title: "Odd \uD800 Page" },
+           { newBatchId: () => batchIdOf("batch-odd") }), 200,
+    );
+    expect(body).toMatchObject({ title: "Odd \uFFFD Page" });
+    const queued = t.db.select("SELECT ops_json FROM pending_ops", ["ops_json"]);
+    expect(JSON.parse(queued[0].ops_json)).toEqual(
+      [{ op: "create_page", page_title: "Odd \uFFFD Page" }]);
+  });
 });

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Annotated, Literal, Union
 
 from pydantic import ConfigDict, Field, TypeAdapter, ValidationError, model_validator
-from pkm.contracts.strict import StrictModel
+from pkm.contracts.text import WellFormedModel
 
 from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, DeleteOp, MoveOp,
                                Sha256Hex, UpdateTextOp, subtree_hash)
@@ -93,9 +93,10 @@ def _in_batch_uid(spec: str | None, created: set[BlockUid]) -> BlockUid | None:
 type NestedItem = str | list[NestedItem]
 
 
-class _Strict(StrictModel):
+class _Strict(WellFormedModel):
     """Base for every command/params model: unknown keys are a validation
-    error, not a silent no-op."""
+    error, not a silent no-op, and a lone surrogate in a title or text is
+    U+FFFD before any page is fetched, as the ops it plans would make it."""
     model_config = ConfigDict(extra="forbid")
 
 

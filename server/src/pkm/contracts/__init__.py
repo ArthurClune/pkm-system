@@ -12,4 +12,5 @@ client-side code compiled against server internals.
 * `ops` -- the write contract: the op models POST /api/ops accepts.
 * `responses` -- the read contract: the JSON shapes the API returns.
 * `daily` -- the daily-note title convention both sides address pages by.
+* `text` -- well-formed text: lone surrogates become U+FFFD at the boundary.
 """

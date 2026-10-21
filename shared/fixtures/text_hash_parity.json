@@ -1,0 +1,1362 @@
+{
+  "cases": [
+    {
+      "text": "𐗰\udb50",
+      "well_formed": "𐗰�",
+      "hash": "cce635a6195c1b3fda5e6ef53de7f69e463457f2bcae96ccc5b88190624c061f"
+    },
+    {
+      "text": "\udff7\ud806[_@;24",
+      "well_formed": "��[_@;24",
+      "hash": "f096fd9e92c84365f58402236fc8eaea73810f8ceba303cdb4978209c08b87bf"
+    },
+    {
+      "text": "𝄞",
+      "well_formed": "𝄞",
+      "hash": "e419efd3d6046adf7662b0daadab65047e8014a523316d7ccc8710de694aa9b6"
+    },
+    {
+      "text": "\udc05Åé",
+      "well_formed": "�Åé",
+      "hash": "75e7978153e9dcf3638defdd7d13436639149ed9af6663c50c510e84997eab09"
+    },
+    {
+      "text": " \"",
+      "well_formed": " \"",
+      "hash": "0c2e4902423d482c95ef4724f6345a633877642276f0655f940f1669bf91b1b5"
+    },
+    {
+      "text": "\r\né\udf4c👨‍👩‍👧\u0000",
+      "well_formed": "\r\né�👨‍👩‍👧\u0000",
+      "hash": "6bd83dcd671073255700b850fc4b69014e6804731606b8783d7b378cd627f4a9"
+    },
+    {
+      "text": "\udbaa\r👨‍👩‍👧\uddf4\r\n",
+      "well_formed": "�\r👨‍👩‍👧�\r\n",
+      "hash": "b961d8cc8a04e184ec796cc66abb51c85df05cac1059c1704c7b949a914acfc0"
+    },
+    {
+      "text": "\udddd\u0000\udcce\n",
+      "well_formed": "�\u0000�\n",
+      "hash": "36cae4a41710e5b82e0da85f2af7191e56bf8b825e82890856a883571aab9751"
+    },
+    {
+      "text": "𐭑N.\u0000;o0😀",
+      "well_formed": "𐭑N.\u0000;o0😀",
+      "hash": "af4cb4286d381d5948725a5e21eb0fa07a57cc9fd4804a2df27feb44e1120ee2"
+    },
+    {
+      "text": "\udb59\r",
+      "well_formed": "�\r",
+      "hash": "3015c650fff0df05597173db8fd16464e116a8d0ed92c881798c62c3564e5dc5"
+    },
+    {
+      "text": "👨‍👩‍👧𝄞\r\rW",
+      "well_formed": "👨‍👩‍👧𝄞\r\rW",
+      "hash": "8f0295cec50371cd94fed72d15fc38a83cefe5ef2ce888ee4e373b25effb8cc7"
+    },
+    {
+      "text": "\ud84d👨‍👩‍👧",
+      "well_formed": "�👨‍👩‍👧",
+      "hash": "59c2f54516e6fb7c10440bc20ddca891147dd28d91576bd3429e8674222090cb"
+    },
+    {
+      "text": "🏳️‍🌈",
+      "well_formed": "🏳️‍🌈",
+      "hash": "d79edc6529e4114d5bb4a05211d5928437ffae5a8c78007fd96967d73b4ee178"
+    },
+    {
+      "text": "\udc6b🏳️‍🌈\ud944\r\n\udc32",
+      "well_formed": "�🏳️‍🌈�\r\n�",
+      "hash": "55c3401d238f80d3cad685a41c775682b2f4ea9f29798357f7fdb04ee13659ea"
+    },
+    {
+      "text": "\ud901~",
+      "well_formed": "�~",
+      "hash": "274ee1ebab744e4c1e45628894d018ca934dee4303899cf81eb066a0c75ad7e8"
+    },
+    {
+      "text": "é𝄞D;i3\n",
+      "well_formed": "é𝄞D;i3\n",
+      "hash": "5f23de5db079e34f467ce22690c114905dfd93063b4a1a66a557f5028fa05d69"
+    },
+    {
+      "text": "O]m\ude98é\r\ud90dé",
+      "well_formed": "O]m�é\r�é",
+      "hash": "c117909d7ba4b20922cd60f7fe44469526a01b439f58890a71f13b33155d42e7"
+    },
+    {
+      "text": "\udf64\r\n",
+      "well_formed": "�\r\n",
+      "hash": "b9e92ab62bfa8886c9dfedcaa0515549113997c9dc42eacb776502e49a5a2c90"
+    },
+    {
+      "text": "👨‍👩‍👧\ré\udd6c9\"&;",
+      "well_formed": "👨‍👩‍👧\ré�9\"&;",
+      "hash": "00ffeb498b337fc29ebdf78563c559e1aca8df0f2af09a5f7a121067296005da"
+    },
+    {
+      "text": "n",
+      "well_formed": "n",
+      "hash": "1b16b1df538ba12dc3f97edbb85caa7050d46c148134290feba80f8236c83db9"
+    },
+    {
+      "text": "\ud88d가NP0t󣡌",
+      "well_formed": "�가NP0t󣡌",
+      "hash": "fbcad7f6c5bf89b743b24e353617c6ac7f9b55b9e2eab2e8e6946d134bf19b78"
+    },
+    {
+      "text": "\n",
+      "well_formed": "\n",
+      "hash": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "text": "éé",
+      "well_formed": "éé",
+      "hash": "0c5b21a565ec7695b30d697175518945bbf147a3ef0ec173d40d00c93103ad38"
+    },
+    {
+      "text": "\udef0",
+      "well_formed": "�",
+      "hash": "83d544ccc223c057d2bf80d3f2a32982c32c3c0db8e2674820da5064783fb097"
+    },
+    {
+      "text": "😀\ud953𝄞",
+      "well_formed": "😀�𝄞",
+      "hash": "82a568228c46193b18b2a99a9cc37252b232e50f21aae7a0f1916cf8148d621d"
+    },
+    {
+      "text": "Å\udd06Å\ud836🏳️‍🌈Å",
+      "well_formed": "Å�Å�🏳️‍🌈Å",
+      "hash": "87b667764cfd8fef7045d38ea953a78b61df4422b7c1a6c6ba3e6e3a52508880"
+    },
+    {
+      "text": "\u0000é",
+      "well_formed": "\u0000é",
+      "hash": "7e8d20ac6fc3f5fff436df1f54b0ee0e0b387d4ed998b32231e796d689ceff3b"
+    },
+    {
+      "text": "🏳️‍🌈👨‍👩‍👧😀eF\udc44",
+      "well_formed": "🏳️‍🌈👨‍👩‍👧😀eF�",
+      "hash": "99218999bda4fcaedeeeaefa19cae88dcc060fc38ac2b73eaef274396e69ccb8"
+    },
+    {
+      "text": "가ÅÅ𝄞maz?\uddad",
+      "well_formed": "가ÅÅ𝄞maz?�",
+      "hash": "ce43b8cd78c23aad0ab0f0bf7b0791c871791bcaacf582595285cdb8b83124ea"
+    },
+    {
+      "text": "\udbb6^$😀𝄞\ud9e9",
+      "well_formed": "�^$😀𝄞�",
+      "hash": "f5ab927c9a840d2faa5bdeaa80f9e17cdb1c60af9ea632670cbb10533ea4b691"
+    },
+    {
+      "text": "😀",
+      "well_formed": "😀",
+      "hash": "f0443a342c5ef54783a111b51ba56c938e474c32324d90c3a60c9c8e3a37e2d9"
+    },
+    {
+      "text": "Åé",
+      "well_formed": "Åé",
+      "hash": "c1d7fbff21263eae26da5ec9162f78d49375734354e9d1423f9f98c107c50825"
+    },
+    {
+      "text": "\udb56D\r👨‍👩‍👧\udbbd",
+      "well_formed": "�D\r👨‍👩‍👧�",
+      "hash": "37e427250f295bbd0d6a21b0ca902e69d024019a357d494f94fb547520921ee8"
+    },
+    {
+      "text": "👨‍👩‍👧xQE🏳️‍🌈🏳️‍🌈\r\n",
+      "well_formed": "👨‍👩‍👧xQE🏳️‍🌈🏳️‍🌈\r\n",
+      "hash": "eddb226d2738c6680e09abd8371dcc84e34622462373f3b2931ab812ca6d3c3b"
+    },
+    {
+      "text": "𝄞\r\udd40",
+      "well_formed": "𝄞\r�",
+      "hash": "64241b29b2365b217553051b0f385afec8bea0804ae50f12927404e38c28e4f2"
+    },
+    {
+      "text": "Å",
+      "well_formed": "Å",
+      "hash": "0a94dc9d420d1142d6b71de60f9bf7e2f345a4d62c9f141b091539769ddf3075"
+    },
+    {
+      "text": "😀😀",
+      "well_formed": "😀😀",
+      "hash": "91ad485bf369a67f134962f4726eac8fc299a51f1504fc6835210fb32c4890f1"
+    },
+    {
+      "text": "\udf09\n_N !\udab1",
+      "well_formed": "�\n_N !�",
+      "hash": "687bc6827a8a2464ddba33e77fa8d62d06f4ba8b879fd8a8f644391314e14dbf"
+    },
+    {
+      "text": "\udc00\udf19\r",
+      "well_formed": "��\r",
+      "hash": "0a8f66af366fcb5b3b9fcff4beffb1ae4473893c549ffd69ccde598f90d1748a"
+    },
+    {
+      "text": "_~K\u0000🏳️‍🌈𝄞\uda90",
+      "well_formed": "_~K\u0000🏳️‍🌈𝄞�",
+      "hash": "6e00b650ba5cd686c268b07229108a6d97754ff790a97c820aaf9ee85ad315c9"
+    },
+    {
+      "text": "HJQ`🎉\r\udfc2😀",
+      "well_formed": "HJQ`🎉\r�😀",
+      "hash": "945a007cc9c185d877e4902f9d85a8a202d4bf2fa598d0a3640eb35ab5d452e7"
+    },
+    {
+      "text": "\uda19",
+      "well_formed": "�",
+      "hash": "83d544ccc223c057d2bf80d3f2a32982c32c3c0db8e2674820da5064783fb097"
+    },
+    {
+      "text": "👨‍👩‍👧\uddc0",
+      "well_formed": "👨‍👩‍👧�",
+      "hash": "65d63882e2693e013955a57b3c9a15e6ddb84f35aa68abf143fc7adef88feeeb"
+    },
+    {
+      "text": "👨‍👩‍👧👨‍👩‍👧",
+      "well_formed": "👨‍👩‍👧👨‍👩‍👧",
+      "hash": "1cdd2602622aa0b40aed3f7fea058f3cd03495fddfd23c832182a186ee1417b3"
+    },
+    {
+      "text": "🎉ax\udbf6\uda72\n",
+      "well_formed": "🎉ax��\n",
+      "hash": "57bd776dbd42f66e07dedabfbea5ecc53649291039701ac45b0c7bab8da81681"
+    },
+    {
+      "text": "\uda85\u0000",
+      "well_formed": "�\u0000",
+      "hash": "daa207cf9821771d78d98df1060439aedc030b4d0e3fbdf0ffca1788bd0145b0"
+    },
+    {
+      "text": "Å\udc08",
+      "well_formed": "Å�",
+      "hash": "3da0037ccec3dcdcf3e83608a067ba4aa0524bbafc823a59922759897739832b"
+    },
+    {
+      "text": "🏳️‍🌈W`4{👨‍👩‍👧",
+      "well_formed": "🏳️‍🌈W`4{👨‍👩‍👧",
+      "hash": "0290ef8a505743133f402b59122f9bb1e0197e18d15b173458abb8c3d817080b"
+    },
+    {
+      "text": "é\udcc0\ud9a8",
+      "well_formed": "é��",
+      "hash": "19c6a22b066388a280980b6c758f09fe0d8717bb4afa5f8cfb3801dc84336f86"
+    },
+    {
+      "text": "👨‍👩‍👧",
+      "well_formed": "👨‍👩‍👧",
+      "hash": "cc3baf32248d766570483335ce273f90c99f020f4bc530d05ffe869cd3ac2ae8"
+    },
+    {
+      "text": "\ud8db\uda33}J$가",
+      "well_formed": "��}J$가",
+      "hash": "27c07b45deedb6e74155f449ea37d29ea05f1bd493567d818b5b957095af7365"
+    },
+    {
+      "text": "\"'kÅ𝄞*\udd73\ud9b7",
+      "well_formed": "\"'kÅ𝄞*��",
+      "hash": "533e5dcb5e9180c17bcafaa3e76f0243937d8578fc23f1899c239cf4e7f06b29"
+    },
+    {
+      "text": "👨‍👩‍👧가\u0000",
+      "well_formed": "👨‍👩‍👧가\u0000",
+      "hash": "263dcd20a235156a9f3db7d4eff26dc215c183e654231c267cbe0d67b6c316b8"
+    },
+    {
+      "text": "\n􆹩",
+      "well_formed": "\n􆹩",
+      "hash": "264404992338356081e54103ac5128ee67611d6dee08f1f9632472dcad62d426"
+    },
+    {
+      "text": "𝄞\udb0f\ud9b4",
+      "well_formed": "𝄞��",
+      "hash": "e2c1d43c99809e6eeae21c51b8e5947c53716c44e3f7c7081adb5d997a05af3f"
+    },
+    {
+      "text": "\n",
+      "well_formed": "\n",
+      "hash": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "text": "😀\u0000",
+      "well_formed": "😀\u0000",
+      "hash": "46874320300e2b60c00989a2362191c9b827d39f5d55f9ddb0698b9751a20a34"
+    },
+    {
+      "text": "🎉J<\udca2",
+      "well_formed": "🎉J<�",
+      "hash": "07a90b6f2d1b97b59b695b2c41985187b02754af1c9b4e0d5eb00333f583a963"
+    },
+    {
+      "text": "é\udd69",
+      "well_formed": "é�",
+      "hash": "af637836fc142fe50ac2d3956dbdc64e4f96c6d9be6a6a0335576a3ef38361af"
+    },
+    {
+      "text": "\udffe\n\udc08",
+      "well_formed": "�\n�",
+      "hash": "744d68f75e6f5dd77bfe0326facc1f219fee27509b0ffbe82e06c0e7b420dbd0"
+    },
+    {
+      "text": "👨‍👩‍👧𝄞Å\udea9>\\g",
+      "well_formed": "👨‍👩‍👧𝄞Å�>\\g",
+      "hash": "dd98c34a9a589aeb0e8d176d7c7aa968ae20bf5185a367a681a40e6ba11b5963"
+    },
+    {
+      "text": "가\udaa3\ud811가👨‍👩‍👧`'",
+      "well_formed": "가��가👨‍👩‍👧`'",
+      "hash": "ef154a510fbf78f4488d37055b190a247754ee65c2a810a5c7a3a065fdb5b2ad"
+    },
+    {
+      "text": "é",
+      "well_formed": "é",
+      "hash": "bf12767b0f2a56b2190075bae8169f656e3ce8d6357d4aff184bc6c7ea48f9f6"
+    },
+    {
+      "text": "\udbcf𝄞😀é[m85\ud833",
+      "well_formed": "�𝄞😀é[m85�",
+      "hash": "6d589ebee0dd44f2271f46f969062ff33edcb1551ff3d6ad430ffdc72d89480a"
+    },
+    {
+      "text": "𝄞",
+      "well_formed": "𝄞",
+      "hash": "e419efd3d6046adf7662b0daadab65047e8014a523316d7ccc8710de694aa9b6"
+    },
+    {
+      "text": "\ni\r",
+      "well_formed": "\ni\r",
+      "hash": "aff09e49b5dae114c5f3555b0e5277a3de55420396583ab3fb11d5c4c6818b6e"
+    },
+    {
+      "text": "󒳤Å9/4w\udea2\r\n",
+      "well_formed": "󒳤Å9/4w�\r\n",
+      "hash": "d435e9c39f82f2714bb8c092e19d04dcf0ee3492cd8185a6d40a5a47f33350c3"
+    },
+    {
+      "text": "𝄞\udb1aÅ\uda9f",
+      "well_formed": "𝄞�Å�",
+      "hash": "870f5492e68dfcb6c1fd72f42f554587528cc87fc197aea59c874846fcc15ce6"
+    },
+    {
+      "text": "Å\n가\udc44\udf83\udd1b",
+      "well_formed": "Å\n가���",
+      "hash": "cafe20bfa745927f67b50645252ddd9898e40e45c60e7e7060525047f502615c"
+    },
+    {
+      "text": "򍇄\r\n",
+      "well_formed": "򍇄\r\n",
+      "hash": "35f6562ac8f9d5da621b5528dba2583203c09559917f0c26df52d15a34be1204"
+    },
+    {
+      "text": "\ude34\ud945",
+      "well_formed": "��",
+      "hash": "52793f8dc1d85e409f8c88be99d8b31d58f676246340150f406289e04a11151e"
+    },
+    {
+      "text": "\ud8f2🎉\r1T(I😀",
+      "well_formed": "�🎉\r1T(I😀",
+      "hash": "ca6fa3a83de7ceb7d9bf8dcb5f85f503169e08e674f8c2c4da33ad4c3b9997ff"
+    },
+    {
+      "text": "가\n𝄞é\udb02👨‍👩‍👧",
+      "well_formed": "가\n𝄞é�👨‍👩‍👧",
+      "hash": "78f7ed402bffbed35a607189d455b293f9d16b20e30731ab41dbda53eecaab99"
+    },
+    {
+      "text": "@%😀",
+      "well_formed": "@%😀",
+      "hash": "eb64cdfa2eccc8ea993c56aea24c875ba9dc7b1c531846303d259b36f187f671"
+    },
+    {
+      "text": "Å👨‍👩‍👧가Llxv\r",
+      "well_formed": "Å👨‍👩‍👧가Llxv\r",
+      "hash": "ec3ba0cd7241cf1002f78458a41c09e42f92a58781f2cf992c2490b6f486bc6c"
+    },
+    {
+      "text": "\udf36Å2iP`\udc82Å",
+      "well_formed": "�Å2iP`�Å",
+      "hash": "c12b335bf7f395da37104d0e778b2ee7db48dada8c5203044841305d0bb3688d"
+    },
+    {
+      "text": "\udf32\ud972LEn~\"Y",
+      "well_formed": "��LEn~\"Y",
+      "hash": "ef5cbf2fc67e73b3524bde0892a519fc3d59b365069ff5ad892cbf3ee3217a53"
+    },
+    {
+      "text": "👨‍👩‍👧\udb0f𝄞\udb86👨‍👩‍👧",
+      "well_formed": "👨‍👩‍👧�𝄞�👨‍👩‍👧",
+      "hash": "26721a2d1a19b95e61aaaf2249c70935c97ff792e0eb2eceaff0047008b07b0c"
+    },
+    {
+      "text": "_`r🏳️‍🌈Zh5#",
+      "well_formed": "_`r🏳️‍🌈Zh5#",
+      "hash": "32f736ed683add31b4035d5458c33e6fa93ea4bbab55dba8e7962c1b1826e0b4"
+    },
+    {
+      "text": "😀Å",
+      "well_formed": "😀Å",
+      "hash": "b7504dcf7b45c81b1049b49bbfaa66ce5f1bee4c4ddb35a41b81182cfdd07d9d"
+    },
+    {
+      "text": "é򙼕\udefa",
+      "well_formed": "é򙼕�",
+      "hash": "361c55caabe29696caa7936eba1bb10da469dddecde0a90fcbd6602fe20c6c42"
+    },
+    {
+      "text": "é😀\udcc8😀5DC:D7",
+      "well_formed": "é😀�😀5DC:D7",
+      "hash": "a9ca8952d889095ee57dd831429915af3c5552be3e16a7f8e68edebf9cb5be74"
+    },
+    {
+      "text": "Å\udfa0\ud953ZP",
+      "well_formed": "Å��ZP",
+      "hash": "aa8e15db650cc9f494df299a8ce18e03c9747ec71762cbf989d63c183dc9b8f3"
+    },
+    {
+      "text": "\nI>\r\né",
+      "well_formed": "\nI>\r\né",
+      "hash": "464aca0b8279d3ef9fbc063c119a4207d4298a2611bb53867c46a8761c5a668a"
+    },
+    {
+      "text": "é\udcfb}5",
+      "well_formed": "é�}5",
+      "hash": "27344aba6d8cdbf5fa6fdd07aff6df14a2c44e490d35171e39c8efa0c55eb820"
+    },
+    {
+      "text": "\udb9a\r\né",
+      "well_formed": "�\r\né",
+      "hash": "03991d9ad731c6b09e22e5d29e93bbf64cbb8754e05bb6ab6449de03268eb32d"
+    },
+    {
+      "text": "😀é\udfac\r\n\r\nÅ",
+      "well_formed": "😀é�\r\n\r\nÅ",
+      "hash": "c57e073d6d908dc7ca2cbe897c5e3f08d30e03cee7241937a5b99045187d015f"
+    },
+    {
+      "text": "𝄞Åé-a^é\ud980",
+      "well_formed": "𝄞Åé-a^é�",
+      "hash": "af60f86045f7b43cace4fb73648a5c639cae3bd18116052671776e0e4c3d11cc"
+    },
+    {
+      "text": "\ude52\udcb2\ud8d0",
+      "well_formed": "���",
+      "hash": "a73f4cb996ceb6ee097888d897ae1004c9b1faab6c97629214139b9639aaf1af"
+    },
+    {
+      "text": "I+s가\udb29\u0000\ud810",
+      "well_formed": "I+s가�\u0000�",
+      "hash": "7fe5305027864c4fb260896e8fedb64c2dbd351b565545885512c424e27e31fd"
+    },
+    {
+      "text": "\udc00\udac3👨‍👩‍👧",
+      "well_formed": "��👨‍👩‍👧",
+      "hash": "5850b95fb6e5eb1a9d2ae634b72d76712d3bd481f663c23e0a4988f6982d18d1"
+    },
+    {
+      "text": "0Å\udff0😀\n\ude2a",
+      "well_formed": "0Å�😀\n�",
+      "hash": "3ef931895654e7787639fe75785136504f8f7c4556b6050ed156c9687b69555e"
+    },
+    {
+      "text": "#b",
+      "well_formed": "#b",
+      "hash": "dd883973c3c017ed51c9e10fba7bca0babeb130758774914fe278bf492645fae"
+    },
+    {
+      "text": "가\ude33é🏳️‍🌈",
+      "well_formed": "가�é🏳️‍🌈",
+      "hash": "48d645531b3b8617b52e5ff2efefddfa1323fa5e1939a8da2c5d8b32afd563f9"
+    },
+    {
+      "text": "é\ud911",
+      "well_formed": "é�",
+      "hash": "284f5038690757e3c9cd55d01b22656968e8e35d7c16b24f122e0fec7542e07c"
+    },
+    {
+      "text": "가",
+      "well_formed": "가",
+      "hash": "a0d2271e0fe8929d025eb859cde49251ba70c86abb76123f03f8d8eda1c98939"
+    },
+    {
+      "text": "🎉Åx+x",
+      "well_formed": "🎉Åx+x",
+      "hash": "0cd4d13a405ca5b54f5d6db0d71dc5cae32edfb71f29438c6e82a0d5c56739f6"
+    },
+    {
+      "text": "가가",
+      "well_formed": "가가",
+      "hash": "cb756e1664f3b5c4a4465ff6817139990f5716373966b49eb7a445a25834e4d1"
+    },
+    {
+      "text": "👨‍👩‍👧\ud8a4\udb97",
+      "well_formed": "👨‍👩‍👧��",
+      "hash": "b999283aab233afd76c7d7806c54a5c550a31db6b1a7db2763762e0c263c473b"
+    },
+    {
+      "text": "🎉\udc03",
+      "well_formed": "🎉�",
+      "hash": "9ec7e6d42852131f341aa598cc64a74abe0855050c04ed2d6dc80709e1f5b2c8"
+    },
+    {
+      "text": "\ud9d9Å\udda3가🏳️‍🌈",
+      "well_formed": "�Å�가🏳️‍🌈",
+      "hash": "df0dfdeb98201dddd52edf06a2fd95416ebbe9a37f6dc706c5acf0c859f97b96"
+    },
+    {
+      "text": "\u0000L:)3🎉",
+      "well_formed": "\u0000L:)3🎉",
+      "hash": "06cea294f94bca113695268ddbb63aa6148e14eab9c95eacdbc36703315fa536"
+    },
+    {
+      "text": "𝄞𝄞Å",
+      "well_formed": "𝄞𝄞Å",
+      "hash": "0caab38f1c47a48a086251e77569414365ea97d2102dcbfc889fa658f6128f6f"
+    },
+    {
+      "text": "🏳️‍🌈😀\udf12O🏳️‍🌈\udc0c",
+      "well_formed": "🏳️‍🌈😀�O🏳️‍🌈�",
+      "hash": "7b62d877f1da651cb65b88a77292ac4777b6ac6ea76ba047df9a78048463c3fe"
+    },
+    {
+      "text": "u[,3👨‍👩‍👧é\udf7d\udcfc",
+      "well_formed": "u[,3👨‍👩‍👧é��",
+      "hash": "b2497ef156ee50891f936c843b2bc8c1b475a36e614525fa614f92626b7f565f"
+    },
+    {
+      "text": "\udb73",
+      "well_formed": "�",
+      "hash": "83d544ccc223c057d2bf80d3f2a32982c32c3c0db8e2674820da5064783fb097"
+    },
+    {
+      "text": "\ud81f󺋩",
+      "well_formed": "�󺋩",
+      "hash": "b7869727fb6e1dadfed798c4c06f400698d83ffee10d7aef6e9907dd42a0b2b5"
+    },
+    {
+      "text": "\udf2dD4'|😀",
+      "well_formed": "�D4'|😀",
+      "hash": "23c666b15ad0efb1da7034323739f27f8092fb652421c2a87da7961a3c55d365"
+    },
+    {
+      "text": "\r",
+      "well_formed": "\r",
+      "hash": "9d1e0e2d9459d06523ad13e28a4093c2316baafe7aec5b25f30eba2e113599c4"
+    },
+    {
+      "text": "🏳️‍🌈\\Mé𝄞\uda0c",
+      "well_formed": "🏳️‍🌈\\Mé𝄞�",
+      "hash": "df6ae3a6657233f86b0389c4341de6c83f0161310e40a6f833ab60e307df84eb"
+    },
+    {
+      "text": "Å\udd7e\ud817",
+      "well_formed": "Å��",
+      "hash": "461a92fb4ca0995e5b5768916ea39f1c79226c6a58d28f4e9c58ca29c3cef936"
+    },
+    {
+      "text": "😀\udbd8",
+      "well_formed": "😀�",
+      "hash": "43c07ec4819e4eb64f724ac552e7587fe21ce3110ed29797be89a927753b6578"
+    },
+    {
+      "text": "👨‍👩‍👧a😀\udc08",
+      "well_formed": "👨‍👩‍👧a😀�",
+      "hash": "b9af42edca2d8df5b668f9c6645358ee3df8b24558fe25e8214579105c215174"
+    },
+    {
+      "text": "􊜡",
+      "well_formed": "􊜡",
+      "hash": "68714d383cb4a342ba75215db0ffdb6c3e0ebffe66b103843f3ef28d2e305e79"
+    },
+    {
+      "text": "😀",
+      "well_formed": "😀",
+      "hash": "f0443a342c5ef54783a111b51ba56c938e474c32324d90c3a60c9c8e3a37e2d9"
+    },
+    {
+      "text": "\uda2a가",
+      "well_formed": "�가",
+      "hash": "71488a738e38e2795e778b5eba07c455c44baff06a7514ad5fbdcaf4d00697d6"
+    },
+    {
+      "text": "\ud98f\udb5bÅ𝄞é",
+      "well_formed": "��Å𝄞é",
+      "hash": "adeb4beea9a4dd0846ba87c27bd90c7655166da10dc8e7fb73cc5fcc00256b51"
+    },
+    {
+      "text": "éé",
+      "well_formed": "éé",
+      "hash": "ef4d3ff1dcdf3186b62261206933ec8590f7cd626828c336c366db14398f619b"
+    },
+    {
+      "text": "\ud87c",
+      "well_formed": "�",
+      "hash": "83d544ccc223c057d2bf80d3f2a32982c32c3c0db8e2674820da5064783fb097"
+    },
+    {
+      "text": "\udf24🏳️‍🌈\r\udb96🏳️‍🌈",
+      "well_formed": "�🏳️‍🌈\r�🏳️‍🌈",
+      "hash": "e9f91ab4718180209085e0112805210e39ae816a9b23075b503727ea1e3d6c54"
+    },
+    {
+      "text": "\ud9a2􋁞👨‍👩‍👧🎉",
+      "well_formed": "�􋁞👨‍👩‍👧🎉",
+      "hash": "e2bec775b3413d075319c7cdf777b5e052330e4da044795e43c4f993be073395"
+    },
+    {
+      "text": "\uddd7가é",
+      "well_formed": "�가é",
+      "hash": "37d08948e44bb0faf5668f2eb0f052f80ed1b3cd1eb952b3b5ce8064a76b43d4"
+    },
+    {
+      "text": "\udd5f\ud9b9𝄞🎉\udc03\ud9ca",
+      "well_formed": "��𝄞🎉��",
+      "hash": "ed9c3f165bf6584f91b3f0e6a65401aedb99dc3759257d118faa09a5e570de6e"
+    },
+    {
+      "text": "éÅ😀",
+      "well_formed": "éÅ😀",
+      "hash": "e543c8f41407e897273f6c4312e19504d137f48c922ac62f020286db47239702"
+    },
+    {
+      "text": "\r\n\r\udb37𝄞",
+      "well_formed": "\r\n\r�𝄞",
+      "hash": "24349ba2e8b280fe77c13dd64f6e09ce54b4f026e4f7c77c66c67f3f62ca2eb0"
+    },
+    {
+      "text": "\uddb8𝄞\udff1\udb39\r\ud977",
+      "well_formed": "�𝄞��\r�",
+      "hash": "ead7e76020238ec52a5ef7b1c107dc18c851060aa56346b651722ef7acc27586"
+    },
+    {
+      "text": "\udb6b",
+      "well_formed": "�",
+      "hash": "83d544ccc223c057d2bf80d3f2a32982c32c3c0db8e2674820da5064783fb097"
+    },
+    {
+      "text": "é\udc96🎉\udec2",
+      "well_formed": "é�🎉�",
+      "hash": "aebdbc3b92857e585715f748bda1269c1c43f409a9a459391f48801e8140d058"
+    },
+    {
+      "text": "🏳️‍🌈",
+      "well_formed": "🏳️‍🌈",
+      "hash": "d79edc6529e4114d5bb4a05211d5928437ffae5a8c78007fd96967d73b4ee178"
+    },
+    {
+      "text": "\nL6(>🎉Å🏳️‍🌈",
+      "well_formed": "\nL6(>🎉Å🏳️‍🌈",
+      "hash": "f270084c5bac53542208462b571dcaeb8c1ceed50df21ecff47a709464e8eb21"
+    },
+    {
+      "text": "Å\uddca\u0000😀-[QMé",
+      "well_formed": "Å�\u0000😀-[QMé",
+      "hash": "7c56f19d65754d5d31fe24319a0ceb9b07d48114e46b76e25139f985e17be145"
+    },
+    {
+      "text": "가\nS\ud963",
+      "well_formed": "가\nS�",
+      "hash": "8480547e716c8e7cda694f1b0b11dcf2e8d1f77db26d0c2d494c865683fc83fd"
+    },
+    {
+      "text": "👨‍👩‍👧",
+      "well_formed": "👨‍👩‍👧",
+      "hash": "cc3baf32248d766570483335ce273f90c99f020f4bc530d05ffe869cd3ac2ae8"
+    },
+    {
+      "text": "\n\r",
+      "well_formed": "\n\r",
+      "hash": "a8cb50bcfab3e40c0b1e5c89115782eed39f626bc644c6338dcad1f0641d0ed5"
+    },
+    {
+      "text": "\udc06v_",
+      "well_formed": "�v_",
+      "hash": "3ca38e4c45cad38fe98074cde3d8013629914456c0264093df3ab00a0e1e89b3"
+    },
+    {
+      "text": "5b가가👨‍👩‍👧é",
+      "well_formed": "5b가가👨‍👩‍👧é",
+      "hash": "e43b709e854c6fcc281519736e45ae1369b01b4d9a77ca313b9112f5a37cd597"
+    },
+    {
+      "text": "👨‍👩‍👧\ud807",
+      "well_formed": "👨‍👩‍👧�",
+      "hash": "65d63882e2693e013955a57b3c9a15e6ddb84f35aa68abf143fc7adef88feeeb"
+    },
+    {
+      "text": "/t\\🎉\udd08w\ude0d",
+      "well_formed": "/t\\🎉�w�",
+      "hash": "93a1ea4068e3646e866f0a77825e46dd03fd552bf2303267ca0965082162df4a"
+    },
+    {
+      "text": "👨‍👩‍👧👨‍👩‍👧😀🎉🎉",
+      "well_formed": "👨‍👩‍👧👨‍👩‍👧😀🎉🎉",
+      "hash": "4552fb873e9c6f1993054a4305bd1a5904930e3921ab039bec4d1a9359c0cdbb"
+    },
+    {
+      "text": "😀Å\u0000🏳️‍🌈\r🎉",
+      "well_formed": "😀Å\u0000🏳️‍🌈\r🎉",
+      "hash": "e9f0a23fc052b3accd28643c1bf2a67648ceadae1c591a9f74e900fb58f01c3f"
+    },
+    {
+      "text": "\udeb2\ude39\uda7c🏳️‍🌈",
+      "well_formed": "���🏳️‍🌈",
+      "hash": "5a8c460188bd0f1f3e8c360eb302b7631bf72101202808f172ea0ffb86b65145"
+    },
+    {
+      "text": "🎉🏳️‍🌈𝄞\ud8acB%\r",
+      "well_formed": "🎉🏳️‍🌈𝄞�B%\r",
+      "hash": "ad7e04e952241e1516838976918bc256599a9f9020a2527e1dfbc996fba5da52"
+    },
+    {
+      "text": "🏳️‍🌈>M",
+      "well_formed": "🏳️‍🌈>M",
+      "hash": "8226d5d45c7754347244cd3853853c22ef8f2963c3c2592369e34b245a32ecb1"
+    },
+    {
+      "text": "\udd9csCé👨‍👩‍👧",
+      "well_formed": "�sCé👨‍👩‍👧",
+      "hash": "fb6c1b29ff39e7fa6951712a76fbf27c3410ec48159350a45c0f2be0a802efa5"
+    },
+    {
+      "text": "\n가\udc1a😀\udead",
+      "well_formed": "\n가�😀�",
+      "hash": "da7d3bf495dbf54ad9ef71060cc7a44738087e5d226f119d67886e6a163997e6"
+    },
+    {
+      "text": "👨‍👩‍👧\u0000",
+      "well_formed": "👨‍👩‍👧\u0000",
+      "hash": "7f381d06e6af60499854b1400a124d10a26a014df21518efe7d5e1b40157008d"
+    },
+    {
+      "text": "\ud96c",
+      "well_formed": "�",
+      "hash": "83d544ccc223c057d2bf80d3f2a32982c32c3c0db8e2674820da5064783fb097"
+    },
+    {
+      "text": "👨‍👩‍👧😀%w\uddf8Å",
+      "well_formed": "👨‍👩‍👧😀%w�Å",
+      "hash": "99f5cdc4f5b1a7c303ac3b2333a77521e4271dcd2bc71e780c42639f757f05e5"
+    },
+    {
+      "text": "\ud803\r\n\ud9f2Å👨‍👩‍👧",
+      "well_formed": "�\r\n�Å👨‍👩‍👧",
+      "hash": "10a1539958f9d13f6ece8da2ddad942ada12f42f7f2df8c0cf88ca4b2d4056e8"
+    },
+    {
+      "text": "가",
+      "well_formed": "가",
+      "hash": "a0d2271e0fe8929d025eb859cde49251ba70c86abb76123f03f8d8eda1c98939"
+    },
+    {
+      "text": "𝄞ÅÅ",
+      "well_formed": "𝄞ÅÅ",
+      "hash": "6b4b0f03e72726aa896493d1d19cfdb1477e798253a2cc2ddf740a3981d8fb5c"
+    },
+    {
+      "text": "ÅÅ\n🏳️‍🌈",
+      "well_formed": "ÅÅ\n🏳️‍🌈",
+      "hash": "846ba2062a49f7515b51d2783c3b1856800505d3e6eda1ebb8e5a32972191109"
+    },
+    {
+      "text": "\udf8b,[🎉\ud96c",
+      "well_formed": "�,[🎉�",
+      "hash": "8cdd8cc6e54e8133fc30752079b40dd9539f5589662a21fc959840ccc0423476"
+    },
+    {
+      "text": "é",
+      "well_formed": "é",
+      "hash": "bf12767b0f2a56b2190075bae8169f656e3ce8d6357d4aff184bc6c7ea48f9f6"
+    },
+    {
+      "text": "\udc00",
+      "well_formed": "�",
+      "hash": "83d544ccc223c057d2bf80d3f2a32982c32c3c0db8e2674820da5064783fb097"
+    },
+    {
+      "text": "(=é👨‍👩‍👧",
+      "well_formed": "(=é👨‍👩‍👧",
+      "hash": "03f56519c2295689cdcbd9b71b1a90dc5823a7bec72e01a0012a5fe56fb389b2"
+    },
+    {
+      "text": "é",
+      "well_formed": "é",
+      "hash": "4a99557e4033c3539de2eb65472017cad5f9557f7a0625a09f1c3f6e2ba69c4c"
+    },
+    {
+      "text": "\ud864👨‍👩‍👧👨‍👩‍👧\u0000👨‍👩‍👧",
+      "well_formed": "�👨‍👩‍👧👨‍👩‍👧\u0000👨‍👩‍👧",
+      "hash": "3d8b56eeb07b05ca7493594acba7ee07b03a623ca0ad12c7adacd5ed14f27417"
+    },
+    {
+      "text": "\uda87é\udfca\ude39",
+      "well_formed": "�é��",
+      "hash": "7e3f5c19bb6e1b09d053003a5da10fe9786cd3abbf3065073814ddbd129b8063"
+    },
+    {
+      "text": "'",
+      "well_formed": "'",
+      "hash": "265fda17a34611b1533d8a281ff680dc5791b0ce0a11c25b35e11c8e75685509"
+    }
+  ],
+  "subtree_cases": [
+    {
+      "pairs": [
+        [
+          "_k_-__9yk",
+          "👨‍👩‍👧"
+        ],
+        [
+          "9d_-b-_m",
+          "\udb31Å🎉"
+        ],
+        [
+          "_C_H_oX",
+          "\ud896👨‍👩‍👧@ue\ud86e,s_"
+        ],
+        [
+          "__6yw0H-14",
+          "s$I)Å𝄞LkIT"
+        ]
+      ],
+      "hash": "3d5770c1364a08a3e5995f987336addce048e96659d1a12da0e4a0cdc890f429"
+    },
+    {
+      "pairs": [
+        [
+          "P6_6_6E-R",
+          "󉗪\nlK#J"
+        ],
+        [
+          "-ega2-9",
+          "\udb24😀\udf6b"
+        ]
+      ],
+      "hash": "f09bf5f6934b6f9109b0636d5d0c012f89832265ce074aae8a7d80af2bad836f"
+    },
+    {
+      "pairs": [
+        [
+          "-h-nBx_",
+          "🏳️‍🌈é𝄞🎉\r\n"
+        ]
+      ],
+      "hash": "e79cf9ff3f838c36677a758de25a989d7619d88f11653a9d156c50390ecd87ed"
+    },
+    {
+      "pairs": [
+        [
+          "1l-0_b10",
+          "\r🏳️‍🌈𝄞\ud8ed가"
+        ]
+      ],
+      "hash": "cef614bdd0ee7c50acec591cbd90576a59d44a9a6f3783346bcc3122a2601856"
+    },
+    {
+      "pairs": [
+        [
+          "-U1_q_qD",
+          "𝄞"
+        ]
+      ],
+      "hash": "1db28d1736d6f417051c7a1fd897152eecbd4b3c8beadd4b814642044ab917fa"
+    },
+    {
+      "pairs": [
+        [
+          "4_0fQ_",
+          "2 \n\n\r\n가"
+        ],
+        [
+          "_34r7R",
+          "_5\""
+        ],
+        [
+          "r4___-_",
+          "\udd53\udc24\udd90 !\u0000\ud9fe"
+        ],
+        [
+          "N-zuy8g_",
+          "Å\udca8;"
+        ]
+      ],
+      "hash": "2efafcb76b7720fdaefb2416bf62afe8cff17aa99b4bdfe30d8c19dede85490c"
+    },
+    {
+      "pairs": [
+        [
+          "_WY-on_Nr",
+          "\udc03"
+        ],
+        [
+          "-__--0b__Y",
+          "\r"
+        ],
+        [
+          "DB_1X_-ycd",
+          "\udc40𐠇C,7\udc06"
+        ],
+        [
+          "3X5_duvL",
+          "😀👨‍👩‍👧"
+        ]
+      ],
+      "hash": "d91d60ac33e381157dd22380d1ca57a1f02249d76dde6d0d436ee8975afe84f5"
+    },
+    {
+      "pairs": [
+        [
+          "x-c-_J-",
+          "CKAg"
+        ]
+      ],
+      "hash": "958b904b2794bb91eb9f47e684c273ddc79571752fd040b8e79ab2ee20e6fa23"
+    },
+    {
+      "pairs": [
+        [
+          "_2X6_8j-9o",
+          "n'}<"
+        ],
+        [
+          "1-_YOyf",
+          "\ud8e2👨‍👩‍👧Å"
+        ],
+        [
+          "9c__-__",
+          "\udc3e🏳️‍🌈"
+        ],
+        [
+          "fR-_qP6-1_",
+          "\u0000\udffe🏳️‍🌈\udcda\uda35"
+        ]
+      ],
+      "hash": "585cdddbd9404a1b8f4ac84397ca90fc8d6bd86009e09d0e0a1788a3fc49f953"
+    },
+    {
+      "pairs": [
+        [
+          "81-_B0-I",
+          "\udf15ÅÅ'/\ud803Å"
+        ]
+      ],
+      "hash": "917a3e511a968f64bb418c8ab21712a8913257fed6596686a8a4203d125f0085"
+    },
+    {
+      "pairs": [
+        [
+          "---oC_-",
+          "\u0000\n"
+        ],
+        [
+          "V_-HHpOl",
+          "😀🏳️‍🌈򗠲🎉"
+        ],
+        [
+          "-_O-CR___",
+          "🏳️‍🌈\ud8c8\u0000é\n"
+        ],
+        [
+          "_hM-2C--",
+          "\u0000\n\udb2e"
+        ]
+      ],
+      "hash": "be01062675757eb309ee3586f2b62307fc430281c5de9f930c84ef294e2160b5"
+    },
+    {
+      "pairs": [
+        [
+          "2x9q__mE4",
+          ""
+        ],
+        [
+          "KXs___P-_",
+          "\ud972🎉"
+        ],
+        [
+          "-k-__jE",
+          "\r\n8\udca7"
+        ]
+      ],
+      "hash": "1e8b0fab63c69afe46038281e95a0d5362eaebb16dcb7e6cefb9dc1b49b2130e"
+    },
+    {
+      "pairs": [
+        [
+          "mzY-608-5",
+          "\ud931\ud85f\u0000"
+        ],
+        [
+          "Vz_k1_-",
+          "👨‍👩‍👧\r\n"
+        ]
+      ],
+      "hash": "ebc56c5ecc73751cff3f142da2f157f0f0a23caa7a853ef965d1ddc9fb5661fa"
+    },
+    {
+      "pairs": [
+        [
+          "--V_0j24",
+          "🏳️‍🌈\r👨‍👩‍👧\ude4c\udd29\n"
+        ],
+        [
+          "-wWAOgtH",
+          "\r\n"
+        ]
+      ],
+      "hash": "386d838748460780e63311e79e174062d0929b9927597afa700c26da895d6a12"
+    },
+    {
+      "pairs": [
+        [
+          "8Cw_T-4--i",
+          "\ude36\r\n\r\né𝄞"
+        ]
+      ],
+      "hash": "ece3dcbbcd635a70714c573516edde63d3d7abddf4ed06c5224bbfd9d2d92e7c"
+    },
+    {
+      "pairs": [
+        [
+          "3_5-n-G",
+          "\ud9a4Å가#&Z"
+        ]
+      ],
+      "hash": "c04e493727348cafe843b15787f9dbe5d37497612026ae90b3e0e76c50188838"
+    },
+    {
+      "pairs": [
+        [
+          "Nz--1w",
+          "Å\udcae\uda56"
+        ],
+        [
+          "r7-m99-f-I",
+          "\udb08\udae4🎉"
+        ]
+      ],
+      "hash": "f65ac26c4cc34b2dbfd6b6b8e2a3746e05c5793d468eda742b91942e16bc6569"
+    },
+    {
+      "pairs": [
+        [
+          "_YP1rx-l",
+          "🏳️‍🌈👨‍👩‍👧"
+        ],
+        [
+          "_Xo0-zVwC",
+          "\ud930uW;,\udc3d𝄞👨‍👩‍👧"
+        ]
+      ],
+      "hash": "2a6177827a14817d0a106e1fda8d8c9c18f7283ffe3b7fffa9c6f6f97e155b6b"
+    },
+    {
+      "pairs": [
+        [
+          "9x89_--_",
+          "Å\r\n\u0000\r\udd19"
+        ],
+        [
+          "-_0-uh_u_",
+          "가"
+        ]
+      ],
+      "hash": "b2b7876819065b19051b43b44612cc68c2cdf1241be2c65fef443ac952cff305"
+    },
+    {
+      "pairs": [
+        [
+          "-toStrin",
+          "\ud989👨‍👩‍👧"
+        ]
+      ],
+      "hash": "953bcde54691b17f092e5bbd492252722e9f959d1e7687041d17fc24a2c8f565"
+    },
+    {
+      "pairs": [
+        [
+          "1_3_-b-J_",
+          "\ud9f5🏳️‍🌈\udcbf"
+        ]
+      ],
+      "hash": "293bd7cef6b375cbab65601fcc56a1f5e0eca628ccc5b34645a64250e0540f93"
+    },
+    {
+      "pairs": [
+        [
+          "-e7_Lr9B-",
+          "\udee81(é\r\n"
+        ],
+        [
+          "3callerar",
+          "gT😀\u0000"
+        ]
+      ],
+      "hash": "4b201d851335fdbc66abedb1a29c3fcd927f194a3152560df796ef3631c33db0"
+    },
+    {
+      "pairs": [
+        [
+          "valueOfe6_",
+          "\udf7e😀𝄞"
+        ],
+        [
+          "Hf_M_-8__",
+          "가🎉\udbfdacS0\udb3c"
+        ]
+      ],
+      "hash": "7970b53b1e6bffaa676240bfa430942e27249d9e5fee68d0654fed3c5f4b862d"
+    },
+    {
+      "pairs": [
+        [
+          "C__proto",
+          "\r"
+        ]
+      ],
+      "hash": "3ecf5ab7df548b0d0a2b12bd2be35324e25acbfa8cfee4bd829c1156697adf1b"
+    },
+    {
+      "pairs": [
+        [
+          "--____E3_",
+          "\udb94"
+        ],
+        [
+          "_-s_j8F_",
+          "\uddbd🎉\r"
+        ],
+        [
+          "8-U2e3r9__",
+          "𝄞]"
+        ]
+      ],
+      "hash": "d0c59091796549200d8c2ba3af2fa85cf33861d33482eb6963ee5c1af22f671b"
+    },
+    {
+      "pairs": [
+        [
+          "kG1_9_-_P",
+          "\r\n\ud92bS=6X👨‍👩‍👧🏳️‍🌈"
+        ]
+      ],
+      "hash": "c4506be21f53820536480a823afa3f2529a13170ad6ed570fdde7963986a5666"
+    },
+    {
+      "pairs": [
+        [
+          "rqSiy-",
+          "\udba21-t1\n"
+        ],
+        [
+          "42_v_--0",
+          "s+D1"
+        ],
+        [
+          "-9---B_z",
+          "Å\nÅ"
+        ],
+        [
+          "Q_-_Jg-_v",
+          "򧼣"
+        ]
+      ],
+      "hash": "60048e1d3130d12d1d933bb23e3306c62fee608e81b05f2a5bdf9a42658f140b"
+    },
+    {
+      "pairs": [
+        [
+          "vF_e135w_L",
+          "\ud976é"
+        ]
+      ],
+      "hash": "11cf28cc9e31f1fd5f87e4b6beafa64393d3d5ba8366b24c8841d5e6ea487bc4"
+    },
+    {
+      "pairs": [
+        [
+          "_--6y_-Lb",
+          "가|j👨‍👩‍👧🏳️‍🌈\n\udcc9"
+        ],
+        [
+          "L_-q-sW__5",
+          "\udec3😀"
+        ],
+        [
+          "Q_J_4_i5",
+          "𥿋🎉"
+        ]
+      ],
+      "hash": "2424f34a609b993062ab73ac5c472a58a8192ee8e617b9942f6ff7cfb7fd0c92"
+    },
+    {
+      "pairs": [
+        [
+          "s-96Qd9_",
+          "é🏳️‍🌈Å"
+        ],
+        [
+          "lgP9__P-",
+          "👨‍👩‍👧😀\udc89"
+        ]
+      ],
+      "hash": "7e0c2782401333e3e2b6609770e01d8e68e0ff55f81f52667a861fb8143cdf6b"
+    },
+    {
+      "pairs": [
+        [
+          "A-_YnQ_d",
+          "🏳️‍🌈"
+        ],
+        [
+          "YVsS-Yv4z",
+          "\r\n\ud996Å"
+        ]
+      ],
+      "hash": "7e35df8ede8a60fd3149d9deba7da343b815eeeffae11a250a5faa363f2b7752"
+    },
+    {
+      "pairs": [
+        [
+          "____Y0m_n-",
+          "KH👨‍👩‍👧🏳️‍🌈🏳️‍🌈"
+        ],
+        [
+          "J-__---K",
+          "👨‍👩‍👧,🎉👨‍👩‍👧\udaa2👨‍👩‍👧"
+        ],
+        [
+          "_ml5CAr_0",
+          "$2y🎉\ud9d6\uda5c"
+        ],
+        [
+          "88___9dbQ",
+          "\r\n\ud90f"
+        ]
+      ],
+      "hash": "19f5e3b6219b644468bf9ad5c8da693fb605dfad9146223115c51f24f352a72f"
+    },
+    {
+      "pairs": [
+        [
+          "_-p6N_Yv",
+          "\ud8a0\ud9b0\r\n􉡟"
+        ],
+        [
+          "-_E9Eil",
+          "\r"
+        ]
+      ],
+      "hash": "10fe165398762894c6fff3ba1e448d7c4d73cf13bcf3c27cc4905693982cfe8a"
+    },
+    {
+      "pairs": [
+        [
+          "-4l----71",
+          "👨‍👩‍👧"
+        ],
+        [
+          "_p85--",
+          "u_&;\ud96d"
+        ]
+      ],
+      "hash": "5488cbc89ee6630f5231e4f633daa45177a19b59be6523e1b4deb8e1ad4218c5"
+    },
+    {
+      "pairs": [
+        [
+          "-5__28",
+          "VS4\"ÅÅ😀\ud966"
+        ]
+      ],
+      "hash": "e857b42faf0c61bdbf468cc1fc63401d11379410f7129db2ef28f4e4b29008f4"
+    },
+    {
+      "pairs": [
+        [
+          "9_WeL-_",
+          "🎉{i\udca3\ude66\n"
+        ],
+        [
+          "--HE8vU--8",
+          "\uda32\ud9d4éé"
+        ],
+        [
+          "__-_e_-6u",
+          "🎉\ud847"
+        ]
+      ],
+      "hash": "37f290575a51ac6849d72e5f06645cd45d688ec0dcbdf78a7490f0bc495455af"
+    },
+    {
+      "pairs": [
+        [
+          "_4u_s_-C_-",
+          "\ud8e5\uda8e🏳️‍🌈\ude55👨‍👩‍👧"
+        ],
+        [
+          "--9_6Bp6",
+          "Ge@l🏳️‍🌈\u0000👨‍👩‍👧Å\uda92"
+        ],
+        [
+          "_G_o_Z",
+          "😀-'T🏳️‍🌈Å"
+        ],
+        [
+          "_Z_kkd3",
+          "\udc94\uded7Btjc\udba4"
+        ]
+      ],
+      "hash": "a2eb3b6232b33bd08c3c6c7670b0e7fbae7ad8f9635ad8fe0da4ba0ea9bbe72a"
+    },
+    {
+      "pairs": [
+        [
+          "A___zu",
+          "\r\n"
+        ],
+        [
+          "W2k---",
+          "\ud82a<s🏳️‍🌈🏳️‍🌈é"
+        ],
+        [
+          "q-_-_-g",
+          "\u0000Å가Å\udac7"
+        ]
+      ],
+      "hash": "d369a4058b23f20407042417f161e66907c5a1e0c055eaa75979c7fca5065d99"
+    },
+    {
+      "pairs": [
+        [
+          "9_8oVfK_-V",
+          "🏳️‍🌈Å\ude39"
+        ],
+        [
+          "9x1-Zu6",
+          "가"
+        ],
+        [
+          "N3R76_7w_N",
+          "\ude2d😀"
+        ]
+      ],
+      "hash": "aae320fcbec2e85f50e16b1d68fcc1e49b56008c43b61b47c18d376fd0e38e7b"
+    },
+    {
+      "pairs": [
+        [
+          "-WZ-p__",
+          "😀가🏳️‍🌈\udfcb"
+        ],
+        [
+          "mt_4s1-7",
+          "\ud8d8Å"
+        ]
+      ],
+      "hash": "781851dbb00baa6c7d43b4f9761727dc8ee6cb1bc0dd46aedfc320cb747c176b"
+    }
+  ]
+}

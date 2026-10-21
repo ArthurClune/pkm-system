@@ -4,7 +4,7 @@
 // so a strip above it stands in for those keys. A button press is fed to
 // keyboardPolicy.decideEditorKey as the key it names, so each button does
 // exactly what that key does on a hardware keyboard.
-import type { TextSelection } from "./keyEdits";
+import { snapCaret, type TextSelection } from "./keyEdits";
 
 export interface KeyboardBarKey {
   /** The glyph on the button. */
@@ -46,8 +46,10 @@ export function phoneViewportContent(content: string): string {
  * the selection and put the caret after it. A bar press has no native
  * keystroke to fall back on, so the shell applies this instead. */
 export function insertTypedChar(
-  text: string, selStart: number, selEnd: number, ch: string,
+  text: string, rawStart: number, rawEnd: number, ch: string,
 ): TextSelection {
+  const selStart = snapCaret(text, rawStart);
+  const selEnd = snapCaret(text, rawEnd);
   const caret = selStart + ch.length;
   return {
     text: text.slice(0, selStart) + ch + text.slice(selEnd),

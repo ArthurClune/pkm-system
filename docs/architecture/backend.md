@@ -458,8 +458,8 @@ changes whether or where an op applies. An invalid hint can't fail the
 batch: `find_op_title_violation`, whose violations are a 400, never looks at
 it. A hint naming no current page (renamed or deleted since the client saw
 it) is shown as inline code, which the ref extractor skips, so the header
-cannot re-create that page (`ops_apply._hint_page_exists`). An existing page
-is linked only when `[[Page]]` reads back through `refs.extract` as that same
+cannot re-create that page (`ops_apply._hint_page`). An existing page is
+named by its stored title, not the hint's spelling, and linked only when `[[Page]]` reads back through `refs.extract` as that same
 title (`conflict_notes.existing_page_label`). A title ending in `]` or holding
 a backtick has no `[[..]]` spelling and is refused as a page title
 (`refs.title_syntax_reason`), so a hint naming one is `(page unknown)`. Header and child uids are minted (`contracts.ops.new_uid`)
@@ -761,10 +761,17 @@ before it meets `pages.title` or `sidebar_entries.title`.** Both are exact
 matches. A raw title, or a link's normalized one, therefore misses its page
 once the flag is active. The entry points are:
 
-- a `{title:path}` route parameter
+- a `{title:wholepath}` route parameter (page read, delete, rename and export)
 - the `page` filter on `/api/todos` and `/api/changed`
 - a `[[Page]]` operand in `{{query}}`, via `query_exec.parse_canonical_query`
 - the `POST /api/sidebar` title
+
+The page routes use the DOTALL `wholepath` convertor (`server/wholepath.py`),
+not Starlette's `path`. `path` stops before a final newline, so `Foo%20%0A`
+would reach the route as `Foo ` and miss `Foo`, and an inner newline matches
+no route. `tests/test_title_routes_props.py` checks every title-taking route
+and CLI verb against a generated spelling of each title; its route list comes
+from the OpenAPI document, so a new title-taking route fails it until covered.
 
 The web's sidebar form sends its input untrimmed. `trim()` would also strip
 NBSP, which canonicalisation keeps.

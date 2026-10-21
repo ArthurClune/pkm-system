@@ -1,13 +1,15 @@
 """Page titles must never contain a control whitespace char.
 
-Starlette's `{title:path}` converter compiles to `^/api/page/(?P<title>.*)$`
-with no re.DOTALL, so `.` never matches a newline: a page whose title holds
-one is unreachable through GET, DELETE, rename and export alike. Nothing
-ever calls a create endpoint for these -- a multi-line [[link]] in block
-text is enough, since ref indexing calls get_or_create_page() for every
-extracted ref. So the title is normalized where it is born (refs.extract)
-and again at the single creation choke point (store.get_or_create_page).
+Nothing ever calls a create endpoint for these -- a multi-line [[link]] in
+block text is enough, since ref indexing calls get_or_create_page() for
+every extracted ref. So the title is normalized where it is born
+(refs.extract) and again at the single creation choke point
+(store.get_or_create_page). A spelling with a newline that arrives as a
+lookup key is folded onto the same title, URL path included: the page
+routes take `{title:wholepath}`, whose pattern matches a newline.
 """
+from urllib.parse import quote
+
 from pkm.database import connect
 
 MULTILINE = "Paper/Levels of AGI:\nthe Path to AGI"
@@ -161,3 +163,34 @@ def test_a_title_that_is_only_whitespace_is_still_rejected(client):
     """strip()-to-blank already 422s; a newline-only title must too, rather
     than normalizing to "" and creating a blank-titled page."""
     assert client.post("/api/pages", json={"title": "\n\t"}).status_code == 422
+
+
+def test_page_routes_fold_a_newline_in_the_url_onto_the_page(client):
+    # Starlette's `path` convertor matched no route for an inner newline,
+    # and dropped a final one, leaving "Fo o " (a different, missing title).
+    assert client.post("/api/pages", json={"title": "Fo o"}).status_code == 200
+    for spelling in ("Fo\no", "Fo o \n", "\tFo o"):
+        path = quote(spelling, safe="")
+        page = client.get(f"/api/page/{path}")
+        assert page.status_code == 200, spelling
+        assert page.json()["page"]["title"] == "Fo o"
+        assert client.get(f"/api/export/page/{path}").status_code == 200
+    renamed = client.post(f"/api/page/{quote('Fo o ' + chr(10))}/rename",
+                          json={"new_title": "Fo o 2"})
+    assert renamed.json() == {"result": "renamed", "title": "Fo o 2"}
+    assert client.delete(f"/api/page/{quote('Fo o 2' + chr(10))}").status_code == 200
+    assert client.get("/api/page/Fo%20o%202").status_code == 404
+
+
+def test_an_orphan_edits_header_links_the_page_the_hint_names(client, seeded_config):
+    # The hint's own spelling made the header a multi-line link.
+    r = _post_ops(client, {"op": "update_text", "uid": "gone_blk01", "text": "kept",
+                           "page_title": "Machine\nLearning "})
+    assert r.status_code == 200
+    con = connect(seeded_config.db_path)
+    try:
+        texts = [r["text"] for r in con.select("SELECT text FROM blocks")]
+    finally:
+        con.close()
+    assert ("[[conflict]] [[Machine Learning]] — edit to a block the server"
+            " no longer has") in texts

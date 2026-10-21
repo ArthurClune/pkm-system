@@ -51,12 +51,10 @@ _WS_RUN = re.compile(r"[ \t\n\r\f\v]+")
 def normalize_title(text: str) -> NormalizedTitle:
     """Collapse the whitespace in a page title that holds a control char.
 
-    A title containing a literal newline cannot be addressed through the
-    HTTP API at all: Starlette compiles `{title:path}` to `.*` without
-    re.DOTALL, so GET/DELETE/rename/export on /api/page/<title> all 404
-    (six real pages reached that state via multi-line
-    [[links]], four of them holding notes). Titles are therefore normalized
-    where they are born rather than at the routes that cannot reach them.
+    Titles are normalized where they are born, so no page holds control
+    whitespace: a multi-line [[link]] names the one-line title, and a
+    lookup key arriving with a newline (a page route's `{title:wholepath}`,
+    a query param) is folded onto that same title by `read_title`.
 
     Deliberately narrow: a title with no control whitespace is returned
     byte for byte, so runs of plain spaces in the existing graph ("Two

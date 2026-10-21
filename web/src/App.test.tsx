@@ -573,3 +573,15 @@ it("a never-opened drawer does not steal focus on mount or navigation", async ()
     .toBeInTheDocument();
   expect(hamburger).not.toHaveFocus();
 });
+
+it("a /page/ URL whose title holds a newline opens the one-line title's page", async () => {
+  // The router's `*` matches no newline, so such a URL rendered no route.
+  stubFetch([["/api/page/Machine%20Learning", pagePayload(
+    canonicalTitleOf("Machine Learning"), [block("uid_m1", "the ML page")])]]);
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%0ALearning%09"]}>
+      <App />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText("the ML page")).toBeInTheDocument();
+});

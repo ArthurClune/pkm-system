@@ -73,7 +73,8 @@ temp directory and serves it zipped.
 `GET /api/export/page/{title}` (`routes_export.py` + `export/resolve.py`) is
 the end-user download. It renders differently from the backup path: dynamic
 content resolves to plain text, so the download reads like what a reader of the
-live page would see.
+live page would see. A filename outside plain ASCII goes in the header's
+RFC 5987 `filename*` form, since a header value must encode as latin-1.
 
 - `((refs))` resolve recursively, not one level, and are inlined as plain text
   rather than wrapped in parens.

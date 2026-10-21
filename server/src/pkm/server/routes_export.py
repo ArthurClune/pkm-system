@@ -22,6 +22,7 @@ import tempfile
 import zipfile
 from datetime import date
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
@@ -43,6 +44,7 @@ from pkm.server.store import fetch_page
 from pkm.server.sync_meta import read_title
 from pkm.server.tempfile_response import CleanupFileResponse
 from pkm.server.tree import build_tree, collect_block_ref_uids
+from pkm.server import wholepath  # noqa: F401 -- registers {title:wholepath}
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -123,7 +125,7 @@ def _gather_resolution_data(
     return uid_to_text, query_results
 
 
-@router.get("/api/export/page/{title:path}")
+@router.get("/api/export/page/{title:wholepath}")
 def export_page_markdown(title: RawTitle,
                          db: Db = Depends(get_db)) -> Response:
     canonical_title = read_title(db, title)
@@ -140,7 +142,17 @@ def export_page_markdown(title: RawTitle,
     filename = page_filename(page["title"], set())
     return Response(
         content=body, media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+        headers={"Content-Disposition": _attachment(filename)})
+
+
+def _attachment(filename: str) -> str:
+    """A name outside plain ASCII goes in RFC 5987's `filename*`: a header
+    value must encode as latin-1, which an emoji or CJK title cannot, and
+    a raw `"` would end the quoted form early."""
+    if filename.isascii() and '"' not in filename:
+        return f'attachment; filename="{filename}"'
+    return f"attachment; filename*=utf-8''{quote(filename)}"
+
 
 
 @router.get("/api/export.zip")

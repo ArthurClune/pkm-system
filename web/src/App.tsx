@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Link, Route, Routes, useNavigate } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import type { BlockUid, RawTitle } from "./api/brands";
 import { asRawTitle } from "./replica/titles";
 import { AssistantPanel } from "./assistant/AssistantPanel";
@@ -16,7 +16,9 @@ import { ThemeToggle } from "./components/ThemeToggle";
 import { TopBar } from "./components/TopBar";
 import { BlockStampsContext, SidebarContext } from "./contexts";
 import { DndProvider } from "./dnd/DndContext";
-import { ROUTES } from "./routeMeta";
+import { normalizeRefTitle } from "./grammar/scan";
+import { pagePath, titleFromPathname } from "./paths";
+import { PAGE_ROUTE_PREFIX, ROUTES } from "./routeMeta";
 import { SyncProvider } from "./sync/SyncProvider";
 import { useBlockStampsPref } from "./useBlockStampsPref";
 import { useRouteTitle } from "./useRouteTitle";
@@ -43,6 +45,34 @@ function NotFound() {
       <p>No app route matches this address.</p>
       <Link to={ROUTES.journal}>Go to Daily Notes</Link>
     </div>
+  );
+}
+
+/** The /page/ URL a title holding control whitespace (a hand-typed %0A)
+ * folds to, or null: the router's `*` compiles to a `.*` that matches no
+ * newline, so no route would render the URL as it is. */
+function foldedPagePath(pathname: string): string | null {
+  if (!pathname.startsWith(PAGE_ROUTE_PREFIX)) return null;
+  const title = titleFromPathname(pathname);
+  const folded = normalizeRefTitle(title);
+  return folded === title ? null : pagePath(folded);
+}
+
+/** The main pane's routes. */
+export function MainRoutes() {
+  const { pathname, search, hash } = useLocation();
+  const folded = foldedPagePath(pathname);
+  if (folded !== null) return <Navigate replace to={`${folded}${search}${hash}`} />;
+  return (
+    <Routes>
+      <Route path={ROUTES.journal} element={<Journal />} />
+      <Route path={ROUTES.currentWork} element={<CurrentWork />} />
+      <Route path={ROUTES.page} element={<PageView />} />
+      <Route path={ROUTES.help} element={<Help />} />
+      <Route path={ROUTES.files} element={<Files />} />
+      <Route path={ROUTES.settings} element={<Settings />} />
+      <Route path={ROUTES.notFound} element={<NotFound />} />
+    </Routes>
   );
 }
 
@@ -209,15 +239,7 @@ export function App() {
               <div className="content-area">
                 <TopBar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
                 <main className="main-pane">
-                  <Routes>
-                    <Route path={ROUTES.journal} element={<Journal />} />
-                    <Route path={ROUTES.currentWork} element={<CurrentWork />} />
-                    <Route path={ROUTES.page} element={<PageView />} />
-                    <Route path={ROUTES.help} element={<Help />} />
-                    <Route path={ROUTES.files} element={<Files />} />
-                    <Route path={ROUTES.settings} element={<Settings />} />
-                    <Route path={ROUTES.notFound} element={<NotFound />} />
-                  </Routes>
+                  <MainRoutes />
                 </main>
               </div>
               {rightSidebarOpen && (

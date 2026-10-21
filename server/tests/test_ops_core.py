@@ -62,7 +62,7 @@ def _landing(header: ExistingHeader | FreshHeader | None = None
 def _skip_ctx(op: BlockOp, *, block_exists: bool = False,
               parent_exists: bool = False, chain: tuple[str, ...] = (),
               header: ExistingHeader | None = None,
-              hint_page_exists: bool = False,
+              hint_page: str | None = None,
               page_title: CanonicalTitle = canonical_title_of(
                   "Machine Learning"),
               subtree: tuple[BlockUid, ...] = (uid_of("uid_b3"),),
@@ -78,7 +78,9 @@ def _skip_ctx(op: BlockOp, *, block_exists: bool = False,
     if (skip.kind in ("move_parent_missing", "move_cycle")
             or (skip.kind == "stale_page" and isinstance(op, MoveOp))):
         return StuckMoveContext(skip, _landing(header), page_title, subtree)
-    return LandedSkipContext(skip, _landing(header), hint_page_exists)
+    return LandedSkipContext(
+        skip, _landing(header),
+        None if hint_page is None else canonical_title_of(hint_page))
 
 
 def test_batch_parses_discriminated_ops():
@@ -348,7 +350,7 @@ def test_a_skip_context_that_does_not_fit_its_skip_kind_is_a_programmer_error():
     with pytest.raises(AssertionError):
         plan_op(0, move, LandedSkipContext(
             Skip("move_parent_missing", uid_of("uid_b3")), _landing(),
-            False))
+            None))
     with pytest.raises(AssertionError):
         plan_op(0, heading, StuckMoveContext(
             Skip("orphan_structural", uid_of("ghost1")), _landing(),
@@ -442,7 +444,7 @@ def _text_ctx(op: UpdateTextOp, current: str,
 
 def test_missing_block_creates_daily_header_naming_the_hint():
     op = _op(hint="AI Agent Security")
-    effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=True))
+    effs = plan_op(0, op, _skip_ctx(op, hint_page="AI Agent Security"))
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
     assert (header.page_id, header.parent_uid, header.order_idx) == (9, None, 4)
@@ -457,12 +459,22 @@ def test_missing_block_creates_daily_header_naming_the_hint():
                                           uid_of("uid_hd1"))
 
 
+def test_missing_block_header_links_the_stored_title_not_the_hints_spelling():
+    # Any spelling of the hint that names the page writes the same header.
+    op = _op(hint="AI Agent\nSecurity ")
+    effs = plan_op(0, op, _skip_ctx(op, hint_page="AI Agent Security"))
+    header = next(e for e in effs if isinstance(e, InsertBlock)
+                  and e.uid == "uid_hd1")
+    assert header.text == ("[[conflict]] [[AI Agent Security]] — edit to a "
+                           "block the server no longer has")
+
+
 @pytest.mark.parametrize("hint", [None, "  ", "a[[b"])
 def test_missing_block_without_usable_hint_says_page_unknown(hint):
-    # hint_page_exists is irrelevant here -- an unusable hint always falls
+    # the page it names is irrelevant here -- an unusable hint always falls
     # back to the generic label regardless.
     op = _op(hint=hint)
-    effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=True))
+    effs = plan_op(0, op, _skip_ctx(op, hint_page="Some Page"))
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
     assert header.text == ("[[conflict]] (page unknown) — edit to a block "
@@ -470,11 +482,11 @@ def test_missing_block_without_usable_hint_says_page_unknown(hint):
 
 
 def test_missing_block_hint_names_a_renamed_away_page_says_not_found():
-    # usable hint, but hint_page_exists is False: the page it names is gone
+    # usable hint, but it names no page: the page it names is gone
     # -- renamed or deleted since the client last saw it -- so the header
     # must not link it (that would recreate the page).
     op = _op(hint="Old Title")
-    effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=False))
+    effs = plan_op(0, op, _skip_ctx(op))
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
     assert header.text == ("[[conflict]] `Old Title` (page not found) — "
@@ -486,7 +498,7 @@ def test_missing_block_hint_with_backtick_and_no_page_says_page_unknown():
     # inline-code span can't safely wrap it, so this also falls back to the
     # generic label rather than emitting a broken/misleading code span.
     op = _op(hint="a`b")
-    effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=False))
+    effs = plan_op(0, op, _skip_ctx(op))
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
     assert header.text == ("[[conflict]] (page unknown) — edit to a block "
@@ -837,8 +849,8 @@ def test_unhashed_edit_of_missing_block_lands_like_a_hashed_one():
     op = UpdateTextOp(op="update_text", uid=uid_of("uid_t1"), text="new text",
                       page_title=raw_title_of("AI Agent Security"))
     hashed_op = _op(hint="AI Agent Security")
-    effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=True))
-    hashed = plan_op(0, hashed_op, _skip_ctx(hashed_op, hint_page_exists=True))
+    effs = plan_op(0, op, _skip_ctx(op, hint_page="AI Agent Security"))
+    hashed = plan_op(0, hashed_op, _skip_ctx(hashed_op, hint_page="AI Agent Security"))
     assert effs == hashed
     assert effs[0] == JournalBlock(uid_of("uid_t1"), deleted=True)
     assert [e.text for e in effs if isinstance(e, InsertBlock)] == [
@@ -848,7 +860,7 @@ def test_unhashed_edit_of_missing_block_lands_like_a_hashed_one():
 
 def test_create_under_missing_parent_lands_its_text_under_the_parent():
     op = _create_under()
-    effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=True))
+    effs = plan_op(0, op, _skip_ctx(op, hint_page="AI"))
     header = ("[[conflict]] [[AI]] — edit to a block the server no longer"
               " has")
     assert effs == (
@@ -868,7 +880,7 @@ def test_create_under_missing_parent_lands_its_text_under_the_parent():
 
 def test_create_under_missing_parent_names_a_missing_page_without_linking():
     op = _create_under(page_title=raw_title_of("Gone Page"))
-    effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=False))
+    effs = plan_op(0, op, _skip_ctx(op))
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
     assert header.text == ("[[conflict]] `Gone Page` (page not found) —"
@@ -1184,7 +1196,7 @@ def test_plan_stale_create_parks_text_under_a_code_span_header():
     assert plan_op(0, op, ctx) == (
         JournalBlock(uid_of("uid_c0000001"), True),
         *conflict_entry_effects(uid_of("uid_c0000001"), "kept text",
-                                orphan_header_text(raw_title_of("X"), False),
+                                orphan_header_text(raw_title_of("X"), None),
                                 ctx.landing))
 
 
@@ -1216,7 +1228,7 @@ def test_plan_stale_context_must_fit_the_op():
     move = _top_move("X")
     skip = Skip("stale_page", uid_of("uid_m0000001"))
     with pytest.raises(AssertionError):
-        plan_op(0, move, LandedSkipContext(skip, _landing(), False))
+        plan_op(0, move, LandedSkipContext(skip, _landing(), None))
     create = _top_create("X", "t")
     with pytest.raises(AssertionError):
         plan_op(0, create, StuckMoveContext(

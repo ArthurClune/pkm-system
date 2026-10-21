@@ -50,12 +50,12 @@ def test_concurrent_rename_cannot_resurrect_the_old_title(
     from pkm.server.db import open_db
     from pkm.server.store import fetch_page, rename_page_rows
 
-    real_hint_page_exists = ops_apply._hint_page_exists
+    real_hint_page = ops_apply._hint_page
     ml_title = canonical_title_of("Machine Learning")
     ml_renamed_title = canonical_title_of("ML Renamed")
 
     def racing(db, page_title: RawTitle | None):
-        exists = real_hint_page_exists(db, page_title)  # True: not renamed yet
+        stored = real_hint_page(db, page_title)  # the page: not renamed yet
         con2 = open_db(seeded_config.db_path)
         con2.execute("PRAGMA busy_timeout=50")
         page = fetch_page(con2, ml_title)
@@ -64,9 +64,9 @@ def test_concurrent_rename_cannot_resurrect_the_old_title(
             rename_page_rows(con2, page["page_id"], ml_title,
                              ml_renamed_title, 1_800_000_000_000)
         con2.close()
-        return exists
+        return stored
 
-    monkeypatch.setattr(ops_apply, "_hint_page_exists", racing)
+    monkeypatch.setattr(ops_apply, "_hint_page", racing)
     r = client.post("/api/ops", json={
         "client_id": "c1", "batch_id": "gwwu-rename-race",
         "ops": [{"op": "update_text", "uid": "uid_zz_renamed",

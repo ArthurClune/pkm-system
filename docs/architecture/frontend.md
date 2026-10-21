@@ -236,6 +236,13 @@ The SPA's routes:
 | `/help` | The static keyboard-shortcut doc |
 | `*` | NotFound |
 
+`App.tsx`'s `MainRoutes` holds them. A `/page/` URL whose title holds control
+whitespace (a hand-typed `%0A`) is first redirected to the one-line title it
+folds to, because react-router compiles `*` to a `.*` that matches no
+newline. PageView, a sidebar panel and the Journal key their outline session
+by the page's stored title, whatever spelling opened them
+(`outline/titleKeys.props.test.tsx`).
+
 ### One table for route metadata
 
 `routeMeta.ts` holds the path, top-bar label and browser title for every
@@ -496,7 +503,7 @@ template rather than a built URL:
 
 so the generated `paths` table decides the path and query parameters, the JSON
 request body, and the response type. Path parameters are encoded per segment,
-because `{title:path}` routes carry namespace titles whose slashes must
+because `{title:wholepath}` routes carry namespace titles whose slashes must
 survive. Compile-time drift probes live in `api/typedClient.test.ts`; an
 expected-error directive that stops erroring fails the build.
 

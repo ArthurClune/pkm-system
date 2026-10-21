@@ -32,6 +32,17 @@ def test_export_page_markdown_returns_rendered_page(client):
     assert "[[Attention Is All You Need]] is a [[Paper]]" in body
 
 
+def test_export_page_markdown_names_a_non_latin1_title_in_filename_star(client):
+    # A header value must encode as latin-1, so a raw emoji in the quoted
+    # filename made the route raise instead of answering.
+    assert client.post("/api/pages", json={"title": "✨ Ideas"}).status_code == 200
+    r = client.get(f"/api/export/page/{quote('✨ Ideas', safe='/')}")
+    assert r.status_code == 200
+    assert r.headers["content-disposition"] == (
+        "attachment; filename*=utf-8''%E2%9C%A8%20Ideas.md")
+    assert r.text.startswith("# ✨ Ideas\n")
+
+
 def test_export_page_markdown_resolves_block_refs(client):
     # uid_b5 on "July 7th, 2026" is "See ((uid_b3)) for details"; uid_b3's
     # text lives on "Machine Learning" and is inlined as plain text (no

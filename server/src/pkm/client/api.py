@@ -31,6 +31,7 @@ from pkm.contracts.ops import BatchId, BlockOp, BlockUid, ClientId, OpBatch, Sha
 from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      AssetUploadResponse, Backlinks,
                                      BlockNode, BlockPayload, ChangedPayload,
+                                     ChangesPayload,
                                      GoodlinksCheckPayload, GroupsPayload,
                                      LocalCheckPayload, OpsAck, PagePayload,
                                      QueryPayload, RenamePageResponse,
@@ -303,6 +304,14 @@ class PkmClient:
             "POST", f"/api/page/{quote(ref_title, safe='/')}/rename",
             RenamePageResponse,
             json={"new_title": new_title, "allow_merge": allow_merge})
+
+    def plain_space_title_canonicalization(self) -> bool:
+        """The server's plain-space title flag: whether boundary U+0020 is
+        part of a title. Every changes window carries it, so a one-change
+        window is the cheapest read of it."""
+        return self._request("GET", "/api/sync/changes", ChangesPayload,
+                             params={"limit": 1}
+                             ).plain_space_title_canonicalization
 
     def audit_title_migration(self) -> TitleMigrationAuditPayload:
         return self._request("GET", "/api/migrations/title-canonicalization",

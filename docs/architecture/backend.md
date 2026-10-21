@@ -968,11 +968,15 @@ FastAPI's `/docs` and `/redoc` are disabled.
 The `/api/local*` routes are the only ones that read outside the data
 directory, and `/api/local/{path}` is the only one that returns file contents.
 `local_docs.clean_relative` rejects an absolute path, a `.` or `..` segment, a
-NUL or a backslash, and `is_within` re-checks the *resolved* candidate against
+control character (NUL, newline, DEL, C1) or a backslash, and `is_within` re-checks the *resolved* candidate against
 the resolved root. Every rejection is a 404, never a 403, so the response never
 confirms what exists. `/api/local/check` starts from a raw href in block text
 rather than an already-decoded path parameter, so it goes through
-`resolve_relative`, which unquotes exactly once.
+`resolve_relative`, which unquotes exactly once. The index lists only names
+`clean_relative` accepts (`visible_name` skips the rest, and a skipped directory
+is not entered), so the picker never offers a link the file route 404s. The file
+route's path parameter uses a DOTALL convertor: Starlette's `path` convertor
+stops before a final newline, which would serve `a` for `a%0A`.
 
 `_is_evicted` and `_is_dataless` in `routes_local.py` are the two eviction
 helpers, shared by both routes so they cannot disagree. `_is_evicted` covers iCloud

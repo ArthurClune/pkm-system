@@ -3,9 +3,9 @@ from pathlib import Path
 import pytest
 
 from pkm.local_docs import (LOCAL_PREFIX, clean_relative, disposition_for,
-                            error_page_html, extract_local_hrefs, is_within,
-                            local_href, media_type_for, resolve_relative,
-                            wants_html_error)
+                            error_page_html, extract_local_hrefs, index_order,
+                            is_within, local_href, media_type_for,
+                            resolve_relative, visible_name, wants_html_error)
 
 
 @pytest.mark.parametrize("raw, expected", [
@@ -127,3 +127,21 @@ def test_error_page_html_without_path():
     page = error_page_html(503, "try again", None)
     assert "<code>" not in page
     assert "503" in page
+
+
+def test_visible_name_maps_icloud_stub_to_real_name():
+    assert visible_name(".Gone.pdf.icloud", is_dir=False) == "Gone.pdf"
+
+
+def test_visible_name_hides_dotfiles_and_dot_dirs():
+    assert visible_name(".DS_Store", is_dir=False) is None
+    assert visible_name(".icloud", is_dir=False) is None
+    assert visible_name("..icloud", is_dir=False) is None
+    assert visible_name(".Trash", is_dir=True) is None
+    assert visible_name("Papers", is_dir=True) == "Papers"
+    assert visible_name("50% draft.pdf", is_dir=False) == "50% draft.pdf"
+
+
+def test_index_order_dedupes_and_sorts_case_insensitively():
+    assert index_order(["b/x.pdf", "A/y.pdf", "b/x.pdf", "a/z.pdf"]) == \
+        ["A/y.pdf", "a/z.pdf", "b/x.pdf"]

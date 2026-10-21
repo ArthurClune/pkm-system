@@ -41,10 +41,11 @@ type KeyPress = Pick<EditorKeyInput, "key" | "code" | "metaKey" | "ctrlKey"
   | "caretOnLastDisplayLine">;
 
 export function BlockInput({ node, cursor, handlers, readOnly,
-                             onRequestUpload }: {
+                             onRequestUpload, onRequestLocalFile }: {
   node: BlockNode; cursor: CaretOffset;
   handlers: OutlineHandlers; readOnly: boolean;
   onRequestUpload: (uid: BlockUid, at: CaretOffset) => void;
+  onRequestLocalFile: (uid: BlockUid, at: CaretOffset) => void;
 }) {
   const headingClass =
     node.heading === 1 ? " heading-1" :
@@ -183,6 +184,16 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       setText(text.slice(0, at) + text.slice(caret), at);
       handlers.onBlurBlock(node.uid);
       handlers.onGoodlinks(node.uid, at);
+      return;
+    }
+    // "/link-local-file": same blur-first shape as /upload; the tree opens
+    // the picker and splices the pick through handlers.onLinkLocalFile.
+    if (row.command === "link-local-file") {
+      const at = ctx.start - 1; // where the "/" was
+      ac.close();
+      setText(text.slice(0, at) + text.slice(caret), at);
+      handlers.onBlurBlock(node.uid);
+      onRequestLocalFile(node.uid, at);
       return;
     }
     const applied = row.command !== undefined

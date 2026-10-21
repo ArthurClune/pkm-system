@@ -11,6 +11,7 @@
 // switch for each one without removing a single case.
 import type { BlockUid } from "../api/brands";
 import type { HeadingLevel } from "../api/ops";
+import type { LocalFile } from "./localFiles";
 
 export interface OutlineHandlers {
   onFocusBlock(uid: BlockUid, cursor: number): void;
@@ -61,6 +62,10 @@ export interface OutlineHandlers {
    * GoodLinks and splice the `Local copy::` attribute at `cursor` in `uid`.
    * The block has already been blurred by the pick, like /upload. */
   onGoodlinks(uid: BlockUid, cursor: number): void;
+  /** /link-local-file (see outline/localFiles.ts): splice the picked file's
+   * `Local copy::` attribute at `cursor` in `uid`. Synchronous; a block that
+   * no longer exists is a no-op. */
+  onLinkLocalFile(uid: BlockUid, cursor: number, file: LocalFile): void;
   /** Shift-Cmd-V outline paste: parse the clipboard's
    * indentation into real blocks anchored at the caret. Plain Cmd-V and
    * single-line clipboards stay native. */

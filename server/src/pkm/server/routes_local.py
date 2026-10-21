@@ -1,6 +1,7 @@
 # pattern: Imperative Shell
-"""Serve files from Config.local_docs_root read-only. This is
-the one route that reads outside the data dir, so the containment
+"""Serve files from Config.local_docs_root read-only. The
+/api/local* routes are the only ones that read outside the data dir, and
+this file route is the only one that returns file contents, so the containment
 check in local_docs.py is the only guard: anything it rejects is a 404,
 and a resolved path that is not under the resolved root (a symlink out,
 say) is a 404 too. Never a 403: the response must not confirm what
@@ -31,14 +32,16 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from pkm.contracts.responses import LocalCheckPayload, LocalCheckProblem
+from pkm.contracts.responses import (LocalCheckPayload, LocalCheckProblem,
+                                     LocalIndexFile, LocalIndexPayload)
 from pkm.database import Db
 from pkm.local_docs import (LOCAL_PREFIX, clean_relative, disposition_for,
                             error_page_html, extract_local_hrefs, is_within,
-                            media_type_for, resolve_relative, wants_html_error)
+                            local_href, media_type_for, resolve_relative, wants_html_error)
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
+from pkm.server.local_index import default_scanner
 from pkm.server.local_open import default_prober
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -157,6 +160,25 @@ def check_local_links(db: Db = Depends(get_db),
                 problems.append(LocalCheckProblem(
                     uid=uid, page=title, href=href, status=status))
     return LocalCheckPayload(enabled=True, total=total, ok=ok, problems=problems)
+
+
+_INDEX_UNREADABLE = "the host can't read the local documents folder"
+
+
+@router.get("/api/local-index", response_model=LocalIndexPayload)
+def get_local_index(config: Config = Depends(get_config)) -> Response | LocalIndexPayload:
+    """Every visible file under the local documents folder with its
+    /api/local/ href, for the link-to-local-file picker. 404 when no
+    folder is configured; 503 with Retry-After when the host cannot list
+    it in time."""
+    if config.local_docs_root is None:
+        raise _NOT_FOUND
+    paths = default_scanner.scan(config.local_docs_root.resolve())
+    if paths is None:
+        return JSONResponse(status_code=503, headers={"Retry-After": "5"},
+                            content={"detail": _INDEX_UNREADABLE})
+    return LocalIndexPayload(files=[LocalIndexFile(path=p, href=local_href(p))
+                                    for p in paths])
 
 
 _NOT_DOWNLOADED = ("The file isn't downloaded on the host yet. The host has asked iCloud for it; "

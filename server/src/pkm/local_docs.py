@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import html
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote, unquote
@@ -99,6 +100,24 @@ def media_type_for(name: str) -> str:
 
 def local_href(rel: str) -> str:
     return LOCAL_PREFIX + quote(rel, safe="/")
+
+
+def visible_name(name: str, is_dir: bool) -> str | None:
+    """The name the local-file picker shows for a directory entry, or
+    None to skip it. An evicted file's `.Name.ext.icloud` stub shows as
+    `Name.ext`; every other dotfile or dot-directory is hidden."""
+    if not is_dir and name.startswith(".") and name.endswith(".icloud"):
+        real = name[1:-len(".icloud")]
+        return real if real and not real.startswith(".") else None
+    if name.startswith("."):
+        return None
+    return name
+
+
+def index_order(rels: Iterable[str]) -> list[str]:
+    """Distinct relative paths, case-insensitively sorted (case breaks
+    ties) so the picker's empty-query list is stable."""
+    return sorted(set(rels), key=lambda rel: (rel.casefold(), rel))
 
 
 def extract_local_hrefs(text: str) -> list[str]:

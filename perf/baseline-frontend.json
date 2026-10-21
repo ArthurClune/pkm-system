@@ -1,5 +1,5 @@
 {
-  "commit": "5eb6b93",
+  "commit": "f859c3a8",
   "env": {
     "chromium": "149.0.7827.55"
   },
@@ -111,7 +111,7 @@
       "rendered_fibers": {
         "class": "band",
         "max": 176,
-        "min": 176
+        "min": 172
       }
     },
     "K/drag-bottom": {
@@ -222,7 +222,7 @@
       "react_commits": {
         "class": "band",
         "max": 23,
-        "min": 23
+        "min": 22
       },
       "results_ms": {
         "class": "timing",
@@ -241,7 +241,7 @@
       "react_commits": {
         "class": "band",
         "max": 25,
-        "min": 25
+        "min": 24
       },
       "results_ms": {
         "class": "timing",

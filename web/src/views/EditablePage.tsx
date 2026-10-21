@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { EditableBlockTree } from "../components/EditableBlockTree";
@@ -45,6 +45,8 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
   // committed fallback DOM after the lease is already available.
   const outline = useOutline(title, initial, ownerRef.current);
   const ownsEditor = outline.ownsEditor;
+  // Set by the tree when the /link-local-file picker chunk fails to load.
+  const [pickerNotice, setPickerNotice] = useState<string | null>(null);
 
   // Only the editor can emit the expansion. A read-only outline (sync cannot
   // edit), or the fallback mount of a title already open elsewhere in the
@@ -132,6 +134,15 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
           </button>
         </p>
       )}
+      {ownsEditor && pickerNotice && (
+        <p className="editor-notice" role="status">
+          {pickerNotice}
+          <button type="button" className="btn-secondary"
+                  onClick={() => setPickerNotice(null)}>
+            Dismiss
+          </button>
+        </p>
+      )}
       {outline.blocks.length === 0 && ownsEditor ? (
         <div className="empty-drop-zone">
           <button className="empty-page" disabled={outline.readOnly}
@@ -144,7 +155,8 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
                            selection={outline.selection} handlers={handlers}
                            readOnly={outline.readOnly || !ownsEditor}
                            fallback={!ownsEditor} stamps={stamps}
-                           refCounts={refCounts} />
+                           refCounts={refCounts}
+                           onPickerNotice={setPickerNotice} />
       )}
       {ownsEditor && indicator && (
         <div className="drop-indicator"

@@ -27,6 +27,7 @@ import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
 import { goodlinksAttribute, goodlinksCandidates, goodlinksNotice } from "./goodlinks";
 import type { OutlineHandlers } from "./handlers";
 import { historyAnchors, invertOps } from "./history";
+import { localCopyAttribute } from "./localFiles";
 import { loadOutlineBlocks } from "./loadOutlineBlocks";
 import { substituteMissingDaily } from "./missingPage";
 import { planOutlinePaste } from "./paste";
@@ -484,6 +485,17 @@ export function useOutline(
         if (link.created) setGoodlinksNotice("Saved to Goodlinks");
       })();
     },
+    onLinkLocalFile: (uid, cursor, file) =>
+      run((b) => {
+        const node = findNode(b, uid);
+        if (!node) return { blocks: b, ops: [], focus: null };
+        // Same splice as /goodlinks, without the round trip.
+        const spliced = spliceUploadedMarkdown(node.text, cursor, localCopyAttribute(file));
+        const ops: BlockOp[] = [{ op: "update_text", uid, text: spliced.text }];
+        const focus = focusRef.current?.uid === uid
+          ? { uid, cursor: spliced.selStart } : null;
+        return { blocks: applyOps(b, ops, pageTitle), ops, focus };
+      }),
     // Multi-line text paste: one planned batch through run() —
     // flushed draft, optimistic apply, single server batch, single undo entry.
     onPasteOutline: (uid, selStart, selEnd, text) =>

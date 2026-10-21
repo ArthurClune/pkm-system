@@ -6,7 +6,7 @@
 // meanings to outline/keyboardPolicy.ts, mutations to the OutlineHandlers
 // port (implemented by useOutline).
 import { memo, useCallback, useEffect, useMemo, useRef,
-         useState } from "react";
+         useState, type ComponentType } from "react";
 import type { BlockUid } from "../api/brands";
 import type { HeadingLevel } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
@@ -21,6 +21,7 @@ import { ancestorChain, findNode, hidesChildren } from "../outline/tree";
 import { roamTableRows } from "../outline/roamTableRows";
 import { formatStamp, formatStampTitle, stampBand,
          stampTs } from "../outline/blockStamps";
+import type { LocalFile } from "../outline/localFiles";
 import { BlockInput } from "./BlockInput";
 import { BlockMenu } from "./BlockMenu";
 import { BlockRefBacklinksPopover } from "./BlockRefBacklinksPopover";
@@ -30,6 +31,28 @@ import { TocBlock } from "./TableOfContents";
 import { quoteContent } from "./blockPresentation";
 import { effectiveChildView, type EffectiveBlockView } from "./blockView";
 import { isTocMacro } from "./tocEntries";
+
+type PickerComponent = ComponentType<{
+  onPick: (file: LocalFile) => void;
+  onClose: () => void;
+}>;
+
+const PICKER_LOAD_FAILED = "Couldn't load the file picker; try again";
+
+// Loaded on first use so the picker and fzf, which only it reaches, stay out
+// of the entry chunk. The cached promise is cleared on failure, so the next
+// request retries instead of replaying the rejection.
+let pickerPromise: Promise<PickerComponent> | null = null;
+
+function loadPicker(): Promise<PickerComponent> {
+  if (!pickerPromise) {
+    pickerPromise = import("./LocalFilePicker").then((m) => m.LocalFilePicker);
+    pickerPromise.catch(() => {
+      pickerPromise = null;
+    });
+  }
+  return pickerPromise;
+}
 
 interface TreeProps {
   blocks: BlockNode[];
@@ -47,12 +70,17 @@ interface TreeProps {
   /** Incoming ((uid)) reference counts. Payload-fresh, like
    * block_ref_texts: PageView and Journal pass it; sidebar panels stay bare. */
   refCounts?: Record<string, number>;
+  /** Where the /link-local-file picker reports a failed chunk load (and
+   * clears it on the next request); the page renders it in its notice slot,
+   * like the /goodlinks outcome. Pass a stable function. */
+  onPickerNotice?: (notice: string | null) => void;
 }
 
 export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                                     readOnly, fallback = false,
                                     stamps = false,
-                                    refCounts = undefined }: TreeProps) {
+                                    refCounts = undefined,
+                                    onPickerNotice }: TreeProps) {
   const treeRef = useRef<HTMLDivElement | null>(null);
   // One instant for the whole tree, so two rows a millisecond either side of
   // a band edge can't be tinted inconsistently within a single paint. Re-read
@@ -87,6 +115,60 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     if (files.length === 0 || !target) return;
     void handlers.onFiles(target.uid, target.at, files);
   };
+  // The /link-local-file picker: tree-owned for the same reason as the upload
+  // input (the pick blurs, and so unmounts, the block's BlockInput). State,
+  // not a ref, because the open picker renders from it.
+  const [localFileTarget, setLocalFileTarget] = useState<{
+    uid: BlockUid; at: number;
+  } | null>(null);
+  const [Picker, setPicker] = useState<PickerComponent | null>(null);
+  // Bumped by every request and cancel, so a load that settles after the user
+  // gave up neither opens the picker nor shows a notice.
+  const localFileRequest = useRef(0);
+  const requestLocalFile = useCallback((uid: BlockUid, at: number) => {
+    const request = ++localFileRequest.current;
+    onPickerNotice?.(null);
+    setLocalFileTarget({ uid, at });
+    loadPicker().then(
+      (component) => setPicker(() => component),
+      () => {
+        if (request !== localFileRequest.current) return;
+        setLocalFileTarget(null);
+        onPickerNotice?.(PICKER_LOAD_FAILED);
+      },
+    );
+  }, [onPickerNotice]);
+  // Stable, so the picker's dismissal hook does not re-run on tree renders.
+  const closeLocalFile = useCallback(() => {
+    localFileRequest.current++;
+    setLocalFileTarget(null);
+  }, []);
+  // The picker's own Escape handling only exists once it has mounted.
+  const loadingLocalFile = localFileTarget !== null && Picker === null;
+  useEffect(() => {
+    if (!loadingLocalFile) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      closeLocalFile();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [loadingLocalFile, closeLocalFile]);
+  const pickLocalFile = useCallback((file: LocalFile) => {
+    if (localFileTarget) {
+      handlers.onLinkLocalFile(localFileTarget.uid, localFileTarget.at, file);
+    }
+    setLocalFileTarget(null);
+  }, [handlers, localFileTarget]);
+  // A target left set while editing is off would reopen the picker uninvited
+  // when editing returns.
+  const editingOff = fallback || readOnly;
+  useEffect(() => {
+    if (!editingOff) return;
+    localFileRequest.current++;
+    setLocalFileTarget(null);
+  }, [editingOff]);
   // Bullet context menu; one per tree, anchored at the pointer.
   const [menu, setMenu] = useState<{
     uid: BlockUid;
@@ -193,6 +275,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                          focusChain={focusChain}
                          handlers={handlers} readOnly={readOnly}
                          fallback={fallback} onRequestUpload={requestUpload}
+                         onRequestLocalFile={requestLocalFile}
                          viewMode="document" number={index + 1}
                          openMenuUid={menu?.uid ?? null}
                          stamps={stamps} nowMs={nowMs} refCounts={refCounts}
@@ -206,6 +289,9 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                accept={"image/*,application/pdf,text/plain,text/markdown,"
                  + "text/csv,application/json,.doc,.docx,.xls,.xlsx,.ppt,.pptx"}
                onChange={onPickUpload} />
+      )}
+      {!editingOff && localFileTarget && Picker && (
+        <Picker onPick={pickLocalFile} onClose={closeLocalFile} />
       )}
       {!fallback && menu && (
         <BlockMenu x={menu.x} y={menu.y} onClose={closeMenu}
@@ -310,7 +396,7 @@ function RefCountBadge({ uid, count, onOpen }: {
  * re-render every row of every mounted day. */
 const EditableBlock = memo(function EditableBlock(
                         { node, focus, selected, focusChain, handlers, readOnly,
-                          fallback, onRequestUpload, viewMode, number,
+                          fallback, onRequestUpload, onRequestLocalFile, viewMode, number,
                           openMenuUid, stamps, nowMs, refCounts, onOpenMenu,
                           onOpenRefPopover }: {
   node: BlockNode; focus: FocusTarget | null;
@@ -324,6 +410,8 @@ const EditableBlock = memo(function EditableBlock(
    * once files are chosen — see EditableBlockTree for why the
    * input can't live in BlockInput itself. */
   onRequestUpload: (uid: BlockUid, at: number) => void;
+  /** Open the tree-owned local file picker for `uid`, splicing at `at`. */
+  onRequestLocalFile: (uid: BlockUid, at: number) => void;
   viewMode: EffectiveBlockView;
   number: number;
   openMenuUid: string | null;
@@ -414,7 +502,8 @@ const EditableBlock = memo(function EditableBlock(
         </span>
         {focused ? (
           <BlockInput node={node} cursor={focus.cursor} handlers={handlers}
-                      readOnly={readOnly} onRequestUpload={onRequestUpload} />
+                      readOnly={readOnly} onRequestUpload={onRequestUpload}
+                      onRequestLocalFile={onRequestLocalFile} />
         ) : (
           <WrapperTag className={"block-text" + (quoted !== null ? " quote-block" : "")}
                       onClick={() => {
@@ -444,6 +533,7 @@ const EditableBlock = memo(function EditableBlock(
                            focusChain={focusChain}
                            handlers={handlers} readOnly={readOnly}
                            fallback={fallback} onRequestUpload={onRequestUpload}
+                           onRequestLocalFile={onRequestLocalFile}
                            viewMode={childrenView} number={index + 1}
                            openMenuUid={openMenuUid}
                            stamps={stamps} nowMs={nowMs} refCounts={refCounts}

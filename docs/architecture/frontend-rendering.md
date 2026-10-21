@@ -61,7 +61,8 @@ focus turns a block back into its source text.
 
 ## Lazy renderers and their caches
 
-KaTeX, beautiful-mermaid, stock mermaid, pdf.js and highlight.js each load
+KaTeX, beautiful-mermaid, stock mermaid, pdf.js, highlight.js and the
+`/link-local-file` picker (`EditableBlockTree`) each load
 behind a cached module-level `import()` promise, so Vite emits each as its own
 chunk. A rejected promise is cleared, so one failed fetch cannot wedge every
 later render. The service worker precaches every emitted `.js`/`.mjs`

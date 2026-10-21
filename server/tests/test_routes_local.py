@@ -1,4 +1,5 @@
 import os
+import shutil
 import threading
 from dataclasses import replace
 
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 from pkm.local_docs import local_href
 from pkm.server import routes_local
 from pkm.server.app import create_app
+from pkm.server.local_index import TreeScanner
 from pkm.server.local_open import OpenProber
 from pkm.database import connect
 
@@ -399,3 +401,103 @@ def test_navigation_to_existing_file_is_served_unchanged(local_client):
     r = local_client.get("/api/local/Papers/ML/Title%20one.pdf", headers=NAV)
     assert r.status_code == 200
     assert r.content.startswith(b"%PDF")
+
+
+# --- GET /api/local-index --------------------------------------------------
+
+def test_local_index_lists_files_with_hrefs(local_client):
+    r = local_client.get("/api/local-index")
+    assert r.status_code == 200
+    paths = [f["path"] for f in r.json()["files"]]
+    assert paths == ["Papers/Gone.pdf", "Papers/ML/50% draft.pdf",
+                     "Papers/ML/bundle.zip", "Papers/ML/Title one.pdf"]
+    by_path = {f["path"]: f["href"] for f in r.json()["files"]}
+    assert by_path["Papers/ML/Title one.pdf"] == local_href("Papers/ML/Title one.pdf")
+
+
+def test_every_index_href_is_served(local_client, local_root):
+    for name in ["a#b.pdf", "q?.pdf", "Programme (Public).pdf",
+                 "br[ack]et.pdf", "Caf\u00e9.pdf", "Cafe\u0301 nfd.pdf"]:
+        (local_root / "Papers" / name).write_bytes(b"%PDF-1.4\n")
+    names = ["a#b.pdf", "q?.pdf", "Programme (Public).pdf",
+             "br[ack]et.pdf", "Caf\u00e9.pdf", "Cafe\u0301 nfd.pdf"]
+    files = local_client.get("/api/local-index").json()["files"]
+    assert {f"Papers/{n}" for n in names} <= {f["path"] for f in files}
+    for f in files:
+        if f["path"] == "Papers/Gone.pdf":
+            continue  # evicted stub: the file route answers 503 by design
+        assert local_client.get(f["href"]).status_code == 200, f["path"]
+
+
+def test_local_index_skips_symlinks_out_and_hidden(local_client, local_root):
+    outside = local_root.parent / "outside"
+    outside.mkdir()
+    (outside / "secret.pdf").write_bytes(b"%PDF")
+    os.symlink(outside, local_root / "Papers" / "out")
+    os.symlink(outside / "secret.pdf", local_root / "Papers" / "s.pdf")
+    os.symlink(local_root / "Papers", local_root / "Papers" / "loop")
+    (local_root / ".Trash").mkdir()
+    (local_root / ".Trash" / "old.pdf").write_bytes(b"%PDF")
+    (local_root / "Papers" / ".DS_Store").write_bytes(b"x")
+    paths = [f["path"] for f in local_client.get("/api/local-index").json()["files"]]
+    assert paths == ["Papers/Gone.pdf", "Papers/ML/50% draft.pdf",
+                     "Papers/ML/bundle.zip", "Papers/ML/Title one.pdf"]
+
+
+def test_local_index_stub_and_real_file_list_once(local_client, local_root):
+    (local_root / "Papers" / "Gone.pdf").write_bytes(b"%PDF")
+    paths = [f["path"] for f in local_client.get("/api/local-index").json()["files"]]
+    assert paths.count("Papers/Gone.pdf") == 1
+
+
+def test_local_index_404_when_root_unset(client):
+    assert client.get("/api/local-index").status_code == 404
+
+
+def test_local_index_requires_auth(seeded_config, local_root):
+    anon = TestClient(create_app(replace(seeded_config, local_docs_root=local_root)))
+    assert anon.get("/api/local-index").status_code == 401
+
+
+@pytest.mark.parametrize("make_root", ["missing", "blocking", "denied"])
+def test_local_index_unreadable_is_503(local_client, local_root, monkeypatch, make_root):
+    gate = threading.Event()
+    try:
+        if make_root == "missing":
+            shutil.rmtree(local_root)
+        elif make_root == "blocking":
+            def blocked(root):
+                gate.wait(10)
+                return []
+            monkeypatch.setattr(routes_local, "default_scanner",
+                                TreeScanner(walker=blocked, timeout=0.1))
+        else:
+            def denied(root):
+                raise PermissionError("no")
+            monkeypatch.setattr(routes_local, "default_scanner",
+                                TreeScanner(walker=denied, timeout=0.1))
+        r = local_client.get("/api/local-index")
+    finally:
+        gate.set()
+    assert r.status_code == 503
+    assert r.headers["retry-after"] == "5"
+    assert r.json() == {"detail": "the host can't read the local documents folder"}
+
+
+def test_local_index_unreadable_subdirectory_is_503(local_client, local_root):
+    locked = local_root / "Papers" / "locked"
+    locked.mkdir()
+    locked.chmod(0)
+    try:
+        r = local_client.get("/api/local-index")
+    finally:
+        locked.chmod(0o755)
+    assert r.status_code == 503
+    assert r.json() == {"detail": "the host can't read the local documents folder"}
+
+
+def test_local_index_skips_a_dangling_symlink(local_client, local_root):
+    os.symlink(local_root / "nowhere.pdf", local_root / "Papers" / "dangling.pdf")
+    paths = [f["path"] for f in local_client.get("/api/local-index").json()["files"]]
+    assert paths == ["Papers/Gone.pdf", "Papers/ML/50% draft.pdf",
+                     "Papers/ML/bundle.zip", "Papers/ML/Title one.pdf"]

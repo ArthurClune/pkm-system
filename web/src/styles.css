@@ -1187,3 +1187,36 @@ button.file-badge.status-failed:hover { color: var(--color-error); }
 /* compact inside the 160px-wide card; the rest of the look is .btn-secondary */
 .file-copy { align-self: flex-start; padding: 1px 8px; font-size: 0.8em; }
 .files-more { margin: 12px 0; }
+/* /link-local-file picker (see LocalFilePicker.tsx) */
+.local-picker-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex;
+  align-items: flex-start; justify-content: center; background: rgb(0 0 0 / 45%);
+  padding: 12vh 16px 16px; box-sizing: border-box; }
+.local-picker { display: flex; flex-direction: column; gap: 8px; width: 560px; max-width: 100%;
+  max-height: 100%; box-sizing: border-box; padding: 12px;
+  background: var(--color-bg-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel); box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); }
+.local-picker-header { display: flex; gap: 8px; align-items: center; }
+.local-picker-search { flex: 1; min-width: 0; box-sizing: border-box; padding: 6px 10px; }
+.local-picker-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px;
+  font-size: 13px; color: var(--color-text-muted); }
+.local-picker-crumbs button { background: none; border: 0; padding: 2px 4px; font: inherit;
+  color: var(--color-link); cursor: pointer; border-radius: var(--radius-control); }
+.local-picker-crumbs button:hover { background: var(--color-selected-bg); }
+.local-picker-crumbs button:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
+.local-picker-list { overflow-y: auto; min-height: 0; }
+.local-picker-row { display: flex; flex-direction: column; padding: 6px 8px; cursor: pointer;
+  border-radius: var(--radius-control); overflow-wrap: anywhere; }
+.local-picker-row[aria-selected="true"] { background: var(--color-selected-bg); }
+.local-picker-folder { font-weight: 600; }
+.local-picker-folder-path { font-size: 12px; color: var(--color-text-muted); }
+.local-picker-row mark { background: var(--color-highlight-bg); color: inherit; }
+.local-picker-note { margin: 16px 0; text-align: center; color: var(--color-text-muted); }
+@media (max-width: 600px) {
+  .local-picker-backdrop { padding: 16px; }
+  .local-picker { width: 100%; }
+}
+@media (pointer: coarse) {
+  .local-picker-crumbs button { padding: 10px 8px; min-height: 44px; }
+  .local-picker-row { padding: 12px 8px; min-height: 44px; box-sizing: border-box; justify-content: center; }
+  .local-picker-header .btn-secondary { min-height: 44px; }
+}

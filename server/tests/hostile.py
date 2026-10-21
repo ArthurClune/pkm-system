@@ -4,9 +4,11 @@ JSON values holding that text and the numbers Python's json accepts, and
 a strategy for any value a pydantic annotation names.
 
 Strategies here never filter, so none can reject every draw."""
+import functools
 import math
 import types
 import typing
+from collections import Counter
 
 from annotated_types import MinLen
 from hypothesis import currently_in_test_context
@@ -31,14 +33,53 @@ _PIECES = [
     "　", "[[", "]]", "[[]]", "[[   ]]", "((", "))", "#", "#[[", "::",
     "{{", "}}", "`", "```", '"', "'", "\\", "/", "%", "%00", "%ED%A0%80",
     "..", "?", "&", "=", "+", "*", "-", "^", "NEAR(", " OR ", "x", "2026-07-07",
+    "X] ", " X ]", " /x ", ".", "..",
     *REAL_TITLES, *REAL_UIDS,
 ]
 _BLANKS = [" ", "\t", "\n", " ", "　", " "]
 
 
+# What a property reached, counted beside Hypothesis's `event` so a test can
+# assert it: `with_floors` clears it before a property runs and checks it
+# after.
+TALLY: Counter[str] = Counter()
+
+
 def event(label: str) -> None:
     if currently_in_test_context():
+        TALLY[label] += 1
         _event(label)
+
+
+def count(label: str) -> None:
+    """Count `label` in the tally without a Hypothesis event: the
+    denominator a floor's share is taken of."""
+    if currently_in_test_context():
+        TALLY[label] += 1
+
+
+def with_floors(floors: dict[str, float], per: str):
+    """Wrap a property so it fails when a label was reached by less than
+    `floors[label]` of the `per` count. A property that stopped drawing a
+    case would otherwise stay green on the cases it still draws.
+
+    A floor is about half the lowest share the label reached over 24 seeds
+    (`--hypothesis-seed=1..24`): near the typical share it fails on an
+    unlucky seed with nothing wrong. A label whose lowest count was under
+    about ten events has no floor, since half of so few is noise; the
+    generator is changed to draw it more often, or it stays an `event`."""
+    def decorate(test):
+        @functools.wraps(test)
+        def run(*args, **kwargs):
+            TALLY.clear()
+            test(*args, **kwargs)
+            total = TALLY[per]
+            assert total, per
+            for label, share in floors.items():
+                assert TALLY[label] > total * share, (
+                    label, TALLY[label], total)
+        return run
+    return decorate
 
 
 blank_text = st.lists(st.sampled_from(_BLANKS), min_size=1,
@@ -75,9 +116,17 @@ json_value = st.recursive(
 
 # A blank title is the one every title-taking route must refuse or
 # replace, so it is drawn as often as a hostile one.
+# Spellings the title rules judge once their boundary spaces are stripped:
+# a trailing `]` or a path segment that only shows after the strip.
+SPACED_TITLES = ["X] ", " X ]", "a] ", " /x", "/x ", " /x ", "x/", ".", "..",
+                 " . ", " .. ", " [[x]] "]
+_padded_real = st.tuples(st.sampled_from(REAL_TITLES), st.integers(1, 2),
+                         st.integers(0, 2)).map(
+    lambda t: " " * t[1] + t[0] + " " * t[2])
 _TITLE_KINDS: list[st.SearchStrategy[str]] = [
     st.sampled_from(REAL_TITLES), hostile_text, blank_text,
-    st.sampled_from(REAL_TITLES)]
+    st.sampled_from(REAL_TITLES), st.sampled_from(SPACED_TITLES),
+    _padded_real]
 
 # Small ints, the edges of SQLite's 64-bit range on both sides, and any.
 _wide_int = st.sampled_from(
@@ -93,7 +142,8 @@ _PLAUSIBLE: dict[str, st.SearchStrategy[object]] = {
     "BlockUid": st.one_of(
         st.sampled_from(REAL_UIDS),
         st.from_regex(r"[a-zA-Z0-9_-]{6,12}", fullmatch=True)),
-    "RawTitle": st.integers(0, 3).flatmap(lambda i: _TITLE_KINDS[i]),
+    "RawTitle": st.integers(0, len(_TITLE_KINDS) - 1).flatmap(
+        lambda i: _TITLE_KINDS[i]),
     "ClientId": st.just("client-1"),
     "BatchId": _hex.map(lambda h: "batch-" + h),
     # An order key at the edge of SQLite's range in one draw in four.

@@ -12,9 +12,11 @@ imported by name) and a class attribute named `regex` (Starlette's
 convertors). Pydantic's `Field(pattern=)` is not a sink: it runs on Rust's
 engine, where `$` has no newline case and `\\Z` is rejected.
 
-The pattern argument is followed through a string
-literal, implicit or `+` concatenation, an f-string's literal parts, a
-`"".join([...])` of those, and a name assigned once in the file.
+The pattern argument (positional or `pattern=`) is followed through a str or
+bytes literal, implicit or `+` concatenation, an f-string's literal parts, a
+`"".join([...])` of those, the format string of `.format()` or `%`, and a
+name assigned once in the file. A verbose pattern's `#` comments are not
+read for a `$`.
 
 Stdlib only and runnable under the system `python3`."""
 from __future__ import annotations
@@ -38,9 +40,10 @@ _HOLE = "\x00"
 _INLINE_FLAGS = re.compile(r"\(\?([aiLmsux]+)(?:-[imsx]+)?\)")
 
 
-def has_bare_dollar(pattern: str) -> bool:
+def has_bare_dollar(pattern: str, verbose: bool = False) -> bool:
     """Whether `pattern` has a `$` that is neither escaped nor inside a
-    character class nor in a `(?#...)` comment."""
+    character class nor in a `(?#...)` comment, nor (when `verbose`) in a
+    `#` comment."""
     i, n = 0, len(pattern)
     while i < n:
         c = pattern[i]
@@ -58,6 +61,9 @@ def has_bare_dollar(pattern: str) -> bool:
         elif pattern.startswith("(?#", i):
             end = pattern.find(")", i)
             i = n if end < 0 else end + 1
+        elif verbose and c == "#":
+            end = pattern.find("\n", i)
+            i = n if end < 0 else end + 1
         elif c == "$":
             return True
         else:
@@ -69,11 +75,15 @@ def declares_multiline(pattern: str) -> bool:
     return any("m" in m.group(1) for m in _INLINE_FLAGS.finditer(pattern))
 
 
-def _flags_multiline(node: ast.expr) -> bool:
+def declares_verbose(pattern: str) -> bool:
+    return any("x" in m.group(1) for m in _INLINE_FLAGS.finditer(pattern))
+
+
+def _flags_name(node: ast.expr, names: tuple[str, str]) -> bool:
     for sub in ast.walk(node):
-        if isinstance(sub, ast.Attribute) and sub.attr in ("M", "MULTILINE"):
+        if isinstance(sub, ast.Attribute) and sub.attr in names:
             return True
-        if isinstance(sub, ast.Name) and sub.id in ("M", "MULTILINE"):
+        if isinstance(sub, ast.Name) and sub.id in names:
             return True
     return False
 
@@ -102,6 +112,8 @@ def _text(node: ast.expr, env: dict[str, ast.expr], depth: int = 0) -> str | Non
     if depth > 8:
         return None
     if isinstance(node, ast.Constant):
+        if isinstance(node.value, bytes):
+            return node.value.decode("latin-1")
         return node.value if isinstance(node.value, str) else None
     if isinstance(node, ast.JoinedStr):
         return "".join(
@@ -111,6 +123,11 @@ def _text(node: ast.expr, env: dict[str, ast.expr], depth: int = 0) -> str | Non
         if left is None and right is None:
             return None
         return (left or _HOLE) + (right or _HOLE)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+        return _text(node.left, env, depth + 1)
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "format"):
+        return _text(node.func.value, env, depth + 1)
     if isinstance(node, ast.Name) and node.id in env:
         return _text(env[node.id], env, depth + 1)
     if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "join"
@@ -144,6 +161,13 @@ def _sink(call: ast.Call, modules: set[str], functions: dict[str, str]) -> str |
     return None
 
 
+def _pattern_arg(call: ast.Call) -> ast.expr | None:
+    for kw in call.keywords:
+        if kw.arg == "pattern":
+            return kw.value
+    return call.args[0] if call.args else None
+
+
 def _flags(call: ast.Call, index: int) -> ast.expr | None:
     for kw in call.keywords:
         if kw.arg == "flags":
@@ -157,9 +181,11 @@ def check_tree(path: str, tree: ast.AST) -> list[Violation]:
     out: list[Violation] = []
 
     def report(node: ast.AST, pattern: str, flags: ast.expr | None) -> None:
-        if not has_bare_dollar(pattern) or declares_multiline(pattern):
+        verbose = declares_verbose(pattern) or (
+            flags is not None and _flags_name(flags, ("X", "VERBOSE")))
+        if not has_bare_dollar(pattern, verbose) or declares_multiline(pattern):
             return
-        if flags is not None and _flags_multiline(flags):
+        if flags is not None and _flags_name(flags, ("M", "MULTILINE")):
             return
         out.append(Violation(path, getattr(node, "lineno", 1), "regex-dollar",
                              f"bare `$` in a regex: use \\Z or fullmatch ({pattern.replace(_HOLE, '...')!r})"))
@@ -167,8 +193,9 @@ def check_tree(path: str, tree: ast.AST) -> list[Violation]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             name = _sink(node, modules, functions)
-            if name is not None and node.args:
-                pattern = _text(node.args[0], env)
+            arg = _pattern_arg(node) if name is not None else None
+            if name is not None and arg is not None:
+                pattern = _text(arg, env)
                 if pattern is not None:
                     report(node, pattern, _flags(node, SINK_FLAGS[name]))
         elif isinstance(node, ast.ClassDef):

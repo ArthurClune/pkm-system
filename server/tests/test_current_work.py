@@ -61,3 +61,9 @@ def test_current_work_excludes_boundary_from_newer_bucket(client, seeded_config)
 
 def test_current_work_requires_auth(anon_client):
     assert anon_client.get("/api/current-work").status_code == 401
+
+
+def test_current_work_survives_the_int64_extremes(client):
+    for now in (-(2 ** 63), 2 ** 63 - 1):
+        response = client.get("/api/current-work", params={"now_ms": now})
+        assert response.status_code == 200, now

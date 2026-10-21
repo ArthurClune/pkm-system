@@ -12,9 +12,15 @@ from pkm.test_data.ids import uid_of
 from pkm.unlink import _ALIAS_LABEL
 
 
-def test_split_heading_keeps_trailing_newline_text_verbatim():
+def test_split_heading_tolerates_exactly_one_trailing_newline():
     assert split_heading("## Overview") == ("Overview", 2)
-    assert split_heading("## Overview\n") == ("## Overview\n", None)
+    assert split_heading("## Overview\n") == ("Overview", 2)
+    assert split_heading("## Overview\n\n") == ("## Overview\n\n", None)
+
+
+def test_split_heading_keeps_text_with_an_inner_newline_verbatim():
+    assert split_heading("## Overview\nmore") == ("## Overview\nmore", None)
+    assert split_heading("plain\n") == ("plain\n", None)
 
 
 def test_uid_spec_with_trailing_newline_is_not_a_uid_spec():

@@ -129,6 +129,14 @@ brand(BatchId)
 OrderIdx = NewType("OrderIdx", int)
 brand(OrderIdx)
 
+# The widest order key a create or move op may carry on the wire: the JS
+# safe-integer range, the most the web can represent. Nothing mints a
+# negative key (a position past the end is the last key plus one, and an
+# empty group starts at 0), so the range starts at 0. A sibling shift adds
+# one per create, so a key this small can never carry it past int64.
+MAX_WIRE_ORDER_IDX = 2 ** 53 - 1
+WIRE_ORDER_IDX = Field(ge=0, le=MAX_WIRE_ORDER_IDX)
+
 # A sidebar entry's order key (sidebar_entries.order_idx): the server
 # assigns it and clients reorder by array position, so it never meets block
 # order code -- its own brand keeps a block's OrderIdx from standing in for
@@ -157,7 +165,7 @@ class CreateOp(WellFormedModel):
     # another device may have moved the parent since the op was queued.
     page_title: RawTitle = Field(min_length=1)
     parent_uid: BlockUid | None = None
-    order_idx: OrderIdx
+    order_idx: OrderIdx = WIRE_ORDER_IDX
     text: str
     heading: HeadingLevel | None = None
     view_type: ViewType | None = None
@@ -185,7 +193,7 @@ class MoveOp(WellFormedModel):
     op: Literal["move"]
     uid: BlockUid
     parent_uid: BlockUid | None   # required but nullable: null = top level
-    order_idx: OrderIdx
+    order_idx: OrderIdx = WIRE_ORDER_IDX
     # cross-page target when parent_uid is null; ignored when parent_uid
     # is set, since the block follows its parent to whatever page that is
     # on now. None = stay on current page.

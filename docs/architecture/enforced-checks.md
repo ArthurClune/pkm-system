@@ -32,8 +32,13 @@ with `re.MULTILINE` / `re.M` (alone, or combined as `re.M | re.I`, or
 
 | Sink | Followed through |
 |---|---|
-| `re.compile`, `match`, `search`, `fullmatch`, `findall`, `finditer`, `sub`, `subn`, `split` (module alias or `from re import`) | a literal, implicit or `+` concatenation, an f-string's literal parts, `"".join([...])`, and a name assigned once in the file |
+| `re.compile`, `match`, `search`, `fullmatch`, `findall`, `finditer`, `sub`, `subn`, `split` (module alias or `from re import`), with the pattern positional or `pattern=` | a str or bytes literal, implicit or `+` concatenation, an f-string's literal parts, `"".join([...])`, the format string of `.format()` or `%`, and a name assigned once in the file |
 | a class attribute `regex` (Starlette convertors) | the same |
+
+A `$` in a verbose pattern's `#` comment (`(?x)` or `re.X`) is not reported.
+The lint does not follow a dict lookup, a name assigned twice, a parameter
+default, an attribute (`self.P`) or a walrus, so a pattern reached that way
+is not checked.
 
 Two things are deliberately outside the rule. Pydantic's `Field(pattern=)`
 runs on Rust's regex engine, where `$` has no newline case and `\Z` is

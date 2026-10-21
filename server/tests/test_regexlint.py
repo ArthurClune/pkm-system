@@ -19,6 +19,13 @@ BAD = [
     'import re\nX = re.compile("a$", re.I)\n',
     'class C:\n    regex = "a.*$"\n',
     'import re\nX = re.compile(r"\\\\\\\\$")\n',
+    'import re\nre.match(rb"^x$", s)\n',
+    'import re\nre.match(pattern=r"^x$", string=s)\n',
+    'import re\nre.compile(pattern="a$")\n',
+    'import re\nre.match(r"^{}$".format(x), s)\n',
+    'import re\nre.match(r"^%s$" % x, s)\n',
+    'import re\nP = r"^{}$"\nre.match(P.format(x), s)\n',
+    'import re\nre.compile("(?x) a # note\\n $")\n',
 ]
 GOOD = [
     'import re\nX = re.compile(r"^a\\Z")\n',
@@ -35,6 +42,10 @@ GOOD = [
     'x = "price $5"\nprint(x.replace("$", ""))\n',
     'from pydantic import Field\nf = Field(pattern=r"^a$")\n',
     'class C:\n    regex = "(?s:.*)"\n',
+    'import re\nre.compile("(?x) a # costs $5\\n b")\n',
+    'import re\nre.compile("a # costs $5\\n b", re.X)\n',
+    'import re\nre.compile(pattern="a$", flags=re.M)\n',
+    'import re\nre.match(rb"a$", s, re.M)\n',
 ]
 
 

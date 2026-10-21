@@ -87,11 +87,14 @@ def index_ref(db: Db, src_uid: BlockUid,
     `[[   ]]`, while still leaving valid padded nonblank titles byte-exact.
     The BlankTitleError catch remains defense in depth at the store boundary:
     if a caller ever hands us a blank title anyway, index nothing rather than
-    inventing a fallback page for a non-reference.
+    inventing a fallback page for a non-reference. A title the syntax rules
+    now forbid (a backtick, a trailing `]`) is skipped the same way: a block
+    written before the rule and a rename or reindex that touches it degrade
+    to "no backlink" instead of failing the whole request.
     """
     try:
         page = get_or_create_page(db, ref_title, now_ms)
-    except BlankTitleError:
+    except (BlankTitleError, ForbiddenTitleError):
         return
     db.execute("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
               (src_uid, page["page_id"], ref_kind))

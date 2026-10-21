@@ -1042,6 +1042,7 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | A 422 whose echo of the input holds a lone surrogate, NaN, Infinity or deep nesting | `app.py`'s `RequestValidationError` handler renders `validation_echo.echo_errors`: str well-formed, non-finite numbers as the literal sent, containers past `MAX_ECHO_DEPTH` cut to a marker | `test_validation_echo.py` |
 | A NUL in a search term or title | `fts.py` turns it into a space: FTS5 reads its query as a C string | `test_hostile_requests.py` |
 | A GoodLinks or OpenAI body that is not JSON, nests past what `json.loads` reads (it raises `RecursionError`), or holds a `\udXXX` escape | Both gateways treat the first two as an unusable answer (503, `DescribeError`) and make every decoded str well-formed | `test_no_500_upstream_props.py` |
+| An op `order_idx` that a sibling shift (`+ 1` per create) could carry past int64, where SQLite stores a float | `CreateOp` and `MoveOp` bound `order_idx` to `0..2**53 - 1` (`WIRE_ORDER_IDX` in `contracts/ops.py`), the JS safe-integer range; nothing mints a negative key | `test_an_op_order_idx_stays_in_the_js_safe_range` |
 | A Roam attribute out of range: a heading other than 1-3, a time that is not a 64-bit int | `parse_export` reads it as absent; a stored heading 0 from older imports reads as `None` | `test_no_500_stored_props.py` |
 
 Path and query values cannot carry a lone surrogate: the server decodes them

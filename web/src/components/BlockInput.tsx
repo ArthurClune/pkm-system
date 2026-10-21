@@ -24,7 +24,7 @@ import { decideEditorKey, type EditorKeyInput,
          type KeyDecision } from "../outline/keyboardPolicy";
 import { isOutlinePaste, isOutlinePasteChord } from "../outline/paste";
 import { applySlashCommand, matchSlashCommands,
-         resolveHeading } from "../outline/slashCommands";
+         resolveHeading, stripTrigger } from "../outline/slashCommands";
 import { useAutocomplete } from "../outline/useAutocomplete";
 import { useBlockDraft } from "../outline/useBlockDraft";
 import { pagePath } from "../paths";
@@ -156,9 +156,9 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     // first: onBlurBlock flushes the draft, and the flush needs to see the
     // stripped-trigger text this onDraftChange call just registered.
     if (row.command === "upload") {
-      const at = ctx.start - 1; // where the "/" was
+      const { text: stripped, at } = stripTrigger(text, caret, ctx);
       ac.close();
-      setText(text.slice(0, at) + text.slice(caret), at);
+      setText(stripped, at);
       handlers.onBlurBlock(node.uid);
       onRequestUpload(node.uid, at);
       return;
@@ -168,9 +168,9 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     // keeps focus (the picker is mouse-down-only), so the eventual
     // insertion goes through the normal setText draft path.
     if (row.command === "date") {
-      const at = ctx.start - 1; // where the "/" was
+      const { text: stripped, at } = stripTrigger(text, caret, ctx);
       ac.close();
-      setText(text.slice(0, at) + text.slice(caret), at);
+      setText(stripped, at);
       setDatePickerAt(at);
       return;
     }
@@ -179,9 +179,9 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     // at the recorded offset. The block is blurred first so the inserted
     // link renders (as a button) the moment the splice lands.
     if (row.command === "goodlinks") {
-      const at = ctx.start - 1; // where the "/" was
+      const { text: stripped, at } = stripTrigger(text, caret, ctx);
       ac.close();
-      setText(text.slice(0, at) + text.slice(caret), at);
+      setText(stripped, at);
       handlers.onBlurBlock(node.uid);
       handlers.onGoodlinks(node.uid, at);
       return;
@@ -189,9 +189,9 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     // "/link-local-file": same blur-first shape as /upload; the tree opens
     // the picker and splices the pick through handlers.onLinkLocalFile.
     if (row.command === "link-local-file") {
-      const at = ctx.start - 1; // where the "/" was
+      const { text: stripped, at } = stripTrigger(text, caret, ctx);
       ac.close();
-      setText(text.slice(0, at) + text.slice(caret), at);
+      setText(stripped, at);
       handlers.onBlurBlock(node.uid);
       onRequestLocalFile(node.uid, at);
       return;

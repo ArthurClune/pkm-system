@@ -25,6 +25,7 @@ import { recordEnqueue } from "./replayLog";
 import { sha256Hex } from "./sha256";
 import { subtreeHash } from "./subtreeHash";
 import { findOpTitleViolation } from "./titles";
+import { wellFormedOps } from "./wellFormed";
 
 const currentText = (db: ReplicaDb, uid: BlockUid): string | null => {
   const rows = db.select(
@@ -57,11 +58,15 @@ const currentSubtreePairs = (db: ReplicaDb,
   return rows.length > 0 ? rows.map((r) => [r.uid, r.text]) : null;
 };
 
-export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
+export function enqueueBatch(db: ReplicaDb, sent: BlockOp[], nowMs: number,
                              batchId: BatchId): {
   pending: number;
   batchId: BatchId;
 } {
+  // Normalised before the optimistic apply and the stored row, so the
+  // replica never holds text the server would store differently; the
+  // offline shim enqueues here without going through the op queue.
+  const ops = wellFormedOps(sent);
   const violation = findOpTitleViolation(ops);
   if (violation !== null) {
     throw new LocalOpError(

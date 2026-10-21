@@ -73,7 +73,9 @@ pkm/
 │                               ops.py (op models + UID_RE + text_hash + new_uid +
 │                               the BlockUid/PageId/SidebarEntryId/SyncSeq NewTypes),
 │                               responses.py (JSON response models),
-│                               daily.py (date <-> "July 8th, 2026" titles)
+│                               daily.py (date <-> "July 8th, 2026" titles),
+│                               text.py (well_formed + WellFormedModel, the op
+│                               models' base: lone surrogates to U+FFFD)
 │
 ├── server/              The FastAPI app (details below)
 ├── importer/            Roam EDN import pipeline: run.py Shell; preflight.py and
@@ -399,6 +401,20 @@ Key mechanics:
   those into the durable copy of a batch while the fallback-lane copy under the
   same `batch_id` keeps the caller's ops. Rows written before it hold the
   strict `batch_request_hash`, so the route accepts a match on either.
+- **Well-formed text.** Every op model and `OpBatch` derive from
+  `contracts.text.WellFormedModel`, whose before-validator turns each lone
+  surrogate in a top-level string field into U+FFFD (`well_formed`). A
+  browser's `JSON.stringify` sends a lone surrogate as a `\udXXX` escape,
+  and SQLite refuses to bind one, so without it the batch 500s. The web's
+  outbox retries a 5xx forever, so that one edit would wedge every later
+  edit behind it. The rule is to normalise, never to reject: a 4xx would
+  poison the batch and drop the edit over one unencodable character.
+  `text_hash` and `subtree_hash` hash the well-formed form, which is what
+  the web's `sha256Hex` reads through `TextEncoder`. The web normalises too
+  (`replica/wellFormed.ts`, in `opQueue.enqueue` and `replica/queue.ts`'s
+  `enqueueBatch`), so the replica's queued ops are the text the server
+  stores. The CLI/MCP batch commands (`batch.py`) share the base model, so
+  a title is normalised before the pages it names are fetched.
 - **Broadcast.** After commit, the WebSocket hub pushes the applied ops (not
   the skipped ones) and a
   `{type:"seq", seq}` nudge to other clients (see
@@ -1053,11 +1069,12 @@ with the change that invalidates them.
 | `shared/fixtures/ref_grammar.json` | hand-maintained cases | both parsers' test suites | Pins Python `refs.py` and the TS grammar scanner to identical behaviour |
 | `shared/fixtures/title_syntax.json` | hand-maintained cases | `tests/test_refs.py` | Pins `refs.title_syntax_reason` and the replica's `titleSyntaxReason` to the same verdicts (`web/src/replica/titles.test.ts`, `localApi/router.test.ts`) |
 | `shared/fixtures/refs_parity.json` | `pkm.refs_parity_dump` | `tests/test_refs_parity_fixture.py` | TS extractors replay the exact Python outputs |
-| `shared/fixtures/local_links_parity.json` | `web/src/outline/localLinksParity.test.ts` with `UPDATE_LOCAL_LINKS_FIXTURE=1` (fixed fast-check seed over `localCopyAttribute`) | that test fails when the file differs; `tests/test_local_links_parity.py` | `local_docs.extract_local_hrefs` must read the same hrefs from `Local copy::` texts as the web's markdown-link reader. The one fixture the web side writes |
+| `shared/fixtures/local_links_parity.json` | `web/src/outline/localLinksParity.test.ts` with `UPDATE_LOCAL_LINKS_FIXTURE=1` (fixed fast-check seed over `localCopyAttribute`) | that test fails when the file differs; `tests/test_local_links_parity.py` | `local_docs.extract_local_hrefs` must read the same hrefs from `Local copy::` texts as the web's markdown-link reader. Written by the web side, like `text_hash_parity.json` |
 | `shared/fixtures/shim_parity.json` | `pkm.server.shim_parity_dump` | `tests/test_shim_parity_fixture.py` | The offline API shim (`web/src/replica/localApi/`) must return byte-identical JSON to the real routes |
 | `shared/fixtures/missing_targets.json` | hand-maintained cases | `tests/test_ops_core.py` | Pins `ops_core.classify_skip` and the replica's `skipsOnMissingTarget` (`web/src/replica/missingTarget.test.ts`) to the same skip-or-not verdicts. Its `placement_cases` pin where a create or move lands, through `ops_apply.apply_batch` and the replica's `applyLocalOps`, replays included |
 | `shared/fixtures/draft_flush.json` | hand-maintained case | `tests/test_ops_endpoint.py` | `web/src/views/EditablePage.draftFlush.test.tsx`: the op an editor draft flushes is the op the ops route's conflict and orphan paths are tested with |
 | `shared/fixtures/subtree_hash.json` | hand-maintained cases | `tests/test_subtree_hash.py` | Pins `contracts.ops.subtree_hash` and the web's `subtreeHash` (`web/src/replica/subtreeHash.test.ts`) to the same canonical hash a guarded `delete` is checked against |
+| `shared/fixtures/text_hash_parity.json` | `web/src/replica/textHashParity.test.ts` with `UPDATE_TEXT_HASH_FIXTURE=1` (fixed fast-check seed over texts holding lone surrogates, astral and ZWJ emoji, NFC/NFD spellings, NUL and CRLF) | that test fails when the file differs; `tests/test_text_hash_parity.py` | `contracts.ops.text_hash`, `subtree_hash` and `contracts.text.well_formed` must give the web's `sha256Hex`, `subtreeHash` and `wellFormed` results. Lone surrogates are stored as JSON escapes, and both tests assert their loader hands them back unrepaired |
 | `shared/fixtures/ops_acks.json` | hand-maintained cases | `tests/test_ops_idempotency.py`, `tests/test_client_contracts.py` | Pins the stored-ack-to-wire mapping of `POST /api/ops` and the `SkipReason` values; the web's `readOpsAck` and queue replay the wire acks (`web/src/sync/opsAck.test.ts`, `opsAck.composed.test.ts`) |
 
 The fixtures pin the implementations on chosen cases; the ops property in [property-checks.md](property-checks.md#what-the-ops-property-checks) checks the server, replica and in-memory implementations against each other on random batches.

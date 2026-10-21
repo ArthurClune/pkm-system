@@ -4,6 +4,7 @@
 // Tag charset mirrors tokenize.ts (#[A-Za-z0-9_/-]); anything else gets the
 // #[[Long Title]] form.
 import type { RawTitle } from "../api/brands";
+import { snapCaret } from "./keyEdits";
 
 export interface AcContext {
   kind: "ref" | "tag" | "command";
@@ -21,8 +22,8 @@ const PLAIN_TAG_RE = /^[A-Za-z0-9_/-]+$/;
 const SLASH_QUERY_RE = /^([A-Za-z][A-Za-z0-9-]*)?$/;
 
 export function detectAutocomplete(text: string,
-                                   cursor: number): AcContext | null {
-  const before = text.slice(0, cursor);
+                                   caret: number): AcContext | null {
+  const before = text.slice(0, snapCaret(text, caret));
   const open = before.lastIndexOf("[[");
   if (open !== -1) {
     const between = before.slice(open + 2);
@@ -77,9 +78,9 @@ export function holdsDraftFlush(ctx: AcContext | null): boolean {
   return ctx !== null && (ctx.kind === "ref" || ctx.kind === "tag");
 }
 
-export function applyCompletion(text: string, cursor: number, ctx: AcContext,
+export function applyCompletion(text: string, caret: number, ctx: AcContext,
                                 title: RawTitle): { text: string; cursor: number } {
-  const after = text.slice(cursor);
+  const after = text.slice(snapCaret(text, caret));
   if (ctx.kind === "ref") {
     const rest = after.startsWith("]]") ? after.slice(2) : after;
     const head = text.slice(0, ctx.start) + title + "]]";

@@ -12,6 +12,7 @@ import type { BlockOp } from "../api/ops";
 import { clampCaret, orderIdxAfterPosition, type EditResult,
          type FocusTarget } from "./edits";
 import { FIRST_ORDER_IDX, freshChildOrderIdx, orderIdxPlus } from "./orderIdx";
+import { snapCaret } from "./keyEdits";
 import { applyOps, locate } from "./tree";
 
 export interface PastedNode {
@@ -117,8 +118,9 @@ export function planOutlinePaste(
   const { node, parent, siblings, index } = found;
   const [first, ...rest] = forest;
 
-  const start = clampCaret(selStart, node.text.length);
-  const end = Math.max(start, clampCaret(selEnd, node.text.length));
+  const start = snapCaret(node.text, clampCaret(selStart, node.text.length));
+  const end = Math.max(
+    start, snapCaret(node.text, clampCaret(selEnd, node.text.length)));
   const spliced = node.text.slice(0, start) + first.text + node.text.slice(end);
 
   const ops: BlockOp[] = [];

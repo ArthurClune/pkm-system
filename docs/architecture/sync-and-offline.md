@@ -424,6 +424,9 @@ stale `base_text_hash`, rather than a conflict:
 The subtree hash is the sha256 of one `{uid} {text_hash(text)}` line per block
 in the subtree, sorted by uid and joined by newlines, and
 `shared/fixtures/subtree_hash.json` pins `subtree_hash` and `subtreeHash` to it.
+Both hashes read a lone surrogate as U+FFFD, the form both sides store
+([backend.md § The write path](backend.md#the-write-path), well-formed text),
+and `shared/fixtures/text_hash_parity.json` pins them on odd text.
 The header forms and the daily-page grouping are in
 [backend.md § Conflicts](backend.md#conflicts); the per-op tables are in
 [§ Missing targets](backend.md#missing-targets) and

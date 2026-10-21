@@ -46,6 +46,32 @@ describe("createOpQueue deps", () => {
     q.dispose();
   });
 
+  test("the replica and the lane both get well-formed ops", async () => {
+    const odd: BlockOp = { op: "update_text", uid: uidOf("aaaaaaaa"), text: "x\uD800" };
+    const fixed: BlockOp = { op: "update_text", uid: uidOf("aaaaaaaa"), text: "x\uFFFD" };
+    const persisted: BlockOp[][] = [];
+    const durable = memReplica({
+      enqueue: vi.fn(async (ops: BlockOp[], batchId: BatchId) => {
+        persisted.push(ops);
+        return { pending: 1, batchId };
+      }),
+    });
+    const q1 = createOpQueue(durable, { newBatchId: minter() });
+    await q1.enqueue([odd]).settled;
+    expect(persisted).toStrictEqual([[fixed]]);
+    q1.dispose();
+
+    const post = vi.fn(async (_body: OpBatch) => ack());
+    const broken = memReplica({
+      enqueue: vi.fn(async () => { throw new Error("opfs unavailable"); }),
+    });
+    const q2 = createOpQueue(broken, { post, newBatchId: minter() });
+    await q2.enqueue([odd]).settled;
+    await q2.drain();
+    expect(post.mock.calls.map((c) => c[0].ops)).toStrictEqual([[fixed]]);
+    q2.dispose();
+  });
+
   test("a durable batch's seen_seq rides the post; one without omits the key", async () => {
     const post = vi.fn(async (_body: OpBatch) => ack());
     const batches = [

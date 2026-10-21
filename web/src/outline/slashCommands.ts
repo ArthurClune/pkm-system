@@ -15,6 +15,7 @@ import type { HeadingLevel } from "../api/ops";
 import { hasTodoMarker } from "../grammar/todo";
 import { titleForDate } from "../replica/daily";
 import type { AcContext } from "./autocomplete";
+import { snapCaret } from "./keyEdits";
 
 export const SLASH_COMMANDS = [
   { name: "text", label: "text" },
@@ -159,6 +160,15 @@ function dailyLink(content: string, at: number, d: Date): { text: string; cursor
   return { text, cursor: at + link.length };
 }
 
+/** The text with the "/query" trigger before `caret` removed, and the
+ * offset where the "/" was: what the commands that hand off to a picker
+ * (/upload, /date, /goodlinks, /link-local-file) leave behind them. */
+export function stripTrigger(text: string, caret: number,
+                             ctx: AcContext): { text: string; at: number } {
+  const at = ctx.start - 1;
+  return { text: text.slice(0, at) + text.slice(snapCaret(text, caret)), at };
+}
+
 /** Remove the "/query" trigger and apply `command`'s transform to what's
  * left. Heading commands (h1/h2/h3/normal) have no text transform of their
  * own — they fall through to the default (trigger stripped, nothing else)
@@ -167,7 +177,7 @@ function dailyLink(content: string, at: number, d: Date): { text: string; cursor
 export function applySlashCommand(
   text: string, cursor: number, ctx: AcContext, command: string, now: Date,
 ): { text: string; cursor: number } {
-  const content = text.slice(0, ctx.start - 1) + text.slice(cursor);
+  const content = stripTrigger(text, cursor, ctx).text;
   switch (command) {
     case "text": return textBlock(content);
     case "todo": return applyTodoPrefix(content);

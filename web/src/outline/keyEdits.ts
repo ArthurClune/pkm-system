@@ -17,6 +17,23 @@
 // catch here.
 export type CaretOffset = number;
 
+/** `offset` moved back off the middle of a surrogate pair, so a slice there
+ * never leaves either half alone in the text (which the server would store
+ * as U+FFFD, see replica/wellFormed). The DOM reports carets on character
+ * boundaries, but an offset kept across an edit -- an upload's insertion
+ * point, a caret clamped to a shorter text -- may land inside a pair. Any
+ * other offset, out of range ones included, comes back unchanged. Every
+ * transform here and in edits/paste/autocomplete/slashCommands snaps the
+ * offsets it slices at. */
+export function snapCaret(text: string, offset: CaretOffset): CaretOffset {
+  if (offset <= 0 || offset >= text.length) return offset;
+  const before = text.charCodeAt(offset - 1);
+  const at = text.charCodeAt(offset);
+  const inside = before >= 0xd800 && before <= 0xdbff
+    && at >= 0xdc00 && at <= 0xdfff;
+  return inside ? offset - 1 : offset;
+}
+
 export interface TextSelection {
   text: string;
   selStart: CaretOffset;
@@ -41,8 +58,10 @@ export const BRACKET_CHARS: ReadonlySet<string> = new Set([
  * character. Returns the resulting text+selection, or null when the keystroke
  * should be handled normally by the textarea. */
 export function autoPairBracket(
-  text: string, selStart: CaretOffset, selEnd: CaretOffset, char: string,
+  text: string, rawStart: CaretOffset, rawEnd: CaretOffset, char: string,
 ): TextSelection | null {
+  const selStart = snapCaret(text, rawStart);
+  const selEnd = snapCaret(text, rawEnd);
   const hasSelection = selStart !== selEnd;
 
   // Skip over a closing/symmetric char the user typed right before its match
@@ -80,8 +99,10 @@ export function autoPairBracket(
  * between the parens; with no selection insert an empty `[]()` with the caret
  * between the brackets, ready to type the link text. Always acts. */
 export function wrapLink(
-  text: string, selStart: CaretOffset, selEnd: CaretOffset,
+  text: string, rawStart: CaretOffset, rawEnd: CaretOffset,
 ): TextSelection {
+  const selStart = snapCaret(text, rawStart);
+  const selEnd = snapCaret(text, rawEnd);
   if (selStart !== selEnd) {
     const inner = text.slice(selStart, selEnd);
     const head = text.slice(0, selStart) + "[" + inner + "](";
@@ -103,8 +124,10 @@ export function wrapLink(
  * emphasis spanning newlines) — deliberate, matching the "user gets what they
  * selected" stance. */
 export function toggleEmphasis(
-  text: string, selStart: CaretOffset, selEnd: CaretOffset, marker: "**" | "__",
+  text: string, rawStart: CaretOffset, rawEnd: CaretOffset, marker: "**" | "__",
 ): TextSelection {
+  const selStart = snapCaret(text, rawStart);
+  const selEnd = snapCaret(text, rawEnd);
   const m = marker.length;
   const inner = text.slice(selStart, selEnd);
 

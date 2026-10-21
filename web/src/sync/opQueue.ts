@@ -15,6 +15,7 @@ import type { BlockOp } from "../api/ops";
 import type { OpBatch, OpsAck } from "../api/payloads";
 import { apiPost } from "../api/typedClient";
 import type { PendingBatch, Replica } from "../replica/client";
+import { wellFormedOps } from "../replica/wellFormed";
 import { availabilityOf, isSessionFatal, ReplicaError,
          type ReplicaAvailability } from "../replica/errors";
 import { mintTicketId } from "../ids";
@@ -657,7 +658,11 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
   };
 
   return {
-    enqueue(ops, scope) {
+    enqueue(sent, scope) {
+      // The queue's append is where every write of this tab enters sync, so
+      // both copies a batch can have -- the durable row and the in-memory
+      // lane entry -- hold the text the server will store (replica/wellFormed).
+      const ops = wellFormedOps(sent);
       if (ops.length === 0) {
         return ticket(scope, Promise.resolve({
           status: "persisted", pending: pendingCount,

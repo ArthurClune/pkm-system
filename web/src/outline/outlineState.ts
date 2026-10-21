@@ -8,7 +8,7 @@ import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
 import type { TicketId } from "../sync/opQueue";
 import { clampCaret, type FocusTarget } from "./edits";
-import type { TextSelection } from "./keyEdits";
+import { snapCaret, type TextSelection } from "./keyEdits";
 import { ancestorChain, applyOps, applyOpsWithChange, blocksEqual, findNode,
          hidesChildren, insertSubtree } from "./tree";
 import { bumpedUids } from "./blockStamps";
@@ -433,7 +433,7 @@ export function spliceUploadedMarkdown(
   requestedOffset: number,
   markdown: string,
 ): TextSelection {
-  const at = Math.min(requestedOffset, text.length);
+  const at = snapCaret(text, Math.min(requestedOffset, text.length));
   const spliced = text.slice(0, at) + markdown + text.slice(at);
   const caret = at + markdown.length;
   return { text: spliced, selStart: caret, selEnd: caret };

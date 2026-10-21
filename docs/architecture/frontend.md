@@ -214,6 +214,7 @@ web/src/
 │   ├── daily.ts              Core         Daily-page titles (mirrors daily.py)
 │   ├── sha256.ts             Core         Synchronous sha256 inside a replica transaction
 │   ├── subtreeHash.ts        Core         Canonical subtree hash a delete is stamped with
+│   ├── wellFormed.ts         Core         Lone surrogates to U+FFFD (mirrors contracts/text.py)
 │   └── baseSchema.gen.ts     —            Generated from the server's BASE_DDL
 │
 ├── dnd/                      Shell        Drag-and-drop context + drop zones

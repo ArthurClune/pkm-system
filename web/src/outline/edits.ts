@@ -9,7 +9,7 @@
 import type { BlockUid, CanonicalTitle, OrderIdx } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, SetHeadingOp, SetViewTypeOp } from "../api/ops";
-import type { CaretOffset } from "./keyEdits";
+import { type CaretOffset, snapCaret } from "./keyEdits";
 import { FIRST_ORDER_IDX, orderIdxAfter, orderIdxAfterLast,
          orderIdxPlus } from "./orderIdx";
 import { applyOps, findNode, hidingAncestors, locate, selectionRoots,
@@ -84,10 +84,11 @@ function crossParentDestination(
 }
 
 export function splitBlock(blocks: BlockNode[], pageTitle: CanonicalTitle, uid: BlockUid,
-                           cursor: CaretOffset, newUid: BlockUid): EditResult {
+                           caret: CaretOffset, newUid: BlockUid): EditResult {
   const found = locate(blocks, uid);
   if (!found) return noop(blocks);
   const { node, parent, siblings, index } = found;
+  const cursor = snapCaret(node.text, caret);
   if (cursor === 0 && node.text !== "") {
     // Enter at the start: push the block down by inserting an empty sibling
     // ABOVE — the existing uid keeps its text (and any ((uid)) refs to it).

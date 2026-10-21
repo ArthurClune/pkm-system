@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from typing import Annotated, Literal, NewType, Union
 
 from pydantic import Field
-from pkm.contracts.strict import StrictModel
+from pkm.contracts.text import WellFormedModel, well_formed
 
 from pkm.contracts.brands import brand
 from pkm.contracts.titles import RawTitle
@@ -149,7 +149,7 @@ brand(SyncSeq)
 NO_SEQ = SyncSeq(0)
 
 
-class CreateOp(StrictModel):
+class CreateOp(WellFormedModel):
     op: Literal["create"]
     uid: BlockUid
     # the page for a top-level create (created if absent). Under a live
@@ -163,7 +163,7 @@ class CreateOp(StrictModel):
     view_type: ViewType | None = None
 
 
-class UpdateTextOp(StrictModel):
+class UpdateTextOp(WellFormedModel):
     op: Literal["update_text"]
     uid: BlockUid
     text: str
@@ -181,7 +181,7 @@ class UpdateTextOp(StrictModel):
     page_title: RawTitle | None = None
 
 
-class MoveOp(StrictModel):
+class MoveOp(WellFormedModel):
     op: Literal["move"]
     uid: BlockUid
     parent_uid: BlockUid | None   # required but nullable: null = top level
@@ -192,7 +192,7 @@ class MoveOp(StrictModel):
     page_title: RawTitle | None = Field(default=None, min_length=1)
 
 
-class DeleteOp(StrictModel):
+class DeleteOp(WellFormedModel):
     op: Literal["delete"]
     uid: BlockUid
     # sha256 of the subtree this delete was based on (offline-editing-design.md
@@ -207,25 +207,25 @@ class DeleteOp(StrictModel):
                                                  max_length=64)
 
 
-class SetCollapsedOp(StrictModel):
+class SetCollapsedOp(WellFormedModel):
     op: Literal["set_collapsed"]
     uid: BlockUid
     collapsed: bool
 
 
-class SetHeadingOp(StrictModel):
+class SetHeadingOp(WellFormedModel):
     op: Literal["set_heading"]
     uid: BlockUid
     heading: HeadingLevel | None = None
 
 
-class SetViewTypeOp(StrictModel):
+class SetViewTypeOp(WellFormedModel):
     op: Literal["set_view_type"]
     uid: BlockUid
     view_type: ViewType
 
 
-class CreatePageOp(StrictModel):
+class CreatePageOp(WellFormedModel):
     """Durable push path for offline page creation (offline-editing-design.md
     §1): an empty page created offline has no block op to carry its title, so
     page creation is itself an op -- get_or_create semantics, safely
@@ -240,7 +240,7 @@ BlockOp = Annotated[Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
                     Field(discriminator="op")]
 
 
-class OpBatch(StrictModel):
+class OpBatch(WellFormedModel):
     client_id: ClientId = Field(min_length=1, max_length=64)
     # Required: id-less batches cannot be
     # deduplicated, so any retry or replay re-applies. Pre-offline clients
@@ -253,7 +253,11 @@ class OpBatch(StrictModel):
 
 
 def text_hash(text: str) -> Sha256Hex:
-    return Sha256Hex(hashlib.sha256(text.encode()).hexdigest())
+    """sha256 of `text`'s UTF-8, read as the web's TextEncoder reads it: a
+    lone surrogate hashes as U+FFFD (see pkm.contracts.text). Total, so a
+    text from anywhere (a stored row, a CLI argument) hashes as it would
+    once it went through the contract."""
+    return Sha256Hex(hashlib.sha256(well_formed(text).encode()).hexdigest())
 
 
 def subtree_hash(pairs: Iterable[tuple[str, str]]) -> Sha256Hex:
@@ -263,4 +267,4 @@ def subtree_hash(pairs: Iterable[tuple[str, str]]) -> Sha256Hex:
     differently -- text_hash / sha256Hex already agree. Uids are ASCII
     (UID_RE), so both languages' default sorts agree too."""
     canon = "\n".join(f"{uid} {text_hash(text)}" for uid, text in sorted(pairs))
-    return Sha256Hex(hashlib.sha256(canon.encode()).hexdigest())
+    return Sha256Hex(hashlib.sha256(well_formed(canon).encode()).hexdigest())

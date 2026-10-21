@@ -425,3 +425,22 @@ describe("seen_seq", () => {
       .toEqual(["batch_id", "id", "ops", "poisoned"]);
   });
 });
+
+describe("enqueueBatch keeps the replica well-formed", () => {
+  test("a lone surrogate is stored, applied and queued as U+FFFD", () => {
+    enqueueBatch(t.db, [
+      { op: "update_text", uid: uidOf("uid_q1"), text: "a\uD800b" },
+      { op: "create", uid: uidOf("uid_q2"), page_title: rawTitleOf("New \uDC00"),
+        parent_uid: null, order_idx: orderIdxOf(1), text: "\uDC00c" },
+    ], 1000, bid("batch-odd"));
+    const texts = t.db.select("SELECT uid, text FROM blocks ORDER BY uid", ["uid", "text"]);
+    expect(texts).toEqual([{ uid: "uid_q1", text: "a\uFFFDb" },
+                           { uid: "uid_q2", text: "\uFFFDc" }]);
+    const titles = t.db.select("SELECT title FROM pages ORDER BY id", ["title"]);
+    expect(titles.map((r) => r.title)).toContain("New \uFFFD");
+    const [row] = t.db.select("SELECT ops_json FROM pending_ops", ["ops_json"]);
+    expect(row.ops_json).not.toMatch(/\\ud[89a-f]/i);
+    const ops = allBatches(t.db)[0].ops;
+    expect(ops.map((o) => ("text" in o ? o.text : null))).toEqual(["a\uFFFDb", "\uFFFDc"]);
+  });
+});

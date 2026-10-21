@@ -79,6 +79,13 @@ _TITLE_KINDS: list[st.SearchStrategy[str]] = [
     st.sampled_from(REAL_TITLES), hostile_text, blank_text,
     st.sampled_from(REAL_TITLES)]
 
+# Small ints, the edges of SQLite's 64-bit range on both sides, and any.
+_wide_int = st.sampled_from(
+    [2 ** 63 - 1, 2 ** 63, -(2 ** 63), -(2 ** 63) - 1, 2 ** 64])
+_INT_KINDS: list[st.SearchStrategy[int]] = [
+    st.integers(-3, 10), st.integers(-3, 10), _wide_int,
+    st.integers(-(2 ** 70), 2 ** 70)]
+
 # Plausible values for a branded str, so a typed request often passes its
 # shape checks and reaches the code behind them.
 _hex = st.text(alphabet="0123456789abcdef", min_size=8, max_size=8)
@@ -89,8 +96,11 @@ _PLAUSIBLE: dict[str, st.SearchStrategy[object]] = {
     "RawTitle": st.integers(0, 3).flatmap(lambda i: _TITLE_KINDS[i]),
     "ClientId": st.just("client-1"),
     "BatchId": _hex.map(lambda h: "batch-" + h),
-    "SyncSeq": st.integers(0, 50),
-    "OrderIdx": st.integers(0, 5),
+    # An order key at the edge of SQLite's range in one draw in four.
+    "SyncSeq": st.integers(0, 3).flatmap(
+        lambda i: _wide_int if i == 2 else st.integers(0, 50)),
+    "OrderIdx": st.integers(0, 3).flatmap(
+        lambda i: _wide_int if i == 2 else st.integers(0, 5)),
     "Sha256Hex": st.text(alphabet="0123456789abcdef", min_size=64,
                          max_size=64),
 }
@@ -139,6 +149,8 @@ def value_labels(value: object) -> set[str]:
             found.add("NaN")
         elif isinstance(item, float) and item in (float("inf"), float("-inf")):
             found.add("Infinity")
+        elif isinstance(item, int) and not -(2 ** 63) <= item < 2 ** 63:
+            found.add("int past 64 bits")
         elif isinstance(item, dict):
             stack.extend(item.keys())
             stack.extend(item.values())
@@ -190,7 +202,7 @@ def _typed(annotation: object, *, loose: bool, depth: int,
     if annotation is bool:
         return st.booleans()
     if annotation is int:
-        return st.one_of(st.integers(-3, 10), st.integers(-(2 ** 70), 2 ** 70))
+        return st.integers(0, 3).flatmap(lambda i: _INT_KINDS[i])
     if origin is list:
         return st.lists(for_annotation(args[0], loose=loose, depth=depth + 1),
                         min_size=min_size, max_size=max(4, min_size))

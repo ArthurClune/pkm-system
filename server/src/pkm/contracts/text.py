@@ -19,6 +19,7 @@ from re import Match
 
 from pydantic import model_validator
 
+from pkm.contracts.int64 import INT64_MAX, INT64_MIN
 from pkm.contracts.strict import StrictModel
 
 _ANY_SURROGATE = re.compile("[\ud800-\udfff]")
@@ -83,13 +84,28 @@ def _copied(value: object, stack: list[tuple[object, _Container]]) -> object:
     return copy
 
 
+def _refuse_wide_ints(value: object) -> None:
+    """ValueError for an int, at any depth of `value`, that SQLite cannot
+    store: Python's sqlite3 raises OverflowError binding one."""
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+        elif isinstance(item, int) and not INT64_MIN <= item <= INT64_MAX:
+            raise ValueError(f"{item} is outside the 64-bit integer range")
+
+
 class WellFormedModel(StrictModel):
     """A contract model whose every str is well-formed once validated,
     whatever the client sent: the base of the op models and of every
     request body model, so a field added later is covered without anyone
     remembering to. The whole input is walked, nested dicts and lists
     included, so a free-form field (a `dict[str, Any]` report, a list of
-    titles) is covered as well as the model's own str fields.
+    titles) is covered as well as the model's own str fields. An int past
+    64 bits is refused (a 422): there is no well-formed spelling of it.
 
     It runs on the raw input, before pydantic's field validation: a field
     with a length constraint hands its str to pydantic-core as UTF-8,
@@ -103,4 +119,5 @@ class WellFormedModel(StrictModel):
     def _well_formed_strings(cls, data: object) -> object:
         if not isinstance(data, dict):
             return data
+        _refuse_wide_ints(data)
         return well_formed_tree(data)

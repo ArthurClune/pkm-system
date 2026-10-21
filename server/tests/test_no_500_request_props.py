@@ -71,13 +71,18 @@ _WRITES = {("POST", "/api/ops"), ("POST", "/api/pages"),
 
 
 def _op_labels(body: object) -> set[str]:
-    """Which ops in an /api/ops body name a blank page title."""
+    """Which ops in an /api/ops body name a blank page title, or carry an
+    int past 64 bits."""
     ops = body.get("ops") if isinstance(body, dict) else None
     labels = set()
     for op in ops if isinstance(ops, list) else []:
-        title = op.get("page_title") if isinstance(op, dict) else None
+        if not isinstance(op, dict):
+            continue
+        title = op.get("page_title")
         if isinstance(title, str) and title and not title.strip():
             labels.add(f"op {op.get('op')} with a blank page_title")
+        if "int past 64 bits" in value_labels(list(op.values())):
+            labels.add(f"op {op.get('op')} with an int past 64 bits")
     return labels
 
 

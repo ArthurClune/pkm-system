@@ -1003,7 +1003,7 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | Input | Guard | Kept by |
 |---|---|---|
 | A lone surrogate in a JSON body (a browser sends `\udXXX` escapes) | Every request body model derives from `WellFormedModel`, which makes every str in the body, at any depth, well-formed before validation | `test_every_json_request_body_is_a_well_formed_model` |
-| An int path or query value past 64 bits, which SQLite cannot bind | Every int parameter is `Int64` or carries `INT64_RANGE` (`contracts/int64.py`), so it is an ordinary 422 | `test_every_int_parameter_is_bounded_to_sqlite_range` |
+| An int past 64 bits, which SQLite cannot bind | Every int path or query parameter is `Int64` or carries `INT64_RANGE` (`contracts/int64.py`), and `WellFormedModel` refuses one anywhere in a body, so it is an ordinary 422 | `test_every_int_parameter_is_bounded_to_sqlite_range`, the body walk above |
 | A 422 whose echo of the input holds a lone surrogate, NaN, Infinity or deep nesting | `app.py`'s `RequestValidationError` handler renders `validation_echo.echo_errors`: str well-formed, non-finite numbers as the literal sent, containers past `MAX_ECHO_DEPTH` cut to a marker | `test_validation_echo.py` |
 | A NUL in a search term or title | `fts.py` turns it into a space: FTS5 reads its query as a C string | `test_hostile_requests.py` |
 | A GoodLinks or OpenAI body that is not JSON, nests past what `json.loads` reads (it raises `RecursionError`), or holds a `\udXXX` escape | Both gateways treat the first two as an unusable answer (503, `DescribeError`) and make every decoded str well-formed | `test_no_500_upstream_props.py` |

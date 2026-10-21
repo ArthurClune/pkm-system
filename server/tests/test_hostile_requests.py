@@ -148,6 +148,17 @@ def test_an_int_past_sqlite_range_in_a_query_is_a_422(client):
     assert r.status_code == 422
 
 
+@pytest.mark.parametrize("value", [INT64_MAX + 1, INT64_MIN - 1])
+def test_an_int_past_sqlite_range_in_a_body_is_a_422(client, value):
+    r = client.post("/api/ops", json={
+        "client_id": "c1", "batch_id": "batch-wide-int",
+        "ops": [{"op": "create", "uid": "newwide01", "page_title": "Paper",
+                 "parent_uid": None, "order_idx": value, "text": ""}]})
+    assert r.status_code == 422
+    r = client.put("/api/sidebar", json={"order": [value]})
+    assert r.status_code == 422
+
+
 def _json_body_models(annotation: object) -> list[object]:
     """The JSON body types a body parameter's annotation can carry."""
     args = typing.get_args(annotation)

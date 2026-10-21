@@ -74,12 +74,19 @@ is focused on open.
 **Searching (anything typed).**
 - Results come from the whole tree, as a flat list: file name, with its
   folder path underneath (`Papers › Machine Learning › LLMs`).
-- Fuzzy: every whitespace-separated word of the query must match
-  somewhere in the file's relative path, case-insensitively, so
-  `llm geom` finds `Papers/Machine Learning/LLMs/SHARED GEOMETRY AS A
-  ROSETTA STONE.pdf`. Matched spans are highlighted. Ranking: matches in
-  the file name before matches only in folder names, then shorter paths.
-  *(my call)*
+- Case-insensitive, always (Arthur).
+- Genuinely fuzzy, fzf-style (Arthur: "fuzzy search for preference"):
+  each whitespace-separated query word matches if its characters appear
+  in order in the file's relative path, not necessarily next to each
+  other, so `shrgeo` and `llm geom` both find
+  `Papers/Machine Learning/LLMs/SHARED GEOMETRY AS A ROSETTA STONE.pdf`.
+  Every word must match. Matched characters are highlighted.
+- Ranking by match quality: contiguous runs and matches at word starts
+  score higher; matches in the file name beat matches only in folder
+  names; shorter paths break ties. *(my call on the exact scoring)*
+  Whether to hand-write the scorer (a small Functional Core) or use a
+  library is the builder's call; a library must fit the bundle budgets
+  (`pnpm verify` enforces them).
 - Clearing the box returns to the folder that was being browsed.
 
 **Picking.** Click/tap a file, or ↑/↓ then Enter. The block gets, at the

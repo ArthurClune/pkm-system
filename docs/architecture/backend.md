@@ -455,7 +455,7 @@ the page:
 | Block still exists (mismatch) | `` [[conflict]] [[Page]] — overwritten by ((uid)) ``, `Page` read from the live block's own row |
 | Block gone, hint usable and names a page that still exists | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
 | Block gone, hint usable but names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
-| Block gone, hint missing, blank, or syntactically invalid (including a trailing `]` or a backtick) | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
+| Block gone, hint missing, blank, or [refused](#refused-titles) | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
 | Block exists, but its move's target parent is gone, is the block itself, or is its descendant | `` [[conflict]] [[Page]] — ((uid)) ``, `Page` read from the live block's own row |
 | Guarded `delete` whose subtree changed since the deleting device saw it | `` [[conflict]] [[Page]] — deleted while edited elsewhere ``, `Page` read from the block's own row before the delete; no `((uid))`, since the block is gone |
 
@@ -466,9 +466,8 @@ it. A hint naming no current page (renamed or deleted since the client saw
 it) is shown as inline code, which the ref extractor skips, so the header
 cannot re-create that page (`ops_apply._hint_page`). An existing page is
 named by its stored title, not the hint's spelling, and linked only when `[[Page]]` reads back through `refs.extract` as that same
-title (`conflict_notes.existing_page_label`). A title ending in `]` or holding
-a backtick has no `[[..]]` spelling and is refused as a page title
-(`refs.title_syntax_reason`), so a hint naming one is `(page unknown)`. Header and child uids are minted (`contracts.ops.new_uid`)
+title (`conflict_notes.existing_page_label`). A hint naming a
+[refused title](#refused-titles) is `(page unknown)`. Header and child uids are minted (`contracts.ops.new_uid`)
 with an alphanumeric first character so the CLI can address them without `--`
 (see [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)); a
 second conflict on the same block the same day reuses its header's uid.
@@ -733,6 +732,29 @@ durable `plain_space_title_canonicalization` flag selects the second:
 | inactive (default) | a control character makes ASCII-whitespace runs collapse to one space and trims their boundary; plain-space padding stays byte-exact, so legacy rows still resolve |
 | active | the above, plus stripping leading and trailing U+0020; internal ordinary spaces and NBSP are unchanged |
 
+### Refused titles
+
+`refs.title_syntax_reason` refuses a page title, with the reason
+`forbidden_syntax`, when it holds:
+
+| Syntax | Why |
+|---|---|
+| `#`, `[[`, `]]` | ref syntax |
+| a trailing `]` | `[[a]]]` reads back as `a` |
+| a backtick | it pairs with another on the line into a code span that hides the ref |
+| a `.`, `..` or empty `/` segment (`.`, `/x`, `x/`, `a//b`, `a/../b`) | no URL: URL clients drop dot segments and the SPA's router collapses `//` (`refs.has_unreachable_segment`) |
+
+Every rule judges the title edge-stripped of U+0020 (`target_canonical_title`),
+whatever the flag. The pure ops check never knows the flag, so judging the
+padded spelling would pass ` a] ` that the store then refuses as `a]`. The
+replica's `titleSyntaxReason` is pinned to the same verdicts by
+`title_syntax.json` and `title_parity.json`. A title is refused at creation,
+rename, move, `POST /api/sidebar`, import, and as a `forbidden_syntax`
+blocker in the migration audit. In block text a ref with the first three is
+refused (the batch is a 400), while a ref with no URL is no ref at all, like
+`[[   ]]`: a tag typed through `#work/` on its way to `#work/notes` is never
+refused. `...`, `a.b` and `v1.2/x` are ordinary titles.
+
 The title brands are a chain declared in `contracts/titles.py`; each passes
 where the one before it is expected, never the reverse:
 
@@ -789,8 +811,7 @@ applies the existing-data migration. Activation is an operator action:
 
 `pkm/title_migration.py` is the pure planner. It groups padded titles under a
 canonical spelling, picks a survivor and reports `all_space` or
-`forbidden_syntax` blockers (a title with `#`, `[[`, `]]`, a backtick or a
-trailing `]`: none has a ref spelling). Replacement values are opaque —
+`forbidden_syntax` blockers (a [refused title](#refused-titles)). Replacement values are opaque —
 `rename.rewrite_title_refs_map()` never rescans a mapped value as another
 source — and the plan's SHA-256 digest covers the full relevant snapshot, so an
 unchanged audit yields a stable digest.

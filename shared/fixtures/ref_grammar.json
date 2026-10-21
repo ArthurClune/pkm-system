@@ -154,6 +154,25 @@
      "refs": [], "block_refs": ["abcdef123"], "embeds": 1},
     {"name": "U+FEFF is not space inside an embed macro",
      "text": "{{\ufeffembed: ((abcdef123))}}",
-     "refs": [], "block_refs": ["abcdef123"], "embeds": 0}
+     "refs": [], "block_refs": ["abcdef123"], "embeds": 0},
+    {"name": "a tag with a trailing slash names no page",
+     "text": "#work/ and #work/notes",
+     "refs": [{"title": "work/notes", "kind": "tag"}],
+     "block_refs": [], "embeds": 0},
+    {"name": "dot and dot-dot tags name no page",
+     "text": "(#.) #.. #...",
+     "refs": [{"title": "...", "kind": "tag"}],
+     "block_refs": [], "embeds": 0},
+    {"name": "a link with a dot segment names no page, its child still does",
+     "text": "[[a/../[[b]]]] [[Paper/]]",
+     "refs": [{"title": "b", "kind": "link"}],
+     "block_refs": [], "embeds": 0},
+    {"name": "a padded link with a leading slash names no page",
+     "text": "[[ /x ]] #[[//]]",
+     "refs": [], "block_refs": [], "embeds": 0},
+    {"name": "an attribute with an empty segment names no page",
+     "text": "a/:: [[v1.2/x]]",
+     "refs": [{"title": "v1.2/x", "kind": "link"}],
+     "block_refs": [], "embeds": 0}
   ]
 }

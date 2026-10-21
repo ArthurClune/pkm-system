@@ -80,10 +80,12 @@ def tidy_titles(draw: st.DrawFn) -> str:
     text = words[0] + "".join(g + w for g, w in zip(gaps, words[1:]))
     if title_syntax_reason(text) is not None:
         text = " ".join("".join(c for c in w if c not in "[]") or "x" for w in words)
-    # URL clients drop a `.` or `..` path segment, so such a title has no
-    # URL at all, whatever its spelling; the draw leaves it out.
-    if any(seg in (".", "..") for seg in text.split("/")):
-        text = text.replace(".", "x")
+    # A title with a `.`, `..` or empty `/` segment has no URL, so every
+    # route refuses it; drawn on purpose as well as by chance.
+    if draw(st.integers(0, 5)) == 0:
+        text = draw(st.sampled_from([
+            "/" + text, text + "/", text + "//x", text + "/./x", text + "/../x",
+            ".", ".."]))
     return text
 
 
@@ -192,6 +194,9 @@ class Rig:
         return asyncio.run(go())
 
     def seeded(self, active: bool, canonical: str) -> Path:
+        """A fresh database under the flag, seeded with `canonical`'s page;
+        a refused title's seed batch is refused whole, leaving the
+        conftest graph."""
         db_path = self.fresh(self.config.db_path)
         con = open_db(db_path)
         set_plain_space_title_canonicalization(con, active)
@@ -199,7 +204,8 @@ class Rig:
         con.close()
         r = self.request(db_path, "POST", "/api/ops", {
             "client_id": "props", "batch_id": "seed_batch01", "ops": _seed_ops(canonical)})
-        assert r.status_code == 200, r.text
+        refused = title_syntax_reason(canonical) is not None
+        assert r.status_code == (400 if refused else 200), r.text
         con = open_db(db_path)
         con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         con.close()
@@ -380,12 +386,33 @@ def _differs(rig: Rig, base: Path, request: Request, variant: str, canonical: st
     assert state(v_db) == state(t_db), url
 
 
+def _refuses(rig: Rig, base: Path, request: Request, spelling: str) -> None:
+    """A refused title reaches no page: no 500, and nothing written. A URL
+    client drops a path's dot segments before the server sees them, so the
+    path routes are held to that alone."""
+    db = rig.fresh(base)
+    method, url, body = request(spelling)
+    status = rig.request(db, method, url, body).status_code
+    assert status < 500, (url, status)
+    if method != "GET":
+        assert status >= 400, (url, status)
+    assert state(db) == state(base), url
+
+
 @settings(max_examples=EXAMPLES, deadline=None)
 @given(cases(), st.data())
 def test_a_variant_reaches_the_titles_page_through_every_route(rig, case, data):
     active, canonical, variant, kind = case
     label(*case)
     base = rig.seeded(active, canonical)
+    if title_syntax_reason(canonical) is not None:
+        event("refused title")
+        for request in [*READS.values(), *dict.fromkeys(WRITES.values()),
+                        lambda x: ("POST", f"/api/page/{path_title(x)}/rename",
+                                   {"new_title": "Renamed", "allow_merge": False})]:
+            _refuses(rig, base, request, variant)
+            _refuses(rig, base, request, canonical)
+        return
     for key, request in READS.items():
         method, url, body = request(variant)
         got = outcome(rig.request(base, method, url, body))
@@ -492,6 +519,16 @@ def test_a_variant_reaches_the_titles_page_through_every_cli_verb(rig, case, dat
     active, canonical, variant, kind = case
     label(*case)
     base = rig.seeded(active, canonical)
+    if title_syntax_reason(canonical) is not None:
+        event("refused title")
+        calls = [*CLI_READS.values(), *CLI_WRITES.values(),
+                 lambda x: (["rename", "--json", "--", x, "Renamed"], "")]
+        for call in calls:
+            for spelling in (variant, canonical):
+                db = rig.fresh(base)
+                run_cli(rig, db, *call(spelling))
+                assert state(db) == state(base)
+        return
     for key, call in CLI_READS.items():
         got = run_cli(rig, base, *call(variant))
         want = run_cli(rig, base, *call(canonical))

@@ -458,7 +458,7 @@ fresh importer databases run that same path before publication.
 
 | State | Online server/API | Offline replica |
 |---|---|---|
-| Always | Normalize control whitespace in title creation and page/unlinked read lookup; after normalization reject `#`, `[[`, `]]`, a backtick and a trailing `]` in normal writes | `canonicalizeTitle` applies the same normalization to local creation and reads; local writes use the same forbidden-syntax predicate |
+| Always | Normalize control whitespace in title creation and page/unlinked read lookup; reject a [refused title](backend.md#refused-titles) in normal writes | `canonicalizeTitle` applies the same normalization to local creation and reads; local writes use the same forbidden-syntax predicate |
 | Inactive | Preserve leading/trailing ordinary U+0020 exactly, allowing legacy padded rows to resolve to themselves | Persist `"0"`; preserve boundary ordinary spaces and keep queued wire operations unchanged |
 | Active | Strip only boundary U+0020 on creation/read; keep internal ordinary spaces and NBSP exact | Persist `"1"`; strip boundary U+0020 before local page lookup/creation and optimistic replay |
 

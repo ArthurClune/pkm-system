@@ -15,7 +15,7 @@ from pkm.contracts.titles import RawTitle
 from pkm.contracts.int64 import INT64_RANGE
 from pkm.database import Db
 from pkm.importer.sidebar_rows import next_order_idx, reorder_is_valid
-from pkm.refs import is_blank_title
+from pkm.refs import is_blank_title, title_syntax_reason
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
@@ -49,6 +49,10 @@ def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
     canonical_title = read_title(db, body.title)
     if is_blank_title(canonical_title):
         raise HTTPException(status_code=422, detail="title must not be blank")
+    if title_syntax_reason(canonical_title) is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unsupported page-title syntax: {canonical_title!r}")
     db.begin_immediate()
     existing = db.select(
         "SELECT title, order_idx AS sidebar_order_idx FROM sidebar_entries")

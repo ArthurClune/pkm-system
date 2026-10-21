@@ -79,6 +79,17 @@ export function stripLikePython(text: string): string {
   return stripStartLikePython(text.slice(0, end));
 }
 
+const UNREACHABLE_SEGMENTS = new Set(["", ".", ".."]);
+
+/** Mirrors refs.py has_unreachable_segment: does the title, edge-stripped
+ * of U+0020 once normalized, hold a `.`, `..` or empty `/` segment? Such a
+ * title has no URL. A blank title is not one. */
+export function hasUnreachableSegment(text: string): boolean {
+  const canonical = normalizeRefTitle(text).replace(/^ +| +$/g, "");
+  if (stripLikePython(canonical).length === 0) return false;
+  return canonical.split("/").some((seg) => UNREACHABLE_SEGMENTS.has(seg));
+}
+
 /** Mirrors refs.py is_blank_title: nothing but whitespace once normalized.
  * Every blank-title decision (a ref that names no page, a page create the
  * replica refuses or files as Untitled) goes through this one predicate. */

@@ -15,8 +15,9 @@ import json
 import random
 from collections.abc import Iterable
 
-from pkm.refs import (extract, is_blank_title, normalize_title,
-                      target_canonical_title, title_syntax_reason)
+from pkm.refs import (extract, has_unreachable_segment, is_blank_title,
+                      normalize_title, target_canonical_title,
+                      title_syntax_reason)
 
 GENERATED_SEED = 20261021
 GENERATED_COUNT = 600
@@ -39,6 +40,7 @@ _PIECES = [
     *UNICODE_SPACE, *PY_ONLY_SPACE, JS_ONLY_SPACE, JS_ONLY_SPACE,
     "​", "‍",
     "#", "[[", "]]", "[", "]", "`", "::", "{", "}", "(", ")",
+    "/", "/", ".", "..",
 ]
 
 
@@ -83,6 +85,8 @@ SHAPES = {
     "trailing_bracket": lambda t: normalize_title(t).endswith("]"),
     "backtick": lambda t: "`" in t,
     "astral": lambda t: any(ord(c) > 0xFFFF for c in t),
+    "unreachable_segment": has_unreachable_segment,
+    "dot_segment_free_dots": lambda t: "." in t and not has_unreachable_segment(t),
 }
 
 

@@ -34,9 +34,11 @@ export type OpsPage = (typeof OPS_PAGES)[number];
 export type PoolTitle = (typeof TITLE_POOL)[number];
 
 /** Refused by both the server and enqueueBatch (`titleSyntaxReason`), as a
- * page title or as a ref in block text. */
+ * page title or as a ref in block text. A title with no URL (a `.`, `..` or
+ * empty `/` segment) is refused as a page title only: in block text it is
+ * no ref at all. */
 export const FORBIDDEN_TITLES = [
-  "Bad #title", "x [[y", "x]", "x`y",
+  "Bad #title", "x [[y", "x]", "x`y", "x/", ".", "a/../b",
 ] as const;
 export const FORBIDDEN_REF_TEXTS = [
   "see [[Ops #Bad]]", "#[[x #y]]", "see [[Ops`Bad]]",

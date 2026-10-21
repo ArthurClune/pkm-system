@@ -5,7 +5,7 @@
 
 import type { CanonicalTitle, NormalizedTitle, RawTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
-import { normalizeRefTitle } from "../grammar/scan";
+import { hasUnreachableSegment, normalizeRefTitle } from "../grammar/scan";
 
 export { isBlankRefTitle as isBlankTitle } from "../grammar/scan";
 import { extractRefs } from "./refs";
@@ -17,11 +17,13 @@ export function asRawTitle(text: string): RawTitle {
 
 export type TitleSyntaxReason = "forbidden_syntax";
 
+/** Mirrors refs.py title_syntax_reason: every rule judges the title
+ * edge-stripped of U+0020, whatever the plain-space flag. */
 export function titleSyntaxReason(text: string): TitleSyntaxReason | null {
-  const normalized = normalizeRefTitle(text);
-  return normalized.includes("#") || normalized.includes("[[")
-    || normalized.includes("]]") || normalized.endsWith("]")
-    || normalized.includes("`")
+  const canonical = canonicalizeTitle(text, true);
+  return canonical.includes("#") || canonical.includes("[[")
+    || canonical.includes("]]") || canonical.endsWith("]")
+    || canonical.includes("`") || hasUnreachableSegment(canonical)
     ? "forbidden_syntax"
     : null;
 }

@@ -15,7 +15,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { MainRoutes } from "../App";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
 import { pagePath } from "../paths";
-import { canonicalizeTitle } from "../replica/titles";
+import { canonicalizeTitle, titleSyntaxReason } from "../replica/titles";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import {
@@ -23,6 +23,16 @@ import {
 } from "../test-helpers";
 import { isOutlineEditorActive, isOutlineSessionActive } from "./outlineSessions";
 import { useOutlinePageLoad } from "./useOutlinePageLoad";
+
+class NoopIntersectionObserver {
+  root = null;
+  rootMargin = "";
+  thresholds: number[] = [];
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+  takeRecords(): IntersectionObserverEntry[] { return []; }
+}
 
 afterEach(() => {
   cleanup();
@@ -41,16 +51,18 @@ const word = fc.string({
 });
 
 // One plain space or NBSP between words, so canonicalisation has no edge
-// or run of whitespace to remove. A `.`, `..` or empty path segment has
-// no URL (a URL client drops the first two, the router's navigate
-// collapses `//`), so it is spelled out of the draw.
+// or run of whitespace to remove. A title with a `.`, `..` or empty path
+// segment has no URL and is refused; a quarter of the draws make one.
+const unreachable = fc.constantFrom(
+  (t: string) => `/${t}`, (t: string) => `${t}/`, (t: string) => `${t}//x`,
+  (t: string) => `${t}/./x`, (t: string) => `${t}/../x`, () => ".", () => "..");
 const canonicalTitle = fc
   .tuple(fc.array(word, { minLength: 1, maxLength: 4 }),
-         fc.array(fc.constantFrom(" ", " ", " "), { minLength: 3, maxLength: 3 }))
-  .map(([words, gaps]) => {
+         fc.array(fc.constantFrom(" ", " ", " "), { minLength: 3, maxLength: 3 }),
+         fc.integer({ min: 0, max: 3 }), unreachable)
+  .map(([words, gaps, coin, spoil]) => {
     const text = words.reduce((acc, w, i) => acc + gaps[i - 1] + w);
-    return text.split("/").some((seg) => seg === "" || seg === "." || seg === "..")
-      ? text.replace(/\//g, "x") : text;
+    return coin === 0 ? spoil(text) : text;
   });
 
 const run = fc.array(fc.constantFrom(" ", ...CONTROL), { minLength: 1, maxLength: 3 })
@@ -68,6 +80,8 @@ const controlVariant = (text: string) =>
     });
 
 const pad = fc.integer({ min: 0, max: 3 });
+
+const refused = (c: TitleCase) => titleSyntaxReason(c.canonical) !== null;
 
 // Plain-space padding folds only under the flag, so a padded kind draws it
 // on; the others draw it either way.
@@ -96,12 +110,14 @@ const titleCase: fc.Arbitrary<TitleCase> = fc
   });
 
 /** The server's page route: a spelling that folds onto `canonical` reads
- * that page, under its stored title; anything else is a 404. */
-function serve({ active, canonical }: TitleCase) {
+ * that page, under its stored title; anything else is a 404, and so is
+ * every read of a refused title, which no page can hold. */
+function serve(c: TitleCase) {
+  const { active, canonical } = c;
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
     const prefix = "/api/page/";
-    if (url.startsWith(prefix)) {
+    if (url.startsWith(prefix) && !refused(c)) {
       const path = url.slice(prefix.length).split("?")[0];
       const requested = path.split("/").map(decodeURIComponent).join("/");
       if (canonicalizeTitle(requested, active) === canonical) {
@@ -112,27 +128,44 @@ function serve({ active, canonical }: TitleCase) {
     return Promise.resolve(jsonResponse({ detail: "not found" }, 404));
   });
   vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("IntersectionObserver", NoopIntersectionObserver);
   return fetchMock;
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 20));
 
 function tallied() {
-  const tally: Record<Kind, number> = {
-    identity: 0, control: 0, padded: 0, padded_control: 0,
+  const tally: Record<Kind | "refused", number> = {
+    identity: 0, control: 0, padded: 0, padded_control: 0, refused: 0,
   };
   const reach = () => {
     // Each kind of variant must actually be drawn, or the property is
-    // vacuous. A kind is a quarter of the draws: over 40 runs, missing one
-    // by chance is about a one-in-100000 event.
+    // vacuous. A kind, and a refused title, is a quarter of the draws:
+    // over 40 runs, missing one by chance is about a one-in-100000 event.
     for (const n of Object.values(tally)) expect(n).toBeGreaterThan(0);
   };
-  return { tally, reach };
+  const count = (c: TitleCase) => {
+    tally[c.kind] += 1;
+    if (refused(c)) tally.refused += 1;
+  };
+  return { count, reach };
 }
 
 /** The rendered page's outline editor is the canonical title's, and no
- * session exists under the variant's spelling. */
-async function expectKeyedByCanonical(view: RenderResult, c: TitleCase) {
+ * session exists under the variant's spelling. A refused title reaches no
+ * page and holds no editor; a sidebar panel shows its error, while a
+ * /page/ URL with a dot segment is not that title's URL at all (the router
+ * resolves it away), so the page view need only not open the title. */
+async function expectKeyedByCanonical(view: RenderResult, c: TitleCase,
+                                      showsError: boolean) {
+  if (refused(c)) {
+    if (showsError) {
+      await waitFor(() => expect(view.container.querySelector(".error")).not.toBeNull());
+    } else await settle();
+    expect(isOutlineEditorActive(rawTitleOf(c.canonical))).toBe(false);
+    expect(isOutlineEditorActive(rawTitleOf(c.variant))).toBe(false);
+    return;
+  }
   await view.findByText("the page's block");
   await settle();
   expect(isOutlineEditorActive(rawTitleOf(c.canonical))).toBe(true);
@@ -144,13 +177,19 @@ async function expectKeyedByCanonical(view: RenderResult, c: TitleCase) {
 
 describe("a variant title keys the outline by the canonical title", () => {
   test("useOutlinePageLoad", async () => {
-    const { tally, reach } = tallied();
+    const { count, reach } = tallied();
     await fc.assert(fc.asyncProperty(titleCase, async (c) => {
+      count(c);
       const fetchMock = serve(c);
       const hook = renderHook(
         () => useOutlinePageLoad(rawTitleOf(c.variant), () => null));
       let mounted = true;
       try {
+        if (refused(c)) {
+          await waitFor(() => expect(hook.result.current.error).not.toBeNull());
+          expect(hook.result.current.payload).toBeNull();
+          return;
+        }
         await waitFor(() => expect(hook.result.current.payload).not.toBeNull());
         await settle();
         expect(hook.result.current.payload?.page.title).toBe(c.canonical);
@@ -166,14 +205,14 @@ describe("a variant title keys the outline by the canonical title", () => {
         if (mounted) hook.unmount();
         vi.unstubAllGlobals();
       }
-      tally[c.kind] += 1;
     }), { numRuns: 40 });
     reach();
   }, 30_000);
 
   test("EditableSidebarPanel", async () => {
-    const { tally, reach } = tallied();
+    const { count, reach } = tallied();
     await fc.assert(fc.asyncProperty(titleCase, async (c) => {
+      count(c);
       serve(c);
       const view = render(
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -182,20 +221,23 @@ describe("a variant title keys the outline by the canonical title", () => {
           </SyncContext.Provider>
         </MemoryRouter>);
       try {
-        await expectKeyedByCanonical(view, c);
+        await expectKeyedByCanonical(view, c, true);
       } finally {
         view.unmount();
         vi.unstubAllGlobals();
       }
-      tally[c.kind] += 1;
     }), { numRuns: 40 });
     reach();
   }, 30_000);
 
   test("the page view, opened at the variant's /page/ URL", async () => {
-    const { tally, reach } = tallied();
+    const { count, reach } = tallied();
     await fc.assert(fc.asyncProperty(titleCase, async (c) => {
+      count(c);
       serve(c);
+      // The router warns as it collapses a refused title's `//`.
+      const warn = refused(c)
+        ? vi.spyOn(console, "warn").mockImplementation(() => {}) : null;
       const view = render(
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}
                       initialEntries={[pagePath(rawTitleOf(c.variant))]}>
@@ -204,12 +246,15 @@ describe("a variant title keys the outline by the canonical title", () => {
           </SyncContext.Provider>
         </MemoryRouter>);
       try {
-        await expectKeyedByCanonical(view, c);
+        await expectKeyedByCanonical(view, c, false);
+        for (const [message] of warn?.mock.calls ?? []) {
+          expect(String(message)).toContain("double slashes");
+        }
       } finally {
         view.unmount();
+        warn?.mockRestore();
         vi.unstubAllGlobals();
       }
-      tally[c.kind] += 1;
     }), { numRuns: 40 });
     reach();
   }, 30_000);

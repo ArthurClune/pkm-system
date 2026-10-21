@@ -35,6 +35,21 @@ describe("titleSyntaxReason", () => {
 });
 
 describe("findOpTitleViolation", () => {
+  // Judged edge-stripped, whatever the plain-space flag: the server's ops
+  // check once passed these padded spellings and its store, under the
+  // flag, then refused the stripped `Acme]` / `a]` with a 500.
+  test("refuses a padded title whose stripped form is forbidden", () => {
+    expect(findOpTitleViolation([
+      { op: "create_page", page_title: rawTitleOf("Acme] ") },
+    ])).toEqual({ opIndex: 0, source: "page_title",
+                  title: rawTitleOf("Acme] "), reason: "forbidden_syntax" });
+    expect(findOpTitleViolation([
+      { op: "create", uid: uidOf("edge_ab01"), page_title: rawTitleOf("AI"),
+        parent_uid: null, order_idx: orderIdxOf(900), text: "see [[a] ]]" },
+    ])).toEqual({ opIndex: 0, source: "reference",
+                  title: rawTitleOf("a] "), reason: "forbidden_syntax" });
+  });
+
   const rows: [string, BlockOp, "page_title" | "reference", RawTitle][] = [
     ["create_page", { op: "create_page", page_title: rawTitleOf("New #Old") },
       "page_title", rawTitleOf("New #Old")],

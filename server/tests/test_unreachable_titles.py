@@ -66,6 +66,10 @@ def test_a_padded_title_is_judged_edge_stripped_under_the_flag(
     assert _ops(client, {"op": "update_text", "uid": "uid_b6",
                          "text": "[[ a] ]]"}).status_code == 400
     assert _ops(client, {"op": "create_page", "page_title": " /x "}).status_code == 400
+    assert _ops(client, {"op": "create_page", "page_title": "Acme] "}).status_code == 400
+    assert _ops(client, {"op": "create", "uid": "edge_ab01", "page_title": "AI",
+                         "parent_uid": None, "order_idx": 900,
+                         "text": "see [[a] ]]"}).status_code == 400
 
 
 def _store_unreachable_pages(config) -> None:

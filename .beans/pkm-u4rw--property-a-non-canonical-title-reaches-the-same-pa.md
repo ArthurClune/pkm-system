@@ -33,3 +33,7 @@ A cluster of past bugs where a padded or otherwise non-canonical title reached a
 - `web/src/outline/titleKeys.props.test.tsx`: `useOutlinePageLoad`, `EditableSidebarPanel` and the page view key their outline by the canonical title for any variant. It found that a `/page/` URL with a control character matched no route; `App.tsx`'s `MainRoutes` now redirects it to the folded title.
 - Out of scope, filed as pkm-6mxb: titles with a `.`, `..` or empty path segment have no working URL; both properties leave them out of their draws until that is decided.
 - Gate decision: ordinary suites, not `proptest/check.sh` (about 7 s server, 5 s web).
+
+## Ruling (Arthur, 2026-10-21)
+
+- Keep the plain-space flag read through a one-change `/api/sync/changes` window (`PkmClient.plain_space_title_canonicalization`): it is the same contract the web replica reads the flag from. No dedicated route.

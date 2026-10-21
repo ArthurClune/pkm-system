@@ -7,8 +7,8 @@ from collections import defaultdict
 from collections.abc import Mapping, Set
 from dataclasses import dataclass
 from typing import Literal
-from urllib.parse import quote
 
+from pkm.assets_core import asset_url
 from pkm.contracts.ops import UID_RE, BlockUid, OrderIdx, Sha256Hex
 from pkm.contracts.titles import RawTitle
 from pkm.importer.assets import Asset
@@ -115,8 +115,9 @@ def expand_asset_placeholders(text: str, assets_by_name: Mapping[str, Asset]) ->
     """Replace validated named placeholders with deterministic asset URLs."""
     return ASSET_PLACEHOLDER_RE.sub(
         lambda match: (
-            f"/assets/{assets_by_name[match.group(1)].sha256}/"
-            f"{quote(assets_by_name[match.group(1)].filename)}"
+            asset_url(
+                assets_by_name[match.group(1)].sha256,
+                assets_by_name[match.group(1)].filename)
         ),
         text,
     )

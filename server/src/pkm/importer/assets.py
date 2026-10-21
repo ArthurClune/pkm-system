@@ -7,6 +7,7 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import NamedTuple
 
+from pkm.assets_core import asset_url
 from pkm.contracts.ops import Sha256Hex
 
 _FIREBASE_URL = re.compile(
@@ -63,8 +64,7 @@ def rewrite_asset_urls(
             missing.add(url)
             return url + trailing_punct
         used.add(asset.sha256)
-        quoted = urllib.parse.quote(asset.filename)
-        return f"/assets/{asset.sha256}/{quoted}" + trailing_punct
+        return asset_url(asset.sha256, asset.filename) + trailing_punct
 
     new_text = _FIREBASE_URL.sub(_sub, text)
     return new_text, AssetUrlRewrite(frozenset(used), frozenset(missing))

@@ -945,7 +945,7 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | DELETE | `/api/assistant/conversations/{id}` | Close the conversation and shut down its harness |
 | **Assets** (see [files-and-assets.md](files-and-assets.md)) | | |
 | POST | `/api/assets` | Multipart upload → content-addressed storage |
-| GET | `/assets/{sha256}/{filename}` | Serve by digest (immutable cache) |
+| GET | `/assets/{sha256}/{filename}` | Serve by digest (immutable cache); the name segment is ignored, so raw-name links from before URLs were encoded still load. Upload and search responses build the URL with `assets_core.asset_url`, which percent-encodes the name |
 | GET | `/api/assets/describe-status` | Whether image descriptions are enabled, and why not if disabled |
 | POST | `/api/assets/scan?force` | Enqueue undescribed (or, with `force`, previously-failed) eligible images |
 | GET | `/api/assets/search?q&limit&offset&type&from_ms&to_ms&linked` | `LIKE` search over asset description + filename, filtered and paginated, with a `total` (backs the `/files` browser) |
@@ -1054,6 +1054,7 @@ with the change that invalidates them.
 | `shared/fixtures/title_syntax.json` | hand-maintained cases | `tests/test_refs.py` | Pins `refs.title_syntax_reason` and the replica's `titleSyntaxReason` to the same verdicts (`web/src/replica/titles.test.ts`, `localApi/router.test.ts`) |
 | `shared/fixtures/refs_parity.json` | `pkm.refs_parity_dump` | `tests/test_refs_parity_fixture.py` | TS extractors replay the exact Python outputs |
 | `shared/fixtures/local_links_parity.json` | `web/src/outline/localLinksParity.test.ts` with `UPDATE_LOCAL_LINKS_FIXTURE=1` (fixed fast-check seed over `localCopyAttribute`) | that test fails when the file differs; `tests/test_local_links_parity.py` | `local_docs.extract_local_hrefs` must read the same hrefs from `Local copy::` texts as the web's markdown-link reader. The one fixture the web side writes |
+| `shared/fixtures/upload_links_parity.json` | `web/src/sync/assetsParity.test.ts` with `UPDATE_UPLOAD_LINKS_FIXTURE=1` (fixed fast-check seed over `assetMarkdown`, encoded and raw-name tokens) | that test fails when the file differs; `tests/test_upload_links_parity.py` | `assets_core.strip_asset_tokens` must remove exactly the tokens the web's upload path writes and leave the rest. The second fixture the web side writes |
 | `shared/fixtures/shim_parity.json` | `pkm.server.shim_parity_dump` | `tests/test_shim_parity_fixture.py` | The offline API shim (`web/src/replica/localApi/`) must return byte-identical JSON to the real routes |
 | `shared/fixtures/missing_targets.json` | hand-maintained cases | `tests/test_ops_core.py` | Pins `ops_core.classify_skip` and the replica's `skipsOnMissingTarget` (`web/src/replica/missingTarget.test.ts`) to the same skip-or-not verdicts. Its `placement_cases` pin where a create or move lands, through `ops_apply.apply_batch` and the replica's `applyLocalOps`, replays included |
 | `shared/fixtures/draft_flush.json` | hand-maintained case | `tests/test_ops_endpoint.py` | `web/src/views/EditablePage.draftFlush.test.tsx`: the op an editor draft flushes is the op the ops route's conflict and orphan paths are tested with |

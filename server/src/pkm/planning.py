@@ -19,6 +19,7 @@ import re
 from collections.abc import Iterable, Iterator, Sequence
 from typing import Literal, cast
 
+from pkm.assets_core import asset_label
 from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
                                HeadingLevel, OrderIdx, SetHeadingOp,
                                UpdateTextOp, text_hash)
@@ -482,10 +483,10 @@ def asset_block_text(filename: str, mime: str, url: str) -> str:
     plain link, keyed off the asset's mime type. Pure text shaping shared
     by the CLI (`pkm upload`) and the MCP server's upload tool."""
     if mime.startswith("image/"):
-        return f"![{filename}]({url})"
+        return f"![{asset_label(filename)}]({url})"
     if mime == "application/pdf":
         return f"{{{{[[pdf]]: {url}}}}}"
-    return f"[{filename}]({url})"
+    return f"[{asset_label(filename)}]({url})"
 
 
 def create_page_ops(titles: Iterable[RawTitle]) -> list[CreatePageOp]:

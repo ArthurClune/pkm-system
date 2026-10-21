@@ -43,8 +43,9 @@ The three management endpoints behind the `/files` browser share
   filtered set; `linked=all` computes refs only for the returned page.
 - **Delete** strips every asset reference token out of block text and removes
   the row, then unlinks the file after the commit. `strip_asset_tokens` finds
-  markdown links with the web's rule (`grammar/markdown.ts`), because uploads
-  write the raw filename, spaces and parentheses included, into the URL. A crash then leaves at worst
+  markdown links with the web's rule (`grammar/markdown.ts`), and removes both
+  URL spellings: the percent-encoded name `asset_url` returns now, and the raw
+  name older uploads wrote. A crash then leaves at worst
   an unreferenced file on disk, never a row pointing at a missing file. A block
   left empty *and* childless is deleted outright, but an emptied parent is kept:
   asset deletion must never cascade away real content. Asset URLs never produce

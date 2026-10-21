@@ -27,8 +27,10 @@ slash commands adapt its token stream rather than scanning privately.
 images, bare-URL autolinking (including bare `/assets/<sha256>/`), emphasis,
 `{{query}}` and `{{pdf}}` macros, `$$` math, and line breaks.
 Markdown links and images are scanned by `grammar/markdown.ts`. A link
-destination may contain spaces and nested parentheses, because uploads write
-the raw filename into the URL. The destination closes at the first `)` that
+destination may contain spaces and nested parentheses, because uploads made
+before the server encoded the name wrote it raw into the URL. A new upload's
+label swaps `[` and `]` for `(` and `)` (`sync/assetNames.ts`), so it can never
+open `[[` or close early. The destination closes at the first `)` that
 is not matched on its line, and at the first `)` of all when the parentheses
 never balance.
 

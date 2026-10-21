@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import PurePosixPath
+from urllib.parse import quote
 from typing import Literal
 
 from pkm.contracts.ops import SHA256_HEX_RE, Sha256Hex
@@ -55,6 +56,23 @@ def type_where(category: AssetCategory) -> tuple[str, list[str]]:
         return doc, list(_DOCUMENT_MIME)
     return (f"NOT (mime LIKE 'image/%' OR mime = 'application/pdf'"
             f" OR {doc})", list(_DOCUMENT_MIME))
+
+
+def asset_url(sha256: Sha256Hex, filename: str) -> str:
+    """The /assets/<sha256>/<name> URL of an upload. The name segment is
+    percent-encoded (only letters, digits and `_.-~` stay), so spaces,
+    brackets, parens, `%` and non-ASCII can never end a markdown link
+    early. GET /assets/{sha256}/{filename} serves by sha and ignores the
+    segment, so links written with a raw name before this keep working,
+    and strip_asset_tokens removes both spellings."""
+    return f"/assets/{sha256}/{quote(filename, safe='')}"
+
+
+def asset_label(filename: str) -> str:
+    """A file name as markdown link text: "[" and "]" become "(" and ")"
+    so the label can never open "[[" or close early. Display only; the
+    stored and downloaded name is untouched."""
+    return filename.replace("[", "(").replace("]", ")")
 
 
 def _markdown_destination_close(text: str, start: int) -> int:
@@ -130,12 +148,13 @@ def _strip_markdown_asset_links(text: str, prefix: str) -> str:
 
 def strip_asset_tokens(text: str, sha256: Sha256Hex) -> str:
     """Remove every reference to /assets/<sha256>/... from block text.
-    Uploads write the raw filename into the URL, so it may hold spaces
-    and parens. Three passes, in order: markdown link and image tokens,
-    found with the web's scan; {{[[pdf]]: url}} and {{pdf: url}} macros,
-    whose url runs to the closing "}}" on its line; then any bare URL
-    left over, which ends at whitespace. Collapses doubled spaces and
-    trims, so callers can test emptiness with a plain falsy check."""
+    Uploads now carry the percent-encoded name (asset_url), but older ones
+    wrote the raw filename, which may hold spaces and parens. Three passes,
+    in order: markdown link and image tokens, found with the web's scan;
+    {{[[pdf]]: url}} and {{pdf: url}} macros, whose url runs to the
+    closing "}}" on its line; then any bare URL left over, which ends at
+    whitespace. Collapses doubled spaces and trims, so callers can test
+    emptiness with a plain falsy check."""
     prefix = f"/assets/{sha256}/"
     text = _strip_markdown_asset_links(text, prefix)
     macro = (r"\{\{(?:\[\[pdf\]\]|pdf):\s*" + re.escape(prefix)

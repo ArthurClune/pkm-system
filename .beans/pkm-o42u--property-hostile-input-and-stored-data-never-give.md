@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-21T14:01:04Z
-updated_at: 2026-10-21T15:36:15Z
+updated_at: 2026-10-21T15:43:08Z
 parent: pkm-a1xk
 ---
 
@@ -47,3 +47,12 @@ under a TestClient probe:
 
 Fine as is: invalid-UTF-8 percent escapes in a path (`/api/page/%ED%A0%80`
 gives 404) or a query (`/api/search?q=%ED%A0%80` gives 200).
+
+
+## Ruling (Arthur, 2026-10-21)
+
+The U+FFFD ruling for ops extends to every text-taking route: create page,
+rename, sidebar, diagnostics and every other request model normalise lone
+surrogates to U+FFFD (likely by deriving from `WellFormedModel`). The
+`RequestValidationError` handler renders its echo well-formed, so a 422
+never becomes a 500.

@@ -51,12 +51,10 @@ _WS_RUN = re.compile(r"[ \t\n\r\f\v]+")
 def normalize_title(text: str) -> NormalizedTitle:
     """Collapse the whitespace in a page title that holds a control char.
 
-    A title containing a literal newline cannot be addressed through the
-    HTTP API at all: Starlette compiles `{title:path}` to `.*` without
-    re.DOTALL, so GET/DELETE/rename/export on /api/page/<title> all 404
-    (six real pages reached that state via multi-line
-    [[links]], four of them holding notes). Titles are therefore normalized
-    where they are born rather than at the routes that cannot reach them.
+    Titles are normalized where they are born, so no page holds control
+    whitespace: a multi-line [[link]] names the one-line title, and a
+    lookup key arriving with a newline (a page route's `{title:wholepath}`,
+    a query param) is folded onto that same title by `read_title`.
 
     Deliberately narrow: a title with no control whitespace is returned
     byte for byte, so runs of plain spaces in the existing graph ("Two
@@ -115,16 +113,37 @@ TitleSyntaxReason = Literal["forbidden_syntax"]
 RefKind = Literal["link", "tag", "attribute"]
 
 
+_UNREACHABLE_SEGMENTS = frozenset({"", ".", ".."})
+
+
+def has_unreachable_segment(text: str) -> bool:
+    """Does `text`, edge-stripped as `target_canonical_title` does, hold a
+    `.`, `..` or empty `/`-separated segment? Such a title has no URL: URL
+    clients drop dot segments and the SPA's router collapses `//`. A blank
+    title is not one; blankness is its own policy (`is_blank_title`)."""
+    canonical = target_canonical_title(text)
+    if not canonical.strip():
+        return False
+    return any(seg in _UNREACHABLE_SEGMENTS for seg in canonical.split("/"))
+
+
 def title_syntax_reason(text: str) -> TitleSyntaxReason | None:
     """Why `text` cannot be a page title, or None.
 
     A title is refused when no `[[Title]]` spelling reads back as it: `#`,
     `[[` and `]]` are ref syntax, a trailing `]` merges with the closing
     `]]` (`[[a]]]` is the title `a`), and a backtick pairs with another one
-    on the line into a code span that hides the ref."""
-    normalized = normalize_title(text)
-    if ("#" in normalized or "[[" in normalized or "]]" in normalized
-            or normalized.endswith("]") or "`" in normalized):
+    on the line into a code span that hides the ref. It is also refused
+    when it has no URL (`has_unreachable_segment`).
+
+    Every rule judges the edge-stripped title (`target_canonical_title`),
+    whatever this database's plain-space flag: the pure ops check never
+    knows the flag, and must not pass ` a] ` where the store, under the
+    flag, then sees `a]`."""
+    canonical = target_canonical_title(text)
+    if ("#" in canonical or "[[" in canonical or "]]" in canonical
+            or canonical.endswith("]") or "`" in canonical
+            or has_unreachable_segment(canonical)):
         return "forbidden_syntax"
     return None
 
@@ -387,18 +406,22 @@ def extract(text: str) -> ParsedRefs:
     refs: list[Ref] = []
     # Every title goes through normalize_title, and one that is blank once
     # normalized is not a reference at all (`[[]]`, `[[\n]]`, and `[[   ]]`
-    # used to mint blank-titled pages). Hashtag titles cannot hold
-    # whitespace, so the call is a no-op there -- applied anyway to keep
-    # the rule uniform. The attribute's own normalization, and the leading
-    # whitespace it has to survive, belong to attribute_title_span().
-    if (attribute := attribute_title_span(clean)) is not None:
+    # used to mint blank-titled pages); nor is one with no URL
+    # (`has_unreachable_segment`: `#work/` mid-typing, `[[a/../b]]`).
+    # Hashtag titles cannot hold whitespace, so normalize_title is a no-op
+    # there -- applied anyway to keep the rule uniform. The attribute's own
+    # normalization, and the leading whitespace it has to survive, belong
+    # to attribute_title_span().
+    if ((attribute := attribute_title_span(clean)) is not None
+            and not has_unreachable_segment(attribute.title)):
         refs.append(Ref(attribute.title, "attribute"))
     for span in iter_bracket_spans(bracket_spans(clean)):
         normalized = normalize_title(clean[span.inner_start : span.inner_end])
-        if not is_blank_title(normalized):
+        if not is_blank_title(normalized) and not has_unreachable_segment(normalized):
             refs.append(Ref(normalized, "tag" if span.is_tag else "link"))
     for tag in tag_spans(clean):
-        if title := normalize_title(tag.raw_title):
+        title = normalize_title(tag.raw_title)
+        if title and not has_unreachable_segment(title):
             refs.append(Ref(title, "tag"))
     seen: set[tuple[str, str]] = set()
     deduped = [r for r in refs

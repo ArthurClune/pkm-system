@@ -51,7 +51,50 @@ const WS_RUN_RE = /[ \t\n\r\f\v]+/g;
 
 export function normalizeRefTitle(text: string): NormalizedTitle {
   if (!CONTROL_WS_RE.test(text)) return text as NormalizedTitle;
-  return text.replace(WS_RUN_RE, " ").trim() as NormalizedTitle;
+  return stripLikePython(text.replace(WS_RUN_RE, " ")) as NormalizedTitle;
+}
+
+// The whitespace of Python's str.strip() and its re `\s`, which refs.py
+// trims titles with and anchors hashtags and embeds on. JS's trim() and
+// `\s` are a different set: they also take U+FEFF and leave out
+// U+001C-U+001F and U+0085, so a title edged with one of those would name
+// another page here than on the server.
+const PY_SPACE = "\\t-\\r\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029"
+  + "\\u202f\\u205f\\u3000";
+const PY_SPACE_RE = new RegExp(`[${PY_SPACE}]`);
+const isPythonSpace = (ch: string): boolean => PY_SPACE_RE.test(ch);
+
+/** `text.lstrip()` as refs.py reads it: a scan, not a regex, so a long
+ * blank text costs one pass. */
+export function stripStartLikePython(text: string): string {
+  let i = 0;
+  while (i < text.length && isPythonSpace(text[i])) i += 1;
+  return text.slice(i);
+}
+
+/** `text.strip()` as refs.py reads it. */
+export function stripLikePython(text: string): string {
+  let end = text.length;
+  while (end > 0 && isPythonSpace(text[end - 1])) end -= 1;
+  return stripStartLikePython(text.slice(0, end));
+}
+
+const UNREACHABLE_SEGMENTS = new Set(["", ".", ".."]);
+
+/** Mirrors refs.py has_unreachable_segment: does the title, edge-stripped
+ * of U+0020 once normalized, hold a `.`, `..` or empty `/` segment? Such a
+ * title has no URL. A blank title is not one. */
+export function hasUnreachableSegment(text: string): boolean {
+  const canonical = normalizeRefTitle(text).replace(/^ +| +$/g, "");
+  if (stripLikePython(canonical).length === 0) return false;
+  return canonical.split("/").some((seg) => UNREACHABLE_SEGMENTS.has(seg));
+}
+
+/** Mirrors refs.py is_blank_title: nothing but whitespace once normalized.
+ * Every blank-title decision (a ref that names no page, a page create the
+ * replica refuses or files as Untitled) goes through this one predicate. */
+export function isBlankRefTitle(text: string): boolean {
+  return stripLikePython(normalizeRefTitle(text)).length === 0;
 }
 
 const TODO_RE = /^\{\{(\[\[)?(TODO|DONE)(\]\])?\}\}/;
@@ -66,10 +109,11 @@ const ATTRIBUTE_RE = /([^\[\]{}:\n]+?)::/y;
 // keeping their own copy, so the three web definitions can't drift apart.
 export const UID_TOKEN = "[a-zA-Z0-9_-]{6,32}";
 const BLOCK_REF_RE = new RegExp(`\\(\\((${UID_TOKEN})\\)\\)`, "y");
-const EMBED_RE = /\{\{\s*(?:\[\[)?embed(?:\]\])?\s*[:}]/y;
+const EMBED_RE = new RegExp(
+  `\\{\\{[${PY_SPACE}]*(?:\\[\\[)?embed(?:\\]\\])?[${PY_SPACE}]*[:}]`, "y");
 // [\p{L}\p{N}_] mirrors Python's unicode-aware \w closely enough for titles.
 const TAG_CHARS_RE = /[\p{L}\p{N}_./\-]+/uy;
-const TAG_BOUNDARY_RE = /[\s(]/;
+const TAG_BOUNDARY_RE = new RegExp(`[${PY_SPACE}(]`);
 const WORD_CHAR_RE = /[\p{L}\p{N}_]/u;
 const INLINE_CODE_RE = /`[^`\n]*`/y;
 
@@ -253,11 +297,11 @@ export function scanGrammar(text: string): { tokens: readonly GrammarToken[] } {
     });
   }
 
-  ATTRIBUTE_RE.lastIndex = clean.length - clean.trimStart().length;
+  ATTRIBUTE_RE.lastIndex = clean.length - stripStartLikePython(clean).length;
   const attr = ATTRIBUTE_RE.exec(clean);
   if (attr) {
     const end = ATTRIBUTE_RE.lastIndex;
-    tokens.push({ kind: "attribute", title: normalizeRefTitle(attr[1].trim()),
+    tokens.push({ kind: "attribute", title: normalizeRefTitle(stripLikePython(attr[1])),
                   start: end - 2 - attr[1].length, end });
   }
 

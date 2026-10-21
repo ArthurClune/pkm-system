@@ -33,20 +33,21 @@ def existing_page_label(title: RawTitle) -> str:
 
 
 def conflict_label(page_title: RawTitle | None,
-                   hint_page_exists: bool) -> str:
+                   hint_page: CanonicalTitle | None) -> str:
     """Label for check 1's client page-title hint (offline-editing-design.md
     §2). It never fails the op, and it must not produce a `[[link]]` to a
     page that does not exist, or the ref indexer creates one:
 
     - unusable (missing, blank, or syntactically invalid): the generic label
-    - page exists: `existing_page_label`
+    - names a page (`hint_page`, its stored title): `existing_page_label`
+      of that title, so any spelling of the hint writes the same header
     - no such page: the title as inline code
     """
     if (page_title is None or not page_title.strip()
             or title_syntax_reason(page_title) is not None):
         return "(page unknown)"
-    if hint_page_exists:
-        return existing_page_label(page_title)
+    if hint_page is not None:
+        return existing_page_label(hint_page)
     span = missing_page_code_span(page_title)
     return "(page unknown)" if span is None else f"{span} (page not found)"
 
@@ -79,13 +80,13 @@ def deleted_header_text(page_title: CanonicalTitle) -> str:
 
 
 def orphan_header_text(page_title: RawTitle | None,
-                       hint_page_exists: bool) -> str:
+                       hint_page: CanonicalTitle | None) -> str:
     """Header for check 1: page_title is the client's op.page_title hint,
     which may be missing, unusable, or stale (naming a page the store no
-    longer has); hint_page_exists is resolved by the shell. Also heads every
-    other entry grouped under a missing block's uid (see
+    longer has); hint_page, the page it names, is resolved by the shell.
+    Also heads every other entry grouped under a missing block's uid (see
     `ops_core.classify_skip`), so whichever lands first, they share it."""
-    return (f"[[conflict]] {conflict_label(page_title, hint_page_exists)}"
+    return (f"[[conflict]] {conflict_label(page_title, hint_page)}"
            " — edit to a block the server no longer has")
 
 

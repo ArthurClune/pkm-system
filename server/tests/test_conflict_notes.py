@@ -13,30 +13,33 @@ from pkm.test_data.ids import canonical_title_of, order_idx_of, raw_title_of, ui
 
 
 @pytest.mark.parametrize(
-    "hint, hint_page_exists, label",
+    "hint, hint_page, label",
     [
-        ("AI Agent Security", True, "[[AI Agent Security]]"),
-        ("Old Title", False, "`Old Title` (page not found)"),
-        ("a`b", False, "(page unknown)"),
-        (None, False, "(page unknown)"),
-        ("  ", False, "(page unknown)"),
-        ("a[[b", False, "(page unknown)"),
+        ("AI Agent Security", "AI Agent Security", "[[AI Agent Security]]"),
+        ("Old Title", None, "`Old Title` (page not found)"),
+        ("a`b", None, "(page unknown)"),
+        (None, None, "(page unknown)"),
+        ("  ", None, "(page unknown)"),
+        ("a[[b", None, "(page unknown)"),
         # a hint could exist and still be unusable syntax at the same
         # time (e.g. it names a real page's title that happens to hold
         # `[[`) -- unusable always wins.
-        ("a[[b", True, "(page unknown)"),
+        ("a[[b", "a[[b", "(page unknown)"),
         # `[[title]]` would read back as a different title (a trailing `]`,
         # paired backticks), and the ref indexer would create THAT page, so
         # such a title is unusable even when a legacy page holds it
-        ("x]", True, "(page unknown)"),
-        ("[x]", True, "(page unknown)"),
-        ("a}]", True, "(page unknown)"),
-        ("a`b`c", True, "(page unknown)"),
-        ("  Padded  ", True, "[[  Padded  ]]"),
+        ("x]", "x]", "(page unknown)"),
+        ("[x]", "[x]", "(page unknown)"),
+        ("a}]", "a}]", "(page unknown)"),
+        ("a`b`c", "a`b`c", "(page unknown)"),
+        ("  Padded  ", "  Padded  ", "[[  Padded  ]]"),
+        # the stored title labels the page, whatever spelling named it
+        ("Fo\no ", "Fo o", "[[Fo o]]"),
     ])
-def test_conflict_label_table(hint, hint_page_exists, label):
+def test_conflict_label_table(hint, hint_page, label):
     page_title = None if hint is None else raw_title_of(hint)
-    assert conflict_label(page_title, hint_page_exists) == label
+    stored = None if hint_page is None else canonical_title_of(hint_page)
+    assert conflict_label(page_title, stored) == label
 
 
 def test_existing_page_label_falls_back_when_a_link_would_not_read_back():
@@ -48,7 +51,7 @@ def test_existing_page_label_falls_back_when_a_link_would_not_read_back():
 def test_headers_name_the_page_and_embed_or_name_the_block():
     assert overwritten_header_text(canonical_title_of("Paper"), uid_of("uid_b3")) == (
         "[[conflict]] [[Paper]] — overwritten by ((uid_b3))")
-    assert orphan_header_text(raw_title_of("Old"), False) == (
+    assert orphan_header_text(raw_title_of("Old"), None) == (
         "[[conflict]] `Old` (page not found) — edit to a block the server"
         " no longer has")
     assert live_block_header_text(canonical_title_of("Paper"), uid_of("uid_b3")) == (

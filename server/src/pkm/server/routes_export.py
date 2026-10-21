@@ -44,6 +44,7 @@ from pkm.server.store import fetch_page
 from pkm.server.sync_meta import read_title
 from pkm.server.tempfile_response import CleanupFileResponse
 from pkm.server.tree import build_tree, collect_block_ref_uids
+from pkm.server import wholepath  # noqa: F401 -- registers {title:wholepath}
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -124,7 +125,7 @@ def _gather_resolution_data(
     return uid_to_text, query_results
 
 
-@router.get("/api/export/page/{title:path}")
+@router.get("/api/export/page/{title:wholepath}")
 def export_page_markdown(title: RawTitle,
                          db: Db = Depends(get_db)) -> Response:
     canonical_title = read_title(db, title)

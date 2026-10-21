@@ -793,3 +793,53 @@ def test_batch_delete_fetch_failure_fails_the_batch(
     assert out == ""
     assert "503" in err
     assert "doomed root" in _page_texts(pkm_client, "AI")
+
+
+def test_batch_naming_one_page_by_two_spellings_keeps_command_order(
+        run, pkm_client):
+    # Each spelling was planned against its own copy of the page, so the
+    # second spelling's append took the first's slot and landed above it.
+    code, _, _ = run("batch", stdin=json.dumps([
+        {"command": "create", "params": {"page": "AI\n", "text": "one"}},
+        {"command": "create", "params": {"page": "AI", "text": "two"}},
+        {"command": "create", "params": {"page": "Spelled\tTwice", "text": "three"}},
+        {"command": "create", "params": {"page": "Spelled Twice", "text": "four"}},
+    ]))
+    assert code == 0
+    assert _page_texts(pkm_client, "AI")[-2:] == ["one", "two"]
+    assert _page_texts(pkm_client, "Spelled Twice") == ["three", "four"]
+
+
+def test_batch_folds_padded_spellings_of_a_new_page_under_the_plain_space_flag(
+        run, pkm_client, seeded_config):
+    from pkm.server.db import open_db
+    from pkm.server.sync_meta import set_plain_space_title_canonicalization
+    con = open_db(seeded_config.db_path)
+    set_plain_space_title_canonicalization(con, True)
+    con.commit()
+    con.close()
+    code, _, _ = run("batch", stdin=json.dumps([
+        {"command": "create", "params": {"page": " Padded New", "text": "one"}},
+        {"command": "create", "params": {"page": "Padded New ", "text": "two"}},
+    ]))
+    assert code == 0
+    assert _page_texts(pkm_client, "Padded New") == ["one", "two"]
+
+
+def test_batch_keeps_padded_spellings_apart_without_the_plain_space_flag(
+        run, pkm_client):
+    code, _, _ = run("batch", stdin=json.dumps([
+        {"command": "create", "params": {"page": " Kept Apart", "text": "one"}},
+        {"command": "create", "params": {"page": "Kept Apart", "text": "two"}},
+    ]))
+    assert code == 0
+    assert _page_texts(pkm_client, " Kept Apart") == ["one"]
+    assert _page_texts(pkm_client, "Kept Apart") == ["two"]
+
+
+def test_batch_page_that_folds_to_nothing_still_lands(run, pkm_client):
+    # A whitespace-only page spelling folded to "", which no op may carry.
+    code, _, _ = run("batch", stdin=json.dumps([
+        {"command": "create", "params": {"page": "\n", "text": "kept"}}]))
+    assert code == 0
+    assert "kept" in _page_texts(pkm_client, "Untitled")

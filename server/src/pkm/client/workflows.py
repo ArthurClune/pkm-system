@@ -20,8 +20,8 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from pkm.batch import (BatchCommand, delete_uids, plan_batch,
-                       referenced_pages, validate_batch)
+from pkm.batch import (BatchCommand, delete_uids, page_keys, plan_batch,
+                       referenced_pages, title_flag_needed, validate_batch)
 from pkm.client.api import PkmClient
 from pkm.client.core import ApiError
 from pkm.contracts.titles import RawTitle
@@ -115,20 +115,26 @@ def apply_batch(client: PkmClient, commands: object) -> OpsAck:
     unchecked, so the shells must report it.
 
     Validation runs before any page is fetched or created, so a malformed
-    batch triggers no I/O at all. Then every page the batch names is
-    fetched once up front -- planning needs each page's existing blocks to
-    compute append positions -- and so is the subtree of every block a
-    `delete` names, which the planner hashes so the server can keep the
-    texts if another device edited them since. A delete whose block is not
-    found (404) goes unhashed and is skipped and reported like any other
-    missing uid.
+    batch triggers no I/O at all. Two spellings of one page are then joined
+    under one key (`page_keys`), asking the server for its plain-space flag
+    only when boundary spaces alone tell them apart. Then every page the
+    batch names is fetched once up front -- planning needs each page's
+    existing blocks to compute append positions -- and so is the subtree
+    of every block a `delete` names, which the planner hashes so the
+    server can keep the texts if another device edited them since. A
+    delete whose block is not found (404) goes unhashed and is skipped and
+    reported like any other missing uid.
 
     Delete subtrees are cut from those same fetched pages wherever
     possible, so fetch count scales with the pages a batch touches, not
     with how many blocks it deletes -- see `_delete_subtrees`."""
     parsed = validate_batch(commands)
+    spellings = referenced_pages(parsed)
+    plain_space = (client.plain_space_title_canonicalization()
+                   if title_flag_needed(spellings) else None)
+    keys = page_keys(spellings, plain_space)
     fetched = {title: client.get_page_blocks(title)
-               for title in referenced_pages(parsed)}
+               for title in dict.fromkeys(keys.values())}
     pages: dict[str, list[BlockNode]] = {
         title: blocks for title, (blocks, _) in fetched.items()}
     missing = [title for title, (_, is_missing) in fetched.items()
@@ -136,7 +142,7 @@ def apply_batch(client: PkmClient, commands: object) -> OpsAck:
     subtrees = _delete_subtrees(client, parsed, pages)
     ops: list[BlockOp] = [*create_page_ops(missing),
                           *plan_batch(parsed, pages, uids=_uids(),
-                                      subtrees=subtrees)]
+                                      subtrees=subtrees, keys=keys)]
     return client.post_ops(ops, batch_id=_batch_id())
 
 

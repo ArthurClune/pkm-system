@@ -1001,7 +1001,9 @@ listing can block as an `open()` can, so `local_index.TreeScanner` runs the walk
 on a daemon thread and abandons it after its timeout. Only one scan is ever in
 flight: a later caller joins it, waits for what is left of its timeout and gets
 503 at once if the walk has overrun, rather than starting a second walker.
-Hrefs come from `local_href`, and the path sits outside `/api/local/` so the
+An unreadable directory at any depth fails the whole scan (503) rather than
+returning a partial list; only an entry whose symlink cannot be resolved is
+skipped. Hrefs come from `local_href`, and the path sits outside `/api/local/` so the
 catch-all cannot shadow it.
 
 A failure on the file route is JSON for `fetch()` and pdf.js callers, which read only the status. A browser navigation gets a short HTML page instead, with the same status and `Retry-After`, plus `no-store`. A navigation is `Sec-Fetch-Mode: navigate` or `Sec-Fetch-Dest: document`, or, from a browser that sends neither, an `Accept` naming `text/html` (`local_docs.wants_html_error`). Without it, a person who opens the link sees raw JSON, and Safari saves it as `<name>.pdf.json`.

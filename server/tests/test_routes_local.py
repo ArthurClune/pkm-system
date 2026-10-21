@@ -419,7 +419,10 @@ def test_every_index_href_is_served(local_client, local_root):
     for name in ["a#b.pdf", "q?.pdf", "Programme (Public).pdf",
                  "br[ack]et.pdf", "Caf\u00e9.pdf", "Cafe\u0301 nfd.pdf"]:
         (local_root / "Papers" / name).write_bytes(b"%PDF-1.4\n")
+    names = ["a#b.pdf", "q?.pdf", "Programme (Public).pdf",
+             "br[ack]et.pdf", "Caf\u00e9.pdf", "Cafe\u0301 nfd.pdf"]
     files = local_client.get("/api/local-index").json()["files"]
+    assert {f"Papers/{n}" for n in names} <= {f["path"] for f in files}
     for f in files:
         if f["path"] == "Papers/Gone.pdf":
             continue  # evicted stub: the file route answers 503 by design
@@ -437,8 +440,8 @@ def test_local_index_skips_symlinks_out_and_hidden(local_client, local_root):
     (local_root / ".Trash" / "old.pdf").write_bytes(b"%PDF")
     (local_root / "Papers" / ".DS_Store").write_bytes(b"x")
     paths = [f["path"] for f in local_client.get("/api/local-index").json()["files"]]
-    assert not any("secret" in p or p.startswith(".") or "DS_Store" in p for p in paths)
-    assert not any("loop" in p for p in paths if p.count("Papers") > 1)
+    assert paths == ["Papers/Gone.pdf", "Papers/ML/50% draft.pdf",
+                     "Papers/ML/bundle.zip", "Papers/ML/Title one.pdf"]
 
 
 def test_local_index_stub_and_real_file_list_once(local_client, local_root):
@@ -479,3 +482,22 @@ def test_local_index_unreadable_is_503(local_client, local_root, monkeypatch, ma
     assert r.status_code == 503
     assert r.headers["retry-after"] == "5"
     assert r.json() == {"detail": "the host can't read the local documents folder"}
+
+
+def test_local_index_unreadable_subdirectory_is_503(local_client, local_root):
+    locked = local_root / "Papers" / "locked"
+    locked.mkdir()
+    locked.chmod(0)
+    try:
+        r = local_client.get("/api/local-index")
+    finally:
+        locked.chmod(0o755)
+    assert r.status_code == 503
+    assert r.json() == {"detail": "the host can't read the local documents folder"}
+
+
+def test_local_index_skips_a_dangling_symlink(local_client, local_root):
+    os.symlink(local_root / "nowhere.pdf", local_root / "Papers" / "dangling.pdf")
+    paths = [f["path"] for f in local_client.get("/api/local-index").json()["files"]]
+    assert paths == ["Papers/Gone.pdf", "Papers/ML/50% draft.pdf",
+                     "Papers/ML/bundle.zip", "Papers/ML/Title one.pdf"]

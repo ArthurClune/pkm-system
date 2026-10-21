@@ -31,21 +31,16 @@ def walk_local_tree(root: Path) -> list[str]:
     """Relative `/`-separated paths of every visible file under `root`
     (already resolved), in `index_order`. A symlink is followed only when
     its target stays inside `root`, and each directory is entered once by
-    resolved path, so a symlink loop cannot recurse. An unreadable `root`
-    raises `OSError`; an unreadable subdirectory is skipped."""
+    resolved path, so a symlink loop cannot recurse. An unreadable directory
+    at any depth raises `OSError`, so a partial listing is never returned;
+    only an entry whose symlink cannot be resolved is skipped."""
     found: list[str] = []
     visited = {root}
     pending: list[tuple[Path, str]] = [(root, "")]
     while pending:
         directory, prefix = pending.pop()
-        try:
-            with os.scandir(directory) as it:
-                entries = list(it)
-        except OSError:
-            if directory == root:
-                raise
-            logger.warning("local index skipped unreadable %s", directory)
-            continue
+        with os.scandir(directory) as it:
+            entries = list(it)
         for entry in entries:
             try:
                 is_dir = entry.is_dir()

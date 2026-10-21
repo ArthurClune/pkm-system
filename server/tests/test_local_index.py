@@ -77,3 +77,14 @@ def test_default_walker_lists_a_tree(tmp_path):
     (tmp_path / "d" / "b.pdf").write_bytes(b"x")
     (tmp_path / "A.pdf").write_bytes(b"x")
     assert TreeScanner(timeout=1).scan(Path(tmp_path)) == ["A.pdf", "d/b.pdf"]
+
+
+def test_unreadable_subdirectory_makes_the_scan_none(tmp_path):
+    (tmp_path / "ok.pdf").write_bytes(b"x")
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0)
+    try:
+        assert TreeScanner(timeout=1).scan(tmp_path) is None
+    finally:
+        locked.chmod(0o755)

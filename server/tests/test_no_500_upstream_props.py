@@ -13,7 +13,8 @@ from collections.abc import Iterator
 import httpx2
 import pytest
 from asgi_harness import encode_segment, open_harness
-from hostile import event, hostile_text, json_value, value_labels
+from hostile import (count, event, hostile_text, json_value, value_labels,
+                     with_floors)
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
@@ -168,11 +169,18 @@ def goodlinks_requests(draw) -> tuple[str, str, dict]:
     return "GET", "/api/goodlinks/check", {}
 
 
+# Floors: see `with_floors` in hostile.py for how they were set.
+@with_floors({
+    "answered 200": 0.035, "answered 503": 0.36,
+    "GET article -> 503": 0.071, "GET check -> 503": 0.05, "POST resolve -> 200": 0.021,
+    "POST resolve -> 503": 0.16,
+}, per="case")
 @settings(max_examples=300, deadline=None, suppress_health_check=_SUPPRESSED)
 @given(script=answers(), request=goodlinks_requests())
 def test_goodlinks_routes_answer_any_upstream_cleanly(goodlinks, script,
                                                       request):
     harness, scripted = goodlinks
+    count("case")
     harness.reset()
     scripted.play(script)
     method, url, kwargs = request
@@ -181,6 +189,7 @@ def test_goodlinks_routes_answer_any_upstream_cleanly(goodlinks, script,
     event(f"{method} {'article' if len(route) == 32 else route}"
           f" -> {response.status_code}")
     status = response.status_code
+    event(f"answered {status}")
     assert status < 500 or status == 503, (url, response.text[:300])
     if status < 300:
         body = response.json()
@@ -209,11 +218,16 @@ _one_completion: st.SearchStrategy[list[Answer]] = _completion.map(
     lambda c: [(200, _json_body(c), "application/json")])
 
 
+@with_floors({
+    "describe: DescribeError": 0.24, "describe: description": 0.13, "upstream: 2xx": 0.28,
+    "upstream: 4xx": 0.032,
+}, per="case")
 @settings(max_examples=250, deadline=None, suppress_health_check=_SUPPRESSED)
 @given(script=st.integers(0, 1).flatmap(
     lambda i: _one_completion if i else answers()))
 def test_the_describer_turns_any_answer_into_a_description_or_an_error(
         script):
+    count("case")
     try:
         text = _describe(script)
     except DescribeError as exc:

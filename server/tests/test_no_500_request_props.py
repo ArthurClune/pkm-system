@@ -19,8 +19,8 @@ from asgi_harness import Harness, check_every_row, encode_segment, open_harness
 from fastapi.params import File, Form
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
-from hostile import (LONE_HIGH, LONE_LOW, event, for_annotation, hostile_text,
-                     json_value, value_labels)
+from hostile import (LONE_HIGH, LONE_LOW, count, event, for_annotation,
+                     hostile_text, json_value, value_labels, with_floors)
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
@@ -60,7 +60,8 @@ _FOCUS = {"/api/ops", "/api/pages", "/api/page/{title:path}",
           "/api/page/{title:path}/rename", "/api/search", "/api/titles",
           "/api/unlinked", "/api/delete-preview", "/api/sidebar",
           "/api/sync/changes", "/api/sync/snapshot", "/api/journal",
-          "/api/block/{uid}", "/api/export/page/{title:path}"}
+          "/api/block/{uid}", "/api/export/page/{title:path}",
+          "/api/current-work"}
 
 
 # The write routes that take a title or block text; their bodies are
@@ -143,6 +144,7 @@ def _send_checked(harness: Harness,
                   drawn: tuple[str, str, str, dict, set[str]]
                   ) -> httpx.Response:
     name, method, url, kwargs, labels = drawn
+    count("request")
     response = harness.send(method, url, **kwargs)
     status = f"{response.status_code // 100}xx"
     event(f"{name} -> {status}")
@@ -160,6 +162,10 @@ _SUPPRESSED = [HealthCheck.function_scoped_fixture, HealthCheck.too_slow,
                HealthCheck.data_too_large]
 
 
+# Floors: see `with_floors` in hostile.py for how they were set.
+@with_floors({
+    "GET /api/current-work -> 2xx": 0.011, "input: blank": 0.014, "input: lone surrogate": 0.02,
+}, per="request")
 @settings(max_examples=300, deadline=None, suppress_health_check=_SUPPRESSED)
 @given(st.data())
 def test_no_route_answers_hostile_input_with_a_500(harness, data):
@@ -171,6 +177,11 @@ def test_no_route_answers_hostile_input_with_a_500(harness, data):
         _send_checked(harness, data.draw(requests(routes, loose_in=4)))
 
 
+@with_floors({
+    "POST /api/ops -> 2xx": 0.05, "POST /api/page/{title:path}/rename -> 2xx": 0.012,
+    "input: NUL": 0.018, "input: blank": 0.077, "input: lone surrogate": 0.052,
+    "input: very long": 0.035,
+}, per="request")
 @settings(max_examples=200, deadline=None, suppress_health_check=_SUPPRESSED)
 @given(st.data())
 def test_hostile_writes_leave_every_read_serialisable(harness, data):
@@ -179,7 +190,9 @@ def test_hostile_writes_leave_every_read_serialisable(harness, data):
     writes = [r for r in harness.routes
               if any((m, r.path) in _WRITES for m in r.methods or ())]
     ops = [r for r in writes if r.path == "/api/ops"]
-    routes = st.one_of(st.sampled_from(ops), st.sampled_from(writes))
+    renames = [r for r in writes if r.path.endswith("/rename")]
+    routes = st.one_of(st.sampled_from(ops), st.sampled_from(renames),
+                       st.sampled_from(renames), st.sampled_from(writes))
     harness.reset()
     for _ in range(data.draw(st.integers(1, 4))):
         _send_checked(harness, data.draw(requests(routes, loose_in=10)))
@@ -250,12 +263,16 @@ def surrogate_twins(draw, routes: list[APIRoute]
 _OUTSIDE_THE_DB = ("/api/assistant", "/api/login")
 
 
+@with_floors({
+    "twins: lone surrogate spliced": 0.36,
+}, per="case")
 @settings(max_examples=150, deadline=None, suppress_health_check=_SUPPRESSED)
 @given(st.data())
 def test_a_lone_surrogate_is_answered_as_its_replacement(harness, data):
     """Arthur's ruling: every request body normalises a lone surrogate to
     U+FFFD rather than refusing it. So a body holding one gets the answer
     its well-formed twin gets, from the same starting database."""
+    count("case")
     routes = [r for r in harness.routes
               if any(not isinstance(p.field_info, (File, Form))
                      for p in r.dependant.body_params)
@@ -277,6 +294,11 @@ def test_a_lone_surrogate_is_answered_as_its_replacement(harness, data):
         assert raw.json() == fixed.json()
 
 
+@with_floors({
+    "batch input: NUL": 0.056, "batch input: blank": 0.08, "batch input: lone surrogate": 0.11,
+    "batch input: very long": 0.051, "batch: applied": 0.076,
+    "batch: refused by the planner": 0.13,
+}, per="case")
 @settings(max_examples=150, deadline=None, suppress_health_check=_SUPPRESSED)
 @given(st.data())
 def test_a_hostile_cli_batch_is_applied_or_refused(harness, data):
@@ -284,6 +306,7 @@ def test_a_hostile_cli_batch_is_applied_or_refused(harness, data):
     models are applied, or refused before any request with a BuildError,
     or refused by the server with a 4xx. Never a 5xx, and never another
     exception."""
+    count("case")
     loose = data.draw(st.integers(1, 10)) == 2
     commands = data.draw(st.lists(
         for_annotation(BatchCommand, loose=loose), min_size=1, max_size=4))

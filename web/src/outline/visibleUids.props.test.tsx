@@ -83,7 +83,9 @@ describe("visibleUids", () => {
       }
     }), { numRuns: 300 });
     for (const [name, count] of Object.entries(tally)) {
-      expect(count, name).toBeGreaterThan(15);
+      // hiddenFocus is the scarcest label: its floor is about half its
+      // lowest count over 26 runs (26). The rest sit far above 15.
+      expect(count, name).toBeGreaterThan(name === "hiddenFocus" ? 12 : 15);
     }
   }, 60_000);
 });

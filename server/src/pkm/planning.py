@@ -134,12 +134,17 @@ def split_heading(text: str) -> tuple[str, HeadingLevel | None]:
 
     Text that doesn't match comes back unchanged with None: '#Tag' (no
     space after the hashes, so tag-only blocks survive), '#### x' (blocks
-    carry levels 1-3 only), '# ' (no body), and any multi-line text --
-    _HEADING_SPEC ends in `\\Z` and is not DOTALL, so a newline anywhere
-    (a trailing one too) keeps a pasted markdown document verbatim in its
-    block. Same syntax as a `parent:` spec, same regex.
+    carry levels 1-3 only), '# ' (no body), and any text with a newline
+    inside it -- _HEADING_SPEC ends in `\\Z` and is not DOTALL, so a pasted
+    markdown document stays verbatim in its block. Same syntax as a
+    `parent:` spec, same regex.
+
+    Exactly one trailing newline is tolerated: '## Overview\\n' is still
+    ('Overview', 2). A tool call (MCP `update_block`, `pkm batch`) often
+    ends its text with one, and refusing it would demote the heading.
     """
-    m = _HEADING_SPEC.match(text)
+    body = text.removesuffix("\n")
+    m = _HEADING_SPEC.match(body)
     return (m.group(2), cast(HeadingLevel, len(m.group(1)))) if m \
         else (text, None)
 

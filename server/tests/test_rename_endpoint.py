@@ -535,3 +535,20 @@ def test_rename_self_referencing_block_rewrites_in_place(client, seeded_config):
     con.close()
     assert text == "About [[ML Stuff]] itself"
     assert [(r["target_page_id"], r["ref_kind"]) for r in refs] == [(1, "link")]
+
+
+@pytest.mark.parametrize("legacy_title, mention",
+                         [("a]", "[[a]\n]]"), ("a`b", "[[a`b]]")])
+def test_rename_with_a_legacy_forbidden_title_in_a_block_is_not_a_500(
+        client, seeded_config, legacy_title, mention):
+    con = open_db(seeded_config.db_path)
+    con.execute("INSERT INTO pages(title) VALUES (?)", (legacy_title,))
+    con.execute("UPDATE blocks SET text = ? WHERE uid = 'uid_b4'",
+                (f"Studying [[Machine Learning]] and {mention}",))
+    con.commit()
+    con.close()
+    response = _rename(client, "Machine Learning", "ML Stuff")
+    assert response.status_code == 200
+    daily = client.get("/api/page/July 7th, 2026").json()
+    assert f"Studying [[ML Stuff]] and {mention}" in [
+        b["text"] for b in daily["blocks"]]

@@ -4,9 +4,11 @@ JSON values holding that text and the numbers Python's json accepts, and
 a strategy for any value a pydantic annotation names.
 
 Strategies here never filter, so none can reject every draw."""
+import functools
 import math
 import types
 import typing
+from collections import Counter
 
 from annotated_types import MinLen
 from hypothesis import currently_in_test_context
@@ -36,9 +38,47 @@ _PIECES = [
 _BLANKS = [" ", "\t", "\n", " ", "　", " "]
 
 
+# What a property reached, counted beside Hypothesis's `event` so a test can
+# assert it: `with_floors` clears it before a property runs and checks it
+# after.
+TALLY: Counter[str] = Counter()
+
+
 def event(label: str) -> None:
     if currently_in_test_context():
+        TALLY[label] += 1
         _event(label)
+
+
+def count(label: str) -> None:
+    """Count `label` in the tally without a Hypothesis event: the
+    denominator a floor's share is taken of."""
+    if currently_in_test_context():
+        TALLY[label] += 1
+
+
+def with_floors(floors: dict[str, float], per: str):
+    """Wrap a property so it fails when a label was reached by less than
+    `floors[label]` of the `per` count. A property that stopped drawing a
+    case would otherwise stay green on the cases it still draws.
+
+    A floor is about half the lowest share the label reached over 24 seeds
+    (`--hypothesis-seed=1..24`): near the typical share it fails on an
+    unlucky seed with nothing wrong. A label whose lowest count was under
+    about ten events has no floor, since half of so few is noise; the
+    generator is changed to draw it more often, or it stays an `event`."""
+    def decorate(test):
+        @functools.wraps(test)
+        def run(*args, **kwargs):
+            TALLY.clear()
+            test(*args, **kwargs)
+            total = TALLY[per]
+            assert total, per
+            for label, share in floors.items():
+                assert TALLY[label] > total * share, (
+                    label, TALLY[label], total)
+        return run
+    return decorate
 
 
 blank_text = st.lists(st.sampled_from(_BLANKS), min_size=1,

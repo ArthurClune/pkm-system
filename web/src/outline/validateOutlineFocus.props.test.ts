@@ -81,6 +81,8 @@ describe("validateOutlineFocus", () => {
       }
     }), { numRuns: 500 });
     for (const [name, count] of Object.entries(tally)) {
+      // midPair's floor is about half its lowest count over 26 runs (17);
+      // the others sit well above 15, and 15 is under half of their lowest.
       expect(count, name).toBeGreaterThan(name === "midPair" ? 8 : 15);
     }
   });

@@ -87,7 +87,10 @@ def encode_segment(value: object) -> str:
     """`value` percent-encoded from its UTF-8 bytes, a lone surrogate
     included (as the invalid UTF-8 a client can send)."""
     text = value if isinstance(value, str) else json.dumps(value)
-    return quote(text.encode("utf-8", "surrogatepass"), safe="")
+    encoded = quote(text.encode("utf-8", "surrogatepass"), safe="")
+    # A client resolves a bare `.` or `..` segment before it sends the
+    # request, so the escaped dots are the only way to address such a title.
+    return encoded.replace(".", "%2E") if encoded in (".", "..") else encoded
 
 
 _TABLES = ("SELECT name FROM sqlite_master WHERE type = 'table'"

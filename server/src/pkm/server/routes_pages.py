@@ -20,7 +20,7 @@ from pkm.contracts.responses import (
     CurrentWorkPage, CurrentWorkSection, DeleteBlockerModel, DeletePreview,
     GroupsPayload, JournalCleanupResponse, JournalDay, JournalPayload, OkAck, PageMeta, PagePayload, RenamePageResponse)
 from pkm.contracts.titles import RawTitle
-from pkm.contracts.int64 import Int64
+from pkm.contracts.int64 import INT64_MIN, Int64
 from pkm.database import Db
 from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
                       parse_block_uid, title_syntax_reason)
@@ -459,8 +459,10 @@ def get_current_work(now_ms: Int64 | None = None,
     now = now_ms if now_ms is not None else int(time.time() * 1000)
     sections: list[CurrentWorkSection] = []
     for section_id, heading, min_age, max_age in _CURRENT_WORK_SECTIONS:
-        newer_than = now - max_age
-        older_than = now - min_age
+        # `now` is any int64, so the window bounds can leave the range
+        # SQLite binds; clamping keeps the comparison's meaning.
+        newer_than = max(INT64_MIN, now - max_age)
+        older_than = max(INT64_MIN, now - min_age)
         lower_operator = ">=" if max_age == 7 * 24 * _HOUR_MS else ">"
         rows = db.select(
             f"""SELECT id AS page_id, title, updated_at FROM pages

@@ -13,8 +13,8 @@ Two kinds of oracle, neither of which calls rename.py:
 
 Whether a title can be spelled as a given ref form is asked of
 `refs.extract` on the probe text, never of the rewriter's own helpers."""
-from hypothesis import currently_in_test_context, given, settings
-from hypothesis import event as _event
+from hostile import count, event, with_floors
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from pkm.refs import (
@@ -26,6 +26,7 @@ from pkm.refs import (
 )
 from pkm.rename import rewrite_title_refs as _rewrite_raw
 from pkm.rename import rewrite_title_refs_map as _rewrite_map_raw
+from pkm.rename import spelled_or_canonical
 from pkm.test_data.ids import raw_title_of
 
 
@@ -33,14 +34,10 @@ def rewrite_title_refs(text: str, old: str, new: str) -> str:
     return _rewrite_raw(text, raw_title_of(old), raw_title_of(new))
 
 
-def rewrite_title_refs_map(text: str, replacements: dict[str, str]) -> str:
+def rewrite_title_refs_map(text: str, replacements: dict[str, str],
+                           **kwargs) -> str:
     return _rewrite_map_raw(
-        text, {k: raw_title_of(v) for k, v in replacements.items()})
-
-
-def event(label: str) -> None:
-    if currently_in_test_context():
-        _event(label)
+        text, {k: raw_title_of(v) for k, v in replacements.items()}, **kwargs)
 
 
 # --- titles ---------------------------------------------------------------
@@ -175,6 +172,9 @@ def block_cases(draw, *, padded_attribute: bool = True, nested: bool = True):
     ]
     pieces = draw(st.lists(st.sampled_from(candidates), max_size=7))
     if draw(st.booleans()):
+        # Both titles in one text: what a swap or a merge reads.
+        pieces += [(f"[[{new}]]", f"[[{new}]]"), *_ref_pieces(old, new)[:1]]
+    if draw(st.booleans()):
         indent = draw(st.sampled_from(["", " ", "  ", "\t", "\n"]))
         lead = _attribute_piece(
             old, new, indent, padded_attribute and draw(st.booleans()))
@@ -193,9 +193,23 @@ def block_cases(draw, *, padded_attribute: bool = True, nested: bool = True):
 
 # --- properties -----------------------------------------------------------
 
+# Each floor is about half the lowest share of cases the label reached over
+# 20 seeds (`--hypothesis-seed=1..20`): a floor near the typical share fails
+# on an unlucky seed with nothing wrong, and one far below it lets a
+# generator change drop the case unnoticed.
+
+@with_floors({
+    "changed": 0.3,
+    "unchanged": 0.08,
+    "code-bearing": 0.14,
+    "no code": 0.25,
+    "attribute lead": 0.07,
+    "no attribute lead": 0.35,
+}, per="case")
 @settings(max_examples=400, deadline=None)
 @given(block_cases())
 def test_rewrite_changes_only_the_refs_to_the_old_title(case):
+    count("case")
     old, new, text, expected = case
     out = rewrite_title_refs(text, old, new)
     event("changed" if out != text else "unchanged")
@@ -206,9 +220,12 @@ def test_rewrite_changes_only_the_refs_to_the_old_title(case):
     assert out == expected
 
 
+@with_floors({"identity over a text with refs": 0.4, "no refs": 0.05},
+             per="case")
 @settings(max_examples=400, deadline=None)
 @given(block_cases(padded_attribute=False))
 def test_rewriting_with_the_same_title_is_the_identity(case):
+    count("case")
     old, _new, text, _expected = case
     assert rewrite_title_refs(text, old, old) == text
     event("identity over a text with refs" if old in text else "no refs")
@@ -231,9 +248,12 @@ def _substituted(text: str, old: str, new: str,
     return out
 
 
+@with_floors({"code to preserve": 0.18, "no code": 0.21},
+             per="case")
 @settings(max_examples=400, deadline=None)
 @given(block_cases(nested=False))
 def test_rewritten_text_reads_back_as_refs_to_the_new_title(case):
+    count("case")
     old, new, text, _expected = case
     out = rewrite_title_refs(text, old, new)
     assert title_syntax_reason(new) is None
@@ -251,12 +271,15 @@ def _code_chars(text: str) -> str:
                    if kept == " " and c != " ")
 
 
+@with_floors({"accepted title": 0.2, "refused title": 0.19},
+             per="case")
 @settings(max_examples=400, deadline=None)
 @given(raw_titles, st.sampled_from(
     ["[[a]]", "x [[a]] y [[a]]", "#[[a]] #[[a]]", "[[a]] `c` [[a]]",
      "a:: v [[a]] `c`", "#a [[a]] `c`"]))
 def test_every_title_the_product_accepts_reads_back_after_a_rewrite(
         new, text):
+    count("case")
     new = normalize_title(new).strip(" ") or "T"
     if title_syntax_reason(new) is not None:
         event("refused title")
@@ -268,9 +291,12 @@ def test_every_title_the_product_accepts_reads_back_after_a_rewrite(
     assert "a" not in titles_after - {new}
 
 
+@with_floors({"new already occurs: skipped": 0.19, "round trip by refs": 0.16, "round trip exact": 0.05},
+             per="case")
 @settings(max_examples=400, deadline=None)
 @given(block_cases(padded_attribute=False, nested=False))
 def test_old_to_new_and_back_restores_the_text(case):
+    count("case")
     old, new, text, _expected = case
     if any(r.title == new for r in extract(text).refs):
         event("new already occurs: skipped")
@@ -288,12 +314,15 @@ def test_old_to_new_and_back_restores_the_text(case):
             _substituted(text, old, new, title_after=old)
 
 
+@with_floors({"swap over a text mentioning both": 0.17, "swap over a text mentioning one": 0.22},
+             per="case")
 @settings(max_examples=200, deadline=None)
 @given(block_cases())
 def test_a_swap_exchanges_the_two_titles_rather_than_chaining(case):
     """{old: new, new: old} reads the original text once: the same result as
     parking `old` on a sentinel, moving `new` to `old`, then the sentinel to
     `new`, which is the only way to swap one title at a time."""
+    count("case")
     old, new, text, _expected = case
     park = "SentinelParked"
     swapped = rewrite_title_refs_map(text, {old: new, new: old})
@@ -304,6 +333,74 @@ def test_a_swap_exchanges_the_two_titles_rather_than_chaining(case):
     event("swap over a text mentioning both" if {old, new} <= mentions
           else "swap over a text mentioning one")
     assert swapped == stepwise
+
+
+def _plain_space_canonical(raw: str) -> str:
+    """The canonical form once plain-space canonicalisation is active."""
+    return normalize_title(raw).strip(" ")
+
+
+_PADS = st.sampled_from(["", " ", "  ", "   "])
+
+
+@st.composite
+def padded_cases(draw):
+    """(old, new, text, expected): refs to `old` spelled with plain-space
+    padding, among refs to another title, and code spans holding the same
+    spellings. Every ref whose canonical form is `old` is rewritten to
+    `new`; every other byte stays."""
+    old = draw(titles.map(
+        lambda t: t if _is_link(t) and _is_bracket_tag(t) else "Old"))
+    new = _other_than(old, draw(titles))
+    other = _other_than(old, draw(st.sampled_from(_OTHERS)))
+    pieces = []
+    for _ in range(draw(st.integers(1, 6))):
+        left, right = draw(_PADS), draw(_PADS)
+        kind = draw(st.sampled_from(
+            ["link", "tag", "other link", "code", "words"]))
+        if kind == "link":
+            pieces.append((f"[[{left}{old}{right}]]", f"[[{new}]]", left + right))
+        elif kind == "tag":
+            pieces.append((f"#[[{left}{old}{right}]]", f"#[[{new}]]",
+                           left + right))
+        elif kind == "other link":
+            piece = f"[[{left}{other}{right}]]"
+            pieces.append((piece, piece, ""))
+        elif kind == "code":
+            piece = f"`[[{left}{old}{right}]]`"
+            pieces.append((piece, piece, ""))
+        else:
+            pieces.append(("plain words", "plain words", ""))
+    seps = draw(st.lists(st.sampled_from(_SEPARATORS),
+                         min_size=len(pieces), max_size=len(pieces)))
+    source = expected = ""
+    for k, (src, exp, _pad) in enumerate(pieces):
+        sep = seps[k - 1] if k else ""
+        source += sep + src
+        expected += sep + exp
+    padded = any(pad and src != exp for src, exp, pad in pieces)
+    return old, new, source, expected, padded
+
+
+@with_floors({"rewrote a padded spelling": 0.27, "no padded spelling": 0.11},
+             per="case")
+@settings(max_examples=400, deadline=None)
+@given(padded_cases())
+def test_a_padded_spelling_is_rewritten_when_its_canonical_form_is_a_key(case):
+    """The map's `normalize` is `spelled_or_canonical`: `[[ Old ]]` and
+    `#[[ Old ]]` name the page `Old` once plain spaces are canonical, so a
+    rename of `Old` must not leave them behind."""
+    count("case")
+    old, new, text, expected, padded = case
+    replacements = {old: new}
+    out = rewrite_title_refs_map(
+        text, replacements, normalize=spelled_or_canonical(
+            _plain_space_canonical, replacements))
+    if padded:
+        event("rewrote a padded spelling")
+    else:
+        event("no padded spelling")
+    assert out == expected
 
 
 def test_the_titles_strategy_draws_storable_titles():

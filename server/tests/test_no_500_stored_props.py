@@ -16,7 +16,7 @@ import time
 
 import pytest
 from asgi_harness import encode_segment, open_harness
-from hostile import event, hostile_text, text_labels
+from hostile import count, event, hostile_text, text_labels, with_floors
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from rawread import read
@@ -75,7 +75,7 @@ def _raw_kind(value: object) -> str:
 @st.composite
 def roam_exports(draw) -> Tagged:
     titles = draw(st.lists(_title, min_size=1, max_size=3))
-    uids = draw(st.lists(_uid, max_size=8, unique=True))
+    uids = draw(st.lists(_uid, min_size=3, max_size=8, unique=True))
     datoms: list[list[object]] = []
 
     def put(eid: int, attr: str, value: object) -> None:
@@ -91,6 +91,9 @@ def roam_exports(draw) -> Tagged:
         put(eid, ":create/time", draw(_raw_time))
         put(eid, ":edit/time", draw(_raw_time))
     block_eids: list[int] = []
+    # Half the exports give their blocks levels 1, 2, 3 in turn, so every
+    # level a block carries is stored on any seed; the rest draw any value.
+    leveled = draw(st.booleans())
     for i, uid in enumerate(uids):
         eid = 100 + i
         parent = draw(st.sampled_from(page_eids + block_eids))
@@ -106,7 +109,8 @@ def roam_exports(draw) -> Tagged:
         for label in text_labels(text):
             event(f"block text: {label}")
         put(eid, ":block/order", draw(st.integers(0, 3)))
-        put(eid, ":block/heading", draw(_raw_heading))
+        put(eid, ":block/heading",
+            1 + i % 3 if leveled else draw(_raw_heading))
         put(eid, ":block/open", draw(_raw_open))
         put(eid, ":children/view-type", draw(_raw_view_type))
         put(eid, ":create/time", draw(_raw_time))
@@ -165,6 +169,14 @@ def harness(tmp_path_factory):
         yield opened
 
 
+# Floors: see `with_floors` in hostile.py for how they were set.
+@with_floors({
+    "block text: NUL": 0.066, "block text: [[": 0.68, "block text: very long": 0.17,
+    "import refused: ImportTitleError": 0.079, "imported, title migration applied": 0.07,
+    "imported, title migration not run": 0.1, "sent :create/time: int past 64 bits": 0.21,
+    "stored block created_at: integer": 0.17, "stored block created_at: null": 0.26,
+    "stored heading: 1": 0.13, "stored heading: 2": 0.11, "stored heading: 3": 0.1,
+}, per="case")
 @settings(max_examples=120, deadline=None, suppress_health_check=[
     HealthCheck.function_scoped_fixture, HealthCheck.too_slow,
     HealthCheck.data_too_large])
@@ -172,6 +184,7 @@ def harness(tmp_path_factory):
        legacy_heading_zero=st.booleans())
 def test_every_imported_row_is_served(harness, tmp_path_factory, export,
                                       migrate, legacy_heading_zero):
+    count("case")
     path = tmp_path_factory.mktemp("import") / "pkm.sqlite3"
     if not _import(export, path, migrate, legacy_heading_zero):
         return

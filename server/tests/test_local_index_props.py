@@ -7,7 +7,6 @@ The model here is written from the generated spec, not from `visible_name`
 or `walk_local_tree`: it knows what it put on disk and which names a person
 would see. Names avoid pairs that APFS (normalisation-insensitive, case
 -insensitive by default) would treat as the same entry."""
-import asyncio
 import errno
 import os
 import shutil
@@ -15,9 +14,8 @@ import unicodedata
 from dataclasses import replace
 from pathlib import Path
 
-import httpx
 import pytest
-from conftest import TEST_PASSWORD, make_config, seed_db
+from conftest import TEST_PASSWORD, asgi_get_all, make_config, seed_db
 from fastapi.testclient import TestClient
 from hypothesis import currently_in_test_context, given, settings
 from hypothesis import event as _event
@@ -45,19 +43,21 @@ def _fits(name: str, extra: int = 0) -> bool:
     return len(name.encode("utf-8")) + extra <= MAX_NAME_BYTES
 
 
+def _unlistable(name: str) -> bool:
+    """A backslash or any control character (category Cc: C0, DEL, C1)
+    makes a name one the routes cannot serve, so it is never listed."""
+    return any(c == "\\" or unicodedata.category(c) == "Cc" for c in name)
+
+
 def _model_shown(name: str) -> str | None:
     """What a person sees for a plain file called `name`, or None."""
+    shown = name
     if name.startswith(".") and name.endswith(STUB_SUFFIX):
-        real = name[1:-len(STUB_SUFFIX)]
-        return real if real and not real.startswith(".") else None
-    return None if name.startswith(".") else name
+        shown = name[1:-len(STUB_SUFFIX)]
+    if not shown or shown.startswith(".") or _unlistable(shown):
+        return None
+    return shown
 
-
-# A name with a backslash or a line break is listed but cannot be served:
-# `clean_relative` rejects the backslash, and the route's `{path:path}`
-# pattern does not match across a newline. The xfail tests below pin both;
-# the generator keeps them out of the main property until they are ruled on.
-_UNSERVABLE = str.maketrans({"\\": "_", "\n": "_", "\r": "_"})
 
 # APFS refuses unassigned code points, so the free-text part of a file name
 # draws from assigned letters, marks, numbers, punctuation, symbols, spaces.
@@ -74,8 +74,7 @@ fs_name = st.one_of(
     _tabby,
     st.integers(100, 230).map(lambda n: "é" * (n // 2) + "z"),
     st.integers(100, 230).map(lambda n: "n" * n),
-).map(lambda n: n.translate(_UNSERVABLE)).map(
-    lambda n: "x" + n if n in (".", "..") else n)
+).map(lambda n: "x" + n if n in (".", "..") else n)
 maybe_dot = st.sampled_from(["", "", "", "."])
 
 KINDS = ["file", "file", "file", "hidden", "stub_only", "stub_only", "stub_beside",
@@ -252,7 +251,7 @@ def model_listing(b: Built) -> set[str]:
     out = set()
     for (d, name), _ in b.content.items():
         shown = _model_shown(name)
-        if shown is not None and all(not seg.startswith(".") for seg in d):
+        if shown is not None and all(not seg.startswith(".") and not _unlistable(seg) for seg in d):
             out.add("/".join((*d, shown)))
     return out
 
@@ -266,6 +265,17 @@ def _identity(root: Path, rel: str) -> Path | None:
     return stub.resolve() if stub.is_file() else None
 
 
+def _tag_built(b: Built) -> None:
+    names = [n for (_, n) in b.content] + [seg for d in b.dirs for seg in d]
+    for n in names:
+        if "\\" in n:
+            event("unlistable: backslash")
+        if any(unicodedata.category(c) == "Cc" for c in n):
+            event("unlistable: control char")
+        if "\n" in n:
+            event("unlistable: newline")
+
+
 def _tag_names(rels: set[str]) -> None:
     for rel in rels:
         for seg in rel.split("/"):
@@ -275,25 +285,12 @@ def _tag_names(rels: set[str]) -> None:
                 event("emoji name")
             if len(seg.encode()) > 100:
                 event("long name")
-            if "\n" in seg or "\t" in seg:
-                event("control char name")
-            if "\\" in seg:
-                event("backslash name")
+            if "\t" in seg:
+                event("tab name")
             if "[" in seg or "]" in seg:
                 event("bracket name")
             if any(c in seg for c in "%#?&+"):
                 event("url metachar name")
-
-
-async def _get_all(app, cookie: str, urls: list[str]) -> list[httpx.Response]:
-    """GET each url through the ASGI app. Not `TestClient`: starlette's
-    decodes the percent-escapes in a path a second time before routing, so
-    a file called `%41` would be served as `A`; uvicorn decodes once, as
-    `httpx.ASGITransport` does."""
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver",
-                                 cookies={"pkm_session": cookie}) as client:
-        return [await client.get(u) for u in urls]
 
 
 @pytest.fixture(scope="module")
@@ -317,11 +314,12 @@ def local_props_client(tmp_path_factory):
 def test_index_lists_the_visible_files_and_each_is_served(local_props_client, spec):
     app, cookie, root, outside = local_props_client
     b = build(root, outside, spec)
-    (r,) = asyncio.run(_get_all(app, cookie, ["/api/local-index"]))
+    (r,) = (asgi_get_all(app, cookie, ["/api/local-index"]))
     assert r.status_code == 200
     listed = [f["path"] for f in r.json()["files"]]
     hrefs = {f["path"]: f["href"] for f in r.json()["files"]}
     expected = model_listing(b)
+    _tag_built(b)
     _tag_names(set(listed))
     if not listed:
         event("empty listing")
@@ -350,7 +348,7 @@ def test_index_lists_the_visible_files_and_each_is_served(local_props_client, sp
     else:
         assert set(listed) == expected
 
-    served = asyncio.run(_get_all(app, cookie, [hrefs[p] for p in listed]))
+    served = (asgi_get_all(app, cookie, [hrefs[p] for p in listed]))
     for p, got in zip(listed, served):
         d, _, name = p.rpartition("/")
         key = (tuple(d.split("/")) if d else (), name)
@@ -365,28 +363,3 @@ def test_index_lists_the_visible_files_and_each_is_served(local_props_client, sp
             assert got.content == want_bytes
             event("served 200")
 
-
-def _listed_and_served(fixture, names: list[str]) -> dict[str, tuple[int, bytes]]:
-    app, cookie, root, outside = fixture
-    spec = ([], [("file", 0, "", n, 0) for n in names])
-    b = build(root, outside, spec)
-    (r,) = asyncio.run(_get_all(app, cookie, ["/api/local-index"]))
-    files = r.json()["files"]
-    got = asyncio.run(_get_all(app, cookie, [f["href"] for f in files]))
-    assert set(b.content) == {((), n) for n in names}
-    return {f["path"]: (g.status_code, g.content) for f, g in zip(files, got)}
-
-
-@pytest.mark.xfail(strict=True, reason="a listed name with a backslash is a 404")
-def test_listed_backslash_name_is_served(local_props_client):
-    assert _listed_and_served(local_props_client, ["a\\b"]) == {
-        "a\\b": (200, b"1:a\\b")}
-
-
-@pytest.mark.xfail(strict=True, reason="a listed name with a newline is a 404 or another file")
-def test_listed_newline_names_are_served(local_props_client):
-    # the route pattern's `$` also matches before a trailing newline, so
-    # `a\n` is routed as `a`; an interior newline matches no route at all
-    got = _listed_and_served(local_props_client, ["a", "a\n", "b\nc"])
-    assert got == {"a": (200, b"1:a"), "a\n": (200, b"2:a\n"),
-                   "b\nc": (200, b"3:b\nc")}

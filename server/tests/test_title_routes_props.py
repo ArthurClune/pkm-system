@@ -387,15 +387,16 @@ def _differs(rig: Rig, base: Path, request: Request, variant: str, canonical: st
 
 
 def _refuses(rig: Rig, base: Path, request: Request, spelling: str) -> None:
-    """A refused title reaches no page: no 500, and nothing written. A URL
-    client drops a path's dot segments before the server sees them, so the
-    path routes are held to that alone."""
+    """A refused title reaches no page: no 500, no write succeeds, and
+    nothing is written. A URL client drops a path's dot segments before the
+    server sees them (`/api/page/.` arrives as a redirect to `/api/page`),
+    so a write may answer 3xx rather than 4xx."""
     db = rig.fresh(base)
     method, url, body = request(spelling)
     status = rig.request(db, method, url, body).status_code
     assert status < 500, (url, status)
     if method != "GET":
-        assert status >= 400, (url, status)
+        assert status >= 300, (url, status)
     assert state(db) == state(base), url
 
 

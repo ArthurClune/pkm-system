@@ -19,6 +19,18 @@ describe("a ref that names no page renders as its source text", () => {
     expect(extractRefs("a/::").refs).toEqual([]);
   });
 
+  it("a live ref nested in a dead one stays a link", () => {
+    for (const source of ["[[./[[AWS]]]]", "[[a/../[[AWS]]]]", "#[[a/[[AWS]]/]]"]) {
+      const text = `x ${source} y`;
+      expect(extractRefs(text).refs).toEqual([{ title: "AWS", kind: "link" }]);
+      const segments = tokenizeBlock(text);
+      expect(segments.filter((s) => s.kind === "page-ref")).toEqual([
+        { kind: "page-ref", title: "AWS", tag: false }]);
+      const flat = segments.map((s) => s.kind === "text" ? s.text : "\0");
+      expect(flat.join("").replace("\0", "[[AWS]]")).toBe(text);
+    }
+  });
+
   it("a reachable ref still renders as a link", () => {
     expect(tokenizeBlock("[[Paper/x]] #a.b")).toEqual([
       { kind: "page-ref", title: "Paper/x", tag: false },
@@ -32,7 +44,8 @@ const FRAGMENTS = [
   "[[Paper]]", "[[Paper/]]", "[[a/b]]", "[[/a]]", "[[.]]", "[[..]]", "[[a/./b]]",
   "[[   ]]", "[[ a ]]", "[[]]", "#tag", "#work/", "#.", "#..", "#a/b", "#a.b",
   "#[[x y]]", "#[[x//y]]", "#[[ ]]", "word", " ", "\n", "(", ")", "text ",
-  "[[a\nb]]", "[[a\n/b]]",
+  "[[a\nb]]", "[[a\n/b]]", "[[./[[AWS]]]]", "[[a/../[[Paper]]]]",
+  "#[[a/[[AWS]]/]]", "[[[[   ]]/x]]", "[[Paper [[.]] b]]",
 ];
 
 const DEAD = /\[\[(Paper\/|\/a|\.|\.\.|a\/\.\/b| *)\]\]|#(work\/|\.\.?)(\s|$)/;

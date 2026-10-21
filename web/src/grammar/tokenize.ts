@@ -139,9 +139,21 @@ function tokenizeInline(
     }
     const tok = byStart.get(i);
     if (tok && tok.end <= to) {
-      // A ref token that names no page is not a ref: show its source.
+      // A ref token that names no page is not a ref: show its source. A
+      // page ref's delimiters are text but its content is still tokenized,
+      // since a ref nested in it is a ref of its own.
       if (isDeadRef(tok)) {
-        buf += text.slice(tok.start, tok.end);
+        if (tok.kind === "page-ref") {
+          buf += text.slice(tok.start, tok.content.start);
+          for (const seg of tokenizeInline(
+            text, byStart, tok.content.start, tok.content.end)) {
+            if (seg.kind === "text") buf += seg.text;
+            else { flushText(); out.push(seg); }
+          }
+          buf += text.slice(tok.content.end, tok.end);
+        } else {
+          buf += text.slice(tok.start, tok.end);
+        }
         i = tok.end;
         continue;
       }

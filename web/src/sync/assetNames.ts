@@ -1,5 +1,6 @@
 // pattern: Functional Core
 // How an uploaded file's name appears in block markdown.
+import type { components } from "../api/types";
 
 /** A file name as markdown link text: "[" and "]" become "(" and ")" so the
  * label can never open "[[" or close early. Display only; the stored and
@@ -17,4 +18,13 @@ export function assetNameFromSegment(segment: string): string {
   } catch {
     return segment;
   }
+}
+
+/** The markdown an upload inserts: an image embed for images, a plain link
+ * otherwise. */
+export function assetMarkdown(
+  info: Pick<components["schemas"]["AssetUploadResponse"], "filename" | "mime" | "url">,
+): string {
+  const bang = info.mime.startsWith("image/") ? "!" : "";
+  return `${bang}[${assetLabel(info.filename)}](${info.url})`;
 }

@@ -6,7 +6,7 @@ import fc from "fast-check";
 import type { Sha256Hex } from "../api/brands";
 import { parseSha256Hex } from "../replica/sha256";
 import { hostileNameWith } from "../outline/localLinkArbs";
-import { assetMarkdown } from "./assets";
+import { assetMarkdown } from "./assetNames";
 
 // Names the route stores are safe_filename output, but rows written before
 // that bound existed, and direct API clients, can carry backslashes and

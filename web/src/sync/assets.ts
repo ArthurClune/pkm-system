@@ -2,7 +2,6 @@
 // Upload a pasted/dropped/picked file and describe it as block markdown.
 import { apiFetch } from "../api/client";
 import type { components } from "../api/types";
-import { assetLabel } from "./assetNames";
 
 // Generated from the server's AssetUploadResponse model; kept under the
 // short AssetInfo name the callers already use.
@@ -15,9 +14,4 @@ export async function uploadAsset(file: File): Promise<AssetInfo> {
   return apiFetch<AssetInfo>("/api/assets", { method: "POST", body: form });
 }
 
-export function assetMarkdown(
-  info: Pick<AssetInfo, "filename" | "mime" | "url">,
-): string {
-  const bang = info.mime.startsWith("image/") ? "!" : "";
-  return `${bang}[${assetLabel(info.filename)}](${info.url})`;
-}
+export { assetMarkdown } from "./assetNames";

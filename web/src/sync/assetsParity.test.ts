@@ -17,7 +17,7 @@ import { scanMarkdownLinks } from "../grammar/markdown";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { shaOf } from "../test-helpers";
 import { assetHref, KINDS, legacyNameArb, shaArb, uploadNameArb } from "./assetUploadArbs";
-import { assetMarkdown } from "./assets";
+import { assetMarkdown } from "./assetNames";
 
 const FIXTURE = join(__dirname, "../../../shared/fixtures/upload_links_parity.json");
 

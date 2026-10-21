@@ -33,6 +33,7 @@ from pkm.export.resolve import (
     BLOCK_REF_MAX_DEPTH, QUERY_MAX_DEPTH, QueryResult, QueryResultGroup,
     QueryResultItem, find_query_macros, render_page_resolved)
 from pkm.export.writer import export_graph
+from pkm.filenames import attachment_disposition
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
@@ -140,7 +141,7 @@ def export_page_markdown(title: RawTitle,
     filename = page_filename(page["title"], set())
     return Response(
         content=body, media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+        headers={"Content-Disposition": attachment_disposition(filename)})
 
 
 @router.get("/api/export.zip")

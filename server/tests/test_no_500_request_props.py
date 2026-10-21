@@ -8,25 +8,14 @@ reaches the paths a real value opens.
 
 The property: every answer is a 2xx or a 4xx, never a 5xx or an
 exception, and after a 2xx every table still passes the row check.
-
-Requests go through httpx's ASGI transport rather than TestClient, which
-decodes a path's percent-escapes twice; uvicorn decodes once. A path or
-query value is percent-encoded from its UTF-8 bytes with surrogatepass,
-so a lone surrogate arrives as the invalid UTF-8 a client can send. The
-database is restored from a seeded copy before every example."""
-import asyncio
+Requests run through tests/asgi_harness.py, which restores the seeded
+database before every example."""
 import json
-import time
-from collections.abc import Iterator
-from dataclasses import dataclass
-from pathlib import Path
 from urllib.parse import quote
 
 import httpx
 import pytest
-from conftest import make_config, seed_db
-from fake_engine import FakeEngine
-from fastapi import FastAPI
+from asgi_harness import Harness, check_every_row, encode_segment, open_harness
 from fastapi.params import File, Form
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
@@ -34,8 +23,6 @@ from hostile import (LONE_HIGH, LONE_LOW, event, for_annotation, hostile_text,
                      json_value, value_labels)
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-from rawread import read, table_rows
-from test_routes_models import _api_routes
 
 from pkm.batch import BatchCommand
 from pkm.client.api import PkmClient
@@ -43,68 +30,18 @@ from pkm.client.core import ApiError, CliConfig
 from pkm.client.workflows import apply_batch
 from pkm.contracts.text import well_formed_tree
 from pkm.planning import BuildError
-from pkm.database import Db
-from pkm.server.app import create_app
-from pkm.server.auth import COOKIE_NAME
-from pkm.server.auth_core import sign_session
-from pkm.server.db import open_db
-
-
-@dataclass
-class Harness:
-    app: FastAPI
-    db_path: Path
-    template: Db
-    loop: asyncio.AbstractEventLoop
-    client: httpx.AsyncClient
-    routes: list[APIRoute]
-    token: str
-
-    def reset(self) -> None:
-        self.template.backup_to(self.db_path)
-
-    def send(self, method: str, url: str, **kwargs) -> httpx.Response:
-        request = self.client.build_request(method, url, **kwargs)
-        return self.loop.run_until_complete(self.client.send(request))
 
 
 @pytest.fixture(scope="module")
-def harness(tmp_path_factory) -> Iterator[Harness]:
-    root = tmp_path_factory.mktemp("no500")
-    config = make_config(root)
-    seed_db(config.db_path)
-    seeded = open_db(config.db_path)
-    seeded.backup_to(root / "template.sqlite3")
-    seeded.close()
-    template = open_db(root / "template.sqlite3")
-    with pytest.MonkeyPatch.context() as env:
-        # Module-scoped, so conftest's per-test scrub has not run yet: a
-        # key in the environment would switch on a real upstream.
-        for key in ("OPENAI_API_KEY", "ZAI_API_KEY", "GOODLINKS_API_KEY"):
-            env.delenv(key, raising=False)
-        app = create_app(config, assistant_engine=FakeEngine())
-    loop = asyncio.new_event_loop()
-    cookie = sign_session(bytes.fromhex(config.session_secret),
-                          int(time.time() * 1000))
-    client = httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
-        base_url="http://testserver", cookies={COOKIE_NAME: cookie})
-    routes = sorted(_api_routes(app.routes), key=lambda r: r.path)
-    yield Harness(app, config.db_path, template, loop, client, routes, cookie)
-    loop.run_until_complete(client.aclose())
-    loop.close()
-    template.close()
-
-
-def _encode(value: object) -> str:
-    text = value if isinstance(value, str) else json.dumps(value)
-    return quote(text.encode("utf-8", "surrogatepass"), safe="")
+def harness(tmp_path_factory):
+    with open_harness(tmp_path_factory.mktemp("no500")) as opened:
+        yield opened
 
 
 def _path(route: APIRoute, values: dict[str, object]) -> str:
     path = route.path_format
     for name, value in values.items():
-        path = path.replace("{" + name + "}", _encode(value))
+        path = path.replace("{" + name + "}", encode_segment(value))
     return path
 
 
@@ -114,7 +51,7 @@ def _query(values: dict[str, object]) -> str:
         for item in value if isinstance(value, list) else [value]:
             if isinstance(item, bool):
                 item = "true" if item else "false"
-            pairs.append(f"{quote(name)}={_encode(item)}")
+            pairs.append(f"{quote(name)}={encode_segment(item)}")
     return "&".join(pairs)
 
 
@@ -197,19 +134,6 @@ def requests(draw, routes: st.SearchStrategy[APIRoute],
     return f"{method} {route.path}", method, url, kwargs, labels
 
 
-_RAW_TABLES = ("SELECT name FROM sqlite_master WHERE type = 'table'"
-               " AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%fts%'")
-
-
-def _check_every_row(harness: Harness) -> None:
-    db = open_db(harness.db_path)
-    try:
-        for (table,) in read(db, _RAW_TABLES).fetchall():
-            table_rows(db, table)
-    finally:
-        db.close()
-
-
 def _send_checked(harness: Harness,
                   drawn: tuple[str, str, str, dict, set[str]]
                   ) -> httpx.Response:
@@ -223,7 +147,7 @@ def _send_checked(harness: Harness,
             event(f"input: {label} -> {status}")
     assert response.status_code < 500, (name, response.text[:300])
     if response.status_code < 300:
-        _check_every_row(harness)
+        check_every_row(harness.db_path)
     return response
 
 
@@ -261,7 +185,7 @@ def test_hostile_writes_leave_every_read_serialisable(harness, data):
     titles = [p["title"] for p in harness.send(
         "GET", "/api/sync/snapshot").json()["pages"]]
     for title in titles:
-        response = harness.send("GET", "/api/page/" + _encode(title))
+        response = harness.send("GET", "/api/page/" + encode_segment(title))
         assert response.status_code == 200, (title, response.text[:300])
 
 
@@ -370,4 +294,4 @@ def test_a_hostile_cli_batch_is_applied_or_refused(harness, data):
     except ApiError as exc:
         event(f"batch: refused with {exc.status // 100}xx")
         assert 400 <= exc.status < 500, exc
-    _check_every_row(harness)
+    check_every_row(harness.db_path)

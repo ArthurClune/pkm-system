@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Literal, TypedDict
 
+from pkm.contracts.text import well_formed
+
 # The image subset of ALLOWED_UPLOAD_MIME that OpenAI vision accepts
 # (png/jpeg/webp/gif). HEIC and SVG are uploadable but not describable, so
 # they are skipped silently — "no description" is the normal state for
@@ -104,7 +106,9 @@ def parse_description(body: object) -> str:
     text = message["content"]
     if not isinstance(text, str) or not text.strip():
         raise ValueError("empty completion")
-    return text.strip()[:MAX_DESCRIPTION_CHARS]
+    # A `\udXXX` escape decodes to a lone surrogate, which SQLite will
+    # not store; the description keeps U+FFFD in its place.
+    return well_formed(text.strip()[:MAX_DESCRIPTION_CHARS])
 
 
 def derive_status(description: str | None,

@@ -241,8 +241,8 @@ def test_well_formed_tree_reaches_nested_keys_values_and_items():
 
 def test_well_formed_tree_walks_past_the_recursion_limit():
     depth = 100_000
-    tree: object = LONE_HIGH
-    for _ in range(depth):
+    tree: list[object] = [LONE_HIGH]
+    for _ in range(depth - 1):
         tree = [tree]
     fixed = well_formed_tree(tree)
     for _ in range(depth):

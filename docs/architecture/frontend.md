@@ -92,6 +92,8 @@ web/src/
 │   ├── slashCommands.ts / calendar.ts   Core  Slash commands; the /date month grid
 │   ├── blockSelection.ts / history.ts / paste.ts / dnd.ts  Core  Selection, undo
 │   │                                      history, outline paste, drag planning
+│   ├── localFiles.ts         Core         /link-local-file: folder listing, fzf search,
+│   │                                      the Local copy:: attribute text
 │   ├── blockStamps.ts        Core         Stamp bands; which ops count as a change
 │   ├── baseTextHash.ts       Core         Stamps update_text and delete ops at build time
 │   ├── textareaHeight.ts     Core         Auto-grow reset/write decisions (JS fallback)
@@ -115,6 +117,7 @@ web/src/
 │   │                         roamTable, TableOfContents…) and chrome (TopBar, SidebarNav/Panel, SearchBar,
 │   │                         OfflineIndicator, KeyboardBar, BacklinksSection, BacklinkGroupList,
 │   │                         BlockRefBacklinksPopover, BlockMenu, DatePickerPopup, DeleteBlockedDialog…)
+│   ├── LocalFilePicker.tsx   Shell        /link-local-file dialog over GET /api/local-index
 │   ├── ExternalLinkInterceptor.tsx  Shell  Capture-phase document click listener,
 │   │                                       mounted only in iOS standalone (see below)
 │   └── pure halves           Core         Beside their component: pdfViewerCore,

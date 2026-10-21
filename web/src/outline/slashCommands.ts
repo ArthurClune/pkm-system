@@ -52,6 +52,10 @@ export const SLASH_COMMANDS = [
   // the block like /upload, and asks useOutline to resolve the nearest URL
   // against GoodLinks (saving it there if absent) and splice the attribute.
   { name: "goodlinks", label: "link to goodlinks copy" },
+  // "link-local-file" has no text transform either: picking it strips the
+  // trigger, blurs the block like /upload, and opens the tree-owned local
+  // file picker, whose choice is spliced in as a `Local copy::` attribute.
+  { name: "link-local-file", label: "link to local file…" },
 ] as const;
 
 /** Every command name SLASH_COMMANDS lists, derived so a renamed, added or

@@ -286,8 +286,9 @@ describe("today / tomorrow", () => {
   });
 });
 
-test("/goodlinks is the last command and matches by prefix", () => {
-  expect(SLASH_COMMANDS[SLASH_COMMANDS.length - 1]).toEqual(
-    { name: "goodlinks", label: "link to goodlinks copy" });
+test("/link-local-file is the last command and matches by prefix", () => {
+  const command = { name: "link-local-file", label: "link to local file…" };
+  expect(SLASH_COMMANDS[SLASH_COMMANDS.length - 1]).toEqual(command);
+  expect(matchSlashCommands("link")).toEqual([command]);
   expect(matchSlashCommands("good")).toEqual([{ name: "goodlinks", label: "link to goodlinks copy" }]);
 });

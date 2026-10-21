@@ -24,6 +24,7 @@ import { formatStamp, formatStampTitle, stampBand,
 import { BlockInput } from "./BlockInput";
 import { BlockMenu } from "./BlockMenu";
 import { BlockRefBacklinksPopover } from "./BlockRefBacklinksPopover";
+import { LocalFilePicker } from "./LocalFilePicker";
 import { InlineSegments } from "./InlineSegments";
 import { RoamTable } from "./roamTable";
 import { TocBlock } from "./TableOfContents";
@@ -87,6 +88,15 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     if (files.length === 0 || !target) return;
     void handlers.onFiles(target.uid, target.at, files);
   };
+  // The /link-local-file picker: tree-owned for the same reason as the upload
+  // input (the pick blurs, and so unmounts, the block's BlockInput). State,
+  // not a ref, because the open picker renders from it.
+  const [localFileTarget, setLocalFileTarget] = useState<{
+    uid: BlockUid; at: number;
+  } | null>(null);
+  const requestLocalFile = useCallback((uid: BlockUid, at: number) => {
+    setLocalFileTarget({ uid, at });
+  }, []);
   // Bullet context menu; one per tree, anchored at the pointer.
   const [menu, setMenu] = useState<{
     uid: BlockUid;
@@ -193,6 +203,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                          focusChain={focusChain}
                          handlers={handlers} readOnly={readOnly}
                          fallback={fallback} onRequestUpload={requestUpload}
+                         onRequestLocalFile={requestLocalFile}
                          viewMode="document" number={index + 1}
                          openMenuUid={menu?.uid ?? null}
                          stamps={stamps} nowMs={nowMs} refCounts={refCounts}
@@ -206,6 +217,14 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                accept={"image/*,application/pdf,text/plain,text/markdown,"
                  + "text/csv,application/json,.doc,.docx,.xls,.xlsx,.ppt,.pptx"}
                onChange={onPickUpload} />
+      )}
+      {!fallback && !readOnly && localFileTarget && (
+        <LocalFilePicker
+          onPick={(file) => {
+            handlers.onLinkLocalFile(localFileTarget.uid, localFileTarget.at, file);
+            setLocalFileTarget(null);
+          }}
+          onClose={() => setLocalFileTarget(null)} />
       )}
       {!fallback && menu && (
         <BlockMenu x={menu.x} y={menu.y} onClose={closeMenu}
@@ -310,7 +329,7 @@ function RefCountBadge({ uid, count, onOpen }: {
  * re-render every row of every mounted day. */
 const EditableBlock = memo(function EditableBlock(
                         { node, focus, selected, focusChain, handlers, readOnly,
-                          fallback, onRequestUpload, viewMode, number,
+                          fallback, onRequestUpload, onRequestLocalFile, viewMode, number,
                           openMenuUid, stamps, nowMs, refCounts, onOpenMenu,
                           onOpenRefPopover }: {
   node: BlockNode; focus: FocusTarget | null;
@@ -324,6 +343,8 @@ const EditableBlock = memo(function EditableBlock(
    * once files are chosen — see EditableBlockTree for why the
    * input can't live in BlockInput itself. */
   onRequestUpload: (uid: BlockUid, at: number) => void;
+  /** Open the tree-owned local file picker for `uid`, splicing at `at`. */
+  onRequestLocalFile: (uid: BlockUid, at: number) => void;
   viewMode: EffectiveBlockView;
   number: number;
   openMenuUid: string | null;
@@ -414,7 +435,8 @@ const EditableBlock = memo(function EditableBlock(
         </span>
         {focused ? (
           <BlockInput node={node} cursor={focus.cursor} handlers={handlers}
-                      readOnly={readOnly} onRequestUpload={onRequestUpload} />
+                      readOnly={readOnly} onRequestUpload={onRequestUpload}
+                      onRequestLocalFile={onRequestLocalFile} />
         ) : (
           <WrapperTag className={"block-text" + (quoted !== null ? " quote-block" : "")}
                       onClick={() => {
@@ -444,6 +466,7 @@ const EditableBlock = memo(function EditableBlock(
                            focusChain={focusChain}
                            handlers={handlers} readOnly={readOnly}
                            fallback={fallback} onRequestUpload={onRequestUpload}
+                           onRequestLocalFile={onRequestLocalFile}
                            viewMode={childrenView} number={index + 1}
                            openMenuUid={openMenuUid}
                            stamps={stamps} nowMs={nowMs} refCounts={refCounts}

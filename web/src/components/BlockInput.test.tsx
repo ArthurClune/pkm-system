@@ -19,7 +19,7 @@ function handlers(): OutlineHandlers {
     onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
     onSetViewType: vi.fn(),
     onToggleTodo: vi.fn(), onFiles: vi.fn(() => Promise.resolve(false)),
-    onGoodlinks: vi.fn(), onPasteOutline: vi.fn(),
+    onGoodlinks: vi.fn(), onLinkLocalFile: vi.fn(), onPasteOutline: vi.fn(),
     onStartBlockSelection: vi.fn(), onSelectBlock: vi.fn(),
     onExtendBlockSelection: vi.fn(),
     onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),
@@ -46,6 +46,7 @@ function inputElement(
         handlers={h}
         readOnly={readOnly}
         onRequestUpload={vi.fn()}
+        onRequestLocalFile={vi.fn()}
       />
     </MemoryRouter>
   );
@@ -599,6 +600,7 @@ function mountWithPageRoute(h: OutlineHandlers, cursor: number) {
         handlers={h}
         readOnly={false}
         onRequestUpload={vi.fn()}
+        onRequestLocalFile={vi.fn()}
       />
       <Routes>
         <Route path="/" element={<p>home</p>} />
@@ -683,6 +685,7 @@ test("Ctrl-Shift-O opens the reference in the sidebar instead of navigating", as
           handlers={h}
           readOnly={false}
           onRequestUpload={vi.fn()}
+        onRequestLocalFile={vi.fn()}
         />
       </SidebarContext.Provider>
       <Routes>
@@ -1148,6 +1151,23 @@ test("/goodlinks strips the trigger, blurs, and asks the engine with the trigger
   expect(h.onDraftChange).toHaveBeenLastCalledWith(NODE.uid, "");
   expect(h.onBlurBlock).toHaveBeenCalledWith(NODE.uid);
   expect(h.onGoodlinks).toHaveBeenCalledWith(NODE.uid, 0);
+});
+
+test("/link-local-file strips the trigger, blurs, and opens the picker at the trigger offset", () => {
+  const h = handlers();
+  const onRequestLocalFile = vi.fn();
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BlockInput node={{ ...NODE, text: "" }} cursor={0} handlers={h} readOnly={false}
+                  onRequestUpload={vi.fn()} onRequestLocalFile={onRequestLocalFile} />
+    </MemoryRouter>);
+  const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+  fireEvent.change(ta, { target: { value: "/link-l" } });
+  ta.setSelectionRange(7, 7);
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(h.onDraftChange).toHaveBeenLastCalledWith(NODE.uid, "");
+  expect(h.onBlurBlock).toHaveBeenCalledWith(NODE.uid);
+  expect(onRequestLocalFile).toHaveBeenCalledWith(NODE.uid, 0);
 });
 
 describe("the phone keyboard bar", () => {

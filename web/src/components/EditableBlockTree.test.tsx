@@ -20,7 +20,7 @@ function handlers(): OutlineHandlers {
     onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
     onSetViewType: vi.fn(),
     onToggleTodo: vi.fn(), onFiles: vi.fn(() => Promise.resolve(false)),
-    onGoodlinks: vi.fn(), onPasteOutline: vi.fn(),
+    onGoodlinks: vi.fn(), onLinkLocalFile: vi.fn(), onPasteOutline: vi.fn(),
     onStartBlockSelection: vi.fn(), onSelectBlock: vi.fn(),
     onExtendBlockSelection: vi.fn(),
     onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),

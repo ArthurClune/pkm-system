@@ -340,6 +340,9 @@ Slash commands dispatch to block-type, heading and query constructors;
 there. `/upload`'s blur ordering is a rule of its own, above. `/goodlinks`
 follows `/upload`'s blur-first shape and hands off to
 `useOutline.onGoodlinks`; see [goodlinks.md](goodlinks.md).
+`/link-local-file` follows the same blur-first, tree-owned shape: it opens
+`LocalFilePicker` from `EditableBlockTree` and splices the pick synchronously
+through `useOutline.onLinkLocalFile`.
 
 ### The bullet and the block menu
 

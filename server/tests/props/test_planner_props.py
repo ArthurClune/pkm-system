@@ -39,7 +39,7 @@ pytestmark = pytest.mark.proptest
 
 UIDS = uid_pool(12)
 PAGE = PAGES[0]
-_UID_SPEC = re.compile(r"^\(\((.+)\)\)$")
+_UID_SPEC = re.compile(r"^\(\((.+)\)\)\Z")
 
 AnyOp = BlockOp | Mapping[str, Any]
 

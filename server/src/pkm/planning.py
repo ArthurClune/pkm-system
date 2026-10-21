@@ -27,8 +27,8 @@ from pkm.contracts.responses import BlockNode, walk_blocks
 from pkm.contracts.titles import RawTitle
 from pkm.todo import TaskMark, with_state
 
-_HEADING_SPEC = re.compile(r"^(#{1,3}) (.+)$")
-_UID_SPEC = re.compile(r"^\(\((.+)\)\)$")
+_HEADING_SPEC = re.compile(r"^(#{1,3}) (.+)\Z")
+_UID_SPEC = re.compile(r"^\(\((.+)\)\)\Z")
 
 
 class BuildError(ValueError):
@@ -135,8 +135,8 @@ def split_heading(text: str) -> tuple[str, HeadingLevel | None]:
     Text that doesn't match comes back unchanged with None: '#Tag' (no
     space after the hashes, so tag-only blocks survive), '#### x' (blocks
     carry levels 1-3 only), '# ' (no body), and any multi-line text --
-    _HEADING_SPEC is neither MULTILINE nor DOTALL, so `$` cannot match
-    mid-string and a pasted markdown document stays verbatim in its
+    _HEADING_SPEC ends in `\\Z` and is not DOTALL, so a newline anywhere
+    (a trailing one too) keeps a pasted markdown document verbatim in its
     block. Same syntax as a `parent:` spec, same regex.
     """
     m = _HEADING_SPEC.match(text)

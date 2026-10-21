@@ -1181,6 +1181,8 @@ When measuring a slow request, prefer these durations to client-side timing.
   see [performance-checks.md](performance-checks.md).
 - `server/tooling/brandlint` is the brand lint, run by the same hook and
   sweep as `commentlint`: see [enforced-checks.md](enforced-checks.md#brand-rules).
+- `server/tooling/regexlint` is the bare-`$` regex lint, run by the same hook and
+  sweep: see [enforced-checks.md](enforced-checks.md#regex-anchors).
 - `server/tooling/commentlint` is the comment-rot lint behind
   `.githooks/pre-commit`: a staged code file (every tracked one, including
   `deploy/`, `.githooks/` and the `.claude/skills` scripts, bar generated

@@ -13,7 +13,7 @@ from datetime import date
 _MONTHS = ["January", "February", "March", "April", "May", "June", "July",
            "August", "September", "October", "November", "December"]
 _TITLE_RE = re.compile(
-    rf"^({'|'.join(_MONTHS)}) (\d{{1,2}})(st|nd|rd|th), (\d{{4}})$")
+    rf"^({'|'.join(_MONTHS)}) (\d{{1,2}})(st|nd|rd|th), (\d{{4}})\Z")
 
 
 def _suffix(day: int) -> str:

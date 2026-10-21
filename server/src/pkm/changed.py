@@ -10,7 +10,7 @@ import re
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from typing import Literal
 
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 ChangeStatus = Literal["new", "edited"]
 

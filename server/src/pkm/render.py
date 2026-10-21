@@ -27,7 +27,7 @@ from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
 from pkm.refs import BLOCK_REF_TOKEN, parse_block_uid
 
 _REF_TOKEN = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")
-_SECTION_MARKER = re.compile(r"^(#{1,3}) (.*)$")
+_SECTION_MARKER = re.compile(r"(#{1,3}) (.*)")
 
 RefMap = Mapping[BlockUid, BlockRefText]
 

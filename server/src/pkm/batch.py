@@ -28,7 +28,7 @@ from pkm.contracts.titles import RawTitle
 from pkm.planning import (BuildError, Planner, parse_uid_spec, plan_update,
                           resolve_parent)
 
-_ALIAS_SPEC = re.compile(r"^\{\{(.+)\}\}$")
+_ALIAS_SPEC = re.compile(r"^\{\{(.+)\}\}\Z")
 
 
 def _nested_items(items: Sequence[NestedItem], depth: int = 0) -> list[tuple[int, str]]:

@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-_NAME_RE = re.compile(r"^pkm-(\d{4})-(\d{2})-(\d{2})\.sqlite3$")
+_NAME_RE = re.compile(r"^pkm-(\d{4})-(\d{2})-(\d{2})\.sqlite3\Z")
 
 
 def backup_name(day: date) -> str:

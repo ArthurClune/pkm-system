@@ -78,7 +78,7 @@ RULES = {
 }
 
 # Matched at the start of a comment token.
-_OPT_OUT = re.compile(r"#\s*brand:\s*untrusted\b(?P<rest>.*)$")
+_OPT_OUT = re.compile(r"#\s*brand:\s*untrusted\b(?P<rest>.*)")
 _REASON = re.compile(r"^\s*--\s*\S")
 # A comment that silences the type checker for its line (pyrefly, pyright or
 # the standard `type: ignore`, with or without a `[rule]`). `ignore-errors`

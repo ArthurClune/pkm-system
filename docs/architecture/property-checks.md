@@ -12,7 +12,11 @@ outline-edit invariants. It has two sides, and the web side holds three suites:
 
 It runs locally before a merge, the same way
 [`perf/check.sh`](performance-checks.md) does; it is not CI, a git hook, or
-part of `pytest -q`, `pnpm test:unit` or `pnpm verify`.
+part of `pytest -q`, `pnpm test:unit` or `pnpm verify`. Properties of pure
+or single-module code, such as the local-docs link encoding and the
+`/api/local-index` round trip, are ordinary unit tests instead: Hypothesis in
+`server/tests/` and fast-check beside the code in `web/src/` (`*.props.test.ts`, `.tsx`),
+run on every `pytest -q` and `pnpm verify`.
 
 What to do with a failure is in
 [`AGENTS.md` § Testing](../../AGENTS.md#testing). The rationale and rejected

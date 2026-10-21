@@ -38,7 +38,7 @@ def test_clean_relative_does_not_decode_again():
 @pytest.mark.parametrize("raw", [
     "", "/", "../x.pdf", "Papers/../../etc/passwd",
     "Papers/./x.pdf", "/Papers/x.pdf", "Papers\\x.pdf", "Papers/x\x00.pdf",
-    "..", ".",
+    "..", ".", "a\nb", "a\n", "a\tb", "a\x7fb", "a\x85b", "a\x9fb",
 ])
 def test_clean_relative_rejects_escapes(raw):
     assert clean_relative(raw) is None
@@ -148,3 +148,11 @@ def test_visible_name_hides_dotfiles_and_dot_dirs():
 def test_index_order_dedupes_and_sorts_case_insensitively():
     assert index_order(["b/x.pdf", "A/y.pdf", "b/x.pdf", "a/z.pdf"]) == \
         ["A/y.pdf", "a/z.pdf", "b/x.pdf"]
+
+
+@pytest.mark.parametrize("name, is_dir", [
+    ("a\\b", False), ("a\nb", False), ("a\n", True), ("a\x7f", False),
+    (".a\\b.icloud", False),
+])
+def test_visible_name_skips_names_the_routes_would_reject(name, is_dir):
+    assert visible_name(name, is_dir) is None

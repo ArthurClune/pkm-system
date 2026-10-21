@@ -6,6 +6,8 @@ from dataclasses import replace
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import single_decode_get
+
 from pkm.local_docs import local_href
 from pkm.server import routes_local
 from pkm.server.app import create_app
@@ -67,10 +69,24 @@ def test_symlink_loop_is_404_not_500(local_client, local_root):
     assert local_client.get("/api/local/a/x.pdf").status_code == 404
 
 
-def test_percent_in_filename_is_served(local_client):
-    r = local_client.get("/api/local/Papers/ML/50%25%20draft.pdf")
+def test_percent_in_filename_is_served(local_client, local_root):
+    r = single_decode_get(local_client, "/api/local/Papers/ML/50%25%20draft.pdf")
     assert r.status_code == 200
     assert r.content.startswith(b"%PDF")
+    # a second decode would turn %2541 into A and serve the wrong file
+    (local_root / "A").write_bytes(b"the A file")
+    (local_root / "%41").write_bytes(b"the percent file")
+    assert single_decode_get(local_client, "/api/local/%2541").content == b"the percent file"
+
+
+def test_trailing_newline_name_is_not_served_as_its_prefix(local_client, local_root):
+    """The route pattern's `$` matches before a final newline, so a
+    `{path:path}` convertor would hand the handler `a` for `a%0A`."""
+    (local_root / "a").write_bytes(b"file a")
+    (local_root / "a\n").write_bytes(b"file a newline")
+    assert single_decode_get(local_client, "/api/local/a").content == b"file a"
+    assert single_decode_get(local_client, "/api/local/a%0A").status_code == 404
+    assert single_decode_get(local_client, "/api/local/b%0Ac").status_code == 404
 
 
 def test_evicted_file_is_503_and_requests_download(local_client, local_root, monkeypatch):
@@ -205,7 +221,7 @@ def test_check_agrees_with_file_route_on_percent_in_filename(
     con.commit()
     con.close()
 
-    assert local_client.get(href).status_code == 200
+    assert single_decode_get(local_client, href).status_code == 200
 
     body = local_client.get("/api/local/check").json()
     by_uid = {p["uid"]: p for p in body["problems"]}

@@ -31,6 +31,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from starlette.convertors import Convertor, register_url_convertor
 
 from pkm.contracts.responses import (LocalCheckPayload, LocalCheckProblem,
                                      LocalIndexFile, LocalIndexPayload)
@@ -43,6 +44,24 @@ from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
 from pkm.server.local_index import default_scanner
 from pkm.server.local_open import default_prober
+
+
+class _WholePathConvertor(Convertor[str]):
+    """Starlette's `path` convertor matches `.*` under a trailing `$`,
+    which stops before a final newline: `/api/local/a%0A` would reach the
+    handler as `a` and serve a different file, and a newline inside a
+    name matches no route at all. DOTALL hands the handler the whole
+    decoded path, so `clean_relative` is what rejects it."""
+    regex = "(?s:.*)"
+
+    def convert(self, value: str) -> str:
+        return value
+
+    def to_string(self, value: str) -> str:
+        return value
+
+
+register_url_convertor("wholepath", _WholePathConvertor())
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 logger = logging.getLogger("pkm.local")
@@ -201,7 +220,7 @@ def _failure(html_wanted: bool, status: int, message: str, shown: str,
     return JSONResponse(status_code=status, headers=headers, content=body)
 
 
-@router.get("/api/local/{path:path}")
+@router.get("/api/local/{path:wholepath}")
 def get_local_file(path: str, request: Request,
                    config: Config = Depends(get_config)) -> Response:
     html_wanted = wants_html_error(request.headers.get("sec-fetch-mode"),

@@ -44,6 +44,18 @@ function runs(indices: number[], offset: number): [number, number][] {
   return out;
 }
 
+// fzf lowercases each item character on its own and keeps only the first code
+// point of the result, so "\u0130" is seen as "i". Fold the query the same
+// way, or typing such a character would never match the name that has it.
+function foldLikeFzf(query: string): string {
+  return [...query]
+    .map((c) => {
+      const lower = c.toLowerCase();
+      return [...lower].length > 1 ? String.fromCodePoint(lower.codePointAt(0)!) : c;
+    })
+    .join("");
+}
+
 export function searchLocalFiles(
   files: readonly LocalFile[],
   query: string,
@@ -55,7 +67,7 @@ export function searchLocalFiles(
     casing: "case-insensitive",
     tiebreakers: [byNameMatch, byLengthAsc],
   });
-  return fzf.find(query).map((r) => {
+  return fzf.find(foldLikeFzf(query)).map((r) => {
     const nameStart = nfcPath(r.item).lastIndexOf("/") + 1;
     const sorted = [...r.positions].sort((a, b) => a - b);
     return {

@@ -88,3 +88,13 @@ def test_unreadable_subdirectory_makes_the_scan_none(tmp_path):
         assert TreeScanner(timeout=1).scan(tmp_path) is None
     finally:
         locked.chmod(0o755)
+
+
+def test_names_the_routes_would_reject_are_not_listed_or_entered(tmp_path):
+    (tmp_path / "ok.pdf").write_bytes(b"x")
+    (tmp_path / "back\\slash.pdf").write_bytes(b"x")
+    (tmp_path / "new\nline.pdf").write_bytes(b"x")
+    (tmp_path / "trail\n").write_bytes(b"x")
+    (tmp_path / "bad\\dir").mkdir()
+    (tmp_path / "bad\\dir" / "inside.pdf").write_bytes(b"x")
+    assert TreeScanner(timeout=1).scan(Path(tmp_path)) == ["ok.pdf"]

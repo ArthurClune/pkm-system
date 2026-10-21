@@ -968,11 +968,16 @@ FastAPI's `/docs` and `/redoc` are disabled.
 The `/api/local*` routes are the only ones that read outside the data
 directory, and `/api/local/{path}` is the only one that returns file contents.
 `local_docs.clean_relative` rejects an absolute path, a `.` or `..` segment, a
-NUL or a backslash, and `is_within` re-checks the *resolved* candidate against
-the resolved root. Every rejection is a 404, never a 403, so the response never
+control character (C0 including NUL and newline, DEL, C1) or a backslash, and
+`is_within` re-checks the *resolved* candidate against the resolved root. Every rejection is a 404, never a 403, so the response never
 confirms what exists. `/api/local/check` starts from a raw href in block text
 rather than an already-decoded path parameter, so it goes through
-`resolve_relative`, which unquotes exactly once.
+`resolve_relative`, which unquotes exactly once. The index lists only names
+`clean_relative` accepts, so the picker never offers a link the file route
+404s: `visible_name` skips the rest, and a skipped directory is not entered.
+The file route's parameter uses the DOTALL `wholepath` convertor, because
+Starlette's `path` convertor stops before a final newline and would serve `a`
+for `a%0A`.
 
 `_is_evicted` and `_is_dataless` in `routes_local.py` are the two eviction
 helpers, shared by both routes so they cannot disagree. `_is_evicted` covers iCloud
@@ -1048,6 +1053,7 @@ with the change that invalidates them.
 | `shared/fixtures/ref_grammar.json` | hand-maintained cases | both parsers' test suites | Pins Python `refs.py` and the TS grammar scanner to identical behaviour |
 | `shared/fixtures/title_syntax.json` | hand-maintained cases | `tests/test_refs.py` | Pins `refs.title_syntax_reason` and the replica's `titleSyntaxReason` to the same verdicts (`web/src/replica/titles.test.ts`, `localApi/router.test.ts`) |
 | `shared/fixtures/refs_parity.json` | `pkm.refs_parity_dump` | `tests/test_refs_parity_fixture.py` | TS extractors replay the exact Python outputs |
+| `shared/fixtures/local_links_parity.json` | `web/src/outline/localLinksParity.test.ts` with `UPDATE_LOCAL_LINKS_FIXTURE=1` (fixed fast-check seed over `localCopyAttribute`) | that test fails when the file differs; `tests/test_local_links_parity.py` | `local_docs.extract_local_hrefs` must read the same hrefs from `Local copy::` texts as the web's markdown-link reader. The one fixture the web side writes |
 | `shared/fixtures/shim_parity.json` | `pkm.server.shim_parity_dump` | `tests/test_shim_parity_fixture.py` | The offline API shim (`web/src/replica/localApi/`) must return byte-identical JSON to the real routes |
 | `shared/fixtures/missing_targets.json` | hand-maintained cases | `tests/test_ops_core.py` | Pins `ops_core.classify_skip` and the replica's `skipsOnMissingTarget` (`web/src/replica/missingTarget.test.ts`) to the same skip-or-not verdicts. Its `placement_cases` pin where a create or move lands, through `ops_apply.apply_batch` and the replica's `applyLocalOps`, replays included |
 | `shared/fixtures/draft_flush.json` | hand-maintained case | `tests/test_ops_endpoint.py` | `web/src/views/EditablePage.draftFlush.test.tsx`: the op an editor draft flushes is the op the ops route's conflict and orphan paths are tested with |
@@ -1133,6 +1139,11 @@ When measuring a slow request, prefer these durations to client-side timing.
 - `conftest.py` provides a seeded temp database (a fixed 5-page fixture, with
   daily page "July 7th, 2026"), an authenticated `TestClient`, and a
   `PkmClient` wired to the in-process app.
+- A request whose path carries a literal `%` goes through `asgi_get_all` or
+  `single_decode_get` in `conftest.py`, not `TestClient`. Starlette's
+  `TestClient` decodes the path's percent-escapes a second time before
+  routing, so a file named `%41` would be served as `A`; uvicorn and
+  `httpx.ASGITransport` decode once.
 - `uv run pyrefly check` type-checks (pyright is configured as a second
   opinion) and `uv run ruff check` lints, at line length 120.
 - In `server/src`, both refuse an implicit `Any`: pyrefly's `implicit-any-*`

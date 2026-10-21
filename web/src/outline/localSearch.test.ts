@@ -83,3 +83,8 @@ test("a folder-only NFD match does not count as a name match", () => {
     fs[0].path,
   ]);
 });
+
+test("a query character that lowercases to several code points still finds itself", () => {
+  const fs = [F("a/İstanbul.pdf")];
+  expect(searchLocalFiles(fs, "İ").map((m) => m.file.path)).toEqual([fs[0].path]);
+});

@@ -55,6 +55,9 @@ _MEDIA_TYPES: dict[str, str] = {
     ".webarchive": _OCTET_STREAM,
 }
 
+# C0, DEL and C1: no file name the routes serve contains one.
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
 # `[text](/api/local/...)` targets and bare `/api/local/...` tokens. The
 # link target stops at the closing paren; a bare token at whitespace or
 # a closing bracket/paren. Stopping at `)` is only safe because
@@ -68,10 +71,11 @@ _HREF_RE = re.compile(r"\]\((/api/local/[^)\s]+)\)|(?<![\w(])(/api/local/[^\s)\]
 def clean_relative(decoded: str) -> str | None:
     """Validate an already-decoded path and return it as a clean
     relative path, or None if it is empty, absolute, uses backslashes,
-    contains a NUL, or has any `.`/`..` segment. Duplicate slashes
+    contains a control character (C0, DEL or C1, so NUL and newline
+    too), or has any `.`/`..` segment. Duplicate slashes
     collapse; a trailing slash is dropped. Does no decoding itself: the
     caller decides whether and how many times to `unquote` first."""
-    if not decoded or "\x00" in decoded or "\\" in decoded:
+    if not decoded or "\\" in decoded or _CONTROL_RE.search(decoded):
         return None
     if decoded.startswith("/"):
         return None
@@ -105,13 +109,15 @@ def local_href(rel: str) -> str:
 def visible_name(name: str, is_dir: bool) -> str | None:
     """The name the local-file picker shows for a directory entry, or
     None to skip it. An evicted file's `.Name.ext.icloud` stub shows as
-    `Name.ext`; every other dotfile or dot-directory is hidden."""
+    `Name.ext`; every other dotfile or dot-directory is hidden. A name
+    `clean_relative` would reject (backslash, control character) is
+    skipped too, so the picker never offers a link the routes 404."""
+    shown = name
     if not is_dir and name.startswith(".") and name.endswith(".icloud"):
-        real = name[1:-len(".icloud")]
-        return real if real and not real.startswith(".") else None
-    if name.startswith("."):
+        shown = name[1:-len(".icloud")]
+    if not shown or shown.startswith("."):
         return None
-    return name
+    return shown if clean_relative(shown) == shown else None
 
 
 def index_order(rels: Iterable[str]) -> list[str]:

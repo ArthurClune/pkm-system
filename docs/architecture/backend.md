@@ -681,6 +681,12 @@ and match the stored title byte for byte, the importer passes
 `refs.normalize_title`. The web scanner shares that anchoring convention,
 pinned by `web/src/grammar/scan.test.ts` as `"  Key:: v"` starting at offset 2.
 
+Code spans take precedence over refs by position: `strip_code()` makes one
+left-to-right pass, and whichever of a closed fence or an inline span starts
+first wins, exactly as `scanCode` in `web/src/grammar/scan.ts` does. A lone
+backtick followed by a fence run on the same line is therefore an inline span
+ending at the fence's first backtick, and the text after it is not code.
+
 Sidebar pinning is a separate write path. `POST /api/sidebar` takes SQLite's
 writer reservation with `BEGIN IMMEDIATE` before it checks title uniqueness and
 computes the append slot as `max(order_idx) + 1`. A same-title race therefore
@@ -1052,7 +1058,7 @@ with the change that invalidates them.
 | `web/src/replica/columns.gen.ts`, `web/tooling/brandRegistry.gen.json` | `pkm.rows_dump` | `tests/test_rows_artifact.py`; `web/src/replica/columns.test.ts` for the client-only tables | The web's mirror of `rows.Row` (`Columns`, `COLUMN_META` with literal domains, `COLUMN_KEYS`, `BRAND_SHAPES`) and of the brand registry. Generation fails for a brand `brands.ts` does not export |
 | `shared/fixtures/ref_grammar.json` | hand-maintained cases | both parsers' test suites | Pins Python `refs.py` and the TS grammar scanner to identical behaviour |
 | `shared/fixtures/title_syntax.json` | hand-maintained cases | `tests/test_refs.py` | Pins `refs.title_syntax_reason` and the replica's `titleSyntaxReason` to the same verdicts (`web/src/replica/titles.test.ts`, `localApi/router.test.ts`) |
-| `shared/fixtures/refs_parity.json` | `pkm.refs_parity_dump` | `tests/test_refs_parity_fixture.py` | TS extractors replay the exact Python outputs |
+| `shared/fixtures/refs_parity.json` | `pkm.refs_parity_dump` | `tests/test_refs_parity_fixture.py` | TS extractors replay the exact Python outputs. The file holds the hand `CASES` plus a seeded generated corpus of bracket-heavy texts (`generated_cases()`); the test tallies the corpus's shapes so it cannot go vacuous |
 | `shared/fixtures/local_links_parity.json` | `web/src/outline/localLinksParity.test.ts` with `UPDATE_LOCAL_LINKS_FIXTURE=1` (fixed fast-check seed over `localCopyAttribute`) | that test fails when the file differs; `tests/test_local_links_parity.py` | `local_docs.extract_local_hrefs` must read the same hrefs from `Local copy::` texts as the web's markdown-link reader. The one fixture the web side writes |
 | `shared/fixtures/shim_parity.json` | `pkm.server.shim_parity_dump` | `tests/test_shim_parity_fixture.py` | The offline API shim (`web/src/replica/localApi/`) must return byte-identical JSON to the real routes |
 | `shared/fixtures/missing_targets.json` | hand-maintained cases | `tests/test_ops_core.py` | Pins `ops_core.classify_skip` and the replica's `skipsOnMissingTarget` (`web/src/replica/missingTarget.test.ts`) to the same skip-or-not verdicts. Its `placement_cases` pin where a create or move lands, through `ops_apply.apply_batch` and the replica's `applyLocalOps`, replays included |

@@ -1,10 +1,11 @@
 ---
 # pkm-u380
 title: 'Property: generated ref-grammar corpus for server/web refs parity'
-status: todo
+status: completed
 type: task
+priority: normal
 created_at: 2026-10-21T14:01:04Z
-updated_at: 2026-10-21T14:01:04Z
+updated_at: 2026-10-21T14:31:59Z
 parent: pkm-a1xk
 ---
 
@@ -14,11 +15,32 @@ Past bugs this would have caught: `[[[[Link]]]` rendered as a link to `Link` whi
 
 ## Checklist
 
-- [ ] Add a generated corpus to `refs_parity_dump` (fixed Hypothesis seed, or a seeded generator): bracket soup with nested, unclosed and overlapping `[[`/`]]`, `((uid))`, `#tag`/`#[[tag]]`, inline and fenced code spans, `Attr::` at line starts and after newlines, padded and blank titles, NFD and emoji. Keep the hand `CASES` as they are.
-- [ ] The existing `test_refs_parity_fixture.py` keeps the fixture fresh; the TS side replays every generated case (refs, kinds, block refs).
-- [ ] Tally the interesting shapes in the generator and show the corpus reaches each.
-- [ ] Mutant on each side (e.g. the web scanner pairing an overlapping `[[` the old way) makes the replay fail.
-- [ ] Also a server-only property: `refs.extract` stays fast on long generated inputs (a generous bound, catching the quadratic-regex class from the export slowdown), only if it can be made non-flaky.
+- [x] Add a generated corpus to `refs_parity_dump` (fixed Hypothesis seed, or a seeded generator): bracket soup with nested, unclosed and overlapping `[[`/`]]`, `((uid))`, `#tag`/`#[[tag]]`, inline and fenced code spans, `Attr::` at line starts and after newlines, padded and blank titles, NFD and emoji. Keep the hand `CASES` as they are.
+- [x] The existing `test_refs_parity_fixture.py` keeps the fixture fresh; the TS side replays every generated case (refs, kinds, block refs).
+- [x] Tally the interesting shapes in the generator and show the corpus reaches each.
+- [x] Mutant on each side (e.g. the web scanner pairing an overlapping `[[` the old way) makes the replay fail.
+- [x] Also a server-only property: `refs.extract` stays fast on long generated inputs (a generous bound, catching the quadratic-regex class from the export slowdown), only if it can be made non-flaky.
+
+## Ruling
+
+The generated corpus found a server/web disagreement on code-span precedence:
+a lone backtick before a fence run on the same line. Arthur ruled that the
+server follows the web's single left-to-right pass (whichever code marker
+starts first wins, which is what the renderer shows). `refs.strip_code` is now
+one alternation regex, fence branch first, applied leftmost-first.
+
+## Summary of Changes
+
+- `pkm.refs_parity_dump`: seeded generated corpus (400 cases), shape
+  predicates and `shape_tally`; fixture regenerated (hand cases first).
+- `test_refs_parity_fixture.py`: reach test and ordering test.
+- `refs.strip_code`: left-to-right code pass; shrunk case kept in
+  `test_refs.py`, plus an `ref_grammar.json` case both sides replay.
+- Fast-extract check on long generated inputs (generous 5s bound). The
+  `` ```a\n `` repeated input stays quadratic on both sides (every closer is
+  followed by a word character, so each opener rescans to the end) and is
+  excluded from that check; not fixed here.
+- Docs: backend.md fixture row and precedence note, troubleshooting row.
 
 ## Ground rules (shared by this epic)
 

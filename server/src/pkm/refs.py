@@ -22,8 +22,14 @@ from pkm.contracts.titles import RawTitle
 # outer fence pairs with the first inner example's opener, fence parity
 # flips, and hex colours in the exposed code mint pages named "0277bd".
 # Punctuation and whitespace after ``` still close as before.
-_CODE_FENCE = re.compile(r"```.*?```(?!\w)", re.DOTALL)
-_INLINE_CODE = re.compile(r"`[^`\n]*`")
+_CODE_FENCE = r"```.*?```(?!\w)"
+_INLINE_CODE = r"`[^`\n]*`"
+# One left-to-right pass, whichever code marker starts first wins: a lone
+# backtick that closes on the first backtick of a following ``` run is inline
+# code, and the rest is no fence (grammar/scan.ts scanCode does the same). The
+# fence branch is tried first at each position, and an unclosed ``` falls
+# through to the inline branch, which then takes the first two backticks.
+_CODE = re.compile(rf"{_CODE_FENCE}|{_INLINE_CODE}", re.DOTALL)
 # No leading `\s*` here (see attribute_title_span() below): `\s` is a
 # near-subset of this negated class, and pairing a greedy `\s*` with a lazy
 # quantifier over an overlapping class is O(n^2) to fail on an all-whitespace
@@ -153,8 +159,7 @@ def strip_code(text: str) -> str:
     the stripped copy indexes the original text unchanged -- that is what
     lets `rename.py` find refs here and splice the real text there.
     """
-    text = _CODE_FENCE.sub(lambda m: " " * len(m.group()), text)
-    return _INLINE_CODE.sub(lambda m: " " * len(m.group()), text)
+    return _CODE.sub(lambda m: " " * len(m.group()), text)
 
 
 @dataclass(frozen=True)

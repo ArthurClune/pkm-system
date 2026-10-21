@@ -8,6 +8,9 @@ tests/test_refs_parity_fixture.py."""
 from __future__ import annotations
 
 import json
+import random
+import re
+from collections.abc import Iterable
 
 from pkm.refs import extract
 
@@ -58,6 +61,88 @@ CASES = [
 ]
 
 
+GENERATED_SEED = 20260421
+GENERATED_COUNT = 400
+
+_UID = "abcdef123"
+_NFD = "Cafe\u0301"
+# Bracket soup: every piece is a hostile fragment, and a case glues 2-9 of
+# them together, so nested, unclosed and overlapping runs fall out of the
+# draw rather than being listed by hand.
+_PIECES = [
+    "[[", "[[", "[[", "]]", "]]", "]]", "[", "]", "[[[", "]]]", "[[[[", "]]]]",
+    "#", "#", "#[[", "#tag", "#a/b.c-d", "((" + _UID + "))", "((", "))",
+    "((^" + _UID + "))", "`", "`", "```", "```css\n", "\n", "\n", "\n",
+    " ", " ", "  ", "Title", "Title", "Alpha", "Beta", "Attr::", "Tags::",
+    "::", "{{embed: ", "}}", "{{[[embed]]: ", _NFD, "\u00e9", "\u2728",
+    "`code [[X]] #t`", "```\n[[X]] #t\n```", "\nAttr:: ", "\n  Key:: ",
+    "[[ Padded ]]", "[[ ]]", "[[ \n ]]", "\U0001f600", "\u200d", "((" + "b" * 32 + "))", "((" + "b" * 33 + "))",
+]
+
+
+def generated_cases(
+    seed: int = GENERATED_SEED, count: int = GENERATED_COUNT
+) -> list[str]:
+    """`count` seeded bracket-soup block texts, de-duplicated and stable
+    across runs and Python versions (random.Random is specified)."""
+    rng = random.Random(seed)
+    out: list[str] = []
+    seen = set(CASES)
+    while len(out) < count:
+        text = "".join(rng.choice(_PIECES) for _ in range(rng.randint(2, 9)))
+        if text not in seen:
+            seen.add(text)
+            out.append(text)
+    return out
+
+
+def _max_depth(text: str) -> int:
+    depth = best = i = 0
+    while i < len(text) - 1:
+        pair = text[i : i + 2]
+        if pair == "[[":
+            depth += 1
+            best = max(best, depth)
+            i += 2
+        elif pair == "]]" and depth:
+            depth -= 1
+            i += 2
+        else:
+            i += 1
+    return best
+
+
+# Each shape is judged on the text alone, not on the generator's choices,
+# so the tally says what the corpus actually contains.
+SHAPES = {
+    "nested_brackets": lambda t: _max_depth(t) >= 2,
+    "unclosed_open": lambda t: t.count("[[") > t.count("]]"),
+    "stray_close": lambda t: t.count("]]") > t.count("[["),
+    "overlapping_run": lambda t: "[[[" in t or "]]]" in t,
+    "block_ref": lambda t: bool(extract(t).block_refs),
+    "block_ref_caret": lambda t: "((^" in t,
+    "bare_tag": lambda t: any(r.kind == "tag" for r in extract(t).refs)
+    and "#[[" not in t,
+    "bracket_tag": lambda t: bool(re.search(r"#\[\[[^\]]*\]\]", t)),
+    "inline_code": lambda t: bool(re.search(r"`[^`\n]*\[\[[^`\n]*`", t)),
+    "fenced_code": lambda t: t.count("```") >= 2,
+    "attr_first_line": lambda t: any(
+        r.kind == "attribute" for r in extract(t).refs),
+    "attr_after_newline": lambda t: bool(re.search(r"\n\s*\w+::", t)),
+    "padded_title": lambda t: bool(re.search(r"\[\[ +[^\[\] ]", t)),
+    "blank_title": lambda t: bool(re.search(r"\[\[\s*\]\]", t)),
+    "nfd": lambda t: "\u0301" in t,
+    "emoji": lambda t: any(ord(c) > 0xFFFF for c in t),
+}
+
+
+def shape_tally(texts: Iterable[str]) -> dict[str, int]:
+    """How many of `texts` show each interesting shape."""
+    texts = list(texts)
+    return {name: sum(1 for t in texts if pred(t))
+            for name, pred in SHAPES.items()}
+
+
 def fixture() -> dict[str, list[dict[str, object]]]:
     return {"cases": [
         {
@@ -66,7 +151,7 @@ def fixture() -> dict[str, list[dict[str, object]]]:
                      for r in extract(text).refs],
             "block_refs": list(extract(text).block_refs),
         }
-        for text in CASES
+        for text in [*CASES, *generated_cases()]
     ]}
 
 

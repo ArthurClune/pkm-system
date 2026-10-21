@@ -346,6 +346,3292 @@
       "text": "ref ((aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)) here",
       "refs": [],
       "block_refs": []
+    },
+    {
+      "text": "{{embed: `code [[X]] #t`#tag]#a/b.c-d\n",
+      "refs": [
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "```::Alpha[[[[ [[]]]))#",
+      "refs": [
+        {
+          "title": "`",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "((^abcdef123))((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))((Title{{[[embed]]: ]]]✨[[ Padded ]]((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        },
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "TitleAttr::((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))[[ Padded ]]]]",
+      "refs": [
+        {
+          "title": "TitleAttr",
+          "kind": "attribute"
+        },
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": " ((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "é]]AlphaAlphaTitle\n\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#[[#tag😀((abcdef123))",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "#Title",
+      "refs": [
+        {
+          "title": "Title",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "{{[[embed]]: ((abcdef123))((abcdef123))",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "abcdef123",
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "\nAttr:: {{[[embed]]: #[[[[Tags::[[ \n ]] ",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        },
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "‍[[[[#\n  [[ Padded ]]",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "{{embed: ]]é`code [[X]] #t`é",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "‍```\n[[X]] #t\n```#][[ Padded ]]😀#[[[",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "\n😀((((^abcdef123))",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": " \n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```\n[[X]] #t\n```😀((^abcdef123))‍TitleAttr::",
+      "refs": [
+        {
+          "title": "😀((^abcdef123))‍TitleAttr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#[[\n`#]]```[[[[((abcdef123))",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "\nAttr::#((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))]```css\n((^abcdef123))",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "}}[[[[ \n ]][[ Padded ]]((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "Title{{embed: #Tags::\n]][[✨",
+      "refs": [
+        {
+          "title": "Tags",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "😀#a/b.c-d```css\n`]]]]]]]`:: ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#tag::",
+      "refs": [
+        {
+          "title": "#tag",
+          "kind": "attribute"
+        },
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "```css\n][[ Padded ]]",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]]\n::#tag✨]`code [[X]] #t``code [[X]] #t`Beta",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "]]#a/b.c-d\n\nAttr:: ((```\n  Key::  {{[[embed]]: ",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "))[[\nAttr::  ```css\n((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))Attr::",
+      "refs": [],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "((abcdef123))✨((abcdef123))",
+      "refs": [],
+      "block_refs": [
+        "abcdef123",
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "éTags::[[#{{embed: ]",
+      "refs": [
+        {
+          "title": "éTags",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "((abcdef123))Title`code [[X]] #t``#a/b.c-d",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "((abcdef123))`code [[X]] #t`",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "\n((abcdef123))é]]```#tag((abcdef123))",
+      "refs": [],
+      "block_refs": [
+        "abcdef123",
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "TitleBeta##[[ Padded ]]{{[[embed]]: Café}}‍",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "tag"
+        },
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "\nAttr::[[```",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]]  ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[Tags::[[[[ ]]\n😀#a/b.c-d✨",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "]]]]TitleTitle((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))`code [[X]] #t`[[[[\n]]",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "`code [[X]] #t````css\n]]]]\n#tag😀",
+      "refs": [
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "\nAttr:: `\n  Key:: \n\n  Key:: ```",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]]]]Alpha",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "}}\n::][  [",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": " \nAttr:: ",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#‍#[[ Padded ]]#]]\n",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[[[#}}]]((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))[[#tag((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))",
+      "refs": [
+        {
+          "title": "#}}",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[((^abcdef123))]]]]))```css\n((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))[[[[[Beta",
+      "refs": [
+        {
+          "title": "((^abcdef123))",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "\n  Key:: [  [[[`[[",
+      "refs": [
+        {
+          "title": "Key",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "`code [[X]] #t`Tags::",
+      "refs": [
+        {
+          "title": "Tags",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#[[]}}]]]Alpha((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))",
+      "refs": [
+        {
+          "title": "]}}",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "[[[```Attr::😀))((]]Title`",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "::[```\n[[X]] #t\n``````\n[[X]] #t\n```}}{{[[embed]]: ]]",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "Title\n  Key:: ```\nAttr:: ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "\nAttr:: ```))]Attr::é][[ \n ]]",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "Attr::Alpha````css\n[[ Padded ]][[ \n ]]#a/b.c-d}}",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        },
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "é```Beta]```\n[[X]] #t\n```",
+      "refs": [
+        {
+          "title": "X",
+          "kind": "link"
+        },
+        {
+          "title": "t",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "  ]]",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "  Title((",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "]]]]Title",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "((abcdef123))[[",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "#‍‍]]]",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "\nAttr:: ```css\n[[‍[[ ]]((abcdef123))",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "Beta]]]}}```\n[[X]] #t\n```",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "`code [[X]] #t`(({{embed: ((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))[[[`",
+      "refs": [],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "`[[[😀```\n`Tags::#[[",
+      "refs": [
+        {
+          "title": "`Tags",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[ \n ]]‍😀‍```]::#[[{{[[embed]]: ",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]\n]]]][[#]]]]  [[ Padded ]][[ \n ]]",
+      "refs": [
+        {
+          "title": "#",
+          "kind": "link"
+        },
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[[[[ ]]\nAttr:: ]]",
+      "refs": [
+        {
+          "title": "[[[ ]] Attr::",
+          "kind": "link"
+        },
+        {
+          "title": "[ ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "\n`{{[[embed]]: {{embed: [[[[::\n  Key:: #tag",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        },
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#a/b.c-d::::[[ Padded ]]✨",
+      "refs": [
+        {
+          "title": "#a/b.c-d",
+          "kind": "attribute"
+        },
+        {
+          "title": " Padded ",
+          "kind": "link"
+        },
+        {
+          "title": "a/b.c-d",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "`code [[X]] #t`}}",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "✨((\n[[[[é]]",
+      "refs": [
+        {
+          "title": "é",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[[((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))```Café`code [[X]] #t`((#Title  ",
+      "refs": [
+        {
+          "title": "X",
+          "kind": "link"
+        },
+        {
+          "title": "t",
+          "kind": "tag"
+        },
+        {
+          "title": "Title",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "`[((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))}}[[ Padded ]]#[[",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "))```css\n]]#a/b.c-dAlphaTitleBetaBeta#[[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "é[[[[[é[[ ]]\n  Key:: ```\n[[X]] #t\n```((",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "((abcdef123))Title[[((}} ",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "((\n((Alpha`code [[X]] #t`Café",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[]][[ Padded ]]Café((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "\nAttr:: (([[ Padded ]] }}",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        },
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[ ]]`{{embed: }}((abcdef123))\nAttr:: Alpha}}",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "\n  Key:: [[ ]][[[((abcdef123))Alpha[[[[}}",
+      "refs": [
+        {
+          "title": "Key",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "::#a/b.c-d‍#a/b.c-d\n```",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "{{embed: ✨((abcdef123))[[ ]]]]::[[````\n[[X]] #t\n```",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "{{[[embed]]: Title{{[[embed]]: [[",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[ \n ]]#]]] ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[ Padded ]] [[#[[CaféTitle((^abcdef123))Beta",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]]][[[[]",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "TitleTags:: \n[[[{{embed: ",
+      "refs": [
+        {
+          "title": "TitleTags",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "✨```\n  Key:: ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Café]`",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "TitleCafé]]``````css\n Attr::[```",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "]]\n\nAlpha[[ ]]]]\nAttr:: ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#tag\nAttr:: \n]]",
+      "refs": [
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#::\n]]]",
+      "refs": [
+        {
+          "title": "#",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))]][[```css\nCafé#a/b.c-d",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "]]]]é((abcdef123))((abcdef123))",
+      "refs": [],
+      "block_refs": [
+        "abcdef123",
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "[[ ]]]]`[[ Padded ]]",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#[[::`code [[X]] #t`((abcdef123))",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "\n[[]]]```\n[[X]] #t\n```\n  Key:: ((((abcdef123))‍\n",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "😀\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "]]#[[`))}}‍",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Attr::((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))]][[ \n ]][[[[[",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "]][]((`code [[X]] #t`#::",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "‍[[[é#a/b.c-d))\n  Key:: {{embed: AlphaAttr::",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "\n  Key:: \n  Key:: [{{embed: Title[[][[[[",
+      "refs": [
+        {
+          "title": "Key",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#a/b.c-d((^abcdef123))\n]]Tags::Title]\n\n",
+      "refs": [
+        {
+          "title": "a/b.c-d",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[ ]]😀\n ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "éBeta  ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "]]{{[[embed]]: #",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "{{[[embed]]: ```#a/b.c-d[[[[[[#a/b.c-dCafé\n}}",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "```Attr::[[[[[ \n ]]((^abcdef123))((^abcdef123))]#",
+      "refs": [
+        {
+          "title": "`Attr",
+          "kind": "attribute"
+        },
+        {
+          "title": "[",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[ \n ]]\n[[ ]]((Beta`",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```#[[ Padded ]][[[[ ]]\nAttr:: ]]]",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "tag"
+        },
+        {
+          "title": "[[ ]] Attr::",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "Beta‍}}#tag((^abcdef123))]]]]((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))```\n[[X]] #t\n``````\n[[X]] #t\n```",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Attr::`[[))[[ Padded ]][[[]]]]]}}",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        },
+        {
+          "title": "))[[ Padded ]][[[]]",
+          "kind": "link"
+        },
+        {
+          "title": " Padded ",
+          "kind": "link"
+        },
+        {
+          "title": "[",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": ":: ((abcdef123))`{{embed: 😀",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "[[😀[[[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[ Padded ]]\né\né  \n[[ \n ]][[ \n ]]",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "`]]]\n]]]]Café((\n((",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[TitleAttr::#))((",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#}}",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Attr::`[[Attr::((abcdef123))#[[`{{[[embed]]: ",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        },
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "```\n[[X]] #t\n```Alpha",
+      "refs": [
+        {
+          "title": "X",
+          "kind": "link"
+        },
+        {
+          "title": "t",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "))‍",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Alpha[[#",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#‍````code [[X]] #t`#[[",
+      "refs": [
+        {
+          "title": "X",
+          "kind": "link"
+        },
+        {
+          "title": "t",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[ \n ]]\nTitle`Beta",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "]]#a/b.c-d{{embed: ((^abcdef123))`#[[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#a/b.c-d```\n[[X]] #t\n```\nCafé😀Title[]]",
+      "refs": [
+        {
+          "title": "a/b.c-d",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[ ]]{{[[embed]]:   Café[[[]]##[[",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        },
+        {
+          "title": "[",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]]))Alpha#tag\n``code [[X]] #t`::",
+      "refs": [
+        {
+          "title": "X",
+          "kind": "link"
+        },
+        {
+          "title": "t",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]](())",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#✨\n  Key:: ✨``` `",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#[[ }}",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#a/b.c-d]]((^abcdef123))[[{{embed:   ",
+      "refs": [
+        {
+          "title": "a/b.c-d",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "```\n[[X]] #t\n``` `````````\n[[X]] #t\n``````Alpha::[[ Padded ]]",
+      "refs": [
+        {
+          "title": "`Alpha",
+          "kind": "attribute"
+        },
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#[[#[[[[[Café ]Café",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```\n[[X]] #t\n``````\n[[X]] #t\n```][[ Padded ]]```css\n",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[\n((^abcdef123))```css\nTitle",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": " }}Attr::Café]] ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "{{embed: ✨",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "((abcdef123))`",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "```\n[[X]] #t\n```((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))#a/b.c-d]]]::```\n[[X]] #t\n```",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "}}]]`#a/b.c-d[[[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#a/b.c-dBeta{{[[embed]]: \nTags::{{embed: ",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        },
+        {
+          "title": "a/b.c-dBeta",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]]]]```\n[[X]] #t\n```((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))é#CafééAttr::",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "😀```css\n((abcdef123))",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "```\n[[X]] #t\n````code [[X]] #t`[[]))",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "{{embed: ]]",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[[[[ \n ]]",
+      "refs": [
+        {
+          "title": "[",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "}}[[[]]]]",
+      "refs": [
+        {
+          "title": "[",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "`````",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Title[[[[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[}}#Attr::#tag",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#tag[[ ]]`]]Beta] [[Title",
+      "refs": [
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[[\nAttr:: ((^abcdef123))```css\n#a/b.c-d",
+      "refs": [
+        {
+          "title": "a/b.c-d",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": " #[[]]#a/b.c-d",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[[[\nAttr:: \n  Key:: Café[[Title]]]",
+      "refs": [
+        {
+          "title": "Title",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "  é",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#tag((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))```css\n",
+      "refs": [
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "[[ ]]]]Attr::\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[  \nAlpha",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "é```css\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#[[```css\n\nAttr:: \n  Key:: `[[ Padded ]]#]]]]",
+      "refs": [
+        {
+          "title": "`css Attr:: Key:: `[[ Padded ]]#",
+          "kind": "tag"
+        },
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "\nAttr:: `code [[X]] #t`((✨Title",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "`code [[X]] #t`‍",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "✨`((abcdef123))}}((abcdef123))((^abcdef123))\n",
+      "refs": [],
+      "block_refs": [
+        "abcdef123",
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "😀Alphaé",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "{{[[embed]]: #[[Attr::#\n``````Attr::{{[[embed]]: ",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#[[((abcdef123))`((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))[[\n",
+      "refs": [],
+      "block_refs": [
+        "abcdef123",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))[[ \n ]]",
+      "refs": [],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "[[]]```css\n]]Beta((##[[Attr::",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "✨```",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "`#tagTitle",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Café``))",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "}}[[[[```  ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Caféé#tag",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Title \nTitle]]((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))))",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "\n  Key:: Beta\n#Attr::é\n",
+      "refs": [
+        {
+          "title": "Key",
+          "kind": "attribute"
+        },
+        {
+          "title": "Attr",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))[[\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "\n#tag\n\n`",
+      "refs": [
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]]#```css\n[[ \n ]]Attr::`",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#[[`[[\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "((\n#tag",
+      "refs": [
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[ Padded ]]`{{[[embed]]: {{embed: #tag#",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        },
+        {
+          "title": "embed",
+          "kind": "link"
+        },
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": " # ((é",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```css\n[[[[[[[\n]]  ",
+      "refs": [
+        {
+          "title": "[",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "  [",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "`  Title```((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))",
+      "refs": [],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "((]]]]",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```\n[[X]] #t\n```#```]]((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))\n\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#[[`code [[X]] #t`[[Attr::Tags::\n##a/b.c-d`",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "{{embed: ]]\n  Key:: ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```\n[[X]] #t\n```}}#\nAttr:: ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```css\n))‍✨\n`[[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Attr::#a/b.c-d‍é[[ ]]]]",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "{{[[embed]]: \nAttr:: }}((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "#::[[ Padded ]]]]]]",
+      "refs": [
+        {
+          "title": "#",
+          "kind": "attribute"
+        },
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "Title[[#tag[[#tag\n]]\n  Key:: ",
+      "refs": [
+        {
+          "title": "#tag",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "`code [[X]] #t`éTags::😀[[ ]]]]```\n[[X]] #t\n``````css\n",
+      "refs": [
+        {
+          "title": "éTags",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "\nAttr::  ((^abcdef123))((",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "`code [[X]] #t````css\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "((^abcdef123))((abcdef123))]]((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))[\n  Key:: \n[[[[#a/b.c-d",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "\n#‍[[Alpha[[#",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "  Alpha✨",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#::é\n]]Title[Attr::`code [[X]] #t`",
+      "refs": [
+        {
+          "title": "#",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "‍`[[[[#tag[[ Padded ]]{{embed: #tag]]",
+      "refs": [
+        {
+          "title": "#tag[[ Padded ]]{{embed: #tag",
+          "kind": "link"
+        },
+        {
+          "title": " Padded ",
+          "kind": "link"
+        },
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "((#]]]]Beta][[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Tags::))Café[",
+      "refs": [
+        {
+          "title": "Tags",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "Café[[[[(([[[\n[[[[Tags::",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```css\n#tag[]]]",
+      "refs": [
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#\n Beta((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))Alpha",
+      "refs": [],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "{{[[embed]]: ]]",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "`code [[X]] #t`#Alphaé((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))]]]]]]]]",
+      "refs": [
+        {
+          "title": "Alphaé",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "]]]Attr::[[ Padded ]]````code [[X]] #t`]]Title]]]",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        },
+        {
+          "title": "X",
+          "kind": "link"
+        },
+        {
+          "title": "t",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))#Tags::\nAttr:: 😀{{embed: ✨",
+      "refs": [
+        {
+          "title": "((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))#Tags",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "`[[ \n ]][[ ]] ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#((abcdef123))😀```\n[[X]] #t\n```((^abcdef123))\n((^abcdef123))Title\n",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "Beta[[ ]]",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```\nAttr:: \n\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "\n((#a/b.c-d((^abcdef123))((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))",
+      "refs": [
+        {
+          "title": "a/b.c-d",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "[[[[[#a/b.c-d{{embed: ]]((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))`code [[X]] #t`",
+      "refs": [
+        {
+          "title": "[#a/b.c-d{{embed: ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "Beta((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))#[[}}   #```css\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[\n ((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))[[[]]BetaTags::",
+      "refs": [
+        {
+          "title": "[",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[[[((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))\nTags::#a/b.c-d[[#((((",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "\n  Key:: ‍]]Attr::{{[[embed]]: `]]",
+      "refs": [
+        {
+          "title": "Key",
+          "kind": "attribute"
+        },
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#tag{{embed: `code [[X]] #t`\n\n#[[((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))[[",
+      "refs": [
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#tag`code [[X]] #t`}}` `",
+      "refs": [
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]]#[[\n#a/b.c-d Title",
+      "refs": [
+        {
+          "title": "a/b.c-d",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#Alpha[[‍Attr::```\n[[X]] #t\n``````css\n‍",
+      "refs": [
+        {
+          "title": "Alpha",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "((abcdef123))((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "[[CaféBetaAttr::[[  é",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```\n[[X]] #t\n```é😀\n((^abcdef123))((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))",
+      "refs": [
+        {
+          "title": "X",
+          "kind": "link"
+        },
+        {
+          "title": "t",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "`code [[X]] #t`}}((abcdef123))✨{{[[embed]]: Title",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "]]‍Beta]]]]#`code [[X]] #t`((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))((^abcdef123))[[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[]]Title\n((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))]]][[ ]]\n#",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "é`code [[X]] #t`((^abcdef123))[[[[#[[\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "\n`",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Alpha [[[::Alpha✨",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "`::]]]]é[[[[Attr::",
+      "refs": [
+        {
+          "title": "`",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]((^abcdef123))`code [[X]] #t`Tags::`#tag",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "))[[ Padded ]]]]]]Café[[[#a/b.c-d\nTags::",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "Title #````éCafé[[ Padded ]]",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "  Title```css\n((abcdef123))]]]]}}```css\nAlpha ",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "#tagAttr::  [[[#tag[[ Padded ]]\n]]",
+      "refs": [
+        {
+          "title": "#tagAttr",
+          "kind": "attribute"
+        },
+        {
+          "title": "[#tag[[ Padded ]]",
+          "kind": "link"
+        },
+        {
+          "title": " Padded ",
+          "kind": "link"
+        },
+        {
+          "title": "tagAttr",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]]\nAttr:: ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "((abcdef123))((abcdef123))#tag::[[[]`#a/b.c-d",
+      "refs": [
+        {
+          "title": "((abcdef123))((abcdef123))#tag",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": [
+        "abcdef123",
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "Title```::((abcdef123))‍",
+      "refs": [
+        {
+          "title": "Title  `",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "Alpha]]`]]]][[ ]][[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Title‍[[ \n ]]",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[]]]Title]]]}}Beta",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "]]]]Beta✨✨))((^abcdef123)) ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "`✨}}))[[}}",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#tag((abcdef123))#((abcdef123))\nAttr:: \nAttr:: ```css\n((",
+      "refs": [
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": [
+        "abcdef123",
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "))😀\n  Key:: ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)) ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[ ]]#[[`}}((",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "{{[[embed]]: [[[```css\n[[",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "Title#a/b.c-dTitle",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[ \n ]]AlphaTitle [[ \n ]]\n[[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[\n```#[[```\n[[X]] #t\n```",
+      "refs": [
+        {
+          "title": "X",
+          "kind": "link"
+        },
+        {
+          "title": "t",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "}}))[[ ]] ✨",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```css\n```css\n[[ ]]]]```",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```Title",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "CaféTags::Title]]`code [[X]] #t`",
+      "refs": [
+        {
+          "title": "CaféTags",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[{{[[embed]]: #[[][[{{[[embed]]: ",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#Café`code [[X]] #t`((\nAttr:: é",
+      "refs": [
+        {
+          "title": "Cafe",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#a/b.c-d[[ ]]`\n[[ \n ]]((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))",
+      "refs": [
+        {
+          "title": "a/b.c-d",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "é]]]]✨))",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```css\n😀]]😀[[✨",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[ Padded ]]}} #[[[[[`",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "Attr::✨",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[`code [[X]] #t`#a/b.c-d`",
+      "refs": [
+        {
+          "title": "a/b.c-d",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[[[[[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "))```css\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[[Title[[[```\n[[X]] #t\n```",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Beta#[[((\n  Key:: ```",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "😀\n{{[[embed]]: ::Beta",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[((^abcdef123))Tags::`code [[X]] #t`]]",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[[[((abcdef123))Attr::#tag]]]][[ \n ]]Tags::`‍",
+      "refs": [
+        {
+          "title": "[[((abcdef123))Attr::#tag]]",
+          "kind": "link"
+        },
+        {
+          "title": "((abcdef123))Attr::#tag",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "[[ \n ]]TitleTitle‍]][[Café]]((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))",
+      "refs": [
+        {
+          "title": "Café",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]]]#tag#Alpha ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#a/b.c-d```[[`\n",
+      "refs": [
+        {
+          "title": "a/b.c-d",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "Attr::[[[::::```\n[[X]] #t\n```[[ Padded ]]]][[",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        },
+        {
+          "title": "[::::                [[ Padded ]]",
+          "kind": "link"
+        },
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]Beta[[[[ \n ]]#tag((^abcdef123))]]]",
+      "refs": [
+        {
+          "title": "[[ ]]#tag((^abcdef123))",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": " \nAttr:: ))`[ ",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": ")) {{embed: ```((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))Tags::`code [[X]] #t`",
+      "refs": [
+        {
+          "title": "X",
+          "kind": "link"
+        },
+        {
+          "title": "t",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "))[[[((^abcdef123))[[((^abcdef123))😀Alpha ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": " ((abcdef123)){{[[embed]]: {{[[embed]]: ((^abcdef123))))",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "[[[[]]",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "\n[[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Café #]]]]😀\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "))CaféBeta\n```",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Alpha[[Tags::[[ \n ]]]#[[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "\n#((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))Tags::]]]]\n  Key:: ][[ ]]]]]",
+      "refs": [
+        {
+          "title": "#((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))Tags",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "}}((^abcdef123))Beta]]```css\n ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "::#a/b.c-d✨#tag\n  Key:: [[#tag",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "`code [[X]] #t`#]]]]#{{[[embed]]: ]]",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "\n  Key:: Title]\n  Key:: ",
+      "refs": [
+        {
+          "title": "Key",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "é[[ ```css\n[[ ]]]]((^abcdef123))((^abcdef123))‍",
+      "refs": [
+        {
+          "title": "`css [[ ]]",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": ")) ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "((abcdef123))Title",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "Café  ]]]😀Café‍[[ `",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Title😀#",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "‍é))✨ ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```[[ ]]\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[[]]]]]]#Alpha((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))\nCafé",
+      "refs": [
+        {
+          "title": "[",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "[[#a/b.c-dAttr::{{[[embed]]: {{[[embed]]: ",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "\n#a/b.c-d[[ Padded ]][]]✨[]]",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        },
+        {
+          "title": "a/b.c-d",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "{{embed: ‍`",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "}}((abcdef123))#::‍::[[ Padded ]]",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "\n  Key:: [[#[[Beta\n  Key:: ((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))))[[ \n ]]  ",
+      "refs": [
+        {
+          "title": "Key",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "\n\nAttr:: [[✨}}",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#[[\n  Key:: [[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "TitleAttr::[[",
+      "refs": [
+        {
+          "title": "TitleAttr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "((abcdef123))]`code [[X]] #t`]]]]```\n[[X]] #t\n```\n  Key:: [[]]]",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "Title]]]]```[[[[]]]]😀```css\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Title[`",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "✨\n]]\n  [[[[  \n  Key:: ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```‍((abcdef123))",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "  [[ ]]]#a/b.c-d```Beta",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "]]]]``````[[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "   Attr::\n",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#}}é\n  [[ Padded ]]Café]]((^abcdef123))",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "\n`code [[X]] #t````css\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "))\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "✨((` #a/b.c-d[[ ]][[ ",
+      "refs": [
+        {
+          "title": "a/b.c-d",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[ ]] [[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[[éCafé[[é]]\n😀",
+      "refs": [
+        {
+          "title": "é",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "{{embed: ))[[}}Title",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "]\n  Key:: ```[[[[```css\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "(({{embed: ))#[[é((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))Tags::é",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "✨\n  Key:: Attr::  ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "\n```css\n}}#tag[[ ]]Beta]]]]\n  Key:: ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#a/b.c-d((^abcdef123))Title[[\n",
+      "refs": [
+        {
+          "title": "a/b.c-d",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "é[[[]]]",
+      "refs": [
+        {
+          "title": "[",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))]]]] ]] ((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))]]Beta",
+      "refs": [],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "[[ ]]é((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))((^abcdef123))  ]]]Café",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "\n  Key:: }}]]{{[[embed]]:  ```\n[[X]] #t\n```[[[Title",
+      "refs": [
+        {
+          "title": "Key",
+          "kind": "attribute"
+        },
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]]]]Alpha]]{{[[embed]]: ((abcdef123))",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "]{{[[embed]]: é",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[ \n ]][[ Padded ]]",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "✨BetaTitle#Tags::‍[[[[",
+      "refs": [
+        {
+          "title": "✨BetaTitle#Tags",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "((abcdef123))✨‍\n]((abcdef123))Title",
+      "refs": [],
+      "block_refs": [
+        "abcdef123",
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "\n😀",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "‍\n😀((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "]]((abcdef123))\n",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "\nAttr:: `Tags::::",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "`]]\n\n`code [[X]] #t`]]  ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```css\n))```css\n[[[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "✨Title```\nAttr:: Café ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))\n  Key:: [[#[[{{embed: ((",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "]]((]]]]é```\n[[X]] #t\n```é",
+      "refs": [
+        {
+          "title": "X",
+          "kind": "link"
+        },
+        {
+          "title": "t",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "Attr::\n  Key:: [[}}]]]",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        },
+        {
+          "title": "}}",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "Title))",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Café`]]```css\n\nAttr:: ",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "✨{{embed: ‍))Beta [[[[ \n ]]",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "é\n  Key:: ]]((^abcdef123))`}}✨#",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[{{[[embed]]: ]]]]Title((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))```css\n#]] ",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "‍::[[ ]]`((abcdef123))))#[[",
+      "refs": [
+        {
+          "title": "‍",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "`{{[[embed]]: ",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "  #[[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "]]Attr::```{{[[embed]]: #[[((abcdef123))",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "`\n  Key:: Alpha]]Café{{[[embed]]: ```\n[[X]] #t\n```",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "}}(([[ Padded ]]((]]",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "\n  Key:: {{embed: ((abcdef123))\n#tag((\nAttr:: ",
+      "refs": [
+        {
+          "title": "Key",
+          "kind": "attribute"
+        },
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "[[Attr::```css\n#((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))[[#[[",
+      "refs": [],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "]]\n}}[((^abcdef123))#tag",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[[[[[`[[ ]]```\n[[X]] #t\n```",
+      "refs": [
+        {
+          "title": "X",
+          "kind": "link"
+        },
+        {
+          "title": "t",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "😀\n😀[[```\n[[X]] #t\n```[[ \n ]]  😀",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```\n[[X]] #t\n```((^abcdef123))#[[\n",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "`code [[X]] #t``Title#[[[{{embed: ]#tag",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": ")) \n]]]✨```\n[[X]] #t\n```😀((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))((^abcdef123))",
+      "refs": [],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "```]]]#a/b.c-d\nAttr:: ##[[}}\n  Key:: ```",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "]Tags::]]]Tags::",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[ \n ]]((^abcdef123))}}[[ ]]((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))[[",
+      "refs": [],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "```{{[[embed]]: ]]Beta]]]][[[",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]]]Beta#[[]]]]{{[[embed]]: ",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": " ::```\n[[X]] #t\n```",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "((abcdef123))[[ Padded ]]",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "[[ Padded ]]::{{embed: ``",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "TitleAttr::",
+      "refs": [
+        {
+          "title": "TitleAttr",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#[[ Padded ]]  Title",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]]`]]",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Attr:: [[ Padded ]]Alpha]]]\nAttr::  {{[[embed]]: ",
+      "refs": [
+        {
+          "title": "Attr",
+          "kind": "attribute"
+        },
+        {
+          "title": " Padded ",
+          "kind": "link"
+        },
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]]]]``\n::",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[[[\nAttr:: Alpha]]]]]]]\n```css\n Café",
+      "refs": [
+        {
+          "title": "[[ Attr:: Alpha]]",
+          "kind": "link"
+        },
+        {
+          "title": "Attr:: Alpha",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "```✨#[[",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[ \n ]]TitleAttr::",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))#tag[[Title((^abcdef123))Café((abcdef123))",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "`code [[X]] #t`Title",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "#[[`[[ Padded ]]\n",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "]]]Alpha#tag#```css\n```\n[[X]] #t\n````{{[[embed]]: \n",
+      "refs": [
+        {
+          "title": "X",
+          "kind": "link"
+        },
+        {
+          "title": "embed",
+          "kind": "link"
+        },
+        {
+          "title": "t",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "((^abcdef123))Beta[[ Padded ]]::  Title",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "Title`code [[X]] #t`[[#[[((",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "Title[[ Padded ]]`[[ \n ]]]][[[[```[[[[",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))Alpha```css\n[[ Padded ]]Alpha((",
+      "refs": [
+        {
+          "title": " Padded ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": " {{[[embed]]: Title😀",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "}}]][[[  ]]]‍((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))]Beta",
+      "refs": [
+        {
+          "title": "[  ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))#Beta{{[[embed]]: #",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "😀   ((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))}}[\nAttr:: ]Title",
+      "refs": [],
+      "block_refs": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "text": "[[ \n ]][[ ]]]\n  Key:: ‍`",
+      "refs": [],
+      "block_refs": []
     }
   ]
 }

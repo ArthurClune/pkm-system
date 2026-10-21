@@ -22,8 +22,8 @@ from pkm.contracts.titles import RawTitle
 # outer fence pairs with the first inner example's opener, fence parity
 # flips, and hex colours in the exposed code mint pages named "0277bd".
 # Punctuation and whitespace after ``` still close as before.
-_CODE_FENCE = re.compile(r"```.*?```(?!\w)", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
+_WORD_CHAR = re.compile(r"\w")
 # No leading `\s*` here (see attribute_title_span() below): `\s` is a
 # near-subset of this negated class, and pairing a greedy `\s*` with a lazy
 # quantifier over an overlapping class is O(n^2) to fail on an all-whitespace
@@ -146,15 +146,62 @@ class ParsedRefs:
     embeds: int
 
 
+def _fence_end(text: str, start: int) -> int:
+    """End of the closed fence opening at `start`, or -1 when none closes.
+
+    A closer is a ``` run not followed by a word character (see above).
+    """
+    close = text.find("```", start + 3)
+    while close != -1 and close + 3 < len(text) and _WORD_CHAR.match(
+        text, close + 3
+    ):
+        close = text.find("```", close + 1)
+    return -1 if close == -1 else close + 3
+
+
 def strip_code(text: str) -> str:
     """Blank out fenced and inline code, keeping every other offset put.
 
     Each run is replaced by spaces of its own length, so a span located on
     the stripped copy indexes the original text unchanged -- that is what
     lets `rename.py` find refs here and splice the real text there.
+
+    One left-to-right pass, whichever code marker starts first wins: a lone
+    backtick that closes on the first backtick of a following ``` run is
+    inline code, and the rest is no fence (grammar/scan.ts scanCode does the
+    same). An unclosed ``` falls through to the inline rule, which takes the
+    first two backticks.
+
+    Linear: a closer search that finds nothing from one opener finds nothing
+    from any later opener (its window is a suffix of the first), so after one
+    failure the fence rule is never tried again. Without that memo, a block
+    of many ```lang openers and no closer rescans the whole text per opener.
     """
-    text = _CODE_FENCE.sub(lambda m: " " * len(m.group()), text)
-    return _INLINE_CODE.sub(lambda m: " " * len(m.group()), text)
+    parts: list[str] = []
+    last = 0
+    i = 0
+    fence_possible = True
+    while True:
+        i = text.find("`", i)
+        if i == -1:
+            break
+        if fence_possible and text.startswith("```", i):
+            end = _fence_end(text, i)
+            if end != -1:
+                parts.append(text[last:i])
+                parts.append(" " * (end - i))
+                last = i = end
+                continue
+            fence_possible = False
+        inline = _INLINE_CODE.match(text, i)
+        if inline is not None:
+            parts.append(text[last:i])
+            parts.append(" " * (inline.end() - i))
+            last = i = inline.end()
+            continue
+        i += 1
+    parts.append(text[last:])
+    return "".join(parts)
 
 
 @dataclass(frozen=True)

@@ -260,3 +260,32 @@ def test_canonicalize_title_preserves_plain_space_when_inactive_and_strips_only_
 )
 def test_title_syntax_fixture(case):
     assert title_syntax_reason(case["title"]) == case["reason"]
+
+
+def test_a_lone_backtick_pairs_with_a_later_fence_run_left_to_right():
+    # The shrunk generated case: the first backtick of the ``` run closes the
+    # inline span, so no closed fence hides the link and tag after it.
+    text = "[[[[[[`[[ ]]```\n[[X]] #t\n```"
+    assert [(r.title, r.kind) for r in extract(text).refs] == [
+        ("X", "link"), ("t", "tag")]
+
+
+def test_strip_code_keeps_offsets_for_left_to_right_code():
+    text = "`a```\n[[X]]\n```"
+    clean = refs.strip_code(text)
+    assert len(clean) == len(text)
+    assert clean[text.index("[[") :].startswith("[[X]]")
+    assert clean[:3].strip() == ""
+
+
+@pytest.mark.parametrize("unit", [
+    "`", "``` ", "[[`", "`a```", "```a\n", "```\n", "``` ```a", "```a```a",
+    "`a", "#[[", "((", " ", "\n", "Key:: ",
+])
+def test_extract_stays_fast_on_long_generated_inputs(unit):
+    """Generous bound (a quadratic scan of this size takes minutes): catches
+    a regex that backtracks, not a slow machine."""
+    text = unit * (200_000 // len(unit))
+    started = time.perf_counter()
+    extract(text)
+    assert time.perf_counter() - started < 5.0

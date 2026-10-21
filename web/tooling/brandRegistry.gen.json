@@ -464,6 +464,9 @@
     "server/tests/",
     "server/src/pkm/test_data/",
     "web/src/test-setup.ts",
+    "web/src/test-guards.ts",
+    "web/src/fcFilterCap.ts",
+    "web/src/orphanWatchdog.ts",
     "web/src/test-helpers.ts",
     "web/src/props/",
     "web/src/replica/replayArbs.ts",
@@ -474,6 +477,7 @@
     "server/src/pkm/**/routes_*.py",
     "web/tooling/viteBudgetPlugin.ts",
     "web/src/api/client.ts",
-    "web/tooling/perf/rebase.perf.ts"
+    "web/tooling/perf/rebase.perf.ts",
+    "web/src/fcFilterCap.ts"
   ]
 }

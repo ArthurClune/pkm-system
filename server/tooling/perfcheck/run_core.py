@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Collection, Iterable, Mapping
+from dataclasses import dataclass
 
 from perfcheck.compare import TIMING_FACTOR, Comparison, Outcome
 
@@ -73,6 +74,79 @@ def busy_reason(load1: float, cpus: int) -> str | None:
     if load1 <= limit:
         return None
     return f"1-min load {load1:.1f} on {cpus} cores (limit {limit:.1f})"
+
+
+# A load refusal lists this many of the busiest processes.
+BUSY_TOP = 8
+_COMMAND_WIDTH = 80
+_PS_LINE = re.compile(r"\s*(\d+)\s+(\d+)\s+([\d.]+)\s+(.*\S)")
+# vitest workers title themselves `node (vitest N)`; pytest keeps its argv.
+_TEST_RUNNER = re.compile(r"\b(?:vitest|pytest)\b")
+
+
+@dataclass(frozen=True)
+class Proc:
+    pid: int
+    ppid: int
+    cpu: float
+    command: str
+
+
+def parse_ps(text: str) -> list[Proc]:
+    """Rows of `ps -Ao pid=,ppid=,pcpu=,command=`; lines that are not one
+    are skipped. macOS pads a process's changed title (vitest workers retitle
+    themselves) with trailing spaces."""
+    procs = []
+    for line in text.splitlines():
+        m = _PS_LINE.fullmatch(line.rstrip())
+        if m:
+            procs.append(Proc(int(m[1]), int(m[2]), float(m[3]), m[4]))
+    return procs
+
+
+def top_processes(procs: Iterable[Proc], n: int = BUSY_TOP) -> list[Proc]:
+    return sorted(procs, key=lambda p: p.cpu, reverse=True)[:n]
+
+
+def is_test_runner(command: str) -> bool:
+    return _TEST_RUNNER.search(command) is not None
+
+
+def _short_command(command: str) -> str:
+    """`command` with each absolute path cut to its basename, so a long
+    checkout path does not hide the script a `node` or `python` runs."""
+    short = " ".join(w.rsplit("/", 1)[-1] if w.startswith("/") else w
+                     for w in command.split(" "))
+    if len(short) <= _COMMAND_WIDTH:
+        return short
+    return short[:_COMMAND_WIDTH - 1] + "…"
+
+
+def busy_report(procs: Iterable[Proc], cwds: Mapping[int, str | None],
+                checkout: str) -> list[str]:
+    """Lines naming `procs` (the busiest, from `top_processes`), with the
+    test runners whose cwd (from `cwds`) is under `checkout` flagged: a stale
+    run of your own otherwise reads, from the load alone, as someone else's.
+    Only an orphan (parent gone) is surely stale; a runner with a live parent
+    may be another session's suite."""
+    lines = ["top CPU processes:"]
+    kinds = set()
+    for p in procs:
+        line = f"  {p.cpu:5.1f}%  pid {p.pid}  {_short_command(p.command)}"
+        cwd = cwds.get(p.pid)
+        if (is_test_runner(p.command) and cwd is not None
+                and (cwd == checkout or cwd.startswith(checkout.rstrip("/") + "/"))):
+            kind = "orphaned test runner" if p.ppid == 1 else "test runner"
+            line += f"  <- {kind} in this checkout ({cwd})"
+            kinds.add(kind)
+        lines.append(line)
+    if "orphaned test runner" in kinds:
+        lines.append("an orphaned runner's parent is gone, so it is a stale run (an "
+                     "abandoned or killed suite): stop it by pid and run the check again")
+    if "test runner" in kinds:
+        lines.append("a runner with a live parent may be another session's suite, or a "
+                     "hung run of yours: check which before stopping it")
+    return lines
 
 
 def incomparable_advice(reason: str) -> str:

@@ -98,7 +98,7 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    setupFiles: ["src/test-setup.ts"],
+    setupFiles: ["src/test-guards.ts", "src/test-setup.ts"],
     globals: false,
     exclude: ["e2e/**", "node_modules/**"],
     coverage: {
@@ -113,6 +113,9 @@ export default defineConfig({
         "src/outline/localLinkArbs.ts",
         "src/replica/worker.ts",
         "src/test-setup.ts",
+        "src/test-guards.ts",
+        "src/fcFilterCap.ts",
+        "src/orphanWatchdog.ts",
         "src/main.tsx",
         "src/**/*.d.ts",
         "src/api/ops.ts",

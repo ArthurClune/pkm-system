@@ -70,7 +70,8 @@ Fixes (each with its shrunk example as a unit test):
   depth capped), so a 422 never becomes a 500.
 - Found by the properties: int query/path values past 64 bits
   (OverflowError; `contracts/int64.py` `Int64` on every int parameter, route
-  walk enforces it, OpenAPI regenerated); NUL in search/unlinked FTS queries;
+  walk enforces it, OpenAPI regenerated; `WellFormedModel` refuses one
+  anywhere in a body); NUL in search/unlinked FTS queries;
   page export header for non-latin-1 titles (`attachment_disposition`);
   importer storing headings outside 1-3 and non-int / 65-bit times;
   GoodLinks and OpenAI bodies nested past `json.loads`' limit
@@ -84,7 +85,7 @@ Properties (all in the ordinary `pytest -q` suite, about 12 s together):
 budget; each runs in a few seconds with the DB restored from a template per
 example (`tests/asgi_harness.py`).
 
-Mutants and reach rates are in the two fix commits' messages. Docs:
+Mutants and reach rates are in the three fix commits' messages. Docs:
 backend.md § Hostile input, module map, notes in goodlinks.md,
 files-and-assets.md, import-export-and-backup.md, property-checks.md; eight
 troubleshooting rows.

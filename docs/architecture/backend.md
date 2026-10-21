@@ -965,7 +965,8 @@ FastAPI's `/docs` and `/redoc` are disabled.
 
 ### Local documents
 
-`/api/local/{path}` is the only route that reads outside the data directory.
+The `/api/local*` routes are the only ones that read outside the data
+directory, and `/api/local/{path}` is the only one that returns file contents.
 `local_docs.clean_relative` rejects an absolute path, a `.` or `..` segment, a
 NUL or a backslash, and `is_within` re-checks the *resolved* candidate against
 the resolved root. Every rejection is a 404, never a 403, so the response never

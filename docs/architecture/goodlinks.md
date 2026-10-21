@@ -105,7 +105,7 @@ the same as opening the article in GoodLinks itself.
 `GoodlinksReader` portals a full-screen overlay to `document.body`, like
 `ImageOverlay`, and shares `ImageOverlay`'s dismissal behaviour through
 `useOverlayDismiss`: a `window` Escape listener in the capture phase, Tab
-pinned to the Close button, body scroll locked while open, and focus
+pinned to the focus target (the Close button, or the picker's search box), body scroll locked while open, and focus
 returned to the button that opened it on close. `GoodlinksLink` keeps the
 `onClose` callback it passes to the reader stable across re-renders
 (`useCallback`), so the shared hook does not tear down and re-run

@@ -108,7 +108,7 @@ def visible_name(name: str, is_dir: bool) -> str | None:
     `Name.ext`; every other dotfile or dot-directory is hidden."""
     if not is_dir and name.startswith(".") and name.endswith(".icloud"):
         real = name[1:-len(".icloud")]
-        return real or None
+        return real if real and not real.startswith(".") else None
     if name.startswith("."):
         return None
     return name

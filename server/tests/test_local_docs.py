@@ -137,6 +137,9 @@ def test_visible_name_hides_dotfiles_and_dot_dirs():
     assert visible_name(".DS_Store", is_dir=False) is None
     assert visible_name(".icloud", is_dir=False) is None
     assert visible_name("..icloud", is_dir=False) is None
+    assert visible_name("..hidden.icloud", is_dir=False) is None
+    assert visible_name("...icloud", is_dir=False) is None
+    assert visible_name("....icloud", is_dir=False) is None
     assert visible_name(".Trash", is_dir=True) is None
     assert visible_name("Papers", is_dir=True) == "Papers"
     assert visible_name("50% draft.pdf", is_dir=False) == "50% draft.pdf"

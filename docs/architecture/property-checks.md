@@ -79,7 +79,7 @@ session cookies are rejected when issued in the future or more than a year ago.
 | `server/tooling/proptest/run.py` | Imperative Shell | git diff; the server runner (`uv run pytest -m proptest --no-cov tests/props` under `HYPOTHESIS_PROFILE=merge`) and the web runner (launches `sync_server.py`, then `vitest run --config vitest.props.config.ts`, passing `PROPTEST_*` environment variables) |
 | `server/tooling/proptest/sides.py` | Functional Core | `sides_for(changed_paths)`, mirrors `perfcheck.run_core.sides_for` plus the `server/src/` rule |
 | `server/tooling/proptest/sync_server.py` | Imperative Shell | the harness server on port 8978 |
-| `web/vitest.props.config.ts` | config | node environment, includes only `src/props/**/*.prop.ts`, one fork, no jsdom setup |
+| `web/vitest.props.config.ts` | config | node environment, includes only `src/props/**/*.prop.ts`, one fork; its one setup file is the jsdom-free `src/test-guards.ts` it shares with the unit suite ([frontend.md § Testing](frontend.md#testing-and-quality-gates)) |
 | `web/src/props/env.ts` | Imperative Shell | the replay settings every web suite shares: `SEED`, `PATH`, `REPLAY_PATH` |
 | `web/src/props/sync/env.ts`, `serverControl.ts` | Imperative Shell | the harness server's address and password, re-exporting the shared replay settings; the session cookie and the control routes |
 | `web/src/props/sync/cancel.ts` | Imperative Shell | one example's server handle, which refuses every call once the example is cancelled and aborts any request still on the wire, so an abandoned example cannot reach the server the next one has reset |

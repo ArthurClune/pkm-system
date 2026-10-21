@@ -112,6 +112,13 @@ no more trustworthy than a one-run loss.
 | `run.wait_until_quiet`, before a side measures | waits up to `LOAD_WAIT_S` for the 1-min load average to fall to `BUSY_LOAD_PER_CPU` per core, then refuses with `MachineBusy` |
 | `run.ensure_still_quiet`, after a side measures | refuses with `MachineBusy` if the load rose during the run, before any baseline is written |
 
+A refusal lists the `BUSY_TOP` busiest processes (`run_core.busy_report`).
+It flags each vitest or pytest process whose cwd is under the main checkout,
+which holds `.claude/worktrees/`, and marks it orphaned when its parent is
+pid 1. A load average alone reads as someone else's suite. An orphan is a
+stale run of your own, while a flagged runner with a live parent may be
+another session's.
+
 The wait exists because the 1-min average lags. It takes about two minutes to
 decay after another suite stops, so a check started just after one waits
 rather than refusing at once. Both gates apply to `--bootstrap` and

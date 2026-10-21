@@ -71,7 +71,7 @@ Tests are exempt from nothing. They mint through the checked helpers instead:
 | `TEST_MINT_SITES` | the one module per side that may mint every brand: `server/src/pkm/test_data/ids.py` and `web/src/test-helpers.ts` |
 | `TEST_HELPERS` | brand -> helper stem: `uid_of`, `page_id_of`, `sha_of` ... in Python, the camel `uidOf` ... on the web |
 | `MALFORMED` | brands a negative test needs a deliberately bad value for, forged unchecked: `malformed_uid`, `malformed_sha`, `malformed_seq`, `malformed_canonical_title`; only the uid and canonical-title forgers accept null |
-| `TEST_CODE` | files that are tests by location (`server/tests/`, `server/src/pkm/test_data/`, the web's `test-setup.ts`, `test-helpers.ts`, `props/`, `replayArbs.ts`, `testDb.ts` and `memReplica.ts`): they may import the mint modules, and a violation there names the helper |
+| `TEST_CODE` | files that are tests by location (`server/tests/`, `server/src/pkm/test_data/`, the web's `test-setup.ts`, `test-guards.ts`, `fcFilterCap.ts`, `orphanWatchdog.ts`, `test-helpers.ts`, `props/`, `replayArbs.ts`, `testDb.ts` and `memReplica.ts`): they may import the mint modules, and a violation there names the helper |
 
 Each `<stem>_of` raises `ValueError` unless the value fits the brand's
 `SHAPES` regex or base type (an integer brand refuses a `bool` or a float);
@@ -170,6 +170,7 @@ Known limits, where TypeScript itself is unsound and no cheap lint closes it:
 | `test:coverage` | statements or lines under 95%, branches under 91%, functions under 89% (`vite.config.ts`) |
 | row check (vitest only, `ReplicaDb.select`) | the query's columns (an empty result too) differ from the `keys` argument as sets: missing, extra or duplicate; a selected row has a column that is not a `Columns` key, or a value that does not fit its key's base type, nullability, literals or brand shape; the error carries the SQL and the fix. `ReplicaDb.introspect` refuses a column that may carry a brand ([frontend.md](frontend.md#replica-database-access)) |
 | console guard (`src/test-setup.ts`) | a test, or a timer firing after a file's last test, calls `console.warn` or `console.error` without silencing it with `vi.spyOn(console, ...).mockImplementation`; teeth in `tooling/consoleGuard.test.ts` |
+| filter cap (`src/fcFilterCap.ts`, installed by `src/test-guards.ts` in the unit and property suites) | a fast-check `.filter` rejects `MAX_FILTER_REJECTIONS` draws in a row. fast-check's own filter retries forever in synchronous code, which no vitest timeout interrupts; teeth in `src/fcFilterCap.test.ts` |
 | `columns.test.ts` | a column of a client-only table (`CLIENT_DDL`) has no `Columns` key, or its key disagrees on base type or nullability |
 | `genTypes.drift.test.ts` | `types.d.ts` no longer matches `openapi.json` |
 | `vite build` (`tooling/viteBudgetPlugin.ts`) | the bundle or precache manifest exceeds a limit in `tooling/budgets.json` |

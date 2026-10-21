@@ -252,10 +252,11 @@ class _FakeRunner:
 
 def _load(monkeypatch, loads, cpus=10):
     """Patch the load sampler to hand out `loads` in order, then repeat the
-    last."""
+    last, and the process listing a refusal prints to one idle process."""
     queue = list(loads)
     monkeypatch.setattr(run, "_load1", lambda: queue.pop(0) if len(queue) > 1 else queue[0])
     monkeypatch.setattr(run, "_cpus", lambda: cpus)
+    monkeypatch.setattr(run, "_ps", lambda: "    1     0   0.0 /sbin/launchd\n")
 
 
 @pytest.fixture
@@ -440,7 +441,7 @@ class _Clock:
 def test_wait_until_quiet_returns_once_load_decays(monkeypatch, capsys):
     _load(monkeypatch, [9.0, 8.0, 1.0])
     clock = _Clock()
-    assert run.wait_until_quiet("backend", sleep=clock.sleep, clock=clock) == 1.0
+    assert run.wait_until_quiet("backend", Path("/repo"), sleep=clock.sleep, clock=clock) == 1.0
     assert clock.slept == [run.LOAD_POLL_S, run.LOAD_POLL_S]
     err = capsys.readouterr().err
     assert err.count("waiting for a quiet machine") == 1  # said once, not per poll
@@ -451,23 +452,125 @@ def test_wait_until_quiet_gives_up_after_the_wait(monkeypatch):
     _load(monkeypatch, [9.0])
     clock = _Clock()
     with pytest.raises(run.MachineBusy, match=r"machine busy: 1-min load 9\.0.*--allow-busy"):
-        run.wait_until_quiet("backend", sleep=clock.sleep, clock=clock)
+        run.wait_until_quiet("backend", Path("/repo"), sleep=clock.sleep, clock=clock)
     assert clock.now >= run.LOAD_WAIT_S
 
 
 def test_wait_until_quiet_does_not_sleep_on_a_quiet_machine(monkeypatch):
     _load(monkeypatch, [1.0])
     clock = _Clock()
-    assert run.wait_until_quiet("backend", sleep=clock.sleep, clock=clock) == 1.0
+    assert run.wait_until_quiet("backend", Path("/repo"), sleep=clock.sleep, clock=clock) == 1.0
     assert clock.slept == []
 
 
 def test_ensure_still_quiet_samples_once_without_waiting(monkeypatch):
     _load(monkeypatch, [1.0])
-    assert run.ensure_still_quiet("backend") == 1.0
+    assert run.ensure_still_quiet("backend", Path("/repo")) == 1.0
     _load(monkeypatch, [9.0])
     with pytest.raises(run.MachineBusy, match="became busy during the run.*nothing was written"):
-        run.ensure_still_quiet("backend")
+        run.ensure_still_quiet("backend", Path("/repo"))
+
+
+# vitest workers retitle themselves, and macOS ps pads the new title
+PS = """\
+  101     1  99.7 node (vitest 1)    \n\
+  102   900  98.0 node (vitest 2)
+  103   950  97.0 /repo/server/.venv/bin/python3 -m pytest -q
+  104     1  40.0 /Applications/Other.app/Contents/MacOS/Other --flag
+  105   960   2.0 node (vitest)
+  106   970   0.1 /bin/zsh
+"""
+
+
+def test_parse_ps_reads_pid_ppid_cpu_and_the_whole_command():
+    procs = run_core.parse_ps(PS + "garbage line\n\n")
+    assert procs[0] == run_core.Proc(101, 1, 99.7, "node (vitest 1)")
+    assert procs[2].command == "/repo/server/.venv/bin/python3 -m pytest -q"
+    assert len(procs) == 6
+
+
+def test_top_processes_sorts_by_cpu_and_keeps_the_top():
+    procs = run_core.parse_ps(PS)
+    assert [p.pid for p in run_core.top_processes(procs, 3)] == [101, 102, 103]
+
+
+def test_test_runners_are_vitest_and_pytest():
+    assert [p.pid for p in run_core.parse_ps(PS) if run_core.is_test_runner(p.command)] \
+        == [101, 102, 103, 105]
+
+
+def test_busy_report_names_test_runners_started_from_this_checkout():
+    procs = run_core.top_processes(run_core.parse_ps(PS), 5)
+    cwds = {101: "/repo/.claude/worktrees/x/web", 102: "/repo-other/web", 103: "/repo/server",
+            105: None}
+    lines = run_core.busy_report(procs, cwds, "/repo")
+    assert lines[0] == "top CPU processes:"
+    assert lines[1].startswith("   99.7%  pid 101  node (vitest 1)")
+    assert lines[1].endswith(
+        "<- orphaned test runner in this checkout (/repo/.claude/worktrees/x/web)")
+    assert "this checkout" not in lines[2]  # /repo-other is another checkout
+    assert lines[3].startswith("   97.0%  pid 103  python3 -m pytest -q  <- ")
+    assert lines[3].endswith("<- test runner in this checkout (/repo/server)")
+    assert "this checkout" not in lines[4]
+    assert "orphaned" in lines[-2] and "stop it by pid" in lines[-2]
+    assert "another session" in lines[-1]
+    assert not any("--allow-busy" in line for line in lines)
+
+
+def test_busy_report_without_own_runners_has_no_advice():
+    procs = run_core.top_processes(run_core.parse_ps(PS), 5)
+    lines = run_core.busy_report(procs, {}, "/repo")
+    assert len(lines) == 6
+    assert not any("this checkout" in line for line in lines)
+
+
+def test_busy_report_shortens_the_executable_and_truncates_long_commands():
+    procs = [run_core.Proc(1, 0, 50.0, "/a/very/long/path/bin/node " + "x" * 500)]
+    line = run_core.busy_report(procs, {}, "/repo")[1]
+    assert line.startswith("   50.0%  pid 1  node xxx")
+    assert len(line) < 140
+
+
+def test_busy_report_advises_only_on_the_kinds_of_runner_present():
+    procs = run_core.top_processes(run_core.parse_ps(PS), 5)
+    live = run_core.busy_report(procs, {103: "/repo/server"}, "/repo")
+    assert "orphaned" not in "\n".join(live)
+    assert "another session" in live[-1]
+    orphan = run_core.busy_report(procs, {101: "/repo/web"}, "/repo")
+    assert "another session" not in "\n".join(orphan)
+    assert "stop it by pid" in orphan[-1]
+
+
+def test_refusals_list_the_top_processes_and_flag_own_stale_runners(monkeypatch, tmp_path):
+    _load(monkeypatch, [9.0])
+    monkeypatch.setattr(run, "_ps", lambda: PS)
+    monkeypatch.setattr(run, "_cwd", lambda pid: {101: str(tmp_path / "web")}.get(pid))
+    monkeypatch.setattr(run, "main_checkout", lambda repo: tmp_path)
+    clock = _Clock()
+    with pytest.raises(run.MachineBusy) as waited:
+        run.wait_until_quiet("backend", tmp_path, sleep=clock.sleep, clock=clock)
+    with pytest.raises(run.MachineBusy) as during:
+        run.ensure_still_quiet("backend", tmp_path)
+    for refusal in (str(waited.value), str(during.value)):
+        assert "top CPU processes:" in refusal
+        assert f"pid 101  node (vitest 1)  <- orphaned test runner in this checkout ({tmp_path}/web)" \
+            in refusal
+
+
+def test_busy_report_failure_never_hides_the_refusal(monkeypatch):
+    _load(monkeypatch, [9.0])
+
+    def broken_ps():
+        raise OSError("no ps")
+    monkeypatch.setattr(run, "_ps", broken_ps)
+    with pytest.raises(run.MachineBusy, match=r"became busy during the run.*\n.*no ps"):
+        run.ensure_still_quiet("backend", Path("/repo"))
+
+
+def test_cwd_reads_this_process(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run._cwd(os.getpid()) == str(tmp_path.resolve())
+    assert run._cwd(2 ** 22 + 12345) is None  # no such process
 
 
 def test_machine_busy_is_a_run_failure_with_exit_2(monkeypatch, capsys):

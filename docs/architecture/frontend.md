@@ -637,7 +637,13 @@ Playwright e2e against that build.**
 
 - **Unit** (Vitest + jsdom): co-located `*.test.ts(x)`; `src/test-setup.ts`
   stubs WebSocket/matchMedia/localStorage and fails any unsilenced
-  `console.warn`/`console.error`. Coverage is enforced (statements 95
+  `console.warn`/`console.error`. `src/test-guards.ts`, which the property
+  suite shares, caps fast-check filters
+  ([enforced-checks.md](enforced-checks.md#on-every-test-run)) and starts
+  `orphanWatchdog.ts`. That worker thread SIGKILLs a vitest worker once its
+  parent is gone. A worker spinning in synchronous code never runs vitest's
+  own SIGTERM and closed-IPC handlers, so killing only the vitest parent
+  would leave it at full CPU. Coverage is enforced (statements 95
   / branches 91 / functions 89 / lines 95), with workers and generated files
   excluded. The pure cores are the payoff of the FCIS split: they test with no
   React, DOM, fetch, worker or SQLite mocks.

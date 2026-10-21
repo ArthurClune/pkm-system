@@ -11,5 +11,8 @@
   "src/replica/testDb.ts": "Test-only in-memory sqlite-wasm helper, excluded from unit coverage the same as *.test.ts (see vite.config.ts coverage.exclude) -- test support, not app runtime code.",
   "src/sync/memReplica.ts": "Test-only in-memory Replica fake driven by the op-queue tests, excluded from unit coverage the same as src/test-helpers.ts (see vite.config.ts coverage.exclude) -- test support, not app runtime code.",
   "src/test-helpers.ts": "Shared test fixtures/mocks used only by *.test.ts files, excluded from unit coverage the same as test-setup.ts -- test support, not app runtime code.",
-  "src/test-setup.ts": "Vitest global setup (jest-dom, WebSocket/matchMedia stubs), excluded from unit coverage -- test support, not app runtime code."
+  "src/test-setup.ts": "Vitest global setup (jest-dom, WebSocket/matchMedia stubs), excluded from unit coverage -- test support, not app runtime code.",
+  "src/fcFilterCap.ts": "Test-only cap on fast-check's .filter, installed by src/test-guards.ts and excluded from unit coverage the same as test-setup.ts -- test support, not app runtime code.",
+  "src/orphanWatchdog.ts": "Test-only watchdog that ends an orphaned vitest worker, started by src/test-guards.ts and excluded from unit coverage the same as test-setup.ts -- test support, not app runtime code.",
+  "src/test-guards.ts": "Vitest setup shared by the unit and property suites (the fast-check filter cap and the orphan watchdog), excluded from unit coverage -- test support, not app runtime code."
 }

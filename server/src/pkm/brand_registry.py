@@ -296,6 +296,9 @@ TEST_CODE: tuple[str, ...] = (
     "server/tests/",
     "server/src/pkm/test_data/",
     "web/src/test-setup.ts",
+    "web/src/test-guards.ts",
+    "web/src/fcFilterCap.ts",
+    "web/src/orphanWatchdog.ts",
     "web/src/test-helpers.ts",
     "web/src/props/",
     "web/src/replica/replayArbs.ts",
@@ -320,6 +323,10 @@ OPT_OUT_FILES: tuple[str, ...] = (
     # The perf harness imports the replica from the checkout it measures,
     # which this checkout's types describe but cannot check.
     "web/tooling/perf/rebase.perf.ts",
+    # fast-check's custom-arbitrary API declares `canShrinkWithoutContext`
+    # as a predicate on the arbitrary's type parameter; the capped filter's
+    # is backed by the arbitrary it wraps.
+    "web/src/fcFilterCap.ts",
 )
 
 # Columns whose key is not their own name: table -> {column: key}. One

@@ -29,8 +29,9 @@ from perfcheck.build import UNUSED_FOR_S, CacheLockTimeout, cache_dir, cache_loc
 from perfcheck.compare import (bootstrap, compare, confirm, incomparable_reason,
                                render_table)
 from perfcheck.fixture import FROZEN_NOW
-from perfcheck.run_core import (busy_reason, exit_code, frontend_letters, incomparable_advice, missing_import_advice,
-                                missing_pkm_import, next_steps, scenarios_of, sides_for, stale_entries)
+from perfcheck.run_core import (busy_reason, busy_report, exit_code, frontend_letters, incomparable_advice,
+                                is_test_runner, missing_import_advice, missing_pkm_import, next_steps, parse_ps,
+                                scenarios_of, sides_for, stale_entries, top_processes)
 
 FRONTEND_PORT = 8977
 TZ = "Europe/London"
@@ -59,7 +60,43 @@ def _cpus() -> int:
     return os.cpu_count() or 1
 
 
-def wait_until_quiet(side: str, *, sleep=time.sleep, clock=time.monotonic) -> float:
+def _ps() -> str:
+    return subprocess.run(["ps", "-Ao", "pid=,ppid=,pcpu=,command="], check=True,
+                          capture_output=True, text=True).stdout
+
+
+def _cwd(pid: int) -> str | None:
+    """`pid`'s working directory, or None when it can't be read (gone, or
+    another user's): /proc on Linux, lsof on macOS."""
+    try:
+        return os.readlink(f"/proc/{pid}/cwd")
+    except OSError:
+        pass
+    out = subprocess.run(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+                         capture_output=True, text=True).stdout
+    return next((line[1:] for line in out.splitlines() if line.startswith("n")), None)
+
+
+def main_checkout(repo: Path) -> Path:
+    """The main checkout `repo` belongs to; its .claude/worktrees/ are under
+    it."""
+    common = _git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir").strip()
+    return Path(common).parent
+
+
+def _busy_processes(repo: Path) -> str:
+    """The busiest processes, for a load refusal; a failure to list them is
+    reported in their place, never instead of the refusal."""
+    try:
+        procs = top_processes(parse_ps(_ps()))
+        cwds = {p.pid: _cwd(p.pid) for p in procs if is_test_runner(p.command)}
+        return "\n".join(busy_report(procs, cwds, str(main_checkout(repo))))
+    except (OSError, subprocess.CalledProcessError, PerfRunError) as e:
+        return f"(could not list processes: {e})"
+
+
+def wait_until_quiet(side: str, repo: Path, *, sleep=time.sleep,
+                     clock=time.monotonic) -> float:
     """Block until the machine is quiet enough to time anything; returns that
     load. Gives up with MachineBusy after LOAD_WAIT_S."""
     start = clock()
@@ -71,7 +108,8 @@ def wait_until_quiet(side: str, *, sleep=time.sleep, clock=time.monotonic) -> fl
             return load
         if clock() - start >= LOAD_WAIT_S:
             raise MachineBusy(f"machine busy: {reason}; let other suites finish "
-                              "(keep perf checks serial) or pass --allow-busy")
+                              "(keep perf checks serial) or pass --allow-busy\n"
+                              + _busy_processes(repo))
         if not warned:
             print(f"## perf: {side} waiting for a quiet machine — {reason}",
                   file=sys.stderr, flush=True)
@@ -79,7 +117,7 @@ def wait_until_quiet(side: str, *, sleep=time.sleep, clock=time.monotonic) -> fl
         sleep(LOAD_POLL_S)
 
 
-def ensure_still_quiet(side: str) -> float:
+def ensure_still_quiet(side: str, repo: Path) -> float:
     """One sample after measuring: load that arrived mid-run taints every
     timing, so nothing may be recorded or reported from it."""
     load = _load1()
@@ -87,7 +125,7 @@ def ensure_still_quiet(side: str) -> float:
     if reason is not None:
         raise MachineBusy(f"machine became busy during the run: {reason}; its timings "
                           "can't be trusted and nothing was written; re-run on a quiet "
-                          "machine or pass --allow-busy")
+                          "machine or pass --allow-busy\n" + _busy_processes(repo))
     return load
 
 
@@ -355,11 +393,11 @@ def do_bootstrap(repo: Path, side: str, runs: int, at_merge_base: bool,
     if allow_busy:
         print("load check skipped (--allow-busy)")
     else:
-        wait_until_quiet(side)
+        wait_until_quiet(side, repo)
     wt, commit = merge_base_worktree(repo, side) if at_merge_base else (repo, head_commit(repo))
     docs = [runner.run(wt, None, commit) for _ in range(runs)]
     if not allow_busy:
-        ensure_still_quiet(side)
+        ensure_still_quiet(side, repo)
     base, unstable = bootstrap(docs)
     if base is None:
         print(f"## {side}: {len(unstable)} unstable metric(s) — reconcile before recording a baseline\n")
@@ -380,7 +418,7 @@ def do_check(repo: Path, side: str, allow_busy: bool = False) -> int:
         return 1
     baseline = json.loads(path.read_text())
     runner = _runner(repo, side)
-    start_load = _load1() if allow_busy else wait_until_quiet(side)
+    start_load = _load1() if allow_busy else wait_until_quiet(side, repo)
     result = runner.run(repo, None, head_commit(repo))
     reason = incomparable_reason(baseline, result)
     if reason:
@@ -405,7 +443,7 @@ def do_check(repo: Path, side: str, allow_busy: bool = False) -> int:
             wt, mb_commit = merge_base_worktree(repo, side)
             mb = runner.run(wt, scenarios_of(survivors), mb_commit)
         outcomes = confirm(baseline, c.candidates, rerun, mb)
-    end_load = _load1() if allow_busy else ensure_still_quiet(side)
+    end_load = _load1() if allow_busy else ensure_still_quiet(side, repo)
     rc = exit_code(c, outcomes)
     improved = c.new_baseline != baseline
     if improved and rc == 0:  # only a passing check may ratchet the baseline

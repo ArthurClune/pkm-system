@@ -23,7 +23,7 @@ from pkm.contracts.responses import SkipReason, SkippedOp
 from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.refs import (CanonicalTitle, TitleSyntaxReason, extract,
                       normalize_title, parse_block_uid, title_syntax_reason)
-from pkm.rename import rewrite_title_refs_map
+from pkm.rename import rewrite_title_refs_map, spelled_or_canonical
 from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        deleted_header_text,
                                        live_block_header_text,
@@ -159,8 +159,9 @@ def replay_title_rewrites(
     shell passes the database's `title_reader`): an unlink step must treat
     the same spellings as the deleted page as the delete did, or a padded
     `[[ AI ]]` the delete unlinked under plain-space canonicalisation would
-    survive the replay and recreate the page. Retitle steps match verbatim,
-    as rename does, and ignore it.
+    survive the replay and recreate the page. A retitle step matches a spelling
+    that is itself a key, else its canonical form, as the rename it replays
+    did.
 
     The unlink step also defuses a leading attribute naming the deleted page
     (`X:: v` becomes `` `X`:: v ``), so the replayed text never re-creates it.
@@ -172,7 +173,9 @@ def replay_title_rewrites(
 def _replay_step(text: str, step: RewriteStep,
                  canonical: Callable[[str], str]) -> str:
     if step.retitles:
-        text = rewrite_title_refs_map(text, step.retitles)
+        text = rewrite_title_refs_map(
+            text, step.retitles,
+            normalize=spelled_or_canonical(canonical, step.retitles))
     if step.unlinked or step.inlines:
         unlinked = {canonical(title) for title in step.unlinked}
 

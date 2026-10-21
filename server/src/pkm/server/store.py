@@ -4,7 +4,7 @@ owns the transaction (read routes commit; the ops batch commits once)."""
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 
 from pkm.contracts.daily import date_for_title
 from pkm.contracts.ops import (BlockUid, PageId, SidebarEntryId,
@@ -13,7 +13,7 @@ from pkm.database import Db
 from pkm.contracts.titles import RawTitle
 from pkm.refs import (CanonicalTitle, NormalizedTitle, extract,
                       is_blank_title, normalize_title, title_syntax_reason)
-from pkm.rename import rewrite_title_refs_map
+from pkm.rename import rewrite_title_refs_map, spelled_or_canonical
 from pkm.rows import Row
 from pkm.server.sync_meta import read_title, title_reader
 from pkm.unlink import (DeleteBlocker, DeletePlan, SourceBlock,
@@ -158,6 +158,7 @@ def _record_block_rewrite(
     new_text: str,
     replacements: Mapping[str, RawTitle],
     now_ms: int,
+    canonical: Callable[[str], str],
 ) -> None:
     """Record what this rewrite did to one block, for push-time replay.
 
@@ -175,8 +176,11 @@ def _record_block_rewrite(
             (uid, text_hash(original_text), text_hash(new_text),
              old_title, new_title, now_ms)
             for old_title, new_title in replacements.items()
-            if rewrite_title_refs_map(original_text, {old_title: new_title})
-            != original_text
+            if rewrite_title_refs_map(
+                original_text, {old_title: new_title},
+                normalize=spelled_or_canonical(
+                    canonical, {old_title: new_title}),
+            ) != original_text
         ],
     )
 
@@ -213,18 +217,22 @@ def rewrite_snapshotted_blocks(
     """
     rewritten = 0
     seen: set[str] = set()
+    canonical = title_reader(db)
+    normalize = spelled_or_canonical(canonical, replacements)
     for uid, original_text in snapshots:
         if uid in seen:
             continue
         seen.add(uid)
-        new_text = rewrite_title_refs_map(original_text, replacements)
+        new_text = rewrite_title_refs_map(
+            original_text, replacements, normalize=normalize)
         if new_text != original_text:
             db.execute(
                 "UPDATE blocks SET text = ?, updated_at = ? WHERE uid = ?",
                 (new_text, now_ms, uid),
             )
             _record_block_rewrite(
-                db, uid, original_text, new_text, replacements, now_ms
+                db, uid, original_text, new_text, replacements, now_ms,
+                canonical,
             )
             rewritten += 1
         reindex_refs_for_text(db, uid, new_text, now_ms)

@@ -116,8 +116,15 @@ RefKind = Literal["link", "tag", "attribute"]
 
 
 def title_syntax_reason(text: str) -> TitleSyntaxReason | None:
+    """Why `text` cannot be a page title, or None.
+
+    A title is refused when no `[[Title]]` spelling reads back as it: `#`,
+    `[[` and `]]` are ref syntax, a trailing `]` merges with the closing
+    `]]` (`[[a]]]` is the title `a`), and a backtick pairs with another one
+    on the line into a code span that hides the ref."""
     normalized = normalize_title(text)
-    if "#" in normalized or "[[" in normalized or "]]" in normalized:
+    if ("#" in normalized or "[[" in normalized or "]]" in normalized
+            or normalized.endswith("]") or "`" in normalized):
         return "forbidden_syntax"
     return None
 

@@ -337,3 +337,28 @@ def test_map_treats_replacement_values_as_opaque():
         "[[Old]] and [[Other]]",
         {"Old": "New #Old", "Other": "Old"},
     ) == "[[New #Old]] and [[Old]]"
+
+
+@pytest.mark.parametrize("title_text", ["a]", "]", "a`b", "`"])
+def test_titles_with_no_ref_spelling_are_refused_as_titles(title_text):
+    # `[[a]]]` reads as the title `a`, and a backtick pairs with another on
+    # the line into a code span, so a rename to these would corrupt every ref
+    # it rewrote; title_syntax_reason keeps them out of the rename route.
+    assert refs.title_syntax_reason(title_text) == "forbidden_syntax"
+    probe = _rewrite("[[a]] [[a]]", "a", title_text)
+    assert {r.title for r in refs.extract(probe).refs} != {title_text}
+
+
+def test_spelled_or_canonical_prefers_a_spelling_that_is_a_key():
+    keys = {" Old ": raw_title_of("Old"), "Old": raw_title_of("New")}
+    key = rename.spelled_or_canonical(lambda t: t.strip(" "), keys)
+
+    assert key(" Old ") == " Old "
+    assert key("  Old") == "Old"
+    assert key("Other") == "Other"
+
+
+def test_a_padded_ref_is_rewritten_when_the_normalizer_canonicalises_it():
+    out = _map("Old :: v [[ Old ]] #[[ Old ]]", {"Old": "New"},
+               normalize=lambda t: t.strip(" "))
+    assert out == "New:: v [[New]] #[[New]]"

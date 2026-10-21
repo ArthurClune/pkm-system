@@ -216,6 +216,21 @@ def test_forbidden_title_in_second_op_refuses_complete_batch_before_mutation(
     assert _write_state(seeded_config) == before
 
 
+def test_a_ref_title_with_a_backtick_is_refused_like_a_hash(
+        client, seeded_config):
+    before = _write_state(seeded_config)
+
+    response = _post(client, {"op": "update_text", "uid": "uid_b4",
+                              "text": "see [[a`b]]"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "index": 0,
+        "reason": "unsupported reference title syntax: 'a`b'",
+    }
+    assert _write_state(seeded_config) == before
+
+
 def test_batch_is_atomic_and_reports_index(client):
     r = _post(client,
               {"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
@@ -1001,13 +1016,12 @@ def test_tombstones_lead_the_journal_rows_a_skipped_op_writes(
 
 def test_hint_that_would_not_link_back_is_named_not_linked(
         client, seeded_config):
-    # `[[x]]]` reads back as a ref to "x", so linking the existing page
-    # "x]" would make the ref indexer create a page "x"
-    assert _post(client, {"op": "create_page", "page_title": "x]"}
-                 ).status_code == 200
+    # `[[x]]]` reads back as a ref to "x", so a hint "x]" is generic: naming
+    # it would make the ref indexer create a page "x"
     r = _post(client, _orphan_edit(uid_of("uid_gone01"), "t", hint="x]"))
     assert r.status_code == 200
-    assert _conflicts(client) == [("[[conflict]] `x]`" + ORPHAN_SUFFIX, ["t"])]
+    assert _conflicts(client) == [
+        ("[[conflict]] (page unknown)" + ORPHAN_SUFFIX, ["t"])]
     assert not _page_exists(seeded_config, "x")
 
 

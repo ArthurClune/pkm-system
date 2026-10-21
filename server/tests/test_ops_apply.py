@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import get_args
 
 import pytest
+from pkm.refs import normalize_title
 
 from rawread import read, trace
 from pkm.contracts.daily import title_for_date
@@ -600,6 +601,18 @@ def test_replay_follows_a_chain_of_records_up_to_the_cap():
     cap = ops_core.MAX_REPLAYED_REWRITES
     assert text == f"[[T{cap}]] edited"
     assert base == text_hash(f"[[T{cap}]]")
+
+
+def test_replay_rewrites_a_padded_spelling_that_canonicalises_to_the_old_title():
+    rewrites = (ops_core.BlockRewrite(
+        base_hash=text_hash("[[Old]]"), after_hash=text_hash("[[New]]"),
+        old_text="Old", new_text="New"),)
+
+    text, _ = ops_core.replay_title_rewrites(
+        "[[ Old ]] edited", text_hash("[[Old]]"), rewrites,
+        lambda raw: normalize_title(raw).strip(" "))
+
+    assert text == "[[New]] edited"
 
 
 def test_replay_leaves_an_unrecorded_base_hash_untouched():

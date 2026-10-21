@@ -51,7 +51,8 @@ pkm/
 ├── todo.py              Core   {{TODO}}/{{DONE}} marker parsing (mirrors web/src/grammar/todo.ts)
 ├── changed.py           Core   /api/changed window parsing (date/ISO bounds, injected
 │                               clock+tz) + new/edited classification
-├── filenames.py         Core   safe_filename() shared by upload + export
+├── filenames.py         Core   safe_filename() shared by upload + export;
+│                               attachment_disposition() for a download header
 ├── planning.py          Core   Plans one write as /api/ops ops: outlines, missing
 │                               headings, text updates, task markers
 ├── batch.py             Core   The `pkm batch` command language: per-command schema
@@ -74,8 +75,11 @@ pkm/
 │                               the BlockUid/PageId/SidebarEntryId/SyncSeq NewTypes),
 │                               responses.py (JSON response models),
 │                               daily.py (date <-> "July 8th, 2026" titles),
-│                               text.py (well_formed + WellFormedModel, the op
-│                               models' base: lone surrogates to U+FFFD)
+│                               text.py (well_formed, well_formed_tree +
+│                               WellFormedModel, the base of every op and
+│                               request body model: lone surrogates to U+FFFD),
+│                               int64.py (Int64, the bound on every int path
+│                               or query parameter)
 │
 ├── server/              The FastAPI app (details below)
 ├── importer/            Roam EDN import pipeline: run.py Shell; preflight.py and
@@ -104,7 +108,8 @@ Inside `pkm/server/`:
 
 | File | Pattern | Role |
 |---|---|---|
-| `app.py` | Shell | App factory `create_app(config)`: runs `init_db()`, builds the `AssistantService` (engine injectable), mounts routers, serves the SPA |
+| `app.py` | Shell | App factory `create_app(config)`: runs `init_db()`, builds the `AssistantService` (engine injectable), mounts routers, installs the 422 handler, serves the SPA |
+| `validation_echo.py` | Core | `echo_errors`: the 422 body, pydantic's errors with an echo that always encodes (see [Hostile input](#hostile-input)) |
 | `config.py` | Shell | Frozen `Config` loaded from the data dir's `config.json` |
 | `db.py` | Shell | `init_db()`/`open_db()` (both return a `Db`), per-request connection dependency, column migrations |
 | `auth.py` / `auth_core.py` / `throttle_core.py` | Shell / Core / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens; per-source login backoff policy (see [Auth](#auth)) |
@@ -403,7 +408,8 @@ Key mechanics:
   strict `batch_request_hash`, so the route accepts a match on either.
 - **Well-formed text.** Every op model and `OpBatch` derive from
   `contracts.text.WellFormedModel`, whose before-validator turns each lone
-  surrogate in a top-level string field into U+FFFD (`well_formed`). A
+  surrogate anywhere in the batch into U+FFFD (`well_formed_tree`, which
+  applies `well_formed` to every str). A
   browser's `JSON.stringify` sends a lone surrogate as a `\udXXX` escape,
   and SQLite refuses to bind one, so without it the batch 500s. The web's
   outbox retries a 5xx forever, so that one edit would wedge every later
@@ -987,6 +993,26 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | **Export** (see [import-export-and-backup.md](import-export-and-backup.md)) | | |
 | GET | `/api/export/page/{title}` | One page rendered to markdown (download) |
 | GET | `/api/export.zip` | Whole-graph markdown export, zipped (download) |
+
+### Hostile input
+
+**No client input, and no row the importer writes, makes a route answer
+500.** Each source of hostile input has one guard. A test that walks
+`app.routes` keeps the first two on every route.
+
+| Input | Guard | Kept by |
+|---|---|---|
+| A lone surrogate in a JSON body (a browser sends `\udXXX` escapes) | Every request body model derives from `WellFormedModel`, which makes every str in the body, at any depth, well-formed before validation | `test_every_json_request_body_is_a_well_formed_model` |
+| An int path or query value past 64 bits, which SQLite cannot bind | Every int parameter is `Int64` or carries `INT64_RANGE` (`contracts/int64.py`), so it is an ordinary 422 | `test_every_int_parameter_is_bounded_to_sqlite_range` |
+| A 422 whose echo of the input holds a lone surrogate, NaN, Infinity or deep nesting | `app.py`'s `RequestValidationError` handler renders `validation_echo.echo_errors`: str well-formed, non-finite numbers as the literal sent, containers past `MAX_ECHO_DEPTH` cut to a marker | `test_validation_echo.py` |
+| A NUL in a search term or title | `fts.py` turns it into a space: FTS5 reads its query as a C string | `test_hostile_requests.py` |
+| A GoodLinks or OpenAI body that is not JSON, nests past what `json.loads` reads (it raises `RecursionError`), or holds a `\udXXX` escape | Both gateways treat the first two as an unusable answer (503, `DescribeError`) and make every decoded str well-formed | `test_no_500_upstream_props.py` |
+| A Roam attribute out of range: a heading other than 1-3, a time that is not a 64-bit int | `parse_export` reads it as absent; a stored heading 0 from older imports reads as `None` | `test_no_500_stored_props.py` |
+
+Path and query values cannot carry a lone surrogate: the server decodes them
+from bytes, replacing invalid UTF-8. The `test_no_500_*_props.py` properties
+send generated hostile input through every route and fail on any 5xx
+([property-checks.md](property-checks.md)).
 
 ### Local documents
 

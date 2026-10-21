@@ -13,6 +13,7 @@ from collections.abc import Mapping
 
 import httpx2
 
+from pkm.contracts.text import well_formed_tree
 from pkm.goodlinks import GoodlinksId
 
 
@@ -33,9 +34,20 @@ class GoodlinksRejected(Exception):
         self.detail = detail
 
 
+def _decoded(r: httpx2.Response) -> object:
+    """The JSON body, every str in it well-formed: a `\\udXXX` escape
+    decodes to a lone surrogate, which the JSON a route answers with
+    cannot encode. ValueError when the body is not JSON, including JSON
+    nested past what json.loads can read (it raises RecursionError)."""
+    try:
+        return well_formed_tree(r.json())
+    except RecursionError as e:
+        raise ValueError("nested too deeply") from e
+
+
 def _json(r: httpx2.Response) -> dict[str, object]:
     try:
-        body: object = r.json()
+        body = _decoded(r)
     except ValueError as e:
         raise GoodlinksUnavailable(f"goodlinks answered with a non-JSON body: {e}") from e
     if not isinstance(body, dict):
@@ -45,7 +57,7 @@ def _json(r: httpx2.Response) -> dict[str, object]:
 
 def _error_detail(r: httpx2.Response) -> str:
     try:
-        body: object = r.json()
+        body = _decoded(r)
     except ValueError:
         return r.text.strip() or f"status {r.status_code}"
     if isinstance(body, dict) and isinstance(body.get("error"), str):

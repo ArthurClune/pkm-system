@@ -7,7 +7,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -35,6 +36,7 @@ from pkm.server.routes_pages import router as pages_router
 from pkm.server.routes_search import router as search_router
 from pkm.server.routes_sidebar import router as sidebar_router
 from pkm.server.routes_sync import router as sync_router
+from pkm.server.validation_echo import echo_errors
 from pkm.server.ws import Hub, router as ws_router
 
 
@@ -75,6 +77,14 @@ def _default_describe_service(config: Config) -> DescribeService:
     assert api_key is not None
     return DescribeService(
         config, OpenAIDescriber(api_key, config.image_description_model), None)
+
+
+async def _validation_error(request: Request,
+                            exc: Exception) -> JSONResponse:
+    """FastAPI's 422, with an echo that always encodes (validation_echo)."""
+    assert isinstance(exc, RequestValidationError)
+    return JSONResponse(status_code=422,
+                        content={"detail": echo_errors(exc.errors())})
 
 
 @asynccontextmanager
@@ -130,6 +140,7 @@ def create_app(
     app.state.goodlinks = (goodlinks_gateway if goodlinks_gateway is not None
                            else _default_goodlinks(config))
     app.add_middleware(RequestLogMiddleware)
+    app.add_exception_handler(RequestValidationError, _validation_error)
     app.include_router(auth_router)
 
     api = APIRouter(dependencies=[Depends(require_auth)])

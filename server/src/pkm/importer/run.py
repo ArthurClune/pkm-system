@@ -14,7 +14,7 @@ from pathlib import Path
 from pkm.assets_core import sha256_hex
 from pkm.assets_disk import asset_on_disk_needs_repair
 from pkm.contracts.ops import Sha256Hex
-from pkm.database import connect
+from pkm.database import Db, connect
 from pkm.edn import EdnError, parse_edn
 from pkm.filenames import safe_filename
 from pkm.importer.assets import UID_PREFIX_LEN, Asset, rewrite_asset_urls
@@ -23,7 +23,7 @@ from pkm.importer.preflight import (ImportStructureError, ImportUidError,
                                     validate_export_structure,
                                     validate_export_uids)
 from pkm.importer.report import ImportReport, render
-from pkm.importer.rows import to_rows
+from pkm.importer.rows import Rows, to_rows
 from pkm.importer.titles import ImportTitleError, sanitize_export_titles
 from pkm.schema import DDL
 from pkm.server.title_migration import (
@@ -78,6 +78,19 @@ def _copy_assets(assets_dir: Path, sources: dict[Sha256Hex, Path],
         dest_tmp = dest.with_name(dest.name + ".tmp")
         shutil.copyfile(src, dest_tmp)
         os.replace(dest_tmp, dest)
+
+
+def insert_rows(con: Db, rows: Rows) -> None:
+    """Write an export's pages, blocks and refs into a database that holds
+    the schema and nothing else."""
+    con.executemany("INSERT INTO pages VALUES (?,?,?,?)", rows.pages)
+    con.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at, view_type)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?)", rows.blocks)
+    con.executemany("INSERT INTO refs VALUES (?,?,?)", rows.refs)
+    con.executemany("INSERT OR IGNORE INTO block_refs VALUES (?,?)",
+                    rows.block_refs)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -154,14 +167,7 @@ def main(argv: list[str] | None = None) -> int:
     con = connect(tmp)
     try:
         con.executescript(DDL)
-        con.executemany("INSERT INTO pages VALUES (?,?,?,?)", rows.pages)
-        con.executemany(
-            "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
-            " heading, collapsed, created_at, updated_at, view_type)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)", rows.blocks)
-        con.executemany("INSERT INTO refs VALUES (?,?,?)", rows.refs)
-        con.executemany("INSERT OR IGNORE INTO block_refs VALUES (?,?)",
-                        rows.block_refs)
+        insert_rows(con, rows)
         con.executemany(
             "INSERT INTO assets(sha256, filename, mime, size, created_at)"
             " VALUES (?,?,?,?,NULL)",

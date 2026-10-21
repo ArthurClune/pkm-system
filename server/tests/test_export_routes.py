@@ -290,3 +290,19 @@ def test_export_all_markdown_cleans_up_temp_dir_on_build_error(
     route_dirs = [d for d in seen if d.name.startswith("pkm-export-")]
     assert len(route_dirs) == 1
     assert not route_dirs[0].exists()
+
+
+@pytest.mark.parametrize("name", ["日本語 notes", "Emoji \U0001f389",
+                                  "Café\u00a0menu", 'Say "hi"'])
+def test_export_page_names_any_title_in_its_header(client, name):
+    """A header is latin-1 on the wire: a title outside printable ASCII
+    goes in RFC 6266's UTF-8 `filename*`, with an ASCII `filename` beside
+    it for clients that read only that."""
+    assert client.post("/api/pages", json={"title": name}).status_code == 200
+    r = client.get(f"/api/export/page/{quote(name, safe='')}")
+    assert r.status_code == 200
+    disposition = r.headers["content-disposition"]
+    assert disposition.startswith('attachment; filename="')
+    assert f"filename*=UTF-8''{quote(name + '.md', safe='')}" in disposition
+    fallback = disposition.split('filename="', 1)[1].split('"', 1)[0]
+    assert fallback.isascii() and '"' not in fallback

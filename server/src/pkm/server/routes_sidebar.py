@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import sqlite3
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import Field
-from pkm.contracts.strict import StrictModel
+from pkm.contracts.text import WellFormedModel
 
 from pkm.contracts.ops import SidebarEntryId
 from pkm.contracts.responses import OkAck, SidebarNavEntry, SidebarNavPayload
 from pkm.contracts.titles import RawTitle
+from pkm.contracts.int64 import INT64_RANGE
 from pkm.database import Db
 from pkm.importer.sidebar_rows import next_order_idx, reorder_is_valid
 from pkm.refs import is_blank_title
@@ -23,11 +25,11 @@ from pkm.server.sync_meta import read_title
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 
-class AddSidebarEntryRequest(StrictModel):
+class AddSidebarEntryRequest(WellFormedModel):
     title: RawTitle = Field(min_length=1)
 
 
-class ReorderSidebarEntriesRequest(StrictModel):
+class ReorderSidebarEntriesRequest(WellFormedModel):
     order: list[SidebarEntryId]
 
 
@@ -65,7 +67,8 @@ def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
 
 
 @router.delete("/api/sidebar/{entry_id}", response_model=OkAck)
-def delete_sidebar_entry(request: Request, entry_id: SidebarEntryId,
+def delete_sidebar_entry(request: Request,
+                         entry_id: Annotated[SidebarEntryId, INT64_RANGE],
                          db: Db = Depends(get_db)) -> OkAck:
     cur = db.execute("DELETE FROM sidebar_entries WHERE id = ?", (entry_id,))
     if cur.rowcount == 0:

@@ -140,3 +140,30 @@ def test_search_drops_results_that_are_not_objects():
 
 def test_search_with_non_list_data_is_empty():
     assert gateway(lambda r: httpx2.Response(200, json={"data": "nope"})).search("x") == []
+
+
+_TOO_DEEP = b"[" * 100_000 + b"]" * 100_000
+
+
+def test_a_body_nested_past_the_recursion_limit_is_unavailable():
+    """json.loads raises RecursionError, not ValueError, on it."""
+    gw = gateway(lambda r: httpx2.Response(200, content=_TOO_DEEP))
+    with pytest.raises(GoodlinksUnavailable):
+        gw.lookup("x")
+
+
+def test_a_lone_surrogate_in_a_link_comes_back_well_formed():
+    body = json.dumps({**LINK, "title": "T\ud800", "x\udc00": ["\ud800"]})
+    gw = gateway(lambda r: httpx2.Response(200, content=body.encode()))
+    link = gw.lookup("x")
+    assert link is not None
+    assert link["title"] == "T�" and link["x�"] == ["�"]
+
+
+@pytest.mark.parametrize("body", [json.dumps({"error": "No\ud800"}).encode(),
+                                  _TOO_DEEP], ids=["lone surrogate", "deep"])
+def test_a_refused_save_names_a_well_formed_detail(body):
+    gw = gateway(lambda r: httpx2.Response(400, content=body))
+    with pytest.raises(GoodlinksRejected) as e:
+        gw.save("https://a.example/p")
+    e.value.detail.encode()

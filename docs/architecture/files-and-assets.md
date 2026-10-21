@@ -103,6 +103,13 @@ queued and in-flight shas makes `maybe_enqueue` and `scan` idempotent; the
 worker discards the sha in a `finally`. `_process` re-reads the row and returns
 early if a description has appeared since.
 
+`OpenAIDescriber.describe` turns every answer into a description or a
+`DescribeError`, which `_process` records as `describe_error`. Any other
+exception is only logged, so the asset stays pending until the next scan. A
+body `json.loads` cannot read (nesting past its recursion limit) is a
+`DescribeError` too, and `parse_description` makes the text well-formed,
+since SQLite refuses to store a lone surrogate.
+
 The queue is memory-only. A restart drops whatever was pending, and there is no
 persistence or replay on startup. `POST /api/assets/scan` re-enqueues every
 asset with `description IS NULL` — add `force=true` to retry rows that

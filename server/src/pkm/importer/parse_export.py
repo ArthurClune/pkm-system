@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from pkm.edn import Tagged
+from pkm.contracts.int64 import INT64_MAX, INT64_MIN
 from pkm.contracts.ops import BlockUid
 from pkm.contracts.titles import RawTitle, as_raw_title
 
@@ -65,11 +66,21 @@ def _heading(value: object) -> int | None:
     app stores a heading, so it is normalized at parse time rather than
     carried through as a value no heading-producing path here ever
     writes itself (CreateOp/SetHeadingOp.heading only accept 1-3 or
-    null). A value that is not an integer (bool included) is malformed and
-    reads as absent."""
-    if isinstance(value, bool) or not isinstance(value, int) or value == 0:
+    null). Any other value that is not a level 1-3 (a bool, a string, an
+    integer past 3) is malformed and reads as absent too: the reads serve
+    only those levels and refuse anything else stored."""
+    if isinstance(value, bool) or not isinstance(value, int):
         return None
-    return value
+    return value if 1 <= value <= 3 else None
+
+
+def _time(value: object) -> int | None:
+    """A :create/time or :edit/time, in ms. One that is not an integer
+    SQLite can store (a bool, a string, a fraction, one past 64 bits) is
+    malformed and reads as absent, as the heading does."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if INT64_MIN <= value <= INT64_MAX else None
 
 
 def parse_export(db: object) -> Export:
@@ -111,8 +122,8 @@ def parse_export(db: object) -> Export:
             heading=_heading(ent.get(":block/heading")),
             view_type=_view_type(ent.get(":children/view-type")),
             open=bool(ent.get(":block/open", True)),
-            created_at=ent.get(":create/time"),
-            edited_at=ent.get(":edit/time"),
+            created_at=_time(ent.get(":create/time")),
+            edited_at=_time(ent.get(":edit/time")),
             children=_children(ent, trail | {eid}),
         )
         built[eid] = block
@@ -129,8 +140,8 @@ def parse_export(db: object) -> Export:
             continue
         pages.append(Page(
             title=as_raw_title(ent[":node/title"]),
-            created_at=ent.get(":create/time"),
-            edited_at=ent.get(":edit/time"),
+            created_at=_time(ent.get(":create/time")),
+            edited_at=_time(ent.get(":edit/time")),
             children=_children(ent, frozenset({eid})),
         ))
 

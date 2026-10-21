@@ -143,7 +143,9 @@ Stage notes:
   A blocker refuses the run and leaves the published database untouched.
 - **Timestamps.** `parse_export.py` copies each block's `:create/time` and
   `:edit/time`, and uids and sibling ordering survive the import, so every
-  existing `((block ref))` and daily-note link keeps resolving.
+  existing `((block ref))` and daily-note link keeps resolving. A time that is
+  not a 64-bit int, or a heading other than 1-3, reads as absent: the reads
+  serve only what the schema's types admit.
 - **Mermaid flattening.** Flattening a component's descendants into one fenced
   block drops their rows, so `mermaid_preservation.py` keeps any component with
   an inbound `((uid))` into its subtree — and every candidate ancestor

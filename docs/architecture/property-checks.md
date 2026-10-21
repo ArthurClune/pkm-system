@@ -13,8 +13,10 @@ outline-edit invariants. It has two sides, and the web side holds three suites:
 It runs locally before a merge, the same way
 [`perf/check.sh`](performance-checks.md) does; it is not CI, a git hook, or
 part of `pytest -q`, `pnpm test:unit` or `pnpm verify`. Properties of pure
-or single-module code, such as the local-docs link encoding and the
-`/api/local-index` round trip, are ordinary unit tests instead: Hypothesis in
+or single-module code, such as the local-docs link encoding, the
+`/api/local-index` round trip and the no-500 sweeps over every route
+(`test_no_500_*_props.py`, see
+[backend.md § Hostile input](backend.md#hostile-input)), are ordinary unit tests instead: Hypothesis in
 `server/tests/` and fast-check beside the code in `web/src/` (`*.props.test.ts`, `.tsx`),
 run on every `pytest -q` and `pnpm verify`.
 

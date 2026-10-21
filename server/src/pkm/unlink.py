@@ -36,7 +36,7 @@ from pkm.todo import with_state
 # Given a title as written, is it the deleted page.
 TitleMatch = Callable[[str], bool]
 
-_ALIAS_LABEL = re.compile(r"\[([^\[\]\n]*)\]\($")
+_ALIAS_LABEL = re.compile(r"\[([^\[\]\n]*)\]\(\Z")
 _NEWLINE_RUN = re.compile(r"[ \t\r]*\n\s*")
 _REF_OR_EMBED = re.compile(
     rf"\{{\{{\s*(?:\[\[)?embed(?:\]\])?\s*:\s*\(\(({BLOCK_REF_TOKEN})\)\)\s*\}}\}}"

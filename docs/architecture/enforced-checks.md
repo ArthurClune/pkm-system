@@ -13,7 +13,32 @@ clone enables them. `--no-verify` bypasses both.
 |---|---|---|
 | `commit-msg` | a Claude session URL or `Claude-Session:` trailer in the message | `AGENTS.md` § Git |
 | `pre-commit` | in any staged code file (any tracked `.py`, `.ts`, `.tsx`, `.mjs`, `.js`, `.css`, `.sh` or `.swift`, or an extensionless script with a shell, Python or node shebang) or architecture doc: a bean id, a line number or a spec/plan pointer with no path in a comment; a comment line over 80 columns or any other line over 120 (`noqa: E501` exempts a line) | [backend.md](backend.md#testing), `server/tooling/commentlint` |
+| `pre-commit` | in any staged Python file: a regex with a bare `$` (`re.compile(r"^a$")`), which also matches before a trailing newline; use `\Z` or `fullmatch`. A pattern with `re.MULTILINE` or `(?m)` may use `$` | [Regex anchors](#regex-anchors), `server/tooling/regexlint` |
 | `pre-commit` | in a staged `server/src`, `server/tooling` or `server/tests` file: a parameter, field or key named like a brand and not carrying it (`uid: str`, or no annotation); a brand constructed, held as a value or `cast` outside its registered sites; a function returning a brand while taking an unannotated or `Any` parameter; a model that is not strict (a direct `BaseModel` subclass, `strict=False`) or is built where pyrefly cannot check it (`model_validate` of a dict literal, `model_copy(update=)`, `model_construct`); raw `sqlite3` outside `SQLITE_SITES` | [Brand rules](#brand-rules), `server/tooling/brandlint` |
+
+### Regex anchors
+
+`server/tooling/regexlint` runs inside `commentlint.run` like brandlint, over
+every tracked Python file (including `.claude/skills` and extensionless
+scripts with a Python shebang), so the hook, the `--all` sweep,
+`test_the_tracked_tree_is_clean` and `lint:comments` all apply it.
+
+`$` matches at the end of the string and before a trailing newline, so
+`pattern.match("abc\n")` passes a validation regex ending in `$`. The rule
+`regex-dollar` reports an unescaped `$` outside a character class in a
+pattern, and there is no opt-out: a pattern states that `$` means end of line
+with `re.MULTILINE` / `re.M` (alone, or combined as `re.M | re.I`, or
+`flags=`) or an inline `(?m)`, and the lint reads the flag.
+
+| Sink | Followed through |
+|---|---|
+| `re.compile`, `match`, `search`, `fullmatch`, `findall`, `finditer`, `sub`, `subn`, `split` (module alias or `from re import`) | a literal, implicit or `+` concatenation, an f-string's literal parts, `"".join([...])`, and a name assigned once in the file |
+| a class attribute `regex` (Starlette convertors) | the same |
+
+Two things are deliberately outside the rule. Pydantic's `Field(pattern=)`
+runs on Rust's regex engine, where `$` has no newline case and `\Z` is
+rejected, so `$` is correct there. The web needs no equivalent: a JS regex
+without the `m` flag matches `$` only at the very end of the input.
 
 ### Brand rules
 

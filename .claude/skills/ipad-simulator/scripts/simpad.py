@@ -56,7 +56,7 @@ FORBIDDEN_PORTS = {8974, 8975, 8977, 8978}
 DEFAULT_PORT = 8979
 DEFAULT_DEVICE = "iPad Air 11-inch (M4)"
 DEFAULT_PASSWORD = "e2e-pw"
-UID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,32}$")
+UID_RE = re.compile(r"[a-zA-Z0-9_-]{6,32}")
 
 
 # --------------------------------------------------------------------------

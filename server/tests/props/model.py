@@ -676,8 +676,8 @@ class Model:
 
 # --- `pkm batch` positions ---------------------------------------------------
 
-_UID_SPEC = re.compile(r"^\(\((.+)\)\)$")
-_ALIAS_SPEC = re.compile(r"^\{\{(.+)\}\}$")
+_UID_SPEC = re.compile(r"^\(\((.+)\)\)\Z")
+_ALIAS_SPEC = re.compile(r"^\{\{(.+)\}\}\Z")
 
 Groups = dict[BlockUid | None, list[BlockUid]]
 

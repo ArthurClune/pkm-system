@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from typing import Protocol, Sequence
 
-_TRIGGER = re.compile(r"^\s*\{\{(?:\[\[mermaid\]\]|mermaid)\}\}\s*$")
+_TRIGGER = re.compile(r"^\s*\{\{(?:\[\[mermaid\]\]|mermaid)\}\}\s*\Z")
 
 
 class MermaidNode(Protocol):

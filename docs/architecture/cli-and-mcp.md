@@ -23,8 +23,8 @@ indexed by symptom in [troubleshooting.md](../troubleshooting.md).
 Tools are built from the same planners as the CLI, and reads return markdown
 annotated with `^uid` markers that the write tools accept. The assistant's
 `policy.py` auto-allows reads and confirm-gates writes
-([assistant.md](assistant.md#harness-confinement)), so a new tool must
-join one side.
+([assistant.md](assistant.md)), so a new tool must join `READ_TOOLS` or
+`WRITE_TOOLS` (`test_every_mcp_tool_is_classified` fails otherwise).
 
 | Tool | Kind | Does |
 |---|---|---|
@@ -134,7 +134,9 @@ describes its subtree.
 `order_idx_at_position` never counts siblings, and an append lands one past
 the last sibling's key. `Planner` keeps a live sibling list per (page, parent).
 The batch `index` param is a position, not a key, counted against the page as
-fetched and then as earlier commands left it. `order_idx_at_position` is the
+fetched and then as earlier commands left it. A move's position counts the
+destination's children without the moving block, and a position past the end
+appends. `order_idx_at_position` is the
 only place a position becomes an `OrderIdx`. The model does not simulate an op
 the server will skip, so a later position in that op's groups can be off (see
 the `Planner` docstring).

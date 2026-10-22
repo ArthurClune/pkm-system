@@ -18,7 +18,7 @@ symptom in [troubleshooting.md](../troubleshooting.md).
 | `policy.py` | Core | The tool gate (`READ_TOOLS` auto-allowed, `WRITE_TOOLS` confirm-gated), `MODELS`, `available_models()`, `default_model()`, write-op previews, the system prompt |
 | `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols: the seam the test double plugs into. `send()` is an async generator because the caller closes it |
 | `harness_env.py` | Core | `resolve_harness_env()`: requested model and available key → the SDK alias and the subprocess env |
-| `service.py` | Shell | `AssistantService`, the in-memory conversation registry: a cap of 3, a lazy 15-minute idle reap, a 409 for a second concurrent turn; `close_all()` on app shutdown |
+| `service.py` | Shell | `AssistantService`, the in-memory conversation registry: a cap (`max_conversations`), a lazy idle reap (`idle_ttl`), a 409 for a second concurrent turn; `close_all()` on app shutdown |
 | `claude_engine.py` | Shell | `ClaudeEngine`, the Claude Agent SDK adapter and only engine |
 | `routes.py` | Shell | The HTTP/SSE endpoints. An engine failure mid-stream is an in-band `error` event, not a broken response |
 
@@ -39,7 +39,7 @@ sequenceDiagram
     loop while the turn runs
         H-->>R: deltas + tool activity
         R-->>B: phase / text_delta / tool_started / tool_finished
-        Note over R,B: comment keepalive every 15 idle s
+        Note over R,B: comment keepalive every KEEPALIVE_INTERVAL_S idle s
     end
     H->>H: model calls a write tool —<br/>can_use_tool parks it on a future
     R-->>B: confirm_request (ops preview from policy.py)

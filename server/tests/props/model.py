@@ -6,11 +6,10 @@ real server against. It must never import `pkm.server.*` or
 `pkm.planning` (a test pins that), or it would agree with the server by
 construction.
 
-The rules come from backend.md § The write path (Ordering), § Conflicts,
+The rules come from backend.md § Planning (Ordering), § Conflicts,
 § Missing targets, § Stale batches, § Concurrent structure edits and § Page
-mutations and the sidebar, and sync-and-offline.md § Conflicts at push
-time. Each rule below names the row it encodes. Where the docs are silent
-the rule follows the code, and says so.
+mutations and the sidebar. Each rule below names the row it encodes. Where
+the docs are silent the rule follows the code, and says so.
 
 Ops are plain dicts in the wire shape of `pkm.contracts.ops`. The model
 tracks only the blocks the ops address; the conflict headers and copies
@@ -164,8 +163,9 @@ def inline_refs(text: str, copies: Mapping[BlockUid, str]) -> str:
 
 
 def _plain_copy(text: str) -> str:
-    """backend.md § Page mutations: a block's copy drops its leading
-    attribute (generated texts carry no task marker or newline)."""
+    """backend.md § Page mutations and the sidebar: a block's copy drops
+    its leading attribute (generated texts carry no task marker or
+    newline)."""
     span = attribute_title_span(strip_code(text), text)
     return text if span is None else text[span.end:].lstrip()
 
@@ -393,7 +393,7 @@ class Model:
     def _record_written(self, uid: BlockUid, sent: str, written: str,
                         stale: Collection[str],
                         replayed: Sequence[Rewrite]) -> None:
-        """backend.md § Stale batches: text written to `uid` that differs
+        """backend.md § Conflicts: text written to `uid` that differs
         from the text the client sent, because of a stale unlink or a
         replay, records how the one became the other, so the client's next
         hashed edit replays onto the written text. One rewrite per pass
@@ -450,7 +450,7 @@ class Model:
 
     def _shift(self, page: str, parent: BlockUid | None, key: int,
                moving: BlockUid | None = None) -> None:
-        """backend.md § The write path, Ordering: landing at `key` first
+        """backend.md § Planning, Ordering: landing at `key` first
         bumps every sibling (same page, same parent) whose key is >= `key`
         by one. A moving block is left out of its own shift: its key is
         overwritten when it lands, so only its siblings move."""
@@ -578,8 +578,8 @@ class Model:
         sent = op["text"]
         base = op.get("base_text_hash")
         if base is None:
-            # sync-and-offline.md § Conflicts at push time, row "No hash
-            # sent, block exists": unconditional last-write-wins.
+            # backend.md § Conflicts: a hashless edit to a live block is
+            # unconditional last-write-wins.
             self._write(block, text)
             self._record_written(block.uid, sent, text, stale, ())
             return
@@ -601,9 +601,9 @@ class Model:
             self._record_written(block.uid, sent, text, stale, replayed)
             return
         if text_hash(block.text) != base:
-            # Row "Hashes differ" / backend.md § Conflicts, header row
-            # "Block still exists (mismatch)": incoming wins, the overwritten
-            # text is kept.
+            # backend.md § Conflicts, rows "Hashes differ" and "Block
+            # exists, hash mismatch": incoming wins, the overwritten text
+            # is kept.
             kept.append(block.text)
         # Row "hash(current) == base_text_hash": clean apply.
         self._write(block, text)
@@ -661,10 +661,9 @@ class Model:
         base = op.get("base_subtree_hash")
         if base is not None and subtree_hash(
                 (u, self.blocks[u].text) for u in subtree) != base:
-            # backend.md § Conflicts, guarded delete / sync-and-offline.md
-            # row "`delete` whose subtree another device changed": the
-            # delete wins, but every text of the subtree is kept first. A
-            # matching or hashless delete keeps nothing.
+            # backend.md § Conflicts, row "Guarded `delete` whose subtree
+            # changed": the delete wins, but every text of the subtree is
+            # kept first. A matching or hashless delete keeps nothing.
             kept.extend(self.blocks[u].text for u in subtree)
         # § The write path: delete removes a block and its subtree.
         for u in subtree:
@@ -686,7 +685,7 @@ def positions_after(groups: Mapping[BlockUid | None, Sequence[BlockUid]],
     """Each parent's children, in order, after the `pkm batch` `commands`
     run over `groups` (parent uid -> child uids, None for the page's top
     level). Positions only, never order keys: this is the CLI contract the
-    planner's keys must realise (cli-and-mcp.md, the batch `index` row).
+    planner's keys must realise (cli-and-mcp.md § Pure planners, on `index`).
 
     - create/todo: lands at `index` among the parent's children as the
       earlier commands left them; None, or an index past the end, appends.

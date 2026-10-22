@@ -19,7 +19,7 @@ indexed by symptom in [troubleshooting.md](../troubleshooting.md).
 
 ## Assets and the file browser
 
-Uploads stream in 1 MiB chunks with a running size cap (413 over
+Uploads stream in chunks (`_CHUNK_SIZE`) with a running size cap (413 over
 `max_upload_bytes`), MIME-sniffed from the first chunk (`mime_sniff.py`).
 Files are stored at `<assets_dir>/<sha256[:2]>/<sha256>` and deduplicated by
 digest; the `assets` row keeps the display filename, MIME and size. Raster
@@ -60,6 +60,9 @@ The stripping rules:
 - The file is unlinked after the commit, so a crash leaves at worst an
   unreferenced file, never a row pointing at a missing one.
 - Asset URLs produce no `refs` rows, so no reindex is needed.
+- An upload of the same bytes that dedups onto the row before its linking
+  batch commits is not protected: an `if_unreferenced` delete in between
+  removes the file under it. The window is accepted.
 
 **Selected-asset zip** is form-encoded, so a plain `<form method="post">` lets
 the browser own the download. Unusable digests are skipped, and colliding
@@ -221,7 +224,8 @@ text but not images. Opening a copy reveals the reader's IP to those hosts.
 
 GoodLinks' API listens only on the host's loopback (`localhost:9428`). The
 server holds the bearer token and forwards through `GoodlinksGateway`, so the
-GoodLinks app must be running on the host. Every gateway failure is a 503.
+GoodLinks app must be running on the host. An unreachable app and a refused token are 503s. A GoodLinks 404 passes
+through, and a refused save is a 422 carrying its text.
 `GoodlinksUnavailable` covers a closed app and any 2xx that is not a usable
 link ([hostile input](backend.md#hostile-input)). A 401 or 403
 (`GoodlinksUnauthorized`) gets its own detail,

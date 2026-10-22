@@ -37,8 +37,9 @@ flowchart LR
 - A write's `WriteTicket` separates *persisted locally* (`settled`) from
   *acknowledged by the server* (`delivered`). Pages created offline get
   negative ids, remapped by `replica/reconcile.ts`.
-- `SyncProvider` installs the offline gateway (`setOfflineGateway`) once the
-  replica is ready. The shim answers with the server's JSON shapes
+- `SyncProvider` registers the offline gateway (`setOfflineGateway`). It
+  serves only once the replica is ready, and treats only a dropped socket as
+  offline; a cold start reaches it through a failed fetch. The shim answers with the server's JSON shapes
   (`shared/fixtures/shim_parity.json`). An unshimmed route throws
   `OfflineError`, and its UI says "online only".
 - Views refetch when `resyncGeneration` bumps
@@ -237,7 +238,7 @@ that discards responses a filter change has made stale.
 | Platform behaviour | What the app does | Code |
 |---|---|---|
 | An installed iOS app opens external links in an in-app WKWebView | rewrites a cross-origin click to `x-safari-https://` (or `-http`), which opens Safari. Hrefs stay `https://` | `ExternalLinkInterceptor`, `externalLink.ts::isIosStandalone` |
-| In standalone, a same-origin `target="_blank"` link replaces the whole app | the interceptor leaves same-origin clicks alone, so PDFs open in the in-app `PdfViewer` overlay instead | `externalLink.ts::safariHrefForClick` |
+| In standalone, a same-origin `target="_blank"` link replaces the whole app | the interceptor does not rewrite same-origin clicks, so PDF links and /files thumbs open the in-app `PdfViewer` overlay rather than a `target="_blank"` anchor | `PdfEmbed`, `PdfViewer`, `externalLink.ts::safariHrefForClick` |
 | A tap inside a cross-origin iframe never reaches that listener | in standalone, `BlueskyEmbed` lays a `.bluesky-embed-tap` anchor to the post over its iframe | `BlueskyEmbed.tsx` |
 | Standalone suppresses `window.confirm`, returning `false` | every confirmation uses `useConfirm` | `ConfirmDialog.tsx` |
 | Standalone ignores `beforeunload` | the in-memory lane's unload guard cannot hold ([sync-recovery.md](sync-recovery.md#the-in-memory-fallback-lane)) | `sync/unloadGuard.ts` |
@@ -247,7 +248,7 @@ that discards responses a filter change has made stale.
 | The iOS 26 Safari tab's floating address pill is outside the visual viewport | the bar sits one pill higher, the lowest position where every key can be tapped | `keyboardInset` |
 | Cancelling `pointerdown` keeps the keyboard open, but WebKit then sends no click | a bar key acts on `pointerdown`; only a `detail === 0` click (VoiceOver) acts on its own | `KeyboardBar.tsx` |
 | A touch on a key starts text selection; two quick taps zoom | `.keyboard-bar` sets `user-select: none`, `-webkit-touch-callout: none`, `touch-action: manipulation` | `styles.css` |
-| iPadOS may freeze a hidden tab's socket | an `OPEN` socket hidden past `RESUME_STALE_MS` is closed ([sync-and-offline.md](sync-and-offline.md#ancillary-details)) | `sync/socket.ts` |
+| iPadOS may freeze a hidden tab's socket | a socket still reporting `OPEN` after `RESUME_STALE_MS` hidden is closed on return to visibility ([sync-and-offline.md](sync-and-offline.md#ancillary-details)) | `sync/socket.ts` |
 
 ## The assistant panel
 
@@ -304,7 +305,9 @@ fails on, and `AGENTS.md` § Testing says how to run them.
 - `@sqlite.org/sqlite-wasm` stays in `optimizeDeps.exclude`, because its wasm
   URL resolution breaks under dep optimization. Its pnpm patch is keyed to its
   exact version ([sqlite-wasm-patch.md](sqlite-wasm-patch.md#upgrading-sqlite-wasm)).
-- Hashed bundles go under `app-assets/`.
+- Hashed bundles go under `app-assets/`. The server sends `index.html` with
+  `Cache-Control: no-cache`, so a reload after a deploy fetches the new shell
+  and its chunk names.
 - The service worker (`vite-plugin-pwa`, `autoUpdate`) precaches what
   `globPatterns` lists: the app shell, every emitted chunk, the sqlite wasm,
   the pdf.js worker and the core KaTeX fonts. A cold offline start therefore

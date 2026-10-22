@@ -203,6 +203,10 @@ the same as being done — splitting one sentence often lengthens another. Any 4
 word sentence your edit introduced is marked `NEW` and always listed, wherever it
 ranks.
 
+Before cutting a row or section, `git grep` its doc name outside `docs/`. Code
+comments cite rows by name (`props/model.py` cites `backend.md` sections), and
+check-docs cannot see them.
+
 Docs-only commits need no test run. The commit message should say what was
 **corrected** (a claim that was wrong) versus **restructured** (no claim
 changed).

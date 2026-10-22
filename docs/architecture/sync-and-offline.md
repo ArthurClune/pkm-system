@@ -51,6 +51,9 @@ tables in `replica/clientSchema.ts`:
 | `sync_client_meta` | `cursor`, `generation`, `schema_version`, the plain-space flag, `deferred_block_tombstones` |
 | `replay_log`, `replay_log_refs`, `replay_batches` | [The replay log](#the-replay-log) |
 
+Safari and the home-screen PWA on one device have separate storage, so each
+holds its own replica, cursor and queue.
+
 A second file, `/pkm-replica-carry.sqlite3`, holds the queue during a
 [file replacement](sync-recovery.md#reset-rebase-and-file-replacement).
 
@@ -161,8 +164,10 @@ it for reuse, and a live row does not prove the id names the same entity.
 The replica dispatches each tombstone `kind` (`EntityKind`) to its own branch.
 An unknown kind deletes nothing and logs. It must never fall through to a
 delete, or an older replica meeting a newer server's kind destroys an unrelated
-row. `parseTombstoneId` (`sync/wire.ts`) is the one reader of the text id; a
-malformed one throws `MalformedTombstoneError` and rolls the window back.
+row. `parseTombstoneId` (`sync/wire.ts`) is the one reader of the text id. A
+malformed wire id makes `tombstoneIdOfWire` throw `MalformedTombstoneError`,
+which rolls the window back. A malformed deferred record entry is dropped
+with a warning.
 
 ## Applying a window over pending edits
 
@@ -221,7 +226,7 @@ window would drop B's edit with nothing left to replay.
 | some removed, each on an ack with a `seq` | applied |
 | any other removal, an addition, or a reorder | `pending-changed` |
 
-On `pending-changed`, `pullLoop` refetches up to `PENDING_CHANGED_CAP` (20)
+On `pending-changed`, `pullLoop` refetches up to `PENDING_CHANGED_CAP`
 times, then throws `PullStarvedError`. A bootstrap snapshot takes the same
 check against its `seq`, which `sync_snapshot` reads in the rows' own read
 transaction. It needs one because the queue resumes before
@@ -249,7 +254,7 @@ server knows which batches a read holds, so the pull asks.
 
 | Step | Where | What |
 |---|---|---|
-| Name | `pendingQuery` (`replicaSync.ts`) | `pending=<batch_id>` for the non-poisoned queue head, at most `PENDING_IDS_CAP` (100) |
+| Name | `pendingQuery` (`replicaSync.ts`) | `pending=<batch_id>` for the non-poisoned queue head, at most `PENDING_IDS_CAP` |
 | Answer | `_applied_batches` (`routes_sync.py`) | `applied_batches`: each named id the server has applied, with its stored `seq` and `skipped`. An older server omits it |
 | Drop | `dropAppliedPending` | Deletes the named rows that were in the snapshot, never a poisoned one |
 | Settle | `settleApplied`, `OpQueue.settleCommitted` | Resolves tickets and lane marks as the ack would, and bumps resync on a skip |
@@ -348,7 +353,7 @@ sequenceDiagram
         else terminal 4xx (bad batch)
             S-->>Q: row poisoned, queue pauses,<br/>snapshot repair runs
         else 5xx, network error, 401/403/408/429
-            S-->>Q: row stays queued,<br/>backoff (RETRY_DELAYS 250ms/1s/5s)
+            S-->>Q: row stays queued,<br/>backoff (`RETRY_DELAYS`)
         end
     end
     Q->>S: pull changes feed to latest seq
@@ -431,11 +436,11 @@ unresolved, so no consumer may treat it as the block's page.
 
 ## Ancillary details
 
-- **Socket** (`sync/socket.ts`): reconnect backoff 2 s doubling to 30 s
+- **Socket** (`sync/socket.ts`): reconnect backoff doubling
   (`reconnectBackoff.ts`), resetting only on a received frame or `STABLE_MS`
-  (5 s) open. Attempts wait while `document.hidden`. After `RESUME_STALE_MS`
-  (30 s) hidden, a socket still `OPEN` is closed, because iPadOS may have
-  frozen it.
+  open. Attempts wait while `document.hidden`. On return to
+  visibility after `RESUME_STALE_MS` hidden, a socket still reporting `OPEN`
+  is closed, because iPadOS may have frozen it.
 - **Online-only features** degrade explicitly rather than queueing: asset
   upload, sidebar edits, page deletion and `{{[[query]]}}` say "online only";
   `/files` and the assistant are unavailable (no shim for `/api/assets/*` or

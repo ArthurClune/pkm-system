@@ -51,7 +51,7 @@ server/
 ├── config.py, setup.py  Shell  Config from config.json; setup writes it
 ├── db.py                Shell  init_db() at startup, open_db() per request, migrations
 ├── wholepath.py         Shell  the {name:wholepath} DOTALL route convertor
-├── auth.py, auth_core.py       login, require_auth, LoginThrottle; scrypt and tokens
+├── auth.py, auth_core.py, throttle_core.py   login, require_auth, LoginThrottle; scrypt and tokens; backoff policy
 ├── routes_*.py          Shell  the HTTP surface
 ├── ops_core.py          Core   plan_op(), classify_skip, classify_text_edit
 ├── ops_apply.py         Shell  apply_batch: read context, plan, execute effects
@@ -328,9 +328,9 @@ flowchart LR
 
 ### The write lock
 
-A route whose decision rests on what it reads takes `BEGIN IMMEDIATE` before
-its first read, so no concurrent commit lands between that read and the
-write it justifies.
+The routes below take `BEGIN IMMEDIATE` before their first read, so no
+concurrent commit lands between that read and the write it justifies. A new
+route whose decision rests on what it reads joins them.
 
 | Route | Lock taken before | Busy lock |
 |---|---|---|
@@ -340,6 +340,8 @@ write it justifies.
 | `DELETE /api/assets/{sha256}?if_unreferenced=true` | the reference check | 503 + `Retry-After` |
 | `POST /api/sidebar` | the uniqueness check and `max(order_idx) + 1`, so a same-title race is a 409 | uncaught: 500 |
 | `POST /api/migrations/title-canonicalization` | the re-inventory | uncaught: 500 |
+| `DELETE /api/assets/{sha256}` (strip mode) | none: reads each referencing block, then writes it | n/a |
+| `POST /api/journal/cleanup` | none: checks emptiness, then deletes | n/a |
 
 ### Planning
 
@@ -484,9 +486,10 @@ tombstone.
 Other planning errors stay 400s: an invalid or taken uid, title syntax.
 `find_op_title_violation` checks every `page_title` of a `create`,
 `create_page` or `move` and every ref title in block text before any op
-applies. A skipped op whose own uid, or the gone parent uid it names, fails
-`UID_RE` is still a 400 (`ops_core.impossible_uid_reason`), which keeps
-arbitrary strings out of the journal. A taken uid outranks a gone parent.
+applies. A skipped op whose own uid fails `UID_RE` is still a 400
+(`ops_core.impossible_uid_reason`), which keeps arbitrary strings out of the
+journal. So is the gone parent of a diverted create or of a move whose block
+exists. A move of a gone block never checks its parent uid. A taken uid outranks a gone parent.
 
 ### Stale batches
 
@@ -530,7 +533,7 @@ before any write:
 | Inbound reference | Delete does |
 |---|---|
 | `[[Title]]`, `#Title`, `#[[Title]]` | becomes plain text |
-| `((uid))` to a block of the page | replaced by a plain copy of that block's text |
+| `((uid))` to a block of the page | replaced by a copy of that block's text, without its task marker or leading attribute, newlines folded |
 | a query macro naming the page | refused: 409 with `blockers`, `reason` `query`; nothing changes |
 | a leading `Title:: v` | refused, `used_as_attribute`: the block's next edit would recreate the page |
 | unlinking would change the leading attribute name (`[[Title]]:: v`) | refused, `attribute` |
@@ -558,8 +561,9 @@ it. `POST /api/ops` also echoes the applied ops.
 Sync-def routes call `notify.commit_and_nudge_threadpool`; async routes call
 `db.commit()`, then `await nudge(request, db)`. `delete_asset` nudges because
 it rewrites blocks; `cleanup_journal` only when it deleted something. No type
-enforces the rule, so `test_journal_advancing_contract.py` enumerates every
-journal-advancing route and asserts a nudge.
+or test discovers a new route: `test_journal_advancing_contract.py` asserts
+the nudge for each route on its hand-kept list, so a new journal-advancing
+route adds its own case there.
 
 ```mermaid
 flowchart LR
@@ -665,7 +669,7 @@ does the constant-time scrypt check and signs the `pkm_session` cookie
 (`v1.<issued_ms>.<sig>`). `docs/SECURITY.md` owns the cookie flags and the
 threat model.
 
-`LoginThrottle` (`auth.py`) applies a per-source exponential backoff
+`LoginThrottle` (`auth.py`, policy in `throttle_core.py`) applies a per-source exponential backoff
 (`BASE_BACKOFF_MS` to `MAX_BACKOFF_MS`) before scrypt runs, and a
 process-wide semaphore (`MAX_CONCURRENT_SCRYPT`) on scrypt work.
 `scrypt_slot()` waits at most `SCRYPT_ACQUIRE_TIMEOUT_S`, because `login()`
@@ -705,7 +709,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge` |
 | GET | `/api/unlinked?title` | Unlinked mentions, not from the page itself |
 | GET | `/api/journal?before&days` | Daily-notes feed |
-| POST | `/api/journal/cleanup` | Prune empty, unreferenced daily pages other than today |
+| POST | `/api/journal/cleanup` | Prune empty, unreferenced daily pages from the week before today |
 | GET | `/api/current-work` | Recently edited pages, bucketed by age |
 | **Migrations** | | |
 | GET | `/api/migrations/title-canonicalization` | Side-effect-free audit and digest ([Title integrity](#title-integrity-and-one-time-activation)) |

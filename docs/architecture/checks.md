@@ -100,11 +100,14 @@ The check that measures a metric declares its class, so a reclassification is
 a reviewed change. A worse value is a candidate until `confirm()` has re-run
 it on the branch and run it at the merge base:
 
-| Re-run on the branch | Merge-base run | Verdict |
-|---|---|---|
-| the baseline accepts it | not run | `unstable` |
-| still worse | also worse than the baseline | `stale-baseline` |
-| still worse | not worse | `regression` |
+| Class | Re-run on the branch | Merge-base run | Verdict |
+|---|---|---|---|
+| any | the baseline accepts it | not run | `unstable` |
+| `exact`, `band` | still worse | also worse than the baseline | `stale-baseline` |
+| `exact`, `band` | still worse | not worse | `regression` |
+| `timing` | still worse | missing, or the re-run is past `TIMING_FACTOR` times it | `regression` |
+| `timing` | still worse | within `TIMING_FACTOR` times it, and also worse than the baseline | `stale-baseline` |
+| `timing` | still worse | within `TIMING_FACTOR` times it, and not worse than the baseline | `unstable` |
 
 A reproduced timing is judged against that merge-base run, not the baseline,
 because the two runs share the machine's load.
@@ -145,14 +148,14 @@ property of one pure module is an ordinary unit test instead
 specs: [server](../superpowers/specs/2026-10-02-property-checks-server-design.md),
 [web sync](../superpowers/specs/2026-10-03-property-checks-sync-harness-design.md).
 
-| Suite | Drives | Holds |
-|---|---|---|
-| `test_ops_state.py` | random batches, stale batches, page deletes and replays through `POST /api/ops` | blocks, pages, rewrite rows and acks match `props/model.py`; replay is inert |
-| `test_planner_props.py` | `pkm batch` command lists through the real CLI shell | sibling order matches `positions_after` |
-| `test_unlink_props.py` | texts of a deleted page's blocks and its inbound sources | no rewritten source references the page; a second pass is inert |
-| `sync/` | 2 or 3 clients on the real sync stack, with faults, reloads, renames and deletes | the invariants in the header of `sync/oracle.ts` |
-| `outline/` | outline commands, undo and redo through the real outline code | `checks.ts`: rows match a reading-view model; history undoes to the start |
-| `ops/` | raw batches and outline commands against the server | the replica and the in-memory trees store what the server stores |
+| Suite | Holds |
+|---|---|
+| `test_ops_state.py` | blocks, pages, rewrite rows and acks match `props/model.py`; replay is inert |
+| `test_planner_props.py` | sibling order matches `positions_after` |
+| `test_unlink_props.py` | no rewritten source references the page; a second pass is inert |
+| `sync/` | the invariants in the header of `sync/oracle.ts` |
+| `outline/` | `checks.ts`: rows match a reading-view model; history undoes to the start |
+| `ops/` | the replica and the in-memory trees store what the server stores |
 
 Rules a change to the gate must keep:
 
@@ -170,5 +173,9 @@ Rules a change to the gate must keep:
 - A new property shows it fails. Each suite's `teeth.prop.ts` breaks a rule
   (a mutant, a broken transport mode, a `/__proptest/*/teeth` route) and must
   see the named invariant fail, and a clean run must pass.
+- Each web suite prints one `fault warnings` line. An `UNEXPECTED` entry under
+  it does not fail the gate. It is a recovery path firing where no fault
+  reaches, so fix the cause, or add a kind to `EXPECTED_KINDS`
+  (`props/warnings.ts`) if a fault is meant to provoke it.
 - A web example that depends on timing may not replay from its seed. It is
   still a finding: pin it as a fixed scenario, as `sync.prop.ts` does.

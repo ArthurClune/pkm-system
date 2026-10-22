@@ -15,7 +15,7 @@ replica is a cache and the queue is the user's intent.
 |---|---|---|
 | A replica write fails (`SQLITE_CANTOPEN`, `IOERR`, a dead worker) | The op is kept in the in-memory lane; only `ReplicaError.rejected` discards | [A local write fails](#a-local-write-fails) |
 | Lane entries and durable rows are both waiting | `headPrecedes` orders them by batch identity | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
-| The OPFS file cannot be opened | Up to 6 attempts, then `unusable` for the session | [When the replica cannot be opened](#when-the-replica-cannot-be-opened) |
+| The OPFS file cannot be opened | Up to the attempt limit, then `unusable` for the session | [When the replica cannot be opened](#when-the-replica-cannot-be-opened) |
 | The worker RPC breaks | `unreachable`: ops kept, barrier held | [Availability](#availability-two-values-one-owner) |
 | The replica opens, then fails every write | The offline banner says unsent changes exist only in memory | [What the UI shows](#what-the-ui-shows) |
 | A window was read before an ack deleted its row | Refetched; `PullStarvedError` after the cap | [Windows and the pending queue](sync-and-offline.md#windows-and-the-pending-queue) |
@@ -85,10 +85,10 @@ Both failure paths are races between an outgoing worker and its replacement.
 ```mermaid
 flowchart TD
     W([replica worker starts])
-    B["attempt — up to 6, backoff 50→800ms"]
+    B["attempt — up to the attempt limit, with backoff"]
     I["installOpfsSAHPoolVfs, once per worker<br/>(forceReinitIfPreviouslyFailed: true)"]
-    C{"pool capacity ≥ 6?"}
-    A["addCapacity up to 6<br/>(fresh random filenames)"]
+    C{"pool capacity ≥ MIN_POOL_CAPACITY?"}
+    A["addCapacity up to MIN_POOL_CAPACITY<br/>(fresh random filenames)"]
     O["open /pkm-replica.sqlite3"]
     R{"SyncAccessHandle contention,<br/>and attempts left?"}
     OK([replica ready])
@@ -108,9 +108,10 @@ flowchart TD
 because sqlite-wasm memoises `installOpfsSAHPoolVfs` and otherwise re-awaits the
 cached rejection. The top-up to `MIN_POOL_CAPACITY` must run before the open,
 because nothing grows the pool later and every file SQLite keeps claims a slot.
-The six slots cover the four `PEAK_POOL_FILES` (the replica, the carry and
+`MIN_POOL_CAPACITY` covers `PEAK_POOL_FILES` (the replica, the carry and
 their journals, the most a
-[file replacement](#reset-rebase-and-file-replacement) holds) with two spare.
+[file replacement](#reset-rebase-and-file-replacement) holds) with room to
+spare.
 
 ### Availability: two values, one owner
 
@@ -202,10 +203,10 @@ A mark RPC that fails holds the claim, because the row is still unmarked.
 
 ## A pull that keeps failing
 
-A pull failure reaches `noteFailure`, which retries from `RETRY_BASE_MS` (1 s)
-doubling to `RETRY_MAX_MS` (60 s), with no timer while offline.
+A pull failure reaches `noteFailure`, which retries from `RETRY_BASE_MS`
+doubling to `RETRY_MAX_MS`, with no timer while offline.
 `isStallShaped` (`sync/syncFailures.ts`) decides whether it counts towards
-`STALL_AFTER_FAILURES` (3):
+`STALL_AFTER_FAILURES`:
 
 | Failure | Counts? | Why |
 |---|---|---|

@@ -56,8 +56,8 @@ export function Popover({ label, x, y, onClose, remeasure, children }: {
   // box this popover would paint displaced by that box's own offset --
   // 283x471px when `content-visibility: auto` was trialled on
   // `.journal-day` and rejected on the numbers. The invariant, not the one
-  // rule, is what matters: see "Nothing `position: fixed` may render inside
-  // a layout-contained box" in docs/architecture/styling.md.
+  // rule, is what matters: see "Containment" under
+  // "Layout invariants" in docs/architecture/styling.md.
   // Dismissal is unaffected: useDismiss's `contains` check is against this
   // element itself, and React still propagates synthetic events from here
   // through the REACT tree to whatever rendered the popover (the hazard

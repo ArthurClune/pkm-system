@@ -123,8 +123,9 @@ transaction:
 | `delete` | uid |
 | `outline` | page, parent?, items (nested string arrays) |
 
-`index` inserts a `create`, `todo` or `move` at that position. Without it, the
-block is appended.
+`index` inserts a `create`, `todo` or `move` at that position, counting from 0.
+A position past the end appends, and so does omitting it. A `move` counts the
+destination's children without the moving block.
 
 An `update`, `move` or `delete` whose uid no longer exists is skipped rather
 than failing the transaction. So is a `create` or `move` whose parent no

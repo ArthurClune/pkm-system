@@ -5,6 +5,7 @@ opfs-sahpool VFS never rolls back a hot journal, so a worker killed mid-commit
 leaves a half-applied transaction that `integrity_check` still calls "ok".
 The patch stays until an npm release carries upstream's fix; then delete the
 patch and this file together ([Upgrading](#upgrading-sqlite-wasm)).
+Known failures live in [troubleshooting.md](../troubleshooting.md).
 
 ## What it changes
 

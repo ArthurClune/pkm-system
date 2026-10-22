@@ -50,6 +50,21 @@ _raw_int = st.one_of(
     st.floats(allow_nan=False, allow_infinity=False),
     st.sampled_from([math.nan, math.inf]), st.text(max_size=3))
 _raw_heading = st.one_of(_absent, st.just(0), st.integers(1, 3), _raw_int)
+# One strategy per kind of `:block/heading` Roam may send, run as its own
+# property so every kind, and the stored 0 and levels they leave, are
+# reached by construction. `leveled` gives the blocks 1, 2, 3 in turn and
+# `legacy_zero` omits the attribute then stores the 0 older imports wrote.
+EXAMPLES_PER_CELL = 8
+_HEADINGS: dict[str, st.SearchStrategy[object] | None] = {
+    "any": _raw_heading,
+    "leveled": None,
+    "legacy_zero": _absent,
+    "negative": st.integers(-3, -1),
+    "out_of_range": st.integers(4, 9),
+    "float": st.floats(allow_nan=False, allow_infinity=False),
+    "past_int64": st.integers(INT64_MAX + 1, 2 ** 70),
+    "bool": st.booleans(),
+}
 _raw_time = st.one_of(_absent, _raw_int)
 _raw_view_type = st.one_of(_absent, st.sampled_from(
     [":numbered", ":document", ":bullet", "numbered", 3, True]))
@@ -73,8 +88,13 @@ def _raw_kind(value: object) -> str:
 
 
 @st.composite
-def roam_exports(draw) -> Tagged:
+def roam_exports(draw, heading: str = "any", refused_title: bool = False
+                 ) -> Tagged:
+    """An export whose blocks' headings are of the `heading` kind; with
+    `refused_title`, one page title the importer refuses."""
     titles = draw(st.lists(_title, min_size=1, max_size=3))
+    if refused_title:
+        titles[0] = "]]" + titles[0]
     uids = draw(st.lists(_uid, min_size=3, max_size=8, unique=True))
     datoms: list[list[object]] = []
 
@@ -91,9 +111,7 @@ def roam_exports(draw) -> Tagged:
         put(eid, ":create/time", draw(_raw_time))
         put(eid, ":edit/time", draw(_raw_time))
     block_eids: list[int] = []
-    # Half the exports give their blocks levels 1, 2, 3 in turn, so every
-    # level a block carries is stored on any seed; the rest draw any value.
-    leveled = draw(st.booleans())
+    kind = _HEADINGS[heading]
     for i, uid in enumerate(uids):
         eid = 100 + i
         parent = draw(st.sampled_from(page_eids + block_eids))
@@ -110,7 +128,7 @@ def roam_exports(draw) -> Tagged:
             event(f"block text: {label}")
         put(eid, ":block/order", draw(st.integers(0, 3)))
         put(eid, ":block/heading",
-            1 + i % 3 if leveled else draw(_raw_heading))
+            1 + i % 3 if kind is None else draw(kind))
         put(eid, ":block/open", draw(_raw_open))
         put(eid, ":children/view-type", draw(_raw_view_type))
         put(eid, ":create/time", draw(_raw_time))
@@ -151,16 +169,32 @@ def _import(export_value: Tagged, path, migrate: bool,
     return True
 
 
-def _label_stored(path) -> None:
+def _label_stored(path) -> set[object]:
+    """Label what the import stored; the headings it holds."""
     db = connect(path)
+    headings: set[object] = set()
     try:
         for heading, in read(db, "SELECT DISTINCT heading AS h FROM blocks"):
             event(f"stored heading: {heading!r}")
+            headings.add(heading)
         for kind, in read(db, "SELECT DISTINCT typeof(created_at) AS t"
                               " FROM blocks"):
             event(f"stored block created_at: {kind}")
     finally:
         db.close()
+    return headings
+
+
+@settings(max_examples=20, deadline=None, database=None)
+@given(export=roam_exports(refused_title=True))
+def test_an_export_with_a_refused_title_is_refused(export):
+    """A page title the importer cannot sanitize is refused before any
+    row is written; reached by construction, not by a floor."""
+    parsed = parse_export(export)
+    validate_export_structure(parsed)
+    validate_export_uids(parsed)
+    with pytest.raises(ImportTitleError):
+        sanitize_export_titles(parsed)
 
 
 @pytest.fixture(scope="module")
@@ -169,27 +203,44 @@ def harness(tmp_path_factory):
         yield opened
 
 
-# Floors: see `with_floors` in hostile.py for how they were set.
+# Floors: see `with_floors` in hostile.py for how they were set. The stored
+# headings and the import refusal are guaranteed by construction instead:
+# every (migration, heading kind) cell is its own property, the two kinds
+# that decide what is stored assert it, and a refused title has its own.
 @with_floors({
-    "block text: NUL": 0.066, "block text: [[": 0.68, "block text: very long": 0.17,
-    "import refused: ImportTitleError": 0.079, "imported, title migration applied": 0.07,
-    "imported, title migration not run": 0.1, "sent :create/time: int past 64 bits": 0.21,
-    "stored block created_at: integer": 0.17, "stored block created_at: null": 0.26,
-    "stored heading: 1": 0.13, "stored heading: 2": 0.11, "stored heading: 3": 0.1,
+    "block text: NUL": 0.016, "block text: [[": 0.5, "block text: very long": 0.04,
+    "sent :create/time: int past 64 bits": 0.1,
+    "stored block created_at: integer": 0.17, "stored block created_at: null": 0.17,
 }, per="case")
-@settings(max_examples=120, deadline=None, suppress_health_check=[
-    HealthCheck.function_scoped_fixture, HealthCheck.too_slow,
-    HealthCheck.data_too_large])
-@given(export=roam_exports(), migrate=st.booleans(),
-       legacy_heading_zero=st.booleans())
-def test_every_imported_row_is_served(harness, tmp_path_factory, export,
-                                      migrate, legacy_heading_zero):
+def test_every_imported_row_is_served(harness, tmp_path_factory):
+    for migrate in (True, False):
+        for heading in _HEADINGS:
+            @settings(max_examples=EXAMPLES_PER_CELL, deadline=None,
+                      database=None, suppress_health_check=[
+                          HealthCheck.function_scoped_fixture,
+                          HealthCheck.too_slow, HealthCheck.data_too_large])
+            @given(data=st.data(), legacy_heading_zero=st.booleans())
+            def cell(data, legacy_heading_zero):
+                _import_is_served(harness, tmp_path_factory, data, migrate,
+                                  heading, legacy_heading_zero)
+
+            cell()
+
+
+def _import_is_served(harness, tmp_path_factory, data, migrate: bool,
+                      heading: str, legacy_heading_zero: bool) -> None:
     count("case")
+    export = data.draw(roam_exports(heading))
+    legacy_heading_zero = legacy_heading_zero or heading == "legacy_zero"
     path = tmp_path_factory.mktemp("import") / "pkm.sqlite3"
     if not _import(export, path, migrate, legacy_heading_zero):
         return
     event(f"imported, title migration {'applied' if migrate else 'not run'}")
-    _label_stored(path)
+    stored = _label_stored(path)
+    if heading == "leveled":
+        assert {1, 2, 3} <= stored, stored
+    if heading == "legacy_zero":
+        assert 0 in stored, stored
     source = connect(path)
     try:
         harness.reset(source)
@@ -209,5 +260,8 @@ def test_every_imported_row_is_served(harness, tmp_path_factory, export,
         title = encode_segment(page["title"])
         ok(f"/api/page/{title}")
         ok(f"/api/export/page/{title}")
+    # A stored 0 (no heading, as older imports wrote it) is served as null.
+    for block in snapshot["blocks"]:
+        assert block["heading"] in (None, 1, 2, 3), block
     for block in snapshot["blocks"]:
         ok(f"/api/block/{encode_segment(block['uid'])}")

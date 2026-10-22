@@ -63,11 +63,14 @@ def with_floors(floors: dict[str, float], per: str):
     `floors[label]` of the `per` count. A property that stopped drawing a
     case would otherwise stay green on the cases it still draws.
 
-    A floor is about half the lowest share the label reached over 24 seeds
-    (`--hypothesis-seed=1..24`): near the typical share it fails on an
-    unlucky seed with nothing wrong. A label whose lowest count was under
-    about ten events has no floor, since half of so few is noise; the
-    generator is changed to draw it more often, or it stays an `event`."""
+    A floor is about half the lowest share the label reached over 30
+    unseeded runs: seeded runs vary far less than the plain ones the gate
+    makes, and a floor near the typical share fails on an unlucky draw with
+    nothing wrong. A label whose lowest count was under about five events
+    has no floor, since half of so few is noise. A category the generator
+    chooses (a flag state, a mode) is a pytest parameter instead, so it is
+    reached by construction; otherwise the generator is changed to draw the
+    label more often, or it stays an `event`."""
     def decorate(test):
         @functools.wraps(test)
         def run(*args, **kwargs):

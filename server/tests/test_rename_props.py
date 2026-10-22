@@ -197,15 +197,15 @@ def block_cases(draw, *, padded_attribute: bool = True, nested: bool = True):
 # --- properties -----------------------------------------------------------
 
 # Each floor is about half the lowest share of cases the label reached over
-# 20 seeds (`--hypothesis-seed=1..20`): a floor near the typical share fails
-# on an unlucky seed with nothing wrong, and one far below it lets a
-# generator change drop the case unnoticed.
+# 30 unseeded runs: a floor near the typical share fails on an unlucky draw
+# with nothing wrong, and one far below it lets a generator change drop the
+# case unnoticed.
 
 @with_floors({
     "changed": 0.3,
     "unchanged": 0.08,
     "code-bearing": 0.14,
-    "no code": 0.25,
+    "no code": 0.2,
     "attribute lead": 0.07,
     "no attribute lead": 0.35,
 }, per="case")
@@ -223,7 +223,7 @@ def test_rewrite_changes_only_the_refs_to_the_old_title(case):
     assert out == expected
 
 
-@with_floors({"identity over a text with refs": 0.4, "no refs": 0.05},
+@with_floors({"identity over a text with refs": 0.39, "no refs": 0.056},
              per="case")
 @settings(max_examples=400, deadline=None)
 @given(block_cases(padded_attribute=False))
@@ -251,7 +251,7 @@ def _substituted(text: str, old: str, new: str,
     return out
 
 
-@with_floors({"code to preserve": 0.18, "no code": 0.21},
+@with_floors({"code to preserve": 0.17, "no code": 0.2},
              per="case")
 @settings(max_examples=400, deadline=None)
 @given(block_cases(nested=False))
@@ -274,7 +274,7 @@ def _code_chars(text: str) -> str:
                    if kept == " " and c != " ")
 
 
-@with_floors({"accepted title": 0.2, "refused title": 0.19},
+@with_floors({"accepted title": 0.2, "refused title": 0.2},
              per="case")
 @settings(max_examples=400, deadline=None)
 @given(raw_titles, st.sampled_from(
@@ -294,7 +294,7 @@ def test_every_title_the_product_accepts_reads_back_after_a_rewrite(
     assert "a" not in titles_after - {new}
 
 
-@with_floors({"new already occurs: skipped": 0.19, "round trip by refs": 0.16, "round trip exact": 0.05},
+@with_floors({"new already occurs: skipped": 0.17, "round trip by refs": 0.16, "round trip exact": 0.051},
              per="case")
 @settings(max_examples=400, deadline=None)
 @given(block_cases(padded_attribute=False, nested=False))
@@ -317,7 +317,7 @@ def test_old_to_new_and_back_restores_the_text(case):
             _substituted(text, old, new, title_after=old)
 
 
-@with_floors({"swap over a text mentioning both": 0.17, "swap over a text mentioning one": 0.22},
+@with_floors({"swap over a text mentioning both": 0.14, "swap over a text mentioning one": 0.2},
              per="case")
 @settings(max_examples=200, deadline=None)
 @given(block_cases())
@@ -385,7 +385,7 @@ def padded_cases(draw):
     return old, new, source, expected, padded
 
 
-@with_floors({"rewrote a padded spelling": 0.27, "no padded spelling": 0.11},
+@with_floors({"rewrote a padded spelling": 0.24, "no padded spelling": 0.115},
              per="case")
 @settings(max_examples=400, deadline=None)
 @given(padded_cases())

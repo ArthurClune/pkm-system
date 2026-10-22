@@ -144,11 +144,11 @@ def test_strip_asset_tokens_removes_exactly_the_asset_tokens():
         seen["cases"] += 1
 
     prop()
-    # About half the lowest rate each shape reached over 60 seeds: a floor
-    # near the typical rate fails on an unlucky seed with nothing wrong.
+    # About half the lowest rate each shape reached over 30 unseeded runs: a
+    # floor near the typical rate fails on an unlucky draw with nothing wrong.
     floor = {
-        "encoded": 0.2, "legacy": 0.15, "markdown": 0.3, "macro": 0.07, "bare": 0.03,
-        "image": 0.2, "pdf": 0.06, "space": 0.03, "paren": 0.07, "bracket": 0.07,
+        "encoded": 0.2, "legacy": 0.15, "markdown": 0.29, "macro": 0.07, "bare": 0.03,
+        "image": 0.19, "pdf": 0.055, "space": 0.03, "paren": 0.055, "bracket": 0.07,
         "backslash": 0.015, "percent": 0.03, "nested": 0.018, "leading-bracket": 0.03,
         "unicode": 0.16, "other-token": 0.4,
     }

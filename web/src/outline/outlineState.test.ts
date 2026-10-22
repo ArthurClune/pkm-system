@@ -216,6 +216,14 @@ describe("outline causality", () => {
     expect(validateOutlineFocus(focus, [block("tuid-kept", "text")])).toBe(focus);
   });
 
+  it("snaps a caret off the middle of a surrogate pair", () => {
+    // `a😀b` is a, \uD83D, \uDE00, b: offset 2 splits the emoji, and text
+    // typed there would leave both halves lone (saved as U+FFFD).
+    expect(validateOutlineFocus(
+      { uid: uidOf("tuid-e"), cursor: 2 }, [block("tuid-e", "a\u{1F600}b")],
+    )).toEqual({ uid: "tuid-e", cursor: 1 });
+  });
+
   it("clamps a caret past the end of the block's text", () => {
     // Undo restores focus recorded on "x y" (caret 3) over the text "ab".
     expect(validateOutlineFocus(

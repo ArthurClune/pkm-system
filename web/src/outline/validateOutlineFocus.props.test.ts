@@ -68,16 +68,17 @@ describe("validateOutlineFocus", () => {
       expect(result.uid).toBe(target);
       if (path.slice(0, -1).some((u) => isTable(byUid.get(u)!))) tally.tableCell += 1;
       const len = text(target).length;
-      expect(result.cursor).toBe(Math.min(cursor, len));
+      expect(insidePair(text(target), result.cursor)).toBe(false);
       if (cursor > len) {
         tally.past += 1;
-        expect(insidePair(text(target), result.cursor)).toBe(false);
+        expect(result.cursor).toBe(len);
+      } else if (insidePair(text(target), cursor)) {
+        // A placed caret never splits a pair: it moves to the pair's start.
+        tally.midPair += 1;
+        expect(result).toEqual({ uid: target, cursor: cursor - 1 });
       } else {
         tally.kept += 1;
         expect(result).toBe(focus);
-        // Kept as given, a mid-pair offset included: every slicing edit
-        // snaps its offsets (snapCaret), so the focus does not.
-        if (insidePair(text(target), cursor)) tally.midPair += 1;
       }
     }), { numRuns: 500 });
     for (const [name, count] of Object.entries(tally)) {

@@ -58,7 +58,7 @@ and the only place a segment becomes a component.
 
 | A `link` whose href | Renders as |
 |---|---|
-| has a GoodLinks id (`goodlinksIdFromHref`) | `GoodlinksLink` ([goodlinks.md](goodlinks.md)) |
+| has a GoodLinks id (`goodlinksIdFromHref`) | `GoodlinksLink` ([files-and-assets.md](files-and-assets.md#goodlinks-copies)) |
 | is a PDF (`isPdfHref`) | `PdfEmbed` |
 | is a Bluesky post URL and equals its text (a bare URL) | `BlueskyEmbed`; a labelled link stays an anchor |
 | passes `isSafeHref` | `<a target="_blank">` |

@@ -189,6 +189,11 @@ arrives aborts the run, and the next night retries.
   stdout/stderr.
 - `tailscale serve status`: confirms the HTTPS Serve forward to the local
   port is still configured after a Tailscale update or reboot.
+- `Local copy::` files answer 503 while the iCloud consent prompt
+  ([The launcher](#the-launcher)) waits at the Mac's screen. Unset
+  `local_docs_root` until someone can click Allow. Files that then read
+  `unchecked`, or answer `too many file opens are in flight`, mean probes
+  are still blocked on the prompt: grant it or restart the server.
 
 Known failures are listed by symptom in
 [docs/troubleshooting.md](../docs/troubleshooting.md).

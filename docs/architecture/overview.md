@@ -11,26 +11,23 @@ is; the *why* (trade-offs, rejected alternatives, per-feature designs) lives
 in [`docs/design.md`](../design.md) and the specs under
 [`docs/superpowers/specs/`](../superpowers/specs/).
 
-| Doc | Covers |
+| Doc | Read when you |
 |---|---|
-| this file | System context, the core idea, tech stack, cross-cutting patterns, deployment and development |
-| [backend.md](backend.md) | FastAPI server: module map, database, write path, title integrity, auth, HTTP API reference, generated artifacts, config, logging |
-| [import-export-and-backup.md](import-export-and-backup.md) | Roam EDN importer, markdown export, single-page export, the nightly backup job |
-| [cli-and-mcp.md](cli-and-mcp.md) | The `pkm` CLI and `pkm-mcp` server: shared HTTP client, write workflows, planners |
-| [assistant.md](assistant.md) | The embedded LLM harness |
-| [files-and-assets.md](files-and-assets.md) | The content-addressed asset store, the `/files` browser, image descriptions |
-| [frontend.md](frontend.md) | React SPA: tech stack, module map, views and navigation, state layers, API layer, assistant panel, testing, build |
-| [frontend-editor.md](frontend-editor.md) | Per-title outline sessions, the editor, keyboard policy, drag and drop, journal day refs |
-| [frontend-rendering.md](frontend-rendering.md) | The rendering pipeline, `scan.ts` authority, caches, block-ref resolution, mermaid, PDF |
-| [goodlinks.md](goodlinks.md) | GoodLinks copies: the proxy routes, resolve-or-save, the sanitised reader, the /goodlinks command |
-| [styling.md](styling.md) | Design tokens and theming, control families, confirmations, focus invariants |
-| [sync-and-offline.md](sync-and-offline.md) | The sync protocol and offline architecture, end to end |
-| [sync-recovery.md](sync-recovery.md) | Sync failure modes and recovery: each guard, what detects it, what it does |
-| [sqlite-wasm-patch.md](sqlite-wasm-patch.md) | The temporary sqlite-wasm patch for hot-journal rollback: what it changes, how it is applied, upgrading, upstream status |
-| [performance-checks.md](performance-checks.md) | The `perf/check.sh` regression gate: fixture, scenarios, metric classes, confirmation, shared state |
-| [property-checks.md](property-checks.md) | The `proptest/check.sh` property-based gate, server and web sides: what each property checks, running it, reading a failure |
-| [enforced-checks.md](enforced-checks.md) | Every check that fails mechanically — on commit, on every test run, before a merge, by hand — and the doc that owns each |
-| [troubleshooting.md](../troubleshooting.md) | Known failures indexed by symptom, each with its cause and the section that owns it |
+| this file | are new: the system picture, the core idea, the stack |
+| [backend.md](backend.md) | change a route, the schema, an op, the ref grammar, titles or config |
+| [sync-and-offline.md](sync-and-offline.md) | change how an edit travels from the editor to the server and back |
+| [sync-recovery.md](sync-recovery.md) | change what happens when a sync hop fails: banners, repairs, resets |
+| [sqlite-wasm-patch.md](sqlite-wasm-patch.md) | upgrade `@sqlite.org/sqlite-wasm` |
+| [frontend.md](frontend.md) | add a view, route or module to the SPA, or touch the API layer or assistant panel |
+| [frontend-editor.md](frontend-editor.md) | change editing, keyboard handling, drag and drop or the outline sessions |
+| [frontend-rendering.md](frontend-rendering.md) | change how block text becomes DOM |
+| [styling.md](styling.md) | add a token, a control class or a stylesheet rule |
+| [files-and-assets.md](files-and-assets.md) | touch uploads, image descriptions, `/api/local/` documents or GoodLinks copies |
+| [import-export-and-backup.md](import-export-and-backup.md) | change the nightly backup, the markdown exports or the Roam importer |
+| [cli-and-mcp.md](cli-and-mcp.md) | change the `pkm` CLI or an MCP tool |
+| [assistant.md](assistant.md) | change the embedded LLM harness |
+| [checks.md](checks.md) | add or answer a mechanical check: commit hooks, coverage, perf and property gates |
+| [troubleshooting.md](../troubleshooting.md) | are chasing a symptom someone has seen before |
 
 ## System context
 
@@ -68,10 +65,10 @@ MCP all speak the same HTTP API with the same session-cookie auth. Block
 content changes go through `POST /api/ops`
 ([the write path](backend.md#the-write-path)); pages, the sidebar and assets
 have their own routes ([API reference](backend.md#http-api-reference)).
-The embedded LLM assistant is another client. The server spawns a harness subprocess per chat
+The embedded assistant is one more client: a harness subprocess per
 conversation, confined to the
-[`pkm-mcp` tools](cli-and-mcp.md#the-mcp-tool-surface), and those tools loop
-back into the same API.
+[`pkm-mcp` tools](cli-and-mcp.md#the-mcp-tool-surface), which call the same
+API.
 
 ## Core idea
 
@@ -91,16 +88,16 @@ browser. Portability comes from a nightly plain-markdown export.
 | Backend | Python ≥ 3.12, FastAPI, Pydantic v2, raw `sqlite3` (WAL + FTS5, no ORM), uvicorn + `websockets`, `uv` (hatchling build) |
 | Frontend | Versions in [frontend.md](frontend.md#tech-stack) |
 | Agent access | `pkm` CLI + `pkm-mcp` stdio server (httpx2; FastMCP from the `mcp` SDK) over the same HTTP API |
-| Embedded assistant | Claude Agent SDK harness, server-side, confined to the `pkm-mcp` tools; SSE streaming chat in the SPA |
-| Ops | launchd services, Tailscale Serve (HTTPS), nightly backup: rotated SQLite snapshots + git-committed markdown export |
+| Embedded assistant | Claude Agent SDK harness, server-side; SSE chat in the SPA |
+| Ops | launchd services, Tailscale Serve (HTTPS) |
 
 ## Cross-cutting patterns
 
 ### Functional Core / Imperative Shell
 
-The whole codebase follows FCIS. Pure logic — op planning, ref extraction,
-query evaluation, tree building, state transitions — lives in Functional Core
-files. I/O — routes, SQLite, WebSocket, workers, React effects — lives in thin
+The whole codebase follows FCIS. Pure logic (op planning, ref extraction,
+query evaluation, tree building, state transitions) lives in Functional Core
+files. I/O (routes, SQLite, WebSocket, workers, React effects) lives in thin
 Imperative Shell files that gather inputs, call the core, and persist results.
 Every runtime file declares its role in a header comment:
 
@@ -109,21 +106,12 @@ Every runtime file declares its role in a header comment:
 // pattern: Imperative Shell      (TypeScript)
 ```
 
-On the web side the boundary is machine-checked: `pnpm check:fcis`
-(`web/tooling/fcis.mjs`) walks the import graph and fails on any
-Functional-Core → Shell edge, type-only imports excepted. On the server it is
-convention plus review. The write path is the clearest case: a pure planner
-(`ops_core.plan_op`) between two thin shells (see
-[backend.md](backend.md#the-write-path)).
-
-Rules and the escape hatches (`Mixed (needs refactoring)` etc.) are in
-`AGENTS.md`; invoke the `howto-functional-vs-imperative` skill for structural
-work.
-
-Comments follow one rule across both sides, machine-checked by
-`.githooks/pre-commit` ([backend.md](backend.md#testing)): a comment explains
-the code beside it and carries no bean id, line number or spec/plan pointer
-that is not a path, because those are the comments that go stale unnoticed.
+On the web the boundary is machine-checked: `pnpm check:fcis`
+(`web/tooling/fcis.mjs`) fails on any Functional-Core → Shell import, type-only
+imports excepted. On the server it is convention plus review. The write path
+is the clearest case: a pure planner (`ops_core.plan_op`) between two thin
+shells ([backend.md](backend.md#the-write-path)). The rules and escape hatches
+are in `AGENTS.md`.
 
 ### One grammar, two languages, pinned by fixtures
 
@@ -131,47 +119,21 @@ Roam-flavoured markdown (`[[links]]`, `#tags`, `Attr::`, `((block refs))`,
 `{{[[query]]}}`, `{{TODO}}`) is parsed on both sides: `server/src/pkm/refs.py`
 (the reference implementation, feeding the `refs` table) and
 `web/src/grammar/scan.ts` (feeding rendering, autocomplete and the replica).
-Fixtures in `shared/fixtures/` are replayed by both test suites, so the two
-parsers cannot drift. The same technique pins the offline API shim to the real
-routes and the replica schema to the server's DDL. The server's Pydantic
-response models likewise generate the TypeScript API types (`pnpm gen-types`).
-Each of those artifacts is generated and checked in.
-[backend.md](backend.md#generated-artifacts-and-parity-fixtures) names the
-generator, the test that fails when one goes stale, and the consumer.
+Both test suites replay the fixtures in `shared/fixtures/`, so the two parsers
+cannot drift. The same technique pins the offline API shim to the real routes
+and the replica schema to the server's DDL, and the server's response models
+generate the TypeScript API types. Each artifact is generated and checked in;
+[backend.md](backend.md#generated-artifacts-and-parity-fixtures) names its
+generator, the test that fails when it goes stale, and its consumer.
 
 ## Deployment and development
 
-Production is launchd services on a Mac under `$PKM_HOME`
-(default `~/.config/pkm`): `app/` (git checkout), `data/` (config.json,
-pkm.sqlite3, assets/), `backups/`, `logs/`. Tailscale Serve terminates HTTPS
-and proxies to the server on `127.0.0.1:8974`. The server also binds the
-machine's Tailscale IP for direct API clients. The backup service runs nightly
-at 03:30; at 04:30 `deploy/icloud_backup.py` mirrors the snapshots and `data/`
-into iCloud Drive.
-
-- `deploy/install.sh` — idempotent first install: builds the server launcher
-  once (macOS attributes file-access consent to the job's own binary, so it
-  must not change), runs `uv sync`, renders plists, bootstraps services,
-  configures Tailscale Serve.
-- `deploy/update.sh` — deploy: fast-forward to `main` of the local dev
-  checkout (never GitHub), `uv sync`, `pnpm build`, kickstart the server
-  service. It refuses to run outside `$PKM_HOME/app`
-  unless `PKM_UPDATE_FORCE=1` is set, so a deploy runs against the installed
-  checkout rather than a dev tree.
-- `deploy/smoke.sh` — post-deploy verification. It does a real WebSocket
-  upgrade, which TestClient suites cannot exercise.
-
-Full procedures: [`deploy/README.md`](../../deploy/README.md).
-
-Development work is tracked in beans (`.beans/`, `beans` CLI); run
-`beans prime` at session start. Feature work happens on branches in worktrees,
-since parallel sessions share this repo, and merges use `--no-ff`. Two
-verification gates run before work is claimed done:
-
-- `cd server && uv run pytest -q && uv run pyrefly check && uv run ruff check`
-- `cd web && pnpm verify` — typecheck → lint → FCIS check → unit coverage →
-  budget-enforced build → Playwright against that build.
-
-`AGENTS.md` is the contract for agents working in this repo. Per-feature
-designs go in `docs/superpowers/specs/` and plans in
-`docs/superpowers/plans/`.
+Production is launchd services on this Mac under `$PKM_HOME` (default
+`~/.config/pkm`): `app/` (a checkout of local `main`), `data/` (`config.json`,
+`pkm.sqlite3`, `assets/`), `backups/` and `logs/`. Tailscale Serve terminates
+HTTPS and proxies to the server on `127.0.0.1:8974`.
+[deploy/README.md](../../deploy/README.md) owns install, update, backups and
+restore. `AGENTS.md` is the contract for working in this repo: beans, worktrees,
+the gates to run and how to answer them. [checks.md](checks.md) describes what
+each gate checks. Per-feature designs are in `docs/superpowers/specs/` and plans
+in `docs/superpowers/plans/`.

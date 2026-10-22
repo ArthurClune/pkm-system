@@ -5,7 +5,7 @@
 // the changes feed's window at a few journal rows, so a catch-up crosses
 // window boundaries (see windowLimit). Half the time a client's first
 // connect, and a Reload's, comes at a drawn tick of its startup rather than
-// after it (connectTiming in commands.ts). Seventeen fixed scenarios run first,
+// after it (connectTiming in commands.ts). The fixed scenarios run first,
 // through the same commands.
 //
 // A failure prints the seed, the path, the shrunk command list, what each
@@ -108,7 +108,8 @@ interface ExampleOptions {
 /** No cap two times in three, else a window of one to five journal rows:
  * small enough that a catch-up over a few edits crosses several window
  * boundaries, where block tombstones wait for the window at the journal
- * head (see "The changes feed" in docs/architecture/sync-and-offline.md). */
+ * head (see "Block tombstones wait for the head window" in
+ * docs/architecture/sync-and-offline.md). */
 const windowLimit: fc.Arbitrary<number | undefined> = fc.oneof(
   { weight: 2, arbitrary: fc.constant(undefined) },
   { weight: 1, arbitrary: fc.integer({ min: 1, max: 5 }) },

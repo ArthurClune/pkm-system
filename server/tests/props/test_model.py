@@ -52,7 +52,7 @@ def move(uid: BlockUid, parent, idx, page=None):
     return op
 
 
-# --- backend.md § The write path: Ordering ----------------------------------
+# --- backend.md § Planning: Ordering ----------------------------------------
 
 def test_create_shifts_siblings_at_and_after_key():
     m = model(blk(A, idx=0), blk(B, idx=1))
@@ -193,7 +193,7 @@ def test_follow_on_op_sees_diverted_create_as_missing():
     assert out.kept_texts == ("first", "second")
 
 
-# --- backend.md § Conflicts / sync-and-offline.md § Conflicts at push time ---
+# --- backend.md § Conflicts --------------------------------------------------
 
 def test_stale_hash_edit_keeps_overwritten_text():
     m = model(blk(A, text="old"))
@@ -519,7 +519,7 @@ def test_text_model_matches_the_unlinker_on_generated_texts(data):
                 if out.rewrite(t)[0] != t} == plan.rewrites
 
 
-# --- cli-and-mcp.md: batch `index` is a position ------------------------------
+# --- cli-and-mcp.md § Pure planners: batch `index` is a position -------
 
 def cr(index=None, parent=None, alias=None, command="create"):
     params = {"page": "Alpha", "text": "t", "parent": parent, "index": index}

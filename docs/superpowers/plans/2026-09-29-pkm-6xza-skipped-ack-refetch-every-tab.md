@@ -547,7 +547,7 @@ a review-found pre-existing bug now fixed, so it qualifies per the file's own
 rule: "only for a failure that happened or that a review reproduced"):
 
 ```markdown
-| A replica-backed online tab keeps a ghost block after a page delete, journal cleanup, or another device's edit elsewhere, and every debounced flush into it lands another `orphan_edit` child on today's daily note | The durable batch loop in `runDrain` never read the ack's `skipped` list; only the fallback lane did, and only while `unavailable` was latched. The replica tombstones the row from its own feed, but nothing bumped `resyncSeq` for it | [sync-recovery.md § Ops on blocks the server no longer has](architecture/sync-recovery.md#ops-on-blocks-the-server-no-longer-has) | pkm-6xza |
+| A replica-backed online tab keeps a ghost block after a page delete, journal cleanup, or another device's edit elsewhere, and every debounced flush into it lands another `orphan_edit` child on today's daily note | The durable batch loop in `runDrain` never read the ack's `skipped` list; only the fallback lane did, and only while `unavailable` was latched. The replica tombstones the row from its own feed, but nothing bumped `resyncSeq` for it | [sync-and-offline.md § When views refetch](architecture/sync-and-offline.md#when-views-refetch) | pkm-6xza |
 ```
 
 - [ ] **Step 6: Append a correction to the pkm-c2gs bean's summary**

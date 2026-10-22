@@ -1,32 +1,31 @@
 # Embedded assistant (`pkm/assistant/`)
 
-The in-app LLM assistant is a server-side agent harness, exposed over the app's
-only SSE endpoints (`/api/assistant/*`, behind the same `require_auth`). The
-harness has no built-in tools, only the `pkm-mcp` verbs
+The in-app LLM assistant is a server-side agent harness behind the app's only
+SSE endpoints (`/api/assistant/*`, behind the same `require_auth`). The harness
+has no built-in tools, only the `pkm-mcp` verbs
 ([cli-and-mcp.md](cli-and-mcp.md#the-mcp-tool-surface)), which loop back into
 this same server over HTTP. Assistant writes therefore get the same validation,
 conflict handling, journalling and broadcasts as any client. The routes are in
-the API reference table in [backend.md](backend.md#http-api-reference); the chat
-panel is in [frontend.md](frontend.md). Design spec:
+[backend.md](backend.md#http-api-reference), and the chat panel is in
+[frontend.md](frontend.md#the-assistant-panel). Design spec:
 [`docs/superpowers/specs/2026-07-26-pkm-wn2s-assistant-design.md`](../superpowers/specs/2026-07-26-pkm-wn2s-assistant-design.md);
-threat model: [`docs/SECURITY.md`](../SECURITY.md). Failures and their fixes are
-indexed by symptom in [troubleshooting.md](../troubleshooting.md).
+threat model: [`docs/SECURITY.md`](../SECURITY.md). Failures are indexed by
+symptom in [troubleshooting.md](../troubleshooting.md).
 
 | File | Pattern | Role |
 |---|---|---|
-| `events.py` | Core | The event union routes and the web UI speak (`TextDelta`, `ToolStarted`/`ToolFinished`, `Phase`, `ConfirmRequest`, `TurnDone`, `ErrorEvent`) + `encode_sse()`. Nothing engine-specific leaks upward |
-| `policy.py` | Core | The tool gate (`READ_TOOLS` auto-allowed, `WRITE_TOOLS` confirm-gated), the model allowlist (`sonnet` / `opus` / `haiku` / `fable` / `glm`; `available_models()` drops `glm` when no z.ai key is configured, and `default_model()` picks `glm` when offered, `sonnet` otherwise), tool-activity summaries, write-op previews, and the system prompt |
-| `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols — the seam a second backend or the test double plugs into. `send()` is typed as an async generator because the caller closes it |
-| `harness_env.py` | Core | `resolve_harness_env()`: requested model + available key → the alias handed to the SDK and the harness subprocess's env |
-| `service.py` | Shell | In-memory conversation registry: 3-conversation cap, lazy 15-minute idle reap, per-conversation lock (a second concurrent turn is a 409); `close_all()` runs on app-lifespan shutdown |
-| `claude_engine.py` | Shell | The Claude Agent SDK adapter — the only engine today |
-| `routes.py` | Shell | The HTTP/SSE endpoints. An engine failure mid-stream is reported in-band as an `error` SSE event rather than a broken response |
+| `events.py` | Core | The event union routes and the web UI speak, plus `encode_sse()`. Nothing engine-specific leaks upward |
+| `policy.py` | Core | The tool gate (`READ_TOOLS` auto-allowed, `WRITE_TOOLS` confirm-gated), `MODELS`, `available_models()`, `default_model()`, write-op previews, the system prompt |
+| `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols: the seam the test double plugs into. `send()` is an async generator because the caller closes it |
+| `harness_env.py` | Core | `resolve_harness_env()`: requested model and available key → the SDK alias and the subprocess env |
+| `service.py` | Shell | `AssistantService`, the in-memory conversation registry: a cap (`max_conversations`), a lazy idle reap (`idle_ttl`), a 409 for a second concurrent turn; `close_all()` on app shutdown |
+| `claude_engine.py` | Shell | `ClaudeEngine`, the Claude Agent SDK adapter and only engine |
+| `routes.py` | Shell | The HTTP/SSE endpoints. An engine failure mid-stream is an in-band `error` event, not a broken response |
 
-Conversations are ephemeral: in memory only, with no history table. The engine
-is injected into `create_app(config, assistant_engine=...)`; production defaults
-to `ClaudeEngine`, while tests and the e2e server inject a fake.
+Conversations live in memory only, with no history table. The engine is
+injected into `create_app(config, assistant_engine=...)`.
 
-One turn with a confirmed write, end to end:
+One turn with a confirmed write:
 
 ```mermaid
 sequenceDiagram
@@ -40,7 +39,7 @@ sequenceDiagram
     loop while the turn runs
         H-->>R: deltas + tool activity
         R-->>B: phase / text_delta / tool_started / tool_finished
-        Note over R,B: comment keepalive every 15 idle s
+        Note over R,B: comment keepalive every KEEPALIVE_INTERVAL_S idle s
     end
     H->>H: model calls a write tool —<br/>can_use_tool parks it on a future
     R-->>B: confirm_request (ops preview from policy.py)
@@ -53,21 +52,14 @@ sequenceDiagram
 
 ## Conversation registry
 
-Admission — the reap, the cap check, eviction and the
-`engine.create_conversation()` call — runs under one `asyncio.Lock`. Two
-concurrent `create()` calls would otherwise both observe free capacity before
-either registered. The lock spans a subprocess spawn, so `asyncio.wait_for`
-bounds it by `create_timeout` (`CREATE_TIMEOUT_S`, 60s): a wedged harness fails
-that one request instead of wedging every future `create()`. Only admission is
-serialized; sending a turn, confirming a tool call and deleting a conversation
-are not. Harness teardown for a reaped or evicted conversation runs after the
-lock is released, because the registry pop alone enforces the cap, so a hung
-`close()` blocks only the request that triggered it.
+| Rule | Reason |
+|---|---|
+| Admission (reap, cap check, eviction, `engine.create_conversation()`) runs under one `asyncio.Lock`, bounded by `CREATE_TIMEOUT_S`; nothing else takes it | Two concurrent `create()` calls would both see free capacity; a wedged spawn fails one request instead of every later one |
+| Teardown of a reaped or evicted conversation runs after the lock is released | The registry pop already enforces the cap, so a hung `close()` blocks only its own request |
 
-A tab closed mid-turn, a navigation, or the panel's Stop button all end the same
-way: Starlette closes or cancels the response body, and each layer of the SSE
-path then closes the next explicitly, rather than leaving it to CPython's
-async-generator finalizer.
+A closed tab, a navigation and the Stop button all end the same way:
+Starlette closes or cancels the response body, and each layer closes the next
+explicitly rather than leaving it to the async-generator finalizer.
 
 ```mermaid
 flowchart LR
@@ -78,29 +70,21 @@ flowchart LR
     C --> A["_abandon_turn"]
 ```
 
-`_abandon_stream` awaits the in-flight read before `aclose()`, because
-`aclose()` on a generator with a live `__anext__` raises, and it logs rather
-than raises, because it unwinds inside a `GeneratorExit`. Each teardown step
-runs through `_wait_out` as a task of its
-own, outside Starlette's cancel scope, waited on with `asyncio.wait` and capped
-by `TEARDOWN_TIMEOUT_S` (30s). Past that bound the entry stays in `_entries`
-with `busy=True`, a later turn on it gets a 409, and `lifespan`'s `close_all()`
-takes it at shutdown.
+The teardown rules:
 
-`ClaudeConversation._abandon_turn` declines every parked confirm future before
-it awaits `interrupt()` (bounded by `INTERRUPT_TIMEOUT_S`): a harness sitting in
-`can_use_tool` cannot acknowledge an interrupt until it gets its decision. A
-wait cut short by a cancellation counts the same as one that timed out, because
-the harness's state is unknown in both cases.
-
-**An unacknowledged interrupt retires the whole conversation:**
-`ClaudeConversation` flips `healthy` to `False` when `interrupt()` times out or
-raises, because the subprocess may still be running the abandoned turn.
-`AssistantService._stream()` checks `healthy` right after clearing the busy
-flag, synchronously, so it cannot race a concurrent admission's reap or evict.
-Pop-then-close is idempotent against an explicit `delete()`, such as the
-pagehide beacon, and the next `send()` for that id gets a plain
-`UnknownConversationError` (404).
+- Each step runs through `_wait_out`, outside Starlette's cancel scope, capped
+  by `TEARDOWN_TIMEOUT_S`. Past that bound the entry stays busy, a later turn
+  on it gets a 409, and `close_all()` takes it at shutdown.
+- `_abandon_stream` logs rather than raises, because it unwinds inside a
+  `GeneratorExit`.
+- `_abandon_turn` declines every parked confirm before it awaits
+  `interrupt()`: a harness parked in `can_use_tool` cannot acknowledge an
+  interrupt until it has its decision.
+- **An unacknowledged interrupt retires the conversation.** If `interrupt()`
+  times out (`INTERRUPT_TIMEOUT_S`), raises or is cancelled,
+  `ClaudeConversation.healthy` goes `False`, because the subprocess may still
+  be running the abandoned turn. `AssistantService._stream()` then drops the
+  entry, and the next `send()` for that id raises `UnknownConversationError`.
 
 ## Harness confinement
 
@@ -108,48 +92,38 @@ What `claude_engine.py` fixes before and around each harness subprocess:
 
 | Concern | Mechanism | Rule |
 |---|---|---|
-| Tool surface | One SDK subprocess per conversation, with `tools=[]` plus a single MCP server entry running `python -m pkm.mcp.server` | `ENABLE_TOOL_SEARCH=false` is required alongside `tools=[]`, so the MCP tools load eagerly instead of being deferred behind a ToolSearch tool |
-| Provider routing | `harness_env.resolve_harness_env()` decides before anything is spawned, keyed on `policy.ZAI_MODELS` membership rather than a `glm` literal | `model="glm"` runs the same harness against z.ai's Anthropic-compatible endpoint (`ZAI_BASE_URL`), via `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` in the subprocess env. The SDK is passed the `ZAI_SDK_MODEL` (`sonnet`) alias: z.ai maps Claude aliases to its plan-default GLM server-side, so no GLM version name exists in the code to go stale |
-| Model resolution | Claude models are passed to the SDK as aliases (`sonnet` / `opus` / `haiku` / `fable`). The `claude` binary bundled in `claude-agent-sdk` maps each alias to a model id | A new Claude model reaches the assistant only through an SDK upgrade, never through a code change. Check the bundled CLI's alias table before bumping. `server/pyproject.toml` exempts the SDK from the global uv cooldown (`[tool.uv] exclude-newer-package`), so `uv lock --upgrade-package claude-agent-sdk` always takes the newest release. `deploy/update.sh` runs `uv sync`, which installs what `uv.lock` pins, so that upgrade has to be committed |
-| Auth | The engine mints a fresh session token (`auth_core.sign_session`) into a 0600 temp config file per conversation, and passes it to the MCP subprocess as `PKM_CLI_CONFIG` | The file is deleted on close. The token is visible in the harness subprocess's environment and its children, including the pkm MCP server — accepted on a single-user deployment |
-| Transactional startup | `create_conversation()` writes that config file, then constructs the client and awaits `connect()` inside a `try`/`except BaseException` that reuses `ClaudeConversation.close()` for cleanup on any exit other than success | The config-file unlink lives in a `finally`, because `except Exception` does not catch `BaseException` |
-| Write confirmation | The parked-future flow in the diagram above | A denial returns "the user declined" to the model instead of erroring the turn |
-| Deployment prerequisite | The SDK bundles its own `claude` binary and authenticates with the machine's logged-in Claude subscription. See [`deploy/README.md`](../../deploy/README.md) | No `ANTHROPIC_API_KEY` is set in the service environment |
+| Tool surface | One SDK subprocess per conversation, `tools=[]` plus one MCP server running `python -m pkm.mcp.server` | `ENABLE_TOOL_SEARCH=false` must accompany `tools=[]`, or the MCP tools are deferred behind a ToolSearch tool |
+| Provider routing | `resolve_harness_env()` keys on `policy.ZAI_MODELS`, not a `glm` literal | `glm` sets `ANTHROPIC_BASE_URL` (`ZAI_BASE_URL`) and `ANTHROPIC_AUTH_TOKEN` in the subprocess env and asks for `ZAI_SDK_MODEL`, an alias z.ai maps to its plan default, so no GLM version name is in the code |
+| Model resolution | Claude models go to the SDK as aliases; the `claude` binary bundled in `claude-agent-sdk` maps them to ids | A new Claude model arrives only through an SDK upgrade, which is why `server/pyproject.toml` exempts the SDK from the uv cooldown |
+| Auth | A fresh session token (`auth_core.sign_session`) in a 0600 temp config file per conversation, passed as `PKM_CLI_CONFIG` | The file is deleted on close. The token is visible in the subprocess env; accepted for a single-user deployment |
+| Transactional startup | `create_conversation()` cleans up through `ClaudeConversation.close()` on any exit but success | The config-file unlink is in a `finally`, because `except Exception` misses `BaseException` |
+| Credentials | The SDK uses the machine's Claude subscription login ([deploy/README.md](../../deploy/README.md#assistant-prerequisites)) | No `ANTHROPIC_API_KEY` in the service environment |
 
-The z.ai token comes from `config.zai_api_key_file` (default `PKM_HOME/zai_key`),
-with `ZAI_API_KEY` as the env fallback; the file wins, and it is read once at
-startup, so rotating it needs a restart. Without a token,
-`GET /api/assistant/models` omits `glm`, the service's `create()` rejects it
-(400), and the engine refuses it before writing the credential file. Claude
-models keep the machine's subscription login.
+Without a z.ai key ([configuration](backend.md#configuration-and-entrypoints)),
+`available_models()` drops `glm`, `create()` rejects it with a 400, and the
+engine refuses it before writing the credential file.
 
 ## Keepalives and the stall watchdog
 
-**Keepalives.** A turn can write nothing for minutes: long model reasoning, a
-large tool payload, or a confirm parked on the user. `routes._with_keepalive()`
-interleaves a comment frame (`events.SSE_COMMENT`) every `KEEPALIVE_INTERVAL_S`
-(15) idle seconds, which keeps the connection warm past NAT and proxy idle
-timeouts. The periodic write also detects a client that vanished without a clean
-close. Thinking *content* is not streamed; instead `TurnMapper.map` turns each
-`content_block_start` into a `phase` event with a display label — "reasoning",
-"preparing `<tool>`", "replying" — which the panel's busy line shows with a
-ticking elapsed clock. Both harnesses, Anthropic and z.ai, forward
-`content_block_start` with the tool name in it.
+A turn can write nothing for minutes: long reasoning, a large tool payload,
+or a confirm parked on the user. `routes._with_keepalive()` sends a comment
+frame (`events.SSE_COMMENT`) every `KEEPALIVE_INTERVAL_S` idle seconds. That
+keeps NAT and proxies from dropping the connection, and the write detects a
+client that vanished without a clean close. Thinking content is not streamed;
+`TurnMapper.map` turns each `content_block_start` into a `phase` event
+("reasoning", "preparing `<tool>`", "replying") for the panel's busy line.
 
-**Stall watchdog.** Total SDK silence means a dead network; during real
-reasoning the harness emits a steady flow of stream events. When no SDK message
-arrives for `STALL_TIMEOUT_S` (5 minutes), the pump interrupts the harness, with
-the same bounded wait and `healthy` verdict as `_abandon_turn`, and then reports
-the stall as an in-band `error`. The interrupt is issued before that error
-event, because the error ends the consumer's loop and would cancel the interrupt
-mid-flight. The deadline is suspended while a confirm is parked: that silence is
-the user's, and a slow approval must never kill the turn. The web client has a
-matching guard on its own leg, where `streamMessage` errors after 60s with no
-bytes at all, four missed keepalives.
+The stall watchdog treats total SDK silence as a dead network, since real
+reasoning emits a steady stream of events. After `STALL_TIMEOUT_S` with no
+SDK message, the pump interrupts the harness, with the same bounded wait and
+`healthy` verdict as `_abandon_turn`, then reports an in-band `error`. The
+interrupt goes first because the error ends the consumer's loop and would
+cancel it. The deadline is suspended while a confirm is parked, because that
+silence is the user's. The client's own guard is in
+[frontend.md](frontend.md#the-assistant-panel).
 
 ## Testing
 
-No real LLM anywhere in CI. `tests/fake_engine.py` is a scripted `AgentEngine`
-double that drives the service and route tests, including a threaded HTTP
-confirm round-trip, and the Playwright e2e — `tests/e2e_serve.py` always wires it
-in.
+No real LLM runs in CI. `tests/fake_engine.py`, a scripted `AgentEngine`,
+drives the service and route tests and the Playwright e2e
+(`tests/e2e_serve.py` always wires it in).

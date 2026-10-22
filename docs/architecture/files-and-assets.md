@@ -1,146 +1,278 @@
 # Files and assets
 
-The content-addressed asset store behind the `/files` browser
-(`pkm/assets_core.py`, `pkm/server/routes_assets.py`) and the LLM captions that
-make image content findable (`pkm/describe/`). The routes are in the API
-reference table in [backend.md](backend.md#http-api-reference); the SPA side is
-in [frontend.md](frontend.md). Failures and their fixes are indexed by symptom in
-[troubleshooting.md](../troubleshooting.md).
+A block can link to a file in three places. Each is an ordinary markdown link
+whose href the app recognises, served through the server so other devices
+reach it over the tailnet.
+
+| Surface | Href | Lives in | Server code |
+|---|---|---|---|
+| [Assets](#assets-and-the-file-browser) | `/assets/<sha256>/<name>` | the content-addressed store under `assets_dir` | `assets_core.py`, `routes_assets.py` |
+| [Local documents](#local-documents) | `/api/local/<path>` | a host folder, `local_docs_root`, usually in iCloud Drive | `local_docs.py`, `routes_local.py` |
+| [GoodLinks copies](#goodlinks-copies) | `/api/goodlinks/<32-hex id>` | the GoodLinks read-later app on the host | `goodlinks.py`, `routes_goodlinks.py`, `goodlinks_gateway.py` |
+
+Uploaded images also get [LLM captions](#image-descriptions) that make their
+content searchable. The routes are in
+[backend.md](backend.md#http-api-reference) and the config keys in
+[backend.md § Configuration](backend.md#configuration-and-entrypoints).
+Operator setup is in [deploy/README.md](../../deploy/README.md). Failures are
+indexed by symptom in [troubleshooting.md](../troubleshooting.md).
 
 ## Assets and the file browser
 
-Uploads stream in 1 MiB chunks with a running size cap (413 over
-`max_upload_bytes`, default 150 MB), MIME-sniffed from the first chunk
-(`mime_sniff.py`). Files are stored content-addressed at
-`<assets_dir>/<sha256[:2]>/<sha256>` and deduplicated by digest; the `assets`
-row keeps the display filename, MIME and size. Raster images and PDFs serve
-inline (`INLINE_MIME`). Everything else, including SVG, which can script, is
-forced to download with `nosniff`.
+Uploads stream in chunks (`_CHUNK_SIZE`) with a running size cap (413 over
+`max_upload_bytes`), MIME-sniffed from the first chunk (`mime_sniff.py`).
+Files are stored at `<assets_dir>/<sha256[:2]>/<sha256>` and deduplicated by
+digest; the `assets` row keeps the display filename, MIME and size. Raster
+images and PDFs serve inline (`INLINE_MIME`). Everything else downloads with
+`nosniff`, including SVG, which can script.
 
-An asset's sha256 is `Sha256Hex` (`contracts/ops.py`, shared with the op hash
-fields in [sync-and-offline.md](sync-and-offline.md#offline-editing-and-reconnect)),
-not a plain string, so a text can never reach an asset route or wire field
-where a digest belongs. `routes_assets.py` validates every sha256 path
-param against the shared `SHA256_HEX_RE` before minting it; `assets_core.py`'s
-hashing functions mint it directly from `hashlib`. On the web, the only mint
-point is `grammar/tokenize.ts`'s `/assets/<sha>/<name>` autolink rule, whose
-regex capture group already guarantees the shape. A sha failing that match —
-too short, uppercase, or merely a substring of some other URL, e.g. an
-external link containing `/assets/` — renders as plain text or a generic
-link, never as an asset reference.
+An asset digest is `Sha256Hex` (`contracts/ops.py`), not a plain string.
+`routes_assets.py` checks every sha256 path parameter against `SHA256_HEX_RE`
+before minting one, and `assets_core.py` mints from `hashlib`. On the web the
+only mint point is the `/assets/<sha>/<name>` autolink rule in
+`grammar/tokenize.ts`. Anything its capture group rejects renders as plain text
+or a generic link.
 
-The upload response's `existing` bool records whether the `assets` row was
-already there before this call (a dedup hit) or is brand new. The CLI/MCP upload
-workflow keys its failure compensation on it — see
-[cli-and-mcp.md](cli-and-mcp.md#shared-write-workflows).
+The upload response's `existing` says whether the row was already there (a
+dedup hit). The CLI's upload compensation keys on it
+([cli-and-mcp.md](cli-and-mcp.md#shared-write-workflows)).
 
-The three management endpoints behind the `/files` browser share
-`assets_core.py` for their pure parts:
+**Search** behind `/files` is `LIKE` over `description` and `filename`, not
+FTS: the table is personal-scale and has no offline-parity burden. The
+`linked`/`orphan` filters need refs for every candidate, so they scan the
+whole filtered set.
 
-- **Search** is `LIKE` over `description` and `filename` rather than FTS: a
-  personal-scale table, and no offline-parity burden. `linked`/`orphan`
-  filtering needs refs for every candidate, so that path scans the whole
-  filtered set; `linked=all` computes refs only for the returned page.
-- **Delete** strips every asset reference token out of block text and removes
-  the row, then unlinks the file after the commit. `strip_asset_tokens` finds
-  markdown links with the web's rule (`grammar/markdown.ts`), and removes both
-  URL spellings: the percent-encoded name `asset_url` returns now, and the raw
-  name older uploads wrote. Each removed token takes one adjacent space with
-  it and every other character stays byte for byte; a text left holding only
-  whitespace becomes empty. A crash then leaves at worst
-  an unreferenced file on disk, never a row pointing at a missing file. A block
-  left empty *and* childless is deleted outright, but an emptied parent is kept:
-  asset deletion must never cascade away real content. Asset URLs never produce
-  `refs` rows — only `[[link]]`, `#tag` and `attr::` do — so no refs reindex is
-  needed. With `?if_unreferenced=true` nothing is stripped: the delete is
-  refused with 409 while any block references the asset, and undoing an upload
-  (`sync/assetRelease.ts`) is its only caller. Another device uploading the
-  same bytes just before the delete runs is not protected, the same exposure
-  as a `/files` delete.
-- **Selected-asset zip** is form-encoded, so the web app can drive it with a
-  plain `<form method="post">` and let the browser own the download. Unknown,
-  malformed, duplicate and missing-on-disk digests are skipped rather than
-  erroring, so the zip contains what could be exported, and filename collisions
-  get a short sha prefix (`zip_arcnames`).
+**Delete** has two modes.
 
-  The selection's count and total bytes are checked against fixed limits
-  (500 assets / 1 GiB, `MAX_EXPORT_ASSET_COUNT` and `MAX_EXPORT_TOTAL_BYTES` in
-  `routes_assets.py`) before any archive is built. The byte total is summed from
-  the `assets` table's `size` column, never by opening a file. Over either limit
-  the request is refused with 413, rather than producing a truncated zip.
+| Mode | Referenced asset | Unreferenced asset |
+|---|---|---|
+| `DELETE /api/assets/{sha256}` (`/files`) | its tokens are stripped from block text, then the row and file go | row and file go |
+| `?if_unreferenced=true` (undoing an upload, `sync/assetRelease.ts`) | 409, nothing changes | row and file go |
 
-  Both this route and the whole-graph `/api/export.zip` stream their archive
-  from a temp directory via `CleanupFileResponse`
-  ([backend.md](backend.md#module-map)), whose cleanup runs even when the file
-  is missing at send time.
+The stripping rules:
+
+- `strip_asset_tokens` matches markdown links with the web's rule
+  (`grammar/markdown.ts`) and removes both URL spellings, the percent-encoded
+  one `asset_url` returns and the raw name older uploads wrote.
+- Each removed token takes one adjacent space; every other character stays.
+- A block left empty and childless is deleted. An emptied parent is kept,
+  because asset deletion must never cascade away real content.
+- The file is unlinked after the commit, so a crash leaves at worst an
+  unreferenced file, never a row pointing at a missing one.
+- Asset URLs produce no `refs` rows, so no reindex is needed.
+- An upload of the same bytes that dedups onto the row before its linking
+  batch commits is not protected: an `if_unreferenced` delete in between
+  removes the file under it. The window is accepted.
+
+**Selected-asset zip** is form-encoded, so a plain `<form method="post">` lets
+the browser own the download. Unusable digests are skipped, and colliding
+filenames get a sha prefix (`zip_arcnames`). A selection over
+`MAX_EXPORT_ASSET_COUNT` or `MAX_EXPORT_TOTAL_BYTES` (summed from the `size`
+column) is refused with 413 rather than truncated.
 
 ## Image descriptions
 
-Uploaded raster images are captioned by an LLM so their content becomes
-findable. A caption is a plain-text transcription of any visible text plus one
-or two descriptive sentences, stored in three `assets` columns: `description`,
-`described_at` and `describe_error`.
+An LLM captions each uploaded raster image (`image/png`, `image/jpeg`,
+`image/webp`, `image/gif`) with a transcription of its visible text and a
+sentence or two of description. The result lands in the `assets` columns
+`description`, `described_at` and `describe_error`. Eligibility is MIME-only:
+HEIC and SVG are not described, and every GIF is.
 
-Eligibility is MIME-only: `image/png`, `image/jpeg`, `image/webp` and
-`image/gif`. HEIC and SVG are uploadable but not describable. Eligibility
-ignores content, so every `image/gif` upload is enqueued regardless of
-animation.
-
-### Modules (`pkm/describe/`)
-
-| File | Pattern | Role |
+| File (`pkm/describe/`) | Pattern | Role |
 |---|---|---|
-| `core.py` | Core | Eligibility (`describe_action`), the OpenAI request payload, response parsing, and status derivation (`described` / `failed` / `pending`) |
-| `service.py` | Shell | `DescribeService`: the queue, the worker, and shutdown |
-| `openai_client.py` | Shell | The `ImageDescriber` implementation — one `httpx2` POST per image against the OpenAI chat-completions endpoint, with no OpenAI SDK |
-| `routes.py` | Shell | The status and scan endpoints (asset search lives in `routes_assets.py`, alongside the other asset routes) |
+| `core.py` | Core | `describe_action`, the OpenAI payload, `parse_description`, `enabled_reason`, status (`described` / `failed` / `pending`) |
+| `service.py` | Shell | `DescribeService`: the queue, the worker, shutdown |
+| `openai_client.py` | Shell | `OpenAIDescriber`, one `httpx2` POST per image, no OpenAI SDK |
+| `routes.py` | Shell | The status and scan endpoints |
+
+A missing key or `image_descriptions: false` makes every entry point a no-op
+(`DescribeService.enabled = False`) rather than failing uploads.
+`GET /api/assets/describe-status` and `/settings` show why, via
+`enabled_reason`.
+
+Descriptions are searchable only through `GET /api/assets/search`. They are
+not in `blocks_fts` or `pages_fts`.
 
 ### The queue
 
-`DescribeService` holds an in-memory `asyncio.Queue`, drained by one sequential
-background worker per process, for rate-limit friendliness. An `_active` set of
-queued and in-flight shas makes `maybe_enqueue` and `scan` idempotent; the
-worker discards the sha in a `finally`. `_process` re-reads the row and returns
-early if a description has appeared since.
+`DescribeService` drains an in-memory `asyncio.Queue` with one sequential
+worker per process, to stay friendly to rate limits. An `_active` set of queued
+and in-flight shas makes `maybe_enqueue` and `scan` idempotent. `_process`
+re-reads the row and stops if a description has appeared.
 
 `OpenAIDescriber.describe` turns every answer into a description or a
-`DescribeError`, which `_process` records as `describe_error`. Any other
-exception is only logged, so the asset stays pending until the next scan. A
-body `json.loads` cannot read (nesting past its recursion limit) is a
-`DescribeError` too, and `parse_description` makes the text well-formed,
-since SQLite refuses to store a lone surrogate.
+`DescribeError`, which `_process` stores. Any other exception is only logged,
+and the asset stays pending. The queue is not persisted, so
+`POST /api/assets/scan` (with `force=true`, failures too) is the recovery path
+after a restart or an outage.
 
-The queue is memory-only. A restart drops whatever was pending, and there is no
-persistence or replay on startup. `POST /api/assets/scan` re-enqueues every
-asset with `description IS NULL` — add `force=true` to retry rows that
-previously failed — and is the recovery path after a restart or an outage.
+The service owns the `ImageDescriber` it is given. Shutdown cancels the worker,
+then closes the transport once.
 
-Passing an `ImageDescriber` to the service transfers ownership of it. Shutdown
-uses one retained, cancellation-shielded task that cancels the worker first and
-then closes the provider transport exactly once. If describer shutdown raises,
-`app.py` still attempts assistant conversation cleanup in a `finally`.
+## Local documents
 
-### Configuration
+An `/api/local/<path>` href names a file under `local_docs_root`, usually
+written as a `Local copy::` attribute. The `/api/local*` routes are
+the only ones that read outside the data directory, and `/api/local/{path}`
+is the only one that returns file contents.
 
-| `config.json` key | Default | Effect |
+**Every rejection is a 404, never a 403, so a response never confirms what
+exists.** `local_docs.clean_relative` rejects an absolute path, a `.` or `..`
+segment, a control character or a backslash. `is_within` then re-checks the
+resolved path against the resolved root, so a symlink out is a 404 too. The
+file route's parameter arrives decoded once through the
+[`wholepath` convertor](backend.md#title-integrity-and-one-time-activation).
+`/api/local/check` starts from a raw href in block text, so it uses
+`resolve_relative`, which unquotes once. `check` is registered ahead of the
+catch-all.
+
+| File state | `/api/local/{path}` | `/api/local/check` |
 |---|---|---|
-| `openai_api_key_file` | `PKM_HOME/openai_key` | The on/off switch. The file's contents win over the `OPENAI_API_KEY` env var, so a pkm-specific key is not shadowed by a general-purpose one in the shell environment |
-| `image_descriptions` | true | Master switch |
-| `image_description_model` | `gpt-4o-mini` | The vision model |
+| href fails `resolve_relative` | — | `invalid` |
+| outside the root, not a regular file, or absent with no stub | 404 | `missing` |
+| an `.icloud` stub beside a missing file (`_is_evicted`) | 503 + `Retry-After`, after a best-effort `brctl download` | `evicted` |
+| `SF_DATALESS` set in `st_flags` (`_is_dataless`) | the same; never opened, since opening blocks while it downloads | `evicted` |
+| open probe fails or times out | 503 `the host can't open this file` | `unreadable` |
+| probe cap full | 503 `too many file opens are in flight on the host; see the server log` | `unchecked` |
+| probe succeeds | `FileResponse`, inline for PDF and image extensions, else attachment, `nosniff` | `ok` |
 
-The default key path is the `PKM_HOME` root, a sibling of `data/` rather than
-inside it, so the secret never sits alongside servable or exportable content. It
-is resolved relative to `config.json` like the other paths. The key file is
-never committed and should be mode 600.
+Both routes share the eviction helpers, so they cannot disagree.
 
-A missing key — env and file both absent or empty — or
-`image_descriptions: false` degrades every entry point to a no-op
-(`DescribeService.enabled = False`) rather than failing uploads.
-`GET /api/assets/describe-status` and the `/settings` page surface *why* it is
-off, through `enabled_reason`.
+### The open probe
 
-### Descriptions in search
+`open()` on an iCloud path can block in the kernel while macOS waits on a
+consent prompt. On anyio's shared threadpool that would leak a thread per
+attempt until every sync route hung. So a file is never handed to
+`FileResponse` unprobed. `local_open.OpenProber` runs `os.open` on its own
+daemon thread with a timeout, shares one thread among callers asking about the
+same path, and caps distinct in-flight probes (`DEFAULT_CAP`). A blocked
+`open()` cannot be cancelled, so the cap bounds stuck threads.
 
-Descriptions are queryable only through `GET /api/assets/search`, the `LIKE`
-search above. They are not indexed into `blocks_fts` or `pages_fts`, and are not
-reachable from `GET /api/search`.
+The probe and `FileResponse` each open the file. A file that becomes
+unopenable between the two still hangs after the 200 headers; that window is
+accepted.
+
+### The index
+
+`/api/local-index` feeds the link-to-local-file picker. It never opens a file,
+so listing does not download an evicted one. A directory listing can block
+too, so `local_index.TreeScanner` walks on a daemon thread, one walk at a time.
+An overrun walk or an unreadable directory is a 503
+`the host can't read the local documents folder`, never a partial list.
+
+The index lists only names `clean_relative` accepts (`visible_name`), so the
+picker never offers a link the file route 404s. An evicted `.Name.ext.icloud`
+stub is listed as `Name.ext`. Hrefs come from `local_href`. The route sits
+outside `/api/local/` so the catch-all cannot shadow it.
+
+### Errors a person sees
+
+A file-route failure is JSON for `fetch()` and pdf.js. A browser navigation
+gets a short HTML page with the same status, plus `no-store`, because Safari
+would save the JSON as `<name>.pdf.json`. `local_docs.wants_html_error`
+decides from `Sec-Fetch-Mode`, `Sec-Fetch-Dest`, or failing both, `Accept`.
+
+## GoodLinks copies
+
+GoodLinks is Arthur's read-later app, and it archives web pages. A block notes
+a copy with `Local copy:: [Goodlinks](/api/goodlinks/<32-hex id>)`. The
+renderer keys on the href, never the link text, so any link with that href
+opens the reader.
+
+```mermaid
+flowchart LR
+  subgraph web
+    GL[GoodlinksLink] -->|click| GR[GoodlinksReader]
+    GR --> IF["iframe sandbox srcdoc"]
+    BI["BlockInput /goodlinks"] --> UO[useOutline.onGoodlinks]
+  end
+  subgraph server
+    RG[routes_goodlinks.py] --> GC[goodlinks.py]
+    RG --> GW[goodlinks_gateway.py]
+  end
+  GR -->|"GET /api/goodlinks/{id}"| RG
+  UO -->|"POST /api/goodlinks/resolve"| RG
+  CLI[pkm goodlinks check] --> RG
+  GW -->|bearer, loopback| APP[GoodLinks app :9428]
+```
+
+### Two barriers for third-party HTML
+
+`GET /api/goodlinks/{link_id}` is the only route that returns HTML the app did
+not write: GoodLinks' reader-view extraction of a page. Two independent
+barriers stand between it and the browser, and neither may be widened for
+convenience.
+
+1. The server reduces it with `sanitize_article` (`nh3`) to a tag and
+   attribute allowlist. A `"*": set()` entry removes `nh3`'s default generic
+   attributes. `url_relative="deny"` drops relative and protocol-relative
+   URLs, which would resolve against the app's origin inside a `srcdoc`
+   frame; article images and links must be absolute or they disappear. Every
+   anchor gets `target="_blank"` and `rel="noopener noreferrer"`.
+2. The reader renders it only inside
+   `<iframe sandbox="allow-popups allow-popups-to-escape-sandbox" srcdoc>`
+   (`goodlinksReaderDoc.ts`). HTML that slipped the allowlist would still run
+   no script and could not reach the app's origin or cookies. This is the only
+   place third-party HTML reaches the DOM. The app's other
+   `dangerouslySetInnerHTML` uses (Mermaid, KaTeX, highlighted code) render
+   markup the app generated.
+
+Article images still load from their original hosts, since GoodLinks archives
+text but not images. Opening a copy reveals the reader's IP to those hosts.
+
+### Why a proxy
+
+GoodLinks' API listens only on the host's loopback (`localhost:9428`). The
+server holds the bearer token and forwards through `GoodlinksGateway`, so the
+GoodLinks app must be running on the host. An unreachable app and a refused token are 503s. A GoodLinks 404 passes
+through, and a refused save is a 422 carrying its text.
+`GoodlinksUnavailable` covers a closed app and any 2xx that is not a usable
+link ([hostile input](backend.md#hostile-input)). A 401 or 403
+(`GoodlinksUnauthorized`) gets its own detail,
+"Goodlinks rejected the API token". With no API key configured,
+`app.state.goodlinks` is `None` and `get_goodlinks` turns every route except
+`check` into a 404.
+
+`resolve` tries exact lookups against `candidate_urls` (the URL, without query
+and fragment, each with its trailing slash toggled), then one search on
+`search_query`. A search counts only when exactly one hit matches
+(`search_match`); two hits is a miss, not a guess. Only when all of that
+misses, and only with `save: true`, does it save the page, read-marked.
+Lookup runs before save so an archived link's read date is never bumped.
+
+### The reader and the /goodlinks command
+
+`GoodlinksReader` is a full-screen overlay that shares `useOverlayDismiss` with
+`ImageOverlay`. Escape stops closing it once focus is inside the iframe,
+because the frame runs no script and its keydown never reaches the app's
+`window` listener. The Close button still works. Fixing Escape would need
+`allow-scripts`, which barrier 2 forbids.
+
+The original URL arrives only with the article, so on failure the bar has no
+link, and only a note and Close are guaranteed.
+
+`/goodlinks` follows `/upload`'s shape. `BlockInput.pick` records the cursor
+offset and blurs the block before any network work. `useOutline.onGoodlinks`
+takes the first URL `goodlinksCandidates` finds in the block's own text, then
+its parent, then its previous sibling. It resolves with `save: true` and
+splices the `Local copy::` link in through `spliceUploadedMarkdown`. Its
+notices (`goodlinksNotice`) go to the page-level `.editor-notice` slot.
+
+| Case | Server | Reader | `/goodlinks` |
+|---|---|---|---|
+| Not configured (no API key) | 404, except `check`: `enabled: false` | "No longer in Goodlinks" | "Not in Goodlinks" |
+| GoodLinks app not running | 503 `Goodlinks is not running on the host` | "Goodlinks is not running on the Mac" | "Goodlinks is not running" |
+| Token refused (401/403) | 503 `Goodlinks rejected the API token` | that detail | that detail |
+| Link no longer in GoodLinks | 404 | "No longer in Goodlinks" | "Not in Goodlinks" |
+| Link known, no reader copy (a paywall, a PDF, a fresh save) | 200, empty `html` | "Goodlinks has no reader copy of this page", full bar | — |
+| GoodLinks rejects a save | 422 with its text | — | "Goodlinks refused the URL" |
+| Resolve misses with `save: false` | 404 `not in Goodlinks` | — | not reachable: the command always saves |
+| No response (offline, or the replica has no route) | — | "Needs the server" | "Couldn't reach the server" |
+| Anything else | — | "Couldn't load this article." | "Couldn't reach Goodlinks" |
+
+Every reader error keeps Close working. A failed `/goodlinks` splices nothing.
+
+The e2e spec (`web/e2e/goodlinks.spec.ts`) runs against
+`server/tests/fake_goodlinks_server.py`, which implements only the endpoints
+`goodlinks_gateway.py` calls. Its seeded article holds a `<script>` tag, so the
+spec can assert the tag never reaches the page.

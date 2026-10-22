@@ -3,18 +3,28 @@
 `pkm` (CLI) and `pkm-mcp` (FastMCP stdio server) are thin shells over the same
 HTTP client. They talk to the running server's API, never to SQLite, so they get
 the same validation, conflict handling, journalling and broadcasts as the web
-client. [docs/cli.md](../cli.md) owns the user-facing syntax,
+client. [docs/cli.md](../cli.md) owns the user-facing syntax and output,
 [backend.md](backend.md#http-api-reference) the API they call. Failures are
 indexed by symptom in [troubleshooting.md](../troubleshooting.md).
+
+| File | Pattern | Role |
+|---|---|---|
+| `cli/main.py` | Shell | argparse verbs (`cmd_*`), exit codes |
+| `mcp/server.py` | Shell | The FastMCP tools |
+| `client/api.py` | Shell | `PkmClient`: config, session cookie, every HTTP call |
+| `client/core.py` | Core | Config format, cookie header, error-message shaping |
+| `client/workflows.py` | Shell | The write workflows both shells call, so an ordering fix lands once |
+| `planning.py` | Core | Plans one write (`plan_save`, `plan_update`, `plan_mark`); `Planner` models live siblings |
+| `batch.py` | Core | The `pkm batch` command language on top of `planning.py` |
+| `render.py` | Core | API payloads → terminal markdown with `^uid` markers |
 
 ## The MCP tool surface
 
 Tools are built from the same planners as the CLI, and reads return markdown
-annotated with `^uid` markers that the write tools accept. The embedded
-assistant's `policy.py` keys on this read/write split — reads auto-allowed,
-writes confirm-gated
-([assistant.md](assistant.md#embedded-assistant-pkmassistant)) — so adding a tool
-means deciding which side it joins.
+annotated with `^uid` markers that the write tools accept. The assistant's
+`policy.py` auto-allows reads and confirm-gates writes
+([assistant.md](assistant.md)), so a new tool must join `READ_TOOLS` or
+`WRITE_TOOLS` (`test_every_mcp_tool_is_classified` fails otherwise).
 
 | Tool | Kind | Does |
 |---|---|---|
@@ -28,190 +38,131 @@ means deciding which side it joins.
 | `search_assets` | read | uploads by image description or filename |
 | `save_note` | write | create block(s); multi-line text becomes an outline, default page is today's daily note |
 | `update_block` | write | replace a block's text or set its task marker |
-| `batch` | write | several commands in one atomic transaction; ops on missing uids, and moves under the block's own descendant, are skipped and flagged with `warning:` |
+| `batch` | write | several commands in one atomic transaction; skipped ops are flagged with `warning:` |
 | `upload_asset` | write | upload a local file and link it from a page |
-| `rename_page` | write | retitle a page, rewriting every `[[link]]`/`#tag`/`attr::` reference to it; 409 unless `allow_merge` |
+| `rename_page` | write | retitle a page, rewriting every reference to it; 409 unless `allow_merge` |
 
-`pkm local check` has no MCP counterpart: an operator diagnostic that audits
-every `/api/local/` link in block text against the host's filesystem
-(`GET /api/local/check`, see [backend.md](backend.md#local-documents)). Its exit
-codes are in [docs/cli.md](../cli.md#reading). `pkm goodlinks check` is the
-same shape against the GoodLinks library (`GET /api/goodlinks/check`); it
-needs the GoodLinks app running on the host.
+The operator checks `pkm local check` and `pkm goodlinks check` have no MCP
+counterpart ([docs/cli.md](../cli.md#reading)).
 
 ## The shared client
 
-`client/api.py::PkmClient` owns all I/O: config at
-`~/.config/pkm-cli/config.json` (session token from `pkm login`, sent as the
-`pkm_session` cookie), HTTP via httpx2. Tests inject an in-process FastAPI
-`TestClient`.
-
-Every method returns a validated `pkm/contracts/responses.py` model, so a field
-that drifts is a pyrefly error. A 2xx body that fails its model raises
-`ResponseSchemaError`, naming the endpoint and field path; it is an `ApiError`,
-so the CLI exits 1 with one line on stderr. Unknown extra fields are ignored, so
-a newer server stays usable from an older CLI.
+`PkmClient` sends the token from `~/.config/pkm-cli/config.json` as the
+`pkm_session` cookie. Every method returns a validated `pkm/contracts/responses.py` model. A 2xx body that fails
+its model raises `ResponseSchemaError`, naming the endpoint and field path.
+Unknown extra fields are ignored, so an older CLI works against a newer
+server.
 
 ## Shared write workflows
 
-`client/workflows.py` (Shell) holds the write workflows both shells perform:
-`save_blocks`, `edit_block`, `apply_batch`, `upload_and_link`, and the
-`default_page_title` rule (today's daily note). The ordering invariants below
-live there, so an ordering fix lands once.
-
-`upload_and_link` (`pkm upload`, the `upload_asset` tool) resolves and validates
-the destination page and parent before `POST /api/assets`. If the linking
-`/api/ops` write then fails it compensates with `DELETE /api/assets/{sha256}`,
-but only when the response's `existing` bool was `false`, since a dedup hit's sha
-may already be referenced by unrelated blocks. Asset store:
-[files-and-assets.md](files-and-assets.md#assets-and-the-file-browser).
+`upload_and_link` validates the destination page and parent before
+`POST /api/assets`. If the linking `/api/ops` write then fails, it deletes the
+asset only when the upload's `existing` was `false`, since a dedup hit may
+already be referenced elsewhere ([the asset store](files-and-assets.md#assets-and-the-file-browser)).
 
 ## Writes, uids and missing pages
 
-Writes go through `POST /api/ops` with a fresh `batch_id`. `pkm update` fetches
-the current text first and rides the `base_text_hash` conflict path, so a
-missing uid 404s before any op is sent. `pkm batch` sends `update` and `move`
-uids unchecked. It fetches each deleted uid's subtree first (none for an
-`{{alias}}`), and `batch.plan_batch` stamps the delete's `base_subtree_hash`
-from that subtree ([Pure planners](#pure-planners)). The fetches scale with
-pages, not deletes. A uid on a page already fetched for `referenced_pages`
-costs nothing. Otherwise `workflows._delete_subtrees` asks
-`GET /api/block/{uid}` for its page, then fetches that page once for every
-later delete on it. A delete whose uid is missing still goes out, unguarded.
-One whose uid is not a valid uid fails that fetch (422), so the whole batch
-is refused before anything is sent, and `cmd_batch` exits 1. The server skips
-an op on a missing block (or a move that would make a cycle) rather than
-rejecting the batch. The ack's `skipped` list is therefore the only sign
-of a mistyped uid: `render.render_ops_ack` leads with `warning:` when it is
-non-empty, and `cmd_batch` then exits 1. The MCP `batch` tool shares
-`workflows.apply_batch`, so it fetches and stamps the same way.
+Writes go through `POST /api/ops` with a fresh `batch_id`. The server skips an
+op on a missing block, or a move that would make a cycle, rather than refusing
+the batch. The ack's `skipped` list is then the only sign of a mistyped uid,
+so `render.render_ops_ack` leads with `warning:` and `cmd_batch` exits 1. The
+MCP `batch` tool shares `workflows.apply_batch`, so it fetches and guards the
+same way.
 
-Every uid minter resamples until the first character is alphanumeric:
-`contracts/ops.py::new_uid` (shared by the client and the server) and
-`web/src/uid.ts::newUid` (via `uidCore.ts::isAlphanumericByte`). `UID_RE`
-(`contracts/ops.py`) still accepts a leading `-` or `_`, so a block minted before
-that rule stays addressable; any tightening must apply to newly-minted uids only.
+| Write | Fetched first | Guard sent | Uid not found |
+|---|---|---|---|
+| `pkm update`, `update_block` | the block | `base_text_hash` | 404 before any op is sent |
+| batch `update`, `move` | nothing | none | skipped by the server |
+| batch `delete` | the subtree (`_delete_subtrees`) | `base_subtree_hash` | sent unhashed, then skipped |
+| batch `delete` of an `{{alias}}` | nothing | none | — (the batch created it) |
+| batch `delete` of a malformed uid | the fetch 422s | — | the whole batch is refused, nothing sent |
+
+`_delete_subtrees` scales with pages, not deletes. A uid on a page the batch
+already fetched costs nothing; otherwise `GET /api/block/{uid}` names its page,
+which is fetched once for every later delete on it.
+
+`contracts/ops.py::new_uid` and `web/src/uid.ts::newUid` mint uids starting
+with an alphanumeric. `UID_RE` still accepts a leading `-` or `_`, so older
+blocks stay addressable; tighten only the minters, never `UID_RE`.
 
 A page a write targets is never created by a separate request.
-`PkmClient.get_page_blocks` reports a missing one as `([], True)`, and the shared
-workflows prepend a `create_page` op (`planning.create_page_ops`) to the same
-`OpBatch` the planned blocks ride in, so a batch that fails validation leaves
-neither behind. The lookup goes through `refs.normalize_title`, because pages are
-only ever stored under the normalized spelling; the ops carry the caller's
-spelling, which `get_or_create_page` normalizes onto the identical row.
+`PkmClient.get_page_blocks` reports a missing one as `([], True)`, and the
+workflow prepends a `create_page` op (`planning.create_page_ops`) to the same
+`OpBatch`, so a batch that fails validation leaves neither behind. The lookup
+uses `refs.normalize_title`, because pages are stored only under the
+normalized spelling.
 
-`PkmClient.get_backlinks` (the `refs` command and the `backlinks` tool) loops
-`GET /api/page`'s `bl_offset`/`bl_limit` pagination until every group is fetched,
-because no user-visible output in this project truncates silently. Sources sort
-by `(updated_at DESC, title)`, so a concurrent write can shift one between
-requests; `_fetch_backlinks_once` detects that skew and `get_backlinks` restarts
-from offset 0, bounded by `_BACKLINK_MAX_ATTEMPTS` and raising rather than
-returning a partial set.
+`PkmClient.get_backlinks` follows `bl_offset`/`bl_limit` to the end, because
+no output in this project truncates silently. When a concurrent write shifts a
+source between pages (`_fetch_backlinks_once`), it restarts, up to
+`_BACKLINK_MAX_ATTEMPTS`, then raises rather than return a partial set.
 
 ## Pure planners
 
-Three top-level Core modules sit under no shell, used by the CLI, the MCP server
-and `client/workflows.py` alike: `planning.py` plans a write, `batch.py` a
-multi-command batch on top of it, `render.py` renders API payloads to terminal
-markdown.
+`planning.py` plans one write; `batch.py` plans a batch on top of it. Every
+`Planner` method takes a resolved parent uid. Turning a spec into one is
+`batch.py`'s job, since aliases and in-batch uids are batch bookkeeping.
 
-`planning.py`:
+`validate_batch` checks the envelope against strict (`extra="forbid"`) params
+models before anything else, so a malformed batch fetches and creates nothing.
+Checks a schema cannot express (an unknown `{{alias}}`, a missing move-target
+heading) stay in the planner.
 
-- `plan_save` — indented outline text → create ops
-- `plan_update` — a text replacement → `update_text` + `set_heading`
-- `plan_mark` — a task-marker change → `update_text` with the marker applied,
-  plus a `base_text_hash` guard, and never `set_heading`
-- `split_heading` — strips `#`/`##`/`###` off a line into a heading level 1-3
-- `asset_block_text` — MIME → image embed / `{{[[pdf]]: <url>}}` macro / link
-- `Planner` — a live per-(page, parent) sibling model (uid, order_idx pairs)
-  and the heading memo that consecutive commands share
+Two spellings of one page share one fetch and one sibling model (`page_keys`),
+or each would append from the same blocks and collide. Only the server's
+plain-space flag says whether ` Foo` and `Foo` are one page, so `apply_batch`
+reads it (`PkmClient.plain_space_title_canonicalization`) when boundary spaces
+alone tell two spellings apart (`title_flag_needed`).
 
-Every `Planner` method takes a parent *uid*, already resolved; turning a *spec*
-into one is `batch.py`'s job, since aliases and in-batch uids are batch
-bookkeeping.
-
-`batch.py` owns the `pkm batch` command language: `create`, `todo`, `update`,
-`move`, `delete`, `outline`, `as`-aliases, matched-or-created `## Heading`
-parents. Two spellings of one page share one fetch and one sibling model
-(`page_keys`): planned apart, each would append from the same blocks and a
-later command's block would take an earlier one's slot. Only the server's
-plain-space flag says whether ` Foo` and `Foo` are one page, so
-`workflows.apply_batch` reads it (`PkmClient.plain_space_title_canonicalization`,
-a one-change `/api/sync/changes` window) when, and only when, boundary spaces
-alone tell two spellings apart (`title_flag_needed`). `plan_batch` threads a `_BatchCtx` through the commands — the shared
-`Planner`, the fetched pages, the alias map, the uids created so far, and a
-`_SubtreeModel` per fetched delete uid — resolving each parent spec by its form:
+`plan_batch` threads a `_BatchCtx` through the commands and resolves each
+parent spec by its form:
 
 | Parent spec | Resolved by | First child's `order_idx` |
 |---|---|---|
-| `((uid))` on the fetched page | `resolve_parent`, which walks fetched blocks | `order_idx_at_position`, one past the parent's last child's `order_idx` |
-| `((uid))` created earlier in this batch | `_in_batch_uid`, ahead of `resolve_parent`, which cannot see it | 0 |
+| `((uid))` on the fetched page | `resolve_parent`, which walks fetched blocks | `order_idx_at_position` |
+| `((uid))` created earlier in this batch | `_in_batch_uid`, since `resolve_parent` cannot see it | 0 |
 | `{{alias}}` | `_resolve_alias`, to the `((uid))` an earlier `as` recorded | 0 |
-| `## Heading` on the fetched page | `resolve_parent`, on level and text together, first in document order | `order_idx_at_position`, one past the parent's last child's `order_idx` |
+| `## Heading` on the fetched page | `resolve_parent`, on level and text, first in document order | `order_idx_at_position` |
 | `## Heading` not there yet | `Planner.heading`, memoized per (page, level, text) | 0 |
 
-A `_SubtreeModel` follows its block through every op the batch plans, so a
-later `delete` hashes the tree the server will hold when it applies. A block
-moved in from outside the subtree sends the delete hashless, since no fetch
-describes the newcomer's own subtree.
+A `_SubtreeModel` follows each fetched delete target through the batch's ops,
+so a later `delete` hashes the tree the server will hold when it applies. A
+block moved in from outside makes the delete hashless, since no fetch
+describes its subtree.
 
-`order_idx_at_position` never counts siblings: `order_idx` is sparse (a
-delete leaves a gap; nothing renumbers), so an append lands one past the
-last sibling's own key, not at the dense position a count would give.
-`Planner` keeps the same rule as a live per-(page, parent) sibling list
-rather than a single append counter, so the batch `index` param — a
-position, not an order key — can convert against it anywhere in the batch:
-
-| `index` (`create`/`todo`/`move`) | Detail |
-|---|---|
-| What it means | 0-based position among the parent's (move: the destination's) current children |
-| "Current" | as the CLI *fetched* the page, then as earlier commands in the batch have left it — a sibling another device deletes between the fetch and the post still counts: `index` 2 on a fetched `[A, U, B]` with `U` deleted meanwhile lands before `B`, not third |
-| Past the end | appends |
-| Minted by | `Planner.create_at`/`Planner.move`, via `order_idx_at_position(siblings, position)` — the one place a position becomes an `OrderIdx` |
-| Indexed move | lands at its final position, among the destination's children without the moving block itself |
-| Known limit | the model never simulates an op the server will skip (a cycle move, a missing uid or parent): it shifts and relocates as asked regardless, so a later command's position can be off in that skipped op's source and destination groups (`Planner`'s docstring) |
-
-`outline` and `plan_save` only ever append, through the same model.
-
-`validate_batch` parses the envelope against a discriminated-union command schema
-with strict (`extra="forbid"`) params models, reporting the first bad item as one
-`BuildError` naming its index and problem. `cli/main.py`'s `cmd_batch` and
-`mcp/server.py`'s `batch()` both call it immediately after decoding the JSON
-body, so a malformed batch never triggers a page fetch or any page/asset
-creation. Checks a schema cannot express (an unknown `{{alias}}`, an unfetched
-page, a missing move-target heading) stay in the planner.
+`order_idx` is sparse: a delete leaves a gap and nothing renumbers. So
+`order_idx_at_position` never counts siblings, and an append lands one past
+the last sibling's key. `Planner` keeps a live sibling list per (page, parent).
+The batch `index` param is a position, not a key, counted against the page as
+fetched and then as earlier commands left it. A move's position counts the
+destination's children without the moving block, and a position past the end
+appends. `order_idx_at_position` is the
+only place a position becomes an `OrderIdx`. The model does not simulate an op
+the server will skip, so a later position in that op's groups can be off (see
+the `Planner` docstring).
 
 ## Section selection
 
-`pkm get --section SPEC` (`render.py::select_section`) has two modes, chosen by
-the spec's own syntax.
+`pkm get --section SPEC` (`render.py::select_section`) picks its mode from
+the spec's syntax.
 
 | Spec | Selects |
 |---|---|
-| *marked* (`## Notes`, one space after one to three `#`) | the first block in document order whose heading level **and** text both match |
-| *bare* (`Notes`) | the first block with that exact text at any level, including a plain non-heading block |
+| marked (`## Notes`) | the first block whose heading level and text both match |
+| bare (`Notes`) | the first block with that exact text at any level, plain blocks included |
 
-A marked spec uses the same level-and-text rule as `--parent`, so the two cannot
-disagree about which `Notes` they mean. A miss raises `RenderError` listing the
-page's headings with their level markers. `_SECTION_MARKER`'s `{1,3}` bound
-matches the app's whole heading domain (`HEADING_COMMANDS` in
-`web/src/outline/slashCommands.ts` offers h1-h3), so a `####` spec is read as
-bare text.
+A marked spec uses the same rule as `--parent`, so the two agree on which
+`Notes` they mean. `_SECTION_MARKER` allows one to three `#`, the app's whole
+heading domain (`HEADING_COMMANDS`), so `####` is bare text.
 
 ## Heading round trip
 
-Text is the source of truth for a block's heading level on every CLI/MCP write.
-`split_heading` runs in `Planner._one`, reached by `creates` and `create_at`, and
-in `plan_update`; a `## Heading` parent spec that doesn't exist yet comes from
-`Planner.heading()`, which matches the marker itself. So `## X` is never stored
-as literal text, and `render_page`/`render_block`'s `## text` output reads back
-as a heading. The exclusions (`#Tag`, `#### ` and deeper, multi-line text) are in
-[docs/cli.md](../cli.md#writing).
+Text is the source of truth for a block's heading level on every CLI and MCP
+write. `split_heading` runs in `Planner._one` and `plan_update`, so `## X` is
+never stored as literal text and `render_page` output reads back as a heading.
+The exclusions are in [docs/cli.md](../cli.md#writing).
 
-The `-D`/`-T`/`mark=` task-marker paths use `plan_mark` and never emit
-`set_heading`: the text they read back is already bare, so splitting it would
-demote a real heading. The round trip is `pkm get`/`get_page`/`get_block` only:
-the renderers behind `pkm todos`, `query`, `refs` and `search` (`render_groups`,
-`render_backlinks`, `render_search`) print bare text — `item.text` for the
-grouped verbs, `snippet` for search — because `GroupItem`, `BacklinkItem` and
-`SearchBlockHit` carry no `heading` field.
+The task-marker paths use `plan_mark`, which never emits `set_heading`: the
+text they read back is already bare, so splitting it would demote a heading.
+Only `get`/`get_page`/`get_block` round-trip a heading, because `GroupItem`,
+`BacklinkItem` and `SearchBlockHit` carry no `heading` field.

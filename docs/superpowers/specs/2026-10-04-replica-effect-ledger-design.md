@@ -46,7 +46,7 @@ pkm-hz8w patched the skipped-op cases on the server: a skipped move journals
 the destination group it guesses the replica shifted
 (`_destination_siblings`, `ops_apply.py:243-275`). The guess needs page
 history the server does not keep, and
-[sync-recovery.md § Ops on blocks the server no longer has](../../architecture/sync-recovery.md#ops-on-blocks-the-server-no-longer-has)
+[sync-and-offline.md § Missing and overtaken targets](../../architecture/sync-and-offline.md#missing-and-overtaken-targets)
 lists six cases it misses. Applied ops have no such patch.
 
 ## Goals and non-goals

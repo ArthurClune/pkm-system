@@ -7,13 +7,13 @@ Mac, is reached over Tailscale from other devices, and works fully offline
 as an installable PWA.
 
 This directory is the "get up to speed" layer. It describes the system as it
-is; the *why* (trade-offs, rejected alternatives, per-feature designs) lives
-in [`docs/design.md`](../design.md) and the specs under
+is. The system-wide *why* is in [Key decisions](#key-decisions); per-feature
+designs and their rejected alternatives are in the specs under
 [`docs/superpowers/specs/`](../superpowers/specs/).
 
 | Doc | Read when you |
 |---|---|
-| this file | are new: the system picture, the core idea, the stack |
+| this file | are new: the system picture, the core idea and the decisions behind it, the stack |
 | [backend.md](backend.md) | change a route, the schema, an op, the ref grammar, titles or config |
 | [sync-and-offline.md](sync-and-offline.md) | change how an edit travels from the editor to the server and back |
 | [sync-recovery.md](sync-recovery.md) | change what happens when a sync hop fails: banners, repairs, resets |
@@ -80,6 +80,32 @@ text preserved as `[[conflict]]` blocks, is enough for one person. Offline is a
 cache of that state: a sqlite-wasm replica plus a durable op queue in each
 browser. Portability comes from a nightly plain-markdown export.
 [sync-and-offline.md](sync-and-offline.md) has the protocol end to end.
+
+## Key decisions
+
+Two alternatives to the core idea were rejected. A client-side graph with
+op-log sync, Roam's own architecture, is fast but means owning a sync protocol
+and its data-loss modes. Markdown files plus an index, as Obsidian does it,
+are portable, but files fit badly with stable block uids and live structural
+edits. The nightly markdown export supplies the portability instead. The
+[original design spec](../superpowers/specs/2026-07-08-roam-migration-pkm-design.md)
+has the full trade-off.
+
+| Decision | Why |
+|---|---|
+| Block text is stored as unmodified Roam-flavoured markdown; `refs` and the FTS index are derived from it | the durable data is always plain text |
+| Block uids survive import, and daily pages keep Roam's ordinal titles (`July 8th, 2026`) | imported links and block refs keep resolving |
+| Assets are content-addressed files outside SQLite | a backup is one database file plus one append-only directory |
+| The UI never renders an unbounded list: backlinks paginate, unlinked refs compute on demand, the journal loads a few days at a time | rendering, not SQL, is the scale constraint; the target is 50k pages and 500k blocks |
+| Sync is journal rows in the same SQLite file, a generation token and idempotent batch ids, with no vector clocks or merge machinery | sync stays debuggable; per-block last-write-wins is enough for one person |
+
+Out of scope: multiple users, multiple graphs, full datalog queries and
+encrypted blocks; the design spec gives the reasons. Some features stay
+online-only:
+[sync-and-offline.md § Ancillary details](sync-and-offline.md#ancillary-details)
+lists them, and the
+[offline design spec](../superpowers/specs/2026-07-12-offline-editing-design.md)
+explains the deferral.
 
 ## Tech stack
 

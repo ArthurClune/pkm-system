@@ -11,7 +11,7 @@ replayable DDL.
 protocol ([sync-and-offline.md](sync-and-offline.md)), the CLI and MCP server
 ([cli-and-mcp.md](cli-and-mcp.md)), import, export and backup
 ([import-export-and-backup.md](import-export-and-backup.md)), the assistant
-([assistant.md](assistant.md)), and assets and local documents
+([assistant.md](assistant.md)), and assets, local documents and GoodLinks copies
 ([files-and-assets.md](files-and-assets.md)). Failures are indexed by symptom
 in [troubleshooting.md](../troubleshooting.md).
 
@@ -742,7 +742,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | GET | `/api/local/check` | Classify every `/api/local/` href in block text |
 | GET | `/api/local-index` | Every visible file under `local_docs_root`; 503 when the listing fails |
 | GET | `/api/local/{path}` | Serve one file; 404 outside the root, 503 when evicted or unopenable |
-| **GoodLinks copies** ([goodlinks.md](goodlinks.md)) | | |
+| **GoodLinks copies** ([files-and-assets.md](files-and-assets.md#goodlinks-copies)) | | |
 | POST | `/api/goodlinks/resolve` | Resolve a URL to a link, saving it with `save` |
 | GET | `/api/goodlinks/check` | Classify every `/api/goodlinks/` href |
 | GET | `/api/goodlinks/{link_id}` | Metadata and sanitised reader HTML; 503 when GoodLinks is down |

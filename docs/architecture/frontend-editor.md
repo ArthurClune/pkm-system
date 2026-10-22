@@ -259,7 +259,7 @@ recorded on keydown without `preventDefault`, and the next `paste` consumes it.
 
 [keyboard.md](../keyboard.md#slash-commands) lists them, and
 `help/slashCommandsDocumented.test.ts` fails on an undocumented one. `/upload`,
-`/goodlinks` ([goodlinks.md](goodlinks.md)) and `/link-local-file` give up the
+`/goodlinks` ([files-and-assets.md](files-and-assets.md#goodlinks-copies)) and `/link-local-file` give up the
 block before their picker opens. `LocalFilePicker` is a cached `import()`
 chunk, which keeps fzf out of the entry.
 

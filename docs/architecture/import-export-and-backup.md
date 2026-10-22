@@ -1,102 +1,78 @@
 # Import, export and backup
 
 The batch jobs either side of the live server. `pkm.backup` takes the nightly
-snapshot, `pkm.export` renders a database out to markdown from it, and
-`pkm.importer` builds a fresh database from a Roam EDN export. None of them is
-on a request path; the two exports are also reachable over HTTP as downloads.
-
-The server, its write path and its API surface are in
-[backend.md](backend.md). Failures and their fixes are indexed by symptom in
-[troubleshooting.md](../troubleshooting.md).
+snapshot, `pkm.export` renders a database to markdown, and `pkm.importer`
+builds a fresh database from a Roam EDN export. None is on a request path; the
+two exports are also downloads over HTTP. The server is in
+[backend.md](backend.md), the schedule and restore steps in
+[deploy/README.md](../../deploy/README.md#backups). Failures are indexed by
+symptom in [troubleshooting.md](../troubleshooting.md).
 
 ## Backup job
 
-`python -m pkm.backup`, run nightly via launchd, takes an online SQLite
-`.backup()` snapshot from a read-only connection into
-`backups/sqlite/pkm-YYYY-MM-DD.sqlite3`. `rotation.py` prunes it to the newest
-14 dailies plus the latest of each month, kept forever. It then runs the
-markdown export from that same snapshot and git-commits it. Its success line
-renders the complete export-count dictionary, including `assets_copied`,
-`assets_repaired` and `assets_missing_source_on_repair`. The live database is
-never opened for writing, and any failure exits non-zero.
+`python -m pkm.backup` takes an online SQLite `.backup()` from a read-only
+connection into `backups/sqlite/`, so the live database is never opened for
+writing. `rotation.py` prunes the snapshots. The job then runs the markdown
+export from that same snapshot and git-commits it. Its success line prints the
+whole export-count dictionary, and any failure exits non-zero.
 
 ## Markdown export
 
-`export/writer.py::export_graph` renders every page to
-`export/pages/<title>.md` and dailies to `export/journal/YYYY-MM-DD.md`.
-`markdown.py` resolves `((refs))` to text one level deep and keeps
-`{{query: ...}}` macros as the raw command. Assets are mirrored incrementally.
+`export/writer.py::export_graph` renders pages to `export/pages/<title>.md` and
+dailies to `export/journal/YYYY-MM-DD.md`. `markdown.py` resolves `((refs))`
+one level deep and keeps `{{query: ...}}` macros as written. Unchanged files
+are rewritten byte-identically, so a nightly git diff is minimal.
+`/api/export.zip` runs the same `export_graph()` into a temp directory.
 
 It calls `refs.extract()` once per block (`collect_block_ref_uids`), so
-`extract()` must stay linear. `extract()` strips leading whitespace in Python
-before its attribute regex runs, and that regex never backtracks against a long
-`::`-free run. A large fenced code block becomes exactly such a run once
-`_strip_code()` blanks it.
+`extract()` must stay linear, including on a long `::`-free run such as a
+blanked code fence.
 
-An existing asset at its content-addressed path is verified against the
-`assets` row's size and sha256 before being hardlinked into the new tree.
-`assets_disk.asset_on_disk_needs_repair` does a cheap stat first and reads the
-bytes for a full hash only once the size matches, then
-`assets_core.asset_needs_repair` rules on the pair. The importer's asset copy
-calls the same function, so neither side can drift out of that order. A
-mismatch is re-copied from the live store.
+Assets are mirrored incrementally. An existing destination is checked against
+the `assets` row's size and sha256 before it is hardlinked into the new tree:
+`assets_disk.asset_on_disk_needs_repair` stats first and hashes only once the
+size matches, and `assets_core.asset_needs_repair` rules on the pair. A
+mismatch is re-copied from the live store. The importer calls the same check.
 
 | Outcome | Counter |
 |---|---|
-| fresh transfer succeeded | `assets_copied` |
+| fresh transfer | `assets_copied` |
 | corrupt destination replaced | `assets_repaired` |
-| repair source itself missing (asset dropped, `pkm.export` warning) | `assets_missing_source_on_repair` |
+| repair source missing (asset dropped, `pkm.export` warning) | `assets_missing_source_on_repair` |
 
-The export directory has one writer: each run sweeps abandoned
-`.export-staging-*` entries before it writes `.gitignore` or anything else, so
-no lock or age heuristic is needed. Matching symlinks are unlinked without
-following their targets.
+The export directory has one writer, so each run sweeps abandoned
+`.export-staging-*` entries first, with no lock or age heuristic. Rendering
+and asset copying happen in a fresh staging directory, then `_publish_dir`
+swaps `pages/`, `journal/` and `assets/` in with one atomic rename each.
 
-Markdown files are rewritten byte-identically when unchanged, so the git diff
-of a nightly export is minimal. Rendering and asset copying happen into a
-scratch `.export-staging-*` directory beside the live one, and the previous
-`pages/`, `journal/` and `assets/` are replaced only once a full new export is
-ready, via `_publish_dir`'s atomic directory rename. A rendering, disk or
-asset-copy failure before publishing starts therefore leaves the last
-known-good export byte-identical.
+| Failure at | Leaves | Healed by |
+|---|---|---|
+| rendering, disk or asset copy | the last export, byte-identical | — |
+| between two `_publish_dir` renames | a mixed old/new tree; old subtrees under `<name>.stale` | the next successful run |
 
-Publishing is three atomic renames, one per subtree, so a failure partway
-through leaves a mixed old/new tree that the next successful run heals. The
-not-yet-published subtree's old content survives under `<name>.stale`, and the
-raised exception stops the nightly job git-committing the mixed state.
-
-`routes_export.py`'s `/api/export.zip` runs the same `export_graph()` into a
-temp directory and serves it zipped.
+Either way the exception stops the backup job before its git commit.
 
 ## Single-page export
 
-`GET /api/export/page/{title}` (`routes_export.py` + `export/resolve.py`) is
-the end-user download. It renders differently from the backup path: dynamic
-content resolves to plain text, so the download reads like what a reader of the
-live page would see.
+`GET /api/export/page/{title}` (`routes_export.py`, `export/resolve.py`) is the
+user's download, and it renders what a reader of the live page sees:
 
-- `((refs))` resolve recursively, not one level, and are inlined as plain text
-  rather than wrapped in parens.
-- `{{query: ...}}` and `{{[[query]]: ...}}` macros execute and render as a
-  results list grouped by page. The path is the one live `/api/query` takes:
-  `query_exec.parse_canonical_query`, `query.py`'s `plan_sql`, then
-  `query_exec.execute_plan`. Only
-  the result shape differs: the export's own immutable types name pages by
-  title alone.
-- Depth caps match the live UI: `BlockRef.tsx`'s `MAX_DEPTH = 3` for refs,
-  `QueryBlock.tsx`'s `MAX_DEPTH = 2` for nested queries.
+- `((refs))` resolve recursively and are inlined as plain text.
+- `{{query: ...}}` and `{{[[query]]: ...}}` execute through the live
+  `/api/query` path (`query_exec.parse_canonical_query`, `plan_sql`,
+  `query_exec.execute_plan`) and render as results grouped by page.
+- Depth caps match the UI: `BLOCK_REF_MAX_DEPTH` mirrors `BlockRef.tsx`'s
+  `MAX_DEPTH`, and `QUERY_MAX_DEPTH` mirrors `QueryBlock.tsx`'s. Nothing checks
+  that they agree.
 
-Resolution and rendering are pure (`export/resolve.py`, given precomputed
-uid→text and expr→results maps). The route gathers that data with a
-depth-capped, cycle-safe breadth-first fetch, where a `visited` set stops a
-cyclic `((ref))` chain from refetching forever; the caps alone only stop it
-from *rendering* forever.
+`export/resolve.py` is pure over uid→text and expr→results maps. The route
+fetches them breadth-first with a `visited` set: the depth caps stop a cyclic
+`((ref))` chain from rendering forever, not from fetching forever.
 
 ## Importer (Roam EDN → fresh database)
 
-`python -m pkm.importer.run export.edn --files <dir> --out <data-dir>`. Each
-run builds a complete new database and atomically swaps it in, so re-running is
-always safe.
+`python -m pkm.importer.run export.edn --files <dir> --out <data-dir>` builds a
+complete new database and swaps it in, so re-running is always safe.
 
 ```mermaid
 flowchart TD
@@ -113,78 +89,32 @@ flowchart TD
     R --> H["atomic os.replace: database, then report"]
 ```
 
-Stage notes:
+| Stage | Invariant |
+|---|---|
+| EDN parse | Malformed input exits 2 with `error: malformed export at offset N: DETAIL`. The solidus escape `\/` stays invalid |
+| Preflight | Duplicate block uids, a block reached through two parents, and any uid failing `UID_RE` refuse the run, listing every offender before any output. No uid is re-minted, because every `((uid))` recognizer shares `UID_RE`'s bound |
+| Title sanitization | `importer/titles.py` strips balanced `[[`/`]]` and `#` markers and rewrites refs. Collisions merge in source order, preferring an already-clean survivor |
+| Title migration | The operator route's `audit_title_migration()` / `apply_title_migration()` run on the temp database, so `plain_space_title_canonicalization` arrives active. A blocker exits 2 |
+| Timestamps | `:create/time`, `:edit/time`, uids and sibling order survive, so every `((block ref))` resolves. A time past 64 bits or a heading outside 1–3 reads as absent |
+| Mermaid flattening | A component with an inbound `((uid))` into its subtree stays nested blocks (`mermaid_preservation.py`, shared with `migrate_mermaid_blocks.py`) |
+| Orphan blocks | Every subtree unreachable from a page (`Export.orphan_blocks`, cycles included) is attached intact under `RECOVERY_PAGE_TITLE`, so refs into it resolve. The first placement of a block stands, and later claims are listed (`Export.dropped_claims`) |
+| Asset copying | The [export's verify-then-copy check](#markdown-export), rewriting a mismatched destination atomically. It runs after the row `commit()`, which the title migration needs |
 
-- **EDN parse.** Malformed input exits 2 with
-  `error: malformed export at offset N: DETAIL`. The EDN-unsupported solidus
-  escape `\/` stays invalid rather than being accepted for JSON/Logseq
-  compatibility.
-- **Preflight.** `preflight.py` refuses duplicate block UIDs and any block
-  reached through multiple parents, reporting deterministic, sorted locations,
-  before any output work happens. It also refuses any block uid that fails
-  `UID_RE` (`contracts/ops.py`, `{6,32}` of `[a-zA-Z0-9_-]`), listing every
-  offender with its page title (`RECOVERY_PAGE_TITLE` for an orphan subtree).
-  No uid is ever re-minted. Every `((uid))`-recognizing surface (`refs.py`,
-  `render.py`, `export/*.py`, the web's `grammar/scan.ts`) shares that same
-  bound, so no reference anyone writes to a malformed uid could ever be
-  recognized as one. A block it landed on would also be reachable only by
-  walking its page: the `GET /api/block/{uid}` read routes 422 it, though a
-  write op addressing it by uid is not shape-checked once the block exists
-  (`impossible_uid_reason` only runs on `POST /api/ops`'s skip path, for a
-  uid that names nothing).
-- **Title sanitization.** `importer/titles.py` strips balanced `[[`/`]]` and
-  `#` markers from every title and rewrites refs; collisions merge in stable
-  source order, preferring an already-clean spelling as survivor. A spelling
-  `sanitize_import_title` refuses (malformed markers, a
-  [refused title](backend.md#refused-titles), or blank once stripped) never
-  stops the run:
+`sanitize_import_title` refuses some spellings (malformed markers, a
+[refused title](backend.md#refused-titles), or blank once stripped). A refusal
+never stops the run:
 
-  | The refused spelling is | The import |
-  |---|---|
-  | a page title | skips the page (`SanitizedImport.skipped_pages`); its blocks follow the orphan subtrees onto the recovery page |
-  | a ref `refs.extract()` reports (`[[#]]`, `#[[#]]`, `#:: v`) | makes it plain text with `unlink.unlink_stale_refs` |
-  | text `extract()` reads as no ref (`[[]]`, `[[.]]`, ``[[a`b]]``) | leaves it byte-identical |
+| The refused spelling is | The import |
+|---|---|
+| a page title | skips the page (`SanitizedImport.skipped_pages`); its blocks go to the recovery page |
+| a ref `refs.extract()` reports (`[[#]]`, `#[[#]]`, `#:: v`) | makes it plain text with `unlink.unlink_stale_refs` |
+| text `extract()` reads as no ref (`[[]]`, `[[.]]`, ``[[a`b]]``) | leaves it byte-identical |
 
-  A refused ref cannot stay a ref. The ops title check refuses any text that
-  holds one, so the block could never be edited, and `rows.py` would create
-  an implicit page the title migration audit then refuses.
-- **Title migration.** Before publishing, the importer runs the same
-  `audit_title_migration()` / `apply_title_migration()` shell as the operator
-  route against the temp database, so `plain_space_title_canonicalization`
-  arrives active and padded twins are merged through the normal rewrite path.
-  A blocker refuses the run and leaves the published database untouched.
-- **Timestamps.** `parse_export.py` copies each block's `:create/time` and
-  `:edit/time`, and uids and sibling ordering survive the import, so every
-  existing `((block ref))` and daily-note link keeps resolving. A time that is
-  not a 64-bit int, or a heading other than 1-3, reads as absent: the reads
-  serve only what the schema's types admit.
-- **Mermaid flattening.** Flattening a component's descendants into one fenced
-  block drops their rows, so `mermaid_preservation.py` keeps any component with
-  an inbound `((uid))` into its subtree — and every candidate ancestor
-  containing one — as ordinary nested blocks. Fresh imports and the one-off
-  `migrate_mermaid_blocks.py` migration share that core, and both report what
-  they preserved (`Rows.mermaid_preserved_refs`; migration `Plan.preserved`).
-- **Orphan blocks.** Every subtree Roam's export leaves unreachable from a page
-  (`parse_export.py`'s `Export.orphan_blocks`, including fully cyclic ones) is
-  attached intact under a deterministic
-  `"Import recovery: unreachable blocks"` page (`rows.py`'s
-  `RECOVERY_PAGE_TITLE`), so `((block ref))`s into it still resolve. Entities
-  with no `:block/string` at all (`skipped_entities`) are counted. An orphan
-  subtree never takes a block that a page, or an earlier orphan root, already
-  placed. The first placement stands, and the claim is listed in the report
-  (`Export.dropped_claims`). So preflight's multi-parent refusal is left for a
-  block that two pages claim.
-- **Asset copying.** An existing content-addressed destination is verified
-  against the source's size and sha256 and rewritten atomically on mismatch,
-  through the same `assets_disk.asset_on_disk_needs_repair` check the export
-  writer uses (see [Markdown export](#markdown-export)). The phase touches no
-  database, so it runs inside the row-writing connection's lifetime rather than
-  between two connections. `audit_title_migration` and `apply_title_migration`
-  both refuse a connection that is already in a transaction, and the `commit()`
-  before the copies is the only thing ending the implicit one the inserts
-  opened.
-- **Publication.** Two ordered atomic replaces, database first, then report. A
-  failure before the first leaves the published pair untouched; a failure
-  between them is repaired by the next successful run, and stale temps
-  (`pkm.sqlite3.tmp`, `import-report.txt.tmp`) are swept at the start of the
-  next build.
+A refused ref cannot stay a ref: the ops title check would refuse every edit
+to its block, and the title migration audit would refuse the implicit page
+`rows.py` creates.
+
+| Failure at | Leaves | Healed by |
+|---|---|---|
+| any stage before the first `os.replace` | the published database and report untouched | — (the next run deletes `pkm.sqlite3.tmp` first) |
+| between the database and report replaces | the new database beside the old report | the next successful run |

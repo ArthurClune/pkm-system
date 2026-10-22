@@ -343,8 +343,8 @@ export function transitionOutline(
 /** The focus this tree can show: null when the block is gone; its nearest
  * visible ancestor (the outermost one that hides its children), caret at the
  * end of its text, when the block is hidden; otherwise the same block with
- * its caret clamped to the text. A focus that already holds comes back as the
- * same object. */
+ * its caret clamped to the text and moved off the middle of a surrogate pair.
+ * A focus that already holds comes back as the same object. */
 export function validateOutlineFocus(
   focus: FocusTarget | null,
   blocks: BlockNode[],
@@ -356,7 +356,10 @@ export function validateOutlineFocus(
     // among the children of the one before it.
     const node = siblings.find((n) => n.uid === uid)!;
     if (uid === focus.uid) {
-      const cursor = clampCaret(focus.cursor, node.text.length);
+      // Snapped as well as clamped: a caret kept across a remote edit or
+      // restored by undo can land inside a surrogate pair, where typing
+      // would leave both halves lone (saved as U+FFFD).
+      const cursor = snapCaret(node.text, clampCaret(focus.cursor, node.text.length));
       return cursor === focus.cursor ? focus : { uid, cursor };
     }
     if (hidesChildren(node)) return { uid, cursor: node.text.length };

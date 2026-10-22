@@ -450,15 +450,15 @@ def test_a_skipped_page_moves_its_blocks_after_the_genuine_orphans() -> None:
 
 def test_a_ref_to_a_refused_title_becomes_plain_text() -> None:
     blocks = (
-        _block(uid_of("uid-link"), "see [[a`b]] and [[Fine]]"),
-        _block(uid_of("uid-tag"), "#[[x`]] tagged"),
+        _block(uid_of("uid-link"), "see [[#]] and [[Fine]]"),
+        _block(uid_of("uid-tag"), "#[[#]] tagged"),
     )
     result = sanitize_export_titles(
         _export_of(Page(raw_title_of("Home"), None, None, blocks))
     )
 
     assert [b.text for b in result.export.pages[0].children] == [
-        "see a`b and [[Fine]]", "x` tagged"]
+        "see # and [[Fine]]", "# tagged"]
     assert result.unlinked_block_uids == ("uid-link", "uid-tag")
     assert result.title_changes == ()
 
@@ -470,7 +470,7 @@ def test_a_leading_attribute_naming_a_refused_title_is_defused() -> None:
                 raw_title_of("Home"),
                 None,
                 None,
-                (_block(uid_of("uid-attr"), "a`b:: value"),),
+                (_block(uid_of("uid-attr"), "#:: value"),),
             )
         )
     )
@@ -480,17 +480,17 @@ def test_a_leading_attribute_naming_a_refused_title_is_defused() -> None:
 
 
 def test_refs_in_orphans_and_skipped_page_blocks_are_unlinked_too() -> None:
-    orphan = _block(uid_of("uid-orphan"), "orphan [[a`b]]")
+    orphan = _block(uid_of("uid-orphan"), "orphan [[#]]")
     skipped = Page(
         raw_title_of("."),
         None,
         None,
-        (_block(uid_of("uid-moved"), "moved #[[x`]] [[Fine]]"),),
+        (_block(uid_of("uid-moved"), "moved #[[#]] [[Fine]]"),),
     )
     result = sanitize_export_titles(_export_of(skipped, orphans=(orphan,)))
 
     assert [b.text for b in result.export.orphan_blocks] == [
-        "orphan a`b", "moved x` [[Fine]]"]
+        "orphan #", "moved # [[Fine]]"]
     assert result.unlinked_block_uids == ("uid-orphan", "uid-moved")
     for text in _all_texts(result.export):
         for ref in extract(text).refs:
@@ -548,3 +548,17 @@ def test_titles_that_sanitize_fine_still_merge() -> None:
     (page,) = result.export.pages
     assert [b.uid for b in page.children] == ["uid-one", "uid-two"]
     assert result.skipped_pages == ()
+
+
+def test_a_backtick_ref_is_no_ref_and_is_left_as_written() -> None:
+    texts = ("see [[a`b]] and #[[x`]]", "a`b:: v", "[[the `foo` function]]")
+    blocks = tuple(
+        _block(uid_of(f"uid-tick-{i}"), text) for i, text in enumerate(texts)
+    )
+    result = sanitize_export_titles(
+        _export_of(Page(raw_title_of("Home"), None, None, blocks))
+    )
+
+    assert [b.text for b in result.export.pages[0].children] == list(texts)
+    assert result.unlinked_block_uids == ()
+    assert result.title_changes == ()

@@ -13,6 +13,8 @@ Two kinds of oracle, neither of which calls rename.py:
 
 Whether a title can be spelled as a given ref form is asked of
 `refs.extract` on the probe text, never of the rewriter's own helpers."""
+import re
+
 from hostile import count, event, with_floors
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -126,6 +128,21 @@ def _plain_pieces(old: str, new: str, other: str) -> list[tuple[str, str]]:
         (f"mid#{old}", f"mid#{old}"),
         (f"see {old}:: here", f"see {old}:: here"),
         ("((abcdef123))", "((abcdef123))"),
+    ] + _tick_pieces(old)
+
+
+def _tick_pieces(old: str) -> list[tuple[str, str]]:
+    """Pieces with a backtick inside a link, tag or attribute title as
+    written: no refs at all, so a rename leaves every byte. A lone backtick
+    ends its line, or it would pair with one in the next piece."""
+    return [
+        (f"[[{old}`]]\n", f"[[{old}`]]\n"),
+        (f"#[[{old}`]]\n", f"#[[{old}`]]\n"),
+        (f"[[{old}`b`]]", f"[[{old}`b`]]"),
+        (f"[[`c` {old}]]", f"[[`c` {old}]]"),
+        (f"[[the `{old}` fn]]", f"[[the `{old}` fn]]"),
+        (f"[[{old}`b]] and #[[{old}`]]", f"[[{old}`b]] and #[[{old}`]]"),
+        (f"[[x [[{old}`y]] z]]\n", f"[[x [[{old}`y]] z]]\n"),
     ]
 
 
@@ -137,6 +154,8 @@ def _ref_pieces(old: str, new: str) -> list[tuple[str, str]]:
             (f"[[{old}]]", f"[[{new}]]"),
             (f"[[x [[{old}]] y]]", f"[[x [[{new}]] y]]"),
             (f"[[[[{old}]]]]", f"[[[[{new}]]]]"),
+            # The outer title holds a backtick, so only the inner is a ref.
+            (f"[[x [[{old}]] `y`]]", f"[[x [[{new}]] `y`]]"),
         ]
     if _is_bracket_tag(old):
         out.append((f"#[[{old}]]", f"#[[{new}]]"))
@@ -194,6 +213,9 @@ def block_cases(draw, *, padded_attribute: bool = True, nested: bool = True):
     return old, new, source, expected
 
 
+_BACKTICK_IN_LINK = re.compile(r"\[\[[^\]\n]*`")
+
+
 # --- properties -----------------------------------------------------------
 
 # Each floor is about half the lowest share of cases the label reached over
@@ -208,6 +230,8 @@ def block_cases(draw, *, padded_attribute: bool = True, nested: bool = True):
     "no code": 0.2,
     "attribute lead": 0.07,
     "no attribute lead": 0.35,
+    "backtick in a link": 0.18,
+    "no backtick in a link": 0.22,
 }, per="case")
 @settings(max_examples=400, deadline=None)
 @given(block_cases())
@@ -217,6 +241,8 @@ def test_rewrite_changes_only_the_refs_to_the_old_title(case):
     out = rewrite_title_refs(text, old, new)
     event("changed" if out != text else "unchanged")
     event("code-bearing" if "`" in text else "no code")
+    event("backtick in a link" if _BACKTICK_IN_LINK.search(text)
+          else "no backtick in a link")
     assert title_syntax_reason(new) is None
     event("attribute lead" if _is_attribute(old) and "::" in text
           else "no attribute lead")
@@ -266,6 +292,22 @@ def test_rewritten_text_reads_back_as_refs_to_the_new_title(case):
     # What the grammar calls code is exactly what it was.
     assert _code_chars(out) == _code_chars(text)
     event("code to preserve" if _code_chars(text) else "no code")
+
+
+@settings(max_examples=400, deadline=None)
+@given(block_cases())
+def test_a_rename_never_drops_a_backtick_or_a_code_span(case):
+    """Text may shrink only inside a rewritten ref, and a code span is never
+    in one: `[[a`b]]` holds code, so it is no ref and survives whole. Run
+    under plain-space canonicalisation, where the blanks a code span leaves
+    in a title would otherwise canonicalise away."""
+    old, new, text, _expected = case
+    replacements = {old: new}
+    out = rewrite_title_refs_map(
+        text, replacements, normalize=spelled_or_canonical(
+            _plain_space_canonical, replacements))
+    assert _code_chars(out) == _code_chars(text)
+    assert out.count("`") == text.count("`")
 
 
 def _code_chars(text: str) -> str:
@@ -360,8 +402,20 @@ def padded_cases(draw):
     for _ in range(draw(st.integers(1, 6))):
         left, right = draw(_PADS), draw(_PADS)
         kind = draw(st.sampled_from(
-            ["link", "tag", "other link", "code", "words"]))
-        if kind == "link":
+            ["link", "tag", "other link", "code", "words", "backtick link"]))
+        if kind == "backtick link":
+            # Code between the brackets pads the title with blanks that
+            # canonicalise away, yet the title as written holds a backtick.
+            same = draw(st.sampled_from([
+                f"[[{left}{old}`b`{right}]]",
+                f"#[[{left}`c`{old}{right}]]",
+                f"[[{left}{old}`b]] and [[c`{right}]]",
+            ]))
+            pieces.append((same, same, ""))
+            # The outer title holds a backtick; the inner link is a ref.
+            pieces.append((f"[[x `y` [[{left}{old}{right}]]]]",
+                           f"[[x `y` [[{new}]]]]", left + right))
+        elif kind == "link":
             pieces.append((f"[[{left}{old}{right}]]", f"[[{new}]]", left + right))
         elif kind == "tag":
             pieces.append((f"#[[{left}{old}{right}]]", f"#[[{new}]]",
@@ -385,7 +439,8 @@ def padded_cases(draw):
     return old, new, source, expected, padded
 
 
-@with_floors({"rewrote a padded spelling": 0.24, "no padded spelling": 0.115},
+@with_floors({"rewrote a padded spelling": 0.24, "no padded spelling": 0.115,
+              "backtick in a link": 0.15, "no backtick in a link": 0.26},
              per="case")
 @settings(max_examples=400, deadline=None)
 @given(padded_cases())
@@ -399,6 +454,8 @@ def test_a_padded_spelling_is_rewritten_when_its_canonical_form_is_a_key(case):
     out = rewrite_title_refs_map(
         text, replacements, normalize=spelled_or_canonical(
             _plain_space_canonical, replacements))
+    event("backtick in a link" if _BACKTICK_IN_LINK.search(text)
+          else "no backtick in a link")
     if padded:
         event("rewrote a padded spelling")
     else:

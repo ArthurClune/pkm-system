@@ -7,6 +7,7 @@ must pass the same fixture (see design spec, Section 1).
 from __future__ import annotations
 
 import re
+from bisect import bisect_left
 from dataclasses import dataclass
 from datetime import date
 from typing import Iterable, Iterator, Literal
@@ -23,6 +24,7 @@ from pkm.contracts.titles import RawTitle
 # flips, and hex colours in the exposed code mint pages named "0277bd".
 # Punctuation and whitespace after ``` still close as before.
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
+_BACKTICK = re.compile("`")
 _WORD_CHAR = re.compile(r"\w")
 # No leading `\s*` here (see attribute_title_span() below): `\s` is a
 # near-subset of this negated class, and pairing a greedy `\s*` with a lazy
@@ -230,6 +232,29 @@ def strip_code(text: str) -> str:
     return "".join(parts)
 
 
+def backtick_positions(source: str) -> list[int]:
+    """Where `source` holds a backtick, ascending: the index `holds_backtick`
+    searches, built once per text so a deeply nested one stays linear."""
+    return [m.start() for m in _BACKTICK.finditer(source)]
+
+
+def holds_backtick(ticks: list[int], start: int, end: int) -> bool:
+    """Does the text as written hold a backtick in `[start, end)`? `ticks` is
+    `backtick_positions` of that text.
+
+    The one rule that keeps a title with a backtick out of the ref grammar:
+    a link, `#[[tag]]` or attribute whose title, *as written*, holds one is
+    no ref at all (plain text, like `[[.]]`). It must be asked of the
+    original text, because `strip_code()` has blanked a closed code span to
+    spaces and a ref found on the blanked copy would otherwise keep its
+    padding and lose the code on a rewrite. Page titles with a backtick are
+    refused separately (`title_syntax_reason`). A bare `#tag` never reaches
+    this: its name class has no backtick and no space for code to hide in.
+    """
+    k = bisect_left(ticks, start)
+    return k < len(ticks) and ticks[k] < end
+
+
 @dataclass(frozen=True)
 class AttributeSpan:
     """A leading `Title::` attribute: where it sits and both its spellings.
@@ -248,10 +273,13 @@ class AttributeSpan:
     title: NormalizedTitle
 
 
-def attribute_title_span(text: str) -> AttributeSpan | None:
+def attribute_title_span(text: str, source: str) -> AttributeSpan | None:
     """Locate the leading `Title::` attribute in code-free text: either real
     code-stripped block text, or a synthetic `f"{title}::"` probe such as
     `rename._attribute_form`'s round-trip check.
+
+    `source` is the text as written, whose offsets `text` shares (a probe
+    passes itself): an attribute whose name holds a backtick there is none.
 
     Sole owner of the attribute's whitespace anchoring: leading whitespace is
     removed by a linear `lstrip()` and the pattern is then matched once at
@@ -263,6 +291,8 @@ def attribute_title_span(text: str) -> AttributeSpan | None:
     offset = len(text) - len(text.lstrip())
     match = _ATTRIBUTE.match(text, offset)
     if match is None:
+        return None
+    if holds_backtick(backtick_positions(source), match.start(1), match.end(1)):
         return None
     raw_title = RawTitle(match.group(1).strip())
     return AttributeSpan(
@@ -306,7 +336,7 @@ class TagSpan:
     raw_title: RawTitle
 
 
-def bracket_spans(text: str) -> tuple[BracketSpan, ...]:
+def bracket_spans(text: str, source: str) -> tuple[BracketSpan, ...]:
     """Sole owner of `[[...]]` pairing (extractor and rewriter alike): the
     top-level runs in `text`, each holding the runs nested directly in it.
 
@@ -316,6 +346,12 @@ def bracket_spans(text: str) -> tuple[BracketSpan, ...]:
     plain text. An opener that never closes is not a run and does not stop
     the scan, so `[[A and [[B]]` reports `B`, `[[[C]]` reports the single run
     whose title is `[C`, and `[[[[Link]]]` reports `Link`.
+
+    `source` is the text as written, whose offsets `text` shares (a caller
+    with no code to strip passes the text itself). A run whose title holds a
+    backtick there is no run (`holds_backtick`): it is dropped before the
+    runs are nested, so its children are promoted and an enclosing run, whose
+    title holds the same backtick, is dropped with it.
 
     Iterative throughout: nesting depth is bounded by the text, not by the
     Python recursion limit.
@@ -334,7 +370,10 @@ def bracket_spans(text: str) -> tuple[BracketSpan, ...]:
             i += 2
         else:
             i += 1
-    pairs.sort()
+    ticks = backtick_positions(source)
+    pairs = sorted(
+        p for p in pairs if not holds_backtick(ticks, p[0] + 2, p[1] - 2)
+    )
     # Matched pairs nest properly, so in open order a pair's parent is the
     # nearest earlier pair still enclosing it.
     parent: list[int] = []
@@ -412,10 +451,10 @@ def extract(text: str) -> ParsedRefs:
     # there -- applied anyway to keep the rule uniform. The attribute's own
     # normalization, and the leading whitespace it has to survive, belong
     # to attribute_title_span().
-    if ((attribute := attribute_title_span(clean)) is not None
+    if ((attribute := attribute_title_span(clean, text)) is not None
             and not has_unreachable_segment(attribute.title)):
         refs.append(Ref(attribute.title, "attribute"))
-    for span in iter_bracket_spans(bracket_spans(clean)):
+    for span in iter_bracket_spans(bracket_spans(clean, text)):
         normalized = normalize_title(clean[span.inner_start : span.inner_end])
         if not is_blank_title(normalized) and not has_unreachable_segment(normalized):
             refs.append(Ref(normalized, "tag" if span.is_tag else "link"))

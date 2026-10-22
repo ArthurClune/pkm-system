@@ -112,7 +112,7 @@ def _unlink_pass(text: str, is_target: TitleMatch) -> str:
     clean = strip_code(text)
     spans: list[Span] = []
     _unlink_range(
-        text, clean, is_target, 0, len(clean), bracket_spans(clean), spans
+        text, clean, is_target, 0, len(clean), bracket_spans(clean, text), spans
     )
     return _splice(text, spans)
 
@@ -135,19 +135,12 @@ def unlink_title_refs(text: str, is_target: TitleMatch) -> str:
 def defuse_attribute(text: str, is_target: TitleMatch) -> str:
     """Keep a leading `Target:: v` from re-creating the page: the name is
     code-fenced in place (`` `Target`:: v ``), which `extract` reads no ref
-    from. A name holding a backtick cannot be fenced (`strip_code` knows
-    only single-backtick spans), so its `::` becomes `:`. Any other
-    attribute comes back unchanged."""
-    attribute = attribute_title_span(strip_code(text))
+    from. A name holding a backtick is no attribute (`refs.holds_backtick`),
+    so it comes back unchanged like any other text."""
+    attribute = attribute_title_span(strip_code(text), text)
     if attribute is None or not is_target(attribute.raw_title):
         return text
     name_end = attribute.start + len(attribute.raw_title)
-    if "`" in attribute.raw_title:
-        # The colons collapse to one: a value starting with `:` would
-        # otherwise extend the run into a new `::`. One pass, so a long run
-        # costs no recursion.
-        rest = text[attribute.end:].lstrip(":")
-        return text[:name_end] + ":" + rest
     return (text[:attribute.start] + "`" + text[attribute.start:name_end]
             + "`" + text[name_end:])
 
@@ -175,7 +168,7 @@ def plain_copy(text: str) -> str:
     """The block's text as a copy: no task marker, no leading attribute, and
     newlines folded to single spaces. Refs are left for the caller."""
     text = with_state(text, None)
-    attribute = attribute_title_span(strip_code(text))
+    attribute = attribute_title_span(strip_code(text), text)
     if attribute is not None:
         text = text[attribute.end:].lstrip()
     return _NEWLINE_RUN.sub(" ", text)
@@ -236,7 +229,7 @@ def _build_copies(
 
 
 def _attribute_raw(text: str) -> str | None:
-    span = attribute_title_span(strip_code(text))
+    span = attribute_title_span(strip_code(text), text)
     return None if span is None else span.raw_title
 
 

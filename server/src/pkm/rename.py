@@ -52,7 +52,7 @@ def _tag_form(new_title: RawTitle) -> str:
 
 
 def _attribute_form(new_title: RawTitle) -> str:
-    span = attribute_title_span(f"{new_title}::")
+    span = attribute_title_span(probe := f"{new_title}::", probe)
     if span is not None and span.raw_title == new_title:
         return f"{new_title}::"
     return f"[[{new_title}]]"
@@ -157,7 +157,7 @@ def rewrite_title_refs_map(
     lookup = _title_lookup(replacements, normalize)
     spans: list[tuple[int, int, str]] = []
 
-    if (attribute := attribute_title_span(clean)) is not None:
+    if (attribute := attribute_title_span(clean, text)) is not None:
         new_title = lookup(attribute.raw_title)
         if new_title is not None:
             spans.append(
@@ -166,7 +166,7 @@ def rewrite_title_refs_map(
             )
 
     _rewrite_range(
-        clean, lookup, 0, len(clean), bracket_spans(clean), spans
+        clean, lookup, 0, len(clean), bracket_spans(clean, text), spans
     )
 
     out = text

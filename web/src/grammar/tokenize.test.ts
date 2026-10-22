@@ -13,6 +13,18 @@ describe("tokenizeBlock", () => {
     ]);
   });
 
+  it("renders a link holding a backtick as text, its code span as code", () => {
+    expect(tokenizeBlock("[[the `foo` function]]")).toEqual([
+      { kind: "text", text: "[[the " },
+      { kind: "inline-code", code: "foo" },
+      { kind: "text", text: " function]]" },
+    ]);
+    expect(tokenizeBlock("see [[a`b]] and [[ok]]")).toEqual([
+      { kind: "text", text: "see [[a`b]] and " },
+      { kind: "page-ref", title: "ok", tag: false },
+    ]);
+  });
+
   it("keeps the full outer title for nested page refs", () => {
     expect(tokenizeBlock("see [[AI [[GPT-3]] notes]]")).toEqual([
       { kind: "text", text: "see " },

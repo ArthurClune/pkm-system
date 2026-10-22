@@ -12,6 +12,10 @@
 //   right after code sits at a "whitespace" boundary, exactly like refs.py.
 // - Spans are UTF-16 code-unit offsets, half-open, source ordered with an
 //   outer reference before its children.
+// - A link, tag link or attribute whose title, as written, holds a backtick
+//   is no ref (mirrors refs.py holds_backtick): the code pass has blanked a
+//   closed code span, so the check reads the original text. A dropped link's
+//   brackets are plain text and its children are promoted.
 // - Malformed/unclosed syntax ([[x, ((abc)), lone ```) stays plain text.
 // - Bracket pairs are matched iteratively with an explicit stack — never by
 //   recursive rescanning — so 10k-deep nesting cannot overflow the JS stack.
@@ -200,6 +204,28 @@ function matchBracketPairs(clean: string): BracketPair[] {
   return pairs;
 }
 
+/** Mirrors refs.py backtick_positions: where the text holds a backtick,
+ * ascending. Built once per scan so a deep nest stays linear. */
+function backtickPositions(text: string): number[] {
+  const ticks: number[] = [];
+  for (let i = text.indexOf("`"); i !== -1; i = text.indexOf("`", i + 1)) {
+    ticks.push(i);
+  }
+  return ticks;
+}
+
+/** Mirrors refs.py holds_backtick: a backtick in `[start, end)`. */
+function holdsBacktick(ticks: number[], start: number, end: number): boolean {
+  let lo = 0;
+  let hi = ticks.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (ticks[mid] < start) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo < ticks.length && ticks[lo] < end;
+}
+
 /** Convert matched pairs into page-ref tokens: pre-order (outer before
  * children), depth/parent counted over MATCHED ancestors only, and a tag's
  * span extended to include its leading #. */
@@ -304,14 +330,21 @@ export function scanGrammar(text: string): { tokens: readonly GrammarToken[] } {
 
   ATTRIBUTE_RE.lastIndex = clean.length - stripStartLikePython(clean).length;
   const attr = ATTRIBUTE_RE.exec(clean);
+  const ticks = backtickPositions(text);
   if (attr) {
     const end = ATTRIBUTE_RE.lastIndex;
-    tokens.push({ kind: "attribute", title: normalizeRefTitle(stripLikePython(attr[1])),
-                  start: end - 2 - attr[1].length, end });
+    const start = end - 2 - attr[1].length;
+    if (!holdsBacktick(ticks, start, end - 2)) {
+      tokens.push({ kind: "attribute", title: normalizeRefTitle(stripLikePython(attr[1])),
+                    start, end });
+    }
   }
 
   tokens.push(...scanFlatTokens(clean));
-  tokens.push(...pageRefTokens(clean, matchBracketPairs(clean)));
+  // Dropped before nesting is counted, as refs.py bracket_spans does.
+  const pairs = matchBracketPairs(clean).filter(
+    (p) => !holdsBacktick(ticks, p.open + 2, p.close - 2));
+  tokens.push(...pageRefTokens(clean, pairs));
 
   // Source order; on a shared start the wider (outer) token comes first.
   tokens.sort((a, b) => a.start - b.start || b.end - a.end);

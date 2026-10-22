@@ -362,7 +362,7 @@ def test_unlink_stale_fences_a_leading_attribute():
     assert unlink_stale("[[Alpha]]:: v", {"Alpha"}) == "`Alpha`:: v"
     assert unlink_stale("Beta:: #Beta [[Alpha]]", {"Alpha"}) == \
         "Beta:: #Beta Alpha"
-    assert unlink_stale("a`b:: v", {"a`b"}) == "a`b: v"
+    assert unlink_stale("a`b:: v", {"a`b"}) == "a`b:: v"
 
 
 def test_stale_create_page_is_dropped():

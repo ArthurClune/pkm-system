@@ -134,8 +134,20 @@ Stage notes:
   uid that names nothing).
 - **Title sanitization.** `importer/titles.py` strips balanced `[[`/`]]` and
   `#` markers from every title and rewrites refs; collisions merge in stable
-  source order, preferring an already-clean spelling as survivor. Malformed
-  markers, or a title made blank, refuse the run.
+  source order, preferring an already-clean spelling as survivor. A spelling
+  `sanitize_import_title` refuses (malformed markers, a
+  [refused title](backend.md#refused-titles), or blank once stripped) never
+  stops the run:
+
+  | The refused spelling is | The import |
+  |---|---|
+  | a page title | skips the page (`SanitizedImport.skipped_pages`); its blocks follow the orphan subtrees onto the recovery page |
+  | a ref `refs.extract()` reports (``[[a`b]]``, `#[[#]]`, ``a`b:: v``) | makes it plain text with `unlink.unlink_stale_refs` |
+  | text `extract()` reads as no ref (`[[]]`, `[[.]]`) | leaves it byte-identical |
+
+  A refused ref cannot stay a ref. The ops title check refuses any text that
+  holds one, so the block could never be edited, and `rows.py` would create
+  an implicit page the title migration audit then refuses.
 - **Title migration.** Before publishing, the importer runs the same
   `audit_title_migration()` / `apply_title_migration()` shell as the operator
   route against the temp database, so `plain_space_title_canonicalization`
@@ -157,7 +169,11 @@ Stage notes:
   attached intact under a deterministic
   `"Import recovery: unreachable blocks"` page (`rows.py`'s
   `RECOVERY_PAGE_TITLE`), so `((block ref))`s into it still resolve. Entities
-  with no `:block/string` at all (`skipped_entities`) are counted.
+  with no `:block/string` at all (`skipped_entities`) are counted. An orphan
+  subtree never takes a block that a page, or an earlier orphan root, already
+  placed. The first placement stands, and the claim is listed in the report
+  (`Export.dropped_claims`). So preflight's multi-parent refusal is left for a
+  block that two pages claim.
 - **Asset copying.** An existing content-addressed destination is verified
   against the source's size and sha256 and rewritten atomically on mismatch,
   through the same `assets_disk.asset_on_disk_needs_repair` check the export

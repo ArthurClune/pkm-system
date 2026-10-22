@@ -1,203 +1,85 @@
 # Backend architecture (server/ + HTTP API)
 
 A Python 3.12+ FastAPI application over a single SQLite file, and the sole
-authority for the graph. Block-graph mutations flow through `POST /api/ops`,
-other writes use dedicated routes, refs and full-text indexes are re-derived in
-the same transaction, and a trigger-based change journal feeds the sync
-protocol. No ORM and no migration framework: raw `sqlite3` with replayable DDL.
+authority for the graph. Block-graph mutations flow through `POST /api/ops`;
+other writes use dedicated routes. Refs and full-text indexes are re-derived
+in the same transaction, and a trigger-based change journal feeds the sync
+protocol. There is no ORM and no migration framework: raw `sqlite3` with
+replayable DDL.
 
-[overview.md](overview.md) has the system-level picture and the tech stack.
-Siblings own the sync protocol ([sync-and-offline.md](sync-and-offline.md)),
-the CLI and MCP server ([cli-and-mcp.md](cli-and-mcp.md)), the offline import,
-export and backup pipelines
-([import-export-and-backup.md](import-export-and-backup.md)), the embedded
-assistant ([assistant.md](assistant.md)), and the asset store and `/files`
-browser ([files-and-assets.md](files-and-assets.md)).
-
-Failures and their fixes are indexed by symptom in
-[troubleshooting.md](../troubleshooting.md).
+[overview.md](overview.md) has the system picture. Siblings own the sync
+protocol ([sync-and-offline.md](sync-and-offline.md)), the CLI and MCP server
+([cli-and-mcp.md](cli-and-mcp.md)), import, export and backup
+([import-export-and-backup.md](import-export-and-backup.md)), the assistant
+([assistant.md](assistant.md)), and assets and local documents
+([files-and-assets.md](files-and-assets.md)). Failures are indexed by symptom
+in [troubleshooting.md](../troubleshooting.md).
 
 ## Module map
 
-Everything lives under `server/src/pkm/`. Every runtime file declares
-`# pattern: Functional Core` (pure logic) or `# pattern: Imperative Shell`
-(I/O) near the top — see [overview.md](overview.md#functional-core--imperative-shell)
-for the pattern.
+Everything lives under `server/src/pkm/`. Each runtime file declares its
+[FCIS pattern](overview.md#functional-core--imperative-shell) near the top.
 
 ```
 pkm/
-├── database.py          Shell  `Db`, the typed connection every feature holds, `connect()`,
-│                               `RowCheckError` (see Typed database access)
-├── rows.py              Core   `Row`, the vocabulary of a database row (one typed key
-│                               per name a query may return) and `row_problems`
-├── brand_registry.py    Core   Import-free data the brand lint and `rows.py` read:
-│                               NAMES, MINT_SITES, CAST_SITES, COLUMN_KEYS, SHAPES
-├── schema.py            Core   Single source of DDL: BASE_DDL (replicated to clients)
-│                               + SERVER_DDL (journal, idempotency, rewrites) = DDL
-├── refs.py              Core   Ref grammar: [[links]], #tags, attr::, ((refs)), {{embeds}}
-│                               + title normalization, and the positioned spans (bracket
-│                               tree, tags, attribute) the rewriter scans with. Exports
-│                               BLOCK_REF_TOKEN, the shared ((uid)) shape ({6,32},
-│                               matching UID_RE) render.py and export/*.py build their
-│                               own pattern from
-├── rename.py            Core   one-pass, opaque-value title-ref rewrite for page rename/merge;
-│                               callers pass the normalizer that spells their replacement keys
-├── unlink.py            Core   page-delete rewrite: inbound [[links]]/#tags become plain text,
-│                               ((refs)) become a copy of the target text; plans the rewrite
-│                               and reports blockers (query macro naming the page, a changed
-│                               leading attribute name, a ref left behind). Scans with the
-│                               refs.py spans, as rename.py does
-├── title_migration.py   Core   boundary-space grouping, blockers, survivor plan + digest
-├── todo.py              Core   {{TODO}}/{{DONE}} marker parsing (mirrors web/src/grammar/todo.ts)
-├── changed.py           Core   /api/changed window parsing (date/ISO bounds, injected
-│                               clock+tz) + new/edited classification
-├── filenames.py         Core   safe_filename() shared by upload + export;
-│                               attachment_disposition() for a download header
-├── planning.py          Core   Plans one write as /api/ops ops: outlines, missing
-│                               headings, text updates, task markers
-├── batch.py             Core   The `pkm batch` command language: per-command schema
-│                               + dispatch onto planning.py
-├── render.py            Core   API payloads -> terminal markdown (^uid annotated)
-├── assets_core.py       Core   Asset-browser helpers: reference-token stripping,
-│                               MIME categorisation (+ its SQL twin), zip arcnames
-├── local_docs.py        Core   path containment, disposition and link shapes for /api/local
-├── goodlinks.py         Core   href shapes, candidate URLs, search match and the HTML allowlist for /api/goodlinks
-├── edn.py               Core   Minimal EDN parser for Roam exports
-├── schema_dump.py       Shell  Generates web/src/replica/baseSchema.gen.ts
-├── refs_parity_dump.py  Shell  Generates shared/fixtures/refs_parity.json
-├── title_parity_dump.py Shell  Generates shared/fixtures/title_parity.json
-├── rows_dump.py         Shell  Generates web/src/replica/columns.gen.ts and
-│                               web/tooling/brandRegistry.gen.json
-├── assets_disk.py       Shell  asset_on_disk_needs_repair(): stats/hashes a stored asset
-│                               file for assets_core.asset_needs_repair() to judge
-│
-├── contracts/           Core   The wire contract, depended on by BOTH sides:
-│                               ops.py (op models + UID_RE + text_hash + new_uid +
-│                               the BlockUid/PageId/SidebarEntryId/SyncSeq NewTypes),
-│                               responses.py (JSON response models),
-│                               daily.py (date <-> "July 8th, 2026" titles),
-│                               text.py (well_formed, well_formed_tree +
-│                               WellFormedModel, the base of every op and
-│                               request body model: lone surrogates to U+FFFD),
-│                               int64.py (Int64, the bound on every int path
-│                               or query parameter)
-│
-├── server/              The FastAPI app (details below)
-├── importer/            Roam EDN import pipeline: run.py Shell; preflight.py and
-│                        mermaid_preservation.py Core validation/planning
-├── export/              Markdown export (markdown.py Core render, writer.py Shell)
-├── backup/              Nightly backup job (__main__.py Shell, rotation.py Core)
-├── cli/                 `pkm` CLI (main.py Shell: argparse, stdin/stdout, exit codes)
-├── client/              Shared HTTP client (api.py Shell PkmClient, core.py Core,
-│                        workflows.py Shell: the write workflows CLI+MCP share)
-├── mcp/                 `pkm-mcp` FastMCP stdio server over the same client
-├── assistant/           Embedded LLM assistant: SSE routes + Claude Agent SDK
-│                        harness confined to the pkm MCP tools
-├── describe/            Image-description queue + OpenAI vision client
-└── test_data/           Synthetic fixture graph generator
+├── contracts/           Core   the wire contract; imports neither the server nor the client
+│   ├── ops.py                  op models, OpBatch, UID_RE, text_hash, new_uid, id brands
+│   ├── responses.py            response models
+│   ├── titles.py               title brands: RawTitle → NormalizedTitle → CanonicalTitle
+│   ├── brands.py               brand(): the x-brand schema marker
+│   ├── strict.py               StrictModel, the base of every model
+│   ├── text.py                 WellFormedModel: lone surrogates become U+FFFD
+│   ├── int64.py                Int64, the bound on int path and query parameters
+│   └── daily.py                date <-> "July 8th, 2026" titles
+├── database.py          Shell  Db, the typed connection
+├── rows.py              Core   Row: one typed key per name a query may return
+├── brand_registry.py    Core   brand NAMES, MINT_SITES, COLUMN_KEYS, SHAPES
+├── schema.py            Core   BASE_DDL (replicated to clients) + SERVER_DDL
+├── refs.py              Core   the ref grammar and title normalisation
+├── todo.py              Core   {{TODO}}/{{DONE}} markers, mirrored by grammar/todo.ts
+├── rename.py, unlink.py Core   rename and page-delete rewrites of block text
+├── title_migration.py   Core   plain-space title migration planner
+├── planning.py, batch.py, render.py   Core   shared by the CLI, MCP and client
+├── *_dump.py            Shell  generated-artifact writers
+├── server/                     the FastAPI app (below)
+├── client/, cli/, mcp/         PkmClient, `pkm` and `pkm-mcp`
+├── assistant/, describe/       embedded assistant; image-description queue
+└── importer/, export/, backup/ Roam import, markdown export, nightly backup
+
+server/
+├── app.py               Shell  create_app(config): init_db(), routers, 422 handler, SPA
+├── config.py, setup.py  Shell  Config from config.json; setup writes it
+├── db.py                Shell  init_db() at startup, open_db() per request, migrations
+├── wholepath.py         Shell  the {name:wholepath} DOTALL route convertor
+├── auth.py, auth_core.py       login, require_auth, LoginThrottle; scrypt and tokens
+├── routes_*.py          Shell  the HTTP surface
+├── ops_core.py          Core   plan_op(), classify_skip, classify_text_edit
+├── ops_apply.py         Shell  apply_batch: read context, plan, execute effects
+├── store.py             Shell  page create, delete, rename, merge; never commits
+├── sync_meta.py         Shell  flag and generation; read_title, title_reader
+├── sync_core.py         Core   change-feed windows and hydration order
+├── ws.py, notify.py     Shell  WebSocket Hub; post-commit nudges
+└── tempfile_response.py Shell  CleanupFileResponse: cleanup runs even on a send error
 ```
 
-**Dependency direction.** `cli`/`mcp`/`client` → `contracts` ← `server`, and
-`contracts` imports neither side; `pkm.server` owns what acts on the contracts
-(`ops_core.plan_op`, `server/daily.py`'s journal-day selection). `planning.py`,
-`batch.py` and `render.py` sit at the top level because both shells and
-`client/workflows.py` share them. Three tests in
-`tests/test_client_contracts.py` parse imports and fail the suite on a
-re-crossing.
-
-Inside `pkm/server/`:
-
-| File | Pattern | Role |
-|---|---|---|
-| `app.py` | Shell | App factory `create_app(config)`: runs `init_db()`, builds the `AssistantService` (engine injectable), mounts routers, installs the 422 handler, serves the SPA |
-| `validation_echo.py` | Core | `echo_errors`: the 422 body, pydantic's errors with an echo that always encodes (see [Hostile input](#hostile-input)) |
-| `config.py` | Shell | Frozen `Config` loaded from the data dir's `config.json` |
-| `db.py` | Shell | `init_db()`/`open_db()` (both return a `Db`), per-request connection dependency, column migrations |
-| `auth.py` / `auth_core.py` / `throttle_core.py` | Shell / Core / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens; per-source login backoff policy (see [Auth](#auth)) |
-| `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_local.py`, `routes_goodlinks.py`, `routes_export.py`, `routes_migrations.py` | Shell | The HTTP surface (table below) |
-| `goodlinks_gateway.py` | Shell | httpx2 edge to the GoodLinks local API |
-| `local_open.py` / `local_index.py` | Shell / Shell | `OpenProber` (timed open probe) and `TreeScanner` (timed listing of `local_docs_root`), both on abandonable daemon threads (see [Local documents](#local-documents)) |
-| `title_migration.py` / `sync_meta.py` | Shell / Shell | Transaction-owned title inventory/apply; durable activation/generation accessors, and `read_title`, which canonicalises a title arriving as a lookup key (`title_reader` reads the flag once for several) |
-| `ops_core.py` | Core | Pure `plan_op()` → effect tuples, over the op models in `pkm/contracts/ops.py`; the op classifiers (`classify_skip`, `classify_text_edit`) and one context type per way an op plans |
-| `ops_hash.py` / `conflict_notes.py` | Core / Core | The `applied_batches` request hashes; the text of `[[conflict]]` headers and skip notes |
-| `ops_apply.py` | Shell | Reads SQLite, classifies each op once, builds its per-kind context, executes planned effects |
-| `store.py` | Shell | Reusable page mutations (create/delete/rename/merge); never commits |
-| `query_exec.py` | Shell | Parses an expression with canonical `[[Page]]` operands (`parse_canonical_query`) and runs a `query.py` plan (`count_matches`, `execute_plan`); owns the filter keeping a `{{query}}` block out of its own results, and the row order, for both plan surfaces (`/api/query`, the resolved page export) |
-| `tree.py`, `grouping.py`, `daily.py`, `fts.py`, `query.py`, `sync_core.py`, `mime_sniff.py` | Core | Pure helpers: tree building; `{page_id, page_title, items}` group shaping (`group_by_page`, `group_backlinks`, `group_changed`); journal-day selection + empty-daily test; FTS queries; `{{[[query]]}}` parsing and SQL planning; sync windowing and hydration ordering; MIME sniffing |
-| `ws.py` / `notify.py` | Shell | WebSocket hub + broadcast nudges |
-| `tempfile_response.py` | Shell | `CleanupFileResponse`: a `FileResponse` whose cleanup callback runs even on a missing file or a send-time error (used by the zip export routes; see [files-and-assets.md](files-and-assets.md)) |
-| `request_log.py` / `logfmt.py` | Shell / Core | The `pkm.access` request log — one line per request, with durations (see [Logging](#logging-and-observability)) |
-| `run.py` / `setup.py` | Shell | `python -m pkm.server.run` entrypoint; `setup` writes `config.json` |
-| `openapi_dump.py` / `shim_parity_dump.py` | Shell | Generated-artifact writers (see [Generated artifacts](#generated-artifacts-and-parity-fixtures)) |
-
-The assistant routes (`pkm/assistant/`) and the image-description status/scan
-routes (`pkm/describe/`) are two HTTP surfaces outside this package; `app.py`
-constructs their services and mounts their routers alongside these.
+`cli`, `mcp`, `client` and `server` depend on `contracts`, which imports
+neither side; `tests/test_client_contracts.py` fails on an import that
+crosses back. The assistant and describe routes live outside `pkm/server/`;
+`app.py` mounts them.
 
 ## Database
 
-One SQLite file (`pkm.sqlite3`) in the data directory. WAL mode and schema are
-applied once at startup by `init_db()` (`server/db.py`), never per request.
-Request handlers get a fresh `Db` each (`check_same_thread=False`,
-`foreign_keys=ON`, `recursive_triggers=ON`, `busy_timeout=5000`).
+One SQLite file, `pkm.sqlite3`, in the data directory. `init_db()` sets WAL
+mode and applies the schema once at startup, never per request, because both
+take locks that conflict with another connection's open write transaction.
+Each request gets a fresh `Db` from `open_db()`, with `foreign_keys=ON`,
+`recursive_triggers=ON` and `BUSY_TIMEOUT_MS`.
 
-### Typed database access
+### Schema
 
-Feature code holds a `Db` (`pkm/database.py`), never a `sqlite3.Connection`.
-The raw connection returns tuples, and `Db` wraps it so every read is typed
-and every write is a different method.
-
-| Method | Returns |
-|---|---|
-| `select(sql, params)` / `select_one` | `list[Row]` / `Row \| None`: dicts keyed by the column names the query returns |
-| `execute` / `executemany` | `WriteResult(rowcount, lastrowid)`; writes only |
-| `begin_immediate`, `commit`, `rollback`, `executescript`, `close` | transaction control |
-| `table_columns`, `trigger_sql`, `backup_to` | catalog reads and the backup API, which bypass the row check |
-| `raw` | the connection, for tests and tooling; the `raw-sqlite` rule rejects it elsewhere |
-
-`Row` (`pkm/rows.py`) is a `TypedDict` with one key per name a query may
-return, each typed with its brand (`uid: BlockUid`, `page_id: PageId`) or
-`Literal` domain (`view_type: ViewType | None`). A key keeps one meaning and
-one nullability everywhere, so a column that differs from the key of the same
-name is read under an alias:
-
-| Column | Row key |
-|---|---|
-| `pages.id` / `sidebar_entries.id` | `page_id` / `sidebar_entry_id` |
-| `sidebar_entries.order_idx` | `sidebar_order_idx` |
-| `kind` of `refs`, `block_rewrites`, `changes` | `ref_kind`, `rewrite_kind`, `change_kind` |
-| `block_rewrites.old_title` / `new_title` | `rewrite_old_text` / `rewrite_new_text` |
-| `changes.page_id` (nullable) | `change_page_id` |
-| a computed value | the alias the query gives it (`COUNT(*) AS n`, `... AS page_title`) |
-
-`brand_registry.COLUMN_KEYS` lists the table-level aliases, `SHAPES` the
-regex a branded value must match, and `CLIENT_KEYS` the web-only keys of the
-replica's tables. `CLIENT_LITERALS` gives a client key its closed set of
-values (`replay_kind`, `has_pre`, `present`, `text_changed`), which the web
-row check enforces like a server `Literal`.
-
-When `PKM_ROW_CHECK=1`, `select` checks each row with `row_problems` and
-raises `RowCheckError` on an unregistered column, a NULL in a non-null key, a
-wrong base type, a value outside a `Literal` or a value that fails its brand
-shape. `conftest.py`, `e2e_serve.py` and the proptest sync server turn it on;
-`perfcheck` forces it off so timings measure what production runs. A
-`RowCheckError` is fixed in the query (alias the column, `COALESCE` an
-aggregate) or the data, never by loosening `row_problems`.
-
-A key admits every value its column stores. `heading` is
-`StoredHeadingLevel | None`, which includes the 0 an old Roam import stored
-for "no heading". `heading_level` maps that 0 to `None` where a row becomes a
-`BlockNode` or a `SyncBlock`, so the wire never carries it. Rewriting it in SQL
-(`NULLIF`) would cost VM steps on every block row a page or sync read returns.
-
-`Row` is the typed core of a read, not a wire type: handlers copy the keys
-they need into a response model. The brand lint's rules are in
-[enforced-checks.md](enforced-checks.md#brand-rules).
-
-`pkm/schema.py` holds two DDL blocks. `BASE_DDL` is the data model below, and
-is **replicated verbatim to browser clients** via the generated
-`baseSchema.gen.ts`. `SERVER_DDL` adds server-only sync machinery and never
-leaves the server.
+`schema.py` holds two DDL blocks. `BASE_DDL` is the data model, **replicated
+verbatim to browser clients** through `baseSchema.gen.ts`. `SERVER_DDL` holds
+the sync machinery and never leaves the server.
 
 ```mermaid
 erDiagram
@@ -247,84 +129,189 @@ erDiagram
     }
 ```
 
-Around that base model:
+Block text is the only durable data: `refs`, `block_refs` and the FTS5
+tables are rebuilt from it. `blocks_fts` and `pages_fts` are external-content
+tables kept in step by triggers. `blocks_fts` is keyed by implicit rowid, so
+`VACUUM` would break it.
 
-- **Derived indexes.** `blocks_fts` and `pages_fts` are external-content FTS5
-  tables kept in sync by `AFTER INSERT/UPDATE/DELETE` triggers; `blocks_fts`
-  is keyed by implicit rowid, so `VACUUM` would break it. `block_refs` holds
-  one row per distinct `((uid))` target a block mentions, backing the count
-  badge and `GET /api/block/{uid}/backlinks`. Block text is the only durable
-  data — `refs`, `block_refs` and FTS are always rebuilt from it.
-- **Server-only tables** (`SERVER_DDL`):
-  - `changes(seq AUTOINCREMENT, kind, entity_id, deleted, page_id)` — the
-    append-only change journal, populated by row-level triggers rather than
-    route code, so any new write path is journalled automatically. Cascade
-    deletes journal only because `recursive_triggers=ON`. The one direct
-    writer is the `JournalBlock` effect for an op on a missing target
-    (below). `page_id` is set only on a block tombstone: on a delete row, by
-    `blocks_chg_ad`, it is the page the deleted block was on; on a diverted
-    create's row, by `JournalBlock`, the page the client placed the block
-    on. It is the server's only record of either
-    ([Missing targets](#missing-targets)). It is never shipped,
-    and has no index, since every journal insert would pay for one.
-    `db._ensure_schema_migrations` adds the column to an older journal
-    (existing rows stay NULL) and re-creates the trigger.
-  - `applied_batches(batch_id, request_hash, response)` — op idempotency.
-  - `block_rewrites(uid, base_hash, after_hash, old_title, new_title,
-    created_at, kind)` — what a rename, merge, the title migration or a page
-    delete did to one block's text, replayed over a stale `update_text`.
-    The ops path also writes it (a stale unlink and a replay chain, through
-    `ops_core.rewrite_effects`; see [Conflicts](#conflicts)). Pruned to 30
-    days by a rename or a page delete. `kind` says what the title columns
-    mean; `db._ensure_schema_migrations` adds the column to an older table
-    (existing rows read `retitle`).
+| Server-only table | Holds | Written by |
+|---|---|---|
+| `changes` | The append-only journal: `seq`, `kind`, `entity_id`, `deleted`, `page_id` | Triggers on `blocks`, `pages` and `sidebar_entries`, so a new write path is journalled automatically; also `JournalBlock` ([Missing targets](#missing-targets)) |
+| `applied_batches` | Each batch's request hash and stored ack | `post_ops` |
+| `block_rewrites` | What a rename, merge, title migration or page delete did to one block's text, replayed over a stale edit ([Conflicts](#conflicts)). Pruned after `BLOCK_REWRITE_RETENTION_MS` | `store.rewrite_snapshotted_blocks`, `ops_core.rewrite_effects` |
+| `page_deletions` | Each user-deleted page's title and the journal head after it ([Stale batches](#stale-batches)). Pruned on the same window | `store.delete_page_unlinking` only |
+| `conflict_headers` | Today's conflict header per block; a new header deletes other days' rows | `ops_apply._execute` |
+| `sync_meta` | `db_generation` (a rebuilt database gets a new one and clients rebootstrap) and the `plain_space_title_canonicalization` flag | startup, title migration apply |
 
-    | `kind` | `old_title` | `new_title` |
-    |---|---|---|
-    | `retitle` | the old title | the new title (rename, merge, title migration) |
-    | `unlink` | the deleted page's title | empty |
-    | `inline` | the target block's uid | the text copied in place of `((uid))` |
-  - `page_deletions(title, seq, deleted_at)` — one row per user-deleted
-    page: its title and the journal head after the delete. A batch whose
-    `seen_seq` is below that `seq` is stale for the title
-    ([Stale batches](#stale-batches)). Written by
-    `store.delete_page_unlinking` only, so daily-note titles, journal
-    cleanup, merges and the title migration record nothing. Pruned with
-    a later page delete on the same 30-day window as `block_rewrites`
-    (renames prune `block_rewrites` alone); no index on `title`, and no
-    journal trigger.
-  - `conflict_headers(target_uid, day, header_uid)` — today's daily-note
-    conflict header for each block that has already had one, so a second
-    conflict on the same block the same day appends under it instead of
-    minting another. Recording a new header deletes every other day's rows.
-  - `sync_meta` — the random `db_generation` token (a rebuilt database gets a
-    new one and clients rebootstrap) and `plain_space_title_canonicalization`,
-    the title-activation flag.
-- **Schema migrations.** No framework. Additive tables and indexes are
-  replayable `IF NOT EXISTS` statements in `schema.py`. Additive columns are
-  guarded `PRAGMA` checks in `db._ensure_schema_migrations`, currently
-  `blocks.view_type` and the three `assets` description columns. One
-  `WHERE created_at IS NULL` backfill runs beside them, giving blocks the Roam
-  import left unstamped `MIN(page.created_at, block.updated_at)`. Client
-  replicas rebootstrap on a schema-hash change. Startup never runs the title
-  migration; that is the operator path below.
+Cascade deletes are journalled only because `recursive_triggers=ON`.
+`changes.page_id` is set only on a block tombstone: by `blocks_chg_ad`, the
+page the deleted block was on; by `JournalBlock`, the page a diverted create
+was placed on. It is never shipped and has no index, since every journal
+insert would pay for one.
+
+| `block_rewrites.kind` | `old_title` | `new_title` |
+|---|---|---|
+| `retitle` | the old title | the new title |
+| `unlink` | the deleted page's title | empty |
+| `inline` | the target block's uid | the text copied in place of `((uid))` |
+
+### Schema migrations and legacy data
+
+New tables and indexes are replayable `IF NOT EXISTS` statements. New columns
+are guarded `PRAGMA` checks in `db._ensure_schema_migrations`. Replicas
+rebootstrap on a schema-hash change. Startup never runs the
+[title migration](#title-integrity-and-one-time-activation).
+
+| Legacy shape | Handled by |
+|---|---|
+| `blocks.heading` 0, Roam's "no heading", from older imports | `Row.heading` is `StoredHeadingLevel`, so the row check admits it; `rows.heading_level` and `StoredHeading` read it as `None`, so the wire never carries it. A SQL `NULLIF` would cost VM steps on every block row |
+| NULL `blocks.created_at` from old imports | `db._backfill_created_at`, through the update trigger so replicas get it |
+| blocks from before `block_refs` was maintained | `db._backfill_block_refs`, once, behind a `sync_meta` marker |
+| a journal without `changes.page_id` | `db._ensure_changes_page_id`; old rows stay NULL |
+| `block_rewrites` rows without `kind` | the column default, `retitle` |
+| `applied_batches` rows holding the strict `batch_request_hash` | `post_ops` accepts either that or `batch_replay_hash` |
+| acks stored before `seq` or `skipped` | replayed through `OpsAck` as `seq: null` (unknown) and `skipped: []` |
+| asset links with an unencoded filename | `/assets/{sha256}/{filename}` ignores the name segment |
+
+### Breadcrumbs and recursive traversal
+
+`routes_pages.py::_fetch_ancestors` builds the breadcrumb trail behind
+`GET /api/block/{uid}` and every backlink group. Its recursive CTE carries
+`path` as `,uid,uid,…,`, and keeps a row only while
+`instr(a.path, ',' || b.uid || ',') = 0`, so a parent cycle in a hand-edited
+database stops at the repeat. `UID_RE` admits no comma, so the test is exact.
+
+Every recursive walk over `parent_uid` uses this guard, and each has a
+replica mirror written as the same CTE. Change a pair together. None caps
+depth.
+
+| Walk | Server | Replica mirror |
+|---|---|---|
+| Ancestors with text, for breadcrumbs and backlink groups | `routes_pages._fetch_ancestors` | `localApi/tree.ts` |
+| One block's parent chain, for a move's cycle check | `ops_apply._parent_chain` | `localOps.ts::parentChain` |
+| One block's subtree, deepest first, for delete, re-paging and journalling | `ops_apply._subtree_deepest_first` | `localOps.ts::subtreeUids` |
+
+## Typed boundaries
+
+### Typed database access
+
+Feature code holds a `Db` (`pkm/database.py`), never a `sqlite3.Connection`.
+`select` and `select_one` return `Row` dicts; `execute` and `executemany`
+take writes only and return `WriteResult`. `table_columns`, `trigger_sql` and
+`backup_to` bypass the row check. `raw` exists for tests and tooling, and the
+`raw-sqlite` lint rule rejects it elsewhere.
+
+`Row` (`pkm/rows.py`) is a `TypedDict` with one key per name a query may
+return, typed with its brand (`uid: BlockUid`) or `Literal` domain. A key
+keeps one meaning and one nullability everywhere, so a column that differs
+from the key of its name is read under an alias:
+
+| Column | Row key |
+|---|---|
+| `pages.id` / `sidebar_entries.id` | `page_id` / `sidebar_entry_id` |
+| `sidebar_entries.order_idx` | `sidebar_order_idx` |
+| `kind` of `refs`, `block_rewrites`, `changes` | `ref_kind`, `rewrite_kind`, `change_kind` |
+| `block_rewrites.old_title` / `new_title` | `rewrite_old_text` / `rewrite_new_text` |
+| `changes.page_id` (nullable) | `change_page_id` |
+| a computed value | the query's alias (`COUNT(*) AS n`) |
+
+`brand_registry.COLUMN_KEYS` lists the aliases and `SHAPES` each brand's
+regex; `CLIENT_KEYS` and `CLIENT_LITERALS` cover the replica's own tables.
+With `PKM_ROW_CHECK=1`, `select` checks each row with `row_problems` and
+raises `RowCheckError` on an unregistered column, a NULL in a non-null key, a
+wrong type, a value outside a `Literal` or a brand-shape failure. Tests, e2e
+and the proptest sync server turn it on; `perfcheck` turns it off. Fix a
+`RowCheckError` in the query (alias, `COALESCE`) or the data, never by
+loosening `row_problems`. A key admits every value its column stores,
+[legacy ones](#schema-migrations-and-legacy-data) included. `Row` is not a
+wire type: handlers copy keys into a response model.
+
+### Wire models and brands
+
+Every JSON handler returns a model from `contracts/responses.py`, and
+`test_routes_models` rejects a bare `dict`. The web's types are generated
+from these models, and `PkmClient` validates every response against them.
+
+- **Closed sets** are `Literal`s, not `str`/`int`. They reach OpenAPI as an
+  `enum`, and `pnpm gen-types` makes each a TS union.
+- **Brands.** `brand()` (`contracts/brands.py`) tags a `NewType` with an
+  `x-brand` schema marker, which gen-types turns into the web brand of the
+  same name ([frontend.md § API layer](frontend.md#api-layer)). Call it in
+  its own statement after the `NewType` line: pyrefly stops treating a
+  wrapped `NewType` call as a type. A subtype inherits its parent's marker,
+  so each needs its own `brand()`.
+- **Strict models.** Every model inherits `StrictModel`, so pyrefly checks
+  constructor arguments, brands included, and pydantic never coerces `"1"`
+  to an int. Outside the checker: input decoded by `model_validate` at
+  runtime, the perf fixture's `TypeAdapter(BlockOp)`, FastAPI form bodies and
+  the MCP library's argument models.
+
+The [brand lint](enforced-checks.md#brand-rules) enforces both;
+`brand_registry.MINT_SITES` lists where each brand may be minted.
+
+| Brand | Base | Declared in | Note |
+|---|---|---|---|
+| `Sha256Hex`, `ClientId`, `BatchId`, `BlockUid` | `str` | `contracts/ops.py` | |
+| `PageId`, `SyncSeq` | `int` | `contracts/ops.py` | |
+| `SidebarEntryId` | `int` | `contracts/ops.py` | `sidebar_entries.id`, its own key, not a `PageId` |
+| `OrderIdx` | `int` | `contracts/ops.py` | A sparse sibling key, not a position |
+| `SidebarOrderIdx` | `int` | `contracts/ops.py` | The web reorders the sidebar by array position, so it never meets block order code |
+| `ConversationId`, `ConfirmId` | `str` | `contracts/responses.py` | |
+| `GoodlinksId` | `str` | `goodlinks.py` | |
+| `RawTitle` | `str` | `contracts/titles.py` | Unchecked text; `as_raw_title` is the general mint |
+| `NormalizedTitle` | `RawTitle` | `contracts/titles.py` | From `refs.normalize_title` or `canonicalize_title` |
+| `CanonicalTitle` | `NormalizedTitle` | `contracts/titles.py` | The stored spelling of `pages.title` |
+
+`canonicalize_title` takes `plain_space` as an argument rather than reading
+the flag, so it returns only a `NormalizedTitle`. A `CanonicalTitle` comes
+from `sync_meta.read_title` / `title_reader`, which read the live flag;
+`refs.target_canonical_title`, which the title migration uses to plan
+against the post-activation state; or `refs.canonical_daily_title`, canonical
+under either flag. `store.fetch_page`, the rename, merge and sidebar helpers,
+`query.py`'s `plan_sql` and the migration inventory take `CanonicalTitle`,
+so pyrefly flags a title that skipped a mint. It cannot see an `Any` value or
+raw SQL.
+
+## Ref grammar
+
+`refs.py` owns the grammar (`[[links]]`, `#tags`, `attr::`, `((refs))`,
+`{{embeds}}`), and `web/src/grammar/scan.ts` mirrors it.
+
+| Rule | Python | TS | Pinned by |
+|---|---|---|---|
+| Code hides refs; in one left-to-right pass, whichever of a closed fence or an inline span starts first wins | `strip_code` | `scanCode` | `ref_grammar.json` |
+| A link, `#[[tag]]` or attribute whose title as written holds a backtick is no ref; an enclosing run goes with it | `holds_backtick` | `holdsBacktick` | `ref_grammar.json` |
+| A title blank once normalised is no ref | `is_blank_title` | `isBlankRefTitle` | `refs_parity.json`, `title_parity.json` |
+| A title with a `.`, `..` or empty `/` segment is no ref, so `#work/` typed on the way to `#work/notes` is never refused | `has_unreachable_segment` | `hasUnreachableSegment` | `title_parity.json` |
+| An indented `Title::` is an attribute, its span anchored on the title | `attribute_title_span` | `scanGrammar` | `scan.test.ts` (`"  Key:: v"` at offset 2) |
+| The `((uid))` shape, which `UID_RE` and the `BlockUid` brand shape are built from | `BLOCK_REF_TOKEN` | `UID_TOKEN` | `scan.test.ts`, `test_rows_vocabulary.py` |
+
+The backtick check reads the original text, because `strip_code()` has
+blanked code to spaces. Both scanners stay linear: a failed fence-closer
+search retires the fence rule for the rest of the text.
+
+`rename.py` and `unlink.py` keep no copy of the grammar. They locate refs
+through `strip_code`, `bracket_spans`, `tag_spans` and `attribute_title_span`,
+so they cannot find a ref the index missed or splice over code. `rename.py`
+adds which span wins when refs nest and how to spell the replacement. Its
+`normalize` argument maps a spelling in the text onto a replacement key.
+Rename, merge and their replay pass `rename.spelled_or_canonical`: a spelling
+that is itself a key, else its canonical form under the live flag. Matched
+byte for byte, `[[ Old ]]` would survive a rename under plain-space
+canonicalisation, and the reindex would recreate `Old`.
 
 ## The write path
 
-`POST /api/ops` is the transactional block-operation write path. Clients send
-an `OpBatch` (`client_id`, a required `batch_id` of 8–64 characters,
-1–500 ops, and an optional `seen_seq`) of block-level operations. A batch without a `batch_id` is a 422:
-an id-less batch cannot be deduplicated, so any retry or replay re-applies it.
+`POST /api/ops` applies an `OpBatch` of 1–500 ops. `batch_id` is required (a
+422 without it), because an id-less batch cannot be deduplicated.
 
 | Op | Does |
 |---|---|
-| `create` | insert a block with its given `heading` and `view_type`, always uncollapsed (`ops_core.plan_op`'s `InsertBlock`, `ops_apply._execute` hardcodes `collapsed = 0`); `page_title` places (and may create) the page of a top-level create, while a child lands on its parent's page |
-| `update_text` | replace a block's text; optional `base_text_hash` rides the conflict path, optional `page_title` labels a missing block's conflict header |
-| `move` | reposition or reparent; cross-page moves re-page the whole subtree. `page_title` places a top-level move; a reparented block follows its parent's page |
-| `delete` | remove a block and its subtree; optional `base_subtree_hash` rides the conflict path |
-| `set_heading` | set the block's heading level |
-| `set_view_type` | set `numbered` / `document` rendering for the block's children |
-| `set_collapsed` | fold or unfold — view state only (see Timestamps below) |
+| `create` | insert a block, uncollapsed. `page_title` places a top-level create; a child lands on its parent's page |
+| `update_text` | replace a block's text. `page_title` only labels a missing block's conflict header |
+| `move` | reposition or reparent; a cross-page move re-pages the subtree. `page_title` places a top-level move |
+| `delete` | remove a block and its subtree |
+| `set_heading`, `set_view_type`, `set_collapsed` | set a block attribute; collapse is view state only |
 | `create_page` | idempotently ensure a page exists |
 
 ```mermaid
@@ -339,417 +326,239 @@ flowchart LR
     X --> B["WS broadcast + seq nudge<br/>(after commit)"]
 ```
 
-`BEGIN IMMEDIATE` runs before the idempotency check, so the dedupe read and
-every op's context read share the same write lock as `_execute`: a
-concurrent `delete_page`/`rename_page`/`cleanup_journal` commit (their own
-connections, on the threadpool) cannot land between a context read and the
-effect it justified. A lock the busy timeout cannot take returns 503 with
-`Retry-After`.
+### The write lock
 
-`POST /api/page/{title}/rename` (rename and merge) takes the same lock the
-same way. It runs `BEGIN IMMEDIATE` before its first read, so the snapshot of
-referencing blocks it rewrites is taken inside the write transaction: a batch
-cannot commit between that snapshot and the rename's `UPDATE`, which would
-leave its `[[Old]]` link unrewritten. Every early exit rolls back, and a busy
-lock returns 503 with `Retry-After`. With the lock held a title race cannot
-reach the `UPDATE`, so the route has no `IntegrityError` to 409 path.
+A route whose decision rests on what it reads takes `BEGIN IMMEDIATE` before
+its first read, so no concurrent commit lands between that read and the
+write it justifies.
 
-`DELETE /api/page/{title}` takes the lock the same way, for the same reason:
-the snapshot of referencing blocks must be taken inside the write transaction.
+| Route | Lock taken before | Busy lock |
+|---|---|---|
+| `POST /api/ops` | the dedupe read and every op's context read | 503 + `Retry-After` |
+| `POST /api/page/{title}/rename` | the snapshot of referencing blocks, so no batch commits an unrewritten `[[Old]]`; a title race cannot reach the `UPDATE` | 503 + `Retry-After` |
+| `DELETE /api/page/{title}` | the snapshot of referencing blocks | 503 + `Retry-After` |
+| `DELETE /api/assets/{sha256}?if_unreferenced=true` | the reference check | 503 + `Retry-After` |
+| `POST /api/sidebar` | the uniqueness check and `max(order_idx) + 1`, so a same-title race is a 409 | uncaught: 500 |
+| `POST /api/migrations/title-canonicalization` | the re-inventory | uncaught: 500 |
 
-`ops_apply._context_for` classifies each op once, with `ops_core.classify_skip` and,
-for a hashed edit, `classify_text_edit`. It then hands `plan_op` the context
-type that classification calls for, such as `TextConflictContext` or
-`StuckMoveContext`, and `apply_batch` reads the skip for the ack off that
-same context. Every field of a context type is required, so the shell cannot
-hand the planner a half-built one. A context that does not fit its op, or its skip kind, is an
-`AssertionError`, a 500 the client retries. It must never become a 400,
-which would poison the client's queue over a server bug.
+### Planning
 
-Key mechanics:
+`ops_apply._context_for` classifies each op once (`classify_skip`, and
+`classify_text_edit` for a hashed edit) and hands `plan_op` the context type
+that classification calls for, such as `TextConflictContext` or
+`StuckMoveContext`. `apply_batch` reads the ack's skip off the same context.
+Every context field is required.
+A context that does not fit its op is an `AssertionError`, a 500 the client
+retries; it must never be a 400, which would poison the client's queue over a
+server bug.
 
-- **Ordering.** Siblings hold integer `order_idx`. An insert or move emits a
-  `ShiftSiblings` effect — bump every sibling ≥ the target index — before
-  placing the block. When a move's destination is the block's own group and
-  its current `order_idx` is already at or above the target index,
-  `ShiftSiblings` bumps the moving block's own row too. The `SetParent` that
-  follows then overwrites that row with the move's own target index, so only
-  the *other* siblings at or after the target index end up moved. The old
-  neighbours below the target are left exactly where they were, in a gap
-  nothing renumbers. A move onto its own current slot (same parent, same
-  key) still bumps every later sibling by one: `ShiftSiblings` cannot tell
-  "staying put" from "moving here". Cross-page
-  moves re-page the whole subtree and touch both
-  pages. A parent-chain check skips a move that would make a cycle (see
-  [Concurrent structure edits](#concurrent-structure-edits)).
-- **Refs re-derivation.** Every text change emits `ReindexRefs`, and
-  `store.reindex_refs_for_text` is its only implementation, rebuilding `refs`
-  and — via `store.reindex_block_refs` — `block_refs` from one parse. The
-  rename/merge and title-migration rewrite (`store.rewrite_snapshotted_blocks`)
-  calls it on the rewritten text, so neither site can drift from the extractor
-  or the schema. It never commits, and `now_ms` stamps only the pages a
-  `[[link]]` creates. Two writers skip it: the asset-token strip
-  (`routes_assets.py`), safe because asset tokens and `((uid))` are disjoint
-  syntaxes, and the one-off mermaid migration script.
-- **Timestamps.** Blocks and pages carry `created_at`/`updated_at` in epoch
-  milliseconds, seeded on import by `parse_export.py` from each Roam block's
-  `:create/time` and `:edit/time`. `blocks.updated_at` answers "when was this
-  block last really changed", so `set_collapsed` stamps neither the block nor
-  its page, while `update_text`, `move`, `set_heading` and `set_view_type` bump
-  both. The trigger-driven change journal is independent of this, so a collapse
-  still reaches other clients.
-- **Idempotency.** A retried batch — same `batch_id`, matching stored request
-  hash — replays the stored ack with no effects. The same id with a different
-  payload is a 409. Offline queue replay depends on it. New `applied_batches`
-  rows store `batch_replay_hash` (`ops_hash.py`), which leaves out an
-  `update_text` op's `base_text_hash` and `page_title`, and a `delete` op's
-  `base_subtree_hash`: the worker can fill
-  those into the durable copy of a batch while the fallback-lane copy under the
-  same `batch_id` keeps the caller's ops. Rows written before it hold the
-  strict `batch_request_hash`, so the route accepts a match on either.
-- **Well-formed text.** Every op model and `OpBatch` derive from
-  `contracts.text.WellFormedModel`, whose before-validator turns each lone
-  surrogate anywhere in the batch into U+FFFD (`well_formed_tree`, which
-  applies `well_formed` to every str). A
-  browser's `JSON.stringify` sends a lone surrogate as a `\udXXX` escape,
-  and SQLite refuses to bind one, so without it the batch 500s. The web's
-  outbox retries a 5xx forever, so that one edit would wedge every later
-  edit behind it. The rule is to normalise, never to reject: a 4xx would
-  poison the batch and drop the edit over one unencodable character.
-  `text_hash` and `subtree_hash` hash the well-formed form, which is what
-  the web's `sha256Hex` reads through `TextEncoder`. The web normalises too
-  (`replica/wellFormed.ts`, in `opQueue.enqueue` and `replica/queue.ts`'s
-  `enqueueBatch`), so the replica's queued ops are the text the server
-  stores. The CLI/MCP batch commands (`batch.py`) share the base model, so
-  a title is normalised before the pages it names are fetched.
+- **Ordering.** An insert or move emits `ShiftSiblings`, bumping every
+  sibling at or above the target `order_idx`. Nothing renumbers the gaps this
+  leaves. A move onto its own slot still bumps every later sibling, because
+  `ShiftSiblings` cannot tell staying put from moving there.
+- **Refs.** Every text change emits `ReindexRefs`, whose only implementation
+  is `store.reindex_refs_for_text`; the rename rewrite calls it too. It never
+  commits. The asset-token strip skips it, since asset tokens and `((uid))`
+  are disjoint, and so does `importer/migrate_mermaid_blocks.py`.
+- **Timestamps.** `blocks.updated_at` means last really changed, so
+  `set_collapsed` stamps neither block nor page; the journal still carries
+  the collapse.
+- **Idempotency.** A retried `batch_id` with a matching hash replays the
+  stored ack with no effects; with other ops it is a 409. The stored
+  `batch_replay_hash` (`ops_hash.py`) leaves out `base_text_hash`,
+  `update_text`'s `page_title` and `base_subtree_hash`, which the worker may
+  fill into only the durable copy of a batch.
+- **Well-formed text.** `WellFormedModel` turns lone surrogates into U+FFFD
+  ([Hostile input](#hostile-input)). The rule is to normalise, never reject:
+  SQLite cannot bind a surrogate, a 5xx is retried forever and a 4xx poisons
+  the batch. `text_hash` hashes the well-formed form, as the web does.
 
-Conflicts, missing targets, stale batches (a page deleted after the batch's
-`seen_seq`) and concurrent structure edits are what a batch meets when the
-tree changed after it was planned. None of them rejects the batch.
+Conflicts, missing targets, stale batches and concurrent structure edits are
+what a batch meets when the tree changed after it was planned. None rejects
+the batch.
 
 ### Conflicts
 
-Conflicts resolve per block: last write wins, and the losing text is kept,
-blank or not — unlike the orphan-edit and diverted-create rows in
-[Missing targets](#missing-targets), which skip a blank text rather than
-land an empty conflict child. A diverged delete's descendant copies
-(below) are the same: every descendant's text lands, blank included.
-`update_text` carries an optional `base_text_hash`, the sha256 of the text the
-edit was based on. It is a text hash rather than a version counter, so
-structural changes don't manufacture conflicts. On a mismatch, or on an edit
-to a block that no longer exists, the incoming edit still wins. The losing
-text is rescued as a child block under a `[[conflict]]` header appended to
-the daily page of the batch's own `now_ms`
-(`title_for_date` of its server-local date; `_conflict_landing` never reads
-the clock itself). A second
-conflict on the same block the same day appends under that same header
-instead of minting another (`conflict_headers`, above). The header text names
-the page:
+`update_text` may carry `base_text_hash`, the sha256 of the text it was based
+on; a hash, unlike a version counter, ignores structural change. On a
+mismatch, or an edit to a gone block, the incoming edit wins and the losing
+text, blank or not, lands under a `[[conflict]]` header on the daily page of
+the batch's `now_ms`. The batch reads the clock once; `_conflict_landing`
+never reads it. A second conflict on a block the same day appends under the
+same header.
 
 | Case | Header text |
 |---|---|
-| Block still exists (mismatch) | `` [[conflict]] [[Page]] — overwritten by ((uid)) ``, `Page` read from the live block's own row |
-| Block gone, hint usable and names a page that still exists | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
-| Block gone, hint usable but names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
-| Block gone, hint missing, blank, or [refused](#refused-titles) | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
-| Block exists, but its move's target parent is gone, is the block itself, or is its descendant | `` [[conflict]] [[Page]] — ((uid)) ``, `Page` read from the live block's own row |
-| Guarded `delete` whose subtree changed since the deleting device saw it | `` [[conflict]] [[Page]] — deleted while edited elsewhere ``, `Page` read from the block's own row before the delete; no `((uid))`, since the block is gone |
+| Block exists, hash mismatch | `` [[conflict]] [[Page]] — overwritten by ((uid)) `` |
+| Block gone, hint names an existing page | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
+| Block gone, hint names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
+| Block gone, hint missing, blank or [refused](#refused-titles) | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
+| Block exists, move target gone or inside it | `` [[conflict]] [[Page]] — ((uid)) `` |
+| Guarded `delete` whose subtree changed | `` [[conflict]] [[Page]] — deleted while edited elsewhere `` |
 
-`page_title` only labels a header for the missing-block case; it never
-changes whether or where an op applies. An invalid hint can't fail the
-batch: `find_op_title_violation`, whose violations are a 400, never looks at
-it. A hint naming no current page (renamed or deleted since the client saw
-it) is shown as inline code, which the ref extractor skips, so the header
-cannot re-create that page (`ops_apply._hint_page`). An existing page is
-named by its stored title, not the hint's spelling, and linked only when `[[Page]]` reads back through `refs.extract` as that same
-title (`conflict_notes.existing_page_label`). A hint naming a
-[refused title](#refused-titles) is `(page unknown)`. Header and child uids are minted (`contracts.ops.new_uid`)
-with an alphanumeric first character so the CLI can address them without `--`
-(see [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)); a
-second conflict on the same block the same day reuses its header's uid.
+The `page_title` hint never changes whether or where an op applies, and
+`find_op_title_violation` never reads it. A hint naming no current page is
+inline code, which the ref extractor skips, so the header cannot re-create
+the page (`ops_apply._hint_page`). An existing page is linked by its stored
+title, only when `[[Page]]` reads back as it
+(`conflict_notes.existing_page_label`). `contracts.ops.new_uid` starts uids
+with an alphanumeric so the CLI can address them without `--`.
 
 `ops_core.classify_text_edit` sorts a hashed `update_text` on a live block,
 checking in this order:
 
 | Situation | Outcome |
 |---|---|
-| `base_text_hash` matches a pre-rewrite snapshot of this block | The `block_rewrites` rows `store.rewrite_snapshotted_blocks` left replay over the incoming text (`ops_core.replay_title_rewrites`), which then meets the rows below |
+| `base_text_hash` matches a pre-rewrite snapshot of this block | The `block_rewrites` rows replay over the incoming text (`ops_core.replay_title_rewrites`), which then meets the rows below |
 | Incoming text equals current | No-op, even with a stale hash |
 | `hash(current) == base_text_hash` | Clean apply |
 | Hashes differ | Incoming wins; the overwritten text lands under a conflict header |
 
-The replay covers all three `kind`s: a rename's, and a page delete's `unlink`
-and `inline` steps through `unlink.apply_delete_rewrite`. So a device that
-never saw a rename cannot re-create the page it emptied, and a stale edit
-cannot bring back a link to a deleted page or a `((ref))` to a gone block.
-Only a conflict resolves (and may create) today's daily page. A hashless edit
-to a live block is unconditional last-write-wins and never touches it.
+The replay covers renames and, through `unlink.apply_delete_rewrite`, page
+deletes. So a stale edit cannot re-create a renamed-away page, a link to a
+deleted page, or a `((ref))` to a gone block. A hashless edit to a live block
+is last-write-wins. A replay or stale unlink makes the written text differ
+from the sent text, and the client hashes its next edit from what it sent.
+So `ops_core.rewrite_effects` records a `block_rewrites` chain
+(`RecordRewrite`) from the sent text's hash to the written one.
 
-A replay or a stale unlink makes the written text differ from the text the
-client sent, and the client stamps its next hashed edit from the text it
-sent. `ops_core.rewrite_effects` therefore records `block_rewrites` rows
-(`RecordRewrite`), whatever the outcome (a conflict writes the replayed text
-too): one group per pass (the stale unlink, then each replayed step),
-chained from `text_hash` of the text as sent to `text_hash` of the text
-written. The chain is replayed from the recorded rows and must reproduce the
-written text before anything is recorded. A plain hashed edit, and a rename
-with no later edit, record nothing.
-
-`delete` carries an optional `base_subtree_hash`, taken over the uid and text
-of the block and every descendant
-([canonical form](sync-and-offline.md#conflicts-at-push-time)). Order and
-nesting inside the subtree are not hashed, so a reorder does not diverge it.
-An edit, a new child or a block moved in or out does. On a mismatch the delete
-still wins, but first the server's current texts land under the block's
-conflict header, nested as they were. The copies are text only, with fresh
-uids (`ops_core.descendant_copy_effects`). They never land under a header
-inside the subtree being deleted, since the delete would cascade them away.
-A block on today's daily page can hold its own earlier header, so that case
-gets a fresh header, recorded in place of the old one
-(`ops_apply._conflict_landing`'s `exclude`). A matching or hashless delete
-removes the subtree with no copy and never touches today's daily page.
+`delete` may carry `base_subtree_hash` over the uid and text of the block
+and every descendant ([canonical form](sync-and-offline.md#conflicts-at-push-time)).
+Order and nesting are not hashed, so a reorder does not diverge it. On a
+mismatch the delete still wins, but first every descendant's text, blank
+ones included, lands under the conflict header, nested, with fresh uids
+(`ops_core.descendant_copy_effects`). The header is never inside the subtree
+being deleted (`_conflict_landing`'s `exclude`).
 
 ### Missing targets
 
-An op whose block (or create/move parent) is gone never rejects its batch. A
-batch is atomic, so one such op would otherwise take every valid op in it
-down with a 400 and wedge the client's queue.
-`ops_core.classify_skip` sorts such an op before its context is read, so
-the daily page is resolved only when an entry lands. The last two rows are
-the stale-batch skips, described in [Stale batches](#stale-batches):
+An op whose block, or create or move parent, is gone never rejects its
+batch: a batch is atomic, so one such op would take every valid op down with
+a 400 and wedge the client's queue. `ops_core.classify_skip` sorts it before
+its context is read. Each entry is grouped under the block's uid (a diverted
+create's under its parent's), and every row is reported in the ack's
+`skipped` (`ops_core.skip_report`), with `note_page` null where nothing
+landed.
 
-| Op, situation | Outcome | `skipped` reason | Entry grouped under | Journalled |
-|---|---|---|---|---|
-| `set_collapsed`, block gone | no-op, but journalled: a replica that collapsed the block holds a ghost of it | `block_not_found` | — | the uid |
-| `delete`, block gone | no-op | `block_not_found` | — | — |
-| `move` / `set_heading` / `set_view_type`, block gone | skipped; child `move skipped: block <uid> not found` (or `heading change` / `view type change`) under the `(page unknown)` header | `block_not_found` | the block's uid | the uid; a move also its destination siblings (below) |
-| `update_text`, block gone, hashed or not | text lands (header table above); a blank text lands nothing | `block_not_found` | the block's uid | the uid |
-| `create`, parent gone | block not created; its text lands, header labelled from the op's `page_title`; a blank text lands nothing | `parent_not_found` | the parent's uid | created uid, with the page the client placed it on (below), and parent uid |
-| `move`, block exists, parent gone | block stays put; child `move skipped: target parent <uid> not found` | `parent_not_found` | the block's uid | the parent uid, then every block of the moved subtree |
-| top-level `create` into a page deleted since `seen_seq` | block not created; its text lands, header naming the deleted page; a blank text lands nothing | `page_deleted` | the create's own uid | the created uid |
-| top-level `move` onto a page deleted since `seen_seq`, block exists | block stays put; child note naming the deleted page | `page_deleted` | the block's uid | every block of the moved subtree |
+| Op, situation | Outcome | `reason` | Journalled |
+|---|---|---|---|
+| `set_collapsed` / `delete`, block gone | no-op | `block_not_found` | `set_collapsed`'s uid, since a replica holds a ghost |
+| `move` / `set_heading` / `set_view_type`, block gone | child `move skipped: block <uid> not found` (or `heading change` / `view type change`) under `(page unknown)` | `block_not_found` | the uid; a move also its destination siblings |
+| `update_text`, block gone | text lands | `block_not_found` | the uid |
+| `create`, parent gone | not created; text lands | `parent_not_found` | created uid with its page, and parent uid |
+| `move`, parent gone | block stays; `move skipped: target parent <uid> not found` | `parent_not_found` | the parent uid, then the moved subtree |
+| top-level `create` into a page deleted since `seen_seq` | not created; text lands under the deleted page's name | `page_deleted` | the created uid |
+| top-level `move` onto such a page | block stays; a note naming the page | `page_deleted` | the moved subtree |
 
-Grouping by uid means an orphaned edit and a skipped op on the same block
-share one header, whichever landed first. Notes name uids as plain text,
-since a `((ref))` to a missing block renders broken. A skipped op resolves
-no op `page_title`, since `get_or_create_page` would create a page for an
-op that never applied. Every row above, including the no-ops, is reported in
-the ack's `skipped` list (`ops_core.skip_report`), with `note_page` null
-where nothing landed. `uid` is always the op's own uid, so a diverted
-create's entry names its new uid, not the missing parent's. A move's cycle
-skip (`move_cycle`) reports `cycle` instead; see
-[Concurrent structure edits](#concurrent-structure-edits). A `stale_page`
-skip reports `page_deleted`.
+Where a row lands text, a blank text lands nothing; a conflict, by contrast,
+keeps a blank losing text. A skipped op resolves no `page_title`, which
+would create a page for an op that never applied. A later op in the batch
+sees a diverted create's block as missing too, and a diverted subtree lands
+flat.
 
-A follow-on op in the same batch sees a diverted create's block as missing
-too, so it lands rather than 400s. Only text survives a diversion. A
-diverted subtree lands flat, each child's text under its own parent's uid,
-and loses its nesting, heading and view type. A create and then an edit of
-one uid in the same batch land both texts.
+`JournalBlock` writes the row a trigger would, straight into `changes`, so
+FTS and refs stay untouched. It marks a uid with no block row `deleted`,
+because the feed ships a block tombstone only from a delete row. A move to a
+missing parent journals the whole moved subtree: the ghost parent's
+tombstone cascades the blocks a replica moved under it, and these rows
+restore them.
 
-`JournalBlock` writes the journal row the triggers would. It marks a uid
-with no block row `deleted`, because the feed ships a block tombstone only
-from a delete row; a live uid ships as its current row.
-
-A block tombstone cascades the whole local subtree, so a ghost parent's
-tombstone deletes the live blocks a replica optimistically moved under it.
-A move to a missing parent therefore journals the moved subtree, not just its
-root, and those rows restore the blocks. A replica applies block tombstones
-only in the window that reaches the journal head, after its upserts
-([sync-and-offline.md § Block tombstones wait for the head window](sync-and-offline.md#block-tombstones-wait-for-the-head-window)),
-so the window boundaries between `_plan_skip`'s tombstones and live rows do
-not matter.
-
-A skipped `create` or `move` also shifted its destination siblings in the
-client's optimistic apply, and the server did not. Where nothing else
-re-ships them, the skip journals them (`ops_apply._destination_siblings`).
-A replica does not rely on these rows
-([sync-and-offline.md § The replay log](sync-and-offline.md#the-replay-log)).
+A skipped `create` or `move` shifted its destination siblings in the
+client's optimistic apply but not on the server. Where nothing else re-ships
+them, `ops_apply._destination_siblings` journals them. The replica's
+[replay log](sync-and-offline.md#the-replay-log) does not rely on these rows.
 
 | Skip | Destination | Siblings journalled |
 |---|---|---|
 | move of a gone block | a live `parent_uid` | its children |
-| move of a gone block | top level, `page_title` naming a page | that page's top-level blocks (looked up, never created) |
-| move of a gone block | top level, no `page_title` | the top level of the block's own page, read from its latest tombstone with a `changes.page_id` |
-| any | a gone `parent_uid` | none: the parent's tombstone cascades the replica's shifted copies |
-| `move_cycle` | the target's children | none extra: they lie inside the journalled subtree |
+| move of a gone block | top level, `page_title` naming a page | that page's top-level blocks (never created) |
+| move of a gone block | top level, no `page_title` | the top level of the page on its latest tombstone with a `changes.page_id` |
+| any | a gone `parent_uid` | none: the parent's tombstone cascades them |
+| `move_cycle` | the target's children | none: they lie inside the journalled subtree |
 
 A block the server never created has no delete row, so a diverted create
-writes the page on its own tombstone (`ops_apply._diverted_create_page`).
-The client placed the block on its parent's page. The op's `page_title`
-names the page whose outline showed that parent, so a page by that title
-comes first. A title that names no page falls back to the page on the
-parent's own tombstone.
+writes its page onto its own tombstone (`ops_apply._diverted_create_page`):
+the page its `page_title` names if one exists, else the page on the parent's
+tombstone.
 
-The `page_id` lookup scans the journal newest first. The tombstone a skip
-races is recent, so the scan stops early. Only a uid with no page-bearing
-tombstone reads the whole journal, and it journals no siblings.
-`JournalBlock` inserts into `changes` directly, so no `blocks` trigger fires
-and `updated_at`, FTS, `refs` and `block_refs` stay as they were. The rows
-are written in the batch's transaction, so the window that carries the batch
-re-ships each sibling's current row.
-
-Every other planning error is still a 400: invalid uid, uid already exists,
-title syntax. `find_op_title_violation` checks the whole batch before any op
-applies: a `create`'s, `create_page`'s or `move`'s `page_title`, and every
-`[[ref]]`/`#tag` title inside a `create`'s or `update_text`'s text. A
-`move`'s or `create`'s `page_title` is checked even when a live parent makes
-the server ignore it for placement
-([Concurrent structure edits](#concurrent-structure-edits), first row) — the
-syntax check runs first, before any op's targets are read. An
-`update_text`'s own `page_title` is
-only a conflict-header label and is never checked. A create's own uid is
-checked in `plan_op` for every `create`: an invalid one is a 400 whatever
-the op's classification, skipped or not. Every other op's own uid is
-checked only once it is classified as skipped: `ops_core.impossible_uid_reason`
-still fails it as a 400 (`block not found`) rather than the 200 skip, when
-its uid fails `UID_RE`. A missing *parent* uid only fails `UID_RE` as a 400
-for a `create` whose own block doesn't exist, so it diverts, or a `move`
-whose block exists but its target parent doesn't
-(`diverted_create` / `move_parent_missing`): `impossible_uid_reason`
-checks the parent only for those two skip kinds. So a `move` of a block that
-is *also* gone never shape-checks its
-`parent_uid`: it is a 200 `block_not_found` skip whatever the parent uid
-looks like. No client mints such a uid, and the check keeps arbitrary
-strings out of the journal and `conflict_headers`.
-
-Uid-taken outranks a gone parent: a `create` whose uid already exists is a
-400 even when its `parent_uid` is also missing (`ops_core.classify_skip`
-returns `None` — "plans normally" — the moment the uid is live, before it
-looks at the parent). The "parent gone" row above only applies when the
-uid is free.
+Other planning errors stay 400s: an invalid or taken uid, title syntax.
+`find_op_title_violation` checks every `page_title` of a `create`,
+`create_page` or `move` and every ref title in block text before any op
+applies. A skipped op whose own uid, or the gone parent uid it names, fails
+`UID_RE` is still a 400 (`ops_core.impossible_uid_reason`), which keeps
+arbitrary strings out of the journal. A taken uid outranks a gone parent.
 
 ### Stale batches
 
-A page delete is a journal event, and an offline device that never pulled it
-still holds edits against the page. `OpBatch.seen_seq` is the sync cursor the
-client built the batch under. `apply_batch` asks `store.stale_titles` for the
-titles in `page_deletions` with a larger `seq`, and a batch without
-`seen_seq` pays no query. A `seen_seq` beyond the journal head (a replaced
-database) counts every recorded deletion as newer.
+An offline device that never pulled a page delete still holds edits against
+the page. `apply_batch` asks `store.stale_titles` for `page_deletions` titles
+with a `seq` above the batch's `seen_seq`; a batch without `seen_seq` pays no
+query, and one beyond the journal head (a replaced database) treats every
+deletion as newer.
 
 | Op in a stale batch | Outcome |
 |---|---|
-| `create_page` for a stale title | dropped, not reported; the replica removes its local page (`dropStrandedLocalPages`) |
-| top-level `create` / `move` with a stale `page_title` | skipped as `stale_page`; the rows above |
-| `create` / `update_text` whose text links a stale title | the links become plain text (`ops_core.unlink_stale_text`), as the delete did for the text it saw; the rows `ops_core.rewrite_effects` records are described under `classify_text_edit` above |
-| `create` / `update_text` whose leading `Title::` attribute names a stale title | the name is code-fenced in place, `` `X`:: v `` (`unlink.defuse_attribute`), which indexes no ref. A real delete refuses such a block rather than rewriting it. The unlink replay defuses too, so the recorded row reproduces the fenced text |
+| `create_page` for a stale title | dropped, not reported; the replica removes its page (`dropStrandedLocalPages`) |
+| top-level `create` / `move` with a stale `page_title` | skipped as `stale_page` (a `SkipKind`), reported `page_deleted` (a `SkipReason`) ([above](#missing-targets)) |
+| text linking a stale title | the links become plain text (`ops_core.unlink_stale_text`) |
+| a leading `Title::` naming a stale title | fenced in place, `` `X`:: v `` (`unlink.defuse_attribute`), so it indexes no ref; the unlink replay defuses too |
 
-`stale_page` is the `SkipKind`; the ack reports it as `page_deleted`. A page
-re-created after its delete still matches by title until its deletion row is
-pruned.
+A page re-created after its delete still matches until its row is pruned.
 
 ### Concurrent structure edits
 
-Another device may reshape the tree between an op's enqueue and its push:
-
 | Op, situation | Outcome | Journalled |
 |---|---|---|
-| `create` under a live parent on another page than its `page_title` | created on the parent's page | the block (insert trigger) |
-| `move` under a parent that is no longer on the page `page_title` names | moved onto the parent's page | the subtree (triggers) |
-| `move` whose target is the block or its descendant | skipped as `move_cycle`; child `move skipped: would create a cycle` under the block's live-page header, grouped by the block's uid | every block of the moved subtree, root first |
+| `create` under a live parent on another page than its `page_title` | created on the parent's page | the block |
+| `move` under a parent no longer on the page `page_title` names | moved onto the parent's page | the subtree |
+| `move` whose target is the block or its descendant | skipped as `move_cycle`, reported `cycle`; child `move skipped: would create a cycle` under the block's header | the moved subtree, root first |
 
-`_context_for` resolves an op's `page_title` only for a top-level create or
-move, so a stale title never creates an empty page. It reads a move's target
-chain (`_parent_chain`) before `classify_skip`, which sorts a cycle
-beside the missing targets. The skip journals no tombstone, since nothing is
-gone. The block is an ancestor of the other device's move, so the feed's
-parent closure already ships its row with that move. The journalled subtree
-carries what else the replica's optimistic move touched: descendants a
-cross-page move re-paged, and the target's children it shifted.
+`_context_for` resolves `page_title` only for a top-level create or move, so
+a stale title never creates an empty page. The cycle skip journals no
+tombstone, since nothing is gone. Its journalled subtree carries what the
+replica's optimistic move touched: re-paged descendants and the target's
+shifted children.
 
 ### Page mutations and the sidebar
 
-Page-level mutations (create, delete, rename, merge) live in `store.py` as
-composable functions that never commit; routes own the transaction.
-`POST /api/page/{title}/rename` rewrites all referencing block text via
-`rename.py`, and merges by concatenating blocks when `allow_merge` is set.
-
-`DELETE /api/page/{title}` goes through `store.delete_page_unlinking`, which
-plans with `unlink.plan_page_delete` (`store.plan_delete`) before any write:
+`store.py` page mutations never commit; routes own the transaction. Rename
+rewrites every referencing block through `rename.py` and, with `allow_merge`,
+merges by concatenating blocks. `DELETE /api/page/{title}` runs
+`store.delete_page_unlinking`, which plans with `unlink.plan_page_delete`
+before any write:
 
 | Inbound reference | Delete does |
 |---|---|
 | `[[Title]]`, `#Title`, `#[[Title]]` | becomes plain text |
-| `((uid))` to a block of the page | replaced by a copy of that block's text (no task marker, no leading attribute, newlines folded), with its own refs resolved |
-| query macro naming the page | refused: 409 with `blockers` (`uid`, `page_title`, `text`, `reason`); nothing changes. `reason` is `query` |
-| leading `Title:: v` attribute naming the page | refused the same way, `reason` = `used_as_attribute`: the delete cannot rewrite the attribute, and the block's next edit would recreate the page |
-| unlinking would add or change the block's leading attribute name (`[[Title]]:: v`, `[[Title]] x:: v`) | refused the same way, `reason` = `attribute`: the block would become a property block and create the page it names |
-| rewritten text would still reference the page or one of its blocks | refused the same way, `reason` = `residual` |
+| `((uid))` to a block of the page | replaced by a plain copy of that block's text |
+| a query macro naming the page | refused: 409 with `blockers`, `reason` `query`; nothing changes |
+| a leading `Title:: v` | refused, `used_as_attribute`: the block's next edit would recreate the page |
+| unlinking would change the leading attribute name (`[[Title]]:: v`) | refused, `attribute` |
+| rewritten text still references the page | refused, `residual` |
 
-`unlink_title_refs` repeats until the text stops changing, because a nested
-legacy link (`[[[[Title]]]]`) loses one layer per pass. Each rewritten block
-gets `block_rewrites` rows (`unlink`, `inline`), its refs reindexed, and then
-the page rows go. The replay of an `unlink` row matches titles through the
-same `title_reader` canonicalisation the delete used. Otherwise a stale edit
-would keep a padded `[[ Title ]]` that the delete unlinked under plain-space
-canonicalisation, and recreate the page. `store.delete_page_unlinking` also
-records the title in `page_deletions`, so a stale offline batch cannot
-re-create the page ([Stale batches](#stale-batches)). `GET /api/delete-preview?title=` returns
-the same plan as counts plus the blockers without writing, for the web confirm.
+`unlink_title_refs` repeats until the text is stable, because a nested legacy
+link loses one layer per pass. Rewritten blocks get `unlink` and `inline`
+rows and a reindex, and the title goes into `page_deletions`. The replay of
+an `unlink` row matches titles through the same `title_reader`, or a stale
+padded `[[ Title ]]` would survive and recreate the page.
 
-`cleanup_journal` spares any daily note with an incoming link: a `refs` row of
-any kind from a block on another page, or a `((ref))` to one of its blocks.
-It never rewrites a day, so a link to a journal day cannot dangle.
-
-`rename.py` keeps no copy of the grammar: it locates refs through
-`refs.strip_code()`, `refs.bracket_spans()`, `refs.tag_spans()` and
-`refs.attribute_title_span()`, so neither module can find a ref the other
-missed: an indented `Title::` is a ref to both. What is left in it is which
-span wins when refs nest — a replaced title takes its whole `[[..]]` run — and
-how to spell the replacement. Its `normalize` argument maps a spelling in the
-text onto a replacement key: the title migration takes the default and
-matches the stored title byte for byte, the importer passes
-`refs.normalize_title`, and rename, merge and their replay pass
-`rename.spelled_or_canonical`: a spelling that is itself a key, else its
-canonical form under the live flag. That last rule is why `[[ Old ]]`, which
-the ref index resolves to `Old` once plain-space canonicalisation is active,
-is rewritten with the rest; matched byte for byte it would survive and the
-reindex would recreate the retitled page. The web scanner shares that anchoring convention,
-pinned by `web/src/grammar/scan.test.ts` as `"  Key:: v"` starting at offset 2.
-
-Code spans take precedence over refs by position: `strip_code()` makes one
-left-to-right pass, and whichever of a closed fence or an inline span starts
-first wins, exactly as `scanCode` in `web/src/grammar/scan.ts` does. A lone
-backtick followed by a fence run on the same line is therefore an inline span
-ending at the fence's first backtick, and the text after it is not code.
-Both scanners stay linear because a failed closer search retires the fence
-rule for the rest of the text: any later opener would search a suffix of the
-same window.
-
-A link, `#[[tag]]` or attribute whose title, as written, holds a backtick is
-no ref (`refs.holds_backtick`, mirrored in `scan.ts`). That covers a lone
-backtick and a code span cutting through the brackets. The check reads the
-original text, because `strip_code()` has blanked the code to spaces. The
-scanners (`bracket_spans`, `attribute_title_span`, `scanGrammar`) drop such a
-run after pairing brackets and before nesting, so an enclosing run goes with
-it and its children are promoted. Rename, delete and import rewrite only what
-the scanners report, so they never splice over code.
-
-Sidebar pinning is a separate write path. `POST /api/sidebar` takes SQLite's
-writer reservation with `BEGIN IMMEDIATE` before it checks title uniqueness and
-computes the append slot as `max(order_idx) + 1`. A same-title race therefore
-becomes HTTP 409, and two concurrent appends cannot land on the same
-`order_idx`.
+`cleanup_journal` spares any daily note with an incoming link, so a link to a
+journal day cannot dangle. `POST /api/sidebar` is its own path under the
+[write lock](#the-write-lock).
 
 ### Post-commit nudges
 
-The change-journal triggers in `schema.py`'s `SERVER_DDL` sit on `blocks`,
-`pages` and `sidebar_entries`. **Every route whose commit touches a journalled
-table sends a WS `{type:"seq", seq}` nudge right after that commit.** `seq` is
-always the actual journal maximum. A metadata or generation change that may
-leave `changes.seq` unchanged sends the same frame with `force:true` and the
-new `generation`. The force bit makes a client pull even at its own cursor,
-and never advances the cursor. `POST /api/ops` also echoes the applied ops,
-not the skipped ones.
+**Every route whose commit touches a journalled table (`blocks`, `pages`,
+`sidebar_entries`) sends a WS `{type:"seq", seq}` nudge right after that
+commit.** `seq` is the real journal maximum. A metadata or generation change
+that may not advance `changes.seq` adds `force:true` and the new
+`generation`, which makes a client pull at its own cursor without advancing
+it. `POST /api/ops` also echoes the applied ops.
 
-Sync-def routes call `notify.py`'s `commit_and_nudge_threadpool`; async routes
-call `db.commit()`, then `await nudge(request, db)`. `delete_asset` nudges
-because `strip_asset_tokens` (`pkm/assets_core.py`) rewrites referencing
-blocks. `upload_asset` sends nothing, since `assets` has no trigger.
-`cleanup_journal` nudges only when `deleted` is non-empty, because it runs on
-every journal page load. No type enforces the rule, so
-`server/tests/test_journal_advancing_contract.py` enumerates every
+Sync-def routes call `notify.commit_and_nudge_threadpool`; async routes call
+`db.commit()`, then `await nudge(request, db)`. `delete_asset` nudges because
+it rewrites blocks; `cleanup_journal` only when it deleted something. No type
+enforces the rule, so `test_journal_advancing_contract.py` enumerates every
 journal-advancing route and asserts a nudge.
 
 ```mermaid
@@ -760,546 +569,308 @@ flowchart LR
     Q -.->|"queue full, or send times out"| X([disconnect and close])
 ```
 
-`Hub.broadcast()` (`ws.py`) returns without awaiting any send, so one stalled
-client costs no other and never blocks the write path. A client is dropped at
-`QUEUE_SIZE` (64) queued frames or a send past `SEND_TIMEOUT` (10 s). Dropping
-must also close the socket. The transport can outlive the Hub's interest, and
-without a real close `onclose` never fires and the client never reconnects to
-resync from its cursor. Nothing caps total connections.
+`Hub.broadcast()` (`ws.py`) never awaits a send, so a stalled client blocks
+neither the write path nor other clients. Each connection's `_drain` task is
+the sole consumer of its `asyncio.Queue`, and `broadcast()`'s loop has no
+`await`, so a client receives frames in `broadcast()` call order; a second
+consumer or another queue would break that silently. A client is dropped at
+`QUEUE_SIZE` queued frames or a send past `SEND_TIMEOUT`. Dropping closes the
+socket (`_safe_close`), because otherwise `onclose` never fires and the
+client never resyncs.
 
 ## Title integrity and one-time activation
 
-Title canonicalization (`refs.canonicalize_title`) has two layers, and the
-durable `plain_space_title_canonicalization` flag selects the second:
+The durable `plain_space_title_canonicalization` flag selects the second
+layer of `refs.canonicalize_title`:
 
 | Flag | `canonicalize_title` does |
 |---|---|
-| inactive (default) | a control character makes ASCII-whitespace runs collapse to one space and trims their boundary; plain-space padding stays byte-exact, so legacy rows still resolve |
-| active | the above, plus stripping leading and trailing U+0020; internal ordinary spaces and NBSP are unchanged |
+| inactive (default) | a control character makes whitespace runs collapse to one space and trims their boundary; plain-space padding stays byte-exact, so legacy rows still resolve |
+| active | also strips leading and trailing U+0020; internal spaces and NBSP are unchanged |
+
+**A title that arrives as a lookup key goes through `sync_meta.read_title`
+before it meets `pages.title` or `sidebar_entries.title`.** Both are exact
+matches, so a raw title misses its page once the flag is active. The entry
+points are a `{title:wholepath}` route parameter, the `page` filter on
+`/api/todos` and `/api/changed`, a `[[Page]]` operand in `{{query}}`
+(`query_exec.parse_canonical_query`) and the `POST /api/sidebar` title.
+
+The `wholepath` convertor (`server/wholepath.py`) replaces Starlette's `path`
+on title and file-path routes and the SPA fallback. `path` stops before a
+final newline, so `Foo%20%0A` would arrive as `Foo `. `test_title_routes_props.py`
+checks every title-taking route and CLI verb against generated spellings;
+its route list comes from OpenAPI, so a new title route fails until covered.
+The web's sidebar form sends input untrimmed, because `trim()` would strip
+NBSP.
+
+Every creation path funnels through `store.get_or_create_page()`. Daily pages
+(`daily.py`) are auto-created on read and cannot be renamed.
+`ops_apply._broadcast_op()` echoes the stored title in place of the caller's
+`page_title`, so replicas receive the authoritative spelling.
+
+Activation is an operator action: `pkm migrate-titles`, then
+`pkm migrate-titles --apply DIGEST`
+([docs/cli.md](../cli.md#one-time-title-canonicalization)).
+`pkm/title_migration.py` groups padded titles under a canonical spelling,
+picks a survivor and reports `all_space` or `forbidden_syntax` blockers.
+Replacement values are opaque (`rename.rewrite_title_refs_map()` never
+rescans one), and the digest covers the whole relevant snapshot.
+`audit_title_migration()` runs in a read transaction it always rolls back.
+Apply takes that `audit_digest`, re-inventories under the
+[write lock](#the-write-lock), and answers 409 to a stale digest, a
+blocker or an active flag. Every change, through activation and the
+`db_generation` rotation, is one transaction, followed by one forced seq
+frame; replicas rebootstrap before replaying pending intent
+([sync-and-offline.md](sync-and-offline.md#title-activation-across-online-and-offline-paths)).
 
 ### Refused titles
 
-`refs.title_syntax_reason` refuses a page title, with the reason
-`forbidden_syntax`, when it holds:
+`refs.title_syntax_reason` refuses a title as `forbidden_syntax` when it holds:
 
 | Syntax | Why |
 |---|---|
 | `#`, `[[`, `]]` | ref syntax |
 | a trailing `]` | `[[a]]]` reads back as `a` |
 | a backtick | it pairs with another on the line into a code span that hides the ref |
-| a `.`, `..` or empty `/` segment (`.`, `/x`, `x/`, `a//b`, `a/../b`) | no URL: URL clients drop dot segments and the SPA's router collapses `//` (`refs.has_unreachable_segment`) |
+| a `.`, `..` or empty `/` segment (`/x`, `a//b`, `a/../b`) | no URL: clients drop dot segments and the router collapses `//` |
 
-Every rule judges the title edge-stripped of U+0020 (`target_canonical_title`),
-whatever the flag. The pure ops check never knows the flag, so judging the
-padded spelling would pass ` a] ` that the store then refuses as `a]`. The
-replica's `titleSyntaxReason` is pinned to the same verdicts by
-`title_syntax.json` and `title_parity.json`. A title is refused at creation,
-rename, move, `POST /api/sidebar`, import, and as a `forbidden_syntax`
-blocker in the migration audit. In block text a ref with `#`, `[[`, `]]` or a
-trailing `]` is refused (the batch is a 400). A ref with a backtick (see
-[Page mutations and the sidebar](#page-mutations-and-the-sidebar)) or with no URL is no ref at all, like
-`[[   ]]`: a tag typed through `#work/` on its way to `#work/notes` is never
-refused. `...`, `a.b` and `v1.2/x` are ordinary titles.
-
-The title brands are a chain declared in `contracts/titles.py`; each passes
-where the one before it is expected, never the reverse:
-
-| Brand | Meaning | Minted by |
-|---|---|---|
-| `RawTitle` | text no check has run on | `as_raw_title`, the general mint; `refs.py` (`normalize_title`, `attribute_title_span`, `tag_spans`); the other sites are in `brand_registry.MINT_SITES` |
-| `NormalizedTitle` | a `RawTitle` through `normalize_title` | `refs.normalize_title`, `refs.canonicalize_title` |
-| `CanonicalTitle` | a `NormalizedTitle` in the exact stored spelling | the paragraph below |
-
-`refs.normalize_title` and `refs.canonicalize_title` both return the
-`NewType` `NormalizedTitle`. `canonicalize_title` takes `plain_space` as a
-caller-supplied bool, not this database's live flag, so its result is the
-canonical spelling only when the caller passes that flag's current value.
-`CanonicalTitle` (a subtype of `NormalizedTitle`) is minted in exactly three
-places: `sync_meta.read_title`/`title_reader`, which read the live flag;
-`refs.target_canonical_title`, the deliberate exception the title migration
-uses to plan and apply against the post-activation state before the flag
-flips; and `refs.canonical_daily_title`, whose fixed format is canonical
-under either flag setting. `store.fetch_page`, the rename/merge/retitle/sidebar-insert helpers
-in `store.py`, `routes_search.py`'s todos/changed page filter, `query.py`'s
-`plan_sql` (a `QueryNode[CanonicalTitle]`, which only
-`parse_canonical_query` produces), and the row-mapped `InventoryPage`/`InventorySidebar` in
-`pkm/title_migration.py` all take `CanonicalTitle`; `refs.Ref.title` is
-`NormalizedTitle`. pyrefly therefore flags a title reaching any of those
-without going through a mint point. Two things it cannot catch: an
-`Any`-typed value (an unchecked `json.loads(...)` result, say), and a raw
-SQL statement that bypasses the typed helper entirely. The types are compile-time only — a `NewType` is still a plain
-string at runtime and on the wire, so this changes nothing a client sees.
-
-**A title that arrives as a lookup key goes through `sync_meta.read_title`
-before it meets `pages.title` or `sidebar_entries.title`.** Both are exact
-matches. A raw title, or a link's normalized one, therefore misses its page
-once the flag is active. The entry points are:
-
-- a `{title:wholepath}` route parameter (page read, delete, rename and export)
-- the `page` filter on `/api/todos` and `/api/changed`
-- a `[[Page]]` operand in `{{query}}`, via `query_exec.parse_canonical_query`
-- the `POST /api/sidebar` title
-
-The page routes use the DOTALL `wholepath` convertor (`server/wholepath.py`),
-not Starlette's `path`. `path` stops before a final newline, so `Foo%20%0A`
-would reach the route as `Foo ` and miss `Foo`, and an inner newline matches
-no route. The SPA fallback uses it too, so a cold load of `/page/Fo%0Ao`
-serves index.html. `tests/test_title_routes_props.py` checks every title-taking route
-and CLI verb against a generated spelling of each title; its route list comes
-from the OpenAPI document, so a new title-taking route fails it until covered.
-
-The web's sidebar form sends its input untrimmed. `trim()` would also strip
-NBSP, which canonicalisation keeps.
-
-The flag defaults to `"0"` for every database, and startup never audits or
-applies the existing-data migration. Activation is an operator action:
-`pkm migrate-titles` to audit, then `pkm migrate-titles --apply DIGEST`
-([docs/cli.md](../cli.md#one-time-title-canonicalization)).
-
-`pkm/title_migration.py` is the pure planner. It groups padded titles under a
-canonical spelling, picks a survivor and reports `all_space` or
-`forbidden_syntax` blockers (a [refused title](#refused-titles)). Replacement values are opaque —
-`rename.rewrite_title_refs_map()` never rescans a mapped value as another
-source — and the plan's SHA-256 digest covers the full relevant snapshot, so an
-unchanged audit yields a stable digest.
-`server/title_migration.py::audit_title_migration()` owns a read transaction it
-always rolls back, so the authenticated GET route has no side effects.
-
-Apply requires that 64-lowercase-hex `audit_digest`, takes `BEGIN IMMEDIATE`,
-re-inventories under the writer reservation, and refuses a stale digest, either
-blocker reason, or an already-active database with HTTP 409. Every change,
-through to activation and the `db_generation` rotation, lands in one
-transaction, after which the route emits one forced seq frame carrying the real
-journal maximum and the new generation. Connected replicas see the generation
-mismatch and rebootstrap before replaying pending intent
-([sync-and-offline.md](sync-and-offline.md#title-activation-across-online-and-offline-paths)).
-
-Every creation path funnels through `store.get_or_create_page()`, which
-consults the flag. After control normalization, page creation and rename reject
-any title containing `#`, `[[` or `]]`, and `POST /api/ops` preflights explicit
-`page_title` fields and ref-derived titles across the whole batch, so a
-violation refuses before any mutation. `PkmClient.get_page`, `get_backlinks`
-and `get_page_blocks` normalize control whitespace before building the URL, so
-CLI and MCP callers can read a title using the spelling they wrote. Daily pages
-use Roam's ordinal format (`July 8th, 2026`, in `daily.py`), are auto-created
-on read, and cannot be renamed.
-
-`ops_apply._broadcast_op()` replaces the caller's `page_title` with the stored
-one after each `create`, `create_page` or resolved-target `move`, so replicas
-receive authoritative title identity
-([sync-and-offline.md](sync-and-offline.md#title-activation-across-online-and-offline-paths)).
-A missing page row raises there, rolling the owning op transaction back.
+Every rule judges the title edge-stripped of U+0020
+(`target_canonical_title`) whatever the flag, because the pure ops check
+never knows the flag and must not pass ` a] `. A title is refused at
+creation, rename, move, sidebar pin, import, and in the migration audit. In
+block text a ref with `#`, `[[`, `]]` or a trailing `]` fails the batch with
+a 400; a backtick or no URL makes it [no ref](#ref-grammar). `...` and `a.b`
+are ordinary titles.
 
 ### Blank titles
 
-A blank title is permanently unreachable — no `[[link]]` resolves to it and no
-route can name it — so `get_or_create_page()` raises `BlankTitleError` instead
-of committing one, and each caller picks its recovery:
+A blank title is unreachable, so `get_or_create_page()` raises
+`BlankTitleError` and each caller picks its recovery:
 
 | Caller | Recovery | Why |
 |---|---|---|
-| `POST /api/pages` | 422 | a live client can retry with a real title |
-| `ops_apply.py`'s `_resolve_page()` (`create`, `create_page`, cross-page `move`) | substitute the fallback title `"Untitled"` | the ops path must never 422 |
+| `POST /api/pages` | 422 | a live client can retry |
+| `ops_apply._resolve_page()` | file under `UNTITLED_PAGE_TITLE`, `"Untitled"` | the ops path must never 422 |
 
-`"Untitled"` is an ordinary addressable title, not a reserved sentinel, so
-blank-title ops deposit onto a user's real "Untitled" page if one exists — an
-accepted trade-off.
-
-A ref whose title normalizes to blank is not a reference and must index
-nothing, or `[[   ]]` would fabricate a phantom backlink on "Untitled".
-`refs.is_blank_title()` — normalize, then strip — is the one blankness
-predicate, called by `refs.extract()`'s bracket branch, and
-`web/src/grammar/refs.ts::extractRefs` filters on `r.title.trim() === ""`; the
-shared fixture case `skip [[   ]] but keep [[ Valid ]]` pins the pair.
-`store.index_ref()` also catches `BlankTitleError` and skips the ref.
+`"Untitled"` is an ordinary title, so blank-title ops land on a user's real
+"Untitled" page if one exists; that trade-off is accepted. A blank ref
+indexes nothing ([Ref grammar](#ref-grammar)), or `[[   ]]` would make a
+phantom backlink on "Untitled". `store.index_ref()` also skips a ref that
+raises `BlankTitleError`.
 
 ## Auth
 
-One shared password behind Tailscale, which is the transport boundary.
-`auth_core.py` does the constant-time scrypt check and signs the `pkm_session`
-cookie that `POST /api/login` sets (`v1.<issued_ms>.<sig>`);
-`docs/SECURITY.md` owns the cookie flags, the threat model and the accepted
-limitations.
+One shared password behind Tailscale, the transport boundary. `auth_core.py`
+does the constant-time scrypt check and signs the `pkm_session` cookie
+(`v1.<issued_ms>.<sig>`). `docs/SECURITY.md` owns the cookie flags and the
+threat model.
 
-`LoginThrottle` (`auth.py`, one instance per app on `app.state`) bounds the
-cost of unauthenticated attempts two ways: a per-source exponential backoff
-(1s doubling to a 30s cap, cleared by success) that rejects before scrypt runs,
-and a process-wide semaphore capping concurrent scrypt computations.
-`scrypt_slot()`'s acquire is bounded by `SCRYPT_ACQUIRE_TIMEOUT_S` (2s),
-because `login()` is a sync route on the shared worker-thread pool that an
-unbounded wait would starve. A throttled attempt gets the same 401 as a wrong
-password, even with the correct one. Under `tailscale serve` every client
-arrives from the proxy address (`request.client.host`), so the per-source
-backoff is effectively global.
+`LoginThrottle` (`auth.py`) applies a per-source exponential backoff
+(`BASE_BACKOFF_MS` to `MAX_BACKOFF_MS`) before scrypt runs, and a
+process-wide semaphore (`MAX_CONCURRENT_SCRYPT`) on scrypt work.
+`scrypt_slot()` waits at most `SCRYPT_ACQUIRE_TIMEOUT_S`, because `login()`
+is a sync route that an unbounded wait would let starve the threadpool. A
+throttled attempt gets the same 401 as a wrong password. Under
+`tailscale serve` every client shares the proxy address, so the backoff is
+effectively global.
 
-The public surface is `GET /login`, `POST /api/login`, `GET /healthz` and the
-static SPA shell. Every feature router is declared with
-`dependencies=[Depends(require_auth)]`, and `/api/ws` runs the same cookie
-check. On failure it closes with code 4401 before accepting, which uvicorn
-sends as an HTTP 403 handshake refusal; only Starlette's test client sees the
-4401. The server binds loopback plus the
-Tailscale IP only (default port 8974).
+`GET /login`, `POST /api/login`, `GET /healthz` and the SPA shell are public.
+Every feature router declares `dependencies=[Depends(require_auth)]`.
+`/api/ws` checks the cookie and closes with 4401 before accepting, which
+uvicorn sends as an HTTP 403.
 
 ## HTTP API reference
 
-Authoritative sources: the `routes_*.py` modules and the generated
-`web/src/api/openapi.json` (see
-[Generated artifacts](#generated-artifacts-and-parity-fixtures)). Response
-models are Pydantic classes in `pkm/contracts/responses.py`. Every JSON
-handler returns one, and `test_routes_models` rejects a bare `dict` return.
-The generated TS
-types derive from them and `PkmClient` validates every response against them,
-so a drifting payload fails in the CLI and MCP client too. A field that only
-ever holds a fixed set of strings (or small ints) is typed as a `Literal`,
-not `str`/`int`: it reaches OpenAPI as an `enum`, so `pnpm gen-types` turns it
-into a TS union for free instead of the web hand-copying the set. `RefKind`
-(`refs.py`), `EntityKind` and `AssistantModel` (`contracts/responses.py`),
-`OpKind` and `HeadingLevel` (`contracts/ops.py`), `TaskMark` (`todo.py`) and
-`AssetCategory` (`assets_core.py`) follow `ViewType` and `SkipReason`'s lead
-this way. A Literal this strict can reject a value the write path itself
-never produces but an old import left behind: `BlockNode.heading` and
-`SyncBlock.heading` use `StoredHeading`, which reads a stored 0 (Roam's own
-"no heading" level) as `None` before the `HeadingLevel` check runs, rather
-than 500ing on a Roam-imported block.
-
-A `NewType` the web must also keep distinct from its base type is tagged
-with `brand()` from `contracts/brands.py`. `brand()` leaves validation and
-dumping as the supertype's and adds an `x-brand: "<Name>"` marker to the
-schema, which `pnpm gen-types` turns into a reference to the web brand
-of the same name
-(see [frontend.md](frontend.md#api-layer)). Call it in its own statement
-after the `NewType(...)` line: pyrefly stops treating the result as a type
-when the `NewType` call is wrapped in another call. A `NewType` of an
-already-branded `NewType` inherits its parent's marker, so a subtype such
-as `CanonicalTitle` (of `NormalizedTitle`) needs its own `brand()` call too.
-
-Every pydantic model inherits `StrictModel` (`contracts/strict.py`), so
-pyrefly checks a constructor's keyword arguments against the field types,
-brands included, and pydantic never coerces `"1"` to an int. The brand lint's
-`model-strict` and `model-unchecked` rules keep it so
-([enforced-checks.md](enforced-checks.md#brand-rules)). Four places stay
-outside the checker:
-
-- decoded input that `model_validate` or `model_validate_json` checks at runtime;
-- the perf fixture's generated ops, which `tooling/perfcheck/build.py` validates
-  through one module-level `TypeAdapter(BlockOp)`;
-- FastAPI's form-body models;
-- the MCP library's argument models.
-
-| Brand(s) | Declared in | Base |
-|---|---|---|
-| `Sha256Hex`, `ClientId`, `BatchId`, `BlockUid` | `contracts/ops.py` | `str` |
-| `PageId`, `SidebarEntryId`, `SyncSeq` | `contracts/ops.py` | `int` |
-| `OrderIdx`, `SidebarOrderIdx` | `contracts/ops.py` | `int` |
-| `ConversationId`, `ConfirmId` | `contracts/responses.py` | `str` |
-| `GoodlinksId` | `goodlinks.py` | `str` |
-| `RawTitle` | `contracts/titles.py` | `str` |
-| `NormalizedTitle` | `contracts/titles.py` | `RawTitle` |
-| `CanonicalTitle` | `contracts/titles.py` | `NormalizedTitle` |
-
-`SidebarEntryId` is `sidebar_entries.id`, not `PageId` — that table has its
-own `INTEGER PRIMARY KEY`, distinct from `pages.id` even though every entry
-names a page. `OrderIdx` is a block's sparse sibling order key
-(`blocks.order_idx`), not a position: a delete leaves a gap rather than
-renumbering, so two siblings' keys need not be adjacent.
-`sidebar_entries.order_idx` is `SidebarOrderIdx`, not `OrderIdx` — the
-server assigns it and the web reorders sidebar entries by array position, so
-it never meets block order code. The web's own brand definitions, and where each is minted on
-that side, are in [frontend.md § API layer](frontend.md#api-layer).
-
-Every endpoint requires the session cookie unless marked public, and
-FastAPI's `/docs` and `/redoc` are disabled.
+`routes_*.py` and the generated `web/src/api/openapi.json` are authoritative,
+and route docstrings carry the detail. Every endpoint needs the session
+cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/login` *(public)* | Password → signed session cookie; `OkAck` |
-| GET | `/login` *(public)* | Inline HTML login form |
-| GET | `/healthz` *(public)* | Liveness check; `OkAck` (`{ok}`) |
-| GET | `/{path}` *(public)* | SPA fallback: serves `web_dist` (index.html no-cache, hashed bundles under `/app-assets/`) |
+| POST | `/api/login` *(public)* | Password → session cookie |
+| GET | `/login` *(public)* | HTML login form |
+| GET | `/healthz` *(public)* | Liveness check |
+| GET | `/{path}` *(public)* | SPA fallback; hashed bundles under `/app-assets/` |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |
-| POST | `/api/ops` | Apply an `OpBatch` transactionally. Response model `OpsAck`: `{ok, ts, applied, seq, skipped}`. `applied` counts every op processed, skipped ones included. `seq` is the journal max read inside the batch's own transaction. `skipped` is always a list (empty for a clean batch) of `{index, op, uid, reason, note_page}`, where `reason` is a `SkipReason` (`block_not_found`, `parent_not_found`, `cycle` or `page_deleted`) and `note_page` is the daily page the entry landed on, or null. A replayed `batch_id` returns its stored ack through the model, so an ack stored before `seq` existed replays `seq: null` (clients read that as unknown), and one stored before `skipped` existed replays `skipped: []` |
+| POST | `/api/ops` | Apply an `OpBatch` ([The write path](#the-write-path)); `applied` counts skipped ops too |
 | **Pages & blocks** | | |
-| GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree + paginated backlinks + `block_ref_counts` (daily pages auto-created). Backlinks and unlinked mentions both skip blocks on the page itself |
-| GET | `/api/block/{uid}` | One block subtree with page context + breadcrumbs |
-| GET | `/api/block/{uid}/backlinks` | Blocks referencing `((uid))`, grouped like page backlinks (unpaginated) |
-| GET | `/api/block-refs?uids=` | Resolve `((uid))` references on demand |
+| GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree, paginated backlinks (not from the page itself), `block_ref_counts`; daily pages auto-created |
+| GET | `/api/block/{uid}` | One block subtree with its page and [breadcrumbs](#breadcrumbs-and-recursive-traversal) |
+| GET | `/api/block/{uid}/backlinks` | Blocks referencing `((uid))`, unpaginated |
+| GET | `/api/block-refs?uids=` | Resolve `((uid))` references |
 | POST | `/api/pages` | Idempotent page create |
-| DELETE | `/api/page/{title}` | Delete page + blocks (+ sidebar entry), returning `OkAck`; inbound links and tags become plain text and inbound `((refs))` become copies ([Page mutations](#page-mutations-and-the-sidebar)). 409 with `detail.blockers` when a query names the page, a block uses the page as its leading attribute, unlinking would change a leading attribute name, or a reference would be left; 503 with `Retry-After` when the write lock is busy |
-| GET | `/api/delete-preview?title=` | `DeletePreview`: `links`, `link_pages`, `block_refs`, `block_ref_pages` and `blockers`, what a delete would rewrite or be refused for; read-only; 404 if the page is missing |
-| POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge`; 503 with `Retry-After` when the write lock is busy. Returns `RenamePageResponse` (`result: "renamed" \| "merged"`, `title`) |
-| GET | `/api/unlinked?title` | Unlinked mentions of a title |
-| GET | `/api/journal?before&days` | Daily-notes feed (infinite scroll); each day carries its blocks and a linked-references preview, and one `block_ref_counts` map covers all days |
-| POST | `/api/journal/cleanup` | Prune empty daily pages (spares today + referenced blocks); `JournalCleanupResponse` (`deleted`: the titles removed) |
+| DELETE | `/api/page/{title}` | Delete a page, unlinking inbound refs; 409 with `blockers` ([Page mutations](#page-mutations-and-the-sidebar)) |
+| GET | `/api/delete-preview?title=` | What a delete would rewrite or be refused for |
+| POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge` |
+| GET | `/api/unlinked?title` | Unlinked mentions, not from the page itself |
+| GET | `/api/journal?before&days` | Daily-notes feed |
+| POST | `/api/journal/cleanup` | Prune empty, unreferenced daily pages other than today |
 | GET | `/api/current-work` | Recently edited pages, bucketed by age |
 | **Migrations** | | |
-| GET | `/api/migrations/title-canonicalization` | Side-effect-free `TitleMigrationAuditPayload`: `active`, digest, grouped survivor/source plans and counts, and blockers whose `reason` is `all_space` or `forbidden_syntax` |
-| POST | `/api/migrations/title-canonicalization` | `TitleMigrationApplyRequest.audit_digest` (required 64 lowercase hex) → `TitleMigrationApplyResponse` with digest, applied/retitled/merged/moved/rewritten counts, and new `generation`; 409 on stale, blocked, or already-active databases |
+| GET | `/api/migrations/title-canonicalization` | Side-effect-free audit and digest ([Title integrity](#title-integrity-and-one-time-activation)) |
+| POST | `/api/migrations/title-canonicalization` | Apply the audited digest; 409 on stale, blocked or active |
 | **Search & queries** | | |
-| GET | `/api/search?q` | FTS5 search over pages + blocks |
-| GET | `/api/query?expr` | `{{[[query]]}}` evaluation (`and`/`or`/`not` over refs) |
-| GET | `/api/titles?q` | Title completion for `[[` / `#` autocomplete |
+| GET | `/api/search?q` | FTS5 search over pages and blocks |
+| GET | `/api/query?expr` | `{{[[query]]}}` evaluation |
+| GET | `/api/titles?q` | Title completion for `[[` and `#` |
 | GET | `/api/todos?page` | `{{TODO}}` blocks grouped by page |
-| GET | `/api/changed?since&until&page&limit` | Blocks whose `updated_at` falls in `[since, until)`, grouped by page in first-touched order; `since`/`until` are each a date or ISO datetime, `until` exclusive and defaulting to now; each item carries `created_at`/`updated_at`/`status` (`new` if `created_at` is in the window, else `edited`); 400 on an unparseable or empty window |
+| GET | `/api/changed?since&until&page&limit` | Blocks changed in `[since, until)`, each `new` or `edited`; 400 on an empty window |
 | **Sidebar** | | |
-| GET / POST / PUT / DELETE | `/api/sidebar`… | Pinned pages: list (`SidebarNavPayload`) / pin (`SidebarNavEntry`) / reorder (permutation-validated, `OkAck`) / unpin (`OkAck`) |
-| **Sync** (see [sync-and-offline.md](sync-and-offline.md)) | | |
-| GET | `/api/sync/snapshot?pending` | Full graph bootstrap + `seq` + `generation` + title-canonicalization activation; `applied_batches` names which `pending` batch ids (repeated param) the payload already holds, each `{batch_id, seq, skipped}` from its stored ack, read in the payload's own read transaction; left out when empty, so a request naming nothing gets the old payload |
-| GET | `/api/sync/changes?since&limit&pending` | Windowed incremental feed with the same generation/activation metadata and the same `applied_batches` answer (never on a `reset` answer) |
-| POST | `/api/client/diagnostics` | A replica's self-report before it rebuilds a corrupt database; logged as one `pkm.sync` WARNING line, nothing written; `OkAck` |
-| WS | `/api/ws` | Push nudges: applied-op broadcasts + real `seq` hints; title generation rotation adds `force:true,generation` without fabricating a cursor |
-| **Assistant** (SSE — see [assistant.md](assistant.md)) | | |
-| GET | `/api/assistant/models` | Models the picker may offer + the default; `glm` appears only when a z.ai key is configured |
-| POST | `/api/assistant/conversations` | Create a conversation (`model`: `sonnet` / `opus` / `haiku` / `fable` / `glm`, defaulting to `glm` when offered, else `sonnet`); 400 for a model not offered, 409 over the 3-conversation cap |
-| POST | `/api/assistant/conversations/{id}` | Beacon cleanup close (`navigator.sendBeacon`): delete the conversation, shut down its harness, and return `AssistantAck` |
-| POST | `/api/assistant/conversations/{id}/messages` | Send one user turn → SSE stream of `text_delta` / `tool_started` / `tool_finished` / `phase` / `confirm_request` / `turn_done` / `error` events; 409 while a turn is in flight |
-| POST | `/api/assistant/conversations/{id}/confirm` | Answer a pending write confirmation (`tool_use_id`, `allow`) |
-| DELETE | `/api/assistant/conversations/{id}` | Close the conversation and shut down its harness |
-| **Assets** (see [files-and-assets.md](files-and-assets.md)) | | |
-| POST | `/api/assets` | Multipart upload → content-addressed storage |
-| GET | `/assets/{sha256}/{filename}` | Serve by digest (immutable cache); the name segment is ignored, so raw-name links from before URLs were encoded still load. Upload and search responses build the URL with `assets_core.asset_url`, which percent-encodes the name |
-| GET | `/api/assets/describe-status` | Whether image descriptions are enabled, and why not if disabled |
-| POST | `/api/assets/scan?force` | Enqueue undescribed (or, with `force`, previously-failed) eligible images |
-| GET | `/api/assets/search?q&limit&offset&type&from_ms&to_ms&linked` | `LIKE` search over asset description + filename, filtered and paginated, with a `total` (backs the `/files` browser) |
-| DELETE | `/api/assets/{sha256}` | Delete an asset (`AssetDeleteAck`: `deleted`, `refs_removed`), stripping its reference tokens from block text; `?if_unreferenced=true` instead refuses with 409 while any block references it, and strips nothing |
-| POST | `/api/assets/export.zip` | Zip the selected assets (form-encoded `sha256s`, download) |
-| **Local documents** (`routes_local.py`) | | |
-| GET | `/api/local/check` | Every `/api/local/` href in block text, classified `ok` / `missing` / `evicted` / `invalid` / `unreadable` / `unchecked` against disk (a dataless file is `evicted` and is never opened; any other file is probe-opened: a failed probe is `unreadable`, a full probe cap is `unchecked`); `enabled: false` when `local_docs_root` is unset |
-| GET | `/api/local-index` | Every visible file under `local_docs_root` as `{files: [{path, href}]}`, case-insensitively sorted, no cap; an evicted `.Name.ext.icloud` stub is listed as `Name.ext`; dotfiles, dot-directories and symlinks that resolve outside the root are omitted; `href` is `local_href(path)`. 404 when `local_docs_root` is unset; 503 + `Retry-After` (`the host can't read the local documents folder`) when the listing fails or exceeds its timeout |
-| GET | `/api/local/{path}` | Serve one regular file under `local_docs_root` (inline for PDF/image extensions, attachment otherwise, `nosniff`); 404 for anything outside the root, missing, or not a regular file; 503 + `Retry-After` for an iCloud-evicted or dataless file, and for a file the host cannot open within the probe timeout (`the host can't open this file`) or a full probe cap (`too many file opens are in flight…`). Failures are JSON, except to a browser navigation, which gets an HTML page with the same status (see [Local documents](#local-documents)) |
-| **GoodLinks copies** (`routes_goodlinks.py`, see [goodlinks.md](goodlinks.md)) | | |
-| POST | `/api/goodlinks/resolve` | Resolve a URL to a GoodLinks link (exact, query-stripped, trailing-slash-toggled, single search hit); with `save` true, save it read-marked when absent |
-| GET | `/api/goodlinks/check` | Every `/api/goodlinks/` href in block text, `ok` / `missing` / `invalid` against the library; `enabled: false` without an API token |
-| GET | `/api/goodlinks/{link_id}` | Metadata plus allowlist-sanitised reader HTML, `no-store`; empty `html` when GoodLinks knows the link but holds no reader copy; 404 for a bad id or unknown link, 503 when GoodLinks is not running or refuses the token |
-| **Export** (see [import-export-and-backup.md](import-export-and-backup.md)) | | |
-| GET | `/api/export/page/{title}` | One page rendered to markdown (download) |
-| GET | `/api/export.zip` | Whole-graph markdown export, zipped (download) |
+| GET / POST / PUT / DELETE | `/api/sidebar`… | List, pin, reorder (a permutation), unpin |
+| **Sync** ([sync-and-offline.md](sync-and-offline.md)) | | |
+| GET | `/api/sync/snapshot?pending` | Full bootstrap with `seq`, `generation`, the title flag and `applied_batches` |
+| GET | `/api/sync/changes?since&limit&pending` | Windowed incremental feed with the same metadata |
+| POST | `/api/client/diagnostics` | A replica's self-report before a rebuild; one `pkm.sync` warning, nothing stored |
+| WS | `/api/ws` | [Post-commit nudges](#post-commit-nudges) and op echoes |
+| **Assistant** ([assistant.md](assistant.md)) | | |
+| GET | `/api/assistant/models` | Models on offer and the default |
+| POST | `/api/assistant/conversations` | Create; 400 for a model not offered, 409 over the cap |
+| POST | `/api/assistant/conversations/{id}` | Beacon close (`navigator.sendBeacon`) |
+| POST | `/api/assistant/conversations/{id}/messages` | One turn → SSE stream; 409 while a turn runs |
+| POST | `/api/assistant/conversations/{id}/confirm` | Answer a write confirmation |
+| DELETE | `/api/assistant/conversations/{id}` | Close the conversation |
+| **Assets** ([files-and-assets.md](files-and-assets.md)) | | |
+| POST | `/api/assets` | Multipart upload |
+| GET | `/assets/{sha256}/{filename}` | Serve by digest; the name segment is ignored |
+| GET | `/api/assets/describe-status` | Whether image descriptions are on, and why not |
+| POST | `/api/assets/scan?force` | Enqueue undescribed images |
+| GET | `/api/assets/search?q&limit&offset&type&from_ms&to_ms&linked` | Search behind `/files` |
+| DELETE | `/api/assets/{sha256}` | Delete, stripping its tokens; `if_unreferenced=true` 409s instead while referenced |
+| POST | `/api/assets/export.zip` | Zip the selected assets |
+| **Local documents** ([files-and-assets.md](files-and-assets.md#local-documents)) | | |
+| GET | `/api/local/check` | Classify every `/api/local/` href in block text |
+| GET | `/api/local-index` | Every visible file under `local_docs_root`; 503 when the listing fails |
+| GET | `/api/local/{path}` | Serve one file; 404 outside the root, 503 when evicted or unopenable |
+| **GoodLinks copies** ([goodlinks.md](goodlinks.md)) | | |
+| POST | `/api/goodlinks/resolve` | Resolve a URL to a link, saving it with `save` |
+| GET | `/api/goodlinks/check` | Classify every `/api/goodlinks/` href |
+| GET | `/api/goodlinks/{link_id}` | Metadata and sanitised reader HTML; 503 when GoodLinks is down |
+| **Export** ([import-export-and-backup.md](import-export-and-backup.md)) | | |
+| GET | `/api/export/page/{title}` | One page as markdown |
+| GET | `/api/export.zip` | Whole-graph markdown export |
 
 ### Hostile input
 
 **No client input, and no row the importer writes, makes a route answer
-500.** Each source of hostile input has one guard. A test that walks
-`app.routes` keeps the first two on every route.
+500.** A test that walks `app.routes` keeps the first two guards on every
+route.
 
 | Input | Guard | Kept by |
 |---|---|---|
-| A lone surrogate in a JSON body (a browser sends `\udXXX` escapes) | Every request body model derives from `WellFormedModel`, which makes every str in the body, at any depth, well-formed before validation | `test_every_json_request_body_is_a_well_formed_model` |
-| An int past 64 bits, which SQLite cannot bind | Every int path or query parameter is `Int64` or carries `INT64_RANGE` (`contracts/int64.py`), and `WellFormedModel` refuses one anywhere in a body, so it is an ordinary 422 | `test_every_int_parameter_is_bounded_to_sqlite_range`, the body walk above |
-| A 422 whose echo of the input holds a lone surrogate, NaN, Infinity or deep nesting | `app.py`'s `RequestValidationError` handler renders `validation_echo.echo_errors`: str well-formed, non-finite numbers as the literal sent, containers past `MAX_ECHO_DEPTH` cut to a marker | `test_validation_echo.py` |
-| A NUL in a search term or title | `fts.py` turns it into a space: FTS5 reads its query as a C string | `test_hostile_requests.py` |
-| A GoodLinks or OpenAI body that is not JSON, nests past what `json.loads` reads (it raises `RecursionError`), or holds a `\udXXX` escape | Both gateways treat the first two as an unusable answer (503, `DescribeError`) and make every decoded str well-formed | `test_no_500_upstream_props.py` |
-| An op `order_idx` that a sibling shift (`+ 1` per create) could carry past int64, where SQLite stores a float | `CreateOp` and `MoveOp` bound `order_idx` to `0..2**53 - 1` (`WIRE_ORDER_IDX` in `contracts/ops.py`), the JS safe-integer range; nothing mints a negative key | `test_an_op_order_idx_stays_in_the_js_safe_range` |
-| A Roam attribute out of range: a heading other than 1-3, a time that is not a 64-bit int | `parse_export` reads it as absent; a stored heading 0 from older imports reads as `None` | `test_no_500_stored_props.py` |
+| A lone surrogate in a JSON body | Every request body model derives from `WellFormedModel` | `test_every_json_request_body_is_a_well_formed_model` |
+| An int past 64 bits | Int parameters are `Int64` or carry `INT64_RANGE`; `WellFormedModel` refuses one in a body | `test_every_int_parameter_is_bounded_to_sqlite_range` |
+| A 422 echoing a surrogate, NaN or deep nesting | `validation_echo.echo_errors`, cut at `MAX_ECHO_DEPTH` | `test_validation_echo.py` |
+| A NUL in a search term | `fts.py` makes it a space: FTS5 reads a C string | `test_hostile_requests.py` |
+| A GoodLinks or OpenAI body that is not JSON, nests too deep, or holds a surrogate | An unusable answer (503, `DescribeError`); decoded strings made well-formed | `test_no_500_upstream_props.py` |
+| An op `order_idx` a sibling shift could push past int64 | `CreateOp` and `MoveOp` bound it with `WIRE_ORDER_IDX` to the JS safe-integer range | `test_an_op_order_idx_stays_in_the_js_safe_range` |
+| A Roam heading outside 1–3 or a time past 64 bits | `parse_export` reads it as absent | `test_no_500_stored_props.py` |
 
-Path and query values cannot carry a lone surrogate: the server decodes them
-from bytes, replacing invalid UTF-8. The `test_no_500_*_props.py` properties
-send generated hostile input through every route and fail on any 5xx
-([property-checks.md](property-checks.md)).
-
-### Local documents
-
-The `/api/local*` routes are the only ones that read outside the data
-directory, and `/api/local/{path}` is the only one that returns file contents.
-`local_docs.clean_relative` rejects an absolute path, a `.` or `..` segment, a
-control character (C0 including NUL and newline, DEL, C1) or a backslash, and
-`is_within` re-checks the *resolved* candidate against the resolved root. Every rejection is a 404, never a 403, so the response never
-confirms what exists. `/api/local/check` starts from a raw href in block text
-rather than an already-decoded path parameter, so it goes through
-`resolve_relative`, which unquotes exactly once. The index lists only names
-`clean_relative` accepts, so the picker never offers a link the file route
-404s: `visible_name` skips the rest, and a skipped directory is not entered.
-The file route's parameter uses the DOTALL `wholepath` convertor, because
-Starlette's `path` convertor stops before a final newline and would serve `a`
-for `a%0A`.
-
-`_is_evicted` and `_is_dataless` in `routes_local.py` are the two eviction
-helpers, shared by both routes so they cannot disagree. `_is_evicted` covers iCloud
-eviction, which shows up on disk as an `.icloud` stub beside a missing file.
-The file route answers 503 with `Retry-After` after a best-effort
-`brctl download`; `/api/local/check` reports `evicted` rather than `missing`.
-`/api/local/check` is registered ahead of the `/api/local/{path}` catch-all, so
-the literal `check` segment resolves to the audit route.
-
-A dataless file (macOS's newer eviction: no stub, `SF_DATALESS` set in
-`st_flags`) counts as evicted too, through `_is_dataless`. Opening it would
-block while it downloads, so neither route opens it.
-
-A resolved file is never handed to `FileResponse` unprobed. `open()` on an
-iCloud path can block in the kernel for good while macOS waits for a consent
-prompt. `FileResponse` would run that `open()` on anyio's shared threadpool,
-so every attempt would leak a thread until every sync route hung. `local_open.OpenProber`
-runs `os.open` on its own daemon thread with a timeout, shares one thread among
-callers asking about the same path, and caps distinct in-flight probes (a probe
-past the cap is `busy` without starting a thread). A blocked `open()` cannot be
-cancelled, so the bound on stuck threads is the cap, and daemon threads keep a
-stuck one from holding up shutdown. A failed or timed-out probe is `unreadable`: a 503 `the host can't open this file` on the file route and `unreadable` in `/api/local/check`. `busy` is a different 503 detail (`too many file opens are in flight on the host; see the server log`) and the `unchecked` status in the check, because it says nothing about the file itself. A caller joining a probe already in flight waits only for what is left of its timeout.
-
-`/api/local-index` lists the folder for the link-to-local-file picker and
-never opens a file, so listing does not download an evicted one. A directory
-listing can block as an `open()` can, so `local_index.TreeScanner` runs the walk
-on a daemon thread and abandons it after its timeout. Only one scan is ever in
-flight: a later caller joins it, waits for what is left of its timeout and gets
-503 at once if the walk has overrun, rather than starting a second walker.
-An unreadable directory at any depth fails the whole scan (503) rather than
-returning a partial list; only an entry whose symlink cannot be resolved is
-skipped. Hrefs come from `local_href`, and the path sits outside `/api/local/` so the
-catch-all cannot shadow it.
-
-A failure on the file route is JSON for `fetch()` and pdf.js callers, which read only the status. A browser navigation gets a short HTML page instead, with the same status and `Retry-After`, plus `no-store`. A navigation is `Sec-Fetch-Mode: navigate` or `Sec-Fetch-Dest: document`, or, from a browser that sends neither, an `Accept` naming `text/html` (`local_docs.wants_html_error`). Without it, a person who opens the link sees raw JSON, and Safari saves it as `<name>.pdf.json`.
-
-The probe and `FileResponse` each open the file, so a file that becomes unopenable between the two still hangs after the 200 headers. That window is accepted.
-
-### Breadcrumbs and recursive traversal
-
-`routes_pages.py::_fetch_ancestors` builds the breadcrumb trail behind
-`GET /api/block/{uid}` and, via `grouping.py`, every backlink group. It walks
-parents with a recursive CTE that terminates on a visited path: the CTE carries
-`path` as `,uid,uid,…,`, and the recursive arm keeps a row only while
-`instr(a.path, ',' || b.uid || ',') = 0`. The trail is never truncated, and a
-parent cycle — which the write path forbids but a hand-edited database can
-still hold — stops at the repeat. Commas make the `instr` test exact: `UID_RE`
-is `^[a-zA-Z0-9_-]{6,32}$`, so no uid can contain one.
-
-Every recursive walk over `parent_uid` uses this guard, and each server walk
-has a replica mirror written as the same CTE:
-
-| Walk | Server | Replica mirror | Used for |
-|---|---|---|---|
-| Ancestors with text, for many start uids | `routes_pages._fetch_ancestors` | `localApi/tree.ts` | breadcrumbs and backlink groups |
-| One block's parent chain | `ops_apply._parent_chain` | `localOps.ts::parentChain` | a move's cycle check |
-| One block's subtree, deepest first | `ops_apply._subtree_deepest_first` | `localOps.ts::subtreeUids` | delete, cross-page re-paging, journalling a subtree |
-
-Change a pair together, so an offline read or replay and the server agree.
-None of them caps depth.
+Path and query values cannot carry a lone surrogate, because the server
+decodes them from bytes. The `test_no_500_*_props.py`
+[properties](property-checks.md) send generated input through every route.
 
 ## Generated artifacts and parity fixtures
 
-Several artifacts are generated from the server and checked in, and **the
-server test suite fails if any is stale**. Regenerate and commit them together
-with the change that invalidates them.
+These are generated or hand-kept, checked in, and **the test suites fail when
+one is stale**. Regenerate and commit with the change that invalidates them.
+Python commands run from `server/`, `pnpm` ones from `web/`.
 
-| Artifact | Generator | Guarded by | Consumed by |
+| Artifact | Regenerate with | Guarded by | Pins |
 |---|---|---|---|
-| `web/src/api/openapi.json` (→ `types.d.ts` via `pnpm gen-types`) | `pkm.server.openapi_dump` | `tests/test_openapi_sync.py`; `web/tooling/genTypes.drift.test.ts` for `types.d.ts` | Web API layer — Pydantic models are the single source of API types |
-| `web/src/replica/baseSchema.gen.ts` | `pkm.schema_dump` | `tests/test_schema_artifact.py` | Browser sqlite-wasm replica (BASE_DDL only, never SERVER_DDL) |
-| `web/src/replica/columns.gen.ts`, `web/tooling/brandRegistry.gen.json` | `pkm.rows_dump` | `tests/test_rows_artifact.py`; `web/src/replica/columns.test.ts` for the client-only tables | The web's mirror of `rows.Row` (`Columns`, `COLUMN_META` with literal domains, `COLUMN_KEYS`, `BRAND_SHAPES`) and of the brand registry. Generation fails for a brand `brands.ts` does not export |
-| `shared/fixtures/ref_grammar.json` | hand-maintained cases | both parsers' test suites | Pins Python `refs.py` and the TS grammar scanner to identical behaviour |
-| `shared/fixtures/title_syntax.json` | hand-maintained cases | `tests/test_refs.py` | Pins `refs.title_syntax_reason` and the replica's `titleSyntaxReason` to the same verdicts (`web/src/replica/titles.test.ts`, `localApi/router.test.ts`) |
-| `shared/fixtures/refs_parity.json` | `pkm.refs_parity_dump` | `tests/test_refs_parity_fixture.py` | TS extractors replay the exact Python outputs. The file holds the hand `CASES` plus a seeded generated corpus of bracket-heavy texts (`generated_cases()`); the test tallies the corpus's shapes so it cannot go vacuous |
-| `shared/fixtures/title_parity.json` | `pkm.title_parity_dump` | `tests/test_title_parity_fixture.py` | The replica's `canonicalizeTitle`, `titleSyntaxReason`, `isBlankTitle` and `extractRefs` replay the server's `normalize_title`, `target_canonical_title`, `title_syntax_reason`, `is_blank_title` and `extract` verdicts on a seeded corpus of whitespace- and syntax-heavy titles (`web/src/replica/titleParity.test.ts`). The test tallies the corpus's shapes so it cannot go vacuous |
-| `shared/fixtures/local_links_parity.json` | `web/src/outline/localLinksParity.test.ts` with `UPDATE_LOCAL_LINKS_FIXTURE=1` (fixed fast-check seed over `localCopyAttribute`) | that test fails when the file differs; `tests/test_local_links_parity.py` | `local_docs.extract_local_hrefs` must read the same hrefs from `Local copy::` texts as the web's markdown-link reader. Written by the web side, like `upload_links_parity.json` and `text_hash_parity.json` |
-| `shared/fixtures/upload_links_parity.json` | `web/src/sync/assetsParity.test.ts` with `UPDATE_UPLOAD_LINKS_FIXTURE=1` (fixed fast-check seed over `assetMarkdown`, encoded and raw-name tokens) | that test fails when the file differs; `tests/test_upload_links_parity.py` | `assets_core.strip_asset_tokens` must remove exactly the tokens the web's upload path writes and leave the rest. Written by the web side |
-| `shared/fixtures/shim_parity.json` | `pkm.server.shim_parity_dump` | `tests/test_shim_parity_fixture.py` | The offline API shim (`web/src/replica/localApi/`) must return byte-identical JSON to the real routes |
-| `shared/fixtures/missing_targets.json` | hand-maintained cases | `tests/test_ops_core.py` | Pins `ops_core.classify_skip` and the replica's `skipsOnMissingTarget` (`web/src/replica/missingTarget.test.ts`) to the same skip-or-not verdicts. Its `placement_cases` pin where a create or move lands, through `ops_apply.apply_batch` and the replica's `applyLocalOps`, replays included |
-| `shared/fixtures/draft_flush.json` | hand-maintained case | `tests/test_ops_endpoint.py` | `web/src/views/EditablePage.draftFlush.test.tsx`: the op an editor draft flushes is the op the ops route's conflict and orphan paths are tested with |
-| `shared/fixtures/subtree_hash.json` | hand-maintained cases | `tests/test_subtree_hash.py` | Pins `contracts.ops.subtree_hash` and the web's `subtreeHash` (`web/src/replica/subtreeHash.test.ts`) to the same canonical hash a guarded `delete` is checked against |
-| `shared/fixtures/text_hash_parity.json` | `web/src/replica/textHashParity.test.ts` with `UPDATE_TEXT_HASH_FIXTURE=1` (fixed fast-check seed over texts holding lone surrogates, astral and ZWJ emoji, NFC/NFD spellings, NUL and CRLF) | that test fails when the file differs; `tests/test_text_hash_parity.py` | `contracts.ops.text_hash`, `subtree_hash` and `contracts.text.well_formed` must give the web's `sha256Hex`, `subtreeHash` and `wellFormed` results. Lone surrogates are stored as JSON escapes, and both tests assert their loader hands them back unrepaired |
-| `shared/fixtures/ops_acks.json` | hand-maintained cases | `tests/test_ops_idempotency.py`, `tests/test_client_contracts.py` | Pins the stored-ack-to-wire mapping of `POST /api/ops` and the `SkipReason` values; the web's `readOpsAck` and queue replay the wire acks (`web/src/sync/opsAck.test.ts`, `opsAck.composed.test.ts`) |
+| `web/src/api/openapi.json`, `types.d.ts` | `uv run python -m pkm.server.openapi_dump > ../web/src/api/openapi.json`, then `pnpm gen-types` | `test_openapi_sync.py`, `genTypes.drift.test.ts` | the web's API types to the response models |
+| `web/src/replica/baseSchema.gen.ts` | `uv run python -m pkm.schema_dump > ../web/src/replica/baseSchema.gen.ts` | `test_schema_artifact.py` | the replica schema to `BASE_DDL` |
+| `web/src/replica/columns.gen.ts`, `web/tooling/brandRegistry.gen.json` | `uv run python -m pkm.rows_dump` | `test_rows_artifact.py`, `columns.test.ts` | `Columns`, `COLUMN_META` and the web lint's registry to `rows.Row` and `brand_registry` |
+| `shared/fixtures/refs_parity.json` | `uv run python -m pkm.refs_parity_dump > ../shared/fixtures/refs_parity.json` | `test_refs_parity_fixture.py` | `refs.extract` |
+| `shared/fixtures/title_parity.json` | `uv run python -m pkm.title_parity_dump > ../shared/fixtures/title_parity.json` | `test_title_parity_fixture.py`, `titleParity.test.ts` | `normalize_title`, `target_canonical_title`, `title_syntax_reason`, `is_blank_title`, `extract` |
+| `shared/fixtures/shim_parity.json` | `uv run python -m pkm.server.shim_parity_dump > ../shared/fixtures/shim_parity.json` | `test_shim_parity_fixture.py` | the offline shim (`replica/localApi/`) to the read routes' JSON |
+| `shared/fixtures/text_hash_parity.json` | `UPDATE_TEXT_HASH_FIXTURE=1 pnpm vitest run src/replica/textHashParity.test.ts` | that test, `test_text_hash_parity.py` | `text_hash`, `subtree_hash`, `well_formed` |
+| `shared/fixtures/local_links_parity.json` | `UPDATE_LOCAL_LINKS_FIXTURE=1 pnpm vitest run src/outline/localLinksParity.test.ts` | that test, `test_local_links_parity.py` | `local_docs.extract_local_hrefs` |
+| `shared/fixtures/upload_links_parity.json` | `UPDATE_UPLOAD_LINKS_FIXTURE=1 pnpm vitest run src/sync/assetsParity.test.ts` | that test, `test_upload_links_parity.py` | `assets_core.strip_asset_tokens` |
+| `ref_grammar.json` | hand-edited | `test_refs.py`, `grammar/refs.test.ts` | the [ref grammar](#ref-grammar) |
+| `title_syntax.json` | hand-edited | `test_refs.py`, `replica/titles.test.ts` | `title_syntax_reason` |
+| `missing_targets.json` | hand-edited | `test_ops_core.py`, `missingTarget.test.ts` | `classify_skip`; `placement_cases` pin where a create or move lands |
+| `subtree_hash.json` | hand-edited | `test_subtree_hash.py`, `subtreeHash.test.ts` | `subtree_hash` |
+| `ops_acks.json` | hand-edited | `test_ops_idempotency.py`, `opsAck.test.ts` | the stored-ack-to-wire mapping and `SkipReason` |
+| `draft_flush.json` | hand-edited | `test_ops_endpoint.py`, `EditablePage.draftFlush.test.tsx` | the op an editor draft flushes |
 
-The fixtures pin the implementations on chosen cases; the ops property in [property-checks.md](property-checks.md#what-the-ops-property-checks) checks the server, replica and in-memory implementations against each other on random batches.
+Hand-edited fixtures live in `shared/fixtures/`. `rows_dump` fails for a
+brand `brands.ts` lacks. The seeded corpora in `refs_parity.json` and
+`title_parity.json` are tallied by shape, so they cannot go vacuous. The
+[ops property](property-checks.md#what-the-ops-property-checks)
+checks the server, replica and in-memory implementations against each other
+on random batches.
 
 ## Configuration and entrypoints
 
-`config.json` lives in the data directory. It is never in git, and
-`python -m pkm.server.setup` writes it mode 0600.
+`config.json` lives in the data directory, never in git;
+`python -m pkm.server.setup` writes it mode 0600. Path keys resolve relative
+to `config.json`'s directory, so the data directory moves as a unit.
 
-| Key | Required | Meaning |
+| Key | Default | Meaning |
 |---|---|---|
-| `db_file` | yes | SQLite database path |
-| `assets_dir` | yes | Content-addressed asset store |
-| `password_salt`, `password_hash` | yes | scrypt password check (hex) |
-| `session_secret` | yes | HMAC key for session cookies (hex) |
-| `cookie_secure` | no (default true) | `Secure` flag on the session cookie |
-| `web_dist` | no | Built SPA directory; unset means an API-only server |
-| `bind_hosts` | no (default `["127.0.0.1"]`) | Interfaces to listen on |
-| `max_upload_bytes` | no (default 150 MB) | Upload size cap |
-| `image_descriptions` | no (default true) | Master switch for image captions |
-| `image_description_model` | no (default `gpt-4o-mini`) | Vision model |
-| `openai_api_key_file` | no (default `../openai_key`) | Key file for image captions |
-| `local_docs_root` | no | Read-only document tree served under `/api/local/`; unset disables the feature |
-| `goodlinks_api_key_file` | no (default `../goodlinks_key`) | GoodLinks API token; `GOODLINKS_API_KEY` env is the fallback; with neither set, the feature is disabled: every route 404s except `check`, which reports `enabled: false` |
-| `goodlinks_api_url` | no (default `http://localhost:9428/api/v1`) | Where the GoodLinks app listens |
+| `db_file` | required | SQLite database path |
+| `assets_dir` | required | Content-addressed asset store |
+| `password_salt`, `password_hash` | required | scrypt password check (hex) |
+| `session_secret` | required | HMAC key for session cookies (hex) |
+| `cookie_secure` | `true` | `Secure` flag on the session cookie |
+| `web_dist` | unset | Built SPA directory; unset serves the API only |
+| `bind_hosts` | `["127.0.0.1"]` | Interfaces to listen on |
+| `max_upload_bytes` | 150 MB | Upload size cap |
+| `image_descriptions` | `true` | Master switch for image captions |
+| `image_description_model` | `gpt-4o-mini` | Vision model |
+| `openai_api_key_file` | `../openai_key` | Key for image captions; else `OPENAI_API_KEY` |
+| `zai_api_key_file` | `../zai_key` | Key that enables the assistant's `glm` model; else `ZAI_API_KEY` |
+| `local_docs_root` | unset | Tree served under `/api/local/`; unset disables it |
+| `goodlinks_api_key_file` | `../goodlinks_key` | GoodLinks token; else `GOODLINKS_API_KEY`. With neither, every GoodLinks route but `check` 404s |
+| `goodlinks_api_url` | `http://localhost:9428/api/v1` | Where the GoodLinks app listens |
 
-Every path key resolves relative to `config.json`'s own directory, so the data
-directory can move as a unit. `python -m pkm.server.run` is the entrypoint,
-serving port 8974 on `bind_hosts`. In production launchd runs it through
-`$PKM_HOME/bin/pkm-server`, which spawns the venv Python and stays its
-parent, so macOS attributes file-access consent to a binary that does not
-change (see [the launcher](../../deploy/README.md#the-launcher)).
-`create_app()` always runs `init_db()`, so every entrypoint — server, tests,
-artifact dumps — works against a brand-new data directory.
+A key file wins over its environment variable. Key files default to one
+level above the data directory, outside anything servable or exportable.
+
+`python -m pkm.server.run` serves port 8974 on `bind_hosts`. launchd runs it
+through `$PKM_HOME/bin/pkm-server`, which stays the Python process's parent,
+so macOS attributes file-access consent to a binary that does not change
+([the launcher](../../deploy/README.md#the-launcher)). `create_app()` always
+runs `init_db()`, so every entrypoint works on a new data directory.
 
 ## Logging and observability
 
-There is no metrics stack. The logs answer one question: what was the server
-doing when it was slow? `logfmt.uvicorn_log_config()` is uvicorn's default
-dictconfig plus timestamps on every formatter. It routes the three loggers
-below to one of two handlers.
+There is no metrics stack; the logs answer what the server was doing when it
+was slow. `logfmt.uvicorn_log_config()` routes three loggers to two handlers.
 
 | Logger | Handler | Line |
 |---|---|---|
-| `pkm.access` | access | One pre-formatted `logfmt.request_line` per request, emitted by `RequestLogMiddleware` (`server/request_log.py`) after the response body finishes, so the duration covers body send |
-| `pkm`, and every `pkm.*` child | default, INFO | Children — `pkm.assets`, `pkm.assistant`, `pkm.describe`, any future addition — inherit the parent's handler, level and format by propagation, with no entry of their own |
-| uvicorn lifecycle and errors | default | uvicorn's own output; its access log is disabled in `run.py` |
-
-Where the handlers write depends on `run.py --log-dir`:
-
-| Run as | default handler | access handler |
-|---|---|---|
-| production (the launchd plist passes `--log-dir $PKM_HOME/logs`) | `server.log` | `access.log` |
-| no `--log-dir` (tests, e2e, scratch servers) | stderr | stdout |
-
-The two files rotate at midnight through `TimedRotatingFileHandler`, keeping
-30 dated copies (`server.log.YYYY-MM-DD`). The server rotates its own files
-because launchd holds its `StandardOutPath`/`StandardErrorPath` descriptors
-open, so an outside rename would leave the job writing to the renamed file.
-Those launchd files (`server.out.log`, `server.err.log`) catch only what
-escapes logging, such as a crash before `dictConfig` runs.
+| `pkm.access` | access | One `logfmt.request_line` per request from `RequestLogMiddleware`, after the body is sent |
+| `pkm` and every `pkm.*` child | default, INFO | children inherit by propagation |
+| uvicorn | default | lifecycle and errors; its own access log is off |
 
       <client> "GET /api/page/Foo?bl_limit=20" 200 4ms
 
-`RequestLogMiddleware` captures status off the `http.response.start` message
-and defaults to 500, so a request that dies before responding still logs what
-the client saw. Nothing configures the root logger, so a `pkm.*` logger with no
-configured ancestor emits nothing;
-`test_every_declared_pkm_logger_has_an_effective_info_handler` in
-`test_request_log.py` enumerates every declared `pkm.*` logger and asserts it
-resolves to a real handler.
-
-When measuring a slow request, prefer these durations to client-side timing.
+With `run.py --log-dir` (production) the handlers write `server.log` and
+`access.log`; without it, stderr and stdout. The server rotates its own
+files at midnight (`TimedRotatingFileHandler`), because launchd holds its
+`StandardOutPath` descriptors open and an outside rename would leave the job
+writing to the renamed file.
+`RequestLogMiddleware` defaults the status to 500, so a request that dies
+before responding still logs what the client saw. Nothing configures the root
+logger, so `test_every_declared_pkm_logger_has_an_effective_info_handler`
+checks every `pkm.*` logger reaches a handler.
 
 ## Testing
 
-- `cd server && uv run pytest -q` — roughly one test file per module, with
-  branch coverage enforced at 95% (`--cov-fail-under=95` in `pyproject.toml`).
-- `conftest.py` provides a seeded temp database (a fixed 5-page fixture, with
-  daily page "July 7th, 2026"), an authenticated `TestClient`, and a
-  `PkmClient` wired to the in-process app.
-- A request whose path carries a literal `%` goes through `asgi_get_all` or
-  `single_decode_get` in `conftest.py`, not `TestClient`. Starlette's
-  `TestClient` decodes the path's percent-escapes a second time before
-  routing, so a file named `%41` would be served as `A`; uvicorn and
-  `httpx.ASGITransport` decode once.
-- `uv run pyrefly check` type-checks (pyright is configured as a second
-  opinion) and `uv run ruff check` lints, at line length 120.
-- In `server/src`, both refuse an implicit `Any`: pyrefly's `implicit-any-*`
-  errors and ruff's `ANN` rules are on; tests and tooling keep only `ANN401` (no explicit `Any`). Data
-  from outside the app is typed `object` and narrowed before use. Rows read
-  from our own schema are `pkm.rows.Row` dicts, returned by `Db.select`.
-- `server/tooling/perfcheck` is the performance gate behind `perf/check.sh`:
-  see [performance-checks.md](performance-checks.md).
-- `server/tooling/brandlint` is the brand lint, run by the same hook and
-  sweep as `commentlint`: see [enforced-checks.md](enforced-checks.md#brand-rules).
-- `server/tooling/regexlint` is the bare-`$` regex lint, run by the same hook and
-  sweep: see [enforced-checks.md](enforced-checks.md#regex-anchors).
-- `server/tooling/commentlint` is the comment-rot lint behind
-  `.githooks/pre-commit`: a staged code file (every tracked one, including
-  `deploy/`, `.githooks/` and the `.claude/skills` scripts, bar generated
-  files, perf baselines, `web/public` and vendored trees; an extensionless
-  script is read by its shebang) or architecture doc whose comments carry a bean id, a line number or a spec/plan pointer with no path
-  fails the commit. So does a source line over 80 columns in a comment or 120
-  elsewhere; `noqa: E501` exempts a line, and ruff's `E501` shares it. Stdlib
-  only, so the hook runs under the system `python3`.
-  `python3 -m commentlint.run --all` sweeps the tree; `pytest`
-  (`test_the_tracked_tree_is_clean`) and `pnpm verify` (`lint:comments`) run
-  that sweep too, so a clone without the hook still fails on a dirty tree.
+- `cd server && uv run pytest -q` runs the suite with branch coverage
+  enforced. AGENTS.md says how to run the gates;
+  [enforced-checks.md](enforced-checks.md) says what fails, including the
+  [type and lint policy](enforced-checks.md#on-every-test-run) and the
+  [comment lint](enforced-checks.md#on-every-commit).
+- `conftest.py` provides a seeded temp database (five pages, daily page
+  "July 7th, 2026"), an authenticated `TestClient` and an in-process
+  `PkmClient`.
+- A path with a literal `%` goes through `asgi_get_all` or `single_decode_get`,
+  not `TestClient`, which decodes the path twice: a file named `%41` would be
+  served as `A`. uvicorn and `httpx.ASGITransport` decode once.
+- `server/tooling/` holds the gate engines: `perfcheck`
+  ([performance-checks.md](performance-checks.md)), `proptest`
+  ([property-checks.md](property-checks.md)), `brandlint`, `regexlint` and
+  `commentlint`.

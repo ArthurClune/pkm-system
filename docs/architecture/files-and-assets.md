@@ -144,3 +144,78 @@ off, through `enabled_reason`.
 Descriptions are queryable only through `GET /api/assets/search`, the `LIKE`
 search above. They are not indexed into `blocks_fts` or `pages_fts`, and are not
 reachable from `GET /api/search`.
+
+## Local documents
+
+`local_docs_root` names an on-disk document tree, usually in iCloud Drive,
+that `Local copy::` links point into. The `/api/local*` routes
+(`routes_local.py`, pure parts in `local_docs.py`) are the only ones that read
+outside the data directory, and `/api/local/{path}` is the only one that
+returns file contents. The routes are in
+[backend.md § HTTP API reference](backend.md#http-api-reference).
+
+**Every rejection is a 404, never a 403, so a response never confirms what
+exists.** `local_docs.clean_relative` rejects an absolute path, a `.` or `..`
+segment, a control character or a backslash. `is_within` then re-checks the
+resolved candidate against the resolved root, so a symlink out is a 404 too.
+The file route's parameter arrives decoded once and uses the
+[`wholepath` convertor](backend.md#title-integrity-and-one-time-activation);
+`/api/local/check` starts from a raw href in block text, so it goes through
+`resolve_relative`, which unquotes once. `check` is registered ahead of the
+catch-all.
+
+| File state | `/api/local/{path}` | `/api/local/check` |
+|---|---|---|
+| href fails `resolve_relative` | — | `invalid` |
+| outside the root, not a regular file, or absent with no stub | 404 | `missing` |
+| an `.icloud` stub beside a missing file (`_is_evicted`) | 503 + `Retry-After`, after a best-effort `brctl download` | `evicted` |
+| `SF_DATALESS` set in `st_flags` (`_is_dataless`) | the same; never opened, since opening blocks while it downloads | `evicted` |
+| open probe fails or times out | 503 `the host can't open this file` | `unreadable` |
+| probe cap full | 503 `too many file opens are in flight on the host; see the server log` | `unchecked` |
+| probe succeeds | `FileResponse`, inline for PDF and image extensions, else attachment, `nosniff` | `ok` |
+
+The two eviction helpers are shared by both routes so they cannot disagree.
+
+### The open probe
+
+`open()` on an iCloud path can block in the kernel for good while macOS waits
+for a consent prompt. `FileResponse` would run that `open()` on anyio's shared
+threadpool, leaking a thread per attempt until every sync route hung. So a
+resolved file is never handed to `FileResponse` unprobed.
+`local_open.OpenProber` runs `os.open` on its own daemon thread with a
+timeout, shares one thread among callers asking about the same path, and caps
+distinct in-flight probes (`DEFAULT_CAP`). A blocked `open()` cannot be
+cancelled, so the cap is the bound on stuck threads; daemon threads keep a
+stuck one from holding up shutdown. A caller joining a probe in flight waits
+only for what is left of its timeout. `busy` gets its own detail because it
+says nothing about the file.
+
+The probe and `FileResponse` each open the file, so a file that becomes
+unopenable between the two still hangs after the 200 headers. That window is
+accepted.
+
+### The index
+
+`/api/local-index` lists the folder for the link-to-local-file picker. It
+never opens a file, so listing does not download an evicted one. A directory
+listing can block like an `open()`, so `local_index.TreeScanner` walks on a
+daemon thread and abandons the walk after its timeout. Only one scan is in
+flight: a later caller joins it and gets 503 at once if the walk has overrun.
+The 503's detail is `the host can't read the local documents folder`.
+An unreadable directory at any depth fails the whole scan rather than
+returning a partial list.
+
+The index lists only names `clean_relative` accepts (`visible_name`), so the
+picker never offers a link the file route 404s; a skipped directory is not
+entered. An evicted `.Name.ext.icloud` stub is listed as `Name.ext`. Hrefs come
+from `local_href`, and the route's path sits outside `/api/local/` so the
+catch-all cannot shadow it.
+
+### Errors a person sees
+
+A failure on the file route is JSON for `fetch()` and pdf.js, which read only
+the status. A browser navigation gets a short HTML page with the same status
+and `Retry-After`, plus `no-store`; otherwise Safari saves the JSON as
+`<name>.pdf.json`. `local_docs.wants_html_error` decides:
+`Sec-Fetch-Mode: navigate` or `Sec-Fetch-Dest: document`, or, from a browser
+that sends neither, an `Accept` naming `text/html`.

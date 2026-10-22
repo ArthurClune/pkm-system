@@ -12,7 +12,7 @@ clone enables them. `--no-verify` bypasses both.
 | Hook | Rejects | Owner |
 |---|---|---|
 | `commit-msg` | a Claude session URL or `Claude-Session:` trailer in the message | `AGENTS.md` § Git |
-| `pre-commit` | in any staged code file (any tracked `.py`, `.ts`, `.tsx`, `.mjs`, `.js`, `.css`, `.sh` or `.swift`, or an extensionless script with a shell, Python or node shebang) or architecture doc: a bean id, a line number or a spec/plan pointer with no path in a comment; a comment line over 80 columns or any other line over 120 (`noqa: E501` exempts a line) | [backend.md](backend.md#testing), `server/tooling/commentlint` |
+| `pre-commit` | in any staged code file (any tracked `.py`, `.ts`, `.tsx`, `.mjs`, `.js`, `.css`, `.sh` or `.swift`, or an extensionless script with a shell, Python or node shebang) or architecture doc: a bean id, a line number or a spec/plan pointer with no path in a comment; a comment line over 80 columns or any other line over 120 (`noqa: E501` exempts a line) | `AGENTS.md` § FCIS, `server/tooling/commentlint` |
 | `pre-commit` | in any staged Python file: a regex with a bare `$` (`re.compile(r"^a$")`), which also matches before a trailing newline; use `\Z` or `fullmatch`. A pattern with `re.MULTILINE` or `(?m)` may use `$` | [Regex anchors](#regex-anchors), `server/tooling/regexlint` |
 | `pre-commit` | in a staged `server/src`, `server/tooling` or `server/tests` file: a parameter, field or key named like a brand and not carrying it (`uid: str`, or no annotation); a brand constructed, held as a value or `cast` outside its registered sites; a function returning a brand while taking an unannotated or `Any` parameter; a model that is not strict (a direct `BaseModel` subclass, `strict=False`) or is built where pyrefly cannot check it (`model_validate` of a dict literal, `model_copy(update=)`, `model_construct`); raw `sqlite3` outside `SQLITE_SITES` | [Brand rules](#brand-rules), `server/tooling/brandlint` |
 
@@ -212,8 +212,9 @@ implicit `Any` (`implicit-any-*`) and ruff rejects a missing annotation or a
 bare `Any` (`ANN`). Tests and tooling are exempt from the missing-annotation
 rules but not from `ANN401`, which rejects an explicit `Any` parameter or
 return: `def f(x: Any) -> BlockUid: return x` would launder a brand with no
-mint. The typing policy is in
-[backend.md](backend.md#testing).
+mint. Data from outside the app is typed `object` and narrowed before use;
+rows from our own schema are `Row` dicts
+([backend.md](backend.md#typed-database-access)).
 
 ## Before a merge
 

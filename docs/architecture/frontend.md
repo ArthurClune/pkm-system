@@ -443,7 +443,7 @@ legitimate cold-start bootstrap. Types come from the generated
 the server test suite fails on stale artifacts.
 
 A server field typed with a branded `NewType` carries an `x-brand` marker in
-`openapi.json` (see [backend.md](backend.md#http-api-reference)).
+`openapi.json` (see [backend.md](backend.md#wire-models-and-brands)).
 `tooling/genTypes-core.mjs` turns it into `Brands.<Name>`, a reference to
 the export of that name in `api/brands.ts`, which is the only place a brand
 is defined. A subtype brand adds a second key rather than a second

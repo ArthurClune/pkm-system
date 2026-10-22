@@ -145,8 +145,9 @@ def requests(draw, routes: st.SearchStrategy[APIRoute],
 _TITLE_MODES = st.sampled_from([False, True, True])
 
 
-def _reset(harness: Harness, data) -> None:
-    plain_space = data.draw(_TITLE_MODES)
+def _reset(harness: Harness, data, plain_space: bool | None = None) -> None:
+    if plain_space is None:
+        plain_space = data.draw(_TITLE_MODES)
     event("title mode: flag on" if plain_space else "title mode: flag off")
     harness.reset(plain_space=plain_space)
 
@@ -177,7 +178,7 @@ _SUPPRESSED = [HealthCheck.function_scoped_fixture, HealthCheck.too_slow,
 
 # Floors: see `with_floors` in hostile.py for how they were set.
 @with_floors({
-    "input: blank": 0.015, "input: lone surrogate": 0.024,
+    "input: blank": 0.01, "input: lone surrogate": 0.019,
 }, per="request")
 @settings(max_examples=300, deadline=None, suppress_health_check=_SUPPRESSED)
 @given(st.data())
@@ -190,11 +191,12 @@ def test_no_route_answers_hostile_input_with_a_500(harness, data):
         _send_checked(harness, data.draw(requests(routes, loose_in=4)))
 
 
+# A refused rename answering 2xx has no floor: it fell under five events.
 @with_floors({
-    "POST /api/ops -> 2xx": 0.045, "POST /api/page/{title:wholepath}/rename -> 2xx": 0.0082,
-    "flag on: POST /api/ops -> 2xx": 0.024, "flag on: POST /api/ops -> 4xx": 0.033,
-    "flag on: POST /api/page/{title:wholepath}/rename -> 4xx": 0.062, "input: NUL": 0.02,
-    "input: blank": 0.076, "input: lone surrogate": 0.058, "input: very long": 0.024,
+    "POST /api/ops -> 2xx": 0.039,
+    "flag on: POST /api/ops -> 2xx": 0.019, "flag on: POST /api/ops -> 4xx": 0.02,
+    "flag on: POST /api/page/{title:wholepath}/rename -> 4xx": 0.089, "input: NUL": 0.011,
+    "input: blank": 0.063, "input: lone surrogate": 0.046, "input: very long": 0.011,
 }, per="request")
 @settings(max_examples=200, deadline=None, suppress_health_check=_SUPPRESSED)
 @given(st.data())
@@ -277,13 +279,14 @@ def surrogate_twins(draw, routes: list[APIRoute]
 _OUTSIDE_THE_DB = ("/api/assistant", "/api/login")
 
 
-@with_floors({
-    "twins: lone surrogate spliced": 0.37, "title mode: flag on": 0.15,
-    "title mode: flag off": 0.14,
-}, per="case")
-@settings(max_examples=150, deadline=None, suppress_health_check=_SUPPRESSED)
-@given(st.data())
-def test_a_lone_surrogate_is_answered_as_its_replacement(harness, data):
+# The title mode is a parameter, not a draw, so both are reached by
+# construction and each gets half the examples.
+@pytest.mark.parametrize("plain_space", [False, True])
+@with_floors({"twins: lone surrogate spliced": 0.31}, per="case")
+@settings(max_examples=75, deadline=None, suppress_health_check=_SUPPRESSED)
+@given(data=st.data())
+def test_a_lone_surrogate_is_answered_as_its_replacement(harness, data,
+                                                         plain_space):
     """Arthur's ruling: every request body normalises a lone surrogate to
     U+FFFD rather than refusing it. So a body holding one gets the answer
     its well-formed twin gets, from the same starting database."""
@@ -296,8 +299,6 @@ def test_a_lone_surrogate_is_answered_as_its_replacement(harness, data):
     if hostile is None:
         return
     answers = []
-    plain_space = data.draw(_TITLE_MODES)
-    event("title mode: flag on" if plain_space else "title mode: flag off")
     for body in (hostile, twin):
         harness.reset(plain_space=plain_space)
         response = harness.send(method, url, content=json.dumps(body),
@@ -311,15 +312,17 @@ def test_a_lone_surrogate_is_answered_as_its_replacement(harness, data):
         assert raw.json() == fixed.json()
 
 
+# `batch input: NUL` and `very long` have no floor: each fell under five
+# events in a half-size run.
+@pytest.mark.parametrize("plain_space", [False, True])
 @with_floors({
-    "batch input: NUL": 0.039, "batch input: blank": 0.086, "batch input: lone surrogate": 0.1,
-    "batch input: very long": 0.029, "batch: applied": 0.078,
-    "batch: refused by the planner": 0.17, "title mode: flag on": 0.1,
-    "title mode: flag off": 0.19,
+    "batch input: blank": 0.058, "batch input: lone surrogate": 0.06,
+    "batch: applied": 0.054,
+    "batch: refused by the planner": 0.11,
 }, per="case")
-@settings(max_examples=150, deadline=None, suppress_health_check=_SUPPRESSED)
-@given(st.data())
-def test_a_hostile_cli_batch_is_applied_or_refused(harness, data):
+@settings(max_examples=75, deadline=None, suppress_health_check=_SUPPRESSED)
+@given(data=st.data())
+def test_a_hostile_cli_batch_is_applied_or_refused(harness, data, plain_space):
     """The CLI and MCP batch path: commands drawn from the batch command
     models are applied, or refused before any request with a BuildError,
     or refused by the server with a 4xx. Never a 5xx, and never another
@@ -330,7 +333,7 @@ def test_a_hostile_cli_batch_is_applied_or_refused(harness, data):
         for_annotation(BatchCommand, loose=loose), min_size=1, max_size=4))
     for label in sorted(value_labels(commands)):
         event(f"batch input: {label}")
-    _reset(harness, data)
+    _reset(harness, data, plain_space)
     config = CliConfig(url="http://testserver", token=harness.token)
     try:
         apply_batch(PkmClient(config, http=TestClient(harness.app)), commands)

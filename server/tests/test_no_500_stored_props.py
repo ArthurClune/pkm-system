@@ -169,18 +169,21 @@ def harness(tmp_path_factory):
         yield opened
 
 
-# Floors: see `with_floors` in hostile.py for how they were set.
+# Floors: see `with_floors` in hostile.py for how they were set. The import
+# refusal and the stored headings have none: each fell under five events in
+# a half-size run.
 @with_floors({
-    "block text: NUL": 0.066, "block text: [[": 0.68, "block text: very long": 0.17,
-    "import refused: ImportTitleError": 0.079, "imported, title migration applied": 0.07,
-    "imported, title migration not run": 0.1, "sent :create/time: int past 64 bits": 0.21,
-    "stored block created_at: integer": 0.17, "stored block created_at: null": 0.26,
-    "stored heading: 1": 0.13, "stored heading: 2": 0.11, "stored heading: 3": 0.1,
+    "block text: NUL": 0.016, "block text: [[": 0.5, "block text: very long": 0.04,
+    "sent :create/time: int past 64 bits": 0.1,
+    "stored block created_at: integer": 0.17, "stored block created_at: null": 0.17,
 }, per="case")
-@settings(max_examples=120, deadline=None, suppress_health_check=[
+# The migration is a parameter, not a draw, so both modes are reached by
+# construction and each gets half the examples.
+@pytest.mark.parametrize("migrate", [True, False])
+@settings(max_examples=60, deadline=None, suppress_health_check=[
     HealthCheck.function_scoped_fixture, HealthCheck.too_slow,
     HealthCheck.data_too_large])
-@given(export=roam_exports(), migrate=st.booleans(),
+@given(export=roam_exports(),
        legacy_heading_zero=st.booleans())
 def test_every_imported_row_is_served(harness, tmp_path_factory, export,
                                       migrate, legacy_heading_zero):

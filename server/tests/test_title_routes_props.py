@@ -48,9 +48,16 @@ from pkm.server.config import Config
 from pkm.server.db import open_db
 from pkm.server.sync_meta import set_plain_space_title_canonicalization
 
-EXAMPLES = 60
+# The examples each (flag, variant kind) cell runs, by title family. A cell
+# and a family are run as separate properties, so every category is reached
+# by construction; Hypothesis draws only what varies inside one.
+ROUTE_BUDGET = {"plain": 7, "daily": 1, "nbsp": 1, "refused": 1}
 # Each CLI example runs every verb twice through argparse and the client.
-CLI_EXAMPLES = 30
+CLI_BUDGET = {"plain": 3, "daily": 1, "refused": 1}
+# Plain-space padding folds only under the flag, so the padded kinds run
+# with it on; the others run either way.
+CELLS = [(False, "identity"), (True, "identity"), (False, "control"),
+         (True, "control"), (True, "padded"), (True, "padded_control")]
 CONTROL = "\t\n\r\f\v"
 SEEDED_DAILY = "July 7th, 2026"
 
@@ -65,30 +72,25 @@ def event(label: str) -> None:
         SEEN[label] += 1
 
 
-# A label that missed some seed entirely has no floor.
-ROUTE_FLOORS = {
-    "NBSP gap in title": 0.02, "daily title": 0.025, "refused title": 0.045,
-    "slash in title": 0.075,
-    "flag active, identity variant": 0.006, "flag active, padded variant": 0.015,
-    "flag active, padded_control variant": 0.05,
-    "flag inactive, control variant": 0.007, "flag inactive, identity variant": 0.006,
-}
-CLI_FLOORS = {
-    "batch spellings that only the flag can fold": 0.028, "daily title": 0.045,
-    "flag active, padded_control variant": 0.015,
-    "flag inactive, identity variant": 0.013,
-}
+def assert_reach(labels: list[str]) -> None:
+    """Each label reached at least once. The cells and families are run
+    one by one, so a label that is a cell or family is reached whatever
+    Hypothesis draws; this fails when the property stops labelling it, or
+    a refactor drops a cell, rather than on an unlucky draw."""
+    assert SEEN["example"] > 0
+    for name in labels:
+        assert SEEN[name] > 0, name
 
 
-def assert_reach(floors: dict[str, float]) -> None:
-    """Each label in at least its share of the examples run, so a property
-    cannot go vacuous on a case without failing. A floor is about half the
-    lowest rate its label reached over 60 seeds; a floor near the typical
-    rate fails on an unlucky seed with nothing wrong."""
-    examples = SEEN["example"]
-    assert examples > 0
-    for name, share in floors.items():
-        assert SEEN[name] > examples * share, (name, SEEN[name], examples)
+_CELL_LABELS = [
+    "flag inactive, identity variant", "flag active, identity variant",
+    "flag inactive, control variant", "flag active, control variant",
+    "flag active, padded variant", "flag active, padded_control variant",
+]
+ROUTE_LABELS = ["NBSP gap in title", "daily title", "refused title",
+                "slash in title", *_CELL_LABELS]
+CLI_LABELS = ["batch spellings that only the flag can fold", "daily title",
+              "refused title", *_CELL_LABELS]
 
 
 # Words never hold whitespace, `#` or a backtick; brackets come singly and
@@ -101,20 +103,27 @@ _GAP = st.sampled_from([" ", " ", " ", "\xa0"])
 
 
 @st.composite
-def tidy_titles(draw: st.DrawFn) -> str:
+def tidy_titles(draw: st.DrawFn, family: str = "plain") -> str:
     """A title every variant can reach: words joined by one plain space or
-    NBSP, so no edge or run of whitespace for canonicalisation to remove."""
-    if draw(st.integers(0, 9)) == 0:
+    NBSP, so no edge or run of whitespace for canonicalisation to remove.
+    `family` fixes the shape: today's or the seeded daily title, a title
+    with an NBSP gap, a title the product refuses, or any other."""
+    if family == "daily":
         return draw(st.sampled_from([title_for_date(date.today()),
                                      SEEDED_DAILY]))
-    words = draw(st.lists(_WORD, min_size=1, max_size=4))
+    words = draw(st.lists(_WORD, min_size=2 if family == "nbsp" else 1,
+                          max_size=4))
     gaps = [draw(_GAP) for _ in words[1:]]
+    if family == "nbsp":
+        gaps[0] = "\xa0"
     text = words[0] + "".join(g + w for g, w in zip(gaps, words[1:]))
     if title_syntax_reason(text) is not None:
         text = " ".join("".join(c for c in w if c not in "[]") or "x" for w in words)
+        if family == "nbsp" and " " in text:
+            text = text.replace(" ", "\xa0", 1)
     # A title with a `.`, `..` or empty `/` segment has no URL, so every
-    # route refuses it; drawn on purpose as well as by chance.
-    if draw(st.integers(0, 5)) == 0:
+    # route refuses it.
+    if family == "refused":
         text = draw(st.sampled_from([
             "/" + text, text + "/", text + "//x", text + "/./x", text + "/../x",
             ".", ".."]))
@@ -156,13 +165,11 @@ def variant_of(draw: st.DrawFn, canonical: str, kind: str, active: bool) -> str:
 
 
 @st.composite
-def cases(draw: st.DrawFn) -> tuple[bool, str, str, str]:
-    """(plain-space flag, title, a variant of it, the variant's kind).
-    Plain-space padding folds only under the flag, so a padded kind draws
-    it on; the others draw it either way."""
-    kind = draw(st.sampled_from(["identity", "control", "padded", "padded_control"]))
-    active = kind.startswith("padded") or draw(st.booleans())
-    canonical = draw(tidy_titles())
+def cases(draw: st.DrawFn, active: bool, kind: str,
+          family: str) -> tuple[bool, str, str, str]:
+    """(plain-space flag, title, a variant of it, the variant's kind) for
+    one cell of `CELLS` and one title family."""
+    canonical = draw(tidy_titles(family))
     return active, canonical, draw(variant_of(canonical, kind, active)), kind
 
 
@@ -433,8 +440,22 @@ def _refuses(rig: Rig, base: Path, request: Request, spelling: str) -> None:
     assert state(db) == state(base), url
 
 
-@settings(max_examples=EXAMPLES, deadline=None)
-@given(cases(), st.data())
+def run_cells(body, budget: dict[str, int], rig: Rig,
+              keep: Callable[[tuple], bool] = lambda case: True) -> None:
+    """Run `body` as its own property for every cell and title family, with
+    the family's share of the examples. No example database: each run
+    stands alone."""
+    SEEN.clear()
+    for active, kind in CELLS:
+        for family, examples in budget.items():
+            def prop(rig, case, data):
+                body(rig, case, data)
+
+            given(cases(active, kind, family).filter(keep), st.data())(
+                settings(max_examples=examples, deadline=None,
+                         database=None)(prop))(rig)
+
+
 def _routes_property(rig, case, data):
     active, canonical, variant, kind = case
     label(*case)
@@ -472,9 +493,8 @@ def _routes_property(rig, case, data):
 
 
 def test_a_variant_reaches_the_titles_page_through_every_route(rig):
-    SEEN.clear()
-    _routes_property(rig)
-    assert_reach(ROUTE_FLOORS)
+    run_cells(_routes_property, ROUTE_BUDGET, rig)
+    assert_reach(ROUTE_LABELS)
 
 
 # --- the CLI ------------------------------------------------------------------
@@ -553,8 +573,6 @@ def test_every_cli_title_argument_is_covered():
 
 # A literal `%` is left out: the CLI's client here is a TestClient, which
 # decodes a path's escapes twice.
-@settings(max_examples=CLI_EXAMPLES, deadline=None)
-@given(cases().filter(lambda c: "%" not in c[1]), st.data())
 def _cli_property(rig, case, data):
     active, canonical, variant, kind = case
     label(*case)
@@ -606,6 +624,5 @@ def _cli_property(rig, case, data):
 
 
 def test_a_variant_reaches_the_titles_page_through_every_cli_verb(rig):
-    SEEN.clear()
-    _cli_property(rig)
-    assert_reach(CLI_FLOORS)
+    run_cells(_cli_property, CLI_BUDGET, rig, lambda case: "%" not in case[1])
+    assert_reach(CLI_LABELS)

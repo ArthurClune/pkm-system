@@ -422,10 +422,6 @@ Key mechanics:
   `enqueueBatch`), so the replica's queued ops are the text the server
   stores. The CLI/MCP batch commands (`batch.py`) share the base model, so
   a title is normalised before the pages it names are fetched.
-- **Broadcast.** After commit, the WebSocket hub pushes the applied ops (not
-  the skipped ones) and a
-  `{type:"seq", seq}` nudge to other clients (see
-  [sync-and-offline.md](sync-and-offline.md)).
 
 Conflicts, missing targets, stale batches (a page deleted after the batch's
 `seen_seq`) and concurrent structure edits are what a batch meets when the
@@ -472,16 +468,22 @@ with an alphanumeric first character so the CLI can address them without `--`
 (see [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)); a
 second conflict on the same block the same day reuses its header's uid.
 
-`ops_core.classify_text_edit` sorts a hashed edit to a live block into
-identical, clean or conflict. It first replays any `block_rewrites` row
-`store.rewrite_snapshotted_blocks` left for that block
-(`ops_core.replay_title_rewrites`), so a device that never saw a rename
-cannot win with the old title and re-create the page it emptied. The replay
-covers all three `kind`s: a delete's `unlink` and `inline` steps run through
-`unlink.apply_delete_rewrite`, so a stale edit cannot bring back a link to a
-deleted page or a `((ref))` to a block that no longer exists. Only a
-conflict resolves (and may create) today's daily page. Hashless edits to a
-live block never touch it.
+`ops_core.classify_text_edit` sorts a hashed `update_text` on a live block,
+checking in this order:
+
+| Situation | Outcome |
+|---|---|
+| `base_text_hash` matches a pre-rewrite snapshot of this block | The `block_rewrites` rows `store.rewrite_snapshotted_blocks` left replay over the incoming text (`ops_core.replay_title_rewrites`), which then meets the rows below |
+| Incoming text equals current | No-op, even with a stale hash |
+| `hash(current) == base_text_hash` | Clean apply |
+| Hashes differ | Incoming wins; the overwritten text lands under a conflict header |
+
+The replay covers all three `kind`s: a rename's, and a page delete's `unlink`
+and `inline` steps through `unlink.apply_delete_rewrite`. So a device that
+never saw a rename cannot re-create the page it emptied, and a stale edit
+cannot bring back a link to a deleted page or a `((ref))` to a gone block.
+Only a conflict resolves (and may create) today's daily page. A hashless edit
+to a live block is unconditional last-write-wins and never touches it.
 
 A replay or a stale unlink makes the written text differ from the text the
 client sent, and the client stamps its next hashed edit from the text it
@@ -554,16 +556,15 @@ tombstone deletes the live blocks a replica optimistically moved under it.
 A move to a missing parent therefore journals the moved subtree, not just its
 root, and those rows restore the blocks. A replica applies block tombstones
 only in the window that reaches the journal head, after its upserts
-([sync-and-offline.md § The changes feed](sync-and-offline.md#the-changes-feed)),
+([sync-and-offline.md § Block tombstones wait for the head window](sync-and-offline.md#block-tombstones-wait-for-the-head-window)),
 so the window boundaries between `_plan_skip`'s tombstones and live rows do
 not matter.
 
 A skipped `create` or `move` also shifted its destination siblings in the
 client's optimistic apply, and the server did not. Where nothing else
 re-ships them, the skip journals them (`ops_apply._destination_siblings`).
-This is defence in depth for replicas: the replica's replay log rewinds
-the same shifts in every window ([sync-recovery.md § The replay log](sync-recovery.md#the-replay-log)),
-whichever group the server did or did not journal.
+A replica does not rely on these rows
+([sync-and-offline.md § The replay log](sync-and-offline.md#the-replay-log)).
 
 | Skip | Destination | Siblings journalled |
 |---|---|---|
@@ -730,6 +731,41 @@ writer reservation with `BEGIN IMMEDIATE` before it checks title uniqueness and
 computes the append slot as `max(order_idx) + 1`. A same-title race therefore
 becomes HTTP 409, and two concurrent appends cannot land on the same
 `order_idx`.
+
+### Post-commit nudges
+
+The change-journal triggers in `schema.py`'s `SERVER_DDL` sit on `blocks`,
+`pages` and `sidebar_entries`. **Every route whose commit touches a journalled
+table sends a WS `{type:"seq", seq}` nudge right after that commit.** `seq` is
+always the actual journal maximum. A metadata or generation change that may
+leave `changes.seq` unchanged sends the same frame with `force:true` and the
+new `generation`. The force bit makes a client pull even at its own cursor,
+and never advances the cursor. `POST /api/ops` also echoes the applied ops,
+not the skipped ones.
+
+Sync-def routes call `notify.py`'s `commit_and_nudge_threadpool`; async routes
+call `db.commit()`, then `await nudge(request, db)`. `delete_asset` nudges
+because `strip_asset_tokens` (`pkm/assets_core.py`) rewrites referencing
+blocks. `upload_asset` sends nothing, since `assets` has no trigger.
+`cleanup_journal` nudges only when `deleted` is non-empty, because it runs on
+every journal page load. No type enforces the rule, so
+`server/tests/test_journal_advancing_contract.py` enumerates every
+journal-advancing route and asserts a nudge.
+
+```mermaid
+flowchart LR
+    B["Hub.broadcast()"] --> Q["per-client queue<br/>(QUEUE_SIZE)"]
+    Q --> D["drain task,<br/>one per connection"]
+    D -->|"send_json under SEND_TIMEOUT"| C([client])
+    Q -.->|"queue full, or send times out"| X([disconnect and close])
+```
+
+`Hub.broadcast()` (`ws.py`) returns without awaiting any send, so one stalled
+client costs no other and never blocks the write path. A client is dropped at
+`QUEUE_SIZE` (64) queued frames or a send past `SEND_TIMEOUT` (10 s). Dropping
+must also close the socket. The transport can outlive the Hub's interest, and
+without a real close `onclose` never fires and the client never reconnects to
+resync from its cursor. Nothing caps total connections.
 
 ## Title integrity and one-time activation
 

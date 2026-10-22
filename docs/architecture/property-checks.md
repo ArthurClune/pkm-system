@@ -219,7 +219,7 @@ is blind.
 One example in three draws a changes-feed window limit of one to five
 journal rows, so a catch-up crosses window boundaries, where block tombstones
 wait for the window at the journal head (see
-[sync-and-offline.md § The changes feed](sync-and-offline.md#the-changes-feed)).
+[sync-and-offline.md § Block tombstones wait for the head window](sync-and-offline.md#block-tombstones-wait-for-the-head-window)).
 The rest run with the server's default window. A fixed scenario also cuts the
 window at one row.
 

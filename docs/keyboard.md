@@ -1,10 +1,10 @@
 # Keyboard shortcuts
 
-Shortcuts are listed Mac-first, with the Ctrl variant noted where one exists
-for non-Mac keyboards. Keys not listed here keep the browser's native text
+Shortcuts are listed Mac-first. Where a Ctrl variant exists for non-Mac
+keyboards, it is noted. Keys not listed here keep the browser's native text
 editing: Option/Alt word moves, Cmd+arrow line and document jumps,
-Ctrl+Shift+arrow paragraph selection, the emacs-style Ctrl+letter bindings,
-and so on.
+Ctrl+Shift+arrow paragraph selection, and the emacs-style Ctrl+letter
+bindings.
 
 ## Anywhere in the app
 
@@ -13,16 +13,16 @@ and so on.
 | Cmd+U (or Ctrl+U) | Focus search; press again in search to cancel and clear it |
 | Ctrl+Shift+D | Go to Daily Notes |
 | Cmd+/ (or Ctrl+/) | Show / hide the right sidebar |
-| Cmd+Z / Shift+Cmd+Z (or Ctrl variants) | Undo / redo, whether or not a block is being edited |
-| Cmd+J (or Ctrl+J) | Show / hide the assistant panel |
-| Ctrl+Shift+T | Show / hide block timestamps |
+| Cmd+Z / Shift+Cmd+Z (or Ctrl variants) | Undo / redo the last outline edit, whether or not a block is being edited. Undoing an edit on a page that isn't open takes you there |
+| Cmd+J (or Ctrl+J) | Show / hide the Assistant panel |
+| Ctrl+Shift+T | Show / hide timestamps |
 
 ## Search
 
 | Shortcut | Action |
 |---|---|
 | ↑ / ↓ | Move the highlight through the results, including the "Create page" row |
-| Enter | Open the highlighted result |
+| Enter | Open the highlighted result, or create the page from the "Create page" row |
 | Shift+Enter | Open the highlighted result in the right sidebar |
 | Escape | Cancel and clear the search |
 
@@ -65,8 +65,8 @@ See "While blocks are selected" below for what you can do next.
 | Shift+Enter | New line inside the block |
 | Tab / Shift+Tab | Indent / outdent (outdent takes the following siblings along as its children) |
 | Shift+Cmd+↑ / Shift+Cmd+↓ | Move the block and its subtree up/down at the same depth, crossing into other parents where needed |
-| Backspace at the start of a block | Merge into the previous block |
-| Shift+Cmd+V (or Ctrl+Shift+V) | Paste multi-line text as an outline: each line becomes a block, and indentation (tabs, 2 or 4 spaces) becomes nesting. Plain Cmd+V pastes into the current block |
+| Backspace at the start of a block | Merge into the previous sibling when neither block has children. Otherwise an empty block without children is deleted |
+| Shift+Cmd+V (or Ctrl+Shift+V) | Paste multi-line text as an outline: each line becomes a block, and indentation (tabs or spaces) becomes nesting. Plain Cmd+V pastes into the current block |
 
 ### Formatting and editing
 
@@ -79,7 +79,7 @@ See "While blocks are selected" below for what you can do next.
 | Cmd+Alt+0 | Back to plain text |
 | Ctrl+O | Open the `[[page]]` the caret is inside |
 | Ctrl+Shift+O | Open the `[[page]]` the caret is inside in the sidebar |
-| `[`, `(`, `{`, `"` | Auto-pair; typing `[[` opens the page-link autocomplete |
+| `[`, `(`, `{`, `"`, `'`, backtick | Auto-pair, or wrap the selection; typing `[[` opens the page-link autocomplete |
 | Escape | Stop editing the block |
 
 ### Autocomplete popup (after `[[`, `#`, or `/`)
@@ -90,12 +90,13 @@ See "While blocks are selected" below for what you can do next.
 | Enter or Tab | Pick the highlighted row |
 | Escape | Close the popup, keeping what you typed |
 
-Ctrl+Cmd and Option/Alt arrow chords still work while the popup is open.
+Keys with a modifier keep their usual meaning while the popup is open.
 
 ### On an iPhone
 
-The iPhone keyboard has no Tab key, so while you edit a block a bar above the
-keyboard offers six keys. Each does what that key does on a hardware keyboard.
+The iPhone keyboard has no Tab key. While you edit a block, a bar above the
+keyboard offers the missing keys. Each does what that key does on a hardware
+keyboard.
 
 | Key | Action |
 |---|---|
@@ -105,33 +106,33 @@ keyboard offers six keys. Each does what that key does on a hardware keyboard.
 
 ## Slash commands
 
-Typing `/` at the start of a block or after a space opens the command menu,
-which uses the autocomplete popup keys above. Keep typing to filter the list:
-`/py` narrows to the Python code block and `/query-o` to the OR query.
+Typing `/` at the start of a block or after a space opens the command menu.
+The menu uses the autocomplete popup keys above. Keep typing to filter the
+list: `/py` narrows to the Python code block and `/query-o` to the OR query.
 
 | Command | Action |
 |---|---|
 | `/text` | Turn the block into a plain text block (shown verbatim, no formatting) |
 | `/todo` | Prefix the block with a TODO checkbox |
-| `/table` | Insert a `{{table}}`: the block's children become the table's rows, the first row being the header |
-| `/toc` | Insert a `{{toc}}`: a table of contents of the page's headings, nested by outline and kept up to date; each entry jumps to its heading |
+| `/table` | Turn an empty block into a `{{table}}`: the block's children become the table's rows, the first row being the header |
+| `/toc` | Turn an empty block into a `{{toc}}`: a table of contents of the page's headings, nested by outline and kept up to date; each entry jumps to its heading |
 | `/python`, `/shell`, `/javascript` | Turn the block into a highlighted code block |
 | `/mermaid` | Turn the block into a Mermaid diagram |
-| `/upload` | Pick a file to upload and insert a link to it |
+| `/upload` | Pick files to upload and insert a link to each; an image shows inline |
 | `/h1`, `/h2`, `/h3` | Make the block a heading (picking its current level turns it back into normal text) |
 | `/normal` | Back to normal text |
-| `/query-and` | Insert a query placeholder, `{{query: {and: A B}}}`, for blocks tagged with both pages |
-| `/query-or` | Insert a query placeholder for blocks tagged with either page |
-| `/query-and-not` | Insert a query placeholder for blocks tagged with the first page but not the second |
+| `/query-and` | Turn an empty block into a query placeholder, `{{query: {and: A B}}}`, for blocks tagged with both pages |
+| `/query-or` | Turn an empty block into a query placeholder for blocks tagged with either page |
+| `/query-and-not` | Turn an empty block into a query placeholder for blocks tagged with the first page but not the second |
 | `/today`, `/tomorrow` | Insert a link to today's / tomorrow's daily note |
-| `/date` | Pick a date from a calendar and insert a link to its daily note |
-| `/link-local-file` | Browse or search the server's local documents folder and insert `Local copy:: [file name](…)` for the file you pick |
-| `/goodlinks` | Find the nearest web link (this block, then its parent, then the block above), look it up in GoodLinks, and insert `Local copy:: [Goodlinks](…)`; a page GoodLinks does not have yet is saved there, marked read |
+| `/date` | Pick a date from a calendar and insert a link to its daily note; Escape closes the calendar |
+| `/link-local-file` | Browse or search the server's local files folder and insert a `Local copy::` link to the file you pick |
+| `/goodlinks` | Find the nearest web link: in this block, then its parent, then its previous sibling. Look it up in GoodLinks and insert a `Local copy::` link to the saved copy. A page GoodLinks does not have yet is saved there, marked read |
 
-Replace the `A` and `B` placeholders with `[[Page]]` links (type `[[` to
-search for a page) to run the query. The placeholders are plain text, so they
-never create pages named "A" or "B". The query shows an error until you fill
-them in.
+Replace the `A` and `B` placeholders with `[[Page]]` links to run the query.
+Type `[[` to search for a page. The placeholders are plain text, so they never
+create pages named "A" or "B". The query shows an error until you fill them
+in.
 
 ## While blocks are selected
 
@@ -149,8 +150,8 @@ The selection takes over the keyboard until it's cleared.
 
 ## Block menu
 
-Open it by clicking or right-clicking a block's bullet, or with Enter / Space
-on a focused bullet.
+Open it by clicking or right-clicking a block's bullet. On a focused bullet,
+Enter, Space, Shift+F10 or the context-menu key opens it too.
 
 | Shortcut | Action |
 |---|---|
@@ -165,5 +166,15 @@ on a focused bullet.
 | Page title (while renaming) | Enter | Commit the new title |
 | Page title (while renaming) | Escape | Cancel the rename |
 | Block reference `((…))` (focused) | Enter | Jump to the referenced block |
+| A block's references popover, on an entry (focused) | Enter | Jump to the referencing block |
+| Assistant panel | Enter | Send the message |
+| Assistant panel | Shift+Enter | New line in the message |
+| Assistant panel | Escape | Close the panel |
+| Link a local file | ↑ / ↓ | Move the highlight |
+| Link a local file | Enter | Open the highlighted folder, or link the highlighted file |
+| Link a local file | Backspace in an empty search | Go up one folder |
+| Link a local file | Escape | Close |
+| Confirmation dialog | Enter / Escape | Confirm / cancel |
 | Expanded image | Escape | Close |
 | PDF viewer (expanded) | Escape | Close |
+| GoodLinks reader | Escape | Close |

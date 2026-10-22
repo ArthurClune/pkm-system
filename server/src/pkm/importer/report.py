@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 
 from pkm.importer.parse_export import CONSUMED_ATTRS
-from pkm.importer.titles import ImportTitleChange
+from pkm.importer.titles import ImportTitleChange, SkippedPage
 
 
 @dataclass(frozen=True)
@@ -40,6 +40,11 @@ class ImportReport:
     # placement stands and the claim is dropped (see
     # pkm.importer.parse_export.Export.dropped_claims).
     dropped_claims: tuple[tuple[str, str], ...] = ()
+    # Pages whose title import sanitization refused: not created, their
+    # blocks recovered to recovery_page_title.
+    skipped_pages: tuple[SkippedPage, ...] = ()
+    # Uids of blocks whose refs to a refused title became plain text.
+    unlinked_block_uids: tuple[str, ...] = ()
 
 
 def render(r: ImportReport) -> str:
@@ -64,6 +69,24 @@ def render(r: ImportReport) -> str:
             )
     else:
         lines.append("title spellings sanitized: none")
+    if r.skipped_pages:
+        lines.append(f"pages skipped (title refused): {len(r.skipped_pages)}")
+        for page in r.skipped_pages:
+            moved = (f", blocks recovered to '{r.recovery_page_title}'"
+                     if page.block_count and r.recovery_page_title else "")
+            lines.append(
+                f"  {json.dumps(page.original_title, ensure_ascii=False)} "
+                f"({page.reason}; {page.location}; "
+                f"{page.block_count} blocks{moved})"
+            )
+    else:
+        lines.append("pages skipped (title refused): none")
+    if r.unlinked_block_uids:
+        lines.append("blocks with refs to a refused title made plain text: "
+                     f"{len(r.unlinked_block_uids)}")
+        lines += [f"  {uid}" for uid in r.unlinked_block_uids]
+    else:
+        lines.append("blocks with refs to a refused title made plain text: none")
     lines += [
         (f"orphan blocks (unreachable from any page, recovered to "
          f"'{r.recovery_page_title}'): {r.orphan_blocks}"

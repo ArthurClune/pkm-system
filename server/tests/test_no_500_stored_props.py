@@ -31,7 +31,8 @@ from pkm.importer.preflight import (ImportStructureError, ImportUidError,
                                     validate_export_uids)
 from pkm.importer.rows import to_rows
 from pkm.importer.run import insert_rows
-from pkm.importer.titles import ImportTitleError, sanitize_export_titles
+from pkm.importer.titles import sanitize_export_titles
+from pkm.refs import title_syntax_reason
 from pkm.schema import DDL
 from pkm.server.title_migration import (BlockedTitleMigration,
                                         apply_title_migration,
@@ -146,7 +147,7 @@ def _import(export_value: Tagged, path, migrate: bool,
         validate_export_structure(export)
         validate_export_uids(export)
         export = sanitize_export_titles(export).export
-    except (ImportStructureError, ImportUidError, ImportTitleError) as exc:
+    except (ImportStructureError, ImportUidError) as exc:
         event(f"import refused: {type(exc).__name__}")
         return False
     rows = to_rows(export, lambda text: text)
@@ -187,14 +188,16 @@ def _label_stored(path) -> set[object]:
 
 @settings(max_examples=20, deadline=None, database=None)
 @given(export=roam_exports(refused_title=True))
-def test_an_export_with_a_refused_title_is_refused(export):
-    """A page title the importer cannot sanitize is refused before any
-    row is written; reached by construction, not by a floor."""
+def test_an_export_with_a_refused_title_is_skipped(export):
+    """A page title the importer cannot sanitize is skipped, not created and
+    not refused; reached by construction, not by a floor."""
     parsed = parse_export(export)
     validate_export_structure(parsed)
     validate_export_uids(parsed)
-    with pytest.raises(ImportTitleError):
-        sanitize_export_titles(parsed)
+    result = sanitize_export_titles(parsed)
+    assert result.skipped_pages
+    for page in result.export.pages:
+        assert title_syntax_reason(page.title) is None
 
 
 @pytest.fixture(scope="module")

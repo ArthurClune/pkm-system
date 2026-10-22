@@ -131,3 +131,34 @@ def test_render_lists_dropped_orphan_claims():
 def test_render_says_none_when_no_claims_were_dropped():
     assert ("orphan claims dropped (block already placed elsewhere): none\n"
             in render(REPORT))
+
+
+def test_render_lists_skipped_pages_and_unlinked_blocks():
+    import dataclasses
+    from pkm.importer.titles import SkippedPage
+    skipped = dataclasses.replace(
+        REPORT,
+        recovery_page_title="Import recovery: unreachable blocks",
+        skipped_pages=(
+            SkippedPage("a`b", "malformed_syntax", "page[3]", 2),
+            SkippedPage(".", "malformed_syntax", "page[0]", 0),
+            SkippedPage("", "blank", "page[1]", 0),
+        ),
+        unlinked_block_uids=("uid-one", "uid-two"),
+    )
+    text = render(skipped)
+    assert "pages skipped (title refused): 3\n" in text
+    assert ('  "a`b" (malformed_syntax; page[3]; 2 blocks, blocks recovered '
+            "to 'Import recovery: unreachable blocks')\n") in text
+    assert '  "." (malformed_syntax; page[0]; 0 blocks)\n' in text
+    assert '  "" (blank; page[1]; 0 blocks)\n' in text
+    assert ("blocks with refs to a refused title made plain text: 2\n"
+            "  uid-one\n  uid-two\n") in text
+    assert text.index("title spellings") < text.index("pages skipped")
+    assert text.index("pages skipped") < text.index("orphan blocks")
+
+
+def test_render_says_none_when_nothing_was_skipped_or_unlinked():
+    text = render(REPORT)
+    assert "pages skipped (title refused): none\n" in text
+    assert "blocks with refs to a refused title made plain text: none\n" in text

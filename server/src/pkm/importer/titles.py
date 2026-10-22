@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import AbstractSet, Literal, Mapping, NamedTuple, Sequence
+from typing import AbstractSet, Callable, Literal, Mapping, NamedTuple, Sequence
 
+from pkm.contracts.ops import BlockUid
 from pkm.contracts.titles import RawTitle
 from pkm.importer.parse_export import Block, Export, Page
 from pkm.refs import (
@@ -15,6 +16,7 @@ from pkm.refs import (
     title_syntax_reason,
 )
 from pkm.rename import rewrite_title_refs_map
+from pkm.unlink import unlink_stale_refs
 
 ImportTitleErrorReason = Literal["malformed_syntax", "blank"]
 
@@ -30,11 +32,31 @@ class ImportTitleChange:
 
 
 @dataclass(frozen=True)
+class SkippedPage:
+    """A page whose title import sanitization refused, so it was not created.
+
+    Its blocks (block_count counts every descendant) were appended to the
+    export's orphan blocks, in export order, and so land on the recovery page.
+    """
+
+    original_title: str
+    reason: ImportTitleErrorReason
+    location: str
+    block_count: int
+
+
+@dataclass(frozen=True)
 class SanitizedImport:
-    """A rebuilt export and its deterministic title-change records."""
+    """A rebuilt export and its deterministic title-change records.
+
+    unlinked_block_uids lists, in walk order, every block whose text held a
+    ref to a refused title and was rewritten to plain text.
+    """
 
     export: Export
     title_changes: tuple[ImportTitleChange, ...]
+    skipped_pages: tuple[SkippedPage, ...] = ()
+    unlinked_block_uids: tuple[BlockUid, ...] = ()
 
 
 class ImportTitleError(ValueError):
@@ -156,6 +178,32 @@ def _rewrite_block(block: Block,
     )
 
 
+def _unlink_block(
+    block: Block, is_refused: Callable[[str], bool], changed: list[BlockUid]
+) -> Block:
+    """The block with every ref to a refused title turned into plain text.
+
+    A refused spelling cannot stay a ref: it would make the block uneditable
+    (the title check refuses any text holding it) and create an implicit page
+    the title migration audit then refuses.
+    """
+    text = unlink_stale_refs(block.text, is_refused)
+    if text != block.text:
+        changed.append(block.uid)
+    return Block(
+        uid=block.uid,
+        text=text,
+        heading=block.heading,
+        view_type=block.view_type,
+        open=block.open,
+        created_at=block.created_at,
+        edited_at=block.edited_at,
+        children=tuple(
+            _unlink_block(child, is_refused, changed) for child in block.children
+        ),
+    )
+
+
 def _collect_title_locations(export: Export) -> dict[str, list[str]]:
     """Every title spelling the export mentions, and where each was seen.
 
@@ -271,38 +319,82 @@ def _title_changes(
     )
 
 
+def _refusals(
+    locations: Mapping[str, list[str]],
+) -> dict[str, ImportTitleError]:
+    """Every spelling the export mentions whose sanitization is refused."""
+    refused: dict[str, ImportTitleError] = {}
+    for title, title_locations in locations.items():
+        try:
+            sanitize_import_title(title, location=title_locations[0])
+        except ImportTitleError as error:
+            refused[title] = error
+    return refused
+
+
 def sanitize_export_titles(export: Export) -> SanitizedImport:
-    """Sanitize all imported title identities before rows or I/O are created."""
+    """Sanitize all imported title identities before rows or I/O are created.
+
+    A page whose title is refused is skipped: not created, its blocks
+    appended to the orphan blocks (after the genuine ones), and a ref to any
+    refused spelling in block text becomes plain text.
+    """
     locations = _collect_title_locations(export)
+    refused = _refusals(locations)
     title_map = {
         title: sanitize_import_title(title, location=title_locations[0])
         for title, title_locations in locations.items()
+        if title not in refused
     }
-    rebuilt_sources = [
-        _PageRebuild(
+
+    def is_refused(spelling: str) -> bool:
+        try:
+            sanitize_import_title(spelling, location="")
+        except ImportTitleError:
+            return True
+        return False
+
+    unlinked: list[BlockUid] = []
+
+    def prepare(block: Block) -> Block:
+        return _rewrite_block(_unlink_block(block, is_refused, unlinked), title_map)
+
+    skipped_pages: list[SkippedPage] = []
+    skipped_blocks: list[Block] = []  # unprepared: prepared after the orphans
+    rebuilt_sources: list[_PageRebuild] = []
+    for page in export.pages:
+        if page.title in refused:
+            error = refused[page.title]
+            skipped_pages.append(SkippedPage(
+                original_title=page.title,
+                reason=error.reason,
+                location=locations[page.title][0],
+                block_count=len(_walk_blocks(page.children)),
+            ))
+            skipped_blocks.extend(page.children)
+            continue
+        rebuilt_sources.append(_PageRebuild(
             original=page,
             rebuilt=Page(
                 title=title_map[page.title],
                 created_at=page.created_at,
                 edited_at=page.edited_at,
-                children=tuple(
-                    _rewrite_block(child, title_map) for child in page.children
-                ),
+                children=tuple(prepare(child) for child in page.children),
             ),
-        )
-        for page in export.pages
-    ]
+        ))
     rebuilt_pages, merged_pages_titles = _merge_sanitized_pages(rebuilt_sources)
+    genuine_orphans = tuple(prepare(block) for block in export.orphan_blocks)
+    moved_blocks = tuple(prepare(block) for block in skipped_blocks)
     return SanitizedImport(
         export=Export(
             pages=rebuilt_pages,
             orphan_block_count=export.orphan_block_count,
             skipped_entities=export.skipped_entities,
             attr_counts=dict(export.attr_counts),
-            orphan_blocks=tuple(
-                _rewrite_block(block, title_map) for block in export.orphan_blocks
-            ),
+            orphan_blocks=genuine_orphans + moved_blocks,
             dropped_claims=export.dropped_claims,
         ),
         title_changes=_title_changes(title_map, locations, merged_pages_titles),
+        skipped_pages=tuple(skipped_pages),
+        unlinked_block_uids=tuple(unlinked),
     )

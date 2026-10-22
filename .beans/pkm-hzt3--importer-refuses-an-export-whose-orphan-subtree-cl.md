@@ -5,7 +5,7 @@ status: in-progress
 type: bug
 priority: normal
 created_at: 2026-10-22T08:51:18Z
-updated_at: 2026-10-22T08:53:09Z
+updated_at: 2026-10-22T08:58:39Z
 parent: pkm-a1xk
 ---
 
@@ -17,4 +17,4 @@ Ruling (Arthur, 2026-10-22): the page keeps the block; the orphan's claim is dro
 
 - [x] Orphan passes in parse_export never re-attach a block already built; record each dropped claim
 - [x] Report the dropped claims in the import report
-- [ ] The original Roam export imports end to end
+- [x] The original Roam export imports end to end

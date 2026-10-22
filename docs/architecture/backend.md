@@ -236,7 +236,7 @@ from these models, and `PkmClient` validates every response against them.
   `enum`, and `pnpm gen-types` makes each a TS union.
 - **Brands.** `brand()` (`contracts/brands.py`) tags a `NewType` with an
   `x-brand` schema marker, which gen-types turns into the web brand of the
-  same name ([frontend.md § API layer](frontend.md#api-layer)). Call it in
+  same name ([frontend.md § Brands](frontend.md#brands)). Call it in
   its own statement after the `NewType` line: pyrefly stops treating a
   wrapped `NewType` call as a type. A subtype inherits its parent's marker,
   so each needs its own `brand()`.

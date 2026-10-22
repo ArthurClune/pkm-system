@@ -359,12 +359,7 @@
     },
     {
       "text": "```::Alpha[[[[ [[]]]))#",
-      "refs": [
-        {
-          "title": "`",
-          "kind": "attribute"
-        }
-      ],
+      "refs": [],
       "block_refs": []
     },
     {
@@ -878,12 +873,7 @@
     },
     {
       "text": "`[[[😀```\n`Tags::#[[",
-      "refs": [
-        {
-          "title": "`Tags",
-          "kind": "attribute"
-        }
-      ],
+      "refs": [],
       "block_refs": []
     },
     {
@@ -1282,10 +1272,6 @@
       "text": "```Attr::[[[[[ \n ]]((^abcdef123))((^abcdef123))]#",
       "refs": [
         {
-          "title": "`Attr",
-          "kind": "attribute"
-        },
-        {
           "title": "[",
           "kind": "link"
         }
@@ -1504,10 +1490,6 @@
       "text": "```\n[[X]] #t\n``` `````````\n[[X]] #t\n``````Alpha::[[ Padded ]]",
       "refs": [
         {
-          "title": "`Alpha",
-          "kind": "attribute"
-        },
-        {
           "title": " Padded ",
           "kind": "link"
         }
@@ -1702,10 +1684,6 @@
     {
       "text": "#[[```css\n\nAttr:: \n  Key:: `[[ Padded ]]#]]]]",
       "refs": [
-        {
-          "title": "`css Attr:: Key:: `[[ Padded ]]#",
-          "kind": "tag"
-        },
         {
           "title": " Padded ",
           "kind": "link"
@@ -2317,12 +2295,7 @@
     },
     {
       "text": "`::]]]]é[[[[Attr::",
-      "refs": [
-        {
-          "title": "`",
-          "kind": "attribute"
-        }
-      ],
+      "refs": [],
       "block_refs": []
     },
     {
@@ -2399,12 +2372,7 @@
     },
     {
       "text": "Title```::((abcdef123))‍",
-      "refs": [
-        {
-          "title": "Title  `",
-          "kind": "attribute"
-        }
-      ],
+      "refs": [],
       "block_refs": [
         "abcdef123"
       ]
@@ -2677,10 +2645,6 @@
           "kind": "attribute"
         },
         {
-          "title": "[::::                [[ Padded ]]",
-          "kind": "link"
-        },
-        {
           "title": " Padded ",
           "kind": "link"
         }
@@ -2807,12 +2771,7 @@
     },
     {
       "text": "é[[ ```css\n[[ ]]]]((^abcdef123))((^abcdef123))‍",
-      "refs": [
-        {
-          "title": "`css [[ ]]",
-          "kind": "link"
-        }
-      ],
+      "refs": [],
       "block_refs": []
     },
     {

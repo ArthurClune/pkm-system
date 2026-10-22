@@ -56,7 +56,7 @@ def test_is_bare_tag_title_answers_for_the_whole_title(title_text, bare):
 
 def test_bracket_spans_locate_runs_and_nest_them():
     text = "x #[[A [[B]]]] y"
-    spans = bracket_spans(text)
+    spans = bracket_spans(text, text)
     assert len(spans) == 1
     outer = spans[0]
     assert (outer.start, outer.end) == (3, 14)
@@ -85,7 +85,7 @@ def test_bracket_spans_locate_runs_and_nest_them():
 )
 def test_bracket_spans_pin_the_unbalanced_cases(text, titles):
     assert [text[s.inner_start:s.inner_end]
-            for s in iter_bracket_spans(bracket_spans(text))] == titles
+            for s in iter_bracket_spans(bracket_spans(text, text))] == titles
 
 
 def test_an_unclosed_opener_overlapping_another_pairs_the_aligned_run():
@@ -98,7 +98,7 @@ def test_extract_survives_long_unclosed_and_deeply_nested_runs():
     start = time.perf_counter()
     assert extract("[[" * 20000).refs == ()
     deep = "[[" * 10000 + "x" + "]]" * 10000
-    spans = bracket_spans(deep)
+    spans = bracket_spans(deep, deep)
     assert len(list(iter_bracket_spans(spans))) == 10000
     assert time.perf_counter() - start < 1.0
     # Reporting 10000 nested titles is quadratic in output size by nature
@@ -168,18 +168,19 @@ def test_strip_code_blanks_code_without_moving_what_follows():
 
 
 def test_attribute_title_span_starts_at_the_title_not_at_the_indent():
-    assert attribute_title_span("  Tags:: [[B]]") == AttributeSpan(
+    text = "  Tags:: [[B]]"
+    assert attribute_title_span(text, text) == AttributeSpan(
         start=2, end=8, raw_title=raw_title_of("Tags"), title=normalized_title_of("Tags")
     )
 
 
 def test_attribute_title_span_pairs_the_written_title_with_the_normalized_one():
-    span = attribute_title_span("Bad\tTitle:: v")
+    span = attribute_title_span(text := "Bad\tTitle:: v", text)
     assert span is not None
     assert (span.raw_title, span.title) == ("Bad\tTitle", "Bad Title")
     # The name group ends at the colons, so padding inside it is trimmed but
     # still inside the span -- a rewrite replaces "Bad\tTitle ::" entire.
-    padded = attribute_title_span("Name :: v")
+    padded = attribute_title_span(text := "Name :: v", text)
     assert padded is not None
     assert (padded.raw_title, padded.start, padded.end) == ("Name", 0, 7)
 
@@ -189,7 +190,7 @@ def test_attribute_title_span_pairs_the_written_title_with_the_normalized_one():
     ["", "   ", "no attribute here", "[[A]]:: v", "  ::", "x\nName:: v"],
 )
 def test_attribute_title_span_absent(text):
-    assert attribute_title_span(text) is None
+    assert attribute_title_span(text, text) is None
 
 
 @pytest.mark.parametrize(
@@ -198,7 +199,7 @@ def test_attribute_title_span_absent(text):
 def test_attribute_title_span_never_reports_a_blank_title(text):
     # Callers rely on this: the scan starts past every leading whitespace
     # char, so the name it captures cannot normalize away to nothing.
-    span = attribute_title_span(text)
+    span = attribute_title_span(text, text)
     assert span is not None
     assert span.title
 
@@ -208,7 +209,7 @@ def test_attribute_title_span_pins_a_zero_width_space_title():
     # above -- so the leading-whitespace scan does not skip past it, and the
     # captured (and normalized) title is the zero-width space itself, not
     # blank.
-    span = attribute_title_span("​:: v")
+    span = attribute_title_span(text := "​:: v", text)
     assert span is not None
     assert span.title == "​"
 

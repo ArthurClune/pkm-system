@@ -41,7 +41,7 @@ export const FORBIDDEN_TITLES = [
   "Bad #title", "x [[y", "x]", "x`y", "x/", ".", "a/../b",
 ] as const;
 export const FORBIDDEN_REF_TEXTS = [
-  "see [[Ops #Bad]]", "#[[x #y]]", "see [[Ops`Bad]]",
+  "see [[Ops #Bad]]", "#[[x #y]]", "see [[Ops Bad#]]",
 ] as const;
 
 /** A parent no pool block can ever have: the fallback when every pool uid

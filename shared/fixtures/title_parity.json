@@ -4,7 +4,7 @@
   {"title": "\f\fTitle.", "normalized": "Title.", "canonical": "Title.", "reason": null, "blank": false, "link_refs": [{"title": "Title.", "kind": "link"}], "attribute_refs": [{"title": "Title.", "kind": "attribute"}]},
   {"title": "Beta", "normalized": "Beta", "canonical": "Beta", "reason": null, "blank": false, "link_refs": [{"title": "Beta", "kind": "link"}], "attribute_refs": [{"title": "Beta", "kind": "attribute"}]},
   {"title": "﻿\u001f﻿Beta😀 ", "normalized": "﻿\u001f﻿Beta😀 ", "canonical": "﻿\u001f﻿Beta😀 ", "reason": null, "blank": false, "link_refs": [{"title": "﻿\u001f﻿Beta😀 ", "kind": "link"}], "attribute_refs": [{"title": "﻿\u001f﻿Beta😀", "kind": "attribute"}]},
-  {"title": "Café✨ `", "normalized": "Café✨ `", "canonical": "Café✨ `", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "Café✨ `", "kind": "link"}], "attribute_refs": [{"title": "Café✨ `", "kind": "attribute"}]},
+  {"title": "Café✨ `", "normalized": "Café✨ `", "canonical": "Café✨ `", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "#:}?a/ba/b😀", "normalized": "#:}?a/ba/b😀", "canonical": "#:}?a/ba/b😀", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "#:}?a/ba/b😀", "kind": "link"}], "attribute_refs": []},
   {"title": "Beta😀]]Beta]:", "normalized": "Beta😀]]Beta]:", "canonical": "Beta😀]]Beta]:", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "Beta😀", "kind": "link"}], "attribute_refs": []},
   {"title": "\t]", "normalized": "]", "canonical": "]", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
@@ -35,7 +35,7 @@
   {"title": "50%].", "normalized": "50%].", "canonical": "50%].", "reason": null, "blank": false, "link_refs": [{"title": "50%].", "kind": "link"}], "attribute_refs": []},
   {"title": "Beta+\n", "normalized": "Beta+", "canonical": "Beta+", "reason": null, "blank": false, "link_refs": [{"title": "Beta+", "kind": "link"}], "attribute_refs": []},
   {"title": "]]​: {Title", "normalized": "]]​: {Title", "canonical": "]]​: {Title", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
-  {"title": ".\u001d::`﻿a/b`", "normalized": ".\u001d::`﻿a/b`", "canonical": ".\u001d::`﻿a/b`", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": ".\u001d::      ", "kind": "link"}], "attribute_refs": []},
+  {"title": ".\u001d::`﻿a/b`", "normalized": ".\u001d::`﻿a/b`", "canonical": ".\u001d::`﻿a/b`", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "]]﻿]]+😀 ", "normalized": "]]﻿]]+😀 ", "canonical": "]]﻿]]+😀", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": " ", "normalized": " ", "canonical": " ", "reason": null, "blank": true, "link_refs": [], "attribute_refs": []},
   {"title": "[[", "normalized": "[[", "canonical": "[[", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
@@ -54,7 +54,7 @@
   {"title": "\u000b　?", "normalized": "?", "canonical": "?", "reason": null, "blank": false, "link_refs": [{"title": "?", "kind": "link"}], "attribute_refs": [{"title": "?", "kind": "attribute"}]},
   {"title": "..Beta] \n-", "normalized": "..Beta] -", "canonical": "..Beta] -", "reason": null, "blank": false, "link_refs": [{"title": "..Beta] -", "kind": "link"}], "attribute_refs": []},
   {"title": "50%", "normalized": "50%", "canonical": "50%", "reason": null, "blank": false, "link_refs": [{"title": "50%", "kind": "link"}], "attribute_refs": [{"title": "50%", "kind": "attribute"}]},
-  {"title": "` \n.a/b\t", "normalized": "`  .a/b", "canonical": "`  .a/b", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "`  .a/b", "kind": "link"}], "attribute_refs": []},
+  {"title": "` \n.a/b\t", "normalized": "`  .a/b", "canonical": "`  .a/b", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": ".﻿\u001e)", "normalized": ".﻿\u001e)", "canonical": ".﻿\u001e)", "reason": null, "blank": false, "link_refs": [{"title": ".﻿\u001e)", "kind": "link"}], "attribute_refs": [{"title": ".﻿\u001e)", "kind": "attribute"}]},
   {"title": "😀​a/b", "normalized": "😀​a/b", "canonical": "😀​a/b", "reason": null, "blank": false, "link_refs": [{"title": "😀​a/b", "kind": "link"}], "attribute_refs": [{"title": "😀​a/b", "kind": "attribute"}]},
   {"title": "\n..  Café﻿", "normalized": ".. Café﻿", "canonical": ".. Café﻿", "reason": null, "blank": false, "link_refs": [{"title": ".. Café﻿", "kind": "link"}], "attribute_refs": [{"title": "..  Café﻿", "kind": "attribute"}]},
@@ -78,7 +78,7 @@
   {"title": " \u001f", "normalized": " \u001f", "canonical": "\u001f", "reason": null, "blank": true, "link_refs": [], "attribute_refs": []},
   {"title": "CaféCafé/{", "normalized": "CaféCafé/{", "canonical": "CaféCafé/{", "reason": null, "blank": false, "link_refs": [{"title": "CaféCafé/{", "kind": "link"}], "attribute_refs": []},
   {"title": "✨50%‍", "normalized": "✨50%‍", "canonical": "✨50%‍", "reason": null, "blank": false, "link_refs": [{"title": "✨50%‍", "kind": "link"}], "attribute_refs": [{"title": "✨50%‍", "kind": "attribute"}]},
-  {"title": "\u001f`Beta", "normalized": "\u001f`Beta", "canonical": "\u001f`Beta", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "\u001f`Beta", "kind": "link"}], "attribute_refs": [{"title": "`Beta", "kind": "attribute"}]},
+  {"title": "\u001f`Beta", "normalized": "\u001f`Beta", "canonical": "\u001f`Beta", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "\t50%  \f\t", "normalized": "50%", "canonical": "50%", "reason": null, "blank": false, "link_refs": [{"title": "50%", "kind": "link"}], "attribute_refs": [{"title": "50%", "kind": "attribute"}]},
   {"title": "\r", "normalized": "", "canonical": "", "reason": null, "blank": true, "link_refs": [], "attribute_refs": []},
   {"title": ": [", "normalized": ": [", "canonical": ": [", "reason": null, "blank": false, "link_refs": [{"title": ": [", "kind": "link"}], "attribute_refs": []},
@@ -90,7 +90,7 @@
   {"title": "\r\t ", "normalized": "", "canonical": "", "reason": null, "blank": true, "link_refs": [], "attribute_refs": []},
   {"title": "      ", "normalized": "      ", "canonical": "", "reason": null, "blank": true, "link_refs": [], "attribute_refs": []},
   {"title": "?\n\u001f ​　", "normalized": "? \u001f ​", "canonical": "? \u001f ​", "reason": null, "blank": false, "link_refs": [{"title": "? \u001f ​", "kind": "link"}], "attribute_refs": []},
-  {"title": "`+", "normalized": "`+", "canonical": "`+", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "`+", "kind": "link"}], "attribute_refs": [{"title": "`+", "kind": "attribute"}]},
+  {"title": "`+", "normalized": "`+", "canonical": "`+", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "..:\f", "normalized": "..:", "canonical": "..:", "reason": null, "blank": false, "link_refs": [{"title": "..:", "kind": "link"}], "attribute_refs": []},
   {"title": "‍[[", "normalized": "‍[[", "canonical": "‍[[", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "\f \u001c)", "normalized": ")", "canonical": ")", "reason": null, "blank": false, "link_refs": [{"title": ")", "kind": "link"}], "attribute_refs": [{"title": ")", "kind": "attribute"}]},
@@ -111,7 +111,7 @@
   {"title": "\u001d\n [", "normalized": "[", "canonical": "[", "reason": null, "blank": false, "link_refs": [{"title": "[", "kind": "link"}], "attribute_refs": []},
   {"title": "\u001d‍/\u001c\t\u001c", "normalized": "‍/", "canonical": "‍/", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": ": ﻿", "normalized": ": ﻿", "canonical": ": ﻿", "reason": null, "blank": false, "link_refs": [{"title": ": ﻿", "kind": "link"}], "attribute_refs": []},
-  {"title": " CaféBeta`  .)", "normalized": " CaféBeta`  .)", "canonical": " CaféBeta`  .)", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": " CaféBeta`  .)", "kind": "link"}], "attribute_refs": [{"title": "CaféBeta`  .)", "kind": "attribute"}]},
+  {"title": " CaféBeta`  .)", "normalized": " CaféBeta`  .)", "canonical": " CaféBeta`  .)", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "a/bCafé    /﻿/", "normalized": "a/bCafé    /﻿/", "canonical": "a/bCafé    /﻿/", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "-.\u001dAlpha2026", "normalized": "-.\u001dAlpha2026", "canonical": "-.\u001dAlpha2026", "reason": null, "blank": false, "link_refs": [{"title": "-.\u001dAlpha2026", "kind": "link"}], "attribute_refs": [{"title": "-.\u001dAlpha2026", "kind": "attribute"}]},
   {"title": "​50%﻿Title..\u001f", "normalized": "​50%﻿Title..\u001f", "canonical": "​50%﻿Title..\u001f", "reason": null, "blank": false, "link_refs": [{"title": "​50%﻿Title..\u001f", "kind": "link"}], "attribute_refs": [{"title": "​50%﻿Title..", "kind": "attribute"}]},
@@ -130,7 +130,7 @@
   {"title": " ", "normalized": " ", "canonical": "", "reason": null, "blank": true, "link_refs": [], "attribute_refs": []},
   {"title": "  ]", "normalized": "  ]", "canonical": " ]", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": " . \f+&2026", "normalized": ". +&2026", "canonical": ". +&2026", "reason": null, "blank": false, "link_refs": [{"title": ". +&2026", "kind": "link"}], "attribute_refs": [{"title": ". +&2026", "kind": "attribute"}]},
-  {"title": "\nTitle `", "normalized": "Title `", "canonical": "Title `", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "Title `", "kind": "link"}], "attribute_refs": [{"title": "Title `", "kind": "attribute"}]},
+  {"title": "\nTitle `", "normalized": "Title `", "canonical": "Title `", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": ".[[\u000b2026(", "normalized": ".[[ 2026(", "canonical": ".[[ 2026(", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "2026(", "kind": "link"}], "attribute_refs": []},
   {"title": "  ‍?\u001c#", "normalized": "  ‍?\u001c#", "canonical": "‍?\u001c#", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "  ‍?\u001c#", "kind": "link"}], "attribute_refs": [{"title": "‍?\u001c#", "kind": "attribute"}]},
   {"title": "Title\t]\t..　Café", "normalized": "Title ] ..　Café", "canonical": "Title ] ..　Café", "reason": null, "blank": false, "link_refs": [{"title": "Title ] ..　Café", "kind": "link"}], "attribute_refs": []},
@@ -163,7 +163,7 @@
   {"title": "/:", "normalized": "/:", "canonical": "/:", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "  \n#✨", "normalized": "#✨", "canonical": "#✨", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "#✨", "kind": "link"}], "attribute_refs": [{"title": "#✨", "kind": "attribute"}]},
   {"title": "😀(\n. \u001e", "normalized": "😀( .", "canonical": "😀( .", "reason": null, "blank": false, "link_refs": [{"title": "😀( .", "kind": "link"}], "attribute_refs": []},
-  {"title": "`a/b✨ ?\t\u000b", "normalized": "`a/b✨ ?", "canonical": "`a/b✨ ?", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "`a/b✨ ?", "kind": "link"}], "attribute_refs": [{"title": "`a/b✨ ?", "kind": "attribute"}]},
+  {"title": "`a/b✨ ?\t\u000b", "normalized": "`a/b✨ ?", "canonical": "`a/b✨ ?", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "Title‍ \u000bBeta(", "normalized": "Title‍  Beta(", "canonical": "Title‍  Beta(", "reason": null, "blank": false, "link_refs": [{"title": "Title‍  Beta(", "kind": "link"}], "attribute_refs": [{"title": "Title‍  Beta(", "kind": "attribute"}]},
   {"title": "[) ) }", "normalized": "[) ) }", "canonical": "[) ) }", "reason": null, "blank": false, "link_refs": [{"title": "[) ) }", "kind": "link"}], "attribute_refs": []},
   {"title": "﻿)\r#", "normalized": "﻿) #", "canonical": "﻿) #", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "﻿) #", "kind": "link"}], "attribute_refs": [{"title": "﻿) #", "kind": "attribute"}]},
@@ -195,7 +195,7 @@
   {"title": "]]a/b  - ", "normalized": "]]a/b  - ", "canonical": "]]a/b  -", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "+Title﻿#﻿Beta2026", "normalized": "+Title﻿#﻿Beta2026", "canonical": "+Title﻿#﻿Beta2026", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "+Title﻿#﻿Beta2026", "kind": "link"}], "attribute_refs": [{"title": "+Title﻿#﻿Beta2026", "kind": "attribute"}]},
   {"title": " ‍Beta", "normalized": " ‍Beta", "canonical": "‍Beta", "reason": null, "blank": false, "link_refs": [{"title": " ‍Beta", "kind": "link"}], "attribute_refs": [{"title": "‍Beta", "kind": "attribute"}]},
-  {"title": "`.", "normalized": "`.", "canonical": "`.", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "`.", "kind": "link"}], "attribute_refs": [{"title": "`.", "kind": "attribute"}]},
+  {"title": "`.", "normalized": "`.", "canonical": "`.", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "﻿Alpha[[", "normalized": "﻿Alpha[[", "canonical": "﻿Alpha[[", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "‍\u000b😀\n:", "normalized": "‍ 😀 :", "canonical": "‍ 😀 :", "reason": null, "blank": false, "link_refs": [{"title": "‍ 😀 :", "kind": "link"}], "attribute_refs": []},
   {"title": "﻿ ]]", "normalized": "﻿ ]]", "canonical": "﻿ ]]", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "﻿ ", "kind": "link"}], "attribute_refs": []},
@@ -203,7 +203,7 @@
   {"title": "a/b✨a/b-..", "normalized": "a/b✨a/b-..", "canonical": "a/b✨a/b-..", "reason": null, "blank": false, "link_refs": [{"title": "a/b✨a/b-..", "kind": "link"}], "attribute_refs": [{"title": "a/b✨a/b-..", "kind": "attribute"}]},
   {"title": "+.. ✨]", "normalized": "+.. ✨]", "canonical": "+.. ✨]", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "+.. ✨", "kind": "link"}], "attribute_refs": []},
   {"title": "\u000b ", "normalized": "", "canonical": "", "reason": null, "blank": true, "link_refs": [], "attribute_refs": []},
-  {"title": "✨`.", "normalized": "✨`.", "canonical": "✨`.", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "✨`.", "kind": "link"}], "attribute_refs": [{"title": "✨`.", "kind": "attribute"}]},
+  {"title": "✨`.", "normalized": "✨`.", "canonical": "✨`.", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "　 2026:/", "normalized": "　 2026:/", "canonical": "　 2026:/", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "::​]]​﻿\n\t", "normalized": "::​]]​﻿", "canonical": "::​]]​﻿", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "::​", "kind": "link"}], "attribute_refs": []},
   {"title": "\t:: ", "normalized": "::", "canonical": "::", "reason": null, "blank": false, "link_refs": [{"title": "::", "kind": "link"}], "attribute_refs": []},
@@ -241,26 +241,26 @@
   {"title": "}‍\u001e[/", "normalized": "}‍\u001e[/", "canonical": "}‍\u001e[/", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": " /? \u000b", "normalized": "/?", "canonical": "/?", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "\n(#✨50%", "normalized": "(#✨50%", "canonical": "(#✨50%", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "(#✨50%", "kind": "link"}], "attribute_refs": [{"title": "(#✨50%", "kind": "attribute"}]},
-  {"title": "   `-]2026 ", "normalized": "   `-]2026 ", "canonical": "`-]2026 ", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "   `-]2026 ", "kind": "link"}], "attribute_refs": []},
+  {"title": "   `-]2026 ", "normalized": "   `-]2026 ", "canonical": "`-]2026 ", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": " [﻿ ", "normalized": " [﻿ ", "canonical": " [﻿", "reason": null, "blank": false, "link_refs": [{"title": " [﻿ ", "kind": "link"}], "attribute_refs": []},
   {"title": "\r\rTitle\f", "normalized": "Title", "canonical": "Title", "reason": null, "blank": false, "link_refs": [{"title": "Title", "kind": "link"}], "attribute_refs": [{"title": "Title", "kind": "attribute"}]},
   {"title": "}", "normalized": "}", "canonical": "}", "reason": null, "blank": false, "link_refs": [{"title": "}", "kind": "link"}], "attribute_refs": []},
   {"title": "😀}", "normalized": "😀}", "canonical": "😀}", "reason": null, "blank": false, "link_refs": [{"title": "😀}", "kind": "link"}], "attribute_refs": []},
   {"title": ").{::", "normalized": ").{::", "canonical": ").{::", "reason": null, "blank": false, "link_refs": [{"title": ").{::", "kind": "link"}], "attribute_refs": []},
-  {"title": "`2026 \r\u001f‍", "normalized": "`2026  \u001f‍", "canonical": "`2026  \u001f‍", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "`2026  \u001f‍", "kind": "link"}], "attribute_refs": [{"title": "`2026  \u001f‍", "kind": "attribute"}]},
+  {"title": "`2026 \r\u001f‍", "normalized": "`2026  \u001f‍", "canonical": "`2026  \u001f‍", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "\n​", "normalized": "​", "canonical": "​", "reason": null, "blank": false, "link_refs": [{"title": "​", "kind": "link"}], "attribute_refs": [{"title": "​", "kind": "attribute"}]},
-  {"title": "`(", "normalized": "`(", "canonical": "`(", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "`(", "kind": "link"}], "attribute_refs": [{"title": "`(", "kind": "attribute"}]},
+  {"title": "`(", "normalized": "`(", "canonical": "`(", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "#   Beta  (Café", "normalized": "#   Beta  (Café", "canonical": "#   Beta  (Café", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "#   Beta  (Café", "kind": "link"}], "attribute_refs": [{"title": "#   Beta  (Café", "kind": "attribute"}]},
   {"title": "]Café\u001c \f", "normalized": "]Café", "canonical": "]Café", "reason": null, "blank": false, "link_refs": [{"title": "]Café", "kind": "link"}], "attribute_refs": []},
   {"title": "]\u000b  .", "normalized": "]   .", "canonical": "]   .", "reason": null, "blank": false, "link_refs": [{"title": "]   .", "kind": "link"}], "attribute_refs": []},
   {"title": "\n   # Title ", "normalized": "# Title", "canonical": "# Title", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "# Title", "kind": "link"}], "attribute_refs": [{"title": "# Title", "kind": "attribute"}]},
   {"title": " \u000b..&✨", "normalized": "..&✨", "canonical": "..&✨", "reason": null, "blank": false, "link_refs": [{"title": "..&✨", "kind": "link"}], "attribute_refs": [{"title": "..&✨", "kind": "attribute"}]},
-  {"title": "[😀Café`/?)", "normalized": "[😀Café`/?)", "canonical": "[😀Café`/?)", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "[😀Café`/?)", "kind": "link"}], "attribute_refs": []},
+  {"title": "[😀Café`/?)", "normalized": "[😀Café`/?)", "canonical": "[😀Café`/?)", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "}\n Title", "normalized": "}  Title", "canonical": "}  Title", "reason": null, "blank": false, "link_refs": [{"title": "}  Title", "kind": "link"}], "attribute_refs": []},
   {"title": "Beta#　&\n", "normalized": "Beta#　&", "canonical": "Beta#　&", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "Beta#　&", "kind": "link"}], "attribute_refs": []},
   {"title": "​ ", "normalized": "​ ", "canonical": "​", "reason": null, "blank": false, "link_refs": [{"title": "​ ", "kind": "link"}], "attribute_refs": [{"title": "​", "kind": "attribute"}]},
   {"title": "\t]\r(‍]]", "normalized": "] (‍]]", "canonical": "] (‍]]", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "] (‍", "kind": "link"}], "attribute_refs": []},
-  {"title": " &✨.{\f`", "normalized": "&✨.{ `", "canonical": "&✨.{ `", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "&✨.{ `", "kind": "link"}], "attribute_refs": []},
+  {"title": " &✨.{\f`", "normalized": "&✨.{ `", "canonical": "&✨.{ `", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "#?::", "normalized": "#?::", "canonical": "#?::", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "#?::", "kind": "link"}], "attribute_refs": [{"title": "#?", "kind": "attribute"}]},
   {"title": "\n　 ", "normalized": "", "canonical": "", "reason": null, "blank": true, "link_refs": [], "attribute_refs": []},
   {"title": ".", "normalized": ".", "canonical": ".", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
@@ -269,7 +269,7 @@
   {"title": "😀/]]Beta50%", "normalized": "😀/]]Beta50%", "canonical": "😀/]]Beta50%", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": ":   Café ", "normalized": ":   Café ", "canonical": ":   Café ", "reason": null, "blank": false, "link_refs": [{"title": ":   Café ", "kind": "link"}], "attribute_refs": []},
   {"title": ")]50%}", "normalized": ")]50%}", "canonical": ")]50%}", "reason": null, "blank": false, "link_refs": [{"title": ")]50%}", "kind": "link"}], "attribute_refs": []},
-  {"title": "`\t", "normalized": "`", "canonical": "`", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "`", "kind": "link"}], "attribute_refs": [{"title": "`", "kind": "attribute"}]},
+  {"title": "`\t", "normalized": "`", "canonical": "`", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": " Title\u001c{\n　", "normalized": "Title\u001c{", "canonical": "Title\u001c{", "reason": null, "blank": false, "link_refs": [{"title": "Title\u001c{", "kind": "link"}], "attribute_refs": []},
   {"title": "/  ", "normalized": "/  ", "canonical": "/", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "+ ", "normalized": "+ ", "canonical": "+ ", "reason": null, "blank": false, "link_refs": [{"title": "+ ", "kind": "link"}], "attribute_refs": [{"title": "+", "kind": "attribute"}]},
@@ -280,7 +280,7 @@
   {"title": "50%\u001e", "normalized": "50%\u001e", "canonical": "50%\u001e", "reason": null, "blank": false, "link_refs": [{"title": "50%\u001e", "kind": "link"}], "attribute_refs": [{"title": "50%", "kind": "attribute"}]},
   {"title": "::-", "normalized": "::-", "canonical": "::-", "reason": null, "blank": false, "link_refs": [{"title": "::-", "kind": "link"}], "attribute_refs": []},
   {"title": "Title[{​]:[", "normalized": "Title[{​]:[", "canonical": "Title[{​]:[", "reason": null, "blank": false, "link_refs": [{"title": "Title[{​]:[", "kind": "link"}], "attribute_refs": []},
-  {"title": "Beta{`..", "normalized": "Beta{`..", "canonical": "Beta{`..", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "Beta{`..", "kind": "link"}], "attribute_refs": []},
+  {"title": "Beta{`..", "normalized": "Beta{`..", "canonical": "Beta{`..", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "😀\u001e[\n}", "normalized": "😀\u001e[ }", "canonical": "😀\u001e[ }", "reason": null, "blank": false, "link_refs": [{"title": "😀\u001e[ }", "kind": "link"}], "attribute_refs": []},
   {"title": "\rCafé....\t", "normalized": "Café....", "canonical": "Café....", "reason": null, "blank": false, "link_refs": [{"title": "Café....", "kind": "link"}], "attribute_refs": [{"title": "Café....", "kind": "attribute"}]},
   {"title": " \n﻿\u001e😀\t", "normalized": "﻿\u001e😀", "canonical": "﻿\u001e😀", "reason": null, "blank": false, "link_refs": [{"title": "﻿\u001e😀", "kind": "link"}], "attribute_refs": [{"title": "﻿\u001e😀", "kind": "attribute"}]},
@@ -336,13 +336,13 @@
   {"title": " &.\u001d😀)?", "normalized": " &.\u001d😀)?", "canonical": " &.\u001d😀)?", "reason": null, "blank": false, "link_refs": [{"title": " &.\u001d😀)?", "kind": "link"}], "attribute_refs": [{"title": "&.\u001d😀)?", "kind": "attribute"}]},
   {"title": "/\u001c", "normalized": "/\u001c", "canonical": "/\u001c", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "/2026\n+", "normalized": "/2026 +", "canonical": "/2026 +", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
-  {"title": "`#Title", "normalized": "`#Title", "canonical": "`#Title", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "`#Title", "kind": "link"}], "attribute_refs": [{"title": "`#Title", "kind": "attribute"}]},
+  {"title": "`#Title", "normalized": "`#Title", "canonical": "`#Title", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": " (:Title]]/　", "normalized": " (:Title]]/　", "canonical": " (:Title]]/　", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": " (:Title", "kind": "link"}], "attribute_refs": []},
   {"title": " 2026#Café", "normalized": " 2026#Café", "canonical": "2026#Café", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": " 2026#Café", "kind": "link"}], "attribute_refs": [{"title": "2026#Café", "kind": "attribute"}]},
   {"title": "]]﻿✨.", "normalized": "]]﻿✨.", "canonical": "]]﻿✨.", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "\r   Alpha﻿", "normalized": "Alpha﻿", "canonical": "Alpha﻿", "reason": null, "blank": false, "link_refs": [{"title": "Alpha﻿", "kind": "link"}], "attribute_refs": [{"title": "Alpha﻿", "kind": "attribute"}]},
   {"title": "{...]", "normalized": "{...]", "canonical": "{...]", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "{...", "kind": "link"}], "attribute_refs": []},
-  {"title": "\f:/﻿\u001d`   ", "normalized": ":/﻿\u001d`", "canonical": ":/﻿\u001d`", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": ":/﻿\u001d`", "kind": "link"}], "attribute_refs": []},
+  {"title": "\f:/﻿\u001d`   ", "normalized": ":/﻿\u001d`", "canonical": ":/﻿\u001d`", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "::\n::", "normalized": ":: ::", "canonical": ":: ::", "reason": null, "blank": false, "link_refs": [{"title": ":: ::", "kind": "link"}], "attribute_refs": []},
   {"title": "\u001d\t‍ +[[", "normalized": "‍ +[[", "canonical": "‍ +[[", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "\n50%", "normalized": "50%", "canonical": "50%", "reason": null, "blank": false, "link_refs": [{"title": "50%", "kind": "link"}], "attribute_refs": [{"title": "50%", "kind": "attribute"}]},
@@ -370,7 +370,7 @@
   {"title": "..[CaféCafé​", "normalized": "..[CaféCafé​", "canonical": "..[CaféCafé​", "reason": null, "blank": false, "link_refs": [{"title": "..[CaféCafé​", "kind": "link"}], "attribute_refs": []},
   {"title": "}　[::✨Beta", "normalized": "}　[::✨Beta", "canonical": "}　[::✨Beta", "reason": null, "blank": false, "link_refs": [{"title": "}　[::✨Beta", "kind": "link"}], "attribute_refs": []},
   {"title": "\u000b50%\u001c\t", "normalized": "50%", "canonical": "50%", "reason": null, "blank": false, "link_refs": [{"title": "50%", "kind": "link"}], "attribute_refs": [{"title": "50%", "kind": "attribute"}]},
-  {"title": "`: ", "normalized": "`: ", "canonical": "`: ", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "`: ", "kind": "link"}], "attribute_refs": []},
+  {"title": "`: ", "normalized": "`: ", "canonical": "`: ", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "/`\f/ \u001d", "normalized": "/` /", "canonical": "/` /", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": ".a/b ", "normalized": ".a/b ", "canonical": ".a/b ", "reason": null, "blank": false, "link_refs": [{"title": ".a/b ", "kind": "link"}], "attribute_refs": [{"title": ".a/b", "kind": "attribute"}]},
   {"title": "a/b \t ‍[[a/b", "normalized": "a/b  ‍[[a/b", "canonical": "a/b  ‍[[a/b", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "a/b", "kind": "link"}], "attribute_refs": []},
@@ -379,7 +379,7 @@
   {"title": "✨ 50%\u001f", "normalized": "✨ 50%\u001f", "canonical": "✨ 50%\u001f", "reason": null, "blank": false, "link_refs": [{"title": "✨ 50%\u001f", "kind": "link"}], "attribute_refs": [{"title": "✨ 50%", "kind": "attribute"}]},
   {"title": "Alpha", "normalized": "Alpha", "canonical": "Alpha", "reason": null, "blank": false, "link_refs": [{"title": "Alpha", "kind": "link"}], "attribute_refs": [{"title": "Alpha", "kind": "attribute"}]},
   {"title": "}\nTitle　", "normalized": "} Title", "canonical": "} Title", "reason": null, "blank": false, "link_refs": [{"title": "} Title", "kind": "link"}], "attribute_refs": []},
-  {"title": "﻿`\t﻿?", "normalized": "﻿` ﻿?", "canonical": "﻿` ﻿?", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "﻿` ﻿?", "kind": "link"}], "attribute_refs": [{"title": "﻿` ﻿?", "kind": "attribute"}]},
+  {"title": "﻿`\t﻿?", "normalized": "﻿` ﻿?", "canonical": "﻿` ﻿?", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "﻿#Title​Alpha", "normalized": "﻿#Title​Alpha", "canonical": "﻿#Title​Alpha", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "﻿#Title​Alpha", "kind": "link"}], "attribute_refs": [{"title": "﻿#Title​Alpha", "kind": "attribute"}]},
   {"title": "\n﻿ \na/b", "normalized": "﻿  a/b", "canonical": "﻿  a/b", "reason": null, "blank": false, "link_refs": [{"title": "﻿  a/b", "kind": "link"}], "attribute_refs": []},
   {"title": "&.\f/", "normalized": "&. /", "canonical": "&. /", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
@@ -393,7 +393,7 @@
   {"title": " a/b.", "normalized": " a/b.", "canonical": " a/b.", "reason": null, "blank": false, "link_refs": [{"title": " a/b.", "kind": "link"}], "attribute_refs": [{"title": "a/b.", "kind": "attribute"}]},
   {"title": "]] )   ", "normalized": "]] )   ", "canonical": "]] )", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "2026😀‍+", "normalized": "2026😀‍+", "canonical": "2026😀‍+", "reason": null, "blank": false, "link_refs": [{"title": "2026😀‍+", "kind": "link"}], "attribute_refs": [{"title": "2026😀‍+", "kind": "attribute"}]},
-  {"title": "  ::Café`\r﻿", "normalized": "::Café` ﻿", "canonical": "::Café` ﻿", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "::Café` ﻿", "kind": "link"}], "attribute_refs": []},
+  {"title": "  ::Café`\r﻿", "normalized": "::Café` ﻿", "canonical": "::Café` ﻿", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": " .a/b", "normalized": " .a/b", "canonical": " .a/b", "reason": null, "blank": false, "link_refs": [{"title": " .a/b", "kind": "link"}], "attribute_refs": [{"title": ".a/b", "kind": "attribute"}]},
   {"title": "{‍:2026/﻿", "normalized": "{‍:2026/﻿", "canonical": "{‍:2026/﻿", "reason": null, "blank": false, "link_refs": [{"title": "{‍:2026/﻿", "kind": "link"}], "attribute_refs": []},
   {"title": "/[Beta", "normalized": "/[Beta", "canonical": "/[Beta", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
@@ -416,7 +416,7 @@
   {"title": "\tCafé ", "normalized": "Café", "canonical": "Café", "reason": null, "blank": false, "link_refs": [{"title": "Café", "kind": "link"}], "attribute_refs": [{"title": "Café", "kind": "attribute"}]},
   {"title": " [2026Beta]", "normalized": " [2026Beta]", "canonical": " [2026Beta]", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": " [2026Beta", "kind": "link"}], "attribute_refs": []},
   {"title": "+\nCafé.", "normalized": "+ Café.", "canonical": "+ Café.", "reason": null, "blank": false, "link_refs": [{"title": "+ Café.", "kind": "link"}], "attribute_refs": []},
-  {"title": "`", "normalized": "`", "canonical": "`", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "`", "kind": "link"}], "attribute_refs": [{"title": "`", "kind": "attribute"}]},
+  {"title": "`", "normalized": "`", "canonical": "`", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": " Alpha \u001f\r", "normalized": "Alpha", "canonical": "Alpha", "reason": null, "blank": false, "link_refs": [{"title": "Alpha", "kind": "link"}], "attribute_refs": [{"title": "Alpha", "kind": "attribute"}]},
   {"title": "﻿[.a/b　{ ", "normalized": "﻿[.a/b　{ ", "canonical": "﻿[.a/b　{ ", "reason": null, "blank": false, "link_refs": [{"title": "﻿[.a/b　{ ", "kind": "link"}], "attribute_refs": []},
   {"title": ".?)[", "normalized": ".?)[", "canonical": ".?)[", "reason": null, "blank": false, "link_refs": [{"title": ".?)[", "kind": "link"}], "attribute_refs": []},
@@ -433,7 +433,7 @@
   {"title": "\u001f)+#Title-", "normalized": "\u001f)+#Title-", "canonical": "\u001f)+#Title-", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "\u001f)+#Title-", "kind": "link"}], "attribute_refs": [{"title": ")+#Title-", "kind": "attribute"}]},
   {"title": "😀.​\t50%Beta   ", "normalized": "😀.​ 50%Beta", "canonical": "😀.​ 50%Beta", "reason": null, "blank": false, "link_refs": [{"title": "😀.​ 50%Beta", "kind": "link"}], "attribute_refs": [{"title": "😀.​ 50%Beta", "kind": "attribute"}]},
   {"title": "　a/b[?\t\n", "normalized": "a/b[?", "canonical": "a/b[?", "reason": null, "blank": false, "link_refs": [{"title": "a/b[?", "kind": "link"}], "attribute_refs": []},
-  {"title": "TitleTitle\n`#a/b‍", "normalized": "TitleTitle `#a/b‍", "canonical": "TitleTitle `#a/b‍", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "TitleTitle `#a/b‍", "kind": "link"}], "attribute_refs": []},
+  {"title": "TitleTitle\n`#a/b‍", "normalized": "TitleTitle `#a/b‍", "canonical": "TitleTitle `#a/b‍", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "Café }😀\t", "normalized": "Café }😀", "canonical": "Café }😀", "reason": null, "blank": false, "link_refs": [{"title": "Café }😀", "kind": "link"}], "attribute_refs": []},
   {"title": " /)\u000b:\t", "normalized": "/) :", "canonical": "/) :", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "\u001e\u001c+ 　﻿\n", "normalized": "+ 　﻿", "canonical": "+ 　﻿", "reason": null, "blank": false, "link_refs": [{"title": "+ 　﻿", "kind": "link"}], "attribute_refs": []},
@@ -442,7 +442,7 @@
   {"title": " ]]Café\t\n", "normalized": "]]Café", "canonical": "]]Café", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "\n#   \t]]", "normalized": "# ]]", "canonical": "# ]]", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "#", "kind": "link"}], "attribute_refs": []},
   {"title": "TitleCafé(\u001c\u001cTitle[", "normalized": "TitleCafé(\u001c\u001cTitle[", "canonical": "TitleCafé(\u001c\u001cTitle[", "reason": null, "blank": false, "link_refs": [{"title": "TitleCafé(\u001c\u001cTitle[", "kind": "link"}], "attribute_refs": []},
-  {"title": " 2026...`　", "normalized": " 2026...`　", "canonical": " 2026...`　", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": " 2026...`　", "kind": "link"}], "attribute_refs": [{"title": "2026...`", "kind": "attribute"}]},
+  {"title": " 2026...`　", "normalized": " 2026...`　", "canonical": " 2026...`　", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "\t\u001f​", "normalized": "​", "canonical": "​", "reason": null, "blank": false, "link_refs": [{"title": "​", "kind": "link"}], "attribute_refs": [{"title": "​", "kind": "attribute"}]},
   {"title": "#( Café", "normalized": "#( Café", "canonical": "#( Café", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "#( Café", "kind": "link"}], "attribute_refs": [{"title": "#( Café", "kind": "attribute"}]},
   {"title": " ?\u001e2026{", "normalized": " ?\u001e2026{", "canonical": "?\u001e2026{", "reason": null, "blank": false, "link_refs": [{"title": " ?\u001e2026{", "kind": "link"}], "attribute_refs": []},
@@ -455,9 +455,9 @@
   {"title": "BetaTitle & #&", "normalized": "BetaTitle & #&", "canonical": "BetaTitle & #&", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "BetaTitle & #&", "kind": "link"}], "attribute_refs": [{"title": "BetaTitle & #&", "kind": "attribute"}]},
   {"title": "   ...😀", "normalized": "   ...😀", "canonical": "...😀", "reason": null, "blank": false, "link_refs": [{"title": "   ...😀", "kind": "link"}], "attribute_refs": [{"title": "...😀", "kind": "attribute"}]},
   {"title": "✨+(\u001c﻿\n&", "normalized": "✨+(\u001c﻿ &", "canonical": "✨+(\u001c﻿ &", "reason": null, "blank": false, "link_refs": [{"title": "✨+(\u001c﻿ &", "kind": "link"}], "attribute_refs": []},
-  {"title": "`", "normalized": "`", "canonical": "`", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "`", "kind": "link"}], "attribute_refs": [{"title": "`", "kind": "attribute"}]},
+  {"title": "`", "normalized": "`", "canonical": "`", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "a/b\n　", "normalized": "a/b", "canonical": "a/b", "reason": null, "blank": false, "link_refs": [{"title": "a/b", "kind": "link"}], "attribute_refs": []},
-  {"title": "　? ` Alpha50%", "normalized": "　? ` Alpha50%", "canonical": "　? ` Alpha50%", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "　? ` Alpha50%", "kind": "link"}], "attribute_refs": [{"title": "? ` Alpha50%", "kind": "attribute"}]},
+  {"title": "　? ` Alpha50%", "normalized": "　? ` Alpha50%", "canonical": "　? ` Alpha50%", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "   ﻿Beta. ", "normalized": "   ﻿Beta. ", "canonical": "﻿Beta. ", "reason": null, "blank": false, "link_refs": [{"title": "   ﻿Beta. ", "kind": "link"}], "attribute_refs": [{"title": "﻿Beta.", "kind": "attribute"}]},
   {"title": "﻿﻿", "normalized": "﻿﻿", "canonical": "﻿﻿", "reason": null, "blank": false, "link_refs": [{"title": "﻿﻿", "kind": "link"}], "attribute_refs": [{"title": "﻿﻿", "kind": "attribute"}]},
   {"title": "\tBeta", "normalized": "Beta", "canonical": "Beta", "reason": null, "blank": false, "link_refs": [{"title": "Beta", "kind": "link"}], "attribute_refs": [{"title": "Beta", "kind": "attribute"}]},
@@ -468,14 +468,14 @@
   {"title": "?)", "normalized": "?)", "canonical": "?)", "reason": null, "blank": false, "link_refs": [{"title": "?)", "kind": "link"}], "attribute_refs": [{"title": "?)", "kind": "attribute"}]},
   {"title": "]] ", "normalized": "]] ", "canonical": "]]", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "\t​]]::", "normalized": "​]]::", "canonical": "​]]::", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "​", "kind": "link"}], "attribute_refs": []},
-  {"title": "-(`‍\u000b​", "normalized": "-(`‍ ​", "canonical": "-(`‍ ​", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "-(`‍ ​", "kind": "link"}], "attribute_refs": [{"title": "-(`‍ ​", "kind": "attribute"}]},
+  {"title": "-(`‍\u000b​", "normalized": "-(`‍ ​", "canonical": "-(`‍ ​", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "2026Alpha✨\t", "normalized": "2026Alpha✨", "canonical": "2026Alpha✨", "reason": null, "blank": false, "link_refs": [{"title": "2026Alpha✨", "kind": "link"}], "attribute_refs": [{"title": "2026Alpha✨", "kind": "attribute"}]},
   {"title": "\u001c#  Café", "normalized": "\u001c#  Café", "canonical": "\u001c#  Café", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "\u001c#  Café", "kind": "link"}], "attribute_refs": [{"title": "#  Café", "kind": "attribute"}]},
   {"title": "{]] ", "normalized": "{]] ", "canonical": "{]]", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "{", "kind": "link"}], "attribute_refs": []},
   {"title": "a/b\f   \r\u001c", "normalized": "a/b", "canonical": "a/b", "reason": null, "blank": false, "link_refs": [{"title": "a/b", "kind": "link"}], "attribute_refs": [{"title": "a/b", "kind": "attribute"}]},
   {"title": " + a/b\t\u001c", "normalized": "+ a/b", "canonical": "+ a/b", "reason": null, "blank": false, "link_refs": [{"title": "+ a/b", "kind": "link"}], "attribute_refs": [{"title": "+ a/b", "kind": "attribute"}]},
   {"title": "　﻿", "normalized": "　﻿", "canonical": "　﻿", "reason": null, "blank": false, "link_refs": [{"title": "　﻿", "kind": "link"}], "attribute_refs": [{"title": "﻿", "kind": "attribute"}]},
-  {"title": "\u001d..{`50%\n", "normalized": "..{`50%", "canonical": "..{`50%", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "..{`50%", "kind": "link"}], "attribute_refs": []},
+  {"title": "\u001d..{`50%\n", "normalized": "..{`50%", "canonical": "..{`50%", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "\u000b  ", "normalized": "", "canonical": "", "reason": null, "blank": true, "link_refs": [], "attribute_refs": []},
   {"title": "​\u001f a/b50%", "normalized": "​\u001f a/b50%", "canonical": "​\u001f a/b50%", "reason": null, "blank": false, "link_refs": [{"title": "​\u001f a/b50%", "kind": "link"}], "attribute_refs": [{"title": "​\u001f a/b50%", "kind": "attribute"}]},
   {"title": "{-", "normalized": "{-", "canonical": "{-", "reason": null, "blank": false, "link_refs": [{"title": "{-", "kind": "link"}], "attribute_refs": []},
@@ -488,21 +488,21 @@
   {"title": "😀[[/​", "normalized": "😀[[/​", "canonical": "😀[[/​", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "Title✨\u001d  ", "normalized": "Title✨\u001d  ", "canonical": "Title✨\u001d", "reason": null, "blank": false, "link_refs": [{"title": "Title✨\u001d  ", "kind": "link"}], "attribute_refs": [{"title": "Title✨", "kind": "attribute"}]},
   {"title": "  #Beta..", "normalized": "  #Beta..", "canonical": "#Beta..", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "  #Beta..", "kind": "link"}, {"title": "Beta..", "kind": "tag"}], "attribute_refs": [{"title": "#Beta..", "kind": "attribute"}, {"title": "Beta..", "kind": "tag"}]},
-  {"title": " `", "normalized": " `", "canonical": " `", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": " `", "kind": "link"}], "attribute_refs": [{"title": "`", "kind": "attribute"}]},
+  {"title": " `", "normalized": " `", "canonical": " `", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "?..2026]][&", "normalized": "?..2026]][&", "canonical": "?..2026]][&", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "?..2026", "kind": "link"}], "attribute_refs": []},
   {"title": "　 2026", "normalized": "　 2026", "canonical": "　 2026", "reason": null, "blank": false, "link_refs": [{"title": "　 2026", "kind": "link"}], "attribute_refs": [{"title": "2026", "kind": "attribute"}]},
   {"title": "(/[[} \u001c", "normalized": "(/[[} \u001c", "canonical": "(/[[} \u001c", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "} \u001c", "kind": "link"}], "attribute_refs": []},
   {"title": "\u001f  ﻿/)", "normalized": "\u001f  ﻿/)", "canonical": "\u001f  ﻿/)", "reason": null, "blank": false, "link_refs": [{"title": "\u001f  ﻿/)", "kind": "link"}], "attribute_refs": [{"title": "﻿/)", "kind": "attribute"}]},
   {"title": "\u000b", "normalized": "", "canonical": "", "reason": null, "blank": true, "link_refs": [], "attribute_refs": []},
-  {"title": "‍+a/b​\u000b`?", "normalized": "‍+a/b​ `?", "canonical": "‍+a/b​ `?", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "‍+a/b​ `?", "kind": "link"}], "attribute_refs": [{"title": "‍+a/b​ `?", "kind": "attribute"}]},
+  {"title": "‍+a/b​\u000b`?", "normalized": "‍+a/b​ `?", "canonical": "‍+a/b​ `?", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "-", "normalized": "-", "canonical": "-", "reason": null, "blank": false, "link_refs": [{"title": "-", "kind": "link"}], "attribute_refs": [{"title": "-", "kind": "attribute"}]},
   {"title": "\u000b...", "normalized": "...", "canonical": "...", "reason": null, "blank": false, "link_refs": [{"title": "...", "kind": "link"}], "attribute_refs": [{"title": "...", "kind": "attribute"}]},
-  {"title": "[`\u001c ✨Alpha", "normalized": "[`\u001c ✨Alpha", "canonical": "[`\u001c ✨Alpha", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "[`\u001c ✨Alpha", "kind": "link"}], "attribute_refs": []},
+  {"title": "[`\u001c ✨Alpha", "normalized": "[`\u001c ✨Alpha", "canonical": "[`\u001c ✨Alpha", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "(\n2026﻿", "normalized": "( 2026﻿", "canonical": "( 2026﻿", "reason": null, "blank": false, "link_refs": [{"title": "( 2026﻿", "kind": "link"}], "attribute_refs": []},
   {"title": "#(", "normalized": "#(", "canonical": "#(", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "#(", "kind": "link"}], "attribute_refs": [{"title": "#(", "kind": "attribute"}]},
-  {"title": "Beta`]\n/\u000bCafé", "normalized": "Beta`] / Café", "canonical": "Beta`] / Café", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "Beta`] / Café", "kind": "link"}], "attribute_refs": []},
+  {"title": "Beta`]\n/\u000bCafé", "normalized": "Beta`] / Café", "canonical": "Beta`] / Café", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "::)", "normalized": "::)", "canonical": "::)", "reason": null, "blank": false, "link_refs": [{"title": "::)", "kind": "link"}], "attribute_refs": []},
-  {"title": "\r` ", "normalized": "`", "canonical": "`", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "`", "kind": "link"}], "attribute_refs": [{"title": "`", "kind": "attribute"}]},
+  {"title": "\r` ", "normalized": "`", "canonical": "`", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "       ]]​ ", "normalized": "       ]]​ ", "canonical": "]]​ ", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "\f#", "normalized": "#", "canonical": "#", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "#", "kind": "link"}], "attribute_refs": [{"title": "#", "kind": "attribute"}]},
   {"title": "Beta\t(", "normalized": "Beta (", "canonical": "Beta (", "reason": null, "blank": false, "link_refs": [{"title": "Beta (", "kind": "link"}], "attribute_refs": [{"title": "Beta (", "kind": "attribute"}]},
@@ -548,7 +548,7 @@
   {"title": "50% /?", "normalized": "50% /?", "canonical": "50% /?", "reason": null, "blank": false, "link_refs": [{"title": "50% /?", "kind": "link"}], "attribute_refs": [{"title": "50% /?", "kind": "attribute"}]},
   {"title": "-.]]/ -?", "normalized": "-.]]/ -?", "canonical": "-.]]/ -?", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "-.", "kind": "link"}], "attribute_refs": []},
   {"title": "{   ::.::", "normalized": "{   ::.::", "canonical": "{   ::.::", "reason": null, "blank": false, "link_refs": [{"title": "{   ::.::", "kind": "link"}], "attribute_refs": []},
-  {"title": "]😀`﻿\t\nTitle", "normalized": "]😀`﻿ Title", "canonical": "]😀`﻿ Title", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "]😀`﻿ Title", "kind": "link"}], "attribute_refs": []},
+  {"title": "]😀`﻿\t\nTitle", "normalized": "]😀`﻿ Title", "canonical": "]😀`﻿ Title", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "   a/b", "normalized": "   a/b", "canonical": "a/b", "reason": null, "blank": false, "link_refs": [{"title": "   a/b", "kind": "link"}], "attribute_refs": [{"title": "a/b", "kind": "attribute"}]},
   {"title": "..", "normalized": "..", "canonical": "..", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "Title/​\r&", "normalized": "Title/​ &", "canonical": "Title/​ &", "reason": null, "blank": false, "link_refs": [{"title": "Title/​ &", "kind": "link"}], "attribute_refs": [{"title": "Title/​ &", "kind": "attribute"}]},
@@ -559,7 +559,7 @@
   {"title": " \t`    `", "normalized": "`  `", "canonical": "`  `", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "Café+ 50%　", "normalized": "Café+ 50%　", "canonical": "Café+ 50%　", "reason": null, "blank": false, "link_refs": [{"title": "Café+ 50%　", "kind": "link"}], "attribute_refs": [{"title": "Café+ 50%", "kind": "attribute"}]},
   {"title": " &&\n", "normalized": "&&", "canonical": "&&", "reason": null, "blank": false, "link_refs": [{"title": "&&", "kind": "link"}], "attribute_refs": []},
-  {"title": " `/\u001d: ", "normalized": " `/\u001d: ", "canonical": "`/\u001d: ", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": " `/\u001d: ", "kind": "link"}], "attribute_refs": []},
+  {"title": " `/\u001d: ", "normalized": " `/\u001d: ", "canonical": "`/\u001d: ", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "Café2026", "normalized": "Café2026", "canonical": "Café2026", "reason": null, "blank": false, "link_refs": [{"title": "Café2026", "kind": "link"}], "attribute_refs": [{"title": "Café2026", "kind": "attribute"}]},
   {"title": "   #Café😀", "normalized": "   #Café😀", "canonical": "#Café😀", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "   #Café😀", "kind": "link"}, {"title": "Cafe", "kind": "tag"}], "attribute_refs": [{"title": "#Café😀", "kind": "attribute"}, {"title": "Cafe", "kind": "tag"}]},
   {"title": "✨]]]\u001d", "normalized": "✨]]]\u001d", "canonical": "✨]]]\u001d", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "✨", "kind": "link"}], "attribute_refs": []},
@@ -577,7 +577,7 @@
   {"title": "TitleCafé[[　:", "normalized": "TitleCafé[[　:", "canonical": "TitleCafé[[　:", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "　:", "kind": "link"}], "attribute_refs": []},
   {"title": "}​😀?\u001c😀", "normalized": "}​😀?\u001c😀", "canonical": "}​😀?\u001c😀", "reason": null, "blank": false, "link_refs": [{"title": "}​😀?\u001c😀", "kind": "link"}], "attribute_refs": []},
   {"title": "\t Café﻿", "normalized": "Café﻿", "canonical": "Café﻿", "reason": null, "blank": false, "link_refs": [{"title": "Café﻿", "kind": "link"}], "attribute_refs": [{"title": "Café﻿", "kind": "attribute"}]},
-  {"title": "Title`​\u000b‍　\n", "normalized": "Title`​ ‍", "canonical": "Title`​ ‍", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "Title`​ ‍", "kind": "link"}], "attribute_refs": []},
+  {"title": "Title`​\u000b‍　\n", "normalized": "Title`​ ‍", "canonical": "Title`​ ‍", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "./", "normalized": "./", "canonical": "./", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": ".Café}\u001f\u001f", "normalized": ".Café}\u001f\u001f", "canonical": ".Café}\u001f\u001f", "reason": null, "blank": false, "link_refs": [{"title": ".Café}\u001f\u001f", "kind": "link"}], "attribute_refs": []},
   {"title": ".\r{", "normalized": ". {", "canonical": ". {", "reason": null, "blank": false, "link_refs": [{"title": ". {", "kind": "link"}], "attribute_refs": []},
@@ -597,6 +597,6 @@
   {"title": " &&\t..2026", "normalized": "&& ..2026", "canonical": "&& ..2026", "reason": null, "blank": false, "link_refs": [{"title": "&& ..2026", "kind": "link"}], "attribute_refs": [{"title": "&& ..2026", "kind": "attribute"}]},
   {"title": "\f(\u001fTitle", "normalized": "(\u001fTitle", "canonical": "(\u001fTitle", "reason": null, "blank": false, "link_refs": [{"title": "(\u001fTitle", "kind": "link"}], "attribute_refs": [{"title": "(\u001fTitle", "kind": "attribute"}]},
   {"title": "::", "normalized": "::", "canonical": "::", "reason": null, "blank": false, "link_refs": [{"title": "::", "kind": "link"}], "attribute_refs": []},
-  {"title": "Title`+50%::]", "normalized": "Title`+50%::]", "canonical": "Title`+50%::]", "reason": "forbidden_syntax", "blank": false, "link_refs": [{"title": "Title`+50%::", "kind": "link"}], "attribute_refs": [{"title": "Title`+50%", "kind": "attribute"}]},
+  {"title": "Title`+50%::]", "normalized": "Title`+50%::]", "canonical": "Title`+50%::]", "reason": "forbidden_syntax", "blank": false, "link_refs": [], "attribute_refs": []},
   {"title": "Beta    ?Title ", "normalized": "Beta    ?Title ", "canonical": "Beta    ?Title ", "reason": null, "blank": false, "link_refs": [{"title": "Beta    ?Title ", "kind": "link"}], "attribute_refs": [{"title": "Beta    ?Title", "kind": "attribute"}]}
 ]}

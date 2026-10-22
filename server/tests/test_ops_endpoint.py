@@ -216,19 +216,37 @@ def test_forbidden_title_in_second_op_refuses_complete_batch_before_mutation(
     assert _write_state(seeded_config) == before
 
 
-def test_a_ref_title_with_a_backtick_is_refused_like_a_hash(
-        client, seeded_config):
+def test_a_ref_title_with_a_hash_is_refused(client, seeded_config):
     before = _write_state(seeded_config)
 
     response = _post(client, {"op": "update_text", "uid": "uid_b4",
-                              "text": "see [[a`b]]"})
+                              "text": "see [[a#b]]"})
 
     assert response.status_code == 400
     assert response.json()["detail"] == {
         "index": 0,
-        "reason": "unsupported reference title syntax: 'a`b'",
+        "reason": "unsupported reference title syntax: 'a#b'",
     }
     assert _write_state(seeded_config) == before
+
+
+@pytest.mark.parametrize("text", [
+    "see [[a`b]]",
+    "see #[[x`]]",
+    "see [[Stray`b]] and #[[Other`]] end",
+])
+def test_a_backtick_in_a_link_is_plain_text_and_makes_no_page(
+        client, seeded_config, text):
+    before = _write_state(seeded_config)
+
+    response = _post(client, {"op": "update_text", "uid": "uid_b4",
+                              "text": text})
+
+    assert response.status_code == 200
+    after = _write_state(seeded_config)
+    assert ([(p["page_id"], p["title"]) for p in after["pages"]]
+            == [(p["page_id"], p["title"]) for p in before["pages"]])
+    assert [r for r in after["refs"] if r["src_block_uid"] == "uid_b4"] == []
 
 
 def test_batch_is_atomic_and_reports_index(client):

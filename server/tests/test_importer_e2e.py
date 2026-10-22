@@ -903,13 +903,13 @@ SKIPPED_TITLES_EXPORT = """\
   [1 :block/children 9 1]
   [1 :block/children 10 1]
   [2 :block/uid "uid-home" 1]
-  [2 :block/string "see [[a`b]] and [[Fine]]" 1]
+  [2 :block/string "see [[#]] and [[Fine]]" 1]
   [2 :block/order 0 1]
   [9 :block/uid "uid-tag" 1]
-  [9 :block/string "#[[x`]] tagged" 1]
+  [9 :block/string "#[[#]] tagged" 1]
   [9 :block/order 1 1]
   [10 :block/uid "uid-attr" 1]
-  [10 :block/string "a`b:: value" 1]
+  [10 :block/string "#:: value" 1]
   [10 :block/order 2 1]
   [3 :node/title "." 1]
   [4 :node/title "a]" 1]
@@ -950,8 +950,8 @@ def test_import_skips_pages_with_refused_titles_and_recovers_their_blocks(
         str(r["uid"]): r["text"]
         for r in con.select("SELECT uid, text FROM blocks")
     }
-    assert texts["uid-home"] == "see a`b and [[Fine]]"
-    assert texts["uid-tag"] == "x` tagged"
+    assert texts["uid-home"] == "see # and [[Fine]]"
+    assert texts["uid-tag"] == "# tagged"
     assert all(
         title_syntax_reason(ref.title) is None
         for text in texts.values()

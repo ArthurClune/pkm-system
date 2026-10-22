@@ -142,8 +142,8 @@ Stage notes:
   | The refused spelling is | The import |
   |---|---|
   | a page title | skips the page (`SanitizedImport.skipped_pages`); its blocks follow the orphan subtrees onto the recovery page |
-  | a ref `refs.extract()` reports (``[[a`b]]``, `#[[#]]`, ``a`b:: v``) | makes it plain text with `unlink.unlink_stale_refs` |
-  | text `extract()` reads as no ref (`[[]]`, `[[.]]`) | leaves it byte-identical |
+  | a ref `refs.extract()` reports (`[[#]]`, `#[[#]]`, `#:: v`) | makes it plain text with `unlink.unlink_stale_refs` |
+  | text `extract()` reads as no ref (`[[]]`, `[[.]]`, ``[[a`b]]``) | leaves it byte-identical |
 
   A refused ref cannot stay a ref. The ops title check refuses any text that
   holds one, so the block could never be edited, and `rows.py` would create

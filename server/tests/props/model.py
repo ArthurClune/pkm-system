@@ -130,20 +130,18 @@ def unlink_titles(text: str, titles: Collection[str]) -> str:
 
 def attribute_name(text: str) -> str | None:
     """The leading attribute's name as written, or None."""
-    span = attribute_title_span(strip_code(text))
+    span = attribute_title_span(strip_code(text), text)
     return None if span is None else span.raw_title
 
 
 def fence_attribute(text: str, titles: Collection[str]) -> str:
     """backend.md § Stale batches: a leading attribute naming one of
-    `titles` gets its name code-fenced in place (`` `X`:: v ``); a name
-    holding a backtick takes `:` for its `::` instead."""
-    span = attribute_title_span(strip_code(text))
+    `titles` gets its name code-fenced in place (`` `X`:: v ``). A name
+    holding a backtick is no attribute, so it is left alone."""
+    span = attribute_title_span(strip_code(text), text)
     if span is None or span.raw_title not in titles:
         return text
     name_end = span.start + len(span.raw_title)
-    if "`" in span.raw_title:
-        return text[:name_end] + ":" + text[span.end:].lstrip(":")
     return (text[:span.start] + "`" + span.raw_title + "`"
             + text[name_end:])
 
@@ -168,7 +166,7 @@ def inline_refs(text: str, copies: Mapping[BlockUid, str]) -> str:
 def _plain_copy(text: str) -> str:
     """backend.md § Page mutations: a block's copy drops its leading
     attribute (generated texts carry no task marker or newline)."""
-    span = attribute_title_span(strip_code(text))
+    span = attribute_title_span(strip_code(text), text)
     return text if span is None else text[span.end:].lstrip()
 
 

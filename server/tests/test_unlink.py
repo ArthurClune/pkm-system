@@ -194,15 +194,15 @@ def test_blocker_when_the_rewrite_still_refs_a_page_block():
     ("  X:: v", "  `X`:: v"),
     ("[[X]]:: v", "`X`:: v"),
     ("#X:: v", "`X`:: v"),
-    ("a`b:: v", "a`b: v"),
-    ("a`b::: v", "a`b: v"),
+    ("a`b:: v", "a`b:: v"),
+    ("a`b`c:: v", "a`b`c:: v"),
     ("Live:: [[X]]", "Live:: X"),
     ("Live:: v", "Live:: v"),
     ("plain [[X]]", "plain X"),
 ])
 def test_unlink_stale_refs_defuses_a_leading_attribute(text, expected):
     result = unlink_stale_refs(text, lambda raw: normalize_title(raw) == "X"
-                               or raw == "a`b")
+                               or "`" in raw)
     assert result == expected
     assert not any(ref.title == "X" for ref in extract(result).refs)
 
@@ -211,6 +211,7 @@ def test_defuse_attribute_leaves_other_text_alone():
     assert defuse_attribute("see [[X]]", lambda raw: raw == "X") == "see [[X]]"
 
 
-def test_defuse_attribute_collapses_a_long_colon_run():
+def test_defuse_attribute_leaves_a_backtick_name_alone():
+    # Such a name is no attribute, so there is nothing to fence.
     text = "a`b" + ":" * 5000 + " v"
-    assert defuse_attribute(text, lambda raw: raw == "a`b") == "a`b: v"
+    assert defuse_attribute(text, lambda raw: "`" in raw) == text

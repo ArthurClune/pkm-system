@@ -11,6 +11,27 @@ not the default.** If a diagram, a table, or a link to the doc that already owns
 the material can carry it, that is the version that ships — and the prose it
 replaces goes away rather than sitting beside it.
 
+## A doc states what the code cannot
+
+A doc holds what the code and its checks cannot tell a reader: orientation
+(what the pieces are, where to start reading), why a rule exists, which of two
+paths is authoritative, and invariants that no type, lint or test enforces.
+Other material has a better home:
+
+| When the material is | Its home |
+|---|---|
+| a list the code already holds: a module inventory, a registry, the cases a lint or check handles, the suites or scenarios a gate runs, a constant's value | the code. The doc names the file or symbol that holds it (`MINT_SITES`, `RETRY_DELAYS`, `perf/baseline-backend.json`), in table or prose alike |
+| the case-by-case argument that a guard is needed | the test that pins it. The doc keeps the rule and its sharpest reason |
+| how something failed before a fix | a row in `docs/troubleshooting.md` |
+| a count of things ("eleven routes", "four mutants") | nowhere; it goes stale |
+
+When a fix or feature lands, its doc change is: the sentence stating the rule it
+adds or alters, with its reason, in the section that owns the mechanism; a
+troubleshooting row if it fixed a failure that happened; and a link wherever
+another doc's reader needs the pointer. A new check, route or module that a
+doc indexes in a table gets one row in that table; it gets prose only for a
+rule its row cannot carry.
+
 ## When to use
 
 Any edit under `docs/architecture/` or to `docs/troubleshooting.md`, including
@@ -171,8 +192,10 @@ node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/<file>.md
 Every mermaid block parses under the project's own mermaid; links and heading
 anchors resolve, including inbound anchors from sibling docs (a renamed heading
 breaks those silently); a bean id in prose fails — its one home is the Ref
-column of `docs/troubleshooting.md`. It also prints, for judgement rather than pass/fail, the
-longest prose sentences and any identifiers dropped since `HEAD`.
+column of `docs/troubleshooting.md`. It also prints, for judgement rather than
+pass/fail, the longest prose sentences, the longest table cells, any
+identifiers dropped since `HEAD`, and each file's word count against `HEAD`. A
+table cell that reads as a paragraph is prose that escaped the sentence check.
 
 **Re-run it after your edits and read the count, not just the list.** It shows
 the longest five by default (`--all` for the rest), so clearing those five is not
@@ -197,3 +220,5 @@ changed).
 | Inventing a term of art | "the availability fact", "evidentiary weight" | the name the code uses |
 | Propagating a local formatting tic | "gave it a bold lead like its siblings" | fix the pattern rather than conform to it |
 | Trusting the bean or plan | doc describes intended behaviour | verify against the code; it is what shipped |
+| Copying what the code holds | a module inventory, a lint rule catalogue, a constant's value written out | name the code; it is the list |
+| Writing up the fix instead of the rule | each fix adds a paragraph walking the race it closed | change the rule's sentence; the walk lives in the test |

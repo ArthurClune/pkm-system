@@ -632,7 +632,7 @@ database) counts every recorded deletion as newer.
 | `create_page` for a stale title | dropped, not reported; the replica removes its local page (`dropStrandedLocalPages`) |
 | top-level `create` / `move` with a stale `page_title` | skipped as `stale_page`; the rows above |
 | `create` / `update_text` whose text links a stale title | the links become plain text (`ops_core.unlink_stale_text`), as the delete did for the text it saw; the rows `ops_core.rewrite_effects` records are described under `classify_text_edit` above |
-| `create` / `update_text` whose leading `Title::` attribute names a stale title | the name is code-fenced in place, `` `X`:: v `` (`unlink.defuse_attribute`), which indexes no ref; a name holding a backtick takes `:` for `::` instead. A real delete refuses such a block rather than rewriting it. The unlink replay defuses too, so the recorded row reproduces the fenced text |
+| `create` / `update_text` whose leading `Title::` attribute names a stale title | the name is code-fenced in place, `` `X`:: v `` (`unlink.defuse_attribute`), which indexes no ref. A real delete refuses such a block rather than rewriting it. The unlink replay defuses too, so the recorded row reproduces the fenced text |
 
 `stale_page` is the `SkipKind`; the ack reports it as `page_deleted`. A page
 re-created after its delete still matches by title until its deletion row is
@@ -716,6 +716,15 @@ Both scanners stay linear because a failed closer search retires the fence
 rule for the rest of the text: any later opener would search a suffix of the
 same window.
 
+A link, `#[[tag]]` or attribute whose title, as written, holds a backtick is
+no ref (`refs.holds_backtick`, mirrored in `scan.ts`). That covers a lone
+backtick and a code span cutting through the brackets. The check reads the
+original text, because `strip_code()` has blanked the code to spaces. The
+scanners (`bracket_spans`, `attribute_title_span`, `scanGrammar`) drop such a
+run after pairing brackets and before nesting, so an enclosing run goes with
+it and its children are promoted. Rename, delete and import rewrite only what
+the scanners report, so they never splice over code.
+
 Sidebar pinning is a separate write path. `POST /api/sidebar` takes SQLite's
 writer reservation with `BEGIN IMMEDIATE` before it checks title uniqueness and
 computes the append slot as `max(order_idx) + 1`. A same-title race therefore
@@ -750,8 +759,9 @@ padded spelling would pass ` a] ` that the store then refuses as `a]`. The
 replica's `titleSyntaxReason` is pinned to the same verdicts by
 `title_syntax.json` and `title_parity.json`. A title is refused at creation,
 rename, move, `POST /api/sidebar`, import, and as a `forbidden_syntax`
-blocker in the migration audit. In block text a ref with the first three is
-refused (the batch is a 400), while a ref with no URL is no ref at all, like
+blocker in the migration audit. In block text a ref with `#`, `[[`, `]]` or a
+trailing `]` is refused (the batch is a 400). A ref with a backtick (see
+[Page mutations and the sidebar](#page-mutations-and-the-sidebar)) or with no URL is no ref at all, like
 `[[   ]]`: a tag typed through `#work/` on its way to `#work/notes` is never
 refused. `...`, `a.b` and `v1.2/x` are ordinary titles.
 

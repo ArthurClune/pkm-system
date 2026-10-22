@@ -4,7 +4,7 @@
 //   node .claude/skills/architecture-docs/check-docs.mjs \
 //     docs/architecture/frontend.md docs/troubleshooting.md
 //
-// Five things, none of which a read-through reliably catches:
+// Six things, none of which a read-through reliably catches:
 //
 //  1. mermaid   — every ```mermaid block parses under the project's OWN mermaid
 //                 (web/node_modules), so a diagram cannot ship broken.
@@ -14,6 +14,9 @@
 //  3. sentences — the longest prose sentences, printed for judgement, with any
 //                 40+ word sentence THIS EDIT INTRODUCED marked NEW. One idea
 //                 per sentence is the aim; no single number is a gate.
+//     cells     — the same for table cells, which the sentence pass skips:
+//                 a table that has absorbed paragraphs reads as a table and
+//                 grows unseen.
 //  4. names     — the set of `inline-code` identifiers dropped since HEAD. A
 //                 clarity pass is meant to delete sentences, not the
 //                 CONSTANT_NAMES and function names agents grep for. Dropped
@@ -23,6 +26,9 @@
 //                 home is the Ref column of docs/troubleshooting.md; in
 //                 architecture prose they are provenance tags every rebalance
 //                 pass has had to strip again.
+//  6. size      — each file's word count against HEAD. Length is a claim about
+//                 importance; a doc that only ever grows is appending in ship
+//                 order.
 //
 // Exits non-zero only for a broken diagram, an unresolved link/anchor, or a
 // bean id in prose.
@@ -137,24 +143,51 @@ function sentencesOf(text) {
     .filter(Boolean);
 }
 
-// Longest prose sentences, for judgement — not a pass/fail on length. Sentences
-// this edit INTRODUCED are marked, because splitting one sentence often
-// lengthens another, and a self-inflicted one can sit past 5th place where a
-// fixed top-5 view would never surface it.
-function reportSentences(file, text, before) {
-  const sentences = sentencesOf(text);
-  if (sentences.length === 0) return;
+// A row's cells. A pipe inside a code span or escaped as \| is cell text.
+function splitRow(row) {
+  const cells = [];
+  let cell = "";
+  let inCode = false;
+  for (let i = 0; i < row.length; i += 1) {
+    const c = row[i];
+    if (c === "\\" && row[i + 1] === "|") { cell += "|"; i += 1; continue; }
+    if (c === "`") inCode = !inCode;
+    if (c === "|" && !inCode) { cells.push(cell); cell = ""; continue; }
+    cell += c;
+  }
+  cells.push(cell);
+  return cells.slice(1, -1);
+}
+
+// Table cells, one unit per cell. Separator rows (|---|:--|) carry no words.
+function cellsOf(text) {
+  return text
+    .replace(/```[\s\S]*?```/g, "")
+    .split("\n").filter((l) => l.trim().startsWith("|") && !/^\|[\s:|-]+\|?$/.test(l.trim()))
+    .flatMap((l) => splitRow(l.trim()))
+    .map((c) => c.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+// Longest units, for judgement — not a pass/fail on length. Units this edit
+// INTRODUCED are marked, because splitting one sentence often lengthens
+// another, and a self-inflicted one can sit past 5th place where a fixed
+// top-5 view would never surface it.
+function reportLong(kind, unitsOf, file, text, before) {
+  const units = unitsOf(text);
+  if (units.length === 0) return;
   const wasLong = new Set(
-    (before === null ? [] : sentencesOf(before)).filter((s) => s.split(" ").length >= 40));
-  const ranked = sentences
+    (before === null ? [] : unitsOf(before)).filter((s) => s.split(" ").length >= 40));
+  const ranked = units
     .map((s) => ({ s, n: s.split(" ").length }))
     .map((r) => ({ ...r, isNew: r.n >= 40 && !wasLong.has(r.s) }))
     .sort((a, b) => b.n - a.n);
   const tail = ranked.filter((r) => r.n >= 40);
+  if (kind === "table cell" && tail.length === 0) return;
   const introduced = tail.filter((r) => r.isNew);
   const shown = showAll ? ranked.filter((r) => r.n >= 30) : ranked.slice(0, 5);
   const unshown = introduced.filter((r) => !shown.includes(r));
-  console.log(`\n      ${file}: ${tail.length} sentence(s) of ${sentences.length} run 40+ words`
+  console.log(`\n      ${file}: ${tail.length} ${kind}(s) of ${units.length} run 40+ words`
     + `${introduced.length > 0 ? `, ${introduced.length} new since HEAD` : ""}`
     + `${shown.length < tail.length ? `; longest ${shown.length} shown, --all for every 30+` : ""}.`
     + `\n      Read them and decide whether each is one idea:`);
@@ -166,6 +199,18 @@ function reportSentences(file, text, before) {
     console.log(`        ${String(n).padStart(3)}w NEW  ${s.slice(0, 92)}${s.length > 92 ? "…" : ""}`);
   }
   console.log("");
+}
+
+// ------------------------------------------------------------------- size ---
+
+const wordCount = (text) => text.split(/\s+/).filter(Boolean).length;
+
+function reportSize(file, text, before) {
+  const now = wordCount(text);
+  if (before === null) { console.log(`size  ${file}: ${now} words (new)`); return; }
+  const was = wordCount(before);
+  const delta = now - was;
+  console.log(`size  ${file}: ${now} words (${delta >= 0 ? "+" : ""}${delta} since HEAD)`);
 }
 
 // ------------------------------------------------------------------ names ---
@@ -223,6 +268,8 @@ for (const file of targets) {
   checkInbound(file, text);
   checkNames(file, text, before);
   checkBeans(file, text);
-  reportSentences(file, text, before);
+  reportLong("sentence", sentencesOf, file, text, before);
+  reportLong("table cell", cellsOf, file, text, before);
+  reportSize(file, text, before);
 }
 process.exit(failures === 0 ? 0 : 1);

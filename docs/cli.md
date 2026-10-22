@@ -45,6 +45,10 @@ Two environment variables override the defaults:
     pkm local check [--json]                 # /api/local/ links missing, evicted or unreadable on the host
     pkm goodlinks check [--json]             # /api/goodlinks/ links GoodLinks no longer has
 
+An older uid can start with `-`, which argparse reads as a flag. Put `--`
+before it (`pkm get -- -abc123`), with `pkm update`'s `-D`/`-T` before the
+`--`.
+
 ### Writing
 
 `pkm save` with no `-p` writes to today's daily note. Missing pages are

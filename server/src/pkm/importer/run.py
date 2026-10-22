@@ -24,7 +24,7 @@ from pkm.importer.preflight import (ImportStructureError, ImportUidError,
                                     validate_export_uids)
 from pkm.importer.report import ImportReport, render
 from pkm.importer.rows import Rows, to_rows
-from pkm.importer.titles import ImportTitleError, sanitize_export_titles
+from pkm.importer.titles import sanitize_export_titles
 from pkm.schema import DDL
 from pkm.server.title_migration import (
     BlockedTitleMigration,
@@ -126,14 +126,7 @@ def main(argv: list[str] | None = None) -> int:
     except ImportUidError as exc:
         print(f"error: import refused: {exc}", file=sys.stderr)
         return 2
-    try:
-        sanitized_import = sanitize_export_titles(export)
-    except ImportTitleError as exc:
-        print(
-            f"error: import refused at {exc.location}: {exc}",
-            file=sys.stderr,
-        )
-        return 2
+    sanitized_import = sanitize_export_titles(export)
     export = sanitized_import.export
 
     files_dir = Path(args.files) if args.files else None
@@ -221,6 +214,9 @@ def main(argv: list[str] | None = None) -> int:
             title_changes=sanitized_import.title_changes,
             recovery_page_title=rows.recovery_page_title,
             mermaid_preserved_refs=rows.mermaid_preserved_refs,
+            dropped_claims=export.dropped_claims,
+            skipped_pages=sanitized_import.skipped_pages,
+            unlinked_block_uids=sanitized_import.unlinked_block_uids,
         )
         text = render(report)
         report_tmp.write_text(text, encoding="utf-8")

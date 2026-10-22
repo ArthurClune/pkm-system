@@ -371,3 +371,180 @@ def test_sanitize_export_titles_uses_first_source_when_no_exact_page_exists() ->
         ImportTitleChange("#Acme", "Acme", ("page[0]",), True),
         ImportTitleChange("[[Acme]]", "Acme", ("page[1]",), True),
     )
+
+
+def _export_of(*pages: Page, orphans: tuple[Block, ...] = ()) -> Export:
+    return Export(
+        pages=pages,
+        orphan_block_count=len(orphans),
+        skipped_entities=0,
+        attr_counts={},
+        orphan_blocks=orphans,
+    )
+
+
+def _all_texts(export: Export) -> list[str]:
+    texts: list[str] = []
+
+    def visit(block: Block) -> None:
+        texts.append(block.text)
+        for child in block.children:
+            visit(child)
+
+    for page in export.pages:
+        for child in page.children:
+            visit(child)
+    for orphan in export.orphan_blocks:
+        visit(orphan)
+    return texts
+
+
+@pytest.mark.parametrize("spelling", ["", ".", "a]", "a`b"])
+def test_a_page_with_a_refused_title_is_skipped_and_reported(
+    spelling: str,
+) -> None:
+    result = sanitize_export_titles(
+        _export_of(Page(raw_title_of(spelling), None, None, ()))
+    )
+
+    assert result.export.pages == ()
+    assert result.export.orphan_blocks == ()
+    (skipped,) = result.skipped_pages
+    assert skipped.original_title == spelling
+    assert skipped.location == "page[0]"
+    assert skipped.block_count == 0
+    assert skipped.reason == ("blank" if spelling == "" else "malformed_syntax")
+
+
+def test_a_skipped_page_moves_its_blocks_after_the_genuine_orphans() -> None:
+    kept = Page(raw_title_of("Kept"), None, None, ())
+    tick = Page(
+        raw_title_of("a`b"),
+        None,
+        None,
+        (
+            _block(
+                uid_of("uid-one"),
+                "one",
+                children=(_block(uid_of("uid-nested"), "nested"),),
+            ),
+            _block(uid_of("uid-two"), "two"),
+        ),
+    )
+    dot = Page(raw_title_of("."), None, None,
+               (_block(uid_of("uid-dot"), "dot"),))
+    orphan = _block(uid_of("uid-orphan"), "orphan")
+
+    result = sanitize_export_titles(
+        _export_of(tick, kept, dot, orphans=(orphan,))
+    )
+
+    assert [p.title for p in result.export.pages] == ["Kept"]
+    assert [b.uid for b in result.export.orphan_blocks] == [
+        "uid-orphan", "uid-one", "uid-two", "uid-dot"]
+    assert result.export.orphan_blocks[1].children[0].uid == "uid-nested"
+    assert [(s.original_title, s.block_count) for s in result.skipped_pages] == [
+        ("a`b", 3), (".", 1)]
+    assert result.export.orphan_block_count == 1
+
+
+def test_a_ref_to_a_refused_title_becomes_plain_text() -> None:
+    blocks = (
+        _block(uid_of("uid-link"), "see [[a`b]] and [[Fine]]"),
+        _block(uid_of("uid-tag"), "#[[x`]] tagged"),
+    )
+    result = sanitize_export_titles(
+        _export_of(Page(raw_title_of("Home"), None, None, blocks))
+    )
+
+    assert [b.text for b in result.export.pages[0].children] == [
+        "see a`b and [[Fine]]", "x` tagged"]
+    assert result.unlinked_block_uids == ("uid-link", "uid-tag")
+    assert result.title_changes == ()
+
+
+def test_a_leading_attribute_naming_a_refused_title_is_defused() -> None:
+    result = sanitize_export_titles(
+        _export_of(
+            Page(
+                raw_title_of("Home"),
+                None,
+                None,
+                (_block(uid_of("uid-attr"), "a`b:: value"),),
+            )
+        )
+    )
+
+    assert extract(result.export.pages[0].children[0].text).refs == ()
+    assert result.unlinked_block_uids == ("uid-attr",)
+
+
+def test_refs_in_orphans_and_skipped_page_blocks_are_unlinked_too() -> None:
+    orphan = _block(uid_of("uid-orphan"), "orphan [[a`b]]")
+    skipped = Page(
+        raw_title_of("."),
+        None,
+        None,
+        (_block(uid_of("uid-moved"), "moved #[[x`]] [[Fine]]"),),
+    )
+    result = sanitize_export_titles(_export_of(skipped, orphans=(orphan,)))
+
+    assert [b.text for b in result.export.orphan_blocks] == [
+        "orphan a`b", "moved x` [[Fine]]"]
+    assert result.unlinked_block_uids == ("uid-orphan", "uid-moved")
+    for text in _all_texts(result.export):
+        for ref in extract(text).refs:
+            sanitize_import_title(ref.title, location="check")
+
+
+def test_text_extract_never_reports_as_a_ref_stays_byte_identical() -> None:
+    text = "[[Real]][[]] [[.]] [[..]] [[a/./b]]"
+    skipped = Page(raw_title_of("."), None, None, ())
+    home = Page(
+        raw_title_of("Home"),
+        None,
+        None,
+        (_block(uid_of("uid-home"), text),),
+    )
+    result = sanitize_export_titles(_export_of(skipped, home))
+
+    (page,) = result.export.pages
+    assert page.children[0].text == text
+    assert result.unlinked_block_uids == ()
+
+
+@pytest.mark.parametrize(
+    ("text", "plain"),
+    [("see [[#]] here", "see # here"), ("#[[#]] here", "# here")],
+)
+def test_a_ref_that_sanitizes_to_blank_becomes_plain_text(
+    text: str, plain: str
+) -> None:
+    skipped = Page(raw_title_of("#"), None, None, ())
+    home = Page(
+        raw_title_of("Home"),
+        None,
+        None,
+        (_block(uid_of("uid-home"), text),),
+    )
+    result = sanitize_export_titles(_export_of(skipped, home))
+
+    (page,) = result.export.pages
+    assert page.children[0].text == plain
+    assert extract(page.children[0].text).refs == ()
+    assert result.unlinked_block_uids == ("uid-home",)
+
+
+def test_titles_that_sanitize_fine_still_merge() -> None:
+    result = sanitize_export_titles(
+        _export_of(
+            Page(raw_title_of("Acme"), None, None,
+                 (_block(uid_of("uid-one"), "one"),)),
+            Page(raw_title_of("#Acme"), None, None,
+                 (_block(uid_of("uid-two"), "two"),)),
+        )
+    )
+
+    (page,) = result.export.pages
+    assert [b.uid for b in page.children] == ["uid-one", "uid-two"]
+    assert result.skipped_pages == ()

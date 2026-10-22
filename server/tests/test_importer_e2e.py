@@ -11,7 +11,7 @@ from pkm.contracts.ops import Sha256Hex
 from pkm.importer.assets import Asset
 from pkm.importer.rows import RECOVERY_PAGE_TITLE
 from pkm.importer.run import main
-from pkm.refs import title_syntax_reason
+from pkm.refs import extract, title_syntax_reason
 from pkm.test_data.ids import sha_of
 from pkm.database import connect
 
@@ -824,6 +824,37 @@ def test_import_rewrites_every_extracted_title_before_rows(tmp_path):
     ]
 
 
+ORPHAN_CLAIM_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Home" 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "uid-placed" 1]
+  [2 :block/string "kept on the page" 1]
+  [2 :block/order 0 1]
+  [10 :block/uid "uid-orphan-root" 1]
+  [10 :block/string "orphan root" 1]
+  [10 :block/children 2 1]
+ ]}"""
+
+
+def test_import_drops_an_orphan_claim_on_a_placed_block_and_reports_it(tmp_path):
+    export_file = _write_export(tmp_path, "claim.edn", ORPHAN_CLAIM_EXPORT)
+    out = tmp_path / "data"
+
+    rc = main([str(export_file), "--out", str(out)])
+
+    assert rc == 0
+    con = connect(out / "pkm.sqlite3")
+    placed = con.select(
+        "SELECT b.parent_uid, p.title FROM blocks b JOIN pages p"
+        " ON p.id = b.page_id WHERE b.uid='uid-placed'")
+    assert [(r["parent_uid"], str(r["title"])) for r in placed] == [(None, "Home")]
+    report = (out / "import-report.txt").read_text(encoding="utf-8")
+    assert ("orphan claims dropped (block already placed elsewhere): 1\n"
+            "  uid-placed <- claimed by uid-orphan-root\n") in report
+
+
 def test_import_marks_ordinary_database_active(tmp_path):
     export_file = _write_export(tmp_path, "ordinary.edn", ORDINARY_EXPORT)
     out = tmp_path / "data"
@@ -864,47 +895,120 @@ def test_title_activation_runs_after_all_linked_assets_are_copied(
         " WHERE key='plain_space_title_canonicalization'")[0]["sync_meta_value"] == "1"
 
 
-@pytest.mark.parametrize(
-    ("raw", "original_title", "reason"),
-    [
-        (MALFORMED_TITLE_EXPORT, "Bad [[Title", "malformed_syntax"),
-        (BLANK_MARKER_TITLE_EXPORT, "[[#]]", "blank"),
-        (POST_SANITIZATION_MALFORMED_TITLE_EXPORT, "[#[", "malformed_syntax"),
-    ],
-)
-def test_title_syntax_refusal_preserves_published_output(
-    tmp_path, capsys, raw, original_title, reason
+SKIPPED_TITLES_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Home" 1]
+  [1 :block/children 2 1]
+  [1 :block/children 9 1]
+  [1 :block/children 10 1]
+  [2 :block/uid "uid-home" 1]
+  [2 :block/string "see [[a`b]] and [[Fine]]" 1]
+  [2 :block/order 0 1]
+  [9 :block/uid "uid-tag" 1]
+  [9 :block/string "#[[x`]] tagged" 1]
+  [9 :block/order 1 1]
+  [10 :block/uid "uid-attr" 1]
+  [10 :block/string "a`b:: value" 1]
+  [10 :block/order 2 1]
+  [3 :node/title "." 1]
+  [4 :node/title "a]" 1]
+  [5 :node/title "a`b" 1]
+  [5 :block/children 6 1]
+  [5 :block/children 7 1]
+  [6 :block/uid "uid-tick-one" 1]
+  [6 :block/string "first on a backtick page" 1]
+  [6 :block/order 0 1]
+  [7 :block/uid "uid-tick-two" 1]
+  [7 :block/string "second, refs [[a]]" 1]
+  [7 :block/order 1 1]
+  [8 :block/uid "uid-orphan" 1]
+  [8 :block/string "a genuine orphan" 1]
+ ]}"""
+
+
+def test_import_skips_pages_with_refused_titles_and_recovers_their_blocks(
+    tmp_path,
 ):
-    baseline_export = _write_export(tmp_path, "baseline.edn", ORDINARY_EXPORT)
-    blocked_export = _write_export(tmp_path, "blocked.edn", raw)
+    export_file = _write_export(tmp_path, "skipped.edn", SKIPPED_TITLES_EXPORT)
     out = tmp_path / "data"
 
-    assert main([str(baseline_export), "--out", str(out)]) == 0
-    original_db = (out / "pkm.sqlite3").read_bytes()
-    original_report = (out / "import-report.txt").read_text(encoding="utf-8")
+    rc = main([str(export_file), "--out", str(out)])
 
-    rc = main([str(blocked_export), "--out", str(out)])
+    assert rc == 0
+    con = connect(out / "pkm.sqlite3")
+    titles = {str(r["title"]) for r in con.select("SELECT title FROM pages")}
+    assert titles == {"Home", "Fine", "a", str(RECOVERY_PAGE_TITLE)}
+    assert all(title_syntax_reason(t) is None for t in titles)
+    recovered = con.select(
+        "SELECT b.uid FROM blocks b JOIN pages p ON p.id = b.page_id"
+        " WHERE p.title=? AND b.parent_uid IS NULL ORDER BY b.order_idx",
+        (str(RECOVERY_PAGE_TITLE),))
+    assert [r["uid"] for r in recovered] == [
+        "uid-orphan", "uid-tick-one", "uid-tick-two"]
+    texts = {
+        str(r["uid"]): r["text"]
+        for r in con.select("SELECT uid, text FROM blocks")
+    }
+    assert texts["uid-home"] == "see a`b and [[Fine]]"
+    assert texts["uid-tag"] == "x` tagged"
+    assert all(
+        title_syntax_reason(ref.title) is None
+        for text in texts.values()
+        for ref in extract(text).refs
+    )
 
-    assert rc == 2
-    captured = capsys.readouterr()
+    report = (out / "import-report.txt").read_text(encoding="utf-8")
+    assert "pages skipped (title refused): 3\n" in report
+    assert '  "." (malformed_syntax; page[0]; 0 blocks)\n' in report
+    assert '  "a]" (malformed_syntax; page[2]; 0 blocks)\n' in report
     assert (
-        f"error: import refused at page[0]: {reason}: {original_title!r}"
-        in captured.err
-    )
-    assert (out / "pkm.sqlite3").read_bytes() == original_db
-    assert (out / "import-report.txt").read_text(encoding="utf-8") == original_report
-    assert not (out / "pkm.sqlite3.tmp").exists()
+        '  "a`b" (malformed_syntax; page[3]; 2 blocks, blocks recovered to '
+        f"'{RECOVERY_PAGE_TITLE}')\n"
+    ) in report
+    assert (
+        "blocks with refs to a refused title made plain text: 3\n"
+        "  uid-home\n  uid-tag\n  uid-attr\n"
+    ) in report
+    assert (
+        f"orphan blocks (unreachable from any page, recovered to "
+        f"'{RECOVERY_PAGE_TITLE}'): 1\n"
+    ) in report
 
 
-def test_title_syntax_refusal_precedes_output_directory_creation(tmp_path):
-    blocked_export = _write_export(
-        tmp_path, "malformed.edn", MALFORMED_TITLE_EXPORT
-    )
-    out = tmp_path / "new-data"
+def test_blank_page_title_is_skipped_not_refused(tmp_path, capsys):
+    export_file = _write_export(tmp_path, "blank.edn", BLANK_MARKER_TITLE_EXPORT)
+    out = tmp_path / "data"
 
-    assert main([str(blocked_export), "--out", str(out)]) == 2
+    assert main([str(export_file), "--out", str(out)]) == 0
 
-    assert not out.exists()
+    con = connect(out / "pkm.sqlite3")
+    assert con.select("SELECT title FROM pages") == []
+    report = (out / "import-report.txt").read_text(encoding="utf-8")
+    assert '  "[[#]]" (blank; page[0]; 0 blocks)\n' in report
+    assert "orphan blocks (unreachable, not imported): 0\n" in report
+
+
+def test_skipped_page_blocks_alone_still_get_a_recovery_page(tmp_path):
+    raw = """\
+#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "." 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "uid-only" 1]
+  [2 :block/string "only block" 1]
+ ]}"""
+    export_file = _write_export(tmp_path, "only.edn", raw)
+    out = tmp_path / "data"
+
+    assert main([str(export_file), "--out", str(out)]) == 0
+
+    con = connect(out / "pkm.sqlite3")
+    assert [str(r["title"]) for r in con.select("SELECT title FROM pages")] == [
+        str(RECOVERY_PAGE_TITLE)]
+    report = (out / "import-report.txt").read_text(encoding="utf-8")
+    assert "orphan blocks (unreachable, not imported): 0\n" in report
+    assert f"1 blocks, blocks recovered to '{RECOVERY_PAGE_TITLE}')" in report
 
 
 @pytest.mark.parametrize(

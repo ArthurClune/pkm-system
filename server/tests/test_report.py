@@ -113,3 +113,52 @@ def test_render_names_the_recovery_page_when_orphans_were_preserved():
     assert "recovered to 'Import recovery: unreachable blocks'" in orphan_line
     assert orphan_line.endswith(": 2")
     assert "not imported" not in text
+
+
+def test_render_lists_dropped_orphan_claims():
+    import dataclasses
+    claimed = dataclasses.replace(
+        REPORT, dropped_claims=(("uid-placed", "uid-root"), ("uid-x", "uid-y")))
+    text = render(claimed)
+    assert ("orphan claims dropped (block already placed elsewhere): 2"
+            in text)
+    assert "  uid-placed <- claimed by uid-root\n" in text
+    assert "  uid-x <- claimed by uid-y\n" in text
+    assert text.index("orphan blocks") < text.index("orphan claims dropped")
+    assert text.index("orphan claims dropped") < text.index("skipped entities")
+
+
+def test_render_says_none_when_no_claims_were_dropped():
+    assert ("orphan claims dropped (block already placed elsewhere): none\n"
+            in render(REPORT))
+
+
+def test_render_lists_skipped_pages_and_unlinked_blocks():
+    import dataclasses
+    from pkm.importer.titles import SkippedPage
+    skipped = dataclasses.replace(
+        REPORT,
+        recovery_page_title="Import recovery: unreachable blocks",
+        skipped_pages=(
+            SkippedPage("a`b", "malformed_syntax", "page[3]", 2),
+            SkippedPage(".", "malformed_syntax", "page[0]", 0),
+            SkippedPage("", "blank", "page[1]", 0),
+        ),
+        unlinked_block_uids=("uid-one", "uid-two"),
+    )
+    text = render(skipped)
+    assert "pages skipped (title refused): 3\n" in text
+    assert ('  "a`b" (malformed_syntax; page[3]; 2 blocks, blocks recovered '
+            "to 'Import recovery: unreachable blocks')\n") in text
+    assert '  "." (malformed_syntax; page[0]; 0 blocks)\n' in text
+    assert '  "" (blank; page[1]; 0 blocks)\n' in text
+    assert ("blocks with refs to a refused title made plain text: 2\n"
+            "  uid-one\n  uid-two\n") in text
+    assert text.index("title spellings") < text.index("pages skipped")
+    assert text.index("pages skipped") < text.index("orphan blocks")
+
+
+def test_render_says_none_when_nothing_was_skipped_or_unlinked():
+    text = render(REPORT)
+    assert "pages skipped (title refused): none\n" in text
+    assert "blocks with refs to a refused title made plain text: none\n" in text

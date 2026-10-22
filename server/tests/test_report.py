@@ -113,3 +113,21 @@ def test_render_names_the_recovery_page_when_orphans_were_preserved():
     assert "recovered to 'Import recovery: unreachable blocks'" in orphan_line
     assert orphan_line.endswith(": 2")
     assert "not imported" not in text
+
+
+def test_render_lists_dropped_orphan_claims():
+    import dataclasses
+    claimed = dataclasses.replace(
+        REPORT, dropped_claims=(("uid-placed", "uid-root"), ("uid-x", "uid-y")))
+    text = render(claimed)
+    assert ("orphan claims dropped (block already placed elsewhere): 2"
+            in text)
+    assert "  uid-placed <- claimed by uid-root\n" in text
+    assert "  uid-x <- claimed by uid-y\n" in text
+    assert text.index("orphan blocks") < text.index("orphan claims dropped")
+    assert text.index("orphan claims dropped") < text.index("skipped entities")
+
+
+def test_render_says_none_when_no_claims_were_dropped():
+    assert ("orphan claims dropped (block already placed elsewhere): none\n"
+            in render(REPORT))

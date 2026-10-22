@@ -221,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
             title_changes=sanitized_import.title_changes,
             recovery_page_title=rows.recovery_page_title,
             mermaid_preserved_refs=rows.mermaid_preserved_refs,
+            dropped_claims=export.dropped_claims,
         )
         text = render(report)
         report_tmp.write_text(text, encoding="utf-8")

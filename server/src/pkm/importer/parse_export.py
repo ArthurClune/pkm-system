@@ -49,6 +49,11 @@ class Export:
     # recover them instead of discarding them. orphan_block_count counts
     # every block in these subtrees, not just the roots.
     orphan_blocks: tuple[Block, ...] = ()
+    # (child uid, claiming parent uid), sorted: a child an unreached block
+    # lists in :block/children that was already placed (under a page, or
+    # under an earlier orphan root). The first placement keeps the block
+    # and the claim is dropped, so no block is attached twice.
+    dropped_claims: tuple[tuple[str, str], ...] = ()
 
 
 def _view_type(value: object) -> Literal["numbered", "document"] | None:
@@ -107,8 +112,10 @@ def parse_export(db: object) -> Export:
         return ":block/uid" in ent and ":block/string" in ent
 
     built: dict[int, Block] = {}
+    dropped: list[tuple[str, str]] = []
 
-    def build(eid: int, trail: frozenset[int]) -> Block | None:
+    def build(eid: int, trail: frozenset[int],
+              orphan_pass: bool = False) -> Block | None:
         if eid in trail:  # cycle guard: a child that is its own ancestor
             return None
         if eid in built:
@@ -124,15 +131,25 @@ def parse_export(db: object) -> Export:
             open=bool(ent.get(":block/open", True)),
             created_at=_time(ent.get(":create/time")),
             edited_at=_time(ent.get(":edit/time")),
-            children=_children(ent, trail | {eid}),
+            children=_children(ent, trail | {eid}, orphan_pass),
         )
         built[eid] = block
         return block
 
-    def _children(ent: dict[str, Any], trail: frozenset[int]) -> tuple[Block, ...]:
+    def _children(ent: dict[str, Any], trail: frozenset[int],
+                  orphan_pass: bool = False) -> tuple[Block, ...]:
         kids = ent.get(":block/children", [])
         ordered = sorted(kids, key=lambda c: entities.get(c, {}).get(":block/order", 0))
-        return tuple(b for c in ordered if (b := build(c, trail)) is not None)
+        placed: list[Block] = []
+        for c in ordered:
+            if orphan_pass and c in built:
+                # Placed already by a page or an earlier orphan root: that
+                # placement stands, this claim is dropped and reported.
+                dropped.append((built[c].uid, ent[":block/uid"]))
+                continue
+            if (b := build(c, trail, orphan_pass)) is not None:
+                placed.append(b)
+        return tuple(placed)
 
     pages = []
     for eid, ent in entities.items():
@@ -166,14 +183,14 @@ def parse_export(db: object) -> Export:
         return entities[eid][":block/uid"]
 
     # Pass 1: an unreached block with no (valid) parent is a genuine root.
-    # build()'s ordinary top-down recursion from each one is duplicate-free
-    # by construction -- it only ever descends into :block/children, so it
-    # can never visit the same eid twice by a different path.
+    # An orphan pass never attaches a block that is already built (a page
+    # reached it, or an earlier root did); _children records the claim as
+    # dropped instead, so every block has exactly one parent.
     natural_roots = sorted((eid for eid in unreached_eids if eid not in parent_of),
                            key=uid_of)
     orphan_blocks_list = [
         block for eid in natural_roots
-        if (block := build(eid, frozenset())) is not None
+        if (block := build(eid, frozenset(), True)) is not None
     ]
 
     # Pass 2: anything still unbuilt has a parent that is itself unreached
@@ -200,7 +217,7 @@ def parse_export(db: object) -> Export:
         while cursor not in seen:
             seen.append(cursor)
             cursor = parent_of[cursor]
-        if (block := build(cursor, frozenset())) is not None:
+        if (block := build(cursor, frozenset(), True)) is not None:
             orphan_blocks_list.append(block)
 
     orphan_blocks = tuple(orphan_blocks_list)
@@ -215,4 +232,5 @@ def parse_export(db: object) -> Export:
         skipped_entities=skipped_entities,
         attr_counts=attr_counts,
         orphan_blocks=orphan_blocks,
+        dropped_claims=tuple(sorted(dropped)),
     )

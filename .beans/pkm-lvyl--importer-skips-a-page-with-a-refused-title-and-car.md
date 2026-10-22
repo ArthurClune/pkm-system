@@ -1,11 +1,11 @@
 ---
 # pkm-lvyl
 title: Importer skips a page with a refused title and carries on
-status: todo
+status: in-progress
 type: bug
 priority: low
 created_at: 2026-10-21T21:28:38Z
-updated_at: 2026-10-21T21:28:38Z
+updated_at: 2026-10-22T08:51:18Z
 parent: pkm-a1xk
 ---
 

@@ -824,6 +824,37 @@ def test_import_rewrites_every_extracted_title_before_rows(tmp_path):
     ]
 
 
+ORPHAN_CLAIM_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Home" 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "uid-placed" 1]
+  [2 :block/string "kept on the page" 1]
+  [2 :block/order 0 1]
+  [10 :block/uid "uid-orphan-root" 1]
+  [10 :block/string "orphan root" 1]
+  [10 :block/children 2 1]
+ ]}"""
+
+
+def test_import_drops_an_orphan_claim_on_a_placed_block_and_reports_it(tmp_path):
+    export_file = _write_export(tmp_path, "claim.edn", ORPHAN_CLAIM_EXPORT)
+    out = tmp_path / "data"
+
+    rc = main([str(export_file), "--out", str(out)])
+
+    assert rc == 0
+    con = connect(out / "pkm.sqlite3")
+    placed = con.select(
+        "SELECT b.parent_uid, p.title FROM blocks b JOIN pages p"
+        " ON p.id = b.page_id WHERE b.uid='uid-placed'")
+    assert [(r["parent_uid"], str(r["title"])) for r in placed] == [(None, "Home")]
+    report = (out / "import-report.txt").read_text(encoding="utf-8")
+    assert ("orphan claims dropped (block already placed elsewhere): 1\n"
+            "  uid-placed <- claimed by uid-orphan-root\n") in report
+
+
 def test_import_marks_ordinary_database_active(tmp_path):
     export_file = _write_export(tmp_path, "ordinary.edn", ORDINARY_EXPORT)
     out = tmp_path / "data"

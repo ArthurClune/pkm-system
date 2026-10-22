@@ -302,6 +302,7 @@ def sanitize_export_titles(export: Export) -> SanitizedImport:
             orphan_blocks=tuple(
                 _rewrite_block(block, title_map) for block in export.orphan_blocks
             ),
+            dropped_claims=export.dropped_claims,
         ),
         title_changes=_title_changes(title_map, locations, merged_pages_titles),
     )

@@ -295,3 +295,94 @@ def test_a_time_that_is_not_a_64_bit_integer_parses_as_absent(bad):
     page = parse_export(parse_edn(raw)).pages[0]
     assert page.created_at is None
     assert page.children[0].children[0].edited_at is None
+
+
+SCHEMA = (
+    "#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref,"
+    " :db/cardinality :db.cardinality/many}}\n :datoms [\n"
+)
+
+
+def _export(*datoms: str):
+    return parse_export(parse_edn(SCHEMA + "\n".join(datoms) + "\n ]}"))
+
+
+def test_orphan_root_claiming_a_page_child_is_dropped_and_reported():
+    export = _export(
+        '[1 :node/title "Page" 1]',
+        "[1 :block/children 2 1]",
+        '[2 :block/uid "uid-placed" 1]',
+        '[2 :block/string "on the page" 1]',
+        '[2 :block/order 0 1]',
+        '[10 :block/uid "uid-orphan-root" 1]',
+        '[10 :block/string "orphan root" 1]',
+        "[10 :block/children 2 1]",
+        "[10 :block/children 11 1]",
+        '[11 :block/uid "uid-orphan-kid" 1]',
+        '[11 :block/string "orphan kid" 1]',
+        "[11 :block/order 1 1]",
+    )
+    assert [b.uid for b in export.pages[0].children] == ["uid-placed"]
+    (root,) = export.orphan_blocks
+    assert [b.uid for b in root.children] == ["uid-orphan-kid"]
+    assert export.dropped_claims == (("uid-placed", "uid-orphan-root"),)
+
+
+def test_second_orphan_root_claiming_a_taken_block_is_dropped():
+    export = _export(
+        '[10 :block/uid "uid-root-a" 1]',
+        '[10 :block/string "a" 1]',
+        "[10 :block/children 12 1]",
+        '[11 :block/uid "uid-root-b" 1]',
+        '[11 :block/string "b" 1]',
+        "[11 :block/children 12 1]",
+        '[12 :block/uid "uid-shared" 1]',
+        '[12 :block/string "shared" 1]',
+    )
+    by_uid = {str(b.uid): b for b in export.orphan_blocks}
+    assert [b.uid for b in by_uid["uid-root-a"].children] == ["uid-shared"]
+    assert by_uid["uid-root-b"].children == ()
+    assert export.dropped_claims == (("uid-shared", "uid-root-b"),)
+
+
+def test_cycle_pass_root_claiming_a_page_child_is_dropped():
+    export = _export(
+        '[1 :node/title "Page" 1]',
+        "[1 :block/children 2 1]",
+        '[2 :block/uid "uid-placed" 1]',
+        '[2 :block/string "on the page" 1]',
+        '[10 :block/uid "uid-cycle-a" 1]',
+        '[10 :block/string "a" 1]',
+        "[10 :block/children 11 1]",
+        "[10 :block/children 2 1]",
+        '[11 :block/uid "uid-cycle-b" 1]',
+        '[11 :block/string "b" 1]',
+        "[11 :block/children 10 1]",
+    )
+    assert [b.uid for b in export.pages[0].children] == ["uid-placed"]
+    assert len(export.orphan_blocks) == 1
+    assert export.dropped_claims == (("uid-placed", "uid-cycle-a"),)
+
+
+def test_clean_export_drops_no_claims():
+    assert parse_export(parse_edn(EXPORT)).dropped_claims == ()
+
+
+def test_two_pages_claiming_one_child_stay_a_preflight_refusal():
+    from pkm.importer.preflight import (
+        ImportStructureError,
+        validate_export_structure,
+    )
+
+    export = _export(
+        '[1 :node/title "One" 1]',
+        "[1 :block/children 3 1]",
+        '[2 :node/title "Two" 1]',
+        "[2 :block/children 3 1]",
+        '[3 :block/uid "uid-shared" 1]',
+        '[3 :block/string "shared" 1]',
+    )
+    assert export.dropped_claims == ()
+    with pytest.raises(ImportStructureError) as caught:
+        validate_export_structure(export)
+    assert caught.value.reason == "multi_parent"

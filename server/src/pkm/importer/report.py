@@ -35,6 +35,11 @@ class ImportReport:
     # by flattening (see pkm.importer.rows.to_rows), because a block
     # outside the subtree still holds an inbound ((uid)) reference to it.
     mermaid_preserved_refs: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    # (child_uid, claiming_parent_uid) for every :block/children entry of an
+    # unreached block that named a block already placed elsewhere; the
+    # placement stands and the claim is dropped (see
+    # pkm.importer.parse_export.Export.dropped_claims).
+    dropped_claims: tuple[tuple[str, str], ...] = ()
 
 
 def render(r: ImportReport) -> str:
@@ -64,6 +69,15 @@ def render(r: ImportReport) -> str:
          f"'{r.recovery_page_title}'): {r.orphan_blocks}"
          if r.orphan_blocks and r.recovery_page_title
          else f"orphan blocks (unreachable, not imported): {r.orphan_blocks}"),
+    ]
+    if r.dropped_claims:
+        lines.append("orphan claims dropped (block already placed elsewhere): "
+                     f"{len(r.dropped_claims)}")
+        lines += [f"  {child} <- claimed by {parent}"
+                  for child, parent in r.dropped_claims]
+    else:
+        lines.append("orphan claims dropped (block already placed elsewhere): none")
+    lines += [
         f"skipped entities (no uid/string): {r.skipped_entities}",
         f"block refs ((...)): {r.block_ref_count}",
         f"embeds: {r.embed_count}",

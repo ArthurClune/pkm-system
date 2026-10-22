@@ -27,6 +27,7 @@ from pkm.server.sync_meta import (
     plain_space_title_canonicalization_active,
     rotate_database_generation,
     set_plain_space_title_canonicalization,
+    title_reader,
 )
 
 
@@ -242,7 +243,7 @@ def apply_title_migration(
             )
 
         blocks_rewritten = rewrite_snapshotted_blocks(
-            db, snapshots, replacements, now_ms
+            db, snapshots, replacements, now_ms, title_reader(db)
         )
         set_plain_space_title_canonicalization(db, active=True)
         generation = rotate_database_generation(db)

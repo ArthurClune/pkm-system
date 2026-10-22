@@ -20,6 +20,7 @@ from pkm.server import ops_apply, store
 from pkm.server.db import open_db
 from pkm.server.ops_apply import apply_batch
 from pkm.server.store import reindex_refs_for_text, rewrite_snapshotted_blocks
+from pkm.server.sync_meta import title_reader
 from pkm.test_data.ids import batch_id_of, client_id_of, raw_title_of, uid_of
 
 # Texts exercising every branch the composition owns: no refs, all three ref
@@ -98,7 +99,7 @@ def test_snapshot_rewriting_reindexes_through_the_shared_composition(
 
     rewritten = rewrite_snapshotted_blocks(
         con, [(uid_of("uid_b3"), "[[Paper]] and ((uid_b1))")],
-        {"Paper": raw_title_of("Papers")}, 5150)
+        {"Paper": raw_title_of("Papers")}, 5150, title_reader(con))
 
     assert rewritten == 1
     # the rewritten text is what gets indexed, never the original snapshot
@@ -116,7 +117,8 @@ def test_both_call_sites_index_the_same_text_identically(con, text):
     _update_text(con, uid_of("uid_b4"), text, 7000)
     # an empty replacement map leaves the snapshot text alone, so this
     # reindexes uid_b6 from exactly `text`
-    rewrite_snapshotted_blocks(con, [(uid_of("uid_b6"), text)], {}, 7000)
+    rewrite_snapshotted_blocks(con, [(uid_of("uid_b6"), text)], {}, 7000,
+                               title_reader(con))
     reindex_refs_for_text(con, uid_of("uid_b1"), text, 7000)
 
     assert _ref_titles(con, uid_of("uid_b6")) == _ref_titles(con, uid_of("uid_b4"))

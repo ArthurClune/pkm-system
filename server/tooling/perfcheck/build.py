@@ -137,7 +137,8 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
             raise RuntimeError(
                 f"perf fixture: {RENAME_SOURCE_TITLE!r} missing before its seeded rename")
         rename_page_rows(con, source["page_id"], rename_source_title,
-                         rename_target_title, RENAME_APPLIED_AT_MS)
+                         rename_target_title, RENAME_APPLIED_AT_MS,
+                         title_reader(con))
         con.commit()
         con.executemany(
             "INSERT INTO assets(sha256, filename, mime, size, created_at, description)"

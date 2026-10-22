@@ -10,6 +10,7 @@ from pkm.server.store import (
     retitle_page_without_rewrite,
     rewrite_snapshotted_blocks,
 )
+from pkm.server.sync_meta import title_reader
 from pkm.test_data.ids import canonical_title_of, page_id_of, raw_title_of, uid_of
 from pkm.contracts.ops import PageId
 from pkm.database import connect
@@ -483,6 +484,7 @@ def test_rewrite_snapshots_updates_and_reindexes_each_block_once(seeded_config):
         {"AI": raw_title_of("Machine Learning"),
          "Paper": raw_title_of("Machine Learning")},
         9_003,
+        title_reader(db),
     )
 
     assert rewritten == 1

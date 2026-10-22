@@ -209,6 +209,7 @@ def rewrite_snapshotted_blocks(
     snapshots: Sequence[tuple[BlockUid, str]],
     replacements: Mapping[str, RawTitle],
     now_ms: int,
+    canonical: Callable[[str], str],
 ) -> int:
     """Rewrite each original block snapshot once, then replace its ref index.
 
@@ -216,11 +217,11 @@ def rewrite_snapshotted_blocks(
     intermediate database text, so multi-source migrations never hide a later
     source reference. Every changed block also leaves a `block_rewrites`
     record so the ops path can replay this rewrite over a stale device's
-    edit to the same block. Never commits.
+    edit to the same block. `canonical` is the caller's `title_reader`,
+    passed in so a rename reads the title flag once. Never commits.
     """
     rewritten = 0
     seen: set[str] = set()
-    canonical = title_reader(db)
     normalize = spelled_or_canonical(canonical, replacements)
     for uid, original_text in snapshots:
         if uid in seen:
@@ -249,7 +250,8 @@ def rewrite_referencing_blocks(db: Db, page_id: PageId,
                                now_ms: int) -> None:
     """Preserved single-page rewrite helper. Never commits."""
     snapshots = _snapshot_referencing_blocks(db, page_id)
-    rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms)
+    rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms,
+                               title_reader(db))
 
 
 def insert_sidebar_entry(db: Db, title: CanonicalTitle,
@@ -338,24 +340,26 @@ def append_page_without_rewrite(
 
 def rename_page_rows(db: Db, page_id: PageId,
                      old_title: CanonicalTitle, new_title: CanonicalTitle,
-                     now_ms: int) -> None:
+                     now_ms: int, canonical: Callable[[str], str]) -> None:
     """Rename in place while preserving the public composed behavior."""
     snapshots = _snapshot_referencing_blocks(db, page_id)
     retitle_page_without_rewrite(db, page_id, old_title, new_title, now_ms)
-    rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms)
+    rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms,
+                               canonical)
 
 
 def merge_page_rows(db: Db, source_id: PageId,
                     target_id: PageId,
                     old_title: CanonicalTitle, new_title: CanonicalTitle,
-                    now_ms: int) -> None:
+                    now_ms: int, canonical: Callable[[str], str]) -> None:
     """Merge a page while preserving stable blocks, subtrees, refs and
     sidebar."""
     snapshots = _snapshot_referencing_blocks(db, source_id)
     append_page_without_rewrite(
         db, source_id, target_id, old_title, new_title, now_ms
     )
-    rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms)
+    rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms,
+                               canonical)
 
 
 class DeleteBlockedError(Exception):

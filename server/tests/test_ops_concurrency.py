@@ -49,6 +49,7 @@ def test_concurrent_rename_cannot_resurrect_the_old_title(
     from pkm.server import ops_apply
     from pkm.server.db import open_db
     from pkm.server.store import fetch_page, rename_page_rows
+    from pkm.server.sync_meta import title_reader
 
     real_hint_page = ops_apply._hint_page
     ml_title = canonical_title_of("Machine Learning")
@@ -62,7 +63,8 @@ def test_concurrent_rename_cannot_resurrect_the_old_title(
         assert page is not None
         with pytest.raises(sqlite3.OperationalError, match="locked"):
             rename_page_rows(con2, page["page_id"], ml_title,
-                             ml_renamed_title, 1_800_000_000_000)
+                             ml_renamed_title, 1_800_000_000_000,
+                             title_reader(con2))
         con2.close()
         return stored
 

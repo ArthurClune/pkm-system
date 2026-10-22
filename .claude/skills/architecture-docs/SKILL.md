@@ -40,7 +40,7 @@ ideas and small asides feel equally weighted, when a section's length is out
 of proportion to its subject, or when you are about to split, reflow or
 clarify a section.
 
-Not for `docs/design.md`, specs, plans or beans — those are *where* rationale,
+Not for specs, plans or beans — those are *where* per-feature rationale,
 history and rejected alternatives belong.
 
 ## Choose the shape before writing
@@ -55,8 +55,8 @@ history and rejected alternatives belong.
 
 Ownership matters as much as shape: `docs/keyboard.md` owns the shortcut surface
 and the slash commands, `docs/cli.md` the CLI's user-facing syntax, `backend.md`
-the API reference, `docs/design.md` the rationale. A second copy in prose is
-worse than no copy, because it drifts silently.
+the API reference, `overview.md` § Key decisions and the specs the rationale.
+A second copy in prose is worse than no copy, because it drifts silently.
 
 **Dedupe toward the doc that owns the mechanism, not away from it.** When two
 docs describe the same thing, the one whose subject implements it keeps the

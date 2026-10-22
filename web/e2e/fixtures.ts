@@ -1,8 +1,7 @@
 // Extends Playwright's `test` so the visible assertions in a spec are not
 // the only thing that can fail it: any HTTP 5xx from the app (server bug,
 // unhandled exception) fails the test too, even if the page happened to
-// recover and every on-screen assertion still passed. See
-// docs/2026-07-10-implementation-review.md finding 1 - the original
+// recover and every on-screen assertion still passed. Without it,
 // "database is locked" 500s were invisible to `pnpm e2e` because nothing
 // checked response status.
 import { test as base, expect, type BrowserContext } from "@playwright/test";

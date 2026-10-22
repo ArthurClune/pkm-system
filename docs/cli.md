@@ -13,11 +13,13 @@ Both share one login:
 cd server && uv run pkm login --url http://127.0.0.1:8974
 ```
 
-This stores a year-long session token in `~/.config/pkm-cli/config.json`.
-Two environment variables override the defaults:
+`--url` defaults to `http://127.0.0.1:8974`. Login stores a year-long session
+token in `~/.config/pkm-cli/config.json`. Two environment variables override
+the defaults:
 
 - `PKM_CLI_CONFIG`: use a different config file
-- `PKM_URL`: talk to a different server for this call
+- `PKM_URL`: talk to a different server for this call, with the config
+  file's token
 
 `pkm login --password-stdin` reads the password from stdin, for scripts.
 
@@ -25,14 +27,15 @@ Two environment variables override the defaults:
 
 `uv run pkm <cmd> --help` lists each verb's argument forms and examples.
 
-    pkm get "Page Title" | today | <uid>     # markdown; --uids / --json
+    pkm get "Page Title" | today | yesterday | tomorrow | <uid>
+                                             # markdown; --uids / --json
     pkm get "Page" --resolve-refs            # inline ((uid)) refs, cycle-safe
     pkm get "Page" --section "## H" [--depth N]   # subtree only (pages only)
-    pkm get "Page" --section "H"             # ...at any heading level
+    pkm get "Page" --section "H"             # ...first block with that text
     pkm todos [-p "Page"]
     pkm changed [today|yesterday|YYYY-MM-DD] [--since X] [--until Y] [-p "Page"] [--limit N]
     pkm save [-p "Page"] [--parent "## H"|"((uid))"] [--todo] "text" | -
-    pkm update <uid> "new text" | -D | -T
+    pkm update <uid> "new text" | - | -D | -T
     pkm search "term" [--limit N] [--exact] [--compact]
     pkm refs "Page" / pkm query "{and: [[A]] [[B]]}" [--expand]
     pkm upload file.png [-p "Page"] [--parent "## H"|"((uid))"] [--no-block]
@@ -54,6 +57,10 @@ before it (`pkm get -- -abc123`), with `pkm update`'s `-D`/`-T` before the
 `pkm save` with no `-p` writes to today's daily note. Missing pages are
 created.
 
+`pkm update` sends the hash of the text it read. If another writer changed
+the block in the meantime, the new text still lands. The text it replaced is
+kept under a `[[conflict]]` header on today's daily note.
+
 `pkm upload` stores the file and adds a block linking it, on `-p` or today's
 daily note, nested under `--parent` if given. Images embed, PDFs open in the
 PDF viewer, and other files are plain links. `--no-block` uploads and prints
@@ -71,48 +78,72 @@ source page's top-level blocks are appended after the target's and the source
 page is dropped. Daily-note (date) pages cannot be renamed. The printed title
 is the server's normalised form, which may differ from what you typed.
 
-Multi-line text is treated as an outline: two spaces of indent is one level of
-nesting. A line starting `# `, `## ` or `### ` becomes a heading block at that
-level. This applies to `save`, `batch` and `update`. `#Tag` (no space) and
-`#### ` or deeper stay literal.
+`pkm save` treats multi-line text as an outline. Two spaces or one tab of
+indent is one level of nesting. A line indented more than one level below the
+line before it nests only one level deeper. Text given to `pkm update` or to
+a batch `create`, `todo` or `update` is one block, newlines included.
+
+A line starting `# `, `## ` or `### ` becomes a heading block at that level,
+and the hashes are not stored. This applies to `save`, `update` and the batch
+`create`, `todo`, `outline` and `update` commands. `#Tag` (no space), `#### `
+or deeper, and text with a newline inside stay literal. Update text without
+the hashes clears the block's heading; `-D` and `-T` leave it as it is.
 
 ### Reading
 
-The read verbs take `--json`, which prints minified JSON on one line.
+Every read verb except `assets search` takes `--json`, which prints minified
+JSON on one line. `rename` and `migrate-titles` take it too.
 
-`search --exact` matches whole words only, with no prefix wildcard.
-`--compact` prints titles and uids without snippets. The default `--limit` is
-10.
+`pkm get` with a uid fetches that block's subtree. If no block has that uid,
+it looks the string up as a page title.
+
+`search` prefix-matches the last word of the term. `search --exact` matches
+whole words only, with no prefix wildcard. `--compact` prints titles and uids
+without snippets. The default `--limit` is 10, applied separately to page hits
+and block hits.
 
 `query --expand` adds one hop: `[[X]]` also matches blocks referencing a page
 that itself references X. When a query returns nothing, the output includes a
 block count per operand, so you can tell a mistyped `[[Page]]` from operands
 that don't intersect.
 
-`pkm refs` pages through the server's results and returns every backlink
-group, retrying if concurrent writes shift the pages.
+`pkm changed` lists blocks whose latest edit time falls in a window, grouped
+by page. `DAY` (default `today`) selects one calendar day. `--since`, with an
+optional `--until`, gives a custom window instead and cannot be combined with
+`DAY`. Each takes `YYYY-MM-DD` (local midnight) or an ISO datetime. `--until`
+is exclusive and defaults to now. A block edited twice shows only under its
+latest edit, and deleted blocks never show. The default `--limit` is 500.
+
+`pkm refs` returns every backlink group, never a truncated first page
+([how](architecture/cli-and-mcp.md#writes-uids-and-missing-pages)).
 
 `pkm assets search` matches uploaded files by LLM description and filename.
 The default `--limit` is 50.
 
-`pkm local check` reports every `/api/local/` link in block text whose file is
-`missing`, `evicted` (an iCloud placeholder not yet downloaded), `unreadable`
-(the host can't open it), `unchecked` (too many opens already in flight to
-try) or `invalid` (the href doesn't resolve to a safe path), checked against the server's
-`local_docs_root`. Exit status: `0` clean, `1` problems found, `2`
-`local_docs_root` not set.
+`pkm local check` reports every `/api/local/` link in block text whose file
+fails the check against the server's `local_docs_root`:
+
+| Status | Meaning |
+|---|---|
+| `missing` | no file at that path |
+| `evicted` | an iCloud placeholder not yet downloaded |
+| `unreadable` | the host can't open it |
+| `unchecked` | too many opens already in flight to try |
+| `invalid` | the href doesn't resolve to a safe path |
+
+Exit status: `0` clean, `1` problems found, `2` `local_docs_root` not set.
 
 `pkm goodlinks check` reports every `/api/goodlinks/` link in block text whose
 saved page is `missing` from the GoodLinks library or whose href is `invalid`
-(not a GoodLinks id). It asks the GoodLinks app on the host, so it exits 1
-with a "not running" error when the app is closed, or a "rejected the API
-token" error when GoodLinks refuses the token. Exit status: `0` clean,
-`1` problems found, `2` GoodLinks not configured (no API token file).
+(not a GoodLinks id). It asks the GoodLinks app on the host. It exits 1 with a
+"not running" error when the app is closed, or a "rejected the API token"
+error when GoodLinks refuses the token. Exit status: `0` clean, `1` problems
+found, `2` GoodLinks not configured (no API token file).
 
 ## Batch transactions
 
-`pkm batch` applies a JSON array of `{command, params}` objects in one
-transaction:
+`pkm batch` reads a JSON array of `{command, params}` objects from stdin and
+applies it in one transaction:
 
 | Command | Params |
 |---|---|
@@ -123,29 +154,44 @@ transaction:
 | `delete` | uid |
 | `outline` | page, parent?, items (nested string arrays) |
 
+A batch `update` sends no hash, unlike `pkm update`. It overwrites a
+concurrent edit without keeping it.
+
 `index` inserts a `create`, `todo` or `move` at that position, counting from 0.
-A position past the end appends, and so does omitting it. A `move` counts the
+A position past the end appends, and so does omitting it. It counts against
+the page as earlier commands in the batch left it. A `move` counts the
 destination's children without the moving block.
 
-An `update`, `move` or `delete` whose uid no longer exists is skipped rather
-than failing the transaction. So is a `create` or `move` whose parent no
-longer exists, and a `move` under the block itself or one of its
-descendants. The other commands still apply and are
-committed. The output starts with `warning:`, lists each skipped op and the
-daily page its note landed on, and `pkm batch` exits 1. Fix the skipped ops on
-their own: re-running the batch repeats everything that applied. A `((uid))`
-parent is checked before anything is sent, so a mistyped one fails the whole
-batch. So does a `delete` uid that is not a valid uid: nothing is written and
-`pkm batch` exits 1. A `delete` still removes a block another device changed after the batch
-read it, but the server's texts for the block and everything under it land on
-today's daily page first. The MCP `batch` tool returns the same text.
+Some bad ops are skipped and some fail the whole batch:
+
+| Op | Result |
+|---|---|
+| `update`, `move` or `delete` whose uid no longer exists | skipped |
+| `create` or `move` whose parent no longer exists | skipped |
+| `move` under the block itself or one of its descendants | skipped |
+| `((uid))` parent that is not on the named page | batch fails |
+| `delete` uid that is not a valid uid | batch fails |
+| `move` to a `"## Heading"` the page does not have | batch fails |
+| unknown command, param or `{{alias}}` | batch fails |
+
+A skipped op leaves the other commands applied and committed. The output then
+starts with `warning:` and lists each skipped op with where its note landed,
+and `pkm batch` exits 1. Fix the skipped ops on their own, because re-running
+the batch repeats everything that applied. A batch that fails is checked
+before anything is sent, so nothing is written, and `pkm batch` exits 1. The
+MCP `batch` tool returns the same text.
+
+A `delete` still removes a block another device changed after the batch read
+it. The server's texts for the block and everything under it land on today's
+daily page first.
 
 `as` names a created block so later commands can refer to it as
 `"parent": "{{alias}}"`, or as `"uid": "{{alias}}"` for `update`, `move` and
 `delete`.
 
-A `"## Heading"` parent is matched on the page, or created once per batch.
-Later commands with the same heading spec reuse it:
+A `"## Heading"` parent matches a heading at that level with that text, the
+first in document order. `create`, `todo` and `outline` create a missing one
+once per batch, and later commands with the same heading spec reuse it:
 
     [{"command": "create",
       "params": {"page": "AI", "parent": "## Meetings", "text": "notes"}},
@@ -171,15 +217,17 @@ repository's `server/` directory:
 
 Run `pkm login` once first. The MCP server reads the same config file.
 
-The tools cover the CLI's read and write verbs and are listed in
+The tools are listed in
 [architecture/cli-and-mcp.md](architecture/cli-and-mcp.md#the-mcp-tool-surface).
+They cover the CLI's page, block, search, asset and rename verbs. `assets
+scan`, `local check`, `goodlinks check` and `migrate-titles` have no tool.
 `batch` takes the same command format as `pkm batch`. Reads return markdown
 annotated with `^uid` markers that the write tools accept.
 
 ## One-time title canonicalization
 
 Page titles with a leading or trailing space need a data migration before the
-server will strip that space. The migration is audit-first and manual: server
+server will strip that space. The migration is audit-first and manual. Server
 startup never audits or applies it, and a deploy or restart does not activate
 it.
 
@@ -193,15 +241,16 @@ PKM_CLI_CONFIG=/explicit/target-config.json PKM_URL=https://explicit-target \
   uv run --project server pkm migrate-titles --apply <audit-digest>
 ```
 
-The audit has no side effects. It prints a 64-hex digest, each canonical
-group, the survivor/source merge plan, counts, and every blocker with an
-`all_space` or `forbidden_syntax` reason. Review it before applying.
+The audit has no side effects. It prints the migration state, a 64-hex
+digest, each canonical group with its survivor, sources, counts and merge
+order, and every blocker with an `all_space` or `forbidden_syntax` reason.
+Review it before applying.
 
 `--apply` requires that exact digest. It is refused if database changes since
 the audit have altered the plan, if there are blockers, or if the migration
 is already active. Only boundary U+0020 spaces are removed.
 
-A successful apply runs in one transaction: it retitles and merges pages,
+A successful apply runs in one transaction. It retitles and merges pages,
 rewrites inbound references and sidebar entries, activates the new title
 rule, and rotates the sync generation. Take the normal backup first. Run it
 against production only when production was explicitly requested and both
@@ -209,9 +258,15 @@ variables point there.
 
 ### What the title rules are
 
-Control whitespace in titles is always normalized. After normalization,
-writes reject titles containing `#`, `[[` or `]]`, online and offline. Once
-the migration is active, leading and trailing ordinary spaces are also
+A title containing control whitespace (tab, newline, carriage return, form
+feed, vertical tab) has each whitespace run collapsed to one space and its
+ends trimmed. Writes, online and offline, then reject a title that:
+
+- contains `#`, `[[`, `]]` or a backtick
+- ends with `]`
+- has a `.`, `..` or empty `/`-separated segment, so it has no URL
+
+Once the migration is active, leading and trailing ordinary spaces are also
 removed. Internal spaces and non-breaking spaces are kept as typed.
 
 See [architecture/backend.md](architecture/backend.md#title-integrity-and-one-time-activation)

@@ -88,8 +88,9 @@ exchange for:
 - **Longevity**: FastAPI, SQLite and React. Block text is stored as
   unmodified Roam-flavoured markdown.
 
-The **[design document](docs/design.md)** covers the high-level architecture
-and key decisions, with links to the detailed specs and implementation plans.
+The **[architecture overview](docs/architecture/overview.md)** covers the
+system picture and the key decisions behind it, with links to the detailed
+specs.
 
 ## Repository layout
 
@@ -219,8 +220,8 @@ and restore.
 - **[Architecture docs](docs/architecture/overview.md)**: how the codebase is
   organised, one file per area
 - **[Troubleshooting](docs/troubleshooting.md)**: known failures by symptom
-- **[Design document](docs/design.md)**: high-level architecture and key
-  decisions, linking to the specs and plans in `docs/superpowers/`
+- **Specs and plans** in `docs/superpowers/`: per-feature designs, their
+  rejected alternatives, and how each was built
 - **[CLI and MCP reference](docs/cli.md)**: every `pkm` verb, the batch
   command language, MCP setup, title canonicalization
 - **[Deployment guide](deploy/README.md)**: install, update, backups, restore,

@@ -5,9 +5,8 @@ Run: uv run python tests/e2e_serve.py   (from server/)
 
 Also logs any unhandled exception (e.g. a real server bug, not a normal
 4xx) to web/e2e/.server.log, which web/e2e/global-teardown.ts scans and
-fails the run on -- see docs/2026-07-10-implementation-review.md finding 1,
-where a real "database is locked" 500 was invisible to `pnpm e2e` because
-nothing checked server-side errors.
+fails the run on. Without it a real "database is locked" 500 was invisible
+to `pnpm e2e`, because nothing checked server-side errors.
 
 Five extra env vars exist for `perfcheck.run`, the performance regression
 check, and leave the defaults above unchanged when unset:

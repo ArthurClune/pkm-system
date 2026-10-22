@@ -106,7 +106,7 @@ Tests are exempt from nothing. They mint through the checked helpers instead:
 Each `<stem>_of` raises `ValueError` unless the value fits the brand's
 `SHAPES` regex or base type (an integer brand refuses a `bool` or a float);
 the web's `<stem>Of` throws the same way
-([frontend.md](frontend.md#api-layer)).
+([frontend.md](frontend.md#brands)).
 `rawread.read`, the tests' reader for catalog tables, FTS tables and counts, raises when
 a returned column may carry a brand: a `pkm.rows` key with a brand, or a raw
 name `COLUMN_KEYS` maps to one (a bare `id`, the sidebar's `order_idx`). That
@@ -162,7 +162,7 @@ sites and comments together by position. One that covers none is reported
 brand. The fixtures in `web/tooling/eslint-fixtures` are linted by
 `lintConfig.test.ts`, which pins each message. The database side of the
 vocabulary is in [backend.md](backend.md#typed-database-access) and
-[frontend.md](frontend.md#replica-database-access).
+[sync-and-offline.md](sync-and-offline.md#reading-rows).
 
 Known limits, where TypeScript itself is unsound and no cheap lint closes it:
 
@@ -198,7 +198,7 @@ Known limits, where TypeScript itself is unsound and no cheap lint closes it:
 | `lint` (`eslint.config.js`), over product code, tests and tooling alike | a hook dependency array drifts, a promise floats or is misused, a non-Error is thrown, a caught error is untyped, `apiFetch` is imported outside the transport boundary, `test-helpers`, `testDb` or `memReplica` is imported (also by `import()`, template literals included) outside a test, an `any` flows through the code (written, assigned, returned, passed, called or member-accessed), a name that means a brand does not carry it, the keys argument of `ReplicaDb.select` is not an array literal of string literals ([Web side](#web-side)), a brand is asserted outside its mint sites, or `Reflect.apply` or a brand-named `Object.assign` / `defineProperty` writes around that ([Web side](#web-side)), `@ts-ignore` or `@ts-nocheck` appears, `@ts-expect-error` has no description or sits outside a `typeProbe` block ([Web side](#web-side)), or a disable directive is stale |
 | `check:fcis` (`tooling/fcis.mjs`) | a Functional Core module imports an Imperative Shell one at runtime ([overview.md](overview.md#functional-core--imperative-shell)) |
 | `test:coverage` | statements or lines under 95%, branches under 91%, functions under 89% (`vite.config.ts`) |
-| row check (vitest only, `ReplicaDb.select`) | the query's columns (an empty result too) differ from the `keys` argument as sets: missing, extra or duplicate; a selected row has a column that is not a `Columns` key, or a value that does not fit its key's base type, nullability, literals or brand shape; the error carries the SQL and the fix. `ReplicaDb.introspect` refuses a column that may carry a brand ([frontend.md](frontend.md#replica-database-access)) |
+| row check (vitest only, `ReplicaDb.select`) | the query's columns (an empty result too) differ from the `keys` argument as sets: missing, extra or duplicate; a selected row has a column that is not a `Columns` key, or a value that does not fit its key's base type, nullability, literals or brand shape; the error carries the SQL and the fix. `ReplicaDb.introspect` refuses a column that may carry a brand ([sync-and-offline.md](sync-and-offline.md#reading-rows)) |
 | console guard (`src/test-setup.ts`) | a test, or a timer firing after a file's last test, calls `console.warn` or `console.error` without silencing it with `vi.spyOn(console, ...).mockImplementation`; teeth in `tooling/consoleGuard.test.ts` |
 | filter cap (`src/fcFilterCap.ts`, installed by `src/test-guards.ts` in the unit and property suites) | a fast-check `.filter` rejects `MAX_FILTER_REJECTIONS` draws in a row. fast-check's own filter retries forever in synchronous code, which no vitest timeout interrupts; teeth in `src/fcFilterCap.test.ts` |
 | `columns.test.ts` | a column of a client-only table (`CLIENT_DDL`) has no `Columns` key, or its key disagrees on base type or nullability |

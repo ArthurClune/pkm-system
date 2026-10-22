@@ -1,696 +1,355 @@
 # Frontend architecture (web/)
 
-The frontend is a React 18 + Vite single-page app: an offline-capable,
-real-time-synced Roam-style outliner. Two facts shape almost every file:
+The frontend is a React single-page app built with Vite: an offline-capable,
+real-time-synced Roam-style outliner. The server owns its shapes. API types
+are generated from its OpenAPI schema, the replica schema from its DDL, and
+the block grammar is pinned to the Python parser by shared fixtures. `pnpm
+check:fcis` (`web/tooling/fcis.mjs`) fails a Functional Core module that
+imports a Shell ([overview.md](overview.md#functional-core--imperative-shell)).
 
-1. **FCIS is machine-enforced.** Every runtime module declares
-   `// pattern: Functional Core` or `// pattern: Imperative Shell`, and
-   `pnpm check:fcis` (`web/tooling/fcis.mjs`) fails if a Core module imports a
-   Shell. Most subsystems are a pure state machine plus a thin
-   React/worker/fetch shell around it.
-2. The server owns the shapes. API types are generated from its OpenAPI
-   schema, the replica schema from its DDL, and the Roam-markdown grammar is
-   pinned to the Python parser by shared fixtures.
-
-See [overview.md](overview.md) for the system picture,
-[sync-and-offline.md](sync-and-offline.md) for the sync engine and replica,
-[frontend-editor.md](frontend-editor.md) for the outline editor and
-[frontend-rendering.md](frontend-rendering.md) for the read path. Failures and
-their fixes are indexed by symptom in
+This doc covers the app shell. The outline editor is in
+[frontend-editor.md](frontend-editor.md), block text to DOM in
+[frontend-rendering.md](frontend-rendering.md), CSS in
+[styling.md](styling.md), and the sync engine and replica in
+[sync-and-offline.md](sync-and-offline.md). Failures are indexed by symptom in
 [troubleshooting.md](../troubleshooting.md).
 
-## Tech stack
+## How reads and writes flow
 
-| Concern | Choice |
-|---|---|
-| UI | React 18.3, react-router-dom 6.30 (v7 future flags), TypeScript 5.9 |
-| Build | Vite 6, `vite-plugin-pwa` (Workbox service worker), pnpm (overrides in `pnpm-workspace.yaml` — pnpm 11 ignores `package.json` overrides) |
-| Offline | `@sqlite.org/sqlite-wasm` (replica in a Web Worker on the OPFS SAHPool VFS) |
-| Rendering extras (all lazy-loaded) | KaTeX (math), beautiful-mermaid + Mermaid fallback (diagrams), react-pdf/pdf.js (PDF viewer), highlight.js (code), the /link-local-file picker with fzf |
-| Tests | Vitest + jsdom (enforced coverage), Playwright e2e, Testing Library, type-aware ESLint |
-| API types | `openapi-typescript` (Node API) via `pnpm gen-types` → `web/tooling/genTypes.mjs` |
-
-## Module map (`web/src/`)
-
+```mermaid
+flowchart LR
+    subgraph Reads
+        V["View"] --> TC["apiGet<br/>(api/typedClient.ts)"]
+        TC --> AF["apiFetch<br/>(api/client.ts)"]
+        AF -->|socket up| SRV["Server"]
+        AF -->|"socket down,<br/>or fetch threw"| SHIM["replica/localApi/router.ts<br/>(replica worker)"]
+    end
+    subgraph Writes
+        ED["useOutline command"] --> SES["outline session<br/>applyLocal → applyOps"]
+        ED --> ENQ["SyncProvider.enqueue<br/>→ OpQueue"]
+        ENQ --> ROW["replica: pending_ops row<br/>+ optimistic local apply"]
+        ROW --> POST["POST /api/ops<br/>(FIFO drain)"]
+        ENQ -.->|replica unusable| LANE["in-memory lane"]
+        LANE -.-> POST
+    end
 ```
-web/src/
-├── main.tsx / App.tsx        Shell        Entry; provider nesting (SyncProvider > Dnd >
-│                                          Sidebar > BlockStamps); routes; the one window
-│                                          keydown listener for the global chords
-├── routeMeta.ts              Core         Path / top-bar label / browser title per
-│                                          static route (see Views and navigation)
-├── useRouteTitle.ts          Shell        The one route-aware document.title effect
-├── blockStampsPref.ts        Core         Block-timestamps preference: key, guard, toggle
-├── useBlockStampsPref.ts     Shell        Owns the single instance behind BlockStampsContext
-├── uid.ts / uidCore.ts       Shell/Core   uid minting (block uid, ClientId, BatchId); the
-│                                          alphanumeric-first rule
-├── theme.ts / useTheme.ts    Core/Shell   Theme cycle; data-theme stamping
-├── useEffectiveTheme.ts      Shell        Resolved theme read from the DOM (data-theme
-│                                          MutationObserver + media query); one shared
-│                                          module-level observer pair backs every call
-│                                          (useSyncExternalStore)
-├── popoverPosition.ts        Core         clampPopoverPosition — viewport clamping
-├── Popover.tsx               Shell        The shared anchored-popover chrome
-├── useDismiss.ts             Shell        Outside-mousedown + Escape dismissal
-├── useStoredPref.ts          Shell        One localStorage preference: guard-checked
-│                                          read, write-back, fallback on either failure
-├── useStaleGuard.ts          Shell        begin/cancel/isStale for surfaces holding one
-│                                          live request (SearchBar, QueryBlock,
-│                                          useTitleOptions); Files keeps its own
-├── useScrollFlashTarget.ts   Shell        Scroll a data-uid into view and flash it,
-│                                          document-wide or scoped to a panel root;
-│                                          holds it centred while layout settles
-├── externalLink.ts           Core         iOS-standalone predicate; click → x-safari-
-│                                          http(s) URL decision (see below)
-├── styles.css                —            All styling — owned by styling.md
-│
-├── api/                      The typed HTTP layer (see API layer)
-│   ├── client.ts             Shell        apiFetch: JSON, 401 → /login, offline gateway
-│   ├── typedClient.ts        Shell        apiGet/apiPost/…, typed by the OpenAPI paths
-│   ├── brands.ts             —            The one definition of each web brand (see
-│   │                                      API layer)
-│   └── openapi.json, types.d.ts (generated); ops.ts, payloads.ts (type-only re-exports)
-│
-├── grammar/                  Roam-markdown parsing (see frontend-rendering.md)
-│   ├── scan.ts               Core         THE scanner; mirrors server refs.py,
-│   │                                      fixture-pinned
-│   ├── tokenize.ts           Core         Token stream → BlockSegment[] for rendering
-│   └── refs.ts, todo.ts, snippet.ts, markdown.ts, linkReference.ts — Core adapters
-│
-├── outline/                  The editor engine (see frontend-editor.md)
-│   ├── handlers.ts           —            OutlineHandlers, the command port (types only)
-│   ├── outlineState.ts       Core         transitionOutline — the session reducer
-│   ├── tree.ts               Core         applyOps; mirrors the server's op semantics;
-│   │                                      hidesChildren, the one rule for what collapse hides
-│   ├── roamTableRows.ts      Core         A Roam {{table}} macro tree as rectangular rows
-│   ├── orderIdx.ts           Core         The one order-key arithmetic module (OrderIdx)
-│   ├── edits.ts / keyEdits.ts  Core       Structural and in-block edit planning
-│   ├── keyboardPolicy.ts     Core         Keystroke → semantic KeyDecision
-│   ├── keyboardBar.ts        Core         The iPhone keyboard bar's keys, phone check
-│   │                                      and keyboard inset
-│   ├── autocomplete.ts / refAtCaret.ts  Core  Completion contexts; live-caret rules
-│   ├── slashCommands.ts / calendar.ts   Core  Slash commands; the /date month grid
-│   ├── blockSelection.ts / history.ts / paste.ts / dnd.ts  Core  Selection, undo
-│   │                                      history, outline paste, drag planning
-│   ├── localFiles.ts         Core         /link-local-file: folder listing, the
-│   │                                      Local copy:: attribute text
-│   ├── localSearch.ts        Core         fzf search + highlight ranges (picker-only chunk)
-│   ├── blockStamps.ts        Core         Stamp bands; which ops count as a change
-│   ├── baseTextHash.ts       Core         Stamps update_text and delete ops at build time
-│   ├── textareaHeight.ts     Core         Auto-grow reset/write decisions (JS fallback)
-│   ├── missingPage.ts        Core         The missing-page policy
-│   ├── useOutline.ts         Shell        Implements OutlineHandlers
-│   ├── loadOutlineBlocks.ts  Shell        The one blocks-only page read behind every
-│   │                                      registered authoritative loader
-│   ├── outlineSessions.ts    Shell        Per-title shared sessions (see State management)
-│   ├── parentReadElection.ts Shell        Who starts a title's next parent read
-│   ├── repairEpochs.ts       Shell        The global post-settlement repair pass
-│   ├── useOutlinePageLoad.ts Shell        The shared single-page load controller
-│   ├── useBlockDraft.ts      Shell        The focused block's draft session
-│   ├── useAutocomplete.ts    Shell        The popup's shared state
-│   ├── undoManager.ts        Shell        Undo/redo dispatch; re-keys placements and
-│   │                                      re-stamps hashes at replay
-│   └── caretDisplayLine.ts   Shell        Caret geometry reads
-│
-├── components/               ~45 Shell files: the editor's views (EditableBlockTree,
-│   │                         BlockInput), inline renderers (InlineSegments, MathSpan,
-│   │                         QueryBlock, BlockRef, MermaidDiagram, PdfViewer, CodeBlock,
-│   │                         roamTable, TableOfContents…) and chrome (TopBar, SidebarNav/Panel, SearchBar,
-│   │                         OfflineIndicator, KeyboardBar, BacklinksSection, BacklinkGroupList,
-│   │                         BlockRefBacklinksPopover, BlockMenu, DatePickerPopup, DeleteBlockedDialog…)
-│   ├── LocalFilePicker.tsx   Shell        /link-local-file dialog over GET /api/local-index
-│   ├── ExternalLinkInterceptor.tsx  Shell  Capture-phase document click listener,
-│   │                                       mounted only in iOS standalone (see below)
-│   └── pure halves           Core         Beside their component: pdfViewerCore,
-│                                          tocEntries, backlinkFilter, groups,
-│                                          backlinkBatchWalk, bluesky, mermaidTheme,
-│                                          blockRefStore…
-│
-├── views/                    One Shell file per route (see Views and navigation);
-│   │                         EditablePage = one editable outline, shared by the main
-│   │                         pane and sidebar panels
-│   ├── FileCardPopovers.tsx  Shell        /files card popovers: refs, description
-│   └── filesCore.ts          Core         /files queries, MIME buckets, confirm text
-│
-├── assistant/                The chat panel UI (see The assistant panel)
-│   ├── sse.ts                Core         Incremental SSE frame parser
-│   └── client.ts / useAssistant.ts / AssistantPanel.tsx — Shell: stream, state, panel
-│
-├── sync/                     Delivery + connectivity (see sync-and-offline.md)
-│   ├── SyncProvider.tsx      Shell        The global context; wires the queue, replica sync,
-│   │                                      client runtime and legacy repair to React
-│   ├── clientRuntime.ts      Shell        Startup poison gate and poison repair, without
-│   │                                      React (retryFailedRepair on reconnect)
-│   ├── legacyRepair.ts       Shell        Outline repair after a rejected lane batch,
-│   │                                      without React (retryFailed on reconnect)
-│   ├── useSocketLifecycle.ts Shell        Connect lifecycle: pending bootstrap, socket
-│   │                                      status, StrictMode teardown
-│   ├── reconnectFlow.ts      Shell        Reconnect single-flight: drain → pull → resync
-│   ├── titleCanonicalization.ts Shell     Main-thread copy of the plain-space title flag
-│   │                                      (set by replicaSync) and `useTitleReader`
-│   ├── opQueue.ts            Shell        Durable-queue driver: enqueue retention, the
-│   │                                      drain, rejection → poison; composes the cores
-│   ├── queueState.ts         Core         Connectivity and retry-backoff transitions
-│   ├── outbox.ts             Core         The fallback lane's entries and ordering
-│   │                                      (headPrecedes, follows marks, settleHead)
-│   ├── poisonIntents.ts      Core         Validate, dedupe and order poison-mark intents
-│   ├── poisonIntentStore.ts  Shell        Their localStorage copy
-│   │                                      (pkm.poison-mark-intents.v1)
-│   ├── listeners.ts          Core         listeners<T>(): the subscriber sets behind
-│   │                                      OpQueue's onX and ReplicaSync.onSkipped
-│   ├── replicaSync.ts        Shell        Cursor pull loop
-│   ├── syncFailures.ts       Core         isStallShaped, isWindowFailure,
-│   │                                      isFreshCorruption; PullStarvedError
-│   ├── opsAck.ts             Core         Reads the /api/ops ack (seq, skipped)
-│   │                                      through the generated OpsAck
-│   ├── wire.ts               Core         The wire boundary: snapshot, changes and ack bodies,
-│   │                                      tombstone ids and WS frames read as the contract's types
-│   ├── socket.ts             Shell        WebSocket + reconnect policy
-│   ├── reconnectBackoff.ts   Core         Reconnect delay: 2 s doubling to a 30 s cap
-│   ├── syncState.ts          Core         Editability/health FSM
-│   ├── retryPolicy.ts        Core         Which recovery a banner Retry means
-│   ├── rejection.ts          Core         isTerminalRejection: which delivery
-│   │                                      failures mean the batch is bad
-│   ├── unloadGuard.ts        Shell        useUnloadGuard: beforeunload while the
-│   │                                      fallback lane holds edits
-│   └── assets.ts             Shell        Multipart upload
-│
-├── replica/                  The offline engine (see sync-and-offline.md)
-│   ├── worker.ts / workerHandlers.ts  Shell  The worker; db()'s latched open
-│   ├── rpc.ts / client.ts    Shell        Typed RPC over the worker port
-│   ├── db.ts                 Shell        ReplicaDb over sqlite-wasm; rollbacks
-│   │                                      that keep the original error; the
-│   │                                      catalog helpers (see Replica database access)
-│   ├── columns.gen.ts        —            Generated row vocabulary: Columns, COLUMN_META,
-│   │                                      BRAND_SHAPES, COLUMN_KEYS
-│   ├── rowCheck.ts           Core         rowProblems: a row against that vocabulary
-│   ├── pendingOps.ts         Core         parsePendingOps: a stored ops_json back to BlockOp[]
-│   ├── clientSchema.ts       Shell        CLIENT_DDL (pending_ops, pending_seen,
-│   │                                      sync_client_meta, replay_log*),
-│   │                                      SCHEMA_VERSION, installSchema
-│   ├── meta.ts               Shell        sync_client_meta accessors (cursor,
-│   │                                      generation, title flag, schema version,
-│   │                                      deferred block tombstones)
-│   ├── carryStore.ts         Shell        The pending queue's durable copy across a file replacement
-│   ├── carryMerge.ts         Core         Which pending rows a replacement at carry adoption keeps
-│   ├── ackedRows.ts          Core         Which lease rows a recovery commit's acks settle
-│   ├── queue.ts / apply.ts / reconcile.ts / recoveryGate.ts  Shell  Pending ops, feed
-│   │                                      apply, negative-id remap, recovery FIFO
-│   ├── localApi/             Shell        Offline read shims: the routes' exact JSON
-│   ├── localOps.ts           Shell        Optimistic apply (server timestamp rules)
-│   ├── replayLog.ts          Shell        replay_log statements: record a row's pre-image before
-│   │                                      a pending batch's first write, enqueue times, drop, remap
-│   ├── rewind.ts             Shell        rewind: restore pre-images (pending or all scope)
-│   ├── pageLookup.ts         Shell        Page lookup by canonical title (no create)
-│   ├── placement.ts          Core         placementFor: where a create or move lands,
-│   │                                      or skip (mirrors ops_apply)
-│   ├── missingTarget.ts      Core         Which ops skip on a missing target (mirrors ops_core)
-│   ├── blockRefs.ts          Shell        block_refs re-derivation, shared by both applies
-│   ├── errors.ts             Core         The availability taxonomy
-│   ├── openRetry.ts / poolCapacity.ts  Core  OPFS open policy
-│   ├── pendingGuard.ts       Core         May a window apply over a moved pending set
-│   ├── titles.ts             Core         Title canonicalization
-│   ├── refs.ts               Core         Ref extraction for local writes (mirrors refs.py)
-│   ├── daily.ts              Core         Daily-page titles (mirrors daily.py)
-│   ├── sha256.ts             Core         Synchronous sha256 inside a replica transaction
-│   ├── subtreeHash.ts        Core         Canonical subtree hash a delete is stamped with
-│   ├── wellFormed.ts         Core         Lone surrogates to U+FFFD (mirrors contracts/text.py)
-│   └── baseSchema.gen.ts     —            Generated from the server's BASE_DDL
-│
-├── dnd/                      Shell        Drag-and-drop context + drop zones
-│   └── dropGeometry.ts       Core         Boundary/indicator from measured rects
-└── contexts.ts, sidebar.ts, paths.ts, router.ts, help/ — small shared modules
-```
+
+- A write's `WriteTicket` separates *persisted locally* (`settled`) from
+  *acknowledged by the server* (`delivered`). Pages created offline get
+  negative ids, remapped by `replica/reconcile.ts`.
+- `SyncProvider` installs the offline gateway (`setOfflineGateway`) once the
+  replica is ready. The shim answers with the server's JSON shapes
+  (`shared/fixtures/shim_parity.json`). An unshimmed route throws
+  `OfflineError`, and its UI says "online only".
+- Views refetch when `resyncGeneration` bumps
+  ([sync-and-offline.md](sync-and-offline.md#when-views-refetch)).
+- `OfflineIndicator`'s wording states what is true of unsent work, so it is
+  documented beside the mechanisms that decide it
+  ([sync-recovery.md](sync-recovery.md#what-the-ui-shows)). Change both
+  together.
+
+## State management
+
+There is no Redux or Zustand. A view holds the payload it fetched and refetches
+through `useResync(fn)`. `sync/SyncProvider.tsx` holds the queue and
+connectivity. `outline/outlineSessions.ts` holds one shared block tree per
+title ([frontend-editor.md](frontend-editor.md#per-title-outline-sessions)).
+
+`SyncProvider` publishes four contexts, one per rate of change:
+
+| Hook | Value | New identity when |
+|---|---|---|
+| `useSyncActions()` | `enqueue`, `subscribe`, `settled`, `attachOutlineReplay`, `retryProblem`, `dismissProblem`, `discardProblem`, `resetReplica` | never: each method reads current state through a ref |
+| `useResyncGeneration()` | `resyncGeneration` | server state may have diverged (reconnect after a gap, repair finished) |
+| `useSyncEditability()` | `canEdit`, `readOnlyReason` | editing becomes allowed or blocked; a flap with a ready replica changes neither |
+| `useSyncHealth()` | `status`, `replicaMode`, `pending`, `unsentInMemory`, `problem` | the socket flaps, or an op is queued or acknowledged |
+
+React cannot subscribe to part of a context value, and the Journal mounts one
+outline per loaded day. **Anything sharing an identity with `pending`
+re-renders every mounted outline twice per flushed edit**, so a consumer takes
+the narrowest hook it can. Tests inject a complete `Sync` through
+`SyncContext`, which every hook prefers when set. `EditableBlock` is memoised
+behind props `EditableBlockTree` holds stable, so only a changed context
+identity reaches a row.
+
+`pending` has one publisher, the op queue. Code that changes the durable queue
+behind its back calls `queue.refreshPending()` rather than reading the replica.
+
+## API layer
+
+`apiFetch<T>` (`api/client.ts`) handles JSON, the 401 → `/login` redirect and
+the offline gateway. Reads carry a `READ_TIMEOUT_MS` abort signal. Mutations
+carry none, because an aborted write the server applied would leave the op
+queue retrying a batch it cannot know landed. `/api/sync/snapshot` opts out
+(`{ timeoutMs: null }`), or a slow cold-start bootstrap would abort.
+
+Product code calls `api/typedClient.ts`'s `apiGet`/`apiPost`/`apiPut`/
+`apiDelete`; ESLint's `no-restricted-imports` bars `apiFetch` elsewhere. The
+typed client takes the OpenAPI path template, so the generated `paths` table
+decides the parameters, body and response type:
+
+    apiGet("/api/page/{title}", { path: { title } })
+
+Path parameters are encoded per segment, because `{title:wholepath}` routes
+carry titles whose slashes must survive. Raw `apiFetch` remains in the typed
+client itself, multipart upload (`sync/assets.ts`) and `SyncProvider.tsx`'s
+`replicaSync` seam (`fetchJson: apiFetch`).
+
+Types come from `api/types.d.ts`, generated by `pnpm gen-types` from
+`api/openapi.json`. Never hand-write API types: the server suite fails on a
+stale artifact ([backend.md](backend.md#generated-artifacts-and-parity-fixtures)).
+
+## Brands
+
+A server field typed with a branded `NewType` carries an `x-brand` marker in
+`openapi.json` ([backend.md](backend.md#wire-models-and-brands)).
+`tooling/genTypes-core.mjs` turns it into `Brands.<Name>`, a reference to the
+export of that name in `api/brands.ts`, where every web brand is defined. A
+subtype brand adds a second key, not a second `__brand`, since two `__brand`
+literals intersect to `never`.
+
+**The main tsconfig's `skipLibCheck` skips every `.d.ts`, so a `Brands.<Name>`
+that `brands.ts` does not export degrades silently to `any`.** `pnpm typecheck`
+therefore runs a second pass, `tsconfig.apitypes.json`, with lib checking on.
+`tooling/genTypes.drift.test.ts` fails when the committed `types.d.ts` is not
+what `pnpm gen-types` writes; the stock openapi-typescript CLI would turn every
+brand back into `string`.
+
+Where a brand may be minted is `MINT_SITES` in
+`server/src/pkm/brand_registry.py`, enforced on the web by
+`brands/no-brand-assertion` ([enforced-checks.md](enforced-checks.md#web-side)).
+Tests mint through the checked helpers in `test-helpers.ts`. `sync/wire.ts`
+reads network bodies, tombstone ids (`tombstoneIdOfWire`) and WebSocket frames
+(`wsFrameOfWire`) as the contract's types; `ReplicaDb.select` does the same for
+replica rows ([sync-and-offline.md](sync-and-offline.md#reading-rows)).
+
+A title no check has run on is a `RawTitle`: request bodies, `paths.ts`'s
+`titleFromPathname`, and the op `page_title`. That op field is canonical only
+on the server's WS echo, so a `CanonicalTitle` is assignable to it.
+`asRawTitle` (`replica/titles.ts`) mints from plain text. `replica/apply.ts`'s
+`parkedTitle`, the placeholder written while two rows swap titles, is its own
+`ParkedTitle` brand, so no reader can take it for a canonical title.
 
 ## Views and navigation
 
-The SPA's routes:
-
 | Route | View |
 |---|---|
-| `/` | Journal — an infinite scroll of daily pages |
-| `/page/*` | PageView — one page |
+| `/` | Journal, an infinite scroll of daily pages |
+| `/page/*` | PageView, one page |
 | `/current-work` | Recently edited pages |
 | `/files` | The asset browser |
-| `/settings` | Whole-database export, and future settings |
-| `/help` | The static keyboard-shortcut doc |
+| `/settings` | Whole-database export |
+| `/help` | The keyboard-shortcut doc |
 | `*` | NotFound |
 
-`App.tsx`'s `MainRoutes` holds them. A `/page/` URL whose title holds control
-whitespace (a hand-typed `%0A`) is first redirected to the one-line title it
-folds to. Every pathname under `/page/` then renders PageView directly,
-because react-router compiles `*` to a `.*` that matches no newline, U+2028 or
-U+2029, so a route match would drop such titles. PageView, a sidebar panel and the Journal key their outline session
-by the page's stored title, whatever spelling opened them
+Every pathname under `/page/` renders PageView directly, because react-router
+compiles `*` to a `.*` that matches no newline, U+2028 or U+2029. A title
+holding control whitespace (a hand-typed `%0A`) is first redirected to the
+one-line title it folds to. PageView, a sidebar panel and the Journal key their
+outline session by the page's stored title, whatever spelling opened them
 (`outline/titleKeys.props.test.tsx`).
 
 ### One table for route metadata
 
-`routeMeta.ts` holds the path, top-bar label and browser title for every
-static route. Three places read it: `App.tsx`'s `<Routes>` and `NavLink`s,
-TopBar's label and page-action-menu gating, and `useRouteTitle.ts`, the single
-route-aware `document.title` effect. A route therefore cannot end up labelled
-in one place and not another. `routeMetaFor` strips trailing slashes from
-non-root static paths, so a hand-typed `/files/` still resolves. `/page/*` and
-the catch-all have no entry; `PageView.tsx` sets its own title once the page's
-title has loaded.
+`routeMeta.ts` holds the path, top-bar label and browser title of every static
+route. `App.tsx`'s routes and nav links, TopBar, and `useRouteTitle.ts` all
+read it, so a route cannot be labelled in one place and not another. `/page/*`
+and the catch-all have no entry; `PageView.tsx` sets its own title.
 
 ### Navigation chrome
 
-The left nav holds the pinned pages (server-persisted through `/api/sidebar`),
-app destinations — Assistant, Files, Settings — and the theme toggle. The
-right-hand sidebar is a session-only stack: shift-clicking any page link or
-ref pushes a `SidebarPanel` onto it.
+The left nav holds pinned pages (`/api/sidebar`), app destinations and the
+theme toggle. The right sidebar is a session-only stack: shift-clicking a page
+link or ref pushes a `SidebarPanel`.
 
 **No link in the left nav may leave shift-click to the browser.** react-router
 ignores modified clicks (`shouldProcessLinkClick` bails on `shiftKey`), so a
-new nav link takes one of these two components rather than `NavLink`:
+nav link is never a bare `NavLink`:
 
-- `NavPageLink` — destinations that *are* pages (the pinned entries, TODO):
-  opens the page in the sidebar, same contract as `PageLink` inline.
-- `NavRouteLink` — destinations that aren't (Daily Notes, Current Work, Files,
-  Settings): swallows the click, since a panel renders a page by title and no
-  page sits behind these routes. It leaves `onNavigate` unfired, so a phone
-  drawer stays open.
+| Component | For | Shift-click |
+|---|---|---|
+| `NavPageLink` | destinations that are pages (pinned entries, TODO) | opens the page in the sidebar |
+| `NavRouteLink` | routes with no page behind them | swallowed, leaving `onNavigate` unfired so a phone drawer stays open |
 
-Four global chords live in one `window` keydown listener in `App.tsx`:
+The global chords ([keyboard.md](../keyboard.md#anywhere-in-the-app)) share one
+`window` keydown listener in `App.tsx`. They fire while a block is edited
+only because `BlockInput` never calls `stopPropagation` on keydown. The
+`Ctrl+Shift` forms exist because the page gets no keydown for the Cmd forms
+(macOS reserves `Ctrl+Cmd+D`, the browser owns `Cmd+T`). jsdom and Playwright deliver keydowns
+the real OS would swallow, so confirm a new chord in the running app.
 
-| Chord | Effect |
-|---|---|
-| `Ctrl+Shift+D` | Jump to today's daily note |
-| `Cmd/Ctrl+/` | Toggle the sidebar |
-| `Cmd/Ctrl+J` | Toggle the assistant panel |
-| `Ctrl+Shift+T` | Toggle the block-stamp column |
+### The Journal
 
-The Ctrl+Shift family exists because the page receives no keydown at all for
-the Cmd forms: macOS reserves `Ctrl+Cmd+D`, the browser owns `Cmd+T` and
-`Shift+Cmd+T`, and [keyboard.md](../keyboard.md) leaves `Ctrl+letter` to the
-browser. Both Ctrl+Shift chords carry a `!e.metaKey` guard.
-
-No test can tell you a chord is swallowed: jsdom and Playwright both deliver a
-synthetic keydown the real OS or browser would have eaten. Confirm a new
-global chord by pressing it in the running app before merging.
-
-The chords fire while a block is being edited, because `BlockInput` does not
-`stopPropagation` on keydown and the listener is on `window`. A propagation
-guard in the editor would break all four.
-
-`Ctrl+Shift+T` toggles `blockStampsPref`, a global setting, so pressing it on
-`/files` takes effect on the next page opened even though the page menu offers
-the item only on `/page/*`.
-
-The main pane and a sidebar panel can show the same page at once, which drives
-the per-title outline sessions below.
+Each day's linked references arrive with the day in `/api/journal`'s payload
+and render inline (`JournalDayReferences`, reusing `BacklinksSection`). A day on
+screen keeps the list it first rendered: `BacklinksSection` snapshots `initial`
+into state, and a resync replaces day objects in place under stable keys.
+Nothing unmounts a loaded day, so each mounted outline and its `useDismiss`
+listener last for the session (perf scenarios `I` and `J`).
 
 ### Popovers and menus
 
-`Popover.tsx` is the chrome every anchored popover renders through: a
-`role="dialog"` on `.block-ref-popover`, `position: fixed` at its anchor
-point, measured after layout and clamped into the viewport by
-`clampPopoverPosition`. An overflowing fixed element grows no scrollbar to
-recover it, so the clamp is what keeps the surface reachable; its `remeasure`
-prop names the caller's values whose change resizes the content and
-invalidates that clamp.
+`Popover.tsx` is the chrome every anchored popover renders through:
+`position: fixed` at its anchor, measured after layout and clamped into the
+viewport by `clampPopoverPosition`, since an overflowing fixed element grows no
+scrollbar. Its `remeasure` prop names values whose change resizes the content.
+`Popover` and `BlockMenu` portal into `document.body`
+([styling.md](styling.md#layout-invariants) says why). A portal moves the DOM
+node, not the React node, so a portalled surface stops its own clicks.
 
-Both `Popover` and `BlockMenu` `createPortal` into `document.body`, where
-`position: fixed` resolves against the viewport only while no ancestor imposes
-layout containment ([styling.md](styling.md) owns that invariant). A portal
-moves the DOM node, not the React node, so treat a portalled surface as an
-interactive island and stop its own clicks, as `PdfViewer`'s overlay does.
+| Surface | Dismissal |
+|---|---|
+| `BlockRefBacklinksPopover`, `FileCardPopovers` | `Popover`'s own `useDismiss` (outside `mousedown` or Escape) |
+| `BlockMenu` | `useDismiss`; roving focus and Tab stay in the component |
+| `TopBar`'s page menu, `SearchBar` | `useDismiss` with `enabled` |
+| `ConfirmDialog` | hand-rolled: `window` listener, Escape/Enter |
+| `ImageOverlay`, `GoodlinksReader`, `LocalFilePicker` | `useOverlayDismiss`: capture-phase `window` listener, scroll lock, focus restore |
+| `AutocompletePopup`, `DatePickerPopup` | none: `BlockInput` owns their keys |
 
-`useDismiss(ref, onDismiss, options)` is the dismissal half on its own:
-`mousedown` outside `ref` or Escape, both listeners on `document`. `enabled`
-suits a surface that stays mounted while closed, `preventDefaultOnEscape` one
-that claims the keystroke outright.
+Hand-roll dismissal only for a modal surface (one that traps focus, locks
+scrolling or answers keys beyond Escape), or one whose keys another component
+owns.
 
-| Surface | Chrome | Dismissal |
-|---|---|---|
-| `BlockRefBacklinksPopover`, `FileCardPopovers` | `Popover` | `Popover`'s own `useDismiss` |
-| `BlockMenu` | `.block-menu` | `useDismiss`; roving focus and Tab stay in the component |
-| `TopBar`'s page menu, `SearchBar` | own markup | `useDismiss` with `enabled` |
-| `ConfirmDialog` | own modal markup | hand-rolled: `window` listener, Escape/Enter |
-| `ImageOverlay`, `GoodlinksReader`, `LocalFilePicker` | own modal markup | `useOverlayDismiss`: capture-phase `window` listener, Escape/Tab, scroll lock, focus restore |
-| `AutocompletePopup`, `DatePickerPopup` | own markup | none of their own — `BlockInput` owns their keys |
+A row's `RefCountBadge` opens `BlockRefBacklinksPopover`, which fetches
+`GET /api/block/{uid}/backlinks` at open, so the list is live while the count
+is as fresh as the page payload.
 
-Hand-roll dismissal only for a modal surface, or one whose keys another
-component owns. **Modal** here means it traps focus, locks page scrolling, or
-answers keys beyond Escape.
-
-### External links in the iOS standalone app
-
-An installed iOS/iPadOS home-screen app opens external links in the in-app
-WKWebView overlay, and Apple offers no supported way to change that.
-`ExternalLinkInterceptor` (mounted in `App.tsx` beside `UndoRedoKeys`)
-attaches a capture-phase
-`document` click listener when `externalLink.ts`'s `isIosStandalone` predicate
-holds, and rewrites the click's navigation to the undocumented
-`x-safari-https://`/`x-safari-http://` scheme, which hands the URL to Safari.
-Hrefs stay canonical `https://`, so copy link, share and every other browser
-are unaffected.
-
-A tap inside a cross-origin iframe never reaches that listener, so
-`BlueskyEmbed` lays a `.bluesky-embed-tap` anchor to the post over its iframe
-when `isIosStandalone` holds. Every tap on the embed then opens the post
-itself in Safari, not the author or link the tap landed on.
+Every confirmation goes through `useConfirm` (`components/ConfirmDialog.tsx`),
+never `window.confirm` ([below](#ios-and-phone-behaviour)). The owning
+component must render the returned `dialog`, or `confirm()` never settles; a
+hook with a confirm-backed handler re-exports it, as `useOutline` does. Remote
+batches can land while a dialog is open, so a handler re-derives its target
+after the await.
 
 ### The `/files` browser
 
-`/files` is a plain table over `/api/assets/search`, with filters (text over
-filename and description, type, date range, linked/orphan), offset pagination,
-and multi-select for delete and zip export. The store behind it is
-[files-and-assets.md](files-and-assets.md).
+`/files` is a table over `/api/assets/search`; the store is in
+[files-and-assets.md](files-and-assets.md). Image and PDF thumbs open in-app
+(`ImageOverlay`, `PdfViewer`'s overlay-only mode). The refs popover renders
+through `BacklinkGroupList`, whose rows render media inert
+(`InertMediaContext`) so the whole row is a click target. `AssetRefGroup` has
+no `page_id`, which keeps asset refs out of `mergeGroups`. Pagination has a
+synchronous single-flight lock against a double click, and a generation guard
+that discards responses a filter change has made stale.
 
-An image thumb expands in the shared `ImageOverlay`, and a PDF thumb opens
-`PdfViewer` in its overlay-only mode (the `onClose` prop) through the lazy
-`PdfEmbed` shim, so PDFs open in-app on every surface. Other thumbs stay plain
-new-tab anchors, which download rather than navigate because the server serves
-those MIME types as `Content-Disposition: attachment`. The refs and
-described/failed badges open popovers (`views/FileCardPopovers.tsx`); `orphan`
-and `pending` stay inert spans. The refs popover fetches block text through
-`GET /api/block-refs`, chunked at its 50-uid cap by `filesCore.refUidChunks`.
-It renders through `BacklinkGroupList`, the renderer every backlinks surface
-uses, whose rows render media inert (`InertMediaContext`) so the whole row
-stays a click target.
+## iOS and phone behaviour
 
-Pagination has two guards: a synchronous single-flight lock against a double
-click issuing two page requests, and a generation guard that discards
-responses a filter change has made stale.
-
-`views/filesCore.ts` is the pure half: query building, MIME categorisation,
-size formatting, confirm text, the copyable reference token, ref grouping
-(`refGroups`, `refUidChunks`). `typedClient` serializes the query, and the
-shell owns fetching, selection and the download. The zip export is
-submitted as a throwaway hidden `<form method="post">`, so the browser owns
-the download instead of the SPA buffering it.
-
-`refGroups` returns `AssetRefGroup`, not `BacklinkGroup`: the asset search
-payload carries no page ids, and `AssetRefGroup` has no `page_id` field at
-all rather than a synthetic one. `BacklinkGroupList` accepts either shape,
-keying each row on `page_id` when present and `page_title` otherwise. The
-missing field also keeps `AssetRefGroup` out of `mergeGroups`'s page_id
-generic, so asset refs can never be paginated into the wrong page's group.
-
-## State management
-
-There is no Redux/Zustand; state lives in three layers:
-
-1. **Server payloads per view** — components fetch JSON through the typed
-   client and hold it in local state, refetching when told to.
-2. **`SyncProvider`** (`sync/SyncProvider.tsx`) — four contexts, one per rate
-   of change. React cannot subscribe to part of a context value, and the
-   Journal mounts one outline per loaded day, so **anything sharing an
-   identity with `pending` re-renders every mounted outline twice per flushed
-   edit**. A consumer takes the narrowest hook it can:
-
-   | Hook | Value | New identity when |
-   |---|---|---|
-   | `useSyncActions()` | `enqueue`, `subscribe`, `settled`, `attachOutlineReplay`, `retryProblem`, `dismissProblem`, `discardProblem`, `resetReplica` | never: one object per provider, because each method reads current state through a ref |
-   | `useResyncGeneration()` | `resyncGeneration` | server state may have diverged (reconnect after a gap, repair finished) |
-   | `useSyncEditability()` | `canEdit`, `readOnlyReason` | editing becomes allowed or blocked; a flap with a ready replica changes neither |
-   | `useSyncHealth()` | `status`, `replicaMode`, `pending`, `unsentInMemory`, `problem` | the socket flaps, or an op is queued or acknowledged |
-
-   Views subscribe to the counter through `useResync(fn)` and refetch on each
-   bump. There is no whole-value hook: the provider publishes only the four
-   slices, and tests inject a complete `Sync` through `SyncContext`, which
-   every hook prefers when set. One layer down, `EditableBlock` (in
-   `EditableBlockTree.tsx`) is memoised behind props the tree holds stable, so
-   a changed context identity is what reaches a row.
-
-   `pending` has exactly one publisher, the op queue, which suppresses a
-   re-emit of a count that did not move. Anything that changes the durable
-   queue behind the queue's back calls `queue.refreshPending()` rather than
-   reading the replica itself.
-3. **Per-title outline sessions** (`outline/outlineSessions.ts`) — a
-   module-level `Map<title, Session>` external store hands every view of a
-   title one ref-counted session, sharing a flushed tree and a monotonic
-   revision. Exactly one view holds the editor lease and the others render
-   read-only, so the same page in two places cannot double-edit. That store,
-   its loader election (`parentReadElection.ts`), the post-settlement repair
-   pass (`repairEpochs.ts`) and the reducer behind them
-   (`outlineState.ts::transitionOutline`) are in
-   [frontend-editor.md](frontend-editor.md).
-
-## API layer
-
-`apiFetch<T>` handles JSON, the 401 → `/login` redirect, and the offline
-gateway. Reads carry a `READ_TIMEOUT_MS` abort signal; mutations carry none,
-because an aborted-but-applied write would leave the op queue retrying a batch
-it cannot know landed. The whole-graph `/api/sync/snapshot` opts out with
-`{ timeoutMs: null }`, since a deadline picked for small reads would abort a
-legitimate cold-start bootstrap. Types come from the generated
-`api/types.d.ts` (`pnpm gen-types` over `api/openapi.json`); `api/ops.ts` and
-`api/payloads.ts` are type-only re-exports. **Never hand-write API types** —
-the server test suite fails on stale artifacts.
-
-A server field typed with a branded `NewType` carries an `x-brand` marker in
-`openapi.json` (see [backend.md](backend.md#wire-models-and-brands)).
-`tooling/genTypes-core.mjs` turns it into `Brands.<Name>`, a reference to
-the export of that name in `api/brands.ts`, which is the only place a brand
-is defined. A subtype brand adds a second key rather than a second
-`__brand`, since two `__brand` literals intersect to `never`; the file's
-header shows the pattern. The main tsconfig's `skipLibCheck` skips every
-`.d.ts`, so a `Brands.<Name>` that `brands.ts` doesn't export would degrade
-silently to `any`. `pnpm typecheck` therefore runs a second pass,
-`tsconfig.apitypes.json`, that checks `types.d.ts` with lib checking on.
-`tooling/genTypes.drift.test.ts` fails when the committed `types.d.ts` is not
-what `pnpm gen-types` writes, since regenerating with the stock
-openapi-typescript CLI would turn every brand back into `string`.
-
-| Brand | Minted at |
-|---|---|
-| `BlockUid` | `uid.ts`'s `newUid`, `ids.ts`'s `parseBlockUid`, the block-ref token (`grammar/scan.ts`); a selected column, branded by `ReplicaDb.select`; `sync/wire.ts`'s `tombstoneIdOfWire`; `replica/pendingOps.ts`'s `parsePendingOps` |
-| `PageId` | a selected column, branded by `ReplicaDb.select`; `localOps.ts`'s `getOrCreateLocalPage` selects a negative id for an offline page, the sign carrying that meaning; `sync/wire.ts`'s `tombstoneIdOfWire`; `outline/missingPage.ts`'s `MISSING_PAGE_ID` sentinel |
-| `SidebarEntryId` | a selected column, branded by `ReplicaDb.select`; `sync/wire.ts`'s `tombstoneIdOfWire` |
-| `OrderIdx` | `outline/orderIdx.ts` (`FIRST_ORDER_IDX`, `orderIdxAfter`, `orderIdxAfterLast`, `orderIdxPlus`, `freshChildOrderIdx` — the one order-key arithmetic in the web); `outline/edits.ts`'s `orderIdxAfterPosition`, the dense position→order-key conversion; a selected `order_idx`, branded by `ReplicaDb.select`; `replica/pendingOps.ts`'s `parsePendingOps` |
-| `SidebarOrderIdx` | carried from generated response types; a selected `sidebar_entries.order_idx`, branded by `ReplicaDb.select` |
-| `RawTitle` | `replica/titles.ts`'s `asRawTitle`, the general mint; the readers of stored and wire op lists (`sync/wire.ts`, `replica/pendingOps.ts`, `sync/poisonIntents.ts`) |
-| `NormalizedTitle` | `grammar/scan.ts`'s `normalizeRefTitle` and hashtag token, `replica/titles.ts`'s `canonicalizeTitle` |
-| `CanonicalTitle` | a selected `pages.title` / `sidebar_entries.title`, branded by `ReplicaDb.select`; `replica/meta.ts`'s `canonicalTitle`/`titleReader` (which read the live plain-space flag), `sync/titleCanonicalization.ts`'s `titleReaderFor` (the main thread's mirror of it), `replica/daily.ts`'s `titleForDate`/`dailyTitle` |
-| `Sha256Hex` | `replica/sha256.ts`'s `sha256Hex` and `parseSha256Hex`, `replica/subtreeHash.ts`'s `subtreeHash`; the asset-link token (`grammar/tokenize.ts`); a selected `sha256`, `base_hash` or `after_hash`, branded by `ReplicaDb.select` |
-| `SyncSeq` | carried from generated response types; `ids.ts`'s `parseSyncSeq`, which narrows the stored cursor (`replica/workerHandlers.ts`) and an ack (`sync/opsAck.ts`), and `INITIAL_SEQ`, the sync loop's starting cursor (`sync/replicaSync.ts`); the WS seq frame is read by `sync/wire.ts`'s `wsFrameOfWire` |
-| `ClientId` / `BatchId` | `uid.ts`'s `newClientId` and `newBatchId`, which `sync/opQueue.ts` and `replica/workerHandlers.ts` use as their default batch minter; a selected `batch_id`, branded by `ReplicaDb.select` |
-| `GoodlinksId` | `components/goodlinks.ts`'s `goodlinksIdFromHref` |
-| `ConversationId` / `ConfirmId` | minted server-side; the web only carries them (`ConfirmId` is narrowed by hand at the SSE `confirm_request` parse, `assistant/sse.ts`) |
-
-Tests mint every brand through `test-helpers.ts`, one checked helper per
-brand: `uidOf`, `pageIdOf`, `seqOf` ... (the registry's `TEST_HELPERS`). Each
-throws unless the value fits the brand's `BRAND_SHAPES` pattern or base type
-(an integer brand refuses `1.5`), so a fixture holds only values the product
-could produce. A short tag becomes a uid as `tuid-<tag>`. A negative test
-forges a bad value with `malformedUid`, `malformedSha`, `malformedSeq` or
-`malformedCanonicalTitle`, which skip the check; only the uid and canonical-title forgers accept null.
-Product code may not import the module ([enforced-checks.md](enforced-checks.md#web-side)).
-
-A title no check has run on is a `RawTitle`: request bodies
-(`CreatePageRequest.title`, `RenamePageRequest.new_title`), `paths.ts`'s
-`titleFromPathname`, and the op `page_title`, which is raw inbound and only
-canonical on the server's WS echo, so a `CanonicalTitle` is assignable either
-way. `asRawTitle` (`replica/titles.ts`) is the general mint and is called only on
-plain text at its entry; stored and wire op lists carry titles already, so
-their readers mint too (see the table above).
-`replica/apply.ts`'s `parkedTitle` — the placeholder a window transaction
-writes into `pages.title` while two rows swap titles — is its own
-`ParkedTitle` brand, not `CanonicalTitle`: it is
-never a title a reader should treat as canonical.
-
-Concrete JSON requests must use `api/typedClient.ts`'s `apiGet`/`apiPost`/
-`apiPut`/`apiDelete`, which ESLint's `no-restricted-imports` enforces by
-barring `apiFetch` imports from `api/client` outside raw transport seams. The
-typed client is a typing layer over `apiFetch`, not a second transport, so the
-offline gateway and error behaviour are identical. It takes the OpenAPI path
-template rather than a built URL:
-
-    apiGet("/api/page/{title}", { path: { title } })
-
-so the generated `paths` table decides the path and query parameters, the JSON
-request body, and the response type. Path parameters are encoded per segment,
-because `{title:wholepath}` routes carry namespace titles whose slashes must
-survive. Compile-time drift probes live in `api/typedClient.test.ts`; an
-expected-error directive that stops erroring fails the build.
-
-Three raw `apiFetch` exceptions exist: the typed-client implementation itself,
-multipart upload in `sync/assets.ts`, and `SyncProvider.tsx`'s `replicaSync`
-injection seam (`fetchJson: apiFetch`).
-
-## Sync and offline (UI-side summary)
-
-The protocol is in [sync-and-offline.md](sync-and-offline.md) and its failure
-handling in [sync-recovery.md](sync-recovery.md); what touches a
-frontend contributor day-to-day:
-
-- Edits are optimistic: apply to the outline session, enqueue to a durable
-  queue (`pending_ops`), deliver FIFO to `POST /api/ops`. A `WriteTicket`
-  distinguishes *persisted locally* (`settled`) from *acknowledged by server*
-  (`delivered`). Pages created offline get negative ids, remapped by
-  `replica/reconcile.ts`.
-- `api/client.ts::apiFetch` installs an **offline gateway**: when the socket
-  is down, or a live fetch throws, reads route to
-  `replica/localApi/router.ts` — TypeScript ports of the server's read routes
-  returning identical JSON (pinned by `shared/fixtures/shim_parity.json`).
-  Unshimmed routes throw `OfflineError`, and their UI says "online only".
-- `OfflineIndicator` renders connectivity state and every *delivery problem*
-  `SyncProvider` raises. Its wordings encode what is and is not true of the
-  user's unsent work, so the copy is documented with the mechanisms that
-  decide it, in
-  [sync-recovery.md](sync-recovery.md#what-the-ui-shows).
-  Change it there too.
-- The service worker (Workbox, configured in `vite.config.ts`) precaches the
-  app shell, sqlite wasm, the pdf.js worker and core KaTeX fonts,
-  runtime-caches `/assets/` (CacheFirst, 400-entry LRU), and never caches
-  `/api`.
-
-### Replica database access
-
-`ReplicaDb.select(sql, keys, params?)` returns rows typed `Pick<Columns, K>[]`:
-`keys` is a required, non-empty array of the columns the SQL returns, `K` is
-inferred from it, and each carries the type and brand `Columns` gives that
-key. The keys come second so that sql is first and params last, as in `exec`
-and `introspect`. A
-column the query returns under another name is aliased in the SQL to a key
-(`id AS pending_row_id`), which is how one SQLite column maps to a
-table-level key. `Columns`, `COLUMN_META` (brand, base type, nullability,
-literal domain), `COLUMN_KEYS` and `BRAND_SHAPES` are in
-`replica/columns.gen.ts`, generated by `pkm.rows_dump` from the server's
-`rows.Row` and `brand_registry`
-([backend.md](backend.md#generated-artifacts-and-parity-fixtures)).
-`columns.test.ts` checks the client-only tables against it.
-
-Under vitest (`import.meta.env.MODE === "test"`) `select` reads the engine's
-column names, empty results included, and throws unless they equal `keys` as
-sets: a missing column, an extra column and a duplicate key are each an error
-(`keyColumnsMessage`). Every selected row also goes through `rowProblems` (`replica/rowCheck.ts`), the TypeScript twin of the
-server's `row_problems`. It throws on an unregistered column, a NULL in a
-non-null key, a wrong base type, a value outside a literal domain or a value
-that fails its brand's shape. The check is chosen once at module load in
-`replica/db.ts`: in a production build the mode test folds to a constant, so
-the worker bundle contains neither `rowCheck.ts` nor the vocabulary behind it.
-`openTestDb({ checkRows })` turns it off for the one test whose premise is
-data the check would reject. Seeds spell uids as `tuid-<tag>`, the shape
-`uidOf` (`test-helpers.ts`) accepts.
-
-In production `select` is `selectObjects` and ignores `keys`. The lint rule
-`brands/select-keys-literal` requires the keys argument to be an array
-literal of string literals, because a widened array (`(keyof Columns)[]`)
-would type every column as present. The one other shape it allows is an array
-or tuple whose element type is a type parameter, and only inside a method or
-property named `select`, so a `ReplicaDb` wrapper can forward its generic `K`
-unchanged. A free generic helper is reported: its callers do not call
-`ReplicaDb.select`, so nothing would check their keys.
-
-`introspect(sql)` returns raw, unchecked rows under SQLite's own column
-names, for catalog reads, counts and tests. Production code does not call it:
-it uses the helpers in `replica/db.ts` (`foreignKeyViolations`, `quickCheck`,
-`sqliteVersion`, `catalogNames`). Under vitest it throws when a returned
-column may carry a brand: a branded `Columns` key, or a raw name `COLUMN_KEYS`
-maps to one (a bare `id`). The message names the `select` key to read it
-under, so the row check validates the value. The refusal reads the engine's
-column names, so an empty result is refused too. It goes by returned name:
-`uid AS u` is an unbranded value and passes. In production the refusal, like
-the row check, is not in the bundle.
-
-`sync/wire.ts` is the matching boundary for what arrives over the network. It
-reads a snapshot, changes or ack body, a tombstone's entity id
-(`tombstoneIdOfWire`) and a WebSocket frame (`wsFrameOfWire`) as the
-generated contract's types, and is the only place those casts live.
+| Platform behaviour | What the app does | Code |
+|---|---|---|
+| An installed iOS app opens external links in an in-app WKWebView | rewrites a cross-origin click to `x-safari-https://` (or `-http`), which opens Safari. Hrefs stay `https://` | `ExternalLinkInterceptor`, `externalLink.ts::isIosStandalone` |
+| In standalone, a same-origin `target="_blank"` link replaces the whole app | the interceptor leaves same-origin clicks alone, so PDFs open in the in-app `PdfViewer` overlay instead | `externalLink.ts::safariHrefForClick` |
+| A tap inside a cross-origin iframe never reaches that listener | in standalone, `BlueskyEmbed` lays a `.bluesky-embed-tap` anchor to the post over its iframe | `BlueskyEmbed.tsx` |
+| Standalone suppresses `window.confirm`, returning `false` | every confirmation uses `useConfirm` | `ConfirmDialog.tsx` |
+| Standalone ignores `beforeunload` | the in-memory lane's unload guard cannot hold ([sync-recovery.md](sync-recovery.md#the-in-memory-fallback-lane)) | `sync/unloadGuard.ts` |
+| The iPhone keyboard has no Tab key | `BlockInput` renders `KeyboardBar`. `isPhoneUserAgent` decides, not width, so an iPad or narrow desktop never gets it | `outline/keyboardBar.ts` |
+| iOS Safari does not shrink the layout viewport for the keyboard | the bar sits `keyboardInset` above its bottom, tracked from `visualViewport` | `KeyboardBar.tsx` |
+| Safari zooms into a focused field under 16px; `.block-input` is 15px | on an iPhone `main.tsx` adds `maximum-scale=1`, or the zoom pans the bar off screen | `phoneViewportContent` |
+| The iOS 26 Safari tab's floating address pill is outside the visual viewport | the bar sits one pill higher, the lowest position where every key can be tapped | `keyboardInset` |
+| Cancelling `pointerdown` keeps the keyboard open, but WebKit then sends no click | a bar key acts on `pointerdown`; only a `detail === 0` click (VoiceOver) acts on its own | `KeyboardBar.tsx` |
+| A touch on a key starts text selection; two quick taps zoom | `.keyboard-bar` sets `user-select: none`, `-webkit-touch-callout: none`, `touch-action: manipulation` | `styles.css` |
+| iPadOS may freeze a hidden tab's socket | an `OPEN` socket hidden past `RESUME_STALE_MS` is closed ([sync-and-offline.md](sync-and-offline.md#ancillary-details)) | `sync/socket.ts` |
 
 ## The assistant panel
 
-`src/assistant/` is the UI for the server-side LLM assistant
-([assistant.md](assistant.md)): a floating chat panel toggled with
-`Cmd/Ctrl+J` (Esc closes) or the "Assistant" sidebar entry.
+`src/assistant/` is the chat panel for the server-side assistant
+([assistant.md](assistant.md)). Conversations are lost on reload. The model
+list comes from `GET /api/assistant/models` on first open, with a hardcoded
+fallback in `useAssistant.ts`.
 
-- The conversation is created lazily on the first message. The model dropdown
-  renders what `GET /api/assistant/models` offers, fetched on first panel open
-  rather than app load, and locks once the conversation exists; `sonnet` /
-  `opus` / `haiku` / `fable` are the fallback if the fetch fails. Conversations are
-  ephemeral: a reload loses them.
-- "New chat" deletes the server-side conversation and is safe mid-turn. Each
-  turn carries a generation counter that `newChat` bumps before clearing
-  state, so a superseded turn's SSE events and finalizers are dropped instead
-  of reaching the fresh transcript.
-- `client.ts::streamMessage` POSTs the message and feeds the response body
-  through `sse.ts`, a pure incremental frame parser, into `useAssistant.ts`,
-  which folds events into chat items: `text_delta` appends to the running
-  bubble, `tool_started`/`tool_finished` render activity lines, and
-  `confirm_request` shows an Allow/Deny card with the write's ops preview.
-- The busy line shows the server's current `phase` label plus an elapsed clock
-  (`elapsed.ts::elapsedLabel`), restarted on each label change, tool start and
-  confirm resume, so a parked approval does not inflate the next stretch.
-- `sse.ts` drops any frame whose `event:` name is not one of its seven known
-  types, which hides the server's keepalive comment frames and silently drops
-  any newly added event type until `EVENT_TYPES` learns the name.
-  `streamMessage` errors the turn if nothing at all arrives for 60 s. That
-  error is not an `AbortError`, because `useAssistant` treats one after Stop
-  as success.
-- Assistant bubbles render through the shared block grammar (`tokenizeBlock` →
-  `InlineSegments`), with `stripCaretBlockRefs` (`assistant/normalizeRefs.ts`)
-  applied to the raw text first: some models copy the `^uid` marker from tool
-  output into their citations, and the grammar rejects `((^uid))`, so the fix
-  lives here rather than in `scan.ts`.
-- `streamMessage` bypasses `apiFetch` (which consumes the body as JSON) but
-  replicates its 401 handling; the other assistant calls use the typed client.
-  The assistant is online-only — `/api/assistant/*` has no offline shim.
-
-## Styling
-
-Plain CSS in a single `src/styles.css` — no framework, no CSS-in-JS.
-The design tokens, control families, confirmation pattern and
-focus/affordance invariants are owned by [styling.md](styling.md). A new
-control opts into a named class there; nothing inherits a look silently.
+- `client.ts::streamMessage` feeds the response body through `sse.ts`, a pure
+  frame parser, into `useAssistant.ts`. It bypasses `apiFetch`, which reads
+  the body as JSON, and replicates its 401 handling.
+- `sse.ts` drops a frame whose `event:` name is not in `EVENT_TYPES`. That
+  hides keepalives, and also drops a new event type until it is added.
+- After `STREAM_STALL_TIMEOUT_MS` with nothing received the turn errors, with
+  an error that is not an `AbortError`: `useAssistant` treats an `AbortError`
+  after Stop as success.
+- `newChat` bumps a generation counter before clearing state, so a superseded
+  turn's events and finalizers are dropped.
+- The busy clock (`elapsed.ts::elapsedLabel`) restarts on each phase label,
+  tool start and confirm resume, so a parked approval does not inflate it.
+- `stripCaretBlockRefs` (`assistant/normalizeRefs.ts`) runs before
+  `tokenizeBlock`, because some models copy the `^uid` marker into citations
+  and the grammar rejects `((^uid))`.
 
 ## Testing and quality gates
 
-`pnpm verify` runs the gates in cost order:
-**typecheck → lint → check:fcis → test:coverage → budget-enforced build →
-Playwright e2e against that build.**
+`pnpm verify` runs the web gates;
+[enforced-checks.md](enforced-checks.md#on-every-test-run) lists what each
+fails on, and `AGENTS.md` § Testing says how to run them.
 
-- **Unit** (Vitest + jsdom): co-located `*.test.ts(x)`; `src/test-setup.ts`
-  stubs WebSocket/matchMedia/localStorage and fails any unsilenced
-  `console.warn`/`console.error`. `src/test-guards.ts`, which the property
-  suite shares, caps fast-check filters
-  ([enforced-checks.md](enforced-checks.md#on-every-test-run)) and starts
-  `orphanWatchdog.ts`. That worker thread SIGKILLs a vitest worker once its
-  parent is gone. A worker spinning in synchronous code never runs vitest's
-  own SIGTERM and closed-IPC handlers, so killing only the vitest parent
-  would leave it at full CPU. Coverage is enforced (statements 95
-  / branches 91 / functions 89 / lines 95), with workers and generated files
-  excluded. The pure cores are the payoff of the FCIS split: they test with no
-  React, DOM, fetch, worker or SQLite mocks.
-- **E2E** (Playwright, `web/e2e/`): a growing set of specs, some of them
-  exercising the offline path. Any
-  HTTP 5xx fails the run (`fixtures.ts`), and a server-side exception fails
-  teardown. `e2e/server-state.ts::waitForServerText` polls the server's copy
-  of a page, the reliable way to wait for a write before a reload.
-  `playwright.config.ts` launches `server/tests/e2e_serve.py` on `E2E_PORT`
-  (default 8975).
-- **Lint** (flat, type-aware ESLint): `web/eslint.config.js` owns the rule
-  list and names its six families in its header: React Hooks correctness,
-  promise/error safety, import control (`apiFetch`, `test-helpers` and other test code), no
-  `any`, brand discipline, and no `@ts-` suppression outside a described `@ts-expect-error` in a
-  `typeProbe(() => { ... })` block (`test-helpers.ts`: tsc checks the body, nothing
-  in it runs; `offType<T>(v)` feeds a runtime guard a value the type forbids). It lints
-  tests and tooling like product code. `tooling/lintConfig.test.ts` proves
-  each rule fires on a fixture.
-  The no-`any` family means a parsed JSON value is `unknown` until narrowed,
-  or typed by the generated API types.
-- **Budgets** (`web/tooling/budgets.json` + `viteBudgetPlugin.ts`): the build
-  fails if the eager entry, largest asset, total output, service-worker
-  precache, or the per-library owned bytes (mermaid/pdfjs/katex chunk
-  families, attributed by Rollup module reachability) exceed their caps.
-- **Perf harness** (`web/tooling/perf/`): `check.mjs` is the frontend half of
-  the `perf/check.sh` performance gate; see [performance-checks.md](performance-checks.md).
-  The rest (`perf.mjs`, `ws-probe.mjs`) is a headed investigation toolkit;
-  its [README](../../web/tooling/perf/README.md) has the recipe and the traps
-  that make naive measurements wrong.
+- **Unit** (Vitest + jsdom): co-located `*.test.ts(x)`. `src/test-setup.ts`
+  fails any unsilenced `console.warn`/`console.error`. `src/test-guards.ts`,
+  shared with the property suite, caps fast-check filters and starts
+  `orphanWatchdog.ts`, which kills a vitest worker whose parent has gone.
+  Coverage thresholds are in `vite.config.ts`.
+- **E2E** (Playwright, `web/e2e/`): any HTTP 5xx fails the run (`fixtures.ts`),
+  and a server-side exception fails teardown.
+  `e2e/server-state.ts::waitForServerText` waits for a write to reach the
+  server before a reload. jsdom computes accessible names differently from
+  Chromium, so check one with a Playwright aria snapshot.
+- **Lint**: `web/eslint.config.js`'s header names its rule families;
+  `tooling/lintConfig.test.ts` proves each rule fires.
+- **Budgets** (`web/tooling/budgets.json`, `viteBudgetPlugin.ts`): the build
+  fails when the entry, largest asset, total, service-worker precache or a
+  library's owned bytes (mermaid, pdfjs, katex) exceed their caps.
+- **Perf**: `web/tooling/perf/check.mjs` is the frontend half of
+  `perf/check.sh` ([performance-checks.md](performance-checks.md)); its
+  [README](../../web/tooling/perf/README.md) covers the investigation toolkit.
 
 ## Build notes (`vite.config.ts`)
 
-The dev server proxies `/api` (with WebSocket), `/assets` and `/login` to the
-backend (`PKM_API_PORT`, default 8974), so run the server alongside
-`pnpm dev`. `@sqlite.org/sqlite-wasm` must stay in `optimizeDeps.exclude`,
-because its wasm URL resolution breaks under dep-optimization. It also carries
-a pnpm patch keyed to its exact version; upgrading it follows
-[sqlite-wasm-patch.md § Upgrading](sqlite-wasm-patch.md#upgrading-sqlite-wasm). Hashed bundles
-are emitted under `app-assets/`. The PWA plugin uses `autoUpdate` with
-`clientsClaim`/`skipWaiting` and a navigate-fallback denylist for
-`/api|/assets|/login`.
+- The dev server proxies `/api` (with WebSocket), `/assets` and `/login` to
+  the backend on `PKM_API_PORT` (default 8974, production's port), so run the server beside `pnpm dev`.
+- `@sqlite.org/sqlite-wasm` stays in `optimizeDeps.exclude`, because its wasm
+  URL resolution breaks under dep optimization. Its pnpm patch is keyed to its
+  exact version ([sqlite-wasm-patch.md](sqlite-wasm-patch.md#upgrading-sqlite-wasm)).
+- Hashed bundles go under `app-assets/`.
+- The service worker (`vite-plugin-pwa`, `autoUpdate`) precaches what
+  `globPatterns` lists: the app shell, every emitted chunk, the sqlite wasm,
+  the pdf.js worker and the core KaTeX fonts. A cold offline start therefore
+  boots, and lazy renderers load offline. It runtime-caches `/assets/` and
+  never caches `/api`.
+
+## Tech stack
+
+| Concern | Choice (major versions) |
+|---|---|
+| UI | React 18, react-router-dom 6 (v7 future flags), TypeScript 5 |
+| Build | Vite 6, `vite-plugin-pwa`, pnpm. Overrides go in `pnpm-workspace.yaml`, since pnpm 11 ignores `package.json` overrides |
+| Offline | `@sqlite.org/sqlite-wasm` in a Web Worker on the OPFS SAHPool VFS |
+| Lazy-loaded | KaTeX, beautiful-mermaid with a stock Mermaid fallback, react-pdf/pdf.js, highlight.js, fzf |
+| Tests | Vitest + jsdom, Playwright, Testing Library, type-aware ESLint |
+
+## Module map
+
+An orientation map, not an inventory. `outline/` is mapped in
+[frontend-editor.md](frontend-editor.md#module-map), and `sync/` and
+`replica/` in [sync-and-offline.md](sync-and-offline.md#key-pieces).
+
+```
+web/src/
+├── main.tsx, App.tsx         Shell  Entry; providers; routes; the global chords
+├── routeMeta.ts              Core   Path, label and browser title per route
+├── Popover.tsx               Shell  Anchored-popover chrome
+├── useDismiss.ts             Shell  Outside-mousedown and Escape dismissal
+├── useScrollFlashTarget.ts   Shell  Scroll a data-uid into view, flash and pin it
+├── externalLink.ts           Core   iOS-standalone check; the x-safari rewrite
+├── uid.ts                    Shell  Mints uids, ClientId and BatchId
+├── ids.ts                    Core   Parses an untrusted string into an id brand
+├── test-helpers.ts           —      Checked brand mints for tests
+├── styles.css                —      All styling (styling.md)
+├── api/                      Shell  apiFetch, the typed client, brands.ts, the
+│                                    generated openapi.json and types.d.ts
+├── views/                    Shell  One file per route. EditablePage is one editable
+│                                    outline, shared by PageView and sidebar panels
+├── components/               Shell  Editor views (EditableBlockTree, BlockInput),
+│                                    inline renderers and chrome; each pure half
+│                                    sits beside its component (pdfViewerCore …)
+├── assistant/                Shell  The chat panel; sse.ts (Core) parses frames
+├── dnd/                      Shell  Drag context and drop zones; dropGeometry.ts (Core)
+├── grammar/                  Core   Block grammar (frontend-rendering.md)
+├── outline/                  —      The editor engine (frontend-editor.md)
+└── sync/, replica/           —      Delivery and the offline engine
+                                     (sync-and-offline.md)
+```

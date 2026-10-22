@@ -1,10 +1,9 @@
 # Rendering pipeline (read path)
 
 Block text is raw Roam-flavoured markdown; this doc follows it to the DOM. The
-SPA's modules, routes, state layers and API layer are in
-[frontend.md](frontend.md), and the editor that produces the text is in
-[frontend-editor.md](frontend-editor.md). Failures are indexed by symptom in
-[troubleshooting.md](../troubleshooting.md).
+app shell is in [frontend.md](frontend.md) and the editor that produces the
+text in [frontend-editor.md](frontend-editor.md). Failures are indexed by
+symptom in [troubleshooting.md](../troubleshooting.md).
 
 ## The pipeline
 
@@ -16,26 +15,27 @@ flowchart LR
     IS --> R["renderer components"]
 ```
 
-`scan.ts` is the single grammar authority on the client for `[[...]]` pairs,
-fences, inline code and TODO markers. Ref extraction (`grammar/refs.ts`,
+`scan.ts` is the client's grammar authority for `[[...]]` pairs, fences,
+inline code and TODO markers. Ref extraction (`grammar/refs.ts`,
 `replica/refs.ts`), caret lookup (`outline/refAtCaret.ts`), TODO toggling and
 slash commands adapt its token stream rather than scanning privately.
-`shared/fixtures/ref_grammar.json` pins it to the Python parser in
-`server/src/pkm/refs.py`; both sides' tests replay the fixture.
+`shared/fixtures/ref_grammar.json` pins it to `server/src/pkm/refs.py`; both
+sides' tests replay the fixture.
 
-`tokenize.ts` adds the grammar the scanner does not model: markdown links and
-images, bare-URL autolinking (including bare `/assets/<sha256>/`), emphasis,
-`{{query}}` and `{{pdf}}` macros, `$$` math, and line breaks.
-A hashtag, page ref or attribute whose title `isRefTitle` rejects (blank, or a
-`.`, `..` or empty `/` segment) renders as its source text and is no Ctrl-O
-target, the same verdict `extractRefs` gives, so a link is exactly a ref.
-Markdown links and images are scanned by `grammar/markdown.ts`. A link
-destination may contain spaces and nested parentheses, because uploads made
-before the server encoded the name wrote it raw into the URL. A new upload's
-label swaps `[` and `]` for `(` and `)` (`sync/assetNames.ts`), so it can never
-open `[[` or close early. The destination closes at the first `)` that
-is not matched on its line, and at the first `)` of all when the parentheses
-never balance.
+`tokenize.ts` adds what the scanner does not model: markdown links and images,
+bare-URL autolinking (including bare `/assets/<sha256>/`), emphasis,
+`{{query}}` and `{{pdf}}` macros, `$$` math and line breaks.
+
+A hashtag, page ref or attribute whose title `isRefTitle` rejects renders as
+source text and is no Ctrl-O target. A rejected title is blank, or has a `.`,
+`..` or empty `/` segment. `extractRefs` gives the same verdict, so what
+renders as a link is what counts as a ref.
+
+`grammar/markdown.ts` scans markdown links and images. Older uploads' URLs hold
+the raw file name, so a destination may contain spaces and nested parentheses.
+It closes at the first `)` not matched on its line, or at the first `)` of all
+when the parentheses never balance. A new upload's label swaps `[` and `]` for
+`(` and `)` (`sync/assetNames.ts`), so it cannot open `[[` or close early.
 
 ## Segment dispatch
 
@@ -48,30 +48,34 @@ and the only place a segment becomes a component.
 | `bold` / `italic` / `strike` / `highlight` | `<strong>` / `<em>` / `<s>` / `<mark>` around a nested `InlineSegments` |
 | `page-ref` | `PageLink`; `attribute` wraps the same link in `span.attribute` |
 | `block-ref` | `BlockRef` |
-| `image` | `AssetImage` |
-| `asset-link` | `AssetLink` |
+| `image`, `asset-link` | `AssetImage`, `AssetLink` |
 | `math` | `MathSpan` |
 | `code-block` | `MermaidDiagram` when `lang` is `mermaid`, else `CodeBlock` |
 | `query` | `QueryBlock` |
 | `todo` | `TodoCheckbox` |
-| `pdf-embed`, `link` | `GoodlinksLink` when `goodlinksIdFromHref` finds an id (see [goodlinks.md](goodlinks.md)); else `PdfEmbed` when `isPdfHref`; else `BlueskyEmbed` for a `link` whose href is a Bluesky post URL and equals its `text` (a bare URL; a markdown link with its own label stays an anchor); else an `<a target="_blank">` when `isSafeHref`; else plain text |
+| `pdf-embed` | `PdfEmbed` when `isPdfHref`, else the last two rows below |
+| `link` | the first row below that applies |
+
+| A `link` whose href | Renders as |
+|---|---|
+| has a GoodLinks id (`goodlinksIdFromHref`) | `GoodlinksLink` ([goodlinks.md](goodlinks.md)) |
+| is a PDF (`isPdfHref`) | `PdfEmbed` |
+| is a Bluesky post URL and equals its text (a bare URL) | `BlueskyEmbed`; a labelled link stays an anchor |
+| passes `isSafeHref` | `<a target="_blank">` |
+| anything else | plain text |
 
 A `depth` prop rides the recursive cases: `BlockRef` renders the raw `((uid))`
-at its `MAX_DEPTH` of 3, and `QueryBlock` stops at 2.
-
-`EditableBlockTree` resolves two block-level shapes before this dispatch:
-`{{toc}}` through `TocBlock` (`isTocMacro`, `tocEntries.ts`) and a table macro
-through `roamTableRows`. Both render only while the row is unfocused, since
-focus turns a block back into its source text.
+at its `MAX_DEPTH` of 3, and `QueryBlock` stops at 2. `EditableBlockTree`
+resolves two block-level shapes before this dispatch, `{{toc}}` (`TocBlock`,
+`tocEntries.ts`, `isTocMacro`) and a table macro (`roamTableRows`), both only
+while the row is unfocused.
 
 ## Lazy renderers and their caches
 
 KaTeX, beautiful-mermaid, stock mermaid, pdf.js, highlight.js and the
-`/link-local-file` picker (`EditableBlockTree`) each load
-behind a cached module-level `import()` promise, so Vite emits each as its own
-chunk. A rejected promise is cleared, so one failed fetch cannot wedge every
-later render. The service worker precaches every emitted `.js`/`.mjs`
-(`globPatterns` in `vite.config.ts`), so lazy chunks resolve offline.
+`/link-local-file` picker each load behind a cached module-level `import()`
+promise, so Vite emits each as its own chunk. A rejected promise is cleared, so
+one failed fetch cannot wedge every later render.
 
 | Cache | Keyed on | Module | Limit |
 |---|---|---|---|
@@ -80,13 +84,11 @@ later render. The service worker precaches every emitted `.js`/`.mjs`
 | rendered SVG | `(effectiveTheme, code)` | `MermaidDiagram.tsx` | `MERMAID_CACHE_LIMIT` |
 | rendered HTML | `(display, tex)` | `MathSpan.tsx` | `MATH_CACHE_LIMIT` |
 
-Each is a `Map` cleared in full at its limit (2000) rather than evicted
-LRU-style; `renderCache.ts`'s `createBoundedCache` is that shape. `CodeBlock`'s
-is two-level (lang to code to HTML), since no printable character is a safe
-delimiter inside `code`. The mermaid and math caches are read before the dynamic
-import, and only successful renders are cached.
-
-Highlighted HTML, KaTeX HTML and mermaid SVG reach the DOM through
+Each is a `Map` cleared in full at its limit rather than evicted LRU-style
+(`renderCache.ts`'s `createBoundedCache`). `CodeBlock`'s is two-level, since no
+printable character is a safe delimiter inside `code`. The mermaid and math
+caches are read before the dynamic import, and only successful renders are
+cached. Highlighted HTML, KaTeX HTML and mermaid SVG reach the DOM through
 `dangerouslySetInnerHTML`; all three are library output, never raw block text.
 
 ## Resolving `((uid))` texts
@@ -99,72 +101,59 @@ one way to read either.
 | payload | a page or journal payload's `block_ref_texts`, plus a nested `BacklinksSection`'s overlay | `BlockRefContext` | every consumer, when a payload changes |
 | fetched | `BlockRefProvider`'s on-demand `GET /api/block-refs` | `blockRefStore.ts` | only the uids a batch resolved |
 
-The payload wins where both have the uid. The store is a uid-keyed `Map` with
-per-uid listener sets read through `useSyncExternalStore`, so a resolved batch
-wakes only its own refs. Requests from one render pass batch into a single call,
-chunked at the server's 50-uid cap. `claimRequest` is the fetch-once guard, and
-retains claims only for uids the server could not resolve.
+The payload wins where both have the uid. The store keeps per-uid listener sets
+read through `useSyncExternalStore`, so a resolved batch wakes only its own
+refs. Requests from one render pass batch into one call, chunked at the
+server's 50-uid cap. `claimRequest` is the fetch-once guard, and keeps claims
+only for uids the server could not resolve.
 
 ## Mermaid
 
-Diagrams render through beautiful-mermaid first (ELK layout; the chunk is named
-by the `beautifulMermaid.ts` re-export barrel), falling back silently to stock
-mermaid on any failure. That fallback must stay: it carries gantt, pie, mindmap
-and the other families beautiful-mermaid lacks. Both failing gives the
-raw-source error block. `mermaidTheme.ts` maps the design tokens onto both
-theming surfaces (`beautifulMermaidOptions`, base-theme `themeVariables`);
-beautiful-mermaid re-renders on a theme flip (`useEffectiveTheme`), the stock
-fallback keeps its initialize-time snapshot. Every render goes out with its
-instance's own id, and only the cached copy is normalised to
-`MERMAID_CACHE_RENDER_ID`, which `withRenderId` swaps back on every read.
+Diagrams render through beautiful-mermaid first (the chunk is named by the
+`beautifulMermaid.ts` barrel), falling back silently to stock mermaid on any
+failure. The fallback must stay: it carries gantt, pie, mindmap and the other
+families beautiful-mermaid lacks. `mermaidTheme.ts` maps the design tokens onto
+both theming surfaces (`beautifulMermaidOptions`, base-theme
+`themeVariables`); beautiful-mermaid re-renders on a theme flip
+(`useEffectiveTheme`), and the stock fallback keeps its initialize-time
+snapshot. Every render uses its instance's own id. Only the cached copy is
+normalised to `MERMAID_CACHE_RENDER_ID`, which `withRenderId` swaps back on
+each read.
 
 ## PDF embeds and the viewer
-
-`InlineSegments.isPdfHref` decides which links become the in-app `PdfEmbed`.
 
 | `.pdf` href | Renders as |
 |---|---|
 | under `/assets/`, no query string | inline `PdfEmbed`, auto-loading |
-| under `/api/local/`, no query string | deferred `PdfEmbed` (`isDeferredPdfHref`): a link plus an Open button, importing and fetching nothing until clicked |
-| any, with a query string | a plain link; the query signals a download intent |
+| under `/api/local/`, no query string | deferred `PdfEmbed` (`isDeferredPdfHref`): a link and an Open button, fetching nothing until clicked |
+| any, with a query string | a plain link; the query signals a download |
 
-Deferral keeps a page of `Local copy::` papers from parsing dozens of PDFs on
-render and pulling each one from iCloud on the host. A file the host does not
-serve becomes a note, not a saved error body. `pdfViewerCore.hostFailureNote`
-maps the status to the note text: 404 is missing, 503 is not downloaded yet or
-not readable, and a fetch that never got an answer has its own note. The viewer
-reaches it through `failureNote`, because pdf.js exposes the status and not the
-body.
+Deferral keeps a page of `Local copy::` papers from pulling each PDF from iCloud
+on the host. A file the host does not serve becomes a note, not a saved error
+body: `pdfViewerCore.hostFailureNote` maps the status to the note, which the
+viewer reads through `failureNote` because pdf.js exposes the status and not
+the body. A tap on a deferred link's download first asks for one byte
+(`Range: bytes=0-0`; the route has no HEAD), and only a success starts the
+native download.
 
-The deferred link's `download` attribute would save whatever the server
-answers. So a tap on a `/api/local/` link first asks for one byte
-(`Range: bytes=0-0`; the route has no HEAD). Only a success starts the native
-download, through a temporary anchor, so the PDF is never buffered in the page.
-`/assets/` links keep the plain download.
-
-`PdfViewer` guards its load/reset race with a generation counter: a new `href`
-resets `doc`, `failure`, `expanded` and `currentPage` and bumps the counter
-synchronously during render, and every load callback checks its captured
-generation before writing state. A reset effect would be too late, since a
-`Document` child can call `onLoadSuccess` first. The viewer mounts only pages
-the intersection observer reports near the viewport plus `MOUNT_RADIUS` either
-side (`mountedPageWindow`). An unmounted page keeps its `rendered` entry
+In `PdfViewer`, a new `href` resets its state and bumps a generation counter
+synchronously in render, and every load callback checks the generation it
+captured. A reset effect would run after a `Document` child's `onLoadSuccess`.
+The viewer mounts only pages near the viewport, plus `MOUNT_RADIUS` either side
+(`mountedPageWindow`). An unmounted page keeps its `rendered` entry
 (`retainPages`) and a `placeholderHeight` slot, since a zero-height slot would
-collapse the scrollbar. The inline `.pdf-frame` is layout-contained, a rule
-[styling.md](styling.md) owns, so nothing `position: fixed` may render inside
-it; the fullscreen overlay portals to `document.body`.
-
-GoodLinks copies take a different route: an `<iframe sandbox>` reader,
-described in [goodlinks.md](goodlinks.md).
+collapse the scrollbar. The inline `.pdf-frame` is layout-contained
+([styling.md](styling.md#layout-invariants)), so the fullscreen overlay portals
+to `document.body`.
 
 ## Link safety and lazy loading
 
-`isSafeHref` admits `http(s):`, `mailto:` and single-slash site-relative hrefs
-only. It rejects control characters outright, since browsers strip tab, CR and
-LF before parsing a URL. A second leading `/` or `\` is rejected too, blocking
-protocol-relative escapes. Stock mermaid runs in `securityLevel` strict.
+`isSafeHref` admits `http(s):`, `mailto:` and single-slash site-relative hrefs.
+It rejects control characters outright, since browsers strip tab, CR and LF
+before parsing a URL, and a second leading `/` or `\`, which would escape to
+another origin. Stock mermaid runs in `securityLevel` strict.
 
-`AssetImage`, the `/files` grid and `BlueskyEmbed`'s cross-origin iframe all
-carry `loading="lazy"`; without it a page of Bluesky embeds opens one scripted
+`AssetImage`, the `/files` grid and `BlueskyEmbed`'s iframe carry
+`loading="lazy"`; without it a page of Bluesky embeds opens one scripted
 document per embed on mount. `BlueskyEmbed` sizes itself from the embed page's
 `postMessage`.

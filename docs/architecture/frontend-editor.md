@@ -2,9 +2,34 @@
 
 This doc covers the outline engine: the per-title sessions that own a block
 tree, and the editor that mutates one. [frontend.md](frontend.md) holds the
-SPA's module map, views, chrome and the state layers around it. Failures and
-their fixes are indexed by symptom in
+app shell around it. Failures are indexed by symptom in
 [troubleshooting.md](../troubleshooting.md).
+
+## Module map
+
+```
+web/src/outline/
+├── handlers.ts              —      OutlineHandlers, the command port (types only)
+├── useOutline.ts            Shell  Implements OutlineHandlers: drafts, run(), uploads
+├── outlineSessions.ts       Shell  Per-title shared sessions and loader election
+├── outlineState.ts          Core   transitionOutline, the session reducer
+├── parentReadElection.ts,   Shell  Who starts a title's next parent read; the
+│   repairEpochs.ts                 post-settlement repair pass
+├── useOutlinePageLoad.ts    Shell  The read lifecycle for PageView and sidebar panels
+├── loadOutlineBlocks.ts     Shell  The page read behind every loader; applies
+│                                   missingPage.ts (Core)
+├── tree.ts, orderIdx.ts     Core   applyOps and hidesChildren; order-key arithmetic
+├── edits.ts, keyEdits.ts    Core   Structural edit planning; text and caret transforms
+├── keyboardPolicy.ts        Core   Keystroke → KeyDecision
+├── useBlockDraft.ts         Shell  The focused block's draft, IME, caret, auto-grow
+├── autocomplete.ts,         Core   Completion contexts and commands; useAutocomplete.ts
+│   slashCommands.ts                holds the popup state
+├── history.ts               Core   Undo entries, invertOps, resolveAnchors
+├── undoManager.ts           Shell  Undo/redo dispatch, re-keyed and re-stamped at replay
+├── baseTextHash.ts          Core   Base hashes on update_text and delete ops
+└── the rest                 Core   blockSelection, blockStamps, paste, dnd, fileDrop,
+                                    keyboardBar, localFiles, goodlinks …
+```
 
 ## Per-title outline sessions
 
@@ -14,166 +39,124 @@ ref-counted session, sharing a flushed tree and a monotonic revision. One view
 holds the **editor lease** and the others render read-only, so the same page in
 the main pane and the sidebar cannot double-edit.
 
-The session also tracks causality between optimistic writes and authoritative
-reads: a fetched payload carries a `ReadToken` and is adopted only if it is the
-newest request, the revision is unchanged, and no relevant write ticket is
-unsettled. The pure reducer is `outlineState.ts::transitionOutline`.
-
-Two machines sit beside that module, each reaching its sessions through one
-interface so it can be exercised without a session registry.
+A fetched payload carries a `ReadToken` and is adopted only if it is the newest
+request, the revision is unchanged, and no relevant write ticket is unsettled.
+The pure reducer is `outlineState.ts::transitionOutline`. Beside the store,
 `parentReadElection.ts` (`ParentReadHost`) elects the surface that starts a
-title's next full-payload parent read. `repairEpochs.ts` (`RepairTarget`) runs
-the post-settlement repair pass described in
-[sync-recovery.md](sync-recovery.md#a-local-write-fails).
+title's next parent read, and `repairEpochs.ts` (`RepairTarget`) runs the
+post-settlement repair ([sync-recovery.md](sync-recovery.md#a-local-write-fails)).
 
 ### Driving a session from a view
 
-`outline/useOutlinePageLoad.ts` is the one read lifecycle for both single-page
-surfaces, `PageView` and `EditableSidebarPanel`. It owns the outstanding
-generation per mount, the parent readiness promise a `"parent"` read publishes
-through, the loader and parent read controller registered on the session, and
-the unmount cleanup order, and returns `{payload, error, reload}`. Both
-surfaces must wrap their content in `BlockRefProvider`, not the bare
-`BlockRefContext.Provider`. `PageView` answers a `resyncGeneration` bump with
-`reload("resync")`; the sidebar does not subscribe to resync.
+`outline/useOutlinePageLoad.ts` is the read lifecycle for both single-page
+surfaces, `PageView` and `EditableSidebarPanel`. It owns the generation per
+mount, the parent readiness promise, the loader registered on the session and
+the unmount cleanup order. Both surfaces wrap their content in
+`BlockRefProvider`, not the bare `BlockRefContext.Provider`. `PageView` answers
+a `resyncGeneration` bump with `reload("resync")`; the sidebar does not.
 
-The hook's session is keyed by the page's canonical title, not the requested
-one. The main thread cannot canonicalize (the plain-space flag lives in the
-replica worker), so the first read runs under the requested title; when it
-reports a different `page.title` the hook re-keys once and issues a fresh
-`"parent"` read under the canonical session, which another surface may
-already hold at a newer revision. A non-canonical title costs one extra GET.
+The hook keys its session by the page's canonical title. The main thread cannot
+canonicalize, because the plain-space flag lives in the replica worker, so the
+first read runs under the requested title. When it reports a different
+`page.title`, the hook re-keys once and re-reads under the canonical session,
+which another surface may already hold at a newer revision.
 
-The Journal is the third editable surface and bypasses the hook: it loads many
-days in one batched `/api/journal` request and delivers each day's blocks
-through its own capture-ticket path.
+The Journal bypasses the hook. It loads many days in one `/api/journal`
+request and delivers each day's blocks through its own capture-ticket path.
 
 ### Loader election
 
-A session also starts reads nobody asked it for: after a write settles, when a
-remote move onto the page names a uid the tree lacks at that point in the
-batch, and once per session in a repair epoch. Several surfaces of one title
-are usually mounted at once, so `LOADER_PRECEDENCE` (`outlineSessions.ts`)
-ranks the loaders they register. The highest kind wins, and the newest
-registration within a kind; mount order must not decide which fetch a session
-performs.
+A session also starts reads nobody asked for: after a write settles, when a
+remote move names a uid the tree lacks, and once per repair epoch. Several
+surfaces of one title are usually mounted, so `LOADER_PRECEDENCE` ranks the
+loaders they register: the highest kind wins, then the newest registration.
+Mount order must not decide which fetch runs.
 
-| Kind | Registered by | Missing-page policy it applies |
+| Kind | Registered by | Missing-page policy |
 |---|---|---|
-| `page` | `useOutlinePageLoad` | the policy its surface was constructed with |
+| `page` | `useOutlinePageLoad` | its surface's |
 | `day` | `Journal` | `substituteMissingDay` |
-| `editable` | `useOutline`, so every mounted `EditablePage` | `substituteMissingDaily` |
+| `editable` | `useOutline` (every `EditablePage`) | `substituteMissingDaily` |
 
-`tree.ts::needsAuthoritativeReload` applies the cross-page rule, checking each
-move against the tree the batch's earlier ops leave. A batch that moves a block
-off the page and back therefore reloads, because the echo removes the block on
-the first move and cannot place it on the second.
+`substituteMissingDaily` (`outline/missingPage.ts`) turns a 404 on a daily
+title into an empty editable page, because the server auto-creates only today's
+daily and the first edit creates any other. Every other missing page stays an
+error.
 
-### Missing-page policy
-
-The pure `outline/missingPage.ts::substituteMissingDaily` turns a 404 on a
-daily title into an empty editable page, since the server auto-creates only
-today's daily and the first edit creates every other one's row.
-`substituteMissingDay` is the same rule for a title `/api/journal` has already
-named as a day. Every other missing page stays an error. A view's own read and
-its registered loader both apply the policy through
-`outline/loadOutlineBlocks.ts`.
+`tree.ts::needsAuthoritativeReload` checks each remote move against the tree
+the batch's earlier ops leave. A batch that moves a block off the page and back
+therefore reloads: the echo cannot place the block on the second move.
 
 ### Replay
 
 A repair epoch adopts the server's tree and reapplies every write still
-unsettled for that title, so each tracked write carries a **replay**: the
-batch's own ops, or the `OutlineReplayAction` metadata captured through
-`attachOutlineReplay` by the UI that did the local tree surgery. Drag-and-drop
-supplies the moved subtree, which no wire op describes. Both paths that
-announce a write to a session, `applyLocal` and the delivery registry, must
-state the replay, or the write loses its edit at the next repair.
+unsettled for that title, so each tracked write carries a **replay**: its own
+ops, or `OutlineReplayAction` metadata attached through `attachOutlineReplay`.
+Drag-and-drop supplies the moved subtree, which no wire op describes. Both
+paths that announce a write to a session, `applyLocal` and the delivery
+registry, must state the replay, or the write loses its edit at the next
+repair.
 
 ### Applying ops
 
-The block tree is the generated `BlockNode` shape (recursive
-`{uid, text, children[], order_idx, heading, collapsed, view_type}`). All
-mutations go through the pure `applyOps` (`outline/tree.ts`), which mirrors the
-server's op semantics; the same ops drive the screen, the replica and the
-server.
+Every mutation goes through the pure `applyOps` (`outline/tree.ts`), which
+mirrors the server's op semantics, so the same ops drive the screen, the
+replica and the server. `order_idx` is a sparse `OrderIdx` sibling key, not a
+position. A dense position (`Located.index`) converts to one only in
+`edits.ts`'s `orderIdxAfterPosition` and in `freshChildOrderIdx`, for the
+children of a block created earlier in the same plan.
 
-`order_idx` is a sparse `OrderIdx` sibling key, not a position, and
-`outline/orderIdx.ts` is the only module that does order-key arithmetic.
-A dense array position (`Located.index`, deliberately left unbranded)
-converts to an order key in exactly two places: `edits.ts`'s
-`orderIdxAfterPosition`, and `orderIdx.ts`'s `freshChildOrderIdx`, used
-only to number the children of a block created earlier in the same plan
-(whose sibling list is dense from 0 because nothing else has touched it
-yet).
-
-`applyOpsWithChange` adds a verdict: `changed: false` means the result is
-`blocksEqual` to the input, and only a changed batch advances
-`transitionOutline`'s `revision`, the key a re-render and a dispatched read's
-adoptability use. A stamp counts as a change, since `update_text` bumps
-`updated_at` whether or not the text differs, mirroring the server's
-`UpdateText`.
+`applyOpsWithChange` reports `changed: false` when the result is `blocksEqual`
+to the input, and only a changed batch advances `transitionOutline`'s
+`revision`. A stamp counts as a change, since `update_text` bumps
+`updated_at` whatever the text, as on the server.
 
 ## The editor
 
-**Only the focused block is editable.** It is a live, auto-growing `<textarea>`
+**Only the focused block is editable.** It is an auto-growing `<textarea>`
 holding raw markdown; every other block is rendered HTML (`EditableBlockTree` →
-`EditableBlock` → `BlockInput`, the last of these its own file). No
-`contenteditable` anywhere, so a 500-block page is one textarea plus static
-HTML. Phones edit the outline the same way.
+`EditableBlock` → `BlockInput`). There is no `contenteditable`.
 
 A keystroke batch re-renders every row, so a row's decisions must be
 constant-time. `EditableBlockTree` walks `ancestorChain(blocks, focus.uid)`
-once at the root and passes `focusChain` down, so a table macro block tests
-whether focus sits inside it with a lookup rather than a subtree walk.
+once and passes `focusChain` down. A `{{toc}}` block is the one row that sees
+past its own node, through `RootBlocksContext`, which only `TocBlock` reads.
 
-A `{{toc}}` block (`tocEntries`, Core) is the one row that must see past its
-own node. `EditableBlockTree` publishes its `blocks` through
-`RootBlocksContext` and only `TocBlock` reads it, so no other row's memo is
-disturbed. Entries link to `#<uid>`, as block refs and search hits do, and
-only `useScrollFlashTarget` in `PageView` consumes it. A sidebar panel runs
-the same hook for its shift-clicked uid, scoped to its own container.
-`PageView` passes the router's location key, so a second click on the same
-entry jumps again. A target inside a collapsed subtree has no row to scroll
-to. `EditablePage` first expands every ancestor that hides it (`revealBlock`,
-one batch of `set_collapsed(false)`, no undo step). It then calls
-`onRevealed` once the uncovered rows have rendered, and the caller's
-`revealed` counter re-runs the hook. Only the editor can emit that batch, so
-in a read-only or fallback outline a hidden target stays hidden. Content
-above the target keeps growing after the jump: PDF pages replace their
-placeholder slots and embeds resize. So the hook re-centres the target whenever one of its ancestors resizes. It
-lets go at the reader's first wheel, touch, key or pointer input, or once
-layout has been quiet for `PIN_QUIET_MS`. It watches ancestors because `body`
-is fixed at 100% height and never resizes.
+### Navigating to a block
 
-Rows with incoming `((uid))` references carry `RefCountBadge` between the text
-and the stamp cell, fed by `block_ref_counts` on the page/journal payloads
-through the `refCounts` prop; sidebar panels stay bare, like `stamps`. The
-badge opens `BlockRefBacklinksPopover`
-([frontend.md](frontend.md#popovers-and-menus)), which fetches
-`GET /api/block/{uid}/backlinks` at open, so the list is live truth while the
-count is payload-fresh. It renders through `BacklinkGroupList`. Badge and
-popover are read-only-safe, so both render in `fallback` trees.
+Toc entries, block refs and search hits link to `#<uid>`.
+`useScrollFlashTarget` scrolls to the target and flashes it, in `PageView` or
+scoped to a sidebar panel. `PageView` passes the router's location key, so a
+second click on one entry jumps again.
+
+- A target under a collapsed ancestor has no row. `EditablePage`'s
+  `revealBlock` expands each ancestor that `hidesChildren` says hides it, in one
+  `set_collapsed(false)` batch with no undo step, once per navigation.
+  Re-running it on a lease change would re-open a row the reader has collapsed
+  since. A read-only outline cannot emit the batch, so its hidden target stays
+  hidden.
+- Content above the target grows after the jump as PDF pages and embeds load.
+  The hook re-centres on any ancestor resize until the reader's first input or
+  `PIN_QUIET_MS` of quiet. It watches ancestors because `body` never resizes.
 
 ### Which way the editor's dependencies point
 
 Everything the UI can ask the editor to do is the `OutlineHandlers` port in
-`outline/handlers.ts` — about thirty named callbacks (focus, draft,
-split/indent/move, selection, upload, paste, undo). `useOutline` implements it;
-`EditableBlockTree`, `EditableBlock` and `BlockInput` only call it. The port
-lives in `outline/`, so the engine never imports a type from UI code.
+`outline/handlers.ts`. `useOutline` implements it; `EditableBlockTree`,
+`EditableBlock` and `BlockInput` only call it, so the engine never imports a
+type from UI code.
 
 No component holds block-tree state. The most any owns is `BlockInput`'s draft
-of one block's text, which `outline/useBlockDraft.ts` tracks along with IME
-composition and caret restoration. It also auto-grows the textarea: CSS
-`field-sizing: content` where supported, otherwise a JS fallback that resets
-the height to `auto` only when `textareaHeight.ts::mayHaveShrunk` says the
-content might be shorter.
+of one block, which `outline/useBlockDraft.ts` tracks with IME composition and
+caret restoration. It auto-grows the textarea with CSS `field-sizing: content`,
+or a JS fallback that resets the height only when
+`textareaHeight.ts::mayHaveShrunk` says the content might be shorter.
 
 ```mermaid
 flowchart LR
     K[Keystroke] --> KP["keyboardPolicy.decideEditorKey (Core)<br/>DOM + autocomplete state → semantic KeyDecision"]
     KP -->|structural: Enter/Tab/move/…| OPS["edits.ts (Core) → ops"]
-    KP -->|plain typing| D["draft (debounced 500 ms)"]
+    KP -->|plain typing| D["draft (debounced)"]
     D -->|flush| OPS
     OPS --> S["outline session: optimistic applyOps (Core)"]
     S --> Q["SyncProvider.enqueue → durable op queue"]
@@ -184,225 +167,128 @@ flowchart LR
 
 | Rule | What breaks without it |
 |---|---|
-| Anything that mutates a block's text programmatically rides the draft/key-edit path | the textarea's draft overwrites a tree-direct change at the next flush |
-| A growing text selection escalates to a block selection at the block's edge, whether the caret is collapsed or the text selection can no longer grow | it falls through to boundary-arrow block navigation, which drops the selection and jumps focus |
-| Every mutating selection branch gates on `!readOnly` — indent/outdent (Tab/Shift-Tab), move (Shift+Cmd+Arrow), delete (Backspace/Delete) | `useOutline`'s handlers do not re-check editability, so this is the only gate; creating, extending and copying a selection need none |
-| A gated key resolves to `"none"`, which the shell leaves uncancelled rather than calling `preventDefault` | a read-only Tab stops moving focus out of the tree |
-| Authoritative text lands on the tree even for the focused block, while the textarea keeps the local draft; the draft's flush hashes the draft's `base`, never the tree | without the draft's base, the flush hashes the remote text and overwrites it with no conflict copy |
-| `/upload` gives up the block before opening the picker: the pick strips the trigger, calls `onBlurBlock`, then clicks the tree-owned file input | otherwise the blur depends on the native file dialog; `onFiles` leaves focus alone on completion, so the uploaded asset renders at once |
-| `preventDefault` and `dataTransfer.dropEffect` stay synchronous in every `dragover` handler | HTML5 drag-and-drop honours them only inside the handler, so a deferred call leaves the drop refused; both are unconditional, which `allowedDepths` never returning empty makes sound |
-| A history replay re-keys every create and move (`resolveAnchors`) and stamps its hashes against the page's live tree: the session's when one exists, otherwise the page read through the same `loadOutlineBlocks` its editor uses. Each placement lands in front of the sibling it was recorded in front of; the recorded `order_idx` stands only when that sibling has left the parent, or when the read fails. `undoManager` runs replays one at a time, in keypress order | a placement shifts siblings' keys up and nothing shifts them down, so after any undo, redo or other device's edit a recorded key can name a different slot. `history.ts`'s header states the anchor rule |
-| A history entry from an upload records the assets it created (`freshAssets`: uploads answered `existing: false`). Undoing such an entry clears the redo stack (`takeUndo`), so undo of an upload is final. `undoManager` then releases its assets with `DELETE /api/assets/{sha}?if_unreferenced=true` (`sync/assetRelease.ts`) once the undo's writes are delivered. A failed or offline undo leaves the file | the delete must not run before the server has seen the undo remove the reference, or it gets a 409 and the file stays. Redo is cleared because it would replay text naming a deleted file. The server refuses while any other block references the asset, and a dedup hit (`existing: true`) is never released, so a file that was already in the store stays |
-| Setting heading, view type or collapsed to the value a block already has emits nothing (`setHeading`, `setViewType`, `setCollapsed` in `edits.ts`; null heading and `"document"` view type count as the defaults) | a gesture that changes nothing still emits ops |
-| A restored focus (undo, redo, adopting shared state) lands on a visible block. `validateOutlineFocus` redirects a hidden one to its nearest visible ancestor, where `hidesChildren` decides what hides: a collapsed Roam table does not hide its cells. It clamps the caret to the block's text. `visibleUids`, behind arrow navigation, hides by the same predicate | focus sits on a block the user cannot see, or a caret past the end of the text; arrows skip cell rows that are on screen |
-| A block selection treats a valid Roam table as one row. Selection clears focus, so every table renders as its grid: `selectableUids` never descends into one, `startSelection` lifts an anchor in a cell to the outermost table, and `selectionText` copies a selected table's cells with it | Shift+Arrow spends presses on cells that are not rows on screen, and a copied table pastes back without its cells |
-| An edit never puts a block it places under a collapsed row. Indent, outdent and a move across parents (`moveSubtreeUp`/`Down`, `moveSelectionUp`/`Down`) expand that row first, even when it is itself a selected root; `allowedDepths` offers a drop no child depth under a collapsed row. A collapsed block that only moves stays collapsed | the moved block vanishes into a closed subtree |
-| A navigation to a block (`#<uid>`, a panel's uid) expands, in one batch, every ancestor that `hidesChildren` says hides it, and does so once per navigation (`revealBlock`, `EditablePage`). A collapsed Roam table is left collapsed | the jump lands at the top of the page, because a hidden block has no row. Re-running the reveal on a lease or editability change would re-open a row the reader has collapsed since |
-| A transform that slices a block's text at an offset snaps it with `snapCaret` (`keyEdits.ts`) first: split, paste, upload splice, keyboard-bar insert, auto-pair, link and emphasis wraps, autocomplete and slash commands (`stripTrigger`). `outline/surrogatePairs.props.test.ts` checks each one with offsets drawn inside pairs. A caret the editor places itself (`validateOutlineFocus`, on adopting remote text and on undo's focus restore) is snapped too | an offset kept across an edit can land between a surrogate pair's halves, and slicing there leaves two lone surrogates that both sides store as U+FFFD |
-| `set_collapsed` must not stamp | `opBumpsUpdatedAt` (`outline/blockStamps.ts`) is the single statement that collapsing is a view toggle; `transitionOutline` uses it to choose which uids to stamp, and `replica/localOps.test.ts` pins the replica to it |
+| A programmatic text change rides the draft or key-edit path | the textarea's draft overwrites it at the next flush |
+| A growing text selection escalates to a block selection at the block's edge | it falls through to arrow navigation and drops the selection |
+| Every mutating selection branch gates on `!readOnly`; a gated key resolves to `"none"`, left uncancelled | `useOutline`'s handlers do not re-check editability; a cancelled read-only Tab traps focus |
+| Authoritative text lands on the tree even for the focused block, while the textarea keeps its draft | the flush overwrites the remote text with no conflict copy ([below](#drafts-and-commit-points)) |
+| `/upload` blurs the block (`onBlurBlock`) before clicking the tree-owned file input | the blur would depend on the native dialog, and the asset would not render at once |
+| `preventDefault` and `dropEffect` stay synchronous and unconditional in every `dragover` handler (`allowedDepths` never returns empty) | the browser ignores them later, refusing the drop |
+| A history replay re-keys creates and moves against the live tree (`resolveAnchors`), or a fresh read when no session exists. `undoManager` runs replays in keypress order and stamps hashes then; entries hold ops unstamped (`withoutStamps`) | a recorded `order_idx` names a different slot after any intervening edit (`history.ts`'s header), and an entry-time hash lands a spurious conflict |
+| Undo of an upload clears redo (`takeUndo`); after delivery `undoManager` releases its `freshAssets` (`sync/assetRelease.ts`, `if_unreferenced=true`) | a delete before delivery gets a 409; a redo would name a deleted file |
+| `setHeading`, `setViewType` and `setCollapsed` emit nothing for the current value | a no-op gesture sends ops; a repeated heading or view type re-dates the block and adds an empty undo step |
+| A restored focus lands on a visible block with a clamped caret (`validateOutlineFocus`). `hidesChildren` decides what hides, for `visibleUids` too; a collapsed Roam table still shows its cells | focus on a block the user cannot see; arrows skip visible cell rows |
+| A block selection treats a valid Roam table as one row (`selectableUids`, `startSelection`, `selectionText`) | Shift+Arrow spends presses on table cells, and a copied table loses them |
+| An edit never places a block under a collapsed row; indent, outdent and cross-parent moves expand it first, and `allowedDepths` offers no depth under one | the block vanishes into a closed subtree |
+| An offset transform, and a caret the editor places, snaps with `snapCaret` (`keyEdits.ts`); `outline/surrogatePairs.props.test.ts` covers each | a slice between surrogate halves stores two U+FFFD |
+| `set_collapsed` does not stamp (`opBumpsUpdatedAt`, which `replica/localOps.test.ts` pins for the replica) | collapsing re-dates the block |
 
 ### Drafts and commit points
 
-Plain typing debounces into a draft (`TEXT_DEBOUNCE_MS` = 500 ms in
-`useOutline.ts`); structural edits, blur, undo, tab-hide and in-editor
-navigation (`onFlushDraft`) flush it first. A draft is flush-held while the
-caret sits inside a half-typed `[[ref` or `#tag` token, so autosave cannot
-create a page from a partial title.
+Plain typing debounces into a draft (`TEXT_DEBOUNCE_MS` in `useOutline.ts`).
+Structural edits, blur, undo, tab-hide and in-editor navigation
+(`onFlushDraft`) flush it first. A draft is held while the caret sits inside a
+half-typed `[[ref` or `#tag`, so autosave cannot create a page from a partial
+title.
 
-A draft is a `PendingDraft` (`outline/outlineState.ts`): `{ uid, text, base }`.
-`base` is the text the user typed over, which is what the textarea showed, not
-what the tree holds. The two differ in two cases. A remote batch reaches the
-tree before the textarea adopts it. A dirty textarea never adopts it at all.
-So `useBlockDraft` reports the shown text at the first edit of a clean draft
-(`onDraftStart`), and after a flush the draft's own text is what the textarea
-shows. `captureDraft` takes that shown text as a new draft's base, falling back
-to the tree's text, and keeps the base through later keystrokes. Undo, redo and
-an upload splice from the focused textarea change the block for the user after
-flushing its draft, so `BlockInput` then calls `settle()`. The draft goes
-clean and adopts the tree's text. Left dirty, the textarea would keep the old
-text, and the next draft would be typed over text the tree no longer holds.
+**A draft's `base` is the text the textarea showed, and a flush hashes `base`,
+never the tree.** A `PendingDraft` (`outline/outlineState.ts`) is
+`{ uid, text, base }`. A remote batch can reach the tree before the textarea
+adopts it, and a dirty textarea never adopts it. Hashing `base` lets the server keep
+both texts when another device edited from the same base.
+
+| When | Rule |
+|---|---|
+| A clean draft's first edit | `onDraftStart` reports the shown text, which `captureDraft` keeps as `base` |
+| Undo, redo, or an upload splice in the focused textarea | `BlockInput` calls `settle()`, so the draft adopts the tree's text |
+| Focus or a new draft moves to another block | the old draft flushes first. A block a remote batch removes unmounts with no blur, so nothing else would flush it |
+| A remote batch reparents the block or an ancestor | the textarea remounts with no blur. `BlockInput` reads `handlers.pendingDraft(uid)` at mount and resumes it dirty with its base, and restores the selection the old textarea reported (`onInputUnmount`) |
+| A parent passes a new `initial` | the draft flushes first, so the parent tree waits for that write |
+
 `pendingTextOps` decides what the flush sends:
 
 | Draft at flush | Flush sends |
 |---|---|
 | `text === base`, or the tree already holds `text` | nothing |
-| block still in the tree, text changed | `update_text` with `base_text_hash` = hash of `base`, plus `page_title` |
-| block gone from the tree (remote delete, cross-page move) | the same op; the server applies it to a moved block on its new page, and lands an edit to a deleted block on today's daily note |
-| `base` is `null` (the tree lacked the block at the first change) | `update_text` with `page_title` only; `stampBaseTextHashes` hashes it like any op |
+| block in the tree, text changed | `update_text` with `base_text_hash` of `base`, plus `page_title` |
+| block gone (remote delete, cross-page move) | the same op. The server applies it on the block's new page, or lands an edit to a deleted block on today's daily note |
+| `base` is `null` | `update_text` with `page_title`; `stampBaseTextHashes` hashes it like any op |
 
-Hashing `base` is what lets the server keep both texts when another device
-edited the block from the same base. A draft on one block is flushed before
-focus or a new draft moves to another block. When a remote batch removes the
-block, its textarea unmounts with no blur, so nothing else would flush it.
-A remote batch that reparents the block, or one of its ancestors, within the
-page remounts its textarea, again with no blur, while the draft is pending.
-`BlockInput` asks `handlers.pendingDraft(uid)` at mount, and `useBlockDraft`
-resumes that text dirty. The tree's text does not replace it, and no new
-`onDraftStart` fires, so the draft keeps its base. The old textarea reports its
-selection as it unmounts (`onInputUnmount`), and the new one restores it, or
-puts the caret at the end of the draft when none was recorded. Undo history
-records the flushed op with its stamps removed (`withoutStamps`), so a redo
-hashes the tree it replays against. It leaves out a text op whose block has
-left the tree, which cannot be inverted there, so the rest of its batch stays
-undoable. A new `initial` from a parent flushes the draft before the session
-takes it: the flush makes the draft a relevant write, so the parent tree waits
-until that write settles.
-
-A debounced draft survives an unmount, because nothing cancels the pending
-`setTimeout`. A held draft has no armed timer, and React delivers no blur for a
-node it removes, so each navigation trigger needs its own defence:
-
-| Trigger | Defence |
-|---|---|
-| Navigation the editor never sees: App's global `Ctrl-Shift-D` chord, browser back/forward | `useOutline` flushes on unmount, enqueuing into the durable op queue after the session handle is released. The effect is unmount-only: the callback is held in a ref, not a dep |
-| Navigation the editor starts itself: `Ctrl-O`/`Ctrl-Shift-O` over a `[[ref]]` (`ensureRefPageThenOpen`) | calls `handlers.onFlushDraft()` before `POST /api/pages` and the navigation; the flush is what creates the ref's page row through the normal ops path |
-
-Clicking a rendered ref is unaffected: only unfocused blocks render links, so
-reaching one blurs the textarea first. Tab hide, close and reload are covered
-by the `visibilitychange` flush.
+A held draft has no armed timer, and React delivers no blur for a node it
+removes. So `useOutline` flushes on unmount, for navigation the editor never
+sees (the `Ctrl-Shift-D` chord, back/forward); its callback sits in a ref so
+the effect runs only then. `ensureRefPageThenOpen` (`Ctrl-O` over a `[[ref]]`)
+flushes before `POST /api/pages`. Tab hide and reload are covered by the
+`visibilitychange` flush.
 
 ### Keyboard policy
 
-`decideEditorKey` (a focused block's textarea) and `decideSelectionKey` (a
-multi-block selection, keyed by the tree container since there is no textarea)
-are pure functions returning a semantic decision that
-`EditableBlockTree.onKeyDown` and `BlockInput` execute; all DOM effects stay in
-the shell. New shortcuts go into one of those two functions, Cmd-letter wraps
-into `decideEditorKey`'s `META_WRAP_EDITS` table, never into ad-hoc event
-handlers. [keyboard.md](../keyboard.md) owns the shortcut list. App-global
-chords fire while a block is being edited, so a new editor key must not collide
-with one.
+Two pure functions decide; the shell (`EditableBlockTree.onKeyDown`,
+`BlockInput`) executes and owns every DOM effect. `decideEditorKey` handles a
+focused textarea. `decideSelectionKey` handles a multi-block selection, keyed by
+the tree container. New shortcuts go into one of them, and Cmd-letter wraps
+into `META_WRAP_EDITS`, never into ad-hoc handlers. [keyboard.md](../keyboard.md)
+owns the list, and a new key must not collide with an app-global chord.
 
-On an iPhone, `BlockInput` also renders `KeyboardBar`: → ← ( ) [ ] in a strip
-on top of the on-screen keyboard. The check is `isPhoneUserAgent`, not a width
-query, so a narrow desktop window and an iPad never get it. A press is fed to
-`decideEditorKey` as the key it names (Tab, Shift-Tab or the character), so it
-indents, auto-pairs and opens `[[` exactly as the key would. When the policy
-answers `none` for a character, `insertTypedChar` types it, since no native
-keystroke follows. The bar sits `keyboardInset` above the layout viewport's
-bottom, tracked from `visualViewport`, because iOS Safari does not shrink the
-layout viewport for the keyboard. On an iPhone `main.tsx` also adds
-`maximum-scale=1` to the viewport meta (`phoneViewportContent`). Without it,
-Safari zooms when the 15px block textarea takes focus, and the zoomed page
-pans the bar partly off screen.
-
-In the iOS 26 Safari tab (not the home-screen app) the bar sits one address
-pill higher than on the keyboard. Safari excludes its floating address pill
-from the visual viewport, and a page cannot draw over browser chrome, so
-this is the lowest position where every key can be tapped. Safari's Top tab
-layout has no floating pill.
-
-**A bar key acts on `pointerdown`, never on `click`.** It cancels
-`pointerdown` so the textarea keeps focus and the keyboard stays open, and iOS
-WebKit then sends no click at all. Only a click with `detail === 0`
-(VoiceOver's activation) acts on its own.
+`KeyboardBar` feeds each key to `decideEditorKey` as the key it names. When the
+policy answers `none` for a character, `insertTypedChar` types it, since no
+native keystroke follows. The bar's platform rules are in
+[frontend.md](frontend.md#ios-and-phone-behaviour).
 
 ### Autocomplete
 
-`outline/useAutocomplete.ts` holds the open completion context and the
-highlighted row for `BlockInput`; the pure detection and staleness rules are
-`outline/autocomplete.ts`. `keyboardPolicy.autocompleteKeyAction` decides which
-keys the popup may claim: unmodified Arrow/Enter/Tab/Escape only, so
-Cmd/Ctrl/Shift/Alt chords stay with the platform and the editor.
+`outline/autocomplete.ts` detects contexts; `useAutocomplete.ts` holds the
+popup. `keyboardPolicy.autocompleteKeyAction` lets the popup claim only
+unmodified Arrow, Enter, Tab and Escape.
 
-No action ever uses a remembered caret. Clicks and selection-only caret moves
-fire no input event, so every action path goes through `resolve(textarea)`,
-which re-derives the context from the live selection and returns the caret to
-splice at. The live caret is `selectionEnd`, since `[[` wrapped around a
-selection leaves the query selected and `selectionStart` would read it as
-empty.
-
-`resolve` and the user's next keystroke both read the DOM caret. So the
-editor places the caret after a pick or key edit in a layout effect of
-the commit that sets the new value (`useBlockDraft.replace`). React commits a keydown's or mousedown's update before the next event
-is dispatched, so the caret is right before the user's next keystroke. A
-`requestAnimationFrame` would run too late under load. It would move a caret
-the user has already typed past back to the offset captured at the pick.
+No action uses a remembered caret, because clicks and caret moves fire no input
+event. Every action re-derives the context through `resolve(textarea)`. The
+live caret is `selectionEnd`: `[[` wrapped around a selection leaves the query
+selected, and `selectionStart` would read it as empty. After a pick, the caret
+is placed in a layout effect of the commit that sets the value
+(`useBlockDraft.replace`), which runs before the next keystroke; a
+`requestAnimationFrame` can run after it.
 
 ### Paste
 
-Plain Cmd-V is left native. `Shift-Cmd-V` arms an outline paste, which
-`paste.ts` (Core) plans as one op batch, parsing the clipboard into a forest by
-comparing indent widths ordinally with a stack. 2-space, 4-space and tab
-clipboards all work unconfigured.
-
-The arm exists because `ClipboardEvent` carries no modifier state. The chord is
-recorded in a ref on keydown without `preventDefault`, or the browser's own
-paste would never fire. The next `paste` event consumes it, and serves one
-paste.
+Plain Cmd-V is native. `Shift-Cmd-V` arms an outline paste, which `paste.ts`
+plans as one batch, comparing indent widths ordinally so 2-space, 4-space and
+tab clipboards all work. `ClipboardEvent` carries no modifiers, so the chord is
+recorded on keydown without `preventDefault`, and the next `paste` consumes it.
 
 ### Slash commands
 
-Slash commands dispatch to block-type, heading and query constructors;
-[keyboard.md](../keyboard.md#slash-commands) has the list. `/date` opens
-`DatePickerPopup` over the month grid computed by the pure
-`outline/calendar.ts`. Labels are lowercase by convention, and
-`help/slashCommandsDocumented.test.ts` fails if a new command isn't documented
-there. `/upload`'s blur ordering is a rule of its own, above. `/goodlinks`
-follows `/upload`'s blur-first shape and hands off to
-`useOutline.onGoodlinks`; see [goodlinks.md](goodlinks.md).
-`/link-local-file` follows the same blur-first, tree-owned shape: it opens
-`LocalFilePicker` (a cached `import()` chunk, so fzf stays out of the entry)
-from `EditableBlockTree` and splices the pick synchronously
-through `useOutline.onLinkLocalFile`. A failed chunk load closes the request
-with an `editor-notice` in `EditablePage`'s notice slot (reported through
-the tree's `onPickerNotice` prop), and Escape cancels an open that is still loading.
+[keyboard.md](../keyboard.md#slash-commands) lists them, and
+`help/slashCommandsDocumented.test.ts` fails on an undocumented one. `/upload`,
+`/goodlinks` ([goodlinks.md](goodlinks.md)) and `/link-local-file` give up the
+block before their picker opens. `LocalFilePicker` is a cached `import()`
+chunk, which keeps fzf out of the entry.
 
 ### The bullet and the block menu
 
-The `.bullet` span in `EditableBlockTree` is the block menu's only keyboard
-route. It carries `role="button"`, `tabIndex={0}`,
-`aria-label="Open block menu"`, `aria-haspopup`, `aria-expanded` and an
-`onKeyDown` for Enter / Space / ContextMenu / Shift-F10. Every `onOpenMenu`
-call site is on that span and `keyboardPolicy` has no menu shortcut, so
-removing its tab stop removes keyboard access to Copy block reference and the
-view modes. Its focus styling is constrained too — see
-[styling.md](styling.md#focus-and-interactive-affordances).
-
-With `fallback=true`, bullets are inert spans with no role, tab stop, menu,
-focus, upload, selection or drag handlers, and chevrons are disabled, so one
-renderer serves the live shared outline too.
+The `.bullet` span is the block menu's only keyboard route: `role="button"`,
+`tabIndex={0}`, `aria-label="Open block menu"`, `aria-haspopup`,
+`aria-expanded`, and Enter, Space, ContextMenu and Shift-F10. Removing its tab
+stop removes keyboard access to Copy block reference and the view modes
+([styling.md](styling.md#focus-and-interactive-affordances) constrains its
+ring). With `fallback=true`, bullets are inert and chevrons disabled, so one
+renderer serves the live shared outline.
 
 ### Drag and drop
 
-`useDropZone` coalesces `dragover` into one geometry pass per animation frame
-and measures each candidate row's rectangle at most once per drag. Rows move
-under a drag, so `cacheIsUsable` (`dnd/dropGeometry.ts`, Core) states when a
-cached rect may be reused: it is keyed by row uid, and a scroll discards the
-cache rather than shifting it, since cached tops are viewport-relative like the
-`clientY` they are compared against. A drop resolves the last processed
-candidate rather than the drop event's own coordinates, so a block lands where
-the indicator line was drawn.
+`useDropZone` runs one geometry pass per animation frame and measures each row
+at most once per drag. `cacheIsUsable` (`dnd/dropGeometry.ts`) keys cached
+rects by uid, and a scroll discards them, since tops are viewport-relative like
+`clientY`. A drop resolves the last processed candidate, so a block lands where
+the indicator was drawn.
 
-#### Files dragged in from outside the app
+A `DragSource` (`outline/dnd.ts`) is `blocks` or `files`; both share the
+zone's geometry and `resolveDrop`.
 
-`DragSource` (`outline/dnd.ts`) has two kinds: `blocks` (a grabbed block or
-selection) and `files` (carries nothing; the `File`s are readable only at
-drop). The zone's geometry and indicator are shared, so a files drag draws the
-same line and resolves through the same `resolveDrop`, which never reports a
-files drop as a no-op.
-
-| Piece | Rule |
+| Files drag | Rule |
 |---|---|
-| Start | a `dragenter`/`dragover` with `"Files"` in `dataTransfer.types` and no block drag, where `uploadableDrag` (`outline/fileDrop.ts`) finds an image or PDF among `dataTransfer.items`, or cannot tell (no items, or a file item with an empty type, as WebKit lists during `dragover`). Accepted as `copy`. A drag whose files all have a known other type is not accepted by the zone |
-| End | there is no `dragend` for an external drag, so `DndProvider` ends a files drag on a window `drop`, or when a capture-phase document counter of `dragenter` minus `dragleave` (files drags only) returns to zero. The counter, not `relatedTarget`, because WebKit reports null on every `dragleave`; an OS-level cancel (Escape) arrives as a `dragleave`, since no keydown is delivered during a native drag. The zone clears its line when the drag ends |
-| Window guard | `DndProvider` refuses any files `dragover` nobody accepted (`dropEffect = "none"`) and swallows the `drop`, so a miss or a read-only page never navigates to the file. A text field is exempt on `dragover`: it is its own drop target |
-| Textarea | over `textarea.block-input` the zone draws no line and ignores the drop (`defaultPrevented` too); `BlockInput`'s own drop splices at the caret |
-| Drop | a drop whose files drag has not yet reached the zone's closure still counts as one. `useOutline.onDropFiles` uploads sequentially, then one `run()` creates one block per upload at consecutive `order_idx` (one undo step). Non-image/PDF files and failed uploads are named in the upload banner. Focus is never moved: focusing would show the raw markdown instead of the asset |
-| Parent gone | if the target's parent was deleted during the uploads, `planFileDropBlocks` appends at the end of the page and the first new block is scrolled into view, centred |
-
-## Journal day references
-
-Journal days render their linked references inline (`JournalDayReferences`,
-reusing `BacklinksSection`), hidden when a day has none. They arrive with the
-day in `/api/journal`'s payload; paging past the preview is a page read, but
-that is a click rather than a scroll.
-
-A day already on screen keeps the list it first rendered, because
-`BacklinksSection` snapshots `initial` into state and a resync replaces the day
-objects in place under stable keys. The "day has none" gate is live, since
-`JournalDayReferences` re-reads `total_pages` on every render.
-
-Nothing unmounts a loaded day: no virtualisation, no eviction. A mounted
-outline, its `useDismiss` listener and its paint are paid for the life of the
-session (perf scenarios `I` and `J`).
+| Start | `"Files"` in `dataTransfer.types` and `uploadableDrag` (`outline/fileDrop.ts`) finds an image or PDF, or cannot tell (WebKit lists empty types) |
+| End | there is no `dragend`. `DndProvider` ends it on a window `drop`, or when its `dragenter` minus `dragleave` count reaches zero, since WebKit's `relatedTarget` is always null |
+| Missed | `DndProvider` refuses and swallows it, so the browser never navigates to the file |
+| Over a textarea | the zone ignores it; `BlockInput` splices at the caret |
+| Drop | `useOutline.onDropFiles` uploads in turn, then one `run()` adds a block per file. Focus stays put, or the block would show raw markdown |
+| Parent gone | `planFileDropBlocks` appends at the end of the page |

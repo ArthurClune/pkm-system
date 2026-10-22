@@ -211,7 +211,7 @@ def harness(tmp_path_factory):
 # every (migration, heading kind) cell is its own property, the two kinds
 # that decide what is stored assert it, and a refused title has its own.
 @with_floors({
-    "block text: NUL": 0.016, "block text: [[": 0.5, "block text: very long": 0.04,
+    "refused title: True": 0.22, "block text: NUL": 0.016, "block text: [[": 0.5, "block text: very long": 0.04,
     "sent :create/time: int past 64 bits": 0.1,
     "stored block created_at: integer": 0.17, "stored block created_at: null": 0.17,
 }, per="case")
@@ -233,13 +233,25 @@ def test_every_imported_row_is_served(harness, tmp_path_factory):
 def _import_is_served(harness, tmp_path_factory, data, migrate: bool,
                       heading: str, legacy_heading_zero: bool) -> None:
     count("case")
-    export = data.draw(roam_exports(heading))
+    refused_title = data.draw(st.booleans())
+    event(f"refused title: {refused_title}")
+    export = data.draw(roam_exports(heading, refused_title))
     legacy_heading_zero = legacy_heading_zero or heading == "legacy_zero"
     path = tmp_path_factory.mktemp("import") / "pkm.sqlite3"
     if not _import(export, path, migrate, legacy_heading_zero):
+        # A refused title is skipped, so it never stops an import.
+        assert not refused_title
         return
     event(f"imported, title migration {'applied' if migrate else 'not run'}")
     stored = _label_stored(path)
+    if refused_title:
+        stored_db = connect(path)
+        try:
+            assert all(
+                title_syntax_reason(row["title"]) is None
+                for row in stored_db.select("SELECT title FROM pages"))
+        finally:
+            stored_db.close()
     if heading == "leveled":
         assert {1, 2, 3} <= stored, stored
     if heading == "legacy_zero":

@@ -113,7 +113,7 @@ the mechanisms are documented where they live.
 
 | Rule | Where it is documented |
 |---|---|
-| Persisted locally and delivered to the server are separate outcomes of a write. The queue reports a typed reason when it cannot drain, and every replica RPC can fail on worker error, timeout or disposal. | [frontend.md § Sync and offline](architecture/frontend.md#sync-and-offline-ui-side-summary), [sync-recovery.md § A local write fails](architecture/sync-recovery.md#a-local-write-fails) |
+| Persisted locally and delivered to the server are separate outcomes of a write. The queue reports a typed reason when it cannot drain, and every replica RPC can fail on worker error, timeout or disposal. | [frontend.md § How reads and writes flow](architecture/frontend.md#how-reads-and-writes-flow), [sync-recovery.md § A local write fails](architecture/sync-recovery.md#a-local-write-fails) |
 | Recovery can never erase an acknowledged enqueue. A worker-owned gate serializes database writes, and recovery re-checks the pending rows just before any destructive step. | [sync-recovery.md § Recovery never erases intent](architecture/sync-recovery.md#recovery-never-erases-intent) |
 | A batch the server rejects is marked poisoned, delivery pauses, and a full-snapshot repair drops it and resumes. Connectivity and delivery health are reported separately. | [sync-recovery.md § A batch the server rejects](architecture/sync-recovery.md#a-batch-the-server-rejects) |
 | All views of a page share one outline session, and only one of them can edit. A fetched payload is adopted only if no newer request or unsettled write makes it stale. | [frontend-editor.md § Per-title outline sessions](architecture/frontend-editor.md#per-title-outline-sessions) |

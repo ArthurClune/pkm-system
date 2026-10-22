@@ -497,18 +497,41 @@ def test_refs_in_orphans_and_skipped_page_blocks_are_unlinked_too() -> None:
             sanitize_import_title(ref.title, location="check")
 
 
-def test_a_page_whose_blocks_ref_a_skipped_page_gets_plain_text() -> None:
+def test_text_extract_never_reports_as_a_ref_stays_byte_identical() -> None:
+    text = "[[Real]][[]] [[.]] [[..]] [[a/./b]]"
     skipped = Page(raw_title_of("."), None, None, ())
     home = Page(
         raw_title_of("Home"),
         None,
         None,
-        (_block(uid_of("uid-home"), "go to [[.]] or [[..]] or [[Home]]"),),
+        (_block(uid_of("uid-home"), text),),
     )
     result = sanitize_export_titles(_export_of(skipped, home))
 
     (page,) = result.export.pages
-    assert page.children[0].text == "go to . or .. or [[Home]]"
+    assert page.children[0].text == text
+    assert result.unlinked_block_uids == ()
+
+
+@pytest.mark.parametrize(
+    ("text", "plain"),
+    [("see [[#]] here", "see # here"), ("#[[#]] here", "# here")],
+)
+def test_a_ref_that_sanitizes_to_blank_becomes_plain_text(
+    text: str, plain: str
+) -> None:
+    skipped = Page(raw_title_of("#"), None, None, ())
+    home = Page(
+        raw_title_of("Home"),
+        None,
+        None,
+        (_block(uid_of("uid-home"), text),),
+    )
+    result = sanitize_export_titles(_export_of(skipped, home))
+
+    (page,) = result.export.pages
+    assert page.children[0].text == plain
+    assert extract(page.children[0].text).refs == ()
     assert result.unlinked_block_uids == ("uid-home",)
 
 

@@ -347,12 +347,23 @@ def sanitize_export_titles(export: Export) -> SanitizedImport:
         if title not in refused
     }
 
+    # Only spellings extract() reports are refs; `[[]]`, `[[.]]` and the like
+    # are plain text there and stay byte-identical here.
+    refused_refs = {
+        ref.title
+        for page in export.pages
+        for block in _walk_blocks(page.children)
+        for ref in extract(block.text).refs
+        if ref.title in refused
+    } | {
+        ref.title
+        for block in _walk_blocks(export.orphan_blocks)
+        for ref in extract(block.text).refs
+        if ref.title in refused
+    }
+
     def is_refused(spelling: str) -> bool:
-        try:
-            sanitize_import_title(spelling, location="")
-        except ImportTitleError:
-            return True
-        return False
+        return normalize_title(spelling) in refused_refs
 
     unlinked: list[BlockUid] = []
 

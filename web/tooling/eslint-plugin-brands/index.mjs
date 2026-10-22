@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 // ESLint rules that keep brands honest on the web, the twin of the server's
-// brand rules (docs/architecture/enforced-checks.md#brand-rules):
+// brand rules (docs/architecture/checks.md#brand-rules):
 //   * brands/name-carries-brand: a parameter, property signature or class
 //     property whose name means a brand (uid, pageId, sha ...) must be
 //     declared with exactly that brand (or null, or an array of it).

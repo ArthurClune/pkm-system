@@ -1,10 +1,11 @@
 ---
 # pkm-a1xk
 title: 'More property tests: areas the troubleshooting table shows need them'
-status: todo
+status: completed
 type: epic
+priority: normal
 created_at: 2026-10-21T14:00:52Z
-updated_at: 2026-10-21T14:00:52Z
+updated_at: 2026-10-22T09:21:05Z
 ---
 
 Property tests for the areas the troubleshooting table shows were bitten by hand-found bugs and have no property coverage today. Chosen from a review of `docs/architecture/` and `docs/troubleshooting.md` after `pkm-e7z9` found three real bugs in the local-docs links.
@@ -17,3 +18,7 @@ Suggested order: the ref-grammar corpus, text hashing, and asset tokens first (c
 - Time budget: Arthur has OK'd a bigger budget than the default 100 examples where it buys real coverage. Keep `pytest -q` / `pnpm verify` reasonable; a property that needs minutes goes into the `proptest/check.sh` gate with its own budget instead (see `docs/architecture/property-checks.md`).
 - A property is not covered until it is shown to reach (Hypothesis `event()`, or fast-check tallies asserted in the test so it cannot go vacuous) and to fail under a mutant. Record the rates and mutants in the commit message.
 - Fix what the properties find, with the shrunk example kept as an ordinary unit test; never xfail or carve it out. A cross-language fixture gets a row in `backend.md` § Generated artifacts and parity fixtures.
+
+## Summary of Changes
+
+All children completed; the last two (pkm-lvyl, pkm-hzt3) make the original Roam export importable again.

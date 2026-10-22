@@ -1,11 +1,11 @@
 ---
 # pkm-lvyl
 title: Importer skips a page with a refused title and carries on
-status: in-progress
+status: completed
 type: bug
 priority: low
 created_at: 2026-10-21T21:28:38Z
-updated_at: 2026-10-22T08:58:39Z
+updated_at: 2026-10-22T09:21:05Z
 parent: pkm-a1xk
 ---
 
@@ -19,3 +19,12 @@ Arthur (2026-10-21): low priority for now; the importer should probably skip tha
 
 
 Ruling (Arthur, 2026-10-22): blocks go to the recovery page, refs become plain text via unlink_stale_refs.
+
+## Summary of Changes
+
+- titles.sanitize_export_titles skips a page whose title is refused (malformed or blank), reports it (SkippedPage: title, reason, location, block count) and appends its blocks after the orphan subtrees on the recovery page.
+- A ref extract() reports with a refused title becomes plain text through unlink.unlink_stale_refs; text extract() reads as no ref ([[]], [[.]]) stays byte-identical. run.py no longer exits 2 on a title.
+- The no-500 stored property now draws refused titles through import and serving.
+- Real export: '' and '.' skipped (both empty), no text unlinked.
+- Found pkm-zutb (rename loses the text of a code span between a link's brackets); filed separately.
+- Docs: import-export-and-backup.md § Title sanitization table; a troubleshooting row.

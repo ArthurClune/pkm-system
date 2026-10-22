@@ -19,7 +19,8 @@ from asgi_harness import Harness, check_every_row, encode_segment, open_harness
 from fastapi.params import File, Form
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
-from hostile import (LONE_HIGH, LONE_LOW, count, event, for_annotation,
+from hostile import (LONE_HIGH, LONE_LOW, REAL_TITLES, count, event,
+                     for_annotation,
                      hostile_text, json_value, value_labels, with_floors)
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
@@ -191,7 +192,8 @@ def test_no_route_answers_hostile_input_with_a_500(harness, data):
         _send_checked(harness, data.draw(requests(routes, loose_in=4)))
 
 
-# A refused rename answering 2xx has no floor: it fell under five events.
+# A rename answering 2xx has no floor here: it fell under five events, so
+# `test_a_successful_rename_leaves_every_read_serialisable` guarantees it.
 @with_floors({
     "POST /api/ops -> 2xx": 0.039,
     "flag on: POST /api/ops -> 2xx": 0.019, "flag on: POST /api/ops -> 4xx": 0.02,
@@ -221,6 +223,30 @@ def test_hostile_writes_leave_every_read_serialisable(harness, data):
     for title in titles:
         response = harness.send("GET", "/api/page/" + encode_segment(title))
         assert response.status_code == 200, (title, response.text[:300])
+
+
+# A rename that succeeds is too rare an outcome of the hostile draws to
+# floor, so it gets a property of its own: a seeded page renamed to a plain
+# new title always answers 200, and every read still serialises.
+@pytest.mark.parametrize("plain_space", [False, True])
+@settings(max_examples=20, deadline=None, database=None,
+          suppress_health_check=_SUPPRESSED)
+# A daily note cannot be renamed, so its title is left out.
+@given(seeded=st.sampled_from([t for t in REAL_TITLES if "2026" not in t]),
+       renamed=st.from_regex(r"Renamed [A-Z][a-z]{3,8}", fullmatch=True))
+def test_a_successful_rename_leaves_every_read_serialisable(
+        harness, plain_space, seeded, renamed):
+    harness.reset(plain_space=plain_space)
+    response = harness.send(
+        "POST", f"/api/page/{encode_segment(seeded)}/rename",
+        json={"new_title": renamed, "allow_merge": False})
+    assert response.status_code == 200, (seeded, response.text[:300])
+    for url in ("/api/sync/snapshot", "/api/sync/changes?since=0",
+                "/api/journal", "/api/sidebar",
+                "/api/page/" + encode_segment(renamed)):
+        response = harness.send("GET", url)
+        assert response.status_code == 200, (url, response.text[:300])
+    check_every_row(harness.db_path)
 
 
 def _str_leaves(value: object) -> list[tuple[list[object], str]]:

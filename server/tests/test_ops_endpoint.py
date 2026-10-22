@@ -230,18 +230,23 @@ def test_a_ref_title_with_a_hash_is_refused(client, seeded_config):
     assert _write_state(seeded_config) == before
 
 
-@pytest.mark.parametrize("text, missing", [
-    ("see [[a`b]]", "a`b"),
-    ("see #[[x`]]", "x`"),
-    ("see [[Stray`b]] and #[[Other`]] end", "Stray"),
+@pytest.mark.parametrize("text", [
+    "see [[a`b]]",
+    "see #[[x`]]",
+    "see [[Stray`b]] and #[[Other`]] end",
 ])
 def test_a_backtick_in_a_link_is_plain_text_and_makes_no_page(
-        client, text, missing):
+        client, seeded_config, text):
+    before = _write_state(seeded_config)
+
     response = _post(client, {"op": "update_text", "uid": "uid_b4",
                               "text": text})
 
     assert response.status_code == 200
-    assert client.get(f"/api/page/{missing}").status_code == 404
+    after = _write_state(seeded_config)
+    assert ([(p["page_id"], p["title"]) for p in after["pages"]]
+            == [(p["page_id"], p["title"]) for p in before["pages"]])
+    assert [r for r in after["refs"] if r["src_block_uid"] == "uid_b4"] == []
 
 
 def test_batch_is_atomic_and_reports_index(client):

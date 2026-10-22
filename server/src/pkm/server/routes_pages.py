@@ -405,14 +405,15 @@ def rename_page(request: Request, title: RawTitle, body: RenamePageRequest,
         # sidebar entries without tripping UNIQUE(title).
         target = fetch_page(db, new_title)
         if target is None:
-            rename_page_rows(db, page["page_id"], canonical_title, new_title, now_ms)
+            rename_page_rows(db, page["page_id"], canonical_title, new_title, now_ms,
+                             canonical)
             result = "renamed"
         elif not body.allow_merge:
             raise HTTPException(status_code=409,
                                 detail=f"page {new_title!r} already exists")
         else:
             merge_page_rows(db, page["page_id"], target["page_id"], canonical_title, new_title,
-                            now_ms)
+                            now_ms, canonical)
             result = "merged"
     except BaseException:
         db.rollback()

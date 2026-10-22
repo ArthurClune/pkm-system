@@ -117,7 +117,7 @@ brand back into `string`.
 
 Where a brand may be minted is `MINT_SITES` in
 `server/src/pkm/brand_registry.py`, enforced on the web by
-`brands/no-brand-assertion` ([enforced-checks.md](enforced-checks.md#web-side)).
+`brands/no-brand-assertion` ([checks.md § Brand rules](checks.md#brand-rules)).
 Tests mint through the checked helpers in `test-helpers.ts`. `sync/wire.ts`
 reads network bodies, tombstone ids (`tombstoneIdOfWire`) and WebSocket frames
 (`wsFrameOfWire`) as the contract's types; `ReplicaDb.select` does the same for
@@ -275,7 +275,7 @@ fallback in `useAssistant.ts`.
 ## Testing and quality gates
 
 `pnpm verify` runs the web gates;
-[enforced-checks.md](enforced-checks.md#on-every-test-run) lists what each
+[checks.md](checks.md#every-check) lists what each
 fails on, and `AGENTS.md` § Testing says how to run them.
 
 - **Unit** (Vitest + jsdom): co-located `*.test.ts(x)`. `src/test-setup.ts`
@@ -294,7 +294,7 @@ fails on, and `AGENTS.md` § Testing says how to run them.
   fails when the entry, largest asset, total, service-worker precache or a
   library's owned bytes (mermaid, pdfjs, katex) exceed their caps.
 - **Perf**: `web/tooling/perf/check.mjs` is the frontend half of
-  `perf/check.sh` ([performance-checks.md](performance-checks.md)); its
+  `perf/check.sh` ([checks.md § Performance gate](checks.md#performance-gate)); its
   [README](../../web/tooling/perf/README.md) covers the investigation toolkit.
 
 ## Build notes (`vite.config.ts`)

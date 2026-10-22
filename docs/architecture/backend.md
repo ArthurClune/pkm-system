@@ -246,7 +246,7 @@ from these models, and `PkmClient` validates every response against them.
   runtime, the perf fixture's `TypeAdapter(BlockOp)`, FastAPI form bodies and
   the MCP library's argument models.
 
-The [brand lint](enforced-checks.md#brand-rules) enforces both;
+The [brand lint](checks.md#brand-rules) enforces both;
 `brand_registry.MINT_SITES` lists where each brand may be minted.
 
 | Brand | Base | Declared in | Note |
@@ -768,7 +768,7 @@ route.
 
 Path and query values cannot carry a lone surrogate, because the server
 decodes them from bytes. The `test_no_500_*_props.py`
-[properties](property-checks.md) send generated input through every route.
+[properties](checks.md#property-gate) send generated input through every route.
 
 ## Generated artifacts and parity fixtures
 
@@ -797,7 +797,7 @@ Python commands run from `server/`, `pnpm` ones from `web/`.
 Hand-edited fixtures live in `shared/fixtures/`. `rows_dump` fails for a
 brand `brands.ts` lacks. The seeded corpora in `refs_parity.json` and
 `title_parity.json` are tallied by shape, so they cannot go vacuous. The
-[ops property](property-checks.md#what-the-ops-property-checks)
+[ops property](checks.md#property-gate)
 checks the server, replica and in-memory implementations against each other
 on random batches.
 
@@ -861,9 +861,8 @@ checks every `pkm.*` logger reaches a handler.
 
 - `cd server && uv run pytest -q` runs the suite with branch coverage
   enforced. AGENTS.md says how to run the gates;
-  [enforced-checks.md](enforced-checks.md) says what fails, including the
-  [type and lint policy](enforced-checks.md#on-every-test-run) and the
-  [comment lint](enforced-checks.md#on-every-commit).
+  [checks.md](checks.md) says what fails, including the
+  [comment lint](checks.md#comment-and-regex-lint).
 - `conftest.py` provides a seeded temp database (five pages, daily page
   "July 7th, 2026"), an authenticated `TestClient` and an in-process
   `PkmClient`.
@@ -871,6 +870,6 @@ checks every `pkm.*` logger reaches a handler.
   not `TestClient`, which decodes the path twice: a file named `%41` would be
   served as `A`. uvicorn and `httpx.ASGITransport` decode once.
 - `server/tooling/` holds the gate engines: `perfcheck`
-  ([performance-checks.md](performance-checks.md)), `proptest`
-  ([property-checks.md](property-checks.md)), `brandlint`, `regexlint` and
+  ([checks.md § Performance gate](checks.md#performance-gate)), `proptest`
+  ([checks.md § Property gate](checks.md#property-gate)), `brandlint`, `regexlint` and
   `commentlint`.

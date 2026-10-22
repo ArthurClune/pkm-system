@@ -85,7 +85,7 @@ Under vitest, `select` throws unless the engine's column names equal `keys`
 production build the mode test in `replica/db.ts` folds to a constant, so the
 worker bundle holds neither check, and `select` is `selectObjects`. The keys
 must be an array literal, because a widened array would type every column as
-present ([enforced-checks.md § Web side](enforced-checks.md#web-side)).
+present ([checks.md](checks.md#every-check)).
 `openTestDb({ checkRows })` turns the check off for a test whose premise is data
 it would reject.
 

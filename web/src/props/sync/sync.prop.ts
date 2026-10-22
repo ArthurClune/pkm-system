@@ -5,7 +5,7 @@
 // the changes feed's window at a few journal rows, so a catch-up crosses
 // window boundaries (see windowLimit). Half the time a client's first
 // connect, and a Reload's, comes at a drawn tick of its startup rather than
-// after it (connectTiming in commands.ts). Seventeen fixed scenarios run first,
+// after it (connectTiming in commands.ts). The fixed scenarios run first,
 // through the same commands.
 //
 // A failure prints the seed, the path, the shrunk command list, what each

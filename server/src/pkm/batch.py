@@ -190,7 +190,7 @@ BatchCommand = Annotated[
 BATCH_COMMAND_ADAPTER: TypeAdapter[BatchCommand] = TypeAdapter(BatchCommand)
 
 
-def command_problem(exc: ValidationError) -> str:
+def _command_problem(exc: ValidationError) -> str:
     """Render the first of `exc`'s errors as one problem line -- a
     malformed batch fails with a clear per-item error naming the problem,
     not a pydantic error dump. The three discriminator-level error kinds
@@ -212,16 +212,22 @@ def command_problem(exc: ValidationError) -> str:
     return f"{path}: {first['msg']}" if path else first["msg"]
 
 
-def _format_command_error(index: int, exc: ValidationError) -> str:
-    """`command_problem` as a `batch[i]: problem` line naming the index."""
-    return f"batch[{index}]: {command_problem(exc)}"
+class BatchItemError(BuildError):
+    """A batch item that fails the command schema, as a `batch[i]:
+    problem` message; `index` and `problem` stay readable apart for a
+    caller that phrases them its own way."""
+
+    def __init__(self, index: int, problem: str) -> None:
+        super().__init__(f"batch[{index}]: {problem}")
+        self.index = index
+        self.problem = problem
 
 
 def _parse_command(raw: object, index: int) -> BatchCommand:
     try:
         return BATCH_COMMAND_ADAPTER.validate_python(raw)
     except ValidationError as exc:
-        raise BuildError(_format_command_error(index, exc)) from None
+        raise BatchItemError(index, _command_problem(exc)) from None
 
 
 def validate_batch(commands: object) -> list[BatchCommand]:

@@ -9,8 +9,9 @@ input first (FastMCP JSON-decodes every non-`str` argument, so
 batch's commands go through the same schema `apply_batch` applies. Input
 neither accepts is refused rather than previewed.
 
-Importing `pkm.mcp.server` builds its `FastMCP` but does no I/O; this
-module reads only the tool functions' signatures."""
+The tool functions come from `pkm.mcp.tools`, never `pkm.mcp.server`:
+constructing the server's `FastMCP` configures the root logger and reads
+`FASTMCP_*` settings, and the web server imports this module."""
 from __future__ import annotations
 
 import json
@@ -23,9 +24,9 @@ from mcp.server.fastmcp.utilities.func_metadata import (FuncMetadata,
 from pydantic import ValidationError
 
 from pkm.assistant.policy import WRITE_PREVIEW_FIELDS, WRITE_TOOLS
-from pkm.batch import (BATCH_COMMAND_ADAPTER, NestedItem, command_problem,
-                       nested_items)
-from pkm.mcp import server as mcp_server
+from pkm.batch import (BatchItemError, NestedItem, nested_items,
+                       validate_batch)
+from pkm.mcp import tools as mcp_tools
 
 CONTENT_CLIP_CHARS = 2000
 
@@ -53,11 +54,13 @@ class Refusal:
 
 
 _ARG_MODELS: dict[str, FuncMetadata] = {
-    name: func_metadata(getattr(mcp_server, name)) for name in WRITE_TOOLS}
+    name: func_metadata(getattr(mcp_tools, name)) for name in WRITE_TOOLS}
 
 
 def _outline_text(items: list[NestedItem]) -> str:
-    return "\n".join("  " * depth + text
+    """One line per item, two spaces per level. A newline inside an item
+    shows as `\\n`, so an item cannot draw what looks like a child."""
+    return "\n".join("  " * depth + text.replace("\n", "\\n")
                      for depth, text in nested_items(items))
 
 
@@ -65,6 +68,12 @@ def _content_text(key: str, value: object) -> str:
     if key == "items" and isinstance(value, list):
         return _outline_text(value)
     return value if isinstance(value, str) else json.dumps(value)
+
+
+def _quoted(value: object) -> str:
+    """A value inside prose, JSON-quoted so it cannot close the quote and
+    write the rest of the sentence."""
+    return json.dumps(value, ensure_ascii=False)
 
 
 def _op(entry: str, validated: Mapping[str, Any],
@@ -90,8 +99,9 @@ def _op(entry: str, validated: Mapping[str, Any],
     warnings: list[str] = []
     if entry == "rename_page" and validated.get("allow_merge") is True:
         warnings.append(
-            f'allow_merge is on: if "{validated["new_title"]}" exists, '
-            f'"{validated["title"]}" is merged into it (irreversible)')
+            f'allow_merge is on: if {_quoted(validated["new_title"])} '
+            f'exists, {_quoted(validated["title"])} is merged into it '
+            '(irreversible)')
     return PreviewOp(action=label, targets=targets, content=content,
                      warnings=warnings)
 
@@ -106,19 +116,20 @@ def _batch_preview(commands: list[dict[str, object]],
                    extra: list[tuple[str, object]]) -> WritePreview | Refusal:
     if not commands:
         return Refusal("batch: no commands to apply")
+    try:
+        parsed = validate_batch(commands)
+    except BatchItemError as exc:
+        return Refusal(f"batch item {exc.index}: {exc.problem}")
     ops: list[PreviewOp] = []
     names: list[str] = []
-    for i, item in enumerate(commands):
-        try:
-            parsed = BATCH_COMMAND_ADAPTER.validate_python(item)
-        except ValidationError as exc:
-            return Refusal(f"batch item {i}: {command_problem(exc)}")
+    for i, (item, command) in enumerate(zip(commands, parsed)):
         raw_params = item.get("params")
-        assert isinstance(raw_params, dict)  # the schema demands an object
-        ops.append(_op(f"batch:{parsed.command}",
-                       parsed.params.model_dump(mode="json", by_alias=True),
+        if not isinstance(raw_params, dict):
+            return Refusal(f"batch item {i}: params: expected an object")
+        ops.append(_op(f"batch:{command.command}",
+                       command.params.model_dump(mode="json", by_alias=True),
                        raw_params, extra))
-        names.append(parsed.command)
+        names.append(command.command)
     return WritePreview(
         ops=ops, summary=f"batch: {len(ops)} ops ({', '.join(names)})")
 
@@ -135,11 +146,11 @@ def build_write_preview(short: str, tool_input: Mapping[str, object]
             meta.pre_parse_json(dict(tool_input)))
     except ValidationError as exc:
         return Refusal(f"{short}: {_first_error(exc)}")
-    validated = model.model_dump(mode="json")
+    validated = model.model_dump(mode="json", by_alias=True)
     if short == "batch":
         extra = [(k, v) for k, v in tool_input.items() if k != "commands"]
         return _batch_preview(validated["commands"], extra)
     op = _op(short, validated, tool_input, [])
-    shown = ", ".join(f"{k}={json.dumps(v, ensure_ascii=False)}"
-                      for k, v in op.targets)
+    # ASCII-escaped: U+2028 and friends break lines in log viewers too.
+    shown = ", ".join(f"{k}={json.dumps(v)}" for k, v in op.targets)
     return WritePreview(ops=[op], summary=f"{short}: {shown}")

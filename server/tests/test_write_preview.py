@@ -1,6 +1,8 @@
 import asyncio
 import inspect
 import json
+import subprocess
+import sys
 import typing
 from types import SimpleNamespace
 
@@ -16,6 +18,7 @@ from pkm.client.workflows import LinkedUpload
 from pkm.contracts.ops import BlockUid
 from pkm.contracts.titles import RawTitle
 from pkm.mcp import server as mcp_server
+from pkm.mcp import tools as mcp_tools
 from pkm.test_data.ids import uid_of
 
 
@@ -165,10 +168,62 @@ def test_unknown_tool_is_refused():
                       Refusal)
 
 
-def test_summary_is_one_line():
-    p = _preview("save_note", {"text": "a\nb", "page": "In\nbox"})
-    assert "\n" not in p.summary
+@pytest.mark.parametrize("brk", ["\n", "\r", "\u2028", "\u2029", "\x85"])
+def test_summary_is_one_line(brk):
+    p = _preview("save_note", {"text": "a\nb", "page": f"In{brk}box"})
+    assert len(p.summary.splitlines()) == 1
     assert p.summary.startswith("save_note")
+
+
+def test_merge_warning_quotes_the_titles_as_values():
+    new_title = 'P" exists. (Merge disabled here; "'
+    p = _preview("rename_page", {"title": "Inbox", "new_title": new_title,
+                                 "allow_merge": True})
+    (warning,) = p.ops[0].warnings
+    assert json.dumps(new_title) in warning
+    assert json.dumps("Inbox") in warning
+
+
+def test_outline_leaf_newline_cannot_imitate_a_child():
+    def shown(items):
+        p = _preview("batch", {"commands": [
+            {"command": "outline", "params": {"page": "P", "items": items}}]})
+        return p.ops[0].content[0][1]
+    assert shown(["a\n  b"]) != shown(["a", ["b"]])
+    assert shown(["a\n  b"]) == "a\\n  b"
+
+
+def _stub_tool(text: str, json: str | None = None) -> str:
+    return text
+
+
+def test_param_shadowing_a_model_method_previews_its_value(monkeypatch):
+    # FastMCP renames a param that shadows a BaseModel attribute (`json`)
+    # to `field_json` with an alias; the preview must read it by the alias.
+    from mcp.server.fastmcp.utilities.func_metadata import func_metadata
+
+    from pkm.assistant import write_preview
+    monkeypatch.setitem(write_preview.WRITE_PREVIEW_FIELDS, "stub",
+                        ("stub", ("json",), ("text",)))
+    monkeypatch.setitem(write_preview._ARG_MODELS, "stub",
+                        func_metadata(_stub_tool))
+    p = _preview("stub", {"text": "t", "json": "Inbox"})
+    assert p.ops[0].targets == [("json", "Inbox")]
+
+
+def test_importing_the_builder_leaves_logging_alone():
+    # The web server imports this module; FastMCP() calls
+    # logging.basicConfig, which would add a root handler that sends every
+    # library's INFO lines to production's stderr file.
+    probe = ("import logging\n"
+             "root = logging.getLogger()\n"
+             "before = (list(root.handlers), root.level)\n"
+             "import pkm.assistant.write_preview\n"
+             "after = (list(root.handlers), root.level)\n"
+             "print(before == after, before, after)\n")
+    out = subprocess.run([sys.executable, "-I", "-c", probe],
+                         capture_output=True, text=True, check=True)
+    assert out.stdout.startswith("True"), out.stdout + out.stderr
 
 
 def _wire_name(name: str, field: FieldInfo) -> str:
@@ -185,11 +240,13 @@ def _batch_params_models() -> dict[str, type]:
 
 
 def test_every_tool_field_is_classified():
+    batch_params = inspect.signature(mcp_tools.batch).parameters
+    assert set(batch_params) == {"commands"}
     for short in WRITE_TOOLS:
         if short == "batch":
             continue
         _, targets, content = WRITE_PREVIEW_FIELDS[short]
-        params = set(inspect.signature(getattr(mcp_server, short)).parameters)
+        params = set(inspect.signature(getattr(mcp_tools, short)).parameters)
         assert params == set(targets) | set(content), short
     models = _batch_params_models()
     assert set(models) == {k.removeprefix("batch:")
@@ -209,12 +266,12 @@ class _Recorder:
         self.asset = tmp_path / "pic.png"
         self.asset.write_bytes(b"png")
         fake_client = SimpleNamespace(rename_page=self._rename)
-        monkeypatch.setattr(mcp_server, "_client", lambda: fake_client)
-        monkeypatch.setattr(mcp_server, "save_blocks", self._save)
-        monkeypatch.setattr(mcp_server, "edit_block", self._edit)
-        monkeypatch.setattr(mcp_server, "apply_batch", self._batch)
-        monkeypatch.setattr(mcp_server, "render_ops_ack", lambda ack: "ok")
-        monkeypatch.setattr(mcp_server, "upload_and_link", self._upload)
+        monkeypatch.setattr(mcp_tools, "_client", lambda: fake_client)
+        monkeypatch.setattr(mcp_tools, "save_blocks", self._save)
+        monkeypatch.setattr(mcp_tools, "edit_block", self._edit)
+        monkeypatch.setattr(mcp_tools, "apply_batch", self._batch)
+        monkeypatch.setattr(mcp_tools, "render_ops_ack", lambda ack: "ok")
+        monkeypatch.setattr(mcp_tools, "upload_and_link", self._upload)
 
     def _save(self, client, text, page=None, parent=None, todo=False):
         self.calls["save_note"] = {"text": text, "page": page,

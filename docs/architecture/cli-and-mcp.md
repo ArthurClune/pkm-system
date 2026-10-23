@@ -10,7 +10,8 @@ indexed by symptom in [troubleshooting.md](../troubleshooting.md).
 | File | Pattern | Role |
 |---|---|---|
 | `cli/main.py` | Shell | argparse verbs (`cmd_*`), exit codes |
-| `mcp/server.py` | Shell | The FastMCP tools |
+| `mcp/tools.py` | Shell | The MCP tool functions and their LLM-facing docstrings |
+| `mcp/server.py` | Shell | Builds the `FastMCP` and registers `TOOLS`. Only `pkm-mcp` imports it: constructing a `FastMCP` configures the root logger, and the web server imports the tool signatures for the assistant's write preview |
 | `client/api.py` | Shell | `PkmClient`: config, session cookie, every HTTP call |
 | `client/core.py` | Core | Config format, cookie header, error-message shaping |
 | `client/workflows.py` | Shell | The write workflows both shells call, so an ordering fix lands once |

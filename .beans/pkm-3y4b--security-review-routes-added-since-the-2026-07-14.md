@@ -19,6 +19,15 @@ Scope:
 - [x] Anonymous route-table walk (a probe, or the contract test from SECURITY.md hardening priority 2)
 - [x] Write a separate review report; update docs/SECURITY.md with the review date and report link
 
+Second pass (the first ran out of quota before these new-since-review surfaces):
+- [x] Exports and asset routes: /api/export.zip, /api/export/page/{title}, POST /api/assets/export.zip, DELETE /api/assets/{sha256}, /api/assets/search; SPA catch-all on wholepath
+- [x] Page and graph routes on wholepath titles: page get/delete/rename, delete-preview, block, backlinks, changed, todos, current-work; SQL construction
+- [x] Assistant conversation routes and approval binding; pkm-mcp host filesystem and network reach (upload_asset)
+- [x] Auth/WS changes since the last review (login throttle source key), CSRF site boundary, response headers, service-worker/offline storage, dependency advisories
+- [x] Fold second-pass findings into the report and SECURITY.md
+
 ## Summary of Changes
 
 Review against 5ce279af recorded in docs/security-review-2026-10-23.md. docs/SECURITY.md retains the security model and links to the separate report. No fixes. Confirmed outbound image-request channel in assistant rendering (successful model injection remains a prerequisite); batch preview target omission; anonymous access-log control injection; unbounded authenticated diagnostics logging. Local containment and anonymous route-table checks passed. GoodLinks URL-parser observation and original-image metadata disclosure documented. Focused suites passed; no production/provider calls. Review-only changes are on review/security-3y4b.
+
+Second pass (same report, `## Second pass`): the first pass's checklist missed exports, asset delete/search, wholepath page routes, approval binding, pkm-mcp, auth/WS changes, the service worker and dependencies. New Mediums: the tailnet is one site (ts.net is a public suffix) and /api/ws checks no Origin while streaming op text; the approval card collapses at 300 characters with model-ordered arguments; a string-encoded batch.commands bypasses the per-op listing. Lows: upload_asset relative paths resolve against app/server (../../data/config.json); control-whitespace title folding; APFS name collisions drop pages from the markdown export/backup; login burst and X-Forwarded-For keying, pre-auth bodies, non-ASCII cookie 500; a table of 500s and unbounded work; MCP read tools following ../ in titles. SECURITY.md corrected (throttle keying, site boundary, card collapse, on-device data). Still no fixes.

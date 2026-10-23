@@ -130,8 +130,10 @@ WritePreview = {
     a short visual length with "(N chars) [show]" when longer;
   - every value is a separate element; a string value renders quoted,
     with `"` and `\` escaped and every non-printable except newline shown
-    as `\uXXXX` (newlines stay, so a multi-line note stays readable, but
-    no line inside it can close the quote); other values as JSON;
+    as `\uXXXX` (in content, newlines stay, so a multi-line note stays
+    readable, but no line inside it can close the quote; in a target they
+    are escaped too, since a target is one line and a raw break would start
+    a line under the key column); other values as JSON;
   - no collapse of the card as a whole, so Allow never sits above a hidden
     target. The card scrolls inside the panel when long; Allow and Deny
     stay visible at the bottom.

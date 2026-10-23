@@ -94,6 +94,17 @@ describe("formatTarget", () => {
     expect(formatTarget("uid", 'A"B')).toBe('"A\\"B"');
   });
 
+  // a target is one line: a newline kept raw would start a line flush with
+  // the key column, where it could draw a row such as `parent: none"`
+  test("a newline in a string target is escaped", () => {
+    expect(formatTarget("page", "Inbox\nparent: none"))
+      .toBe('"Inbox\\u000Aparent: none"');
+  });
+
+  test("content keeps its newlines", () => {
+    expect(quoteValue("a\nb")).toBe('"a\nb"');
+  });
+
   test("other values render as JSON", () => {
     expect(formatTarget("allow_merge", true)).toBe("true");
     expect(formatTarget("index", 3)).toBe("3");

@@ -111,17 +111,21 @@ function escapeWarning(s: string): string {
 
 /** `s` in double quotes with `"` and `\` escaped and every non-printable
  * written as `\uXXXX`, as are combining marks that would draw onto a quote or
- * begin a line. A newline stays a line break so a note reads as one, yet no
- * line inside it can close the quote. */
-export function quoteValue(s: string): string {
+ * begin a line. By default a newline stays a line break so a note reads as
+ * one, yet no line inside it can close the quote. */
+export function quoteValue(s: string, keepNewline = true): string {
   const escaped = s.replace(/["\\]/g, (ch) => "\\" + ch);
-  return '"' + escapeNonPrintable(escaped) + '"';
+  return '"' + escapeNonPrintable(escaped, keepNewline) + '"';
 }
 
-/** How the card writes one target value. JSON.stringify leaves DEL, C1 and
- * format characters raw, so its output is escaped as a quoted string is. */
+/** How the card writes one target value. A target is one line, so a newline
+ * in it is escaped: kept, it would start a line under the key column. A null
+ * `page` is today's daily note; the server refuses every key the tool does
+ * not declare, so this `page` is always the tool's own. JSON.stringify leaves
+ * DEL, C1 and format characters raw, so its output is escaped as a quoted
+ * string is. */
 export function formatTarget(key: string, value: unknown): string {
   if (value === null) return key === "page" ? "today's daily note" : "none";
-  if (typeof value === "string") return quoteValue(value);
+  if (typeof value === "string") return quoteValue(value, false);
   return escapeNonPrintable(JSON.stringify(value) ?? String(value));
 }

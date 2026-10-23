@@ -33,7 +33,10 @@ def verify_session(secret: bytes, token: str, now_ms: int,
         return False
     payload = f"{parts[0]}.{parts[1]}"
     expected = hmac.new(secret, payload.encode("ascii"), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, parts[2]):
+    # compare_digest raises TypeError on a non-ASCII str, so refuse anything
+    # that is not ASCII of the expected length first.
+    if (len(parts[2]) != len(expected) or not parts[2].isascii()
+            or not hmac.compare_digest(expected, parts[2])):
         return False
     issued = int(parts[1])
     return issued <= now_ms + SKEW_MS and now_ms - issued <= max_age_ms

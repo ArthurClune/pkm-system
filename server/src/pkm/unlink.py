@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Callable, Literal, Mapping, Sequence
+from typing import Callable, Iterator, Literal, Mapping, Sequence
 
 from pkm.contracts.ops import BlockUid
 from pkm.export.resolve import find_query_macros
@@ -93,19 +93,31 @@ def _unlink_range(
     brackets: Sequence[BracketSpan], spans: list[Span],
 ) -> None:
     """Outer match wins; an unmatched run is descended so nested links are
-    reached. Nothing overlaps, so the caller can splice back to front."""
-    index = start
-    for bracket in brackets:
+    reached. Nothing overlaps, so the caller can splice back to front.
+
+    The descent keeps its own stack rather than recursing: no write path
+    bounds `[[` nesting, so block text can nest past the recursion limit.
+    Runs are still reached left to right, outer before inner, which
+    `_unlink_bracket` relies on: an alias drops the spans already collected
+    from its label onward, so a span to its right must not have been
+    collected yet."""
+    # Each frame is a window still to walk: where its next gap starts,
+    # where the window stops, and the runs in it not yet reached.
+    stack: list[tuple[int, int, Iterator[BracketSpan]]] = [
+        (start, stop, iter(brackets))]
+    while stack:
+        index, window_stop, rest = stack.pop()
+        bracket = next(rest, None)
+        if bracket is None:
+            _unlink_tags(text, clean, is_target, index, window_stop, spans)
+            continue
         _unlink_tags(text, clean, is_target, index, bracket.start, spans)
+        stack.append((bracket.end, window_stop, rest))
         if is_target(clean[bracket.inner_start:bracket.inner_end]):
             _unlink_bracket(text, clean, is_target, bracket, spans)
         else:
-            _unlink_range(
-                text, clean, is_target, bracket.inner_start,
-                bracket.inner_end, bracket.children, spans,
-            )
-        index = bracket.end
-    _unlink_tags(text, clean, is_target, index, stop, spans)
+            stack.append((bracket.inner_start, bracket.inner_end,
+                          iter(bracket.children)))
 
 
 def _unlink_pass(text: str, is_target: TitleMatch) -> str:

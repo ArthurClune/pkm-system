@@ -37,6 +37,7 @@ from pkm.server.store import (BlankTitleError, DeleteBlockedError,
                               delete_page_unlinking, fetch_page,
                               get_or_create_page, merge_page_rows,
                               plan_delete, rename_page_rows)
+from pkm.server.sync_core import chunk_ids
 from pkm.server.sync_meta import read_title, title_reader
 from pkm.server.tree import build_tree, collect_block_ref_uids, find_node
 from pkm.server import wholepath  # noqa: F401 -- registers {title:wholepath}
@@ -69,15 +70,16 @@ def _block_ref_texts(db: Db,
 def _block_ref_counts(db: Db,
                       uids: list[BlockUid]) -> dict[BlockUid, int]:
     """Incoming ((ref)) count per uid, nonzero entries only.
-    One GROUP BY against idx_block_refs_target; src rows CASCADE with their
-    block, so every counted row has a live source."""
-    if not uids:
-        return {}
-    marks = ",".join("?" * len(uids))
-    return {r["target_block_uid"]: r["n"] for r in db.select(
-        f"""SELECT target_block_uid, count(*) AS n FROM block_refs
-             WHERE target_block_uid IN ({marks})
-             GROUP BY target_block_uid""", uids)}
+    One GROUP BY per chunk against idx_block_refs_target; src rows CASCADE
+    with their block, so every counted row has a live source."""
+    counts: dict[BlockUid, int] = {}
+    for chunk in chunk_ids(list(dict.fromkeys(uids))):
+        marks = ",".join("?" * len(chunk))
+        counts.update({r["target_block_uid"]: r["n"] for r in db.select(
+            f"""SELECT target_block_uid, count(*) AS n FROM block_refs
+                 WHERE target_block_uid IN ({marks})
+                 GROUP BY target_block_uid""", chunk)})
+    return counts
 
 
 def _resolve_ref_uids(db: Db, uids: Sequence[BlockUid]
@@ -93,11 +95,13 @@ def _resolve_ref_uids(db: Db, uids: Sequence[BlockUid]
         if not new:
             return out
         seen.update(new)
-        marks = ",".join("?" * len(new))
-        rows = db.select(
-            f"SELECT b.uid, b.text, p.title AS page_title FROM blocks b"
-            f" JOIN pages p ON p.id = b.page_id WHERE b.uid IN ({marks})",
-            new)
+        rows: list[Row] = []
+        for chunk in chunk_ids(list(dict.fromkeys(new))):
+            marks = ",".join("?" * len(chunk))
+            rows += db.select(
+                f"SELECT b.uid, b.text, p.title AS page_title FROM blocks b"
+                f" JOIN pages p ON p.id = b.page_id WHERE b.uid IN ({marks})",
+                chunk)
         for r in rows:
             out[r["uid"]] = BlockRefText(
                 text=r["text"], page_title=r["page_title"])
@@ -112,8 +116,14 @@ def _page_meta(page: Row) -> PageMeta:
 
 def _fetch_ancestors(db: Db, uids: list[BlockUid]
                      ) -> dict[BlockUid, list[str]]:
-    if not uids:
-        return {}
+    out: dict[BlockUid, list[str]] = {}
+    for chunk in chunk_ids(list(dict.fromkeys(uids))):
+        _fetch_ancestors_chunk(db, chunk, out)
+    return out
+
+
+def _fetch_ancestors_chunk(db: Db, uids: list[BlockUid],
+                           out: dict[BlockUid, list[str]]) -> None:
     marks = ",".join("?" * len(uids))
     rows = db.select(
         f"""WITH RECURSIVE anc(start_uid, uid, parent_uid, text, depth, path) AS (
@@ -127,10 +137,8 @@ def _fetch_ancestors(db: Db, uids: list[BlockUid]
             )
             SELECT start_uid AS uid, text FROM anc
              WHERE depth > 0 ORDER BY start_uid, depth DESC""", uids)
-    out: dict[BlockUid, list[str]] = {}
     for r in rows:  # depth only orders root-first; UID_RE excludes commas.
         out.setdefault(r["uid"], []).append(r["text"])
-    return out
 
 
 def _backlinks(db: Db, page_id: PageId,

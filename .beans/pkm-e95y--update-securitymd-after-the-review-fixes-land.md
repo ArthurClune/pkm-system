@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:27Z
-updated_at: 2026-10-23T18:15:45Z
+updated_at: 2026-10-23T21:25:32Z
 parent: pkm-mfd0
 blocked_by:
     - pkm-tk9i
@@ -20,6 +20,14 @@ blocked_by:
     - pkm-oirq
     - pkm-t74a
     - pkm-3k4m
+    - pkm-0d4e
+    - pkm-0ln3
+    - pkm-ank8
+    - pkm-ec46
+    - pkm-gvbd
+    - pkm-lbj1
+    - pkm-xrvv
+    - pkm-bppf
 ---
 
 SECURITY.md is the high-level model; update it once the fixes we take on have shipped (scrap or finish the blockers first), describing the system as it then is. Facts from the review that it currently gets wrong or omits, whatever the fixes:

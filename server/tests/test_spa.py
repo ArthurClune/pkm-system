@@ -159,3 +159,18 @@ def test_the_catch_all_never_serves_a_file_outside_the_dist(tmp_path):
         assert "PREFIX-SIBLING" not in r.text, path
     served = asgi_request(app, "GET", "/", raise_app_exceptions=False)
     assert served.status_code == 200
+
+
+def test_a_path_resolve_rejects_gets_the_shell_never_a_500(tmp_path):
+    """NUL, an over-long component and a link loop inside the dist make
+    `Path.resolve()` or `is_file()` raise. Such a path names no file, so it
+    gets the shell, as a cold reload of a long page title must."""
+    dist = _dist_with_outside_files(tmp_path)
+    app = create_app(_config(tmp_path, web_dist=dist))
+    shell = asgi_request(app, "GET", "/", raise_app_exceptions=False)
+    assert shell.status_code == 200
+    for path in ("/a%00b", "/" + "a" * 300, "/" + "a/" * 600, "/loop1",
+                 "/loop1/x", "/page/" + "a" * 1000,
+                 "/page/" + "%E6%97%A5" * 400):
+        r = asgi_request(app, "GET", path, raise_app_exceptions=False)
+        assert r.status_code == 200 and r.text == shell.text, path

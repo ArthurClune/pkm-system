@@ -242,6 +242,9 @@ SQLITE_SITES: dict[str, str] = {
     "server/tests/test_backup_cli.py":
         "backup: opens the dated snapshot read-only by URI, as a restore"
         " would, to prove SQLite's online backup wrote a whole database",
+    "server/tests/test_sql_variable_limit.py":
+        "lowers SQLITE_LIMIT_VARIABLE_NUMBER on request connections so a"
+        " few hundred rows trip an unchunked IN-list",
 }
 
 # The one module on each side that may mint every brand: the checked

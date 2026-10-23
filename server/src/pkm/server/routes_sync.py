@@ -75,8 +75,10 @@ def client_diagnostics(body: ClientDiagnosticsRequest) -> OkAck:
     Nothing is written to the database, so there is no journal row and no
     nudge.
     """
-    # ensure_ascii keeps the line free of controls and line separators, and
-    # means the marker's ellipsis cannot occur inside a dump.
+    # ensure_ascii means the marker's ellipsis cannot occur inside a dump.
+    # The dump is a pkm.* message, so EscapePkmMessages writes its quotes
+    # as \" and its backslashes as \\ in server.log; a grepped dump needs
+    # `.encode().decode("unicode_escape")` before `json.loads`.
     dump = json.dumps(body.model_dump(), sort_keys=True, ensure_ascii=True)
     logger.warning("client diagnostics %s",
                    truncate_for_log(dump, _MAX_DIAGNOSTICS_LOG_CHARS))

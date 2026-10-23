@@ -10,6 +10,7 @@ JSON, whatever the input held.
 Bodies are built with json.dumps' default ASCII escapes, as a browser's
 JSON.stringify sends a lone surrogate, because httpx's own json= encoding
 refuses one before it is sent."""
+import asyncio
 import hashlib
 import json
 import os
@@ -545,3 +546,49 @@ def test_diagnostics_report_holding_the_marker_text_is_not_a_marker(
     assert r.status_code == 200, r.text
     (logged,) = _diagnostics_lines(caplog)
     assert logged.isprintable() and "\u2026" not in logged
+
+
+BAD_SIGNATURES = [
+    pytest.param("é".encode(), id="non-ascii"),
+    pytest.param("é".encode() * 32, id="non-ascii-full-length"),
+    pytest.param(b"abc", id="non-hex-short"),
+    pytest.param(b"z" * 64, id="non-hex-full-length"),
+    pytest.param(b"ab" * 33, id="hex-too-long"),
+]
+
+
+@pytest.mark.parametrize("signature", BAD_SIGNATURES)
+def test_a_malformed_session_signature_is_a_401(anon_client, signature):
+    cookie = b"pkm_session=v1.123." + signature
+    r = anon_client.get("/api/sidebar", headers=[(b"cookie", cookie)])
+    assert r.status_code == 401
+
+
+@pytest.mark.parametrize("signature", BAD_SIGNATURES)
+def test_a_malformed_session_signature_closes_the_websocket_4401(
+        seeded_config, signature):
+    """The cookie header is built as raw bytes so the non-ASCII byte
+    reaches the server, which `TestClient` would refuse to encode."""
+    app = create_app(seeded_config)
+    sent: list[dict] = []
+    inbox = iter([{"type": "websocket.connect"}])
+
+    async def receive() -> dict:
+        try:
+            return next(inbox)
+        except StopIteration:
+            await asyncio.sleep(3600)
+            return {"type": "websocket.disconnect"}
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {"type": "websocket", "asgi": {"version": "3.0"}, "scheme": "ws",
+             "path": "/api/ws", "raw_path": b"/api/ws", "query_string": b"",
+             "root_path": "", "http_version": "1.1",
+             "headers": [(b"host", b"x"),
+                         (b"cookie", b"pkm_session=v1.123." + signature)],
+             "client": ("100.64.0.5", 1), "server": ("x", 80),
+             "subprotocols": [], "state": {}}
+    asyncio.run(asyncio.wait_for(app(scope, receive, send), 2))
+    assert [m for m in sent if m["type"] == "websocket.close"][0]["code"] == 4401

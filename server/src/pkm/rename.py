@@ -16,7 +16,7 @@ via `normalize` -- see rewrite_title_refs_map().
 """
 from __future__ import annotations
 
-from typing import Callable, Iterable, Mapping
+from typing import Callable, Iterable, Iterator, Mapping
 
 from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.refs import (
@@ -92,25 +92,29 @@ def _rewrite_range(
     * A `#[[Title]]` keeps its form for free. The span covers the bracket run
       alone, so the `#` in front of it is never spliced over, and the tag
       scan cannot claim it either (a tag name never starts with `[`).
+
+    The descent keeps its own stack rather than recursing: no write path
+    bounds `[[` nesting, so block text can nest past the recursion limit.
     """
-    index = start
-    for bracket in brackets:
+    # Each frame is a window still to walk: where its next gap starts,
+    # where the window stops, and the runs in it not yet reached.
+    stack: list[tuple[int, int, Iterator[BracketSpan]]] = [
+        (start, stop, iter(brackets))]
+    while stack:
+        index, window_stop, rest = stack.pop()
+        bracket = next(rest, None)
+        if bracket is None:
+            _rewrite_tags(clean, lookup, index, window_stop, spans)
+            continue
         _rewrite_tags(clean, lookup, index, bracket.start, spans)
+        stack.append((bracket.end, window_stop, rest))
         new_title = lookup(
             as_raw_title(clean[bracket.inner_start:bracket.inner_end]))
         if new_title is not None:
             spans.append((bracket.start, bracket.end, f"[[{new_title}]]"))
         else:
-            _rewrite_range(
-                clean,
-                lookup,
-                bracket.inner_start,
-                bracket.inner_end,
-                bracket.children,
-                spans,
-            )
-        index = bracket.end
-    _rewrite_tags(clean, lookup, index, stop, spans)
+            stack.append((bracket.inner_start, bracket.inner_end,
+                          iter(bracket.children)))
 
 
 def spelled_or_canonical(

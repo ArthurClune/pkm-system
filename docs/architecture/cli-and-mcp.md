@@ -53,8 +53,9 @@ its model raises `ResponseSchemaError`, naming the endpoint and field path.
 Unknown extra fields are ignored, so an older CLI works against a newer
 server.
 
-A title reaches the server only through `_page_path`, which percent-encodes
-every `/` and `.`. The read tools are auto-approved, so a title such as
+A title or uid placed in a URL path goes through `_segment`, which
+percent-encodes every `/` and `.` (query params and JSON bodies are encoded by
+httpx). The read tools are auto-approved, so a title such as
 `../sync/snapshot` must not become a dot segment that httpx normalises onto
 another route. The server decodes the path before routing, so namespaced
 titles still match `{title:wholepath}`.

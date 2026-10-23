@@ -114,12 +114,17 @@ def _detail(r: httpx2.Response) -> object:
     return r.text
 
 
+def _segment(text: str) -> str:
+    """One URL path segment: every `/` and `.` percent-encoded, so httpx's
+    dot-segment normalisation cannot lift a value like `../sync/snapshot`
+    out of its route prefix onto another route."""
+    return quote(text, safe="").replace(".", "%2E")
+
+
 def _page_path(title: NormalizedTitle) -> str:
-    """`/api/page/<title>` with every `/` and `.` percent-encoded, so httpx's
-    dot-segment normalisation cannot lift a title like `../sync/snapshot` out
-    of `/api/page/` onto another route. The server decodes the path before
-    routing, so namespaced titles still match `{title:wholepath}`."""
-    return "/api/page/" + quote(title, safe="").replace(".", "%2E")
+    """`/api/page/<title>`. The server decodes the path before routing, so
+    namespaced titles still match `{title:wholepath}`."""
+    return f"/api/page/{_segment(title)}"
 
 
 class _RequestKwargs(TypedDict, total=False):
@@ -268,7 +273,7 @@ class PkmClient:
             return [], True
 
     def get_block(self, uid: BlockUid) -> BlockPayload:
-        return self._request("GET", f"/api/block/{quote(uid, safe='')}",
+        return self._request("GET", f"/api/block/{_segment(uid)}",
                              BlockPayload)
 
     def search(self, q: str, limit: int = 20,

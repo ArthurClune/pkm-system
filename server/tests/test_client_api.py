@@ -1,15 +1,17 @@
 import os
+from urllib.parse import unquote
 
 import pytest
 
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient, login
 from pkm.client.core import ApiError, CliConfig, ConfigError
-from pkm.contracts.ops import UID_RE, CreateOp, CreatePageOp, new_uid
+from pkm.contracts.ops import UID_RE, BlockUid, CreateOp, CreatePageOp, new_uid
 from pkm.contracts.responses import BacklinkGroup, Backlinks, PageMeta, PagePayload
 from pkm.contracts.titles import RawTitle
+from pkm.refs import normalize_title
 from pkm.server.db import open_db
-from pkm.test_data.ids import canonical_title_of, order_idx_of, page_id_of, raw_title_of, uid_of
+from pkm.test_data.ids import canonical_title_of, malformed_uid, order_idx_of, page_id_of, raw_title_of, uid_of
 
 
 def test_new_uid_matches_server_uid_re():
@@ -603,7 +605,7 @@ def test_error_with_a_non_object_json_body_keeps_the_status(body):
 
 TRAVERSAL_TITLES = [raw_title_of(t) for t in (
     "../sync/snapshot", "..", ".", "a/../../healthz", "../../api/export.zip",
-    "%2e%2e/x")]
+    "%2e%2e/x", "x?bl_limit=1", "x#y")]
 
 
 def _recording_client(seen: list[str]):
@@ -630,6 +632,20 @@ def test_title_paths_stay_under_api_page(title: RawTitle):
             call()
     assert seen
     assert all(p.startswith("/api/page/") for p in seen), seen
+    want = "/api/page/" + normalize_title(title)
+    assert [unquote(p) for p in seen] == [want, want, want + "/rename"]
+
+
+@pytest.mark.parametrize("uid", [malformed_uid(u) for u in (".", "..", "../x")])
+def test_block_path_stays_under_api_block(uid: BlockUid):
+    seen: list[str] = []
+    client = _recording_client(seen)
+    with pytest.raises(ApiError):
+        client.get_block(uid)
+    assert [unquote(p) for p in seen] == ["/api/block/" + uid]
+    tail = seen[0][len("/api/block/"):]
+    assert "/" not in tail
+    assert "." not in tail
 
 
 @pytest.mark.parametrize("title", [

@@ -11,10 +11,10 @@ parent: pkm-mfd0
 
 Review finding (Low, integrity of the nightly markdown backup): page_filename dedupes with str.lower(), but APFS also folds Unicode normalization and full case folding. café NFC/NFD, Straße/STRASSE, ς/σ, ﬀ/ff overwrite each other silently; export_graph still counts both.
 
-- [ ] Red test first, from the review probe: sec-exports/p2_zip.py (collision half). Probes live in docs/superpowers/handoffs/security-review-2026-10-23-probes (main checkout, gitignored; README maps probes)
-- [ ] Dedupe key matches APFS: NFD/NFC-normalise and casefold
-- [ ] Same for the selected-asset zip arcnames
-- [ ] Test that every page in the DB appears in the archive
+- [x] Red test first, from the review probe: sec-exports/p2_zip.py (collision half). Probes live in docs/superpowers/handoffs/security-review-2026-10-23-probes (main checkout, gitignored; README maps probes)
+- [x] Dedupe key matches APFS: NFD/NFC-normalise and casefold
+- [x] Same for the selected-asset zip arcnames
+- [x] Test that every page in the DB appears in the archive
 - [x] Check whether existing backup git history already lost pages
 
 ## Backup history check (2026-10-23)

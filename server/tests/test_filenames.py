@@ -53,3 +53,19 @@ def test_safe_filename_truncation_can_collide():
     a = safe_filename("A" * 250 + ".png")
     b = safe_filename("A" * 250 + "Z" * 50 + ".png")
     assert a == b
+
+
+def test_fs_dedupe_key_is_at_least_as_strict_as_the_filesystem(tmp_path):
+    # Whenever the filesystem keeps one file for two names, the keys must
+    # be equal; the converse only adds a "(2)" suffix.
+    from pkm.filenames import fs_dedupe_key
+    pairs = [("café", "café"), ("Straße", "STRASSE"),
+             ("ς", "σ"), ("ﬀ", "ff"), ("K", "K"),
+             ("ǅ", "ǆ"), ("a", "A")]
+    for i, (a, b) in enumerate(pairs):
+        d = tmp_path / str(i)
+        d.mkdir()
+        (d / a).write_text("1")
+        (d / b).write_text("2")
+        if len(list(d.iterdir())) == 1:
+            assert fs_dedupe_key(a) == fs_dedupe_key(b), (a, b)

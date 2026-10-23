@@ -24,6 +24,12 @@ one level deep and keeps `{{query: ...}}` macros as written. Unchanged files
 are rewritten byte-identically, so a nightly git diff is minimal.
 `/api/export.zip` runs the same `export_graph()` into a temp directory.
 
+Page filenames and asset zip arcnames dedupe by `filenames.fs_dedupe_key`,
+which compares names as APFS does (Unicode-normalised, case-folded). A key
+weaker than the filesystem's silently overwrites a page; a stricter one only
+adds a ` (2)` suffix. `test_filenames.py` checks the key against the real
+filesystem.
+
 It calls `refs.extract()` once per block (`collect_block_ref_uids`), so
 `extract()` must stay linear, including on a long `::`-free run such as a
 blanked code fence.

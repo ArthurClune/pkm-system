@@ -12,7 +12,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from pkm.contracts.titles import CanonicalTitle
-from pkm.filenames import dash_unwritable, truncate_utf8
+from pkm.filenames import dash_unwritable, fs_dedupe_key, truncate_utf8
 from pkm.refs import BLOCK_REF_TOKEN
 
 if TYPE_CHECKING:
@@ -36,18 +36,19 @@ def resolve_block_refs(text: str, uid_to_text: Mapping[str, str]) -> str:
 
 
 def page_filename(title: CanonicalTitle, taken: set[str]) -> str:
-    """Unique '<sanitized title>.md'; case-insensitive against `taken`
-    (APFS default). Adds the chosen lowercase key to `taken`. Code points
+    """Unique '<sanitized title>.md' against `taken`, comparing names as
+    APFS does: Unicode-normalised and case-folded. Adds the chosen key
+    to `taken`. Code points
     the filesystem refuses become '-', and two titles that sanitize alike
     still get distinct names."""
     base = (truncate_utf8(
         dash_unwritable(_UNSAFE_RE.sub("-", title)).strip(" ."),
         _MAX_BASE_BYTES).rstrip(" .") or "untitled")
     name, n = f"{base}.md", 2
-    while name.lower() in taken:
+    while fs_dedupe_key(name) in taken:
         name = f"{base} ({n}).md"
         n += 1
-    taken.add(name.lower())
+    taken.add(fs_dedupe_key(name))
     return name
 
 

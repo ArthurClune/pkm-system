@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { stubFetch, confirmIdOf } from "../test-helpers";
@@ -209,6 +209,10 @@ describe("AssistantPanel", () => {
     expect(screen.getByRole("link", { name: "the compute chart block" })).toBeInTheDocument();
   });
 
+  function LocationProbe() {
+    return <span data-testid="location">{useLocation().pathname}</span>;
+  }
+
   test("a reply's media waits for a click, including inside a resolved ((ref))", async () => {
     const fetchMock = stubFetch([["/api/block-refs", {
       block_ref_texts: {
@@ -224,15 +228,24 @@ describe("AssistantPanel", () => {
     render(
       <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
         <AssistantPanel open onClose={() => {}} />
+        <LocationProbe />
       </MemoryRouter>,
     );
     expect(screen.getByRole("button", { name: "image from attacker.invalid: x" }))
       .toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: "Bluesky post from alice.bsky.social" }))
-      .toBeInTheDocument();
+    const post = await screen.findByRole("button", { name: "Bluesky post from alice.bsky.social" });
     expect(document.querySelector("img, iframe")).toBeNull();
     const urls = fetchMock.mock.calls.map(([input]) => String(input));
     expect(urls.some((url) => url.includes("public.api.bsky.app"))).toBe(false);
+
+    // the load click must not reach the ((ref)) link around it
+    const before = screen.getByTestId("location").textContent;
+    fireEvent.click(post);
+    expect(screen.getByTestId("location").textContent).toBe(before);
+    await waitFor(() => {
+      const after = fetchMock.mock.calls.map(([input]) => String(input));
+      expect(after.some((url) => url.includes("public.api.bsky.app"))).toBe(true);
+    });
   });
 
   test("a ((^uid)) citation with a copied caret marker still resolves", async () => {

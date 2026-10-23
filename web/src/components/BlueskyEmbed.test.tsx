@@ -309,7 +309,8 @@ it("a new href needs its own click", async () => {
   const fetchMock = stubResolve({ ok: true, did: DID });
   // handles are cached app-wide, so this test uses its own
   const first = "https://bsky.app/profile/carol.bsky.social/post/3k2abc123xy";
-  const other = "https://bsky.app/profile/dave.bsky.social/post/3k2abc123xy";
+  // a DID post, so a one-frame commit would put an iframe in the record
+  const other = `https://bsky.app/profile/${DID}/post/3k2abc123xy`;
   const { container, rerender } = render(untrusted(<BlueskyEmbed href={first} />));
   fireEvent.click(screen.getByRole("button", { name: "Bluesky post from carol.bsky.social" }));
   await waitFor(() => expect(embedSrc(container)).not.toBeNull());
@@ -320,7 +321,7 @@ it("a new href needs its own click", async () => {
   expect(committed.recordCount).toBeGreaterThan(0);
   expect(committed.srcs.some((src) => src.includes(encodeURIComponent(other)))).toBe(false);
   expect(container.querySelector("iframe")).toBeNull();
-  expect(screen.getByRole("button", { name: "Bluesky post from dave.bsky.social" }))
+  expect(screen.getByRole("button", { name: `Bluesky post from ${DID}` }))
     .toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(1);
 
@@ -328,6 +329,16 @@ it("a new href needs its own click", async () => {
   expect(container.querySelector("iframe")).toBeNull();
   expect(screen.getByRole("button", { name: "Bluesky post from carol.bsky.social" }))
     .toBeInTheDocument();
+});
+
+it("the load click does not reach ancestors", () => {
+  stubResolve({ ok: true, did: DID });
+  const onParentClick = vi.fn();
+  render(untrusted(
+    <div onClick={onParentClick}><BlueskyEmbed href={HANDLE_HREF} /></div>,
+  ));
+  fireEvent.click(screen.getByRole("button", { name: "Bluesky post from alice.bsky.social" }));
+  expect(onParentClick).not.toHaveBeenCalled();
 });
 
 it("in untrusted, inert content the placeholder is plain text", () => {

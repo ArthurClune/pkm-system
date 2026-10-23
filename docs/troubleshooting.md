@@ -215,6 +215,7 @@ Owner: [frontend-rendering.md](architecture/frontend-rendering.md)
 | Symptom | Cause | Where | Ref |
 |---|---|---|---|
 | Two mermaid diagrams on one page clobber each other's rendered SVG | Stock mermaid's `render()` finds its render id in `document`, so two fallbacks need distinct ids (`MERMAID_CACHE_RENDER_ID`, `withRenderId`) | [frontend-rendering.md § Mermaid](architecture/frontend-rendering.md#mermaid) | pkm-pekk |
+| An image whose src is `/assets/../api/export.zip` runs a same-origin request on render, such as an export | `isUploadedAsset` was a prefix test, and the URL parser resolves `..`, `%2e%2e` and backslashes | [frontend-rendering.md § Link safety and external media](architecture/frontend-rendering.md#link-safety-and-external-media) | pkm-tk9i |
 | An uploaded PDF named with parentheses shows as a plain link with `…).pdf)` trailing it and no preview; the link still opens | `scanMarkdownLinkAt` closed the destination at the first `)`, so `isPdfHref` missed `.pdf` | [frontend-rendering.md § The pipeline](architecture/frontend-rendering.md#the-pipeline) | pkm-3jpg |
 
 ## Styling
@@ -263,6 +264,8 @@ Owner: [assistant.md](architecture/assistant.md)
 | A tab closed mid-turn leaves the harness subprocess and its 0600 token file alive, and a later turn is handed that harness | The SSE layer never closed the event stream, and repeated cancellation cut the bounded interrupt short | [assistant.md § Conversation registry](architecture/assistant.md#conversation-registry) | pkm-f3mo |
 | The panel sits at "thinking…" on a dead network until a manual Stop | The SDK's model request has no first-token timeout | [assistant.md § Keepalives and the stall watchdog](architecture/assistant.md#keepalives-and-the-stall-watchdog) | pkm-e9ok |
 | A new MCP tool works from the CLI and Claude Code, but the in-app assistant says it lacks permission | The assistant allows only tools in `READ_TOOLS`/`WRITE_TOOLS` (`test_every_mcp_tool_is_classified`) | [assistant.md](architecture/assistant.md) (`policy.py`) | pkm-6eea |
+| An image or Bluesky post in an assistant reply requests its URL with no click | The renderer mounted `<img>` and the embed on render, and the URL itself carries data out (security review 2026-10-23, High) | [frontend-rendering.md § Link safety and external media](architecture/frontend-rendering.md#link-safety-and-external-media) | pkm-tk9i |
+| A mermaid diagram in a reply or a note requests an attacker URL, or Google Fonts, with no click | Stock mermaid's strict level keeps `<img src>` in labels, passes frontmatter `themeCSS` to CSS and draws image shapes with d3; beautiful-mermaid's SVG imports Google Fonts (adversarial review 2026-10-23) | [frontend-rendering.md § Link safety and external media](architecture/frontend-rendering.md#link-safety-and-external-media) | pkm-tk9i |
 
 ## Performance checks
 

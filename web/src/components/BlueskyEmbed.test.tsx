@@ -1,5 +1,6 @@
-import { act, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { InertMediaContext, UntrustedContentContext } from "../contexts";
 import { defer, jsonResponse, stubIosStandaloneNavigator } from "../test-helpers";
 import { BlueskyEmbed } from "./BlueskyEmbed";
 import { ExternalLinkInterceptor } from "./ExternalLinkInterceptor";
@@ -244,4 +245,107 @@ it("outside the iOS standalone app, the embed stays interactive", () => {
   } finally {
     restore();
   }
+});
+
+function untrusted(ui: React.ReactElement, inert = false) {
+  return (
+    <UntrustedContentContext.Provider value={true}>
+      <InertMediaContext.Provider value={inert}>{ui}</InertMediaContext.Provider>
+    </UntrustedContentContext.Provider>
+  );
+}
+
+const HANDLE_HREF = "https://bsky.app/profile/alice.bsky.social/post/3k2abc123xy";
+
+it("in untrusted content a handle post fetches nothing until clicked", async () => {
+  const fetchMock = stubResolve({ ok: true, did: DID });
+  const { container } = render(untrusted(<BlueskyEmbed href={HANDLE_HREF} />));
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(embedSrc(container)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Bluesky post from alice.bsky.social" }));
+  await waitFor(() => expect(embedSrc(container)).not.toBeNull());
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it("in untrusted content a DID post renders no iframe until clicked", () => {
+  stubResolve({ ok: true, did: DID });
+  const href = `https://bsky.app/profile/${DID}/post/3k2abc123xy`;
+  const { container } = render(untrusted(<BlueskyEmbed href={href} />));
+  expect(container.querySelector("iframe")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: `Bluesky post from ${DID}` }));
+  expect(embedSrc(container)).not.toBeNull();
+});
+
+// Records every iframe src committed while `run` executes, even one removed
+// again before it returns: the browser starts loading at commit.
+function iframeSrcsCommittedDuring(run: () => void) {
+  const records: MutationRecord[] = [];
+  const observer = new MutationObserver((batch) => records.push(...batch));
+  observer.observe(document.body, {
+    childList: true, subtree: true,
+    attributes: true, attributeFilter: ["src"], attributeOldValue: true,
+  });
+  run();
+  records.push(...observer.takeRecords());
+  observer.disconnect();
+  const srcs: string[] = [];
+  const collect = (node: Node) => {
+    if (!(node instanceof Element)) return;
+    const frames = node.matches("iframe") ? [node] : [...node.querySelectorAll("iframe")];
+    for (const frame of frames) srcs.push(frame.getAttribute("src") ?? "");
+  };
+  for (const record of records) {
+    if (record.type === "attributes") {
+      if (record.oldValue !== null) srcs.push(record.oldValue);
+      collect(record.target);
+    }
+    record.addedNodes.forEach(collect);
+    record.removedNodes.forEach(collect);
+  }
+  return { recordCount: records.length, srcs };
+}
+
+it("a new href needs its own click", async () => {
+  const fetchMock = stubResolve({ ok: true, did: DID });
+  // handles are cached app-wide, so this test uses its own
+  const first = "https://bsky.app/profile/carol.bsky.social/post/3k2abc123xy";
+  // a DID post, so a one-frame commit would put an iframe in the record
+  const other = `https://bsky.app/profile/${DID}/post/3k2abc123xy`;
+  const { container, rerender } = render(untrusted(<BlueskyEmbed href={first} />));
+  fireEvent.click(screen.getByRole("button", { name: "Bluesky post from carol.bsky.social" }));
+  await waitFor(() => expect(embedSrc(container)).not.toBeNull());
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+
+  const committed = iframeSrcsCommittedDuring(() =>
+    rerender(untrusted(<BlueskyEmbed href={other} />)));
+  expect(committed.recordCount).toBeGreaterThan(0);
+  expect(committed.srcs.some((src) => src.includes(encodeURIComponent(other)))).toBe(false);
+  expect(container.querySelector("iframe")).toBeNull();
+  expect(screen.getByRole("button", { name: `Bluesky post from ${DID}` }))
+    .toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+
+  rerender(untrusted(<BlueskyEmbed href={first} />));
+  expect(container.querySelector("iframe")).toBeNull();
+  expect(screen.getByRole("button", { name: "Bluesky post from carol.bsky.social" }))
+    .toBeInTheDocument();
+});
+
+it("the load click does not reach ancestors", () => {
+  stubResolve({ ok: true, did: DID });
+  const onParentClick = vi.fn();
+  render(untrusted(
+    <div onClick={onParentClick}><BlueskyEmbed href={HANDLE_HREF} /></div>,
+  ));
+  fireEvent.click(screen.getByRole("button", { name: "Bluesky post from alice.bsky.social" }));
+  expect(onParentClick).not.toHaveBeenCalled();
+});
+
+it("in untrusted, inert content the placeholder is plain text", () => {
+  const fetchMock = stubResolve({ ok: true, did: DID });
+  const { container } = render(untrusted(<BlueskyEmbed href={HANDLE_HREF} />, true));
+  expect(screen.queryByRole("button")).toBeNull();
+  expect(screen.getByText("Bluesky post from alice.bsky.social")).toBeInTheDocument();
+  expect(container.querySelector("iframe")).toBeNull();
+  expect(fetchMock).not.toHaveBeenCalled();
 });

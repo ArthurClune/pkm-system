@@ -62,6 +62,11 @@ Buttons and fields are styled by named class, and there is no bare
   focus; call sites add geometry only. `.nav-sidebar-add input` sits on
   `.left-nav`'s own `--color-bg-subtle`, so it takes the surface fill at rest.
 
+`button.external-media-placeholder` is a `<button>` reset to look like
+`.asset-image-placeholder`, the dashed box an unloaded image shows. Once
+clicked, `ClickToLoad` wraps the media in `.click-to-load-revealed`, a block
+that takes focus from the unmounted button and draws no ring.
+
 Supporting copy in Files and Settings uses `p.settings-note`, whose `p`
 qualifier lets it override Settings' `.settings-section p` reset.
 

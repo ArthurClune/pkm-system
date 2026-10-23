@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { BlockRefProvider } from "../components/BlockRefProvider";
 import { InlineSegments } from "../components/InlineSegments";
+import { UntrustedContentContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { elapsedLabel } from "./elapsed";
 import { stripCaretBlockRefs } from "./normalizeRefs";
@@ -123,25 +124,28 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
         </button>
       </header>
       <div className="assistant-messages" ref={listRef}>
-        {/* seed={{}}: no page payload backs this panel, so every ((uid)) a
-          * reply mentions is unseeded and resolved live. */}
-        <BlockRefProvider seed={{}}>
-          {assistant.items.map((item, i) =>
-            item.kind === "tool" ? (
-              <div key={i} className="assistant-tool-line">
-                {item.done ? "✓" : "…"} {item.summary}
-              </div>
-            ) : (
-              <div key={i} className={`assistant-msg assistant-msg-${item.kind}`}>
-                {item.kind === "assistant" ? (
-                  <InlineSegments segments={tokenizeBlock(stripCaretBlockRefs(item.text))} />
-                ) : (
-                  item.text
-                )}
-              </div>
-            ),
-          )}
-        </BlockRefProvider>
+        {/* A reply's text and media are the model's, so media waits for a click. */}
+        <UntrustedContentContext.Provider value={true}>
+          {/* seed={{}}: no page payload backs this panel, so every ((uid)) a
+            * reply mentions is unseeded and resolved live. */}
+          <BlockRefProvider seed={{}}>
+            {assistant.items.map((item, i) =>
+              item.kind === "tool" ? (
+                <div key={i} className="assistant-tool-line">
+                  {item.done ? "✓" : "…"} {item.summary}
+                </div>
+              ) : (
+                <div key={i} className={`assistant-msg assistant-msg-${item.kind}`}>
+                  {item.kind === "assistant" ? (
+                    <InlineSegments segments={tokenizeBlock(stripCaretBlockRefs(item.text))} />
+                  ) : (
+                    item.text
+                  )}
+                </div>
+              ),
+            )}
+          </BlockRefProvider>
+        </UntrustedContentContext.Provider>
         {assistant.pendingConfirm && (
           <ConfirmCard
             key={assistant.pendingConfirm.confirmId}

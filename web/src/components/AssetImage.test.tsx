@@ -35,6 +35,7 @@ it("uses fallback accessible names when alt text is empty", () => {
 
 it("leaves external images non-expandable", () => {
   render(<AssetImage src="https://example.test/photo.png" alt="external" />);
+  fireEvent.click(screen.getByRole("button", { name: "image from example.test: external" }));
   expect(screen.getByRole("img", { name: "external" })).toHaveAttribute(
     "src", "https://example.test/photo.png");
   expect(screen.queryByRole("button")).toBeNull();
@@ -173,6 +174,7 @@ it("shows a loading placeholder until the image loads", () => {
 
 it("replaces the loading placeholder with the offline one when the image fails", () => {
   render(<AssetImage src="https://example.test/photo.png" alt="external" />);
+  fireEvent.click(screen.getByRole("button", { name: "image from example.test: external" }));
   expect(screen.getByText(/loading image/i)).toBeInTheDocument();
   fireEvent.error(screen.getByRole("img", { name: "external" }));
   expect(screen.queryByText(/loading image/i)).toBeNull();
@@ -198,4 +200,85 @@ it("skips the loading placeholder for an image the browser already holds", () =>
     complete.mockRestore();
     width.mockRestore();
   }
+});
+
+it("renders an external image as a load button with no img until clicked", () => {
+  render(<AssetImage src="https://example.test/photo.png" alt="external" />);
+  expect(document.querySelector("img")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "image from example.test: external" }));
+  expect(screen.getByRole("img", { name: "external" })).toHaveAttribute(
+    "src", "https://example.test/photo.png");
+});
+
+// Every img src the DOM held at any point while `run` ran, including an img
+// committed and removed again before `run` returned: the browser starts the
+// fetch at commit, so one committed frame is already a request.
+function imgSrcsCommittedDuring(run: () => void) {
+  const records: MutationRecord[] = [];
+  const observer = new MutationObserver((batch) => records.push(...batch));
+  observer.observe(document.body, {
+    childList: true, subtree: true,
+    attributes: true, attributeFilter: ["src"], attributeOldValue: true,
+  });
+  run();
+  records.push(...observer.takeRecords());
+  observer.disconnect();
+  const srcs: string[] = [];
+  const collect = (node: Node) => {
+    if (!(node instanceof Element)) return;
+    const imgs = node.matches("img") ? [node] : [...node.querySelectorAll("img")];
+    for (const img of imgs) srcs.push(img.getAttribute("src") ?? "");
+  };
+  for (const record of records) {
+    if (record.type === "attributes") {
+      // oldValue keeps a src that a later change in the same batch replaced
+      if (record.oldValue !== null) srcs.push(record.oldValue);
+      collect(record.target);
+    }
+    record.addedNodes.forEach(collect);
+    record.removedNodes.forEach(collect);
+  }
+  return { recordCount: records.length, srcs };
+}
+
+it("a new external src needs its own click", () => {
+  const { rerender } = render(<AssetImage src="https://a.test/x.png" alt="x" />);
+  fireEvent.click(screen.getByRole("button", { name: "image from a.test: x" }));
+  expect(screen.getByRole("img", { name: "x" })).toBeInTheDocument();
+
+  const committed = imgSrcsCommittedDuring(() =>
+    rerender(<AssetImage src="https://b.test/y.png" alt="y" />));
+  // the rerender swaps the img for the button, so an empty list means the
+  // observer saw nothing, not that nothing leaked
+  expect(committed.recordCount).toBeGreaterThan(0);
+  expect(committed.srcs).not.toContain("https://b.test/y.png");
+  expect(document.querySelector("img")).toBeNull();
+  expect(screen.getByRole("button", { name: "image from b.test: y" })).toBeInTheDocument();
+
+  rerender(<AssetImage src="https://a.test/x.png" alt="x" />);
+  expect(document.querySelector("img")).toBeNull();
+  expect(screen.getByRole("button", { name: "image from a.test: x" })).toBeInTheDocument();
+});
+
+it("the load click does not reach ancestors", () => {
+  const onParentClick = vi.fn();
+  render(
+    <div onClick={onParentClick}>
+      <AssetImage src="https://example.test/photo.png" alt="external" />
+    </div>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "image from example.test: external" }));
+  expect(onParentClick).not.toHaveBeenCalled();
+  expect(screen.getByRole("img", { name: "external" })).toBeInTheDocument();
+});
+
+it("an external image inside InertMediaContext is plain text", () => {
+  render(
+    <InertMediaContext.Provider value={true}>
+      <AssetImage src="https://example.test/photo.png" alt="x" />
+    </InertMediaContext.Provider>,
+  );
+  expect(screen.queryByRole("button")).toBeNull();
+  expect(screen.getByText("image from example.test: x")).toBeInTheDocument();
+  expect(document.querySelector("img")).toBeNull();
 });

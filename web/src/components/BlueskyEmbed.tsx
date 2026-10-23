@@ -1,7 +1,9 @@
 // pattern: Imperative Shell
-import { type CSSProperties, useEffect, useId, useState } from "react";
+import { type CSSProperties, useContext, useEffect, useId, useState } from "react";
+import { UntrustedContentContext } from "../contexts";
 import { isIosStandalone } from "../externalLink";
 import { blueskyEmbedSrc, parseBlueskyPostUrl } from "./bluesky";
+import { ClickToLoad } from "./ClickToLoad";
 
 const EMBED_ORIGIN = "https://embed.bsky.app";
 const RESOLVE_URL =
@@ -28,7 +30,7 @@ function resolveHandle(handle: string): Promise<string> {
   return pending;
 }
 
-export function BlueskyEmbed({ href }: { href: string }) {
+function BlueskyEmbedFrame({ href }: { href: string }) {
   const embedId = useId();
   const actor = parseBlueskyPostUrl(href)?.actor ?? null;
   const actorIsDid = actor?.startsWith("did:") ?? false;
@@ -117,5 +119,22 @@ export function BlueskyEmbed({ href }: { href: string }) {
            aria-label="Open post in Safari" />
       )}
     </div>
+  );
+}
+
+// Under untrusted text (an assistant reply) the embed waits behind
+// ClickToLoad, keyed by href. Keeping BlueskyEmbedFrame unmounted keeps
+// resolveHandle from running: the lookup itself leaks, because Bluesky's
+// servers resolve the handle's domain, and the iframe then loads
+// embed.bsky.app.
+export function BlueskyEmbed({ href }: { href: string }) {
+  const untrusted = useContext(UntrustedContentContext);
+  const actor = parseBlueskyPostUrl(href)?.actor ?? null;
+  if (actor === null) return null;
+  if (!untrusted) return <BlueskyEmbedFrame href={href} />;
+  return (
+    <ClickToLoad revealKey={href} label={`Bluesky post from ${actor}`}>
+      <BlueskyEmbedFrame href={href} />
+    </ClickToLoad>
   );
 }

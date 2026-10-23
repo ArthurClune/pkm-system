@@ -71,3 +71,7 @@ export const RootBlocksContext = createContext<BlockNode[]>([]);
  * embedded media renders inert — no expand trigger — so a
  * click anywhere in the row navigates instead of expanding. */
 export const InertMediaContext = createContext(false);
+
+/** True under text a third party or the model may have written (assistant
+ * replies): media that would fetch on render waits for a click instead. */
+export const UntrustedContentContext = createContext(false);

@@ -1,6 +1,8 @@
 import { render, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import type { MermaidConfig } from "mermaid";
 import { MERMAID_CACHE_RENDER_ID, MermaidDiagram } from "./MermaidDiagram";
+import { STOCK_MERMAID_DOMPURIFY, STOCK_MERMAID_SECURE } from "./mermaidSafety";
 
 // Vitest hoists vi.mock factories above the file's own top-level statements,
 // so any variable the factory closes over must be named "mock*" -- that's
@@ -209,4 +211,45 @@ it("never caches an errored render, so a remount retries both renderers", async 
   const second = render(<MermaidDiagram code={code} />);
   await waitFor(() => expect(second.container.querySelector(".mermaid-diagram-error-note")).not.toBeNull());
   expect(mockBmRender).toHaveBeenCalledTimes(2); // retried, not served a cached error
+});
+
+it("initializes stock mermaid with the secured keys and the stricter label sanitizer", async () => {
+  mockBmRender.mockRejectedValue(new Error("unsupported diagram"));
+  mockRender.mockResolvedValue({ svg: "<svg></svg>" });
+  render(<MermaidDiagram code={"gantt\ntitle secured-config"} />);
+  await waitFor(() => expect(mockInitialize).toHaveBeenCalled());
+  const [config] = mockInitialize.mock.calls[0] as unknown as [MermaidConfig];
+  expect(config.secure).toEqual(STOCK_MERMAID_SECURE);
+  expect(config.dompurifyConfig).toEqual(STOCK_MERMAID_DOMPURIFY);
+});
+
+it("strips beautiful-mermaid's font @import before the SVG is cached or shown", async () => {
+  document.documentElement.setAttribute("data-theme", "light");
+  mockBmRender.mockResolvedValue("<svg data-testid=\"font-svg\"><style>\n"
+    + "  @import url('https://fonts.googleapis.com/css2?family=x:wght@400;500&amp;display=swap');\n"
+    + "  text { font-family: x, system-ui; }\n</style></svg>");
+  const code = "graph TD\nfont-import-strip";
+  const first = render(<MermaidDiagram code={code} />);
+  await waitFor(() => {
+    expect(first.container.querySelector('svg[data-testid="font-svg"]')).not.toBeNull();
+  });
+  expect(first.container.innerHTML).not.toContain("@import");
+  expect(first.container.innerHTML).toContain("font-family: x, system-ui;");
+  first.unmount();
+  // the remount is a cache hit, so this reads the cached SVG
+  const second = render(<MermaidDiagram code={code} />);
+  expect(second.container.querySelector('svg[data-testid="font-svg"]')).not.toBeNull();
+  expect(second.container.innerHTML).not.toContain("@import");
+});
+
+it("never hands refused source to stock mermaid: it shows the source instead", async () => {
+  mockBmRender.mockRejectedValue(new Error("unsupported diagram"));
+  mockRender.mockResolvedValue({ svg: '<svg data-testid="refused-svg"></svg>' });
+  const code = 'flowchart TD\n  A@{ img: "https://attacker.invalid/s.png" }';
+  const { container } = render(<MermaidDiagram code={code} />);
+  await waitFor(() => {
+    expect(container.querySelector(".mermaid-diagram-error-note")).not.toBeNull();
+  });
+  expect(mockRender).not.toHaveBeenCalled();
+  expect(container.textContent).toContain("attacker.invalid/s.png");
 });

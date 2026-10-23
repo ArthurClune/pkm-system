@@ -15,7 +15,7 @@ Split from pkm-qd81. _block_ref_counts, _fetch_ancestors and _gather_resolution_
 
 - [x] Red test from each probe
 - [x] Chunk every IN-list built from an unbounded id set
-- [ ] perf/check.sh backend before merge
+- [ ] perf/check.sh backend before merge (not run on this branch: `page/big` statements rise 7 -> 9 at CHUNK_SIZE 500, so the baseline is bootstrapped on the integration branch with that reason)
 - [x] troubleshooting.md row
 
 ## Summary of Changes
@@ -24,6 +24,7 @@ Split from pkm-qd81. _block_ref_counts, _fetch_ancestors and _gather_resolution_
 the export `_gather_resolution_data` now run each id set through
 `sync_core.chunk_ids` (500 per statement) and merge the rows. Ids are deduped
 first so a repeated uid cannot double a breadcrumb. Tests in
-`server/tests/test_sql_variable_limit.py` use 33,000 ids. backend.md
+`server/tests/test_sql_variable_limit.py` cap each request connection's
+variable limit at 600 and drive routes with 700 rows. backend.md
 Database section states the rule; troubleshooting.md has a row. The perf
 check is left to the orchestrator before merge.

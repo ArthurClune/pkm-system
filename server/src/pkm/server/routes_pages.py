@@ -70,8 +70,8 @@ def _block_ref_texts(db: Db,
 def _block_ref_counts(db: Db,
                       uids: list[BlockUid]) -> dict[BlockUid, int]:
     """Incoming ((ref)) count per uid, nonzero entries only.
-    One GROUP BY against idx_block_refs_target; src rows CASCADE with their
-    block, so every counted row has a live source."""
+    One GROUP BY per chunk against idx_block_refs_target; src rows CASCADE
+    with their block, so every counted row has a live source."""
     counts: dict[BlockUid, int] = {}
     for chunk in chunk_ids(list(dict.fromkeys(uids))):
         marks = ",".join("?" * len(chunk))

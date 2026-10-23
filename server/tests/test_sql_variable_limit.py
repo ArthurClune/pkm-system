@@ -1,13 +1,31 @@
 """IN-lists built from an unbounded id set stay under SQLite's bound-variable
-limit (32,766 on modern builds): the routes answer instead of raising."""
-import pytest
-from pkm.server.db import open_db
-from pkm.test_data.ids import uid_of
-from pkm.server.routes_export import _gather_resolution_data
-from pkm.server.routes_pages import (
-    _block_ref_counts, _fetch_ancestors, _resolve_ref_uids)
+limit: the routes answer instead of raising.
 
-N = 33_000  # past 32,766
+Every request connection is capped at LIMIT variables, below `chunk_ids`'
+chunk size plus nothing else, so N rows past the cap trip an unchunked
+statement without inserting tens of thousands of rows."""
+import sqlite3
+from datetime import date
+
+import pytest
+from pkm.server import db as server_db
+from pkm.server.db import open_db
+from pkm.server.routes_pages import _daily_title
+
+LIMIT = 600
+N = 700  # past LIMIT, and past one 500-id chunk
+
+
+@pytest.fixture(autouse=True)
+def capped_request_connections(monkeypatch):
+    real = server_db.open_db
+
+    def capped(path):
+        con = real(path)
+        con.raw.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, LIMIT)
+        return con
+
+    monkeypatch.setattr(server_db, "open_db", capped)
 
 
 @pytest.fixture()
@@ -17,80 +35,108 @@ def db(seeded_config):
     con.close()
 
 
-def _add_blocks(db, page, prefix, text, n=N, parent=None):
-    db.execute("INSERT INTO pages(id, title) VALUES (?, ?)",
-               (page, f"P{page}"))
+def _page(db, page: int, name: str) -> None:
+    db.execute("INSERT INTO pages(id, title) VALUES (?, ?)", (page, name))
+
+
+def _blocks(db, page: int, rows) -> None:
+    """rows: (uid, parent_uid, text) in order."""
     db.executemany(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)"
         " VALUES (?,?,?,?,?)",
-        [(f"{prefix}{i:07d}", page, parent, i, text) for i in range(n)])
+        [(uid, page, parent, i, text)
+         for i, (uid, parent, text) in enumerate(rows)])
 
 
-def test_block_ref_counts_past_the_variable_limit(db):
-    _add_blocks(db, 200, "big_", "x")
-    _add_blocks(db, 201, "ref_", "see ((big_0000001))")
+def _referrers(db, page: int, target: str) -> None:
+    """Page `page` holds N children of a root, each ((target))-ing a block."""
+    _page(db, page, f"P{page}")
+    _blocks(db, page, [("root_0000000", None, "root")] + [
+        (f"ref_{i:07d}", "root_0000000", f"see (({target}))")
+        for i in range(N)])
     db.executemany("INSERT INTO block_refs VALUES (?,?)",
-                   [(f"ref_{i:07d}", "big_0000001") for i in range(N)])
+                   [(f"ref_{i:07d}", target) for i in range(N)])
+
+
+def test_page_counts_refs_to_each_of_many_blocks(client, db):
+    _page(db, 200, "Big")
+    _blocks(db, 200, [(f"big_{i:07d}", None, "x") for i in range(N)])
+    _referrers(db, 201, "big_0000001")
     db.commit()
-    uids = [uid_of(f"big_{i:07d}") for i in range(N)]
-    assert _block_ref_counts(db, uids) == {uid_of("big_0000001"): N}
+    body = client.get("/api/page/Big").json()
+    assert body["block_ref_counts"] == {"big_0000001": N}
 
 
-def test_fetch_ancestors_past_the_variable_limit(db):
-    db.execute("INSERT INTO pages(id, title) VALUES (300, 'Tree')")
-    db.execute("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)"
-               " VALUES ('root_0000000', 300, NULL, 0, 'root')")
-    db.executemany(
-        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)"
-        " VALUES (?,?,?,?,?)",
-        [(f"kid_{i:07d}", 300, "root_0000000", i, "k") for i in range(N)])
+def test_block_backlinks_carry_breadcrumbs_for_every_referrer(client, db):
+    _referrers(db, 201, "uid_b3")
     db.commit()
-    uids = [uid_of(f"kid_{i:07d}") for i in range(N)]
-    out = _fetch_ancestors(db, uids)
-    assert len(out) == N
-    assert out[uids[0]] == ["root"] and out[uids[-1]] == ["root"]
-    # a repeated uid must not double its breadcrumb
-    assert _fetch_ancestors(db, [uids[0], uids[0]])[uids[0]] == ["root"]
+    groups = client.get("/api/block/uid_b3/backlinks").json()["groups"]
+    items = [i for g in groups for i in g["items"]
+             if i["uid"].startswith("ref_")]
+    assert len(items) == N
+    assert all(i["breadcrumbs"] == ["root"] for i in items)
 
 
-def test_resolve_ref_uids_past_the_variable_limit(db):
-    _add_blocks(db, 400, "tgt_", "t")
+def test_page_with_many_referrers_resolves_refs_and_backlinks(client, db):
+    _referrers(db, 201, "uid_b3")
     db.commit()
-    uids = [uid_of(f"tgt_{i:07d}") for i in range(N)]
-    out = _resolve_ref_uids(db, uids)
-    assert len(out) == N and out[uids[-1]].text == "t"
+    body = client.get("/api/page/P201").json()
+    assert "uid_b3" in body["block_ref_texts"]
+    assert len(body["blocks"][0]["children"]) == N
 
 
-def test_export_resolution_past_the_variable_limit(db):
-    _add_blocks(db, 500, "r", "t")
+def test_block_with_many_distinct_refs_resolves_all_of_them(client, db):
+    _page(db, 400, "Targets")
+    _blocks(db, 400, [(f"tgt_{i:07d}", None, f"t{i}") for i in range(N)])
+    _page(db, 401, "Holder")
+    _blocks(db, 401, [("holder_0000", None, " ".join(
+        f"((tgt_{i:07d}))" for i in range(N)))])
     db.commit()
-    text = " ".join(f"((r{i:07d}))" for i in range(N))
-    uid_to_text, _ = _gather_resolution_data(db, [text])
-    assert len(uid_to_text) == N
+    texts = client.get("/api/page/Holder").json()["block_ref_texts"]
+    assert len(texts) == N and texts["tgt_0000699"]["text"] == "t699"
+    assert len(client.get(
+        "/api/block/holder_0000").json()["block_ref_texts"]) == N
 
 
-def test_export_route_with_many_refs(client, seeded_config):
-    con = open_db(seeded_config.db_path)
-    _add_blocks(con, 600, "r", "t", n=100)
-    con.execute("INSERT INTO pages(id, title) VALUES (601, 'ManyRefs')")
-    con.execute(
-        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)"
-        " VALUES ('many_refs0', 601, NULL, 0, ?)",
-        (" ".join(f"((r{i:07d}))" for i in range(100)) + " "
-         + " ".join(f"((m{i:07d}))" for i in range(N)),))
-    con.commit()
-    con.close()
-    assert client.get("/api/export/page/ManyRefs").status_code == 200
+def test_export_resolves_many_distinct_refs(client, db):
+    _page(db, 400, "Targets")
+    _blocks(db, 400, [(f"tgt_{i:07d}", None, f"t{i}") for i in range(N)])
+    _page(db, 401, "ManyRefs")
+    _blocks(db, 401, [("holder_0000", None, " ".join(
+        f"((tgt_{i:07d}))" for i in range(N)))])
+    db.commit()
+    r = client.get("/api/export/page/ManyRefs")
+    assert r.status_code == 200
+    assert "t699" in r.text and "((tgt_" not in r.text
 
 
-def test_page_and_backlinks_routes_with_huge_pages(client, seeded_config):
-    con = open_db(seeded_config.db_path)
-    _add_blocks(con, 200, "big_", "x")
-    _add_blocks(con, 201, "ref_", "see ((uid_b3))")
-    con.executemany("INSERT INTO block_refs VALUES (?,?)",
-                    [(f"ref_{i:07d}", "uid_b3") for i in range(N)])
-    con.commit()
-    con.close()
-    assert client.get("/api/page/P200").status_code == 200
-    assert client.get("/api/block/uid_b3/backlinks").status_code == 200
-    assert client.get("/api/page/P201").status_code == 200
+def test_journal_counts_and_resolves_past_the_limit(client, db):
+    client.get("/api/journal")  # creates today's page
+    today = db.select_one("SELECT id AS page_id FROM pages WHERE title = ?",
+                          (_daily_title(date.today()),))
+    assert today is not None
+    _blocks(db, today["page_id"],
+            [(f"day_{i:07d}", None, "x") for i in range(N)])
+    _referrers(db, 201, "day_0000002")
+    db.commit()
+    body = client.get("/api/journal").json()
+    assert body["block_ref_counts"] == {"day_0000002": N}
+
+
+def test_breadcrumb_is_not_doubled_when_a_block_straddles_chunks(client, db):
+    """One block linking a page as [[X]] and #X has two refs rows, so it
+    occurs twice in the backlink rows; at a chunk boundary the two copies
+    land in different chunks unless the uids are deduped first."""
+    _page(db, 300, "Target")
+    _page(db, 301, "Src")
+    kids = [(f"kid_{i:07d}", "root_0000000", "k") for i in range(501)]
+    _blocks(db, 301, [("root_0000000", None, "root")] + kids)
+    db.executemany("INSERT INTO refs VALUES (?,?,?)",
+                   [(uid, 300, "link") for uid, *_ in kids]
+                   + [("kid_0000499", 300, "tag")])
+    db.commit()
+    groups = client.get("/api/page/Target").json()["backlinks"]["groups"]
+    items = {i["uid"]: i for g in groups for i in g["items"]}
+    assert len(items) == 501
+    assert items["kid_0000499"]["breadcrumbs"] == ["root"]
+    assert items["kid_0000500"]["breadcrumbs"] == ["root"]

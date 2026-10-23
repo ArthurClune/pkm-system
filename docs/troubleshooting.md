@@ -135,6 +135,7 @@ Owner: [backend.md](architecture/backend.md)
 | A request answers 500, not success or 422: a lone surrogate (`\udXXX`) in a page create, rename or pin, a login or a GoodLinks resolve; a body with `NaN`, `Infinity` or deep nesting | Only op models normalised surrogates, and FastAPI's handler echoed bad input through `jsonable_encoder` and a strict encoder (`WellFormedModel`, `validation_echo.echo_errors`) | [backend.md § Hostile input](architecture/backend.md#hostile-input) | pkm-o42u |
 | A huge integer (`to_ms`, `offset`, `since`, `order_idx`) answers 500 `OverflowError`; after an order key near int64, reads 500 with `order_idx: expected int, got float` | SQLite binds only 64-bit ints, and a sibling shift's overflowing sum becomes a REAL (`Int64`, `WIRE_ORDER_IDX`) | [backend.md § Hostile input](architecture/backend.md#hostile-input) | pkm-o42u, pkm-ux3w |
 | Search or unlinked mentions answer 500 ("unterminated string") when the term or title holds a NUL | FTS5 reads its query as a C string | [backend.md § Hostile input](architecture/backend.md#hostile-input) | pkm-o42u |
+| An anonymous GET of `/a%00b`, a 300-character path component or a link loop inside `web_dist` answers 500 | The SPA catch-all's `resolve()` and `is_file()` raise `ValueError`, `OSError` or `RuntimeError`; the handler answers 404 for all three | [backend.md § Hostile input](architecture/backend.md#hostile-input) | pkm-xrvv |
 
 ### Reads, startup and logging
 

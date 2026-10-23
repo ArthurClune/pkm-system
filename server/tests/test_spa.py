@@ -159,3 +159,14 @@ def test_the_catch_all_never_serves_a_file_outside_the_dist(tmp_path):
         assert "PREFIX-SIBLING" not in r.text, path
     served = asgi_request(app, "GET", "/", raise_app_exceptions=False)
     assert served.status_code == 200
+
+
+def test_a_path_resolve_rejects_answers_404_not_500(tmp_path):
+    """NUL, an over-long component and a link loop inside the dist make
+    `Path.resolve()` or `is_file()` raise; each must answer 404."""
+    dist = _dist_with_outside_files(tmp_path)
+    app = create_app(_config(tmp_path, web_dist=dist))
+    for path in ("/a%00b", "/" + "a" * 300, "/" + "a/" * 600, "/loop1",
+                 "/loop1/x"):
+        r = asgi_request(app, "GET", path, raise_app_exceptions=False)
+        assert r.status_code == 404, path

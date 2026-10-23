@@ -188,10 +188,17 @@ def create_app(
             # falls back to index.html breaks registration outright. The SW
             # byte-compares itself on update checks, so no-cache keeps
             # deploys picked up promptly (matching index.html below).
-            candidate = (web_dist_root / full_path).resolve()
-            if (full_path
-                    and candidate.is_relative_to(web_dist_root)
-                    and candidate.is_file()):
+            # A NUL, an over-long component or a link loop makes resolve()
+            # or is_file() raise (ValueError, OSError, RuntimeError); such a
+            # path names no file, so it is a 404, never a 500.
+            try:
+                candidate = (web_dist_root / full_path).resolve()
+                is_file = (bool(full_path)
+                           and candidate.is_relative_to(web_dist_root)
+                           and candidate.is_file())
+            except (ValueError, OSError, RuntimeError):
+                raise HTTPException(status_code=404, detail="not found")
+            if is_file:
                 return FileResponse(candidate,
                                     headers={"Cache-Control": "no-cache"})
             # index.html references hashed bundle filenames, so it must be

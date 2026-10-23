@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { stubFetch, confirmIdOf } from "../test-helpers";
 import type { ChatItem, PendingConfirm, PhaseInfo } from "./useAssistant";
-import type { PreviewOp, WritePreview } from "./writePreview";
+import { parseWritePreview, type PreviewOp, type WritePreview } from "./writePreview";
 
 const state = vi.hoisted(() => {
   const noConfirm = (): PendingConfirm | null => null;
@@ -420,6 +420,31 @@ describe("ConfirmCard", () => {
     const values = card().querySelectorAll(".assistant-confirm-value");
     expect(values).toHaveLength(3);
     for (const value of values) expect(value.tagName).toBe("BDI");
+  });
+
+  // what the server sends, through the parser the SSE stream uses
+  const parsedPreview = (op: unknown) =>
+    parseWritePreview({ ops: [op], summary: "s" });
+
+  // the server JSON-quotes a title inside a warning; the card must show its
+  // escape as sent, not double it into a quote that seems to close early
+  test("a warning shows a quoted title exactly as the server escaped it", () => {
+    const warning = `allow_merge is on: if ${JSON.stringify('a"b, c')} exists`;
+    showConfirm(parsedPreview({ action: "rename page",
+      targets: [["allow_merge", true]], content: [], warnings: [warning] }));
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(card().querySelector(".assistant-confirm-warning")!.textContent)
+      .toBe('⚠ allow_merge is on: if "a\\"b, c" exists');
+  });
+
+  // a key spelling out an escape must not pass for one the card made
+  test("a key with a literal backslash-u shows the backslash doubled", () => {
+    showConfirm(parsedPreview({ action: "save note",
+      targets: [["x\\u202E", 1], ["y‮", 2]], content: [], warnings: [] }));
+    render(<AssistantPanel open onClose={() => {}} />);
+    const keys = [...card().querySelectorAll(".assistant-confirm-key")]
+      .map((el) => el.textContent);
+    expect(keys).toEqual(["x\\\\u202E", "y\\u202E"]);
   });
 
   test("warnings show after the targets, marked", () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { block, orderIdxOf, canonicalTitleOf, uidOf } from "../test-helpers";
 import type { BlockUid } from "../api/brands";
 import { fileDropNotice, isUploadableType, partitionUploadable, planFileDropBlocks,
-         uploadableDrag } from "./fileDrop";
+         planUploadBlocks, uploadableDrag } from "./fileDrop";
 
 const file = (name: string, type: string) => new File(["x"], name, { type });
 
@@ -98,6 +98,89 @@ describe("planFileDropBlocks", () => {
     const plan = planFileDropBlocks(tree(), P,
       { parent_uid: null, order_idx: orderIdxOf(0), page_title: P }, ["t"], [uidOf("tuid-n1")]);
     expect(plan.firstUid satisfies BlockUid | null).toBe("tuid-n1");
+  });
+});
+
+describe("planUploadBlocks", () => {
+  const P = canonicalTitleOf("P");
+  const tree = (aText = "A") => [
+    block("tuid-a", aText, { order_idx: orderIdxOf(0) }),
+    block("tuid-b", "B", { order_idx: orderIdxOf(1), children: [
+      block("tuid-b1", "B1", { order_idx: orderIdxOf(0) })] }),
+    block("tuid-c", "C", { order_idx: orderIdxOf(2) }),
+  ];
+  const texts = ["![x](/a)", "![y](/b)"];
+  const uids = [uidOf("tuid-n1"), uidOf("tuid-n2")];
+  const plan = (blocks: ReturnType<typeof tree>, uid: string,
+                focused: string | null = null) =>
+    planUploadBlocks(blocks, P, uidOf(uid), texts, uids,
+      focused === null ? null : uidOf(focused));
+  const rootTexts = (p: ReturnType<typeof plan>) => p.result.blocks.map((n) => n.text);
+
+  it("adds every upload as a sibling after a block with text", () => {
+    const p = plan(tree(), "tuid-a");
+    expect(rootTexts(p)).toEqual(["A", "![x](/a)", "![y](/b)", "B", "C"]);
+    expect(p.result.ops.map((o) => o.op)).toEqual(["create", "create"]);
+    expect(p.result.ops.every((o) => o.op === "create" && o.parent_uid === null))
+      .toBe(true);
+    expect(p.result.focus).toBeNull();
+    expect(p.fellBack).toBe(false);
+    expect(p.firstUid).toBe("tuid-n1");
+  });
+
+  it("places siblings after the block's whole subtree", () => {
+    const p = plan(tree(), "tuid-b");
+    expect(rootTexts(p)).toEqual(["A", "B", "![x](/a)", "![y](/b)", "C"]);
+    expect(p.result.blocks[1].children.map((n) => n.text)).toEqual(["B1"]);
+  });
+
+  it("keeps a nested block's siblings at its depth", () => {
+    const p = plan(tree(), "tuid-b1");
+    expect(p.result.blocks[1].children.map((n) => n.text))
+      .toEqual(["B1", "![x](/a)", "![y](/b)"]);
+    expect(p.result.ops.every((o) => o.op === "create" && o.parent_uid === "tuid-b"))
+      .toBe(true);
+  });
+
+  it("fills an empty block with the first upload", () => {
+    const p = plan(tree(""), "tuid-a");
+    expect(p.result.ops[0]).toEqual(
+      { op: "update_text", uid: "tuid-a", text: "![x](/a)" });
+    expect(p.result.ops).toHaveLength(2);
+    expect(p.result.ops[1]).toMatchObject({ op: "create", uid: "tuid-n2" });
+    expect(rootTexts(p)).toEqual(["![x](/a)", "![y](/b)", "B", "C"]);
+    expect(p.firstUid).toBe("tuid-a");
+  });
+
+  it("treats a whitespace-only block as empty", () => {
+    const p = plan(tree("  "), "tuid-a");
+    expect(p.result.ops[0]).toEqual(
+      { op: "update_text", uid: "tuid-a", text: "![x](/a)" });
+    expect(p.result.ops).toHaveLength(2);
+  });
+
+  it("keeps the caret in a filled block that still owns focus", () => {
+    expect(plan(tree(""), "tuid-a", "tuid-a").result.focus)
+      .toEqual({ uid: "tuid-a", cursor: "![x](/a)".length });
+    expect(plan(tree(""), "tuid-a", null).result.focus).toBeNull();
+    expect(plan(tree("A"), "tuid-a", "tuid-a").result.focus).toBeNull();
+  });
+
+  it("a single upload into a block with text becomes a new sibling", () => {
+    const p = planUploadBlocks(tree(), P, uidOf("tuid-a"), ["t"], [uids[0]], null);
+    expect(p.result.ops).toHaveLength(1);
+    expect(p.result.ops[0].op).toBe("create");
+    expect(rootTexts(p)).toEqual(["A", "t", "B", "C"]);
+  });
+
+  it("falls back to the end of the page when the block is gone", () => {
+    const p = plan(tree(), "tuid-gone");
+    expect(p.fellBack).toBe(true);
+    expect(p.result.ops.every((o) => o.op === "create" && o.parent_uid === null))
+      .toBe(true);
+    expect(p.result.blocks.map((n) => n.uid))
+      .toEqual(["tuid-a", "tuid-b", "tuid-c", "tuid-n1", "tuid-n2"]);
+    expect(p.firstUid).toBe("tuid-n1");
   });
 });
 

@@ -573,11 +573,12 @@ def test_a_malformed_session_signature_closes_the_websocket_4401(
     sent: list[dict] = []
     inbox = iter([{"type": "websocket.connect"}])
 
-    async def receive():
+    async def receive() -> dict:
         try:
             return next(inbox)
         except StopIteration:
             await asyncio.sleep(3600)
+            return {"type": "websocket.disconnect"}
 
     async def send(message):
         sent.append(message)

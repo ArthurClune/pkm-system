@@ -41,4 +41,4 @@ Read from the binary's embedded JS (minified names, so tied to this build):
 
 ## Summary of Changes
 
-The preview now validates input with the tool's own FastMCP argument model (and the `apply_batch` schema for batch commands), so a string-encoded `commands` is previewed as the list the tool receives, and non-schema input is a `Refusal` that `ClaudeEngine.can_use_tool` denies. `test_preview_matches_what_the_tool_receives` pins the parity with live payloads.
+The preview now validates input with the tool's own FastMCP argument model (and the `apply_batch` schema for batch commands), so a string-encoded `commands` is previewed as the list the tool receives, and non-schema input is a `Refusal` that `ClaudeConversation.can_use_tool` denies. `test_preview_matches_what_the_tool_receives` pins the parity with live payloads.

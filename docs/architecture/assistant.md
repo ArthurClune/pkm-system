@@ -59,12 +59,16 @@ user who has had the chance to read all of it.
 
 | Rule | Reason |
 |---|---|
-| Targets come first, in full, and are never clipped; only content values (`text`, `items`) are clipped, each on its own to `CONTENT_CLIP_CHARS`, with the unclipped length shown | A long value in front of a `uid` or `title` would hide which block or page is written |
-| A key `WRITE_PREVIEW_FIELDS` does not name counts as a target | A new or model-invented argument is shown, never hidden; a test fails when a tool or batch params model gains an unclassified key |
+| Targets come first, in full, and are never clipped | A long value in front of a `uid` or `title` would hide which block or page is written |
+| A key the tool's FastMCP argument model does not declare is a `Refusal` (for `batch`, anything beside `commands`) | The tool drops such a key, so a card row for it could only be a decoy beside the real target, such as a lookalike `uid` |
+| A declared field `WRITE_PREVIEW_FIELDS` does not name still shows as a target | A new argument is shown, never hidden; a test fails when a tool or batch params model gains an unclassified field |
 | `build_write_preview()` validates with the tool's own FastMCP argument model and, for `batch`, the schema `apply_batch` applies; input they reject is a `Refusal` | FastMCP coerces arguments (`"yes"` becomes true, `"null"` becomes None, a JSON string becomes a list), so the card must show the coerced value. `test_preview_matches_what_the_tool_receives` pins the parity |
-| `ClaudeEngine.can_use_tool` denies a `Refusal` without a confirm | The user cannot approve what the tool would not run as shown |
+| Content values (`text`, `items`) reach the card whole; one over `CONTENT_LIMIT_CHARS`, or a target string over `TARGET_LIMIT_CHARS`, is a `Refusal` | `[show]` must be able to reveal every character approved. A target has no server-side bound, and a multi-MB value would freeze the tab |
+| Any exception inside `build_write_preview()` is a `Refusal`, logged with its type only | Raised out of `can_use_tool`, it would reach the SDK as a control error rather than a reason; its message can quote the attacker's input |
+| `ClaudeConversation.can_use_tool` denies a `Refusal` without a confirm | The user cannot approve what the tool would not run as shown |
+| An op carries warnings for an `allow_merge` rename, a `((uid))` or `{{alias}}` parent, and a batch `update` or `move` uid | The target rows alone can mislead. An alias parent overrides the op's `page`; a uid that names no block sends the text, or a note, to today's daily note. The wording follows `plan_save`, `plan_batch` and `ops_core.classify_skip` |
 | The tool functions are imported from `pkm.mcp.tools`, not `pkm.mcp.server` | Building the server's `FastMCP` configures the root logger |
-| The card's labels (keys, action) and warnings are escaped by `parseWritePreview`; values are quoted by `quoteValue` | A value or an unknown key cannot close a quote or draw a fake argument line. `writePreview.ts` owns the character classes |
+| The card's labels (keys, action) and warnings are escaped by `parseWritePreview`; values are quoted by `quoteValue`, and a target's newlines are escaped too | A value cannot close a quote or start a line that reads as another argument. `writePreview.ts` owns the character classes |
 
 The browser keeps confirms in a queue. The head stays until its POST settles,
 so a second `confirm_request` never swaps the card under the cursor. The hook
@@ -76,7 +80,9 @@ after the last have each been in view. The ops scroll in a region inside the
 scrolling transcript, so a short window can hide a target while Allow shows;
 `IntersectionObserver` reports against the viewport, which clips through every
 scrolling ancestor. Without `IntersectionObserver` Allow never arms; Deny
-still works.
+still works. Until both markers are seen, `confirmHint` says which way the
+unseen one lies: in a very short window the transcript can scroll the end
+marker past its top, and "scroll to the end" would point the wrong way.
 
 ## Conversation registry
 

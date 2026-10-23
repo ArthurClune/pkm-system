@@ -29,7 +29,10 @@ string at 300 chars while Allow stays live. So a model can:
    is renders in full, first, and is never collapsed or clipped.
 2. Only arguments named as content may be clipped, each value on its own,
    with its full length shown and a toggle to show all of it.
-3. A key the table does not name is a target (fail safe).
+3. A key the tool's argument model does not declare is refused: the tool
+   drops it, so showing it would only offer a decoy beside the real
+   target. A field the model declares and the table does not name is a
+   target (fail safe).
 4. Input that is not schema-shaped is denied with a message to the model,
    never previewed.
 5. Each value renders as data in its own element; strings render
@@ -52,7 +55,8 @@ string at 300 chars while Allow stays live. So a model can:
 | batch move | uid, page, parent, index | — |
 | batch delete | uid | — |
 | batch outline | page, parent | items |
-| any other key, any other tool | every key | — |
+| a declared field the table does not name | that field | — |
+| a key the argument model does not declare (for batch, anything beside `commands`) | refused: the tool drops it, so a row for it would be a decoy | — |
 
 The table lives in `policy.py` as data beside `WRITE_TOOLS`. A test fails
 when a write tool's signature (`pkm.mcp.server`) or a batch params model
@@ -86,8 +90,8 @@ WritePreview = {
   argument model, `func_metadata(<the pkm.mcp.server function>)`, runs
   its `pre_parse_json` and `arg_model.model_validate`, and previews the
   validated values. A validation error is a refusal naming the first
-  error. Keys the model ignores (extras) are still shown as targets,
-  since a future signature might read them.
+  error. A key the model does not declare is refused before validation
+  (rule 3).
 - `batch`: after that, every item of `commands` must validate against
   `pkm.batch`'s `BatchCommand` adapter, and the list must be non-empty;
   otherwise `Refusal("batch item <i>: <problem>")`. The preview is built

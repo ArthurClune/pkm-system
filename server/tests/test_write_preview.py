@@ -138,14 +138,53 @@ def test_alias_and_uid_parents_shown_verbatim(parent):
     assert ("parent", parent) in p.ops[0].targets
 
 
-def test_unknown_key_is_a_target():
-    p = _preview("save_note", {"text": "t", "extra": "z"})
-    assert p.ops[0].targets[-1] == ("extra", "z")
+@pytest.mark.parametrize(("short", "raw", "key"), [
+    # a Cyrillic i: the tool ignores this key, so a card row for it would
+    # be a decoy uid beside the real one
+    ("update_block", {"uid": "IMPORTANT01", "text": "x",
+                      "u\u0456d": "junk123"}, "u\u0456d"),
+    ("save_note", {"text": "t", "extra": "z"}, "extra"),
+    # batch's only argument is `commands`; a `uid` beside it is ignored
+    ("batch", {"commands": [{"command": "delete",
+                             "params": {"uid": "IMPORTANT01"}}],
+               "uid": "junk123"}, "uid"),
+    ("batch", {"commands": [{"command": "create",
+                             "params": {"page": "Secret", "text": "x"}}],
+               "page": None}, "page"),
+])
+def test_unknown_key_is_refused(short, raw, key):
+    r = _refusal(short, raw)
+    assert r.message == f"{short}: unknown argument {json.dumps(key)}"
 
 
-def test_unknown_batch_key_is_a_target_of_every_op():
-    p = _preview("batch", {"commands": _THREE, "dry_run": False})
-    assert all(op.targets[-1] == ("dry_run", False) for op in p.ops)
+@pytest.mark.parametrize("brk", ["\n", "\r", "\u2028", "\u2029", "\x85"])
+def test_unknown_key_refusal_is_one_line(brk):
+    r = _refusal("save_note", {"text": "t", f"x{brk}fake": 1})
+    assert len(r.message.splitlines()) == 1
+
+
+def test_a_declared_alias_is_not_unknown(monkeypatch):
+    from mcp.server.fastmcp.utilities.func_metadata import func_metadata
+
+    from pkm.assistant import write_preview
+    monkeypatch.setitem(write_preview.WRITE_PREVIEW_FIELDS, "stub",
+                        ("stub", ("json",), ("text",)))
+    monkeypatch.setitem(write_preview._ARG_MODELS, "stub",
+                        func_metadata(_stub_tool))
+    assert isinstance(build_write_preview("stub", {"text": "t", "json": "P"}),
+                      WritePreview)
+    assert isinstance(build_write_preview("stub", {"text": "t",
+                                                   "field_json": "P"}),
+                      WritePreview)
+
+
+def test_a_declared_field_the_table_misses_is_still_a_target(monkeypatch):
+    from pkm.assistant import write_preview
+    monkeypatch.setitem(write_preview.WRITE_PREVIEW_FIELDS, "save_note",
+                        ("save note", ("page",), ("text",)))
+    p = _preview("save_note", {"text": "t", "parent": "## Log"})
+    assert p.ops[0].targets == [("page", None), ("parent", "## Log"),
+                                ("todo", False)]
 
 
 def test_outline_items_render_as_indented_text():
@@ -175,23 +214,11 @@ def test_summary_is_one_line(brk):
     assert p.summary.startswith("save_note")
 
 
-@pytest.mark.parametrize("brk", ["\n", "\r", "\u2028", "\u2029", "\x85"])
-def test_summary_quotes_an_unknown_key(brk):
-    # An unknown key is attacker-chosen and still a target, so it reaches
-    # the summary: written raw, it could draw a second line.
-    p = _preview("save_note", {"text": "t", f"x{brk}fake": 1})
-    assert len(p.summary.splitlines()) == 1
-    assert p.summary.endswith(f"{json.dumps(f'x{brk}fake')}=1")
-
-
-def test_preview_is_a_snapshot_of_nested_extras():
-    meta = {"k": ["v"]}
-    single = _preview("update_block", {"uid": "U1", "meta": meta})
-    batch = _preview("batch", {"commands": [
-        {"command": "delete", "params": {"uid": "U1"}}], "meta": meta})
-    meta["k"].append("swapped")
-    assert ("meta", {"k": ["v"]}) in single.ops[0].targets
-    assert ("meta", {"k": ["v"]}) in batch.ops[0].targets
+def test_preview_is_a_snapshot_of_the_input():
+    commands = [{"command": "move", "params": {"uid": "U1", "page": "P"}}]
+    p = _preview("batch", {"commands": commands})
+    commands[0]["params"]["uid"] = "SWAPPED"
+    assert ("uid", "U1") in p.ops[0].targets
 
 
 def test_merge_warning_quotes_the_titles_as_values():

@@ -2,28 +2,9 @@
 filenames that must never turn into a path outside an archive or a header
 that is anything but printable ASCII, and helpers to seed and check them."""
 import hashlib
-import unicodedata
 from pathlib import Path
 
 from pkm.server.db import open_db
-
-HEADER_TITLES = [
-    'a"b', "a\\b", "x\r\nSet-Cookie: evil=1", "x\nX-Injected: 1",
-    'semi; filename="evil.exe"', "evil\u202egpj.md", "café ünïcode 日本",
-    "..", "../../etc/passwd", "/abs", "C:\\win", "a\x00b", "a\x7fb",
-    "\u2028line", "%0d%0a", "x" * 400, "日" * 200, "CON", "nul.txt",
-    'a<b>c|d?e*f"g', "  .  ", "\ufeffbom", "\U0010ffff",
-]
-
-ROUTE_TITLES = ['semi; filename="evil.exe"', 'quote"back\\slash',
-                "evil\u202egpj", "x\r\nSet-Cookie: e=1"]
-
-ZIP_TITLES = [
-    "..", "../../evil", "/abs/path", "C:\\drive", "\\\\server\\share",
-    "a\x00b", "CON", "x" * 600, "café", unicodedata.normalize("NFD", "café"),
-    "Σίσυφος", "σίσυφος", "ς", "σ", "Straße", "STRASSE", "ǅ", "ǆ", "ﬀ", "ff",
-    "K", "\u212a", ".hidden", "...", "a\U000e0001",
-]
 
 ASSET_NAMES = [
     "../../../../tmp/zipslip.txt", "/etc/passwd", "C:\\evil.txt",
@@ -79,6 +60,7 @@ def unsafe_arcname_flags(name: str) -> list[str]:
         flags.append("backslash")
     if "\x00" in name:
         flags.append("nul")
+    # A drive prefix only: a colon further into the name is not caught.
     if len(name) > 1 and name[1] == ":":
         flags.append("drive")
     if any(ord(ch) < 32 for ch in name):

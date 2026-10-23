@@ -259,7 +259,9 @@ def test_strip_answers_503_while_the_write_lock_is_held(
 
 @pytest.mark.parametrize("shape", [
     lambda sha: "..%2F..%2Fpkm.sqlite3", lambda sha: "%2e%2e",
-    lambda sha: sha + "%0a", lambda sha: sha.upper(), lambda sha: sha[:63]])
+    lambda sha: sha + "%0a", lambda sha: sha.upper(), lambda sha: sha[:63]],
+    ids=["dotdot-escaped-slash", "dotdot-escaped", "trailing-newline",
+         "upper", "short"])
 def test_delete_with_a_hostile_digest_is_404_and_changes_nothing(
         client, seeded_config, shape):
     """The digest in the path becomes a file path: anything but 64

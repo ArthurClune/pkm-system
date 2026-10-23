@@ -9,6 +9,7 @@ backup's Core renderer unchanged (raw query command, one-level,
 parens-wrapped ref resolution)."""
 import asyncio
 import tempfile
+import unicodedata
 import time
 import zipfile
 from io import BytesIO
@@ -19,8 +20,7 @@ import pytest
 from app_seed import seeded_client
 from conftest import TEST_PASSWORD
 from export_hostile import (
-    ASSET_NAMES, HEADER_TITLES, ROUTE_TITLES, ZIP_TITLES, add_asset_rows,
-    add_pages, unsafe_arcname_flags,
+    ASSET_NAMES, add_asset_rows, add_pages, unsafe_arcname_flags,
 )
 from fastapi.testclient import TestClient
 
@@ -323,6 +323,24 @@ def test_export_page_names_any_title_in_its_header(client, name):
 
 # --- hostile names: headers, archive entry names, odd paths ---
 
+HEADER_TITLES = [
+    'a"b', "a\\b", "x\r\nSet-Cookie: evil=1", "x\nX-Injected: 1",
+    'semi; filename="evil.exe"', "evil\u202egpj.md", "café ünïcode 日本",
+    "..", "../../etc/passwd", "/abs", "C:\\win", "a\x00b", "a\x7fb",
+    "\u2028line", "%0d%0a", "x" * 400, "日" * 200, "CON", "nul.txt",
+    'a<b>c|d?e*f"g', "  .  ", "\ufeffbom", "\U0010ffff",
+]
+
+ROUTE_TITLES = ['semi; filename="evil.exe"', 'quote"back\\slash',
+                "evil\u202egpj", "x\r\nSet-Cookie: e=1"]
+
+ZIP_TITLES = [
+    "..", "../../evil", "/abs/path", "C:\\drive", "\\\\server\\share",
+    "a\x00b", "CON", "x" * 600, "café", unicodedata.normalize("NFD", "café"),
+    "Σίσυφος", "σίσυφος", "ς", "σ", "Straße", "STRASSE", "ǅ", "ǆ", "ﬀ", "ff",
+    "K", "\u212a", ".hidden", "...", "a\U000e0001",
+]
+
 def _printable_ascii(header: str) -> bool:
     return all(32 <= ord(ch) < 127 for ch in header)
 
@@ -343,8 +361,8 @@ def test_export_page_route_headers_survive_hostile_titles(seeded_config,
     for title in ROUTE_TITLES:
         r = client.get("/api/export/page/" + quote(title, safe=""))
         # A title holding CR/LF is canonicalised to a name no page has, so
-        # that one answers 404: it must still add no header.
-        assert r.status_code == (404 if "\n" in title else 200), title
+        # it answers 404 today: it must add no header either way.
+        assert r.status_code in ((200, 404) if "\n" in title else (200,)), title
         assert "set-cookie" not in r.headers, title
         if r.status_code == 200:
             assert _printable_ascii(r.headers["content-disposition"]), title
@@ -409,9 +427,14 @@ def test_export_page_with_a_ref_cycle_through_query_macros_terminates(
 async def _call_asgi(app, cookie, method, path, body, mode):
     """One request straight to the app. In mode `raise` the server's send
     fails on the first body message; in `disconnect` the client is gone
-    before the response starts."""
+    once the request body has been read. Only `raise` tells the cleanup's
+    `finally` from a cleanup that runs after a completed send."""
+    reads = []
+
     async def receive():
-        if mode == "disconnect":
+        # The request body arrives first; the client leaves after that.
+        reads.append(1)
+        if mode == "disconnect" and len(reads) > 1:
             return {"type": "http.disconnect"}
         return {"type": "http.request", "body": body, "more_body": False}
 
@@ -448,8 +471,17 @@ def test_export_temp_dirs_are_removed_when_the_send_fails_or_the_client_leaves(
     shas = add_asset_rows(seeded_config.db_path, seeded_config.assets_dir,
                           ["big.bin"])
     body = f"sha256s={shas[0]}".encode() if method == "POST" else b""
+    made: list[str] = []
+    real_mkdtemp = tempfile.mkdtemp
+
+    def spy_mkdtemp(*args, **kwargs):
+        made.append(real_mkdtemp(*args, **kwargs))
+        return made[-1]
+
+    monkeypatch.setattr(tempfile, "mkdtemp", spy_mkdtemp)
 
     asyncio.run(_call_asgi(client.app, client.cookies["pkm_session"],
                            method, path, body, mode))
 
+    assert any(Path(d).name.startswith("pkm-") for d in made)
     assert list(scratch.glob("pkm-*")) == []

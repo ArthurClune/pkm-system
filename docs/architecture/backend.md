@@ -75,6 +75,11 @@ take locks that conflict with another connection's open write transaction.
 Each request gets a fresh `Db` from `open_db()`, with `foreign_keys=ON`,
 `recursive_triggers=ON` and `BUSY_TIMEOUT_MS`.
 
+An `IN (...)` list built from a set the data can grow without bound (a page's
+block uids, a block's referrers, a `((ref))` set) goes through
+`sync_core.chunk_ids`, because SQLite refuses a statement that binds more
+variables than its limit and the route would answer 500.
+
 ### Schema
 
 `schema.py` holds two DDL blocks. `BASE_DDL` is the data model, **replicated

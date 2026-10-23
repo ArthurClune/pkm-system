@@ -27,6 +27,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
 
 from pkm.database import Db
+from pkm.rows import Row
+from pkm.server.sync_core import chunk_ids
 from pkm.contracts.titles import RawTitle
 from pkm.export.markdown import page_filename
 from pkm.export.resolve import (
@@ -103,10 +105,12 @@ def _gather_resolution_data(
                       if u not in visited_uids})
         if uids:
             visited_uids.update(uids)
-            marks = ",".join("?" * len(uids))
-            rows = db.select(
-                f"SELECT uid, text FROM blocks WHERE uid IN ({marks})",
-                uids)
+            rows: list[Row] = []
+            for chunk in chunk_ids(uids):
+                marks = ",".join("?" * len(chunk))
+                rows += db.select(
+                    f"SELECT uid, text FROM blocks WHERE uid IN ({marks})",
+                    chunk)
             for r in rows:
                 uid_to_text[r["uid"]] = r["text"]
                 next_texts.append(r["text"])

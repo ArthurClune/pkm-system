@@ -148,6 +148,7 @@ Owner: [backend.md](architecture/backend.md)
 | A deleted page lingers in replicas until some unrelated edit | A journal-advancing route committed without a nudge (`test_journal_advancing_contract.py`) | [backend.md § Post-commit nudges](architecture/backend.md#post-commit-nudges) | pkm-getl |
 | An anonymous request to a path holding `%0a` or `%1b` puts a forged line or terminal escape in `access.log` | The decoded path went into `request_line` unescaped. `escape_controls` now escapes every field | [backend.md § Logging and observability](architecture/backend.md#logging-and-observability) | pkm-6fqw |
 | `POST /api/client/diagnostics` with a multi-megabyte `report` writes a line of that size to the server log | The route logged the whole body. It still answers 200 (the replica is about to destroy its database) but cuts the log at `_MAX_DIAGNOSTICS_LOG_CHARS` | [backend.md § HTTP API reference](architecture/backend.md#http-api-reference) | pkm-6fqw |
+| `GET /api/page/…`, a block's backlinks or `GET /api/export/page/…` answers 500 (`too many SQL variables`) on a page of tens of thousands of blocks or refs | A query bound one variable per id, past SQLite's limit. Unbounded id sets are chunked through `chunk_ids` | [backend.md § Database](architecture/backend.md#database) | pkm-ec46 |
 
 ## Files and assets
 

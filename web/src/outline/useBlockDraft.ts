@@ -73,8 +73,8 @@ export interface BlockDraft {
   onCompositionStart(): void;
   onCompositionEnd(): void;
   /** The draft has been committed and the tree has since changed this block
-   * for the user (undo, redo, an upload splice): mark it clean and adopt the
-   * tree's text once it has rendered. Left dirty, the textarea would keep
+   * for the user (undo, redo, an upload filling it): mark it clean and adopt
+   * the tree's text once it has rendered. Left dirty, the textarea would keep
    * showing the old text, and the next draft would be typed over text the
    * tree no longer holds. */
   settle(): void;

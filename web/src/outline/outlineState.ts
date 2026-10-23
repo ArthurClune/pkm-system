@@ -428,9 +428,10 @@ export function pendingTextOps(
   }];
 }
 
-/** Splice uploaded asset markdown into a block's text at the pre-upload caret,
- * clamped to the current length (the user may have kept typing during a slow
- * upload). Returns the new text plus the caret placed after the insertion. */
+/** Splice markdown (a /goodlinks or /link-local-file attribute) into a block's
+ * text at the recorded caret, clamped to the current length (the user may have
+ * kept typing during a slow upload). Returns the new text plus the caret
+ * placed after the insertion. */
 export function spliceUploadedMarkdown(
   text: string,
   requestedOffset: number,

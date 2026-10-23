@@ -79,7 +79,7 @@ it("a failed upload sets a visible uploadError and leaves the text untouched",
 
   expect(getOutline().uploadError).not.toBeNull();
   expect(getOutline().uploadError).toContain("cat.png");
-  expect(sync.sent).toEqual([]); // no splice op enqueued
+  expect(sync.sent).toEqual([]); // no op enqueued
   expect(findNode(getOutline().blocks, uidOf("tuid-u1"))!.text).toBe("hello");
 });
 
@@ -140,7 +140,7 @@ it("a paste into a focused block with text leaves focus where it was",
   expect(getOutline().focus).toEqual({ uid: "tuid-u1", cursor: 5 });
 });
 
-it("a paste into a focused empty block fills it and keeps the caret after it",
+it("a paste into a focused empty block fills it and focuses past the markdown",
    async () => {
   const sync = makeSync();
   stubFetch([["/api/assets", INFO]]);
@@ -227,6 +227,26 @@ it("several uploads become sibling blocks in upload order, one undo entry",
 
   act(() => getOutline().handlers.onUndo());
   expect(rootTexts(getOutline())).toEqual(["hello"]);
+});
+
+it("undo after filling an empty block restores it and removes the sibling",
+   async () => {
+  const sync = makeSync();
+  const infos = [INFO, DOG];
+  vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(infos.shift())));
+  const getOutline = setup(sync, "Page", [block("tuid-u1", "")]);
+  const files = [new File(["x"], "cat.png", { type: "image/png" }),
+                 new File(["y"], "dog.png", { type: "image/png" })];
+
+  await act(async () => {
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 0, files);
+    await flush();
+  });
+
+  expect(rootTexts(getOutline())).toEqual([md(INFO), md(DOG)]);
+
+  act(() => getOutline().handlers.onUndo());
+  expect(rootTexts(getOutline())).toEqual([""]);
 });
 
 it("a failed upload among several still lands the others", async () => {

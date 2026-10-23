@@ -31,7 +31,8 @@ export const SLASH_COMMANDS = [
   { name: "javascript", label: "javascript code block" },
   { name: "mermaid", label: "mermaid diagram" },
   // "upload" has no text transform: picking it strips the trigger and opens a
-  // file picker (handled in BlockInput), then splices the asset markdown.
+  // file picker (handled in BlockInput), then puts each upload in its own
+  // block.
   { name: "upload", label: "upload file…" },
   { name: "h1", label: "heading 1" },
   { name: "h2", label: "heading 2" },

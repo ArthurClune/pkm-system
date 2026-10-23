@@ -37,8 +37,8 @@ export function partitionUploadable(files: File[]):
 
 export interface FileDropPlan {
   result: EditResult;
-  /** The target's parent was gone by the time the uploads finished, so the
-   * blocks went to the end of the page instead. */
+  /** The target (or, for an upload, the block itself) was gone by the time
+   * the uploads finished, so the blocks went to the end of the page instead. */
   fellBack: boolean;
   firstUid: BlockUid | null;
 }

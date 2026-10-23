@@ -32,7 +32,7 @@ const carriesFiles = (e: React.DragEvent) =>
   Array.from(e.dataTransfer?.types ?? []).includes("Files");
 
 /** Over the focused block's own textarea, which takes a file drop itself
- * (splicing at the caret). */
+ * (each file becomes its own block after it). */
 const overBlockTextarea = (e: React.DragEvent) =>
   e.target instanceof Element && e.target.closest("textarea.block-input") !== null;
 
@@ -191,7 +191,7 @@ export function useDropZone(pageTitle: CanonicalTitle,
     const drag: DragSource | null = dnd.drag
       ?? (onDropFiles && carriesFiles(e) ? { kind: "files" } : null);
     if (drag?.kind === "files") {
-      // the textarea splices a dropped file at its caret, and says so by
+      // the textarea takes a dropped file itself, and says so by
       // preventing the event
       if (e.defaultPrevented || overBlockTextarea(e)) return;
       e.preventDefault();

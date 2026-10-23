@@ -463,9 +463,9 @@ export function useOutline(
         run((b) => {
           const node = findNode(b, uid);
           if (!node) return { blocks: b, ops: [], focus: null };
-          // Same splice as /upload: at the recorded offset, clamped, and
-          // re-focusing only if this block still owns focus (the pick has
-          // already blurred it, so normally it does not).
+          // Splice at the recorded offset, clamped, and re-focusing only
+          // if this block still owns focus (the pick has already blurred
+          // it, so normally it does not).
           const spliced = spliceUploadedMarkdown(node.text, cursor, goodlinksAttribute(link.id));
           const ops: BlockOp[] = [{ op: "update_text", uid, text: spliced.text }];
           const focus = focusRef.current?.uid === uid
@@ -574,8 +574,8 @@ export function useOutline(
     },
   }), [run, flushNow, pageTitle, publishBlocks]);
 
-  // The first block of a drop that fell back to the end of the page, waiting
-  // for the render that puts it in the DOM.
+  // The first block of a drop or upload that fell back to the end of the
+  // page, waiting for the render that puts it in the DOM.
   useEffect(() => {
     const uid = scrollToUidRef.current;
     if (!uid) return;

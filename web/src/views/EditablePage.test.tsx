@@ -632,6 +632,26 @@ test("a paste-upload leaves a dirty draft's text alone and saves it", async () =
   });
 });
 
+test("a paste-upload filling a whitespace-only draft shows the link and bases the next draft on it", async () => {
+  const url = `/assets/${"cd".repeat(32)}/pic.png`;
+  const markdown = `![pic.png](${url})`;
+  stubFetch([["/api/titles", { titles: [] }],
+             ["/api/assets", { sha256: "cd".repeat(32), filename: "pic.png",
+                               mime: "image/png", size: 3, url }]]);
+  const sync = mount(makeSync(), []);
+  fireEvent.click(screen.getByRole("button", { name: /start writing/i }));
+  const ta = textbox();
+  fireEvent.change(ta, { target: { value: " " } });
+  fireEvent.paste(ta, { clipboardData: {
+    files: [new File(["png"], "pic.png", { type: "image/png" })] } });
+  await vi.waitFor(() => expect(textbox().value).toBe(markdown));
+  fireEvent.change(textbox(), { target: { value: `${markdown}!` } });
+  fireEvent.blur(textbox());
+  const updates = sync.sent.flat().filter((o) => o.op === "update_text");
+  expect(updates.at(-1)).toMatchObject({
+    text: `${markdown}!`, base_text_hash: sha256Hex(markdown) });
+});
+
 test("hiding the tab flushes the pending draft immediately", () => {
   vi.useFakeTimers();
   stubFetch([["/api/titles", { titles: [] }]]);

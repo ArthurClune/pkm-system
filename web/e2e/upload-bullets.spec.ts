@@ -23,19 +23,19 @@ test.afterEach(async ({ page }) => {
   title = null;
 });
 
-/** Creates a fresh page with one seed block and opens it. */
-async function setup(page: Page, label: string, seed: string) {
+/** Creates a fresh page with the seed blocks (siblings) and opens it. */
+async function setup(page: Page, label: string, seeds: string[]) {
   await login(page);
   title = `Upload Bullets ${label} ${Date.now()}`;
   expect((await page.request.post("/api/pages", { data: { title } })).ok()).toBe(true);
   const stamp = Date.now();
-  const ops = [{
-    op: "create", uid: `upbul${stamp}`, page_title: title,
-    parent_uid: null, order_idx: 0, text: seed }];
+  const ops = seeds.map((text, i) => ({
+    op: "create", uid: `upbul${stamp}-${i}`, page_title: title,
+    parent_uid: null, order_idx: i, text }));
   expect((await page.request.post("/api/ops", {
     data: { client_id: "e2e", batch_id: `upbul-${stamp}`, ops } })).ok()).toBe(true);
   await page.goto(`/page/${encodeURIComponent(title)}`);
-  await expect(page.locator(".outline-drop-zone [data-uid]")).toHaveCount(1);
+  await expect(page.locator(".outline-drop-zone [data-uid]")).toHaveCount(seeds.length);
   // unique bytes: the asset store dedupes on content
   return [...PNG, ...Buffer.from(`${stamp}`)];
 }
@@ -47,7 +47,7 @@ async function serverBlocks(page: Page): Promise<BlockNode[]> {
 }
 
 test("/upload with two images adds two sibling bullets", async ({ page }) => {
-  const png = await setup(page, "slash", "Photos");
+  const png = await setup(page, "slash", ["Photos", "After"]);
   await page.locator(".block-text", { hasText: "Photos" }).click();
   const input = page.locator("textarea.block-input");
   await input.press("Home");
@@ -63,13 +63,13 @@ test("/upload with two images adds two sibling bullets", async ({ page }) => {
   await expect.poll(async () => (await serverBlocks(page)).map((b) => b.text),
     { timeout: 20_000 }).toEqual([
     "Photos", expect.stringMatching(/^!\[a\.png\]/),
-    expect.stringMatching(/^!\[b\.png\]/)]);
+    expect.stringMatching(/^!\[b\.png\]/), "After"]);
   const blocks = await serverBlocks(page);
   expect(blocks.every((b) => b.children.length === 0)).toBe(true);
 });
 
 test("pasting an image into an empty block fills it", async ({ page }) => {
-  const png = await setup(page, "paste", "");
+  const png = await setup(page, "paste", [""]);
   await page.locator(".outline-drop-zone [data-uid]").first().click();
   const input = page.locator("textarea.block-input");
   await expect(input).toBeFocused();

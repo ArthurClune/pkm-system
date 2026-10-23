@@ -148,8 +148,8 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     if (!target) return; // caret has moved off the token; resolve closed it
     const { ctx, caret, text } = target;
     // "/upload": strip the trigger, then open the tree-owned file picker.
-    // handlers.onFiles splices the uploaded asset's markdown in once the user
-    // has chosen files; the input outlives this component because
+    // handlers.onFiles puts each upload in its own block once the user has
+    // chosen files; the input outlives this component because
     // the pick blurs (and so unmounts) BlockInput itself before opening the
     // dialog -- the native file dialog does not reliably blur the
     // textarea on its own, so this can't rely on that. setText must run

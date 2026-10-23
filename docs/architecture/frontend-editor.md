@@ -199,7 +199,7 @@ both texts when another device edited from the same base.
 | When | Rule |
 |---|---|
 | A clean draft's first edit | `onDraftStart` reports the shown text, which `captureDraft` keeps as `base` |
-| Undo, redo, or an upload splice in the focused textarea | `BlockInput` calls `settle()`, so the draft adopts the tree's text |
+| Undo, redo, or an upload that fills the focused (empty) block | `BlockInput` calls `settle()`, so the draft adopts the tree's text |
 | Focus or a new draft moves to another block | the old draft flushes first. A block a remote batch removes unmounts with no blur, so nothing else would flush it |
 | A remote batch reparents the block or an ancestor | the textarea remounts with no blur. `BlockInput` reads `handlers.pendingDraft(uid)` at mount and resumes it dirty with its base, and restores the selection the old textarea reported (`onInputUnmount`) |
 | A parent passes a new `initial` | the draft flushes first, so the parent tree waits for that write |

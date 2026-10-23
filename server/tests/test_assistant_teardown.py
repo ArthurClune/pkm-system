@@ -53,7 +53,7 @@ class ParkedTurn:
             # exactly where the real one blocks.
             self.decisions.append(
                 await self.conversation.can_use_tool(
-                    "mcp__pkm__save_note", {"title": "Demo"}, None)
+                    "mcp__pkm__save_note", {"text": "Demo"}, None)
             )
 
         self.frames = routes._sse_frames(

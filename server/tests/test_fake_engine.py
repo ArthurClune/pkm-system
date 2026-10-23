@@ -4,6 +4,7 @@ from fake_engine import FakeEngine
 from pkm.assistant.engine import AgentEngine
 from pkm.assistant.events import ConfirmRequest, TextDelta, ToolFinished, ToolStarted, TurnDone
 from pkm.assistant.policy import SYSTEM_PROMPT
+from pkm.assistant.write_preview import WritePreview, build_write_preview
 from pkm.test_data.ids import confirm_id_of
 
 
@@ -39,9 +40,12 @@ def test_confirm_flow_allow():
 
     events = asyncio.run(scenario())
     assert events[0] == ToolStarted(name="save_note", summary="saving a note")
+    preview = build_write_preview("save_note",
+                                  {"text": "Demo", "page": "Demo"})
+    assert isinstance(preview, WritePreview)
     assert events[1] == ConfirmRequest(
         confirm_id=confirm_id_of("fake-confirm-1"),
-        ops_preview='save_note(title="Demo")')
+        ops_preview=preview.summary, preview=preview)
     assert ToolFinished(name="save_note") in events
     assert TextDelta(text="Saved.") in events
     assert isinstance(events[-1], TurnDone)
@@ -110,3 +114,47 @@ def test_close_marks_closed():
     conv = asyncio.run(scenario())
     assert conv.closed is True
     assert conv.model == "haiku"
+
+
+def test_write_twice_queues_both_confirms_before_either_answer():
+    # backs the e2e confirm-queue test: the second card arrives while the
+    # first is still unanswered, and each decision gets its own reply.
+    async def scenario():
+        engine = FakeEngine()
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        conv._confirm_seq = 4
+        stream = conv.send("please write twice")
+        events = []
+        while len([e for e in events if isinstance(e, ConfirmRequest)]) < 2:
+            events.append(await asyncio.wait_for(anext(stream), timeout=5))
+        first, second = [e for e in events if isinstance(e, ConfirmRequest)]
+        conv.resolve_confirm(second.confirm_id, False)
+        conv.resolve_confirm(first.confirm_id, True)
+        rest = [ev async for ev in stream]
+        return first, second, rest
+
+    first, second, rest = asyncio.run(scenario())
+    assert first.confirm_id == confirm_id_of("fake-confirm-5")
+    assert second.confirm_id == confirm_id_of("fake-confirm-6")
+    assert first.preview.ops[0].targets[0] == ("page", "Demo")
+    assert second.preview.ops[0].targets[0] == ("page", "Demo 2")
+    texts = [e.text for e in rest if isinstance(e, TextDelta)]
+    assert texts == ["Saved 1.", "Not saving 2."]
+    assert isinstance(rest[-1], TurnDone)
+
+
+def test_write_twice_both_allowed_says_saved_two():
+    async def scenario():
+        engine = FakeEngine()
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        events = []
+        async for ev in conv.send("please write twice"):
+            events.append(ev)
+            if isinstance(ev, ConfirmRequest):
+                conv.resolve_confirm(ev.confirm_id, True)
+        return events
+
+    events = asyncio.run(asyncio.wait_for(scenario(), timeout=5))
+    texts = [e.text for e in events if isinstance(e, TextDelta)]
+    assert texts == ["Saved 2."]
+    assert events.count(ToolFinished(name="save_note")) == 2

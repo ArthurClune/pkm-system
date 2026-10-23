@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 
+from pkm.assistant.write_preview import WritePreview
 from pkm.contracts.responses import ConfirmId
 
 
@@ -32,7 +33,10 @@ class ToolFinished:
 @dataclass(frozen=True)
 class ConfirmRequest:
     confirm_id: ConfirmId
+    # preview.summary: one line for logs and transcripts.
     ops_preview: str
+    # What the approval card renders.
+    preview: WritePreview
 
 
 @dataclass(frozen=True)

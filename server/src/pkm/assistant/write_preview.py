@@ -59,9 +59,11 @@ _ARG_MODELS: dict[str, FuncMetadata] = {
 
 def _outline_text(items: list[NestedItem]) -> str:
     """One line per item, two spaces per level. A newline inside an item
-    shows as `\\n`, so an item cannot draw what looks like a child."""
-    return "\n".join("  " * depth + text.replace("\n", "\\n")
-                     for depth, text in nested_items(items))
+    shows as `\\n`, so an item cannot draw what looks like a child, and a
+    backslash as `\\\\`, so a literal backslash-n cannot pass for one."""
+    return "\n".join(
+        "  " * depth + text.replace("\\", "\\\\").replace("\n", "\\n")
+        for depth, text in nested_items(items))
 
 
 def _content_text(key: str, value: object) -> str:

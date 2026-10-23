@@ -193,6 +193,18 @@ def test_outline_leaf_newline_cannot_imitate_a_child():
     assert shown(["a\n  b"]) == "a\\n  b"
 
 
+def test_outline_leaf_backslash_n_is_not_a_newline():
+    """A leaf holding a literal backslash-n must not read the same as one
+    holding a newline, so the backslash is escaped too."""
+    def shown(items):
+        p = _preview("batch", {"commands": [
+            {"command": "outline", "params": {"page": "P", "items": items}}]})
+        return p.ops[0].content[0][1]
+    assert shown(["a\\nb"]) != shown(["a\nb"])
+    assert shown(["a\\nb"]) == "a\\\\nb"
+    assert shown(["a\nb"]) == "a\\nb"
+
+
 def _stub_tool(text: str, json: str | None = None) -> str:
     return text
 

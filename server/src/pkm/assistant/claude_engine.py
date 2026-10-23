@@ -44,11 +44,11 @@ from pkm.assistant.events import (
 from pkm.assistant.harness_env import resolve_harness_env
 from pkm.assistant.policy import (
     classify_tool,
-    ops_preview,
     read_tool_names,
     short_tool_name,
     tool_summary,
 )
+from pkm.assistant.write_preview import Refusal, build_write_preview
 from pkm.contracts.responses import ConfirmId
 from pkm.server.auth_core import sign_session
 
@@ -167,6 +167,14 @@ class ClaudeConversation:
         if kind != "write":
             logger.warning("assistant requested unexpected tool %s", tool_name)
             return PermissionResultDeny(message="Tool not permitted.")
+        short = short_tool_name(tool_name)
+        preview = build_write_preview(short, tool_input or {})
+        if isinstance(preview, Refusal):
+            # Input the tool's schema rejects is never shown as a card:
+            # the user cannot approve what the tool would not run as shown.
+            logger.warning("assistant write %s refused: %s", short,
+                           preview.message)
+            return PermissionResultDeny(message=preview.message)
         self._confirm_seq += 1
         # A local counter, not the SDK's own tool_use id (that id lives on
         # the ToolUseBlock/ToolResultBlock pair TurnMapper reads above, a
@@ -175,9 +183,9 @@ class ClaudeConversation:
         confirm_id = ConfirmId(f"confirm-{self._confirm_seq}")
         fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         self._pending[confirm_id] = fut
-        short = short_tool_name(tool_name)
         await self._queue.put(
-            ConfirmRequest(confirm_id=confirm_id, ops_preview=ops_preview(short, tool_input or {}))
+            ConfirmRequest(confirm_id=confirm_id, ops_preview=preview.summary,
+                           preview=preview)
         )
         try:
             allowed = await fut

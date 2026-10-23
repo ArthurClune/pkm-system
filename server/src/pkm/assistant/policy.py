@@ -1,5 +1,6 @@
 # pattern: Functional Core
-"""Tool-gate policy, model allowlist, previews, and the system prompt."""
+"""Tool-gate policy, model allowlist, tool summaries, the write-preview
+table, and the system prompt."""
 
 from __future__ import annotations
 
@@ -49,13 +50,6 @@ MODELS: tuple[AssistantModel, ...] = ("sonnet", "opus", "haiku", "fable", "glm")
 ZAI_MODELS: tuple[AssistantModel, ...] = ("glm",)
 
 _MAX_VALUE_CHARS = 120
-
-# ops_preview is what the user reads before approving a
-# write, not the transient "tool is running" indicator -- it must show
-# (almost) everything, clipping only pathologically long values (e.g. a
-# save_note with megabytes of pasted text) so the approval UI stays
-# bounded. See docs/SECURITY.md's "Embedded assistant" section.
-_MAX_PREVIEW_VALUE_CHARS = 4000
 
 
 def mcp_tool_name(short: str) -> str:
@@ -119,10 +113,6 @@ def _clip(value: object, limit: int = _MAX_VALUE_CHARS) -> str:
     return text
 
 
-def _clip_preview(value: object) -> str:
-    return _clip(value, limit=_MAX_PREVIEW_VALUE_CHARS)
-
-
 _SUMMARY_KEYS: dict[str, tuple[str, str]] = {
     # short tool name -> (format, input key)
     "search": ('searching "{}"', "q"),
@@ -146,36 +136,6 @@ def tool_summary(short: str, tool_input: Mapping[str, object]) -> str:
         if value:
             return fmt.format(_clip(value))
     return short
-
-
-def _batch_lines(commands: Sequence[object]) -> list[str]:
-    """One line per command, mirroring mcp.server.batch's
-    {"command": ..., "params": {...}} items."""
-    lines = [f"batch: {len(commands)} operation(s)"]
-    for i, op in enumerate(commands):
-        if isinstance(op, dict) and "command" in op:
-            params = op.get("params")
-            rendered = f"{op['command']}: {_clip_preview(params)}" if params else str(op["command"])
-        else:  # not the documented item shape: show it raw rather than drop it
-            rendered = _clip_preview(op)
-        lines.append(f"  {i + 1}. {rendered}")
-    return lines
-
-
-def ops_preview(short: str, tool_input: Mapping[str, object]) -> str:
-    # `batch` gets a per-operation listing; everything else falls through to
-    # the generic dump of every argument. A batch payload we can't read as a
-    # list of commands falls through too: this branch once looked
-    # for an `ops` key the tool never emitted -- its signature is
-    # batch(commands) -- and rendered "batch: 0 operation(s)" for every real
-    # write, so users were approving blind. Degrading to the verbose generic
-    # rendering is safe; claiming there is nothing to approve is not.
-    if short == "batch":
-        commands = tool_input.get("commands")
-        if isinstance(commands, list) and commands:
-            return "\n".join(_batch_lines(commands))
-    args = ", ".join(f"{k}={_clip_preview(v)}" for k, v in tool_input.items())
-    return f"{short}({args})"
 
 
 SYSTEM_PROMPT = """\

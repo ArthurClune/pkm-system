@@ -111,9 +111,9 @@ describe("planUploadBlocks", () => {
   ];
   const texts = ["![x](/a)", "![y](/b)"];
   const uids = [uidOf("tuid-n1"), uidOf("tuid-n2")];
-  const plan = (blocks: ReturnType<typeof tree>, uid: string,
+  const plan = (blocks: ReturnType<typeof tree>, target: string,
                 focused: string | null = null) =>
-    planUploadBlocks(blocks, P, uidOf(uid), texts, uids,
+    planUploadBlocks(blocks, P, uidOf(target), texts, uids,
       focused === null ? null : uidOf(focused));
   const rootTexts = (p: ReturnType<typeof plan>) => p.result.blocks.map((n) => n.text);
 

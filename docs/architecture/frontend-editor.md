@@ -289,6 +289,6 @@ zone's geometry and `resolveDrop`.
 | Start | `"Files"` in `dataTransfer.types` and `uploadableDrag` (`outline/fileDrop.ts`) finds an image or PDF, or cannot tell (WebKit lists empty types) |
 | End | there is no `dragend`. `DndProvider` ends it on a window `drop`, or when its `dragenter` minus `dragleave` count reaches zero, since WebKit's `relatedTarget` is always null |
 | Missed | `DndProvider` refuses and swallows it, so the browser never navigates to the file |
-| Over a textarea | the zone ignores it; `BlockInput` splices at the caret |
+| Over a textarea | the zone ignores it; `BlockInput` hands the files to `onFiles`, and `planUploadBlocks` puts each in its own sibling block after the current one (an empty block takes the first) |
 | Drop | `useOutline.onDropFiles` uploads in turn, then one `run()` adds a block per file. Focus stays put, or the block would show raw markdown |
 | Parent gone | `planFileDropBlocks` appends at the end of the page |

@@ -586,7 +586,7 @@ test("editing is read-only while the socket is not connected", () => {
   expect(ta).toHaveAttribute("readonly");
 });
 
-test("pasting an image uploads it and splices markdown at the cursor", async () => {
+test("pasting an image uploads it onto its own bullet after the block", async () => {
   const url = `/assets/${"cd".repeat(32)}/pic.png`;
   stubFetch([["/api/assets", { sha256: "cd".repeat(32), filename: "pic.png",
                                mime: "image/png", size: 3, url }]]);
@@ -599,16 +599,17 @@ test("pasting an image uploads it and splices markdown at the cursor", async () 
     },
   });
   await vi.waitFor(() => {
-    expect(sync.sent.flat()).toContainEqual({
-      op: "update_text", uid: "tuid-u1", text: `first![pic.png](${url})`,
-      base_text_hash: sha256Hex("first"), page_title: "Page",
-    });
+    expect(sync.sent.flat()).toContainEqual(expect.objectContaining({
+      op: "create", page_title: "Page", text: `![pic.png](${url})`,
+    }));
   });
+  expect(sync.sent.flat()).not.toContainEqual(expect.objectContaining({
+    op: "update_text", uid: "tuid-u1", text: `first![pic.png](${url})`,
+  }));
 });
 
-test("a paste-upload into a dirty draft shows the spliced text, and the next draft bases on it", async () => {
+test("a paste-upload leaves a dirty draft's text alone and saves it", async () => {
   const url = `/assets/${"cd".repeat(32)}/pic.png`;
-  const spliced = `D![pic.png](${url})`;
   stubFetch([["/api/titles", { titles: [] }],
              ["/api/assets", { sha256: "cd".repeat(32), filename: "pic.png",
                                mime: "image/png", size: 3, url }]]);
@@ -618,13 +619,17 @@ test("a paste-upload into a dirty draft shows the spliced text, and the next dra
   ta.setSelectionRange(1, 1);
   fireEvent.paste(ta, { clipboardData: {
     files: [new File(["png"], "pic.png", { type: "image/png" })] } });
-  await vi.waitFor(() => { expect(textbox().value).toBe(spliced); });
-  fireEvent.change(textbox(), { target: { value: `${spliced}!` } });
+  await vi.waitFor(() => {
+    expect(sync.sent.flat()).toContainEqual(expect.objectContaining({
+      op: "create", text: `![pic.png](${url})`,
+    }));
+  });
+  expect(textbox().value).toBe("D");
   fireEvent.blur(textbox());
-  expect(sync.sent.at(-1)).toEqual([
-    { op: "update_text", uid: "tuid-u1", text: `${spliced}!`,
-      base_text_hash: sha256Hex(spliced), page_title: "Page" },
-  ]);
+  expect(sync.sent.flat()).toContainEqual({
+    op: "update_text", uid: "tuid-u1", text: "D",
+    base_text_hash: sha256Hex("first"), page_title: "Page",
+  });
 });
 
 test("hiding the tab flushes the pending draft immediately", () => {

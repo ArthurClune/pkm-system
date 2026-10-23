@@ -723,7 +723,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | POST | `/api/migrations/title-canonicalization` | Apply the audited digest; 409 on stale, blocked or active |
 | **Search & queries** | | |
 | GET | `/api/search?q` | FTS5 search over pages and blocks |
-| GET | `/api/query?expr` | `{{[[query]]}}` evaluation |
+| GET | `/api/query?expr` | `{{[[query]]}}` evaluation; 400 past `query.MAX_QUERY_DEPTH` nesting or `MAX_QUERY_OPERANDS` page operands |
 | GET | `/api/titles?q` | Title completion for `[[` and `#` |
 | GET | `/api/todos?page` | `{{TODO}}` blocks grouped by page |
 | GET | `/api/changed?since&until&page&limit` | Blocks changed in `[since, until)`, each `new` or `edited`; 400 on an empty window |

@@ -19,7 +19,7 @@ from pkm.contracts.ops import BlockUid
 from pkm.contracts.titles import RawTitle
 from pkm.mcp import server as mcp_server
 from pkm.mcp import tools as mcp_tools
-from pkm.test_data.ids import uid_of
+from pkm.test_data.ids import raw_title_of, uid_of
 
 
 def _preview(short: str, raw: dict[str, object]) -> WritePreview:
@@ -185,6 +185,105 @@ def test_a_declared_field_the_table_misses_is_still_a_target(monkeypatch):
     p = _preview("save_note", {"text": "t", "parent": "## Log"})
     assert p.ops[0].targets == [("page", None), ("parent", "## Log"),
                                 ("todo", False)]
+
+
+_ALIAS_WARNING = ('parent "{{x}}" is the block created as "x" earlier in '
+                  'this batch: this lands under it, on that block\'s page, '
+                  'whatever the page row says (no such earlier block: '
+                  'nothing is written)')
+_UID_WARNING = ('parent "((abcdef01))" must be a block on the page shown, '
+                'or nothing is written')
+
+
+@pytest.mark.parametrize("command", ["create", "todo", "outline", "move"])
+def test_alias_parent_warns_the_page_row_does_not_place_it(command):
+    params: dict[str, object] = {"page": "Inbox", "parent": "{{x}}"}
+    params |= ({"items": ["a"]} if command == "outline"
+               else {"uid": "MOVEME"} if command == "move" else {"text": "b"})
+    p = _preview("batch", {"commands": [
+        {"command": "create", "params": {"page": "Secret", "text": "a",
+                                         "as": "x"}},
+        {"command": command, "params": params}]})
+    assert p.ops[0].warnings == []
+    assert _ALIAS_WARNING in p.ops[1].warnings
+
+
+@pytest.mark.parametrize(("short", "raw"), [
+    ("save_note", {"text": "t", "parent": "((abcdef01))"}),
+    ("upload_asset", {"path": "/tmp/x.png", "parent": "((abcdef01))"}),
+    ("batch", {"commands": [{"command": "create", "params": {
+        "page": "P", "text": "t", "parent": "((abcdef01))"}}]}),
+    ("batch", {"commands": [{"command": "outline", "params": {
+        "page": "P", "items": ["a"], "parent": "((abcdef01))"}}]}),
+    ("batch", {"commands": [{"command": "move", "params": {
+        "uid": "MOVEME", "page": "P", "parent": "((abcdef01))"}}]}),
+])
+def test_uid_parent_warns_it_must_be_on_the_page_shown(short, raw):
+    assert _UID_WARNING in _preview(short, raw).ops[0].warnings
+
+
+@pytest.mark.parametrize("short", ["save_note", "upload_asset"])
+def test_alias_parent_outside_batch_warns_nothing_is_written(short):
+    raw: dict[str, object] = (
+        {"text": "t"} if short == "save_note" else {"path": "/tmp/x.png"})
+    p = _preview(short, raw | {"parent": "{{x}}"})
+    assert p.ops[0].warnings == [
+        'parent "{{x}}" is an alias, which only batch knows: nothing is '
+        'written']
+
+
+def test_heading_parent_has_no_warning():
+    p = _preview("save_note", {"text": "t", "parent": "## Log"})
+    assert p.ops[0].warnings == []
+
+
+def test_batch_update_and_move_warn_where_a_missing_uid_goes():
+    p = _preview("batch", {"commands": [
+        {"command": "update", "params": {"uid": "GONE01", "text": "t"}},
+        {"command": "move", "params": {"uid": "GONE02", "page": "P"}},
+        {"command": "create", "params": {"page": "P", "text": "a",
+                                         "as": "x"}},
+        {"command": "update", "params": {"uid": "{{x}}", "text": "t"}}]})
+    assert p.ops[0].warnings == [
+        'if no block has uid "GONE01", nothing is updated and the text is '
+        "added to today's daily note instead"]
+    assert p.ops[1].warnings == [
+        'if no block has uid "GONE02", nothing moves and a note saying so '
+        "is added to today's daily note"]
+    # an alias names a block this batch creates, so it exists
+    assert p.ops[3].warnings == []
+
+
+def test_the_parent_warnings_match_the_planner():
+    """The warnings above describe `plan_batch` and `plan_save`: an alias
+    parent lands under the created block whatever `page` says, and a
+    `((uid))` not on the page fails planning, before any write."""
+    from pkm.batch import plan_batch
+    from pkm.contracts.ops import CreateOp, MoveOp
+    from pkm.planning import BuildError, plan_save
+    uids = iter(uid_of(f"NEWUID{i:04d}") for i in range(10))
+    ops = plan_batch([
+        {"command": "create", "params": {"page": "Secret", "text": "a",
+                                         "as": "x"}},
+        {"command": "create", "params": {"page": "Inbox", "text": "b",
+                                         "parent": "{{x}}"}},
+        {"command": "move", "params": {"uid": "MOVEME", "page": "Inbox",
+                                       "parent": "{{x}}"}}],
+        {"Secret": [], "Inbox": []}, uids=uids)
+    first, second, move = ops
+    assert isinstance(first, CreateOp) and isinstance(second, CreateOp)
+    assert second.parent_uid == first.uid
+    assert isinstance(move, MoveOp)
+    assert move.parent_uid == first.uid and move.page_title is None
+    with pytest.raises(BuildError, match="block not on page"):
+        plan_batch([{"command": "create", "params": {
+            "page": "Inbox", "text": "b", "parent": "((abcdef01))"}}],
+            {"Inbox": []}, uids=uids)
+    with pytest.raises(BuildError, match="block not on page"):
+        plan_save([], raw_title_of("Inbox"), "((abcdef01))", "b", False,
+                  uids=uids)
+    with pytest.raises(BuildError, match="unrecognized parent spec"):
+        plan_save([], raw_title_of("Inbox"), "{{x}}", "b", False, uids=uids)
 
 
 def test_outline_items_render_as_indented_text():

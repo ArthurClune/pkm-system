@@ -46,6 +46,12 @@ def nested_items(items: Sequence[NestedItem], depth: int = 0) -> list[tuple[int,
     return out
 
 
+def alias_name(spec: str) -> str | None:
+    """The name inside an `{{alias}}` spec, or None for any other spec."""
+    m = _ALIAS_SPEC.match(spec)
+    return m.group(1) if m else None
+
+
 def _resolve_alias(spec: str | None, aliases: dict[str, BlockUid]) -> str | None:
     if isinstance(spec, str):
         m = _ALIAS_SPEC.match(spec)
@@ -545,6 +551,6 @@ def plan_batch(commands: Sequence[object], pages: PageBlocks,
 
 
 __all__ = [
-    "NestedItem", "BatchCommand", "PageBlocks", "validate_batch",
+    "NestedItem", "BatchCommand", "PageBlocks", "validate_batch", "alias_name",
     "referenced_pages", "delete_uids", "plan_batch",
 ]

@@ -26,9 +26,10 @@ from mcp.server.fastmcp.utilities.func_metadata import (FuncMetadata,
 from pydantic import ValidationError
 
 from pkm.assistant.policy import WRITE_PREVIEW_FIELDS, WRITE_TOOLS
-from pkm.batch import (BatchItemError, NestedItem, nested_items,
+from pkm.batch import (BatchItemError, NestedItem, alias_name, nested_items,
                        validate_batch)
 from pkm.mcp import tools as mcp_tools
+from pkm.planning import parse_uid_spec
 
 CONTENT_CLIP_CHARS = 2000
 
@@ -80,6 +81,61 @@ def _quoted(value: object) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def _merge_warning(validated: Mapping[str, Any]) -> list[str]:
+    if validated.get("allow_merge") is not True:
+        return []
+    return [f'allow_merge is on: if {_quoted(validated["new_title"])} '
+            f'exists, {_quoted(validated["title"])} is merged into it '
+            '(irreversible)']
+
+
+def _parent_warning(entry: str, parent: object) -> list[str]:
+    """Where a `((uid))` or `{{alias}}` parent puts the write, as
+    `plan_save` and `plan_batch` decide it. A `((uid))` must be on the
+    fetched page, or planning fails before anything is sent. An alias
+    resolves to a block created earlier in the batch, and the create or
+    move then goes under it, so the op's own `page` does not place it."""
+    if not isinstance(parent, str):
+        return []
+    alias = alias_name(parent)
+    if alias is not None and not entry.startswith("batch:"):
+        return [f"parent {_quoted(parent)} is an alias, which only batch "
+                "knows: nothing is written"]
+    if alias is not None:
+        return [f"parent {_quoted(parent)} is the block created as "
+                f"{_quoted(alias)} earlier in this batch: this lands under "
+                "it, on that block's page, whatever the page row says (no "
+                "such earlier block: nothing is written)"]
+    if parse_uid_spec(parent) is not None:
+        return [f"parent {_quoted(parent)} must be a block on the page "
+                "shown, or nothing is written"]
+    return []
+
+
+def _missing_uid_warning(entry: str, spec: object) -> list[str]:
+    """A batch update or move sends its uid unchecked; the server skips
+    one that names no block (`ops_core.classify_skip`: orphan_edit,
+    orphan_structural) and lands the text, or a note, on today's daily
+    note. An alias names a block this batch creates, so it exists."""
+    if not isinstance(spec, str) or alias_name(spec) is not None:
+        return []
+    if entry == "batch:update":
+        return [f"if no block has uid {_quoted(spec)}, nothing is updated "
+                "and the text is added to today's daily note instead"]
+    return [f"if no block has uid {_quoted(spec)}, nothing moves and a note "
+            "saying so is added to today's daily note"]
+
+
+def _warnings(entry: str, validated: Mapping[str, Any]) -> list[str]:
+    """Fixed text around JSON-quoted values, so no value can write the
+    rest of a sentence."""
+    out = _merge_warning(validated) if entry == "rename_page" else []
+    out += _parent_warning(entry, validated.get("parent"))
+    if entry in ("batch:update", "batch:move"):
+        out += _missing_uid_warning(entry, validated.get("uid"))
+    return out
+
+
 def _op(entry: str, validated: Mapping[str, Any]) -> PreviewOp:
     """One card entry: the table's targets, then any field the argument
     model declares and the table does not name (fail safe: a new field
@@ -98,14 +154,8 @@ def _op(entry: str, validated: Mapping[str, Any]) -> PreviewOp:
             continue
         text = _content_text(key, value)
         content.append((key, text[:CONTENT_CLIP_CHARS], len(text)))
-    warnings: list[str] = []
-    if entry == "rename_page" and validated.get("allow_merge") is True:
-        warnings.append(
-            f'allow_merge is on: if {_quoted(validated["new_title"])} '
-            f'exists, {_quoted(validated["title"])} is merged into it '
-            '(irreversible)')
     return PreviewOp(action=label, targets=targets, content=content,
-                     warnings=warnings)
+                     warnings=_warnings(entry, validated))
 
 
 def _first_error(exc: ValidationError) -> str:

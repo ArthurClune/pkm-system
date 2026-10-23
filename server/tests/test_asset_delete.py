@@ -1,6 +1,11 @@
 """DELETE /api/assets/{sha256}: strips links, deletes emptied leaf
 blocks, removes row + file."""
-from rawread import read
+import asyncio
+
+import httpx
+import pytest
+from export_hostile import ASSET_NAMES, add_asset_rows
+from rawread import read, table_rows
 from pkm.server.db import open_db
 from pkm.contracts.ops import BlockUid, OrderIdx, Sha256Hex
 from pkm.test_data.ids import order_idx_of, raw_title_of, uid_of
@@ -250,3 +255,43 @@ def test_strip_answers_503_while_the_write_lock_is_held(
     assert _asset_path(seeded_config, a["sha256"]).is_file()
     assert _block_text(seeded_config, uid_of("del011")) == (
         f"keep ![x]({a['url']})")
+
+
+@pytest.mark.parametrize("shape", [
+    lambda sha: "..%2F..%2Fpkm.sqlite3", lambda sha: "%2e%2e",
+    lambda sha: sha + "%0a", lambda sha: sha.upper(), lambda sha: sha[:63]])
+def test_delete_with_a_hostile_digest_is_404_and_changes_nothing(
+        client, seeded_config, shape):
+    """The digest in the path becomes a file path: anything but 64
+    lowercase hex must be refused before any file or row is touched, even
+    a spelling of a digest that is stored. The exact raw path is sent,
+    since TestClient decodes escapes twice."""
+    shas = add_asset_rows(seeded_config.db_path, seeded_config.assets_dir,
+                          ASSET_NAMES)
+    rows_before = _asset_rows(seeded_config)
+
+    r = _raw_delete(client, "/api/assets/" + shape(shas[0]))
+
+    assert r.status_code == 404
+    assert seeded_config.db_path.is_file()
+    assert _asset_rows(seeded_config) == rows_before
+    for sha in shas:
+        assert (seeded_config.assets_dir / sha[:2] / sha).is_file()
+
+
+def _asset_rows(config):
+    db = open_db(config.db_path)
+    try:
+        return table_rows(db, "assets")
+    finally:
+        db.close()
+
+
+def _raw_delete(client, path):
+    async def run():
+        transport = httpx.ASGITransport(app=client.app)
+        async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver",
+                cookies={"pkm_session": client.cookies["pkm_session"]}) as c:
+            return await c.delete(path)
+    return asyncio.run(run())

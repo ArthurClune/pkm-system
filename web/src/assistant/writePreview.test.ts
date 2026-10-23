@@ -69,6 +69,13 @@ describe("quoteValue", () => {
     expect(quoteValue("e\u0301")).toBe('"e\u0301"');
   });
 
+  // Hangul and Braille fillers are letters or symbols that draw as blank
+  // space, so "Inbox\u3164" would read as "Inbox ".
+  test("escapes the invisible filler letters", () => {
+    expect(quoteValue("a\u115F\u1160\u3164\uFFA0\u2800b"))
+      .toBe('"a\\u115F\\u1160\\u3164\\uFFA0\\u2800b"');
+  });
+
   test("leaves printable non-ASCII alone", () => {
     expect(quoteValue("café 日本 😀")).toBe('"café 日本 😀"');
   });
@@ -107,6 +114,8 @@ describe("formatTarget", () => {
 });
 
 describe("parseWritePreview", () => {
+  const parsed = (op: unknown) => parseWritePreview({ ops: [op], summary: "s" });
+
   test("accepts a well-formed preview", () => {
     const raw = { ops: [validOp], summary: "update_block(uid='VICTIMUID01')" };
     expect(parseWritePreview(raw)).toEqual(raw);
@@ -117,6 +126,32 @@ describe("parseWritePreview", () => {
       targets: [["a", 1], ["b", false], ["c", null], ["d", { x: [1] }]] };
     expect(parseWritePreview({ ops: [op], summary: "" })?.ops[0].targets)
       .toEqual(op.targets);
+  });
+
+  // Extra target keys and warning text come from the model's arguments; the
+  // card renders them unquoted, so they arrive already escaped.
+  test("escapes target keys and warnings, unquoted", () => {
+    const op = { ...validOp,
+      targets: [["page\u202E", "x"], ["\u0338k\ney", 1]],
+      warnings: ["merges into \"a\u202Eb\u3164\""] };
+    const parsed = parseWritePreview({ ops: [op], summary: "s" });
+    expect(parsed?.ops[0].targets).toEqual(
+      [["page\\u202E", "x"], ["\\u0338k\\u000Aey", 1]]);
+    expect(parsed?.ops[0].warnings).toEqual(['merges into "a\\u202Eb\\u3164"']);
+  });
+
+  test("leaves target values and content to the card's own quoting", () => {
+    const op = { ...validOp, targets: [["uid", "a\u202E"]],
+      content: [["text", "b\u202E", 2]] };
+    const parsed = parseWritePreview({ ops: [op], summary: "s" });
+    expect(parsed?.ops[0].targets).toEqual([["uid", "a\u202E"]]);
+    expect(parsed?.ops[0].content).toEqual([["text", "b\u202E", 2]]);
+  });
+
+  // total_len is Python's len, which counts code points: an emoji is one.
+  test("accepts content whose code points fit its total length", () => {
+    const op = { ...validOp, content: [["text", "😀😀", 2]] };
+    expect(parsed(op)?.ops[0].content).toEqual([["text", "😀😀", 2]]);
   });
 
   test("drops keys outside the shape", () => {
@@ -145,6 +180,8 @@ describe("parseWritePreview", () => {
       { ops: [{ ...validOp, content: [["text", "x", -1]] }], summary: "s" }],
     ["a content value that is not a string",
       { ops: [{ ...validOp, content: [["text", 5, 1]] }], summary: "s" }],
+    ["a content value longer than its total length",
+      { ops: [{ ...validOp, content: [["text", "abcdef", 2]] }], summary: "s" }],
     ["a content entry with two items", { ops: [{ ...validOp, content: [["text", "x"]] }], summary: "s" }],
     ["warnings not an array", { ops: [{ ...validOp, warnings: "w" }], summary: "s" }],
     ["a warning that is not a string", { ops: [{ ...validOp, warnings: [1] }], summary: "s" }],

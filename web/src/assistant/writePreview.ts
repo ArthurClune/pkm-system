@@ -1,6 +1,8 @@
 // pattern: Functional Core
 // The structured write preview a confirm_request carries, shape-checked, and
-// the quoting the approval card renders its values with.
+// the quoting the approval card renders its values with. Keys, warnings and
+// the action are labels the card shows unquoted, so the parser escapes them;
+// target values and content are escaped when the card quotes them.
 
 export type PreviewOp = {
   action: string;
@@ -17,7 +19,7 @@ function isRecord(raw: unknown): raw is Record<string, unknown> {
 function parseTarget(raw: unknown): [string, unknown] | null {
   if (!Array.isArray(raw) || raw.length !== 2) return null;
   const [key, value] = raw as unknown[];
-  return typeof key === "string" ? [key, value] : null;
+  return typeof key === "string" ? [escapeLabel(key), value] : null;
 }
 
 function parseContent(raw: unknown): [string, string, number] | null {
@@ -27,6 +29,9 @@ function parseContent(raw: unknown): [string, string, number] | null {
   if (typeof total !== "number" || !Number.isSafeInteger(total) || total < 0) {
     return null;
   }
+  // total is the server's len of the unclipped value, in code points; a
+  // value longer than that would make the card misstate what it shows
+  if ([...value].length > total) return null;
   return [key, value, total];
 }
 
@@ -45,9 +50,10 @@ function parseOp(raw: unknown): PreviewOp | null {
   if (!isRecord(raw) || typeof raw.action !== "string") return null;
   const targets = parseAll(raw.targets, parseTarget);
   const content = parseAll(raw.content, parseContent);
-  const warnings = parseAll(raw.warnings, (w) => (typeof w === "string" ? w : null));
+  const warnings = parseAll(raw.warnings,
+    (w) => (typeof w === "string" ? escapeLabel(w) : null));
   if (targets === null || content === null || warnings === null) return null;
-  return { action: raw.action, targets, content, warnings };
+  return { action: escapeLabel(raw.action), targets, content, warnings };
 }
 
 /** The preview rebuilt from `raw` field by field, or null when any field has
@@ -61,9 +67,12 @@ export function parseWritePreview(raw: unknown): WritePreview | null {
 }
 
 // Controls (C0, DEL, C1), format characters (bidi overrides and isolates,
-// zero-width marks, BOM, tags), line and paragraph separators, and lone
-// surrogates. The u flag matches an astral character as one code point.
-const NON_PRINTABLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/gu;
+// zero-width marks, BOM, tags), line and paragraph separators, lone
+// surrogates, and the Hangul and Braille fillers, which are letters or
+// symbols that draw as blank space. The u flag matches an astral character
+// as one code point.
+const NON_PRINTABLE =
+  /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}\u115F\u1160\u3164\uFFA0\u2800]/gu;
 
 // Each UTF-16 unit as \uXXXX, so an astral character becomes its surrogate
 // pair: the same form JSON uses, and valid inside a JSON string.
@@ -80,10 +89,16 @@ function escapeUnits(ch: string): string {
 // on any other character it stays, as the accent it is.
 const LEADING_MARKS = /(?<=^|["\n])\p{M}+/gu;
 
-function escapeNonPrintable(s: string): string {
+function escapeNonPrintable(s: string, keepNewline = true): string {
   return s
-    .replace(NON_PRINTABLE, (ch) => (ch === "\n" ? ch : escapeUnits(ch)))
+    .replace(NON_PRINTABLE,
+      (ch) => (ch === "\n" && keepNewline ? ch : escapeUnits(ch)))
     .replace(LEADING_MARKS, escapeUnits);
+}
+
+// A label is one line, so its newlines are escaped too.
+function escapeLabel(s: string): string {
+  return escapeNonPrintable(s, false);
 }
 
 /** `s` in double quotes with `"` and `\` escaped and every non-printable

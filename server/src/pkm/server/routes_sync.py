@@ -76,8 +76,8 @@ def client_diagnostics(body: ClientDiagnosticsRequest) -> OkAck:
     nudge.
     """
     # ensure_ascii means the marker's ellipsis cannot occur inside a dump.
-    # The pkm handler's escaping still doubles the dump's quotes and
-    # backslashes in server.log, so a grepped dump needs
+    # The dump is a pkm.* message, so EscapePkmMessages writes its quotes
+    # as \" and its backslashes as \\ in server.log; a grepped dump needs
     # `.encode().decode("unicode_escape")` before `json.loads`.
     dump = json.dumps(body.model_dump(), sort_keys=True, ensure_ascii=True)
     logger.warning("client diagnostics %s",

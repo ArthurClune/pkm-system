@@ -862,15 +862,15 @@ The default handler applies the same `escape_controls` to the rendered
 message of every `pkm.*` record (`logfmt.EscapePkmMessages`), at the handler
 rather than per call site, because any `pkm` logger may carry a requested
 path, an upload's filename or an error text. Its formatter,
-`logfmt.EscapingFormatter`, hex-escapes every traceback and stack from any
-logger except for their newlines, and indents each of their lines two
-spaces: an exception's text is data, and a newline in it would otherwise
-start a line that reads as a log record. uvicorn's messages pass unescaped,
+`logfmt.EscapingFormatter`, hex-escapes the non-printable characters in
+every traceback and stack from any logger, newlines aside, and indents each
+of their lines two spaces: an exception's text is data, and a newline in it
+would otherwise start a line that reads as a log record. uvicorn's messages pass unescaped,
 because its formatter re-renders `color_message` from the record's
 arguments; they cannot break a line, since h11 admits only visible ASCII in
 the request target and uvicorn re-quotes the path, but a quote in a
-websocket path reaches `server.log` raw. A `client diagnostics` dump
-therefore reads with its quotes and backslashes doubled.
+websocket path reaches `server.log` raw. The `client diagnostics` dump is
+a `pkm.*` message, so its quotes read as `\"` and its backslashes as `\\`.
 
 With `run.py --log-dir` (production) the handlers write `server.log` and
 `access.log`; without it, stderr and stdout. The server rotates its own

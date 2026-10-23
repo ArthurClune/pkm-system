@@ -1,15 +1,9 @@
 // pattern: Imperative Shell
 // An image in rendered markdown. Only an uploaded /assets/ image loads on
-// render; any other src shows a placeholder naming its host, and only a click
-// on it mounts the img. An image URL is an outbound channel: the browser
-// fetches it at commit, so anything that can write markdown the app renders,
-// the assistant included, could otherwise send note text to any host with no
-// click. A click reveals that one src only. The guarantee is the gate: it
-// compares the revealed src with the current src during render, so an img for
-// a new src never commits. A "was clicked" flag reset in an effect would
-// commit one frame of <img> for the new src, and the fetch starts at commit.
-// The render-time reset only clears the state, so returning to an earlier src
-// needs a new click. Inside InertMediaContext the placeholder is plain text.
+// render; any other src waits behind ClickToLoad, keyed by src. An image URL
+// is an outbound channel: the browser fetches it at commit, so anything that
+// can write markdown the app renders, the assistant included, could otherwise
+// send note text to any host with no click.
 //
 // LoadedImage renders the img itself. Viewed assets are runtime-cached by the
 // service worker (offline-editing-design.md §5); one that was never viewed
@@ -23,6 +17,7 @@
 // expand trigger is skipped and the image renders inline only.
 import { useCallback, useContext, useLayoutEffect, useRef, useState } from "react";
 import { InertMediaContext } from "../contexts";
+import { ClickToLoad } from "./ClickToLoad";
 import { externalImageLabel, isUploadedAsset } from "./externalMedia";
 import { ImageOverlay } from "./ImageOverlay";
 
@@ -98,26 +93,10 @@ function LoadedImage({ src, alt }: { src: string; alt: string }) {
 }
 
 export function AssetImage({ src, alt }: { src: string; alt: string }) {
-  const [revealed, setRevealed] = useState<string | null>(null);
-  const inertMedia = useContext(InertMediaContext);
-  if (revealed !== null && revealed !== src) setRevealed(null);
-
-  if (isUploadedAsset(src) || revealed === src) {
-    return <LoadedImage src={src} alt={alt} />;
-  }
-  const className = "asset-image-placeholder external-media-placeholder";
-  const label = externalImageLabel(src, alt);
-  if (inertMedia) return <span className={className}>{label}</span>;
+  if (isUploadedAsset(src)) return <LoadedImage src={src} alt={alt} />;
   return (
-    <button
-      type="button"
-      className={className}
-      onClick={(event) => {
-        event.stopPropagation();
-        setRevealed(src);
-      }}
-    >
-      {label}
-    </button>
+    <ClickToLoad revealKey={src} label={externalImageLabel(src, alt)}>
+      <LoadedImage src={src} alt={alt} />
+    </ClickToLoad>
   );
 }

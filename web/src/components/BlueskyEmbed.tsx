@@ -1,8 +1,9 @@
 // pattern: Imperative Shell
 import { type CSSProperties, useContext, useEffect, useId, useState } from "react";
-import { InertMediaContext, UntrustedContentContext } from "../contexts";
+import { UntrustedContentContext } from "../contexts";
 import { isIosStandalone } from "../externalLink";
 import { blueskyEmbedSrc, parseBlueskyPostUrl } from "./bluesky";
+import { ClickToLoad } from "./ClickToLoad";
 
 const EMBED_ORIGIN = "https://embed.bsky.app";
 const RESOLVE_URL =
@@ -121,35 +122,19 @@ function BlueskyEmbedFrame({ href }: { href: string }) {
   );
 }
 
-// Under untrusted text (an assistant reply) the embed waits for a click. The
-// gate keeps BlueskyEmbedFrame unmounted, so resolveHandle never runs: the
-// lookup itself leaks, because Bluesky's servers resolve the handle's
-// domain, and the iframe then loads embed.bsky.app. The revealed href is
-// compared with the current one during render, so a new href never mounts a
-// frame without its own click; resetting in an effect would commit it first.
+// Under untrusted text (an assistant reply) the embed waits behind
+// ClickToLoad, keyed by href. Keeping BlueskyEmbedFrame unmounted keeps
+// resolveHandle from running: the lookup itself leaks, because Bluesky's
+// servers resolve the handle's domain, and the iframe then loads
+// embed.bsky.app.
 export function BlueskyEmbed({ href }: { href: string }) {
   const untrusted = useContext(UntrustedContentContext);
-  const inertMedia = useContext(InertMediaContext);
-  const [revealed, setRevealed] = useState<string | null>(null);
-  if (revealed !== null && revealed !== href) setRevealed(null);
-
   const actor = parseBlueskyPostUrl(href)?.actor ?? null;
   if (actor === null) return null;
-  if (!untrusted || revealed === href) return <BlueskyEmbedFrame href={href} />;
-
-  const className = "asset-image-placeholder external-media-placeholder";
-  const label = `Bluesky post from ${actor}`;
-  if (inertMedia) return <span className={className}>{label}</span>;
+  if (!untrusted) return <BlueskyEmbedFrame href={href} />;
   return (
-    <button
-      type="button"
-      className={className}
-      onClick={(event) => {
-        event.stopPropagation();
-        setRevealed(href);
-      }}
-    >
-      {label}
-    </button>
+    <ClickToLoad revealKey={href} label={`Bluesky post from ${actor}`}>
+      <BlueskyEmbedFrame href={href} />
+    </ClickToLoad>
   );
 }

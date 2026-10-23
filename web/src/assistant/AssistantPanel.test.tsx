@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { afterEach, describe, expect, onTestFinished, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { stubFetch, confirmIdOf } from "../test-helpers";
 import type { ChatItem, PendingConfirm, PhaseInfo } from "./useAssistant";
@@ -56,10 +56,11 @@ function previewOf(...ops: PreviewOp[]): WritePreview {
   return { ops, summary: "s" };
 }
 
-function showConfirm(preview: WritePreview | null, count = 1) {
+function showConfirm(preview: WritePreview | null, count = 1,
+  sentDecision: boolean | null = null) {
   state.current.status = "confirm";
   state.current.pendingConfirm = {
-    confirmId: confirmIdOf("t1"), opsPreview: "s", preview };
+    confirmId: confirmIdOf("t1"), opsPreview: "s", preview, sentDecision };
   state.current.pendingConfirmCount = count;
 }
 
@@ -524,7 +525,8 @@ describe("ConfirmCard", () => {
     const { rerender } = renderArmed();
     expect(screen.getByRole("button", { name: "Allow" })).toBeEnabled();
     state.current.pendingConfirm = {
-      confirmId: confirmIdOf("t2"), opsPreview: "s", preview: previewOf(op()) };
+      confirmId: confirmIdOf("t2"), opsPreview: "s", preview: previewOf(op()),
+      sentDecision: null };
     state.current.pendingConfirmCount = 1;
     rerender(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByRole("button", { name: "Allow" })).toBeDisabled();
@@ -546,28 +548,71 @@ describe("ConfirmCard", () => {
     ["Allow", true],
     ["Deny", false],
   ] as const)("a failed %s offers only a retry of it", (name, allow) => {
-    showConfirm(previewOf(op()));
-    const { rerender } = renderArmed();
-    fireEvent.click(screen.getByRole("button", { name }));
-    state.current.answering = true;
-    rerender(<AssistantPanel open onClose={() => {}} />);
-    state.current.answering = false;
+    showConfirm(previewOf(op()), 1, allow);
     state.current.error = "request failed";
-    rerender(<AssistantPanel open onClose={() => {}} />);
+    renderArmed();
     const buttons = within(card()).getAllByRole("button");
     expect(buttons.map((b) => b.textContent)).toEqual([`Retry ${name}`]);
     fireEvent.click(buttons[0]);
-    expect(state.current.respondConfirm).toHaveBeenNthCalledWith(2, allow);
+    expect(state.current.respondConfirm).toHaveBeenCalledWith(allow);
+  });
+
+  // the decision lives in the hook, so a card mounted afresh still knows it
+  test("a failed Allow stays retry-only after the panel closes and reopens", () => {
+    showConfirm(previewOf(op()), 1, true);
+    state.current.error = "request failed";
+    const { rerender } = renderArmed();
+    rerender(<AssistantPanel open={false} onClose={() => {}} />);
+    expect(card()).toBeNull();
+    rerender(<AssistantPanel open onClose={() => {}} />);
+    act(() => { vi.advanceTimersByTime(600); });
+    const buttons = within(card()).getAllByRole("button");
+    expect(buttons.map((b) => b.textContent)).toEqual(["Retry Allow"]);
+    expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
+  });
+
+  // only the hook decides an answer was sent: a click it did not post leaves
+  // both choices open
+  test("a click alone does not turn the card into a retry", () => {
+    showConfirm(previewOf(op()));
+    renderArmed();
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    expect(state.current.respondConfirm).toHaveBeenCalledWith(true);
+    expect(screen.getByRole("button", { name: "Allow" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
+  });
+
+  test("a new card scrolls its top into view", () => {
+    showConfirm(previewOf(op()));
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView.mock.contexts[0]).toBe(card());
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+  });
+
+  // pinning the transcript to its bottom would push a tall card's heading
+  // and first targets above the fold
+  test("a confirm does not pin the transcript to its bottom", () => {
+    const setTop = vi.spyOn(Element.prototype, "scrollTop", "set");
+    onTestFinished(() => setTop.mockRestore());
+    state.current.items = [{ kind: "user", text: "please write" }];
+    const { rerender } = render(<AssistantPanel open onClose={() => {}} />);
+    expect(setTop).toHaveBeenCalledTimes(1);
+    showConfirm(previewOf(op()));
+    rerender(<AssistantPanel open onClose={() => {}} />);
+    expect(setTop).toHaveBeenCalledTimes(1);
+  });
+
+  test("the ops list is a focusable region a keyboard can scroll", () => {
+    showConfirm(previewOf(op()));
+    render(<AssistantPanel open onClose={() => {}} />);
+    const region = screen.getByRole("region", { name: "Writes to review" });
+    expect(region).toHaveAttribute("tabindex", "0");
+    expect(region.querySelector("ol.assistant-confirm-ops")).not.toBeNull();
+    expect(region.contains(screen.getByRole("button", { name: "Deny" })))
+      .toBe(false);
   });
 });
-
-// jsdom has no layout and no IntersectionObserver: these stand in for an ops
-// list taller than its scroll region and for the browser's visibility reports
-function overflowOpsList() {
-  const spy = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get")
-    .mockReturnValue(1000);
-  onTestFinished(() => spy.mockRestore());
-}
 
 type Observed = {
   callback: IntersectionObserverCallback;
@@ -575,7 +620,9 @@ type Observed = {
   targets: Element[];
 };
 
-function mockIntersectionObserver(): Observed[] {
+// jsdom has no IntersectionObserver. By default every marker reports in view
+// as soon as it is observed; manual mode leaves the reports to the test.
+function mockIntersectionObserver(auto = false): Observed[] {
   const made: Observed[] = [];
   class FakeObserver {
     private record: Observed;
@@ -584,92 +631,115 @@ function mockIntersectionObserver(): Observed[] {
       this.record = { callback, root: options?.root, targets: [] };
       made.push(this.record);
     }
-    observe(target: Element) { this.record.targets.push(target); }
+    observe(target: Element) {
+      this.record.targets.push(target);
+      if (auto) {
+        this.record.callback(
+          [{ isIntersecting: true, target } as IntersectionObserverEntry],
+          this as unknown as IntersectionObserver);
+      }
+    }
+    unobserve(target: Element) {
+      this.record.targets = this.record.targets.filter((t) => t !== target);
+    }
     disconnect() { this.record.targets = []; }
   }
   vi.stubGlobal("IntersectionObserver", FakeObserver);
-  onTestFinished(() => { vi.unstubAllGlobals(); });
   return made;
 }
 
-function report(observed: Observed, isIntersecting: boolean) {
-  const target = observed.targets[0];
+const marker = (which: "start" | "end") =>
+  card().querySelector(`.assistant-confirm-${which}`)!;
+
+function report(observed: Observed, which: "start" | "end",
+  isIntersecting: boolean) {
   act(() => {
     observed.callback(
-      [{ isIntersecting, target } as IntersectionObserverEntry],
+      [{ isIntersecting, target: marker(which) } as IntersectionObserverEntry],
       {} as IntersectionObserver);
   });
 }
 
-describe("ConfirmCard: the end of the list arms Allow", () => {
-  const allow = () => screen.getByRole("button", { name: "Allow" });
-  const hint = "Scroll to the end to review every write";
+const scrollIntoView = vi.fn();
+const realScrollIntoView = Element.prototype.scrollIntoView;
+beforeEach(() => {
+  mockIntersectionObserver(true);
+  // jsdom does not implement scrollIntoView
+  Element.prototype.scrollIntoView = scrollIntoView;
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  Element.prototype.scrollIntoView = realScrollIntoView;
+});
 
-  test("an overflowing list keeps Allow off until its end is seen", () => {
-    overflowOpsList();
+describe("ConfirmCard: Allow waits until the whole card has been in view", () => {
+  const allow = () => screen.getByRole("button", { name: "Allow" });
+
+  test("the observer watches the viewport for markers around every op", () => {
     const made = mockIntersectionObserver();
     showConfirm(previewOf(op(), op({ action: "rename page" })));
-    renderArmed();
-    expect(allow()).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Deny" })).toBeEnabled();
-    expect(card()).toHaveTextContent(hint);
-    // the observer watches a marker after the last op, inside the list
-    expect(made).toHaveLength(1);
-    const list = card().querySelector("ol.assistant-confirm-ops")!;
-    expect(made[0].root).toBe(list);
-    const lastOp = [...list.querySelectorAll("li.assistant-confirm-op")].at(-1)!;
-    expect(lastOp.compareDocumentPosition(made[0].targets[0])
-      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    report(made[0], false);
-    expect(allow()).toBeDisabled();
-    report(made[0], true);
-    expect(allow()).toBeEnabled();
-    expect(card()).not.toHaveTextContent(hint);
-  });
-
-  test("an end seen before the pause still waits out the pause", () => {
-    overflowOpsList();
-    const made = mockIntersectionObserver();
-    showConfirm(previewOf(op()));
-    vi.useFakeTimers();
     render(<AssistantPanel open onClose={() => {}} />);
-    report(made[0], true);
-    expect(card()).not.toHaveTextContent(hint);
-    expect(allow()).toBeDisabled();
-    act(() => { vi.advanceTimersByTime(600); });
-    expect(allow()).toBeEnabled();
+    expect(made).toHaveLength(1);
+    // no root: the viewport, clipped by every scrolling ancestor
+    expect(made[0].root ?? null).toBeNull();
+    expect(made[0].targets).toEqual([marker("start"), marker("end")]);
+    const title = card().querySelector(".assistant-confirm-title")!;
+    expect(marker("start").compareDocumentPosition(title)
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const lastOp = [...card().querySelectorAll("li.assistant-confirm-op")].at(-1)!;
+    expect(lastOp.compareDocumentPosition(marker("end"))
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  test("once seen, the end stays seen", () => {
-    overflowOpsList();
+  test("seeing only the end does not arm Allow", () => {
     const made = mockIntersectionObserver();
     showConfirm(previewOf(op()));
     renderArmed();
-    report(made[0], true);
+    report(made[0], "end", true);
+    expect(allow()).toBeDisabled();
+    expect(card()).toHaveTextContent("Scroll back to the start to review every write");
+    expect(screen.getByRole("button", { name: "Deny" })).toBeEnabled();
+  });
+
+  test("seeing only the start does not arm Allow", () => {
+    const made = mockIntersectionObserver();
+    showConfirm(previewOf(op()));
+    renderArmed();
+    report(made[0], "start", true);
+    expect(allow()).toBeDisabled();
+    expect(card()).toHaveTextContent("Scroll to the end to review every write");
+  });
+
+  test("seeing both arms Allow, and each stays seen", () => {
+    const made = mockIntersectionObserver();
+    showConfirm(previewOf(op()));
+    renderArmed();
+    report(made[0], "start", true);
+    report(made[0], "start", false); // scrolled past: still counts
+    report(made[0], "end", false);
+    expect(allow()).toBeDisabled();
+    report(made[0], "end", true);
     expect(allow()).toBeEnabled();
+    expect(card()).not.toHaveTextContent("Scroll");
     expect(made[0].targets).toEqual([]); // no longer watched
   });
 
-  test("a list that does not overflow counts as seen at once", () => {
-    const made = mockIntersectionObserver();
+  test("a card seen whole before the pause still waits it out", () => {
     showConfirm(previewOf(op()));
     vi.useFakeTimers();
     render(<AssistantPanel open onClose={() => {}} />);
-    expect(card()).not.toHaveTextContent(hint);
+    expect(card()).not.toHaveTextContent("Scroll");
     expect(allow()).toBeDisabled();
     act(() => { vi.advanceTimersByTime(600); });
     expect(allow()).toBeEnabled();
-    expect(made).toHaveLength(0);
   });
 
-  test("without an observer an overflowing list never arms Allow", () => {
-    overflowOpsList();
+  test("without an observer Allow never arms", () => {
     vi.stubGlobal("IntersectionObserver", undefined);
-    onTestFinished(() => { vi.unstubAllGlobals(); });
     showConfirm(previewOf(op()));
     renderArmed();
     expect(allow()).toBeDisabled();
-    expect(card()).toHaveTextContent(hint);
+    expect(card()).toHaveTextContent("Scroll to the end to review every write");
     expect(screen.getByRole("button", { name: "Deny" })).toBeEnabled();
   });
 });

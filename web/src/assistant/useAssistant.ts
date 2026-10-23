@@ -70,6 +70,11 @@ export type PendingConfirm = {
   confirmId: ConfirmId;
   opsPreview: string;
   preview: WritePreview | null;
+  // the answer posted for this confirm, set only once it is posted. The
+  // server may hold a failed answer already and ignores a changed one, so
+  // after a failure only this answer may be sent again; it lives here rather
+  // than in the card so a remounted card cannot forget it.
+  sentDecision: boolean | null;
 };
 
 /** What the busy line shows: the server's phase label ("reasoning",
@@ -200,6 +205,7 @@ export function useAssistant() {
       case "confirm_request":
         setConfirmQueue([...confirmQueueRef.current, {
           confirmId: ev.confirm_id, opsPreview: ev.ops_preview, preview: ev.preview,
+          sentDecision: null,
         }]);
         break;
       case "turn_done":
@@ -312,10 +318,13 @@ export function useAssistant() {
       const gen = turnGen.current;
       const id = conversationId.current;
       // the head this render showed, which is what the user answered
-      const pending = pendingConfirm;
-      if (id === null || pending === null || answeringRef.current) return;
+      const shown = pendingConfirm;
+      if (id === null || shown === null || answeringRef.current) return;
       // gone already: the turn ended, or this is a stale render's closure
-      if (!confirmQueueRef.current.includes(pending)) return;
+      if (!confirmQueueRef.current.includes(shown)) return;
+      if (shown.sentDecision !== null && shown.sentDecision !== allow) return;
+      const pending = { ...shown, sentDecision: allow };
+      setConfirmQueue(confirmQueueRef.current.map((p) => (p === shown ? pending : p)));
       setAnswering(true);
       try {
         await confirmTool(id, pending.confirmId, allow);

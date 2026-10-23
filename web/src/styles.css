@@ -1111,14 +1111,17 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .assistant-confirm-title { font-weight: 600; margin-bottom: 6px; }
 /* the ops scroll inside the card, so Allow and Deny below them stay in view
  * however long the batch */
-.assistant-confirm-ops { max-height: min(260px, 40vh); overflow-y: auto; margin: 0 0 8px;
-  padding-left: 1.6em; font-size: 0.85em; }
+.assistant-confirm-scroll { max-height: min(260px, 40vh); overflow-y: auto; margin: 0 0 8px;
+  font-size: 0.85em; }
+.assistant-confirm-scroll:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
+.assistant-confirm-ops { margin: 0; padding-left: 1.6em; }
 .assistant-confirm-op + .assistant-confirm-op { margin-top: 8px; }
-/* the marker PreviewOps watches: Allow arms once it has been in view */
-.assistant-confirm-end { list-style: none; height: 1px; }
+/* the markers ConfirmCard watches: Allow arms once each has been in view */
+.assistant-confirm-start, .assistant-confirm-end { height: 1px; }
 .assistant-confirm-hint { font-size: 0.85em; color: var(--color-text-secondary); margin: -4px 0 8px; }
-.assistant-confirm-action { font-weight: 600; }
-.assistant-confirm-target, .assistant-confirm-content { overflow-wrap: anywhere; }
+.assistant-confirm-action { font-weight: 600; overflow-wrap: anywhere; }
+.assistant-confirm-target { overflow-wrap: anywhere; }
+.assistant-confirm-content { overflow-wrap: anywhere; }
 .assistant-confirm-key { color: var(--color-text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .assistant-confirm-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -1126,7 +1129,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .assistant-confirm-text { display: block; border: 1px solid var(--color-border);
   border-radius: var(--radius-control); padding: 4px 6px; margin-top: 2px; }
 .assistant-confirm-length { color: var(--color-text-secondary); }
-.assistant-confirm-warning { color: var(--color-error); }
+.assistant-confirm-warning { color: var(--color-error); overflow-wrap: anywhere; }
 .assistant-preview-toggle { background: none; border: none; padding: 0; margin: 0;
   color: var(--color-link); font-size: inherit; cursor: pointer; text-decoration: underline; }
 .assistant-preview-toggle:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }

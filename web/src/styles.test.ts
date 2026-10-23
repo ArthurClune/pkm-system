@@ -355,6 +355,22 @@ describe("control polish", () => {
     expect(ruleFor(".reference-link-button")).toContain("padding: 1px 10px;");
   });
 
+  // the approval card's ops region takes focus so a keyboard can scroll it
+  test("the approval card's scroll region gets the ring", () => {
+    expect(ruleFor(".assistant-confirm-scroll:focus-visible"))
+      .toContain("outline: 2px solid var(--color-link);");
+  });
+
+  // a long unbroken title in a warning or action must wrap, not run under
+  // the region's horizontal scrollbar
+  test("every approval card line wraps long unbroken text", () => {
+    for (const selector of [".assistant-confirm-action",
+      ".assistant-confirm-target", ".assistant-confirm-content",
+      ".assistant-confirm-warning"]) {
+      expect(rulesFor(selector)).toContain("overflow-wrap: anywhere;");
+    }
+  });
+
   test("the assistant send button does not stretch into a lozenge", () => {
     expect(ruleFor(".assistant-input .btn-secondary"))
       .toContain("align-self: flex-end;");

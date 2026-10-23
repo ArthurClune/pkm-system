@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 // Floating assistant chat panel (bottom-right overlay; not a route).
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Ref } from "react";
 import { BlockRefProvider } from "../components/BlockRefProvider";
 import { InlineSegments } from "../components/InlineSegments";
 import { UntrustedContentContext } from "../contexts";
@@ -61,54 +61,42 @@ function ContentValue({ name, text, total }: {
   );
 }
 
-// The ops scroll inside their own region, so a target below the fold would
-// sit under a live Allow. Allow therefore waits until the marker after the
-// last op has been in view once; a list that fits is seen at once, and with
-// no IntersectionObserver an overflowing list never arms (Deny still works).
-function PreviewOps({ preview, onEndSeen }: {
+// The ops scroll inside a region of their own, itself inside the scrolling
+// transcript, so a short window can hide the heading or a target while Allow
+// shows. Allow therefore also waits until a marker before the heading and one
+// after the last op have each been in view, as reported against the viewport,
+// which clips through every scrolling ancestor. With no IntersectionObserver
+// Allow never arms; Deny still works.
+function PreviewOps({ preview, endRef }: {
   preview: WritePreview;
-  onEndSeen: () => void;
+  endRef: Ref<HTMLDivElement>;
 }) {
-  const listRef = useRef<HTMLOListElement>(null);
-  const endRef = useRef<HTMLLIElement>(null);
-  useEffect(() => {
-    const list = listRef.current;
-    const end = endRef.current;
-    if (!list || !end) return;
-    if (list.scrollHeight <= list.clientHeight) {
-      onEndSeen();
-      return;
-    }
-    if (typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries.some((e) => e.isIntersecting)) return;
-      observer.disconnect();
-      onEndSeen();
-    }, { root: list });
-    observer.observe(end);
-    return () => observer.disconnect();
-  }, [onEndSeen]);
   return (
-    <ol className="assistant-confirm-ops" ref={listRef}>
-      {preview.ops.map((op, i) => (
-        <li key={i} className="assistant-confirm-op">
-          <div className="assistant-confirm-action">{op.action}</div>
-          {op.targets.map(([key, value], j) => (
-            <div key={j} className="assistant-confirm-target">
-              <span className="assistant-confirm-key">{key}</span>{": "}
-              <bdi className="assistant-confirm-value">{formatTarget(key, value)}</bdi>
-            </div>
-          ))}
-          {op.warnings.map((warning, j) => (
-            <div key={j} className="assistant-confirm-warning">⚠ {warning}</div>
-          ))}
-          {op.content.map(([key, text, total], j) => (
-            <ContentValue key={j} name={key} text={text} total={total} />
-          ))}
-        </li>
-      ))}
-      <li className="assistant-confirm-end" ref={endRef} aria-hidden="true" />
-    </ol>
+    // focusable so a keyboard can scroll it to the end marker; Safari does
+    // not focus a scroll container on its own
+    <div className="assistant-confirm-scroll" role="region" aria-label="Writes to review"
+      tabIndex={0}>
+      <ol className="assistant-confirm-ops">
+        {preview.ops.map((op, i) => (
+          <li key={i} className="assistant-confirm-op">
+            <div className="assistant-confirm-action">{op.action}</div>
+            {op.targets.map(([key, value], j) => (
+              <div key={j} className="assistant-confirm-target">
+                <span className="assistant-confirm-key">{key}</span>{": "}
+                <bdi className="assistant-confirm-value">{formatTarget(key, value)}</bdi>
+              </div>
+            ))}
+            {op.warnings.map((warning, j) => (
+              <div key={j} className="assistant-confirm-warning">⚠ {warning}</div>
+            ))}
+            {op.content.map(([key, text, total], j) => (
+              <ContentValue key={j} name={key} text={text} total={total} />
+            ))}
+          </li>
+        ))}
+      </ol>
+      <div className="assistant-confirm-end" ref={endRef} aria-hidden="true" />
+    </div>
   );
 }
 
@@ -123,50 +111,69 @@ function ConfirmCard({
   answering: boolean;
   onAnswer: (allow: boolean) => void;
 }) {
-  const { preview } = pending;
+  const { preview, sentDecision } = pending;
+  const cardRef = useRef<HTMLDivElement>(null);
+  const startRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
   const [armed, setArmed] = useState(false);
+  const [startSeen, setStartSeen] = useState(false);
+  const [endSeen, setEndSeen] = useState(false);
   useEffect(() => {
     const id = setTimeout(() => setArmed(true), ALLOW_ARM_MS);
     return () => clearTimeout(id);
   }, []);
-  const [endSeen, setEndSeen] = useState(false);
-  const onEndSeen = useCallback(() => setEndSeen(true), []);
-  // The decision sent, kept so a failed POST can only be retried as it was:
-  // the server may hold that answer already and ignores a changed one. The
-  // head stays mounted until its answer lands, so a chosen card that is no
-  // longer answering is one whose answer failed.
-  const [chosen, setChosen] = useState<boolean | null>(null);
-  const failed = chosen !== null && !answering;
-  const answer = (allow: boolean) => {
-    setChosen(allow);
-    onAnswer(allow);
-  };
+  // a new card shows from its heading down, not from the transcript's bottom
+  useEffect(() => {
+    cardRef.current?.scrollIntoView({ block: "start" });
+  }, []);
+  useEffect(() => {
+    const start = startRef.current;
+    const end = endRef.current;
+    if (!start || !end || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        // seen once is enough: the user has had the chance to read it
+        observer.unobserve(entry.target);
+        if (entry.target === start) setStartSeen(true);
+        else setEndSeen(true);
+      }
+    });
+    observer.observe(start);
+    observer.observe(end);
+    return () => observer.disconnect();
+  }, []);
+  // sentDecision is set by the hook only once it posts; the head stays only
+  // after a failed post, so a sent decision that is not in flight failed
+  const failed = sentDecision !== null && !answering;
   const n = preview?.ops.length ?? 0;
   const position = count > 1 ? ` (1 of ${count})` : "";
   const writes = n === 1 ? "write" : "writes";
+  const hint = !endSeen
+    ? "Scroll to the end to review every write"
+    : !startSeen ? "Scroll back to the start to review every write" : null;
   return (
-    <div className="assistant-confirm-card">
+    <div className="assistant-confirm-card" ref={cardRef}>
+      <div className="assistant-confirm-start" ref={startRef} aria-hidden="true" />
       <div className="assistant-confirm-title">
         {preview
           ? `The assistant wants to make ${n} ${writes}${position}:`
           : `The assistant wants to write${position}:`}
       </div>
       {preview ? (
-        <PreviewOps preview={preview} onEndSeen={onEndSeen} />
+        <PreviewOps preview={preview} endRef={endRef} />
       ) : (
         <div className="assistant-error">The write preview could not be read.</div>
       )}
-      {preview && !endSeen && !failed && (
-        <div className="assistant-confirm-hint">Scroll to the end to review every write</div>
-      )}
+      {preview && hint && !failed && <div className="assistant-confirm-hint">{hint}</div>}
       <div className="assistant-confirm-actions">
         {failed ? (
           <button
             type="button"
-            className={chosen ? "btn-secondary" : "btn-danger"}
-            onClick={() => answer(chosen)}
+            className={sentDecision ? "btn-secondary" : "btn-danger"}
+            onClick={() => onAnswer(sentDecision)}
           >
-            {chosen ? "Retry Allow" : "Retry Deny"}
+            {sentDecision ? "Retry Allow" : "Retry Deny"}
           </button>
         ) : (
           <>
@@ -174,8 +181,8 @@ function ConfirmCard({
               <button
                 type="button"
                 className="btn-secondary"
-                disabled={!armed || !endSeen || answering}
-                onClick={() => answer(true)}
+                disabled={!armed || !startSeen || !endSeen || answering}
+                onClick={() => onAnswer(true)}
               >
                 Allow
               </button>
@@ -184,7 +191,7 @@ function ConfirmCard({
               type="button"
               className="btn-danger"
               disabled={answering}
-              onClick={() => answer(false)}
+              onClick={() => onAnswer(false)}
             >
               Deny
             </button>
@@ -212,6 +219,9 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
   }, [busy]);
 
   useEffect(() => {
+    // a confirm card scrolls its own top into view instead: pinning the
+    // bottom would push a tall card's heading and first targets out of sight
+    if (assistant.pendingConfirm) return;
     const list = listRef.current;
     if (list) list.scrollTop = list.scrollHeight;
   }, [assistant.items, assistant.pendingConfirm]);

@@ -96,9 +96,10 @@ test("two confirms queue: the second waits behind the first", async ({ page }) =
   await expect(card).toHaveCount(0);
 });
 
-// a short window makes the card's ops list overflow its scroll region, so
-// Allow must wait until the list has been scrolled to its end
-test("Allow arms only once the ops list has been scrolled to its end", async ({ page }) => {
+// a short window makes the card taller than the transcript and its ops list
+// overflow its own region: the card opens at its heading, and Allow waits
+// until the end of the list has also been in view
+test("Allow arms only once the whole card has been in view", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 250 });
   const panel = await openPanel(page);
   const card = confirmCard(panel);
@@ -107,15 +108,19 @@ test("Allow arms only once the ops list has been scrolled to its end", async ({ 
   await askInput(panel).fill("please write");
   await askInput(panel).press("Enter");
   await expectDemoCard(panel, "Demo");
-  const list = card.locator("ol.assistant-confirm-ops");
-  expect(await list.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  await expect(card.locator(".assistant-confirm-title")).toBeInViewport();
+  const region = card.getByRole("region", { name: "Writes to review" });
+  expect(await region.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
   await expect(hint).toBeVisible();
   // well past the arming pause, Allow still waits on the scroll
   await page.waitForTimeout(800);
   await expect(panel.getByRole("button", { name: "Allow" })).toBeDisabled();
   await expect(panel.getByRole("button", { name: "Deny" })).toBeEnabled();
 
-  await list.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  // the region takes focus, so a keyboard can scroll it to the end
+  await region.focus();
+  await page.keyboard.press("End");
+  await card.locator(".assistant-confirm-end").scrollIntoViewIfNeeded();
   await expect(hint).toHaveCount(0);
   await panel.getByRole("button", { name: "Allow" }).click();
   await expect(panel.getByText("Saved.")).toBeVisible();

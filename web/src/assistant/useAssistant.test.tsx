@@ -147,7 +147,8 @@ describe("useAssistant", () => {
     });
     expect(latest.status).toBe("confirm");
     expect(latest.pendingConfirm).toEqual(
-      { confirmId: "t1", opsPreview: "save_note(...)", preview: null });
+      { confirmId: "t1", opsPreview: "save_note(...)", preview: null,
+        sentDecision: null });
     await act(async () => {
       await latest.respondConfirm(true);
       release();
@@ -173,10 +174,12 @@ describe("useAssistant", () => {
       await Promise.resolve();
     });
     expect(latest.pendingConfirm).toEqual(
-      { confirmId: "t1", opsPreview: "save_note(...)", preview: null });
+      { confirmId: "t1", opsPreview: "save_note(...)", preview: null,
+        sentDecision: null });
     await act(() => latest.respondConfirm(true));
     expect(latest.pendingConfirm).toEqual(
-      { confirmId: "t1", opsPreview: "save_note(...)", preview: null });
+      { confirmId: "t1", opsPreview: "save_note(...)", preview: null,
+        sentDecision: true });
     expect(latest.status).toBe("confirm");
     expect(latest.error).toBe("network down");
   });
@@ -332,6 +335,56 @@ describe("useAssistant", () => {
     expect(mocks.confirmTool.mock.calls).toEqual(
       [["conv1", "c1", false], ["conv1", "c1", false]]);
     expect(latest.pendingConfirm?.confirmId).toBe("c2");
+  });
+
+  // The server may hold a failed answer already and ignores a changed one,
+  // so the hook records what it posted and the card can offer only that again,
+  // however often the card remounts.
+  test("the head records the decision once it is posted", async () => {
+    parkTwoConfirms();
+    const post = deferredValue<void>();
+    mocks.confirmTool.mockReturnValueOnce(post.promise);
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("please write");
+      await Promise.resolve();
+    });
+    expect(latest.pendingConfirm?.sentDecision).toBeNull();
+    let answered!: Promise<void>;
+    act(() => { answered = latest.respondConfirm(true); });
+    expect(latest.pendingConfirm?.sentDecision).toBe(true);
+    await act(async () => {
+      post.reject(new Error("network down"));
+      await answered;
+    });
+    expect(latest.pendingConfirm?.confirmId).toBe("c1");
+    expect(latest.pendingConfirm?.sentDecision).toBe(true);
+
+    // a changed answer posts nothing; the same one goes again
+    await act(() => latest.respondConfirm(false));
+    expect(mocks.confirmTool.mock.calls).toEqual([["conv1", "c1", true]]);
+    mocks.confirmTool.mockResolvedValueOnce(undefined);
+    await act(() => latest.respondConfirm(true));
+    expect(mocks.confirmTool.mock.calls).toEqual(
+      [["conv1", "c1", true], ["conv1", "c1", true]]);
+    expect(latest.pendingConfirm?.confirmId).toBe("c2");
+    expect(latest.pendingConfirm?.sentDecision).toBeNull();
+  });
+
+  test("an answer the hook does not post records nothing", async () => {
+    parkTwoConfirms();
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("please write");
+      await Promise.resolve();
+    });
+    const stale = latest.respondConfirm;
+    mocks.confirmTool.mockReturnValueOnce(new Promise<void>(() => {}));
+    act(() => { void latest.respondConfirm(true); });
+    // in flight: a second answer, even a stale render's, is refused
+    await act(() => stale(false));
+    expect(mocks.confirmTool.mock.calls).toEqual([["conv1", "c1", true]]);
+    expect(latest.pendingConfirm?.sentDecision).toBe(true);
   });
 
   // The server can finish the turn before the answer's POST returns; the

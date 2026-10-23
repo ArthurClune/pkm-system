@@ -403,11 +403,11 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   };
   const onPhone = isPhoneUserAgent(navigator.userAgent);
 
-  // The splice's run() flushes the draft before it edits the tree, so
+  // The landing run() flushes the draft before it edits the tree, so
   // settling afterwards loses nothing and shows the uploaded markdown.
   const uploadFiles = (at: number, files: File[]) => {
-    void handlers.onFiles(node.uid, at, files).then((spliced) => {
-      if (spliced) draft.settle();
+    void handlers.onFiles(node.uid, at, files).then((landed) => {
+      if (landed) draft.settle();
     });
   };
 

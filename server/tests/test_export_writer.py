@@ -63,6 +63,29 @@ def test_export_writes_pages_journal_assets(graph):
     assert (export / ".gitignore").read_text() == "assets/\n.export-staging-*/\n"
 
 
+def test_export_keeps_every_page_whose_name_apfs_treats_as_another(tmp_path):
+    titles = ["caf\u00e9", "cafe\u0301", "Stra\u00dfe", "STRASSE",
+              "\u03c2", "\u03c3", "\ufb00", "ff"]
+    db = connect(tmp_path / "g.sqlite3")
+    db.executescript(DDL)
+    for i, title in enumerate(titles):
+        db.execute("INSERT INTO pages VALUES (?,?,?,?)",
+                   (i + 1, title, None, None))
+        db.execute(
+            "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+            " heading, collapsed, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
+            (f"uid{i:03d}", i + 1, None, 0, f"BODY-{i}", None, 0, None, None))
+    db.commit()
+    export = tmp_path / "export"
+    counts = export_graph(db, tmp_path / "live-assets", export)
+    files = [p for p in (export / "pages").iterdir() if p.is_file()]
+    assert counts["pages"] == len(titles) == len(files)
+    texts = [p.read_text() for p in files]
+    for i in range(len(titles)):
+        assert sum(f"BODY-{i}\n" in t for t in texts) == 1, titles[i]
+
+
 def test_export_is_incremental_and_prunes(graph):
     db, live_assets, export, sha = graph
     export_graph(db, live_assets, export)

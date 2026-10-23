@@ -28,6 +28,12 @@ It calls `refs.extract()` once per block (`collect_block_ref_uids`), so
 `extract()` must stay linear, including on a long `::`-free run such as a
 blanked code fence.
 
+Page filenames and asset zip arcnames dedupe by `filenames.fs_dedupe_key`,
+which compares names as APFS does (Unicode-normalised, case-folded). A key
+weaker than the filesystem's silently overwrites a page; a stricter one only
+adds a dedupe suffix. `test_filenames.py` checks the key against the real
+filesystem.
+
 Assets are mirrored incrementally. An existing destination is checked against
 the `assets` row's size and sha256 before it is hardlinked into the new tree:
 `assets_disk.asset_on_disk_needs_repair` stats first and hashes only once the

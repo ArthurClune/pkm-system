@@ -25,6 +25,16 @@ def dash_unwritable(text: str) -> str:
                    for c in text)
 
 
+def fs_dedupe_key(name: str) -> str:
+    """The key under which two filenames count as one file on APFS:
+    Unicode-normalised and case-folded. Folding can leave characters
+    that normalise further, so normalise again after it. Merging more
+    than the filesystem does only costs a "(2)" suffix; merging less
+    loses a file."""
+    return unicodedata.normalize(
+        "NFD", unicodedata.normalize("NFD", name).casefold())
+
+
 # Most filesystems (APFS included) cap a path component at 255 bytes;
 # leave headroom for callers that append a "(N)" dedup suffix or similar.
 MAX_FILENAME_BYTES = 200

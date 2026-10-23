@@ -14,6 +14,7 @@ from urllib.parse import quote
 from typing import Literal
 
 from pkm.contracts.ops import SHA256_HEX_RE, Sha256Hex
+from pkm.filenames import fs_dedupe_key
 
 AssetCategory = Literal["image", "pdf", "document", "other"]
 
@@ -248,9 +249,10 @@ def export_limit_violation(count: int, total_bytes: int, *,
 
 def zip_arcnames(entries: list[tuple[str, str]]) -> list[tuple[str, str]]:
     """Map (sha256, filename) pairs to unique zip arcnames: first use of
-    a name wins (case-insensitively, since zips get extracted on
-    case-insensitive filesystems), later collisions get ' (<sha8>)'
-    before the suffix.
+    a name wins (as APFS compares names, Unicode-normalised and
+    case-folded, since zips get extracted there), later collisions get
+    ' (<sha8>)' before the suffix. Names must already be safe_filename'd:
+    the key is exact only over code points Python knows as assigned.
 
     A generated candidate can itself already be taken -- by another
     entry's original filename that merely looks generated, or by
@@ -260,22 +262,22 @@ def zip_arcnames(entries: list[tuple[str, str]]) -> list[tuple[str, str]]:
     length. In the residual case of two entries sharing both name and
     full sha256, even the full digest can't disambiguate them, so an
     incrementing numeric suffix is the final fallback. Every returned
-    arcname is guaranteed unique modulo case."""
+    arcname is guaranteed unique under that comparison."""
     used: set[str] = set()
     out: list[tuple[str, str]] = []
     for sha, name in entries:
         arc = name
-        if arc.lower() in used:
+        if fs_dedupe_key(arc) in used:
             p = PurePosixPath(name)
             prefix_len = 8
             arc = f"{p.stem} ({sha[:prefix_len]}){p.suffix}"
-            while arc.lower() in used and prefix_len < len(sha):
+            while fs_dedupe_key(arc) in used and prefix_len < len(sha):
                 prefix_len += 1
                 arc = f"{p.stem} ({sha[:prefix_len]}){p.suffix}"
             n = 2
-            while arc.lower() in used:
+            while fs_dedupe_key(arc) in used:
                 arc = f"{p.stem} ({sha[:prefix_len]}-{n}){p.suffix}"
                 n += 1
-        used.add(arc.lower())
+        used.add(fs_dedupe_key(arc))
         out.append((sha, arc))
     return out

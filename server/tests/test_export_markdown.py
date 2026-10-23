@@ -83,3 +83,17 @@ def test_page_filename_for_a_title_the_filesystem_refuses_is_writable(tmp_path):
     for name in (first, second):
         (tmp_path / name).write_text("x", encoding="utf-8")
     assert sorted(p.name for p in tmp_path.iterdir()) == sorted([first, second])
+
+
+_APFS_PAIRS = [("café", "café"), ("Straße", "STRASSE"),
+               ("ς", "σ"), ("ﬀ", "ff"), ("K", "K"),
+               ("ǅ", "ǆ")]
+
+
+def test_page_filename_dedupes_names_apfs_treats_as_one():
+    for a, b in _APFS_PAIRS:
+        taken: set[str] = set()
+        first = page_filename(canonical_title_of(a), taken)
+        second = page_filename(canonical_title_of(b), taken)
+        assert first != second, (a, b)
+        assert second.endswith(" (2).md")

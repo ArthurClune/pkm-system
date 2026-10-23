@@ -299,3 +299,12 @@ def test_export_limit_violation_checks_count_before_bytes():
     msg = export_limit_violation(11, 1001, max_count=10, max_bytes=1000)
     assert msg is not None
     assert "11" in msg
+
+
+def test_zip_arcnames_dedupes_names_a_filesystem_treats_as_one():
+    sha = lambda c: c * 64  # noqa: E731
+    pairs = [("Straße.txt", "STRASSE.txt"),
+             ("café.txt", "café.txt")]
+    for a, b in pairs:
+        out = zip_arcnames([(sha("a"), a), (sha("b"), b)])
+        assert out[0][1] == a and out[1][1] == f"{b[:-4]} (bbbbbbbb).txt", (a, b)

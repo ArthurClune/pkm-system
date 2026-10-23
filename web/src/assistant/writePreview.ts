@@ -75,13 +75,21 @@ function escapeUnits(ch: string): string {
   return out;
 }
 
+// A run of combining marks at the start, after a quote or after a newline
+// would draw onto the card's quote glyph or begin a line, so it is escaped;
+// on any other character it stays, as the accent it is.
+const LEADING_MARKS = /(?<=^|["\n])\p{M}+/gu;
+
 function escapeNonPrintable(s: string): string {
-  return s.replace(NON_PRINTABLE, (ch) => (ch === "\n" ? ch : escapeUnits(ch)));
+  return s
+    .replace(NON_PRINTABLE, (ch) => (ch === "\n" ? ch : escapeUnits(ch)))
+    .replace(LEADING_MARKS, escapeUnits);
 }
 
 /** `s` in double quotes with `"` and `\` escaped and every non-printable
- * written as `\uXXXX`. A newline stays a line break so a note reads as one,
- * yet no line inside it can close the quote. */
+ * written as `\uXXXX`, as are combining marks that would draw onto a quote or
+ * begin a line. A newline stays a line break so a note reads as one, yet no
+ * line inside it can close the quote. */
 export function quoteValue(s: string): string {
   const escaped = s.replace(/["\\]/g, (ch) => "\\" + ch);
   return '"' + escapeNonPrintable(escaped) + '"';

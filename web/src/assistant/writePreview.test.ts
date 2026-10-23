@@ -49,6 +49,26 @@ describe("quoteValue", () => {
     expect(quoteValue("a\uD800b\uDC00")).toBe('"a\\uD800b\\uDC00"');
   });
 
+  // A combining mark draws onto the character before it. After the opening
+  // quote, an escaped quote or a newline it would reshape that quote glyph or
+  // begin a line, so the whole run of marks there is escaped.
+  test("escapes combining marks after the opening quote", () => {
+    expect(quoteValue("\u0338x")).toBe('"\\u0338x"');
+    expect(quoteValue("\u0338\u20DDx")).toBe('"\\u0338\\u20DDx"');
+  });
+
+  test("escapes combining marks at the start of a line", () => {
+    expect(quoteValue("a\n\u0301b")).toBe('"a\n\\u0301b"');
+  });
+
+  test("escapes combining marks after an escaped quote", () => {
+    expect(quoteValue('a"\u0338')).toBe('"a\\"\\u0338"');
+  });
+
+  test("keeps combining marks on an ordinary letter", () => {
+    expect(quoteValue("e\u0301")).toBe('"e\u0301"');
+  });
+
   test("leaves printable non-ASCII alone", () => {
     expect(quoteValue("café 日本 😀")).toBe('"café 日本 😀"');
   });
@@ -75,6 +95,10 @@ describe("formatTarget", () => {
 
   // JSON.stringify leaves DEL, C1 and format characters raw; a nested value
   // must not smuggle a bidi override past the card.
+  test("JSON values escape a combining mark after a quote", () => {
+    expect(formatTarget("extra", ["\u0338"])).toBe('["\\u0338"]');
+  });
+
   test("JSON values escape non-printables too", () => {
     expect(formatTarget("extra", ["‮\u0085"])).toBe('["\\u202E\\u0085"]');
     expect(formatTarget("extra", { "k⁦": "\u{E0041}" }))

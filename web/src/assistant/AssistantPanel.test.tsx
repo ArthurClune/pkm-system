@@ -92,7 +92,7 @@ describe("AssistantPanel", () => {
 
   test("confirm card wires Allow and Deny", () => {
     state.current.status = "confirm";
-    state.current.pendingConfirm = { confirmId: confirmIdOf("t1"), opsPreview: "save_note(title=Demo)" };
+    state.current.pendingConfirm = { confirmId: confirmIdOf("t1"), opsPreview: "save_note(title=Demo)", preview: null };
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByText("save_note(title=Demo)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
@@ -165,7 +165,7 @@ describe("AssistantPanel", () => {
 
   test("Stop button is not shown during a confirm pause", () => {
     state.current.status = "confirm";
-    state.current.pendingConfirm = { confirmId: confirmIdOf("t1"), opsPreview: "save_note(title=Demo)" };
+    state.current.pendingConfirm = { confirmId: confirmIdOf("t1"), opsPreview: "save_note(title=Demo)", preview: null };
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
   });
@@ -173,7 +173,7 @@ describe("AssistantPanel", () => {
   test("long ops previews collapse with a Show full preview toggle", () => {
     const longPreview = `save_note(text=${"x".repeat(600)})`;
     state.current.status = "confirm";
-    state.current.pendingConfirm = { confirmId: confirmIdOf("t1"), opsPreview: longPreview };
+    state.current.pendingConfirm = { confirmId: confirmIdOf("t1"), opsPreview: longPreview, preview: null };
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.queryByText(longPreview)).toBeNull(); // collapsed: not the full string
     const toggle = screen.getByRole("button", { name: /show full preview/i });
@@ -184,7 +184,7 @@ describe("AssistantPanel", () => {
 
   test("short ops previews render in full with no toggle", () => {
     state.current.status = "confirm";
-    state.current.pendingConfirm = { confirmId: confirmIdOf("t1"), opsPreview: "save_note(title=Demo)" };
+    state.current.pendingConfirm = { confirmId: confirmIdOf("t1"), opsPreview: "save_note(title=Demo)", preview: null };
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByText("save_note(title=Demo)")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /show full preview/i })).toBeNull();

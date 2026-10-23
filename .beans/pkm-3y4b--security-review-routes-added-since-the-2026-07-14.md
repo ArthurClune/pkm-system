@@ -17,8 +17,8 @@ Scope:
 - [x] POST /api/client/diagnostics: body size and log injection
 - [x] Assistant: write-gating preview (ops_preview, _MAX_PREVIEW_VALUE_CHARS), subprocess token, built-in tools disabled
 - [x] Anonymous route-table walk (a probe, or the contract test from SECURITY.md hardening priority 2)
-- [x] Update docs/SECURITY.md: last-reviewed date and findings
+- [x] Write a separate review report; update docs/SECURITY.md with the review date and report link
 
 ## Summary of Changes
 
-Review against 5ce279af recorded in docs/SECURITY.md (2026-10-23). No fixes. Confirmed outbound image-request channel in assistant rendering (successful model injection remains a prerequisite); batch preview target omission; anonymous access-log control injection; unbounded authenticated diagnostics logging. Local containment and anonymous route-table checks passed. GoodLinks URL-parser observation and original-image metadata disclosure documented. Focused suites passed; no production/provider calls. Review-only changes are on review/security-3y4b.
+Review against 5ce279af recorded in docs/security-review-2026-10-23.md. docs/SECURITY.md retains the security model and links to the separate report. No fixes. Confirmed outbound image-request channel in assistant rendering (successful model injection remains a prerequisite); batch preview target omission; anonymous access-log control injection; unbounded authenticated diagnostics logging. Local containment and anonymous route-table checks passed. GoodLinks URL-parser observation and original-image metadata disclosure documented. Focused suites passed; no production/provider calls. Review-only changes are on review/security-3y4b.

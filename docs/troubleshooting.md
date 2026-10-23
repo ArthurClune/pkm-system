@@ -136,6 +136,7 @@ Owner: [backend.md](architecture/backend.md)
 | A huge integer (`to_ms`, `offset`, `since`, `order_idx`) answers 500 `OverflowError`; after an order key near int64, reads 500 with `order_idx: expected int, got float` | SQLite binds only 64-bit ints, and a sibling shift's overflowing sum becomes a REAL (`Int64`, `WIRE_ORDER_IDX`) | [backend.md § Hostile input](architecture/backend.md#hostile-input) | pkm-o42u, pkm-ux3w |
 | Search or unlinked mentions answer 500 ("unterminated string") when the term or title holds a NUL | FTS5 reads its query as a C string | [backend.md § Hostile input](architecture/backend.md#hostile-input) | pkm-o42u |
 | An anonymous GET of `/a%00b`, a 300-character path component or a link loop inside `web_dist` answers 500 | The SPA catch-all's `resolve()` and `is_file()` raise `ValueError`, `OSError` or `RuntimeError`; the handler answers 404 for all three | [backend.md § Hostile input](architecture/backend.md#hostile-input) | pkm-xrvv |
+| An anonymous request, or an `/api/ws` handshake, with a `pkm_session` cookie whose signature is non-ASCII answers 500 | `hmac.compare_digest` raises `TypeError` on a non-ASCII `str`; `verify_session` now rejects a signature that is not ASCII of the expected length before comparing | [backend.md § Hostile input](architecture/backend.md#hostile-input) | pkm-ank8 |
 
 ### Reads, startup and logging
 

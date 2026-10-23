@@ -31,7 +31,9 @@ from pkm.batch import (BatchItemError, NestedItem, alias_name, nested_items,
 from pkm.mcp import tools as mcp_tools
 from pkm.planning import parse_uid_spec
 
-CONTENT_CLIP_CHARS = 2000
+# The card sends every content value whole, so [show] can reveal all of
+# it; a longer one is refused rather than approved partly unseen.
+CONTENT_LIMIT_CHARS = 50_000
 
 
 @dataclass(frozen=True)
@@ -39,7 +41,7 @@ class PreviewOp:
     action: str
     # JSON values, never clipped.
     targets: list[tuple[str, object]]
-    # (key, text clipped to CONTENT_CLIP_CHARS, unclipped length)
+    # (key, text, its length in code points)
     content: list[tuple[str, str, int]]
     warnings: list[str]
 
@@ -153,9 +155,18 @@ def _op(entry: str, validated: Mapping[str, Any]) -> PreviewOp:
         if value is None:
             continue
         text = _content_text(key, value)
-        content.append((key, text[:CONTENT_CLIP_CHARS], len(text)))
+        content.append((key, text, len(text)))
     return PreviewOp(action=label, targets=targets, content=content,
                      warnings=_warnings(entry, validated))
+
+
+def _limit_problem(op: PreviewOp) -> str | None:
+    """Why `op` is too large to preview, or None."""
+    for key, _, total in op.content:
+        if total > CONTENT_LIMIT_CHARS:
+            return (f"{key} is {total} characters; split the write into "
+                    f"parts under {CONTENT_LIMIT_CHARS}")
+    return None
 
 
 def _first_error(exc: ValidationError) -> str:
@@ -185,9 +196,13 @@ def _batch_preview(commands: list[dict[str, object]]
         return Refusal(f"batch item {exc.index}: {exc.problem}")
     ops: list[PreviewOp] = []
     names: list[str] = []
-    for command in parsed:
-        ops.append(_op(f"batch:{command.command}",
-                       command.params.model_dump(mode="json", by_alias=True)))
+    for i, command in enumerate(parsed):
+        op = _op(f"batch:{command.command}",
+                 command.params.model_dump(mode="json", by_alias=True))
+        problem = _limit_problem(op)
+        if problem is not None:
+            return Refusal(f"batch item {i}: {problem}")
+        ops.append(op)
         names.append(command.command)
     return WritePreview(
         ops=ops, summary=f"batch: {len(ops)} ops ({', '.join(names)})")
@@ -212,6 +227,9 @@ def build_write_preview(short: str, tool_input: Mapping[str, object]
     if short == "batch":
         return _batch_preview(validated["commands"])
     op = _op(short, validated)
+    problem = _limit_problem(op)
+    if problem is not None:
+        return Refusal(f"{short}: {problem}")
     # Values ASCII-escaped: U+2028 and friends break lines in log viewers.
     shown = ", ".join(f"{json.dumps(k)}={json.dumps(v)}"
                       for k, v in op.targets)

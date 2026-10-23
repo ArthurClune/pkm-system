@@ -350,21 +350,8 @@ describe("ConfirmCard", () => {
     expect(card()
       .querySelector(".assistant-confirm-content .assistant-confirm-value")!
       .textContent).toBe(`"${longText}"`);
-    expect(card()).not.toHaveTextContent("clipped by the server");
     fireEvent.click(screen.getByRole("button", { name: "[hide]" }));
     expect(card()).not.toHaveTextContent("TAIL");
-  });
-
-  test("a value the server clipped says so once shown in full", () => {
-    const sent = "d".repeat(2000);
-    showConfirm(previewOf(op({ content: [["text", sent, 5000]] })));
-    render(<AssistantPanel open onClose={() => {}} />);
-    fireEvent.click(screen.getByRole("button", { name: "[show]" }));
-    const content = card().querySelector(".assistant-confirm-content")!;
-    expect(content.querySelector(".assistant-confirm-value")!.textContent)
-      .toBe(`"${sent}"…`);
-    expect(content).toHaveTextContent("(5000 chars)");
-    expect(content).toHaveTextContent("clipped by the server at 2000");
   });
 
   // total_len counts code points; .length would count each emoji twice

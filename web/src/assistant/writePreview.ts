@@ -29,9 +29,10 @@ function parseContent(raw: unknown): [string, string, number] | null {
   if (typeof total !== "number" || !Number.isSafeInteger(total) || total < 0) {
     return null;
   }
-  // total is the server's len of the unclipped value, in code points; a
-  // value longer than that would make the card misstate what it shows
-  if ([...value].length > total) return null;
+  // total is the server's len of the value, in code points. The server
+  // sends content whole, so any other length would make the card misstate
+  // what it shows, or have the user approve a tail never sent
+  if ([...value].length !== total) return null;
   return [escapeLabel(key), value, total];
 }
 

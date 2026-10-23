@@ -11,8 +11,9 @@ import { stripCaretBlockRefs } from "./normalizeRefs";
 import { useAssistant, type PendingConfirm } from "./useAssistant";
 import { formatTarget, quoteValue, type WritePreview } from "./writePreview";
 
-// Each content value shows this many code points until [show]; targets are
-// never clipped, so Allow never sits below a hidden destination.
+// Each content value shows this many code points until [show] reveals the
+// rest, which the server always sends; targets are never clipped, so Allow
+// never sits below a hidden destination.
 const CONTENT_CLIP = 280;
 // Allow stays disabled this long after a card mounts, so a double-click aimed
 // at the control the card replaced cannot land on it. Deny is live at once.
@@ -27,15 +28,13 @@ function ContentValue({ name, text, total }: {
   // total is the server's count of code points, so the clip counts them too,
   // which also keeps it from splitting a surrogate pair
   const points = [...text];
-  const cardClipped = points.length > CONTENT_CLIP;
-  const shown = cardClipped && !expanded ? points.slice(0, CONTENT_CLIP) : points;
-  const clipped = total > Math.min(points.length, CONTENT_CLIP);
-  const serverClipped = total > points.length && shown.length === points.length;
+  const clipped = points.length > CONTENT_CLIP;
+  const shown = clipped && !expanded ? points.slice(0, CONTENT_CLIP) : points;
   return (
     <div className="assistant-confirm-content">
       <span className="assistant-confirm-key">{name}</span>{": "}
       {clipped && <span className="assistant-confirm-length">({total} chars)</span>}
-      {cardClipped && (
+      {clipped && (
         <>
           {" "}
           <button
@@ -52,11 +51,6 @@ function ContentValue({ name, text, total }: {
       <bdi className="assistant-confirm-value assistant-confirm-text">
         {quoteValue(shown.join(""))}{shown.length < total ? "…" : ""}
       </bdi>
-      {serverClipped && (
-        <div className="assistant-confirm-length">
-          clipped by the server at {points.length}
-        </div>
-      )}
     </div>
   );
 }

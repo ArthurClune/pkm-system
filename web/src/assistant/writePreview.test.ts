@@ -4,7 +4,7 @@ import { formatTarget, parseWritePreview, quoteValue } from "./writePreview";
 const validOp = {
   action: "update_block",
   targets: [["uid", "VICTIMUID01"], ["mark", null]],
-  content: [["text", "Tidied wording.", 480]],
+  content: [["text", "Tidied wording.", 15]],
   warnings: [],
 };
 
@@ -174,7 +174,7 @@ describe("parseWritePreview", () => {
   });
 
   // total_len is Python's len, which counts code points: an emoji is one.
-  test("accepts content whose code points fit its total length", () => {
+  test("accepts content whose code points match its total length", () => {
     const op = { ...validOp, content: [["text", "😀😀", 2]] };
     expect(parsed(op)?.ops[0].content).toEqual([["text", "😀😀", 2]]);
   });
@@ -207,6 +207,10 @@ describe("parseWritePreview", () => {
       { ops: [{ ...validOp, content: [["text", 5, 1]] }], summary: "s" }],
     ["a content value longer than its total length",
       { ops: [{ ...validOp, content: [["text", "abcdef", 2]] }], summary: "s" }],
+    // the server sends content whole: a shorter value would be approved
+    // partly unseen
+    ["a content value shorter than its total length",
+      { ops: [{ ...validOp, content: [["text", "ab", 5000]] }], summary: "s" }],
     ["a content entry with two items", { ops: [{ ...validOp, content: [["text", "x"]] }], summary: "s" }],
     ["warnings not an array", { ops: [{ ...validOp, warnings: "w" }], summary: "s" }],
     ["a warning that is not a string", { ops: [{ ...validOp, warnings: [1] }], summary: "s" }],

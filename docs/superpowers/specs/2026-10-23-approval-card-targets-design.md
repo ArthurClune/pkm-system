@@ -105,9 +105,10 @@ WritePreview = {
 - `ConfirmRequest` carries `preview: WritePreview` beside the existing
   `ops_preview: str` (now the one-line `summary`, kept for logs and
   transcripts). `encode_sse` already serialises dataclasses via `asdict`.
-- Content clip: each content value keeps its first 2000 characters;
-  `total_len` is the full length. Targets are never clipped (a target is
-  a title, uid or path, bounded by what the server accepts anyway).
+- Content is sent whole, so the card's `[show]` reveals all of it;
+  `total_len` is its length. A write with a content value over
+  `CONTENT_LIMIT_CHARS` (50,000) is refused, telling the model to split
+  it: a value cut on the server would be approved partly unseen.
 
 ### Web (`sse.ts`, `useAssistant.ts`, `AssistantPanel.tsx`)
 

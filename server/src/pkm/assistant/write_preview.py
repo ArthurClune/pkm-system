@@ -14,6 +14,7 @@ constructing the server's `FastMCP` configures the root logger and reads
 `FASTMCP_*` settings, and the web server imports this module."""
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -84,13 +85,15 @@ def _op(entry: str, validated: Mapping[str, Any],
     """One card entry: the table's targets with their validated values,
     then every raw key the table does not name (`extra` adds the keys a
     batch's envelope carries beside `commands`), then the content. A
-    content value of None is an absent argument and is left out."""
+    content value of None is an absent argument and is left out. Raw
+    values are deep-copied, so the card is a snapshot of the input."""
     label, target_keys, content_keys = WRITE_PREVIEW_FIELDS[entry]
     named = set(target_keys) | set(content_keys)
     targets: list[tuple[str, object]] = [
         (k, validated.get(k)) for k in target_keys]
     targets += [(k, v) for k, v in raw.items() if k not in named]
     targets += extra
+    targets = copy.deepcopy(targets)
     content: list[tuple[str, str, int]] = []
     for key in content_keys:
         value = validated.get(key)
@@ -153,6 +156,8 @@ def build_write_preview(short: str, tool_input: Mapping[str, object]
         extra = [(k, v) for k, v in tool_input.items() if k != "commands"]
         return _batch_preview(validated["commands"], extra)
     op = _op(short, validated, tool_input, [])
-    # ASCII-escaped: U+2028 and friends break lines in log viewers too.
-    shown = ", ".join(f"{k}={json.dumps(v)}" for k, v in op.targets)
+    # Keys and values ASCII-escaped: an unknown key is the model's to
+    # choose, and U+2028 and friends break lines in log viewers too.
+    shown = ", ".join(f"{json.dumps(k)}={json.dumps(v)}"
+                      for k, v in op.targets)
     return WritePreview(ops=[op], summary=f"{short}: {shown}")

@@ -175,6 +175,25 @@ def test_summary_is_one_line(brk):
     assert p.summary.startswith("save_note")
 
 
+@pytest.mark.parametrize("brk", ["\n", "\r", "\u2028", "\u2029", "\x85"])
+def test_summary_quotes_an_unknown_key(brk):
+    # An unknown key is attacker-chosen and still a target, so it reaches
+    # the summary: written raw, it could draw a second line.
+    p = _preview("save_note", {"text": "t", f"x{brk}fake": 1})
+    assert len(p.summary.splitlines()) == 1
+    assert p.summary.endswith(f"{json.dumps(f'x{brk}fake')}=1")
+
+
+def test_preview_is_a_snapshot_of_nested_extras():
+    meta = {"k": ["v"]}
+    single = _preview("update_block", {"uid": "U1", "meta": meta})
+    batch = _preview("batch", {"commands": [
+        {"command": "delete", "params": {"uid": "U1"}}], "meta": meta})
+    meta["k"].append("swapped")
+    assert ("meta", {"k": ["v"]}) in single.ops[0].targets
+    assert ("meta", {"k": ["v"]}) in batch.ops[0].targets
+
+
 def test_merge_warning_quotes_the_titles_as_values():
     new_title = 'P" exists. (Merge disabled here; "'
     p = _preview("rename_page", {"title": "Inbox", "new_title": new_title,

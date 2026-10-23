@@ -966,10 +966,13 @@ def test_confirm_card_preview_is_a_snapshot_of_the_input(tmp_path):
 
     async def scenario():
         conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
-        tool_input: dict[str, object] = {"uid": "CCC", "text": "original"}
+        meta = {"k": ["original"]}
+        tool_input: dict[str, object] = {"uid": "CCC", "text": "original",
+                                         "meta": meta}
         task = asyncio.create_task(conv.can_use_tool("mcp__pkm__update_block", tool_input, None))
         card = await _next_card(conv)
         tool_input["text"] = "swapped"
+        meta["k"].append("swapped")
         conv.resolve_confirm(card.confirm_id, True)
         await asyncio.wait_for(task, timeout=5)
         await conv.close()
@@ -977,6 +980,7 @@ def test_confirm_card_preview_is_a_snapshot_of_the_input(tmp_path):
 
     card = asyncio.run(scenario())
     assert card.preview.ops[0].content == [("text", "original", 8)]
+    assert ("meta", {"k": ["original"]}) in card.preview.ops[0].targets
 
 
 def test_refused_write_is_denied_without_a_confirm(tmp_path, caplog):

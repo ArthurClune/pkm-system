@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-10-23T18:15:37Z
-updated_at: 2026-10-23T18:15:37Z
+updated_at: 2026-10-23T21:16:49Z
 parent: pkm-mfd0
 blocking:
     - pkm-e95y
@@ -15,7 +15,7 @@ Split from pkm-qd81. _block_ref_counts, _fetch_ancestors and _gather_resolution_
 
 - [x] Red test from each probe
 - [x] Chunk every IN-list built from an unbounded id set
-- [ ] perf/check.sh backend before merge (not run on this branch: `page/big` statements rise 7 -> 9 at CHUNK_SIZE 500, so the baseline is bootstrapped on the integration branch with that reason)
+- [x] perf/check.sh backend before merge: `page/big` statements 7 -> 9 and `block/backlinks` 3 -> 4 (562 referrers) at CHUNK_SIZE 500; timings flat. Arthur accepted; baseline bootstrapped on security/batch-1
 - [x] troubleshooting.md row
 
 ## Summary of Changes

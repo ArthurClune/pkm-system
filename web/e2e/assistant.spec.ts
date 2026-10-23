@@ -98,9 +98,11 @@ test("two confirms queue: the second waits behind the first", async ({ page }) =
 
 // a short window makes the card taller than the transcript and its ops list
 // overflow its own region: the card opens at its heading, and Allow waits
-// until the end of the list has also been in view
+// until the end of the list has also been in view. At this height a region
+// capped at 40vh would not fit the transcript, so a keyboard could never
+// bring its end into view.
 test("Allow arms only once the whole card has been in view", async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 250 });
+  await page.setViewportSize({ width: 1280, height: 260 });
   const panel = await openPanel(page);
   const card = confirmCard(panel);
   const hint = card.getByText("Scroll to the end to review every write");
@@ -117,10 +119,11 @@ test("Allow arms only once the whole card has been in view", async ({ page }) =>
   await expect(panel.getByRole("button", { name: "Allow" })).toBeDisabled();
   await expect(panel.getByRole("button", { name: "Deny" })).toBeEnabled();
 
-  // the region takes focus, so a keyboard can scroll it to the end
+  // the region takes focus, so a keyboard alone can scroll it to the end
   await region.focus();
   await page.keyboard.press("End");
-  await card.locator(".assistant-confirm-end").scrollIntoViewIfNeeded();
+  await expect(region).toBeFocused();
+  await expect.poll(() => region.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
   await expect(hint).toHaveCount(0);
   await panel.getByRole("button", { name: "Allow" }).click();
   await expect(panel.getByText("Saved.")).toBeVisible();

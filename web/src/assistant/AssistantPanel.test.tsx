@@ -582,25 +582,53 @@ describe("ConfirmCard", () => {
     expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
   });
 
-  test("a new card scrolls its top into view", () => {
+  // jsdom has no layout: stand in for a transcript scrolled to the top of
+  // the panel, with a card 200px below the top of its scroll area
+  function layOut() {
+    vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(1000);
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: Element) {
+        const top = this.classList.contains("assistant-confirm-card") ? 300
+          : this.classList.contains("assistant-messages") ? 100 : 0;
+        return { top } as DOMRect;
+      });
+    const setTop = vi.spyOn(Element.prototype, "scrollTop", "set");
+    onTestFinished(() => { vi.restoreAllMocks(); });
+    return setTop;
+  }
+
+  // the transcript scrolls itself rather than calling scrollIntoView, which
+  // in WebKit can also scroll the document under the fixed panel
+  test("a new card scrolls the transcript to the card's top", () => {
+    const setTop = layOut();
     showConfirm(previewOf(op()));
     render(<AssistantPanel open onClose={() => {}} />);
-    expect(scrollIntoView).toHaveBeenCalledTimes(1);
-    expect(scrollIntoView.mock.contexts[0]).toBe(card());
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+    const messages = document.querySelector(".assistant-messages");
+    expect(setTop.mock.calls).toEqual([[200]]);
+    expect(setTop.mock.contexts[0]).toBe(messages);
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
   // pinning the transcript to its bottom would push a tall card's heading
   // and first targets above the fold
   test("a confirm does not pin the transcript to its bottom", () => {
-    const setTop = vi.spyOn(Element.prototype, "scrollTop", "set");
-    onTestFinished(() => setTop.mockRestore());
+    const setTop = layOut();
     state.current.items = [{ kind: "user", text: "please write" }];
     const { rerender } = render(<AssistantPanel open onClose={() => {}} />);
-    expect(setTop).toHaveBeenCalledTimes(1);
+    expect(setTop.mock.calls).toEqual([[1000]]);
     showConfirm(previewOf(op()));
     rerender(<AssistantPanel open onClose={() => {}} />);
-    expect(setTop).toHaveBeenCalledTimes(1);
+    // from the bottom it was pinned to, on by the card's 200px offset
+    expect(setTop.mock.calls).toEqual([[1000], [1200]]);
+  });
+
+  test("a card mounted again on reopen scrolls to its top again", () => {
+    const setTop = layOut();
+    showConfirm(previewOf(op()));
+    const { rerender } = render(<AssistantPanel open onClose={() => {}} />);
+    rerender(<AssistantPanel open={false} onClose={() => {}} />);
+    rerender(<AssistantPanel open onClose={() => {}} />);
+    expect(setTop.mock.calls).toEqual([[200], [200]]);
   });
 
   test("the ops list is a focusable region a keyboard can scroll", () => {

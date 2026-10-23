@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 // Floating assistant chat panel (bottom-right overlay; not a route).
 
-import { useEffect, useRef, useState, type Ref } from "react";
+import { useEffect, useRef, useState, type Ref, type RefObject } from "react";
 import { BlockRefProvider } from "../components/BlockRefProvider";
 import { InlineSegments } from "../components/InlineSegments";
 import { UntrustedContentContext } from "../contexts";
@@ -105,11 +105,13 @@ function ConfirmCard({
   count,
   answering,
   onAnswer,
+  scrollerRef,
 }: {
   pending: PendingConfirm;
   count: number;
   answering: boolean;
   onAnswer: (allow: boolean) => void;
+  scrollerRef: RefObject<HTMLDivElement>;
 }) {
   const { preview, sentDecision } = pending;
   const cardRef = useRef<HTMLDivElement>(null);
@@ -122,10 +124,16 @@ function ConfirmCard({
     const id = setTimeout(() => setArmed(true), ALLOW_ARM_MS);
     return () => clearTimeout(id);
   }, []);
-  // a new card shows from its heading down, not from the transcript's bottom
+  // A new card shows from its heading down, not from the transcript's
+  // bottom. The transcript scrolls itself: scrollIntoView can also scroll the
+  // document under the fixed panel in WebKit.
   useEffect(() => {
-    cardRef.current?.scrollIntoView({ block: "start" });
-  }, []);
+    const card = cardRef.current;
+    const scroller = scrollerRef.current;
+    if (!card || !scroller) return;
+    scroller.scrollTop += card.getBoundingClientRect().top
+      - scroller.getBoundingClientRect().top;
+  }, [scrollerRef]);
   useEffect(() => {
     const start = startRef.current;
     const end = endRef.current;
@@ -305,6 +313,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
             count={assistant.pendingConfirmCount}
             answering={assistant.answering}
             onAnswer={(allow) => void assistant.respondConfirm(allow)}
+            scrollerRef={listRef}
           />
         )}
         {assistant.error && <div className="assistant-error">{assistant.error}</div>}

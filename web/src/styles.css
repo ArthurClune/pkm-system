@@ -1110,9 +1110,12 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
   padding: 10px; }
 .assistant-confirm-title { font-weight: 600; margin-bottom: 6px; }
 /* the ops scroll inside the card, so Allow and Deny below them stay in view
- * however long the batch */
-.assistant-confirm-scroll { max-height: min(260px, 40vh); overflow-y: auto; margin: 0 0 8px;
-  font-size: 0.85em; }
+ * however long the batch. The cap leaves room in the transcript for the
+ * panel's chrome (its inset, header and composer, about 160px) and the card's
+ * heading (about 45px): a region taller than that would hide its own end
+ * marker however far a keyboard scrolls it, and Allow would never arm */
+.assistant-confirm-scroll { max-height: clamp(4em, calc(100vh - 210px), 260px); overflow-y: auto;
+  margin: 0 0 8px; font-size: 0.85em; }
 .assistant-confirm-scroll:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .assistant-confirm-ops { margin: 0; padding-left: 1.6em; }
 .assistant-confirm-op + .assistant-confirm-op { margin-top: 8px; }

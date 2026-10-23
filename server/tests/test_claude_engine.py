@@ -877,21 +877,13 @@ async def _next_card(conv) -> ConfirmRequest:
     return card
 
 
-def _two_parked_writes(conv, a_input=None, b_input=None):
+async def _two_parked_writes(conv):
     """Park two write-tool approvals: (task_a, task_b, card_a, card_b)."""
-
-    async def park():
-        ta = asyncio.create_task(
-            conv.can_use_tool("mcp__pkm__update_block", a_input or {"uid": "AAA"}, None)
-        )
-        tb = asyncio.create_task(
-            conv.can_use_tool("mcp__pkm__update_block", b_input or {"uid": "BBB"}, None)
-        )
-        card_a = await _next_card(conv)
-        card_b = await _next_card(conv)
-        return ta, tb, card_a, card_b
-
-    return park()
+    ta = asyncio.create_task(conv.can_use_tool("mcp__pkm__update_block", {"uid": "AAA"}, None))
+    tb = asyncio.create_task(conv.can_use_tool("mcp__pkm__update_block", {"uid": "BBB"}, None))
+    card_a = await _next_card(conv)
+    card_b = await _next_card(conv)
+    return ta, tb, card_a, card_b
 
 
 def test_concurrent_confirms_resolve_only_their_own_card(tmp_path):
@@ -902,6 +894,8 @@ def test_concurrent_confirms_resolve_only_their_own_card(tmp_path):
     async def scenario():
         conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
         ta, tb, card_a, card_b = await _two_parked_writes(conv)
+        assert "AAA" in card_a.ops_preview
+        assert "BBB" in card_b.ops_preview
         assert card_a.confirm_id != card_b.confirm_id
 
         conv.resolve_confirm(confirm_id_of("confirm-99"), True)
@@ -946,11 +940,13 @@ def test_late_confirm_after_resolution_is_a_no_op(tmp_path):
 
 @pytest.mark.parametrize("tool", ["mcp__other__get_page", "mcp__pkm__delete_everything"])
 def test_foreign_and_unknown_tools_are_denied_without_a_card(tmp_path, tool):
+    """A tool outside the pkm read/write sets is refused outright, never
+    offered to the user as a card to approve."""
     engine = make_engine(tmp_path)
 
     async def scenario():
         conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
-        decision = await conv.can_use_tool(tool, {}, None)
+        decision = await asyncio.wait_for(conv.can_use_tool(tool, {}, None), timeout=5)
         queued = conv._queue.qsize()
         await conv.close()
         return decision, queued
@@ -970,15 +966,13 @@ def test_confirm_card_preview_is_a_snapshot_of_the_input(tmp_path):
         tool_input: dict[str, object] = {"uid": "CCC", "text": "original"}
         task = asyncio.create_task(conv.can_use_tool("mcp__pkm__update_block", tool_input, None))
         card = await _next_card(conv)
-        shown = card.ops_preview
         tool_input["text"] = "swapped"
         conv.resolve_confirm(card.confirm_id, True)
         await asyncio.wait_for(task, timeout=5)
         await conv.close()
-        return card, shown
+        return card
 
-    card, shown = asyncio.run(scenario())
+    card = asyncio.run(scenario())
     assert isinstance(card.ops_preview, str)
-    assert card.ops_preview == shown
-    assert "original" in shown
+    assert "text=original" in card.ops_preview
     assert "swapped" not in card.ops_preview

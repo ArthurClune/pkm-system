@@ -17,6 +17,28 @@ READ_TOOLS: tuple[str, ...] = ("get_page", "get_block", "search", "query",
 WRITE_TOOLS: tuple[str, ...] = ("save_note", "update_block", "batch",
                                 "upload_asset", "rename_page")
 
+# What the approval card shows for each write: action key -> (label,
+# target keys in display order, content keys). A target says where a
+# write lands or how destructive it is, and the card shows it in full,
+# first; only content may be clipped. Batch ops are keyed `batch:<command>`
+# and name params by their wire names (`uid`, `as`). A key not named here
+# is shown as a target, so an unclassified argument is never clipped; a
+# test fails when a tool or batch params model gains one.
+WRITE_PREVIEW_FIELDS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
+    "save_note": ("save note", ("page", "parent", "todo"), ("text",)),
+    "update_block": ("update block", ("uid", "mark"), ("text",)),
+    "upload_asset": ("upload file", ("path", "page", "parent"), ()),
+    "rename_page": ("rename page", ("title", "new_title", "allow_merge"), ()),
+    "batch:create": ("create block", ("page", "parent", "index", "as"),
+                     ("text",)),
+    "batch:todo": ("create TODO", ("page", "parent", "index", "as"),
+                   ("text",)),
+    "batch:update": ("update block", ("uid",), ("text",)),
+    "batch:move": ("move block", ("uid", "page", "parent", "index"), ()),
+    "batch:delete": ("delete block", ("uid",), ()),
+    "batch:outline": ("add outline", ("page", "parent"), ("items",)),
+}
+
 # The Claude models also exist as the web picker's fetch-failure fallback
 # (useAssistant.ts); a rename or addition there must stay in sync.
 MODELS: tuple[AssistantModel, ...] = ("sonnet", "opus", "haiku", "fable", "glm")

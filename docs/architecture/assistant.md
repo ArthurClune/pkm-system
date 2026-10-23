@@ -15,7 +15,8 @@ symptom in [troubleshooting.md](../troubleshooting.md).
 | File | Pattern | Role |
 |---|---|---|
 | `events.py` | Core | The event union routes and the web UI speak, plus `encode_sse()`. Nothing engine-specific leaks upward |
-| `policy.py` | Core | The tool gate (`READ_TOOLS` auto-allowed, `WRITE_TOOLS` confirm-gated), `MODELS`, `available_models()`, `default_model()`, write-op previews, the system prompt |
+| `policy.py` | Core | The tool gate (`READ_TOOLS` auto-allowed, `WRITE_TOOLS` confirm-gated), `MODELS`, `available_models()`, `default_model()`, `WRITE_PREVIEW_FIELDS` (which arguments of each write are targets and which are content), the system prompt |
+| `write_preview.py` | Core | `build_write_preview()`: the approval card's content for a write, or a `Refusal` |
 | `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols: the seam the test double plugs into. `send()` is an async generator because the caller closes it |
 | `harness_env.py` | Core | `resolve_harness_env()`: requested model and available key → the SDK alias and the subprocess env |
 | `service.py` | Shell | `AssistantService`, the in-memory conversation registry: a cap (`max_conversations`), a lazy idle reap (`idle_ttl`), a 409 for a second concurrent turn; `close_all()` on app shutdown |
@@ -42,13 +43,40 @@ sequenceDiagram
         Note over R,B: comment keepalive every KEEPALIVE_INTERVAL_S idle s
     end
     H->>H: model calls a write tool —<br/>can_use_tool parks it on a future
-    R-->>B: confirm_request (ops preview from policy.py)
+    R-->>B: confirm_request (preview from write_preview.py)
     B->>R: POST …/{id}/confirm {confirm_id, allow}
     R->>H: resolve future — tool runs, or "the user declined"
     H->>A: pkm-mcp verb → HTTP API (minted session token)
     H-->>R: turn ends
     R-->>B: turn_done
 ```
+
+## The write approval card
+
+The card is the only thing between a prompt-injected model and a write to the
+notes, so it shows what the tool will receive. It offers Allow only to a
+user who has had the chance to read all of it.
+
+| Rule | Reason |
+|---|---|
+| Targets come first, in full, and are never clipped; only content values (`text`, `items`) are clipped, each on its own to `CONTENT_CLIP_CHARS`, with the unclipped length shown | A long value in front of a `uid` or `title` would hide which block or page is written |
+| A key `WRITE_PREVIEW_FIELDS` does not name counts as a target | A new or model-invented argument is shown, never hidden; a test fails when a tool or batch params model gains an unclassified key |
+| `build_write_preview()` validates with the tool's own FastMCP argument model and, for `batch`, the schema `apply_batch` applies; input they reject is a `Refusal` | FastMCP coerces arguments (`"yes"` becomes true, `"null"` becomes None, a JSON string becomes a list), so the card must show the coerced value. `test_preview_matches_what_the_tool_receives` pins the parity |
+| `ClaudeEngine.can_use_tool` denies a `Refusal` without a confirm | The user cannot approve what the tool would not run as shown |
+| The tool functions are imported from `pkm.mcp.tools`, not `pkm.mcp.server` | Building the server's `FastMCP` configures the root logger |
+| The card's labels (keys, action) and warnings are escaped by `parseWritePreview`; values are quoted by `quoteValue` | A value or an unknown key cannot close a quote or draw a fake argument line. `writePreview.ts` owns the character classes |
+
+The browser keeps confirms in a queue. The head stays until its POST settles,
+so a second `confirm_request` never swaps the card under the cursor. The hook
+owns `sentDecision`, set when it posts, and after a failed post the card
+offers a retry of that same decision only: the server may already hold it.
+
+Allow arms after `ALLOW_ARM_MS`, and only once markers before the first op and
+after the last have each been in view. The ops scroll in a region inside the
+scrolling transcript, so a short window can hide a target while Allow shows;
+`IntersectionObserver` reports against the viewport, which clips through every
+scrolling ancestor. Without `IntersectionObserver` Allow never arms; Deny
+still works.
 
 ## Conversation registry
 

@@ -1,5 +1,12 @@
+import re
 import threading
 import time
+
+import pytest
+from fastapi.testclient import TestClient
+from test_routes_models import _api_routes
+
+from pkm.server.app import create_app
 
 from pkm.server.auth import MAX_CONCURRENT_SCRYPT, LoginThrottle
 from pkm.server.auth_core import (hash_password, sign_session,
@@ -186,3 +193,65 @@ class TestLoginThrottle:
         release_holder.set()
         holder_thread.join(timeout=2)
         assert not holder_thread.is_alive()
+
+
+# The routes that answer without a session. Every other route sits behind
+# `pkm.server.auth.require_auth`, so a route missing from this set that
+# answers an anonymous request is a private route that forgot its guard.
+PUBLIC_ROUTES = {
+    ("GET", "/login"),
+    ("POST", "/api/login"),
+    ("GET", "/healthz"),
+}
+
+
+def _fill_path(path: str) -> str:
+    return re.sub(r"\{[^}]*\}", "x", path)
+
+
+def _anonymous_answers(app) -> dict[tuple[str, str], int]:
+    anon = TestClient(app, raise_server_exceptions=False)
+    answers = {}
+    for route in _api_routes(app.routes):
+        for method in sorted(route.methods or ()):
+            if method in ("HEAD", "OPTIONS"):
+                continue
+            r = anon.request(method, _fill_path(route.path))
+            answers[(method, route.path)] = r.status_code
+    return answers
+
+
+def test_every_private_route_refuses_an_anonymous_request(seeded_config):
+    answers = _anonymous_answers(create_app(seeded_config))
+    assert len(answers) > 40  # the walk found the routes
+    assert PUBLIC_ROUTES <= set(answers)
+    leaked = {k: v for k, v in answers.items()
+              if k not in PUBLIC_ROUTES and v != 401}
+    assert leaked == {}
+
+
+def test_public_routes_do_not_demand_a_session(seeded_config):
+    answers = _anonymous_answers(create_app(seeded_config))
+    assert {k: answers[k] for k in PUBLIC_ROUTES if answers[k] == 401} == {}
+
+
+def test_the_route_walk_names_a_private_route_without_the_guard(
+        seeded_config):
+    app = create_app(seeded_config)
+
+    @app.get("/api/forgot-auth")
+    def forgot_auth() -> dict[str, bool]:
+        return {"ok": True}
+
+    leaked = [k for k, v in _anonymous_answers(app).items()
+              if k not in PUBLIC_ROUTES and v != 401]
+    assert leaked == [("GET", "/api/forgot-auth")]
+
+
+def test_the_websocket_refuses_a_request_without_a_cookie(anon_client):
+    from starlette.websockets import WebSocketDisconnect
+
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with anon_client.websocket_connect("/api/ws") as ws:
+            ws.receive_text()
+    assert exc.value.code == 4401

@@ -191,6 +191,16 @@ describe("AssistantPanel", () => {
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
   });
 
+  // a failed post leaves only Retry on the card; Stop ends the turn, which
+  // declines the confirm on the server, without discarding the chat
+  test.each([true, false])(
+    "Stop shows after a failed %s post and calls stop()", (decision) => {
+      showConfirm(previewOf(op()), 1, decision);
+      render(<AssistantPanel open onClose={() => {}} />);
+      fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+      expect(state.current.stop).toHaveBeenCalled();
+    });
+
   test("a ((uid)) block ref in an assistant reply resolves and becomes clickable", async () => {
     stubFetch([["/api/block-refs", {
       block_ref_texts: { chart1: { text: "the compute chart block", page_title: "Charts" } },

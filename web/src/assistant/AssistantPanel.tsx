@@ -334,8 +334,10 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
             }
           }}
         />
-        {/* while an answer posts, Stop is the exit from a hung confirm */}
-        {assistant.status === "busy" || assistant.answering ? (
+        {/* while an answer posts, or after its post failed and the card
+          * offers only a retry, Stop is the way out of the confirm */}
+        {assistant.status === "busy" || assistant.answering
+          || (assistant.pendingConfirm?.sentDecision ?? null) !== null ? (
           <button type="button" className="btn-secondary" onClick={() => assistant.stop()}>
             Stop
           </button>

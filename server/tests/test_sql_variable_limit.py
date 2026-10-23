@@ -1,9 +1,10 @@
 """IN-lists built from an unbounded id set stay under SQLite's bound-variable
 limit: the routes answer instead of raising.
 
-Every request connection is capped at LIMIT variables, below `chunk_ids`'
-chunk size plus nothing else, so N rows past the cap trip an unchunked
-statement without inserting tens of thousands of rows."""
+Every request connection is capped at LIMIT variables. LIMIT is above the
+500-id chunk of `chunk_ids` and below N, so a chunked statement fits and an
+unchunked one over N ids trips, without inserting tens of thousands of
+rows."""
 import sqlite3
 from datetime import date
 

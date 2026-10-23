@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:27Z
-updated_at: 2026-10-23T10:56:27Z
+updated_at: 2026-10-23T11:00:37Z
 parent: pkm-mfd0
 blocked_by:
     - pkm-tk9i
@@ -20,6 +20,7 @@ blocked_by:
     - pkm-qd81
     - pkm-h1em
     - pkm-oirq
+    - pkm-t74a
 ---
 
 SECURITY.md is the high-level model; update it once the fixes we take on have shipped (scrap or finish the blockers first), describing the system as it then is. Facts from the review that it currently gets wrong or omits, whatever the fixes:
@@ -33,3 +34,4 @@ SECURITY.md is the high-level model; update it once the fixes we take on have sh
 - [ ] Write gating: what the card guarantees to show
 - [ ] On-device replica/outbox/cached uploads outlive session-secret rotation
 - [ ] Diagnostics body bound
+- [ ] Known limitations / hardening priority 2: the anonymous route-walk test now exists (pkm-t74a)

@@ -11,6 +11,7 @@ parent: pkm-mfd0
 
 Review findings (Low, availability), table in the review report: SPA catch-all 500s on NUL / over-long components (anonymous); single-page export ((ref)) fan-out grows K^3 (279 MB from 11 KB); outline depth >= 255 makes page/block/journal 500; backlink breadcrumbs O(depth^3); IN-lists over 32,766 variables 500; /api/query 500s on deep or wide expressions; legacy deeply nested [[ makes rename/delete 500.
 
+- [ ] Red test first, from the review probe: sec-exports/p4b_spa_exc.py, p5_amplify.py, p7_varlimit.py; sec-pages/p2_query.py, p2b_query_exc.py, p3_deep_tree.py, p3b/p3c_threshold.py, p3d_journal.py, p4_placeholders.py, p5b_brackets_legacy.py; sec-pages/p8_ancestors.py is timing, a perf case. Probes live in docs/superpowers/handoffs/security-review-2026-10-23-probes (main checkout, gitignored; README maps probes)
 - [ ] SPA catch-all returns 404 for paths resolve() rejects
 - [ ] Export: bound output size or ref fan-out
 - [ ] Depth: cap outline depth at write time or serialise iteratively

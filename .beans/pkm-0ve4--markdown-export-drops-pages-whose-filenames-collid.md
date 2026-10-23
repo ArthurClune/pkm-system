@@ -1,11 +1,11 @@
 ---
 # pkm-0ve4
 title: Markdown export drops pages whose filenames collide on APFS
-status: todo
+status: completed
 type: bug
 priority: high
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-23T11:36:48Z
+updated_at: 2026-10-23T12:30:04Z
 parent: pkm-mfd0
 ---
 
@@ -26,3 +26,7 @@ collisions are plain case ("Conflict"/"conflict", "Local Copy"/"Local copy"),
 which the current lower() dedupe already handles ("conflict (2).md",
 "Local copy (2).md" in the export). So the backup has lost no pages to this
 finding in the retained history; gaps between monthly snapshots are unchecked.
+
+## Summary of Changes
+
+page_filename and the selected-asset zip arcnames dedupe on fs_dedupe_key (NFD, casefold, NFD) instead of str.lower(), matching how APFS compares names. A whole-graph export test proves every page body lands in its own file (it fails with the old key: 8 pages, 4 files), and a filesystem test checks the key against the real volume. Some export filenames gain a ' (2)' suffix, which shows as a rename in the backup git history. No retained backup had lost a page.

@@ -337,11 +337,10 @@ route whose decision rests on what it reads joins them.
 | `POST /api/ops` | the dedupe read and every op's context read | 503 + `Retry-After` |
 | `POST /api/page/{title}/rename` | the snapshot of referencing blocks, so no batch commits an unrewritten `[[Old]]`; a title race cannot reach the `UPDATE` | 503 + `Retry-After` |
 | `DELETE /api/page/{title}` | the snapshot of referencing blocks | 503 + `Retry-After` |
-| `DELETE /api/assets/{sha256}?if_unreferenced=true` | the reference check | 503 + `Retry-After` |
+| `DELETE /api/assets/{sha256}` | the strip's read of each referencing block, or with `if_unreferenced=true` the reference check | 503 + `Retry-After` |
+| `POST /api/journal/cleanup` | the emptiness and link checks, so a block created on the day cannot go with the page | 503 + `Retry-After` |
 | `POST /api/sidebar` | the uniqueness check and `max(order_idx) + 1`, so a same-title race is a 409 | uncaught: 500 |
 | `POST /api/migrations/title-canonicalization` | the re-inventory | uncaught: 500 |
-| `DELETE /api/assets/{sha256}` (strip mode) | none: reads each referencing block, then writes it | n/a |
-| `POST /api/journal/cleanup` | none: checks emptiness, then deletes | n/a |
 
 ### Planning
 

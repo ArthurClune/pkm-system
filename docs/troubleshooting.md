@@ -123,6 +123,8 @@ Owner: [backend.md](architecture/backend.md)
 | A conflict copy lands on a different daily note than the batch's `applied_at` day | `_conflict_landing` read `date.today()` after a lock wait across midnight, not the batch's `now_ms` | [backend.md § Conflicts](architecture/backend.md#conflicts) | pkm-hb4x |
 | A page delete or rename racing a batch swallowed a clean update behind an `ok` ack, or resurrected the old title | `post_ops` read its dedupe check and context before taking the write lock | [backend.md § The write lock](architecture/backend.md#the-write-lock) | pkm-gwwu |
 | A `[[Old]]` link escapes a rename that raced the batch which wrote it | `rename_page` read the referencing blocks before taking the write lock | [backend.md § The write lock](architecture/backend.md#the-write-lock) | pkm-xtqz |
+| An edit to a block is lost, with no conflict note, when the block's file is deleted from /files at the same time | `delete_asset` strip mode read each referencing block before taking the write lock | [backend.md § The write lock](architecture/backend.md#the-write-lock) | pkm-jvid |
+| A block written to an empty past daily note vanishes with the page when the journal loads | `cleanup_journal` checked the page was empty and unlinked before taking the write lock | [backend.md § The write lock](architecture/backend.md#the-write-lock) | pkm-jvid |
 
 ### 500s from hostile input
 

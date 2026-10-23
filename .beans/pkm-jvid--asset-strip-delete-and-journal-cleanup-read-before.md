@@ -1,10 +1,11 @@
 ---
 # pkm-jvid
 title: Asset strip-delete and journal cleanup read before writing without the write lock
-status: todo
+status: completed
 type: bug
+priority: normal
 created_at: 2026-10-22T21:04:56Z
-updated_at: 2026-10-22T21:04:56Z
+updated_at: 2026-10-23T08:26:27Z
 ---
 
 Found by the final review of the architecture-docs cut (pkm-pddd), from reading the code; not reproduced yet.
@@ -17,6 +18,13 @@ Two journal-advancing routes read and then write without `begin_immediate()`, so
 `Db` uses sqlite3's default isolation, so the implicit BEGIN comes only at the first DML.
 
 ## Checklist
-- [ ] Reproduce each race in a test (interleave a commit between the read and the write)
-- [ ] Take `begin_immediate()` before the first read in both routes, answering 503 `Retry-After` on busy as rename and delete do
-- [ ] backend.md § The write lock: move both routes into the table as locked
+- [x] Reproduce each race in a test (interleave a commit between the read and the write)
+- [x] Take `begin_immediate()` before the first read in both routes, answering 503 `Retry-After` on busy as rename and delete do
+- [x] backend.md § The write lock: move both routes into the table as locked
+
+## Summary of Changes
+
+- `delete_asset` takes `BEGIN IMMEDIATE` before its first read, for both modes (the strip and `if_unreferenced`), and rolls back on any error; busy answers 503 + `Retry-After`.
+- `cleanup_journal` does the same before the emptiness and link checks.
+- Tests reproduce each race (a second connection commits between read and write) and the 503 on a held lock.
+- backend.md § The write lock lists both routes as locked; two troubleshooting rows added.

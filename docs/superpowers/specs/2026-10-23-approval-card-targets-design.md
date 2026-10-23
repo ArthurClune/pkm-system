@@ -77,16 +77,25 @@ WritePreview = {
 | Refusal(message: str)
 ```
 
-- `batch.commands`: a JSON string is parsed exactly as FastMCP's
-  pre-parse does (`json.loads` of a string whose schema type is array)
-  before anything else. The result must be a non-empty list whose every
-  item validates against `pkm.batch`'s `BatchCommand` adapter; otherwise
-  `Refusal("batch commands are not a list of {command, params} objects:
-  <first error>")`. The preview is built from the validated models, so it
-  lists exactly the ops that `apply_batch` would run.
-- Other write tools: the input must be a JSON object whose keys' values
-  have the parameter's type (string, bool, or null where optional); a
-  wrong type is a refusal. Unknown keys are allowed and shown as targets.
+- **Preview what the tool receives, not what the model sent.** FastMCP
+  runs `pre_parse_json` on every argument whose annotation is not plain
+  `str`, then validates with a lax pydantic model. So `page: "null"`
+  arrives as `None` (today's daily note), `allow_merge: "yes"` or `"1"`
+  as `True`, and `commands: "[...]"` as a list. Checked on the installed
+  FastMCP, 2026-10-23. The preview therefore takes each write tool's own
+  argument model, `func_metadata(<the pkm.mcp.server function>)`, runs
+  its `pre_parse_json` and `arg_model.model_validate`, and previews the
+  validated values. A validation error is a refusal naming the first
+  error. Keys the model ignores (extras) are still shown as targets,
+  since a future signature might read them.
+- `batch`: after that, every item of `commands` must validate against
+  `pkm.batch`'s `BatchCommand` adapter, and the list must be non-empty;
+  otherwise `Refusal("batch item <i>: <problem>")`. The preview is built
+  from the validated models, so it lists exactly the ops `apply_batch`
+  would run.
+- Where the code that builds the arg models sits is an FCIS call:
+  `pkm.mcp.server` constructs a `FastMCP` at import (no I/O). The plan
+  names the module.
 - `can_use_tool` returns `PermissionResultDeny(message=refusal.message)`
   for a refusal without sending a `confirm_request`, and logs it.
 - `ConfirmRequest` carries `preview: WritePreview` beside the existing
@@ -110,8 +119,10 @@ WritePreview = {
   - per op, numbered: the action, then each target as `key` + value on its
     own line, then warnings, then each content value clipped in the card at
     a short visual length with "(N chars) [show]" when longer;
-  - every value is a separate element; a string value renders through
-    `JSON.stringify` (quoted, escapes visible), other values likewise;
+  - every value is a separate element; a string value renders quoted,
+    with `"` and `\` escaped and every non-printable except newline shown
+    as `\uXXXX` (newlines stay, so a multi-line note stays readable, but
+    no line inside it can close the quote); other values as JSON;
   - no collapse of the card as a whole, so Allow never sits above a hidden
     target. The card scrolls inside the panel when long; Allow and Deny
     stay visible at the bottom.
@@ -133,7 +144,11 @@ The assistant wants to make 2 writes:
 - Server, from `sec-assistant/probe_preview.py` and the review doc's batch
   case: a long first text value cannot hide a later `uid`; batch params
   never clip a `uid`; `commands` as a JSON string previews the same ops as
-  the list form; a non-list or a non-schema item is refused; `x), uid=Y`
+  the list form; a non-list or a non-schema item is refused;
+  `allow_merge: "yes"` previews as `true` with the merge warning;
+  `page: "null"` previews as today's daily note; a parity test that, for
+  each write tool, the preview's validated values equal what the
+  registered FastMCP tool would call the function with; `x), uid=Y`
   in a text value stays one value; every write tool and batch op lists its
   targets in table order; an unknown key appears as a target; the
   field-coverage test above.

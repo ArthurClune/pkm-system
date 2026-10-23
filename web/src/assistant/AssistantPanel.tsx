@@ -8,46 +8,156 @@ import { UntrustedContentContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { elapsedLabel } from "./elapsed";
 import { stripCaretBlockRefs } from "./normalizeRefs";
-import { useAssistant } from "./useAssistant";
+import { useAssistant, type PendingConfirm } from "./useAssistant";
+import { formatTarget, quoteValue, type WritePreview } from "./writePreview";
 
-// The server only clips ops_preview at a generous 4000
-// chars (see policy.py); this is a purely visual collapse so the approval
-// card doesn't dominate the panel for a long batch, with a toggle to see
-// everything the server actually sent.
-const PREVIEW_COLLAPSE_THRESHOLD = 300;
+// Each content value shows this many code points until [show]; targets are
+// never clipped, so Allow never sits below a hidden destination.
+const CONTENT_CLIP = 280;
+// Allow stays disabled this long after a card mounts, so a double-click aimed
+// at the control the card replaced cannot land on it. Deny is live at once.
+const ALLOW_ARM_MS = 600;
 
-function ConfirmCard({
-  opsPreview,
-  onAllow,
-  onDeny,
-}: {
-  opsPreview: string;
-  onAllow: () => void;
-  onDeny: () => void;
+function ContentValue({ name, text, total }: {
+  name: string;
+  text: string;
+  total: number;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const isLong = opsPreview.length > PREVIEW_COLLAPSE_THRESHOLD;
-  const shown = isLong && !expanded ? opsPreview.slice(0, PREVIEW_COLLAPSE_THRESHOLD) + "…" : opsPreview;
+  // total is the server's count of code points, so the clip counts them too,
+  // which also keeps it from splitting a surrogate pair
+  const points = [...text];
+  const cardClipped = points.length > CONTENT_CLIP;
+  const shown = cardClipped && !expanded ? points.slice(0, CONTENT_CLIP) : points;
+  const clipped = total > Math.min(points.length, CONTENT_CLIP);
+  const serverClipped = total > points.length && shown.length === points.length;
+  return (
+    <div className="assistant-confirm-content">
+      <span className="assistant-confirm-key">{name}</span>{": "}
+      {clipped && <span className="assistant-confirm-length">({total} chars)</span>}
+      {cardClipped && (
+        <>
+          {" "}
+          <button
+            type="button"
+            className="assistant-preview-toggle"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? "[hide]" : "[show]"}
+          </button>
+        </>
+      )}
+      {/* the ellipsis sits outside the closing quote: it is the card's mark,
+        * not part of the value */}
+      <bdi className="assistant-confirm-value assistant-confirm-text">
+        {quoteValue(shown.join(""))}{shown.length < total ? "…" : ""}
+      </bdi>
+      {serverClipped && (
+        <div className="assistant-confirm-length">
+          clipped by the server at {points.length}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PreviewOps({ preview }: { preview: WritePreview }) {
+  return (
+    <ol className="assistant-confirm-ops">
+      {preview.ops.map((op, i) => (
+        <li key={i} className="assistant-confirm-op">
+          <div className="assistant-confirm-action">{op.action}</div>
+          {op.targets.map(([key, value], j) => (
+            <div key={j} className="assistant-confirm-target">
+              <span className="assistant-confirm-key">{key}</span>{": "}
+              <bdi className="assistant-confirm-value">{formatTarget(key, value)}</bdi>
+            </div>
+          ))}
+          {op.warnings.map((warning, j) => (
+            <div key={j} className="assistant-confirm-warning">⚠ {warning}</div>
+          ))}
+          {op.content.map(([key, text, total], j) => (
+            <ContentValue key={j} name={key} text={text} total={total} />
+          ))}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function ConfirmCard({
+  pending,
+  count,
+  answering,
+  onAnswer,
+}: {
+  pending: PendingConfirm;
+  count: number;
+  answering: boolean;
+  onAnswer: (allow: boolean) => void;
+}) {
+  const { preview } = pending;
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setArmed(true), ALLOW_ARM_MS);
+    return () => clearTimeout(id);
+  }, []);
+  // The decision sent, kept so a failed POST can only be retried as it was:
+  // the server may hold that answer already and ignores a changed one. The
+  // head stays mounted until its answer lands, so a chosen card that is no
+  // longer answering is one whose answer failed.
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  const failed = chosen !== null && !answering;
+  const answer = (allow: boolean) => {
+    setChosen(allow);
+    onAnswer(allow);
+  };
+  const n = preview?.ops.length ?? 0;
+  const position = count > 1 ? ` — 1 of ${count}` : "";
   return (
     <div className="assistant-confirm-card">
-      <div className="assistant-confirm-title">The assistant wants to write:</div>
-      <pre>{shown}</pre>
-      {isLong && (
-        <button
-          type="button"
-          className="assistant-preview-toggle"
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? "Show less" : "Show full preview"}
-        </button>
+      <div className="assistant-confirm-title">
+        {preview
+          ? `The assistant wants to make ${n} ${n === 1 ? "write" : "writes"}:`
+          : "The assistant wants to write:"}
+        {position}
+      </div>
+      {preview ? (
+        <PreviewOps preview={preview} />
+      ) : (
+        <div className="assistant-error">The write preview could not be read.</div>
       )}
       <div className="assistant-confirm-actions">
-        <button type="button" className="btn-secondary" onClick={onAllow}>
-          Allow
-        </button>
-        <button type="button" className="btn-danger" onClick={onDeny}>
-          Deny
-        </button>
+        {failed ? (
+          <button
+            type="button"
+            className={chosen ? "btn-secondary" : "btn-danger"}
+            onClick={() => answer(chosen)}
+          >
+            {chosen ? "Retry Allow" : "Retry Deny"}
+          </button>
+        ) : (
+          <>
+            {preview && (
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={!armed || answering}
+                onClick={() => answer(true)}
+              >
+                Allow
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn-danger"
+              disabled={answering}
+              onClick={() => answer(false)}
+            >
+              Deny
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -149,9 +259,10 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
         {assistant.pendingConfirm && (
           <ConfirmCard
             key={assistant.pendingConfirm.confirmId}
-            opsPreview={assistant.pendingConfirm.opsPreview}
-            onAllow={() => void assistant.respondConfirm(true)}
-            onDeny={() => void assistant.respondConfirm(false)}
+            pending={assistant.pendingConfirm}
+            count={assistant.pendingConfirmCount}
+            answering={assistant.answering}
+            onAnswer={(allow) => void assistant.respondConfirm(allow)}
           />
         )}
         {assistant.error && <div className="assistant-error">{assistant.error}</div>}
@@ -178,7 +289,8 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
             }
           }}
         />
-        {assistant.status === "busy" ? (
+        {/* while an answer posts, Stop is the exit from a hung confirm */}
+        {assistant.status === "busy" || assistant.answering ? (
           <button type="button" className="btn-secondary" onClick={() => assistant.stop()}>
             Stop
           </button>

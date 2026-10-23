@@ -32,7 +32,7 @@ function parseContent(raw: unknown): [string, string, number] | null {
   // total is the server's len of the unclipped value, in code points; a
   // value longer than that would make the card misstate what it shows
   if ([...value].length > total) return null;
-  return [key, value, total];
+  return [escapeLabel(key), value, total];
 }
 
 function parseAll<T>(raw: unknown, parse: (item: unknown) => T | null): T[] | null {
@@ -51,7 +51,7 @@ function parseOp(raw: unknown): PreviewOp | null {
   const targets = parseAll(raw.targets, parseTarget);
   const content = parseAll(raw.content, parseContent);
   const warnings = parseAll(raw.warnings,
-    (w) => (typeof w === "string" ? escapeLabel(w) : null));
+    (w) => (typeof w === "string" ? escapeWarning(w) : null));
   if (targets === null || content === null || warnings === null) return null;
   return { action: escapeLabel(raw.action), targets, content, warnings };
 }
@@ -96,8 +96,15 @@ function escapeNonPrintable(s: string, keepNewline = true): string {
     .replace(LEADING_MARKS, escapeUnits);
 }
 
-// A label is one line, so its newlines are escaped too.
+// A label is one line, so its newlines are escaped too. A backslash doubles,
+// so a key written `uid\u0022` cannot pass for an escape the card made.
 function escapeLabel(s: string): string {
+  return escapeNonPrintable(s.replace(/\\/g, "\\\\"), false);
+}
+
+// The server JSON-quotes every value inside a warning, so its backslashes
+// are escapes already; doubling them would make `\"` read as a closing quote.
+function escapeWarning(s: string): string {
   return escapeNonPrintable(s, false);
 }
 

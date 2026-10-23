@@ -140,6 +140,31 @@ describe("parseWritePreview", () => {
     expect(parsed?.ops[0].warnings).toEqual(['merges into "a\\u202Eb\\u3164"']);
   });
 
+  // A key reading `uid"` must not pass for an escaped quote, so a
+  // backslash in a name doubles; content keys are names too.
+  test("doubles backslashes in keys and the action", () => {
+    const op = { ...validOp, action: "save\\u0020note",
+      targets: [["uid\\u0022", "x"]], content: [["te\\xt", "b", 1]] };
+    const parsed = parseWritePreview({ ops: [op], summary: "s" });
+    expect(parsed?.ops[0].action).toBe("save\\\\u0020note");
+    expect(parsed?.ops[0].targets).toEqual([["uid\\\\u0022", "x"]]);
+    expect(parsed?.ops[0].content).toEqual([["te\\\\xt", "b", 1]]);
+  });
+
+  test("escapes non-printables in content keys", () => {
+    const op = { ...validOp, content: [["te‮xt", "b", 1]] };
+    expect(parsed(op)?.ops[0].content).toEqual([["te\\u202Ext", "b", 1]]);
+  });
+
+  // The server JSON-quotes every value inside a warning, so its backslashes
+  // are escapes already; doubling them would make `\"` read as a closing quote.
+  test("leaves a warning's backslashes as the server wrote them", () => {
+    const op = { ...validOp,
+      warnings: ['if "a\\"b, c" exists, "d" is merged into it'] };
+    expect(parsed(op)?.ops[0].warnings)
+      .toEqual(['if "a\\"b, c" exists, "d" is merged into it']);
+  });
+
   test("leaves target values and content to the card's own quoting", () => {
     const op = { ...validOp, targets: [["uid", "a\u202E"]],
       content: [["text", "b\u202E", 2]] };

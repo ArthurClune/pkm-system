@@ -14,6 +14,26 @@ async function login(page: Page) {
 
 const askInput = (panel: Locator) => panel.getByPlaceholder(/ask about your notes/i);
 
+const confirmCard = (panel: Locator) => panel.locator(".assistant-confirm-card");
+
+// the fake engine's save_note card: one write to page `title`, text "Demo"
+async function expectDemoCard(panel: Locator, title: string) {
+  const card = confirmCard(panel);
+  await expect(card.locator(".assistant-confirm-action")).toHaveText("save note");
+  await expect(card.locator(".assistant-confirm-target").first())
+    .toHaveText(`page: ${JSON.stringify(title)}`);
+  await expect(card.locator(".assistant-confirm-content"))
+    .toHaveText('text: "Demo"');
+}
+
+async function openPanel(page: Page): Promise<Locator> {
+  await login(page);
+  await page.keyboard.press("Control+j");
+  const panel = page.getByRole("region", { name: "Assistant" });
+  await expect(panel).toBeVisible();
+  return panel;
+}
+
 test("assistant panel: toggle, echo turn, confirm allow/deny", async ({ page }) => {
   await login(page);
 
@@ -36,14 +56,14 @@ test("assistant panel: toggle, echo turn, confirm allow/deny", async ({ page }) 
   // confirm flow: deny
   await askInput(panel).fill("please write");
   await askInput(panel).press("Enter");
-  await expect(panel.getByText('save_note(title="Demo")')).toBeVisible();
+  await expectDemoCard(panel, "Demo");
   await panel.getByRole("button", { name: "Deny" }).click();
   await expect(panel.getByText("Okay, not saving.")).toBeVisible();
 
   // confirm flow: allow
   await askInput(panel).fill("please write");
   await askInput(panel).press("Enter");
-  await expect(panel.getByText('save_note(title="Demo")')).toBeVisible();
+  await expectDemoCard(panel, "Demo");
   await panel.getByRole("button", { name: "Allow" }).click();
   await expect(panel.getByText("Saved.")).toBeVisible();
 
@@ -55,6 +75,25 @@ test("assistant panel: toggle, echo turn, confirm allow/deny", async ({ page }) 
   // sidebar entry reopens
   await page.getByRole("button", { name: "Assistant" }).click();
   await expect(page.getByRole("region", { name: "Assistant" })).toBeVisible();
+});
+
+test("two confirms queue: the second waits behind the first", async ({ page }) => {
+  const panel = await openPanel(page);
+  const card = confirmCard(panel);
+  const title = card.locator(".assistant-confirm-title");
+
+  // allow the first, deny the second
+  await askInput(panel).fill("please write twice");
+  await askInput(panel).press("Enter");
+  await expect(title).toHaveText("The assistant wants to make 1 write: — 1 of 2");
+  await expectDemoCard(panel, "Demo");
+  await panel.getByRole("button", { name: "Allow" }).click();
+  await expect(title).toHaveText("The assistant wants to make 1 write:");
+  await expectDemoCard(panel, "Demo 2");
+  await panel.getByRole("button", { name: "Deny" }).click();
+  await expect(panel.getByText("Saved 1.")).toBeVisible();
+  await expect(panel.getByText("Not saving 2.")).toBeVisible();
+  await expect(card).toHaveCount(0);
 });
 
 test("Stop button cancels a hung turn and the conversation stays usable", async ({ page }) => {

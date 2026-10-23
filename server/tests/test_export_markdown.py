@@ -91,7 +91,7 @@ _APFS_PAIRS = [("café", "café"), ("Straße", "STRASSE"),
 
 
 def test_page_filename_dedupes_names_apfs_treats_as_one():
-    for a, b in _APFS_PAIRS[:4]:
+    for a, b in _APFS_PAIRS:
         taken: set[str] = set()
         first = page_filename(canonical_title_of(a), taken)
         second = page_filename(canonical_title_of(b), taken)

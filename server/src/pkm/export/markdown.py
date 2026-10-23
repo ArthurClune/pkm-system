@@ -38,9 +38,8 @@ def resolve_block_refs(text: str, uid_to_text: Mapping[str, str]) -> str:
 def page_filename(title: CanonicalTitle, taken: set[str]) -> str:
     """Unique '<sanitized title>.md' against `taken`, comparing names as
     APFS does: Unicode-normalised and case-folded. Adds the chosen key
-    to `taken`. Code points
-    the filesystem refuses become '-', and two titles that sanitize alike
-    still get distinct names."""
+    to `taken`. Code points the filesystem refuses become '-', and two
+    titles that sanitize alike still get distinct names."""
     base = (truncate_utf8(
         dash_unwritable(_UNSAFE_RE.sub("-", title)).strip(" ."),
         _MAX_BASE_BYTES).rstrip(" .") or "untitled")

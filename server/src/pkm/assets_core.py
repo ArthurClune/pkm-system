@@ -251,7 +251,8 @@ def zip_arcnames(entries: list[tuple[str, str]]) -> list[tuple[str, str]]:
     """Map (sha256, filename) pairs to unique zip arcnames: first use of
     a name wins (as APFS compares names, Unicode-normalised and
     case-folded, since zips get extracted there), later collisions get
-    ' (<sha8>)' before the suffix.
+    ' (<sha8>)' before the suffix. Names must already be safe_filename'd:
+    the key is exact only over code points Python knows as assigned.
 
     A generated candidate can itself already be taken -- by another
     entry's original filename that merely looks generated, or by

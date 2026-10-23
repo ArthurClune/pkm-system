@@ -26,6 +26,7 @@ from pkm.server.config import Config
 from pkm.server.db import init_db
 from pkm.server.goodlinks_gateway import GoodlinksGateway
 from pkm.server.request_log import RequestLogMiddleware
+from pkm.server.security_headers import SecurityHeadersMiddleware
 from pkm.server.routes_assets import router as assets_router
 from pkm.server.routes_export import router as export_router
 from pkm.server.routes_goodlinks import router as goodlinks_router
@@ -140,6 +141,7 @@ def create_app(
                           else _default_describe_service(config))
     app.state.goodlinks = (goodlinks_gateway if goodlinks_gateway is not None
                            else _default_goodlinks(config))
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestLogMiddleware)
     app.add_exception_handler(RequestValidationError, _validation_error)
     app.include_router(auth_router)

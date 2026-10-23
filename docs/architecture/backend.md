@@ -869,6 +869,11 @@ before responding still logs what the client saw. Nothing configures the root
 logger, so `test_every_declared_pkm_logger_has_an_effective_info_handler`
 checks every `pkm.*` logger reaches a handler.
 
+Response headers that apply to every route are set in one place,
+`SecurityHeadersMiddleware` (`X-DNS-Prefetch-Control: off`); routes set only
+their own (`Cache-Control`, `X-Content-Type-Options` on served files). An
+unhandled exception's 500 is built outside it and carries none.
+
 ## Testing
 
 - `cd server && uv run pytest -q` runs the suite with branch coverage

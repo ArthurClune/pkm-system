@@ -14,6 +14,14 @@ from pkm.contracts.titles import CanonicalTitle, RawTitle, as_raw_title
 _OP_RE = re.compile(r"\{\s*([a-zA-Z-]+)\s*:")
 
 
+# Bounds on one expression. Depth keeps the recursive parser and planner far
+# from the interpreter's recursion limit; operands keep the planned compound
+# SELECT under SQLite's term limit (500), expand=True included, because each
+# operand's two-part expansion sits in a subquery of its own.
+MAX_QUERY_DEPTH = 32
+MAX_QUERY_OPERANDS = 200
+
+
 class QueryParseError(ValueError):
     pass
 
@@ -34,7 +42,7 @@ class QueryNode[T: RawTitle]:
 
 
 def parse_query(expr: str) -> QueryNode[RawTitle]:
-    node, pos = _parse_node(expr, _skip_ws(expr, 0))
+    node, pos = _parse_node(expr, _skip_ws(expr, 0), 0, _Operands())
     if node.kind == "page":
         raise QueryParseError("expected a {and: ...} or {or: ...} clause")
     if node.kind == "not":
@@ -50,13 +58,27 @@ def _skip_ws(s: str, pos: int) -> int:
     return pos
 
 
-def _parse_node(s: str, pos: int) -> tuple[QueryNode[RawTitle], int]:
+@dataclass
+class _Operands:
+    """Page operands seen so far in one parse, across every clause."""
+    seen: int = 0
+
+
+def _parse_node(s: str, pos: int, depth: int,
+                operands: _Operands) -> tuple[QueryNode[RawTitle], int]:
     if s.startswith("[[", pos):
+        operands.seen += 1
+        if operands.seen > MAX_QUERY_OPERANDS:
+            raise QueryParseError(
+                f"query has more than {MAX_QUERY_OPERANDS} page operands")
         title, pos = _parse_title(s, pos)
         return QueryNode("page", title), pos
     m = _OP_RE.match(s, pos)
     if not m:
         raise QueryParseError(f"expected '[[' or '{{' at offset {pos}")
+    if depth >= MAX_QUERY_DEPTH:
+        raise QueryParseError(
+            f"query nests deeper than {MAX_QUERY_DEPTH} levels")
     op = m.group(1).lower()
     if op not in ("and", "or", "not"):
         raise QueryParseError(f"unsupported clause: {op}")
@@ -69,7 +91,7 @@ def _parse_node(s: str, pos: int) -> tuple[QueryNode[RawTitle], int]:
         if s[pos] == "}":
             pos += 1
             break
-        child, pos = _parse_node(s, pos)
+        child, pos = _parse_node(s, pos, depth + 1, operands)
         children.append(child)
     if not children:
         raise QueryParseError(f"empty {op} clause")

@@ -75,6 +75,11 @@ take locks that conflict with another connection's open write transaction.
 Each request gets a fresh `Db` from `open_db()`, with `foreign_keys=ON`,
 `recursive_triggers=ON` and `BUSY_TIMEOUT_MS`.
 
+An `IN (...)` list built from a set the data can grow without bound (a page's
+block uids, a block's referrers, a `((ref))` set) goes through
+`sync_core.chunk_ids`, because SQLite refuses a statement that binds more
+variables than its limit and the route would answer 500.
+
 ### Schema
 
 `schema.py` holds two DDL blocks. `BASE_DDL` is the data model, **replicated
@@ -722,7 +727,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | POST | `/api/migrations/title-canonicalization` | Apply the audited digest; 409 on stale, blocked or active |
 | **Search & queries** | | |
 | GET | `/api/search?q` | FTS5 search over pages and blocks |
-| GET | `/api/query?expr` | `{{[[query]]}}` evaluation |
+| GET | `/api/query?expr` | `{{[[query]]}}` evaluation; 400 past `query.MAX_QUERY_DEPTH` nesting or `MAX_QUERY_OPERANDS` page operands |
 | GET | `/api/titles?q` | Title completion for `[[` and `#` |
 | GET | `/api/todos?page` | `{{TODO}}` blocks grouped by page |
 | GET | `/api/changed?since&until&page&limit` | Blocks changed in `[since, until)`, each `new` or `edited`; 400 on an empty window |

@@ -2,7 +2,8 @@
 import pytest
 
 from pkm.server.db import open_db
-from pkm.server.query import QueryParseError, parse_query
+from pkm.server.query import (
+    MAX_QUERY_DEPTH, MAX_QUERY_OPERANDS, QueryParseError, parse_query)
 from pkm.test_data.ids import canonical_title_of
 from pkm.database import connect
 
@@ -176,3 +177,51 @@ def test_query_endpoint_operand_with_padded_spaces_matches_canonical_title(
     # ref_counts is keyed by the canonical title the operand resolved to,
     # not by the raw " Paper " text between the brackets.
     assert padded["ref_counts"] == {"Paper": 1}
+
+
+def _nested(depth: int) -> str:
+    return "{and: " * depth + "[[AI]]" + "}" * depth
+
+
+def _wide(op: str, n: int) -> str:
+    return "{" + op + ": " + " ".join(f"[[t{i}]]" for i in range(n)) + "}"
+
+
+def test_parse_accepts_the_limit_depth_and_operands():
+    assert parse_query(_nested(MAX_QUERY_DEPTH)).kind == "and"
+    assert len(parse_query(_wide("or", MAX_QUERY_OPERANDS)).children) \
+        == MAX_QUERY_OPERANDS
+
+
+def test_parse_refuses_over_deep_before_recursing_deep():
+    with pytest.raises(QueryParseError, match="deeper than 32 levels"):
+        parse_query(_nested(MAX_QUERY_DEPTH + 1))
+    # far past the interpreter's recursion limit: refused, not RecursionError
+    with pytest.raises(QueryParseError, match="deeper than 32 levels"):
+        parse_query(_nested(5000))
+
+
+def test_parse_refuses_too_many_operands():
+    with pytest.raises(QueryParseError, match="more than 200 page operands"):
+        parse_query(_wide("or", MAX_QUERY_OPERANDS + 1))
+    # operands count across the whole expression, not per clause
+    half = " ".join(f"[[a{i}]]" for i in range(MAX_QUERY_OPERANDS // 2 + 1))
+    with pytest.raises(QueryParseError, match="more than 200 page operands"):
+        parse_query("{and: {or: " + half + "} {or: "
+                    + half.replace("a", "b") + "}}")
+
+
+def test_query_route_answers_400_for_over_deep_and_over_wide(client):
+    for expr in (_nested(MAX_QUERY_DEPTH + 1), _nested(496),
+                 _wide("or", MAX_QUERY_OPERANDS + 1), _wide("or", 501),
+                 _wide("and", 501)):
+        r = client.get("/api/query", params={"expr": expr})
+        assert r.status_code == 400, expr[:40]
+    assert "32 levels" in client.get(
+        "/api/query", params={"expr": _nested(33)}).json()["detail"]
+
+
+def test_query_route_expand_at_the_operand_limit_still_runs(client):
+    r = client.get("/api/query", params={
+        "expr": _wide("or", MAX_QUERY_OPERANDS), "expand": "true"})
+    assert r.status_code == 200

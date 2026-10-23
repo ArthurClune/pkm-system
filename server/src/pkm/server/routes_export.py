@@ -33,6 +33,7 @@ from pkm.export.resolve import (
     BLOCK_REF_MAX_DEPTH, QUERY_MAX_DEPTH, QueryResult, QueryResultGroup,
     QueryResultItem, find_query_macros, render_page_resolved)
 from pkm.export.writer import export_graph
+from pkm.rows import Row
 from pkm.filenames import attachment_disposition
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
@@ -41,6 +42,7 @@ from pkm.server.grouping import group_by_page
 from pkm.server.query import plan_sql, QueryParseError
 from pkm.server.query_exec import execute_plan, parse_canonical_query
 from pkm.server.store import fetch_page
+from pkm.server.sync_core import chunk_ids
 from pkm.server.sync_meta import read_title
 from pkm.server.tempfile_response import CleanupFileResponse
 from pkm.server.tree import build_tree, collect_block_ref_uids
@@ -103,10 +105,12 @@ def _gather_resolution_data(
                       if u not in visited_uids})
         if uids:
             visited_uids.update(uids)
-            marks = ",".join("?" * len(uids))
-            rows = db.select(
-                f"SELECT uid, text FROM blocks WHERE uid IN ({marks})",
-                uids)
+            rows: list[Row] = []
+            for chunk in chunk_ids(uids):
+                marks = ",".join("?" * len(chunk))
+                rows += db.select(
+                    f"SELECT uid, text FROM blocks WHERE uid IN ({marks})",
+                    chunk)
             for r in rows:
                 uid_to_text[r["uid"]] = r["text"]
                 next_texts.append(r["text"])

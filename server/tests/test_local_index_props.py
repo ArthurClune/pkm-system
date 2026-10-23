@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from conftest import TEST_PASSWORD, asgi_get_all, make_config, seed_db
 from fastapi.testclient import TestClient
-from hypothesis import currently_in_test_context, given, settings
+from hypothesis import currently_in_test_context, example, given, settings
 from hypothesis import event as _event
 from hypothesis import strategies as st
 from test_local_docs_props import _HOSTILE
@@ -173,7 +173,8 @@ def _item(b: Built, kind: str, d: tuple[str, ...], name: str, pick: int) -> None
     stubs = lambda real: f".{real}{STUB_SUFFIX}"  # noqa: E731
     if kind in ("file", "hidden"):
         name = "." + name.lstrip(".") if kind == "hidden" else name
-        if not b.free(d, name):
+        # an all-dot name folds to "." (the folder itself), not a file
+        if name == "." or not b.free(d, name):
             return
         shown = _model_shown(name)
         if shown is not None and not b.free(d, shown):
@@ -311,6 +312,8 @@ def local_props_client(tmp_path_factory):
 
 @settings(max_examples=250, deadline=None)
 @given(plan)
+# an all-dot hidden name once folded to "." and wrote to the folder itself
+@example(([], [("hidden", 0, "", "...", 0)]))
 def test_index_lists_the_visible_files_and_each_is_served(local_props_client, spec):
     app, cookie, root, outside = local_props_client
     b = build(root, outside, spec)

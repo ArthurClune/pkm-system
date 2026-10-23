@@ -1,11 +1,11 @@
 ---
 # pkm-qd81
 title: Hostile-input 500s and unbounded work on page, query and export routes
-status: todo
+status: scrapped
 type: bug
 priority: normal
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-23T11:49:58Z
+updated_at: 2026-10-23T18:15:45Z
 parent: pkm-mfd0
 ---
 
@@ -23,3 +23,7 @@ Review findings (Low, availability), table in the review report: SPA catch-all 5
 ## Note from the guard tests (pkm-t74a)
 
 A symlink loop inside web_dist (`/loop1`) also answers 500: `Path.resolve()` raises RuntimeError on Python 3.12, not ValueError or OSError (3.13+ no longer raises on a loop; requires-python is >=3.12). The SPA 404 fix must catch it too (sec-exports/report.md finding 3). test_spa.py's containment guard only checks the body for that path, so it will not notice the status change.
+
+## Reasons for Scrapping
+
+Split into one bean per item (2026-10-23): pkm-xrvv SPA 404, pkm-ec46 IN-list chunking, pkm-0ln3 query limits, pkm-lbj1 iterative [[ rewrite, pkm-2kwd outline depth, pkm-8bga export fan-out, pkm-85jq breadcrumbs.

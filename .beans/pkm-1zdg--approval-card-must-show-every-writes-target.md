@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: high
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-23T10:56:19Z
+updated_at: 2026-10-23T18:15:45Z
 parent: pkm-mfd0
 ---
 
@@ -17,3 +17,7 @@ Review findings (Medium x2 + Info): batch previews clip the whole serialized par
 - [ ] Render string values so they cannot imitate argument syntax
 - [ ] A second confirm_request does not swap the card under the cursor (queue or show both)
 - [ ] Check ops_preview against live payloads per AGENTS/SECURITY note
+
+## Decision (2026-10-23)
+
+Arthur approved the design in docs/superpowers/handoffs/2026-10-23-approval-card-design-draft.md as drafted (targets first and in full, content clipped per value, unknown keys as targets, non-schema-shaped input denied, values as quoted separate elements, allow_merge warning line, confirms queued). Next: spec, then plan.

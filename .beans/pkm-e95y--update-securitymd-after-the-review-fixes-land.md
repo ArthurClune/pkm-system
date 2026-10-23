@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:27Z
-updated_at: 2026-10-23T12:30:04Z
+updated_at: 2026-10-23T18:15:45Z
 parent: pkm-mfd0
 blocked_by:
     - pkm-tk9i
@@ -15,9 +15,7 @@ blocked_by:
     - pkm-d8vp
     - pkm-ak4e
     - pkm-0ve4
-    - pkm-u8uh
     - pkm-6fqw
-    - pkm-qd81
     - pkm-h1em
     - pkm-oirq
     - pkm-t74a

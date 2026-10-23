@@ -1,11 +1,11 @@
 ---
 # pkm-u8uh
 title: 'Auth hardening: login burst, proxy headers, pre-auth bodies, cookie parsing'
-status: todo
+status: scrapped
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-23T11:49:58Z
+updated_at: 2026-10-23T18:15:45Z
 parent: pkm-mfd0
 ---
 
@@ -18,3 +18,7 @@ Review findings (Low): (1) the throttle is checked before the password and a fai
 - [ ] verify_session rejects non-ASCII/non-hex signatures before comparing; hostile-request test
 
 Note from the guard tests: if auth moves into a middleware, the forgotten-auth teeth test in server/tests/test_auth.py fails, because a route added with @app.get becomes protected. That is the fix working, not a regression: rewrite the test to prove the middleware's allow-list is exactly PUBLIC_ROUTES, and update the PUBLIC_ROUTES comment that names require_auth.
+
+## Reasons for Scrapping
+
+Split into one bean per item (2026-10-23): pkm-ank8 cookie 500, pkm-v3t1 login burst, pkm-lamg proxy headers, pkm-zav2 auth before body read.

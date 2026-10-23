@@ -109,6 +109,10 @@ WritePreview = {
   `total_len` is its length. A write with a content value over
   `CONTENT_LIMIT_CHARS` (50,000) is refused, telling the model to split
   it: a value cut on the server would be approved partly unseen.
+- A target string over `TARGET_LIMIT_CHARS` (1,000; the server sets no
+  page-title limit to borrow) is refused, and so is any input the builder
+  raises on (an outline nested past pydantic's depth limit): the
+  exception's type is logged, never its message.
 
 ### Web (`sse.ts`, `useAssistant.ts`, `AssistantPanel.tsx`)
 

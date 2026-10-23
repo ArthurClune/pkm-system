@@ -11,7 +11,8 @@ from pydantic.fields import FieldInfo
 
 from pkm import batch as batch_module
 from pkm.assistant.policy import WRITE_PREVIEW_FIELDS, WRITE_TOOLS
-from pkm.assistant.write_preview import (CONTENT_LIMIT_CHARS, PreviewOp,
+from pkm.assistant.write_preview import (CONTENT_LIMIT_CHARS,
+                                         TARGET_LIMIT_CHARS, PreviewOp,
                                          Refusal, WritePreview,
                                          build_write_preview)
 from pkm.client.workflows import LinkedUpload
@@ -330,6 +331,50 @@ def test_update_block_mark_only_has_no_content():
     p = _preview("update_block", {"uid": "U1", "mark": "DONE"})
     assert p.ops[0].targets == [("uid", "U1"), ("mark", "DONE")]
     assert p.ops[0].content == []
+
+
+def test_deep_outline_nest_is_refused_not_raised(caplog):
+    items: object = "leaf"
+    for _ in range(sys.getrecursionlimit() + 50):
+        items = [items]
+    r = build_write_preview("batch", {"commands": [
+        {"command": "outline", "params": {"page": "P", "items": items}}]})
+    assert r == Refusal("batch: input could not be previewed")
+
+
+def test_a_preview_failure_logs_its_type_only(monkeypatch, caplog):
+    from pkm.assistant import write_preview
+
+    def boom(*_args):
+        raise KeyError("attacker\ntext")
+    monkeypatch.setattr(write_preview, "_op", boom)
+    with caplog.at_level("WARNING", logger="pkm.assistant"):
+        r = build_write_preview("save_note", {"text": "t"})
+    assert r == Refusal("save_note: input could not be previewed")
+    assert [rec.levelname for rec in caplog.records] == ["WARNING"]
+    assert "KeyError" in caplog.text
+    assert "attacker" not in caplog.text
+
+
+def test_target_at_the_limit_is_previewed():
+    assert TARGET_LIMIT_CHARS == 1000
+    uid = "u" * TARGET_LIMIT_CHARS
+    assert _preview("update_block", {"uid": uid, "text": "t"}
+                    ).ops[0].targets[0] == ("uid", uid)
+
+
+@pytest.mark.parametrize(("short", "raw", "message"), [
+    ("update_block", {"uid": "u" * 1001, "text": "t"},
+     "update_block: uid is 1001 characters; a target is at most 1000"),
+    ("rename_page", {"title": "Inbox", "new_title": "P" * 5000},
+     "rename_page: new_title is 5000 characters; a target is at most 1000"),
+    ("batch", {"commands": [
+        {"command": "delete", "params": {"uid": "U1"}},
+        {"command": "move", "params": {"uid": "U2", "page": "x" * 2000}}]},
+     "batch item 1: page is 2000 characters; a target is at most 1000"),
+])
+def test_a_target_over_the_limit_is_refused(short, raw, message):
+    assert _refusal(short, raw).message == message
 
 
 def test_unknown_tool_is_refused():

@@ -17,6 +17,7 @@ constructing the server's `FastMCP` configures the root logger and reads
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -34,6 +35,12 @@ from pkm.planning import parse_uid_spec
 # The card sends every content value whole, so [show] can reveal all of
 # it; a longer one is refused rather than approved partly unseen.
 CONTENT_LIMIT_CHARS = 50_000
+# A target is a uid, title, path or parent spec. The server bounds none of
+# them (a page title has no length limit), so the card does: a multi-MB
+# value would freeze the tab the user must approve from.
+TARGET_LIMIT_CHARS = 1000
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -162,6 +169,10 @@ def _op(entry: str, validated: Mapping[str, Any]) -> PreviewOp:
 
 def _limit_problem(op: PreviewOp) -> str | None:
     """Why `op` is too large to preview, or None."""
+    for key, value in op.targets:
+        if isinstance(value, str) and len(value) > TARGET_LIMIT_CHARS:
+            return (f"{key} is {len(value)} characters; a target is at most "
+                    f"{TARGET_LIMIT_CHARS}")
     for key, _, total in op.content:
         if total > CONTENT_LIMIT_CHARS:
             return (f"{key} is {total} characters; split the write into "
@@ -211,7 +222,21 @@ def _batch_preview(commands: list[dict[str, object]]
 def build_write_preview(short: str, tool_input: Mapping[str, object]
                         ) -> WritePreview | Refusal:
     """The card for write tool `short` called with `tool_input`, or why
-    the call must be refused instead."""
+    the call must be refused instead. An input the builder cannot handle
+    (an outline nested past pydantic's depth limit, say) is refused too:
+    raised out of `can_use_tool`, it would reach the SDK as a control
+    error instead of a reason the model can act on."""
+    try:
+        return _build(short, tool_input)
+    except Exception as exc:
+        # The type only: the message can quote the attacker's input.
+        logger.warning("write preview of %s failed: %s", short,
+                       type(exc).__name__)
+        return Refusal(f"{short}: input could not be previewed")
+
+
+def _build(short: str, tool_input: Mapping[str, object]
+           ) -> WritePreview | Refusal:
     meta = _ARG_MODELS.get(short)
     if meta is None:
         return Refusal(f"{short} is not a write tool")

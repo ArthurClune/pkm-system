@@ -11,10 +11,27 @@ from pathlib import Path
 from typing import Any
 
 
+def _is_control(char: str) -> bool:
+    return ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F
+
+
+def escape_controls(text: str) -> str:
+    """`text` with every C0/C1 control character and DEL as `\\xNN`, and
+    each backslash doubled so an escape never reads as typed text."""
+    return "".join(
+        "\\\\" if c == "\\" else f"\\x{ord(c):02x}" if _is_control(c) else c
+        for c in text)
+
+
 def request_line(client: str | None, method: str, path: str,
                  status: int, duration_ms: float) -> str:
-    """One access-log line: who asked for what, result, and how long."""
-    return f'{client or "-"} "{method} {path}" {status} {duration_ms:.0f}ms'
+    """One access-log line: who asked for what, result, and how long.
+
+    The client controls `path` and `method`, so each field is escaped: a
+    raw newline or ESC would forge a log line or recolour a terminal."""
+    return (f'{escape_controls(client or "-")} '
+            f'"{escape_controls(method)} {escape_controls(path)}" '
+            f'{status} {duration_ms:.0f}ms')
 
 
 def uvicorn_log_config(log_dir: Path | None = None,

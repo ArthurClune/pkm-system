@@ -288,3 +288,29 @@ def test_log_dir_config_routes_lines_to_the_right_files(tmp_path, capsys):
     assert "\x1b[" not in server
     captured = capsys.readouterr()
     assert captured.out == "" and captured.err == ""
+
+
+def _has_control(text: str) -> bool:
+    return any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in text)
+
+
+def test_request_line_escapes_controls_in_every_field():
+    line = request_line("1.2.3.4\n", "GE\tT", "/a\nFORGED\x1b[31m\x7f\x85", 200, 1)
+    assert not _has_control(line)
+    assert line == ('1.2.3.4\\x0a "GE\\x09T /a\\x0aFORGED\\x1b[31m\\x7f\\x85"'
+                    ' 200 1ms')
+
+
+def test_request_line_escapes_backslash_so_escapes_are_unambiguous():
+    assert request_line(None, "GET", "/a\\x0a", 200, 0) == \
+        '- "GET /a\\\\x0a" 200 0ms'
+    assert request_line(None, "GET", "/a\n", 200, 0) == \
+        '- "GET /a\\x0a" 200 0ms'
+
+
+def test_an_anonymous_request_cannot_forge_access_log_lines(anon_client, caplog):
+    with caplog.at_level(logging.INFO, logger="pkm.access"):
+        anon_client.get("/api/local/probe%0aFORGED%20LOG%20ENTRY%1b%5b31m")
+    [record] = caplog.records
+    assert not _has_control(record.message)
+    assert "probe\\x0aFORGED LOG ENTRY\\x1b[31m" in record.message

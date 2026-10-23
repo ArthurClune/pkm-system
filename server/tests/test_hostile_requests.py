@@ -91,6 +91,26 @@ def test_diagnostics_normalise_nested_strings(client, caplog):
     assert logged.count("\\ufffd") == 4
 
 
+def _diagnostics_lines(caplog) -> list[str]:
+    return [rec.getMessage() for rec in caplog.records
+            if rec.getMessage().startswith("client diagnostics")]
+
+
+def test_diagnostics_log_line_is_bounded_and_names_the_total(client, caplog):
+    r = _post_escaped(client, "/api/client/diagnostics", {
+        "kind": "k", "error": "e", "report": {"dump": "x" * (2 * 1024 * 1024)},
+        "client": {}})
+    assert r.status_code == 200, r.text
+    (logged,) = _diagnostics_lines(caplog)
+    total = len(json.dumps({"client": {}, "error": "e", "kind": "k",
+                            "report": {"dump": "x" * (2 * 1024 * 1024)}},
+                           sort_keys=True))
+    marker = f"\u2026[truncated: {total} chars]"
+    prefix = len("client diagnostics ")
+    assert logged.endswith(marker)
+    assert len(logged) == prefix + 64 * 1024 + len(marker)
+
+
 def _echo_inputs(r) -> list[object]:
     return [err.get("input") for err in r.json()["detail"]]
 

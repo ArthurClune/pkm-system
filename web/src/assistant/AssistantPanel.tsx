@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { BlockRefProvider } from "../components/BlockRefProvider";
 import { InlineSegments } from "../components/InlineSegments";
+import { UntrustedContentContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { elapsedLabel } from "./elapsed";
 import { stripCaretBlockRefs } from "./normalizeRefs";
@@ -125,6 +126,8 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
       <div className="assistant-messages" ref={listRef}>
         {/* seed={{}}: no page payload backs this panel, so every ((uid)) a
           * reply mentions is unseeded and resolved live. */}
+        {/* A reply's text and media are the model's, so media waits for a click. */}
+        <UntrustedContentContext.Provider value={true}>
         <BlockRefProvider seed={{}}>
           {assistant.items.map((item, i) =>
             item.kind === "tool" ? (
@@ -142,6 +145,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
             ),
           )}
         </BlockRefProvider>
+        </UntrustedContentContext.Provider>
         {assistant.pendingConfirm && (
           <ConfirmCard
             key={assistant.pendingConfirm.confirmId}

@@ -1,5 +1,6 @@
 // pattern: Imperative Shell
-import { type CSSProperties, useEffect, useId, useState } from "react";
+import { type CSSProperties, useContext, useEffect, useId, useState } from "react";
+import { InertMediaContext, UntrustedContentContext } from "../contexts";
 import { isIosStandalone } from "../externalLink";
 import { blueskyEmbedSrc, parseBlueskyPostUrl } from "./bluesky";
 
@@ -28,7 +29,7 @@ function resolveHandle(handle: string): Promise<string> {
   return pending;
 }
 
-export function BlueskyEmbed({ href }: { href: string }) {
+function BlueskyEmbedFrame({ href }: { href: string }) {
   const embedId = useId();
   const actor = parseBlueskyPostUrl(href)?.actor ?? null;
   const actorIsDid = actor?.startsWith("did:") ?? false;
@@ -117,5 +118,38 @@ export function BlueskyEmbed({ href }: { href: string }) {
            aria-label="Open post in Safari" />
       )}
     </div>
+  );
+}
+
+// Under untrusted text (an assistant reply) the embed waits for a click. The
+// gate keeps BlueskyEmbedFrame unmounted, so resolveHandle never runs: the
+// lookup itself leaks, because Bluesky's servers resolve the handle's
+// domain, and the iframe then loads embed.bsky.app. The revealed href is
+// compared with the current one during render, so a new href never mounts a
+// frame without its own click; resetting in an effect would commit it first.
+export function BlueskyEmbed({ href }: { href: string }) {
+  const untrusted = useContext(UntrustedContentContext);
+  const inertMedia = useContext(InertMediaContext);
+  const [revealed, setRevealed] = useState<string | null>(null);
+  if (revealed !== null && revealed !== href) setRevealed(null);
+
+  const actor = parseBlueskyPostUrl(href)?.actor ?? null;
+  if (actor === null) return null;
+  if (!untrusted || revealed === href) return <BlueskyEmbedFrame href={href} />;
+
+  const className = "asset-image-placeholder external-media-placeholder";
+  const label = `Bluesky post from ${actor}`;
+  if (inertMedia) return <span className={className}>{label}</span>;
+  return (
+    <button
+      type="button"
+      className={className}
+      onClick={(event) => {
+        event.stopPropagation();
+        setRevealed(href);
+      }}
+    >
+      {label}
+    </button>
   );
 }

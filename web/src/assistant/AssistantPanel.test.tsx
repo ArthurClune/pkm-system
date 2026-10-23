@@ -209,6 +209,32 @@ describe("AssistantPanel", () => {
     expect(screen.getByRole("link", { name: "the compute chart block" })).toBeInTheDocument();
   });
 
+  test("a reply's media waits for a click, including inside a resolved ((ref))", async () => {
+    const fetchMock = stubFetch([["/api/block-refs", {
+      block_ref_texts: {
+        chart1: {
+          text: "https://bsky.app/profile/alice.bsky.social/post/3k2abc123xy",
+          page_title: "Charts",
+        },
+      },
+    }]]);
+    state.current.items = [
+      { kind: "assistant", text: "see ((chart1)) and ![x](https://attacker.invalid/a.png)" },
+    ];
+    render(
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <AssistantPanel open onClose={() => {}} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("button", { name: "image from attacker.invalid: x" }))
+      .toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Bluesky post from alice.bsky.social" }))
+      .toBeInTheDocument();
+    expect(document.querySelector("img, iframe")).toBeNull();
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls.some((url) => url.includes("public.api.bsky.app"))).toBe(false);
+  });
+
   test("a ((^uid)) citation with a copied caret marker still resolves", async () => {
     stubFetch([["/api/block-refs", {
       block_ref_texts: { chart1: { text: "the compute chart block", page_title: "Charts" } },

@@ -33,3 +33,13 @@ handler, already escaped by `request_line`, so nothing is escaped twice. No
 call site escaped before, so none changed. Tests drive `_request_download`
 and `OpenProber.probe` through the real file config; detaching the filter
 fails both. backend.md logging section and a troubleshooting row updated.
+
+Review follow-up: `logfmt.EscapingFormatter` (uvicorn's DefaultFormatter
+subclass, both config variants) passes every traceback and stack, from any
+logger, through `indent_traceback`: non-printables but the newline
+hex-escaped, every line indented two spaces, so an exception's text cannot
+start a column-0 line. The filter returns the record unchanged when
+`getMessage()` raises, so a malformed call is reported by `handleError`
+instead of raising into the caller. Docstring and backend.md now state that
+uvicorn records can carry a websocket path (line-safe, quotes raw), and the
+diagnostics route comment says how to decode its now-escaped dump.

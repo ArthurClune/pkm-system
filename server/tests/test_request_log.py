@@ -11,8 +11,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pkm.server import run
-from pkm.server.logfmt import (EscapePkmMessages, request_line,
-                               truncate_for_log, uvicorn_log_config)
+from pkm.server.logfmt import (EscapePkmMessages, EscapingFormatter,
+                               request_line, truncate_for_log,
+                               uvicorn_log_config)
 from pkm.server.request_log import RequestLogMiddleware
 
 
@@ -370,7 +371,7 @@ def test_a_requested_local_path_cannot_forge_a_server_log_line(
     def no_brctl(*_args, **_kwargs):
         raise OSError("no brctl")
     monkeypatch.setattr(routes_local.subprocess, "run", no_brctl)
-    forged = 'a.pdf\n2026-10-23 INFO:     forged "x'
+    forged = 'a.pdf\n2026-10-23 INFO:     forged\u2028"x'
     server = _server_log_after(
         tmp_path, lambda: routes_local._request_download(Path(forged)))
     assert server.count("\n") == 1
@@ -448,3 +449,53 @@ def test_an_access_line_is_escaped_once(tmp_path):
                 h.close()
     access = (tmp_path / "access.log").read_text(encoding="utf-8")
     assert '"GET /a\\x0a\\"b" 200' in access
+
+
+_FORGED = "2026-10-23 12:00:00,000 INFO:     FORGED"
+
+
+@pytest.mark.parametrize("logger_name, message", [
+    ("pkm.describe", "describe failed for sha"),
+    ("uvicorn.error", "Exception in ASGI application\n"),
+])
+def test_exception_text_cannot_forge_a_server_log_line(
+        tmp_path, logger_name, message):
+    def emit() -> None:
+        try:
+            raise ValueError(f"bad title x\n{_FORGED}\u2028\x1b[31m")
+        except ValueError:
+            logging.getLogger(logger_name).exception(message)
+    server = _server_log_after(tmp_path, emit)
+    lines = server.splitlines()
+    assert not [line for line in lines if line.startswith(_FORGED)]
+    assert lines[0][:4].isdigit()
+    assert all(line.startswith("  ") for line in lines[1:])
+    assert "\u2028" not in server and "\x1b" not in server
+    assert "\\u2028\\x1b[31m" in server
+
+
+def test_a_malformed_pkm_log_call_does_not_raise_into_the_caller(tmp_path):
+    def emit() -> None:
+        logging.getLogger("pkm.local").warning("probe %s failed: %s", "k")
+    _server_log_after(tmp_path, emit)
+
+
+def test_the_stderr_config_escapes_messages_and_tracebacks(capsys):
+    # Production uses the file config; this drives the stream variant that
+    # tests, e2e and scratch servers log through.
+    with _dict_config_applied(uvicorn_log_config()):
+        try:
+            raise ValueError("bad\nforged")
+        except ValueError:
+            logging.getLogger("pkm.describe").exception("failed for %s",
+                                                        "a\nb")
+    err = capsys.readouterr().err.splitlines()
+    assert err[0].endswith("failed for a\\x0ab")
+    assert err[1:] and all(line.startswith("  ") for line in err[1:])
+    assert err[-1] == "  forged"
+
+
+def test_escaping_formatter_escapes_and_indents_a_stack():
+    stack = 'Stack (most recent call last):\n  File "x\u2028y"'
+    assert EscapingFormatter().formatStack(stack) == (
+        '  Stack (most recent call last):\n    File "x\\u2028y"')

@@ -27,17 +27,24 @@ Split from pkm-qd81. _unlink_range and _rewrite_range recurse per nesting level;
 - No other walker on the rename, delete or delete-preview paths recurses per
   nesting level: `refs.bracket_spans` and `refs.iter_bracket_spans` were
   already iterative; the remaining calls are regex scans.
-- `tests/test_legacy_deep_brackets.py`: rename, DELETE and delete-preview at
-  depth 3 and 1,200 over a legacy row inserted directly; the 1,200 cases
-  raised `RecursionError` before the fix.
+- No write path bounds nesting: the ops guard judges only runs that are
+  refs, so `"[[a//"*n + "[[Deep]]" + "]]"*n` is accepted at any depth. The
+  500 was reachable by any client, not only through legacy rows.
+- `tests/test_legacy_deep_brackets.py`: rename, DELETE and delete-preview
+  over that shape written through `/api/ops` at `sys.getrecursionlimit() +
+  100` (all failed with the old walks), the peeling legacy shape at depth 3
+  (rename also past the limit), and one `_unlink_pass` past the limit.
 - `tests/test_bracket_walk_equivalence.py`: the recursive walks kept verbatim
   as the oracle; hypothesis compares span lists (order included) and the
   public `unlink_title_refs` / `rewrite_title_refs_map` output, with floors on
   the branches reached. Mutants: pop order, rescanning a run, and dropping
   the tail gap are caught in both modules; resuming at `end - 2` or stopping
   a child window at `end` are equivalent (no tag can start in or extend
-  through `]]`).
+  through `]]`). The generator reaches an alias that drops the tag spans in
+  its label (floored event), with two explicit inputs.
 - backend.md § Ref grammar states why the walks keep their own stack;
   troubleshooting.md row added.
 - Not changed: `unlink_title_refs` still makes one full pass per nesting
-  layer, so its cost is depth x length.
+  layer, so a legacy peeling row costs O(depth^3); the web renderer's
+  `tokenizeInline` recurses once per non-ref `[[` level. Both reported to
+  the lead for their own beans.

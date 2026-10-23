@@ -25,7 +25,9 @@ rendering, so `((refs))` resolved inside a reply inherit it.
   are external too: one rule.
 - Image placeholder text: `image from <host>: <alt>`; `: <alt>` omitted when
   alt is empty; `external image` in place of `image from <host>` when the src
-  has no parsable host (`new URL(src)` throws, or `.host` is empty).
+  has no parsable host (`new URL(src)` throws, or `.host` is empty). A
+  protocol-relative src (`//host/x`) is parsed as `https:` + src and named
+  by its host.
 - Bluesky placeholder text (builder's call, pinned here):
   `Bluesky post from <actor>`.
 - A click loads only that one item. Nothing is remembered: a different
@@ -192,7 +194,7 @@ it("labels an external image by host and alt", () => {
 it("falls back to 'external image' without a parsable host", () => {
   expect(externalImageLabel("not a url", "a")).toBe("external image: a");
   expect(externalImageLabel("data:image/png;base64,AAAA", "")).toBe("external image");
-  expect(externalImageLabel("//evil.test/x.png", "")).toBe("external image");
+  expect(externalImageLabel("//evil.test/x.png", "")).toBe("image from evil.test");
 });
 ```
 

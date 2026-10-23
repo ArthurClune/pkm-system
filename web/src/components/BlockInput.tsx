@@ -148,8 +148,8 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     if (!target) return; // caret has moved off the token; resolve closed it
     const { ctx, caret, text } = target;
     // "/upload": strip the trigger, then open the tree-owned file picker.
-    // handlers.onFiles splices the uploaded asset's markdown in once the user
-    // has chosen files; the input outlives this component because
+    // handlers.onFiles puts each upload in its own block once the user has
+    // chosen files; the input outlives this component because
     // the pick blurs (and so unmounts) BlockInput itself before opening the
     // dialog -- the native file dialog does not reliably blur the
     // textarea on its own, so this can't rely on that. setText must run
@@ -403,11 +403,11 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   };
   const onPhone = isPhoneUserAgent(navigator.userAgent);
 
-  // The splice's run() flushes the draft before it edits the tree, so
+  // The landing run() flushes the draft before it edits the tree, so
   // settling afterwards loses nothing and shows the uploaded markdown.
   const uploadFiles = (at: number, files: File[]) => {
-    void handlers.onFiles(node.uid, at, files).then((spliced) => {
-      if (spliced) draft.settle();
+    void handlers.onFiles(node.uid, at, files).then((landed) => {
+      if (landed) draft.settle();
     });
   };
 

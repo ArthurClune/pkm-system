@@ -199,7 +199,7 @@ both texts when another device edited from the same base.
 | When | Rule |
 |---|---|
 | A clean draft's first edit | `onDraftStart` reports the shown text, which `captureDraft` keeps as `base` |
-| Undo, redo, or an upload splice in the focused textarea | `BlockInput` calls `settle()`, so the draft adopts the tree's text |
+| Undo, redo, or an upload that fills the focused (empty) block | `BlockInput` calls `settle()`, so the draft adopts the tree's text |
 | Focus or a new draft moves to another block | the old draft flushes first. A block a remote batch removes unmounts with no blur, so nothing else would flush it |
 | A remote batch reparents the block or an ancestor | the textarea remounts with no blur. `BlockInput` reads `handlers.pendingDraft(uid)` at mount and resumes it dirty with its base, and restores the selection the old textarea reported (`onInputUnmount`) |
 | A parent passes a new `initial` | the draft flushes first, so the parent tree waits for that write |
@@ -289,6 +289,6 @@ zone's geometry and `resolveDrop`.
 | Start | `"Files"` in `dataTransfer.types` and `uploadableDrag` (`outline/fileDrop.ts`) finds an image or PDF, or cannot tell (WebKit lists empty types) |
 | End | there is no `dragend`. `DndProvider` ends it on a window `drop`, or when its `dragenter` minus `dragleave` count reaches zero, since WebKit's `relatedTarget` is always null |
 | Missed | `DndProvider` refuses and swallows it, so the browser never navigates to the file |
-| Over a textarea | the zone ignores it; `BlockInput` splices at the caret |
+| Over a textarea | the zone ignores it; `BlockInput` hands the files to `onFiles`, and `planUploadBlocks` puts each in its own sibling block after the current one (an empty block takes the first) |
 | Drop | `useOutline.onDropFiles` uploads in turn, then one `run()` adds a block per file. Focus stays put, or the block would show raw markdown |
 | Parent gone | `planFileDropBlocks` appends at the end of the page |

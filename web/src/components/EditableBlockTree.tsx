@@ -406,8 +406,8 @@ const EditableBlock = memo(function EditableBlock(
    * Empty in a fallback tree, which never reveals a table's raw rows. */
   focusChain: ReadonlySet<BlockUid>;
   handlers: OutlineHandlers; readOnly: boolean; fallback: boolean;
-  /** Click the tree-owned upload input for `uid`, splicing at offset `at`
-   * once files are chosen — see EditableBlockTree for why the
+  /** Click the tree-owned upload input for `uid` once files are
+   * chosen (`at` is unused by uploads) — see EditableBlockTree for why the
    * input can't live in BlockInput itself. */
   onRequestUpload: (uid: BlockUid, at: number) => void;
   /** Open the tree-owned local file picker for `uid`, splicing at `at`. */

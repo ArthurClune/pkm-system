@@ -118,7 +118,7 @@ list: `/py` narrows to the Python code block and `/query-o` to the OR query.
 | `/toc` | Turn an empty block into a `{{toc}}`: a table of contents of the page's headings, nested by outline and kept up to date; each entry jumps to its heading |
 | `/python`, `/shell`, `/javascript` | Turn the block into a highlighted code block |
 | `/mermaid` | Turn the block into a Mermaid diagram |
-| `/upload` | Pick files to upload and insert a link to each; an image shows inline |
+| `/upload` | Pick files to upload; each goes on its own bullet after this one (an empty block takes the first); an image shows inline |
 | `/h1`, `/h2`, `/h3` | Make the block a heading (picking its current level turns it back into normal text) |
 | `/normal` | Back to normal text |
 | `/query-and` | Turn an empty block into a query placeholder, `{{query: {and: A B}}}`, for blocks tagged with both pages |

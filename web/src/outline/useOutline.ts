@@ -18,7 +18,8 @@ import { newUid } from "../uid";
 import { stampBaseTextHashes, withoutStamps } from "./baseTextHash";
 import { FIRST_ORDER_IDX } from "./orderIdx";
 import type { DropTarget } from "./dnd";
-import { fileDropNotice, partitionUploadable, planFileDropBlocks } from "./fileDrop";
+import { fileDropNotice, partitionUploadable, planFileDropBlocks,
+         planUploadBlocks } from "./fileDrop";
 import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          moveBlocksTo, moveSelectionDown, moveSelectionUp, moveSubtreeDown,
          moveSubtreeUp, outdentBlock, outdentSelection, revealBlock,
@@ -327,6 +328,7 @@ export function useOutline(
     if (pendingRef.current && pendingRef.current.uid !== uid) flushNow();
   }, [flushNow]);
 
+  const scrollToUidRef = useRef<BlockUid | null>(null);
   const handlers = useMemo<OutlineHandlers>(() => ({
     onFocusBlock: (uid, cursor) => {
       flushOtherDraft(uid);
@@ -408,19 +410,19 @@ export function useOutline(
       const ops: BlockOp[] = [{ op: "update_text", uid, text: flipped }];
       return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
     }),
-    onFiles: (uid, cursor, files) => {
+    onFiles: (uid, _cursor, files) => {
       setUploadError(null);
       return (async () => {
-        let inserted = "";
+        const texts: string[] = [];
         const fresh: Sha256Hex[] = [];
         const failures: string[] = [];
         for (const file of files) {
           try {
             const info = await uploadAsset(file);
             if (!info.existing) fresh.push(info.sha256);
-            inserted += (inserted ? " " : "") + assetMarkdown(info);
+            texts.push(assetMarkdown(info));
           } catch (err) {
-            // failed upload: leave the text untouched rather than half-splice
+            // a failed upload adds no block; the others still land
             const reason = err instanceof Error ? err.message : String(err);
             failures.push(`${file.name}: ${reason}`);
           }
@@ -430,29 +432,17 @@ export function useOutline(
             ? `Upload failed — ${failures[0]}`
             : `${failures.length} uploads failed — ${failures.join("; ")}`);
         }
-        if (inserted === "") return false;
-        let didSplice = false;
+        if (texts.length === 0) return false;
+        const uids = texts.map(() => newUid());
         run((b) => {
-          const node = findNode(b, uid);
-          if (!node) return { blocks: b, ops: [], focus: null };
-          didSplice = true;
-          // splice at the pre-paste offset, clamped: the user may have kept
-          // typing during a slow upload (accepted for v1)
-          const spliced = spliceUploadedMarkdown(node.text, cursor, inserted);
-          const ops: BlockOp[] = [{ op: "update_text", uid, text: spliced.text }];
-          // Re-focus only if this block still owns focus: paste
-          // and drag-drop fire from that block's own textarea and need the
-          // caret moved past the inserted markdown, but the /upload pick has
-          // already blurred the block itself before the upload
-          // started — refocusing it here would swap it back to a
-          // raw-markdown textarea and hide the image that should now be
-          // rendering. `focus: null` means "leave focus as it is", not
-          // "clear it" (see run(), above).
-          const focus = focusRef.current?.uid === uid
-            ? { uid, cursor: spliced.selStart } : null;
-          return { blocks: applyOps(b, ops, pageTitle), ops, focus };
+          // planned against the tree as it is now: the block may have gone
+          // while the uploads ran. Focus follows planUploadBlocks' rule.
+          const plan = planUploadBlocks(b, pageTitle, uid, texts, uids,
+                                        focusRef.current?.uid ?? null);
+          if (plan.fellBack) scrollToUidRef.current = plan.firstUid;
+          return plan.result;
         }, { freshAssets: fresh });
-        return didSplice;
+        return true;
       })();
     },
     onGoodlinks: (uid, cursor) => {
@@ -473,9 +463,9 @@ export function useOutline(
         run((b) => {
           const node = findNode(b, uid);
           if (!node) return { blocks: b, ops: [], focus: null };
-          // Same splice as /upload: at the recorded offset, clamped, and
-          // re-focusing only if this block still owns focus (the pick has
-          // already blurred it, so normally it does not).
+          // Splice at the recorded offset, clamped, and re-focusing only
+          // if this block still owns focus (the pick has already blurred
+          // it, so normally it does not).
           const spliced = spliceUploadedMarkdown(node.text, cursor, goodlinksAttribute(link.id));
           const ops: BlockOp[] = [{ op: "update_text", uid, text: spliced.text }];
           const focus = focusRef.current?.uid === uid
@@ -584,9 +574,8 @@ export function useOutline(
     },
   }), [run, flushNow, pageTitle, publishBlocks]);
 
-  // The first block of a drop that fell back to the end of the page, waiting
-  // for the render that puts it in the DOM.
-  const scrollToUidRef = useRef<BlockUid | null>(null);
+  // The first block of a drop or upload that fell back to the end of the
+  // page, waiting for the render that puts it in the DOM.
   useEffect(() => {
     const uid = scrollToUidRef.current;
     if (!uid) return;

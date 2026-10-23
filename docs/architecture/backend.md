@@ -300,6 +300,12 @@ that is itself a key, else its canonical form under the live flag. Matched
 byte for byte, `[[ Old ]]` would survive a rename under plain-space
 canonicalisation, and the reindex would recreate `Old`.
 
+The walks over nested runs (`rename._rewrite_range`,
+`unlink._unlink_range`) keep their own stack, as `bracket_spans` does.
+`/api/ops` refuses a nested link, since its outer title holds `[[`. Rows
+stored before that rule may still nest deeper than the recursion limit, and
+the page they link to must stay renamable and deletable.
+
 ## The write path
 
 `POST /api/ops` applies an `OpBatch` of 1–500 ops. `batch_id` is required (a

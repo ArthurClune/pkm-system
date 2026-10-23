@@ -93,8 +93,8 @@ def _rewrite_range(
       alone, so the `#` in front of it is never spliced over, and the tag
       scan cannot claim it either (a tag name never starts with `[`).
 
-    The descent keeps its own stack rather than recursing: legacy text can
-    nest `[[` deeper than the recursion limit.
+    The descent keeps its own stack rather than recursing: no write path
+    bounds `[[` nesting, so block text can nest past the recursion limit.
     """
     # Each frame is a window still to walk: where its next gap starts,
     # where the window stops, and the runs in it not yet reached.

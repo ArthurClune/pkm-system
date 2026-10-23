@@ -300,11 +300,13 @@ that is itself a key, else its canonical form under the live flag. Matched
 byte for byte, `[[ Old ]]` would survive a rename under plain-space
 canonicalisation, and the reindex would recreate `Old`.
 
-The walks over nested runs (`rename._rewrite_range`,
-`unlink._unlink_range`) keep their own stack, as `bracket_spans` does.
-`/api/ops` refuses a nested link, since its outer title holds `[[`. Rows
-stored before that rule may still nest deeper than the recursion limit, and
-the page they link to must stay renamable and deletable.
+No write path bounds `[[` nesting depth. The ops guard
+(`ops_core.find_op_title_violation`) judges only runs that are refs, and a
+run whose title has an unreachable segment (`[[a//...`) is none, so the runs
+inside it are never judged. Every walk over `BracketSpan.children` therefore
+keeps its own stack, as `bracket_spans`, `rename._rewrite_range` and
+`unlink._unlink_range` do. A recursive one fails past the recursion limit,
+and the page the block links can then not be renamed or deleted.
 
 ## The write path
 

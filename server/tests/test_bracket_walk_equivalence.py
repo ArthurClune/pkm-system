@@ -2,16 +2,18 @@
 they replaced.
 
 `rename._rewrite_range` and `unlink._unlink_range` used to recurse once per
-`[[` nesting level, so legacy text nested past the recursion limit made
-rename and delete fail. They now keep their own stack. Both rewrite user
-text, so the iterative walk must collect exactly the spans the recursive one
-did, in the same order (`unlink._unlink_bracket` reads the spans collected
-so far). The recursive walks are kept here verbatim as the oracle, and are
-fed texts shallow enough for them to finish."""
+`[[` nesting level, so text nested past the recursion limit (which no write
+path bounds) made rename and delete fail. They now keep their own stack.
+Both rewrite user text, so the iterative walk must collect exactly the spans
+the recursive one did, in the same order (`unlink._unlink_bracket` reads the
+spans collected so far). The recursive walks are kept here verbatim as the
+oracle, and are fed texts shallow enough for them to finish."""
 from __future__ import annotations
 
 from typing import Callable, Iterable, Sequence
 from unittest.mock import patch
+
+import pytest
 
 from hostile import count, event, with_floors
 from hypothesis import given, settings
@@ -88,7 +90,7 @@ _PIECES = [
     "AI", "ai", "Old", "a]", "x y", "\u00e9", "\U0001f600", "AI\u200b",
     " ", "\n", "x", "#AI", "#Old", "#ai", "#[[", "#", "::", "AI:: ", "[",
     "]", "[[", "]]", "]]]", "[[[", "[[]]", "[[ ]]", "(", ")", "[x](",
-    "[#AI](", "](", "`", "``", "```", "\\[[", "((uid_b1))",
+    "[#AI](", "[x #AI](", "](", "`", "``", "```", "\\[[", "((uid_b1))",
     "{{embed: ((uid_b1))}}",
 ]
 _OPENERS = ["[[", "#[[", "[x]([[", "[#AI]([[", "[[ ", "`[[", "[[[", "[["]
@@ -97,7 +99,8 @@ _CLOSERS = ["]]", "]])", "]", "]]]", " ]]", "", "]]`", "]]"]
 # bare so an enclosing run can make it a title.
 _SPELLINGS = ["[[{}]]", "#[[{}]]", "[x]([[{}]])", "[#AI]([[{}]])", "{}",
               "[[ {} ]]", "`[[{}]]`", " #{}", "(#{}", "[[x #{}]]",
-              "[[#{0} [[{0}]]]]"]
+              "[[#{0} [[{0}]]]]", "[x #{}](", "[x #{0}]([[{0}]])",
+              "[#{0} y #{0}]([[{0}]])"]
 # A tag needs whitespace or `(` before it, so pieces are sometimes joined
 # by one.
 _JOINERS = ["", " ", "\n", "("]
@@ -186,6 +189,21 @@ def _tally(text: str, matches: Callable[[str], bool]) -> list[BracketSpan]:
 
 # --- unlink ---------------------------------------------------------------
 
+_UNLINK_BRACKET = unlink._unlink_bracket
+# Set by `_noting_drops` when an alias dropped spans in the current case.
+_DROPPED: list[bool] = []
+
+
+def _noting_drops(text: str, clean: str, is_target: Callable[[str], bool],
+                  bracket: BracketSpan,
+                  spans: list[tuple[int, int, str]]) -> None:
+    """`unlink._unlink_bracket`, reporting when an alias drops spans already
+    collected: the path on which the walk's span order shows in the output."""
+    before = len(spans)
+    _UNLINK_BRACKET(text, clean, is_target, bracket, spans)
+    if len(spans) <= before:
+        _DROPPED.append(True)
+
 
 @st.composite
 def _unlink_cases(draw) -> tuple[str, Callable[[str], bool]]:
@@ -202,6 +220,7 @@ def _unlink_cases(draw) -> tuple[str, Callable[[str], bool]]:
               "matched a nested run": 0.15,
               "matched a tag in an opened run": 0.017,
               "matched an aliased run": 0.08,
+              "alias dropped a span": 0.016,
               "nested 20 or deeper": 0.09}, per="case")
 @settings(max_examples=500, deadline=None)
 @given(_unlink_cases())
@@ -218,14 +237,35 @@ def test_unlink_walk_matches_the_recursive_walk(case):
     actual: list[tuple[int, int, str]] = []
     _reference_unlink_range(text, clean, is_target, 0, len(clean), runs,
                             expected)
-    unlink._unlink_range(text, clean, is_target, 0, len(clean), runs, actual)
+    _DROPPED.clear()
+    with patch.object(unlink, "_unlink_bracket", _noting_drops):
+        unlink._unlink_range(text, clean, is_target, 0, len(clean), runs,
+                             actual)
     assert actual == expected, text
+    if _DROPPED:
+        event("alias dropped a span")
 
     with patch.object(unlink, "_unlink_range", _reference_unlink_range):
         before = unlink.unlink_title_refs(text, is_target)
     after = unlink.unlink_title_refs(text, is_target)
     assert after == before, text
     event("changed" if after != text else "unchanged")
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("[x #AI]([[AI]])", "x AI"),
+    ("p #AI [x #AI]([[AI]]) #AI", "p AI x AI AI"),
+])
+def test_an_alias_drops_the_tag_spans_in_its_label(text, expected):
+    """The label's `#AI` is collected as a tag span before the alias is
+    reached, then dropped and unlinked inside the label; the tags either
+    side survive the drop."""
+    def is_target(raw: str) -> bool:
+        return raw == "AI"
+
+    assert unlink.unlink_title_refs(text, is_target) == expected
+    with patch.object(unlink, "_unlink_range", _reference_unlink_range):
+        assert unlink.unlink_title_refs(text, is_target) == expected
 
 
 # --- rename ---------------------------------------------------------------

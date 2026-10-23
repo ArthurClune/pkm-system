@@ -95,11 +95,12 @@ def _unlink_range(
     """Outer match wins; an unmatched run is descended so nested links are
     reached. Nothing overlaps, so the caller can splice back to front.
 
-    The descent keeps its own stack rather than recursing: legacy text can
-    nest `[[` deeper than the recursion limit. Runs are still reached left
-    to right, outer before inner, which `_unlink_bracket` relies on: an
-    alias drops the spans already collected from its label onward, so a
-    span to its right must not have been collected yet."""
+    The descent keeps its own stack rather than recursing: no write path
+    bounds `[[` nesting, so block text can nest past the recursion limit.
+    Runs are still reached left to right, outer before inner, which
+    `_unlink_bracket` relies on: an alias drops the spans already collected
+    from its label onward, so a span to its right must not have been
+    collected yet."""
     # Each frame is a window still to walk: where its next gap starts,
     # where the window stops, and the runs in it not yet reached.
     stack: list[tuple[int, int, Iterator[BracketSpan]]] = [

@@ -216,6 +216,7 @@ Owner: [frontend-rendering.md](architecture/frontend-rendering.md)
 |---|---|---|---|
 | Two mermaid diagrams on one page clobber each other's rendered SVG | Stock mermaid's `render()` finds its render id in `document`, so two fallbacks need distinct ids (`MERMAID_CACHE_RENDER_ID`, `withRenderId`) | [frontend-rendering.md § Mermaid](architecture/frontend-rendering.md#mermaid) | pkm-pekk |
 | An image whose src is `/assets/../api/export.zip` runs a same-origin request on render, such as an export | `isUploadedAsset` was a prefix test, and the URL parser resolves `..`, `%2e%2e` and backslashes | [frontend-rendering.md § Link safety and external media](architecture/frontend-rendering.md#link-safety-and-external-media) | pkm-tk9i |
+| A PDF link whose href is `/assets/../api/local/paper.pdf` loads on render (and can start an iCloud download on the host) instead of waiting for Open | `isPdfHref` and `isDeferredPdfHref` were prefix tests, so the href passed as an upload though the browser resolves it under `/api/local/` (`isPathUnder`) | [frontend-rendering.md § PDF embeds and the viewer](architecture/frontend-rendering.md#pdf-embeds-and-the-viewer) | pkm-0d4e |
 | An uploaded PDF named with parentheses shows as a plain link with `…).pdf)` trailing it and no preview; the link still opens | `scanMarkdownLinkAt` closed the destination at the first `)`, so `isPdfHref` missed `.pdf` | [frontend-rendering.md § The pipeline](architecture/frontend-rendering.md#the-pipeline) | pkm-3jpg |
 
 ## Styling

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { externalImageLabel, isUploadedAsset } from "./externalMedia";
+import { externalImageLabel, isPathUnder, isUploadedAsset } from "./externalMedia";
 
 it("treats only /assets/ paths as uploaded", () => {
   expect(isUploadedAsset("/assets/a/b.png")).toBe(true);
@@ -12,7 +12,9 @@ it("treats only /assets/ paths as uploaded", () => {
 it("keeps real asset paths uploaded, dotted filenames included", () => {
   const sha = "3f786850e387550fdab836ed7e6dc881de23001b";
   for (const src of [`/assets/${sha}/photo.png`, `/assets/${sha}/IMG_0868.jpeg`,
-    `/assets/${sha}/a.b.c.png`, `/assets/${sha}/a..b.png`, `/assets/${sha}/...png`]) {
+    `/assets/${sha}/a.b.c.png`, `/assets/${sha}/a..b.png`, `/assets/${sha}/...png`,
+    // a backslash or encoded one with no dot-dot segment climbs nowhere
+    `/assets/${sha}/a%5Cb.png`, `/assets/${sha}/x\\.png`, "/assets/a%5capi"]) {
     expect(isUploadedAsset(src)).toBe(true);
   }
 });
@@ -20,9 +22,20 @@ it("keeps real asset paths uploaded, dotted filenames included", () => {
 it("treats a path that climbs out of /assets/ as external", () => {
   for (const src of ["/assets/../api/export.zip", "/assets/..%2fapi/x",
     "/assets/%2e%2e/api/x", "/assets\\..\\api/x", "/assets/%2E%2E/x",
-    "/assets/.%2e/api/x", "/assets/a\\..\\..\\api/x", "/assets/a%5capi",
-    "/assets/a%2F..%2Fapi", "/assets/.\t./api/x", "/assets/..\n/api/x", "/assets/.."]) {
+    "/assets/.%2e/api/x", "/assets/a\\..\\..\\api/x", "/assets/a%5c..%5c..%5capi",
+    "/assets/a%2F..%2Fapi", "/assets/.\t./api/x", "/assets/..\n/api/x", "/assets/..",
+    "/assets/..?x", "/assets/..#x", "/assets/./../api/x", "/assets/.. ", "/assets/..\u0000"]) {
     expect(isUploadedAsset(src)).toBe(false);
+  }
+});
+
+it("tests the path under any prefix, ignoring the query and fragment", () => {
+  expect(isPathUnder("/api/local/Papers/a.pdf", "/api/local/")).toBe(true);
+  expect(isPathUnder("/api/local/a?/../../x", "/api/local/")).toBe(true);
+  expect(isPathUnder("/api/localx/a.pdf", "/api/local/")).toBe(false);
+  for (const href of ["/api/local/../export.zip", "/api/local/%2E%2e/x",
+    "/api/local/a%2f..%2f..%2fx", "/api/local/a\\..\\..\\x", "/api/local/.\t./x"]) {
+    expect(isPathUnder(href, "/api/local/"), href).toBe(false);
   }
 });
 

@@ -13,6 +13,7 @@ import { BlockRef } from "./BlockRef";
 import { isBlueskyPostUrl } from "./bluesky";
 import { BlueskyEmbed } from "./BlueskyEmbed";
 import { CodeBlock } from "./CodeBlock";
+import { isPathUnder, isUploadedAsset } from "./externalMedia";
 import { goodlinksIdFromHref } from "./goodlinks";
 import { GoodlinksLink } from "./GoodlinksLink";
 import { MathSpan } from "./MathSpan";
@@ -23,18 +24,19 @@ import { QueryBlock } from "./QueryBlock";
 import { TodoCheckbox } from "./TodoCheckbox";
 
 /** PDFs the in-app viewer can fetch same-origin: content-addressed assets
- * and files served from the configured local document root.
+ * and files served from the configured local document root. A path that
+ * climbs out of either prefix names some other route, so it stays a link.
  * Path only: a query string means a download intent, not an embed. */
 export function isPdfHref(href: string): boolean {
-  if (!href.startsWith("/assets/") && !href.startsWith("/api/local/")) return false;
+  if (!isUploadedAsset(href) && !isPathUnder(href, "/api/local/")) return false;
   return href.toLowerCase().endsWith(".pdf");
 }
 
 /** Local-copy PDFs load on click, not on render: a page listing many papers
- * must not fetch them all at once. Uploaded assets keep the
- * inline auto-load. */
-function isDeferredPdfHref(href: string): boolean {
-  return href.startsWith("/api/local/");
+ * must not fetch them all at once. Only uploaded assets keep the inline
+ * auto-load, by the same test that lets an image load. */
+export function isDeferredPdfHref(href: string): boolean {
+  return !isUploadedAsset(href);
 }
 
 /** Display label for a {{[[pdf]]: …}} macro, which carries no link text:

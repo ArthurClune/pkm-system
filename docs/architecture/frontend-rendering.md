@@ -126,9 +126,13 @@ each read.
 
 | `.pdf` href | Renders as |
 |---|---|
-| under `/assets/`, no query string | inline `PdfEmbed`, auto-loading |
+| under `/assets/` (`isUploadedAsset`), no query string | inline `PdfEmbed`, auto-loading |
 | under `/api/local/`, no query string | deferred `PdfEmbed` (`isDeferredPdfHref`): a link and an Open button, fetching nothing until clicked |
 | any, with a query string | a plain link; the query signals a download |
+| climbing out of either prefix (`isPathUnder`), as `/assets/../api/local/a.pdf` does | a plain link |
+
+`isDeferredPdfHref` defers every PDF but an upload, so a href the prefix
+tests misread loads on click rather than on render.
 
 Deferral keeps a page of `Local copy::` papers from pulling each PDF from iCloud
 on the host. A file the host does not serve becomes a note, not a saved error
@@ -159,10 +163,13 @@ A rendered URL is an outbound channel: the browser fetches it with no click and
 no write approval, so whoever can write the markdown, the assistant included,
 can send note text to any host. Only `/assets/` uploads (`isUploadedAsset`)
 load on render. A src the URL parser would turn into another same-origin path
-is not an upload: `isUploadedAsset` refuses a `..` segment (literal or
-`%2e`), a backslash, an encoded slash, and a tab or newline, because
-`/assets/../api/export.zip` would run an export on render. Everything else
-waits behind `ClickToLoad`, the one gate:
+is not an upload, because `/assets/../api/export.zip` would run an export on
+render. `isPathUnder` refuses a `..` segment (literal or `%2e`) between any
+separator the browser or a path-cleaning proxy reads: `/`, `\`, `%2f` or
+`%5c`. It drops tabs and newlines and trailing spaces first, as the parser
+does. A backslash with no `..` beside it climbs nowhere, so a name quoted as
+`%5C` stays an upload. Everything else waits behind `ClickToLoad`, the one
+gate:
 
 | Media | Gated where | Placeholder |
 |---|---|---|

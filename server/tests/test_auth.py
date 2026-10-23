@@ -3,6 +3,7 @@ import threading
 import time
 
 import pytest
+from fastapi.routing import APIRoute, APIWebSocketRoute
 from fastapi.testclient import TestClient
 from test_routes_models import _api_routes
 
@@ -195,7 +196,8 @@ class TestLoginThrottle:
         assert not holder_thread.is_alive()
 
 
-# The routes that answer without a session. Every other route sits behind
+# The routes that answer without a session: `pkm.server.auth.router` (login
+# page and login) and `create_app`'s healthz. Every other route sits behind
 # `pkm.server.auth.require_auth`, so a route missing from this set that
 # answers an anonymous request is a private route that forgot its guard.
 PUBLIC_ROUTES = {
@@ -219,6 +221,33 @@ def _anonymous_answers(app) -> dict[tuple[str, str], int]:
             r = anon.request(method, _fill_path(route.path))
             answers[(method, route.path)] = r.status_code
     return answers
+
+
+def _unwalked_routes(routes) -> list[str]:
+    """Route entries the walk cannot drive: anything that is not an
+    APIRoute, a websocket route or an included router."""
+    found = []
+    for route in routes:
+        inner = getattr(route, "original_router", None)
+        if inner is not None:
+            found.extend(_unwalked_routes(inner.routes))
+        elif not isinstance(route, (APIRoute, APIWebSocketRoute)):
+            found.append(f"{type(route).__name__} {getattr(route, 'path', '')}")
+    return found
+
+
+def test_the_route_walk_sees_every_kind_of_route_the_app_holds(
+        seeded_config):
+    assert _unwalked_routes(create_app(seeded_config).routes) == []
+
+
+def test_the_walk_names_a_mounted_sub_app(seeded_config):
+    from starlette.applications import Starlette
+    from starlette.routing import Mount
+
+    app = create_app(seeded_config)
+    app.router.routes.append(Mount("/api/sub", app=Starlette()))
+    assert _unwalked_routes(app.routes) == ["Mount /api/sub"]
 
 
 def test_every_private_route_refuses_an_anonymous_request(seeded_config):

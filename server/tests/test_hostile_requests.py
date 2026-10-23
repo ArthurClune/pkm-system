@@ -345,7 +345,7 @@ def test_todos_for_a_nul_page_answers(client):
     assert r.status_code < 500
 
 
-def _digest(config) -> str:
+def _digest(config, skip: tuple[str, ...] = ()) -> str:
     """A hash of every row of every table, whatever the row order. The row
     check is off because it knows the product's columns, not the full-text
     shadow tables or `changes`."""
@@ -356,6 +356,9 @@ def _digest(config) -> str:
         h = hashlib.sha256()
         for t in con.select("SELECT name AS title FROM sqlite_master"
                             " WHERE type = 'table' ORDER BY name"):
+            if t["title"] in skip or t["title"].startswith(
+                    tuple(f"{k}_" for k in skip)):
+                continue
             rows = con.select(f"SELECT * FROM {t['title']}")
             h.update(t["title"].encode())
             for text in sorted(repr(sorted(row.items())) for row in rows):
@@ -390,14 +393,9 @@ def test_reading_routes_leave_the_database_byte_identical(client,
     assert _digest(seeded_config) == before
 
 
-def _block_count(config) -> int:
-    con = open_db(config.db_path)
-    try:
-        row = con.select_one("SELECT count(*) AS n FROM blocks")
-        assert row is not None
-        return row["n"]
-    finally:
-        con.close()
+# What a new page row moves: the row, its change feed entry, the id counter
+# and the page full-text index (`pages_fts` and its shadow tables).
+_TODAY_WRITES = ("pages", "changes", "sqlite_sequence", "pages_fts")
 
 
 def test_getting_todays_page_creates_that_page_and_nothing_else(
@@ -405,13 +403,13 @@ def test_getting_todays_page_creates_that_page_and_nothing_else(
     today = title_for_date(date.today())
     titles_before = _titles(seeded_config)
     assert today not in titles_before
-    blocks_before = _block_count(seeded_config)
+    others_before = _digest(seeded_config, skip=_TODAY_WRITES)
 
     assert client.get("/api/page/" + quote(today)).status_code == 200
 
     assert _titles(seeded_config) - titles_before == {today}
     assert titles_before <= _titles(seeded_config)
-    assert _block_count(seeded_config) == blocks_before
+    assert _digest(seeded_config, skip=_TODAY_WRITES) == others_before
 
 
 def _json_body_routes(app) -> list[APIRoute]:
@@ -429,8 +427,11 @@ _NON_JSON_TYPES = ["text/plain;charset=UTF-8", None,
                    "application/x-www-form-urlencoded"]
 
 
-def _non_json_refusals(app, client) -> dict[str, int]:
-    """Status of each JSON-body route sent a JSON-looking body under a
+_REFUSED = (422, [["body"]])
+
+
+def _non_json_answers(app, client) -> dict[str, tuple[int, list[object]]]:
+    """Status and error locations of each JSON-body route sent `{}` under a
     content type a cross-site form or Blob can send without preflight."""
     answers = {}
     for route in _json_body_routes(app):
@@ -440,36 +441,48 @@ def _non_json_refusals(app, client) -> dict[str, int]:
                 headers = {"content-type": ctype} if ctype else {}
                 r = client.request(method, url, content=b"{}",
                                    headers=headers)
-                answers[f"{method} {route.path} {ctype}"] = r.status_code
+                detail = r.json().get("detail", []) if r.status_code == 422 \
+                    else []
+                locs = [err["loc"] for err in detail]
+                answers[f"{method} {route.path} {ctype}"] = (r.status_code,
+                                                             locs)
     return answers
+
+
+def _not_refused(answers: dict[str, tuple[int, list[object]]]) -> list[str]:
+    return [k for k, v in answers.items() if v != _REFUSED]
 
 
 def test_every_json_body_route_refuses_a_non_json_content_type(
         goodlinks_client, seeded_config):
     """A body parsed whatever its Content-Type can be written by a
-    cross-origin simple request, which carries the session cookie. The
+    cross-origin simple request, which carries the session cookie. Refusal
+    is a single error on the whole body: a parsed `{}` would instead fail
+    on a missing field, `["body", <field>]`, which is no refusal. The
     goodlinks gateway is on so its route reaches body validation."""
     client = goodlinks_client
     before = _digest(seeded_config)
-    answers = _non_json_refusals(client.app, client)
+    answers = _non_json_answers(client.app, client)
     assert len(answers) > 20  # the walk found the routes
-    assert {k: v for k, v in answers.items() if v != 422} == {}
+    assert _not_refused(answers) == []
     assert _digest(seeded_config) == before
 
 
 def test_the_content_type_walk_names_a_route_that_parses_any_body():
-    from fastapi import FastAPI, Request
+    from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
     class Body(WellFormedModel):
-        text: str = ""
+        text: str
 
-    app = FastAPI()
+    app = FastAPI(strict_content_type=False)
 
     @app.post("/lenient")
-    async def lenient(request: Request, body: Body) -> None:
+    def lenient(body: Body) -> None:
         return None
 
     assert [r.path for r in _json_body_routes(app)] == ["/lenient"]
-    answers = _non_json_refusals(app, TestClient(app))
-    assert set(answers.values()) == {422}
+    answers = _non_json_answers(app, TestClient(app))
+    # The flag governs a body with no Content-Type; FastAPI refuses the
+    # other two types whatever it says.
+    assert _not_refused(answers) == ["POST /lenient None"]

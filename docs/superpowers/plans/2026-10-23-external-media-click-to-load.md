@@ -114,7 +114,11 @@ Route on `context`, not `page`: that is what catches service-worker fetches.
    wait for the second `.assistant-msg-assistant`.
 4. `await expect(panel.locator("img, iframe")).toHaveCount(0)` — the
    security assertion, first, so the red run fails on it.
-5. `expect(external).toEqual([])`.
+5. Both placeholder buttons (`image from attacker.invalid: citation`,
+   `Bluesky post from secret-tk9i.attacker.example`) visible; then repeat
+   step 4 and `expect(external).toEqual([])`. The repeat matters: the
+   Bluesky iframe mounts only after an async handle lookup, so a count of
+   zero taken before the gate is visibly in place could pass vacuously.
 6. Click button `image from attacker.invalid: citation`;
    `await expect.poll(() => external).toEqual(["https://attacker.invalid/collect?note=SECRET-tk9i"])`;
    `panel.getByRole("img", { name: "citation" })` visible.
@@ -246,7 +250,9 @@ Expected: FAIL (module missing; img rendered without a click).
 Run: `cd web && pnpm vitest run src/components/externalMedia.test.ts src/components/AssetImage.test.tsx`
 Expected: PASS.
 Run the Task 1 spec as in Task 1 Step 4. Expected: the note test PASSES;
-the reply test now fails only at step 7 (no Bluesky button).
+the reply test still fails, on the ungated Bluesky post (the iframe, a
+`resolveHandle` request, or the missing Bluesky button, whichever trips
+first), never on the image.
 
 - [ ] **Step 6: Commit**
 

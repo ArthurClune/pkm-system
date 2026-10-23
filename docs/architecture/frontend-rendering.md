@@ -163,10 +163,10 @@ its host (`externalImageLabel`), and a click mounts the `<img>` for that src.
 servers. Embeds in notes still load on render.
 
 The gate keeps the fetching component unmounted until the click, because the
-fetch starts at commit. The revealed src is compared with the current one
-during render, so a new src never commits an `<img>` without its own click; a
-reset in an effect would commit one frame first. Inside `InertMediaContext` the
-placeholder is plain text.
+fetch starts at commit. It compares the revealed src with the current one
+during render, so a new src never commits an `<img>` without its own click. A
+"was clicked" flag would not do: reset in an effect, it commits one frame of
+the new src first. Inside `InertMediaContext` the placeholder is plain text.
 
 ## Lazy loading
 

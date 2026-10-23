@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 // Floating assistant chat panel (bottom-right overlay; not a route).
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BlockRefProvider } from "../components/BlockRefProvider";
 import { InlineSegments } from "../components/InlineSegments";
 import { UntrustedContentContext } from "../contexts";
@@ -61,9 +61,35 @@ function ContentValue({ name, text, total }: {
   );
 }
 
-function PreviewOps({ preview }: { preview: WritePreview }) {
+// The ops scroll inside their own region, so a target below the fold would
+// sit under a live Allow. Allow therefore waits until the marker after the
+// last op has been in view once; a list that fits is seen at once, and with
+// no IntersectionObserver an overflowing list never arms (Deny still works).
+function PreviewOps({ preview, onEndSeen }: {
+  preview: WritePreview;
+  onEndSeen: () => void;
+}) {
+  const listRef = useRef<HTMLOListElement>(null);
+  const endRef = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    const list = listRef.current;
+    const end = endRef.current;
+    if (!list || !end) return;
+    if (list.scrollHeight <= list.clientHeight) {
+      onEndSeen();
+      return;
+    }
+    if (typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      observer.disconnect();
+      onEndSeen();
+    }, { root: list });
+    observer.observe(end);
+    return () => observer.disconnect();
+  }, [onEndSeen]);
   return (
-    <ol className="assistant-confirm-ops">
+    <ol className="assistant-confirm-ops" ref={listRef}>
       {preview.ops.map((op, i) => (
         <li key={i} className="assistant-confirm-op">
           <div className="assistant-confirm-action">{op.action}</div>
@@ -81,6 +107,7 @@ function PreviewOps({ preview }: { preview: WritePreview }) {
           ))}
         </li>
       ))}
+      <li className="assistant-confirm-end" ref={endRef} aria-hidden="true" />
     </ol>
   );
 }
@@ -102,6 +129,8 @@ function ConfirmCard({
     const id = setTimeout(() => setArmed(true), ALLOW_ARM_MS);
     return () => clearTimeout(id);
   }, []);
+  const [endSeen, setEndSeen] = useState(false);
+  const onEndSeen = useCallback(() => setEndSeen(true), []);
   // The decision sent, kept so a failed POST can only be retried as it was:
   // the server may hold that answer already and ignores a changed one. The
   // head stays mounted until its answer lands, so a chosen card that is no
@@ -113,19 +142,22 @@ function ConfirmCard({
     onAnswer(allow);
   };
   const n = preview?.ops.length ?? 0;
-  const position = count > 1 ? ` — 1 of ${count}` : "";
+  const position = count > 1 ? ` (1 of ${count})` : "";
+  const writes = n === 1 ? "write" : "writes";
   return (
     <div className="assistant-confirm-card">
       <div className="assistant-confirm-title">
         {preview
-          ? `The assistant wants to make ${n} ${n === 1 ? "write" : "writes"}:`
-          : "The assistant wants to write:"}
-        {position}
+          ? `The assistant wants to make ${n} ${writes}${position}:`
+          : `The assistant wants to write${position}:`}
       </div>
       {preview ? (
-        <PreviewOps preview={preview} />
+        <PreviewOps preview={preview} onEndSeen={onEndSeen} />
       ) : (
         <div className="assistant-error">The write preview could not be read.</div>
+      )}
+      {preview && !endSeen && !failed && (
+        <div className="assistant-confirm-hint">Scroll to the end to review every write</div>
       )}
       <div className="assistant-confirm-actions">
         {failed ? (
@@ -142,7 +174,7 @@ function ConfirmCard({
               <button
                 type="button"
                 className="btn-secondary"
-                disabled={!armed || answering}
+                disabled={!armed || !endSeen || answering}
                 onClick={() => answer(true)}
               >
                 Allow

@@ -85,7 +85,7 @@ test("two confirms queue: the second waits behind the first", async ({ page }) =
   // allow the first, deny the second
   await askInput(panel).fill("please write twice");
   await askInput(panel).press("Enter");
-  await expect(title).toHaveText("The assistant wants to make 1 write: — 1 of 2");
+  await expect(title).toHaveText("The assistant wants to make 1 write (1 of 2):");
   await expectDemoCard(panel, "Demo");
   await panel.getByRole("button", { name: "Allow" }).click();
   await expect(title).toHaveText("The assistant wants to make 1 write:");
@@ -94,6 +94,31 @@ test("two confirms queue: the second waits behind the first", async ({ page }) =
   await expect(panel.getByText("Saved 1.")).toBeVisible();
   await expect(panel.getByText("Not saving 2.")).toBeVisible();
   await expect(card).toHaveCount(0);
+});
+
+// a short window makes the card's ops list overflow its scroll region, so
+// Allow must wait until the list has been scrolled to its end
+test("Allow arms only once the ops list has been scrolled to its end", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 250 });
+  const panel = await openPanel(page);
+  const card = confirmCard(panel);
+  const hint = card.getByText("Scroll to the end to review every write");
+
+  await askInput(panel).fill("please write");
+  await askInput(panel).press("Enter");
+  await expectDemoCard(panel, "Demo");
+  const list = card.locator("ol.assistant-confirm-ops");
+  expect(await list.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  await expect(hint).toBeVisible();
+  // well past the arming pause, Allow still waits on the scroll
+  await page.waitForTimeout(800);
+  await expect(panel.getByRole("button", { name: "Allow" })).toBeDisabled();
+  await expect(panel.getByRole("button", { name: "Deny" })).toBeEnabled();
+
+  await list.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await expect(hint).toHaveCount(0);
+  await panel.getByRole("button", { name: "Allow" }).click();
+  await expect(panel.getByText("Saved.")).toBeVisible();
 });
 
 test("Stop button cancels a hung turn and the conversation stays usable", async ({ page }) => {

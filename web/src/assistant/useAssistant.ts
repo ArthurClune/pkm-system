@@ -112,6 +112,14 @@ export function useAssistant() {
     setConfirmQueueState(next);
   }, []);
   const pendingConfirm = confirmQueue[0] ?? null;
+  // The head stays on screen until its answer is posted; while the POST is in
+  // flight the card's buttons are disabled and further answers are ignored.
+  const [answering, setAnsweringState] = useState(false);
+  const answeringRef = useRef(false);
+  const setAnswering = useCallback((next: boolean) => {
+    answeringRef.current = next;
+    setAnsweringState(next);
+  }, []);
   const status = confirmQueue.length > 0 ? "confirm" : runStatus;
   const conversationId = useRef<ConversationId | null>(null);
   const abortController = useRef<AbortController | null>(null);
@@ -275,7 +283,10 @@ export function useAssistant() {
           }
         } finally {
           if (current()) {
+            // an answer still in flight has nothing left to answer, and the
+            // next turn's card must not wait on it
             setConfirmQueue([]);
+            setAnswering(false);
             setStatus("idle");
             setPhase(null);
           }
@@ -288,7 +299,7 @@ export function useAssistant() {
         if (activeTurn.current === run) activeTurn.current = null;
       }
     },
-    [runTurn, setConfirmQueue],
+    [runTurn, setAnswering, setConfirmQueue],
   );
 
   const stop = useCallback(() => {
@@ -302,15 +313,10 @@ export function useAssistant() {
       const id = conversationId.current;
       // the head this render showed, which is what the user answered
       const pending = pendingConfirm;
-      if (id === null || pending === null) return;
-      // a second click on the same card finds its confirm already gone; it
-      // must not fall through to the one queued behind it
+      if (id === null || pending === null || answeringRef.current) return;
+      // gone already: the turn ended, or this is a stale render's closure
       if (!confirmQueueRef.current.includes(pending)) return;
-      setConfirmQueue(confirmQueueRef.current.filter((p) => p !== pending));
-      setStatus("busy");
-      // the parked stretch was the user's silence, not the model's: restart
-      // the busy line's clock rather than resume a stale label
-      setPhase({ label: null, since: Date.now() });
+      setAnswering(true);
       try {
         await confirmTool(id, pending.confirmId, allow);
       } catch (err) {
@@ -318,6 +324,7 @@ export function useAssistant() {
         // gone, and neither the reset below nor an error banner may land on the
         // chat that replaced it.
         if (gen !== turnGen.current) return;
+        setAnswering(false);
         if (err instanceof ApiError && err.status === 404) {
           // reaped while waiting on the user's decision: no live turn to
           // resume, so start clean rather than resurrect a dead card or the
@@ -328,11 +335,20 @@ export function useAssistant() {
           setError("This chat expired before you responded; send a new message to start a fresh one.");
           return;
         }
-        setConfirmQueue([pending, ...confirmQueueRef.current]);
+        // the same card stays, so the user can answer it again
         setError(friendlyMessage(err));
+        return;
       }
+      if (gen !== turnGen.current) return;
+      setAnswering(false);
+      if (!confirmQueueRef.current.includes(pending)) return;
+      const rest = confirmQueueRef.current.filter((p) => p !== pending);
+      setConfirmQueue(rest);
+      // the parked stretch was the user's silence, not the model's: restart
+      // the busy line's clock rather than resume a stale label
+      if (rest.length === 0) setPhase({ label: null, since: Date.now() });
     },
-    [pendingConfirm, setConfirmQueue],
+    [pendingConfirm, setAnswering, setConfirmQueue],
   );
 
   const newChat = useCallback(async () => {
@@ -351,6 +367,7 @@ export function useAssistant() {
     setStatus("idle");
     setPhase(null);
     setConfirmQueue([]);
+    setAnswering(false);
     setModelLocked(false);
     controller?.abort();
     // Await the aborted turn so the server has observed the dropped connection
@@ -375,7 +392,7 @@ export function useAssistant() {
         // server may have reaped it already; a fresh chat is the goal
       }
     }
-  }, [setConfirmQueue]);
+  }, [setAnswering, setConfirmQueue]);
 
   return {
     items,
@@ -389,6 +406,7 @@ export function useAssistant() {
     modelLocked,
     pendingConfirm,
     pendingConfirmCount: confirmQueue.length,
+    answering,
     send,
     stop,
     respondConfirm,

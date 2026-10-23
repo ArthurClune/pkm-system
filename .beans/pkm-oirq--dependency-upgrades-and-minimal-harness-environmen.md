@@ -1,0 +1,16 @@
+---
+# pkm-oirq
+title: Dependency upgrades and minimal harness environment
+status: todo
+type: task
+priority: low
+created_at: 2026-10-23T10:56:19Z
+updated_at: 2026-10-23T10:56:19Z
+parent: pkm-mfd0
+---
+
+Review observations: pip-audit 27 advisories (pyjwt, cryptography, mcp, anyio, httpx2/httpcore2, certifi) and pnpm audit --prod 15 (dompurify via mermaid, mermaid, katex, react-router); none judged reachable, all cheap upgrades. The harness and pkm-mcp inherit the whole server env (OPENAI/GOODLINKS/z.ai keys, PKM_URL).
+
+- [ ] uv lock --upgrade-package for the advisories; mermaid >= 11.16.1 and dompurify >= 3.4.17
+- [ ] Give the harness subprocess an explicit minimal environment
+- [ ] pkm-mcp ignores PKM_URL when PKM_CLI_CONFIG is set

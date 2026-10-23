@@ -10,7 +10,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pkm.server import run
-from pkm.server.logfmt import request_line, uvicorn_log_config
+from pkm.server.logfmt import (request_line, truncate_for_log,
+                               uvicorn_log_config)
 from pkm.server.request_log import RequestLogMiddleware
 
 
@@ -291,7 +292,7 @@ def test_log_dir_config_routes_lines_to_the_right_files(tmp_path, capsys):
 
 
 def _has_control(text: str) -> bool:
-    return any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in text)
+    return not text.isprintable()
 
 
 def test_request_line_escapes_controls_in_every_field():
@@ -308,9 +309,40 @@ def test_request_line_escapes_backslash_so_escapes_are_unambiguous():
         '- "GET /a\\x0a" 200 0ms'
 
 
+def test_request_line_escapes_the_quote_that_closes_the_request_field():
+    line = request_line("1.2.3.4", "GET", '/a" 200 4ms', 401, 0)
+    assert line == '1.2.3.4 "GET /a\\" 200 4ms" 401 0ms'
+
+
+def test_request_line_escapes_line_separators_and_format_characters():
+    line = request_line(None, "GET", "/a\u2028b\u2029c\u202ed\U000e0001e", 200, 0)
+    assert line.isprintable()
+    assert line == ('- "GET /a\\u2028b\\u2029c\\u202ed\\U000e0001e" 200 0ms')
+
+
+def test_request_line_keeps_ordinary_non_ascii_readable():
+    assert request_line(None, "GET", "/caf\u00e9/\u65e5\u672c", 200, 0) == \
+        '- "GET /caf\u00e9/\u65e5\u672c" 200 0ms'
+
+
+def test_truncate_for_log_boundary():
+    assert truncate_for_log("x" * 10, 10) == "x" * 10
+    assert truncate_for_log("x" * 11, 10) == "x" * 10 + "\u2026[truncated: 11 chars]"
+
+
 def test_an_anonymous_request_cannot_forge_access_log_lines(anon_client, caplog):
     with caplog.at_level(logging.INFO, logger="pkm.access"):
         anon_client.get("/api/local/probe%0aFORGED%20LOG%20ENTRY%1b%5b31m")
     [record] = caplog.records
     assert not _has_control(record.message)
     assert "probe\\x0aFORGED LOG ENTRY\\x1b[31m" in record.message
+
+
+def test_an_anonymous_request_cannot_forge_a_line_separator_or_status(
+        anon_client, caplog):
+    with caplog.at_level(logging.INFO, logger="pkm.access"):
+        anon_client.get("/api/a%E2%80%A8FORGED%E2%80%A9x%22%20200%204ms")
+    [record] = caplog.records
+    assert record.message.isprintable()
+    assert len(record.message.splitlines()) == 1
+    assert '\\u2028FORGED\\u2029x\\" 200 4ms" ' in record.message

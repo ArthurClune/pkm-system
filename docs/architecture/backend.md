@@ -853,9 +853,11 @@ was slow. `logfmt.uvicorn_log_config()` routes three loggers to two handlers.
 
       <client> "GET /api/page/Foo?bl_limit=20" 200 4ms
 
-`request_line` escapes every control character and backslash in the client,
-method and path as `\xNN` (`\\` for a backslash), because the path is
-attacker-chosen and a raw newline would forge a log line.
+`request_line` escapes each non-printable character in the client, method and
+path (query included) as `\xNN`, `\uNNNN` or `\UNNNNNNNN`, and backslash-escapes
+backslashes and double quotes. The path is attacker-chosen: a raw newline or
+U+2028 would forge a log line, and a quote would close the request field
+early and fake the status.
 
 With `run.py --log-dir` (production) the handlers write `server.log` and
 `access.log`; without it, stderr and stdout. The server rotates its own

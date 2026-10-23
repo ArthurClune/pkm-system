@@ -11,16 +11,31 @@ from pathlib import Path
 from typing import Any
 
 
-def _is_control(char: str) -> bool:
-    return ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F
+def _escape_char(char: str) -> str:
+    if char == "\\" or char == '"':
+        return "\\" + char
+    if char.isprintable():
+        return char
+    code = ord(char)
+    if code < 0x100:
+        return f"\\x{code:02x}"
+    return f"\\u{code:04x}" if code < 0x10000 else f"\\U{code:08x}"
 
 
 def escape_controls(text: str) -> str:
-    """`text` with every C0/C1 control character and DEL as `\\xNN`, and
-    each backslash doubled so an escape never reads as typed text."""
-    return "".join(
-        "\\\\" if c == "\\" else f"\\x{ord(c):02x}" if _is_control(c) else c
-        for c in text)
+    """`text` with each non-printable character (controls, DEL, line and
+    paragraph separators, format characters) as `\\xNN`, `\\uNNNN` or
+    `\\UNNNNNNNN`, and each backslash or double quote backslash-escaped, so
+    an escape never reads as typed text and a quote never ends a field."""
+    return "".join(_escape_char(c) for c in text)
+
+
+def truncate_for_log(text: str, cap: int) -> str:
+    """`text` unchanged up to `cap` characters; longer text is cut at the cap
+    and followed by a marker naming the full length."""
+    if len(text) <= cap:
+        return text
+    return f"{text[:cap]}\u2026[truncated: {len(text)} chars]"
 
 
 def request_line(client: str | None, method: str, path: str,
@@ -28,7 +43,8 @@ def request_line(client: str | None, method: str, path: str,
     """One access-log line: who asked for what, result, and how long.
 
     The client controls `path` and `method`, so each field is escaped: a
-    raw newline or ESC would forge a log line or recolour a terminal."""
+    raw newline, ESC, quote or line separator would forge a log line or
+    status, or recolour a terminal."""
     return (f'{escape_controls(client or "-")} '
             f'"{escape_controls(method)} {escape_controls(path)}" '
             f'{status} {duration_ms:.0f}ms')

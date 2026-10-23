@@ -27,6 +27,7 @@ from pkm.database import Db
 from pkm.rows import Row, heading_level
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
+from pkm.server.logfmt import truncate_for_log
 from pkm.server.sync_core import (ChangeRow, chunk_ids, dedupe_window,
                                     hydrate_in_order, missing_parent_uids,
                                     tombstone_entities, tombstoned_page_ids, window_block_uids,
@@ -74,11 +75,11 @@ def client_diagnostics(body: ClientDiagnosticsRequest) -> OkAck:
     Nothing is written to the database, so there is no journal row and no
     nudge.
     """
-    dump = json.dumps(body.model_dump(), sort_keys=True)
-    if len(dump) > _MAX_DIAGNOSTICS_LOG_CHARS:
-        dump = (dump[:_MAX_DIAGNOSTICS_LOG_CHARS]
-                + f"\u2026[truncated: {len(dump)} chars]")
-    logger.warning("client diagnostics %s", dump)
+    # ensure_ascii keeps the line free of controls and line separators, and
+    # means the marker's ellipsis cannot occur inside a dump.
+    dump = json.dumps(body.model_dump(), sort_keys=True, ensure_ascii=True)
+    logger.warning("client diagnostics %s",
+                   truncate_for_log(dump, _MAX_DIAGNOSTICS_LOG_CHARS))
     return OkAck(ok=True)
 
 

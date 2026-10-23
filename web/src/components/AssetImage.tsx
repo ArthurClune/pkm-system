@@ -1,7 +1,18 @@
 // pattern: Imperative Shell
-// Uploaded-asset image. Viewed assets are runtime-cached by the service worker
-// (offline-editing-design.md §5); one that was never viewed can't load offline,
-// so a failed load renders a labelled placeholder instead of a broken img.
+// An image in rendered markdown. Only an uploaded /assets/ image loads on
+// render; any other src shows a placeholder naming its host, and only a click
+// on it mounts the img. An image URL is an outbound channel: the browser
+// fetches it at commit, so anything that can write markdown the app renders,
+// the assistant included, could otherwise send note text to any host with no
+// click. A click reveals that one src only and nothing is remembered, so the
+// revealed src is compared with the current one during render: resetting it
+// in an effect would commit one frame of <img> for a new src, and the fetch
+// starts at commit. Inside InertMediaContext the placeholder is plain text.
+//
+// LoadedImage renders the img itself. Viewed assets are runtime-cached by the
+// service worker (offline-editing-design.md §5); one that was never viewed
+// can't load offline, so a failed load renders a labelled placeholder instead
+// of a broken img.
 // Until the image loads or fails it has no size, and on a stalled connection
 // that can take as long as the network's own timeout: a pending placeholder
 // fills the gap so the block never reads as an empty bullet. Uploaded /assets/
@@ -10,15 +21,12 @@
 // expand trigger is skipped and the image renders inline only.
 import { useCallback, useContext, useLayoutEffect, useRef, useState } from "react";
 import { InertMediaContext } from "../contexts";
+import { externalImageLabel, isUploadedAsset } from "./externalMedia";
 import { ImageOverlay } from "./ImageOverlay";
-
-function isUploadedAsset(src: string): boolean {
-  return src.startsWith("/assets/");
-}
 
 type LoadState = "pending" | "loaded" | "failed";
 
-export function AssetImage({ src, alt }: { src: string; alt: string }) {
+function LoadedImage({ src, alt }: { src: string; alt: string }) {
   const [state, setState] = useState<LoadState>("pending");
   const [expanded, setExpanded] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -84,5 +92,30 @@ export function AssetImage({ src, alt }: { src: string; alt: string }) {
                       triggerRef={triggerRef} />
       )}
     </>
+  );
+}
+
+export function AssetImage({ src, alt }: { src: string; alt: string }) {
+  const [revealed, setRevealed] = useState<string | null>(null);
+  const inertMedia = useContext(InertMediaContext);
+  if (revealed !== null && revealed !== src) setRevealed(null);
+
+  if (isUploadedAsset(src) || revealed === src) {
+    return <LoadedImage src={src} alt={alt} />;
+  }
+  const className = "asset-image-placeholder external-media-placeholder";
+  const label = externalImageLabel(src, alt);
+  if (inertMedia) return <span className={className}>{label}</span>;
+  return (
+    <button
+      type="button"
+      className={className}
+      onClick={(event) => {
+        event.stopPropagation();
+        setRevealed(src);
+      }}
+    >
+      {label}
+    </button>
   );
 }

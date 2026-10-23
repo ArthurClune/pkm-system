@@ -693,6 +693,14 @@ mark.highlight { background: var(--color-highlight-bg); }
   border: 1px dashed var(--color-border); border-radius: var(--radius-card);
   color: var(--color-text-muted); font-size: 13px; font-style: italic;
 }
+/* An external image or embed waits behind a button until clicked (see
+ * AssetImage.tsx); the reset makes the button read as the dashed
+ * placeholder. */
+button.external-media-placeholder {
+  appearance: none; background: none; width: 100%; text-align: left;
+  font-family: inherit; cursor: pointer;
+}
+button.external-media-placeholder:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 /* A pending image stands in for the img until it loads (see AssetImage.tsx).
  * Its text stays hidden for a beat so an image served from the service-worker
  * cache swaps in without flashing the label. */

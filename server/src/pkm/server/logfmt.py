@@ -11,10 +11,43 @@ from pathlib import Path
 from typing import Any
 
 
+def _escape_char(char: str) -> str:
+    if char == "\\" or char == '"':
+        return "\\" + char
+    if char.isprintable():
+        return char
+    code = ord(char)
+    if code < 0x100:
+        return f"\\x{code:02x}"
+    return f"\\u{code:04x}" if code < 0x10000 else f"\\U{code:08x}"
+
+
+def escape_controls(text: str) -> str:
+    """`text` with each non-printable character (controls, DEL, line and
+    paragraph separators, format characters) as `\\xNN`, `\\uNNNN` or
+    `\\UNNNNNNNN`, and each backslash or double quote backslash-escaped, so
+    an escape never reads as typed text and a quote never ends a field."""
+    return "".join(_escape_char(c) for c in text)
+
+
+def truncate_for_log(text: str, cap: int) -> str:
+    """`text` unchanged up to `cap` characters; longer text is cut at the cap
+    and followed by a marker naming the full length."""
+    if len(text) <= cap:
+        return text
+    return f"{text[:cap]}\u2026[truncated: {len(text)} chars]"
+
+
 def request_line(client: str | None, method: str, path: str,
                  status: int, duration_ms: float) -> str:
-    """One access-log line: who asked for what, result, and how long."""
-    return f'{client or "-"} "{method} {path}" {status} {duration_ms:.0f}ms'
+    """One access-log line: who asked for what, result, and how long.
+
+    The client controls `path` and `method`, so each field is escaped: a
+    raw newline, ESC, quote or line separator would forge a log line or
+    status, or recolour a terminal."""
+    return (f'{escape_controls(client or "-")} '
+            f'"{escape_controls(method)} {escape_controls(path)}" '
+            f'{status} {duration_ms:.0f}ms')
 
 
 def uvicorn_log_config(log_dir: Path | None = None,

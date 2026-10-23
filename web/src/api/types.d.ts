@@ -495,7 +495,8 @@ export interface paths {
          *     A browser replica that finds its database corrupt rebuilds itself from a
          *     snapshot, which destroys the evidence. Before it does, it posts what the
          *     database said about itself (integrity checks, row counts, cursor) and
-         *     which kind of client it is. The server only logs the body: the access
+         *     which kind of client it is. The server only logs the body, cut at a
+         *     fixed size with a marker naming the full length: the access
          *     log around the line already holds the requests that led up to it.
          *     Nothing is written to the database, so there is no journal row and no
          *     nudge.

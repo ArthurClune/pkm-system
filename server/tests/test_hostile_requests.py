@@ -91,6 +91,26 @@ def test_diagnostics_normalise_nested_strings(client, caplog):
     assert logged.count("\\ufffd") == 4
 
 
+def _diagnostics_lines(caplog) -> list[str]:
+    return [rec.getMessage() for rec in caplog.records
+            if rec.getMessage().startswith("client diagnostics")]
+
+
+def test_diagnostics_log_line_is_bounded_and_names_the_total(client, caplog):
+    r = _post_escaped(client, "/api/client/diagnostics", {
+        "kind": "k", "error": "e", "report": {"dump": "x" * (2 * 1024 * 1024)},
+        "client": {}})
+    assert r.status_code == 200, r.text
+    (logged,) = _diagnostics_lines(caplog)
+    total = len(json.dumps({"client": {}, "error": "e", "kind": "k",
+                            "report": {"dump": "x" * (2 * 1024 * 1024)}},
+                           sort_keys=True))
+    marker = f"\u2026[truncated: {total} chars]"
+    prefix = len("client diagnostics ")
+    assert logged.endswith(marker)
+    assert len(logged) == prefix + 64 * 1024 + len(marker)
+
+
 def _echo_inputs(r) -> list[object]:
     return [err.get("input") for err in r.json()["detail"]]
 
@@ -495,3 +515,33 @@ def test_the_content_type_walk_names_a_route_that_parses_any_body():
     # The flag governs a body with no Content-Type; FastAPI refuses the
     # other two types whatever it says.
     assert _not_refused(answers) == ["POST /lenient None"]
+
+
+def test_diagnostics_dump_at_the_cap_logs_unchanged_and_one_over_is_cut(
+        client, caplog):
+    from pkm.server import routes_sync
+    cap = routes_sync._MAX_DIAGNOSTICS_LOG_CHARS
+    base = len(json.dumps({"client": {}, "error": "e", "kind": "k",
+                           "report": {"d": ""}}, sort_keys=True))
+    for extra, cut in ((0, False), (1, True)):
+        caplog.clear()
+        report = {"d": "x" * (cap - base + extra)}
+        r = _post_escaped(client, "/api/client/diagnostics", {
+            "kind": "k", "error": "e", "report": report, "client": {}})
+        assert r.status_code == 200, r.text
+        (logged,) = _diagnostics_lines(caplog)
+        dump = json.dumps({"client": {}, "error": "e", "kind": "k",
+                           "report": report}, sort_keys=True)
+        assert len(dump) == cap + extra
+        assert (logged != "client diagnostics " + dump) is cut
+        assert logged.endswith("chars]") is cut
+
+
+def test_diagnostics_report_holding_the_marker_text_is_not_a_marker(
+        client, caplog):
+    r = _post_escaped(client, "/api/client/diagnostics", {
+        "kind": "k", "error": "e", "client": {},
+        "report": {"d": "\u2026[truncated: 5 chars]\u2028"}})
+    assert r.status_code == 200, r.text
+    (logged,) = _diagnostics_lines(caplog)
+    assert logged.isprintable() and "\u2026" not in logged

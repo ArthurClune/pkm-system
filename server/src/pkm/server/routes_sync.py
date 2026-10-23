@@ -27,6 +27,7 @@ from pkm.database import Db
 from pkm.rows import Row, heading_level
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
+from pkm.server.logfmt import truncate_for_log
 from pkm.server.sync_core import (ChangeRow, chunk_ids, dedupe_window,
                                     hydrate_in_order, missing_parent_uids,
                                     tombstone_entities, tombstoned_page_ids, window_block_uids,
@@ -48,6 +49,10 @@ PendingIds = Annotated[list[str] | None, Query(
 
 logger = logging.getLogger("pkm.sync")
 
+# Truncate rather than 413: the report is evidence a replica posts just
+# before it destroys its database, so refusing it would lose the evidence.
+_MAX_DIAGNOSTICS_LOG_CHARS = 64 * 1024
+
 
 class ClientDiagnosticsRequest(WellFormedModel):
     """A replica's self-report, sent before it rebuilds itself."""
@@ -64,13 +69,17 @@ def client_diagnostics(body: ClientDiagnosticsRequest) -> OkAck:
     A browser replica that finds its database corrupt rebuilds itself from a
     snapshot, which destroys the evidence. Before it does, it posts what the
     database said about itself (integrity checks, row counts, cursor) and
-    which kind of client it is. The server only logs the body: the access
+    which kind of client it is. The server only logs the body, cut at a
+    fixed size with a marker naming the full length: the access
     log around the line already holds the requests that led up to it.
     Nothing is written to the database, so there is no journal row and no
     nudge.
     """
+    # ensure_ascii keeps the line free of controls and line separators, and
+    # means the marker's ellipsis cannot occur inside a dump.
+    dump = json.dumps(body.model_dump(), sort_keys=True, ensure_ascii=True)
     logger.warning("client diagnostics %s",
-                   json.dumps(body.model_dump(), sort_keys=True))
+                   truncate_for_log(dump, _MAX_DIAGNOSTICS_LOG_CHARS))
     return OkAck(ok=True)
 
 

@@ -26,5 +26,4 @@ the export `_gather_resolution_data` now run each id set through
 first so a repeated uid cannot double a breadcrumb. Tests in
 `server/tests/test_sql_variable_limit.py` cap each request connection's
 variable limit at 600 and drive routes with 700 rows. backend.md
-Database section states the rule; troubleshooting.md has a row. The perf
-check is left to the orchestrator before merge.
+Database section states the rule; troubleshooting.md has a row. Perf: page/big 7 -> 9 and block/backlinks 3 -> 4 statements, accepted by Arthur; baseline bootstrapped on security/batch-1.

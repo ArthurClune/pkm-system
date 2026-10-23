@@ -13,7 +13,6 @@ from pkm.assistant.policy import (
     classify_tool,
     default_model,
     mcp_tool_name,
-    ops_preview,
     read_tool_names,
     resolve_model,
     short_tool_name,
@@ -100,57 +99,6 @@ def test_tool_summary():
     assert tool_summary("todos", {}) == "listing TODOs"
     # unknown keys fall back to the verb name
     assert tool_summary("get_block", {}) == "get_block"
-
-
-def test_ops_preview_save_note():
-    out = ops_preview("save_note", {"title": "Demo", "content": "hello world"})
-    assert "save_note" in out and "Demo" in out
-
-
-def test_ops_preview_rename_page():
-    out = ops_preview("rename_page", {"title": "Draft", "new_title":
-                       "Machine Learning", "allow_merge": True})
-    assert "rename_page" in out
-    assert "Draft" in out and "Machine Learning" in out
-
-
-def test_ops_preview_batch_lists_ops():
-    # The payload shape here must match mcp.server.batch's real
-    # signature -- `commands`, each {"command": ..., "params": {...}}. A
-    # test invoking a different key the tool cannot emit would pass while
-    # every real approval card rendered "0 operation(s)".
-    out = ops_preview("batch", {"commands": [
-        {"command": "move", "params": {"uid": "abc123", "page": "Demo"}},
-        {"command": "delete", "params": {"uid": "def456"}},
-    ]})
-    assert "2 operation" in out
-    assert "abc123" in out and "def456" in out
-    assert "move" in out and "delete" in out
-
-
-def test_ops_preview_batch_never_silently_empty():
-    # A batch whose argument shape we don't recognise (a renamed parameter,
-    # a future signature) must still show the user what they are approving:
-    # falling back to the verbose generic rendering is safe, claiming there is
-    # nothing to approve is not.
-    out = ops_preview("batch", {"operations": [{"command": "delete", "params": {"uid": "zzz999"}}]})
-    assert "0 operation" not in out
-    assert "zzz999" in out
-
-
-def test_ops_preview_does_not_clip_moderate_values():
-    # A tight char clip would make users approve writes they couldn't
-    # fully see. ops_preview (unlike tool_summary) only clips
-    # pathologically long values, so ordinary note text is shown in full.
-    text = "x" * 500
-    out = ops_preview("update_block", {"uid": "abc123", "text": text})
-    assert text in out
-
-
-def test_ops_preview_still_clips_pathologically_long_values():
-    out = ops_preview("update_block", {"uid": "abc123", "text": "x" * 20_000})
-    assert len(out) < 5000
-    assert "…" in out
 
 
 def test_tool_summary_still_clips_at_120_for_the_running_indicator():

@@ -1,13 +1,15 @@
 // pattern: Functional Core
 // Incremental parser for the assistant's SSE stream (event:/data: frames).
 import type { ConfirmId } from "../api/brands";
+import { parseWritePreview, type WritePreview } from "./writePreview";
 
 export type AssistantEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_started"; name: string; summary: string }
   | { type: "tool_finished"; name: string }
   | { type: "phase"; label: string }
-  | { type: "confirm_request"; confirm_id: ConfirmId; ops_preview: string }
+  | { type: "confirm_request"; confirm_id: ConfirmId; ops_preview: string;
+      preview: WritePreview | null }
   | { type: "turn_done"; usage: Record<string, unknown> | null }
   | { type: "error"; message: string };
 
@@ -31,6 +33,16 @@ function parseFrame(frame: string): AssistantEvent | null {
   if (!EVENT_TYPES.has(eventName) || !data) return null;
   try {
     const payload = JSON.parse(data) as Record<string, unknown>;
+    if (eventName === "confirm_request") {
+      // A malformed preview still yields the event, as null: the card then
+      // offers only Deny, rather than the turn waiting on an unseen confirm.
+      return {
+        type: eventName,
+        confirm_id: payload.confirm_id as ConfirmId,
+        ops_preview: payload.ops_preview as string,
+        preview: parseWritePreview(payload.preview),
+      };
+    }
     return { ...payload, type: eventName } as AssistantEvent;
   } catch {
     return null;

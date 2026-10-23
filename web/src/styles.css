@@ -1109,10 +1109,34 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .assistant-confirm-card { border: 1px solid var(--color-border-input); border-radius: var(--radius-card);
   padding: 10px; }
 .assistant-confirm-title { font-weight: 600; margin-bottom: 6px; }
-.assistant-confirm-card pre { overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere;
-  font-size: 0.85em; margin: 0 0 8px; }
-.assistant-preview-toggle { background: none; border: none; padding: 0; margin: 0 0 8px;
-  color: var(--color-link); font-size: 0.85em; cursor: pointer; text-decoration: underline; }
+/* the ops scroll inside the card, so Allow and Deny below them stay in view
+ * however long the batch. The cap leaves room in the transcript for the
+ * panel's chrome (its inset, header and composer, about 160px) and the card's
+ * heading (about 45px): a region taller than that would hide its own end
+ * marker however far a keyboard scrolls it. Below about 255px the 4em floor
+ * is taller than that room; the end marker then shows only partway down the
+ * transcript, and the card's hint says to scroll up to it */
+.assistant-confirm-scroll { max-height: clamp(4em, calc(100vh - 210px), 260px); overflow-y: auto;
+  margin: 0 0 8px; font-size: 0.85em; }
+.assistant-confirm-scroll:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
+.assistant-confirm-ops { margin: 0; padding-left: 1.6em; }
+.assistant-confirm-op + .assistant-confirm-op { margin-top: 8px; }
+/* the markers ConfirmCard watches: Allow arms once each has been in view */
+.assistant-confirm-start, .assistant-confirm-end { height: 1px; }
+.assistant-confirm-hint { font-size: 0.85em; color: var(--color-text-secondary); margin: -4px 0 8px; }
+.assistant-confirm-action { font-weight: 600; overflow-wrap: anywhere; }
+.assistant-confirm-target { overflow-wrap: anywhere; }
+.assistant-confirm-content { overflow-wrap: anywhere; }
+.assistant-confirm-key { color: var(--color-text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.assistant-confirm-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap; unicode-bidi: isolate; }
+.assistant-confirm-text { display: block; border: 1px solid var(--color-border);
+  border-radius: var(--radius-control); padding: 4px 6px; margin-top: 2px; }
+.assistant-confirm-length { color: var(--color-text-secondary); }
+.assistant-confirm-warning { color: var(--color-error); overflow-wrap: anywhere; }
+.assistant-preview-toggle { background: none; border: none; padding: 0; margin: 0;
+  color: var(--color-link); font-size: inherit; cursor: pointer; text-decoration: underline; }
 .assistant-preview-toggle:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .assistant-confirm-actions { display: flex; gap: 8px; }
 .assistant-error { color: var(--color-error); font-size: 0.9em; }

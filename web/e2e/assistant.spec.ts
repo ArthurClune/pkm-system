@@ -14,6 +14,26 @@ async function login(page: Page) {
 
 const askInput = (panel: Locator) => panel.getByPlaceholder(/ask about your notes/i);
 
+const confirmCard = (panel: Locator) => panel.locator(".assistant-confirm-card");
+
+// the fake engine's save_note card: one write to page `title`, text "Demo"
+async function expectDemoCard(panel: Locator, title: string) {
+  const card = confirmCard(panel);
+  await expect(card.locator(".assistant-confirm-action")).toHaveText("save note");
+  await expect(card.locator(".assistant-confirm-target").first())
+    .toHaveText(`page: ${JSON.stringify(title)}`);
+  await expect(card.locator(".assistant-confirm-content"))
+    .toHaveText('text: "Demo"');
+}
+
+async function openPanel(page: Page): Promise<Locator> {
+  await login(page);
+  await page.keyboard.press("Control+j");
+  const panel = page.getByRole("region", { name: "Assistant" });
+  await expect(panel).toBeVisible();
+  return panel;
+}
+
 test("assistant panel: toggle, echo turn, confirm allow/deny", async ({ page }) => {
   await login(page);
 
@@ -36,14 +56,14 @@ test("assistant panel: toggle, echo turn, confirm allow/deny", async ({ page }) 
   // confirm flow: deny
   await askInput(panel).fill("please write");
   await askInput(panel).press("Enter");
-  await expect(panel.getByText('save_note(title="Demo")')).toBeVisible();
+  await expectDemoCard(panel, "Demo");
   await panel.getByRole("button", { name: "Deny" }).click();
   await expect(panel.getByText("Okay, not saving.")).toBeVisible();
 
   // confirm flow: allow
   await askInput(panel).fill("please write");
   await askInput(panel).press("Enter");
-  await expect(panel.getByText('save_note(title="Demo")')).toBeVisible();
+  await expectDemoCard(panel, "Demo");
   await panel.getByRole("button", { name: "Allow" }).click();
   await expect(panel.getByText("Saved.")).toBeVisible();
 
@@ -55,6 +75,85 @@ test("assistant panel: toggle, echo turn, confirm allow/deny", async ({ page }) 
   // sidebar entry reopens
   await page.getByRole("button", { name: "Assistant" }).click();
   await expect(page.getByRole("region", { name: "Assistant" })).toBeVisible();
+});
+
+test("two confirms queue: the second waits behind the first", async ({ page }) => {
+  const panel = await openPanel(page);
+  const card = confirmCard(panel);
+  const title = card.locator(".assistant-confirm-title");
+
+  // allow the first, deny the second
+  await askInput(panel).fill("please write twice");
+  await askInput(panel).press("Enter");
+  await expect(title).toHaveText("The assistant wants to make 1 write (1 of 2):");
+  await expectDemoCard(panel, "Demo");
+  await panel.getByRole("button", { name: "Allow" }).click();
+  await expect(title).toHaveText("The assistant wants to make 1 write:");
+  await expectDemoCard(panel, "Demo 2");
+  await panel.getByRole("button", { name: "Deny" }).click();
+  await expect(panel.getByText("Saved 1.")).toBeVisible();
+  await expect(panel.getByText("Not saving 2.")).toBeVisible();
+  await expect(card).toHaveCount(0);
+});
+
+// a short window makes the card taller than the transcript and its ops list
+// overflow its own region: the card opens at its heading, and Allow waits
+// until the end of the list has also been in view. At these heights a region
+// capped at 40vh would not fit the transcript, so a keyboard could never
+// bring its end into view.
+for (const height of [260, 230]) {
+  test(`Allow arms only once the whole card has been in view (${height}px)`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height });
+    const panel = await openPanel(page);
+    const card = confirmCard(panel);
+    const hint = card.getByText("Scroll to the end to review every write");
+
+    await askInput(panel).fill("please write");
+    await askInput(panel).press("Enter");
+    await expectDemoCard(panel, "Demo");
+    await expect(card.locator(".assistant-confirm-title")).toBeInViewport();
+    const region = card.getByRole("region", { name: "Writes to review" });
+    expect(await region.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+    await expect(hint).toBeVisible();
+    // well past the arming pause, Allow still waits on the scroll
+    await page.waitForTimeout(800);
+    await expect(panel.getByRole("button", { name: "Allow" })).toBeDisabled();
+    await expect(panel.getByRole("button", { name: "Deny" })).toBeEnabled();
+
+    // the region takes focus, so a keyboard alone can scroll it to the end
+    await region.focus();
+    await page.keyboard.press("End");
+    await expect(region).toBeFocused();
+    await expect.poll(() => region.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    await expect(hint).toHaveCount(0);
+    await panel.getByRole("button", { name: "Allow" }).click();
+    await expect(panel.getByText("Saved.")).toBeVisible();
+  });
+}
+
+// shorter still, the list's region (a few lines at least) and the card's
+// heading overflow the transcript: scrolled to its end, the transcript holds
+// the end marker above its top, and the hint says to scroll back up
+test("in a very short window the hint points up to the end it passed", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 200 });
+  const panel = await openPanel(page);
+  const card = confirmCard(panel);
+  await askInput(panel).fill("please write");
+  await askInput(panel).press("Enter");
+  await expectDemoCard(panel, "Demo");
+  const region = card.getByRole("region", { name: "Writes to review" });
+  await region.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  const messages = panel.locator(".assistant-messages");
+  await messages.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await expect(card.getByText("Scroll up to bring the end of the list into view"))
+    .toBeVisible();
+  const allow = panel.getByRole("button", { name: "Allow" });
+  await expect(allow).toBeDisabled();
+  // scrolling up brings the end marker through view, which arms Allow
+  await expect.poll(async () => {
+    await messages.evaluate((el) => { el.scrollTop -= 8; });
+    return allow.isEnabled();
+  }).toBe(true);
 });
 
 test("Stop button cancels a hung turn and the conversation stays usable", async ({ page }) => {

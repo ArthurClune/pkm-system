@@ -53,11 +53,31 @@ describe("createSseParser", () => {
     ]);
   });
 
-  test("parses confirm_request", () => {
+  test("parses confirm_request with its structured preview", () => {
+    const p = createSseParser();
+    const preview = {
+      ops: [{ action: "save_note", targets: [["page", null]],
+        content: [["text", "hi", 2]], warnings: [] }],
+      summary: "save_note(text='hi')",
+    };
+    const data = JSON.stringify({
+      confirm_id: "c1", ops_preview: "save_note(text='hi')", preview });
+    expect(p.push(`event: confirm_request\ndata: ${data}\n\n`)).toEqual([
+      { type: "confirm_request", confirm_id: "c1",
+        ops_preview: "save_note(text='hi')", preview },
+    ]);
+  });
+
+  // A malformed preview still yields the event, so the card can show the
+  // error and offer Deny; the server's turn must not hang unanswered.
+  test("a confirm_request with a malformed preview carries preview null", () => {
     const p = createSseParser();
     expect(
-      p.push('event: confirm_request\ndata: {"confirm_id": "c1", "ops_preview": "save_note(...)"}\n\n'),
-    ).toEqual([{ type: "confirm_request", confirm_id: "c1", ops_preview: "save_note(...)" }]);
+      p.push('event: confirm_request\ndata: {"confirm_id": "c1", "ops_preview": "x", "preview": 42}\n\n'),
+    ).toEqual([{ type: "confirm_request", confirm_id: "c1", ops_preview: "x", preview: null }]);
+    expect(
+      p.push('event: confirm_request\ndata: {"confirm_id": "c2", "ops_preview": "x"}\n\n'),
+    ).toEqual([{ type: "confirm_request", confirm_id: "c2", ops_preview: "x", preview: null }]);
   });
 
   test("event name from the event line wins over a type key in data", () => {

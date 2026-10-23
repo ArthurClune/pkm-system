@@ -32,6 +32,11 @@ function feed(events: AssistantEvent[]) {
   );
 }
 
+function confirmEvent(id: string): AssistantEvent {
+  return { type: "confirm_request", confirm_id: confirmIdOf(id),
+    ops_preview: "save_note(...)", preview: null };
+}
+
 function deferredValue<T>() {
   let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;
@@ -127,7 +132,7 @@ describe("useAssistant", () => {
     let release!: () => void;
     mocks.streamMessage.mockImplementation(
       async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        onEvent({ type: "confirm_request", confirm_id: confirmIdOf("t1"), ops_preview: "save_note(...)" });
+        onEvent(confirmEvent("t1"));
         await new Promise<void>((r) => (release = r));
         onEvent({ type: "text_delta", text: "Saved." });
         onEvent({ type: "turn_done", usage: null });
@@ -141,7 +146,9 @@ describe("useAssistant", () => {
       await Promise.resolve();
     });
     expect(latest.status).toBe("confirm");
-    expect(latest.pendingConfirm).toEqual({ confirmId: "t1", opsPreview: "save_note(...)" });
+    expect(latest.pendingConfirm).toEqual(
+      { confirmId: "t1", opsPreview: "save_note(...)", preview: null,
+        sentDecision: null });
     await act(async () => {
       await latest.respondConfirm(true);
       release();
@@ -156,7 +163,7 @@ describe("useAssistant", () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     mocks.streamMessage.mockImplementation(
       async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        onEvent({ type: "confirm_request", confirm_id: confirmIdOf("t1"), ops_preview: "save_note(...)" });
+        onEvent(confirmEvent("t1"));
         await new Promise<void>(() => {}); // turn stays open awaiting the confirm decision
       },
     );
@@ -166,11 +173,281 @@ describe("useAssistant", () => {
       void latest.send("please write");
       await Promise.resolve();
     });
-    expect(latest.pendingConfirm).toEqual({ confirmId: "t1", opsPreview: "save_note(...)" });
+    expect(latest.pendingConfirm).toEqual(
+      { confirmId: "t1", opsPreview: "save_note(...)", preview: null,
+        sentDecision: null });
     await act(() => latest.respondConfirm(true));
-    expect(latest.pendingConfirm).toEqual({ confirmId: "t1", opsPreview: "save_note(...)" });
+    expect(latest.pendingConfirm).toEqual(
+      { confirmId: "t1", opsPreview: "save_note(...)", preview: null,
+        sentDecision: true });
     expect(latest.status).toBe("confirm");
     expect(latest.error).toBe("network down");
+  });
+
+  // A second confirm must wait behind the card on screen: replacing it would
+  // change what Allow approves under the user's cursor.
+  test("queues a second confirm behind the first", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
+    let release!: () => void;
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+        onEvent(confirmEvent("c1"));
+        onEvent(confirmEvent("c2"));
+        await new Promise<void>((r) => (release = r));
+        onEvent({ type: "turn_done", usage: null });
+      },
+    );
+    mocks.confirmTool.mockResolvedValue(undefined);
+    render(<Harness />);
+    let sendDone!: Promise<void>;
+    await act(async () => {
+      sendDone = latest.send("please write");
+      await Promise.resolve();
+    });
+    expect(latest.status).toBe("confirm");
+    expect(latest.pendingConfirm?.confirmId).toBe("c1");
+    expect(latest.pendingConfirmCount).toBe(2);
+
+    await act(() => latest.respondConfirm(true));
+    expect(mocks.confirmTool).toHaveBeenLastCalledWith("conv1", "c1", true);
+    expect(latest.pendingConfirm?.confirmId).toBe("c2");
+    expect(latest.pendingConfirmCount).toBe(1);
+    expect(latest.status).toBe("confirm");
+
+    await act(async () => {
+      release();
+      await sendDone;
+    });
+    expect(latest.pendingConfirm).toBeNull();
+    expect(latest.pendingConfirmCount).toBe(0);
+    expect(latest.status).toBe("idle");
+  });
+
+  test("answering the last queued confirm returns to busy", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+        onEvent(confirmEvent("c1"));
+        onEvent(confirmEvent("c2"));
+        await new Promise<void>(() => {});
+      },
+    );
+    mocks.confirmTool.mockResolvedValue(undefined);
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("please write");
+      await Promise.resolve();
+    });
+    await act(() => latest.respondConfirm(false));
+    await act(() => latest.respondConfirm(true));
+    expect(mocks.confirmTool.mock.calls).toEqual([["conv1", "c1", false], ["conv1", "c2", true]]);
+    expect(latest.pendingConfirm).toBeNull();
+    expect(latest.status).toBe("busy");
+  });
+
+  function parkTwoConfirms() {
+    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+        onEvent(confirmEvent("c1"));
+        onEvent(confirmEvent("c2"));
+        await new Promise<void>(() => {});
+      },
+    );
+  }
+
+  // Advancing before the POST settles would let a failure swap the card
+  // back under the cursor, so the answered card stays, marked answering.
+  test("the answered card stays until its answer is posted", async () => {
+    parkTwoConfirms();
+    const post = deferredValue<void>();
+    mocks.confirmTool.mockReturnValue(post.promise);
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("please write");
+      await Promise.resolve();
+    });
+    expect(latest.answering).toBe(false);
+    let answered!: Promise<void>;
+    act(() => { answered = latest.respondConfirm(true); });
+    expect(latest.answering).toBe(true);
+    expect(latest.pendingConfirm?.confirmId).toBe("c1");
+    expect(latest.pendingConfirmCount).toBe(2);
+    expect(latest.status).toBe("confirm");
+    await act(async () => {
+      post.resolve();
+      await answered;
+    });
+    expect(latest.answering).toBe(false);
+    expect(latest.pendingConfirm?.confirmId).toBe("c2");
+    expect(latest.pendingConfirmCount).toBe(1);
+  });
+
+  // A second click, from a fresh render, while the first answer is in
+  // flight must not answer anything: not c1 again, and not c2 behind it.
+  test("an answer while one is in flight posts nothing", async () => {
+    parkTwoConfirms();
+    const post = deferredValue<void>();
+    mocks.confirmTool.mockReturnValue(post.promise);
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("please write");
+      await Promise.resolve();
+    });
+    let answered!: Promise<void>;
+    act(() => { answered = latest.respondConfirm(true); });
+    await act(() => latest.respondConfirm(true));
+    expect(mocks.confirmTool.mock.calls).toEqual([["conv1", "c1", true]]);
+    await act(async () => {
+      post.resolve();
+      await answered;
+    });
+    expect(mocks.confirmTool.mock.calls).toEqual([["conv1", "c1", true]]);
+    expect(latest.pendingConfirm?.confirmId).toBe("c2");
+    expect(latest.status).toBe("confirm");
+  });
+
+  test("a failed answer leaves the same card showing, not the next", async () => {
+    parkTwoConfirms();
+    const post = deferredValue<void>();
+    mocks.confirmTool.mockReturnValueOnce(post.promise);
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("please write");
+      await Promise.resolve();
+    });
+    let answered!: Promise<void>;
+    act(() => { answered = latest.respondConfirm(false); });
+    expect(latest.pendingConfirm?.confirmId).toBe("c1");
+    await act(async () => {
+      post.reject(new Error("network down"));
+      await answered;
+    });
+    expect(latest.pendingConfirm?.confirmId).toBe("c1");
+    expect(latest.pendingConfirmCount).toBe(2);
+    expect(latest.answering).toBe(false);
+    expect(latest.status).toBe("confirm");
+    expect(latest.error).toBe("network down");
+
+    // the user can answer the same card again
+    mocks.confirmTool.mockResolvedValueOnce(undefined);
+    await act(() => latest.respondConfirm(false));
+    expect(mocks.confirmTool.mock.calls).toEqual(
+      [["conv1", "c1", false], ["conv1", "c1", false]]);
+    expect(latest.pendingConfirm?.confirmId).toBe("c2");
+  });
+
+  // The server may hold a failed answer already and ignores a changed one,
+  // so the hook records what it posted and the card can offer only that again,
+  // however often the card remounts.
+  test("the head records the decision once it is posted", async () => {
+    parkTwoConfirms();
+    const post = deferredValue<void>();
+    mocks.confirmTool.mockReturnValueOnce(post.promise);
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("please write");
+      await Promise.resolve();
+    });
+    expect(latest.pendingConfirm?.sentDecision).toBeNull();
+    let answered!: Promise<void>;
+    act(() => { answered = latest.respondConfirm(true); });
+    expect(latest.pendingConfirm?.sentDecision).toBe(true);
+    await act(async () => {
+      post.reject(new Error("network down"));
+      await answered;
+    });
+    expect(latest.pendingConfirm?.confirmId).toBe("c1");
+    expect(latest.pendingConfirm?.sentDecision).toBe(true);
+
+    // a changed answer posts nothing; the same one goes again
+    await act(() => latest.respondConfirm(false));
+    expect(mocks.confirmTool.mock.calls).toEqual([["conv1", "c1", true]]);
+    mocks.confirmTool.mockResolvedValueOnce(undefined);
+    await act(() => latest.respondConfirm(true));
+    expect(mocks.confirmTool.mock.calls).toEqual(
+      [["conv1", "c1", true], ["conv1", "c1", true]]);
+    expect(latest.pendingConfirm?.confirmId).toBe("c2");
+    expect(latest.pendingConfirm?.sentDecision).toBeNull();
+  });
+
+  test("an answer the hook does not post records nothing", async () => {
+    parkTwoConfirms();
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("please write");
+      await Promise.resolve();
+    });
+    const stale = latest.respondConfirm;
+    mocks.confirmTool.mockReturnValueOnce(new Promise<void>(() => {}));
+    act(() => { void latest.respondConfirm(true); });
+    // in flight: a second answer, even a stale render's, is refused
+    await act(() => stale(false));
+    expect(mocks.confirmTool.mock.calls).toEqual([["conv1", "c1", true]]);
+    expect(latest.pendingConfirm?.sentDecision).toBe(true);
+  });
+
+  // The server can finish the turn before the answer's POST returns; the
+  // next turn's card must still take an answer.
+  test("a turn that ends while an answer is in flight leaves the next answerable", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
+    let release!: () => void;
+    mocks.streamMessage.mockImplementationOnce(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+        onEvent(confirmEvent("c1"));
+        await new Promise<void>((r) => (release = r));
+      },
+    );
+    mocks.streamMessage.mockImplementationOnce(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+        onEvent(confirmEvent("c3"));
+        await new Promise<void>(() => {});
+      },
+    );
+    mocks.confirmTool.mockReturnValueOnce(new Promise<void>(() => {}));
+    mocks.confirmTool.mockResolvedValueOnce(undefined);
+    render(<Harness />);
+    let first!: Promise<void>;
+    await act(async () => {
+      first = latest.send("please write");
+      await Promise.resolve();
+    });
+    act(() => { void latest.respondConfirm(true); });
+    await act(async () => {
+      release();
+      await first;
+    });
+    expect(latest.answering).toBe(false);
+    await act(async () => {
+      void latest.send("and again");
+      await Promise.resolve();
+    });
+    expect(latest.pendingConfirm?.confirmId).toBe("c3");
+    await act(() => latest.respondConfirm(true));
+    expect(mocks.confirmTool).toHaveBeenLastCalledWith("conv1", "c3", true);
+  });
+
+  test("a reaped conversation drops the whole queue", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+        onEvent(confirmEvent("c1"));
+        onEvent(confirmEvent("c2"));
+        await new Promise<void>(() => {});
+      },
+    );
+    mocks.confirmTool.mockRejectedValue(
+      new ApiError(404, "/api/assistant/conversations/conv1/confirm"));
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("please write");
+      await Promise.resolve();
+    });
+    await act(() => latest.respondConfirm(true));
+    expect(latest.pendingConfirm).toBeNull();
+    expect(latest.pendingConfirmCount).toBe(0);
+    expect(latest.status).toBe("idle");
+    expect(latest.error).toMatch(/expired/);
   });
 
   // The phase drives the busy line's label and its elapsed clock.
@@ -247,7 +524,7 @@ describe("useAssistant", () => {
     mocks.streamMessage.mockImplementation(
       async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
         onEvent({ type: "phase", label: "preparing save_note" });
-        onEvent({ type: "confirm_request", confirm_id: confirmIdOf("t1"), ops_preview: "save_note(...)" });
+        onEvent(confirmEvent("t1"));
         await new Promise<void>((r) => (release = r));
         onEvent({ type: "turn_done", usage: null });
       },
@@ -491,7 +768,7 @@ describe("useAssistant", () => {
     // land in the fresh transcript
     act(() => {
       emit({ type: "text_delta", text: "y from the dead turn" });
-      emit({ type: "confirm_request", confirm_id: confirmIdOf("t9"), ops_preview: "x" });
+      emit(confirmEvent("t9"));
       emit({ type: "error", message: "stale boom" });
     });
     expect(latest.items).toEqual([]);
@@ -685,7 +962,7 @@ describe("useAssistant", () => {
     mocks.streamMessage.mockImplementation(
       async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void,
              signal?: AbortSignal) => {
-        onEvent({ type: "confirm_request", confirm_id: confirmIdOf("t1"), ops_preview: "save_note(...)" });
+        onEvent(confirmEvent("t1"));
         await new Promise<void>((_resolve, reject) => {
           signal?.addEventListener("abort", () =>
             reject(new DOMException("aborted", "AbortError")));
@@ -712,6 +989,7 @@ describe("useAssistant", () => {
     // neither may touch the chat that replaced it
     expect(latest.error).toBeNull();
     expect(latest.pendingConfirm).toBeNull();
+    expect(latest.answering).toBe(false);
     expect(latest.status).toBe("idle");
   });
 });

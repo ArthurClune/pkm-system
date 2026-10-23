@@ -291,7 +291,7 @@ def test_write_tool_emits_confirm_and_blocks(tmp_path):
             # what the SDK does internally: call the hook, wait for the
             # decision, then finish the turn with a ResultMessage
             results["decision"] = await conv.can_use_tool(
-                "mcp__pkm__save_note", {"title": "Demo"}, None
+                "mcp__pkm__save_note", {"text": "Demo", "page": "Demo"}, None
             )
             client.feed(make_result())
 
@@ -319,7 +319,10 @@ def test_deny_returns_declined_message(tmp_path):
         client = FakeSDKClient.instances[0]
 
         async def decide():
-            decision = await conv.can_use_tool("mcp__pkm__batch", {"ops": []}, None)
+            decision = await conv.can_use_tool(
+                "mcp__pkm__batch",
+                {"commands": [{"command": "delete", "params": {"uid": "U1"}}]},
+                None)
             client.feed(make_result())
             return decision
 
@@ -402,7 +405,7 @@ def test_send_interrupts_harness_when_consumer_drops_mid_confirm(tmp_path):
         client = FakeSDKClient.instances[0]
 
         async def fake_model_turn():
-            await conv.can_use_tool("mcp__pkm__save_note", {"title": "Demo"}, None)
+            await conv.can_use_tool("mcp__pkm__save_note", {"text": "Demo"}, None)
 
         task = asyncio.create_task(fake_model_turn())
         stream = conv.send("save it")
@@ -432,7 +435,7 @@ def test_parked_confirm_is_declined_without_waiting_for_interrupt(tmp_path):
 
         async def fake_model_turn():
             decisions.append(
-                await conv.can_use_tool("mcp__pkm__save_note", {"title": "Demo"}, None)
+                await conv.can_use_tool("mcp__pkm__save_note", {"text": "Demo"}, None)
             )
 
         waiting = asyncio.create_task(fake_model_turn())
@@ -800,7 +803,7 @@ def test_stall_watchdog_suspended_while_confirm_parked(tmp_path, monkeypatch):
 
         task = asyncio.create_task(consume())
         decision_task = asyncio.create_task(
-            conv.can_use_tool("mcp__pkm__save_note", {"title": "x"}, None)
+            conv.can_use_tool("mcp__pkm__save_note", {"text": "x"}, None)
         )
         await asyncio.sleep(0.2)  # 4x the stall window, parked the whole time
         assert not task.done()
@@ -963,16 +966,63 @@ def test_confirm_card_preview_is_a_snapshot_of_the_input(tmp_path):
 
     async def scenario():
         conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
-        tool_input: dict[str, object] = {"uid": "CCC", "text": "original"}
-        task = asyncio.create_task(conv.can_use_tool("mcp__pkm__update_block", tool_input, None))
+        params = {"uid": "CCC", "text": "original"}
+        tool_input: dict[str, object] = {
+            "commands": [{"command": "update", "params": params}]}
+        task = asyncio.create_task(conv.can_use_tool("mcp__pkm__batch", tool_input, None))
         card = await _next_card(conv)
-        tool_input["text"] = "swapped"
+        params["text"] = "swapped"
+        params["uid"] = "DDD"
         conv.resolve_confirm(card.confirm_id, True)
         await asyncio.wait_for(task, timeout=5)
         await conv.close()
         return card
 
     card = asyncio.run(scenario())
-    assert isinstance(card.ops_preview, str)
-    assert "text=original" in card.ops_preview
-    assert "swapped" not in card.ops_preview
+    assert card.preview.ops[0].content == [("text", "original", 8)]
+    assert card.preview.ops[0].targets == [("uid", "CCC")]
+
+
+def test_refused_write_is_denied_without_a_confirm(tmp_path, caplog):
+    """Input the tool's own schema rejects is never offered as a card:
+    the model gets the reason, the user sees nothing to approve."""
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        decision = await asyncio.wait_for(
+            conv.can_use_tool("mcp__pkm__batch", {"commands": "nope"}, None),
+            timeout=5)
+        queued = conv._queue.qsize()
+        pending = len(conv._pending)
+        await conv.close()
+        return decision, queued, pending
+
+    with caplog.at_level(logging.WARNING, logger="pkm.assistant"):
+        decision, queued, pending = asyncio.run(scenario())
+    assert isinstance(decision, PermissionResultDeny)
+    assert "batch" in decision.message
+    assert queued == 0
+    assert pending == 0
+    refusals = [r for r in caplog.records if "refused" in r.getMessage()]
+    assert refusals and refusals[0].levelno == logging.WARNING
+    assert "batch" in refusals[0].getMessage()
+
+
+def test_confirm_request_carries_structured_preview(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        task = asyncio.create_task(conv.can_use_tool(
+            "mcp__pkm__update_block",
+            {"text": "x" * 3000, "uid": "VICTIMUID01"}, None))
+        card = await _next_card(conv)
+        conv.resolve_confirm(card.confirm_id, False)
+        await asyncio.wait_for(task, timeout=5)
+        await conv.close()
+        return card
+
+    card = asyncio.run(scenario())
+    assert card.preview.ops[0].targets[0] == ("uid", "VICTIMUID01")
+    assert card.ops_preview == card.preview.summary

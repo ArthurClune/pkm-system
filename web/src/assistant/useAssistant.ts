@@ -14,6 +14,7 @@ import {
   type AssistantModel,
 } from "./client";
 import type { AssistantEvent } from "./sse";
+import type { WritePreview } from "./writePreview";
 
 /** ApiError carries the server's `detail` message; prefer
  * it over the generic "request failed: <status> <path>" wrapper text. */
@@ -65,7 +66,16 @@ export type ChatItem =
   | { kind: "assistant"; text: string }
   | { kind: "tool"; name: string; summary: string; done: boolean };
 
-export type PendingConfirm = { confirmId: ConfirmId; opsPreview: string };
+export type PendingConfirm = {
+  confirmId: ConfirmId;
+  opsPreview: string;
+  preview: WritePreview | null;
+  // the answer posted for this confirm, set only once it is posted. The
+  // server may hold a failed answer already and ignores a changed one, so
+  // after a failure only this answer may be sent again; it lives here rather
+  // than in the card so a remounted card cannot forget it.
+  sentDecision: boolean | null;
+};
 
 /** What the busy line shows: the server's phase label ("reasoning",
  * "preparing save_note", "replying") or null for the unlabelled stretches
@@ -75,7 +85,9 @@ export type PhaseInfo = { label: string | null; since: number };
 
 export function useAssistant() {
   const [items, setItems] = useState<ChatItem[]>([]);
-  const [status, setStatus] = useState<"idle" | "busy" | "confirm">("idle");
+  // "confirm" is derived from the queue below, so it holds exactly while a
+  // confirm waits on the user
+  const [runStatus, setStatus] = useState<"idle" | "busy">("idle");
   const [phase, setPhase] = useState<PhaseInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [model, setModelState] = useState<AssistantModel>("sonnet");
@@ -95,7 +107,25 @@ export function useAssistant() {
     setModelState(m as AssistantModel);
   }, []);
   const modelsRequested = useRef(false);
-  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
+  // FIFO: a confirm arriving while one is on screen waits behind it, so the
+  // card never changes under the user's cursor. The ref mirrors the state for
+  // respondConfirm, which must see an answer given since its last render.
+  const [confirmQueue, setConfirmQueueState] = useState<PendingConfirm[]>([]);
+  const confirmQueueRef = useRef<PendingConfirm[]>([]);
+  const setConfirmQueue = useCallback((next: PendingConfirm[]) => {
+    confirmQueueRef.current = next;
+    setConfirmQueueState(next);
+  }, []);
+  const pendingConfirm = confirmQueue[0] ?? null;
+  // The head stays on screen until its answer is posted; while the POST is in
+  // flight the card's buttons are disabled and further answers are ignored.
+  const [answering, setAnsweringState] = useState(false);
+  const answeringRef = useRef(false);
+  const setAnswering = useCallback((next: boolean) => {
+    answeringRef.current = next;
+    setAnsweringState(next);
+  }, []);
+  const status = confirmQueue.length > 0 ? "confirm" : runStatus;
   const conversationId = useRef<ConversationId | null>(null);
   const abortController = useRef<AbortController | null>(null);
   const stopRequested = useRef(false);
@@ -173,8 +203,10 @@ export function useAssistant() {
         });
         break;
       case "confirm_request":
-        setPendingConfirm({ confirmId: ev.confirm_id, opsPreview: ev.ops_preview });
-        setStatus("confirm");
+        setConfirmQueue([...confirmQueueRef.current, {
+          confirmId: ev.confirm_id, opsPreview: ev.ops_preview, preview: ev.preview,
+          sentDecision: null,
+        }]);
         break;
       case "turn_done":
         break;
@@ -182,7 +214,7 @@ export function useAssistant() {
         setError(ev.message);
         break;
     }
-  }, []);
+  }, [setConfirmQueue]);
 
   // Runs one turn; on a 404 (server reaped the conversation -- idle timeout
   // or oldest-idle eviction elsewhere) it resets the
@@ -257,7 +289,10 @@ export function useAssistant() {
           }
         } finally {
           if (current()) {
-            setPendingConfirm(null);
+            // an answer still in flight has nothing left to answer, and the
+            // next turn's card must not wait on it
+            setConfirmQueue([]);
+            setAnswering(false);
             setStatus("idle");
             setPhase(null);
           }
@@ -270,7 +305,7 @@ export function useAssistant() {
         if (activeTurn.current === run) activeTurn.current = null;
       }
     },
-    [runTurn],
+    [runTurn, setAnswering, setConfirmQueue],
   );
 
   const stop = useCallback(() => {
@@ -282,13 +317,15 @@ export function useAssistant() {
     async (allow: boolean) => {
       const gen = turnGen.current;
       const id = conversationId.current;
-      const pending = pendingConfirm;
-      if (id === null || pending === null) return;
-      setPendingConfirm(null);
-      setStatus("busy");
-      // the parked stretch was the user's silence, not the model's: restart
-      // the busy line's clock rather than resume a stale label
-      setPhase({ label: null, since: Date.now() });
+      // the head this render showed, which is what the user answered
+      const shown = pendingConfirm;
+      if (id === null || shown === null || answeringRef.current) return;
+      // gone already: the turn ended, or this is a stale render's closure
+      if (!confirmQueueRef.current.includes(shown)) return;
+      if (shown.sentDecision !== null && shown.sentDecision !== allow) return;
+      const pending = { ...shown, sentDecision: allow };
+      setConfirmQueue(confirmQueueRef.current.map((p) => (p === shown ? pending : p)));
+      setAnswering(true);
       try {
         await confirmTool(id, pending.confirmId, allow);
       } catch (err) {
@@ -296,20 +333,31 @@ export function useAssistant() {
         // gone, and neither the reset below nor an error banner may land on the
         // chat that replaced it.
         if (gen !== turnGen.current) return;
+        setAnswering(false);
         if (err instanceof ApiError && err.status === 404) {
           // reaped while waiting on the user's decision: no live turn to
-          // resume, so start clean rather than resurrect a dead card
+          // resume, so start clean rather than resurrect a dead card or the
+          // ones queued behind it
           conversationId.current = null;
+          setConfirmQueue([]);
           setStatus("idle");
           setError("This chat expired before you responded; send a new message to start a fresh one.");
           return;
         }
-        setPendingConfirm(pending);
-        setStatus("confirm");
+        // the same card stays, so the user can answer it again
         setError(friendlyMessage(err));
+        return;
       }
+      if (gen !== turnGen.current) return;
+      setAnswering(false);
+      if (!confirmQueueRef.current.includes(pending)) return;
+      const rest = confirmQueueRef.current.filter((p) => p !== pending);
+      setConfirmQueue(rest);
+      // the parked stretch was the user's silence, not the model's: restart
+      // the busy line's clock rather than resume a stale label
+      if (rest.length === 0) setPhase({ label: null, since: Date.now() });
     },
-    [pendingConfirm],
+    [pendingConfirm, setAnswering, setConfirmQueue],
   );
 
   const newChat = useCallback(async () => {
@@ -327,7 +375,8 @@ export function useAssistant() {
     setError(null);
     setStatus("idle");
     setPhase(null);
-    setPendingConfirm(null);
+    setConfirmQueue([]);
+    setAnswering(false);
     setModelLocked(false);
     controller?.abort();
     // Await the aborted turn so the server has observed the dropped connection
@@ -352,7 +401,7 @@ export function useAssistant() {
         // server may have reaped it already; a fresh chat is the goal
       }
     }
-  }, []);
+  }, [setAnswering, setConfirmQueue]);
 
   return {
     items,
@@ -365,6 +414,8 @@ export function useAssistant() {
     ensureModels,
     modelLocked,
     pendingConfirm,
+    pendingConfirmCount: confirmQueue.length,
+    answering,
     send,
     stop,
     respondConfirm,

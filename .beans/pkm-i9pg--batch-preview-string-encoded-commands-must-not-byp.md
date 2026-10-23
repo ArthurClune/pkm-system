@@ -1,7 +1,7 @@
 ---
 # pkm-i9pg
 title: 'Batch preview: string-encoded commands must not bypass the per-op listing'
-status: todo
+status: completed
 type: bug
 priority: normal
 created_at: 2026-10-23T10:56:19Z
@@ -11,10 +11,10 @@ parent: pkm-mfd0
 
 Review finding (Medium; Low after the fact-finding below): ops_preview only lists ops when batch.commands is a list. A JSON string falls through to the generic clipped dump (no op count; trailing commands invisible), then FastMCP pre_parse_json turns it back into a list and apply_batch runs all of it.
 
-- [ ] Red test first, from the review probe: sec-assistant/probe_preview.py (string-encoded commands). Probes live in docs/superpowers/handoffs/security-review-2026-10-23-probes (main checkout, gitignored; README maps probes)
+- [x] Red test first, from the review probe: sec-assistant/probe_preview.py (string-encoded commands). Probes live in docs/superpowers/handoffs/security-review-2026-10-23-probes (main checkout, gitignored; README maps probes)
 - [x] First establish whether the Claude CLI validates MCP input against inputSchema before can_use_tool (if it does, this is defence in depth)
-- [ ] Preview the input exactly as the tool will receive it (same pre-parse), or deny a write whose input is not schema-shaped
-- [ ] Test with the payload from the review report
+- [x] Preview the input exactly as the tool will receive it (same pre-parse), or deny a write whose input is not schema-shaped
+- [x] Test with the payload from the review report
 
 ## Fact-finding: does the CLI pass a string-encoded `commands` through? (2026-10-23)
 
@@ -38,3 +38,7 @@ Read from the binary's embedded JS (minified names, so tied to this build):
   stays, as defence in depth: preview what the tool will receive
   (same pre-parse as FastMCP) or deny a write whose input is not schema-shaped.
 - Severity: Medium -> Low (defence in depth).
+
+## Summary of Changes
+
+The preview now validates input with the tool's own FastMCP argument model (and the `apply_batch` schema for batch commands), so a string-encoded `commands` is previewed as the list the tool receives, and non-schema input is a `Refusal` that `ClaudeConversation.can_use_tool` denies. `test_preview_matches_what_the_tool_receives` pins the parity with live payloads.

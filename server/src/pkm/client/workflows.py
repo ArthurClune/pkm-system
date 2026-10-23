@@ -3,7 +3,7 @@
 place: fetch what a plan needs, plan it, post it as one atomic batch.
 
 Each of these was duplicated line-for-line between `pkm.cli.main` and
-`pkm.mcp.server`, which is how a fix could land in one and not the other
+`pkm.mcp.tools`, which is how a fix could land in one and not the other
 (the ordering rules below are all bought by past bugs). What is
 deliberately NOT here is presentation: the CLI prints, the MCP server
 returns strings, and each shell keeps its own argument handling (stdin,

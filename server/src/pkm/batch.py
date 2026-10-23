@@ -32,7 +32,7 @@ from pkm.planning import (BuildError, Planner, parse_uid_spec, plan_update,
 _ALIAS_SPEC = re.compile(r"^\{\{(.+)\}\}\Z")
 
 
-def _nested_items(items: Sequence[NestedItem], depth: int = 0) -> list[tuple[int, str]]:
+def nested_items(items: Sequence[NestedItem], depth: int = 0) -> list[tuple[int, str]]:
     """Flatten a validated `outline` item list (`NestedItem`: a leaf string,
     or a list one level deeper) into (depth, text) pairs, depth-first. Shape
     is guaranteed by `OutlineParams.items` before this ever runs, so unlike
@@ -42,8 +42,14 @@ def _nested_items(items: Sequence[NestedItem], depth: int = 0) -> list[tuple[int
         if isinstance(item, str):
             out.append((depth, item))
         else:
-            out.extend(_nested_items(item, depth + 1))
+            out.extend(nested_items(item, depth + 1))
     return out
+
+
+def alias_name(spec: str) -> str | None:
+    """The name inside an `{{alias}}` spec, or None for any other spec."""
+    m = _ALIAS_SPEC.match(spec)
+    return m.group(1) if m else None
 
 
 def _resolve_alias(spec: str | None, aliases: dict[str, BlockUid]) -> str | None:
@@ -123,9 +129,9 @@ class OutlineParams(_Strict):
     def _require_a_leaf_item(self) -> OutlineParams:
         # `Field(min_length=1)` only bounds the top-level list -- items=[[]]
         # (or any all-empty nesting) satisfies it but flattens to zero leaf
-        # strings via `_nested_items`, which would otherwise plan zero ops
+        # strings via `nested_items`, which would otherwise plan zero ops
         # for what looks like a non-empty outline command.
-        if not _nested_items(self.items):
+        if not nested_items(self.items):
             raise ValueError("items: must contain at least one item")
         return self
 
@@ -187,14 +193,14 @@ BatchCommand = Annotated[
          MoveCommand, DeleteCommand],
     Field(discriminator="command")]
 
-_BATCH_COMMAND_ADAPTER: TypeAdapter[BatchCommand] = TypeAdapter(BatchCommand)
+BATCH_COMMAND_ADAPTER: TypeAdapter[BatchCommand] = TypeAdapter(BatchCommand)
 
 
-def _format_command_error(index: int, exc: ValidationError) -> str:
-    """Render the first of `exc`'s errors as one `batch[i]: problem` line
-    -- a malformed batch fails with a clear per-item error naming the
-    index and problem, not a pydantic error dump. The three discriminator-
-    level error kinds (`model_attributes_type` for a non-object item,
+def _command_problem(exc: ValidationError) -> str:
+    """Render the first of `exc`'s errors as one problem line -- a
+    malformed batch fails with a clear per-item error naming the problem,
+    not a pydantic error dump. The three discriminator-level error kinds
+    (`model_attributes_type` for a non-object item,
     `union_tag_not_found`/`union_tag_invalid` for a missing/unrecognized
     `command`) have no useful `loc`, so they get bespoke messages; anything
     else is a `params`-shape problem, reported as its field path (with the
@@ -203,21 +209,31 @@ def _format_command_error(index: int, exc: ValidationError) -> str:
     first = exc.errors()[0]
     kind = first["type"]
     if kind == "model_attributes_type":
-        return f"batch[{index}]: expected an object"
+        return "expected an object"
     if kind == "union_tag_not_found":
-        return f"batch[{index}]: missing 'command'"
+        return "missing 'command'"
     if kind == "union_tag_invalid":
-        return f"batch[{index}]: unknown command: {first['ctx']['tag']!r}"
+        return f"unknown command: {first['ctx']['tag']!r}"
     path = ".".join(str(p) for p in first["loc"][1:])
-    return f"batch[{index}]: {path}: {first['msg']}" if path \
-        else f"batch[{index}]: {first['msg']}"
+    return f"{path}: {first['msg']}" if path else first["msg"]
+
+
+class BatchItemError(BuildError):
+    """A batch item that fails the command schema, as a `batch[i]:
+    problem` message; `index` and `problem` stay readable apart for a
+    caller that phrases them its own way."""
+
+    def __init__(self, index: int, problem: str) -> None:
+        super().__init__(f"batch[{index}]: {problem}")
+        self.index = index
+        self.problem = problem
 
 
 def _parse_command(raw: object, index: int) -> BatchCommand:
     try:
-        return _BATCH_COMMAND_ADAPTER.validate_python(raw)
+        return BATCH_COMMAND_ADAPTER.validate_python(raw)
     except ValidationError as exc:
-        raise BuildError(_format_command_error(index, exc)) from None
+        raise BatchItemError(index, _command_problem(exc)) from None
 
 
 def validate_batch(commands: object) -> list[BatchCommand]:
@@ -437,7 +453,7 @@ def _batch_outline(cmd: OutlineCommand, ctx: _BatchCtx) -> list[CreateOp]:
     spec = _resolve_alias(p.parent, ctx.aliases)
     parent, off_page, ops = ctx.resolve_parent(blocks, page, spec)
     return [*ops, *ctx.planner.creates(blocks, page, parent,
-                                       _nested_items(p.items), todo=False,
+                                       nested_items(p.items), todo=False,
                                        parent_off_page=off_page)]
 
 
@@ -535,6 +551,6 @@ def plan_batch(commands: Sequence[object], pages: PageBlocks,
 
 
 __all__ = [
-    "NestedItem", "BatchCommand", "PageBlocks", "validate_batch",
+    "NestedItem", "BatchCommand", "PageBlocks", "validate_batch", "alias_name",
     "referenced_pages", "delete_uids", "plan_batch",
 ]

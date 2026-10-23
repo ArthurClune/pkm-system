@@ -1,53 +1,222 @@
 // pattern: Imperative Shell
 // Floating assistant chat panel (bottom-right overlay; not a route).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Ref, type RefObject } from "react";
 import { BlockRefProvider } from "../components/BlockRefProvider";
 import { InlineSegments } from "../components/InlineSegments";
 import { UntrustedContentContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
+import { confirmHint, placeOf, type MarkerState } from "./confirmHint";
 import { elapsedLabel } from "./elapsed";
 import { stripCaretBlockRefs } from "./normalizeRefs";
-import { useAssistant } from "./useAssistant";
+import { useAssistant, type PendingConfirm } from "./useAssistant";
+import { formatTarget, quoteValue, type WritePreview } from "./writePreview";
 
-// The server only clips ops_preview at a generous 4000
-// chars (see policy.py); this is a purely visual collapse so the approval
-// card doesn't dominate the panel for a long batch, with a toggle to see
-// everything the server actually sent.
-const PREVIEW_COLLAPSE_THRESHOLD = 300;
+// Each content value shows this many code points until [show] reveals the
+// rest, which the server always sends; targets are never clipped, so Allow
+// never sits below a hidden destination.
+const CONTENT_CLIP = 280;
+// Allow stays disabled this long after a card mounts, so a double-click aimed
+// at the control the card replaced cannot land on it. Deny is live at once.
+const ALLOW_ARM_MS = 600;
 
-function ConfirmCard({
-  opsPreview,
-  onAllow,
-  onDeny,
-}: {
-  opsPreview: string;
-  onAllow: () => void;
-  onDeny: () => void;
+function ContentValue({ name, text, total }: {
+  name: string;
+  text: string;
+  total: number;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const isLong = opsPreview.length > PREVIEW_COLLAPSE_THRESHOLD;
-  const shown = isLong && !expanded ? opsPreview.slice(0, PREVIEW_COLLAPSE_THRESHOLD) + "…" : opsPreview;
+  // total is the server's count of code points, so the clip counts them too,
+  // which also keeps it from splitting a surrogate pair
+  const points = [...text];
+  const clipped = points.length > CONTENT_CLIP;
+  const shown = clipped && !expanded ? points.slice(0, CONTENT_CLIP) : points;
   return (
-    <div className="assistant-confirm-card">
-      <div className="assistant-confirm-title">The assistant wants to write:</div>
-      <pre>{shown}</pre>
-      {isLong && (
-        <button
-          type="button"
-          className="assistant-preview-toggle"
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? "Show less" : "Show full preview"}
-        </button>
+    <div className="assistant-confirm-content">
+      <span className="assistant-confirm-key">{name}</span>{": "}
+      {clipped && <span className="assistant-confirm-length">({total} chars)</span>}
+      {clipped && (
+        <>
+          {" "}
+          <button
+            type="button"
+            className="assistant-preview-toggle"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? "[hide]" : "[show]"}
+          </button>
+        </>
       )}
+      {/* the ellipsis sits outside the closing quote: it is the card's mark,
+        * not part of the value */}
+      <bdi className="assistant-confirm-value assistant-confirm-text">
+        {quoteValue(shown.join(""))}{shown.length < total ? "…" : ""}
+      </bdi>
+    </div>
+  );
+}
+
+// The ops scroll inside a region of their own, itself inside the scrolling
+// transcript, so a short window can hide the heading or a target while Allow
+// shows. Allow therefore also waits until a marker before the heading and one
+// after the last op have each been in view, as reported against the viewport,
+// which clips through every scrolling ancestor. With no IntersectionObserver
+// Allow never arms; Deny still works. Until then a hint says which way the
+// unseen marker lies.
+function PreviewOps({ preview, endRef }: {
+  preview: WritePreview;
+  endRef: Ref<HTMLDivElement>;
+}) {
+  return (
+    // focusable so a keyboard can scroll it to the end marker; Safari does
+    // not focus a scroll container on its own
+    <div className="assistant-confirm-scroll" role="region" aria-label="Writes to review"
+      tabIndex={0}>
+      <ol className="assistant-confirm-ops">
+        {preview.ops.map((op, i) => (
+          <li key={i} className="assistant-confirm-op">
+            <div className="assistant-confirm-action">{op.action}</div>
+            {op.targets.map(([key, value], j) => (
+              <div key={j} className="assistant-confirm-target">
+                <span className="assistant-confirm-key">{key}</span>{": "}
+                <bdi className="assistant-confirm-value">{formatTarget(key, value)}</bdi>
+              </div>
+            ))}
+            {op.warnings.map((warning, j) => (
+              <div key={j} className="assistant-confirm-warning">⚠ {warning}</div>
+            ))}
+            {op.content.map(([key, text, total], j) => (
+              <ContentValue key={j} name={key} text={text} total={total} />
+            ))}
+          </li>
+        ))}
+      </ol>
+      <div className="assistant-confirm-end" ref={endRef} aria-hidden="true" />
+    </div>
+  );
+}
+
+function ConfirmCard({
+  pending,
+  count,
+  answering,
+  onAnswer,
+  scrollerRef,
+}: {
+  pending: PendingConfirm;
+  count: number;
+  answering: boolean;
+  onAnswer: (allow: boolean) => void;
+  scrollerRef: RefObject<HTMLDivElement>;
+}) {
+  const { preview, sentDecision } = pending;
+  const cardRef = useRef<HTMLDivElement>(null);
+  const startRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
+  const [armed, setArmed] = useState(false);
+  // the card opens at its heading, so an unseen start was scrolled past
+  const [start, setStart] = useState<MarkerState>("above");
+  const [end, setEnd] = useState<MarkerState>("below");
+  useEffect(() => {
+    const id = setTimeout(() => setArmed(true), ALLOW_ARM_MS);
+    return () => clearTimeout(id);
+  }, []);
+  // A new card shows from its heading down, not from the transcript's
+  // bottom. The transcript scrolls itself: scrollIntoView can also scroll the
+  // document under the fixed panel in WebKit.
+  useEffect(() => {
+    const card = cardRef.current;
+    const scroller = scrollerRef.current;
+    if (!card || !scroller) return;
+    scroller.scrollTop += card.getBoundingClientRect().top
+      - scroller.getBoundingClientRect().top;
+  }, [scrollerRef]);
+  useEffect(() => {
+    const startEl = startRef.current;
+    const endEl = endRef.current;
+    const scroller = scrollerRef.current;
+    if (!startEl || !endEl || typeof IntersectionObserver === "undefined") return;
+    // seen once is enough: the user has had the chance to read it
+    const keepSeen = (place: "above" | "below") =>
+      (prev: MarkerState): MarkerState => (prev === "seen" ? prev : place);
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        observer.unobserve(entry.target);
+        if (entry.target === startEl) setStart("seen");
+        else setEnd("seen");
+      }
+    });
+    observer.observe(startEl);
+    observer.observe(endEl);
+    const measure = () => {
+      if (!scroller) return;
+      const view = scroller.getBoundingClientRect();
+      const startPlace = placeOf(startEl.getBoundingClientRect(), view);
+      const endPlace = placeOf(endEl.getBoundingClientRect(), view);
+      if (startPlace) setStart(keepSeen(startPlace));
+      if (endPlace) setEnd(keepSeen(endPlace));
+    };
+    // scroll does not bubble, but a capturing listener on the transcript
+    // hears the list region's scrolls as well as its own
+    scroller?.addEventListener("scroll", measure, { capture: true, passive: true });
+    return () => {
+      observer.disconnect();
+      scroller?.removeEventListener("scroll", measure, { capture: true });
+    };
+  }, [scrollerRef]);
+  // sentDecision is set by the hook only once it posts; the head stays only
+  // after a failed post, so a sent decision that is not in flight failed
+  const failed = sentDecision !== null && !answering;
+  const n = preview?.ops.length ?? 0;
+  const position = count > 1 ? ` (1 of ${count})` : "";
+  const writes = n === 1 ? "write" : "writes";
+  const hint = confirmHint(start, end);
+  return (
+    <div className="assistant-confirm-card" ref={cardRef}>
+      <div className="assistant-confirm-start" ref={startRef} aria-hidden="true" />
+      <div className="assistant-confirm-title">
+        {preview
+          ? `The assistant wants to make ${n} ${writes}${position}:`
+          : `The assistant wants to write${position}:`}
+      </div>
+      {preview ? (
+        <PreviewOps preview={preview} endRef={endRef} />
+      ) : (
+        <div className="assistant-error">The write preview could not be read.</div>
+      )}
+      {preview && hint && !failed && <div className="assistant-confirm-hint">{hint}</div>}
       <div className="assistant-confirm-actions">
-        <button type="button" className="btn-secondary" onClick={onAllow}>
-          Allow
-        </button>
-        <button type="button" className="btn-danger" onClick={onDeny}>
-          Deny
-        </button>
+        {failed ? (
+          <button
+            type="button"
+            className={sentDecision ? "btn-secondary" : "btn-danger"}
+            onClick={() => onAnswer(sentDecision)}
+          >
+            {sentDecision ? "Retry Allow" : "Retry Deny"}
+          </button>
+        ) : (
+          <>
+            {preview && (
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={!armed || start !== "seen" || end !== "seen" || answering}
+                onClick={() => onAnswer(true)}
+              >
+                Allow
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn-danger"
+              disabled={answering}
+              onClick={() => onAnswer(false)}
+            >
+              Deny
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -70,6 +239,9 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
   }, [busy]);
 
   useEffect(() => {
+    // a confirm card scrolls its own top into view instead: pinning the
+    // bottom would push a tall card's heading and first targets out of sight
+    if (assistant.pendingConfirm) return;
     const list = listRef.current;
     if (list) list.scrollTop = list.scrollHeight;
   }, [assistant.items, assistant.pendingConfirm]);
@@ -149,9 +321,11 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
         {assistant.pendingConfirm && (
           <ConfirmCard
             key={assistant.pendingConfirm.confirmId}
-            opsPreview={assistant.pendingConfirm.opsPreview}
-            onAllow={() => void assistant.respondConfirm(true)}
-            onDeny={() => void assistant.respondConfirm(false)}
+            pending={assistant.pendingConfirm}
+            count={assistant.pendingConfirmCount}
+            answering={assistant.answering}
+            onAnswer={(allow) => void assistant.respondConfirm(allow)}
+            scrollerRef={listRef}
           />
         )}
         {assistant.error && <div className="assistant-error">{assistant.error}</div>}
@@ -178,7 +352,10 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
             }
           }}
         />
-        {assistant.status === "busy" ? (
+        {/* while an answer posts, or after its post failed and the card
+          * offers only a retry, Stop is the way out of the confirm */}
+        {assistant.status === "busy" || assistant.answering
+          || (assistant.pendingConfirm?.sentDecision ?? null) !== null ? (
           <button type="button" className="btn-secondary" onClick={() => assistant.stop()}>
             Stop
           </button>

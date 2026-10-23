@@ -3,18 +3,19 @@ import pytest
 from pkm.planning import BuildError
 from pkm.client.core import ApiError
 from pkm.mcp import server as mcp_server
+from pkm.mcp import tools as mcp_tools
 from pkm.contracts.ops import BatchId
 
 
 @pytest.fixture()
 def tools(pkm_client, monkeypatch):
-    monkeypatch.setattr(mcp_server, "_client_factory", lambda: pkm_client)
-    monkeypatch.setattr(mcp_server, "_cached_client", None)
-    return mcp_server
+    monkeypatch.setattr(mcp_tools, "_client_factory", lambda: pkm_client)
+    monkeypatch.setattr(mcp_tools, "_cached_client", None)
+    return mcp_tools
 
 
 def test_tools_are_registered(tools):
-    names = {t.name for t in tools.mcp._tool_manager.list_tools()}
+    names = {t.name for t in mcp_server.mcp._tool_manager.list_tools()}
     assert names == {"get_page", "get_block", "search", "query", "backlinks",
                      "todos", "changed_blocks", "save_note", "update_block",
                      "batch", "upload_asset", "search_assets", "rename_page"}
@@ -409,7 +410,7 @@ def test_rename_page_collision_without_allow_merge_raises(tools):
 
 
 def test_mcp_title_arguments_keep_their_names(tools):
-    by_name = {t.name: t for t in tools.mcp._tool_manager.list_tools()}
+    by_name = {t.name: t for t in mcp_server.mcp._tool_manager.list_tools()}
     expected = {"get_page": ["title"], "backlinks": ["title"],
                 "rename_page": ["title", "new_title"]}
     for tool, names in expected.items():

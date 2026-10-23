@@ -5,7 +5,7 @@ since the 2026-07-14 review and the embedded assistant boundaries.
 The threat model is defined in [SECURITY.md](SECURITY.md).
 
 Severity is assessed within the single-user, Tailscale-only threat model.
-No fixes were made. Exploit prerequisites are separate from reproduced
+No fixes were made; the actions are the children of epic pkm-mfd0. Exploit prerequisites are separate from reproduced
 behavior; no real prompt-injection attack against a provider was attempted.
 
 The review ran in two passes. The first covered the bean's listed
@@ -291,7 +291,7 @@ listed because the export is a backup.
   uvicorn's defaults, so for loopback connections, which is how
   Tailscale Serve connects, the key is the right-most non-loopback
   `X-Forwarded-For` entry. SECURITY.md's statement that every tailnet
-  client shares the proxy's bucket held only if Serve sends no such
+  client shares the proxy's bucket holds only if Serve sends no such
   header; the Tailscale binary contains `addProxyForwardedHeaders`.
   The direct listener ignored a spoofed header. Whether Serve passes a
   client-supplied header through unchanged was not tested.

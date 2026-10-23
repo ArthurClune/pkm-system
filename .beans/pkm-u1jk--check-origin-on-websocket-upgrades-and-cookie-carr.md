@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: high
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-23T10:56:19Z
+updated_at: 2026-10-23T11:49:58Z
 parent: pkm-mfd0
 ---
 
@@ -16,3 +16,5 @@ Review finding (Medium): ts.net is a public suffix, so every tailnet host (Funne
 - [ ] Same check on the state-changing routes that accept simple requests: POST /api/journal/cleanup, /api/assets/scan, /api/assets (multipart), the assistant close beacon, /api/assets/export.zip
 - [ ] Decide how the allowed origin is configured (Serve hostname, direct-IP listener)
 - [ ] Tests: foreign Origin refused, own Origin accepted, missing Origin (non-browser clients, CLI) still works
+
+Note from the guard tests: test_hostile_requests.py's content-type walk counts 415, or a 422 whose only loc is ["body"], as a refusal. A fix that refuses non-JSON bodies some other way (403 from an Origin check) must widen that predicate, not delete the walk.

@@ -1,11 +1,11 @@
 ---
 # pkm-t74a
 title: Turn security-review probes into regression tests
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-10-23T11:00:14Z
-updated_at: 2026-10-23T11:00:14Z
+updated_at: 2026-10-23T12:10:07Z
 parent: pkm-mfd0
 ---
 
@@ -32,3 +32,7 @@ Guards to convert now (passing tests):
 - [x] Probes of kind 'none' (timing, real CLI, audits, headers): note in the README whether any belongs in perf/ or a slow test instead
 - [x] Copy anything still needed into the fix beans (deleting the probe directory
   moved to pkm-e95y: the red probes are still unused)
+
+## Summary of Changes
+
+Guard tests (tests only, no product change) for every behaviour the review found holding: Content-Disposition and zip arcnames for hostile titles, parse_sha256 and asset DELETE/serve traversal shapes, asset search literals, SPA containment (encoded traversal, prefix sibling, outward symlink), export temp-dir cleanup on send error and disconnect, export odd paths, ((ref))/query cycles, deep [[ refused by /api/ops, /api/changed and current-work extremes, read-only GETs (DB digest), assistant confirm binding and unknown-tool denial, an anonymous walk of every route kind (HTTP, WebSocket incl. a hung handler, the SPA and app-assets mount) and a logged-in content-type walk of every JSON-body route. Each guard was mutation-checked in an isolated copy. Red probes are named in their fix beans; notes for pkm-u8uh and pkm-u1jk say which guards their fixes must adjust. Fact-finding recorded in pkm-i9pg (the CLI repairs string-encoded arrays) and pkm-0ve4 (no page lost in retained backups).

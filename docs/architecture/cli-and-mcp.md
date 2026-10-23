@@ -53,6 +53,13 @@ its model raises `ResponseSchemaError`, naming the endpoint and field path.
 Unknown extra fields are ignored, so an older CLI works against a newer
 server.
 
+A title or uid placed in a URL path goes through `_segment`, which
+percent-encodes every `/` and `.` (query params and JSON bodies are encoded by
+httpx). The read tools are auto-approved, so a title such as
+`../sync/snapshot` must not become a dot segment that httpx normalises onto
+another route. The server decodes the path before routing, so namespaced
+titles still match `{title:wholepath}`.
+
 ## Shared write workflows
 
 `upload_and_link` validates the destination page and parent before

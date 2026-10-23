@@ -1,15 +1,17 @@
 import os
+from urllib.parse import unquote
 
 import pytest
 
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient, login
 from pkm.client.core import ApiError, CliConfig, ConfigError
-from pkm.contracts.ops import UID_RE, CreateOp, CreatePageOp, new_uid
+from pkm.contracts.ops import UID_RE, BlockUid, CreateOp, CreatePageOp, new_uid
 from pkm.contracts.responses import BacklinkGroup, Backlinks, PageMeta, PagePayload
 from pkm.contracts.titles import RawTitle
+from pkm.refs import normalize_title
 from pkm.server.db import open_db
-from pkm.test_data.ids import canonical_title_of, order_idx_of, page_id_of, raw_title_of, uid_of
+from pkm.test_data.ids import canonical_title_of, malformed_uid, order_idx_of, page_id_of, raw_title_of, uid_of
 
 
 def test_new_uid_matches_server_uid_re():
@@ -599,3 +601,61 @@ def test_error_with_a_non_object_json_body_keeps_the_status(body):
         client.get_page(raw_title_of("Home"))
     assert e.value.status == 502
     assert body in str(e.value)
+
+
+TRAVERSAL_TITLES = [raw_title_of(t) for t in (
+    "../sync/snapshot", "..", ".", "a/../../healthz", "../../api/export.zip",
+    "%2e%2e/x", "x?bl_limit=1", "x#y")]
+
+
+def _recording_client(seen: list[str]):
+    import httpx2
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request.url.raw_path.decode().split("?")[0])
+        return httpx2.Response(404, json={"detail": "nope"})
+
+    http = httpx2.Client(base_url="http://testserver",
+                         transport=httpx2.MockTransport(handler))
+    return PkmClient(CliConfig(url="http://testserver", token="t"), http=http)
+
+
+@pytest.mark.parametrize("title", TRAVERSAL_TITLES)
+def test_title_paths_stay_under_api_page(title: RawTitle):
+    seen: list[str] = []
+    client = _recording_client(seen)
+    for call in (lambda: client.get_page(title),
+                 lambda: client.get_backlinks(title),
+                 lambda: client.rename_page(title,
+                                            raw_title_of("x"))):
+        with pytest.raises(ApiError):
+            call()
+    assert seen
+    assert all(p.startswith("/api/page/") for p in seen), seen
+    want = "/api/page/" + normalize_title(title)
+    assert [unquote(p) for p in seen] == [want, want, want + "/rename"]
+
+
+@pytest.mark.parametrize("uid", [malformed_uid(u) for u in (".", "..", "../x")])
+def test_block_path_stays_under_api_block(uid: BlockUid):
+    seen: list[str] = []
+    client = _recording_client(seen)
+    with pytest.raises(ApiError):
+        client.get_block(uid)
+    assert [unquote(p) for p in seen] == ["/api/block/" + uid]
+    tail = seen[0][len("/api/block/"):]
+    assert "/" not in tail
+    assert "." not in tail
+
+
+@pytest.mark.parametrize("title", [
+    raw_title_of(t) for t in ("Paper/Measuring", "a.b", "100% done?", "..x",
+                              "Ünï/cödé 1")])
+def test_awkward_titles_round_trip(pkm_client, title: RawTitle):
+    pkm_client.post_ops(
+        [CreatePageOp(op="create_page", page_title=title)],
+        batch_id="awkward-title-0001")
+    assert pkm_client.get_page(title).page.title == title
+    renamed = pkm_client.rename_page(title,
+                                     raw_title_of(title + " 2"))
+    assert renamed.title == title + " 2"

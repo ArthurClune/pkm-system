@@ -39,7 +39,7 @@ from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      TitleMigrationApplyRequest,
                                      TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload)
-from pkm.contracts.titles import RawTitle
+from pkm.contracts.titles import NormalizedTitle, RawTitle
 from pkm.refs import normalize_title
 
 if TYPE_CHECKING:
@@ -114,6 +114,19 @@ def _detail(r: httpx2.Response) -> object:
     return r.text
 
 
+def _segment(text: str) -> str:
+    """One URL path segment: every `/` and `.` percent-encoded, so httpx's
+    dot-segment normalisation cannot lift a value like `../sync/snapshot`
+    out of its route prefix onto another route."""
+    return quote(text, safe="").replace(".", "%2E")
+
+
+def _page_path(title: NormalizedTitle) -> str:
+    """`/api/page/<title>`. The server decodes the path before routing, so
+    namespaced titles still match `{title:wholepath}`."""
+    return f"/api/page/{_segment(title)}"
+
+
 class _RequestKwargs(TypedDict, total=False):
     params: QueryParamTypes
     json: object
@@ -156,7 +169,7 @@ class PkmClient:
                 bl_offset: int = 0) -> PagePayload:
         ref_title = normalize_title(title)
         return self._request(
-            "GET", f"/api/page/{quote(ref_title, safe='/')}", PagePayload,
+            "GET", _page_path(ref_title), PagePayload,
             params={"bl_limit": bl_limit, "bl_offset": bl_offset})
 
     def get_backlinks(self, title: RawTitle, page_size: int = 100) -> Backlinks:
@@ -260,7 +273,7 @@ class PkmClient:
             return [], True
 
     def get_block(self, uid: BlockUid) -> BlockPayload:
-        return self._request("GET", f"/api/block/{quote(uid, safe='')}",
+        return self._request("GET", f"/api/block/{_segment(uid)}",
                              BlockPayload)
 
     def search(self, q: str, limit: int = 20,
@@ -301,7 +314,7 @@ class PkmClient:
         other title-addressed method on this client)."""
         ref_title = normalize_title(title)
         return self._request(
-            "POST", f"/api/page/{quote(ref_title, safe='/')}/rename",
+            "POST", f"{_page_path(ref_title)}/rename",
             RenamePageResponse,
             json={"new_title": new_title, "allow_merge": allow_merge})
 

@@ -249,6 +249,7 @@ Owner: [cli-and-mcp.md](architecture/cli-and-mcp.md)
 | `pkm batch` or MCP `outline` raises `IndexError` for items that start nested or nest two levels at once | `creates` indexed its parent stack by unclamped depth, where `parse_outline` clamps a jumping indent | [cli-and-mcp.md § Pure planners](architecture/cli-and-mcp.md#pure-planners) | pkm-ux3w |
 | A CLI or MCP append (`pkm save`, batch `create`/`todo`/`outline`/`move`, a new `## Heading`) or a batch `index` lands mid-list | The planner used a child count, or `index` itself, as the `order_idx`, though sibling keys have gaps (`order_idx_at_position`) | [cli-and-mcp.md § Pure planners](architecture/cli-and-mcp.md#pure-planners) | pkm-la88, pkm-78fk |
 | A `pkm batch` naming one page two ways (`Foo` and `Foo\t`, or ` Foo` and `Foo` under the plain-space flag) lands its blocks out of order | Each spelling was planned on its own copy, so both appended from the same blocks (`batch.page_keys`) | [cli-and-mcp.md § Pure planners](architecture/cli-and-mcp.md#pure-planners) | pkm-u4rw |
+| An auto-approved MCP read (`get_page`, `backlinks`) with a title like `../sync/snapshot` runs another GET route unapproved | The client quoted titles with `safe='/'` and httpx normalised the dot segments out of `/api/page/` | [cli-and-mcp.md § The shared client](architecture/cli-and-mcp.md#the-shared-client) | pkm-h1em |
 
 ## Assistant
 

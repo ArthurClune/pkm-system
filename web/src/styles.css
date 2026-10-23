@@ -698,7 +698,7 @@ mark.highlight { background: var(--color-highlight-bg); }
  * placeholder. */
 button.external-media-placeholder {
   appearance: none; background: none; width: 100%; text-align: left;
-  font-family: inherit; cursor: pointer;
+  cursor: pointer;
 }
 button.external-media-placeholder:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 /* A pending image stands in for the img until it loads (see AssetImage.tsx).

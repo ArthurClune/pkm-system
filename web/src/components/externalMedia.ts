@@ -7,9 +7,11 @@ export function isUploadedAsset(src: string): boolean {
   return src.startsWith("/assets/");
 }
 
+// A protocol-relative src fetches from its host over the page's scheme, so it
+// is parsed as https: to name that host.
 function hostOf(src: string): string {
   try {
-    return new URL(src).host;
+    return new URL(src.startsWith("//") ? `https:${src}` : src).host;
   } catch {
     return "";
   }

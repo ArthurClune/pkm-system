@@ -213,23 +213,32 @@ it("renders an external image as a load button with no img until clicked", () =>
 // Every img src the DOM held at any point while `run` ran, including an img
 // committed and removed again before `run` returned: the browser starts the
 // fetch at commit, so one committed frame is already a request.
-function imgSrcsCommittedDuring(run: () => void): string[] {
-  const observer = new MutationObserver(() => {});
+function imgSrcsCommittedDuring(run: () => void) {
+  const records: MutationRecord[] = [];
+  const observer = new MutationObserver((batch) => records.push(...batch));
   observer.observe(document.body, {
-    childList: true, subtree: true, attributes: true, attributeFilter: ["src"],
+    childList: true, subtree: true,
+    attributes: true, attributeFilter: ["src"], attributeOldValue: true,
   });
   run();
-  const srcs: string[] = [];
-  for (const record of observer.takeRecords()) {
-    const nodes = record.type === "attributes" ? [record.target] : [...record.addedNodes];
-    for (const node of nodes) {
-      if (!(node instanceof Element)) continue;
-      const imgs = node.matches("img") ? [node] : [...node.querySelectorAll("img")];
-      for (const img of imgs) srcs.push(img.getAttribute("src") ?? "");
-    }
-  }
+  records.push(...observer.takeRecords());
   observer.disconnect();
-  return srcs;
+  const srcs: string[] = [];
+  const collect = (node: Node) => {
+    if (!(node instanceof Element)) return;
+    const imgs = node.matches("img") ? [node] : [...node.querySelectorAll("img")];
+    for (const img of imgs) srcs.push(img.getAttribute("src") ?? "");
+  };
+  for (const record of records) {
+    if (record.type === "attributes") {
+      // oldValue keeps a src that a later change in the same batch replaced
+      if (record.oldValue !== null) srcs.push(record.oldValue);
+      collect(record.target);
+    }
+    record.addedNodes.forEach(collect);
+    record.removedNodes.forEach(collect);
+  }
+  return { recordCount: records.length, srcs };
 }
 
 it("a new external src needs its own click", () => {
@@ -239,7 +248,10 @@ it("a new external src needs its own click", () => {
 
   const committed = imgSrcsCommittedDuring(() =>
     rerender(<AssetImage src="https://b.test/y.png" alt="y" />));
-  expect(committed).not.toContain("https://b.test/y.png");
+  // the rerender swaps the img for the button, so an empty list means the
+  // observer saw nothing, not that nothing leaked
+  expect(committed.recordCount).toBeGreaterThan(0);
+  expect(committed.srcs).not.toContain("https://b.test/y.png");
   expect(document.querySelector("img")).toBeNull();
   expect(screen.getByRole("button", { name: "image from b.test: y" })).toBeInTheDocument();
 

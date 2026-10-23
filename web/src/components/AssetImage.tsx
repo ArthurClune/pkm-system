@@ -4,10 +4,12 @@
 // on it mounts the img. An image URL is an outbound channel: the browser
 // fetches it at commit, so anything that can write markdown the app renders,
 // the assistant included, could otherwise send note text to any host with no
-// click. A click reveals that one src only and nothing is remembered, so the
-// revealed src is compared with the current one during render: resetting it
-// in an effect would commit one frame of <img> for a new src, and the fetch
-// starts at commit. Inside InertMediaContext the placeholder is plain text.
+// click. A click reveals that one src only. The guarantee is the gate: it
+// compares the revealed src with the current src during render, so an img for
+// a new src never commits. A "was clicked" flag reset in an effect would
+// commit one frame of <img> for the new src, and the fetch starts at commit.
+// The render-time reset only clears the state, so returning to an earlier src
+// needs a new click. Inside InertMediaContext the placeholder is plain text.
 //
 // LoadedImage renders the img itself. Viewed assets are runtime-cached by the
 // service worker (offline-editing-design.md §5); one that was never viewed

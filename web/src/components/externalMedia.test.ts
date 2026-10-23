@@ -14,10 +14,10 @@ it("labels an external image by host and alt", () => {
     .toBe("image from attacker.invalid: cite");
   expect(externalImageLabel("https://h.test:8080/x.png", ""))
     .toBe("image from h.test:8080");
+  expect(externalImageLabel("//evil.test/x.png", "")).toBe("image from evil.test");
 });
 
 it("falls back to 'external image' without a parsable host", () => {
   expect(externalImageLabel("not a url", "a")).toBe("external image: a");
   expect(externalImageLabel("data:image/png;base64,AAAA", "")).toBe("external image");
-  expect(externalImageLabel("//evil.test/x.png", "")).toBe("external image");
 });

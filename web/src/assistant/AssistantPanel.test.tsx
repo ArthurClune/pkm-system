@@ -759,6 +759,47 @@ describe("ConfirmCard: Allow waits until the whole card has been in view", () =>
     expect(allow()).toBeEnabled();
   });
 
+  // a window too short for the list and its heading: the user can scroll
+  // the transcript past the end marker without it ever showing
+  test("the hint says to scroll up when the end is above the transcript", () => {
+    mockIntersectionObserver();
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: Element) {
+        const [top, bottom] = this.classList.contains("assistant-messages")
+          ? [100, 300]
+          : this.classList.contains("assistant-confirm-end") ? [50, 51]
+          : [400, 401];
+        return { top, bottom } as DOMRect;
+      });
+    onTestFinished(() => { vi.restoreAllMocks(); });
+    showConfirm(previewOf(op()));
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(card()).toHaveTextContent("Scroll to the end to review every write");
+    const region = screen.getByRole("region", { name: "Writes to review" });
+    fireEvent.scroll(region);
+    expect(card()).toHaveTextContent(
+      "Scroll up to bring the end of the list into view");
+    expect(allow()).toBeDisabled();
+  });
+
+  test("a marker once seen stays seen whatever a later scroll measures", () => {
+    const made = mockIntersectionObserver();
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: Element) {
+        const [top, bottom] = this.classList.contains("assistant-messages")
+          ? [100, 300] : [50, 51];
+        return { top, bottom } as DOMRect;
+      });
+    onTestFinished(() => { vi.restoreAllMocks(); });
+    showConfirm(previewOf(op()));
+    renderArmed();
+    report(made[0], "start", true);
+    report(made[0], "end", true);
+    fireEvent.scroll(document.querySelector(".assistant-messages")!);
+    expect(allow()).toBeEnabled();
+    expect(card()).not.toHaveTextContent("Scroll");
+  });
+
   test("without an observer Allow never arms", () => {
     vi.stubGlobal("IntersectionObserver", undefined);
     showConfirm(previewOf(op()));

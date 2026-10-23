@@ -6,6 +6,7 @@ import { BlockRefProvider } from "../components/BlockRefProvider";
 import { InlineSegments } from "../components/InlineSegments";
 import { UntrustedContentContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
+import { confirmHint, placeOf, type MarkerState } from "./confirmHint";
 import { elapsedLabel } from "./elapsed";
 import { stripCaretBlockRefs } from "./normalizeRefs";
 import { useAssistant, type PendingConfirm } from "./useAssistant";
@@ -60,7 +61,8 @@ function ContentValue({ name, text, total }: {
 // shows. Allow therefore also waits until a marker before the heading and one
 // after the last op have each been in view, as reported against the viewport,
 // which clips through every scrolling ancestor. With no IntersectionObserver
-// Allow never arms; Deny still works.
+// Allow never arms; Deny still works. Until then a hint says which way the
+// unseen marker lies.
 function PreviewOps({ preview, endRef }: {
   preview: WritePreview;
   endRef: Ref<HTMLDivElement>;
@@ -112,8 +114,9 @@ function ConfirmCard({
   const startRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const [armed, setArmed] = useState(false);
-  const [startSeen, setStartSeen] = useState(false);
-  const [endSeen, setEndSeen] = useState(false);
+  // the card opens at its heading, so an unseen start was scrolled past
+  const [start, setStart] = useState<MarkerState>("above");
+  const [end, setEnd] = useState<MarkerState>("below");
   useEffect(() => {
     const id = setTimeout(() => setArmed(true), ALLOW_ARM_MS);
     return () => clearTimeout(id);
@@ -129,31 +132,46 @@ function ConfirmCard({
       - scroller.getBoundingClientRect().top;
   }, [scrollerRef]);
   useEffect(() => {
-    const start = startRef.current;
-    const end = endRef.current;
-    if (!start || !end || typeof IntersectionObserver === "undefined") return;
+    const startEl = startRef.current;
+    const endEl = endRef.current;
+    const scroller = scrollerRef.current;
+    if (!startEl || !endEl || typeof IntersectionObserver === "undefined") return;
+    // seen once is enough: the user has had the chance to read it
+    const keepSeen = (place: "above" | "below") =>
+      (prev: MarkerState): MarkerState => (prev === "seen" ? prev : place);
     const observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {
         if (!entry.isIntersecting) continue;
-        // seen once is enough: the user has had the chance to read it
         observer.unobserve(entry.target);
-        if (entry.target === start) setStartSeen(true);
-        else setEndSeen(true);
+        if (entry.target === startEl) setStart("seen");
+        else setEnd("seen");
       }
     });
-    observer.observe(start);
-    observer.observe(end);
-    return () => observer.disconnect();
-  }, []);
+    observer.observe(startEl);
+    observer.observe(endEl);
+    const measure = () => {
+      if (!scroller) return;
+      const view = scroller.getBoundingClientRect();
+      const startPlace = placeOf(startEl.getBoundingClientRect(), view);
+      const endPlace = placeOf(endEl.getBoundingClientRect(), view);
+      if (startPlace) setStart(keepSeen(startPlace));
+      if (endPlace) setEnd(keepSeen(endPlace));
+    };
+    // scroll does not bubble, but a capturing listener on the transcript
+    // hears the list region's scrolls as well as its own
+    scroller?.addEventListener("scroll", measure, { capture: true, passive: true });
+    return () => {
+      observer.disconnect();
+      scroller?.removeEventListener("scroll", measure, { capture: true });
+    };
+  }, [scrollerRef]);
   // sentDecision is set by the hook only once it posts; the head stays only
   // after a failed post, so a sent decision that is not in flight failed
   const failed = sentDecision !== null && !answering;
   const n = preview?.ops.length ?? 0;
   const position = count > 1 ? ` (1 of ${count})` : "";
   const writes = n === 1 ? "write" : "writes";
-  const hint = !endSeen
-    ? "Scroll to the end to review every write"
-    : !startSeen ? "Scroll back to the start to review every write" : null;
+  const hint = confirmHint(start, end);
   return (
     <div className="assistant-confirm-card" ref={cardRef}>
       <div className="assistant-confirm-start" ref={startRef} aria-hidden="true" />
@@ -183,7 +201,7 @@ function ConfirmCard({
               <button
                 type="button"
                 className="btn-secondary"
-                disabled={!armed || !startSeen || !endSeen || answering}
+                disabled={!armed || start !== "seen" || end !== "seen" || answering}
                 onClick={() => onAnswer(true)}
               >
                 Allow

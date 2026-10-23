@@ -1113,7 +1113,9 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
  * however long the batch. The cap leaves room in the transcript for the
  * panel's chrome (its inset, header and composer, about 160px) and the card's
  * heading (about 45px): a region taller than that would hide its own end
- * marker however far a keyboard scrolls it, and Allow would never arm */
+ * marker however far a keyboard scrolls it. Below about 255px the 4em floor
+ * is taller than that room; the end marker then shows only partway down the
+ * transcript, and the card's hint says to scroll up to it */
 .assistant-confirm-scroll { max-height: clamp(4em, calc(100vh - 210px), 260px); overflow-y: auto;
   margin: 0 0 8px; font-size: 0.85em; }
 .assistant-confirm-scroll:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }

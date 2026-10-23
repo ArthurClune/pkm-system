@@ -272,6 +272,9 @@ fallback in `useAssistant.ts`.
 - `stripCaretBlockRefs` (`assistant/normalizeRefs.ts`) runs before
   `tokenizeBlock`, because some models copy the `^uid` marker into citations
   and the grammar rejects `((^uid))`.
+- Replies render under `UntrustedContentContext`: external images
+  and Bluesky embeds wait behind a click
+  ([frontend-rendering.md](frontend-rendering.md#link-safety-and-external-media)).
 
 ## Testing and quality gates
 

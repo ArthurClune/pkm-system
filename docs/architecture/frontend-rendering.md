@@ -146,14 +146,30 @@ collapse the scrollbar. The inline `.pdf-frame` is layout-contained
 ([styling.md](styling.md#layout-invariants)), so the fullscreen overlay portals
 to `document.body`.
 
-## Link safety and lazy loading
+## Link safety and external media
 
 `isSafeHref` admits `http(s):`, `mailto:` and single-slash site-relative hrefs.
 It rejects control characters outright, since browsers strip tab, CR and LF
 before parsing a URL, and a second leading `/` or `\`, which would escape to
 another origin. Stock mermaid runs in `securityLevel` strict.
 
-`AssetImage`, the `/files` grid and `BlueskyEmbed`'s iframe carry
-`loading="lazy"`; without it a page of Bluesky embeds opens one scripted
-document per embed on mount. `BlueskyEmbed` sizes itself from the embed page's
-`postMessage`.
+A rendered URL is an outbound channel: the browser fetches it with no click and
+no write approval, so whoever can write the markdown, the assistant included,
+can send note text to any host. Only `/assets/` uploads (`isUploadedAsset`)
+load on render. Every other `AssetImage` src shows a placeholder button naming
+its host (`externalImageLabel`), and a click mounts the `<img>` for that src.
+`BlueskyEmbed` does the same, but only under `UntrustedContentContext`, which
+`AssistantPanel` provides: its handle lookup and iframe both reach third-party
+servers. Embeds in notes still load on render.
+
+The gate keeps the fetching component unmounted until the click, because the
+fetch starts at commit. The revealed src is compared with the current one
+during render, so a new src never commits an `<img>` without its own click; a
+reset in an effect would commit one frame first. Inside `InertMediaContext` the
+placeholder is plain text.
+
+## Lazy loading
+
+The `/files` grid and `BlueskyEmbed`'s iframe carry `loading="lazy"`; without
+it a page of Bluesky embeds opens one scripted document per embed on mount.
+`BlueskyEmbed` sizes itself from the embed page's `postMessage`.

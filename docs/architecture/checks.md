@@ -169,7 +169,11 @@ Rules a change to the gate must keep:
   `HYPOTHESIS_PROFILE=merge uv run pytest -m proptest --no-cov -q tests/props --hypothesis-show-statistics`.
   On the web, read the tally each suite prints: a fault armed far more often
   than it fired, or a climbing skip count, means the generator no longer
-  reaches its case.
+  reaches its case. A server property that must keep reaching a case asserts
+  it with `with_floors` (`tests/hostile.py`), whose docstring says how a floor
+  is measured.
+- A generator draws only from Hypothesis or fast-check. A draw steered by
+  other state, such as the reach tally, no longer replays from its seed.
 - A new property shows it fails. Each suite's `teeth.prop.ts` breaks a rule
   (a mutant, a broken transport mode, a `/__proptest/*/teeth` route) and must
   see the named invariant fail, and a clean run must pass.

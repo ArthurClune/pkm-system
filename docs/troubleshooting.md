@@ -123,6 +123,7 @@ Owner: [backend.md](architecture/backend.md)
 | A conflict copy lands on a different daily note than the batch's `applied_at` day | `_conflict_landing` read `date.today()` after a lock wait across midnight, not the batch's `now_ms` | [backend.md § Conflicts](architecture/backend.md#conflicts) | pkm-hb4x |
 | A page delete or rename racing a batch swallowed a clean update behind an `ok` ack, or resurrected the old title | `post_ops` read its dedupe check and context before taking the write lock | [backend.md § The write lock](architecture/backend.md#the-write-lock) | pkm-gwwu |
 | A `[[Old]]` link escapes a rename that raced the batch which wrote it | `rename_page` read the referencing blocks before taking the write lock | [backend.md § The write lock](architecture/backend.md#the-write-lock) | pkm-xtqz |
+| Backlinks omit blocks that full-text search finds carrying the link, and those blocks have no `refs` rows | A direct SQL rewrite of `blocks.text` bypassed `ReindexRefs`; triggers maintain FTS and `changes` only. Re-derive with a `pkm batch` that changes the text and changes it back | [backend.md § Planning](architecture/backend.md#planning) | pkm-70ty |
 
 ### 500s from hostile input
 

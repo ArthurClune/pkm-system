@@ -288,7 +288,18 @@ fails on, and `AGENTS.md` § Testing says how to run them.
   and a server-side exception fails teardown.
   `e2e/server-state.ts::waitForServerText` waits for a write to reach the
   server before a reload. jsdom computes accessible names differently from
-  Chromium, so check one with a Playwright aria snapshot.
+  Chromium, so check one with a Playwright aria snapshot. Traps that make a
+  spec pass vacuously or hang:
+
+  | Trap | Instead |
+  |---|---|
+  | A bare `#Tag` at the caret's end reopens autocomplete, which swallows Enter | type a trailing space first |
+  | `Escape` blurs and unmounts `textarea.block-input` | re-locate the textarea after it |
+  | The op queue drains in order, so an early block can reach the server first | before a reload, wait on `waitForServerText` for the last block created |
+  | A `.ws-banner` count of 0 holds whenever the socket is connected | assert the state the banner reports |
+  | `.journal-day.last()` moves as days are added | locate a seeded day by its title |
+  | jsdom has no popups | prove a click opens no window with `context.on("page")` |
+  | "element is not stable" or "detached" retries for 30 s | something bumped `resyncGeneration` and remounted the tree |
 - **Lint**: `web/eslint.config.js`'s header names its rule families;
   `tooling/lintConfig.test.ts` proves each rule fires.
 - **Budgets** (`web/tooling/budgets.json`, `viteBudgetPlugin.ts`): the build

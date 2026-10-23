@@ -1,6 +1,6 @@
 ---
 name: check-arch-docs
-description: Use when asked to re-check or audit docs/architecture/ for drift — inline bean references creeping back into prose, incident stories outside docs/troubleshooting.md, emphasis inflation — or before merging a branch that reworked those docs.
+description: Use when asked to re-check or audit docs/architecture/ for drift — inline bean references creeping back into prose, incident stories outside docs/troubleshooting.md, emphasis inflation — or before merging a branch that reworked those docs. For the whole set (all of docs/, AGENTS.md and memory), use recheck-docs.
 ---
 
 # Check architecture docs

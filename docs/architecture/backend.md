@@ -671,6 +671,10 @@ does the constant-time scrypt check and signs the `pkm_session` cookie
 (`v1.<issued_ms>.<sig>`). `docs/SECURITY.md` owns the cookie flags and the
 threat model.
 
+Response headers that apply to every route are set in one place,
+`SecurityHeadersMiddleware`; routes set only their own. An
+unhandled exception's 500 is built outside it and carries none.
+
 `LoginThrottle` (`auth.py`, policy in `throttle_core.py`) applies a per-source exponential backoff
 (`BASE_BACKOFF_MS` to `MAX_BACKOFF_MS`) before scrypt runs, and a
 process-wide semaphore (`MAX_CONCURRENT_SCRYPT`) on scrypt work.
@@ -767,6 +771,8 @@ route.
 | A lone surrogate in a JSON body | Every request body model derives from `WellFormedModel` | `test_every_json_request_body_is_a_well_formed_model` |
 | An int past 64 bits | Int parameters are `Int64` or carry `INT64_RANGE`; `WellFormedModel` refuses one in a body | `test_every_int_parameter_is_bounded_to_sqlite_range` |
 | A 422 echoing a surrogate, NaN or deep nesting | `validation_echo.echo_errors`, cut at `MAX_ECHO_DEPTH` | `test_validation_echo.py` |
+| A NUL, an over-long component or a link loop in an SPA path | The catch-all treats a path `resolve()` or `is_file()` rejects as naming no file, and serves the shell | `test_spa.py` |
+| A session cookie signature that is not ASCII | `verify_session` refuses it before `hmac.compare_digest`, which raises on non-ASCII | `test_hostile_requests.py` |
 | A NUL in a search term | `fts.py` makes it a space: FTS5 reads a C string | `test_hostile_requests.py` |
 | A GoodLinks or OpenAI body that is not JSON, nests too deep, or holds a surrogate | An unusable answer (503, `DescribeError`); decoded strings made well-formed | `test_no_500_upstream_props.py` |
 | An op `order_idx` a sibling shift could push past int64 | `CreateOp` and `MoveOp` bound it with `WIRE_ORDER_IDX` to the JS safe-integer range | `test_an_op_order_idx_stays_in_the_js_safe_range` |

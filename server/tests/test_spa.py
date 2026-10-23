@@ -1,7 +1,6 @@
-import asyncio
 import json
 
-import httpx
+from conftest import asgi_request
 from fastapi.testclient import TestClient
 
 from pkm.server.app import create_app
@@ -139,17 +138,6 @@ def _dist_with_outside_files(tmp_path):
     return dist
 
 
-def _get_raw(app, paths):
-    """Each path sent exactly as written, decoded once as uvicorn does
-    (TestClient would decode its escapes a second time). Unhandled errors
-    become 500 responses so a body can still be inspected."""
-    async def run():
-        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
-        async with httpx.AsyncClient(transport=transport) as c:
-            return [await c.get("http://testserver" + p) for p in paths]
-    return asyncio.run(run())
-
-
 def test_the_catch_all_never_serves_a_file_outside_the_dist(tmp_path):
     """Encoded traversal, an absolute path, a sibling whose name starts
     with the dist's, and a link pointing out must each answer with the
@@ -165,8 +153,9 @@ def test_the_catch_all_never_serves_a_file_outside_the_dist(tmp_path):
         "/%0a", "/%ff%fe", "/link-out/",
     ]
     app = create_app(_config(tmp_path, web_dist=dist))
-    for path, r in zip(paths, _get_raw(app, paths)):
+    for path in paths:
+        r = asgi_request(app, "GET", path, raise_app_exceptions=False)
         assert "SECRET-OUTSIDE" not in r.text, path
         assert "PREFIX-SIBLING" not in r.text, path
-    served = _get_raw(app, ["/"])[0]
+    served = asgi_request(app, "GET", "/", raise_app_exceptions=False)
     assert served.status_code == 200

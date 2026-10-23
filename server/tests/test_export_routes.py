@@ -9,8 +9,8 @@ backup's Core renderer unchanged (raw query command, one-level,
 parens-wrapped ref resolution)."""
 import asyncio
 import tempfile
-import unicodedata
 import time
+import unicodedata
 import zipfile
 from io import BytesIO
 from pathlib import Path

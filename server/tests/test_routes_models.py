@@ -2,6 +2,7 @@
 has gone missing still passes the row check."""
 from __future__ import annotations
 
+import re
 import typing
 
 from fastapi.routing import APIRoute
@@ -19,6 +20,11 @@ def _api_routes(routes) -> typing.Iterator[APIRoute]:
             inner = getattr(route, "original_router", None)
             if inner is not None:
                 yield from _api_routes(inner.routes)
+
+
+def fill_path(path: str) -> str:
+    """`path` with every `{param}` replaced by a plausible value."""
+    return re.sub(r"\{[^}]*\}", "x", path)
 
 
 def _bare_dict_handlers(app) -> list[str]:

@@ -13,7 +13,6 @@ refuses one before it is sent."""
 import hashlib
 import json
 import os
-import re
 import types
 import typing
 from unittest import mock
@@ -24,7 +23,7 @@ from urllib.parse import quote
 import pytest
 from fastapi.params import File, Form
 from fastapi.routing import APIRoute
-from test_routes_models import _api_routes
+from test_routes_models import _api_routes, fill_path
 
 from annotated_types import Interval
 
@@ -345,6 +344,11 @@ def test_todos_for_a_nul_page_answers(client):
     assert r.status_code < 500
 
 
+# The tables SQLite's FTS5 keeps behind `pages_fts`.
+_FTS_SHADOWS = tuple(f"pages_fts_{k}"
+                     for k in ("config", "data", "docsize", "idx"))
+
+
 def _digest(config, skip: tuple[str, ...] = ()) -> str:
     """A hash of every row of every table, whatever the row order. The row
     check is off because it knows the product's columns, not the full-text
@@ -356,8 +360,9 @@ def _digest(config, skip: tuple[str, ...] = ()) -> str:
         h = hashlib.sha256()
         for t in con.select("SELECT name AS title FROM sqlite_master"
                             " WHERE type = 'table' ORDER BY name"):
-            if t["title"] in skip or t["title"].startswith(
-                    tuple(f"{k}_" for k in skip)):
+            if t["title"] in skip or (
+                    "pages_fts" in skip
+                    and t["title"].startswith(_FTS_SHADOWS)):
                 continue
             rows = con.select(f"SELECT * FROM {t['title']}")
             h.update(t["title"].encode())
@@ -427,7 +432,11 @@ _NON_JSON_TYPES = ["text/plain;charset=UTF-8", None,
                    "application/x-www-form-urlencoded"]
 
 
-_REFUSED = (422, [["body"]])
+def _is_refusal(status: int, locs: list[object]) -> bool:
+    """A refusal of the whole body: 415, or a 422 whose only error is on
+    `body` itself. A 2xx, or a 422 on `["body", <field>]`, means the body
+    was parsed."""
+    return status == 415 or (status == 422 and locs == [["body"]])
 
 
 def _non_json_answers(app, client) -> dict[str, tuple[int, list[object]]]:
@@ -435,7 +444,7 @@ def _non_json_answers(app, client) -> dict[str, tuple[int, list[object]]]:
     content type a cross-site form or Blob can send without preflight."""
     answers = {}
     for route in _json_body_routes(app):
-        url = re.sub(r"\{[^}]*\}", "x", route.path)
+        url = fill_path(route.path)
         for method in sorted(route.methods or ()):
             for ctype in _NON_JSON_TYPES:
                 headers = {"content-type": ctype} if ctype else {}
@@ -450,7 +459,7 @@ def _non_json_answers(app, client) -> dict[str, tuple[int, list[object]]]:
 
 
 def _not_refused(answers: dict[str, tuple[int, list[object]]]) -> list[str]:
-    return [k for k, v in answers.items() if v != _REFUSED]
+    return [k for k, v in answers.items() if not _is_refusal(*v)]
 
 
 def test_every_json_body_route_refuses_a_non_json_content_type(

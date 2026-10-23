@@ -209,6 +209,22 @@ def single_decode_get(client: TestClient, url: str,
     return asgi_get_all(client.app, client.cookies["pkm_session"], [url], headers)[0]
 
 
+def asgi_request(app, method: str, path: str, cookie: str | None = None,
+                 raise_app_exceptions: bool = True) -> httpx.Response:
+    """One `method` request for `path` through the ASGI app, decoded once as
+    `asgi_get_all` explains. Anonymous unless `cookie` is given. With
+    `raise_app_exceptions` off an unhandled error becomes a 500 response, so
+    its body can still be inspected."""
+    async def run():
+        transport = httpx.ASGITransport(
+            app=app, raise_app_exceptions=raise_app_exceptions)
+        cookies = {"pkm_session": cookie} if cookie else None
+        async with httpx.AsyncClient(transport=transport, cookies=cookies,
+                                     base_url="http://testserver") as c:
+            return await c.request(method, path)
+    return asyncio.run(run())
+
+
 @pytest.fixture()
 def local_root(tmp_path) -> Path:
     """A throwaway local_docs_root with one PDF, one zip, one nested

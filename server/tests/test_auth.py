@@ -1,3 +1,4 @@
+import sys
 import threading
 import time
 from dataclasses import replace
@@ -5,7 +6,7 @@ from dataclasses import replace
 from fastapi.routing import APIRoute, APIWebSocketRoute
 from fastapi.testclient import TestClient
 from starlette.staticfiles import StaticFiles
-from starlette.websockets import WebSocketDisconnect
+from starlette.websockets import WebSocket, WebSocketDisconnect
 from test_routes_models import _api_routes, fill_path
 
 from pkm.server.app import create_app
@@ -233,15 +234,29 @@ def _ws_routes(routes) -> list[APIWebSocketRoute]:
     return found
 
 
+WEBSOCKET_CONNECT_SECONDS = 5
+
+
 def _websocket_answer(anon: TestClient, path: str) -> int | str:
-    """The close code an anonymous websocket gets, or "accepted". Leaving
-    the context closes an accepted socket, so a handler that serves it
-    cannot hang the walk."""
-    try:
-        with anon.websocket_connect(path):
-            return "accepted"
-    except WebSocketDisconnect as exc:
-        return exc.code
+    """The close code an anonymous websocket gets, "accepted", or "hung".
+    Leaving the context closes an accepted socket. A handler that neither
+    accepts nor closes would block the connect forever, so it runs on a
+    daemon thread and a miss of the deadline is an answer, not a stall."""
+    out: list[int | str] = []
+
+    def connect() -> None:
+        try:
+            with anon.websocket_connect(path):
+                out.append("accepted")
+        except WebSocketDisconnect as exc:
+            out.append(exc.code)
+        except Exception as exc:
+            out.append(type(exc).__name__)
+
+    thread = threading.Thread(target=connect, daemon=True)
+    thread.start()
+    thread.join(WEBSOCKET_CONNECT_SECONDS)
+    return out[0] if out else "hung"
 
 
 def _anonymous_answers(app) -> dict[tuple[str, str], int | str]:
@@ -332,10 +347,25 @@ def test_the_route_walk_names_a_websocket_without_the_guard(
     app = _walk_app(seeded_config, tmp_path)
 
     @app.websocket("/api/ws-forgot")
-    async def forgot_auth(websocket) -> None:
+    async def forgot_auth(websocket: WebSocket) -> None:
         await websocket.accept()
         await websocket.send_text("secret")
         await websocket.receive_text()
 
-    assert _leaked(_anonymous_answers(app)) == [
-        (WEBSOCKET, "/api/ws-forgot")]
+    answers = _anonymous_answers(app)
+    assert answers[(WEBSOCKET, "/api/ws-forgot")] == "accepted"
+    assert _leaked(answers) == [(WEBSOCKET, "/api/ws-forgot")]
+
+
+def test_the_route_walk_names_a_websocket_that_never_answers(
+        seeded_config, tmp_path, monkeypatch):
+    monkeypatch.setattr(sys.modules[__name__], "WEBSOCKET_CONNECT_SECONDS", 1)
+    app = _walk_app(seeded_config, tmp_path)
+
+    @app.websocket("/api/ws-silent")
+    async def silent(websocket: WebSocket) -> None:
+        return None
+
+    answers = _anonymous_answers(app)
+    assert answers[(WEBSOCKET, "/api/ws-silent")] == "hung"
+    assert (WEBSOCKET, "/api/ws-silent") in _leaked(answers)

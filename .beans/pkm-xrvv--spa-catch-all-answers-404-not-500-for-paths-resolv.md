@@ -19,4 +19,4 @@ Split from pkm-qd81. NUL or over-long path components, and a symlink loop in web
 
 ## Summary of Changes
 
-The SPA catch-all wraps `resolve()` and `is_file()` and answers 404 on `ValueError`, `OSError` and `RuntimeError`. `test_a_path_resolve_rejects_answers_404_not_500` asserts the status for NUL, over-long, deep and link-loop paths. Troubleshooting row added.
+The SPA catch-all wraps `resolve()` and `is_file()` and treats `ValueError`, `OSError` and `RuntimeError` as a path that names no file and serves the shell (a long `/page/<title>` reload must get the app). `test_a_path_resolve_rejects_gets_the_shell_never_a_500` asserts the status and body for NUL, over-long, deep, link-loop and long-title paths. Troubleshooting row added.

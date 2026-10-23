@@ -550,7 +550,7 @@ def test_diagnostics_report_holding_the_marker_text_is_not_a_marker(
 
 BAD_SIGNATURES = [
     pytest.param("é".encode(), id="non-ascii"),
-    pytest.param(b"\xff\xfe" * 32, id="non-ascii-full-length"),
+    pytest.param("é".encode() * 32, id="non-ascii-full-length"),
     pytest.param(b"abc", id="non-hex-short"),
     pytest.param(b"z" * 64, id="non-hex-full-length"),
     pytest.param(b"ab" * 33, id="hex-too-long"),

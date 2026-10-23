@@ -26,7 +26,6 @@ from pkm.server.config import Config
 from pkm.server.db import init_db
 from pkm.server.goodlinks_gateway import GoodlinksGateway
 from pkm.server.request_log import RequestLogMiddleware
-from pkm.server.security_headers import SecurityHeadersMiddleware
 from pkm.server.routes_assets import router as assets_router
 from pkm.server.routes_export import router as export_router
 from pkm.server.routes_goodlinks import router as goodlinks_router
@@ -37,6 +36,7 @@ from pkm.server.routes_pages import router as pages_router
 from pkm.server.routes_search import router as search_router
 from pkm.server.routes_sidebar import router as sidebar_router
 from pkm.server.routes_sync import router as sync_router
+from pkm.server.security_headers import SecurityHeadersMiddleware
 from pkm.server.validation_echo import echo_errors
 from pkm.server import wholepath  # noqa: F401 -- registers {full_path:wholepath}
 from pkm.server.ws import Hub, router as ws_router
@@ -191,17 +191,19 @@ def create_app(
             # byte-compares itself on update checks, so no-cache keeps
             # deploys picked up promptly (matching index.html below).
             # A NUL, an over-long component or a link loop makes resolve()
-            # or is_file() raise (ValueError, OSError, RuntimeError); such a
-            # path names no file, so it is a 404, never a 500.
+            # or is_file() raise (ValueError, OSError, RuntimeError). Such a
+            # path names no file, so it gets the shell like any other
+            # client-side route (a long page title reloads into the app).
+            served: Path | None = None
             try:
                 candidate = (web_dist_root / full_path).resolve()
-                is_file = (bool(full_path)
-                           and candidate.is_relative_to(web_dist_root)
-                           and candidate.is_file())
+                if (full_path and candidate.is_relative_to(web_dist_root)
+                        and candidate.is_file()):
+                    served = candidate
             except (ValueError, OSError, RuntimeError):
-                raise HTTPException(status_code=404, detail="not found")
-            if is_file:
-                return FileResponse(candidate,
+                pass
+            if served is not None:
+                return FileResponse(served,
                                     headers={"Cache-Control": "no-cache"})
             # index.html references hashed bundle filenames, so it must be
             # revalidated on every request or browsers keep serving stale

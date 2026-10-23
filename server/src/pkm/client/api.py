@@ -39,7 +39,7 @@ from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      TitleMigrationApplyRequest,
                                      TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload)
-from pkm.contracts.titles import RawTitle
+from pkm.contracts.titles import NormalizedTitle, RawTitle
 from pkm.refs import normalize_title
 
 if TYPE_CHECKING:
@@ -114,6 +114,14 @@ def _detail(r: httpx2.Response) -> object:
     return r.text
 
 
+def _page_path(title: NormalizedTitle) -> str:
+    """`/api/page/<title>` with every `/` and `.` percent-encoded, so httpx's
+    dot-segment normalisation cannot lift a title like `../sync/snapshot` out
+    of `/api/page/` onto another route. The server decodes the path before
+    routing, so namespaced titles still match `{title:wholepath}`."""
+    return "/api/page/" + quote(title, safe="").replace(".", "%2E")
+
+
 class _RequestKwargs(TypedDict, total=False):
     params: QueryParamTypes
     json: object
@@ -156,7 +164,7 @@ class PkmClient:
                 bl_offset: int = 0) -> PagePayload:
         ref_title = normalize_title(title)
         return self._request(
-            "GET", f"/api/page/{quote(ref_title, safe='/')}", PagePayload,
+            "GET", _page_path(ref_title), PagePayload,
             params={"bl_limit": bl_limit, "bl_offset": bl_offset})
 
     def get_backlinks(self, title: RawTitle, page_size: int = 100) -> Backlinks:
@@ -301,7 +309,7 @@ class PkmClient:
         other title-addressed method on this client)."""
         ref_title = normalize_title(title)
         return self._request(
-            "POST", f"/api/page/{quote(ref_title, safe='/')}/rename",
+            "POST", f"{_page_path(ref_title)}/rename",
             RenamePageResponse,
             json={"new_title": new_title, "allow_merge": allow_merge})
 

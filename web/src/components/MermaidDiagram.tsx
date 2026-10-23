@@ -13,9 +13,11 @@
 //
 // Both renderers return library-generated SVG (never dangerouslySetInnerHTML
 // of unsanitized server/user text) -- the same trust boundary CodeBlock's
-// hljs.highlight() output crosses; see CodeBlock.tsx's comment. Stock
-// mermaid additionally runs securityLevel "strict"; beautiful-mermaid
-// escapes label text during its own SVG serialization.
+// hljs.highlight() output crosses; see CodeBlock.tsx's comment. No diagram
+// may fetch, and mermaidSafety.ts says how each renderer is held to that.
+// Under UntrustedContentContext (assistant replies) the stock fallback also
+// waits behind ClickToLoad: a diagram beautiful-mermaid can't render shows
+// its source and a "Render diagram" button, keyed by the source.
 //
 // Theming: the beautiful-mermaid path re-resolves the design tokens and
 // re-renders when the effective theme changes (useEffectiveTheme). The
@@ -47,9 +49,14 @@
 // stored, and `withRenderId` substitutes the current instance's real id
 // back in on every use that reads from state -- hit or miss alike -- so a
 // cache hit never shows the placeholder or another instance's id.
-import { useEffect, useId, useState } from "react";
+import { useContext, useEffect, useId, useState } from "react";
 import type { Mermaid } from "mermaid";
+import { UntrustedContentContext } from "../contexts";
+import { ClickToLoad } from "./ClickToLoad";
 import { CodeBlock } from "./CodeBlock";
+import {
+  refusesStockRender, STOCK_MERMAID_DOMPURIFY, STOCK_MERMAID_SECURE, stripCssImports,
+} from "./mermaidSafety";
 import { beautifulMermaidOptions, mermaidThemeVariables } from "./mermaidTheme";
 import { createBoundedCache } from "./renderCache";
 import { useEffectiveTheme } from "../useEffectiveTheme";
@@ -57,7 +64,17 @@ import { useEffectiveTheme } from "../useEffectiveTheme";
 type RenderState =
   | { status: "loading" }
   | { status: "ok"; svg: string }
-  | { status: "error" };
+  | { status: "error" }
+  // untrusted source beautiful-mermaid couldn't render: stock waits for a click
+  | { status: "gated" };
+
+// auto: beautiful-mermaid, falling back to stock. gated: beautiful-mermaid
+// only, the fallback left to a click. stock: the fallback, after that click.
+type RenderMode = "auto" | "gated" | "stock";
+
+// Which renderer made a cached SVG, so a stock render cached from a note
+// still waits for a click when the same source appears in a reply.
+type CachedRender = { svg: string; stock: boolean };
 
 type BeautifulMermaid = typeof import("./beautifulMermaid");
 
@@ -98,6 +115,8 @@ function loadMermaid(): Promise<Mermaid> {
       mermaid.initialize({
         startOnLoad: false,
         securityLevel: "strict",
+        secure: STOCK_MERMAID_SECURE,
+        dompurifyConfig: STOCK_MERMAID_DOMPURIFY,
         theme: "base",
         themeVariables: mermaidThemeVariables(isDarkTheme(), (name) =>
           style.getPropertyValue(name),
@@ -110,19 +129,36 @@ function loadMermaid(): Promise<Mermaid> {
   return mermaidPromise;
 }
 
-async function renderWithFallback(code: string, renderId: string): Promise<string> {
-  try {
-    const bm = await loadBeautifulMermaid();
-    const style = getComputedStyle(document.documentElement);
-    return await bm.renderMermaid(
-      code,
-      beautifulMermaidOptions((name) => style.getPropertyValue(name)),
-    );
-  } catch {
-    const mermaid = await loadMermaid();
-    const { svg } = await mermaid.render(renderId, code);
-    return svg;
+async function renderBeautiful(code: string): Promise<string> {
+  const bm = await loadBeautifulMermaid();
+  const style = getComputedStyle(document.documentElement);
+  const svg = await bm.renderMermaid(
+    code,
+    beautifulMermaidOptions((name) => style.getPropertyValue(name)),
+  );
+  return stripCssImports(svg);
+}
+
+// Refused source never reaches mermaid.render, which lays the diagram out
+// in the live document: anything it would fetch is fetched during render.
+async function renderStock(code: string, renderId: string): Promise<string> {
+  if (refusesStockRender(code)) throw new Error("mermaid: source refused for stock render");
+  const mermaid = await loadMermaid();
+  const { svg } = await mermaid.render(renderId, code);
+  return svg;
+}
+
+async function renderWithFallback(
+  code: string, renderId: string, mode: RenderMode,
+): Promise<CachedRender | "gated"> {
+  if (mode !== "stock") {
+    try {
+      return { svg: await renderBeautiful(code), stock: false };
+    } catch {
+      if (mode === "gated") return "gated";
+    }
   }
+  return { svg: await renderStock(code, renderId), stock: true };
 }
 
 // The placeholder id-independent SVG is normalised to before caching (see
@@ -138,13 +174,18 @@ async function renderWithFallback(code: string, renderId: string): Promise<strin
 export const MERMAID_CACHE_RENDER_ID = "mermaid-render-cache-id";
 
 const MERMAID_CACHE_LIMIT = 2000;
-const mermaidCache = createBoundedCache<string>(MERMAID_CACHE_LIMIT);
+const mermaidCache = createBoundedCache<CachedRender>(MERMAID_CACHE_LIMIT);
 
 function withRenderId(svg: string, renderId: string): string {
   return svg.split(MERMAID_CACHE_RENDER_ID).join(renderId);
 }
 
 export function MermaidDiagram({ code }: { code: string }) {
+  const untrusted = useContext(UntrustedContentContext);
+  return <MermaidRender code={code} mode={untrusted ? "gated" : "auto"} />;
+}
+
+function MermaidRender({ code, mode }: { code: string; mode: RenderMode }) {
   // useId is stable for this component instance and unique across the page,
   // so two fallback diagrams rendered at once never collide on stock
   // mermaid's render id.
@@ -164,7 +205,8 @@ export function MermaidDiagram({ code }: { code: string }) {
       // renderWithFallback -- so loadBeautifulMermaid()'s dynamic import is
       // never awaited (or invoked at all) on a remount of an already-seen
       // diagram.
-      setState({ status: "ok", svg: withRenderId(cached, renderId) });
+      setState(mode === "gated" && cached.stock ? { status: "gated" }
+        : { status: "ok", svg: withRenderId(cached.svg, renderId) });
       return;
     }
     setState({ status: "loading" });
@@ -174,10 +216,14 @@ export function MermaidDiagram({ code }: { code: string }) {
     // comment). The result is normalised to the placeholder before it's
     // cached; withRenderId then substitutes the real id back in for
     // display, exactly as it does on a hit.
-    renderWithFallback(code, renderId).then(
-      (svg) => {
-        const normalized = svg.split(renderId).join(MERMAID_CACHE_RENDER_ID);
-        mermaidCache.set(cacheKey, normalized);
+    renderWithFallback(code, renderId, mode).then(
+      (rendered) => {
+        if (rendered === "gated") {
+          if (alive) setState({ status: "gated" });
+          return;
+        }
+        const normalized = rendered.svg.split(renderId).join(MERMAID_CACHE_RENDER_ID);
+        mermaidCache.set(cacheKey, { svg: normalized, stock: rendered.stock });
         if (alive) setState({ status: "ok", svg: withRenderId(normalized, renderId) });
       },
       () => {
@@ -189,8 +235,16 @@ export function MermaidDiagram({ code }: { code: string }) {
       },
     );
     return () => { alive = false; };
-  }, [code, renderId, effectiveTheme]);
+  }, [code, renderId, effectiveTheme, mode]);
 
+  if (state.status === "gated") {
+    return (
+      <ClickToLoad revealKey={code} label="Render diagram"
+                   preview={<CodeBlock lang="mermaid" code={code} />}>
+        <MermaidRender code={code} mode="stock" />
+      </ClickToLoad>
+    );
+  }
   if (state.status === "error") {
     return (
       <div className="mermaid-diagram-error">

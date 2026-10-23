@@ -3,6 +3,7 @@ import json
 import logging
 import logging.config
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pkm.server import run
-from pkm.server.logfmt import (request_line, truncate_for_log,
+from pkm.server.logfmt import (EscapePkmMessages, EscapingFormatter,
+                               request_line, truncate_for_log,
                                uvicorn_log_config)
 from pkm.server.request_log import RequestLogMiddleware
 
@@ -346,3 +348,154 @@ def test_an_anonymous_request_cannot_forge_a_line_separator_or_status(
     assert record.message.isprintable()
     assert len(record.message.splitlines()) == 1
     assert '\\u2028FORGED\\u2029x\\" 200 4ms" ' in record.message
+
+
+def _server_log_after(tmp_path: Path, emit) -> str:
+    """server.log after `emit()` runs under the production file config, so
+    each record passes through the handler and filters that config wires."""
+    with _dict_config_applied(uvicorn_log_config(tmp_path)):
+        try:
+            emit()
+        finally:
+            for h in _effective_handlers(logging.getLogger("pkm")) \
+                    + _effective_handlers(logging.getLogger("uvicorn.error")):
+                h.flush()
+                h.close()
+    return (tmp_path / "server.log").read_text(encoding="utf-8")
+
+
+def test_a_requested_local_path_cannot_forge_a_server_log_line(
+        tmp_path, monkeypatch):
+    from pkm.server import routes_local
+
+    def no_brctl(*_args, **_kwargs):
+        raise OSError("no brctl")
+    monkeypatch.setattr(routes_local.subprocess, "run", no_brctl)
+    forged = 'a.pdf\n2026-10-23 INFO:     forged\u2028"x'
+    server = _server_log_after(
+        tmp_path, lambda: routes_local._request_download(Path(forged)))
+    assert server.count("\n") == 1
+    assert 'a.pdf\\x0a2026-10-23 INFO:     forged\\u2028\\"x' in server
+
+
+def test_a_local_open_probe_cannot_forge_a_server_log_line(tmp_path):
+    from pkm.server.local_open import OpenProber
+
+    def refuse(_key: str) -> None:
+        raise PermissionError("denied\r\nforged")
+    prober = OpenProber(opener=refuse, timeout=1.0)
+    server = _server_log_after(
+        tmp_path, lambda: prober.probe("doc\n.pdf"))
+    assert server.count("\n") == 1
+    assert "doc\\x0a.pdf failed: denied\\x0d\\x0aforged" in server
+
+
+def _record(name: str, msg: str, args: tuple = (),
+            exc_info=None) -> logging.LogRecord:
+    return logging.LogRecord(name, logging.WARNING, __file__, 1, msg, args,
+                             exc_info)
+
+
+def test_escape_filter_renders_percent_args_before_escaping():
+    original = _record("pkm.local", "probe for %s failed: %d", ("a\nb", 3))
+    out = EscapePkmMessages().filter(original)
+    assert out.msg == "probe for a\\x0ab failed: 3" and out.args == ()
+    assert out.getMessage() == "probe for a\\x0ab failed: 3"
+    assert original.msg == "probe for %s failed: %d"
+    assert original.args == ("a\nb", 3)
+
+
+def test_escape_filter_escapes_a_preformatted_message():
+    name = 'x\u2028"y'
+    out = EscapePkmMessages().filter(_record("pkm", f"asset {name} missing"))
+    assert out.getMessage() == 'asset x\\u2028\\"y missing'
+
+
+def test_escape_filter_keeps_the_traceback_for_the_formatter():
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        exc_info = sys.exc_info()
+    out = EscapePkmMessages().filter(
+        _record("pkm.describe", "describe failed for %s", ("a\nb",),
+                exc_info=exc_info))
+    assert out.exc_info is exc_info
+    rendered = logging.Formatter("%(message)s").format(out)
+    assert rendered.startswith("describe failed for a\\x0ab\nTraceback")
+
+
+def test_escape_filter_passes_uvicorn_records_unchanged():
+    record = _record("uvicorn.error", "Exception in ASGI application\n")
+    assert EscapePkmMessages().filter(record) is record
+    assert EscapePkmMessages().filter(_record("pkmx", "a\nb")).msg == "a\nb"
+
+
+@pytest.mark.parametrize("log_dir", [None, Path("/logs")])
+def test_only_the_default_handler_escapes(log_dir):
+    handlers = uvicorn_log_config(log_dir)["handlers"]
+    assert handlers["default"]["filters"] == ["escape_pkm"]
+    # pkm.access lines are already escaped by request_line.
+    assert "filters" not in handlers["access"]
+
+
+def test_an_access_line_is_escaped_once(tmp_path):
+    line = request_line("c", "GET", '/a\n"b', 200, 1.0)
+    with _dict_config_applied(uvicorn_log_config(tmp_path)):
+        try:
+            logging.getLogger("pkm.access").info(line)
+        finally:
+            for h in _effective_handlers(logging.getLogger("pkm.access")):
+                h.flush()
+                h.close()
+    access = (tmp_path / "access.log").read_text(encoding="utf-8")
+    assert '"GET /a\\x0a\\"b" 200' in access
+
+
+_FORGED = "2026-10-23 12:00:00,000 INFO:     FORGED"
+
+
+@pytest.mark.parametrize("logger_name, message", [
+    ("pkm.describe", "describe failed for sha"),
+    ("uvicorn.error", "Exception in ASGI application\n"),
+])
+def test_exception_text_cannot_forge_a_server_log_line(
+        tmp_path, logger_name, message):
+    def emit() -> None:
+        try:
+            raise ValueError(f"bad title x\n{_FORGED}\u2028\x1b[31m")
+        except ValueError:
+            logging.getLogger(logger_name).exception(message)
+    server = _server_log_after(tmp_path, emit)
+    lines = server.splitlines()
+    assert not [line for line in lines if line.startswith(_FORGED)]
+    assert lines[0][:4].isdigit()
+    assert all(line.startswith("  ") for line in lines[1:])
+    assert "\u2028" not in server and "\x1b" not in server
+    assert "\\u2028\\x1b[31m" in server
+
+
+def test_a_malformed_pkm_log_call_does_not_raise_into_the_caller(tmp_path):
+    def emit() -> None:
+        logging.getLogger("pkm.local").warning("probe %s failed: %s", "k")
+    _server_log_after(tmp_path, emit)
+
+
+def test_the_stderr_config_escapes_messages_and_tracebacks(capsys):
+    # Production uses the file config; this drives the stream variant that
+    # tests, e2e and scratch servers log through.
+    with _dict_config_applied(uvicorn_log_config()):
+        try:
+            raise ValueError("bad\nforged")
+        except ValueError:
+            logging.getLogger("pkm.describe").exception("failed for %s",
+                                                        "a\nb")
+    err = capsys.readouterr().err.splitlines()
+    assert err[0].endswith("failed for a\\x0ab")
+    assert err[1:] and all(line.startswith("  ") for line in err[1:])
+    assert err[-1] == "  forged"
+
+
+def test_escaping_formatter_escapes_and_indents_a_stack():
+    stack = 'Stack (most recent call last):\n  File "x\u2028y"'
+    assert EscapingFormatter().formatStack(stack) == (
+        '  Stack (most recent call last):\n    File "x\\u2028y"')

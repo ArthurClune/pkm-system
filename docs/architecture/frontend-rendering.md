@@ -124,15 +124,17 @@ each read.
 
 ## PDF embeds and the viewer
 
-| `.pdf` href | Renders as |
+| Href | Renders as |
 |---|---|
-| under `/assets/` (`isUploadedAsset`), no query string | inline `PdfEmbed`, auto-loading |
-| under `/api/local/`, no query string | deferred `PdfEmbed` (`isDeferredPdfHref`): a link and an Open button, fetching nothing until clicked |
-| any, with a query string | a plain link; the query signals a download |
+| under `/assets/` (`isUploadedAsset`), ending in `.pdf` | inline `PdfEmbed`, auto-loading |
+| under `/api/local/`, ending in `.pdf` | deferred `PdfEmbed` (`isDeferredPdfHref`): a link and an Open button, fetching nothing until clicked |
+| not ending in `.pdf`, as `a.pdf?dl=1` does | a plain link; the query signals a download |
 | climbing out of either prefix (`isPathUnder`), as `/assets/../api/local/a.pdf` does | a plain link |
 
-`isDeferredPdfHref` defers every PDF but an upload, so a href the prefix
-tests misread loads on click rather than on render.
+`isPdfHref` tests the ending of the whole href, so an href whose query or
+fragment ends in `.pdf` (`?a=.pdf`, `#.pdf`) still embeds. Any PDF href that
+is not provably an upload defers to a click: `isDeferredPdfHref` is
+`!isUploadedAsset`.
 
 Deferral keeps a page of `Local copy::` papers from pulling each PDF from iCloud
 on the host. A file the host does not serve becomes a note, not a saved error
@@ -166,10 +168,10 @@ load on render. A src the URL parser would turn into another same-origin path
 is not an upload, because `/assets/../api/export.zip` would run an export on
 render. `isPathUnder` refuses a `..` segment (literal or `%2e`) between any
 separator the browser or a path-cleaning proxy reads: `/`, `\`, `%2f` or
-`%5c`. It drops tabs and newlines and trailing spaces first, as the parser
-does. A backslash with no `..` beside it climbs nowhere, so a name quoted as
-`%5C` stays an upload. Everything else waits behind `ClickToLoad`, the one
-gate:
+`%5c`. It first drops tabs, CR and LF anywhere, and C0 controls and spaces at
+the end, as the parser does. A backslash with no `..` beside it climbs
+nowhere, so an upload whose name is quoted with `%5C` stays an upload.
+Everything else waits behind `ClickToLoad`, the one gate:
 
 | Media | Gated where | Placeholder |
 |---|---|---|

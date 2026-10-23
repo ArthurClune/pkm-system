@@ -287,9 +287,11 @@ it("auto-loads only a pdf that stays under /assets/", () => {
 
 it("keeps odd but non-climbing pdf names as embeds", () => {
   const sha = "3f786850e387550fdab836ed7e6dc881de23001b";
-  // An upload's name is quoted with no safe characters and a local path
-  // with "/" safe, so a backslash in either arrives as %5C; legacy upload
-  // rows carry it raw.
+  // An upload's name is quoted with no safe characters, so a backslash in it
+  // arrives as %5C, and that upload serves. The raw backslash and the local
+  // %5C cases serve nothing (the browser rewrites the raw one to "/", and
+  // the local route refuses a decoded backslash); they stay embeds only
+  // because neither climbs out of its prefix.
   for (const href of [`/assets/${sha}/a%5Cb.pdf`, `/assets/${sha}/x\\.pdf`,
     `/assets/${sha}/...pdf`, `/assets/${sha}/x%2e%2e.pdf`,
     "/api/local/Papers/a%5Cb.pdf", "/api/local/Papers/Machine%20Learning/T.pdf"]) {

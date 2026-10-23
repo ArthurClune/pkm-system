@@ -13,7 +13,9 @@ it("keeps real asset paths uploaded, dotted filenames included", () => {
   const sha = "3f786850e387550fdab836ed7e6dc881de23001b";
   for (const src of [`/assets/${sha}/photo.png`, `/assets/${sha}/IMG_0868.jpeg`,
     `/assets/${sha}/a.b.c.png`, `/assets/${sha}/a..b.png`, `/assets/${sha}/...png`,
-    // a backslash or encoded one with no dot-dot segment climbs nowhere
+    // %5C is how an upload name's backslash is quoted, and it serves; the
+    // raw backslash and %5c without a name serve nothing, but no dot-dot
+    // segment means they stay under the prefix
     `/assets/${sha}/a%5Cb.png`, `/assets/${sha}/x\\.png`, "/assets/a%5capi"]) {
     expect(isUploadedAsset(src)).toBe(true);
   }

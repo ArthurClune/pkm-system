@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import {
-  refusesStockRender, STOCK_MERMAID_DOMPURIFY, STOCK_MERMAID_SECURE, stripCssImports,
+  asMermaidReadsEntities, refusesStockRender, STOCK_MERMAID_DOMPURIFY, STOCK_MERMAID_SECURE, stripCssImports,
 } from "./mermaidSafety";
 
 const A = "https://attacker.invalid";
@@ -85,4 +85,50 @@ it("strips beautiful-mermaid's font @import rules and keeps the rest", () => {
 it("strips a quoted-string @import with a media list", () => {
   expect(stripCssImports('<svg><style>@import "https://x.test/a.css" screen; a{}</style></svg>'))
     .toBe("<svg><style> a{}</style></svg>");
+});
+
+// The regexes asMermaidReadsEntities replaced, kept as the oracle. They
+// backtrack cubically on a long line with no ";".
+function oldReads(code: string): string {
+  return code
+    .replace(/style.*:\S*#.*;/g, (line) => line.slice(0, -1))
+    .replace(/classDef.*:\S*#.*;/g, (line) => line.slice(0, -1));
+}
+
+it.each([
+  "style A fill:#f96;",
+  "style A fill:#f96",
+  "style A fill:#f96;stroke:#333;",
+  "style A fill:#f96; stroke:#333;;",
+  "classDef c fill:#f96;",
+  "classDef c fill:#f96",
+  "classDef c a:#1;b:#2;",
+  "style A #f96:fill;",
+  "style A fill: #f96;",
+  "style A fill:#f96 ;x",
+  "style A fill:#;",
+  "style A fill:;#",
+  "x style A fill:#f96;",
+  "x classDef c fill:#f96; y",
+  "style A fill:#f96; classDef c fill:#333;",
+  "classDef c fill:#333; style A fill:#f96;",
+  "style style:#a;",
+  "stylestyle:x y:#a;",
+  "flowchart\n style A fill:#f96;\n classDef c fill:#333;\n B",
+  "style A fill:#f96;\r\nclassDef c fill:#333;\r\n",
+  "style A fill:#f96;\rclassDef c fill:#333;",
+  "style A fill:#f96 ;\nstyle B a:#1;",
+  "style A fill\n:#f96;",
+  "",
+])("drops the closing semicolon as the old regex did: %j", (code) => {
+  expect(asMermaidReadsEntities(code)).toBe(oldReads(code));
+});
+
+it.each([
+  ["style", "style" + ":#".repeat(50_000)],
+  ["classDef", "classDef" + ":#".repeat(50_000)],
+])("refuses a long %s line without a semicolon in linear time", (_name, code) => {
+  const t0 = performance.now();
+  refusesStockRender(code);
+  expect(performance.now() - t0).toBeLessThan(100);
 });

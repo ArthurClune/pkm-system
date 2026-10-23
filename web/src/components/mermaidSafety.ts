@@ -57,10 +57,34 @@ const ENTITY = /&#(\d+|x[0-9a-f]+);?|#(\d+);|[#&]([a-z][a-z0-9]*);/gi;
 
 // Mermaid drops one trailing ";" from style and classDef lines before it
 // reads entities, so that a closing "fill:#f96;" is not one.
-function asMermaidReadsEntities(code: string): string {
-  return code
-    .replace(/style.*:\S*#.*;/g, (line) => line.slice(0, -1))
-    .replace(/classDef.*:\S*#.*;/g, (line) => line.slice(0, -1));
+//
+// Per line, from the first occurrence of the keyword: a ":" then a run of
+// non-whitespace then a "#" (the first such "#" is the earliest, so the
+// easiest to follow with a ";"), and a ";" later on the line. The last ";" on
+// the line is the one dropped. One scan per line and keyword, so a long line
+// costs linear time, which a backtracking regex over the same shape did not.
+const LINE_BREAKS = /([\n\r\u2028\u2029])/;
+const WHITESPACE = /\s/;
+
+function dropClosingSemicolon(line: string, keyword: string): string {
+  const start = line.indexOf(keyword);
+  if (start < 0) return line;
+  const lastSemicolon = line.lastIndexOf(";");
+  let afterColon = false;
+  for (let i = start + keyword.length; i < lastSemicolon; i++) {
+    const ch = line[i];
+    if (ch === ":") afterColon = true;
+    else if (ch === "#" && afterColon) {
+      return line.slice(0, lastSemicolon) + line.slice(lastSemicolon + 1);
+    } else if (WHITESPACE.test(ch)) afterColon = false;
+  }
+  return line;
+}
+
+export function asMermaidReadsEntities(code: string): string {
+  return code.split(LINE_BREAKS).map((part, i) => (
+    i % 2 === 1 ? part : dropClosingSemicolon(dropClosingSemicolon(part, "style"), "classDef")
+  )).join("");
 }
 
 function codePoint(digits: string, radix: number): string {

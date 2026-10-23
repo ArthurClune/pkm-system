@@ -485,3 +485,19 @@ def test_export_temp_dirs_are_removed_when_the_send_fails_or_the_client_leaves(
 
     assert any(Path(d).name.startswith("pkm-") for d in made)
     assert list(scratch.glob("pkm-*")) == []
+
+
+@pytest.mark.parametrize("depth", [40, 2000])
+def test_export_page_markdown_leaves_a_refused_query_macro_in_place(
+        tmp_path, depth):
+    """An over-deep {{query}} degrades like any other parse error: the raw
+    macro stays in the text and the export still answers 200."""
+    macro = "{{query: " + "{and: " * depth + "[[Tag]]" + "}" * depth + "}}"
+    tc = seeded_client(
+        tmp_path,
+        pages=[(1, "Source", None, None), (2, "Tag", None, None)],
+        blocks=[("uid_q1", 1, None, 0, f"notes {macro}", None, 0, None, None)],
+        refs=[])
+    r = tc.get("/api/export/page/Source")
+    assert r.status_code == 200
+    assert macro in r.text

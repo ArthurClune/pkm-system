@@ -75,6 +75,11 @@ take locks that conflict with another connection's open write transaction.
 Each request gets a fresh `Db` from `open_db()`, with `foreign_keys=ON`,
 `recursive_triggers=ON` and `BUSY_TIMEOUT_MS`.
 
+An `IN (...)` list built from a set the data can grow without bound (a page's
+block uids, a block's referrers, a `((ref))` set) goes through
+`sync_core.chunk_ids`, because SQLite refuses a statement that binds more
+variables than its limit and the route would answer 500.
+
 ### Schema
 
 `schema.py` holds two DDL blocks. `BASE_DDL` is the data model, **replicated
@@ -299,6 +304,14 @@ Rename, merge and their replay pass `rename.spelled_or_canonical`: a spelling
 that is itself a key, else its canonical form under the live flag. Matched
 byte for byte, `[[ Old ]]` would survive a rename under plain-space
 canonicalisation, and the reindex would recreate `Old`.
+
+No write path bounds `[[` nesting depth. The ops guard
+(`ops_core.find_op_title_violation`) judges only runs that are refs, and a
+run whose title has an unreachable segment (`[[a//...`) is none, so the runs
+inside it are never judged. Every walk over `BracketSpan.children` therefore
+keeps its own stack, as `bracket_spans`, `rename._rewrite_range` and
+`unlink._unlink_range` do. A recursive one fails past the recursion limit,
+and the page the block links can then not be renamed or deleted.
 
 ## The write path
 
@@ -671,6 +684,10 @@ does the constant-time scrypt check and signs the `pkm_session` cookie
 (`v1.<issued_ms>.<sig>`). `docs/SECURITY.md` owns the cookie flags and the
 threat model.
 
+Response headers that apply to every route are set in one place,
+`SecurityHeadersMiddleware`; routes set only their own. An
+unhandled exception's 500 is built outside it and carries none.
+
 `LoginThrottle` (`auth.py`, policy in `throttle_core.py`) applies a per-source exponential backoff
 (`BASE_BACKOFF_MS` to `MAX_BACKOFF_MS`) before scrypt runs, and a
 process-wide semaphore (`MAX_CONCURRENT_SCRYPT`) on scrypt work.
@@ -718,7 +735,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | POST | `/api/migrations/title-canonicalization` | Apply the audited digest; 409 on stale, blocked or active |
 | **Search & queries** | | |
 | GET | `/api/search?q` | FTS5 search over pages and blocks |
-| GET | `/api/query?expr` | `{{[[query]]}}` evaluation |
+| GET | `/api/query?expr` | `{{[[query]]}}` evaluation; 400 past `query.MAX_QUERY_DEPTH` nesting or `MAX_QUERY_OPERANDS` page operands |
 | GET | `/api/titles?q` | Title completion for `[[` and `#` |
 | GET | `/api/todos?page` | `{{TODO}}` blocks grouped by page |
 | GET | `/api/changed?since&until&page&limit` | Blocks changed in `[since, until)`, each `new` or `edited`; 400 on an empty window |
@@ -767,10 +784,15 @@ route.
 | A lone surrogate in a JSON body | Every request body model derives from `WellFormedModel` | `test_every_json_request_body_is_a_well_formed_model` |
 | An int past 64 bits | Int parameters are `Int64` or carry `INT64_RANGE`; `WellFormedModel` refuses one in a body | `test_every_int_parameter_is_bounded_to_sqlite_range` |
 | A 422 echoing a surrogate, NaN or deep nesting | `validation_echo.echo_errors`, cut at `MAX_ECHO_DEPTH` | `test_validation_echo.py` |
+| A NUL, an over-long component or a link loop in an SPA path | The catch-all treats a path `resolve()` or `is_file()` rejects as naming no file, and serves the shell | `test_spa.py` |
+| A session cookie signature that is not ASCII | `verify_session` refuses it before `hmac.compare_digest`, which raises on non-ASCII | `test_hostile_requests.py` |
 | A NUL in a search term | `fts.py` makes it a space: FTS5 reads a C string | `test_hostile_requests.py` |
 | A GoodLinks or OpenAI body that is not JSON, nests too deep, or holds a surrogate | An unusable answer (503, `DescribeError`); decoded strings made well-formed | `test_no_500_upstream_props.py` |
 | An op `order_idx` a sibling shift could push past int64 | `CreateOp` and `MoveOp` bound it with `WIRE_ORDER_IDX` to the JS safe-integer range | `test_an_op_order_idx_stays_in_the_js_safe_range` |
 | A Roam heading outside 1–3 or a time past 64 bits | `parse_export` reads it as absent | `test_no_500_stored_props.py` |
+| A deep or wide `/api/query` expression | `parse_query` refuses past `MAX_QUERY_DEPTH` / `MAX_QUERY_OPERANDS` and the route answers 400; rule in the [`/api/query` row](#http-api-reference) | `test_query.py` |
+| An id set past SQLite's bound-variable limit | Queries over an unbounded id set go through `sync_core.chunk_ids`; rule in [Database](#database) | `test_sql_variable_limit.py` |
+| `[[` nested past Python's recursion limit | Rename and unlink walk iteratively (`_rewrite_range`, `_unlink_range`); rule in [Ref grammar](#ref-grammar) | `test_legacy_deep_brackets.py` |
 
 Path and query values cannot carry a lone surrogate, because the server
 decodes them from bytes. The `test_no_500_*_props.py`
@@ -858,6 +880,19 @@ path (query included) as `\xNN`, `\uNNNN` or `\UNNNNNNNN`, and backslash-escapes
 backslashes and double quotes. The path is attacker-chosen: a raw newline or
 U+2028 would forge a log line, and a quote would close the request field
 early and fake the status.
+The default handler applies the same `escape_controls` to the rendered
+message of every `pkm.*` record (`logfmt.EscapePkmMessages`), at the handler
+rather than per call site, because any `pkm` logger may carry a requested
+path, an upload's filename or an error text. Its formatter,
+`logfmt.EscapingFormatter`, hex-escapes the non-printable characters in
+every traceback and stack from any logger, newlines aside, and indents each
+of their lines two spaces: an exception's text is data, and a newline in it
+would otherwise start a line that reads as a log record. uvicorn's messages pass unescaped,
+because its formatter re-renders `color_message` from the record's
+arguments; they cannot break a line, since h11 admits only visible ASCII in
+the request target and uvicorn re-quotes the path, but a quote in a
+websocket path reaches `server.log` raw. The `client diagnostics` dump is
+a `pkm.*` message, so its quotes read as `\"` and its backslashes as `\\`.
 
 With `run.py --log-dir` (production) the handlers write `server.log` and
 `access.log`; without it, stderr and stdout. The server rotates its own

@@ -7,19 +7,26 @@ a "the app hung yesterday" report can't be correlated with anything.
 """
 from __future__ import annotations
 
+import copy
+import logging
 from pathlib import Path
+from types import TracebackType
 from typing import Any
+
+from uvicorn.logging import DefaultFormatter
+
+
+def _hex_escape(char: str) -> str:
+    code = ord(char)
+    if code < 0x100:
+        return f"\\x{code:02x}"
+    return f"\\u{code:04x}" if code < 0x10000 else f"\\U{code:08x}"
 
 
 def _escape_char(char: str) -> str:
     if char == "\\" or char == '"':
         return "\\" + char
-    if char.isprintable():
-        return char
-    code = ord(char)
-    if code < 0x100:
-        return f"\\x{code:02x}"
-    return f"\\u{code:04x}" if code < 0x10000 else f"\\U{code:08x}"
+    return char if char.isprintable() else _hex_escape(char)
 
 
 def escape_controls(text: str) -> str:
@@ -30,12 +37,68 @@ def escape_controls(text: str) -> str:
     return "".join(_escape_char(c) for c in text)
 
 
+def indent_traceback(text: str) -> str:
+    """`text` (a rendered traceback or stack) with every non-printable
+    character but the newline hex-escaped as in `escape_controls`, and every
+    line indented two spaces, so a newline in an exception's text cannot
+    start a line that reads as a log record."""
+    escaped = "".join(c if c == "\n" or c.isprintable() else _hex_escape(c)
+                      for c in text)
+    return "\n".join("  " + line for line in escaped.split("\n"))
+
+
 def truncate_for_log(text: str, cap: int) -> str:
     """`text` unchanged up to `cap` characters; longer text is cut at the cap
     and followed by a marker naming the full length."""
     if len(text) <= cap:
         return text
     return f"{text[:cap]}\u2026[truncated: {len(text)} chars]"
+
+
+class EscapePkmMessages(logging.Filter):
+    """Escapes the rendered message of every `pkm` and `pkm.*` record with
+    `escape_controls`, so a path, filename or error text a request put in a
+    message cannot forge a server-log line whichever logger carries it.
+
+    It returns an escaped copy with `args` emptied, covering `%`-style and
+    pre-formatted messages alike, and leaves the record other handlers see
+    untouched. A message that will not render (wrong argument count, a
+    raising `__str__`) passes unchanged, so `emit` fails and `handleError`
+    reports it, as logging does without the filter, instead of the filter
+    raising into the caller. uvicorn's records pass unchanged: they end a
+    message with the newline before a traceback on purpose, and its
+    formatter re-renders `color_message` with the record's `args`. Their
+    request text cannot break a line (h11 admits only visible ASCII in the
+    target and uvicorn re-quotes the path), though a quote in a websocket
+    path can reach the log raw. Tracebacks are `EscapingFormatter`'s job."""
+
+    def filter(self, record: logging.LogRecord) -> logging.LogRecord:
+        if record.name != "pkm" and not record.name.startswith("pkm."):
+            return record
+        try:
+            message = record.getMessage()
+        except Exception:
+            return record
+        escaped = copy.copy(record)
+        escaped.msg = escape_controls(message)
+        escaped.args = ()
+        return escaped
+
+
+class EscapingFormatter(DefaultFormatter):
+    """uvicorn's formatter with every traceback and stack passed through
+    `indent_traceback`, for any logger's records: an exception's text is
+    data, and a request-borne newline in it would otherwise start a line
+    in the traceback's last row that reads as a log record."""
+
+    def formatException(
+            self,
+            ei: tuple[type[BaseException], BaseException, TracebackType | None]
+            | tuple[None, None, None]) -> str:
+        return indent_traceback(super().formatException(ei))
+
+    def formatStack(self, stack_info: str) -> str:
+        return indent_traceback(super().formatStack(stack_info))
 
 
 def request_line(client: str | None, method: str, path: str,
@@ -73,13 +136,19 @@ def uvicorn_log_config(log_dir: Path | None = None,
     `access.log` there, each rotated at midnight with `keep_days` dated
     copies kept (`server.log.YYYY-MM-DD`); launchd's own files then catch
     only what escapes logging. Without one, the stderr/stdout split above
-    (tests, e2e and scratch servers). Pure: dictConfig opens the files."""
+    (tests, e2e and scratch servers). Either way the default handler runs
+    `EscapePkmMessages` and formats with `EscapingFormatter`; `pkm.access`
+    lines are escaped by `request_line` and never reach it. Pure: dictConfig
+    opens the files."""
     config: dict[str, Any] = {
         "version": 1,
         "disable_existing_loggers": False,
+        "filters": {
+            "escape_pkm": {"()": EscapePkmMessages},
+        },
         "formatters": {
             "default": {
-                "()": "uvicorn.logging.DefaultFormatter",
+                "()": EscapingFormatter,
                 "fmt": "%(asctime)s %(levelprefix)s %(message)s",
             },
             "access": {
@@ -91,6 +160,7 @@ def uvicorn_log_config(log_dir: Path | None = None,
                 "formatter": "default",
                 "class": "logging.StreamHandler",
                 "stream": "ext://sys.stderr",
+                "filters": ["escape_pkm"],
             },
             "access": {
                 "formatter": "access",
@@ -113,7 +183,7 @@ def uvicorn_log_config(log_dir: Path | None = None,
                     "when": "midnight", "backupCount": keep_days,
                     "encoding": "utf-8"}
         config["handlers"] = {
-            "default": {"formatter": "default",
+            "default": {"formatter": "default", "filters": ["escape_pkm"],
                         "filename": str(log_dir / "server.log"), **rotation},
             "access": {"formatter": "access",
                        "filename": str(log_dir / "access.log"), **rotation},

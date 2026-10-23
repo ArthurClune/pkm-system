@@ -5,7 +5,7 @@ import { expect, it, vi } from "vitest";
 import type { BlockRefText } from "../api/payloads";
 import { BlockRefContext, SidebarContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
-import { InlineSegments } from "./InlineSegments";
+import { InlineSegments, isDeferredPdfHref, isPdfHref } from "./InlineSegments";
 import { canonicalTitleOf } from "../test-helpers";
 
 // See MermaidDiagram.test.tsx: vi.mock factories are hoisted, so any
@@ -255,6 +255,57 @@ it("renders click-to-load pdf embeds for /api/local/*.pdf links and plain anchor
   // getByText only checks a node's direct text children, so it lands on the
   // inner page-link <a>, not the wrapping span -- assert via the ancestor.
   expect(screen.getByText("Local copy").closest(".attribute")).not.toBeNull();
+});
+
+// Each of these resolves, in the browser or behind a path-cleaning proxy,
+// to a route other than the file its prefix names.
+const CLIMBING_PDF_HREFS = [
+  "/assets/../api/local/paper.pdf", "/assets/%2e%2e/api/local/paper.pdf",
+  "/assets/%2E%2e/api/local/paper.pdf", "/assets/.%2e/api/local/paper.pdf",
+  "/assets/..%2fapi%2flocal%2fpaper.pdf", "/assets/x%2F..%2F..%2Fapi/local/p.pdf",
+  "/assets/x\\..\\..\\api\\local\\paper.pdf", "/assets/x%5c..%5c..%5capi/local/p.pdf",
+  "/assets/./../api/local/paper.pdf", "/assets/.\t./api/local/paper.pdf",
+  "/assets/..\n/api/local/paper.pdf", "/assets/..?.pdf", "/assets/..#.pdf",
+  "/api/local/../export.pdf", "/api/local/%2e%2e/assets/x.pdf",
+  "/api/local/a\\..\\..\\api/x.pdf", "/api/local/a/%2E./%2e./api/x.pdf",
+];
+
+it("embeds no pdf href that climbs out of its prefix", () => {
+  for (const href of CLIMBING_PDF_HREFS) {
+    expect(isPdfHref(href), href).toBe(false);
+  }
+});
+
+it("auto-loads only a pdf that stays under /assets/", () => {
+  const sha = "3f786850e387550fdab836ed7e6dc881de23001b";
+  expect(isDeferredPdfHref(`/assets/${sha}/a..b.pdf`)).toBe(false);
+  expect(isDeferredPdfHref("/api/local/Papers/Title.pdf")).toBe(true);
+  for (const href of CLIMBING_PDF_HREFS) {
+    expect(isDeferredPdfHref(href), href).toBe(true);
+  }
+});
+
+it("keeps odd but non-climbing pdf names as embeds", () => {
+  const sha = "3f786850e387550fdab836ed7e6dc881de23001b";
+  // An upload's name is quoted with no safe characters, so a backslash in it
+  // arrives as %5C, and that upload serves. The raw backslash and the local
+  // %5C cases serve nothing (the browser rewrites the raw one to "/", and
+  // the local route refuses a decoded backslash); they stay embeds only
+  // because neither climbs out of its prefix.
+  for (const href of [`/assets/${sha}/a%5Cb.pdf`, `/assets/${sha}/x\\.pdf`,
+    `/assets/${sha}/...pdf`, `/assets/${sha}/x%2e%2e.pdf`,
+    "/api/local/Papers/a%5Cb.pdf", "/api/local/Papers/Machine%20Learning/T.pdf"]) {
+    expect(isPdfHref(href), href).toBe(true);
+  }
+});
+
+it("renders a link that climbs from /assets/ to a local pdf as a plain link", async () => {
+  renderText("[x](/assets/../api/local/paper.pdf)");
+  expect(screen.getByRole("link", { name: "x" }))
+    .toHaveAttribute("href", "/assets/../api/local/paper.pdf");
+  expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+  await expect(screen.findByTestId("pdf-viewer", undefined, { timeout: 100 }))
+    .rejects.toThrow();
 });
 
 it("does not treat a query-string pdf as an embed", () => {

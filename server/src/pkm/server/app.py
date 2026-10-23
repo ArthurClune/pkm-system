@@ -36,6 +36,7 @@ from pkm.server.routes_pages import router as pages_router
 from pkm.server.routes_search import router as search_router
 from pkm.server.routes_sidebar import router as sidebar_router
 from pkm.server.routes_sync import router as sync_router
+from pkm.server.security_headers import SecurityHeadersMiddleware
 from pkm.server.validation_echo import echo_errors
 from pkm.server import wholepath  # noqa: F401 -- registers {full_path:wholepath}
 from pkm.server.ws import Hub, router as ws_router
@@ -140,6 +141,7 @@ def create_app(
                           else _default_describe_service(config))
     app.state.goodlinks = (goodlinks_gateway if goodlinks_gateway is not None
                            else _default_goodlinks(config))
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestLogMiddleware)
     app.add_exception_handler(RequestValidationError, _validation_error)
     app.include_router(auth_router)
@@ -188,11 +190,20 @@ def create_app(
             # falls back to index.html breaks registration outright. The SW
             # byte-compares itself on update checks, so no-cache keeps
             # deploys picked up promptly (matching index.html below).
-            candidate = (web_dist_root / full_path).resolve()
-            if (full_path
-                    and candidate.is_relative_to(web_dist_root)
-                    and candidate.is_file()):
-                return FileResponse(candidate,
+            # A NUL, an over-long component or a link loop makes resolve()
+            # or is_file() raise (ValueError, OSError, RuntimeError). Such a
+            # path names no file, so it gets the shell like any other
+            # client-side route (a long page title reloads into the app).
+            served: Path | None = None
+            try:
+                candidate = (web_dist_root / full_path).resolve()
+                if (full_path and candidate.is_relative_to(web_dist_root)
+                        and candidate.is_file()):
+                    served = candidate
+            except (ValueError, OSError, RuntimeError):
+                pass
+            if served is not None:
+                return FileResponse(served,
                                     headers={"Cache-Control": "no-cache"})
             # index.html references hashed bundle filenames, so it must be
             # revalidated on every request or browsers keep serving stale

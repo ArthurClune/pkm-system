@@ -221,3 +221,55 @@ def test_cleanup_noop_emits_no_seq_nudge(client, seeded_config):
         else:
             raise AssertionError(f"no seq nudge in {frames}")
         assert frames == [{"type": "seq", "seq": frames[-1]["seq"]}]
+
+
+def test_cleanup_holds_the_write_lock_from_its_first_read_on(
+        client, seeded_config, monkeypatch):
+    # A block created on an empty day between the emptiness check and the
+    # delete would go with the page. The route must hold the write lock
+    # across the check.
+    import sqlite3
+    from pkm.server import routes_pages
+
+    title = _daily_title(_in_window_days_ago())
+    _insert_page(seeded_config.db_path, page_id_of(90), title)
+    real_linked = routes_pages._daily_is_linked
+    outcome = {}
+
+    def racing(db, page_id: PageId) -> bool:
+        con2 = connect(seeded_config.db_path)
+        con2.execute("PRAGMA busy_timeout=50")
+        try:
+            con2.execute(
+                "INSERT INTO blocks(uid, page_id, parent_uid, order_idx,"
+                " text, heading, collapsed, created_at, updated_at)"
+                " VALUES ('late01', ?, NULL, 0, 'late', NULL, 0, NULL, NULL)",
+                (page_id,))
+            con2.commit()
+            outcome["locked"] = False
+        except sqlite3.OperationalError as exc:
+            outcome["locked"] = "locked" in str(exc)
+        finally:
+            con2.close()
+        return real_linked(db, page_id)
+
+    monkeypatch.setattr(routes_pages, "_daily_is_linked", racing)
+    assert client.post("/api/journal/cleanup").status_code == 200
+    assert outcome == {"locked": True}
+
+
+def test_cleanup_answers_503_while_the_write_lock_is_held(
+        client, seeded_config, monkeypatch):
+    title = _daily_title(_in_window_days_ago())
+    _insert_page(seeded_config.db_path, page_id_of(90), title)
+    monkeypatch.setattr("pkm.server.db.BUSY_TIMEOUT_MS", 50)
+    holder = connect(seeded_config.db_path)
+    holder.begin_immediate()
+    try:
+        r = client.post("/api/journal/cleanup")
+    finally:
+        holder.rollback()
+        holder.close()
+    assert r.status_code == 503
+    assert r.headers["Retry-After"] == "1"
+    assert _page_exists(seeded_config.db_path, title)

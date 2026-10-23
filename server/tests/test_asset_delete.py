@@ -198,3 +198,55 @@ def test_if_unreferenced_answers_503_while_the_write_lock_is_held(
                      (a["sha256"],)).fetchone()
     db.close()
     assert row is not None
+
+
+def test_strip_holds_the_write_lock_from_its_first_read_on(
+        client, seeded_config, monkeypatch):
+    # A batch editing a referencing block between the strip's read of its
+    # text and the UPDATE would be overwritten with no conflict note. The
+    # route must hold the write lock across the read.
+    import sqlite3
+    from pkm.database import connect
+    from pkm.server import routes_assets
+
+    a = _upload(client)
+    _create_block(client, uid_of("del010"), "AI", f"keep ![x]({a['url']})")
+    real_strip = routes_assets.strip_asset_tokens
+    outcome = {}
+
+    def racing(text: str, sha: Sha256Hex) -> str:
+        con2 = connect(seeded_config.db_path)
+        con2.execute("PRAGMA busy_timeout=50")
+        try:
+            con2.execute("UPDATE blocks SET text = 'late edit'"
+                         " WHERE uid = 'del010'")
+            con2.commit()
+            outcome["locked"] = False
+        except sqlite3.OperationalError as exc:
+            outcome["locked"] = "locked" in str(exc)
+        finally:
+            con2.close()
+        return real_strip(text, sha)
+
+    monkeypatch.setattr(routes_assets, "strip_asset_tokens", racing)
+    assert client.delete(f"/api/assets/{a['sha256']}").status_code == 200
+    assert outcome == {"locked": True}
+
+
+def test_strip_answers_503_while_the_write_lock_is_held(
+        client, seeded_config, monkeypatch):
+    a = _upload(client)
+    _create_block(client, uid_of("del011"), "AI", f"keep ![x]({a['url']})")
+    monkeypatch.setattr("pkm.server.db.BUSY_TIMEOUT_MS", 50)
+    holder = open_db(seeded_config.db_path)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        r = client.delete(f"/api/assets/{a['sha256']}")
+    finally:
+        holder.rollback()
+        holder.close()
+    assert r.status_code == 503
+    assert r.headers["Retry-After"] == "1"
+    assert _asset_path(seeded_config, a["sha256"]).is_file()
+    assert _block_text(seeded_config, uid_of("del011")) == (
+        f"keep ![x]({a['url']})")

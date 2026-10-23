@@ -124,6 +124,8 @@ Owner: [backend.md](architecture/backend.md)
 | A page delete or rename racing a batch swallowed a clean update behind an `ok` ack, or resurrected the old title | `post_ops` read its dedupe check and context before taking the write lock | [backend.md § The write lock](architecture/backend.md#the-write-lock) | pkm-gwwu |
 | A `[[Old]]` link escapes a rename that raced the batch which wrote it | `rename_page` read the referencing blocks before taking the write lock | [backend.md § The write lock](architecture/backend.md#the-write-lock) | pkm-xtqz |
 | Backlinks omit blocks that full-text search finds carrying the link, and those blocks have no `refs` rows | A direct SQL rewrite of `blocks.text` bypassed `ReindexRefs`; triggers maintain FTS and `changes` only. Re-derive with a `pkm batch` that changes the text and changes it back | [backend.md § Planning](architecture/backend.md#planning) | pkm-70ty |
+| An edit to a block is lost, with no conflict note, when the block's file is deleted from /files at the same time | `delete_asset` strip mode read each referencing block before taking the write lock | [backend.md § The write lock](architecture/backend.md#the-write-lock) | pkm-jvid |
+| A block written to an empty past daily note vanishes with the page when the journal loads | `cleanup_journal` checked the page was empty and unlinked before taking the write lock | [backend.md § The write lock](architecture/backend.md#the-write-lock) | pkm-jvid |
 
 ### 500s from hostile input
 

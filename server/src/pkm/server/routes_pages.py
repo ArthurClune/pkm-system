@@ -596,21 +596,34 @@ def cleanup_journal(request: Request,
     spared, never rewritten: a `refs` row of any kind (link, tag, attribute)
     targeting the page, or a ((block ref)) to one of its blocks, from a
     block on another page."""
+    # The write lock precedes the emptiness and link checks, so no block
+    # created on a day between its check and its delete goes with the page.
+    try:
+        db.begin_immediate()
+    except sqlite3.OperationalError as exc:
+        if "locked" not in str(exc):
+            raise
+        raise HTTPException(status_code=503, headers={"Retry-After": "1"},
+                            detail="database busy, retry") from exc
     deleted: list[CanonicalTitle] = []
-    for d in past_week_dates(date.today()):
-        title = _daily_title(d)
-        page = fetch_page(db, title)
-        if page is None:
-            continue
-        blocks = db.select(
-            "SELECT uid, text FROM blocks WHERE page_id = ?",
-            (page["page_id"],))
-        if not is_page_empty([r["text"] for r in blocks]):
-            continue
-        if _daily_is_linked(db, page["page_id"]):
-            continue
-        delete_page_rows(db, page["page_id"], title)
-        deleted.append(title)
+    try:
+        for d in past_week_dates(date.today()):
+            title = _daily_title(d)
+            page = fetch_page(db, title)
+            if page is None:
+                continue
+            blocks = db.select(
+                "SELECT uid, text FROM blocks WHERE page_id = ?",
+                (page["page_id"],))
+            if not is_page_empty([r["text"] for r in blocks]):
+                continue
+            if _daily_is_linked(db, page["page_id"]):
+                continue
+            delete_page_rows(db, page["page_id"], title)
+            deleted.append(title)
+    except BaseException:
+        db.rollback()
+        raise
     db.commit()
     # Guarded (unlike most routes' unconditional nudge): this route is
     # called on every journal load (docstring above), so a no-op run is the

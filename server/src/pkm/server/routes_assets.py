@@ -163,31 +163,27 @@ def search_assets(q: str = "", limit: Int64 = 50, offset: Int64 = 0,
     ) for r, refs in hits])
 
 
-def _delete_if_unreferenced(request: Request, sha: Sha256Hex,
-                            db: Db, config: Config) -> AssetDeleteAck:
-    try:
-        db.begin_immediate()
-    except sqlite3.OperationalError as exc:
-        if "locked" not in str(exc):
-            raise
-        raise HTTPException(status_code=503, headers={"Retry-After": "1"},
-                            detail="database busy, retry") from exc
-    row = db.select_one("SELECT sha256 FROM assets WHERE sha256 = ?", (sha,))
-    if row is None:
-        db.rollback()
-        raise HTTPException(status_code=404, detail="asset not found")
-    if referencing_blocks(db, sha):
-        db.rollback()
-        raise HTTPException(status_code=409, detail="asset is referenced")
-    db.execute("DELETE FROM assets WHERE sha256 = ?", (sha,))
-    db.commit()
-    path = config.assets_dir / sha[:2] / sha
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        logger.warning("could not remove asset file %s", path)
-    notify.nudge_threadpool(request, db)
-    return AssetDeleteAck(deleted=True, refs_removed=0)
+def _strip_references(db: Db, sha: Sha256Hex) -> int:
+    now_ms = int(time.time() * 1000)
+    refs_removed = 0
+    for ref in referencing_blocks(db, sha):
+        block = db.select_one("SELECT text FROM blocks WHERE uid = ?",
+                              (ref.uid,))
+        if block is None:
+            continue
+        new_text = strip_asset_tokens(block["text"], sha)
+        if new_text == block["text"]:
+            continue
+        refs_removed += 1
+        has_children = db.select_one(
+            "SELECT uid FROM blocks WHERE parent_uid = ? LIMIT 1",
+            (ref.uid,)) is not None
+        if not new_text and not has_children:
+            db.execute("DELETE FROM blocks WHERE uid = ?", (ref.uid,))
+        else:
+            db.execute("UPDATE blocks SET text = ?, updated_at = ?"
+                       " WHERE uid = ?", (new_text, now_ms, ref.uid))
+    return refs_removed
 
 
 @router.delete("/api/assets/{sha256}", response_model=AssetDeleteAck)
@@ -217,31 +213,31 @@ def delete_asset(request: Request, sha256: Sha256Hex,
     sha = parse_sha256(sha256)
     if sha is None:
         raise HTTPException(status_code=404, detail="asset not found")
-    if if_unreferenced:
-        return _delete_if_unreferenced(request, sha, db, config)
-    row = db.select_one("SELECT sha256 FROM assets WHERE sha256 = ?", (sha,))
-    if row is None:
-        raise HTTPException(status_code=404, detail="asset not found")
-    now_ms = int(time.time() * 1000)
-    refs_removed = 0
-    for ref in referencing_blocks(db, sha):
-        block = db.select_one("SELECT text FROM blocks WHERE uid = ?",
-                              (ref.uid,))
-        if block is None:
-            continue
-        new_text = strip_asset_tokens(block["text"], sha)
-        if new_text == block["text"]:
-            continue
-        refs_removed += 1
-        has_children = db.select_one(
-            "SELECT uid FROM blocks WHERE parent_uid = ? LIMIT 1",
-            (ref.uid,)) is not None
-        if not new_text and not has_children:
-            db.execute("DELETE FROM blocks WHERE uid = ?", (ref.uid,))
+    # The write lock precedes every read: no batch can commit between the
+    # strip's read of a block and its rewrite, nor a new reference slip in
+    # between the unreferenced check and the delete.
+    try:
+        db.begin_immediate()
+    except sqlite3.OperationalError as exc:
+        if "locked" not in str(exc):
+            raise
+        raise HTTPException(status_code=503, headers={"Retry-After": "1"},
+                            detail="database busy, retry") from exc
+    try:
+        row = db.select_one("SELECT sha256 FROM assets WHERE sha256 = ?",
+                            (sha,))
+        if row is None:
+            raise HTTPException(status_code=404, detail="asset not found")
+        if not if_unreferenced:
+            refs_removed = _strip_references(db, sha)
+        elif referencing_blocks(db, sha):
+            raise HTTPException(status_code=409, detail="asset is referenced")
         else:
-            db.execute("UPDATE blocks SET text = ?, updated_at = ?"
-                       " WHERE uid = ?", (new_text, now_ms, ref.uid))
-    db.execute("DELETE FROM assets WHERE sha256 = ?", (sha,))
+            refs_removed = 0
+        db.execute("DELETE FROM assets WHERE sha256 = ?", (sha,))
+    except BaseException:
+        db.rollback()
+        raise
     db.commit()
     path = config.assets_dir / sha[:2] / sha
     try:

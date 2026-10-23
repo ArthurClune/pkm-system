@@ -11,6 +11,8 @@ Use beans (not TodoWrite) to track development work:
 - Commit bean files with code changes
 - Mark beans complete when done
 - run `beans prime` for full info
+- Create a bean inside the worktree that will commit it. One created in the main checkout lands in main's `.beans/` and is "not found" in the worktree.
+- Before starting a todo bean, look for spec or plan commits naming it (`git log --all --grep <id>`): another session may already have claimed it.
 
 ### Workflow
 
@@ -55,10 +57,12 @@ Traps around those commands:
 
 - Piping a gate (`pnpm verify 2>&1 | tee log`) reports the pipe's exit, not the gate's — use `set -o pipefail`.
 - A `pytest -m` on the command line replaces `addopts`' `-m 'not proptest'` rather than adding to it, so `pytest -q -m "not slow"` also runs the property suite. Add `and not proptest` to any custom `-m`.
-- Playwright serves the built SPA from `web/dist`. `pnpm verify` and `pnpm e2e` build first; running `tooling/runPlaywright.mjs` directly tests whatever was last built.
+- `pnpm typecheck` plus `pnpm test:unit` is not web verification: it skips eslint's brand rules, `lint:comments` and `check:fcis`, which then fail at merge. Brief implementers with `pnpm verify`. `web/tooling/` is outside `pnpm typecheck`, so breakage there shows only in vitest.
+- Playwright serves the built SPA from `web/dist`. `pnpm verify` and `pnpm e2e` build first; running `tooling/runPlaywright.mjs` directly tests whatever was last built. So when red-checking a fix by stashing it, stash its new tests too (`pnpm build` typechecks them) and confirm the build exits 0: a failed build leaves the old `dist`, and the "unfixed" run passes against it.
+- A spec that fails when run alone but passes in the full suite is a suspected product bug, not a flake: cold-start races of this kind have been real data-loss and caret bugs. Call a failure a pre-existing flake only after reproducing it at the pre-branch commit.
 - Every e2e spec shares one server and one DB. A new spec writes to a page it creates (`POST /api/pages`), not today's journal, and deletes what it creates in `afterEach`. A spec that writes shared state gets a full-suite run before you report, not just a run of itself.
 - Parallel sessions: give a spec run its own `E2E_PORT`. Keep the full Playwright suite and `perf/check.sh` serial, and record perf baselines only on a quiet machine. The check refuses a busy one, but load moves timings both ways, so a baseline taken while other suites run makes the next quiet check read "unstable" or "stale-baseline".
-- On `main` after a merge, `perf/check.sh` with no side finds no diff. Name the sides: `perf/check.sh backend`, then `perf/check.sh frontend`.
+- On `main` after a merge, `perf/check.sh` with no side finds no diff. Name the sides: `perf/check.sh backend`, then `perf/check.sh frontend`. There `main` is its own merge base, so a regression the merge brought reads as `stale-baseline`, and the suggested `--rebaseline` would record it. Run perf on the branch before merging, and explain a `stale-baseline` on `main` before rebaselining.
 - Any route, query param, response model or route docstring change stales `web/src/api/openapi.json` (docstrings feed the OpenAPI descriptions). Regenerate per the [generated artifacts table](docs/architecture/backend.md#generated-artifacts-and-parity-fixtures), and regenerate again on the merge result when two branches both touched the server contract or schema. Implementation-plan briefs should list the regen step explicitly.
 
 ### Production and ports
@@ -81,6 +85,12 @@ Production runs on this machine: a launchd service serving `~/.config/pkm/app` o
 ### Skills
 
 When creating or updating skills, invoke `/superpowers:writing-skills` first.
+
+### Writing guidance
+
+- Durable guidance (skills, these rules, review criteria) states the aim and the symptom that shows it is missed, never a numeric threshold such as a line budget, a share or a count. A threshold flags healthy cases, passes sick ones, and becomes the goal. A check that helps reports facts for judgement rather than pass/fail on a bound.
+- Never write "load-bearing", in docs, specs, comments or memories. Say what the thing does.
+- `docs/keyboard.md` is for users: it lists shortcuts and carries no design rationale.
 
 ## FCIS
 

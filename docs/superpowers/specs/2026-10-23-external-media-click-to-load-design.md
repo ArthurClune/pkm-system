@@ -67,3 +67,25 @@ guards future pastes and text the assistant writes.
 Placeholder styling (reuse `.asset-image-placeholder`), exact wording of the
 Bluesky placeholder, and where the context provider sits in
 `AssistantPanel`.
+
+## Added after the adversarial review (controller ruling, 2026-10-23)
+
+The adversarial review found mermaid to be the same channel: stock mermaid's
+strict mode fetched `<img src>` in labels, frontmatter `themeCSS` `url()` and
+image shapes on render, from a reply or a note, and every beautiful-mermaid
+diagram imported Google Fonts. The Decided table gains a mermaid column:
+
+| Where | Diagram beautiful-mermaid renders | Diagram needing the stock fallback |
+|---|---|---|
+| Notes | renders as today | renders as today, with the hardened config |
+| Assistant replies | renders directly | source plus a `Render diagram` button; the click runs the hardened stock render |
+
+No diagram anywhere fetches an external URL. beautiful-mermaid's `@import`
+rules are stripped. Stock mermaid secures its CSS-bearing config keys,
+forbids the label tags and attributes that load a URL, and refuses source
+those cannot stop (image shapes, actor icons, CSS fetch functions and the
+escapes that spell them); a refused diagram shows its source.
+
+The same review's same-origin finding also lands here: an `/assets/` src
+whose path climbs out of `/assets/` (`..`, `%2e%2e`, a backslash, an encoded
+slash) is external and waits for a click.

@@ -112,7 +112,9 @@ only for uids the server could not resolve.
 Diagrams render through beautiful-mermaid first (the chunk is named by the
 `beautifulMermaid.ts` barrel), falling back silently to stock mermaid on any
 failure. The fallback must stay: it carries gantt, pie, mindmap and the other
-families beautiful-mermaid lacks. `mermaidTheme.ts` maps the design tokens onto
+families beautiful-mermaid lacks. It is held to the no-fetch rule in
+[§ Link safety and external media](#link-safety-and-external-media), and in
+replies it waits for a click. `mermaidTheme.ts` maps the design tokens onto
 both theming surfaces (`beautifulMermaidOptions`, base-theme
 `themeVariables`); beautiful-mermaid re-renders on a theme flip
 (`useEffectiveTheme`), and the stock fallback keeps its initialize-time
@@ -151,25 +153,54 @@ to `document.body`.
 `isSafeHref` admits `http(s):`, `mailto:` and single-slash site-relative hrefs.
 It rejects control characters outright, since browsers strip tab, CR and LF
 before parsing a URL, and a second leading `/` or `\`, which would escape to
-another origin. Stock mermaid runs in `securityLevel` strict.
+another origin.
 
 A rendered URL is an outbound channel: the browser fetches it with no click and
 no write approval, so whoever can write the markdown, the assistant included,
 can send note text to any host. Only `/assets/` uploads (`isUploadedAsset`)
-load on render. Every other `AssetImage` src shows a placeholder button naming
-its host (`externalImageLabel`), and a click mounts the `<img>` for that src.
-`BlueskyEmbed` does the same, but only under `UntrustedContentContext`, which
-`AssistantPanel` provides: its handle lookup and iframe both reach third-party
-servers. Embeds in notes still load on render.
+load on render. A src the URL parser would turn into another same-origin path
+is not an upload: `isUploadedAsset` refuses a `..` segment (literal or
+`%2e`), a backslash, an encoded slash, and a tab or newline, because
+`/assets/../api/export.zip` would run an export on render. Everything else
+waits behind `ClickToLoad`, the one gate:
 
-The gate keeps the fetching component unmounted until the click, because the
-fetch starts at commit. It compares the revealed src with the current one
-during render, so a new src never commits an `<img>` without its own click. A
-"was clicked" flag would not do: reset in an effect, it commits one frame of
-the new src first. Inside `InertMediaContext` the placeholder is plain text.
+| Media | Gated where | Placeholder |
+|---|---|---|
+| `AssetImage`, any src but an upload | everywhere | `externalImageLabel`, naming the host |
+| `BlueskyEmbed` (its handle lookup and iframe reach Bluesky) | under `UntrustedContentContext`, which `AssistantPanel` provides; notes embed on render | `Bluesky post from <actor>` |
+| `MermaidDiagram`'s stock fallback | under `UntrustedContentContext`; a diagram beautiful-mermaid renders shows directly | `Render diagram`, below the source |
+
+`ClickToLoad` keeps its children unmounted until the click, because the fetch
+starts at commit. It compares the revealed key with the current one during
+render, so a new key never commits its media (an `<img>`, an iframe) without
+its own click. A "was clicked" flag would not do: reset in an effect, it
+commits one frame of the new key first. The click stops propagating, so it
+never reaches edit mode or ref navigation. A reveal from the focused button
+moves focus to the revealed media's wrapper. Inside `InertMediaContext` the
+placeholder is plain text.
+
+**No diagram fetches, in a note or a reply** (`mermaidSafety.ts`).
+beautiful-mermaid escapes labels, but its SVG opens with a Google Fonts
+`@import`, which `stripCssImports` removes before the SVG is cached. Stock
+mermaid's `securityLevel` strict is not enough. Its DOMPurify defaults keep
+`<img src>`. Its frontmatter and `%%{init}%%` config reach CSS with only a
+brace-balance check. d3 draws image shapes and sequence actor icons outside
+any sanitizer. `mermaid.render` lays the diagram out in the live document, so
+a fetch starts before the SVG returns, and cleaning the output would be too
+late.
+Before render, the app therefore:
+
+- secures the CSS-bearing config keys (`STOCK_MERMAID_SECURE`);
+- forbids the label tags and attributes that load a URL
+  (`STOCK_MERMAID_DOMPURIFY`);
+- keeps from `mermaid.render` any source those two cannot stop
+  (`refusesStockRender`), which then shows as source.
+
+A stock render cached from a note still waits for the click in a reply.
 
 ## Lazy loading
 
-The `/files` grid and `BlueskyEmbed`'s iframe carry `loading="lazy"`; without
+`AssetImage`'s img (an upload, or an external image once clicked), the
+`/files` grid and `BlueskyEmbed`'s iframe carry `loading="lazy"`; without
 it a page of Bluesky embeds opens one scripted document per embed on mount.
 `BlueskyEmbed` sizes itself from the embed page's `postMessage`.

@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-23T10:56:19Z
+updated_at: 2026-10-23T11:49:58Z
 parent: pkm-mfd0
 ---
 
@@ -16,3 +16,5 @@ Review findings (Low): (1) the throttle is checked before the password and a fai
 - [ ] Set proxy_headers / forwarded_allow_ips explicitly in run.py; verify what Tailscale Serve sends
 - [ ] Reject unauthenticated requests before reading the body (auth middleware or a body-size cap for anonymous requests)
 - [ ] verify_session rejects non-ASCII/non-hex signatures before comparing; hostile-request test
+
+Note from the guard tests: if auth moves into a middleware, the forgotten-auth teeth test in server/tests/test_auth.py fails, because a route added with @app.get becomes protected. That is the fix working, not a regression: rewrite the test to prove the middleware's allow-list is exactly PUBLIC_ROUTES, and update the PUBLIC_ROUTES comment that names require_auth.

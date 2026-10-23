@@ -1,5 +1,15 @@
+import sys
 import threading
 import time
+from dataclasses import replace
+
+from fastapi.routing import APIRoute, APIWebSocketRoute
+from fastapi.testclient import TestClient
+from starlette.staticfiles import StaticFiles
+from starlette.websockets import WebSocket, WebSocketDisconnect
+from test_routes_models import _api_routes, fill_path
+
+from pkm.server.app import create_app
 
 from pkm.server.auth import MAX_CONCURRENT_SCRYPT, LoginThrottle
 from pkm.server.auth_core import (hash_password, sign_session,
@@ -186,3 +196,176 @@ class TestLoginThrottle:
         release_holder.set()
         holder_thread.join(timeout=2)
         assert not holder_thread.is_alive()
+
+
+# The routes that answer without a session: `pkm.server.auth.router` (login
+# page and login), `create_app`'s healthz and the SPA catch-all, which serves
+# the same shell to everyone. Every other route sits behind
+# `pkm.server.auth.require_auth` (a websocket checks the cookie inline), so a
+# route missing from this set that answers an anonymous request is a private
+# route that forgot its guard.
+PUBLIC_ROUTES = {
+    ("GET", "/login"),
+    ("POST", "/api/login"),
+    ("GET", "/healthz"),
+    ("GET", "/{full_path:wholepath}"),
+}
+
+WEBSOCKET = "WEBSOCKET"
+
+
+def _walk_app(config, tmp_path):
+    """The app as production builds it: with a built SPA, so the catch-all
+    and the `/app-assets` mount are in the route table."""
+    dist = tmp_path / "dist"
+    (dist / "app-assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    return create_app(replace(config, web_dist=dist))
+
+
+def _ws_routes(routes) -> list[APIWebSocketRoute]:
+    found = []
+    for route in routes:
+        inner = getattr(route, "original_router", None)
+        if inner is not None:
+            found.extend(_ws_routes(inner.routes))
+        elif isinstance(route, APIWebSocketRoute):
+            found.append(route)
+    return found
+
+
+WEBSOCKET_CONNECT_SECONDS = 5
+
+
+def _websocket_answer(anon: TestClient, path: str) -> int | str:
+    """The close code an anonymous websocket gets, "accepted", or "hung".
+    Leaving the context closes an accepted socket. A handler that neither
+    accepts nor closes would block the connect forever, so it runs on a
+    daemon thread and a miss of the deadline is an answer, not a stall."""
+    out: list[int | str] = []
+
+    def connect() -> None:
+        try:
+            with anon.websocket_connect(path):
+                out.append("accepted")
+        except WebSocketDisconnect as exc:
+            out.append(exc.code)
+        except Exception as exc:
+            out.append(type(exc).__name__)
+
+    thread = threading.Thread(target=connect, daemon=True)
+    thread.start()
+    thread.join(WEBSOCKET_CONNECT_SECONDS)
+    return out[0] if out else "hung"
+
+
+def _anonymous_answers(app) -> dict[tuple[str, str], int | str]:
+    anon = TestClient(app, raise_server_exceptions=False)
+    answers: dict[tuple[str, str], int | str] = {}
+    for route in _api_routes(app.routes):
+        for method in sorted(route.methods or ()):
+            if method in ("HEAD", "OPTIONS"):
+                continue
+            r = anon.request(method, fill_path(route.path))
+            answers[(method, route.path)] = r.status_code
+    for ws_route in _ws_routes(app.routes):
+        answers[(WEBSOCKET, ws_route.path)] = _websocket_answer(
+            anon, fill_path(ws_route.path))
+    return answers
+
+
+def _leaked(answers) -> list[tuple[str, str]]:
+    """Non-public routes that did not refuse: 401, or close code 4401."""
+    return [k for k, v in answers.items()
+            if k not in PUBLIC_ROUTES
+            and v != (4401 if k[0] == WEBSOCKET else 401)]
+
+
+def _unwalked_routes(routes) -> list[str]:
+    """Route entries the walk cannot drive: anything that is not an
+    APIRoute, a websocket route or an included router. The `/app-assets`
+    static mount is the one exception: it serves only the hashed bundle
+    files, which carry no data."""
+    found = []
+    for route in routes:
+        inner = getattr(route, "original_router", None)
+        if inner is not None:
+            found.extend(_unwalked_routes(inner.routes))
+        elif isinstance(route, (APIRoute, APIWebSocketRoute)):
+            continue
+        elif (getattr(route, "name", None) == "app-assets"
+                and isinstance(getattr(route, "app", None), StaticFiles)):
+            continue
+        else:
+            found.append(f"{type(route).__name__} {getattr(route, 'path', '')}")
+    return found
+
+
+def test_the_route_walk_sees_every_kind_of_route_the_app_holds(
+        seeded_config, tmp_path):
+    app = _walk_app(seeded_config, tmp_path)
+    assert _unwalked_routes(app.routes) == []
+    assert (WEBSOCKET, "/api/ws") in _anonymous_answers(app)
+
+
+def test_the_walk_names_a_mounted_sub_app(seeded_config, tmp_path):
+    from starlette.applications import Starlette
+    from starlette.routing import Mount
+
+    app = _walk_app(seeded_config, tmp_path)
+    app.router.routes.append(Mount("/api/sub", app=Starlette()))
+    assert _unwalked_routes(app.routes) == ["Mount /api/sub"]
+
+
+def test_every_private_route_refuses_an_anonymous_request(
+        seeded_config, tmp_path):
+    answers = _anonymous_answers(_walk_app(seeded_config, tmp_path))
+    assert len(answers) > 40  # the walk found the routes
+    assert PUBLIC_ROUTES <= set(answers)
+    assert (WEBSOCKET, "/api/ws") in answers
+    assert _leaked(answers) == []
+
+
+def test_public_routes_do_not_demand_a_session(seeded_config, tmp_path):
+    answers = _anonymous_answers(_walk_app(seeded_config, tmp_path))
+    assert {k: answers[k] for k in PUBLIC_ROUTES if answers[k] == 401} == {}
+
+
+def test_the_route_walk_names_a_private_route_without_the_guard(
+        seeded_config, tmp_path):
+    app = _walk_app(seeded_config, tmp_path)
+
+    @app.get("/api/forgot-auth")
+    def forgot_auth() -> dict[str, bool]:
+        return {"ok": True}
+
+    assert _leaked(_anonymous_answers(app)) == [("GET", "/api/forgot-auth")]
+
+
+def test_the_route_walk_names_a_websocket_without_the_guard(
+        seeded_config, tmp_path):
+    app = _walk_app(seeded_config, tmp_path)
+
+    @app.websocket("/api/ws-forgot")
+    async def forgot_auth(websocket: WebSocket) -> None:
+        await websocket.accept()
+        await websocket.send_text("secret")
+        await websocket.receive_text()
+
+    answers = _anonymous_answers(app)
+    assert answers[(WEBSOCKET, "/api/ws-forgot")] == "accepted"
+    assert _leaked(answers) == [(WEBSOCKET, "/api/ws-forgot")]
+
+
+def test_the_route_walk_names_a_websocket_that_never_answers(
+        seeded_config, tmp_path, monkeypatch):
+    monkeypatch.setattr(sys.modules[__name__], "WEBSOCKET_CONNECT_SECONDS", 1)
+    app = _walk_app(seeded_config, tmp_path)
+
+    @app.websocket("/api/ws-silent")
+    async def silent(websocket: WebSocket) -> None:
+        return None
+
+    answers = _anonymous_answers(app)
+    assert answers[(WEBSOCKET, "/api/ws-silent")] == "hung"
+    assert (WEBSOCKET, "/api/ws-silent") in _leaked(answers)

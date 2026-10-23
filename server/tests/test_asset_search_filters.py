@@ -1,4 +1,7 @@
 """Filters + pagination on GET /api/assets/search."""
+import pytest
+from export_hostile import ASSET_NAMES, add_asset_rows
+
 from pkm.server.db import open_db
 from pkm.contracts.ops import BlockUid, Sha256Hex
 from pkm.test_data.ids import raw_title_of, uid_of
@@ -117,3 +120,38 @@ def test_filters_combine_with_q(client):
     _upload(client, b"C", "alpha-notes.pdf", "application/pdf")
     got = _search(client, q="alpha", type="image")
     assert [x["sha256"] for x in got["assets"]] == [a["sha256"]]
+
+
+# --- literal LIKE metacharacters, hostile params ---
+
+def test_q_wildcards_match_literally(client, seeded_config):
+    """`%`, `_` and `\\` in q are text: each must match only the names that
+    hold it, where a wildcard reading would match all of them."""
+    add_asset_rows(seeded_config.db_path, seeded_config.assets_dir,
+                   ["plain.txt", "pct%sign.txt", "under_score.txt",
+                    "back\\slash.txt", "other.txt"])
+    for q, name in [("%", "pct%sign.txt"), ("_", "under_score.txt"),
+                    ("\\", "back\\slash.txt")]:
+        got = _search(client, q=q)
+        assert [a["filename"] for a in got["assets"]] == [name], q
+        assert got["total"] == 1, q
+
+
+@pytest.mark.parametrize("q", ["%", "_", "\\", '"', "'", "\x00",
+                               "%_\\'\"--", "Stra", "100%"])
+def test_search_q_never_500s(client, seeded_config, q):
+    add_asset_rows(seeded_config.db_path, seeded_config.assets_dir,
+                   ASSET_NAMES)
+    assert client.get("/api/assets/search", params={"q": q}).status_code == 200
+
+
+@pytest.mark.parametrize("params", [
+    {"limit": "-5"}, {"limit": "99999999999999999999"}, {"offset": "-1"},
+    {"limit": str(2 ** 63)}, {"from_ms": str(2 ** 63)}, {"type": "x"},
+    {"linked": "x"}])
+def test_search_hostile_params_are_refused_or_clamped_never_500(
+        client, seeded_config, params):
+    add_asset_rows(seeded_config.db_path, seeded_config.assets_dir,
+                   ASSET_NAMES)
+    r = client.get("/api/assets/search", params=params)
+    assert r.status_code in (200, 422)

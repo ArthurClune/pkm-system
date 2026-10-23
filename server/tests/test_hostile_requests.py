@@ -10,17 +10,24 @@ JSON, whatever the input held.
 Bodies are built with json.dumps' default ASCII escapes, as a browser's
 JSON.stringify sends a lone surrogate, because httpx's own json= encoding
 refuses one before it is sent."""
+import hashlib
 import json
+import os
 import types
 import typing
+from unittest import mock
+
+from datetime import date
+from urllib.parse import quote
 
 import pytest
 from fastapi.params import File, Form
 from fastapi.routing import APIRoute
-from test_routes_models import _api_routes
+from test_routes_models import _api_routes, fill_path
 
 from annotated_types import Interval
 
+from pkm.contracts.daily import title_for_date
 from pkm.contracts.int64 import INT64_MAX, INT64_MIN
 from pkm.contracts.strict import StrictModel
 from pkm.contracts.text import WellFormedModel
@@ -254,3 +261,237 @@ def test_the_int_walk_names_an_unbounded_parameter():
 
     assert _unbounded_int_params(app) == ["['GET'] /n/{n}: n",
                                           "['GET'] /n/{n}: m"]
+
+
+def _titles(config) -> set[str]:
+    con = open_db(config.db_path)
+    try:
+        return {r["title"] for r in con.select("SELECT title FROM pages")}
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("depth", [990, 2000])
+def test_ops_refuse_text_nesting_references_past_any_sane_depth(
+        client, seeded_config, depth):
+    """Nested `[[` reaches rename and delete as one recursion level per
+    layer, so the write path must refuse it where it enters."""
+    text = "[[" * depth + "Target" + "]]" * depth
+    r = client.post("/api/ops", json={
+        "client_id": "c1", "batch_id": f"batch-nest-{depth}", "ops": [
+            {"op": "create", "uid": f"nest_{depth:06d}",
+             "page_title": f"Src{depth}", "order_idx": 0, "text": text}]})
+    assert 400 <= r.status_code < 500, r.text[:200]
+    assert f"Src{depth}" not in _titles(seeded_config)
+
+
+_INT64_EXTREMES = [INT64_MIN, INT64_MAX, 0, -1]
+
+
+@pytest.mark.parametrize("since,until", [
+    ("0001-01-01", None),
+    ("0001-01-01T00:00:00+23:59", None),
+    ("0001-01-01T00:00:00-23:59", "9999-12-31T23:59:59.999999+23:59"),
+    ("9999-12-31T23:59:59.999999-23:59", None),
+    ("2026-02-30", None),
+    ("x", None),
+    ("2026-01-01", "2026-01-01"),
+    ("0001-01-01", "9999-12-31"),
+    ("2026-01-01T00:00:00+00:00\n", None),
+    ("２０２６-01-01", None),
+])
+def test_changed_window_extremes_answer_below_500(client, since, until):
+    params: dict[str, object] = {"since": since, "limit": INT64_MAX}
+    if until:
+        params["until"] = until
+    r = client.get("/api/changed", params=params)
+    assert r.status_code < 500, r.text[:200]
+
+
+def test_changed_limit_is_clamped_at_int64_max(client, seeded_config):
+    con = open_db(seeded_config.db_path)
+    con.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " updated_at) VALUES (?,?,NULL,?,?,?)",
+        [(f"chg_{i:07d}", 1, 100 + i, "x", 5_000) for i in range(2001)])
+    con.commit()
+    con.close()
+    r = client.get("/api/changed", params={"since": "1970-01-01",
+                                           "until": "1971-01-01",
+                                           "limit": INT64_MAX})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 2001
+    assert sum(len(g["items"]) for g in body["groups"]) == 2000
+
+
+@pytest.mark.parametrize("now_ms", _INT64_EXTREMES)
+def test_current_work_answers_at_int64_extremes(client, now_ms):
+    r = client.get("/api/current-work", params={"now_ms": now_ms})
+    assert r.status_code < 500, r.text[:200]
+
+
+@pytest.mark.parametrize("offset", [-5, INT64_MIN, INT64_MAX])
+def test_page_backlink_window_extremes_are_clamped(client, offset):
+    r = client.get("/api/page/AI",
+                   params={"bl_offset": offset, "bl_limit": INT64_MIN})
+    assert r.status_code == 200, r.text[:200]
+    assert r.json()["backlinks"]["limit"] == 1
+
+
+def test_todos_for_a_nul_page_answers(client):
+    r = client.get("/api/todos", params={"page": "\x00"})
+    assert r.status_code < 500
+
+
+# The tables SQLite's FTS5 keeps behind `pages_fts`.
+_FTS_SHADOWS = tuple(f"pages_fts_{k}"
+                     for k in ("config", "data", "docsize", "idx"))
+
+
+def _digest(config, skip: tuple[str, ...] = ()) -> str:
+    """A hash of every row of every table, whatever the row order. The row
+    check is off because it knows the product's columns, not the full-text
+    shadow tables or `changes`."""
+    with mock.patch.dict(os.environ):
+        os.environ.pop("PKM_ROW_CHECK", None)
+        con = open_db(config.db_path)
+    try:
+        h = hashlib.sha256()
+        for t in con.select("SELECT name AS title FROM sqlite_master"
+                            " WHERE type = 'table' ORDER BY name"):
+            if t["title"] in skip or (
+                    "pages_fts" in skip
+                    and t["title"].startswith(_FTS_SHADOWS)):
+                continue
+            rows = con.select(f"SELECT * FROM {t['title']}")
+            h.update(t["title"].encode())
+            for text in sorted(repr(sorted(row.items())) for row in rows):
+                h.update(text.encode())
+        return h.hexdigest()
+    finally:
+        con.close()
+
+
+_READ_ONLY_GETS = [
+    "/api/delete-preview?title=AI",
+    "/api/block/uid_b3",
+    "/api/block/uid_b3/backlinks",
+    "/api/changed?since=2000-01-01",
+    "/api/todos",
+    "/api/current-work",
+    "/api/page/AI",
+    "/api/page/Nope",
+    "/api/page/July%207th,%202026",
+    "/api/query?expr=%7Bor:%20[[AI]]%7D",
+    "/api/page/" + quote(title_for_date(date(2030, 1, 1))),
+]
+
+
+def test_reading_routes_leave_the_database_byte_identical(client,
+                                                          seeded_config):
+    """A GET that writes is reachable cross-site by top-level navigation,
+    so reads stay writes-free apart from today's daily page."""
+    before = _digest(seeded_config)
+    for url in _READ_ONLY_GETS:
+        assert client.get(url).status_code < 500, url
+    assert _digest(seeded_config) == before
+
+
+# What a new page row moves: the row, its change feed entry, the id counter
+# and the page full-text index (`pages_fts` and its shadow tables).
+_TODAY_WRITES = ("pages", "changes", "sqlite_sequence", "pages_fts")
+
+
+def test_getting_todays_page_creates_that_page_and_nothing_else(
+        client, seeded_config):
+    today = title_for_date(date.today())
+    titles_before = _titles(seeded_config)
+    assert today not in titles_before
+    others_before = _digest(seeded_config, skip=_TODAY_WRITES)
+
+    assert client.get("/api/page/" + quote(today)).status_code == 200
+
+    assert _titles(seeded_config) - titles_before == {today}
+    assert titles_before <= _titles(seeded_config)
+    assert _digest(seeded_config, skip=_TODAY_WRITES) == others_before
+
+
+def _json_body_routes(app) -> list[APIRoute]:
+    """Routes with a JSON body parameter, not form, file or no body."""
+    found = []
+    for route in _api_routes(app.routes):
+        params = route.dependant.body_params
+        if params and not any(isinstance(p.field_info, (Form, File))
+                              for p in params):
+            found.append(route)
+    return found
+
+
+_NON_JSON_TYPES = ["text/plain;charset=UTF-8", None,
+                   "application/x-www-form-urlencoded"]
+
+
+def _is_refusal(status: int, locs: list[object]) -> bool:
+    """A refusal of the whole body: 415, or a 422 whose only error is on
+    `body` itself. A 2xx, or a 422 on `["body", <field>]`, means the body
+    was parsed."""
+    return status == 415 or (status == 422 and locs == [["body"]])
+
+
+def _non_json_answers(app, client) -> dict[str, tuple[int, list[object]]]:
+    """Status and error locations of each JSON-body route sent `{}` under a
+    content type a cross-site form or Blob can send without preflight."""
+    answers = {}
+    for route in _json_body_routes(app):
+        url = fill_path(route.path)
+        for method in sorted(route.methods or ()):
+            for ctype in _NON_JSON_TYPES:
+                headers = {"content-type": ctype} if ctype else {}
+                r = client.request(method, url, content=b"{}",
+                                   headers=headers)
+                detail = r.json().get("detail", []) if r.status_code == 422 \
+                    else []
+                locs = [err["loc"] for err in detail]
+                answers[f"{method} {route.path} {ctype}"] = (r.status_code,
+                                                             locs)
+    return answers
+
+
+def _not_refused(answers: dict[str, tuple[int, list[object]]]) -> list[str]:
+    return [k for k, v in answers.items() if not _is_refusal(*v)]
+
+
+def test_every_json_body_route_refuses_a_non_json_content_type(
+        goodlinks_client, seeded_config):
+    """A body parsed whatever its Content-Type can be written by a
+    cross-origin simple request, which carries the session cookie. Refusal
+    is a single error on the whole body: a parsed `{}` would instead fail
+    on a missing field, `["body", <field>]`, which is no refusal. The
+    goodlinks gateway is on so its route reaches body validation."""
+    client = goodlinks_client
+    before = _digest(seeded_config)
+    answers = _non_json_answers(client.app, client)
+    assert len(answers) > 20  # the walk found the routes
+    assert _not_refused(answers) == []
+    assert _digest(seeded_config) == before
+
+
+def test_the_content_type_walk_names_a_route_that_parses_any_body():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    class Body(WellFormedModel):
+        text: str
+
+    app = FastAPI(strict_content_type=False)
+
+    @app.post("/lenient")
+    def lenient(body: Body) -> None:
+        return None
+
+    assert [r.path for r in _json_body_routes(app)] == ["/lenient"]
+    answers = _non_json_answers(app, TestClient(app))
+    # The flag governs a body with no Content-Type; FastAPI refuses the
+    # other two types whatever it says.
+    assert _not_refused(answers) == ["POST /lenient None"]

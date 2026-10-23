@@ -11,7 +11,9 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from export_hostile import ASSET_NAMES, add_asset_rows, unsafe_arcname_flags
 
+from pkm.assets_core import parse_sha256
 from pkm.filenames import safe_filename
 from pkm.server import routes_assets
 from pkm.server.db import open_db
@@ -213,3 +215,38 @@ def test_export_cleans_up_temp_dir_on_build_error(client, monkeypatch):
         _export(client, [a["sha256"]])
     assert len(seen) == 1
     assert not seen[0].exists()
+
+
+# --- digest parsing and hostile filenames ---
+
+@pytest.mark.parametrize("text", [
+    "a" * 64 + "\n", "A" * 64, "a" * 63, "a" * 65, "../" + "a" * 61,
+    "ａ" * 64, "٠" * 64, "", " " + "a" * 63])
+def test_parse_sha256_rejects_every_non_canonical_digest(text):
+    """A digest becomes a path under the asset store, so only exactly 64
+    lowercase ASCII hex digits may pass, not a lookalike or a suffix."""
+    assert parse_sha256(text) is None
+
+
+def test_parse_sha256_accepts_lowercase_hex():
+    assert parse_sha256("0123456789abcdef" * 4) == "0123456789abcdef" * 4
+
+
+def test_asset_export_requires_auth(anon_client):
+    r = anon_client.post("/api/assets/export.zip",
+                         data={"sha256s": ["a" * 64]})
+    assert r.status_code == 401
+
+
+def test_asset_export_arcnames_never_escape_the_extraction_directory(
+        client, seeded_config):
+    shas = add_asset_rows(seeded_config.db_path, seeded_config.assets_dir,
+                          ASSET_NAMES)
+    junk = [s.upper() for s in shas] + ["../" * 5 + "etc/passwd",
+                                        "a" * 64 + "\n", ""]
+    r = _export(client, shas + junk)
+    assert r.status_code == 200
+    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    assert len(names) == len(shas)
+    bad = {n: unsafe_arcname_flags(n) for n in names if unsafe_arcname_flags(n)}
+    assert not bad

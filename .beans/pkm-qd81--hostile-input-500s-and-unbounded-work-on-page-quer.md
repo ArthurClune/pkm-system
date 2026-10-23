@@ -5,7 +5,7 @@ status: todo
 type: bug
 priority: normal
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-23T10:56:19Z
+updated_at: 2026-10-23T11:49:58Z
 parent: pkm-mfd0
 ---
 
@@ -19,3 +19,7 @@ Review findings (Low, availability), table in the review report: SPA catch-all 5
 - [ ] Query parser: depth and operand limits answered with 400
 - [ ] Backlink ancestors: avoid the per-row path string
 - [ ] Iterative unlink/rename rewriting
+
+## Note from the guard tests (pkm-t74a)
+
+A symlink loop inside web_dist (`/loop1`) also answers 500: `Path.resolve()` raises RuntimeError on Python 3.12, not ValueError or OSError (3.13+ no longer raises on a loop; requires-python is >=3.12). The SPA 404 fix must catch it too (sec-exports/report.md finding 3). test_spa.py's containment guard only checks the body for that path, so it will not notice the status change.

@@ -1,5 +1,6 @@
 import json
 
+from conftest import asgi_request
 from fastapi.testclient import TestClient
 
 from pkm.server.app import create_app
@@ -121,3 +122,40 @@ def test_a_cold_load_of_a_title_with_a_newline_serves_the_spa(tmp_path):
     for path in ("/page/Fo%0Ao", "/page/Foo%0A"):
         r = client.get(path)
         assert r.status_code == 200 and r.text == root.text, path
+
+
+def _dist_with_outside_files(tmp_path):
+    """A dist beside a secret file, a prefix-sibling directory and links:
+    one pointing out of the dist, and a loop."""
+    dist = _dist(tmp_path)
+    (tmp_path / "secret.txt").write_text("SECRET-OUTSIDE", encoding="utf-8")
+    (tmp_path / "distsecret").mkdir()
+    (tmp_path / "distsecret" / "s.txt").write_text("PREFIX-SIBLING",
+                                                   encoding="utf-8")
+    (dist / "link-out").symlink_to(tmp_path / "secret.txt")
+    (dist / "loop2").symlink_to(dist / "loop1")
+    (dist / "loop1").symlink_to(dist / "loop2")
+    return dist
+
+
+def test_the_catch_all_never_serves_a_file_outside_the_dist(tmp_path):
+    """Encoded traversal, an absolute path, a sibling whose name starts
+    with the dist's, and a link pointing out must each answer with the
+    shell or a 404, never with the bytes of a file outside the dist."""
+    dist = _dist_with_outside_files(tmp_path)
+    secret = str(tmp_path / "secret.txt")
+    paths = [
+        "/..%2fsecret.txt", "/%2e%2e/secret.txt", "/%2e%2e%2fsecret.txt",
+        "//" + secret.lstrip("/"), "/" + secret.lstrip("/"),
+        "/..%5csecret.txt", "/app-assets/..%2f..%2fsecret.txt",
+        "/app-assets/%2e%2e/%2e%2e/secret.txt", "/..%2fdistsecret/s.txt",
+        "/%2e%2e%2fdistsecret%2fs.txt", "/link-out", "/loop1", "/sw.js%0a",
+        "/%0a", "/%ff%fe", "/link-out/",
+    ]
+    app = create_app(_config(tmp_path, web_dist=dist))
+    for path in paths:
+        r = asgi_request(app, "GET", path, raise_app_exceptions=False)
+        assert "SECRET-OUTSIDE" not in r.text, path
+        assert "PREFIX-SIBLING" not in r.text, path
+    served = asgi_request(app, "GET", "/", raise_app_exceptions=False)
+    assert served.status_code == 200

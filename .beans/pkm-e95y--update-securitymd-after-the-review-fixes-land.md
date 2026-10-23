@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:27Z
-updated_at: 2026-10-23T11:00:37Z
+updated_at: 2026-10-23T11:36:48Z
 parent: pkm-mfd0
 blocked_by:
     - pkm-tk9i
@@ -35,3 +35,5 @@ SECURITY.md is the high-level model; update it once the fixes we take on have sh
 - [ ] On-device replica/outbox/cached uploads outlive session-secret rotation
 - [ ] Diagnostics body bound
 - [ ] Known limitations / hardening priority 2: the anonymous route-walk test now exists (pkm-t74a)
+
+- [ ] Delete docs/superpowers/handoffs/security-review-2026-10-23-probes once the last fix bean has turned its probe into a red test (pkm-t74a handed this on)

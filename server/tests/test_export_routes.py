@@ -7,6 +7,10 @@ recursively to plain text and executes {{query: ...}} macros, per
 pkm.export.resolve -- unlike the whole-db zip, which reuses the nightly
 backup's Core renderer unchanged (raw query command, one-level,
 parens-wrapped ref resolution)."""
+import asyncio
+import tempfile
+import time
+import unicodedata
 import zipfile
 from io import BytesIO
 from pathlib import Path
@@ -14,10 +18,19 @@ from urllib.parse import quote
 
 import pytest
 from app_seed import seeded_client
+from conftest import TEST_PASSWORD
+from export_hostile import (
+    ASSET_NAMES, add_asset_rows, add_pages, unsafe_arcname_flags,
+)
+from fastapi.testclient import TestClient
 
 from pkm.database import connect
+from pkm.export.markdown import page_filename
+from pkm.filenames import attachment_disposition
+from pkm.server.app import create_app
 from pkm.server import routes_export
 from pkm.server.sync_meta import set_plain_space_title_canonicalization
+from pkm.test_data.ids import canonical_title_of
 
 
 def test_export_page_markdown_returns_rendered_page(client):
@@ -306,3 +319,169 @@ def test_export_page_names_any_title_in_its_header(client, name):
     assert f"filename*=UTF-8''{quote(name + '.md', safe='')}" in disposition
     fallback = disposition.split('filename="', 1)[1].split('"', 1)[0]
     assert fallback.isascii() and '"' not in fallback
+
+
+# --- hostile names: headers, archive entry names, odd paths ---
+
+HEADER_TITLES = [
+    'a"b', "a\\b", "x\r\nSet-Cookie: evil=1", "x\nX-Injected: 1",
+    'semi; filename="evil.exe"', "evil\u202egpj.md", "café ünïcode 日本",
+    "..", "../../etc/passwd", "/abs", "C:\\win", "a\x00b", "a\x7fb",
+    "\u2028line", "%0d%0a", "x" * 400, "日" * 200, "CON", "nul.txt",
+    'a<b>c|d?e*f"g', "  .  ", "\ufeffbom", "\U0010ffff",
+]
+
+ROUTE_TITLES = ['semi; filename="evil.exe"', 'quote"back\\slash',
+                "evil\u202egpj", "x\r\nSet-Cookie: e=1"]
+
+ZIP_TITLES = [
+    "..", "../../evil", "/abs/path", "C:\\drive", "\\\\server\\share",
+    "a\x00b", "CON", "x" * 600, "café", unicodedata.normalize("NFD", "café"),
+    "Σίσυφος", "σίσυφος", "ς", "σ", "Straße", "STRASSE", "ǅ", "ǆ", "ﬀ", "ff",
+    "K", "\u212a", ".hidden", "...", "a\U000e0001",
+]
+
+def _printable_ascii(header: str) -> bool:
+    return all(32 <= ord(ch) < 127 for ch in header)
+
+
+@pytest.mark.parametrize("text", HEADER_TITLES)
+def test_attachment_header_is_printable_ascii_for_any_title(text):
+    """A title is user text that ends up in a response header: whatever it
+    holds, the header stays printable ASCII with no CR or LF, so it cannot
+    split the response or smuggle a header."""
+    header = attachment_disposition(
+        page_filename(canonical_title_of(text), set()))
+    assert _printable_ascii(header), header
+
+
+def test_export_page_route_headers_survive_hostile_titles(seeded_config,
+                                                          client):
+    add_pages(seeded_config.db_path, ROUTE_TITLES)
+    for title in ROUTE_TITLES:
+        r = client.get("/api/export/page/" + quote(title, safe=""))
+        # A title holding CR/LF is canonicalised to a name no page has, so
+        # it answers 404 today: it must add no header either way.
+        assert r.status_code in ((200, 404) if "\n" in title else (200,)), title
+        assert "set-cookie" not in r.headers, title
+        if r.status_code == 200:
+            assert _printable_ascii(r.headers["content-disposition"]), title
+
+
+def test_export_zip_arcnames_never_escape_the_extraction_directory(
+        seeded_config, client):
+    """Page titles and asset filenames are user text: no entry name in the
+    whole-graph zip may carry a parent component, a root, a backslash, a
+    drive prefix or a control character, whatever the source holds. The
+    page count is deliberately not asserted here."""
+    add_pages(seeded_config.db_path, ZIP_TITLES)
+    add_asset_rows(seeded_config.db_path, seeded_config.assets_dir,
+                   ASSET_NAMES)
+    r = client.get("/api/export.zip")
+    assert r.status_code == 200
+    names = zipfile.ZipFile(BytesIO(r.content)).namelist()
+    assert any(n.startswith("assets/") for n in names)
+    bad = {n: unsafe_arcname_flags(n) for n in names if unsafe_arcname_flags(n)}
+    assert not bad
+
+
+ODD_PAGE_PATHS = ["", "%00", "AI%00", "..%2F..%2Fx", "AI%0A", "%20AI%20",
+                  "a" * 60000, "%ff", "AI/../AI"]
+
+
+@pytest.mark.parametrize("path", ODD_PAGE_PATHS)
+def test_export_page_odd_paths_are_401_anonymously_and_never_500(
+        seeded_config, path):
+    anon = TestClient(create_app(seeded_config),
+                      raise_server_exceptions=False)
+    assert anon.get("/api/export/page/" + path).status_code == 401
+    authed = TestClient(create_app(seeded_config),
+                        raise_server_exceptions=False)
+    r = authed.post("/api/login", json={"password": TEST_PASSWORD})
+    assert r.status_code == 200
+    assert authed.get("/api/export/page/" + path).status_code < 500
+
+
+def test_export_page_with_a_ref_cycle_through_query_macros_terminates(
+        tmp_path):
+    """Two blocks that ((ref)) each other and each hold a query matching
+    the page they sit on: the resolver's visited sets and depth caps must
+    end the recursion, in time and with a 200."""
+    tc = seeded_client(
+        tmp_path,
+        pages=[(1, "Cyc", None, None)],
+        blocks=[
+            ("cyc_aaaaaa", 1, None, 0, "A ((cyc_bbbbbb)) {{query: [[Cyc]]}}",
+             None, 0, None, None),
+            ("cyc_bbbbbb", 1, None, 1, "B ((cyc_aaaaaa)) {{query: [[Cyc]]}}",
+             None, 0, None, None),
+        ])
+    started = time.monotonic()
+    r = tc.get("/api/export/page/Cyc")
+    assert r.status_code == 200
+    assert time.monotonic() - started < 10
+
+
+# --- temp dirs are removed however the send ends ---
+
+async def _call_asgi(app, cookie, method, path, body, mode):
+    """One request straight to the app. In mode `raise` the server's send
+    fails on the first body message; in `disconnect` the client is gone
+    once the request body has been read. Only `raise` tells the cleanup's
+    `finally` from a cleanup that runs after a completed send."""
+    reads = []
+
+    async def receive():
+        # The request body arrives first; the client leaves after that.
+        reads.append(1)
+        if mode == "disconnect" and len(reads) > 1:
+            return {"type": "http.disconnect"}
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    async def send(message):
+        if mode == "raise" and message["type"] == "http.response.body":
+            raise OSError("peer reset")
+
+    headers = [(b"cookie", f"pkm_session={cookie}".encode()),
+               (b"host", b"testserver")]
+    if body:
+        headers.append(
+            (b"content-type", b"application/x-www-form-urlencoded"))
+    scope = {"type": "http", "asgi": {"version": "3.0"},
+             "http_version": "1.1", "method": method, "scheme": "http",
+             "path": path, "raw_path": path.encode(), "query_string": b"",
+             "root_path": "", "headers": headers,
+             "client": ("127.0.0.1", 1), "server": ("testserver", 80)}
+    try:
+        await app(scope, receive, send)
+    except OSError:
+        pass
+
+
+@pytest.mark.parametrize("mode", ["raise", "disconnect"])
+@pytest.mark.parametrize("method, path", [
+    ("GET", "/api/export.zip"), ("POST", "/api/assets/export.zip")])
+def test_export_temp_dirs_are_removed_when_the_send_fails_or_the_client_leaves(
+        client, seeded_config, tmp_path, monkeypatch, method, path, mode):
+    """A download that never completes must not leave its staged copy of
+    the graph or the assets in the temp directory."""
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    shas = add_asset_rows(seeded_config.db_path, seeded_config.assets_dir,
+                          ["big.bin"])
+    body = f"sha256s={shas[0]}".encode() if method == "POST" else b""
+    made: list[str] = []
+    real_mkdtemp = tempfile.mkdtemp
+
+    def spy_mkdtemp(*args, **kwargs):
+        made.append(real_mkdtemp(*args, **kwargs))
+        return made[-1]
+
+    monkeypatch.setattr(tempfile, "mkdtemp", spy_mkdtemp)
+
+    asyncio.run(_call_asgi(client.app, client.cookies["pkm_session"],
+                           method, path, body, mode))
+
+    assert any(Path(d).name.startswith("pkm-") for d in made)
+    assert list(scratch.glob("pkm-*")) == []

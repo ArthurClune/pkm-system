@@ -858,6 +858,12 @@ path (query included) as `\xNN`, `\uNNNN` or `\UNNNNNNNN`, and backslash-escapes
 backslashes and double quotes. The path is attacker-chosen: a raw newline or
 U+2028 would forge a log line, and a quote would close the request field
 early and fake the status.
+The default handler applies the same `escape_controls` to the rendered
+message of every `pkm.*` record (`logfmt.EscapePkmMessages`), at the handler
+rather than per call site, because any `pkm` logger may carry a requested
+path, an upload's filename or an error text. Tracebacks stay multi-line, and
+uvicorn's records pass unchanged: they hold no request text, and its
+formatter re-renders `color_message` from the record's arguments.
 
 With `run.py --log-dir` (production) the handlers write `server.log` and
 `access.log`; without it, stderr and stdout. The server rotates its own

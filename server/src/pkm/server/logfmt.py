@@ -7,6 +7,8 @@ a "the app hung yesterday" report can't be correlated with anything.
 """
 from __future__ import annotations
 
+import copy
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +38,28 @@ def truncate_for_log(text: str, cap: int) -> str:
     if len(text) <= cap:
         return text
     return f"{text[:cap]}\u2026[truncated: {len(text)} chars]"
+
+
+class EscapePkmMessages(logging.Filter):
+    """Escapes the rendered message of every `pkm` and `pkm.*` record with
+    `escape_controls`, so a path, filename or error text a request put in a
+    message cannot forge a server-log line whichever logger carries it.
+
+    It returns an escaped copy with `args` emptied, covering `%`-style and
+    pre-formatted messages alike, and leaves the record other handlers see
+    untouched. Tracebacks stay multi-line: the formatter renders `exc_info`
+    from code, not from the request. uvicorn's records pass unchanged:
+    they carry no request text, end a message with the newline before a
+    traceback on purpose, and its formatter re-renders `color_message`
+    with the record's `args`."""
+
+    def filter(self, record: logging.LogRecord) -> logging.LogRecord:
+        if record.name != "pkm" and not record.name.startswith("pkm."):
+            return record
+        escaped = copy.copy(record)
+        escaped.msg = escape_controls(record.getMessage())
+        escaped.args = ()
+        return escaped
 
 
 def request_line(client: str | None, method: str, path: str,
@@ -73,10 +97,15 @@ def uvicorn_log_config(log_dir: Path | None = None,
     `access.log` there, each rotated at midnight with `keep_days` dated
     copies kept (`server.log.YYYY-MM-DD`); launchd's own files then catch
     only what escapes logging. Without one, the stderr/stdout split above
-    (tests, e2e and scratch servers). Pure: dictConfig opens the files."""
+    (tests, e2e and scratch servers). Either way the default handler runs
+    `EscapePkmMessages`; `pkm.access` lines are escaped by `request_line`
+    and never reach it. Pure: dictConfig opens the files."""
     config: dict[str, Any] = {
         "version": 1,
         "disable_existing_loggers": False,
+        "filters": {
+            "escape_pkm": {"()": EscapePkmMessages},
+        },
         "formatters": {
             "default": {
                 "()": "uvicorn.logging.DefaultFormatter",
@@ -91,6 +120,7 @@ def uvicorn_log_config(log_dir: Path | None = None,
                 "formatter": "default",
                 "class": "logging.StreamHandler",
                 "stream": "ext://sys.stderr",
+                "filters": ["escape_pkm"],
             },
             "access": {
                 "formatter": "access",
@@ -113,7 +143,7 @@ def uvicorn_log_config(log_dir: Path | None = None,
                     "when": "midnight", "backupCount": keep_days,
                     "encoding": "utf-8"}
         config["handlers"] = {
-            "default": {"formatter": "default",
+            "default": {"formatter": "default", "filters": ["escape_pkm"],
                         "filename": str(log_dir / "server.log"), **rotation},
             "access": {"formatter": "access",
                        "filename": str(log_dir / "access.log"), **rotation},

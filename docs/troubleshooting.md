@@ -148,6 +148,7 @@ Owner: [backend.md](architecture/backend.md)
 | A deleted page lingers in replicas until some unrelated edit | A journal-advancing route committed without a nudge (`test_journal_advancing_contract.py`) | [backend.md § Post-commit nudges](architecture/backend.md#post-commit-nudges) | pkm-getl |
 | An anonymous request to a path holding `%0a` or `%1b` puts a forged line or terminal escape in `access.log` | The decoded path went into `request_line` unescaped. `escape_controls` now escapes every field | [backend.md § Logging and observability](architecture/backend.md#logging-and-observability) | pkm-6fqw |
 | `POST /api/client/diagnostics` with a multi-megabyte `report` writes a line of that size to the server log | The route logged the whole body. It still answers 200 (the replica is about to destroy its database) but cuts the log at `_MAX_DIAGNOSTICS_LOG_CHARS` | [backend.md § HTTP API reference](architecture/backend.md#http-api-reference) | pkm-6fqw |
+| A requested local path, upload filename or describe error holding a newline or U+2028 forges a line in `server.log` | Only `request_line` escaped; other `pkm.*` loggers wrote request text raw. The default handler's `EscapePkmMessages` now escapes every `pkm.*` message | [backend.md § Logging and observability](architecture/backend.md#logging-and-observability) | pkm-3k4m |
 
 ## Files and assets
 

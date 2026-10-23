@@ -334,7 +334,7 @@ def test_update_block_mark_only_has_no_content():
 
 
 def test_deep_outline_nest_is_refused_not_raised(caplog):
-    items: object = "leaf"
+    items: list[object] = ["leaf"]
     for _ in range(sys.getrecursionlimit() + 50):
         items = [items]
     r = build_write_preview("batch", {"commands": [
@@ -542,6 +542,10 @@ def _hostile_inputs(asset: str) -> dict[str, dict[str, object]]:
             {"command": "outline", "params": {"page": "P",
                                               "items": ["a", ["b"]]}},
             {"command": "delete", "params": {"uid": "D"}},
+            {"command": "todo", "params": {"page": "P", "text": "do",
+                                           "index": 1}},
+            {"command": "update", "params": {"uid": "{{b}}",
+                                             "text": "x), uid=SAFE"}},
         ])},
         "upload_asset": {"path": asset, "page": "null", "parent": "((p1))"},
         "rename_page": {"title": "Inbox", "new_title": "Projects",
@@ -577,16 +581,15 @@ def test_preview_matches_what_the_tool_receives(monkeypatch, tmp_path):
             (op,) = preview.ops
             assert _shown(op) == received, short
             continue
-        commands = received["commands"]
-        assert isinstance(commands, list)
+        # what apply_batch runs: the commands as validate_batch reads them
+        commands = batch_module.validate_batch(received["commands"])
         assert len(preview.ops) == len(commands)
-        for op, item in zip(preview.ops, commands):
-            label, targets, _ = WRITE_PREVIEW_FIELDS[f"batch:{item['command']}"]
+        for op, command in zip(preview.ops, commands):
+            label, _, _ = WRITE_PREVIEW_FIELDS[f"batch:{command.command}"]
             assert op.action == label
-            params = dict(item["params"])
+            params = command.params.model_dump(mode="json", by_alias=True)
             if "items" in params:
                 params["items"] = _outline_text(params["items"])
-            expected = {k: None for k in targets} | params
-            assert _shown(op) == expected
+            assert _shown(op) == params
     assert rec.calls["save_note"]["page"] is None
     assert rec.calls["rename_page"]["allow_merge"] is True

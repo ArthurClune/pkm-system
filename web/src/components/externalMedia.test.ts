@@ -9,6 +9,23 @@ it("treats only /assets/ paths as uploaded", () => {
   }
 });
 
+it("keeps real asset paths uploaded, dotted filenames included", () => {
+  const sha = "3f786850e387550fdab836ed7e6dc881de23001b";
+  for (const src of [`/assets/${sha}/photo.png`, `/assets/${sha}/IMG_0868.jpeg`,
+    `/assets/${sha}/a.b.c.png`, `/assets/${sha}/a..b.png`, `/assets/${sha}/...png`]) {
+    expect(isUploadedAsset(src)).toBe(true);
+  }
+});
+
+it("treats a path that climbs out of /assets/ as external", () => {
+  for (const src of ["/assets/../api/export.zip", "/assets/..%2fapi/x",
+    "/assets/%2e%2e/api/x", "/assets\\..\\api/x", "/assets/%2E%2E/x",
+    "/assets/.%2e/api/x", "/assets/a\\..\\..\\api/x", "/assets/a%5capi",
+    "/assets/a%2F..%2Fapi", "/assets/.\t./api/x", "/assets/..\n/api/x", "/assets/.."]) {
+    expect(isUploadedAsset(src)).toBe(false);
+  }
+});
+
 it("labels an external image by host and alt", () => {
   expect(externalImageLabel("https://attacker.invalid/c?q=1", "cite"))
     .toBe("image from attacker.invalid: cite");

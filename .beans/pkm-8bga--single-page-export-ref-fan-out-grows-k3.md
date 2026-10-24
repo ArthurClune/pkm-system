@@ -1,11 +1,11 @@
 ---
 # pkm-8bga
 title: Single-page export ((ref)) fan-out grows K^3
-status: todo
+status: in-progress
 type: bug
 priority: normal
 created_at: 2026-10-23T18:15:37Z
-updated_at: 2026-10-24T15:04:11Z
+updated_at: 2026-10-24T15:24:48Z
 parent: pkm-mfd0
 blocking:
     - pkm-e95y
@@ -14,7 +14,10 @@ blocking:
 Split from pkm-qd81. 11 KB of blocks referencing each other export as 279 MB. Needs an output bound and what the user sees when it is hit (Arthur's call), then opus. Probe: docs/superpowers/handoffs/security-review-2026-10-23-probes/sec-exports/p5_amplify.py.
 
 - [x] Arthur decides the user-visible result: refuse the export (2026-10-24)
-- [ ] Confirm with Arthur: the bound (10 MB proposed) and how the refusal reaches the user (see Decision below)
+- [x] Confirm with Arthur: the bound (10 MB proposed) and how the refusal reaches the user (see Decision below). Confirmed 2026-10-24: 10 MB; 'page too large' is enough, no block named. Spec: docs/superpowers/specs/2026-10-24-page-export-size-cap-design.md
+- [ ] Web: fetch + blob download, refusal in TopBar's error line
+- [ ] Docs: backend.md API row + hostile-input table, import-export-and-backup.md
+- [ ] Verify on the iPad PWA
 - [ ] Red test from the probe
 - [ ] Fix
 - [ ] troubleshooting.md row

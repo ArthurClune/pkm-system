@@ -14,7 +14,8 @@ pkm.export.resolve, so the download reads like what a reader of the live
 page would see. This route gathers the (bounded, cycle-safe) transitive
 closure of referenced-block text and query results the resolver needs,
 then hands it to the pure renderer -- it never mutates export_graph's
-semantics."""
+semantics. A page whose expansion would pass the renderer's character
+bound (EXPORT_MAX_CHARS) is refused with a 422 rather than truncated."""
 from __future__ import annotations
 
 import shutil
@@ -30,8 +31,9 @@ from pkm.database import Db
 from pkm.contracts.titles import RawTitle
 from pkm.export.markdown import page_filename
 from pkm.export.resolve import (
-    BLOCK_REF_MAX_DEPTH, QUERY_MAX_DEPTH, QueryResult, QueryResultGroup,
-    QueryResultItem, find_query_macros, render_page_resolved)
+    BLOCK_REF_MAX_DEPTH, EXPORT_MAX_CHARS, QUERY_MAX_DEPTH, ExportTooLarge,
+    QueryResult, QueryResultGroup, QueryResultItem, find_query_macros,
+    render_page_resolved)
 from pkm.export.writer import export_graph
 from pkm.rows import Row
 from pkm.filenames import attachment_disposition
@@ -55,6 +57,10 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 # SQL literal, not shared behaviour.
 _BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
               " created_at, updated_at, view_type")
+
+EXPORT_TOO_LARGE_DETAIL = (
+    f"page too large to export: over {EXPORT_MAX_CHARS // 1_000_000} million"
+    " characters once block refs and queries are expanded")
 
 
 def _run_query(db: Db, expr: str) -> QueryResult | None:
@@ -141,8 +147,12 @@ def export_page_markdown(title: RawTitle,
         (page["page_id"],))
     texts = [r["text"] for r in blocks]
     uid_to_text, query_results = _gather_resolution_data(db, texts)
-    body = render_page_resolved(page["title"], build_tree(blocks),
-                                uid_to_text, query_results)
+    try:
+        body = render_page_resolved(page["title"], build_tree(blocks),
+                                    uid_to_text, query_results)
+    except ExportTooLarge:
+        raise HTTPException(status_code=422,
+                            detail=EXPORT_TOO_LARGE_DETAIL) from None
     filename = page_filename(page["title"], set())
     return Response(
         content=body, media_type="text/markdown",

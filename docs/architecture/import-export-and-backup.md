@@ -75,6 +75,16 @@ user's download, and it renders what a reader of the live page sees:
 fetches them breadth-first with a `visited` set: the depth caps stop a cyclic
 `((ref))` chain from rendering forever, not from fetching forever.
 
+The depth caps bound how deep expansion goes, not how much it produces: K refs
+a level over three levels is K³ copies of the leaf. So `render_page_resolved`
+holds a character budget, `EXPORT_MAX_CHARS`, shared by every block and every
+recursion. Past it, it raises `ExportTooLarge` and the route answers 422 with
+`EXPORT_TOO_LARGE_DETAIL`; a page is never truncated. **The budget is charged
+as text is appended, never on the finished body.** Expansion is built
+bottom-up, so a check on the result would come after the whole K³ body was
+built. A recursive result is not charged again by its caller, so the count
+equals the body's length and a page under the bound exports unchanged.
+
 ## Importer (Roam EDN → fresh database)
 
 `python -m pkm.importer.run export.edn --files <dir> --out <data-dir>` builds a

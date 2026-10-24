@@ -19,10 +19,22 @@ whatever path led to a piece of text. A cycle (A -> B -> A) therefore cannot
 recurse forever: each hop just re-substitutes the same precomputed text and
 increments the shared depth counter until one of the caps above trips and
 the innermost ((uid)) / {{query: ...}} is left raw.
+
+The depth caps bound how deep expansion goes, not how much it produces: K
+refs a level over three levels is K**3 copies of the leaf. A character
+budget (EXPORT_MAX_CHARS, one per render_page_resolved call, shared by
+every block and every recursion) bounds the output, and running out raises
+ExportTooLarge. It is charged as each piece of text is appended -- a
+literal slice of source text, a query header, an indent -- never on a
+finished string, because expansion is built bottom-up: a check on the
+result would come only after all K**3 copies had been built.
+A recursive result is not charged again by its caller, so the count equals
+the finished body's length and the refusal is exact.
 """
 from __future__ import annotations
 
 import re
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -37,11 +49,35 @@ if TYPE_CHECKING:
 
 BLOCK_REF_MAX_DEPTH = 3
 QUERY_MAX_DEPTH = 2
+EXPORT_MAX_CHARS = 10_000_000
 
 _BLOCK_REF_RE = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")
 # Mirrors web/src/grammar/tokenize.ts's QUERY_PREFIX (no case-insensitivity,
 # same optional-bracket shape on each side of "query").
 _QUERY_PREFIX_RE = re.compile(r"\{\{(?:\[\[)?query(?:\]\])?:\s*")
+
+
+class ExportTooLarge(Exception):
+    """The resolved page would pass its character budget."""
+
+
+class _Budget:
+    """Characters one render may still produce; charge() raises before the
+    piece it is charged for is appended."""
+
+    __slots__ = ("left",)
+
+    def __init__(self, max_chars: int) -> None:
+        self.left = max_chars
+
+    def charge(self, n: int) -> None:
+        self.left -= n
+        if self.left < 0:
+            raise ExportTooLarge
+
+
+def _unbounded() -> _Budget:
+    return _Budget(sys.maxsize)
 
 
 @dataclass(frozen=True)
@@ -91,21 +127,33 @@ def find_query_macros(text: str) -> list[tuple[int, int, str]]:
 def render_query_result(expr: str, result: QueryResult,
                         uid_to_text: Mapping[str, str],
                         query_results: Mapping[str, QueryResult],
-                        item_depth: int) -> str:
+                        item_depth: int, *,
+                        budget: _Budget | None = None) -> str:
     """A query's markdown rendering: header + results grouped by page,
     matching what QueryBlock.tsx shows live. Item text is itself resolved
     (nested refs/queries), at `item_depth` -- the depth an item's content
     renders at, i.e. one past the query macro's own depth."""
+    budget = budget or _unbounded()
     plural = "" if result.total == 1 else "s"
     header = f"Query: {expr} — {result.total} result{plural}"
     if not result.groups:
-        return f"{header}\n(no matching blocks)"
+        empty = f"{header}\n(no matching blocks)"
+        budget.charge(len(empty))
+        return empty
+    budget.charge(len(header))
     lines = [header]
     for group in result.groups:
+        # Each line after the header also costs its joining newline.
+        budget.charge(len(group.page_title) + 3)
         lines.append(f"- {group.page_title}")
         for item in group.items:
-            resolved = resolve_text(item.text, uid_to_text, query_results, item_depth)
+            resolved = resolve_text(item.text, uid_to_text, query_results,
+                                    item_depth, budget=budget)
             first, *rest = resolved.split("\n")
+            # The resolved text, its own newlines included, is charged;
+            # the item adds its newline and "  - ", and four spaces of
+            # indent on each continuation line.
+            budget.charge(5 + 4 * len(rest))
             lines.append(f"  - {first}")
             lines.extend(f"    {line}" for line in rest)
     return "\n".join(lines)
@@ -113,12 +161,13 @@ def render_query_result(expr: str, result: QueryResult,
 
 def resolve_text(text: str, uid_to_text: Mapping[str, str],
                  query_results: Mapping[str, QueryResult],
-                 depth: int = 0) -> str:
+                 depth: int = 0, *, budget: _Budget | None = None) -> str:
     """Substitute ((block refs)) and {{query: ...}} macros in `text` with
     readable resolved text, recursing into referenced/result text with an
     incremented depth. Anything beyond its own cap (BLOCK_REF_MAX_DEPTH /
     QUERY_MAX_DEPTH) -- or missing from the precomputed maps entirely --
     is left exactly as written."""
+    budget = budget or _unbounded()
     query_macros: list[tuple[int, int, str]] = (
         find_query_macros(text) if depth < QUERY_MAX_DEPTH else [])
     query_spans = [(s, e) for s, e, _ in query_macros]
@@ -136,37 +185,59 @@ def resolve_text(text: str, uid_to_text: Mapping[str, str],
     events.sort(key=lambda ev: ev[0])
 
     out: list[str] = []
+
+    def _literal(start: int, end: int) -> None:
+        budget.charge(end - start)
+        out.append(text[start:end])
+
     pos = 0
     for start, end, kind, payload in events:
-        out.append(text[pos:start])
+        _literal(pos, start)
         if kind == "ref":
             resolved = uid_to_text.get(payload)
-            out.append(text[start:end] if resolved is None
-                       else resolve_text(resolved, uid_to_text, query_results, depth + 1))
+            if resolved is None:
+                _literal(start, end)
+            else:
+                out.append(resolve_text(resolved, uid_to_text, query_results,
+                                        depth + 1, budget=budget))
         else:
             result = query_results.get(payload)
-            out.append(text[start:end] if result is None
-                       else render_query_result(payload, result, uid_to_text,
-                                                query_results, depth + 1))
+            if result is None:
+                _literal(start, end)
+            else:
+                out.append(render_query_result(payload, result, uid_to_text,
+                                               query_results, depth + 1,
+                                               budget=budget))
         pos = end
-    out.append(text[pos:])
+    _literal(pos, len(text))
     return "".join(out)
 
 
 def render_page_resolved(title: CanonicalTitle, tree: Sequence[BlockNode],
                          uid_to_text: Mapping[str, str],
-                         query_results: Mapping[str, QueryResult]) -> str:
+                         query_results: Mapping[str, QueryResult],
+                         max_chars: int = EXPORT_MAX_CHARS) -> str:
     """Like markdown.render_page, but ((refs)) resolve recursively to plain
     text (no wrapping parens) and {{query: ...}} macros execute to their
-    matching results -- the end-user export's rendering mode."""
+    matching results -- the end-user export's rendering mode. Raises
+    ExportTooLarge once the body would pass `max_chars` characters."""
+    budget = _Budget(max_chars)
     lines = [f"# {title}", ""]
+    # Every line, these two included, ends in a newline once joined.
+    budget.charge(len(lines[0]) + 2)
 
     def walk(nodes: Sequence[BlockNode], depth: int) -> None:
         pad = "  " * depth
         for node in nodes:
-            text = rewrite_asset_links(
-                resolve_text(node.text, uid_to_text, query_results, 0))
+            resolved = resolve_text(node.text, uid_to_text, query_results, 0,
+                                    budget=budget)
+            text = rewrite_asset_links(resolved)
             first, *rest = text.split("\n")
+            # The resolved text and its own newlines are charged; this adds
+            # the asset-link growth, the pad and "- " or "  " on each line,
+            # and the last line's newline.
+            budget.charge(len(text) - len(resolved)
+                          + (len(pad) + 2) * (len(rest) + 1) + 1)
             lines.append(f"{pad}- {first}")
             lines.extend(f"{pad}  {line}" for line in rest)
             walk(node.children, depth + 1)

@@ -3,10 +3,14 @@
 executed to their matching results. Unlike pkm.export.markdown.render_page
 (the backup renderer, untested here -- see test_export_markdown.py), which
 keeps the raw query command and one-level, parens-wrapped ref resolution."""
+import tracemalloc
+
+import pytest
 from conftest import tree_node as node
 from pkm.export.resolve import (
-    QueryResult, QueryResultGroup, QueryResultItem, find_query_macros,
-    render_page_resolved, render_query_result, resolve_text)
+    EXPORT_MAX_CHARS, ExportTooLarge, QueryResult, QueryResultGroup,
+    QueryResultItem, find_query_macros, render_page_resolved,
+    render_query_result, resolve_text)
 from pkm.test_data.ids import canonical_title_of
 
 
@@ -204,3 +208,106 @@ def test_render_page_resolved_nests_multiline_query_output_under_its_block():
     assert any(line.startswith("- Query:") for line in lines)
     assert any(line.startswith("  - Page A") for line in lines)
     assert any(line.strip() == "- child" for line in lines)
+
+
+# -- render_page_resolved: the character bound ----------------------------
+
+def _amp(k: int, leaf: str) -> dict[str, str]:
+    # The probe's shape: three levels of K refs each over one leaf.
+    return {"amp_lvl1": " ".join(["((amp_lvl2))"] * k),
+            "amp_lvl2": " ".join(["((amp_lvl3))"] * k),
+            "amp_lvl3": leaf}
+
+
+def _amp_tree(k: int):
+    return [node(" ".join(["((amp_lvl1))"] * k))]
+
+
+def test_the_real_bound_is_ten_million_characters():
+    assert EXPORT_MAX_CHARS == 10_000_000
+
+
+def test_render_page_resolved_refuses_a_k_cubed_fan_out():
+    # Uncharged, this is 200**3 * 100 = 800M characters.
+    with pytest.raises(ExportTooLarge):
+        render_page_resolved(canonical_title_of("Amp"), _amp_tree(200),
+                             _amp(200, "Z" * 100), {}, max_chars=10_000)
+
+
+def _refusal_peak(k: int, max_chars: int) -> int:
+    uid_to_text = _amp(k, "Z" * 100)
+    tree = _amp_tree(k)
+    tracemalloc.start()
+    try:
+        with pytest.raises(ExportTooLarge):
+            render_page_resolved(canonical_title_of("Amp"), tree,
+                                 uid_to_text, {}, max_chars=max_chars)
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+def test_a_refused_export_never_builds_a_string_far_past_the_bound():
+    # Expansion is built bottom-up, so a bound checked only on the finished
+    # body would first build all of it. Charged on the way in, a refusal's
+    # peak memory is about the bound plus a term linear in the stored text
+    # (measured 1.1x to 1.3x here), and quadrupling K, which multiplies the
+    # uncharged output by 64 (to 6.4G characters at K=400), barely moves it.
+    max_chars = 1_000_000
+    peaks = {k: _refusal_peak(k, max_chars) for k in (100, 200, 400)}
+    assert all(peak < 3 * max_chars for peak in peaks.values()), peaks
+    assert peaks[400] < 1.5 * peaks[100], peaks
+
+
+def test_the_bound_is_shared_across_top_level_blocks():
+    # Each block renders about 1_000 characters; only their sum is past
+    # the bound.
+    tree = [node(f"block {i} " + "y" * 1_000) for i in range(50)]
+    title = canonical_title_of("Many")
+    with pytest.raises(ExportTooLarge):
+        render_page_resolved(title, tree, {}, {}, max_chars=10_000)
+    out = render_page_resolved(title, tree, {}, {}, max_chars=100_000)
+    assert out.count("\n- block ") == 50
+
+
+def test_query_results_are_charged():
+    expr = "{and: [[Tag]]}"
+    result = QueryResult(total=3, groups=_groups(
+        ("Page A", [(f"u{i}", "((amp_lvl1))") for i in range(3)])))
+    tree = [node(f"{{{{query: {expr}}}}}")]
+    with pytest.raises(ExportTooLarge):
+        render_page_resolved(canonical_title_of("Q"), tree,
+                             _amp(50, "Z" * 100), {expr: result},
+                             max_chars=10_000)
+
+
+def _rich_page():
+    # Every kind of text the renderer adds: a page header, nested padding,
+    # multi-line blocks, multi-line ref text inside a query result, two
+    # groups, an empty query, refs left raw, and asset links (which grow by
+    # two characters each when rewritten).
+    expr, empty = "{and: [[Tag]]}", "{and: [[Nowhere]]}"
+    result = QueryResult(total=3, groups=_groups(
+        ("Page A", [("u1", "item one\nsecond line ((uid_m1))"),
+                    ("u2", "![pic](/assets/a.png)")]),
+        ("Page B", [("u3", "see ((uid_m1)) and ((uid_gone))")])))
+    uid_to_text = {"uid_m1": "multi\nline ((uid_m2))\n![x](/assets/x.png)",
+                   "uid_m2": "deep\ntext"}
+    tree = [
+        node("intro ![a](/assets/i.png)"),
+        node(f"q {{{{query: {expr}}}}} tail\nmore", [
+            node("child ((uid_m1))", [node(f"{{{{query: {empty}}}}}")]),
+            node("raw {{query: {and: [[Unknown]]}}}")]),
+        node("last"),
+    ]
+    return (canonical_title_of("Rich"), tree, uid_to_text,
+            {expr: result, empty: QueryResult(total=0, groups=())})
+
+
+def test_the_bound_is_exact_on_the_finished_body():
+    page = _rich_page()
+    body = render_page_resolved(*page)
+    n = len(body)
+    assert render_page_resolved(*page, max_chars=n) == body
+    with pytest.raises(ExportTooLarge):
+        render_page_resolved(*page, max_chars=n - 1)

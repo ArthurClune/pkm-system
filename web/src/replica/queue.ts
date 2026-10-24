@@ -15,6 +15,7 @@
 
 import type { BatchId, BlockUid, CanonicalTitle, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
+import { describeTextLimit, findOpTextLimitViolation } from "../grammar/textLimits";
 import type { Columns } from "./columns.gen";
 import type { PendingBatch, PendingRowId, PoisonedBatch } from "./client";
 import { type ReplicaDb, rollbackToSavepoint } from "./db";
@@ -67,6 +68,14 @@ export function enqueueBatch(db: ReplicaDb, sent: BlockOp[], nowMs: number,
   // replica never holds text the server would store differently; the
   // offline shim enqueues here without going through the op queue.
   const ops = wellFormedOps(sent);
+  // The server's guard, mirrored so no producer queues a batch it would
+  // always refuse; judged before titles, in the server's order, since the
+  // title pass scans every text it is handed.
+  const overLimit = findOpTextLimitViolation(ops);
+  if (overLimit !== null) {
+    throw new LocalOpError(
+      `block ${overLimit.uid}: ${describeTextLimit(overLimit.violation)}`);
+  }
   const violation = findOpTitleViolation(ops);
   if (violation !== null) {
     throw new LocalOpError(

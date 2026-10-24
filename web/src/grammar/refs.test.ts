@@ -31,3 +31,19 @@ describe("ref grammar fixture (pinned against the Python parser)", () => {
     });
   }
 });
+
+// One ref or code span per few characters, up to the block length cap: the
+// extractor runs on every block the replica applies, so a throw here would
+// stall sync on a block every write path accepts. The legacy nest's titles
+// all hold an empty `/` segment, so none of them names a page.
+describe("extractRefs at the block length cap", () => {
+  it.each([
+    ["#a ×333,333", "#a ".repeat(333_333), 1],
+    ["[[x]] ×166,666", "[[x]] ".repeat(166_666), 1],
+    ["`x` ×333,333", "`x`".repeat(333_333), 0],
+    ["a legacy nest of 1,000,000 characters",
+     "[[a//".repeat(142_857) + "]]".repeat(142_857), 0],
+  ])("extracts from %s without throwing", (_name, text, refs) => {
+    expect(extractRefs(text).refs).toHaveLength(refs);
+  }, 60_000);
+});

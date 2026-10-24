@@ -13,7 +13,6 @@ import type { BlockUid, NormalizedTitle, Sha256Hex } from "../api/brands";
 import { parseSha256Hex } from "../replica/sha256";
 import { markdownLinkScanner, type MarkdownSpan } from "./markdown";
 import { isRefTitle, normalizeRefTitle, scanGrammar, type GrammarToken } from "./scan";
-import { MAX_LINK_NESTING } from "./textLimits";
 
 export type EmphasisKind = "bold" | "italic" | "strike" | "highlight";
 
@@ -307,14 +306,11 @@ function tokenizeBlockUncached(text: string): BlockSegment[] {
   // Tokens are sorted outer-before-inner, so on a shared start the wider
   // token wins the map slot (e.g. an attribute over a hashtag in "#x:: y").
   // A block stored before the write-time limit (or written out of band) may
-  // nest links past it; tokenizeInline recurses once per nesting level, so
-  // such a block renders its page refs as text instead of following them.
-  const overNested = tokens.some(
-    (t) => t.kind === "page-ref" && t.depth >= MAX_LINK_NESTING,
-  );
+  // nest links past it. scanGrammar reports no page refs for one, so
+  // tokenizeInline, which recurses once per nesting level, never follows a
+  // run and the brackets render as text.
   const byStart = new Map<number, GrammarToken>();
   for (const t of tokens) {
-    if (overNested && t.kind === "page-ref") continue;
     if (!byStart.has(t.start)) byStart.set(t.start, t);
   }
 
@@ -330,8 +326,11 @@ function tokenizeBlockUncached(text: string): BlockSegment[] {
   // the block level, as before).
   let i = start;
   let chunkStart = start;
+  // A loop, not push(...segs): a chunk may hold hundreds of thousands of
+  // segments, more than a call can take as arguments.
   const flush = (end: number) => {
-    if (end > chunkStart) out.push(...tokenizeInline(text, scan, chunkStart, end));
+    if (end <= chunkStart) return;
+    for (const seg of tokenizeInline(text, scan, chunkStart, end)) out.push(seg);
   };
   while (i < text.length) {
     const tok = byStart.get(i);

@@ -442,7 +442,7 @@ describe("tokenizeBlock past the link nesting limit", () => {
   it("never recurses on a legacy block nested thousands deep", () => {
     const segs = tokenizeBlock(nest(6000));
     expect(segs.some((s) => s.kind === "page-ref")).toBe(false);
-  }, 30_000);
+  });
 
   it("still yields the inner page-ref of a 32-deep nest", () => {
     const segs = tokenizeBlock(nest(31));
@@ -450,14 +450,36 @@ describe("tokenizeBlock past the link nesting limit", () => {
   });
 });
 
+// Texts every write path accepts that make one token, segment or line break
+// per few characters. None may throw: a spread of this many tokens as call
+// arguments overflows the stack. The legacy nest, which also threw, is in
+// the lone-[ cases below.
+const CAP_TEXTS: [string, string, number][] = [
+  ["#a ×150,000", "#a ".repeat(150_000), 150_000],
+  ["[[x]] ×100,000", "[[x]] ".repeat(100_000), 100_000],
+  ["`x` ×333,333", "`x`".repeat(333_333), 333_333],
+  ["a\\n ×500,000", "a\n".repeat(500_000), 500_000],
+];
+
+describe("tokenizeBlock at the block length cap", () => {
+  it.each(CAP_TEXTS)("renders %s without throwing", (_name, text, count) => {
+    const segs = tokenizeBlock(text);
+    const kinds = segs.filter((s) => s.kind !== "text").length;
+    expect(kinds).toBe(count);
+  }, 30_000);
+});
+
 describe("tokenizeBlock on a long line of lone [", () => {
-  // Every `[` that does not open `[[` is probed as a markdown link. A
-  // generous bound: the per-[ walk to the end of the line took 17.8 s on
-  // 200,000 characters.
+  // Every `[` that does not open `[[` is probed as a markdown link, the
+  // second `[` of each `[[` in a nest too. A generous bound: the per-[ walk
+  // to the end of the line took 17.8 s on 200,000 characters, and minutes
+  // on the 1,000,000-character legacy nest, a block no write may store any
+  // more whose stored row must still render, its brackets as text.
   it.each([
     ["[a ×100,000", "[a".repeat(100_000)],
     ["[a ×500,000", "[a".repeat(500_000)],
     ["[a]( ×250,000", "[a](".repeat(250_000)],
+    ["a legacy nest", "[[a//".repeat(142_857) + "]]".repeat(142_857)],
   ])("renders %s as text in linear time", (_name, text) => {
     const started = performance.now();
     expect(tokenizeBlock(text)).toEqual([{ kind: "text", text }]);

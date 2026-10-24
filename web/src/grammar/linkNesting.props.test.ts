@@ -28,12 +28,18 @@ function tokenDepth(text: string): number {
 }
 
 describe("linkNestingDepth", () => {
-  it("is the depth of the scanner's page-ref tree", () => {
+  // Past the limit the scanner reports no runs at all (a legacy nest's
+  // titles are quadratic to build), so the tree it reports is empty there.
+  it("is the depth of the scanner's page-ref tree, within the limit", () => {
     let deep = 0;
     fc.assert(fc.property(texts, (text) => {
       const depth = linkNestingDepth(text);
-      expect(depth).toBe(tokenDepth(text));
-      if (depth > MAX_LINK_NESTING) deep += 1;
+      if (depth > MAX_LINK_NESTING) {
+        expect(tokenDepth(text)).toBe(0);
+        deep += 1;
+      } else {
+        expect(tokenDepth(text)).toBe(depth);
+      }
     }), { numRuns: 500 });
     // The past-the-limit case must actually be drawn.
     expect(deep).toBeGreaterThan(25);

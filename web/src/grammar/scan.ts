@@ -346,9 +346,14 @@ function scanBrackets(text: string): BracketScan {
  * Mirrors refs.py link_nesting_depth, pinned equal by
  * shared/fixtures/text_limits_parity.json. */
 export function linkNestingDepth(text: string): number {
+  return pairNestingDepth(scanBrackets(text).pairs);
+}
+
+/** linkNestingDepth over pairs already matched and sorted by open. */
+function pairNestingDepth(pairs: readonly BracketPair[]): number {
   const closes: number[] = []; // close offsets of the pairs enclosing this one
   let deepest = 0;
-  for (const p of scanBrackets(text).pairs) {
+  for (const p of pairs) {
     while (closes.length > 0 && p.open >= closes[closes.length - 1]) {
       closes.pop();
     }
@@ -358,6 +363,19 @@ export function linkNestingDepth(text: string): number {
   return deepest;
 }
 
+/** The deepest `[[` nesting a write may store (refs.py's
+ * MAX_LINK_NESTING). It lives here because the scanner obeys it too;
+ * textLimits.ts re-exports it with the length limit. */
+export const MAX_LINK_NESTING = 32;
+
+/** The token stream of `text`. A text whose `[[` runs nest past
+ * MAX_LINK_NESTING reports none of them: every write refuses such a text,
+ * so only a row stored before the limit (or out of band) holds one, and
+ * the titles of an n-deep nest sum to n times its length, minutes of work
+ * at the length cap. Its brackets read as plain text everywhere (rendering,
+ * extraction, the caret). refs.py still extracts its links, but the
+ * replica derives refs only from an op's text, which it refuses past the
+ * limit, so the two never disagree on a row either side writes. */
 export function scanGrammar(text: string): { tokens: readonly GrammarToken[] } {
   const { codeTokens, clean, ticks, pairs } = scanBrackets(text);
   const tokens: GrammarToken[] = [...codeTokens];
@@ -385,8 +403,13 @@ export function scanGrammar(text: string): { tokens: readonly GrammarToken[] } {
     }
   }
 
-  tokens.push(...scanFlatTokens(clean));
-  tokens.push(...pageRefTokens(clean, pairs));
+  // Loops, not push(...xs): a block at the length cap holds hundreds of
+  // thousands of tokens, and a spread passes each one as a call argument,
+  // which overflows the stack.
+  for (const t of scanFlatTokens(clean)) tokens.push(t);
+  if (pairNestingDepth(pairs) <= MAX_LINK_NESTING) {
+    for (const t of pageRefTokens(clean, pairs)) tokens.push(t);
+  }
 
   // Source order; on a shared start the wider (outer) token comes first.
   tokens.sort((a, b) => a.start - b.start || b.end - a.end);

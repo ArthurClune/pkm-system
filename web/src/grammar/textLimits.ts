@@ -8,10 +8,10 @@
 // the refusal wording equal to the server's.
 import type { BlockUid } from "../api/brands";
 import type { BlockOp } from "../api/ops";
-import { linkNestingDepth } from "./scan";
+import { linkNestingDepth, MAX_LINK_NESTING } from "./scan";
 
+export { MAX_LINK_NESTING };
 export const MAX_BLOCK_TEXT_CHARS = 1_000_000;
-export const MAX_LINK_NESTING = 32;
 
 export const TEXT_LENGTH_NOTICE =
   "A block can't be longer than 1,000,000 characters.";

@@ -506,6 +506,29 @@ applies. A skipped op whose own uid fails `UID_RE` is still a 400
 journal. So is the gone parent of a diverted create or of a move whose block
 exists. A move of a gone block never checks its parent uid. A taken uid outranks a gone parent.
 
+A `create` or `move` that would put a block past `MAX_OUTLINE_DEPTH`
+(`contracts/ops.py`; a top-level block is level 1) is a 400 as well. The
+page, block and journal reads answer 500 on an outline 255 levels deep,
+because pydantic-core's serialiser has a fixed recursion guard, so one
+bound on writes protects every reader. `plan_op` judges a create by its
+own level and a move by the level its subtree's deepest block lands at.
+Each op sees the batch's earlier ops applied, and a skipped op places
+nothing, so it is not judged. Only where an op puts blocks is judged, so
+legacy rows past the cap stay editable.
+
+**Depth rejects the batch rather than skipping the op like `move_cycle`.**
+A skip would need its own note, journal rows and replica mirror, for a case
+that needs an outline near the cap, far deeper than any in use. The cost,
+accepted in the [design](../superpowers/specs/2026-10-24-outline-depth-cap-design.md),
+is a web offline batch [discarded](sync-recovery.md#a-batch-the-server-rejects)
+when two devices' edits, each legal alone, stack past the cap. The web
+refuses what it can see first ([frontend-editor.md](frontend-editor.md#rules-an-edit-must-not-break)).
+
+Server-made landings are never judged: a 400 over a conflict note or a
+diverged delete's copies would discard a batch for something the client
+did not send. They stay under 255 anyway. A conflict header sits at most at
+the cap, and the subtree copied under it is at most the cap tall.
+
 ### Stale batches
 
 An offline device that never pulled a page delete still holds edits against
@@ -792,6 +815,7 @@ route.
 | A Roam heading outside 1–3 or a time past 64 bits | `parse_export` reads it as absent | `test_no_500_stored_props.py` |
 | A deep or wide `/api/query` expression | `parse_query` refuses past `MAX_QUERY_DEPTH` / `MAX_QUERY_OPERANDS` and the route answers 400; rule in the [`/api/query` row](#http-api-reference) | `test_query.py` |
 | An id set past SQLite's bound-variable limit | Queries over an unbounded id set go through `sync_core.chunk_ids`; rule in [Database](#database) | `test_sql_variable_limit.py` |
+| An outline nested past the readers' 255-level limit | `/api/ops` refuses a block placed past `MAX_OUTLINE_DEPTH`, and the importer an export holding one (`validate_export_depth`); rule in [Missing targets](#missing-targets) | `test_outline_depth.py`, `test_hostile_requests.py` |
 | `[[` nested past Python's recursion limit | Rename and unlink walk iteratively (`_rewrite_range`, `_unlink_range`); rule in [Ref grammar](#ref-grammar) | `test_legacy_deep_brackets.py` |
 
 Path and query values cannot carry a lone surrogate, because the server

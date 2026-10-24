@@ -160,6 +160,14 @@ the socket is not `connected`.
 | 401, 403, 408, 429 | no | retained under backoff: a session expiry or a cleared cookie says nothing about the batch. `apiFetch` still redirects a 401 to `/login` |
 | 5xx, network failure, `OfflineError` | no | retained under backoff |
 
+A batch the editor planned can still meet a 400 for a reason its replica
+could not see. The [depth cap](backend.md#missing-targets) is one: each
+device refuses a block past `MAX_OUTLINE_DEPTH` in the tree it holds, but
+two devices' edits, each legal alone, can stack past it, as when one
+indents a subtree while the other, offline, adds levels under it. The
+server refuses the whole batch, so the rebase below drops its valid ops
+with the deep one.
+
 A poisoned row pauses delivery, and `clientRuntime.ts` runs
 `rebaseAuthoritative`: a `rebase` with flush `"skip"` over a fresh snapshot,
 then deletes the poisoned row by id. It never resets, which would drop the

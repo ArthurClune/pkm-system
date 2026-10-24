@@ -84,7 +84,7 @@ complete new database and swaps it in, so re-running is always safe.
 flowchart TD
     A["verify export.edn exists"] --> B["edn.py — strict EDN parse (Core)"]
     B --> C["parse_export.py — datoms → page/block trees (Core)"]
-    C --> P["preflight.py — duplicate UID / multi-parent /<br/>malformed UID refusal (Core)"]
+    C --> P["preflight.py — duplicate UID / multi-parent /<br/>malformed UID / depth refusal (Core)"]
     P --> T["titles.py — import-only sanitization (Core)"]
     F["linked-files dir"] --> G["index files + transform asset URLs"]
     T --> G
@@ -98,7 +98,7 @@ flowchart TD
 | Stage | Invariant |
 |---|---|
 | EDN parse | Malformed input exits 2 with `error: malformed export at offset N: DETAIL`. The solidus escape `\/` stays invalid |
-| Preflight | Duplicate block uids, a block reached through two parents, and any uid failing `UID_RE` refuse the run, listing every offender before any output. No uid is re-minted, because every `((uid))` recognizer shares `UID_RE`'s bound |
+| Preflight | Duplicate block uids, a block reached through two parents, and any uid failing `UID_RE` refuse the run, listing every offender before any output. A block past [`MAX_OUTLINE_DEPTH`](backend.md#missing-targets) refuses it too (`validate_export_depth`). No uid is re-minted, because every `((uid))` recognizer shares `UID_RE`'s bound |
 | Title sanitization | `importer/titles.py` strips balanced `[[`/`]]` and `#` markers and rewrites refs. Collisions merge in source order, preferring an already-clean survivor |
 | Title migration | The operator route's `audit_title_migration()` / `apply_title_migration()` run on the temp database, so `plain_space_title_canonicalization` arrives active. A blocker exits 2 |
 | Timestamps | `:create/time`, `:edit/time`, uids and sibling order survive, so every `((block ref))` resolves. A time past 64 bits or a heading outside 1–3 reads as absent |

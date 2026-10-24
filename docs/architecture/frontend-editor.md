@@ -181,6 +181,15 @@ flowchart LR
 | An edit never places a block under a collapsed row; indent, outdent and cross-parent moves expand it first, and `allowedDepths` offers no depth under one | the block vanishes into a closed subtree |
 | An offset transform, and a caret the editor places, snaps with `snapCaret` (`keyEdits.ts`); `outline/surrogatePairs.props.test.ts` covers each | a slice between surrogate halves stores two U+FFFD |
 | `set_collapsed` does not stamp (`opBumpsUpdatedAt`, which `replica/localOps.test.ts` pins for the replica) | collapsing re-dates the block |
+| No create or move lands a block past `MAX_OUTLINE_DEPTH`. `run()` and `undoManager`'s dispatch judge each by its subtree in the tree the ops leave (`depthCap.ts`), and refuse the whole command | the server refuses the batch whole, and the offline queue's [rebase](sync-recovery.md#a-batch-the-server-rejects) drops its other ops with it |
+
+A depth refusal shows `DEPTH_NOTICE` in `EditablePage`'s notice slot. The
+draft's own text still ships, and a refused undo or redo keeps its entry
+for a retry once there is room. Where the web cannot see the tree, it
+sends and the server decides. An undo for an unmounted page whose read
+fails ships unjudged, and a cross-page drop meets only `allowedDepths`
+([below](#drag-and-drop)). Refusing there would block an edit the web
+cannot check, for a case that needs an outline near the cap.
 
 ### Drafts and commit points
 
@@ -283,6 +292,14 @@ the indicator was drawn.
 
 A `DragSource` (`outline/dnd.ts`) is `blocks` or `files`; both share the
 zone's geometry and `resolveDrop`.
+
+`allowedDepths` offers no depth that would put the dragged subtree past
+`MAX_OUTLINE_DEPTH`, so a drag needs no depth notice: the indicator never
+shows a refused spot. The subtree's height travels in `BlockDragSource.height`,
+measured at drag start, so a drop on another page needs no source tree.
+That is the only depth check a cross-page drop meets, since `DndProvider`
+moves it without `run()`. A legacy subtree too tall for any depth still
+gets the shallowest, which `run()` or the server refuses.
 
 | Files drag | Rule |
 |---|---|

@@ -469,11 +469,14 @@ _NON_JSON_TYPES = ["text/plain;charset=UTF-8", None,
                    "application/x-www-form-urlencoded"]
 
 
-def _is_refusal(status: int, locs: list[object]) -> bool:
+def _is_refusal(status: int, locs: list[object],
+                origin: str | None = None) -> bool:
     """A refusal of the whole body: 415, or a 422 whose only error is on
-    `body` itself, or the origin guard's 403 before the body is read. A
-    2xx, or a 422 on `["body", <field>]`, means the body was parsed."""
-    return status in (403, 415) or (status == 422 and locs == [["body"]])
+    `body` itself, or, when an `origin` was sent, the origin guard's 403
+    before the body is read. A 2xx, or a 422 on `["body", <field>]`, means
+    the body was parsed."""
+    return ((status == 403 and origin is not None) or status == 415
+            or (status == 422 and locs == [["body"]]))
 
 
 def _non_json_answers(app, client, origin: str | None = None,
@@ -499,8 +502,9 @@ def _non_json_answers(app, client, origin: str | None = None,
     return answers
 
 
-def _not_refused(answers: dict[str, tuple[int, list[object]]]) -> list[str]:
-    return [k for k, v in answers.items() if not _is_refusal(*v)]
+def _not_refused(answers: dict[str, tuple[int, list[object]]],
+                 origin: str | None = None) -> list[str]:
+    return [k for k, v in answers.items() if not _is_refusal(*v, origin)]
 
 
 @pytest.mark.parametrize("origin",
@@ -518,7 +522,7 @@ def test_every_json_body_route_refuses_a_non_json_content_type(
     before = _digest(seeded_config)
     answers = _non_json_answers(client.app, client, origin)
     assert len(answers) > 20  # the walk found the routes
-    assert _not_refused(answers) == []
+    assert _not_refused(answers, origin) == []
     assert _digest(seeded_config) == before
 
 

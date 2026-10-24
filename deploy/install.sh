@@ -84,7 +84,7 @@ done
 
 TS_IP="$("$TAILSCALE" ip -4 | head -1)"
 # The Serve hostname, whose https origin the server must allow.
-TS_NAME="$("$TAILSCALE" status --json | python3 -c 'import json, sys;
+TS_NAME="$("$TAILSCALE" status --json | uv run --project "$REPO/server" python -c 'import json, sys;
 print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
 echo "Installed. Ensure $PKM_HOME/data/config.json contains:"
 echo "  \"bind_hosts\": [\"127.0.0.1\", \"$TS_IP\"],"

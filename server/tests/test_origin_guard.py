@@ -255,6 +255,15 @@ def test_every_unsafe_route_refuses_a_foreign_origin(
     assert _digest(guarded_config) == before
 
 
+def test_a_duplicated_origin_header_is_refused(guarded_client):
+    """The middleware reads every `origin` entry, not the first."""
+    r = guarded_client.post("/api/journal/cleanup", headers=[
+        ("origin", OWN), ("origin", SIBLING),
+        ("content-type", "text/plain")])
+    assert r.status_code == 403, r.text
+    assert r.json() == {"detail": "origin not allowed"}
+
+
 def test_safe_methods_ignore_origin(guarded_client):
     r = guarded_client.get("/api/sidebar", headers={"Origin": SIBLING})
     assert r.status_code == 200

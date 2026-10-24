@@ -69,6 +69,10 @@ existing `config.json` or database.
 
 ## Updating
 
+An install that predates the Origin guard needs `serve_origins` in
+`data/config.json` (install step 4) before `update.sh`, or the server
+refuses every write from the Serve hostname.
+
 Run `$PKM_HOME/app/deploy/update.sh`. It refuses to run from any other
 checkout (set `PKM_UPDATE_FORCE=1` to override), because it would rebuild
 that checkout while restarting the prod service. It leaves the backup jobs

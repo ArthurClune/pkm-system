@@ -759,15 +759,21 @@ serves on. A refused HTTP request gets 403
 HTTP 403. The guard runs before routing, so an anonymous handshake from a
 foreign origin sees 4403, not 4401.
 
+Two tests pin rules that would lock the app out if broken:
+`Origin: null` is refused, because a sibling page can produce it
+(`test_origin_allowed`, `test_ws_refuses_a_foreign_origin`), and the web
+treats 403 as retry-later (`RETRY_LATER_STATUSES` in
+`web/src/sync/rejection.ts`, pinned by `rejection.test.ts`), so a wrong
+`serve_origins` queues edits instead of discarding them.
+
 Nothing enforces these rules:
 
-- `Origin: null` is refused, because a sibling page can produce it.
 - The app must never set `Referrer-Policy: no-referrer`, as a header or a
-  meta tag. The browser would then send `Origin: null` on every
-  same-origin POST, and the guard would lock the app out.
-- The web keeps 403 a retry-later status (`RETRY_LATER_STATUSES` in
-  `web/src/sync/rejection.ts`). A wrong `serve_origins` then queues edits
-  instead of discarding them.
+  meta tag on its own documents. Fetch writes, uploads and the WebSocket
+  keep the real origin under that policy. The no-cors form posts do not:
+  the export form in `web/src/views/Files.tsx` (Chromium and WebKit) and
+  the assistant close beacon in `web/src/assistant/client.ts` (WebKit)
+  would send `Origin: null` and be refused.
 - A new hostname or Serve port needs its origin in `serve_origins`.
 
 ## HTTP API reference

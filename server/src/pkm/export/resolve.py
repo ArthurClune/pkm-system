@@ -39,6 +39,12 @@ render_query_result call costs one, so refs written back to back over an
 empty leaf, which produce no characters, cannot make K**3 calls. A
 resolve_text call also pays for the text it scans, since text it never
 outputs (a resolved query macro's padding) is rescanned on every ref.
+
+The route gathers the query results the renderer will need before rendering,
+and a page of distinct query macros, each matching much of the graph, would
+otherwise hold every match of every query first. GatherBudget charges that
+gather against the same limits, at a price no greater than rendering each
+gathered result once costs, so it refuses only what the renderer would.
 """
 from __future__ import annotations
 
@@ -66,6 +72,9 @@ CHARS_PER_CALL = 10
 # is still the one a text-heavy page reaches: literal text is both scanned
 # and output, so at the character bound its scan uses a tenth of the units.
 SCAN_CHARS_PER_UNIT = 100
+# What a query result item adds around its resolved text: its newline and
+# "  - ".
+_ITEM_CHARS = 5
 
 _BLOCK_REF_RE = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")
 # Mirrors web/src/grammar/tokenize.ts's QUERY_PREFIX (no case-insensitivity,
@@ -95,23 +104,79 @@ class _Budget:
         self.left = max_chars
         self.calls_left = max_chars // CHARS_PER_CALL
 
+    def too_many_chars(self) -> ExportTooLarge:
+        return ExportTooLarge(
+            "page too large to export: over"
+            f" {_in_words(self.max_chars)} characters once block refs"
+            " and queries are expanded")
+
+    @staticmethod
+    def too_many_calls() -> ExportTooLarge:
+        return ExportTooLarge("page too large to export: its block refs"
+                              " and queries expand too many times")
+
     def charge(self, n: int) -> None:
         self.left -= n
         if self.left < 0:
-            raise ExportTooLarge(
-                "page too large to export: over"
-                f" {_in_words(self.max_chars)} characters once block refs"
-                " and queries are expanded")
+            raise self.too_many_chars()
 
     def call(self, units: int = 1) -> None:
         self.calls_left -= units
         if self.calls_left < 0:
-            raise ExportTooLarge("page too large to export: its block refs"
-                                 " and queries expand too many times")
+            raise self.too_many_calls()
 
 
 def _unbounded() -> _Budget:
     return _Budget(sys.maxsize)
+
+
+def _scan_units(text: str) -> int:
+    """Call units a resolve_text call over `text` costs."""
+    return 1 + len(text) // SCAN_CHARS_PER_UNIT
+
+
+class GatherBudget:
+    """The renderer's limits, charged by the route while it gathers query
+    results, before render_page_resolved runs. Each charge is at most what
+    rendering the gathered piece once will charge, and every distinct
+    expression the gather runs is rendered at least once, so a refusal here
+    is one the renderer would make: a query is one render_query_result call;
+    an item is one resolve_text call at the depth it renders at, plus
+    _ITEM_CHARS and every character of its text outside the spans that call
+    substitutes (a substitution replaces a span, never the text around
+    it)."""
+
+    __slots__ = ("_budget",)
+
+    def __init__(self, max_chars: int = EXPORT_MAX_CHARS) -> None:
+        self._budget = _Budget(max_chars)
+
+    @property
+    def chars_left(self) -> int:
+        return self._budget.left
+
+    @property
+    def calls_left(self) -> int:
+        return self._budget.calls_left
+
+    def charge_query(self) -> None:
+        self._budget.call()
+
+    def check_room(self, items: int) -> None:
+        """Refuse, charging nothing, when `items` more items could not fit
+        at one call and _ITEM_CHARS characters each: checked on a query's
+        match count, before any of its rows are fetched."""
+        if items > self._budget.calls_left:
+            raise self._budget.too_many_calls()
+        if items * _ITEM_CHARS > self._budget.left:
+            raise self._budget.too_many_chars()
+
+    def charge_item(self, text: str, depth: int) -> None:
+        """Charge one query result item whose text renders at `depth`."""
+        self._budget.call(_scan_units(text))
+        substituted = sum(end - start
+                          for start, end, _, _ in _substitutions(text, depth))
+        self._budget.charge(_ITEM_CHARS + len(text) - substituted)
 
 
 @dataclass(frozen=True)
@@ -206,22 +271,17 @@ def render_query_result(expr: str, result: QueryResult,
             # The resolved text, its own newlines included, is charged;
             # the item adds its newline and "  - ", and four spaces of
             # indent on each continuation line.
-            budget.charge(5 + 4 * resolved.count("\n"))
+            budget.charge(_ITEM_CHARS + 4 * resolved.count("\n"))
             lines.append("  - " + resolved.replace("\n", "\n    "))
     return "\n".join(lines)
 
 
-def resolve_text(text: str, uid_to_text: Mapping[str, str],
-                 query_results: Mapping[str, QueryResult],
-                 depth: int = 0, *, budget: _Budget | None = None) -> str:
-    """Substitute ((block refs)) and {{query: ...}} macros in `text` with
-    readable resolved text, recursing into referenced/result text with an
-    incremented depth. Anything beyond its own cap (BLOCK_REF_MAX_DEPTH /
-    QUERY_MAX_DEPTH) -- or missing from the precomputed maps entirely --
-    is left exactly as written."""
-    if budget is None:
-        budget = _unbounded()
-    budget.call(1 + len(text) // SCAN_CHARS_PER_UNIT)
+def _substitutions(text: str,
+                   depth: int) -> list[tuple[int, int, str, str]]:
+    """The spans resolve_text at `depth` substitutes, as sorted, disjoint
+    (start, end, kind, payload): query macros below QUERY_MAX_DEPTH, and
+    refs outside them below BLOCK_REF_MAX_DEPTH. A span whose payload is
+    missing from the maps is later left as written."""
     query_macros: list[tuple[int, int, str]] = (
         find_query_macros(text) if depth < QUERY_MAX_DEPTH else [])
     query_starts = [s for s, _, _ in query_macros]
@@ -240,6 +300,21 @@ def resolve_text(text: str, uid_to_text: Mapping[str, str],
         [(s, e, "query", expr) for s, e, expr in query_macros]
         + [(m.start(), m.end(), "ref", m.group(1)) for m in ref_matches])
     events.sort(key=lambda ev: ev[0])
+    return events
+
+
+def resolve_text(text: str, uid_to_text: Mapping[str, str],
+                 query_results: Mapping[str, QueryResult],
+                 depth: int = 0, *, budget: _Budget | None = None) -> str:
+    """Substitute ((block refs)) and {{query: ...}} macros in `text` with
+    readable resolved text, recursing into referenced/result text with an
+    incremented depth. Anything beyond its own cap (BLOCK_REF_MAX_DEPTH /
+    QUERY_MAX_DEPTH) -- or missing from the precomputed maps entirely --
+    is left exactly as written."""
+    if budget is None:
+        budget = _unbounded()
+    budget.call(_scan_units(text))
+    events = _substitutions(text, depth)
 
     out: list[str] = []
 

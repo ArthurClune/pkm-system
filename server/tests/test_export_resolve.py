@@ -14,8 +14,9 @@ from hypothesis import event, given, settings
 from hypothesis import strategies as st
 from pkm.export import resolve
 from pkm.export.resolve import (
-    CHARS_PER_CALL, EXPORT_MAX_CHARS, ExportTooLarge, QueryResult,
-    QueryResultGroup, QueryResultItem, find_query_macros,
+    CHARS_PER_CALL, EXPORT_MAX_CHARS, SCAN_CHARS_PER_UNIT, ExportTooLarge,
+    GatherBudget, QueryResult, QueryResultGroup, QueryResultItem,
+    find_query_macros,
     render_page_resolved, render_query_result, resolve_text)
 from pkm.test_data.ids import canonical_title_of
 
@@ -541,3 +542,142 @@ def test_the_bound_is_exact_on_the_finished_body():
     assert render_page_resolved(*page, max_chars=n) == body
     with pytest.raises(ExportTooLarge, match=_TOO_MANY_CHARS):
         render_page_resolved(*page, max_chars=n - 1)
+
+
+# -- GatherBudget: what the route charges while it gathers -------------------
+
+def test_gather_budget_refuses_more_items_than_calls_before_fetching():
+    b = GatherBudget(max_chars=CHARS_PER_CALL * 100)
+    b.charge_query()
+    b.check_room(99)
+    with pytest.raises(ExportTooLarge, match=_TOO_MANY_CALLS):
+        b.check_room(100)
+
+
+def test_gather_budget_refuses_items_the_characters_left_cannot_hold():
+    # Each item costs five characters at least: 95 left hold 19 items.
+    b = GatherBudget(max_chars=1_000)
+    b.charge_item("Z" * 900, 1)
+    assert (b.chars_left, b.calls_left) == (95, 90)
+    b.check_room(19)
+    with pytest.raises(ExportTooLarge, match=_TOO_MANY_CHARS):
+        b.check_room(20)
+
+
+@pytest.mark.parametrize(("text", "depth", "chars"), [
+    ("ab((uid_r1))cd", 1, 5 + 4),
+    ("ab((uid_r1))cd", 3, 5 + 14),
+    ("a{{query: x}}b", 1, 5 + 2),
+    ("a{{query: x}}b", 2, 5 + 14),
+    # A ref inside a query macro goes with the macro; once macros stay raw
+    # the ref inside one is substituted on its own, until refs stay raw too.
+    ("{{query: ((uid_r1))}}", 1, 5),
+    ("{{query: ((uid_r1))}}", 2, 5 + 11),
+    ("{{query: ((uid_r1))}}", 3, 5 + 21),
+])
+def test_gather_budget_charges_literal_text_but_not_substituted_spans(
+        text, depth, chars):
+    b = GatherBudget(max_chars=1_000_000)
+    b.charge_item(text, depth)
+    assert b.chars_left == 1_000_000 - chars
+
+
+def test_gather_budget_charges_an_item_the_calls_its_resolve_costs():
+    b = GatherBudget(max_chars=1_000_000)
+    b.charge_query()
+    b.charge_item("Z" * (3 * SCAN_CHARS_PER_UNIT), 1)
+    assert b.calls_left == 1_000_000 // CHARS_PER_CALL - 1 - (1 + 3)
+
+
+def test_gather_budget_is_shared_across_queries():
+    b = GatherBudget(max_chars=CHARS_PER_CALL * 10)
+    for _ in range(10):
+        b.charge_query()
+    with pytest.raises(ExportTooLarge, match=_TOO_MANY_CALLS):
+        b.charge_query()
+
+
+_ITEM_TOKENS = st.sampled_from(
+    ["a", "\n", "((uid_r1))", "((uid_gone))", "{{query: x}}", "Z" * 150])
+_ITEM_TEXT = st.lists(_ITEM_TOKENS, max_size=5).map("".join)
+
+
+def _least_max_chars(page) -> int:
+    # Success is monotone in max_chars (both limits grow with it).
+    lo, hi = 1, EXPORT_MAX_CHARS
+    while lo < hi:
+        mid = (lo + hi) // 2
+        try:
+            render_page_resolved(*page, max_chars=mid)
+        except ExportTooLarge:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
+
+
+def _charge_like_the_gather(budget: GatherBudget,
+                            query_results: dict[str, QueryResult],
+                            texts: list[str]) -> None:
+    # The route's rounds, queries only: a macro found in round d's text
+    # runs once, its items charged at the depth they render at, d + 1.
+    seen: set[str] = set()
+    for depth in range(resolve.QUERY_MAX_DEPTH):
+        found = {e for t in texts for _, _, e in find_query_macros(t)} - seen
+        texts = []
+        for expr in sorted(found):
+            seen.add(expr)
+            result = query_results[expr]
+            budget.charge_query()
+            budget.check_room(result.total)
+            for group in result.groups:
+                for item in group.items:
+                    budget.charge_item(item.text, depth + 1)
+                    texts.append(item.text)
+
+
+@settings(max_examples=150, deadline=None)
+@given(q_items=st.lists(_ITEM_TEXT, max_size=6),
+       x_items=st.lists(_ITEM_TEXT, max_size=6),
+       ref_text=st.sampled_from(["", "r", "r {{query: x}}", "((uid_r1))"]))
+def test_the_gather_never_refuses_what_renders(q_items, x_items, ref_text):
+    def result(texts: list[str]) -> QueryResult:
+        return QueryResult(total=len(texts), groups=_groups(
+            ("Page A", [(f"i{n}", t) for n, t in enumerate(texts)])
+        ) if texts else ())
+
+    query_results = {"q": result(q_items), "x": result(x_items)}
+    tree = [node("{{query: q}}")]
+    page = (canonical_title_of("G"), tree, {"uid_r1": ref_text}, query_results)
+    least = _least_max_chars(page)
+    if any("((uid_r1))" in t for t in q_items):
+        event("an item's ref is substituted")
+    if any("{{query: x}}" in t for t in q_items):
+        event("a nested query is charged")
+    budget = GatherBudget(max_chars=least)
+    # The page block's own resolve_text call, which the gather leaves to
+    # the renderer: one unit for its short text, what charge_query charges.
+    # Charged here so that a gather charging one call too many is caught.
+    budget.charge_query()
+    _charge_like_the_gather(budget, query_results, [n.text for n in tree])
+
+
+@settings(max_examples=300, deadline=None)
+@given(text=_ITEM_TEXT, depth=st.integers(1, 3))
+def test_an_item_is_charged_the_characters_it_renders_with_empty_refs(
+        text, depth):
+    # Refs to empty text render as nothing, so with no query macro
+    # substituted the charge is exactly what the item renders; a resolved
+    # macro renders more than its charge, never less.
+    rendered = resolve_text(text, {"uid_r1": "", "uid_gone": ""},
+                            {"x": QueryResult(total=0, groups=())}, depth)
+    b = GatherBudget(max_chars=1_000_000)
+    b.charge_item(text, depth)
+    charged = 1_000_000 - b.chars_left
+    if "{{query: x}}" in text and depth < resolve.QUERY_MAX_DEPTH:
+        event("a macro is substituted")
+        assert charged < 5 + len(rendered)
+    else:
+        event("refs substituted" if "((uid_r1))" in text
+              and depth < resolve.BLOCK_REF_MAX_DEPTH else "all literal")
+        assert charged == 5 + len(rendered)

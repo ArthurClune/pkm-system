@@ -15,7 +15,7 @@ symptom in [troubleshooting.md](../troubleshooting.md).
 | File | Pattern | Role |
 |---|---|---|
 | `events.py` | Core | The event union routes and the web UI speak, plus `encode_sse()`. Nothing engine-specific leaks upward |
-| `policy.py` | Core | The tool gate (`READ_TOOLS` auto-allowed, `WRITE_TOOLS` confirm-gated), `MODELS`, `available_models()`, `default_model()`, `WRITE_PREVIEW_FIELDS` (which arguments of each write are targets and which are content), the system prompt |
+| `policy.py` | Core | The tool gate (`READ_TOOLS` auto-allowed, `WRITE_TOOLS` confirm-gated, `MCP_ONLY_TOOLS` never offered), `MODELS`, `available_models()`, `default_model()`, `WRITE_PREVIEW_FIELDS` (which arguments of each write are targets and which are content), the system prompt |
 | `write_preview.py` | Core | `build_write_preview()`: the approval card's content for a write, or a `Refusal` |
 | `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols: the seam the test double plugs into. `send()` is an async generator because the caller closes it |
 | `harness_env.py` | Core | `resolve_harness_env()`: requested model and available key → the SDK alias and the subprocess env |
@@ -126,7 +126,8 @@ What `claude_engine.py` fixes before and around each harness subprocess:
 
 | Concern | Mechanism | Rule |
 |---|---|---|
-| Tool surface | One SDK subprocess per conversation, `tools=[]` plus one MCP server running `python -m pkm.mcp.server` | `ENABLE_TOOL_SEARCH=false` must accompany `tools=[]`, or the MCP tools are deferred behind a ToolSearch tool |
+| Tool surface | One SDK subprocess per conversation, `tools=[]` plus one MCP server running `python -m pkm.mcp.server --tools` with the names in `READ_TOOLS` and `WRITE_TOOLS` | `ENABLE_TOOL_SEARCH=false` must accompany `tools=[]`, or the MCP tools are deferred behind a ToolSearch tool |
+| Host files | `MCP_ONLY_TOOLS` (`upload_asset`) is left out of `--tools`, and `classify_tool` calls it `unknown`, so a call is denied without a card | `upload_asset` reads a host path as the service account. The service runs in `app/server`, so `../../data/config.json` is the secret config. The assistant has no files of its own to upload |
 | Provider routing | `resolve_harness_env()` keys on `policy.ZAI_MODELS`, not a `glm` literal | `glm` sets `ANTHROPIC_BASE_URL` (`ZAI_BASE_URL`) and `ANTHROPIC_AUTH_TOKEN` in the subprocess env and asks for `ZAI_SDK_MODEL`, an alias z.ai maps to its plan default, so no GLM version name is in the code |
 | Model resolution | Claude models go to the SDK as aliases; the `claude` binary bundled in `claude-agent-sdk` maps them to ids | A new Claude model arrives only through an SDK upgrade, which is why `server/pyproject.toml` exempts the SDK from the uv cooldown |
 | Auth | A fresh session token (`auth_core.sign_session`) in a 0600 temp config file per conversation, passed as `PKM_CLI_CONFIG` | The file is deleted on close. The token is visible in the subprocess env; accepted for a single-user deployment |

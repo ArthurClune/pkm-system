@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:27Z
-updated_at: 2026-10-23T21:25:32Z
+updated_at: 2026-10-24T18:14:44Z
 parent: pkm-mfd0
 blocked_by:
     - pkm-tk9i
@@ -37,7 +37,7 @@ SECURITY.md is the high-level model; update it once the fixes we take on have sh
 - [ ] Login throttle keying (request.client.host via proxy headers) replaces 'every tailnet client shares the proxy's bucket'
 - [ ] Local files: only allowlisted raster images and PDFs inline; HTML/SVG download with nosniff
 - [ ] Image descriptions send the complete original image, metadata included
-- [ ] upload_asset reach (whatever containment pkm-d8vp settles on)
+- [ ] upload_asset reach: pkm-d8vp withholds it from the assistant (pkm-mcp keeps it; it runs as the user). The prompt-injection bullet should say the assistant gets only the READ_TOOLS/WRITE_TOOLS subset, with --strict-mcp-config
 - [ ] Write gating: what the card guarantees to show
 - [ ] On-device replica/outbox/cached uploads outlive session-secret rotation
 - [ ] Diagnostics body bound

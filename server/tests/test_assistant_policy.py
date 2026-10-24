@@ -5,8 +5,10 @@ import pytest
 
 from pkm.local_docs import local_href
 from pkm.assistant.policy import (
+    MCP_ONLY_TOOLS,
     SYSTEM_PROMPT,
     READ_TOOLS,
+    WRITE_PREVIEW_FIELDS,
     WRITE_TOOLS,
     all_tool_names,
     available_models,
@@ -29,7 +31,7 @@ def test_tool_names_namespaced():
         "mcp__pkm__changed_blocks", "mcp__pkm__search_assets",
     }
     assert "mcp__pkm__rename_page" in all_tool_names()
-    assert len(all_tool_names()) == 13
+    assert len(all_tool_names()) == 12
 
 
 def test_classify_tool():
@@ -46,6 +48,12 @@ def test_search_assets_is_a_read_tool():
 
 def test_rename_page_is_a_write_tool():
     assert classify_tool(mcp_tool_name("rename_page")) == "write"
+
+
+def test_upload_asset_is_not_an_assistant_tool():
+    assert classify_tool(mcp_tool_name("upload_asset")) == "unknown"
+    assert "upload_asset" not in WRITE_PREVIEW_FIELDS
+    assert "upload_asset" not in SYSTEM_PROMPT
 
 
 def test_system_prompt_names_every_write_verb():
@@ -136,14 +144,16 @@ def test_system_prompt_has_no_tool_count_to_drift():
 
 
 def test_every_mcp_tool_is_classified():
-    """The assistant only lets through tools named in READ_TOOLS or
-    WRITE_TOOLS; anything else is denied as "Tool not permitted". A verb
-    added to the MCP server without a matching entry here is invisible to
-    the in-app assistant even though CLI and Claude Code sessions see
-    it."""
+    """Every verb `pkm-mcp` registers is named exactly once: READ_TOOLS and
+    WRITE_TOOLS are what the in-app assistant gets, MCP_ONLY_TOOLS what it
+    is deliberately denied. A verb added to the MCP server without an entry
+    in one of them is invisible to the assistant by accident rather than
+    by decision."""
     from pkm.mcp import server as mcp_server
     registered = {t.name for t in mcp_server.mcp._tool_manager.list_tools()}
-    assert registered == set(READ_TOOLS) | set(WRITE_TOOLS)
+    read, write, only = set(READ_TOOLS), set(WRITE_TOOLS), set(MCP_ONLY_TOOLS)
+    assert registered == read | write | only
+    assert not (read & write or read & only or write & only)
 
 
 def test_changed_blocks_summary():

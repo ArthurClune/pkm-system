@@ -16,7 +16,14 @@ READ_TOOLS: tuple[str, ...] = ("get_page", "get_block", "search", "query",
                                "backlinks", "todos", "changed_blocks",
                                "search_assets")
 WRITE_TOOLS: tuple[str, ...] = ("save_note", "update_block", "batch",
-                                "upload_asset", "rename_page")
+                                "rename_page")
+# Verbs `pkm-mcp` serves that the in-app assistant never gets: its MCP
+# subprocess is started without them, and `classify_tool` calls them
+# "unknown", so the permission gate denies them without a card.
+# upload_asset reads a host path as the server's service account, so an
+# approved call could upload the server's own secrets; the assistant has
+# no files of its own to upload.
+MCP_ONLY_TOOLS: tuple[str, ...] = ("upload_asset",)
 
 # What the approval card shows for each write: action key -> (label,
 # target keys in display order, content keys). A target says where a
@@ -28,7 +35,6 @@ WRITE_TOOLS: tuple[str, ...] = ("save_note", "update_block", "batch",
 WRITE_PREVIEW_FIELDS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "save_note": ("save note", ("page", "parent", "todo"), ("text",)),
     "update_block": ("update block", ("uid", "mark"), ("text",)),
-    "upload_asset": ("upload file", ("path", "page", "parent"), ()),
     "rename_page": ("rename page", ("title", "new_title", "allow_merge"), ()),
     "batch:create": ("create block", ("page", "parent", "index", "as"),
                      ("text",)),
@@ -64,7 +70,7 @@ def all_tool_names() -> list[str]:
     """The full read+write tool set. No production caller: `claude_engine`
     passes `read_tool_names()` for `allowed_tools` and gates writes at
     confirm-time by `classify_tool`, never by an explicit write allowlist.
-    This function exists so `test_tool_names_namespaced`'s 13-count assertion
+    This function exists so `test_tool_names_namespaced`'s count assertion
     has something to call -- it is a tripwire that fails loudly if a tool is
     added to READ_TOOLS/WRITE_TOOLS without updating that count. Keep it,
     even though nothing in `src/` imports it."""
@@ -155,7 +161,7 @@ Retrieval questions ("what have I written about X", "who did I meet"):
 Editing and reorganisation ("tidy this page", "merge these notes"):
 - Read the page first with get_page; blocks carry uids.
 - Propose changes concisely, then apply them with the write verbs
-  (save_note, update_block, batch, upload_asset, rename_page).
+  (save_note, update_block, batch, rename_page).
 - Every write pauses for the user to confirm in the UI. If the user
   declines a write, do not retry it; ask what they want instead.
 

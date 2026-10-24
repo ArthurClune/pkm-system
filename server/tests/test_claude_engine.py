@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import stat
 from pathlib import Path
 
@@ -31,7 +32,10 @@ from pkm.assistant.events import (
     ToolStarted,
     TurnDone,
 )
-from pkm.assistant.policy import SYSTEM_PROMPT
+from mcp import ClientSession
+from mcp.client.stdio import StdioServerParameters, stdio_client
+
+from pkm.assistant.policy import READ_TOOLS, SYSTEM_PROMPT, WRITE_TOOLS
 from pkm.test_data.ids import confirm_id_of
 
 
@@ -92,6 +96,7 @@ def test_create_conversation_options_and_config_file(tmp_path):
     assert opts.system_prompt == SYSTEM_PROMPT
     assert opts.tools == []
     assert opts.setting_sources == []
+    assert opts.strict_mcp_config is True
     assert opts.include_partial_messages is True
     assert opts.max_turns == 40
     assert opts.env == {"ENABLE_TOOL_SEARCH": "false"}
@@ -100,6 +105,8 @@ def test_create_conversation_options_and_config_file(tmp_path):
                                     "changed_blocks", "search_assets")
     }
     server_cfg = opts.mcp_servers["pkm"]
+    assert server_cfg["args"] == ["-m", "pkm.mcp.server", "--tools",
+                                  ",".join(READ_TOOLS + WRITE_TOOLS)]
     cfg_path = Path(server_cfg["env"]["PKM_CLI_CONFIG"])
     assert cfg_path.parent == tmp_path
     assert stat.S_IMODE(cfg_path.stat().st_mode) == 0o600
@@ -276,6 +283,51 @@ def test_can_use_tool_allows_reads_denies_unknown(tmp_path):
     read, unknown = asyncio.run(scenario())
     assert isinstance(read, PermissionResultAllow)
     assert isinstance(unknown, PermissionResultDeny)
+
+
+def test_upload_asset_is_denied_without_a_card(tmp_path):
+    # upload_asset reads host files as the server's service account; the
+    # assistant must refuse it outright, never park on an approval card.
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        decision = await asyncio.wait_for(conv.can_use_tool(
+            "mcp__pkm__upload_asset", {"path": "../../data/config.json"},
+            None), 1)
+        queued = conv._queue.qsize()
+        await conv.close()
+        return decision, queued
+
+    decision, queued = asyncio.run(scenario())
+    assert isinstance(decision, PermissionResultDeny)
+    assert queued == 0
+
+
+def test_assistant_mcp_server_offers_exactly_the_policy_tools(tmp_path):
+    """Starts the pkm MCP subprocess exactly as the harness would and lists
+    what it offers: a tool the policy does not name must not exist there,
+    whatever the permission gate would decide. That it is the harness's
+    only MCP server is `strict_mcp_config`, asserted in the options test."""
+    engine = make_engine(tmp_path)
+    conv = asyncio.run(engine.create_conversation(SYSTEM_PROMPT, "sonnet"))
+    cfg = FakeSDKClient.instances[0].options.mcp_servers["pkm"]
+
+    async def listed():
+        params = StdioServerParameters(
+            command=cfg["command"], args=cfg["args"],
+            env={**os.environ, **cfg["env"]})
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                return {t.name for t in (await session.list_tools()).tools}
+
+    try:
+        names = asyncio.run(asyncio.wait_for(listed(), 30))
+    finally:
+        asyncio.run(conv.close())
+    assert names == set(READ_TOOLS) | set(WRITE_TOOLS)
+    assert "upload_asset" not in names
 
 
 def test_write_tool_emits_confirm_and_blocks(tmp_path):

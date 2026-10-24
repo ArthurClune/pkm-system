@@ -15,7 +15,6 @@ from pkm.assistant.write_preview import (CONTENT_LIMIT_CHARS,
                                          TARGET_LIMIT_CHARS, PreviewOp,
                                          Refusal, WritePreview,
                                          build_write_preview)
-from pkm.client.workflows import LinkedUpload
 from pkm.contracts.ops import BlockUid
 from pkm.contracts.titles import RawTitle
 from pkm.mcp import server as mcp_server
@@ -242,7 +241,6 @@ def test_alias_parent_warns_the_page_row_does_not_place_it(command):
 
 @pytest.mark.parametrize(("short", "raw"), [
     ("save_note", {"text": "t", "parent": "((abcdef01))"}),
-    ("upload_asset", {"path": "/tmp/x.png", "parent": "((abcdef01))"}),
     ("batch", {"commands": [{"command": "create", "params": {
         "page": "P", "text": "t", "parent": "((abcdef01))"}}]}),
     ("batch", {"commands": [{"command": "outline", "params": {
@@ -254,11 +252,8 @@ def test_uid_parent_warns_it_must_be_on_the_page_shown(short, raw):
     assert _UID_WARNING in _preview(short, raw).ops[0].warnings
 
 
-@pytest.mark.parametrize("short", ["save_note", "upload_asset"])
-def test_alias_parent_outside_batch_warns_nothing_is_written(short):
-    raw: dict[str, object] = (
-        {"text": "t"} if short == "save_note" else {"path": "/tmp/x.png"})
-    p = _preview(short, raw | {"parent": "{{x}}"})
+def test_alias_parent_outside_batch_warns_nothing_is_written():
+    p = _preview("save_note", {"text": "t", "parent": "{{x}}"})
     assert p.ops[0].warnings == [
         'parent "{{x}}" is an alias, which only batch knows: nothing is '
         'written']
@@ -494,17 +489,14 @@ def test_every_tool_field_is_classified():
 # -- the preview against what the registered tool actually receives -------
 
 class _Recorder:
-    def __init__(self, monkeypatch, tmp_path):
+    def __init__(self, monkeypatch):
         self.calls: dict[str, dict[str, object]] = {}
-        self.asset = tmp_path / "pic.png"
-        self.asset.write_bytes(b"png")
         fake_client = SimpleNamespace(rename_page=self._rename)
         monkeypatch.setattr(mcp_tools, "_client", lambda: fake_client)
         monkeypatch.setattr(mcp_tools, "save_blocks", self._save)
         monkeypatch.setattr(mcp_tools, "edit_block", self._edit)
         monkeypatch.setattr(mcp_tools, "apply_batch", self._batch)
         monkeypatch.setattr(mcp_tools, "render_ops_ack", lambda ack: "ok")
-        monkeypatch.setattr(mcp_tools, "upload_and_link", self._upload)
 
     def _save(self, client, text, page=None, parent=None, todo=False):
         self.calls["save_note"] = {"text": text, "page": page,
@@ -517,11 +509,6 @@ class _Recorder:
     def _batch(self, client, commands):
         self.calls["batch"] = {"commands": commands}
 
-    def _upload(self, client, path, page=None, parent=None):
-        self.calls["upload_asset"] = {"path": str(path), "page": page,
-                                      "parent": parent}
-        return LinkedUpload(url="/assets/x", uid=uid_of("NEWUID"))
-
     def _rename(self, title: RawTitle, new_title: RawTitle,
                 allow_merge=False):
         self.calls["rename_page"] = {"title": title, "new_title": new_title,
@@ -529,7 +516,7 @@ class _Recorder:
         return SimpleNamespace(result="renamed", title=new_title)
 
 
-def _hostile_inputs(asset: str) -> dict[str, dict[str, object]]:
+def _hostile_inputs() -> dict[str, dict[str, object]]:
     return {
         "save_note": {"text": "x), uid=SAFE", "page": "null",
                       "parent": "## Log", "todo": "yes"},
@@ -547,7 +534,6 @@ def _hostile_inputs(asset: str) -> dict[str, dict[str, object]]:
             {"command": "update", "params": {"uid": "{{b}}",
                                              "text": "x), uid=SAFE"}},
         ])},
-        "upload_asset": {"path": asset, "page": "null", "parent": "((p1))"},
         "rename_page": {"title": "Inbox", "new_title": "Projects",
                         "allow_merge": "yes"},
     }
@@ -571,9 +557,10 @@ def _outline_text(items, depth=0):
     return "\n".join(lines)
 
 
-def test_preview_matches_what_the_tool_receives(monkeypatch, tmp_path):
-    rec = _Recorder(monkeypatch, tmp_path)
-    for short, raw in _hostile_inputs(str(rec.asset)).items():
+def test_preview_matches_what_the_tool_receives(monkeypatch):
+    rec = _Recorder(monkeypatch)
+    assert set(_hostile_inputs()) == set(WRITE_TOOLS)
+    for short, raw in _hostile_inputs().items():
         preview = _preview(short, raw)
         asyncio.run(mcp_server.mcp.call_tool(short, raw))
         received = rec.calls[short]

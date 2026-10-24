@@ -43,6 +43,8 @@ from pkm.assistant.events import (
 )
 from pkm.assistant.harness_env import resolve_harness_env
 from pkm.assistant.policy import (
+    READ_TOOLS,
+    WRITE_TOOLS,
     classify_tool,
     read_tool_names,
     short_tool_name,
@@ -422,11 +424,16 @@ class ClaudeEngine:
                     "pkm": {
                         "type": "stdio",
                         "command": sys.executable,
-                        "args": ["-m", "pkm.mcp.server"],
+                        "args": ["-m", "pkm.mcp.server", "--tools",
+                                 ",".join(READ_TOOLS + WRITE_TOOLS)],
                         "env": {"PKM_CLI_CONFIG": str(config_path)},
                     }
                 },
                 setting_sources=[],
+                # setting_sources=[] does not stop the account's claude.ai
+                # connectors loading; without this their tools would sit
+                # beside pkm's with can_use_tool as their only guard.
+                strict_mcp_config=True,
                 include_partial_messages=True,
                 max_turns=MAX_TURNS,
                 env=harness.env,

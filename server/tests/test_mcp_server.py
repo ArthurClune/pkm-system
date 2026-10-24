@@ -1,4 +1,5 @@
 import pytest
+from mcp.server.fastmcp import FastMCP
 
 from pkm.planning import BuildError
 from pkm.client.core import ApiError
@@ -19,6 +20,35 @@ def test_tools_are_registered(tools):
     assert names == {"get_page", "get_block", "search", "query", "backlinks",
                      "todos", "changed_blocks", "save_note", "update_block",
                      "batch", "upload_asset", "search_assets", "rename_page"}
+
+
+def _listed(server) -> set[str]:
+    return {t.name for t in server._tool_manager.list_tools()}
+
+
+def test_build_server_registers_only_the_named_tools():
+    server = mcp_server.build_server(["get_page", "save_note"])
+    assert _listed(server) == {"get_page", "save_note"}
+
+
+def test_build_server_rejects_an_unknown_name():
+    with pytest.raises(ValueError, match="nope"):
+        mcp_server.build_server(["nope"])
+
+
+@pytest.mark.parametrize("arg", ["", "get_page,"])
+def test_main_names_an_empty_tool_name(arg):
+    with pytest.raises(ValueError, match="''"):
+        mcp_server.main(["--tools", arg])
+
+
+def test_main_passes_tools_through(monkeypatch):
+    ran = []
+    monkeypatch.setattr(FastMCP, "run", lambda self, *a, **k: ran.append(self))
+    mcp_server.main(["--tools", "get_page,search"])
+    mcp_server.main([])
+    assert _listed(ran[0]) == {"get_page", "search"}
+    assert _listed(ran[1]) == {fn.__name__ for fn in mcp_tools.TOOLS}
 
 
 def test_get_page_markdown_includes_uids(tools):

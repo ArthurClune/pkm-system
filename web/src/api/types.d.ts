@@ -1406,14 +1406,22 @@ export interface components {
          *     page delete's inlined copies, an asset delete's stripped tokens) would
          *     carry the block over the text length cap or the `[[` nesting cap, or
          *     further past one it was already over.
+         *
+         *     `excerpt` is the block's text up to its first `BLOCKER_EXCERPT_CHARS`
+         *     code points, and `text_length` the whole text's length in code points:
+         *     the excerpt is cut exactly when `text_length` is greater than its own
+         *     length, which a reader must show rather than pass the excerpt off as
+         *     the text.
          */
         DeleteBlockerModel: {
             /** Uid */
             uid: Brands.BlockUid;
             /** Page Title */
             page_title: Brands.CanonicalTitle;
-            /** Text */
-            text: string;
+            /** Excerpt */
+            excerpt: string;
+            /** Text Length */
+            text_length: number;
             /**
              * Reason
              * @enum {string}

@@ -297,8 +297,7 @@ def create_page(request: Request, body: CreatePageRequest,
 
 
 def _blocker_models(blockers: Sequence[DeleteBlocker]) -> list[DeleteBlockerModel]:
-    return [DeleteBlockerModel(uid=b.uid, page_title=b.page_title,
-                               text=b.text, reason=b.reason)
+    return [DeleteBlockerModel.of(b.uid, b.page_title, b.text, b.reason)
             for b in blockers]
 
 

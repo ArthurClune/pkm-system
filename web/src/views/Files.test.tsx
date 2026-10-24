@@ -265,7 +265,8 @@ describe("Files", () => {
     renderFiles();
     fireEvent.click(await screen.findByLabelText("Select pic.png"));
     const blocker = { uid: uidOf("tuid-b1"), page_title: "AI",
-                      text: "[deep text]", reason: "limit" };
+                      excerpt: "[deep text", text_length: 1_000_000,
+                      reason: "limit" };
     mockFetch
       .mockRejectedValueOnce(new ApiError(409, "/api/assets/x", undefined,
         { detail: { message: "m", blockers: [blocker] } }))
@@ -276,8 +277,8 @@ describe("Files", () => {
                                            { name: 'Can\'t delete "pic.png"' });
     expect(dialog).toHaveTextContent("Change these blocks first:");
     expect(dialog).toHaveTextContent(
-      "AI: [deep text] (removing the link would put this block over a size"
-      + " or nesting limit)");
+      "AI: [deep text… (1,000,000 characters) (removing the link would put"
+      + " this block over a size or nesting limit)");
     expect(screen.getByRole("link", { name: "AI" }))
       .toHaveAttribute("href", "/page/AI");
     expect(screen.getByText("Deleted 0 of 1 files. Failed: pic.png"))

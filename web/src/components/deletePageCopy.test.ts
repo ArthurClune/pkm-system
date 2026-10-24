@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { blockerReasonLabel, deleteConfirmMessage } from "./deletePageCopy";
+import { blockerExcerpt, blockerReasonLabel, deleteConfirmMessage } from "./deletePageCopy";
 import { rawTitleOf } from "../test-helpers";
 
 const base = { links: 0, link_pages: 0, block_refs: 0, block_ref_pages: 0, blockers: [] };
@@ -43,4 +43,15 @@ it("labels each blocker reason", () => {
   expect(blockerReasonLabel("residual")).toBe("unlinking would still leave a link to this page");
   expect(blockerReasonLabel("limit")).toBe(
     "the copied text would put this block over a size or nesting limit");
+});
+
+it("shows a whole text as it is", () => {
+  expect(blockerExcerpt({ excerpt: "Paper:: x", text_length: 9 })).toBe("Paper:: x");
+  // code points, as the server counts them, not UTF-16 units
+  expect(blockerExcerpt({ excerpt: "\u{1F600}a", text_length: 2 })).toBe("\u{1F600}a");
+});
+
+it("says an excerpt is one, with the whole text's length", () => {
+  expect(blockerExcerpt({ excerpt: "[[a//", text_length: 1_000_000 }))
+    .toBe("[[a//… (1,000,000 characters)");
 });

@@ -7,10 +7,11 @@ from __future__ import annotations
 import pytest
 from rawread import read
 
+from pkm.assets_core import strip_asset_tokens
 from pkm.contracts.ops import BlockUid
 from pkm.server.db import open_db
 from pkm.server.store import reindex_refs_for_text
-from pkm.test_data.ids import uid_of
+from pkm.test_data.ids import sha_of, uid_of
 from pkm.text_limits import TextLimitViolation, rewrite_text_limit_violation
 
 SRC_BLOCK_1 = uid_of("src_block_1")
@@ -53,6 +54,35 @@ def test_a_rewrite_of_a_row_already_over_a_limit_may_not_worsen_it():
     assert rewrite_text_limit_violation(nest(33) + long_row,
                                         nest(40)) == \
         TextLimitViolation("nesting", 40, 32)
+
+
+def test_a_rewrite_judges_each_limit_on_its_own():
+    # An asset strip on a legacy row over the length cap: the length falls,
+    # but the stripped tokens join `[` + `[` into a nest 200 deep. (Few
+    # tokens: the strip is quadratic in them.)
+    sha = sha_of("ab" * 32)
+    padding = "y" * 1_000_000
+    before = (("[" + f"![p](/assets/{sha}/p.png)" + "[a//") * 200
+              + "x" + "]]" * 200 + padding)
+    assert len(before) > 1_010_000
+    after = strip_asset_tokens(before, sha)
+    assert after == nest(200) + padding
+    assert rewrite_text_limit_violation(before, after) == \
+        TextLimitViolation("nesting", 200, 32)
+
+
+def test_a_rewrite_of_equal_length_may_not_deepen_past_the_cap():
+    padding = "y" * 1_000_000
+    before = "[Q[a//" * 40 + "x" + "]]" * 40 + padding
+    after = "Q[[a//" * 40 + "x" + "]]" * 40 + padding
+    assert len(after) == len(before)
+    assert rewrite_text_limit_violation(before, after) == \
+        TextLimitViolation("nesting", 40, 32)
+
+
+def test_a_rewrite_that_shrinks_both_limits_is_stored():
+    assert rewrite_text_limit_violation(
+        nest(40) + "y" * 1_000_005, nest(39) + "y" * 1_000_000) is None
 
 
 def _page_id(con, page: str) -> int:
@@ -155,7 +185,8 @@ def test_rename_within_the_cap_still_rewrites(client, seeded_config):
 def _assert_delete_blocked(client, config, source_text: str) -> None:
     preview = client.get("/api/delete-preview", params={"title": "P"})
     assert preview.status_code == 200, preview.text
-    blocker = {"uid": DEL_SOURCE1, "page_title": "Src", "text": source_text,
+    blocker = {"uid": DEL_SOURCE1, "page_title": "Src",
+               "excerpt": source_text, "text_length": len(source_text),
                "reason": "limit"}
     assert preview.json()["blockers"] == [blocker]
     r = client.delete("/api/page/P")
@@ -218,9 +249,12 @@ def test_asset_delete_that_would_nest_a_block_past_the_cap_is_refused(
     assert r.status_code == 200, r.text
     r = client.delete(f"/api/assets/{asset['sha256']}")
     assert r.status_code == 409, r.text
+    # The refusal carries an excerpt and the whole text's length, not text
+    # up to a million characters per blocked block.
+    assert len(text) > 200
     assert r.json()["detail"]["blockers"] == [
-        {"uid": ASSET_NEST1, "page_title": "Src", "text": text,
-         "reason": "limit"}]
+        {"uid": ASSET_NEST1, "page_title": "Src", "excerpt": text[:200],
+         "text_length": len(text), "reason": "limit"}]
     assert _text(seeded_config, ASSET_NEST1) == text
     sha = asset["sha256"]
     assert _scalar(seeded_config,

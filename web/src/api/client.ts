@@ -56,11 +56,21 @@ function detailFromBody(body: unknown): string | undefined {
 
 type DeleteBlocker = components["schemas"]["DeleteBlockerModel"];
 
+// Every reason the server sends: a key missing or extra here fails to
+// compile against the generated model. A reason not listed is a malformed
+// refusal, never shown with a guessed label.
+const BLOCKER_REASONS: Record<DeleteBlocker["reason"], true> = {
+  query: true, used_as_attribute: true, attribute: true, residual: true,
+  limit: true,
+};
+
 function isBlocker(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
   const fields = value as Record<string, unknown>;
-  return ["uid", "page_title", "text", "reason"]
-    .every((key) => typeof fields[key] === "string");
+  return ["uid", "page_title", "excerpt", "reason"]
+      .every((key) => typeof fields[key] === "string")
+    && typeof fields.text_length === "number"
+    && Object.hasOwn(BLOCKER_REASONS, fields.reason as string);
 }
 
 /** The blocks a delete's 409 names (`{"detail": {"message", "blockers"}}`,

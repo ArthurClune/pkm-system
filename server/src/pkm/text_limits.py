@@ -63,17 +63,22 @@ def rewrite_text_limit_violation(
     None when it may store `after`.
 
     A rename's longer title, a page delete's inlined copies and an asset
-    delete's stripped tokens change text nobody sent, so `after` is refused
-    when it is over a limit `before` was within, or further past one
-    `before` was already over. A row stored before the limits that the
-    rewrite leaves no worse is not refused: the page it links must stay
-    renamable and deletable. Only a text already over a limit has its own
-    nesting measured here, past the length cap if it is that long too.
+    delete's stripped tokens change text nobody sent. Each limit is judged
+    on its own: `after` is refused when it is over the length cap and
+    longer than `before`, or nested past the cap and deeper than `before`.
+    When `before` is within both limits that is `text_limit_violation`
+    exactly. A row stored before the limits may only stay level or improve
+    on each limit, so the page it links stays renamable and deletable, and
+    no run of rewrites can trade its length for depth. The nesting of a
+    text over the length cap is measured here too: only a stored row can
+    be that long.
     """
-    violation = text_limit_violation(after)
-    if violation is None:
+    if len(after) > MAX_BLOCK_TEXT_CHARS and len(after) > len(before):
+        return TextLimitViolation("length", len(after), MAX_BLOCK_TEXT_CHARS)
+    # The fast path `text_limit_violation` takes, whatever the length.
+    if after.count("[[") <= MAX_LINK_NESTING:
         return None
-    if violation.kind == "length":
-        return violation if len(after) > len(before) else None
-    return violation if violation.measured > link_nesting_depth(before) \
-        else None
+    depth = link_nesting_depth(after)
+    if depth > MAX_LINK_NESTING and depth > link_nesting_depth(before):
+        return TextLimitViolation("nesting", depth, MAX_LINK_NESTING)
+    return None

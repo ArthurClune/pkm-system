@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { pagePath } from "../paths";
 import {
-  BLOCKED_LEAD, blockerReasonLabel, type DeleteBlocker,
+  BLOCKED_LEAD, blockerExcerpt, blockerReasonLabel, type DeleteBlocker,
 } from "./deletePageCopy";
 
 /** `label` says why each block stops the delete; a page delete's reasons
@@ -50,7 +50,7 @@ export function DeleteBlockedDialog({
               <Link to={pagePath(b.page_title)} onClick={onClose}>
                 {b.page_title}
               </Link>
-              {": "}{b.text}{" ("}{label(b.reason)}{")"}
+              {": "}{blockerExcerpt(b)}{" ("}{label(b.reason)}{")"}
             </li>
           ))}
         </ul>

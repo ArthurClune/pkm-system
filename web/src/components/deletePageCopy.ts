@@ -35,6 +35,17 @@ export function blockedHeading(title: RawTitle): string {
 
 export const BLOCKED_LEAD = "Change these blocks first:";
 
+/** A blocker's text as the dialog shows it: the server sends an excerpt
+ * and the whole text's length in code points, and a cut excerpt says so
+ * rather than passing for the whole text. */
+export function blockerExcerpt(
+  b: Pick<DeleteBlocker, "excerpt" | "text_length">,
+): string {
+  const shown = [...b.excerpt].length;
+  if (shown >= b.text_length) return b.excerpt;
+  return `${b.excerpt}… (${b.text_length.toLocaleString("en-US")} characters)`;
+}
+
 export function blockerReasonLabel(reason: DeleteBlocker["reason"]): string {
   switch (reason) {
     case "query":

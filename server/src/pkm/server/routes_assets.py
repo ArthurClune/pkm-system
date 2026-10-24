@@ -181,9 +181,8 @@ def _strip_references(db: Db, sha: Sha256Hex) -> int:
         if new_text == block["text"]:
             continue
         if rewrite_text_limit_violation(block["text"], new_text) is not None:
-            blockers.append(DeleteBlockerModel(
-                uid=ref.uid, page_title=ref.page_title, text=block["text"],
-                reason="limit"))
+            blockers.append(DeleteBlockerModel.of(
+                ref.uid, ref.page_title, block["text"], "limit"))
         stripped.append((ref.uid, new_text))
     if blockers:
         raise HTTPException(status_code=409, detail={

@@ -245,7 +245,7 @@ it("apiDownload throws OfflineError without fetching when offline", async () => 
 describe("deleteRefusalBlockers", () => {
   const blocker = {
     uid: uidOf("tuid-b1"), page_title: canonicalTitleOf("AI"),
-    text: "[x]", reason: "limit" as const,
+    excerpt: "[x]", text_length: 3, reason: "limit" as const,
   };
   const refusal = (body: unknown, status = 409) =>
     new ApiError(status, "/api/assets/x", undefined, body);
@@ -267,5 +267,19 @@ describe("deleteRefusalBlockers", () => {
       refusal({ detail: { blockers: [] } }))).toBeNull();
     expect(deleteRefusalBlockers(
       refusal({ detail: { blockers: [{ uid: 1 }] } }))).toBeNull();
+    expect(deleteRefusalBlockers(refusal({ detail: { blockers: [
+      { ...blocker, text_length: "3" }] } }))).toBeNull();
+  });
+
+  it("reads every reason the server sends, and refuses one it does not", () => {
+    for (const reason of ["query", "used_as_attribute", "attribute",
+                          "residual", "limit"]) {
+      expect(deleteRefusalBlockers(refusal({ detail: { blockers: [
+        { ...blocker, reason }] } }))).toHaveLength(1);
+    }
+    expect(deleteRefusalBlockers(refusal({ detail: { blockers: [
+      { ...blocker, reason: "future" }] } }))).toBeNull();
+    expect(deleteRefusalBlockers(refusal({ detail: { blockers: [
+      { ...blocker, reason: "toString" }] } }))).toBeNull();
   });
 });

@@ -3251,9 +3251,13 @@
             "title": "Page Title",
             "x-brand": "CanonicalTitle"
           },
-          "text": {
+          "excerpt": {
             "type": "string",
-            "title": "Text"
+            "title": "Excerpt"
+          },
+          "text_length": {
+            "type": "integer",
+            "title": "Text Length"
           },
           "reason": {
             "type": "string",
@@ -3271,11 +3275,12 @@
         "required": [
           "uid",
           "page_title",
-          "text",
+          "excerpt",
+          "text_length",
           "reason"
         ],
         "title": "DeleteBlockerModel",
-        "description": "A block whose reference to the page a delete cannot rewrite. `query`:\na query macro names the page. `used_as_attribute`: the block's leading\n`Name::` attribute is the page. `attribute`: unlinking would add or\nchange the block's leading `Name::` attribute (as for `[[page]]:: v`),\nturning it into a property block. `residual`: the rewritten text would\nstill reference the page or one of its blocks. `limit`: the rewrite (a\npage delete's inlined copies, an asset delete's stripped tokens) would\ncarry the block over the text length cap or the `[[` nesting cap, or\nfurther past one it was already over."
+        "description": "A block whose reference to the page a delete cannot rewrite. `query`:\na query macro names the page. `used_as_attribute`: the block's leading\n`Name::` attribute is the page. `attribute`: unlinking would add or\nchange the block's leading `Name::` attribute (as for `[[page]]:: v`),\nturning it into a property block. `residual`: the rewritten text would\nstill reference the page or one of its blocks. `limit`: the rewrite (a\npage delete's inlined copies, an asset delete's stripped tokens) would\ncarry the block over the text length cap or the `[[` nesting cap, or\nfurther past one it was already over.\n\n`excerpt` is the block's text up to its first `BLOCKER_EXCERPT_CHARS`\ncode points, and `text_length` the whole text's length in code points:\nthe excerpt is cut exactly when `text_length` is greater than its own\nlength, which a reader must show rather than pass the excerpt off as\nthe text."
       },
       "DeleteOp": {
         "properties": {

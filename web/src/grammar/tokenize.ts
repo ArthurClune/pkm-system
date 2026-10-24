@@ -13,6 +13,7 @@ import type { BlockUid, NormalizedTitle, Sha256Hex } from "../api/brands";
 import { parseSha256Hex } from "../replica/sha256";
 import { scanMarkdownLinkAt } from "./markdown";
 import { isRefTitle, normalizeRefTitle, scanGrammar, type GrammarToken } from "./scan";
+import { MAX_LINK_NESTING } from "./textLimits";
 
 export type EmphasisKind = "bold" | "italic" | "strike" | "highlight";
 
@@ -297,8 +298,17 @@ function tokenizeBlockUncached(text: string): BlockSegment[] {
   const { tokens } = scanGrammar(text);
   // Tokens are sorted outer-before-inner, so on a shared start the wider
   // token wins the map slot (e.g. an attribute over a hashtag in "#x:: y").
+  // A block stored before the write-time limit (or written out of band) may
+  // nest links past it; tokenizeInline recurses once per nesting level, so
+  // such a block renders its page refs as text instead of following them.
+  const overNested = tokens.some(
+    (t) => t.kind === "page-ref" && t.depth >= MAX_LINK_NESTING,
+  );
   const byStart = new Map<number, GrammarToken>();
-  for (const t of tokens) if (!byStart.has(t.start)) byStart.set(t.start, t);
+  for (const t of tokens) {
+    if (overNested && t.kind === "page-ref") continue;
+    if (!byStart.has(t.start)) byStart.set(t.start, t);
+  }
 
   const out: BlockSegment[] = [];
   const todo = tokens.find((t) => t.kind === "todo");

@@ -435,3 +435,17 @@ describe("tokenizeBlock caching", () => {
     expect(afterBound).toEqual(firstResult);
   });
 });
+
+describe("tokenizeBlock past the link nesting limit", () => {
+  const nest = (n: number) => "[[a//".repeat(n) + "[[Deep]]" + "]]".repeat(n);
+
+  it("never recurses on a legacy block nested thousands deep", () => {
+    const segs = tokenizeBlock(nest(6000));
+    expect(segs.some((s) => s.kind === "page-ref")).toBe(false);
+  }, 30_000);
+
+  it("still yields the inner page-ref of a 32-deep nest", () => {
+    const segs = tokenizeBlock(nest(31));
+    expect(segs.some((s) => s.kind === "page-ref")).toBe(true);
+  });
+});

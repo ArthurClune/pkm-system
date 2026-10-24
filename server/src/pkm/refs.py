@@ -336,6 +336,30 @@ class TagSpan:
     raw_title: RawTitle
 
 
+def _bracket_pairs(text: str, source: str) -> list[tuple[int, int]]:
+    """The `[[...]]` runs `bracket_spans` reports, as (open, close) offsets
+    sorted by open: `close` is just past the `]]`. Its docstring owns the
+    pairing rules; this is the flat list it nests."""
+    pairs: list[tuple[int, int]] = []
+    opens: list[int] = []
+    n = len(text)
+    i = 0
+    while i < n - 1:
+        pair = text[i : i + 2]
+        if pair == "[[":
+            opens.append(i)
+            i += 2
+        elif pair == "]]" and opens:
+            pairs.append((opens.pop(), i + 2))
+            i += 2
+        else:
+            i += 1
+    ticks = backtick_positions(source)
+    return sorted(
+        p for p in pairs if not holds_backtick(ticks, p[0] + 2, p[1] - 2)
+    )
+
+
 def bracket_spans(text: str, source: str) -> tuple[BracketSpan, ...]:
     """Sole owner of `[[...]]` pairing (extractor and rewriter alike): the
     top-level runs in `text`, each holding the runs nested directly in it.
@@ -356,24 +380,7 @@ def bracket_spans(text: str, source: str) -> tuple[BracketSpan, ...]:
     Iterative throughout: nesting depth is bounded by the text, not by the
     Python recursion limit.
     """
-    pairs: list[tuple[int, int]] = []
-    opens: list[int] = []
-    n = len(text)
-    i = 0
-    while i < n - 1:
-        pair = text[i : i + 2]
-        if pair == "[[":
-            opens.append(i)
-            i += 2
-        elif pair == "]]" and opens:
-            pairs.append((opens.pop(), i + 2))
-            i += 2
-        else:
-            i += 1
-    ticks = backtick_positions(source)
-    pairs = sorted(
-        p for p in pairs if not holds_backtick(ticks, p[0] + 2, p[1] - 2)
-    )
+    pairs = _bracket_pairs(text, source)
     # Matched pairs nest properly, so in open order a pair's parent is the
     # nearest earlier pair still enclosing it.
     parent: list[int] = []
@@ -406,6 +413,28 @@ def bracket_spans(text: str, source: str) -> tuple[BracketSpan, ...]:
         if parent[k] != -1:
             kids[parent[k]].append(span)
     return tuple(span for k in roots if (span := built[k]) is not None)
+
+
+def link_nesting_depth(text: str) -> int:
+    """How deep `text`'s `[[...]]` runs nest: the height of the run tree
+    `bracket_spans` builds over the code-stripped text, 0 when it has no
+    run. `#[[` counts like `[[`; brackets in code, an unclosed `[[`, a
+    stray `]]` and a run whose title holds a backtick do not.
+
+    Walks the sorted pairs with a stack instead of building spans, so a
+    text nested hundreds of thousands deep is measured without recursion
+    and without allocating a tree. grammar/scan.ts linkNestingDepth is the
+    web's copy, pinned equal by shared/fixtures/text_limits_parity.json.
+    """
+    pairs = _bracket_pairs(strip_code(text), text)
+    closes: list[int] = []  # close offsets of the pairs enclosing this one
+    deepest = 0
+    for open_, close in pairs:
+        while closes and open_ >= closes[-1]:
+            closes.pop()
+        closes.append(close)
+        deepest = max(deepest, len(closes))
+    return deepest
 
 
 def iter_bracket_spans(spans: Iterable[BracketSpan]) -> Iterator[BracketSpan]:

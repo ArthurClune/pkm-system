@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
+import { TITLE_WHITESPACE } from "../grammar/titleWhitespace.gen";
 import { asRawTitle, canonicalizeTitle, findOpTitleViolation,
          titleSyntaxReason } from "./titles";
 import type { CanonicalTitle, NormalizedTitle, RawTitle } from "../api/brands";
@@ -103,14 +104,46 @@ describe("canonicalizeTitle", () => {
     expect(canonicalizeTitle(text, active)).toBe(want);
   });
 
-  test("preserves boundary U+0020 before activation", () => {
-    expect(canonicalizeTitle("  A  ", false)).toBe("  A  ");
+  test("preserves single boundary U+0020 before activation", () => {
+    expect(canonicalizeTitle(" A ", false)).toBe(" A ");
   });
 
-  test("strips only boundary U+0020 after activation", () => {
+  test("strips boundary U+0020 after activation", () => {
+    expect(canonicalizeTitle(" A ", true)).toBe("A");
     expect(canonicalizeTitle("  A  ", true)).toBe("A");
-    expect(canonicalizeTitle("A  B", true)).toBe("A  B");
-    expect(canonicalizeTitle("\u00a0 A \u00a0", true)).toBe("\u00a0 A \u00a0");
+  });
+
+  // Mirrors server tests/test_title_whitespace_fold.py's fold table.
+  test.each([
+    ["A  B", "A B", "A B"],
+    ["A\u00a0B", "A B", "A B"],
+    [" A ", " A ", "A"],
+    ["  A", "A", "A"],
+    ["\tA\u3000", "A", "A"],
+    ["Foo\n", "Foo", "Foo"],
+    ["A B", "A B", "A B"],
+    ["\u00a0 A \u00a0", "A", "A"],
+    ["", "", ""],
+  ] as const)("folds the whitespace runs of %j", (text, inactive, active) => {
+    expect(canonicalizeTitle(text, false)).toBe(inactive);
+    expect(canonicalizeTitle(text, true)).toBe(active);
+    expect(canonicalizeTitle(inactive, false)).toBe(inactive);
+    expect(canonicalizeTitle(active, true)).toBe(active);
+  });
+
+  test.each(["A\u200bB", "A\ufeffB", "A\x1cB", "A\u180eB"])(
+    "leaves the look-alike %j outside the list byte for byte", (text) => {
+      expect(canonicalizeTitle(text, false)).toBe(text);
+      expect(canonicalizeTitle(text, true)).toBe(text);
+    });
+
+  test("the list is JS whitespace less U+FEFF plus U+0085", () => {
+    const expected = new Set<string>(["\x85"]);
+    for (let c = 0; c <= 0xffff; c += 1) {
+      const ch = String.fromCharCode(c);
+      if (/\s/.test(ch) && ch !== "\ufeff") expected.add(ch);
+    }
+    expect(new Set(TITLE_WHITESPACE)).toEqual(expected);
   });
 });
 

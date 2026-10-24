@@ -78,10 +78,10 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
 
   async function addEntry(e: FormEvent) {
     e.preventDefault();
-    // trim() only gates the empty-input case: it strips all Unicode
-    // whitespace, including NBSP, which the server's canonicalization
-    // deliberately does not. The untrimmed value is sent as-is so the
-    // server's canonicalize_title decides what survives.
+    // trim() only gates the empty-input case: its set is JS's, not the
+    // title fold's TITLE_WHITESPACE (it takes U+FEFF, which a title keeps),
+    // and edge U+0020 is the plain-space flag's call. The untrimmed value is
+    // sent as-is so the server's canonicalize_title decides what survives.
     if (!newTitle.trim()) return;
     setAddError(null);
     await runMutation(async () => {

@@ -1,7 +1,8 @@
 // pattern: Functional Core
-// Shared title canonicalization for replica boundaries. Control whitespace is
-// always normalized by the reference-title rule; migration activation adds
-// removal of boundary U+0020 only, preserving NBSP and internal spaces.
+// Shared title canonicalization for replica boundaries. Whitespace runs
+// (NBSP and the other listed characters included) always fold to one U+0020
+// by the reference-title rule; migration activation adds removal of boundary
+// U+0020 from a title the fold left unchanged.
 
 import type { CanonicalTitle, NormalizedTitle, RawTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";

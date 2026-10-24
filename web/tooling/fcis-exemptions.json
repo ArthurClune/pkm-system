@@ -5,6 +5,7 @@
   "src/outline/handlers.ts": "Type-only declaration of the editor's command port (the interface useOutline implements and the components call) -- no runtime declarations, nothing to classify.",
   "src/components/beautifulMermaid.ts": "Bare re-export of the beautiful-mermaid package -- exists to name the lazy chunk and give tests a mock seam (see the file's own comment); no runtime declarations of its own, nothing to classify.",
   "src/router.ts": "Static React Router future-flag constants shared by main.tsx and every test's MemoryRouter -- a config value, not FCIS logic to classify.",
+  "src/grammar/titleWhitespace.gen.ts": "Generated verbatim from server/src/pkm/title_whitespace_dump.py (the title fold's whitespace list, a string constant) -- data, not hand-written logic; see the file's own generated-file comment.",
   "src/replica/baseSchema.gen.ts": "Generated verbatim from server/src/pkm/schema_dump.py (a SQL DDL string constant) -- data, not hand-written logic; see the file's own generated-file comment.",
   "src/replica/columns.gen.ts": "Generated from server/src/pkm/rows.py and brand_registry.py (the Columns interface and its metadata tables) -- data, not hand-written logic; see the file's own generated-file comment.",
   "src/replica/replayArbs.ts": "Test-only fast-check arbitraries shared by the rewind and replay properties, excluded from unit coverage the same as testDb.ts (see vite.config.ts coverage.exclude) -- test support, not app runtime code.",

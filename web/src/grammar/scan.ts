@@ -26,6 +26,7 @@
 //   bracket side ({{[[TODO}} etc.) so togglers can echo the spelling back.
 
 import type { BlockUid, NormalizedTitle } from "../api/brands";
+import { TITLE_WHITESPACE } from "./titleWhitespace.gen";
 
 export interface Span {
   start: number;
@@ -44,24 +45,31 @@ export type GrammarToken =
        suffixEnd: number } & Span)
   | ({ kind: "inline-code" | "code-fence" } & Span);
 
-// Mirrors refs.py normalize_title. Titles are normalized where they are
-// born, so no page holds control whitespace: a multi-line [[link]] resolves
-// to the one-line title — for extraction, for the rendered link's href, and
-// for Ctrl-O navigation alike. Deliberately narrow: a title with no control
-// whitespace is returned unchanged, so "Two  Spaces" keeps its double space.
-const CONTROL_WS_RE = /[\t\n\r\f\v]/;
-const WS_RUN_RE = /[ \t\n\r\f\v]+/g;
+// Mirrors refs.py normalize_title: every run of TITLE_WHITESPACE, the list
+// the server generates for us (never JS's `\s`, which takes U+FEFF and
+// leaves out U+0085), folds to one U+0020. Titles are normalized where they
+// are born and wherever a lookup key arrives, so `A  B`, `A\u00a0B` and a
+// multi-line [[link]] all name the page `A B`: for extraction, for the
+// rendered link's href, and for Ctrl-O navigation alike. A title the fold
+// leaves unchanged comes back as is, edge padding included; one it changes
+// also loses its edge U+0020. After the fold every listed character is
+// U+0020, so the strip is of U+0020 only, never trim().
+const WS_CLASS = [...TITLE_WHITESPACE]
+  .map((ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`).join("");
+const WS_RUN_RE = new RegExp(`[${WS_CLASS}]+`, "g");
 
 export function normalizeRefTitle(text: string): NormalizedTitle {
-  if (!CONTROL_WS_RE.test(text)) return text as NormalizedTitle;
-  return stripLikePython(text.replace(WS_RUN_RE, " ")) as NormalizedTitle;
+  const folded = text.replace(WS_RUN_RE, " ");
+  if (folded === text) return text as NormalizedTitle;
+  return folded.replace(/^ +| +$/g, "") as NormalizedTitle;
 }
 
 // The whitespace of Python's str.strip() and its re `\s`, which refs.py
-// trims titles with and anchors hashtags and embeds on. JS's trim() and
-// `\s` are a different set: they also take U+FEFF and leave out
-// U+001C-U+001F and U+0085, so a title edged with one of those would name
-// another page here than on the server.
+// decides blank titles and trims attribute names with, and anchors hashtags
+// and embeds on: TITLE_WHITESPACE plus U+001C-U+001F. JS's trim() and `\s`
+// are a different set: they also take U+FEFF and leave out U+001C-U+001F and
+// U+0085, so a title edged with one of those would be blank here and not on
+// the server, or the reverse.
 const PY_SPACE = "\\t-\\r\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029"
   + "\\u202f\\u205f\\u3000";
 const PY_SPACE_RE = new RegExp(`[${PY_SPACE}]`);

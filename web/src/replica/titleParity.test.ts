@@ -45,8 +45,10 @@ describe("title verdicts agree with the server's", () => {
     expect(cases.filter((c) => c.blank).length).toBeGreaterThan(20);
     expect(cases.filter((c) => c.normalized !== c.titleText).length)
       .toBeGreaterThan(100);
+    // Only a title whose sole whitespace is one edge space differs here:
+    // the fold strips the edges of any title it changes.
     expect(cases.filter((c) => c.canonical !== c.normalized).length)
-      .toBeGreaterThan(50);
+      .toBeGreaterThan(20);
   });
 
   test.each(cases.map((c) => [JSON.stringify(c.titleText), c] as const))(

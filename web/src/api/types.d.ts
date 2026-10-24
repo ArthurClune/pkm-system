@@ -1975,6 +1975,8 @@ export interface components {
             blocks_moved: number;
             /** Blocks Rewritten */
             blocks_rewritten: number;
+            /** Sidebars Retitled */
+            sidebars_retitled: number;
             /** Generation */
             generation: string;
         };
@@ -1988,6 +1990,8 @@ export interface components {
             groups: components["schemas"]["TitleMigrationGroup"][];
             /** Blockers */
             blockers: components["schemas"]["TitleMigrationBlocker"][];
+            /** Sidebar Retitles */
+            sidebar_retitles: components["schemas"]["TitleMigrationSidebarRetitle"][];
         };
         /** TitleMigrationBlocker */
         TitleMigrationBlocker: {
@@ -2023,6 +2027,15 @@ export interface components {
             page_id: Brands.PageId;
             /** Title */
             title: Brands.CanonicalTitle;
+        };
+        /** TitleMigrationSidebarRetitle */
+        TitleMigrationSidebarRetitle: {
+            /** Sidebar Id */
+            sidebar_id: Brands.SidebarEntryId;
+            /** Title */
+            title: Brands.CanonicalTitle;
+            /** Canonical Title */
+            canonical_title: Brands.CanonicalTitle;
         };
         /** TitlesPayload */
         TitlesPayload: {

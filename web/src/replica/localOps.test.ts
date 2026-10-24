@@ -94,12 +94,13 @@ describe("subtreeUids", () => {
 });
 
 describe("getOrCreateLocalPage", () => {
-  test("preserves boundary U+0020 while inactive and always normalizes control whitespace", () => {
-    const padded = getOrCreateLocalPage(t.db, rawTitleOf("  Offline Padded  "), 5);
+  test("preserves single boundary U+0020 while inactive and always folds whitespace runs", () => {
+    // A run of two at an edge would fold, flag or no flag.
+    const padded = getOrCreateLocalPage(t.db, rawTitleOf(" Offline Padded "), 5);
     const control = getOrCreateLocalPage(t.db, rawTitleOf("Control\nTitle"), 5);
 
     expect(t.db.select("SELECT title FROM pages WHERE id = " + padded, ["title"]))
-      .toEqual([{ title: "  Offline Padded  " }]);
+      .toEqual([{ title: " Offline Padded " }]);
     expect(t.db.select("SELECT title FROM pages WHERE id = " + control, ["title"]))
       .toEqual([{ title: "Control Title" }]);
   });
@@ -376,6 +377,19 @@ describe("applyLocalOps", () => {
       "SELECT id AS page_id FROM pages WHERE title = 'Fresh Offline Page'", ["page_id"]);
     expect(pages.length).toBe(1);
     expect(pages[0].page_id).toBeLessThan(0);
+  });
+
+  test("create_page folds a title's whitespace runs, as the server does", () => {
+    // Filed under another spelling, the page would split from the server's
+    // on sync.
+    apply(t.db, [
+      { op: "create_page", page_title: rawTitleOf("A\u00a0B") },
+      { op: "create_page", page_title: rawTitleOf("A  B") },
+    ], 99);
+    const pages = t.db.select(
+      "SELECT id AS page_id, title FROM pages WHERE title LIKE 'A%B'",
+      ["page_id", "title"]);
+    expect(pages).toEqual([{ page_id: pages[0]?.page_id, title: "A B" }]);
   });
 
   test("a batch applies atomically: a bad op rolls the whole batch back", () => {

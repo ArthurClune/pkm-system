@@ -311,10 +311,10 @@
       "block_refs": []
     },
     {
-      "text": "[[Padded  Title]] keeps its double space",
+      "text": "[[Padded  Title]] folds its double space",
       "refs": [
         {
-          "title": "Padded  Title",
+          "title": "Padded Title",
           "kind": "link"
         }
       ],
@@ -3544,7 +3544,7 @@
       "text": "}}]][[[  ]]]‍((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))]Beta",
       "refs": [
         {
-          "title": "[  ",
+          "title": "[",
           "kind": "link"
         }
       ],

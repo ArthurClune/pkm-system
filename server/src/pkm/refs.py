@@ -16,7 +16,7 @@ from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BLOCK_REF_TOKEN, UID_RE, BlockUid
 from pkm.contracts.titles import CanonicalTitle as CanonicalTitle
 from pkm.contracts.titles import NormalizedTitle as NormalizedTitle
-from pkm.contracts.titles import RawTitle
+from pkm.contracts.titles import TITLE_WHITESPACE, RawTitle
 
 # A ``` run followed by a word character is a fence *opener* with an info
 # string (```css, ```mermaid), never a closer -- without the lookahead, an
@@ -48,34 +48,42 @@ _BARE_TAG = re.compile(_TAG_NAME)
 _HASHTAG = re.compile(rf"(?:^|(?<=[\s(]))#({_TAG_NAME})")
 _BLOCK_REF = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")
 _EMBED = re.compile(r"\{\{\s*(?:\[\[)?embed(?:\]\])?\s*[:}]")
-# Control whitespace in a page title makes the page unreachable.
-# Both classes are plain character classes with a single quantifier -- no
-# nested/overlapping quantifiers, so neither can backtrack (see the
-# _ATTRIBUTE note above for what that costs when it goes wrong).
-_CONTROL_WS = re.compile(r"[\t\n\r\f\v]")
-_WS_RUN = re.compile(r"[ \t\n\r\f\v]+")
+# The title fold's whitespace, one class built from the shared list.
+# A plain character class with a single quantifier -- no nested or
+# overlapping quantifiers, so it cannot backtrack (see the _ATTRIBUTE note
+# above for what that costs when it goes wrong).
+_WS_RUN = re.compile(f"[{re.escape(TITLE_WHITESPACE)}]+")
 
 
 def normalize_title(text: str) -> NormalizedTitle:
-    """Collapse the whitespace in a page title that holds a control char.
+    """Fold every whitespace run in a page title to one U+0020.
 
-    Titles are normalized where they are born, so no page holds control
-    whitespace: a multi-line [[link]] names the one-line title, and a
-    lookup key arriving with a newline (a page route's `{title:wholepath}`,
-    a query param) is folded onto that same title by `read_title`.
+    Whitespace is `TITLE_WHITESPACE`, never a language's `\\s`: the web
+    folds by the same generated list, so both sides name the same page.
+    Titles are normalized where they are born and wherever a lookup key
+    arrives (a page route's `{title:wholepath}`, a query param, a [[link]]
+    over several lines), so a key spelled `A  B`, `A\\u00a0B` or `A B\\n`
+    reaches the page `A B` and no other.
 
-    Deliberately narrow: a title with no control whitespace is returned
-    byte for byte, so runs of plain spaces in the existing graph ("Two
-    Spaces") are never collateral damage. Callers drop a title that
-    normalizes to empty -- `[[\\n]]` references no page.
+    When the fold changes nothing the title comes back byte for byte, so a
+    database whose plain-space flag is off keeps a title's single-space
+    edge padding (` A `). When it changes something, edge U+0020 goes too.
+    After the fold every listed character is U+0020, so the strip is
+    `strip(" ")`, never `strip()`, which would also take U+001C-U+001F.
+    Callers drop a title that normalizes to empty -- `[[\\n]]` references
+    no page.
     """
-    if _CONTROL_WS.search(text) is None:
+    folded = _WS_RUN.sub(" ", text)
+    if folded == text:
         return NormalizedTitle(RawTitle(text))
-    return NormalizedTitle(RawTitle(_WS_RUN.sub(" ", text).strip()))
+    return NormalizedTitle(RawTitle(folded.strip(" ")))
 
 
 def canonicalize_title(text: str, *, plain_space: bool) -> NormalizedTitle:
-    """Canonicalize under an explicit, caller-supplied flag value.
+    """Canonicalize under an explicit, caller-supplied flag value: the
+    whitespace fold of `normalize_title`, then, with `plain_space`, edge
+    U+0020 stripped whatever the fold did. So under the flag a canonical
+    title is its words joined by single spaces.
 
     This returns `NormalizedTitle`, not `CanonicalTitle`: `plain_space` here
     is whatever the caller passes, not necessarily this database's live
@@ -99,8 +107,9 @@ def parse_block_uid(text: str) -> BlockUid | None:
 
 def canonical_daily_title(day: date) -> CanonicalTitle:
     """The daily page title for `day`, as the canonical title it already is:
-    its fixed format never has control whitespace or boundary padding, all
-    `canonicalize_title` ever changes, under either plain_space setting."""
+    its fixed format never has a whitespace run to fold or boundary
+    padding, all `canonicalize_title` ever changes, under either
+    plain_space setting."""
     return CanonicalTitle(NormalizedTitle(RawTitle(title_for_date(day))))
 
 
@@ -160,9 +169,10 @@ def is_blank_title(text: str) -> bool:
     """True when `text` has nothing in it but whitespace once normalized.
 
     This is the shared blank-title predicate for both the pure extractor and
-    the store boundary: control whitespace still collapses first, then plain
-    leading/trailing U+0020 decides blankness without changing any nonblank
-    padded title byte-for-byte.
+    the store boundary: the title's whitespace runs fold first, then
+    Python's `strip()` decides blankness without changing any nonblank
+    padded title byte-for-byte. `strip()` is wider than `TITLE_WHITESPACE`
+    (it also takes U+001C-U+001F); the web mirrors it as `stripLikePython`.
     """
     return not normalize_title(text).strip()
 

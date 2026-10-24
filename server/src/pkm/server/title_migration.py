@@ -2,7 +2,9 @@
 """Transactional database inventory and apply shell for title migration."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 from pkm.contracts.ops import Sha256Hex
 from pkm.database import Db
@@ -17,10 +19,13 @@ from pkm.title_migration import (
     TitleMigrationInventory,
     TitleMigrationPlan,
     build_title_migration_plan,
+    noncanonical_titles,
 )
+from pkm.server.db import open_db
 from pkm.server.store import (
     append_page_without_rewrite,
     retitle_page_without_rewrite,
+    retitle_sidebar_entry,
     rewrite_snapshotted_blocks,
 )
 from pkm.server.sync_meta import (
@@ -29,6 +34,11 @@ from pkm.server.sync_meta import (
     set_plain_space_title_canonicalization,
     title_reader,
 )
+
+logger = logging.getLogger("pkm.titles")
+
+# How many offending titles the startup report names; the count covers all.
+_REPORTED_TITLE_SAMPLE = 20
 
 
 @dataclass(frozen=True)
@@ -39,6 +49,7 @@ class TitleMigrationOutcome:
     pages_merged: int
     blocks_moved: int
     blocks_rewritten: int
+    sidebars_retitled: int
     generation: str
 
 
@@ -120,6 +131,7 @@ def _inventory_title_migration(db: Db) -> TitleMigrationInventory:
             " order_idx AS sidebar_order_idx FROM sidebar_entries"
         )
         if row["title"] in page_titles or row["title"] in canonical_titles
+        or row["title"] != target_canonical_title(row["title"])
     ]
 
     return TitleMigrationInventory(
@@ -184,12 +196,16 @@ def apply_title_migration(
         plan = build_title_migration_plan(_inventory_title_migration(db))
         if plan.digest != expected_digest:
             raise StaleTitleMigration(expected_digest, plan.digest)
-        if plan.active:
+        if plan.blockers:
+            raise BlockedTitleMigration(plan.blockers)
+        # An active database still has work when the fold rule changed
+        # after it was activated: pages that now share a spelling, which
+        # no key can reach apart, and pinned spellings to retitle. Only
+        # with neither is a second generation rotation pointless.
+        if plan.active and not plan.groups and not plan.sidebar_retitles:
             raise AlreadyActiveTitleMigration(
                 "plain-space title canonicalization is already active"
             )
-        if plan.blockers:
-            raise BlockedTitleMigration(plan.blockers)
 
         affected_page_ids = {
             page.page_id
@@ -242,6 +258,11 @@ def apply_title_migration(
                 new_title, now_ms
             )
 
+        # After the groups, which have already moved their own pins; two
+        # spellings of one title collapse onto the first, in plan order.
+        for retitle in plan.sidebar_retitles:
+            retitle_sidebar_entry(db, retitle.title, retitle.canonical_title)
+
         blocks_rewritten = rewrite_snapshotted_blocks(
             db, snapshots, replacements, now_ms, title_reader(db)
         )
@@ -254,6 +275,7 @@ def apply_title_migration(
             pages_merged=len(sources),
             blocks_moved=blocks_moved,
             blocks_rewritten=blocks_rewritten,
+            sidebars_retitled=len(plan.sidebar_retitles),
             generation=generation,
         )
         db.commit()
@@ -262,3 +284,62 @@ def apply_title_migration(
         if transaction_started:
             db.rollback()
         raise
+
+
+def _counted(n: int, singular: str, plural: str) -> str:
+    return f"{n} {singular if n == 1 else plural}"
+
+
+def report_noncanonical_titles(db_path: Path) -> int:
+    """Log one ERROR naming the stored page and sidebar titles the live
+    rule would change, and return how many there are.
+
+    Such a row survives a change to the title rule on a database already
+    activated under the old one. A lookup key folds, so no key reaches
+    such a page until the audited migration merges or retitles it; a
+    sidebar entry still opens its page, but under a spelling the rule no
+    longer makes, and the migration retitles it too. The check only
+    reports: startup never migrates, because a merge is irreversible and
+    stays a digest-confirmed operator action, and refusing to start would
+    take the HTTP route that remedy needs down with it."""
+    db = open_db(db_path)
+    try:
+        canonical = title_reader(db)
+        pages = noncanonical_titles(
+            (row["title"] for row in db.select("SELECT title FROM pages")),
+            canonical)
+        sidebars = noncanonical_titles(
+            (row["title"]
+             for row in db.select("SELECT title FROM sidebar_entries")),
+            canonical)
+    finally:
+        db.close()
+    total = len(pages) + len(sidebars)
+    if total:
+        offending = sorted({*pages, *sidebars})
+        sample = ", ".join(
+            repr(text) for text in offending[:_REPORTED_TITLE_SAMPLE])
+        more = len(offending) - _REPORTED_TITLE_SAMPLE
+        logger.error(
+            "%s not canonical (%s, which no lookup reaches, and %s): %s%s."
+            " Run `pkm migrate-titles` to audit them, then apply its digest."
+            " docs/cli.md, Rows the migration cannot fix, covers rows it"
+            " cannot.",
+            _counted(total, "stored title is", "stored titles are"),
+            _counted(len(pages), "page title", "page titles"),
+            _counted(len(sidebars), "sidebar entry", "sidebar entries"),
+            sample,
+            f" and {more} more" if more > 0 else "",
+        )
+    return total
+
+
+def check_titles_at_startup(db_path: Path) -> None:
+    """`report_noncanonical_titles`, unable to stop startup: any failure
+    is logged and the server serves on. Under launchd's KeepAlive a
+    refusal to start is a crash loop, and an unreadable row is a reason
+    to look at the log, not to take the server down."""
+    try:
+        report_noncanonical_titles(db_path)
+    except Exception:
+        logger.exception("the startup title check failed; serving anyway")

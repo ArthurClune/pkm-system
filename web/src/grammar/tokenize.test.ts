@@ -383,9 +383,9 @@ describe("tokenizeBlock", () => {
     ]);
   });
 
-  it("leaves a title with only plain spaces exactly as written", () => {
+  it("folds a run of plain spaces in a title to one", () => {
     expect(tokenizeBlock("[[Two  Spaces]]")).toEqual([
-      { kind: "page-ref", title: "Two  Spaces", tag: false },
+      { kind: "page-ref", title: "Two Spaces", tag: false },
     ]);
   });
 

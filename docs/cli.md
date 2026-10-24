@@ -226,10 +226,16 @@ annotated with `^uid` markers that the write tools accept.
 
 ## One-time title canonicalization
 
-Page titles with a leading or trailing space need a data migration before the
-server will strip that space. The migration is audit-first and manual. Server
-startup never audits or applies it, and a deploy or restart does not activate
-it.
+The title migration merges pages whose titles now name one page, retitles
+sidebar entries the title rules no longer produce, and activates the rule
+that strips a title's leading and trailing spaces. It is audit-first and
+manual. Server startup never audits or applies it, and a deploy or restart
+does not activate it.
+
+Startup does check. It logs one ERROR on `pkm.titles` naming each stored page
+title or sidebar entry the live rules would change, then serves on. Such rows
+appear when the rules change on a database already migrated. Run the audit
+when that line appears.
 
 Set both the config and the URL explicitly so the command cannot fall back to
 the CLI defaults:
@@ -243,31 +249,74 @@ PKM_CLI_CONFIG=/explicit/target-config.json PKM_URL=https://explicit-target \
 
 The audit has no side effects. It prints the migration state, a 64-hex
 digest, each canonical group with its survivor, sources, counts and merge
-order, and every blocker with an `all_space` or `forbidden_syntax` reason.
-Review it before applying.
+order, each sidebar entry it would retitle, and every blocker with an
+`all_space` or `forbidden_syntax` reason. Review it before applying.
 
 `--apply` requires that exact digest. It is refused if database changes since
-the audit have altered the plan, if there are blockers, or if the migration
-is already active. Only boundary U+0020 spaces are removed.
+the audit have altered the plan, if there are blockers, or if the migration is
+already active and the audit lists no group and no sidebar entry. On a
+database where the migration is not yet active, a successful apply also
+activates it, even one run only to merge the pages the startup check named.
 
 A successful apply runs in one transaction. It retitles and merges pages,
 rewrites inbound references and sidebar entries, activates the new title
-rule, and rotates the sync generation. Take the normal backup first. Run it
-against production only when production was explicitly requested and both
-variables point there.
+rule, and rotates the sync generation. Its output counts each kind of change,
+`sidebar entries retitled` (`sidebars_retitled` in `--json`) among them. Take
+the normal backup first. Run it against production only when production was
+explicitly requested and both variables point there.
+
+### Rows the migration cannot fix
+
+Two kinds of row are reported at startup, but the migration cannot fix them.
+
+A page whose title the fold turns into a blank or refused one, such as
+`Notes/` followed by a non-breaking space, is a blocker. It refuses the whole
+apply, and no route reaches it, because every lookup key folds. Retitle it by
+hand:
+
+1. Back up the database ([deploy/README.md § Backups](../deploy/README.md#backups)).
+2. From Python's `sqlite3`, list the blocks that link the page, so you can
+   find them after the rename:
+   `SELECT b.uid, b.text FROM refs r JOIN blocks b ON b.uid = r.src_block_uid
+   WHERE r.target_page_id = ?` with the blocker's id.
+3. Still in `sqlite3`, run
+   `UPDATE pages SET title = ?, updated_at = ? WHERE id = ? AND title = ?`
+   in one `BEGIN IMMEDIATE`. Pass a canonical title no page holds, the time
+   in ms, and the blocker's id and exact title from the audit's `--json`.
+   Roll back unless one row changed. The `pages_chg_au` trigger records the
+   change for replicas.
+4. Rename the page as usual, then audit again. The rename re-indexes the
+   linking blocks, and their old spelling folds to a refused title, so those
+   links stop being backlinks, and the web refuses to edit a block that still
+   holds one. Edit each block from step 2 to link the new title.
+5. The page's own pin keeps the old spelling. Call
+   `DELETE /api/sidebar/{entry_id}` with its id from `GET /api/sidebar` (or
+   remove it in the sidebar's edit mode), then pin the new title.
+
+A sidebar entry whose canonical form is blank or refused is skipped, because
+no pin can hold that title. With nothing else to do, apply answers "already
+active". Remove the entry in the sidebar's edit mode, or call
+`DELETE /api/sidebar/{entry_id}` with the id from `GET /api/sidebar`.
 
 ### What the title rules are
 
-A title containing control whitespace (tab, newline, carriage return, form
-feed, vertical tab) has each whitespace run collapsed to one space and its
-ends trimmed. Writes, online and offline, then reject a title that:
+Every run of whitespace in a title folds to one ordinary space, at creation
+and at lookup, online and offline. Whitespace means the characters in
+`TITLE_WHITESPACE` (`server/src/pkm/contracts/titles.py`): tab, newline and
+the other control whitespace, the ordinary and non-breaking spaces, and the
+other Unicode space characters. When the fold changes a title, its leading
+and trailing spaces go too. Look-alikes outside that list, such as the
+zero-width space, stay as typed. So `A  B`, `A`+NBSP+`B` and `A B` followed by
+a newline all name the page `A B`.
+
+Writes, online and offline, then reject a title that:
 
 - contains `#`, `[[`, `]]` or a backtick
 - ends with `]`
 - has a `.`, `..` or empty `/`-separated segment, so it has no URL
 
-Once the migration is active, leading and trailing ordinary spaces are also
-removed. Internal spaces and non-breaking spaces are kept as typed.
+Once the migration is active, leading and trailing ordinary spaces are removed
+from every title, so a title is its words joined by single spaces.
 
 See [architecture/backend.md](architecture/backend.md#title-integrity-and-one-time-activation)
 for the mechanism.

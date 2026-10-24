@@ -123,7 +123,7 @@ def test_title_migration_audit_returns_truthful_payload_without_side_effects(
     assert r.status_code == 200
     assert r.json() == {
         "active": False,
-        "digest": "d621560f1350eda15118dbd597ccd82bb80bc18ddbc646fc4165fe332dabb647",
+        "digest": "c5d84ea6938fab45817a139cdb475a6be4f7220512dd375d58704e8dbfd0d9ad",
         "groups": [
             {
                 "canonical_title": "Acme",
@@ -145,6 +145,15 @@ def test_title_migration_audit_returns_truthful_payload_without_side_effects(
                 "block_count": 2,
                 "inbound_ref_count": 2,
                 "sidebar_count": 1,
+            },
+            {
+                "canonical_title": "Gamma",
+                "survivor": {"page_id": 17, "title": "\u00a0Gamma\u00a0"},
+                "sources": [],
+                "has_clean_twin": False,
+                "block_count": 0,
+                "inbound_ref_count": 0,
+                "sidebar_count": 0,
             },
         ],
         "blockers": [],
@@ -247,8 +256,8 @@ def test_title_migration_apply_activates_rotates_generation_and_nudges_once(
     assert r.status_code == 200
     assert r.json() == {
         "digest": audit.json()["digest"],
-        "groups_applied": 2,
-        "pages_retitled": 1,
+        "groups_applied": 3,
+        "pages_retitled": 2,
         "pages_merged": 3,
         "blocks_moved": 4,
         "blocks_rewritten": 3,
@@ -275,7 +284,7 @@ def test_title_migration_apply_activates_rotates_generation_and_nudges_once(
         (13, "Beta"),
         (15, "Inbound"),
         (16, "Unrelated"),
-        (17, "\u00a0Gamma\u00a0"),
+        (17, "Gamma"),
     ]
     db.close()
 

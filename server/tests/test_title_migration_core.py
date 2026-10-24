@@ -220,9 +220,10 @@ def test_build_title_migration_plan_groups_padded_titles_deterministically():
         )
     )
 
-    assert [group.canonical_title for group in plan.groups] == ["Acme", "Beta", "acme"]
+    assert [group.canonical_title for group in plan.groups] == [
+        "Acme", "Beta", "Gamma", "acme"]
 
-    acme, beta, lower = plan.groups
+    acme, beta, gamma, lower = plan.groups
 
     assert acme.has_clean_twin is True
     assert acme.survivor == InventoryPage(page_id=page_id_of(1), title=_ct("Acme"))
@@ -234,6 +235,12 @@ def test_build_title_migration_plan_groups_padded_titles_deterministically():
     assert beta.has_clean_twin is False
     assert beta.survivor == InventoryPage(page_id=page_id_of(4), title=_ct("Beta "))
     assert beta.sources == (InventoryPage(page_id=page_id_of(5), title=_ct(" Beta")),)
+
+    # NBSP is title whitespace: an NBSP-edged title is retitled to its words.
+    assert gamma.has_clean_twin is False
+    assert gamma.survivor == InventoryPage(
+        page_id=page_id_of(7), title=_ct("\u00a0Gamma\u00a0"))
+    assert gamma.sources == ()
 
     assert lower.has_clean_twin is False
     assert lower.survivor == InventoryPage(page_id=page_id_of(8), title=_ct(" acme"))
@@ -249,8 +256,8 @@ def test_build_title_migration_plan_groups_padded_titles_deterministically():
         "Beta ": "Beta",
         " Beta": "Beta",
         " acme": "acme",
+        "\u00a0Gamma\u00a0": "Gamma",
     }
-    assert "\u00a0Gamma\u00a0" not in plan.replacements
     assert plan.active is False
 
 
@@ -264,7 +271,10 @@ def test_build_title_migration_plan_normalizes_control_whitespace_before_plain_s
     acme, lower = plan.groups
 
     assert acme.survivor == InventoryPage(page_id=page_id_of(1), title=_ct("Acme"))
-    assert acme.sources == (InventoryPage(page_id=page_id_of(2), title=_ct(" \nAcme\t ")),)
+    assert acme.sources == (
+        InventoryPage(page_id=page_id_of(2), title=_ct(" \nAcme\t ")),
+        InventoryPage(page_id=page_id_of(4), title=_ct("\u00a0Acme\u00a0")),
+    )
     assert acme.has_clean_twin is True
 
     assert lower.survivor == InventoryPage(page_id=page_id_of(5), title=_ct("acme"))
@@ -278,8 +288,8 @@ def test_build_title_migration_plan_normalizes_control_whitespace_before_plain_s
     assert plan.replacements == {
         " \nAcme\t ": "Acme",
         " \nacme\t ": "acme",
+        "\u00a0Acme\u00a0": "Acme",
     }
-    assert "\u00a0Acme\u00a0" not in plan.replacements
 
 
 def test_build_title_migration_plan_digest_tracks_control_whitespace_groups_and_blockers():
@@ -300,7 +310,7 @@ def test_build_title_migration_plan_digest_tracks_control_whitespace_groups_and_
             "groups": 2,
             "pages": 6,
             "refs": 0,
-            "replacements": 2,
+            "replacements": 3,
             "sidebars": 0,
         },
         "groups": [
@@ -310,7 +320,8 @@ def test_build_title_migration_plan_digest_tracks_control_whitespace_groups_and_
                 "has_clean_twin": True,
                 "inbound_ref_count": 0,
                 "sidebar_count": 0,
-                "sources": [{"page_id": 2, "title": " \nAcme\t "}],
+                "sources": [{"page_id": 2, "title": " \nAcme\t "},
+                            {"page_id": 4, "title": "\u00a0Acme\u00a0"}],
                 "survivor": {"page_id": 1, "title": "Acme"},
             },
             {
@@ -335,6 +346,7 @@ def test_build_title_migration_plan_digest_tracks_control_whitespace_groups_and_
         "replacements": [
             {"source": " \nAcme\t ", "target": "Acme"},
             {"source": " \nacme\t ", "target": "acme"},
+            {"source": "\u00a0Acme\u00a0", "target": "Acme"},
         ],
         "sidebars": [],
         "version": 2,

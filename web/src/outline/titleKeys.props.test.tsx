@@ -50,8 +50,9 @@ const word = fc.string({
   minLength: 1, maxLength: 5,
 });
 
-// The router's `*` matches neither U+2028 nor U+2029, so they join the gaps.
-const GAPS = [" ", "\u00a0", "\u2028", "\u2029"];
+// One plain space: NBSP, U+2028 and U+2029 fold like any listed whitespace,
+// so a canonical title holds none of them.
+const GAPS = [" "];
 
 // One gap between words, so canonicalisation has no edge
 // or run of whitespace to remove. A title with a `.`, `..` or empty path

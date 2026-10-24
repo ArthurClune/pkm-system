@@ -51,7 +51,7 @@ from pkm.server.sync_meta import set_plain_space_title_canonicalization
 # The examples each (flag, variant kind) cell runs, by title family. A cell
 # and a family are run as separate properties, so every category is reached
 # by construction; Hypothesis draws only what varies inside one.
-ROUTE_BUDGET = {"plain": 7, "daily": 1, "nbsp": 1, "refused": 1}
+ROUTE_BUDGET = {"plain": 7, "daily": 1, "refused": 1}
 # Each CLI example runs every verb twice through argparse and the client.
 CLI_BUDGET = {"plain": 3, "daily": 1, "refused": 1}
 # Plain-space padding folds only under the flag, so the padded kinds run
@@ -87,7 +87,7 @@ _CELL_LABELS = [
     "flag inactive, control variant", "flag active, control variant",
     "flag active, padded variant", "flag active, padded_control variant",
 ]
-ROUTE_LABELS = ["NBSP gap in title", "daily title", "refused title",
+ROUTE_LABELS = ["daily title", "refused title",
                 "slash in title", *_CELL_LABELS]
 CLI_LABELS = ["batch spellings that only the flag can fold", "daily title",
               "refused title", *_CELL_LABELS]
@@ -99,28 +99,21 @@ CLI_LABELS = ["batch spellings that only the flag can fold", "daily title",
 _WORD = st.text(
     alphabet=st.sampled_from(list("abcXYZ019éß✨😀%/?&+.-'():;,=[]")),
     min_size=1, max_size=5)
-_GAP = st.sampled_from([" ", " ", " ", "\xa0"])
 
 
 @st.composite
 def tidy_titles(draw: st.DrawFn, family: str = "plain") -> str:
-    """A title every variant can reach: words joined by one plain space or
-    NBSP, so no edge or run of whitespace for canonicalisation to remove.
+    """A title every variant can reach: words joined by one plain space,
+    so no edge or run of whitespace for canonicalisation to remove.
     `family` fixes the shape: today's or the seeded daily title, a title
-    with an NBSP gap, a title the product refuses, or any other."""
+    the product refuses, or any other."""
     if family == "daily":
         return draw(st.sampled_from([title_for_date(date.today()),
                                      SEEDED_DAILY]))
-    words = draw(st.lists(_WORD, min_size=2 if family == "nbsp" else 1,
-                          max_size=4))
-    gaps = [draw(_GAP) for _ in words[1:]]
-    if family == "nbsp":
-        gaps[0] = "\xa0"
-    text = words[0] + "".join(g + w for g, w in zip(gaps, words[1:]))
+    words = draw(st.lists(_WORD, min_size=1, max_size=4))
+    text = " ".join(words)
     if title_syntax_reason(text) is not None:
         text = " ".join("".join(c for c in w if c not in "[]") or "x" for w in words)
-        if family == "nbsp" and " " in text:
-            text = text.replace(" ", "\xa0", 1)
     # A title with a `.`, `..` or empty `/` segment has no URL, so every
     # route refuses it.
     if family == "refused":
@@ -184,8 +177,6 @@ def label(active: bool, canonical: str, variant: str, kind: str) -> None:
         event("percent in title")
     if "/" in canonical:
         event("slash in title")
-    if "\xa0" in canonical:
-        event("NBSP gap in title")
 
 
 # --- the graph each example starts from --------------------------------------

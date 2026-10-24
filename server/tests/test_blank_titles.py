@@ -284,7 +284,8 @@ def test_post_pages_route_rejects_spaces_only_title_too(client):
 
 def test_post_pages_gates_boundary_spaces_without_weakening_blank_rejection(
         client, seeded_config):
-    inactive_title = "  Inactive POST Boundary  "
+    # Single-space padding: a run of two would fold, flag or no flag.
+    inactive_title = " Inactive POST Boundary "
     inactive = client.post("/api/pages", json={"title": inactive_title})
 
     assert inactive.status_code == 200
@@ -315,29 +316,30 @@ def test_post_pages_gates_boundary_spaces_without_weakening_blank_rejection(
 
 def test_all_creation_boundaries_preserve_plain_space_before_activation(
         client, seeded_config):
-    posted = client.post("/api/pages", json={"title": "  Pre Post  "})
+    # Single-space padding: a run of two would fold, flag or no flag.
+    posted = client.post("/api/pages", json={"title": " Pre Post "})
     assert _post_ops(
-        client, {"op": "create_page", "page_title": "  Pre Create Page  "}
+        client, {"op": "create_page", "page_title": " Pre Create Page "}
     ).status_code == 200
     assert _post_ops(
         client,
-        {"op": "create", "uid": "precreate01", "page_title": "  Pre Create  ",
+        {"op": "create", "uid": "precreate01", "page_title": " Pre Create ",
          "parent_uid": None, "order_idx": 0, "text": "body"},
     ).status_code == 200
     assert _post_ops(
         client,
         {"op": "move", "uid": "uid_b4", "parent_uid": None,
-         "order_idx": 0, "page_title": "  Pre Move  "},
+         "order_idx": 0, "page_title": " Pre Move "},
     ).status_code == 200
     renamed = client.post(
         "/api/page/Machine Learning/rename",
-        json={"new_title": "  Pre Rename  ", "allow_merge": False},
+        json={"new_title": " Pre Rename ", "allow_merge": False},
     )
 
-    assert posted.json()["title"] == "  Pre Post  "
-    assert renamed.json() == {"result": "renamed", "title": "  Pre Rename  "}
-    exact = {"  Pre Post  ", "  Pre Create Page  ", "  Pre Create  ",
-             "  Pre Move  ", "  Pre Rename  "}
+    assert posted.json()["title"] == " Pre Post "
+    assert renamed.json() == {"result": "renamed", "title": " Pre Rename "}
+    exact = {" Pre Post ", " Pre Create Page ", " Pre Create ",
+             " Pre Move ", " Pre Rename "}
     titles = set(_titles(seeded_config))
     assert exact <= titles
     assert not {title.strip() for title in exact} & titles

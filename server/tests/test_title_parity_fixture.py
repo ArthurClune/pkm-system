@@ -45,3 +45,12 @@ def test_generated_corpus_reaches_every_shape():
     assert set(tally) == set(SHAPES)
     starved = {name: n for name, n in tally.items() if n < MIN_REACH}
     assert not starved, tally
+
+
+def test_generated_corpus_draws_the_title_fold_inside_a_title():
+    """A run of plain spaces and a listed non-U+0020 character strictly
+    inside a title are what the fold changes there; the replay must see
+    both."""
+    tally = shape_tally(generated_cases())
+    assert tally["internal_space_run"] > 0
+    assert tally["listed_space_inside"] > 0

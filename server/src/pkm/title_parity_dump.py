@@ -15,6 +15,7 @@ import json
 import random
 from collections.abc import Iterable
 
+from pkm.contracts.titles import TITLE_WHITESPACE
 from pkm.refs import (extract, has_unreachable_segment, is_blank_title,
                       normalize_title, target_canonical_title,
                       title_syntax_reason)
@@ -28,16 +29,24 @@ PY_ONLY_SPACE = "\x1c\x1d\x1e\x1f\x85"
 JS_ONLY_SPACE = "﻿"
 CONTROL_SPACE = "\t\n\r\f\v"
 UNICODE_SPACE = "\xa0　   "
+# The rest of the title fold's list, so the corpus draws every character
+# the fold takes, not only the ones the two trims disagree on.
+LISTED_SPACE = "".join(c for c in TITLE_WHITESPACE
+                       if c not in " " + CONTROL_SPACE + UNICODE_SPACE
+                       + PY_ONLY_SPACE)
 
 # Each case glues 1-7 of these together, so padding, control runs,
 # separators the two trims disagree on, and the refused syntax all fall out
-# of the draw rather than being listed by hand.
+# of the draw rather than being listed by hand. The padded words keep a
+# share of titles whose only whitespace is one edge space, the one shape
+# the fold leaves for the plain-space flag to strip.
 _PIECES = [
     "Title", "Title", "Alpha", "Beta", "Café", "Café", "✨",
     "\U0001f600", "2026", "a/b", "50%", "?", "&", "+", ".", "-", ":",
-    " ", " ", " ", "  ", "   ",
+    " ", " ", " ", "  ", "   ", " Alpha", "Beta ",
     *CONTROL_SPACE, "\n", "\t",
-    *UNICODE_SPACE, *PY_ONLY_SPACE, JS_ONLY_SPACE, JS_ONLY_SPACE,
+    *UNICODE_SPACE, *LISTED_SPACE, *PY_ONLY_SPACE, JS_ONLY_SPACE,
+    JS_ONLY_SPACE,
     "​", "‍",
     "#", "[[", "]]", "[", "]", "`", "::", "{", "}", "(", ")",
     "/", "/", ".", "..",
@@ -77,6 +86,9 @@ SHAPES = {
     "control_beside_js_only_space": lambda t: (
         any(c in t for c in CONTROL_SPACE) and JS_ONLY_SPACE in t),
     "unicode_space_boundary": lambda t: _boundary(t, UNICODE_SPACE),
+    "internal_space_run": lambda t: "  " in t[1:-1],
+    "listed_space_inside": lambda t: any(
+        c in TITLE_WHITESPACE and c != " " for c in t[1:-1]),
     "py_only_space_boundary": lambda t: _boundary(t, PY_ONLY_SPACE),
     "js_only_space_boundary": lambda t: _boundary(t, JS_ONLY_SPACE),
     "blank": is_blank_title,

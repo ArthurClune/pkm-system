@@ -33,3 +33,15 @@ def as_raw_title(text: str) -> RawTitle:
 
 # The page a blank page title in an op is filed under.
 UNTITLED_PAGE_TITLE = as_raw_title("Untitled")
+
+
+# The whitespace a title's runs fold by: Unicode's White_Space property, in
+# code point order. Neither Python's isspace/`\s` (it adds U+001C-U+001F)
+# nor JS's `\s` (it adds U+FEFF) is this set, so the web gets it generated
+# from here (pkm.title_whitespace_dump), never from its own `\s`. Look-alikes
+# outside it (U+180E, the zero-width U+200B-U+200D, U+FEFF) stay byte-exact.
+TITLE_WHITESPACE = (
+    "\t\n\v\f\r \x85\xa0\u1680"
+    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000"
+)

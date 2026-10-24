@@ -125,22 +125,23 @@ def test_audit_inventories_only_migration_rows_without_side_effects():
         (3, "Acme "),
         (4, " Beta "),
         (5, "Beta "),
+        (8, "\u00a0Gamma\u00a0"),
     ]
     assert [
         (group.canonical_title, group.survivor.page_id, [p.page_id for p in group.sources])
         for group in plan.groups
-    ] == [("Acme", 1, [2, 3]), ("Beta", 4, [5])]
+    ] == [("Acme", 1, [2, 3]), ("Beta", 4, [5]), ("Gamma", 8, [])]
     assert [
         (group.block_count, group.inbound_ref_count, group.sidebar_count)
         for group in plan.groups
-    ] == [(4, 4, 2), (2, 2, 1)]
+    ] == [(4, 4, 2), (2, 2, 1), (0, 0, 0)]
     assert (plan.page_count, plan.block_count, plan.ref_count, plan.sidebar_count) == (
-        5,
+        6,
         8,
         8,
         3,
     )
-    assert plan.digest == "b8a4254873c0d7635b5a2c0c9b00ae50544f94887365255b8ed63683fcd4801f"
+    assert plan.digest == "cf331b6f9a48e790fe0ae829698d412213bbce4ae637e5d19a3b52b2c2eafe73"
     assert _state(db) == before
     assert database_generation(db) == generation
     assert db.in_transaction is False
@@ -286,8 +287,8 @@ def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transact
 
     assert outcome == TitleMigrationOutcome(
         digest=plan.digest,
-        groups_applied=2,
-        pages_retitled=1,
+        groups_applied=3,
+        pages_retitled=2,
         pages_merged=3,
         blocks_moved=4,
         blocks_rewritten=3,
@@ -306,7 +307,7 @@ def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transact
         (4, "Beta"),
         (6, "Inbound"),
         (7, "Unrelated"),
-        (8, "\u00a0Gamma\u00a0"),
+        (8, "Gamma"),
     ]
     assert [tuple(row.values()) for row in db.select(
         "SELECT uid, order_idx FROM blocks WHERE page_id=1 AND parent_uid IS NULL "

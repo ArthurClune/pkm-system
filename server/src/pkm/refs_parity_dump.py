@@ -51,7 +51,7 @@ CASES = [
     # is not a reference at all.
     "a [[Multi\nLine Title]] link",
     "#[[Multi\nLine Tag]]",
-    "[[Padded  Title]] keeps its double space",
+    "[[Padded  Title]] folds its double space",
     "[[\n]] references nothing",
     "skip [[   ]] but keep [[ Valid ]]",
     # Block-ref tokens are bounded at 32 to match UID_RE: a 32-char token is

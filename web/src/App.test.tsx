@@ -586,11 +586,24 @@ it("a /page/ URL whose title holds a newline opens the one-line title's page", a
   expect(await screen.findByText("the ML page")).toBeInTheDocument();
 });
 
-it("a /page/ URL whose title holds U+2028 opens that page, not an empty pane", async () => {
-  // The router's `*` matches neither U+2028 nor U+2029, and the title fold
-  // leaves them alone, so route matching must not depend on `.`.
-  stubFetch([["/api/page/a%E2%80%A8b", pagePayload(
-    canonicalTitleOf("a b"), [block("uid_ls1", "the line-separator page")])]]);
+it.each(["/page/A%20%20B", "/page/A%C2%A0B"])(
+  "a /page/ URL %s whose title holds a whitespace run opens the one-space title's page",
+  async (url) => {
+    stubFetch([["/api/page/A%20B", pagePayload(
+      canonicalTitleOf("A B"), [block("uid_ab1", "the A B page")])]]);
+    render(
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={[url]}>
+        <App />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("the A B page")).toBeInTheDocument();
+  });
+
+it("a /page/ URL whose title holds U+2028 opens the folded title's page", async () => {
+  // The router's `*` matches neither U+2028 nor U+2029; the title fold takes
+  // them, so the URL is redirected to the one-space title before matching.
+  stubFetch([["/api/page/a%20b", pagePayload(
+    canonicalTitleOf("a b"), [block("uid_ls1", "the line-separator page")])]]);
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/a%E2%80%A8b"]}>
       <App />

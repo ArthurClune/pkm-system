@@ -151,12 +151,15 @@ def test_move_op_page_title_is_normalized(client, seeded_config):
     assert _control_char_titles(seeded_config) == []
 
 
-def test_a_title_with_only_plain_spaces_is_untouched(client):
-    """The normalizer is narrow on purpose -- no control char, no change."""
+def test_a_run_of_plain_spaces_folds_like_any_whitespace_run(client):
+    """A run of U+0020 is a whitespace run: `Two  Spaces` is the page
+    `Two Spaces`, at creation and at lookup alike."""
     r = client.post("/api/pages", json={"title": "Two  Spaces"})
     assert r.status_code == 200
-    assert r.json()["title"] == "Two  Spaces"
-    assert client.get("/api/page/Two  Spaces").status_code == 200
+    assert r.json()["title"] == "Two Spaces"
+    page = client.get("/api/page/Two  Spaces")
+    assert page.status_code == 200
+    assert page.json()["page"]["title"] == "Two Spaces"
 
 
 def test_a_title_that_is_only_whitespace_is_still_rejected(client):

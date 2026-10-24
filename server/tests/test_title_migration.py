@@ -141,7 +141,7 @@ def test_audit_inventories_only_migration_rows_without_side_effects():
         8,
         3,
     )
-    assert plan.digest == "cf331b6f9a48e790fe0ae829698d412213bbce4ae637e5d19a3b52b2c2eafe73"
+    assert plan.digest == "bf7203241faf051a4bf0ee9b552270149b854f23fe105192c930f41326d04084"
     assert _state(db) == before
     assert database_generation(db) == generation
     assert db.in_transaction is False
@@ -292,6 +292,7 @@ def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transact
         pages_merged=3,
         blocks_moved=4,
         blocks_rewritten=3,
+        sidebars_retitled=0,
         generation=database_generation(db),
     )
     assert trace[0] == "BEGIN IMMEDIATE"
@@ -443,6 +444,39 @@ def test_apply_on_active_database_names_its_blockers():
     assert [(blocker.page_id, blocker.reason)
             for blocker in raised.value.blockers] == [(1, "all_space")]
     assert _state(db) == before
+
+
+def test_apply_on_active_database_retitles_noncanonical_sidebar_entries():
+    """A sidebar entry the rule changes is work even when no page groups:
+    an orphan pin, and a pin of a page that is already canonical.
+    Mutation caught: leave sidebar entries no group covers in place, or
+    refuse an active database whose only work is sidebar entries."""
+    db = _database()
+    db.execute("INSERT INTO pages(id, title) VALUES (1, 'Q R')")
+    db.executemany(
+        "INSERT INTO sidebar_entries(id, title, order_idx) VALUES (?, ?, ?)",
+        [(1, "X  Y", 0), (2, "Q\u00a0R", 1), (3, "X\u00a0Y", 2),
+         (4, "Kept", 3)],
+    )
+    _activate(db)
+    old_generation = database_generation(db)
+
+    plan = audit_title_migration(db)
+    assert plan.groups == () and plan.blockers == ()
+    assert [(retitle.sidebar_id, retitle.canonical_title)
+            for retitle in plan.sidebar_retitles] == [
+        (2, "Q R"), (1, "X Y"), (3, "X Y")]
+
+    outcome = apply_title_migration(db, plan.digest, now_ms=10_008)
+
+    assert outcome.sidebars_retitled == 3
+    assert [tuple(row.values()) for row in db.select(
+        "SELECT id AS sidebar_entry_id, title FROM sidebar_entries ORDER BY id"
+    )] == [(1, "X Y"), (2, "Q R"), (4, "Kept")]
+    assert database_generation(db) not in ("", old_generation)
+    with pytest.raises(AlreadyActiveTitleMigration):
+        apply_title_migration(
+            db, audit_title_migration(db).digest, now_ms=10_009)
 
 
 def test_apply_on_active_database_merges_fold_twins():

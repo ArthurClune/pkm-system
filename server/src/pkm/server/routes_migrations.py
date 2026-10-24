@@ -13,6 +13,7 @@ from pkm.contracts.responses import (
     TitleMigrationBlocker,
     TitleMigrationGroup,
     TitleMigrationPage,
+    TitleMigrationSidebarRetitle,
 )
 from pkm.database import Db
 from pkm.server import notify
@@ -60,6 +61,14 @@ def _audit_payload(plan: TitleMigrationPlan) -> TitleMigrationAuditPayload:
             )
             for blocker in plan.blockers
         ],
+        sidebar_retitles=[
+            TitleMigrationSidebarRetitle(
+                sidebar_id=retitle.sidebar_id,
+                title=retitle.title,
+                canonical_title=retitle.canonical_title,
+            )
+            for retitle in plan.sidebar_retitles
+        ],
     )
 
 
@@ -105,5 +114,6 @@ def apply_title_canonicalization(
         pages_merged=outcome.pages_merged,
         blocks_moved=outcome.blocks_moved,
         blocks_rewritten=outcome.blocks_rewritten,
+        sidebars_retitled=outcome.sidebars_retitled,
         generation=outcome.generation,
     )

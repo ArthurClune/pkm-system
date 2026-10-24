@@ -73,6 +73,16 @@ class TitleMigrationGroup:
 
 
 @dataclass(frozen=True)
+class TitleMigrationSidebarRetitle:
+    """A pinned spelling the target rule changes that no group moves: an
+    orphan pin, or a pin of a page already spelled canonically."""
+
+    sidebar_id: SidebarEntryId
+    title: CanonicalTitle
+    canonical_title: CanonicalTitle
+
+
+@dataclass(frozen=True)
 class TitleMigrationPlan:
     active: bool
     pages: tuple[InventoryPage, ...]
@@ -81,6 +91,7 @@ class TitleMigrationPlan:
     sidebars: tuple[InventorySidebar, ...]
     groups: tuple[TitleMigrationGroup, ...]
     blockers: tuple[TitleMigrationBlocker, ...]
+    sidebar_retitles: tuple[TitleMigrationSidebarRetitle, ...]
     replacements: Mapping[CanonicalTitle, CanonicalTitle]
     page_count: int
     block_count: int
@@ -95,6 +106,7 @@ def _plan_payload(
     sidebars: tuple[InventorySidebar, ...],
     groups: tuple[TitleMigrationGroup, ...],
     blockers: tuple[TitleMigrationBlocker, ...],
+    sidebar_retitles: tuple[TitleMigrationSidebarRetitle, ...],
     replacements: Mapping[CanonicalTitle, CanonicalTitle],
     page_count: int, block_count: int, ref_count: int, sidebar_count: int,
 ) -> dict[str, Any]:
@@ -129,6 +141,7 @@ def _plan_payload(
             "pages": page_count,
             "refs": ref_count,
             "replacements": len(replacements),
+            "sidebar_retitles": len(sidebar_retitles),
             "sidebars": sidebar_count,
         },
         "groups": [
@@ -173,7 +186,15 @@ def _plan_payload(
             }
             for sidebar in sidebars
         ],
-        "version": 2,
+        "sidebar_retitles": [
+            {
+                "canonical_title": retitle.canonical_title,
+                "sidebar_id": retitle.sidebar_id,
+                "title": retitle.title,
+            }
+            for retitle in sidebar_retitles
+        ],
+        "version": 3,
     }
 
 
@@ -185,6 +206,26 @@ def _plan_digest(payload: dict[str, Any]) -> Sha256Hex:
         separators=(",", ":"),
     ).encode()
     return Sha256Hex(hashlib.sha256(encoded).hexdigest())
+
+
+def _sidebar_retitles(
+    sidebars: tuple[InventorySidebar, ...],
+    grouped_titles: frozenset[CanonicalTitle],
+) -> list[TitleMigrationSidebarRetitle]:
+    """Every pinned spelling the target rule changes, less those a group
+    already moves with its page. An entry whose canonical form is blank or
+    refused stays: it names no title a pin could hold, and the sidebar's
+    remove-by-id remains its remedy."""
+    retitles: list[TitleMigrationSidebarRetitle] = []
+    for sidebar in sidebars:
+        canonical = target_canonical_title(sidebar.title)
+        if (canonical != sidebar.title
+                and sidebar.title not in grouped_titles
+                and not is_blank_title(canonical)
+                and title_syntax_reason(canonical) is None):
+            retitles.append(TitleMigrationSidebarRetitle(
+                sidebar.sidebar_id, sidebar.title, canonical))
+    return retitles
 
 
 def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigrationPlan:
@@ -240,6 +281,10 @@ def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigra
                 replacements[page.title] = canonical_title
 
     groups.sort(key=lambda group: (group.canonical_title, group.survivor.page_id))
+    sidebar_retitles = tuple(sorted(
+        _sidebar_retitles(sidebars, frozenset(replacements)),
+        key=lambda retitle: (retitle.title, retitle.sidebar_id),
+    ))
     blockers.sort(key=lambda blocker: (
         blocker.title, blocker.page_id, blocker.reason
     ))
@@ -255,6 +300,7 @@ def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigra
         sidebars=sidebars,
         groups=frozen_groups,
         blockers=frozen_blockers,
+        sidebar_retitles=sidebar_retitles,
         replacements=frozen_replacements,
         page_count=len(pages),
         block_count=len(blocks),
@@ -269,6 +315,7 @@ def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigra
         sidebars=sidebars,
         groups=frozen_groups,
         blockers=frozen_blockers,
+        sidebar_retitles=sidebar_retitles,
         replacements=frozen_replacements,
         page_count=len(pages),
         block_count=len(blocks),

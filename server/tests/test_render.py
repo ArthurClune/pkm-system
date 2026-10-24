@@ -18,10 +18,11 @@ from pkm.contracts.responses import (AssetRef, AssetSearchItem,
                                      ChangedPayload, GroupsPayload, PageMeta,
                                      PagePayload, QueryPayload,
                                      SearchPayload, TitleMigrationApplyResponse,
-                                     TitleMigrationAuditPayload)
+                                     TitleMigrationAuditPayload,
+                                     TitleMigrationSidebarRetitle)
 from pkm.test_data.ids import (
     canonical_title_of, malformed_canonical_title, malformed_uid, order_idx_of,
-    page_id_of, raw_title_of, sha_of, uid_of)
+    page_id_of, raw_title_of, sha_of, sidebar_entry_id_of, uid_of)
 from pkm.changed import ChangeStatus
 from pkm.contracts.ops import BlockUid
 from pkm.contracts.titles import CanonicalTitle
@@ -312,6 +313,7 @@ def test_render_title_migration_audit_includes_state_group_details_and_merge_ord
         blockers=[TitleMigrationBlocker(
             page_id=page_id_of(19), title=malformed_canonical_title("Bad #Title"),
             reason="forbidden_syntax")],
+        sidebar_retitles=[],
     )
     assert render_title_migration_audit(payload) == (
         "# Title migration audit\n"
@@ -320,6 +322,7 @@ def test_render_title_migration_audit_includes_state_group_details_and_merge_ord
         "digest: " + "7" * 64 + "\n"
         "groups: 2\n"
         "blockers: 1\n"
+        "sidebar retitles: 0\n"
         "\n"
         "## Acme\n"
         "survivor: [10] \"Acme\"\n"
@@ -352,6 +355,7 @@ def test_render_title_migration_audit_empty_explains_that_only_a_reviewed_audit_
         digest=sha_of("1" * 64),
         groups=[],
         blockers=[],
+        sidebar_retitles=[],
     )
     assert render_title_migration_audit(payload) == (
         "# Title migration audit\n"
@@ -360,8 +364,10 @@ def test_render_title_migration_audit_empty_explains_that_only_a_reviewed_audit_
         "digest: " + "1" * 64 + "\n"
         "groups: 0\n"
         "blockers: 0\n"
+        "sidebar retitles: 0\n"
         "\n"
-        "No padded plain-space titles need migration.\n"
+        "Every page title and sidebar entry is canonical: nothing to merge"
+        " or retitle.\n"
         "Apply mode is disabled until you provide an audit digest explicitly.\n"
     )
 
@@ -372,6 +378,7 @@ def test_render_title_migration_audit_active_empty_says_apply_is_unavailable_bec
         digest=sha_of("2" * 64),
         groups=[],
         blockers=[],
+        sidebar_retitles=[],
     )
     assert render_title_migration_audit(payload) == (
         "# Title migration audit\n"
@@ -380,24 +387,36 @@ def test_render_title_migration_audit_active_empty_says_apply_is_unavailable_bec
         "digest: " + "2" * 64 + "\n"
         "groups: 0\n"
         "blockers: 0\n"
+        "sidebar retitles: 0\n"
         "\n"
-        "No padded plain-space titles need migration.\n"
+        "Every page title and sidebar entry is canonical: nothing to merge"
+        " or retitle.\n"
         "Migration is already active; apply mode is unavailable.\n"
     )
 
 
+def _sidebar_pin() -> TitleMigrationSidebarRetitle:
+    return TitleMigrationSidebarRetitle(
+        sidebar_id=sidebar_entry_id_of(5),
+        title=malformed_canonical_title("X  Y"),
+        canonical_title=canonical_title_of("X Y"),
+    )
+
+
 @pytest.mark.parametrize(
-    ("active", "has_group", "has_blocker", "state"),
+    ("active", "has_group", "has_sidebar", "has_blocker", "state"),
     [
-        (False, True, False, "ready"),
-        (False, True, True, "blocked"),
-        (True, True, False, "active, ready"),
-        (True, False, True, "active, blocked"),
-        (True, True, True, "active, blocked"),
+        (False, True, False, False, "ready"),
+        (False, False, True, False, "ready"),
+        (False, True, False, True, "blocked"),
+        (True, True, False, False, "active, ready"),
+        (True, False, True, False, "active, ready"),
+        (True, False, False, True, "active, blocked"),
+        (True, True, True, True, "active, blocked"),
     ],
 )
 def test_render_title_migration_audit_state_says_when_an_active_database_has_work(
-        active, has_group, has_blocker, state):
+        active, has_group, has_sidebar, has_blocker, state):
     """A fold rule changed after activation leaves an active database with
     groups to apply; the state must not read as plain "active" then."""
     pair = TitleMigrationGroup(
@@ -415,14 +434,39 @@ def test_render_title_migration_audit_state_says_when_an_active_database_has_wor
     blocker = TitleMigrationBlocker(
         page_id=page_id_of(3), title=malformed_canonical_title("\u3000"),
         reason="all_space")
+    pin = _sidebar_pin()
     payload = TitleMigrationAuditPayload(
         active=active,
         digest=sha_of("3" * 64),
         groups=[pair] if has_group else [],
         blockers=[blocker] if has_blocker else [],
+        sidebar_retitles=[pin] if has_sidebar else [],
     )
 
     assert f"\nstate: {state}\n" in render_title_migration_audit(payload)
+
+
+def test_render_title_migration_audit_lists_sidebar_retitles():
+    payload = TitleMigrationAuditPayload(
+        active=True,
+        digest=sha_of("4" * 64),
+        groups=[],
+        blockers=[],
+        sidebar_retitles=[_sidebar_pin()],
+    )
+
+    assert render_title_migration_audit(payload) == (
+        "# Title migration audit\n"
+        "\n"
+        "state: active, ready\n"
+        "digest: " + "4" * 64 + "\n"
+        "groups: 0\n"
+        "blockers: 0\n"
+        "sidebar retitles: 1\n"
+        "\n"
+        "## Sidebar entries\n"
+        "- [5] \"X  Y\" -> \"X Y\"\n"
+    )
 
 
 def test_render_title_migration_apply_includes_applied_counts_and_generation():
@@ -433,6 +477,7 @@ def test_render_title_migration_apply_includes_applied_counts_and_generation():
         pages_merged=3,
         blocks_moved=4,
         blocks_rewritten=3,
+        sidebars_retitled=1,
         generation="0123456789abcdef0123456789abcdef",
     )
     assert render_title_migration_apply(payload) == (
@@ -444,6 +489,7 @@ def test_render_title_migration_apply_includes_applied_counts_and_generation():
         "pages merged: 3\n"
         "blocks moved: 4\n"
         "blocks rewritten: 3\n"
+        "sidebar entries retitled: 1\n"
         "generation: 0123456789abcdef0123456789abcdef\n"
     )
 

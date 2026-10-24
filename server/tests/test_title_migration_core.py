@@ -155,6 +155,23 @@ def _expected_digest(inventory: TitleMigrationInventory) -> str:
             if group_page.title != canonical:
                 replacements.append({"source": group_page.title, "target": canonical})
 
+    group_titles_all = {item["source"] for item in replacements} | set(
+        seen_canonicals)
+    sidebar_retitles = []
+    for sidebar in sidebars:
+        canonical = " ".join(sidebar.title.split())
+        if (canonical != sidebar.title and canonical != ""
+                and sidebar.title not in group_titles_all
+                and not any(mark in canonical for mark in ("#", "[[", "]]"))
+                and not canonical.endswith("]")):
+            sidebar_retitles.append({
+                "canonical_title": canonical,
+                "sidebar_id": sidebar.sidebar_id,
+                "title": sidebar.title,
+            })
+    sidebar_retitles.sort(key=lambda retitle: (
+        retitle["title"], retitle["sidebar_id"]))
+
     payload = {
         "active": inventory.active,
         "blockers": sorted(
@@ -182,6 +199,7 @@ def _expected_digest(inventory: TitleMigrationInventory) -> str:
             "pages": len(pages),
             "refs": len(refs),
             "replacements": len(replacements),
+            "sidebar_retitles": len(sidebar_retitles),
             "sidebars": len(sidebars),
         },
         "groups": sorted(groups, key=lambda group: (group["canonical_title"], group["survivor"]["page_id"])),
@@ -203,7 +221,8 @@ def _expected_digest(inventory: TitleMigrationInventory) -> str:
             }
             for sidebar in sidebars
         ],
-        "version": 2,
+        "sidebar_retitles": sidebar_retitles,
+        "version": 3,
     }
     encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
@@ -296,6 +315,60 @@ def test_plan_groups_pages_that_fold_to_one_spelling():
     }
 
 
+def test_plan_retitles_every_noncanonical_sidebar_entry_no_group_covers():
+    """A pinned spelling the rule changes is retitled whether its page is
+    absent, canonical already, or not a page at all; an entry a group
+    already moves, and one whose canonical form is no title, are not."""
+    plan = build_title_migration_plan(
+        _inventory(
+            InventoryPage(page_id=page_id_of(1), title=_ct("Q R")),
+            InventoryPage(page_id=page_id_of(2), title=_ct(" Acme")),
+            active=True,
+            sidebars=(
+                InventorySidebar(sidebar_id=sidebar_entry_id_of(1),
+                                 title=_ct("X  Y"),
+                                 order_idx=sidebar_order_idx_of(0)),
+                InventorySidebar(sidebar_id=sidebar_entry_id_of(2),
+                                 title=_ct("Q\u00a0R"),
+                                 order_idx=sidebar_order_idx_of(1)),
+                InventorySidebar(sidebar_id=sidebar_entry_id_of(3),
+                                 title=_ct("Q R"),
+                                 order_idx=sidebar_order_idx_of(2)),
+                InventorySidebar(sidebar_id=sidebar_entry_id_of(4),
+                                 title=_ct(" Acme"),
+                                 order_idx=sidebar_order_idx_of(3)),
+                InventorySidebar(sidebar_id=sidebar_entry_id_of(5),
+                                 title=_ct("\u3000"),
+                                 order_idx=sidebar_order_idx_of(4)),
+                InventorySidebar(sidebar_id=sidebar_entry_id_of(6),
+                                 title=_ct("a]\u3000"),
+                                 order_idx=sidebar_order_idx_of(5)),
+            ),
+        )
+    )
+
+    assert [group.canonical_title for group in plan.groups] == ["Acme"]
+    assert [
+        (retitle.sidebar_id, retitle.title, retitle.canonical_title)
+        for retitle in plan.sidebar_retitles
+    ] == [(2, "Q\u00a0R", "Q R"), (1, "X  Y", "X Y")]
+
+
+def test_plan_digest_covers_sidebar_retitles():
+    inventory = _inventory(
+        InventoryPage(page_id=page_id_of(1), title=_ct("Q R")),
+        active=True,
+        sidebars=(InventorySidebar(sidebar_id=sidebar_entry_id_of(1),
+                                   title=_ct("X  Y"),
+                                   order_idx=sidebar_order_idx_of(0)),),
+    )
+    plan = build_title_migration_plan(inventory)
+
+    assert plan.digest == _expected_digest(inventory)
+    assert plan.digest != build_title_migration_plan(
+        replace(inventory, sidebars=())).digest
+
+
 def _reader(*, active: bool) -> Callable[[str], str]:
     return lambda text: canonicalize_title(text, plain_space=active)
 
@@ -361,6 +434,7 @@ def test_build_title_migration_plan_digest_tracks_control_whitespace_groups_and_
             "pages": 6,
             "refs": 0,
             "replacements": 3,
+            "sidebar_retitles": 0,
             "sidebars": 0,
         },
         "groups": [
@@ -398,8 +472,9 @@ def test_build_title_migration_plan_digest_tracks_control_whitespace_groups_and_
             {"source": " \nacme\t ", "target": "acme"},
             {"source": "\u00a0Acme\u00a0", "target": "Acme"},
         ],
+        "sidebar_retitles": [],
         "sidebars": [],
-        "version": 2,
+        "version": 3,
     }
 
     expected_digest = hashlib.sha256(

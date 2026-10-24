@@ -512,7 +512,7 @@ def test_migrate_titles_audits_by_default_and_renders_human_output(
     assert err == ""
     assert out.startswith("# Title migration audit\n")
     assert "state: ready\n" in out
-    assert "digest: c5d84ea6938fab45817a139cdb475a6be4f7220512dd375d58704e8dbfd0d9ad\n" in out
+    assert "digest: d59f04ab0d5d2ff59fa00e661a3e273294a04230f79df456e8515fa61f7e7b09\n" in out
     assert "- [11] \" Acme\" -> [10] \"Acme\"\n" in out
     assert "- [14] \"Beta \" -> [13] \" Beta \"\n" in out
 

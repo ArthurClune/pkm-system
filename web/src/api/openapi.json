@@ -4798,6 +4798,10 @@
             "type": "integer",
             "title": "Blocks Rewritten"
           },
+          "sidebars_retitled": {
+            "type": "integer",
+            "title": "Sidebars Retitled"
+          },
           "generation": {
             "type": "string",
             "title": "Generation"
@@ -4811,6 +4815,7 @@
           "pages_merged",
           "blocks_moved",
           "blocks_rewritten",
+          "sidebars_retitled",
           "generation"
         ],
         "title": "TitleMigrationApplyResponse"
@@ -4839,6 +4844,13 @@
             },
             "type": "array",
             "title": "Blockers"
+          },
+          "sidebar_retitles": {
+            "items": {
+              "$ref": "#/components/schemas/TitleMigrationSidebarRetitle"
+            },
+            "type": "array",
+            "title": "Sidebar Retitles"
           }
         },
         "type": "object",
@@ -4846,7 +4858,8 @@
           "active",
           "digest",
           "groups",
-          "blockers"
+          "blockers",
+          "sidebar_retitles"
         ],
         "title": "TitleMigrationAuditPayload"
       },
@@ -4944,6 +4957,32 @@
           "title"
         ],
         "title": "TitleMigrationPage"
+      },
+      "TitleMigrationSidebarRetitle": {
+        "properties": {
+          "sidebar_id": {
+            "type": "integer",
+            "title": "Sidebar Id",
+            "x-brand": "SidebarEntryId"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "x-brand": "CanonicalTitle"
+          },
+          "canonical_title": {
+            "type": "string",
+            "title": "Canonical Title",
+            "x-brand": "CanonicalTitle"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sidebar_id",
+          "title",
+          "canonical_title"
+        ],
+        "title": "TitleMigrationSidebarRetitle"
       },
       "TitlesPayload": {
         "properties": {

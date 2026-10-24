@@ -123,7 +123,7 @@ def test_title_migration_audit_returns_truthful_payload_without_side_effects(
     assert r.status_code == 200
     assert r.json() == {
         "active": False,
-        "digest": "c5d84ea6938fab45817a139cdb475a6be4f7220512dd375d58704e8dbfd0d9ad",
+        "digest": "d59f04ab0d5d2ff59fa00e661a3e273294a04230f79df456e8515fa61f7e7b09",
         "groups": [
             {
                 "canonical_title": "Acme",
@@ -157,6 +157,7 @@ def test_title_migration_audit_returns_truthful_payload_without_side_effects(
             },
         ],
         "blockers": [],
+        "sidebar_retitles": [],
     }
     db = open_db(seeded_config.db_path)
     assert database_generation(db) == generation
@@ -261,6 +262,7 @@ def test_title_migration_apply_activates_rotates_generation_and_nudges_once(
         "pages_merged": 3,
         "blocks_moved": 4,
         "blocks_rewritten": 3,
+        "sidebars_retitled": 0,
         "generation": r.json()["generation"],
     }
     assert counting_db.commit_calls == 1

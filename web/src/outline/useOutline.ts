@@ -18,6 +18,7 @@ import { newUid } from "../uid";
 import { stampBaseTextHashes, withoutStamps } from "./baseTextHash";
 import { FIRST_ORDER_IDX } from "./orderIdx";
 import type { DropTarget } from "./dnd";
+import { DEPTH_NOTICE, findDepthViolation } from "./depthCap";
 import { fileDropNotice, partitionUploadable, planFileDropBlocks,
          planUploadBlocks } from "./fileDrop";
 import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
@@ -69,6 +70,10 @@ export interface Outline {
    * failure notice (see outline/goodlinks.ts). */
   goodlinksNotice: string | null;
   dismissGoodlinksNotice(): void;
+  /** DEPTH_NOTICE while the last command was refused for putting a block
+   * past the outline depth cap; the next command that applies clears it. */
+  depthNotice: string | null;
+  dismissDepthNotice(): void;
   /** In-app confirm dialog: render this once in the owning
    * component's tree. Backs onDeleteBlockSelection's large-selection prompt —
    * window.confirm is suppressed by iPadOS Safari in standalone mode. */
@@ -98,6 +103,9 @@ export function useOutline(
   // Outcome of the last /goodlinks pick: "Saved to Goodlinks" or a failure
   // notice. Cleared at the start of the next pick or by dismissGoodlinksNotice.
   const [goodlinksNotice_, setGoodlinksNotice] = useState<string | null>(null);
+  // Set when run() refuses a command for the depth cap, cleared by the next
+  // command that applies or by dismissDepthNotice.
+  const [depthNotice, setDepthNotice] = useState<string | null>(null);
   // A live multi-block selection (Shift+Arrow), mutually exclusive with an
   // editing focus: starting one blurs the textarea, focusing a block clears it.
   const [selection, setSelection] = useState<BlockSelection | null>(null);
@@ -188,7 +196,16 @@ export function useOutline(
     const base = textOps.length > 0
       ? applyOps(pre, textOps, pageTitle)
       : pre;
-    const result = fn(base);
+    let result = fn(base);
+    // A command that would put a block past the depth cap applies none of
+    // its ops, but the draft's text ops above still ship: they are what the
+    // user typed, and sent with the command the server would refuse them
+    // too, since it refuses a batch whole.
+    if (result.ops.length > 0) {
+      const refused = findDepthViolation(result.blocks, result.ops) !== null;
+      setDepthNotice(refused ? DEPTH_NOTICE : null);
+      if (refused) result = { blocks: base, ops: [], focus: null };
+    }
     const ops = [...textOps, ...result.ops];
     if (ops.length === 0) return;
     const next = result.ops.length > 0 ? result.blocks : base;
@@ -653,6 +670,8 @@ export function useOutline(
     dismissUploadError: () => setUploadError(null),
     goodlinksNotice: goodlinksNotice_,
     dismissGoodlinksNotice: () => setGoodlinksNotice(null),
+    depthNotice,
+    dismissDepthNotice: () => setDepthNotice(null),
     dialog,
   };
 }

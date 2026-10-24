@@ -134,6 +134,15 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
           </button>
         </p>
       )}
+      {ownsEditor && outline.depthNotice && (
+        <p className="editor-notice" role="status">
+          {outline.depthNotice}
+          <button type="button" className="btn-secondary"
+                  onClick={outline.dismissDepthNotice}>
+            Dismiss
+          </button>
+        </p>
+      )}
       {ownsEditor && pickerNotice && (
         <p className="editor-notice" role="status">
           {pickerNotice}

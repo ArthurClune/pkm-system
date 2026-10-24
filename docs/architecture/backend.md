@@ -805,7 +805,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | GET | `/api/goodlinks/check` | Classify every `/api/goodlinks/` href |
 | GET | `/api/goodlinks/{link_id}` | Metadata and sanitised reader HTML; 503 when GoodLinks is down |
 | **Export** ([import-export-and-backup.md](import-export-and-backup.md)) | | |
-| GET | `/api/export/page/{title}` | One page as markdown; 422 past `EXPORT_MAX_CHARS` once refs and queries expand |
+| GET | `/api/export/page/{title}` | One page as markdown; 422 when refs and queries expand past `EXPORT_MAX_CHARS` or too many times |
 | GET | `/api/export.zip` | Whole-graph markdown export |
 
 ### Hostile input
@@ -828,7 +828,7 @@ route.
 | A deep or wide `/api/query` expression | `parse_query` refuses past `MAX_QUERY_DEPTH` / `MAX_QUERY_OPERANDS` and the route answers 400; rule in the [`/api/query` row](#http-api-reference) | `test_query.py` |
 | An id set past SQLite's bound-variable limit | Queries over an unbounded id set go through `sync_core.chunk_ids`; rule in [Database](#database) | `test_sql_variable_limit.py` |
 | An outline nested past the readers' 255-level limit | `/api/ops` refuses a client's block placed past `MAX_OUTLINE_DEPTH` and lands its own conflict copies no deeper; the importer refuses an export holding one (`validate_export_depth`); rule in [Missing targets](#missing-targets) | `test_outline_depth.py`, `test_hostile_requests.py` |
-| A page whose `((refs))` or queries fan out past `EXPORT_MAX_CHARS` | `export/resolve.py` charges the bound as it expands and the route answers 422; rule in [Single-page export](import-export-and-backup.md#single-page-export) | `test_export_resolve.py`, `test_export_routes.py` |
+| A page whose `((refs))` or queries fan out past `EXPORT_MAX_CHARS`, or into more expansions than it allows | `export/resolve.py` counts characters and calls as it expands and the route answers 422; rule in [Single-page export](import-export-and-backup.md#single-page-export) | `test_export_resolve.py`, `test_export_routes.py` |
 | `[[` nested past Python's recursion limit | Rename and unlink walk iteratively (`_rewrite_range`, `_unlink_range`); rule in [Ref grammar](#ref-grammar) | `test_legacy_deep_brackets.py` |
 
 Path and query values cannot carry a lone surrogate, because the server

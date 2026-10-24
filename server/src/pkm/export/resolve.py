@@ -21,15 +21,21 @@ increments the shared depth counter until one of the caps above trips and
 the innermost ((uid)) / {{query: ...}} is left raw.
 
 The depth caps bound how deep expansion goes, not how much it produces: K
-refs a level over three levels is K**3 copies of the leaf. A character
-budget (EXPORT_MAX_CHARS, one per render_page_resolved call, shared by
-every block and every recursion) bounds the output, and running out raises
-ExportTooLarge. It is charged as each piece of text is appended -- a
+refs a level over three levels is K**3 copies of the leaf. A budget (one
+per render_page_resolved call, shared by every block and every recursion)
+bounds the output, and running out raises ExportTooLarge. Its characters
+(EXPORT_MAX_CHARS) are charged as each piece of text is appended -- a
 literal slice of source text, a query header, an indent -- never on a
 finished string, because expansion is built bottom-up: a check on the
 result would come only after all K**3 copies had been built.
 A recursive result is not charged again by its caller, so the count equals
-the finished body's length and the refusal is exact.
+the finished body's length and the refusal is exact. Indents are added with
+str.replace rather than by splitting into lines, so memory stays a few
+objects per charged piece rather than one per line.
+
+The budget also counts resolve_text and render_query_result calls, at most
+one per CHARS_PER_CALL characters allowed: refs written back to back over
+an empty leaf produce no characters, yet the K**3 calls would still run.
 """
 from __future__ import annotations
 
@@ -50,6 +56,7 @@ if TYPE_CHECKING:
 BLOCK_REF_MAX_DEPTH = 3
 QUERY_MAX_DEPTH = 2
 EXPORT_MAX_CHARS = 10_000_000
+CHARS_PER_CALL = 10
 
 _BLOCK_REF_RE = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")
 # Mirrors web/src/grammar/tokenize.ts's QUERY_PREFIX (no case-insensitivity,
@@ -58,22 +65,39 @@ _QUERY_PREFIX_RE = re.compile(r"\{\{(?:\[\[)?query(?:\]\])?:\s*")
 
 
 class ExportTooLarge(Exception):
-    """The resolved page would pass its character budget."""
+    """The resolved page would pass its budget; the message says which."""
+
+
+def _in_words(n: int) -> str:
+    millions, rest = divmod(n, 1_000_000)
+    return f"{millions} million" if millions and not rest else f"{n:,}"
 
 
 class _Budget:
-    """Characters one render may still produce; charge() raises before the
+    """Characters one render may still produce, and resolve_text /
+    render_query_result calls it may still make. charge() raises before the
     piece it is charged for is appended."""
 
-    __slots__ = ("left",)
+    __slots__ = ("max_chars", "left", "calls_left")
 
     def __init__(self, max_chars: int) -> None:
+        self.max_chars = max_chars
         self.left = max_chars
+        self.calls_left = max_chars // CHARS_PER_CALL
 
     def charge(self, n: int) -> None:
         self.left -= n
         if self.left < 0:
-            raise ExportTooLarge
+            raise ExportTooLarge(
+                "page too large to export: over"
+                f" {_in_words(self.max_chars)} characters once block refs"
+                " and queries are expanded")
+
+    def call(self) -> None:
+        self.calls_left -= 1
+        if self.calls_left < 0:
+            raise ExportTooLarge("page too large to export: its block refs"
+                                 " and queries expand too many times")
 
 
 def _unbounded() -> _Budget:
@@ -133,7 +157,9 @@ def render_query_result(expr: str, result: QueryResult,
     matching what QueryBlock.tsx shows live. Item text is itself resolved
     (nested refs/queries), at `item_depth` -- the depth an item's content
     renders at, i.e. one past the query macro's own depth."""
-    budget = budget or _unbounded()
+    if budget is None:
+        budget = _unbounded()
+    budget.call()
     plural = "" if result.total == 1 else "s"
     header = f"Query: {expr} — {result.total} result{plural}"
     if not result.groups:
@@ -149,13 +175,11 @@ def render_query_result(expr: str, result: QueryResult,
         for item in group.items:
             resolved = resolve_text(item.text, uid_to_text, query_results,
                                     item_depth, budget=budget)
-            first, *rest = resolved.split("\n")
             # The resolved text, its own newlines included, is charged;
             # the item adds its newline and "  - ", and four spaces of
             # indent on each continuation line.
-            budget.charge(5 + 4 * len(rest))
-            lines.append(f"  - {first}")
-            lines.extend(f"    {line}" for line in rest)
+            budget.charge(5 + 4 * resolved.count("\n"))
+            lines.append("  - " + resolved.replace("\n", "\n    "))
     return "\n".join(lines)
 
 
@@ -167,7 +191,9 @@ def resolve_text(text: str, uid_to_text: Mapping[str, str],
     incremented depth. Anything beyond its own cap (BLOCK_REF_MAX_DEPTH /
     QUERY_MAX_DEPTH) -- or missing from the precomputed maps entirely --
     is left exactly as written."""
-    budget = budget or _unbounded()
+    if budget is None:
+        budget = _unbounded()
+    budget.call()
     query_macros: list[tuple[int, int, str]] = (
         find_query_macros(text) if depth < QUERY_MAX_DEPTH else [])
     query_spans = [(s, e) for s, e, _ in query_macros]
@@ -220,7 +246,8 @@ def render_page_resolved(title: CanonicalTitle, tree: Sequence[BlockNode],
     """Like markdown.render_page, but ((refs)) resolve recursively to plain
     text (no wrapping parens) and {{query: ...}} macros execute to their
     matching results -- the end-user export's rendering mode. Raises
-    ExportTooLarge once the body would pass `max_chars` characters."""
+    ExportTooLarge once the body would pass `max_chars` characters, or
+    expansion would take more than one call per CHARS_PER_CALL of them."""
     budget = _Budget(max_chars)
     lines = [f"# {title}", ""]
     # Every line, these two included, ends in a newline once joined.
@@ -232,14 +259,13 @@ def render_page_resolved(title: CanonicalTitle, tree: Sequence[BlockNode],
             resolved = resolve_text(node.text, uid_to_text, query_results, 0,
                                     budget=budget)
             text = rewrite_asset_links(resolved)
-            first, *rest = text.split("\n")
             # The resolved text and its own newlines are charged; this adds
             # the asset-link growth, the pad and "- " or "  " on each line,
             # and the last line's newline.
             budget.charge(len(text) - len(resolved)
-                          + (len(pad) + 2) * (len(rest) + 1) + 1)
-            lines.append(f"{pad}- {first}")
-            lines.extend(f"{pad}  {line}" for line in rest)
+                          + (len(pad) + 2) * (text.count("\n") + 1) + 1)
+            del resolved  # one body-sized copy fewer while indenting
+            lines.append(f"{pad}- " + text.replace("\n", f"\n{pad}  "))
             walk(node.children, depth + 1)
 
     walk(tree, 0)

@@ -77,13 +77,22 @@ fetches them breadth-first with a `visited` set: the depth caps stop a cyclic
 
 The depth caps bound how deep expansion goes, not how much it produces: K refs
 a level over three levels is K³ copies of the leaf. So `render_page_resolved`
-holds a character budget, `EXPORT_MAX_CHARS`, shared by every block and every
-recursion. Past it, it raises `ExportTooLarge` and the route answers 422 with
-`EXPORT_TOO_LARGE_DETAIL`; a page is never truncated. **The budget is charged
-as text is appended, never on the finished body.** Expansion is built
-bottom-up, so a check on the result would come after the whole K³ body was
-built. A recursive result is not charged again by its caller, so the count
-equals the body's length and a page under the bound exports unchanged.
+holds one budget, shared by every block and every recursion, that bounds both
+the characters and the number of expansions:
+
+| Counter | Limit | Why |
+|---|---|---|
+| Characters of body | `EXPORT_MAX_CHARS` | K³ copies of a leaf |
+| `resolve_text` and `render_query_result` calls | one per `CHARS_PER_CALL` characters | refs back to back over an empty leaf produce no characters, yet make K³ calls |
+
+Past either, it raises `ExportTooLarge`. The route answers 422 with the
+exception's message, which says which limit was passed; a page is never
+truncated. **Characters are charged as text is appended, never on the finished
+body.** Expansion is built bottom-up, so a check on the result would come after
+the whole K³ body was built. A recursive result is not charged again by its
+caller, so the count equals the body's length and a page under the bound
+exports unchanged. Indents go in with `str.replace` rather than by splitting
+into lines, so a body of many short lines does not hold one string per line.
 
 ## Importer (Roam EDN → fresh database)
 

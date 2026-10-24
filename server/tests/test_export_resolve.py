@@ -8,9 +8,9 @@ import tracemalloc
 import pytest
 from conftest import tree_node as node
 from pkm.export.resolve import (
-    EXPORT_MAX_CHARS, ExportTooLarge, QueryResult, QueryResultGroup,
-    QueryResultItem, find_query_macros, render_page_resolved,
-    render_query_result, resolve_text)
+    CHARS_PER_CALL, EXPORT_MAX_CHARS, ExportTooLarge, QueryResult,
+    QueryResultGroup, QueryResultItem, find_query_macros,
+    render_page_resolved, render_query_result, resolve_text)
 from pkm.test_data.ids import canonical_title_of
 
 
@@ -212,15 +212,19 @@ def test_render_page_resolved_nests_multiline_query_output_under_its_block():
 
 # -- render_page_resolved: the character bound ----------------------------
 
-def _amp(k: int, leaf: str) -> dict[str, str]:
+def _amp(k: int, leaf: str, sep: str = " ") -> dict[str, str]:
     # The probe's shape: three levels of K refs each over one leaf.
-    return {"amp_lvl1": " ".join(["((amp_lvl2))"] * k),
-            "amp_lvl2": " ".join(["((amp_lvl3))"] * k),
+    return {"amp_lvl1": sep.join(["((amp_lvl2))"] * k),
+            "amp_lvl2": sep.join(["((amp_lvl3))"] * k),
             "amp_lvl3": leaf}
 
 
-def _amp_tree(k: int):
-    return [node(" ".join(["((amp_lvl1))"] * k))]
+def _amp_tree(k: int, sep: str = " "):
+    return [node(sep.join(["((amp_lvl1))"] * k))]
+
+
+_TOO_MANY_CHARS = "over .* characters once block refs and queries are expanded"
+_TOO_MANY_CALLS = "its block refs and queries expand too many times"
 
 
 def test_the_real_bound_is_ten_million_characters():
@@ -229,14 +233,47 @@ def test_the_real_bound_is_ten_million_characters():
 
 def test_render_page_resolved_refuses_a_k_cubed_fan_out():
     # Uncharged, this is 200**3 * 100 = 800M characters.
-    with pytest.raises(ExportTooLarge):
+    with pytest.raises(ExportTooLarge, match=_TOO_MANY_CHARS):
         render_page_resolved(canonical_title_of("Amp"), _amp_tree(200),
                              _amp(200, "Z" * 100), {}, max_chars=10_000)
 
 
-def _refusal_peak(k: int, max_chars: int) -> int:
-    uid_to_text = _amp(k, "Z" * 100)
-    tree = _amp_tree(k)
+def test_a_fan_out_that_produces_nothing_is_still_refused():
+    # Adjacent refs over an empty leaf charge no characters, yet uncharged
+    # the K**3 resolve_text calls take minutes: every call is counted too.
+    tree, uid_to_text = _amp_tree(300, sep=""), _amp(300, "", sep="")
+    with pytest.raises(ExportTooLarge, match=_TOO_MANY_CALLS):
+        render_page_resolved(canonical_title_of("Amp"), tree, uid_to_text,
+                             {}, max_chars=10_000)
+
+
+def test_the_call_bound_scales_with_the_character_bound():
+    # 1 + 10 + 100 + 1_000 calls: refused at a bound allowing 1_000 calls,
+    # rendered at one allowing 10_000.
+    tree, uid_to_text = _amp_tree(10, sep=""), _amp(10, "", sep="")
+    title = canonical_title_of("Amp")
+    with pytest.raises(ExportTooLarge, match=_TOO_MANY_CALLS):
+        render_page_resolved(title, tree, uid_to_text, {}, max_chars=10_000)
+    assert render_page_resolved(title, tree, uid_to_text, {},
+                                max_chars=100_000) == "# Amp\n\n- \n"
+
+
+def test_every_resolve_and_query_rendering_is_one_call():
+    # One block holding a query of 1_000 empty items: 1 + 1 + 1_000 calls
+    # at about five characters each, so the call bound is the one reached.
+    expr = "{and: [[Tag]]}"
+    result = QueryResult(total=1_000, groups=_groups(
+        ("Page A", [(f"u{i}", "") for i in range(1_000)])))
+    page = (canonical_title_of("Q"), [node(f"{{{{query: {expr}}}}}")], {},
+            {expr: result})
+    render_page_resolved(*page, max_chars=CHARS_PER_CALL * 1_002)
+    with pytest.raises(ExportTooLarge, match=_TOO_MANY_CALLS):
+        render_page_resolved(*page, max_chars=CHARS_PER_CALL * 1_002 - 1)
+
+
+def _refusal_peak(k: int, max_chars: int, leaf: str, sep: str = " ") -> int:
+    uid_to_text = _amp(k, leaf, sep)
+    tree = _amp_tree(k, sep)
     tracemalloc.start()
     try:
         with pytest.raises(ExportTooLarge):
@@ -250,13 +287,26 @@ def _refusal_peak(k: int, max_chars: int) -> int:
 def test_a_refused_export_never_builds_a_string_far_past_the_bound():
     # Expansion is built bottom-up, so a bound checked only on the finished
     # body would first build all of it. Charged on the way in, a refusal's
-    # peak memory is about the bound plus a term linear in the stored text
-    # (measured 1.1x to 1.3x here), and quadrupling K, which multiplies the
-    # uncharged output by 64 (to 6.4G characters at K=400), barely moves it.
+    # peak memory is about the bound plus a term linear in the stored text,
+    # and multiplying K by eight, which multiplies the uncharged output by
+    # 512 (to 6.4G characters at K=400), barely moves it. Each peak is
+    # asserted as it is measured, smallest K first, so a regression fails
+    # before the larger K build gigabytes.
     max_chars = 1_000_000
-    peaks = {k: _refusal_peak(k, max_chars) for k in (100, 200, 400)}
-    assert all(peak < 3 * max_chars for peak in peaks.values()), peaks
-    assert peaks[400] < 1.5 * peaks[100], peaks
+    first = 0
+    for k in (50, 100, 400):
+        peak = _refusal_peak(k, max_chars, "Z" * 100)
+        assert peak < 3 * max_chars, (k, peak)
+        first = first or peak
+        assert peak < 1.5 * first, (k, peak, first)
+
+
+def test_a_refusal_of_many_short_lines_holds_no_object_per_line():
+    # 768_000 resolved characters in 256_000 lines: under the bound until
+    # each line's indent is charged. Splitting into one string per line
+    # before that charge would cost about fifty bytes a line.
+    peak = _refusal_peak(40, 1_000_000, "ab\n" * 4, sep="")
+    assert peak < 3 * 1_000_000, peak
 
 
 def test_the_bound_is_shared_across_top_level_blocks():
@@ -309,5 +359,5 @@ def test_the_bound_is_exact_on_the_finished_body():
     body = render_page_resolved(*page)
     n = len(body)
     assert render_page_resolved(*page, max_chars=n) == body
-    with pytest.raises(ExportTooLarge):
+    with pytest.raises(ExportTooLarge, match=_TOO_MANY_CHARS):
         render_page_resolved(*page, max_chars=n - 1)

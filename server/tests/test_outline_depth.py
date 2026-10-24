@@ -410,10 +410,14 @@ def test_a_diverged_delete_under_a_header_at_99_lands_flat_beside_its_entry(
 
 
 def test_skipped_ops_are_not_judged(client, seeded_config):
+    # judged, the cycle move would place the chain's bottom at level 200
     r = _ops(client, *_chain("sk", 100, DEEP),
-             {"op": "create", "uid": "sk_ghost_child", "page_title": "Deep",
-              "parent_uid": "sk_gone_parent", "order_idx": 0, "text": "x"})
+             {"op": "move", "uid": _uid("sk", 1),
+              "parent_uid": _uid("sk", 100), "order_idx": 0})
     assert r.status_code == 200, r.text[:200]
     assert [(s["index"], s["reason"]) for s in r.json()["skipped"]] == [
-        (100, "parent_not_found")]
+        (100, "cycle")]
     assert _count(seeded_config, "sk") == 100
+    assert _live(seeded_config, _uid("sk", 1))["parent_uid"] is None
+    assert (_live(seeded_config, _uid("sk", 100))["parent_uid"]
+            == _uid("sk", 99))

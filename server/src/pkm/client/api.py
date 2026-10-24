@@ -254,8 +254,8 @@ class PkmClient:
         page id or timestamp to invent.
 
         Looks up `normalize_title(title)`, not `title` verbatim: every page
-        creation path (store.get_or_create_page) normalizes a title's
-        control whitespace before storing it, so a page born
+        creation path (store.get_or_create_page) folds a title's
+        whitespace runs before storing it, so a page born
         from "Foo\\tBar" is only ever addressable as "Foo Bar". A caller
         that still holds the pre-normalization spelling -- e.g. a second
         `pkm save`/`save_note` to the same page -- would otherwise get a

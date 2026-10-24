@@ -98,9 +98,27 @@ both bounds exports in full, byte for byte as rendered. Indents go in with
 `str.replace` rather than by splitting into lines, so a body of many short
 lines does not hold one string per line.
 
-The budget does not bound the route's gather (`_gather_resolution_data`). It
-runs before the budget exists, and every distinct query expression executes
-with no row limit.
+The route's gather (`_gather_resolution_data`) runs before the renderer, and
+it is charged against the same limits through `GatherBudget`: one per export,
+shared by every query expression in every round. Expressions that differ only
+in spacing slip past the `visited` set, so the shared budget is what bounds Q
+expressions over M matches each. A query's match count (`count_matches`) is
+checked before any row is fetched. Its rows then stream
+(`query_exec.iter_plan_rows`) and are charged one at a time, so a refusal never
+holds more rows than the budget allows.
+
+Each gather charge is at most what rendering that piece once costs:
+
+| Gathered | Calls | Characters |
+|---|---|---|
+| a query | one, its `render_query_result` call | none |
+| an item | its `resolve_text` call, scan included | five, plus its text outside the spans `resolve_text` substitutes at the item's depth (`_substitutions`, shared by both) |
+
+Every expression the gather runs is rendered at least once, so it refuses only
+what the renderer would. One exception is accepted. The gather follows the refs
+`refs.extract` finds; the renderer follows those `_BLOCK_REF_RE` finds outside
+query macros. A query reached only through a ref inside a query macro's body is
+gathered and charged but never rendered.
 
 ## Importer (Roam EDN → fresh database)
 

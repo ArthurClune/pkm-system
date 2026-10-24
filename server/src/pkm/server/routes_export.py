@@ -16,7 +16,10 @@ closure of referenced-block text and query results the resolver needs,
 then hands it to the pure renderer -- it never mutates export_graph's
 semantics. A page whose expansion would pass the renderer's bound
 (EXPORT_MAX_CHARS characters, and a number of expansions that scales with
-it) is refused with a 422 carrying the renderer's reason, never truncated."""
+it) is refused with a 422 carrying the renderer's reason, never truncated.
+The gather is charged against the same bound (GatherBudget), so a page of
+query macros matching much of the graph is refused before every match of
+every query is held."""
 from __future__ import annotations
 
 import shutil
@@ -32,9 +35,9 @@ from pkm.database import Db
 from pkm.contracts.titles import RawTitle
 from pkm.export.markdown import page_filename
 from pkm.export.resolve import (
-    BLOCK_REF_MAX_DEPTH, QUERY_MAX_DEPTH, ExportTooLarge, QueryResult,
-    QueryResultGroup, QueryResultItem, find_query_macros,
-    render_page_resolved)
+    BLOCK_REF_MAX_DEPTH, EXPORT_MAX_CHARS, QUERY_MAX_DEPTH, ExportTooLarge,
+    GatherBudget, QueryResult, QueryResultGroup, QueryResultItem,
+    find_query_macros, render_page_resolved)
 from pkm.export.writer import export_graph
 from pkm.rows import Row
 from pkm.filenames import attachment_disposition
@@ -43,7 +46,8 @@ from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
 from pkm.server.grouping import group_by_page
 from pkm.server.query import plan_sql, QueryParseError
-from pkm.server.query_exec import execute_plan, parse_canonical_query
+from pkm.server.query_exec import (
+    count_matches, iter_plan_rows, parse_canonical_query)
 from pkm.server.store import fetch_page
 from pkm.server.sync_core import chunk_ids
 from pkm.server.sync_meta import read_title
@@ -60,11 +64,18 @@ _BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
               " created_at, updated_at, view_type")
 
 
-def _run_query(db: Db, expr: str) -> QueryResult | None:
+def _run_query(db: Db, expr: str, budget: GatherBudget,
+               item_depth: int) -> QueryResult | None:
     """Execute one {{query: ...}} expression, reshaped for the resolved
     renderer: the same execution and grouping the live /api/query endpoint
     performs (query_exec, grouping), then this route's own immutable
     result types, which name pages by title only and carry no page_id.
+
+    The result is charged to `budget` at the depth its items render at:
+    its match count before any row is fetched, then each row as it streams
+    in, so a refusal (ExportTooLarge) never holds more rows than the budget
+    allows. The rows stream rather than coming from execute_plan, which
+    holds them all.
 
     None on a bad expression (e.g. stale/hand-edited syntax) -- the caller
     then leaves the macro's raw text in place, the same fallback as an
@@ -73,18 +84,24 @@ def _run_query(db: Db, expr: str) -> QueryResult | None:
         sql, params = plan_sql(parse_canonical_query(db, expr))
     except QueryParseError:
         return None
-    matches = execute_plan(db, sql, params)
+    budget.charge_query()
+    total = count_matches(db, sql, params)
+    budget.check_room(total)
+    rows: list[Row] = []
+    for row in iter_plan_rows(db, sql, params):
+        budget.charge_item(row["text"], item_depth)
+        rows.append(row)
     groups = tuple(
         QueryResultGroup(
             page_title=g.page_title,
             items=tuple(QueryResultItem(uid=i.uid, text=i.text)
                         for i in g.items))
-        for g in group_by_page(matches.rows))
-    return QueryResult(total=matches.total, groups=groups)
+        for g in group_by_page(rows))
+    return QueryResult(total=total, groups=groups)
 
 
 def _gather_resolution_data(
-    db: Db, initial_texts: list[str],
+    db: Db, initial_texts: list[str], max_chars: int = EXPORT_MAX_CHARS,
 ) -> tuple[dict[str, str], dict[str, QueryResult]]:
     """Breadth-first, depth-capped closure of every uid and query expression
     the resolved renderer might need: round `depth` fetches/executes the
@@ -95,7 +112,14 @@ def _gather_resolution_data(
     A `visited` set per kind makes revisiting the same uid or expression a
     no-op rather than a refetch -- the guard against a cyclic ((ref)) chain
     looping forever, not a depth check alone (map lookups are cheap; the
-    fetch itself is the thing worth not repeating)."""
+    fetch itself is the thing worth not repeating).
+
+    Query results are charged to one GatherBudget of `max_chars`, shared by
+    every expression in every round: Q distinct expressions (string-distinct
+    but equivalent ones defeat `visited`) over M matches each would
+    otherwise hold Q x M rows before the renderer's own bound is consulted.
+    Raises ExportTooLarge once they pass it."""
+    budget = GatherBudget(max_chars)
     uid_to_text: dict[str, str] = {}
     query_results: dict[str, QueryResult] = {}
     visited_uids: set[str] = set()
@@ -122,7 +146,7 @@ def _gather_resolution_data(
                     for _, _, expr in find_query_macros(text)} - visited_exprs
             for expr in exprs:
                 visited_exprs.add(expr)
-                result = _run_query(db, expr)
+                result = _run_query(db, expr, budget, depth + 1)
                 if result is not None:
                     query_results[expr] = result
                     for group in result.groups:
@@ -143,10 +167,12 @@ def export_page_markdown(title: RawTitle,
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
         (page["page_id"],))
     texts = [r["text"] for r in blocks]
-    uid_to_text, query_results = _gather_resolution_data(db, texts)
     try:
+        uid_to_text, query_results = _gather_resolution_data(
+            db, texts, EXPORT_MAX_CHARS)
         body = render_page_resolved(page["title"], build_tree(blocks),
-                                    uid_to_text, query_results)
+                                    uid_to_text, query_results,
+                                    EXPORT_MAX_CHARS)
     except ExportTooLarge as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
     filename = page_filename(page["title"], set())

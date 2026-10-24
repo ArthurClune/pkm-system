@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import NamedTuple, cast
 
@@ -50,6 +50,26 @@ class Db:
                 if problems:
                     raise RowCheckError(_check_message(sql, problems))
         return rows
+
+    def select_iter(self, sql: str, params: Params = (),
+                    batch: int = 1000) -> Iterator[Row]:
+        """`select`, one row at a time, fetched `batch` at a time: for a
+        caller that may stop early, which then never holds the rows it did
+        not reach. The cursor closes when the iterator is closed or
+        dropped."""
+        cursor = self._con.execute(sql, params)
+        try:
+            names = [d[0] for d in cursor.description or ()]
+            while values_batch := cursor.fetchmany(batch):
+                for values in values_batch:
+                    row = cast(Row, dict(zip(names, values)))
+                    if self._check_rows:
+                        problems = row_problems(row)
+                        if problems:
+                            raise RowCheckError(_check_message(sql, problems))
+                    yield row
+        finally:
+            cursor.close()
 
     def select_one(self, sql: str, params: Params = ()) -> Row | None:
         rows = self.select(sql, params)

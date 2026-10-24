@@ -163,3 +163,42 @@ export async function apiFetch<T>(
   // brand: untrusted -- an HTTP response body, typed by the caller's route
   return (await res.json()) as T;
 }
+
+/** The filename a `Content-Disposition` header names, preferring the RFC 5987
+ * `filename*` (UTF-8, percent-encoded) over the ASCII `filename`. */
+function dispositionFilename(header: string | null): string | undefined {
+  if (header === null) return undefined;
+  const star = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header);
+  if (star?.[1] !== undefined) {
+    try {
+      return decodeURIComponent(star[1].trim());
+    } catch {
+      // malformed escape: fall through to the ASCII name
+    }
+  }
+  const plain = /filename\s*=\s*"([^"]*)"/i.exec(header)
+    ?? /filename\s*=\s*([^;]+)/i.exec(header);
+  return plain?.[1]?.trim();
+}
+
+/** GET a non-JSON body as a blob, with the filename the server suggests.
+ * Online only: a download has no local shim, so offline throws OfflineError
+ * without fetching. Errors match apiFetch (401 -> unauthorized handler;
+ * other non-OK -> ApiError carrying the server's `detail`). */
+export async function apiDownload(
+  path: string,
+): Promise<{ blob: Blob; filename: string | undefined }> {
+  if (gateway?.offline()) throw new OfflineError(path);
+  const res = await fetch(path);
+  if (res.status === 401) {
+    onUnauthorized();
+    throw new ApiError(401, path, await readErrorDetail(res));
+  }
+  if (!res.ok) {
+    throw new ApiError(res.status, path, await readErrorDetail(res));
+  }
+  return {
+    blob: await res.blob(),
+    filename: dispositionFilename(res.headers.get("Content-Disposition")),
+  };
+}

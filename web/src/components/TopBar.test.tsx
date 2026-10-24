@@ -90,20 +90,86 @@ it("page menu button starts closed and toggles aria-expanded on click", () => {
   expect(screen.getByRole("menuitem", { name: "Open in sidebar" })).toBeInTheDocument();
 });
 
-it("shows an 'Export as Markdown' download link in the page menu", () => {
+function stubObjectUrls() {
+  const create = vi.fn(() => "blob:fake");
+  const revoke = vi.fn();
+  vi.stubGlobal("URL", Object.assign(URL, {
+    createObjectURL: create, revokeObjectURL: revoke,
+  }));
+  return { create, revoke };
+}
+
+function exportResponse(): Response {
+  return new Response("# md", {
+    status: 200,
+    headers: {
+      "Content-Type": "text/markdown",
+      "Content-Disposition": 'attachment; filename="Machine Learning.md"',
+    },
+  });
+}
+
+it("'Export as Markdown' is a button that fetches the page and downloads it", async () => {
+  const urls = stubObjectUrls();
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL) => exportResponse());
+  vi.stubGlobal("fetch", fetchMock);
+  const downloads: string[] = [];
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click")
+    .mockImplementation(function (this: HTMLAnchorElement) {
+      downloads.push(this.download);
+    });
   renderTopBar("/page/Machine Learning");
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
-  const link = screen.getByRole("menuitem", { name: "Export as Markdown" });
-  expect(link.tagName).toBe("A");
-  expect(link).toHaveAttribute("href", "/api/export/page/Machine%20Learning");
-  expect(link).toHaveAttribute("download");
+  const item = screen.getByRole("menuitem", { name: "Export as Markdown" });
+  expect(item.tagName).toBe("BUTTON");
+  await act(async () => { fireEvent.click(item); });
+  expect(fetchMock.mock.calls[0]![0]).toBe("/api/export/page/Machine%20Learning");
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(urls.create).toHaveBeenCalledOnce();
+  expect(downloads).toEqual(["Machine Learning.md"]);
+  await vi.waitFor(() => expect(urls.revoke).toHaveBeenCalledWith("blob:fake"));
+  expect(screen.queryByRole("alert")).toBeNull();
+  click.mockRestore();
 });
 
-it("encodes slashes in namespaced page titles for the export link", () => {
+it("encodes slashes in namespaced page titles for the export fetch", async () => {
+  stubObjectUrls();
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL) => exportResponse());
+  vi.stubGlobal("fetch", fetchMock);
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
   renderTopBar("/page/AWS/SCP");
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
-  const link = screen.getByRole("menuitem", { name: "Export as Markdown" });
-  expect(link).toHaveAttribute("href", "/api/export/page/AWS/SCP");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("menuitem", { name: "Export as Markdown" }));
+  });
+  expect(fetchMock.mock.calls[0]![0]).toBe("/api/export/page/AWS/SCP");
+  click.mockRestore();
+});
+
+it("a refused export shows its reason, and a later success clears it", async () => {
+  stubObjectUrls();
+  let refuse = true;
+  vi.stubGlobal("fetch", vi.fn(async () => refuse
+    ? new Response(JSON.stringify({ detail: "page too large to export: over 10 million" }),
+                   { status: 422 })
+    : exportResponse()));
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  renderTopBar("/page/AWS/SCP");
+  const exportOnce = async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Export as Markdown" }));
+    });
+  };
+  await exportOnce();
+  const alert = screen.getByRole("alert");
+  expect(alert).toHaveTextContent('Couldn\'t export "AWS/SCP": page too large to export');
+  expect(alert).not.toHaveTextContent("request failed");
+  expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
+  refuse = false;
+  await exportOnce();
+  expect(screen.queryByRole("alert")).toBeNull();
+  click.mockRestore();
 });
 
 it("picking 'Open in sidebar' calls openInSidebar with the current page title and closes the menu", () => {

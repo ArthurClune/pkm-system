@@ -308,8 +308,9 @@ export function takeRedo(state: HistoryState):
 
 /** Undoes a takeUndo ("undo") or takeRedo ("redo") of `entry` whose replay
  * was refused: the entry leaves the other stack, if still there, and goes
- * back on top of its own. A redo stack an upload's take cleared stays
- * cleared. */
+ * back on top of its own. An upload's take clears the redo stack, but
+ * its inverse places no blocks, so its replay is never refused and never
+ * reaches here. */
 export function restoreEntry(state: HistoryState, entry: HistoryEntry,
                              kind: "undo" | "redo"): HistoryState {
   const without = (stack: HistoryEntry[]): HistoryEntry[] => {

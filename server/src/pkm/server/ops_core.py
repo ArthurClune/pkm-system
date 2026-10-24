@@ -973,7 +973,9 @@ def _check_depth(index: int, uid: BlockUid, depth: int) -> None:
     block at). A 400 rather than a skip: a skip would need its own note
     and replica mirror, and only an outline near the cap can reach it.
     Server-made landings (conflict entries, a diverged delete's copies)
-    are never judged: the client did not place them."""
+    are never judged: the client did not place them. They are bounded
+    where they are placed instead, in ops_apply's _conflict_landing and
+    in descendant_copy_effects."""
     if depth > MAX_OUTLINE_DEPTH:
         raise OpError(index, f"block {uid} would sit {depth} levels deep;"
                              f" the limit is {MAX_OUTLINE_DEPTH}")

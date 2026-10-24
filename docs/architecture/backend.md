@@ -514,8 +514,9 @@ bound on writes protects every reader. `plan_op` judges a create by its
 own level and a move by the level its subtree's deepest block lands at.
 Each op sees the batch's earlier ops applied. A skipped op places none of
 the client's blocks, so it is not judged. Only where an op puts blocks is
-judged: legacy rows past the cap stay readable and their text editable,
-but a move that leaves them past the cap is refused.
+judged. Legacy rows past the cap stay readable below the readers'
+255-level limit, and their text stays editable. A move that leaves them
+past the cap is refused.
 
 **Depth rejects the batch rather than skipping the op like `move_cycle`.**
 A skip would need its own note, journal rows and replica mirror, for a case
@@ -536,7 +537,7 @@ nesting below the cap:
 
 | Landing | Bound |
 |---|---|
-| Conflict entry | `_conflict_landing` reuses today's header only while it sits shallower than the cap; a deeper one (only a legacy row) gets a fresh top-level header |
+| Conflict entry | `_conflict_landing` reuses today's header only above the cap. One at the cap or deeper gets a fresh top-level header. A client can move an emptied header to the cap; only a legacy row sits deeper |
 | A diverged delete's copies | `descendant_copy_effects` keeps their shape down to the cap. A copy one level above the cap takes the rest of its copied subtree as children at the cap, in document order |
 | Root copy at the cap, under a reused header | its copied descendants follow it under the header, in document order |
 

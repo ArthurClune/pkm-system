@@ -236,8 +236,9 @@ def _conflict_landing(db: Db, target_uid: BlockUid,
     An existing header whose uid is in `exclude` is passed over for a fresh
     one: a delete passes the subtree it removes, and a header inside that
     subtree would take the copies down with it. So is one at
-    MAX_OUTLINE_DEPTH or deeper (only a legacy row can be), whose entry
-    would land past the cap. The fresh header is then recorded in its
+    MAX_OUTLINE_DEPTH or deeper, whose entry would land past the cap: a
+    client can move an emptied header to exactly the cap, and only a
+    legacy row sits deeper. The fresh header is then recorded in its
     place."""
     local_day = datetime.fromtimestamp(now_ms / 1000).date()
     day = title_for_date(local_day)

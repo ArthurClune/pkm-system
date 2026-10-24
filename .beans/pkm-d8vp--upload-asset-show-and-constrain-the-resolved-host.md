@@ -1,11 +1,11 @@
 ---
 # pkm-d8vp
 title: 'upload_asset: show and constrain the resolved host path'
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-24T17:49:18Z
+updated_at: 2026-10-24T17:57:11Z
 parent: pkm-mfd0
 ---
 

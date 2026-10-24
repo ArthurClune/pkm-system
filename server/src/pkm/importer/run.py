@@ -20,13 +20,16 @@ from pkm.filenames import safe_filename
 from pkm.importer.assets import UID_PREFIX_LEN, Asset, rewrite_asset_urls
 from pkm.importer.parse_export import parse_export
 from pkm.importer.preflight import (ImportDepthError, ImportStructureError,
-                                    ImportUidError, validate_export_depth,
+                                    ImportTextLimitError, ImportUidError,
+                                    validate_export_depth,
                                     validate_export_structure,
-                                    validate_export_uids)
+                                    validate_export_uids,
+                                    validate_row_text_limits)
 from pkm.importer.report import ImportReport, render
 from pkm.importer.rows import Rows, to_rows
 from pkm.importer.titles import sanitize_export_titles
 from pkm.schema import DDL
+from pkm.server.store import RewriteTextLimitError
 from pkm.server.title_migration import (
     BlockedTitleMigration,
     apply_title_migration,
@@ -157,12 +160,17 @@ def main(argv: list[str] | None = None) -> int:
         return new
 
     rows = to_rows(export, transform)
+    try:
+        validate_row_text_limits(rows)
+    except ImportTextLimitError as exc:
+        print(f"error: import refused: {exc}", file=sys.stderr)
+        return 2
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     tmp = out / "pkm.sqlite3.tmp"
     tmp.unlink(missing_ok=True)
-    blocked_migration: BlockedTitleMigration | None = None
+    blocked_migration: BlockedTitleMigration | RewriteTextLimitError | None = None
     con = connect(tmp)
     try:
         con.executescript(DDL)
@@ -187,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             plan = audit_title_migration(con)
             apply_title_migration(con, plan.digest, now_ms=int(time.time() * 1000))
-        except BlockedTitleMigration as exc:
+        except (BlockedTitleMigration, RewriteTextLimitError) as exc:
             blocked_migration = exc
     finally:
         con.close()

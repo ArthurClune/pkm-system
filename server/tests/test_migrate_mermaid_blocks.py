@@ -254,3 +254,34 @@ def test_fts_reflects_migration(tmp_path):
         " WHERE blocks_fts MATCH 'nested'")
     assert [h["uid"] for h in hits] == ["uid_component"]
     con.close()
+
+
+def test_a_component_whose_fence_is_over_the_limit_is_reported_not_converted(
+        tmp_path, capsys):
+    db_path = _make_db(tmp_path)
+    con = open_db(db_path)
+    con.execute("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+                " heading, collapsed, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
+                ("uid_big_component", 1, None, 6, "{{[[mermaid]]}}", None, 0,
+                 None, None))
+    for i in range(2):
+        con.execute("INSERT INTO blocks(uid, page_id, parent_uid, order_idx,"
+                    " text, heading, collapsed, created_at, updated_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?)",
+                    (f"uid_big_line{i}", 1, "uid_big_component", i,
+                     "x" * 500_000, None, 0, None, None))
+    con.commit()
+    con.close()
+
+    con = connect(db_path)
+    plan = plan_migration(con)
+    con.close()
+    assert "uid_big_component" not in [uid for uid, _ in plan.candidates]
+    assert plan.over_limit == ("uid_big_component",)
+    assert [p.descendant_uid for p in plan.preserved] == ["uid_ref_line2"]
+
+    assert main(["--db", str(db_path), "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "uid_big_component" in out
+    assert "uid_ref_line2" in out

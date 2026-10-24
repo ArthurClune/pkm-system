@@ -149,7 +149,7 @@ of the finished body and the refusal is exact (Review Focus 3). Raise
 `render_page_resolved` call, shared by every recursion and every block.
 A recursive result is not charged again by its caller (its characters
 were charged where they originated).
-`rewrite_asset_links` lengthens each `](/assets/` by three characters;
+`rewrite_asset_links` lengthens each `](/assets/` by two characters;
 charge that growth too, or the count drifts from the body. Update the module docstring: the
 depth caps bound how deep expansion goes; the character budget bounds how
 much it produces, and why it is charged on the way in.

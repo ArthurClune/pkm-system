@@ -75,6 +75,33 @@ user's download, and it renders what a reader of the live page sees:
 fetches them breadth-first with a `visited` set: the depth caps stop a cyclic
 `((ref))` chain from rendering forever, not from fetching forever.
 
+The depth caps bound how deep expansion goes, not how much it produces: K refs
+a level over `BLOCK_REF_MAX_DEPTH` levels is K to that power copies of the
+leaf. So `render_page_resolved` holds one budget, shared by every block and
+every recursion, that bounds both the characters and the work of expanding:
+
+| Counter | Limit | Charged | Why |
+|---|---|---|---|
+| Characters of body | `EXPORT_MAX_CHARS` | each piece of text as it is appended | K to the depth copies of a leaf |
+| Call units | one per `CHARS_PER_CALL` characters of the character bound | one per `resolve_text` or `render_query_result` call, plus one per `SCAN_CHARS_PER_UNIT` characters a `resolve_text` call scans | refs back to back over an empty leaf produce no characters yet make that many calls; a resolved query macro's padding is scanned on every ref but never output |
+
+The scan rate is coarse so that the character bound stays the one a
+text-heavy page reaches: literal text is both scanned and output.
+
+Past either, it raises `ExportTooLarge`. The route answers 422 with the
+exception's message, which says which limit was passed; a page is never
+truncated. **Characters are charged as text is appended, never on the finished
+body.** Expansion is built bottom-up, so a check on the result would come after
+the whole exponential body was built. A recursive result is not charged again by its
+caller, so the character count equals the body's length, and a page under
+both bounds exports in full, byte for byte as rendered. Indents go in with
+`str.replace` rather than by splitting into lines, so a body of many short
+lines does not hold one string per line.
+
+The budget does not bound the route's gather (`_gather_resolution_data`). It
+runs before the budget exists, and every distinct query expression executes
+with no row limit.
+
 ## Importer (Roam EDN → fresh database)
 
 `python -m pkm.importer.run export.edn --files <dir> --out <data-dir>` builds a

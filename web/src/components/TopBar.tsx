@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ApiError } from "../api/client";
+import { ApiError, OfflineError, apiDownload } from "../api/client";
 import type { RawTitle } from "../api/brands";
 import { apiDelete, apiGet } from "../api/typedClient";
 import { BlockStampsContext, SidebarContext } from "../contexts";
@@ -39,11 +39,11 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
   const { openInSidebar } = useContext(SidebarContext);
   const { stamps, toggle: toggleStamps } = useContext(BlockStampsContext);
   const [menuOpen, setMenuOpen] = useState(false);
-  // Surfaces a failed deletion the same way PageTitle/EditablePage do: a
-  // dismissible `.error` paragraph, not a new notification mechanism. Kept
-  // separate from menuOpen because the menu closes on both outcomes but the
-  // error should only outlive a failure.
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Surfaces a failed deletion or export the same way PageTitle/EditablePage
+  // do: a dismissible `.error` paragraph, not a new notification mechanism.
+  // Kept separate from menuOpen because the menu closes on both outcomes but
+  // the error should only outlive a failure.
+  const [menuError, setMenuError] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
   const { confirm, dialog } = useConfirm();
@@ -77,7 +77,7 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
     // Clear any error from a previous attempt as this one starts, so a
     // retry never leaves a stale message sitting alongside (or instead of)
     // the new outcome.
-    setDeleteError(null);
+    setMenuError(null);
     try {
       await apiDelete("/api/page/{title}", { path: { title } });
     } catch (e) {
@@ -93,17 +93,52 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
       }
       // Matches PageTitle's `setError(String(e))` -- same shape of error,
       // same amount of detail, no second convention to learn.
-      setDeleteError(`Couldn't delete "${title}": ${String(e)}`);
+      setMenuError(`Couldn't delete "${title}": ${String(e)}`);
       return;
     }
     setMenuOpen(false);
     navigate("/");
   };
 
+  // The page the bar shows now, so a slow export that settles after the user
+  // has navigated away neither downloads nor reports against the new route.
+  const titleRef = useRef(title);
+  titleRef.current = title;
+
+  const handleExport = async () => {
+    if (title === null) return;
+    setMenuOpen(false);
+    setMenuError(null);
+    try {
+      const { blob, filename } = await apiDownload(
+        `/api/export/page/${encodeTitle(title)}`);
+      if (titleRef.current !== title) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename ?? `${title}.md`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Safari may still be reading the blob well after the click returns
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      if (titleRef.current !== title) return;
+      // ApiError's message prefixes "request failed: 422 path:", which is
+      // noise to a user; the server's detail is the reason. An offline or
+      // network failure has no detail, so it gets its own plain copy.
+      const reason = e instanceof ApiError && e.detail ? e.detail
+        : e instanceof OfflineError ? e.message
+        : e instanceof TypeError ? "couldn't reach the server"
+        : String(e);
+      setMenuError(`Couldn't export "${title}": ${reason}`);
+    }
+  };
+
   // Route changes (including away from /page/*) should never leave a stale
   // menu -- or a stale deletion error for a page the user has moved past --
   // open/visible.
-  useEffect(() => { setMenuOpen(false); setDeleteError(null); setBlockers(null); }, [pathname]);
+  useEffect(() => { setMenuOpen(false); setMenuError(null); setBlockers(null); }, [pathname]);
 
   // Escape here does not preventDefault: the confirm dialog this menu opens
   // owns the keystroke while it is up, and the menu closing underneath it is
@@ -159,14 +194,11 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
                   </button>
                 </li>
                 <li role="none">
-                  {/* Plain download navigation (cookies carry auth) rather than
-                      fetch+blob, matching PdfFallbackLink's pattern -- the
-                      server sets Content-Disposition: attachment either way,
-                      so `download` is a belt-and-suspenders hint. */}
-                  <a role="menuitem" href={`/api/export/page/${encodeTitle(title)}`}
-                     download onClick={() => setMenuOpen(false)}>
+                  {/* A fetch, not a download link: a refused export must show
+                      its reason, which a navigation cannot. */}
+                  <button type="button" role="menuitem" onClick={() => void handleExport()}>
                     Export as Markdown
-                  </a>
+                  </button>
                 </li>
                 <li role="none">
                   <button type="button" role="menuitem" onClick={() => void handleDelete()}>
@@ -183,10 +215,10 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
                                onClose={closeBlocked} />
         )}
       </div>
-      {deleteError !== null && (
+      {menuError !== null && (
         <p className="error upload-error top-bar-error" role="alert">
-          {deleteError}
-          <button type="button" className="btn-secondary" onClick={() => setDeleteError(null)}>
+          {menuError}
+          <button type="button" className="btn-secondary" onClick={() => setMenuError(null)}>
             Dismiss
           </button>
         </p>

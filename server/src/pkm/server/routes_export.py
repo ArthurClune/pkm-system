@@ -14,7 +14,9 @@ pkm.export.resolve, so the download reads like what a reader of the live
 page would see. This route gathers the (bounded, cycle-safe) transitive
 closure of referenced-block text and query results the resolver needs,
 then hands it to the pure renderer -- it never mutates export_graph's
-semantics."""
+semantics. A page whose expansion would pass the renderer's bound
+(EXPORT_MAX_CHARS characters, and a number of expansions that scales with
+it) is refused with a 422 carrying the renderer's reason, never truncated."""
 from __future__ import annotations
 
 import shutil
@@ -30,8 +32,9 @@ from pkm.database import Db
 from pkm.contracts.titles import RawTitle
 from pkm.export.markdown import page_filename
 from pkm.export.resolve import (
-    BLOCK_REF_MAX_DEPTH, QUERY_MAX_DEPTH, QueryResult, QueryResultGroup,
-    QueryResultItem, find_query_macros, render_page_resolved)
+    BLOCK_REF_MAX_DEPTH, QUERY_MAX_DEPTH, ExportTooLarge, QueryResult,
+    QueryResultGroup, QueryResultItem, find_query_macros,
+    render_page_resolved)
 from pkm.export.writer import export_graph
 from pkm.rows import Row
 from pkm.filenames import attachment_disposition
@@ -141,8 +144,11 @@ def export_page_markdown(title: RawTitle,
         (page["page_id"],))
     texts = [r["text"] for r in blocks]
     uid_to_text, query_results = _gather_resolution_data(db, texts)
-    body = render_page_resolved(page["title"], build_tree(blocks),
-                                uid_to_text, query_results)
+    try:
+        body = render_page_resolved(page["title"], build_tree(blocks),
+                                    uid_to_text, query_results)
+    except ExportTooLarge as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
     filename = page_filename(page["title"], set())
     return Response(
         content=body, media_type="text/markdown",

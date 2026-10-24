@@ -3,10 +3,15 @@ import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import { BlockStampsContext, SidebarContext } from "../contexts";
+import { setOfflineGateway } from "../api/client";
 import { stubFetch } from "../test-helpers";
 import { TopBar } from "./TopBar";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+  setOfflineGateway(null);
+});
 
 function renderTopBar(
   path: string,
@@ -90,20 +95,164 @@ it("page menu button starts closed and toggles aria-expanded on click", () => {
   expect(screen.getByRole("menuitem", { name: "Open in sidebar" })).toBeInTheDocument();
 });
 
-it("shows an 'Export as Markdown' download link in the page menu", () => {
+function stubObjectUrls() {
+  const create = vi.fn(() => "blob:fake");
+  const revoke = vi.fn();
+  vi.stubGlobal("URL", class extends URL {
+    static createObjectURL = create;
+    static revokeObjectURL = revoke;
+  });
+  return { create, revoke };
+}
+
+function exportResponse(): Response {
+  return new Response("# md", {
+    status: 200,
+    headers: {
+      "Content-Type": "text/markdown",
+      "Content-Disposition": 'attachment; filename="Machine Learning.md"',
+    },
+  });
+}
+
+it("'Export as Markdown' is a button that fetches the page and downloads it", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout"] });
+  const urls = stubObjectUrls();
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL) => exportResponse());
+  vi.stubGlobal("fetch", fetchMock);
+  const downloads: string[] = [];
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click")
+    .mockImplementation(function (this: HTMLAnchorElement) {
+      downloads.push(this.download);
+    });
   renderTopBar("/page/Machine Learning");
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
-  const link = screen.getByRole("menuitem", { name: "Export as Markdown" });
-  expect(link.tagName).toBe("A");
-  expect(link).toHaveAttribute("href", "/api/export/page/Machine%20Learning");
-  expect(link).toHaveAttribute("download");
+  const item = screen.getByRole("menuitem", { name: "Export as Markdown" });
+  expect(item.tagName).toBe("BUTTON");
+  await act(async () => { fireEvent.click(item); });
+  expect(fetchMock.mock.calls[0]![0]).toBe("/api/export/page/Machine%20Learning");
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(urls.create).toHaveBeenCalledOnce();
+  expect(downloads).toEqual(["Machine Learning.md"]);
+  expect(urls.revoke).not.toHaveBeenCalled();
+  await act(async () => { vi.advanceTimersByTime(59_999); });
+  expect(urls.revoke).not.toHaveBeenCalled();
+  await act(async () => { vi.advanceTimersByTime(1); });
+  expect(urls.revoke).toHaveBeenCalledWith("blob:fake");
+  expect(screen.queryByRole("alert")).toBeNull();
+  click.mockRestore();
+  vi.useRealTimers();
 });
 
-it("encodes slashes in namespaced page titles for the export link", () => {
+it("encodes slashes in namespaced page titles for the export fetch", async () => {
+  stubObjectUrls();
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL) => exportResponse());
+  vi.stubGlobal("fetch", fetchMock);
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
   renderTopBar("/page/AWS/SCP");
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
-  const link = screen.getByRole("menuitem", { name: "Export as Markdown" });
-  expect(link).toHaveAttribute("href", "/api/export/page/AWS/SCP");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("menuitem", { name: "Export as Markdown" }));
+  });
+  expect(fetchMock.mock.calls[0]![0]).toBe("/api/export/page/AWS/SCP");
+  click.mockRestore();
+});
+
+it("a refused export shows its reason, and a later success clears it", async () => {
+  stubObjectUrls();
+  let refuse = true;
+  vi.stubGlobal("fetch", vi.fn(async () => refuse
+    ? new Response(JSON.stringify({ detail: "page too large to export: over 10 million" }),
+                   { status: 422 })
+    : exportResponse()));
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  renderTopBar("/page/AWS/SCP");
+  const exportOnce = async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Export as Markdown" }));
+    });
+  };
+  await exportOnce();
+  const alert = screen.getByRole("alert");
+  expect(alert).toHaveTextContent('Couldn\'t export "AWS/SCP": page too large to export');
+  expect(alert).not.toHaveTextContent("request failed");
+  expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
+  refuse = false;
+  await exportOnce();
+  expect(screen.queryByRole("alert")).toBeNull();
+  click.mockRestore();
+});
+
+async function exportFromMenu() {
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("menuitem", { name: "Export as Markdown" }));
+  });
+}
+
+it("an export attempted offline says so in plain words", async () => {
+  stubObjectUrls();
+  setOfflineGateway({ offline: () => true, handle: async () => ({ handled: false }) });
+  renderTopBar("/page/AWS");
+  await exportFromMenu();
+  const alert = screen.getByRole("alert");
+  expect(alert).toHaveTextContent(
+    'Couldn\'t export "AWS": offline: /api/export/page/AWS is unavailable without a connection');
+  expect(alert).not.toHaveTextContent("Error:");
+});
+
+it("an export that cannot reach the server says so", async () => {
+  stubObjectUrls();
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+  renderTopBar("/page/AWS");
+  await exportFromMenu();
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    'Couldn\'t export "AWS": couldn\'t reach the server');
+});
+
+it("a failure that lands after the user navigated away is dropped", async () => {
+  stubObjectUrls();
+  let fail: () => void = () => {};
+  vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((_resolve, reject) => {
+    fail = () => reject(new TypeError("Failed to fetch"));
+  })));
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}>
+      <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
+        <TopBar sidebarCollapsed={false} onToggleSidebar={vi.fn()} />
+      </SidebarContext.Provider>
+      <Routes>
+        <Route path="/page/*" element={<Link to="/page/Other">go elsewhere</Link>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  await exportFromMenu();
+  fireEvent.click(screen.getByRole("link", { name: "go elsewhere" }));
+  await act(async () => { fail(); });
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("a success that lands after the user navigated away downloads nothing", async () => {
+  const urls = stubObjectUrls();
+  let finish: () => void = () => {};
+  vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => {
+    finish = () => resolve(exportResponse());
+  })));
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}>
+      <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
+        <TopBar sidebarCollapsed={false} onToggleSidebar={vi.fn()} />
+      </SidebarContext.Provider>
+      <Routes>
+        <Route path="/page/*" element={<Link to="/page/Other">go elsewhere</Link>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  await exportFromMenu();
+  fireEvent.click(screen.getByRole("link", { name: "go elsewhere" }));
+  await act(async () => { finish(); });
+  expect(urls.create).not.toHaveBeenCalled();
 });
 
 it("picking 'Open in sidebar' calls openInSidebar with the current page title and closes the menu", () => {

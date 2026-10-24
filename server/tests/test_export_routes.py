@@ -501,3 +501,42 @@ def test_export_page_markdown_leaves_a_refused_query_macro_in_place(
     r = tc.get("/api/export/page/Source")
     assert r.status_code == 200
     assert macro in r.text
+
+
+def _amp_client(tmp_path, k: int, leaf: str, sep: str) -> TestClient:
+    # The probe's page: three levels of K refs each over one leaf.
+    return seeded_client(
+        tmp_path,
+        pages=[(1, "Amp", None, None)],
+        blocks=[
+            ("amp_top0", 1, None, 0, sep.join(["((amp_lvl1))"] * k),
+             None, 0, None, None),
+            ("amp_lvl1", 1, None, 1, sep.join(["((amp_lvl2))"] * k),
+             None, 0, None, None),
+            ("amp_lvl2", 1, None, 2, sep.join(["((amp_lvl3))"] * k),
+             None, 0, None, None),
+            ("amp_lvl3", 1, None, 3, leaf, None, 0, None, None),
+        ])
+
+
+def test_export_page_markdown_refuses_a_fan_out_past_the_bound(tmp_path):
+    # K=60 refs a level over a 100-character leaf is 60**3 * 100 = 21.6M
+    # characters uncharged, past the real bound.
+    tc = _amp_client(tmp_path, 60, "Z" * 100, " ")
+    r = tc.get("/api/export/page/Amp")
+    assert r.status_code == 422
+    assert r.json() == {"detail": "page too large to export: over 10 million"
+                        " characters once block refs and queries are expanded"}
+    assert "content-disposition" not in r.headers
+
+
+def test_export_page_markdown_refuses_a_fan_out_that_produces_nothing(
+        tmp_path):
+    # Adjacent refs over an empty leaf: a few characters of output, but
+    # past a million resolve_text calls at K=100.
+    tc = _amp_client(tmp_path, 100, "", "")
+    r = tc.get("/api/export/page/Amp")
+    assert r.status_code == 422
+    assert r.json() == {"detail": "page too large to export: its block refs"
+                        " and queries expand too many times"}
+    assert "content-disposition" not in r.headers

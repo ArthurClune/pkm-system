@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { ApiError, OfflineError, READ_TIMEOUT_MS, apiFetch,
+import { ApiError, OfflineError, READ_TIMEOUT_MS, apiDownload, apiFetch,
          defaultUnauthorizedHandler, setOfflineGateway,
          setUnauthorizedHandler } from "./client";
 
@@ -183,4 +183,51 @@ it("keeps a caller's own signal working alongside the read timeout", async () =>
     .catch((e: unknown) => e);
   controller.abort(new Error("caller gave up"));
   expect((await pending as Error).message).toBe("caller gave up");
+});
+
+function markdownResponse(disposition: string | null): Response {
+  const headers: Record<string, string> = { "Content-Type": "text/markdown" };
+  if (disposition !== null) headers["Content-Disposition"] = disposition;
+  return new Response("# hi", { status: 200, headers });
+}
+
+it("apiDownload returns the blob and the decoded filename*", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(markdownResponse(
+    `attachment; filename="_.md"; filename*=UTF-8''%E6%97%A5.md`)));
+  const { blob, filename } = await apiDownload("/api/export/page/x");
+  expect(blob.size).toBe(4);
+  expect(filename).toBe("日.md");
+});
+
+it("apiDownload falls back to filename, then to undefined", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+    markdownResponse('attachment; filename="plain.md"')));
+  expect((await apiDownload("/api/x")).filename).toBe("plain.md");
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(markdownResponse(null)));
+  expect((await apiDownload("/api/x")).filename).toBeUndefined();
+});
+
+it("apiDownload throws ApiError carrying the 422 detail", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+    jsonResponse({ detail: "page too large" }, 422)));
+  const err = await apiDownload("/api/x").catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(ApiError);
+  expect((err as ApiError).status).toBe(422);
+  expect((err as ApiError).detail).toBe("page too large");
+});
+
+it("apiDownload calls the unauthorized handler on 401", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ detail: "no" }, 401)));
+  const redirect = vi.fn();
+  setUnauthorizedHandler(redirect);
+  await expect(apiDownload("/api/x")).rejects.toThrow("401");
+  expect(redirect).toHaveBeenCalledOnce();
+});
+
+it("apiDownload throws OfflineError without fetching when offline", async () => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  setOfflineGateway({ offline: () => true, handle: async () => ({ handled: false }) });
+  await expect(apiDownload("/api/x")).rejects.toBeInstanceOf(OfflineError);
+  expect(fetchMock).not.toHaveBeenCalled();
 });

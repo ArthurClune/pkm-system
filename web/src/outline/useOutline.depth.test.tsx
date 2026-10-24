@@ -10,6 +10,8 @@ import { SyncContext } from "../sync/SyncProvider";
 import { block, canonicalTitleOf, makeSync, orderIdxOf, type SyncFake,
          uidOf } from "../test-helpers";
 import { DEPTH_NOTICE } from "./depthCap";
+import type { BlockOp } from "../api/ops";
+import { peekOutlineSession } from "./outlineSessions";
 import { findNode, locate } from "./tree";
 import { performUndo, resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
@@ -167,4 +169,30 @@ it("dismissDepthNotice clears the notice", () => {
   act(() => outline().dismissDepthNotice());
 
   expect(outline().depthNotice).toBeNull();
+});
+
+it("an undo the cap refuses raises the notice and applies nothing", () => {
+  const sync = makeSync();
+  const outline = setup(sync);
+  act(() => outline().handlers.onOutdent(uidOf("tuid-d100b")));
+  expect(parentOf(outline(), "tuid-d100b")).toBe("tuid-d98");
+  // another device wraps d99 one level deeper, so the undo, putting d100b
+  // back under d99, would reach level 101
+  const wrap: BlockOp[] = [
+    { op: "create", uid: uidOf("tuid-w"), page_title: canonicalTitleOf(PAGE),
+      parent_uid: uidOf("tuid-d98"), order_idx: orderIdxOf(0), text: "w" },
+    { op: "move", uid: uidOf("tuid-d99"), parent_uid: uidOf("tuid-w"),
+      order_idx: orderIdxOf(0) },
+  ];
+  const handle = peekOutlineSession(canonicalTitleOf(PAGE))!;
+  act(() => handle.applyLocal(sync.enqueue(wrap, ["page", PAGE]), wrap));
+  handle.release();
+  const sent = sync.sent.length;
+  const before = outline().blocks;
+
+  act(() => { performUndo(sync); });
+
+  expect(sync.sent).toHaveLength(sent);
+  expect(outline().blocks).toEqual(before);
+  expect(outline().depthNotice).toBe(DEPTH_NOTICE);
 });

@@ -276,13 +276,15 @@ export function useOutline(
   }, [initial, flushNow]);
 
   // The global undo manager needs to flush this outline's draft before
-  // undoing, and to place focus after a history batch applies here.
+  // undoing, to place focus after a history batch applies here, and to say
+  // why one was refused.
   useEffect(() => registerOutlineHistory(pageTitle, {
     flushPending: flushNow,
     applyFocus: (f) => {
       setSelection(null);
       setFocus(f ? validateOutlineFocus(f, blocksRef.current) : null);
     },
+    showNotice: (text) => setDepthNotice(text),
   }), [pageTitle, flushNow]);
 
   // A hidden tab can be killed without blur ever firing: flush the draft as

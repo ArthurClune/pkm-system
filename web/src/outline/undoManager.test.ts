@@ -11,8 +11,9 @@ import { historyIdle, performRedo, performUndo,
          recordHistory, registerOutlineHistory, resetHistory,
          setAssetReleaser, setHistoryNavigator,
          setHistoryPageLoader } from "./undoManager";
+import { DEPTH_NOTICE, MAX_OUTLINE_DEPTH } from "./depthCap";
 import { historyAnchors, invertOps, type HistoryEntry } from "./history";
-import { applyOps } from "./tree";
+import { applyOps, locate } from "./tree";
 
 const PAGE = canonicalTitleOf("Undo Page");
 
@@ -47,6 +48,7 @@ it("undo applies to a mounted session and restores focusBefore", () => {
   const unregister = registerOutlineHistory(PAGE, {
     flushPending: () => undefined,
     applyFocus: (f) => focused.push(f),
+    showNotice: () => undefined,
   });
   recordHistory(entry());
   performUndo(sync);
@@ -74,6 +76,7 @@ it("flushes registered drafts before undoing (pending draft becomes the undone e
       recordHistory(entry());
     },
     applyFocus: () => undefined,
+    showNotice: () => undefined,
   });
   expect(performUndo(sync)).toBe(true); // flush recorded the entry it then undoes
   await historyIdle();
@@ -411,4 +414,244 @@ it("redoing an ordinary entry releases nothing", async () => {
   performRedo(sync);
   await historyIdle();
   expect(release).not.toHaveBeenCalled();
+});
+
+// --- the outline depth cap ---
+
+// A chain of MAX_OUTLINE_DEPTH - 1 blocks, the deepest of them tuid-d99:
+// a block moved under it sits at the cap, and one moved under that past it.
+function chain(): BlockNode {
+  let node = block(`tuid-d${MAX_OUTLINE_DEPTH - 1}`, "",
+                   { order_idx: orderIdxOf(0) });
+  for (let i = MAX_OUTLINE_DEPTH - 2; i >= 1; i--) {
+    node = block(`tuid-d${i}`, "", { order_idx: orderIdxOf(0), children: [node] });
+  }
+  return node;
+}
+
+const P = uidOf("tuid-p");
+const X = uidOf("tuid-x");
+const moveP = (parent: string | null): BlockOp[] =>
+  [{ op: "move", uid: P, parent_uid: parent === null ? null : uidOf(parent),
+     order_idx: orderIdxOf(5) }];
+
+// x under p, recorded on a page whose chain is shallow enough to hold it.
+const indented = (): BlockNode[] => [
+  chain(),
+  block("tuid-p", "p", { order_idx: orderIdxOf(1), children: [
+    block("tuid-x", "x", { order_idx: orderIdxOf(0) })] }),
+];
+const outdented = (): BlockNode[] => [
+  chain(),
+  block("tuid-p", "p", { order_idx: orderIdxOf(1) }),
+  block("tuid-x", "x", { order_idx: orderIdxOf(2) }),
+];
+const outdentOps = (): BlockOp[] =>
+  [{ op: "move", uid: X, parent_uid: null, order_idx: orderIdxOf(2) }];
+const indentOps = (): BlockOp[] =>
+  [{ op: "move", uid: X, parent_uid: P, order_idx: orderIdxOf(0) }];
+
+function recordMove(pre: BlockNode[], ops: BlockOp[]): HistoryEntry {
+  const inverse = invertOps(pre, PAGE, ops)!;
+  const e: HistoryEntry = {
+    pageTitle: PAGE, ops, inverse,
+    anchors: historyAnchors(pre, PAGE, ops, inverse),
+    freshAssets: [], focusBefore: { uid: X, cursor: 0 },
+    focusAfter: { uid: X, cursor: 1 },
+  };
+  recordHistory(e);
+  return e;
+}
+
+// p moved to the bottom of the chain, as another device's edit would put it.
+const deepen = (tree: BlockNode[]): BlockNode[] =>
+  applyOps(tree, moveP(`tuid-d${MAX_OUTLINE_DEPTH - 1}`), PAGE);
+
+const parentOf = (tree: BlockNode[], raw: string) =>
+  locate(tree, uidOf(raw))?.parent?.uid ?? null;
+
+function hooksFor(title = PAGE) {
+  const notices: string[] = [];
+  const focused: unknown[] = [];
+  const unregister = registerOutlineHistory(title, {
+    flushPending: () => undefined,
+    applyFocus: (f) => focused.push(f),
+    showNotice: (text) => notices.push(text),
+  });
+  return { notices, focused, unregister };
+}
+
+it("an undo that would nest past the cap is refused, noticed and kept", () => {
+  const sync = makeSync();
+  recordMove(indented(), outdentOps());
+  const handle = acquireOutlineSession(PAGE, deepen(outdented()));
+  const h = hooksFor();
+  const deep = handle.getSnapshot().blocks;
+
+  expect(performUndo(sync)).toBe(true);
+  expect(sync.sent).toEqual([]);
+  expect(handle.getSnapshot().blocks).toBe(deep);
+  expect(h.notices).toEqual([DEPTH_NOTICE]);
+
+  // made room: p back at the top, then the same undo applies
+  const room = moveP(null);
+  handle.applyLocal(sync.enqueue(room, ["page", PAGE]), room);
+  expect(performUndo(sync)).toBe(true);
+  expect(sync.sent).toHaveLength(2);
+  expect(sync.sent[1]).toMatchObject([{ op: "move", uid: "tuid-x", parent_uid: "tuid-p" }]);
+  expect(parentOf(handle.getSnapshot().blocks, "tuid-x")).toBe("tuid-p");
+  expect(h.notices).toEqual([DEPTH_NOTICE]);
+  // the retried undo is the one redo now holds
+  expect(performRedo(sync)).toBe(true);
+  expect(parentOf(handle.getSnapshot().blocks, "tuid-x")).toBeNull();
+  h.unregister();
+  handle.release();
+});
+
+it("a redo that would nest past the cap is refused, noticed and kept", () => {
+  const sync = makeSync();
+  recordMove(outdented(), indentOps());
+  const handle = acquireOutlineSession(PAGE, indented());
+  const h = hooksFor();
+  performUndo(sync);
+  expect(parentOf(handle.getSnapshot().blocks, "tuid-x")).toBeNull();
+  const deepOps = moveP(`tuid-d${MAX_OUTLINE_DEPTH - 1}`);
+  handle.applyLocal(sync.enqueue(deepOps, ["page", PAGE]), deepOps);
+  const sentBefore = sync.sent.length;
+  const deep = handle.getSnapshot().blocks;
+
+  expect(performRedo(sync)).toBe(true);
+  expect(sync.sent).toHaveLength(sentBefore);
+  expect(handle.getSnapshot().blocks).toBe(deep);
+  expect(h.notices).toEqual([DEPTH_NOTICE]);
+
+  const room = moveP(null);
+  handle.applyLocal(sync.enqueue(room, ["page", PAGE]), room);
+  expect(performRedo(sync)).toBe(true);
+  expect(sync.sent[sync.sent.length - 1])
+    .toMatchObject([{ op: "move", uid: "tuid-x", parent_uid: "tuid-p" }]);
+  expect(parentOf(handle.getSnapshot().blocks, "tuid-x")).toBe("tuid-p");
+  // the retried redo is the one undo now holds
+  expect(performUndo(sync)).toBe(true);
+  expect(parentOf(handle.getSnapshot().blocks, "tuid-x")).toBeNull();
+  h.unregister();
+  handle.release();
+});
+
+it("a too-deep undo with no session is refused and noticed on the next mount", async () => {
+  const sync = makeSync();
+  recordMove(indented(), outdentOps());
+  setHistoryPageLoader(async () => deepen(outdented()));
+  const paths: string[] = [];
+  const clear = setHistoryNavigator((p) => paths.push(p));
+  const other = hooksFor(canonicalTitleOf("Other Page"));
+
+  performUndo(sync);
+  await historyIdle();
+  expect(sync.sent).toEqual([]);
+  expect(paths).toHaveLength(1);
+  expect(other.notices).toEqual([]);
+
+  const first = hooksFor();
+  expect(first.notices).toEqual([DEPTH_NOTICE]);
+  first.unregister();
+  const second = hooksFor(); // one notice, handed over once
+  expect(second.notices).toEqual([]);
+  second.unregister();
+
+  setHistoryPageLoader(async () => outdented());
+  performUndo(sync);
+  await historyIdle();
+  expect(sync.sent).toHaveLength(1);
+  expect(sync.sent[0]).toMatchObject([{ op: "move", uid: "tuid-x", parent_uid: "tuid-p" }]);
+  other.unregister();
+  clear();
+});
+
+it("a too-deep redo with no session is refused and kept", async () => {
+  const sync = makeSync();
+  recordMove(outdented(), indentOps());
+  setHistoryPageLoader(async () => indented());
+  performUndo(sync);
+  await historyIdle();
+  expect(sync.sent).toHaveLength(1);
+
+  setHistoryPageLoader(async () => deepen(outdented()));
+  performRedo(sync);
+  await historyIdle();
+  expect(sync.sent).toHaveLength(1);
+  const h = hooksFor();
+  expect(h.notices).toEqual([DEPTH_NOTICE]);
+  h.unregister();
+
+  setHistoryPageLoader(async () => outdented());
+  performRedo(sync);
+  await historyIdle();
+  expect(sync.sent).toHaveLength(2);
+  expect(sync.sent[1]).toMatchObject([{ op: "move", uid: "tuid-x", parent_uid: "tuid-p" }]);
+});
+
+it("a page that cannot be read ships the undo unjudged", async () => {
+  const sync = makeSync();
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  recordMove(indented(), outdentOps());
+  setHistoryPageLoader(async () => { throw new Error("offline"); });
+  performUndo(sync);
+  await historyIdle();
+  expect(sync.sent).toHaveLength(1);
+  const h = hooksFor();
+  expect(h.notices).toEqual([]);
+  h.unregister();
+  warn.mockRestore();
+});
+
+it("resetHistory drops a pending depth notice", async () => {
+  const sync = makeSync();
+  recordMove(indented(), outdentOps());
+  setHistoryPageLoader(async () => deepen(outdented()));
+  performUndo(sync);
+  await historyIdle();
+  resetHistory();
+  const h = hooksFor();
+  expect(h.notices).toEqual([]);
+  h.unregister();
+});
+
+it("a refused undo's delivery fails, so its upload is not released", async () => {
+  const release = spyReleaser();
+  const sync = makeSync();
+  const e = recordMove(indented(), outdentOps());
+  recordHistory({ ...e, freshAssets: [S1] });
+  const handle = acquireOutlineSession(PAGE, deepen(outdented()));
+  performUndo(sync);
+  await historyIdle();
+  expect(sync.sent).toEqual([]);
+  expect(release).toHaveBeenCalledTimes(1);
+  await expect(release.mock.calls[0][1][0]).resolves
+    .toMatchObject({ status: "failed" });
+  handle.release();
+});
+
+it("a refused undo deletes none of its upload's files; the retry does", async () => {
+  // the real releaser: a failed delivery must keep it from calling fetch
+  const doFetch = vi.fn(async () => new Response(null, { status: 200 }));
+  vi.stubGlobal("fetch", doFetch);
+  try {
+    const sync = makeSync();
+    const e = recordMove(indented(), outdentOps());
+    recordHistory({ ...e, freshAssets: [S1] });
+    const handle = acquireOutlineSession(PAGE, deepen(outdented()));
+    performUndo(sync);
+    await historyIdle();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(doFetch).not.toHaveBeenCalled();
+
+    const room = moveP(null);
+    handle.applyLocal(sync.enqueue(room, ["page", PAGE]), room);
+    performUndo(sync);
+    await vi.waitFor(() => expect(doFetch).toHaveBeenCalledTimes(1));
+    handle.release();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

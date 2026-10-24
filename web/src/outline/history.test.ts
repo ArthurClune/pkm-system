@@ -4,7 +4,8 @@ import type { BlockNode } from "../api/payloads";
 import { block, orderIdxOf, uidOf, shaOf, canonicalTitleOf } from "../test-helpers";
 import { applyOps } from "./tree";
 import { invertOps, emptyHistory, historyAnchors, HISTORY_CAP, recordEntry,
-         resolveAnchors, takeRedo, takeUndo, type HistoryEntry,
+         resolveAnchors, restoreEntry, takeRedo, takeUndo,
+         type HistoryEntry,
          type HistoryState } from "./history";
 
 const PAGE = canonicalTitleOf("Test Page");
@@ -449,4 +450,58 @@ it("edits before an undone upload stay undoable, then redoable", () => {
   const r = takeRedo(u2.state);
   expect(r.entry).toEqual(entry(1));
   expect(takeRedo(r.state).entry).toBeNull();
+});
+
+it("restoreEntry after takeUndo gives back the pre-take state", () => {
+  const e1 = entry(1);
+  const e2 = entry(2);
+  const before = takeUndo(rec(rec(emptyHistory(), e1), e2)).state;
+  expect(before).toEqual({ undo: [e1], redo: [e2] });
+  const taken = takeUndo(before);
+  expect(taken.entry).toBe(e1);
+  expect(restoreEntry(taken.state, e1, "undo")).toEqual(before);
+});
+
+it("restoreEntry after takeRedo gives back the pre-take state", () => {
+  const e1 = entry(1);
+  const e2 = entry(2);
+  const s = rec(rec(emptyHistory(), e1), e2);
+  const before = takeUndo(takeUndo(s).state).state;
+  expect(before).toEqual({ undo: [], redo: [e2, e1] });
+  const taken = takeRedo(before);
+  expect(taken.entry).toBe(e1);
+  expect(restoreEntry(taken.state, e1, "redo")).toEqual(before);
+});
+
+it("restoreEntry removes the entry by identity, not by value", () => {
+  const e1 = entry(1);
+  const twin = entry(1);
+  const s: HistoryState = { undo: [], redo: [twin, e1] };
+  expect(restoreEntry(s, e1, "undo")).toEqual({ undo: [e1], redo: [twin] });
+  expect(restoreEntry(s, e1, "undo").redo[0]).toBe(twin);
+});
+
+it("restoreEntry pushes back an entry a new record cleared from redo", () => {
+  const e1 = entry(1);
+  const e2 = entry(2);
+  const cleared = rec(takeUndo(rec(emptyHistory(), e1)).state, e2);
+  expect(cleared.redo).toEqual([]);
+  expect(restoreEntry(cleared, e1, "undo")).toEqual({ undo: [e2, e1], redo: [] });
+});
+
+it("restoreEntry puts back an upload undo whose take cleared redo", () => {
+  const drop = { ...entry(2), freshAssets: FRESH };
+  const taken = takeUndo(rec(rec(emptyHistory(), entry(1)), drop));
+  const back = restoreEntry(taken.state, drop, "undo");
+  expect(back.undo[back.undo.length - 1]).toBe(drop);
+  expect(takeUndo(back).entry).toBe(drop);
+});
+
+it("restoreEntry keeps the undo stack within its cap", () => {
+  let s = emptyHistory();
+  for (let i = 0; i < HISTORY_CAP; i++) s = rec(s, entry(i));
+  const extra = entry(-1);
+  const back = restoreEntry(s, extra, "undo");
+  expect(back.undo).toHaveLength(HISTORY_CAP);
+  expect(back.undo[HISTORY_CAP - 1]).toBe(extra);
 });

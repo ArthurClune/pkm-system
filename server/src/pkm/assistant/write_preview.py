@@ -11,6 +11,11 @@ neither accepts is refused rather than previewed, and so is a key the
 argument model does not declare: the tool drops it, so a card row for it
 could only be a decoy beside the real target.
 
+A write that replaces, moves or deletes an existing block also shows that
+block's current text and page, which the shell reads for the uids
+`write_target_uids` names and passes in: a uid alone does not tell the
+user what they are approving away.
+
 The tool functions come from `pkm.mcp.tools`, never `pkm.mcp.server`:
 constructing the server's `FastMCP` configures the root logger and reads
 `FASTMCP_*` settings, and the web server imports this module."""
@@ -20,17 +25,21 @@ import json
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from mcp.server.fastmcp.utilities.func_metadata import (FuncMetadata,
                                                         func_metadata)
 from pydantic import ValidationError
 
-from pkm.assistant.policy import WRITE_PREVIEW_FIELDS, WRITE_TOOLS
-from pkm.batch import (BatchItemError, NestedItem, alias_name, nested_items,
-                       validate_batch)
+from pkm.assistant.policy import (CURRENT_TEXT_ENTRIES, WRITE_PREVIEW_FIELDS,
+                                  WRITE_TOOLS)
+from pkm.batch import (BatchItemError, NestedItem, alias_name, batch_aliases,
+                       nested_items, validate_batch)
+from pkm.contracts.ops import BlockUid
+from pkm.contracts.titles import CanonicalTitle
 from pkm.mcp import tools as mcp_tools
 from pkm.planning import parse_uid_spec
+from pkm.refs import parse_block_uid
 
 # The card sends every content value whole, so [show] can reveal all of
 # it; a longer one is refused rather than approved partly unseen.
@@ -39,8 +48,45 @@ CONTENT_LIMIT_CHARS = 50_000
 # them (a page title has no length limit), so the card does: a multi-MB
 # value would freeze the tab the user must approve from.
 TARGET_LIMIT_CHARS = 1000
+# The current text is context for the target, not something the write
+# sends, so the card shows its start and says how long the whole is.
+CURRENT_EXCERPT_CHARS = 200
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class StoredBlock:
+    """What the shell read for one uid."""
+    page_title: CanonicalTitle
+    text: str
+
+
+@dataclass(frozen=True)
+class FoundBlock:
+    page_title: CanonicalTitle
+    # The first CURRENT_EXCERPT_CHARS code points of the text.
+    excerpt: str
+    # The whole text's length in code points.
+    text_length: int
+    state: Literal["found"] = "found"
+
+
+@dataclass(frozen=True)
+class MissingBlock:
+    state: Literal["missing"] = "missing"
+
+
+@dataclass(frozen=True)
+class CreatedInBatch:
+    """A batch op on the block an earlier write of the batch creates."""
+    # 1-based, as the card numbers the writes.
+    write: int
+    alias: str
+    state: Literal["created"] = "created"
+
+
+CurrentBlock = FoundBlock | MissingBlock | CreatedInBatch
 
 
 @dataclass(frozen=True)
@@ -51,6 +97,8 @@ class PreviewOp:
     # (key, text, its length in code points)
     content: list[tuple[str, str, int]]
     warnings: list[str]
+    # None: the op touches no existing block.
+    current: CurrentBlock | None
 
 
 @dataclass(frozen=True)
@@ -63,6 +111,15 @@ class WritePreview:
 @dataclass(frozen=True)
 class Refusal:
     message: str
+
+
+@dataclass(frozen=True)
+class _Checked:
+    """A call the tool accepts: each op's `WRITE_PREVIEW_FIELDS` key with
+    its params as validated, in order, and each batch alias mapped to the
+    index of the op that creates it (empty outside a batch)."""
+    ops: list[tuple[str, dict[str, Any]]]
+    aliases: dict[str, int]
 
 
 _ARG_MODELS: dict[str, FuncMetadata] = {
@@ -98,7 +155,8 @@ def _merge_warning(validated: Mapping[str, Any]) -> list[str]:
             '(irreversible)']
 
 
-def _parent_warning(entry: str, parent: object) -> list[str]:
+def _parent_warning(entry: str, parent: object,
+                    aliases: Mapping[str, int]) -> list[str]:
     """Where a `((uid))` or `{{alias}}` parent puts the write, as
     `plan_save` and `plan_batch` decide it. A `((uid))` must be on the
     fetched page, or planning fails before anything is sent. An alias
@@ -111,10 +169,10 @@ def _parent_warning(entry: str, parent: object) -> list[str]:
         return [f"parent {_quoted(parent)} is an alias, which only batch "
                 "knows: nothing is written"]
     if alias is not None:
-        return [f"parent {_quoted(parent)} is the block created as "
-                f"{_quoted(alias)} earlier in this batch: this lands under "
-                "it, on that block's page, whatever the page row says (no "
-                "such earlier block: nothing is written)"]
+        return [f"parent {_quoted(parent)} is the block write "
+                f"{aliases[alias] + 1} creates as {_quoted(alias)}: this "
+                "lands under it, on that block's page, whatever the page "
+                "row says"]
     if parse_uid_spec(parent) is not None:
         return [f"parent {_quoted(parent)} must be a block on the page "
                 "shown, or nothing is written"]
@@ -135,17 +193,52 @@ def _missing_uid_warning(entry: str, spec: object) -> list[str]:
             "saying so is added to today's daily note"]
 
 
-def _warnings(entry: str, validated: Mapping[str, Any]) -> list[str]:
+def _warnings(entry: str, validated: Mapping[str, Any],
+              aliases: Mapping[str, int]) -> list[str]:
     """Fixed text around JSON-quoted values, so no value can write the
     rest of a sentence."""
     out = _merge_warning(validated) if entry == "rename_page" else []
-    out += _parent_warning(entry, validated.get("parent"))
+    out += _parent_warning(entry, validated.get("parent"), aliases)
     if entry in ("batch:update", "batch:move"):
         out += _missing_uid_warning(entry, validated.get("uid"))
     return out
 
 
-def _op(entry: str, validated: Mapping[str, Any]) -> PreviewOp:
+def _target_uid(entry: str, validated: Mapping[str, Any]
+                ) -> BlockUid | None:
+    """The existing block op `entry` replaces, moves or deletes, or None.
+    An `{{alias}}` or malformed spec is never a uid: braces are outside
+    the uid alphabet, so no read can be steered by one."""
+    spec = validated.get("uid")
+    if entry not in CURRENT_TEXT_ENTRIES or not isinstance(spec, str):
+        return None
+    return parse_block_uid(spec)
+
+
+def _current(entry: str, validated: Mapping[str, Any],
+             aliases: Mapping[str, int],
+             blocks: Mapping[BlockUid, StoredBlock]) -> CurrentBlock | None:
+    """The block op `entry` acts on as it stands now. Only batch knows
+    aliases, so `update_block`'s `{{x}}` names no block: missing."""
+    if entry not in CURRENT_TEXT_ENTRIES:
+        return None
+    spec = validated.get("uid")
+    alias = (alias_name(spec) if entry.startswith("batch:")
+             and isinstance(spec, str) else None)
+    if alias is not None:
+        return CreatedInBatch(write=aliases[alias] + 1, alias=alias)
+    uid = _target_uid(entry, validated)
+    stored = blocks.get(uid) if uid is not None else None
+    if stored is None:
+        return MissingBlock()
+    return FoundBlock(page_title=stored.page_title,
+                      excerpt=stored.text[:CURRENT_EXCERPT_CHARS],
+                      text_length=len(stored.text))
+
+
+def _op(entry: str, validated: Mapping[str, Any],
+        aliases: Mapping[str, int],
+        blocks: Mapping[BlockUid, StoredBlock]) -> PreviewOp:
     """One card entry: the table's targets, then any field the argument
     model declares and the table does not name (fail safe: a new field
     shows rather than vanishes), then the content, every value as
@@ -164,7 +257,8 @@ def _op(entry: str, validated: Mapping[str, Any]) -> PreviewOp:
         text = _content_text(key, value)
         content.append((key, text, len(text)))
     return PreviewOp(action=label, targets=targets, content=content,
-                     warnings=_warnings(entry, validated))
+                     warnings=_warnings(entry, validated, aliases),
+                     current=_current(entry, validated, aliases, blocks))
 
 
 def _limit_problem(op: PreviewOp) -> str | None:
@@ -173,6 +267,11 @@ def _limit_problem(op: PreviewOp) -> str | None:
         if isinstance(value, str) and len(value) > TARGET_LIMIT_CHARS:
             return (f"{key} is {len(value)} characters; a target is at most "
                     f"{TARGET_LIMIT_CHARS}")
+    current = op.current
+    if isinstance(current, FoundBlock) \
+            and len(current.page_title) > TARGET_LIMIT_CHARS:
+        return (f"the block's page title is {len(current.page_title)} "
+                f"characters; a target is at most {TARGET_LIMIT_CHARS}")
     for key, _, total in op.content:
         if total > CONTENT_LIMIT_CHARS:
             return (f"{key} is {total} characters; split the write into "
@@ -197,37 +296,35 @@ def _unknown_key(meta: FuncMetadata, tool_input: Mapping[str, object]
     return next((k for k in tool_input if k not in declared), None)
 
 
-def _batch_preview(commands: list[dict[str, object]]
-                   ) -> WritePreview | Refusal:
-    if not commands:
-        return Refusal("batch: no commands to apply")
+def write_target_uids(short: str, tool_input: Mapping[str, object]
+                      ) -> list[BlockUid]:
+    """The existing blocks the card for this call shows, in first-seen
+    order, for the shell to read before `build_write_preview`. Input the
+    preview refuses names none, and so does input it cannot handle: like
+    `build_write_preview`, this never raises."""
     try:
-        parsed = validate_batch(commands)
-    except BatchItemError as exc:
-        return Refusal(f"batch item {exc.index}: {exc.problem}")
-    ops: list[PreviewOp] = []
-    names: list[str] = []
-    for i, command in enumerate(parsed):
-        op = _op(f"batch:{command.command}",
-                 command.params.model_dump(mode="json", by_alias=True))
-        problem = _limit_problem(op)
-        if problem is not None:
-            return Refusal(f"batch item {i}: {problem}")
-        ops.append(op)
-        names.append(command.command)
-    return WritePreview(
-        ops=ops, summary=f"batch: {len(ops)} ops ({', '.join(names)})")
+        checked = _validate(short, tool_input)
+    except Exception as exc:
+        logger.warning("write targets of %s failed: %s", short,
+                       type(exc).__name__)
+        return []
+    if isinstance(checked, Refusal):
+        return []
+    uids = (_target_uid(entry, validated) for entry, validated in checked.ops)
+    return list(dict.fromkeys(uid for uid in uids if uid is not None))
 
 
-def build_write_preview(short: str, tool_input: Mapping[str, object]
+def build_write_preview(short: str, tool_input: Mapping[str, object],
+                        blocks: Mapping[BlockUid, StoredBlock]
                         ) -> WritePreview | Refusal:
-    """The card for write tool `short` called with `tool_input`, or why
-    the call must be refused instead. An input the builder cannot handle
-    (an outline nested past pydantic's depth limit, say) is refused too:
-    raised out of `can_use_tool`, it would reach the SDK as a control
-    error instead of a reason the model can act on."""
+    """The card for write tool `short` called with `tool_input`, given the
+    `blocks` the shell read for `write_target_uids`, or why the call must
+    be refused instead. An input the builder cannot handle (an outline
+    nested past pydantic's depth limit, say) is refused too: raised out of
+    `can_use_tool`, it would reach the SDK as a control error instead of a
+    reason the model can act on."""
     try:
-        return _build(short, tool_input)
+        return _build(short, tool_input, blocks)
     except Exception as exc:
         # The type only: the message can quote the attacker's input.
         logger.warning("write preview of %s failed: %s", short,
@@ -235,8 +332,11 @@ def build_write_preview(short: str, tool_input: Mapping[str, object]
         return Refusal(f"{short}: input could not be previewed")
 
 
-def _build(short: str, tool_input: Mapping[str, object]
-           ) -> WritePreview | Refusal:
+def _validate(short: str, tool_input: Mapping[str, object]
+              ) -> _Checked | Refusal:
+    """`tool_input` as write tool `short` receives it, or why the tool
+    would not run it as sent: the one check both public functions make,
+    so the blocks read are those of the call the card shows."""
     meta = _ARG_MODELS.get(short)
     if meta is None:
         return Refusal(f"{short} is not a write tool")
@@ -249,12 +349,41 @@ def _build(short: str, tool_input: Mapping[str, object]
     except ValidationError as exc:
         return Refusal(f"{short}: {_first_error(exc)}")
     validated = model.model_dump(mode="json", by_alias=True)
+    if short != "batch":
+        return _Checked(ops=[(short, validated)], aliases={})
+    commands = validated["commands"]
+    if not commands:
+        return Refusal("batch: no commands to apply")
+    try:
+        parsed = validate_batch(commands)
+        aliases = batch_aliases(parsed)
+    except BatchItemError as exc:
+        return Refusal(f"batch item {exc.index}: {exc.problem}")
+    return _Checked(
+        ops=[(f"batch:{c.command}",
+              c.params.model_dump(mode="json", by_alias=True))
+             for c in parsed],
+        aliases=aliases)
+
+
+def _build(short: str, tool_input: Mapping[str, object],
+           blocks: Mapping[BlockUid, StoredBlock]) -> WritePreview | Refusal:
+    checked = _validate(short, tool_input)
+    if isinstance(checked, Refusal):
+        return checked
+    ops = [_op(entry, validated, checked.aliases, blocks)
+           for entry, validated in checked.ops]
+    for i, op in enumerate(ops):
+        problem = _limit_problem(op)
+        if problem is not None:
+            where = f"batch item {i}" if short == "batch" else short
+            return Refusal(f"{where}: {problem}")
     if short == "batch":
-        return _batch_preview(validated["commands"])
-    op = _op(short, validated)
-    problem = _limit_problem(op)
-    if problem is not None:
-        return Refusal(f"{short}: {problem}")
+        names = ", ".join(entry.removeprefix("batch:")
+                          for entry, _ in checked.ops)
+        return WritePreview(ops=ops,
+                            summary=f"batch: {len(ops)} ops ({names})")
+    (op,) = ops
     # Values ASCII-escaped: U+2028 and friends break lines in log viewers.
     shown = ", ".join(f"{json.dumps(k)}={json.dumps(v)}"
                       for k, v in op.targets)

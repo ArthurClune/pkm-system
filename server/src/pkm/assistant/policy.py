@@ -46,6 +46,12 @@ WRITE_PREVIEW_FIELDS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = 
     "batch:outline": ("add outline", ("page", "parent"), ("items",)),
 }
 
+# The writes that replace, move or delete a block named by its `uid`: the
+# card shows that block's current text and page beside them, since the
+# uid alone says nothing about what the user is approving away.
+CURRENT_TEXT_ENTRIES: frozenset[str] = frozenset(
+    {"update_block", "batch:update", "batch:move", "batch:delete"})
+
 # The Claude models also exist as the web picker's fetch-failure fallback
 # (useAssistant.ts); a rename or addition there must stay in sync.
 MODELS: tuple[AssistantModel, ...] = ("sonnet", "opus", "haiku", "fable", "glm")

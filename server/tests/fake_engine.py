@@ -94,7 +94,8 @@ class FakeConversation:
         fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         self._decisions[confirm_id] = fut
         preview = build_write_preview("save_note",
-                                      {"text": "Demo", "page": page})
+                                      {"text": "Demo", "page": page},
+                                      blocks={})
         assert isinstance(preview, WritePreview)
         card = ConfirmRequest(confirm_id=confirm_id,
                               ops_preview=preview.summary, preview=preview)

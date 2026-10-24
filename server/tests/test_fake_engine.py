@@ -41,7 +41,8 @@ def test_confirm_flow_allow():
     events = asyncio.run(scenario())
     assert events[0] == ToolStarted(name="save_note", summary="saving a note")
     preview = build_write_preview("save_note",
-                                  {"text": "Demo", "page": "Demo"})
+                                  {"text": "Demo", "page": "Demo"},
+                                  blocks={})
     assert isinstance(preview, WritePreview)
     assert events[1] == ConfirmRequest(
         confirm_id=confirm_id_of("fake-confirm-1"),

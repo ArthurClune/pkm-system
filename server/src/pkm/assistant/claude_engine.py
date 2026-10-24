@@ -170,7 +170,7 @@ class ClaudeConversation:
             logger.warning("assistant requested unexpected tool %s", tool_name)
             return PermissionResultDeny(message="Tool not permitted.")
         short = short_tool_name(tool_name)
-        preview = build_write_preview(short, tool_input or {})
+        preview = build_write_preview(short, tool_input or {}, blocks={})
         if isinstance(preview, Refusal):
             # Input the tool's schema rejects is never shown as a card:
             # the user cannot approve what the tool would not run as shown.

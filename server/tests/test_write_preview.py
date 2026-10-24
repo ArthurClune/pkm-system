@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 import typing
+from collections.abc import Mapping
 from types import SimpleNamespace
 
 import pytest
@@ -12,24 +13,30 @@ from pydantic.fields import FieldInfo
 from pkm import batch as batch_module
 from pkm.assistant.policy import WRITE_PREVIEW_FIELDS, WRITE_TOOLS
 from pkm.assistant.write_preview import (CONTENT_LIMIT_CHARS,
-                                         TARGET_LIMIT_CHARS, PreviewOp,
-                                         Refusal, WritePreview,
-                                         build_write_preview)
+                                         TARGET_LIMIT_CHARS,
+                                         CreatedInBatch, FoundBlock,
+                                         MissingBlock, PreviewOp, Refusal,
+                                         StoredBlock, WritePreview,
+                                         build_write_preview,
+                                         write_target_uids)
 from pkm.contracts.ops import BlockUid
 from pkm.contracts.titles import RawTitle
 from pkm.mcp import server as mcp_server
 from pkm.mcp import tools as mcp_tools
-from pkm.test_data.ids import raw_title_of, uid_of
+from pkm.test_data.ids import (canonical_title_of, malformed_uid,
+                               raw_title_of, uid_of)
 
 
-def _preview(short: str, raw: dict[str, object]) -> WritePreview:
-    out = build_write_preview(short, raw)
+def _preview(short: str, raw: Mapping[str, object],
+             blocks: Mapping[BlockUid, StoredBlock] = {}) -> WritePreview:
+    out = build_write_preview(short, raw, blocks)
     assert isinstance(out, WritePreview), out
     return out
 
 
-def _refusal(short: str, raw: dict[str, object]) -> Refusal:
-    out = build_write_preview(short, raw)
+def _refusal(short: str, raw: Mapping[str, object],
+             blocks: Mapping[BlockUid, StoredBlock] = {}) -> Refusal:
+    out = build_write_preview(short, raw, blocks)
     assert isinstance(out, Refusal), out
     return out
 
@@ -211,10 +218,10 @@ def test_a_declared_alias_is_not_unknown(monkeypatch):
                         ("stub", ("json",), ("text",)))
     monkeypatch.setitem(write_preview._ARG_MODELS, "stub",
                         func_metadata(_stub_tool))
-    assert isinstance(build_write_preview("stub", {"text": "t", "json": "P"}),
+    assert isinstance(build_write_preview("stub", {"text": "t", "json": "P"}, {}),
                       WritePreview)
     assert isinstance(build_write_preview("stub", {"text": "t",
-                                                   "field_json": "P"}),
+                                                   "field_json": "P"}, {}),
                       WritePreview)
 
 
@@ -227,10 +234,9 @@ def test_a_declared_field_the_table_misses_is_still_a_target(monkeypatch):
                                 ("todo", False)]
 
 
-_ALIAS_WARNING = ('parent "{{x}}" is the block created as "x" earlier in '
-                  'this batch: this lands under it, on that block\'s page, '
-                  'whatever the page row says (no such earlier block: '
-                  'nothing is written)')
+_ALIAS_WARNING = ('parent "{{x}}" is the block write 1 creates as "x": '
+                  'this lands under it, on that block\'s page, whatever '
+                  'the page row says')
 _UID_WARNING = ('parent "((abcdef01))" must be a block on the page shown, '
                 'or nothing is written')
 
@@ -342,7 +348,8 @@ def test_deep_outline_nest_is_refused_not_raised(caplog):
     for _ in range(sys.getrecursionlimit() + 50):
         items = [items]
     r = build_write_preview("batch", {"commands": [
-        {"command": "outline", "params": {"page": "P", "items": items}}]})
+        {"command": "outline", "params": {"page": "P", "items": items}}]},
+        {})
     assert r == Refusal("batch: input could not be previewed")
 
 
@@ -353,7 +360,7 @@ def test_a_preview_failure_logs_its_type_only(monkeypatch, caplog):
         raise KeyError("attacker\ntext")
     monkeypatch.setattr(write_preview, "_op", boom)
     with caplog.at_level("WARNING", logger="pkm.assistant"):
-        r = build_write_preview("save_note", {"text": "t"})
+        r = build_write_preview("save_note", {"text": "t"}, {})
     assert r == Refusal("save_note: input could not be previewed")
     assert [rec.levelname for rec in caplog.records] == ["WARNING"]
     assert "KeyError" in caplog.text
@@ -382,7 +389,7 @@ def test_a_target_over_the_limit_is_refused(short, raw, message):
 
 
 def test_unknown_tool_is_refused():
-    assert isinstance(build_write_preview("get_page", {"title": "x"}),
+    assert isinstance(build_write_preview("get_page", {"title": "x"}, {}),
                       Refusal)
 
 
@@ -591,3 +598,155 @@ def test_preview_matches_what_the_tool_receives(monkeypatch):
             assert _shown(op) == params
     assert rec.calls["save_note"]["page"] is None
     assert rec.calls["rename_page"]["allow_merge"] is True
+
+
+# -- the current text of the block a write replaces, moves or deletes ------
+
+_A = uid_of("AAAAAAAA")
+_B = uid_of("BBBBBBBB")
+_VICTIM = uid_of("VICTIMUID01")
+_INBOX = canonical_title_of("Inbox")
+
+
+def test_update_block_shows_the_current_text_and_page():
+    p = _preview("update_block", {"uid": _VICTIM, "text": "new"},
+                 {_VICTIM: StoredBlock(_INBOX, "old text")})
+    assert p.ops[0].current == FoundBlock(_INBOX, "old text", 8)
+
+
+def test_current_text_is_an_excerpt_with_the_whole_length():
+    raw = {"uid": _VICTIM, "text": "new"}
+    long = _preview("update_block", raw,
+                    {_VICTIM: StoredBlock(_INBOX, "y" * 1000)})
+    assert long.ops[0].current == FoundBlock(_INBOX, "y" * 200, 1000)
+    exact = _preview("update_block", raw,
+                     {_VICTIM: StoredBlock(_INBOX, "y" * 200)})
+    assert exact.ops[0].current == FoundBlock(_INBOX, "y" * 200, 200)
+
+
+def test_excerpt_counts_code_points():
+    p = _preview("update_block", {"uid": _VICTIM, "text": "new"},
+                 {_VICTIM: StoredBlock(_INBOX, "\U0001F600" * 300)})
+    assert p.ops[0].current == FoundBlock(_INBOX, "\U0001F600" * 200, 300)
+
+
+def test_a_uid_no_block_has_is_missing():
+    p = _preview("update_block", {"uid": _VICTIM, "text": "new"}, {})
+    assert p.ops[0].current == MissingBlock()
+
+
+def test_a_malformed_uid_is_missing_and_never_read():
+    raw = {"commands": [{"command": "delete", "params": {"uid": "((abc))"}}]}
+    assert write_target_uids("batch", raw) == []
+    # a block stored under the raw spec must not be found by it
+    p = _preview("batch", raw,
+                 {malformed_uid("((abc))"): StoredBlock(_INBOX, "t")})
+    assert p.ops[0].current == MissingBlock()
+
+
+def test_update_block_braces_are_not_an_alias():
+    p = _preview("update_block", {"uid": "{{x}}", "text": "new"})
+    assert p.ops[0].current == MissingBlock()
+
+
+def test_batch_alias_target_names_the_creating_write():
+    p = _preview("batch", {"commands": [
+        {"command": "create", "params": {"page": "P", "text": "a",
+                                         "as": "n"}},
+        {"command": "create", "params": {"page": "P", "text": "b",
+                                         "as": "m"}},
+        {"command": "update", "params": {"uid": "{{m}}", "text": "c"}}]})
+    assert p.ops[2].current == CreatedInBatch(write=2, alias="m")
+
+
+def test_one_uid_updated_moved_and_deleted_shows_one_text():
+    raw = {"commands": [
+        {"command": "update", "params": {"uid": _A, "text": "t"}},
+        {"command": "move", "params": {"uid": _A, "page": "P"}},
+        {"command": "delete", "params": {"uid": _A}}]}
+    assert write_target_uids("batch", raw) == [_A]
+    p = _preview("batch", raw, {_A: StoredBlock(_INBOX, "old")})
+    found = FoundBlock(_INBOX, "old", 3)
+    assert [op.current for op in p.ops] == [found, found, found]
+
+
+def test_write_target_uids_skips_parents_and_creates():
+    raw = {"commands": [
+        {"command": "update", "params": {"uid": _A, "text": "t"}},
+        {"command": "move", "params": {"uid": _B, "page": "P",
+                                       "parent": "((CCCCCC))"}},
+        {"command": "delete", "params": {"uid": _A}},
+        {"command": "create", "params": {"page": "P", "text": "t"}}]}
+    assert write_target_uids("batch", raw) == [_A, _B]
+
+
+def test_write_target_uids_of_update_block():
+    assert write_target_uids("update_block",
+                             {"uid": _VICTIM, "text": "t"}) == [_VICTIM]
+
+
+@pytest.mark.parametrize(("short", "raw"), [
+    ("batch", {"commands": "nope"}),
+    ("update_block", {"uid": _VICTIM, "text": "t", "extra": "z"}),
+    ("rename_page", {"title": "Inbox", "new_title": "Projects"}),
+    ("get_page", {"title": "Inbox"}),
+])
+def test_write_target_uids_of_refused_input_is_empty(short, raw):
+    assert write_target_uids(short, raw) == []
+
+
+def test_write_target_uids_never_raises(monkeypatch):
+    from pkm.assistant import write_preview
+
+    def boom(*_args):
+        raise KeyError("x")
+    monkeypatch.setattr(write_preview, "_validate", boom)
+    assert write_target_uids("update_block",
+                             {"uid": _VICTIM, "text": "t"}) == []
+
+
+def test_ops_that_touch_no_existing_block_have_no_current():
+    blocks = {_A: StoredBlock(_INBOX, "old")}
+    assert _preview("save_note", {"text": "t", "parent": f"(({_A}))"},
+                    blocks).ops[0].current is None
+    assert _preview("rename_page", {"title": "Inbox", "new_title": "P"},
+                    blocks).ops[0].current is None
+    p = _preview("batch", {"commands": [
+        {"command": "create", "params": {"page": "P", "text": "t",
+                                         "parent": f"(({_A}))"}},
+        {"command": "todo", "params": {"page": "P", "text": "t"}},
+        {"command": "outline", "params": {"page": "P", "items": ["a"],
+                                          "parent": f"(({_A}))"}}]},
+        blocks)
+    assert [op.current for op in p.ops] == [None, None, None]
+
+
+def test_a_long_page_title_on_the_current_block_is_refused():
+    blocks = {_VICTIM: StoredBlock(canonical_title_of("t" * 1001), "old")}
+    r = _refusal("update_block", {"uid": _VICTIM, "text": "t"}, blocks)
+    assert "page title is 1001 characters" in r.message
+    assert r.message == ("update_block: the block's page title is 1001 "
+                         "characters; a target is at most 1000")
+    title = canonical_title_of("t" * 1000)
+    p = _preview("update_block", {"uid": _VICTIM, "text": "t"},
+                 {_VICTIM: StoredBlock(title, "old")})
+    assert p.ops[0].current == FoundBlock(title, "old", 3)
+
+
+def _uid_stub_tool(uid: BlockUid) -> str:
+    return uid
+
+
+def test_a_uid_outside_the_current_text_entries_is_not_read(monkeypatch):
+    # a write whose `uid` names a block it does not replace, move or
+    # delete gets no current-text row, so its uid is not read
+    from mcp.server.fastmcp.utilities.func_metadata import func_metadata
+
+    from pkm.assistant import write_preview
+    monkeypatch.setitem(write_preview.WRITE_PREVIEW_FIELDS, "stub",
+                        ("stub", ("uid",), ()))
+    monkeypatch.setitem(write_preview._ARG_MODELS, "stub",
+                        func_metadata(_uid_stub_tool))
+    assert write_target_uids("stub", {"uid": _A}) == []
+    p = _preview("stub", {"uid": _A}, {_A: StoredBlock(_INBOX, "old")})
+    assert p.ops[0].current is None

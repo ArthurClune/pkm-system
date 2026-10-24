@@ -90,8 +90,9 @@ The web refuses an op it can see would go past the cap:
 - **Every depth refusal says so** (my call), with one notice in
   `EditablePage`'s top notice slot, where the other paste and link notices
   sit (Arthur: no silent drops; new notices reuse the existing slot). That
-  covers Tab, drop, paste, move up/down across a parent and undo/redo.
-  The drop indicator also does not offer a too-deep position.
+  covers Tab, paste, move up/down across a parent and undo/redo. A drag
+  needs no notice: the drop indicator never offers a too-deep position, so
+  the user sees where the block can go before letting go.
 - **A command is all or nothing** (my call): a multi-block indent, move or
   paste where any block would go too deep applies none of it.
 - **A refused undo or redo leaves the history as it was** (my call), so it

@@ -7,6 +7,7 @@ plus the machine's Tailscale IP for direct tailnet clients."""
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import socket
 from pathlib import Path
 
@@ -60,7 +61,11 @@ def main(argv: list[str] | None = None) -> int:
     else:
         log_config = uvicorn_log_config()
     server = uvicorn.Server(uvicorn.Config(
-        create_app(config, api_port=args.port), port=args.port,
+        # The bound hosts, not the config's, are the listeners whose
+        # origins the guard allows.
+        create_app(dataclasses.replace(config, bind_hosts=tuple(hosts)),
+                   api_port=args.port),
+        port=args.port,
         log_config=log_config, access_log=False))
     server.run(sockets=sockets)
     return 0

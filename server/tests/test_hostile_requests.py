@@ -469,22 +469,29 @@ _NON_JSON_TYPES = ["text/plain;charset=UTF-8", None,
                    "application/x-www-form-urlencoded"]
 
 
-def _is_refusal(status: int, locs: list[object]) -> bool:
+def _is_refusal(status: int, locs: list[object],
+                origin: str | None = None) -> bool:
     """A refusal of the whole body: 415, or a 422 whose only error is on
-    `body` itself. A 2xx, or a 422 on `["body", <field>]`, means the body
-    was parsed."""
-    return status == 415 or (status == 422 and locs == [["body"]])
+    `body` itself, or, when an `origin` was sent, the origin guard's 403
+    before the body is read. A 2xx, or a 422 on `["body", <field>]`, means
+    the body was parsed."""
+    return ((status == 403 and origin is not None) or status == 415
+            or (status == 422 and locs == [["body"]]))
 
 
-def _non_json_answers(app, client) -> dict[str, tuple[int, list[object]]]:
+def _non_json_answers(app, client, origin: str | None = None,
+                      ) -> dict[str, tuple[int, list[object]]]:
     """Status and error locations of each JSON-body route sent `{}` under a
-    content type a cross-site form or Blob can send without preflight."""
+    content type a cross-site form or Blob can send without preflight,
+    from `origin` when one is given."""
     answers = {}
     for route in _json_body_routes(app):
         url = fill_path(route.path)
         for method in sorted(route.methods or ()):
             for ctype in _NON_JSON_TYPES:
                 headers = {"content-type": ctype} if ctype else {}
+                if origin is not None:
+                    headers["Origin"] = origin
                 r = client.request(method, url, content=b"{}",
                                    headers=headers)
                 detail = r.json().get("detail", []) if r.status_code == 422 \
@@ -495,22 +502,27 @@ def _non_json_answers(app, client) -> dict[str, tuple[int, list[object]]]:
     return answers
 
 
-def _not_refused(answers: dict[str, tuple[int, list[object]]]) -> list[str]:
-    return [k for k, v in answers.items() if not _is_refusal(*v)]
+def _not_refused(answers: dict[str, tuple[int, list[object]]],
+                 origin: str | None = None) -> list[str]:
+    return [k for k, v in answers.items() if not _is_refusal(*v, origin)]
 
 
+@pytest.mark.parametrize("origin",
+                         [None, "https://other-host.tailnet-a.ts.net"])
 def test_every_json_body_route_refuses_a_non_json_content_type(
-        goodlinks_client, seeded_config):
+        goodlinks_client, seeded_config, origin):
     """A body parsed whatever its Content-Type can be written by a
     cross-origin simple request, which carries the session cookie. Refusal
     is a single error on the whole body: a parsed `{}` would instead fail
     on a missing field, `["body", <field>]`, which is no refusal. The
-    goodlinks gateway is on so its route reaches body validation."""
+    goodlinks gateway is on so its route reaches body validation. With no
+    Origin the content-type check alone must refuse; from a sibling host
+    the origin guard refuses first."""
     client = goodlinks_client
     before = _digest(seeded_config)
-    answers = _non_json_answers(client.app, client)
+    answers = _non_json_answers(client.app, client, origin)
     assert len(answers) > 20  # the walk found the routes
-    assert _not_refused(answers) == []
+    assert _not_refused(answers, origin) == []
     assert _digest(seeded_config) == before
 
 

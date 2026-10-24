@@ -317,6 +317,11 @@ fails on, and `AGENTS.md` § Testing says how to run them.
 
 - The dev server proxies `/api` (with WebSocket), `/assets` and `/login` to
   the backend on `PKM_API_PORT` (default 8974, production's port), so run the server beside `pnpm dev`.
+  The backend refuses any `Origin` but its own on `/api/ws` and unsafe
+  methods, so the `/api` proxy rewrites the dev server's own origin to the
+  backend's (`devProxyOrigin` in `web/tooling/devProxyOrigin.ts`). Any other
+  origin goes upstream unchanged and is refused there. Rewriting every origin
+  would let any page on `localhost` write to the backend through the proxy.
 - `@sqlite.org/sqlite-wasm` stays in `optimizeDeps.exclude`, because its wasm
   URL resolution breaks under dep optimization. Its pnpm patch is keyed to its
   exact version ([sqlite-wasm-patch.md](sqlite-wasm-patch.md#upgrading-sqlite-wasm)).

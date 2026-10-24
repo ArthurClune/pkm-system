@@ -6,6 +6,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from pkm.server.origin_core import canonical_origin
+
 
 @dataclass(frozen=True)
 class Config:
@@ -17,6 +19,10 @@ class Config:
     cookie_secure: bool = True
     web_dist: Path | None = None  # built SPA dir; None = API-only server
     bind_hosts: tuple[str, ...] = ("127.0.0.1",)
+    # Origins browsers use to reach the server through Tailscale Serve, in
+    # canonical form (see origin_core.canonical_origin). Empty means only
+    # loopback and the `bind_hosts` listeners may open /api/ws or write.
+    serve_origins: tuple[str, ...] = ()
     max_upload_bytes: int = 150 * 1024 * 1024
     image_descriptions: bool = True
     image_description_model: str = "gpt-4o-mini"
@@ -49,6 +55,20 @@ class Config:
     goodlinks_api_url: str = "http://localhost:9428/api/v1"
 
 
+def _serve_origins(raw: object) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        raise ValueError(f"serve_origins must be a list of origins, got "
+                         f"{raw!r}")
+    origins = []
+    for value in raw:
+        try:
+            origins.append(canonical_origin(str(value)))
+        except ValueError as exc:
+            raise ValueError(f"serve_origins: {value!r} is not an origin "
+                             f"like https://<host>: {exc}") from exc
+    return tuple(origins)
+
+
 def load_config(path: Path) -> Config:
     raw = json.loads(path.read_text(encoding="utf-8"))
     base = path.parent
@@ -61,6 +81,7 @@ def load_config(path: Path) -> Config:
         cookie_secure=raw.get("cookie_secure", True),
         web_dist=(base / raw["web_dist"]) if raw.get("web_dist") else None,
         bind_hosts=tuple(raw.get("bind_hosts", ["127.0.0.1"])),
+        serve_origins=_serve_origins(raw.get("serve_origins", [])),
         max_upload_bytes=int(raw.get("max_upload_bytes", 150 * 1024 * 1024)),
         image_descriptions=bool(raw.get("image_descriptions", True)),
         image_description_model=str(raw.get("image_description_model",

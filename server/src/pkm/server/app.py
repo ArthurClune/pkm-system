@@ -25,6 +25,8 @@ from pkm.server.auth import LoginThrottle, require_auth, router as auth_router
 from pkm.server.config import Config
 from pkm.server.db import init_db
 from pkm.server.goodlinks_gateway import GoodlinksGateway
+from pkm.server.origin_core import allowed_origins
+from pkm.server.origin_guard import OriginGuardMiddleware
 from pkm.server.request_log import RequestLogMiddleware
 from pkm.server.routes_assets import router as assets_router
 from pkm.server.routes_export import router as export_router
@@ -112,6 +114,10 @@ def create_app(
     describe_service: DescribeService | None = None,
     goodlinks_gateway: GoodlinksGateway | None = None,
 ) -> FastAPI:
+    # `api_port` is the port the server is served on: the assistant
+    # harness calls back to it, and the loopback and `bind_hosts` origins
+    # the Origin guard allows are built on it.
+
     # init_db() is idempotent and cheap (one WAL pragma + the fully
     # IF-NOT-EXISTS base schema, see schema.py), so calling it here makes
     # WAL mode + a working schema un-forgettable for any entrypoint or
@@ -146,6 +152,9 @@ def create_app(
                           else _default_describe_service(config))
     app.state.goodlinks = (goodlinks_gateway if goodlinks_gateway is not None
                            else _default_goodlinks(config))
+    # Added first, so innermost: its 403 is logged and carries the headers.
+    app.add_middleware(OriginGuardMiddleware, allowed=allowed_origins(
+        config.serve_origins, config.bind_hosts, api_port))
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestLogMiddleware)
     app.add_exception_handler(RequestValidationError, _validation_error)

@@ -44,7 +44,8 @@ from __future__ import annotations
 
 import re
 import sys
-from bisect import bisect_left, bisect_right
+from array import array
+from bisect import bisect_right
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -70,7 +71,7 @@ _BLOCK_REF_RE = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")
 # Mirrors web/src/grammar/tokenize.ts's QUERY_PREFIX (no case-insensitivity,
 # same optional-bracket shape on each side of "query").
 _QUERY_PREFIX_RE = re.compile(r"\{\{(?:\[\[)?query(?:\]\])?:\s*")
-_BRACE_RE = re.compile(r"[{}]")
+_MACRO_SCAN_RE = re.compile("(" + _QUERY_PREFIX_RE.pattern + r")|[{}]")
 
 
 class ExportTooLarge(Exception):
@@ -131,23 +132,6 @@ class QueryResult:
     groups: tuple[QueryResultGroup, ...]
 
 
-def _brace_balances(text: str) -> tuple[dict[int, int], dict[int, list[int]]]:
-    """The running brace balance of `text` ("{" +1, "}" -1): the balance
-    before each "{", and for each balance value the positions, in order,
-    of the "}" characters that bring it there."""
-    before_open: dict[int, int] = {}
-    closes_at: dict[int, list[int]] = {}
-    balance = 0
-    for m in _BRACE_RE.finditer(text):
-        if m.group() == "{":
-            before_open[m.start()] = balance
-            balance += 1
-        else:
-            balance -= 1
-            closes_at.setdefault(balance, []).append(m.start())
-    return before_open, closes_at
-
-
 def find_query_macros(text: str) -> list[tuple[int, int, str]]:
     """Positions of {{query: ...}} / {{[[query]]: ...}} macros: a list of
     (start, end, expr) covering the whole "{{...}}" span. A balanced-brace
@@ -155,27 +139,41 @@ def find_query_macros(text: str) -> list[tuple[int, int, str]]:
     web/src/grammar/tokenize.ts's scanMacro.
 
     A macro at i closes at the first "}" after its "{{" that brings the
-    running balance back to its value before i: the balance moves one step
-    at a time, so it cannot pass that value without landing on it. Looking
-    that "}" up by bisection, rather than walking to it, keeps text of many
-    unclosed prefixes from costing a walk to the end per prefix."""
+    running brace balance back to its value before i: the balance moves one
+    step at a time, so it cannot pass that value without landing on it. One
+    forward pass finds every close, rather than a walk to the end of the
+    text per unclosed prefix. A prefix waits on a stack until it closes; a
+    later one opens at a higher balance, so only the top can close at any
+    "}". The state is a few machine integers per prefix and nothing per
+    brace, so neither braces nor prefixes cost more than a few bytes per
+    character of text."""
+    if _QUERY_PREFIX_RE.search(text) is None:
+        return []
+    starts, bodies, ends = array("q"), array("q"), array("q")
+    open_index, open_balance = array("q"), array("q")
+    balance = 0
+    for m in _MACRO_SCAN_RE.finditer(text):
+        if m.group(1):
+            open_index.append(len(starts))
+            open_balance.append(balance)
+            starts.append(m.start())
+            bodies.append(m.end())
+            ends.append(-1)
+            balance += 2
+        elif m.group() == "{":
+            balance += 1
+        else:
+            balance -= 1
+            if open_balance and open_balance[-1] == balance:
+                open_balance.pop()
+                ends[open_index.pop()] = m.end()
+    # A closed macro hides any prefix inside it, closed or not.
     out: list[tuple[int, int, str]] = []
-    balances: tuple[dict[int, int], dict[int, list[int]]] | None = None
-    i = text.find("{{")
-    while i != -1:
-        m = _QUERY_PREFIX_RE.match(text, i)
-        if m:
-            if balances is None:
-                balances = _brace_balances(text)
-            before_open, closes_at = balances
-            closes = closes_at.get(before_open[i], [])
-            k = bisect_left(closes, i + 2)
-            if k < len(closes):
-                j = closes[k] + 1
-                out.append((i, j, text[m.end():j - 2].strip()))
-                i = text.find("{{", j)
-                continue
-        i = text.find("{{", i + 1)
+    after = 0
+    for start, body, end in zip(starts, bodies, ends):
+        if end != -1 and start >= after:
+            out.append((start, end, text[body:end - 2].strip()))
+            after = end
     return out
 
 

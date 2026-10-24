@@ -92,6 +92,32 @@ def test_find_query_macros_matches_the_direct_scan(text):
     assert find_query_macros(text) == expected
 
 
+def _scan_peak(text: str) -> int:
+    tracemalloc.start()
+    try:
+        find_query_macros(text)
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+@pytest.mark.parametrize("body", [
+    "}" * 1_000_000, "{" * 1_000_000, "{}" * 500_000],
+    ids=["closes", "opens", "pairs"])
+def test_find_query_macros_holds_nothing_per_brace(body):
+    # One prefix before a million braces: an index with an entry per brace
+    # costs from 50 to 190 bytes a character, outside any budget.
+    text = "{{query:" + body
+    assert _scan_peak(text) < 4 * len(text)
+
+
+def test_find_query_macros_holds_a_few_bytes_per_prefix():
+    # Every character is part of a prefix, so per-prefix state is all
+    # there is: it must stay a few machine integers, not Python objects.
+    text = "{{query:" * 125_000
+    assert _scan_peak(text) < 10 * len(text)
+
+
 def test_find_query_macros_costs_near_linear_work_on_unclosed_prefixes():
     # Every prefix is unclosed, so a direct scan walks to the end from each.
     def steps(n: int) -> int:

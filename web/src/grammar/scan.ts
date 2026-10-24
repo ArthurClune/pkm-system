@@ -82,13 +82,24 @@ export function stripLikePython(text: string): string {
   return stripStartLikePython(text.slice(0, end));
 }
 
+/** `text` without its leading and trailing U+0020 runs. A loop, not
+ * `replace(/^ +| +$/g, "")`: that regex retries ` +$` from every space of
+ * a run that stops short of the end, the square of the run's length. */
+export function trimSpaces(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && text[start] === " ") start += 1;
+  while (end > start && text[end - 1] === " ") end -= 1;
+  return text.slice(start, end);
+}
+
 const UNREACHABLE_SEGMENTS = new Set(["", ".", ".."]);
 
 /** Mirrors refs.py has_unreachable_segment: does the title, edge-stripped
  * of U+0020 once normalized, hold a `.`, `..` or empty `/` segment? Such a
  * title has no URL. A blank title is not one. */
 export function hasUnreachableSegment(text: string): boolean {
-  const canonical = normalizeRefTitle(text).replace(/^ +| +$/g, "");
+  const canonical = trimSpaces(normalizeRefTitle(text));
   if (stripLikePython(canonical).length === 0) return false;
   return canonical.split("/").some((seg) => UNREACHABLE_SEGMENTS.has(seg));
 }

@@ -47,3 +47,15 @@ describe("extractRefs at the block length cap", () => {
     expect(extractRefs(text).refs).toHaveLength(refs);
   }, 60_000);
 });
+
+describe("extractRefs on a long run of spaces in a title", () => {
+  // The unreachable-segment check trimmed the title's edge spaces with a
+  // regex that retries from every space of an inner run: 0.5 s at 40,000
+  // spaces, minutes at the cap, on the replica's apply path.
+  it("extracts the title in linear time", () => {
+    const title = `a${" ".repeat(999_990)}a`;
+    const started = performance.now();
+    expect(extractRefs(`[[${title}]]`).refs).toEqual([{ title, kind: "link" }]);
+    expect(performance.now() - started).toBeLessThan(3000);
+  }, 300_000);
+});

@@ -49,27 +49,47 @@ const BLOCK_MATH_RE = /^\$\$([\s\S]+)\$\$$/;
 // plain prose. The 64 hex chars are the uploader's sha256.
 const ASSET_LINK_RE = /^\/assets\/([0-9a-f]{64})\/(\S+)/;
 
+const URL_TRAILING_PUNCTUATION = new Set(".,;:!?'\")]}>");
+
+/** `url` without its trailing punctuation, which is prose, not URL: "see
+ * https://x.org/a." links "https://x.org/a". A loop, not a `[...]+$`
+ * regex, which retries from every character of a run that stops short of
+ * the end, the square of the run's length. */
+export function trimUrlPunctuation(url: string): string {
+  let end = url.length;
+  while (end > 0 && URL_TRAILING_PUNCTUATION.has(url[end - 1])) end -= 1;
+  return url.slice(0, end);
+}
+
 const EMPHASIS: [string, EmphasisKind][] = [
   ["**", "bold"], ["__", "italic"], ["~~", "strike"], ["^^", "highlight"],
 ];
 
+/** Where each `{` of `text` closes: the index of its matching `}`, or -1.
+ * One pass with a stack, so a block of unclosed macro openers costs its
+ * length once rather than once per opener. */
+function braceCloses(text: string): Int32Array {
+  const closes = new Int32Array(text.length).fill(-1);
+  const open: number[] = [];
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === "{") open.push(i);
+    else if (text[i] === "}" && open.length > 0) closes[open.pop()!] = i;
+  }
+  return closes;
+}
+
 /** From i pointing at a "{{[[name]]:" / "{{name:" macro opener: [body, end]
- * via a balanced-brace scan (a query's body itself contains braces), or
- * null. Shared by {{query}} and {{pdf}} (Roam's PDF-embed spelling). */
+ * where end is just past the `}` matching the opener's first `{` (a
+ * query's body itself contains braces), or null. Shared by {{query}} and
+ * {{pdf}} (Roam's PDF-embed spelling). */
 function scanMacro(
-  text: string, i: number, prefix: RegExp,
+  text: string, i: number, prefix: RegExp, closeOf: (i: number) => number,
 ): [string, number] | null {
   const m = prefix.exec(text.slice(i));
   if (!m) return null;
-  let depth = 2; // the two braces of "{{"
-  let j = i + 2;
-  while (j < text.length && depth > 0) {
-    if (text[j] === "{") depth += 1;
-    else if (text[j] === "}") depth -= 1;
-    j += 1;
-  }
-  if (depth !== 0) return null;
-  return [text.slice(i + m[0].length, j - 2).trim(), j];
+  const close = closeOf(i);
+  if (close === -1) return null;
+  return [text.slice(i + m[0].length, close - 1).trim(), close + 1];
 }
 
 function parseFence(body: string): BlockSegment {
@@ -122,6 +142,24 @@ function isDeadRef(tok: GrammarToken): boolean {
 interface BlockScan {
   byStart: ReadonlyMap<number, GrammarToken>;
   linkAt: (start: number) => MarkdownSpan | null;
+  /** The inline-code tokens of byStart, in source order: math may not
+   * close inside one. */
+  codeTokens: readonly GrammarToken[];
+}
+
+/** The token of `sorted` (source ordered, none overlapping) that holds
+ * offset `at` strictly inside it, or undefined. */
+function tokenAround(sorted: readonly GrammarToken[],
+                     at: number): GrammarToken | undefined {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (sorted[mid].start < at) lo = mid + 1;
+    else hi = mid;
+  }
+  const before = sorted[lo - 1];
+  return before !== undefined && at < before.end ? before : undefined;
 }
 
 /** Render [from, to) as inline segments, consuming scanner tokens that lie
@@ -130,7 +168,7 @@ interface BlockScan {
 function tokenizeInline(
   text: string, scan: BlockScan, from: number, to: number,
 ): InlineSegment[] {
-  const { byStart, linkAt } = scan;
+  const { byStart, linkAt, codeTokens } = scan;
   const out: InlineSegment[] = [];
   let buf = "";
   const flushText = () => {
@@ -202,8 +240,7 @@ function tokenizeInline(
     if (ch === "h" && (i === from || /[\s([{]/.test(text[i - 1]))) {
       const m = /^https?:\/\/\S+/.exec(text.slice(i, to));
       if (m) {
-        // trailing punctuation is prose, not URL: "see https://x.org/a."
-        const url = m[0].replace(/[.,;:!?'")\]}>]+$/, "");
+        const url = trimUrlPunctuation(m[0]);
         if (!/^https?:\/\/$/.test(url)) {
           flushText();
           out.push({ kind: "link", text: url, href: url });
@@ -216,7 +253,7 @@ function tokenizeInline(
       const m = ASSET_LINK_RE.exec(text.slice(i, to));
       if (m) {
         // trailing punctuation is prose, not filename: "see .../pic.jpg."
-        const url = m[0].replace(/[.,;:!?'")\]}>]+$/, "");
+        const url = trimUrlPunctuation(m[0]);
         const parts = /^\/assets\/([0-9a-f]{64})\/(.+)$/.exec(url);
         const sha = parts ? parseSha256Hex(parts[1]) : null;
         if (parts && sha) {
@@ -234,10 +271,9 @@ function tokenizeInline(
       // Code wins: a "$$" that falls inside an inline-code scanner token
       // (e.g. the one in "`echo $$`") cannot close math, so skip past that
       // token's end and keep searching for a code-free close.
-      const codeTokens = [...byStart.values()].filter((t) => t.kind === "inline-code");
       let close = text.indexOf("$$", i + 2);
       while (close !== -1) {
-        const codeTok = codeTokens.find((t) => t.start < close! && close! < t.end);
+        const codeTok = tokenAround(codeTokens, close);
         if (!codeTok) break;
         close = text.indexOf("$$", codeTok.end);
       }
@@ -314,7 +350,12 @@ function tokenizeBlockUncached(text: string): BlockSegment[] {
     if (!byStart.has(t.start)) byStart.set(t.start, t);
   }
 
-  const scan: BlockScan = { byStart, linkAt: markdownLinkScanner(text) };
+  const scan: BlockScan = {
+    byStart, linkAt: markdownLinkScanner(text),
+    codeTokens: [...byStart.values()].filter((t) => t.kind === "inline-code"),
+  };
+  let braces: Int32Array | null = null;
+  const closeOf = (at: number) => (braces ??= braceCloses(text))[at];
 
   const out: BlockSegment[] = [];
   const todo = tokens.find((t) => t.kind === "todo");
@@ -342,7 +383,7 @@ function tokenizeBlockUncached(text: string): BlockSegment[] {
       continue;
     }
     if (text.startsWith("{{", i)) {
-      const q = scanMacro(text, i, QUERY_PREFIX);
+      const q = scanMacro(text, i, QUERY_PREFIX, closeOf);
       if (q) {
         flush(i);
         out.push({ kind: "query", expr: q[0] });
@@ -350,7 +391,7 @@ function tokenizeBlockUncached(text: string): BlockSegment[] {
         chunkStart = i;
         continue;
       }
-      const p = scanMacro(text, i, PDF_PREFIX);
+      const p = scanMacro(text, i, PDF_PREFIX, closeOf);
       if (p) {
         flush(i);
         out.push({ kind: "pdf-embed", href: p[0] });

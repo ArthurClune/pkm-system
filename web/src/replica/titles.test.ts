@@ -142,3 +142,14 @@ describe("asRawTitle", () => {
     expect(asRawTitle(" a\tb ")).toBe(" a\tb ");
   });
 });
+
+describe("canonicalizeTitle on a long title", () => {
+  // A regex that trims a run of spaces from the end retries from every
+  // space of an inner run: 0.5 s at 40,000 spaces, minutes at the cap.
+  test("trims a 1,000,000-character title in linear time", () => {
+    const inner = " ".repeat(999_990);
+    const started = performance.now();
+    expect(canonicalizeTitle(`  a${inner}a  `, true)).toBe(`a${inner}a`);
+    expect(performance.now() - started).toBeLessThan(3000);
+  }, 300_000);
+});

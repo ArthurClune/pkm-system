@@ -486,3 +486,62 @@ describe("tokenizeBlock on a long line of lone [", () => {
     expect(performance.now() - started).toBeLessThan(3000);
   }, 30_000);
 });
+
+describe("tokenizeBlock on long runs of math and macro openers", () => {
+  // Each `$$` used to list every token of the block to find the code spans
+  // it may not close in, and each `{{query:` walked its braces to the end
+  // of the text: 25.7 s and about 80 s at the length cap. A generous bound.
+  it("renders `$$ #a ` ×166,666 in linear time", () => {
+    const text = "$$ #a ".repeat(166_666);
+    const started = performance.now();
+    const segs = tokenizeBlock(text);
+    expect(performance.now() - started).toBeLessThan(3000);
+    expect(segs.filter((s) => s.kind === "math")).toHaveLength(83_333);
+  }, 60_000);
+
+  it("renders `{{query: ` ×111,111 in linear time", () => {
+    const text = "{{query: ".repeat(111_111);
+    const started = performance.now();
+    const segs = tokenizeBlock(text);
+    expect(performance.now() - started).toBeLessThan(3000);
+    expect(segs).toEqual([{ kind: "text", text }]);
+  }, 300_000);
+
+  it("skips a $$ inside inline code when closing math", () => {
+    expect(tokenizeBlock("$$a `$$` b$$ c")).toEqual([
+      { kind: "math", tex: "a `$$` b", display: false },
+      { kind: "text", text: " c" },
+    ]);
+  });
+
+  it("closes a query at the brace matching its opener", () => {
+    expect(tokenizeBlock("{{query: {and: [[a]] {x}}}} tail")).toEqual([
+      { kind: "query", expr: "{and: [[a]] {x}}" },
+      { kind: "text", text: " tail" },
+    ]);
+  });
+});
+
+describe("tokenizeBlock on a long run of punctuation in a URL", () => {
+  // Trailing punctuation was trimmed with a regex that retries from every
+  // character of an inner run: 0.6 s at 40,000 characters, minutes at the
+  // cap. A generous bound.
+  const run = ".".repeat(999_000);
+  it.each([
+    ["a bare URL", `https://x${run}a`, "link"],
+    ["an asset URL", `/assets/${"ab".repeat(32)}/f${run}a`, "asset-link"],
+  ])("autolinks %s in linear time", (_name, text, kind) => {
+    const started = performance.now();
+    const segs = tokenizeBlock(text);
+    expect(performance.now() - started).toBeLessThan(3000);
+    expect(segs.map((s) => s.kind)).toEqual([kind]);
+  }, 300_000);
+
+  it("still trims trailing punctuation off a URL", () => {
+    expect(tokenizeBlock("see https://x.org/a).")).toEqual([
+      { kind: "text", text: "see " },
+      { kind: "link", text: "https://x.org/a", href: "https://x.org/a" },
+      { kind: "text", text: ")." },
+    ]);
+  });
+});

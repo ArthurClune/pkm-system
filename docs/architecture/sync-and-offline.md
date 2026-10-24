@@ -415,8 +415,11 @@ and changes payload beside `generation`.
 [backend.md § Title integrity and one-time activation](backend.md#title-integrity-and-one-time-activation)
 owns its server meaning and the audited apply. The replica persists `"0"` or
 `"1"`, and `canonicalizeTitle` strips boundary U+0020 only under `"1"`.
-"Whitespace" means Python's: `grammar/scan.ts` uses the set `str.strip()` and
-`re`'s `\s` use, and `title_parity.json` replays the server's verdicts.
+`normalizeRefTitle` (`grammar/scan.ts`) folds by `TITLE_WHITESPACE` from the
+generated `grammar/titleWhitespace.gen.ts`, never JS's `\s`, so an offline
+create files a title under the page the server will. Blankness and
+attribute-name edges use Python's `str.strip()` set instead
+(`stripLikePython`). `title_parity.json` replays the server's verdicts.
 
 `findOpTitleViolation()` refuses a gesture on a
 [forbidden title](backend.md#refused-titles) before any optimistic mutation,

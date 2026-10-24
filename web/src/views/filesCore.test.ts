@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { AssetSearchItem } from "../api/payloads";
 import { canonicalTitleOf, uidOf, shaOf } from "../test-helpers";
 import {
-  EMPTY_FILTERS, PAGE_SIZE, clipboardToken, deleteConfirm, formatSize,
-  mimeCategory, searchQuery, summarizeDeletes,
+  EMPTY_FILTERS, PAGE_SIZE, blockedFilesHeading, clipboardToken,
+  deleteConfirm, fileBlockerReasonLabel, formatSize, mimeCategory,
+  searchQuery, summarizeDeletes,
   MISSING_BLOCK_TEXT, refGroups, refUidChunks,
 } from "./filesCore";
 
@@ -152,5 +153,18 @@ describe("refGroups", () => {
   it("falls back to a placeholder for uids the endpoint omitted", () => {
     const groups = refGroups([{ uid: uidOf("tuid-gone"), page_title: canonicalTitleOf("P") }], {});
     expect(groups[0].items[0].text).toBe(MISSING_BLOCK_TEXT);
+  });
+});
+
+describe("an asset delete the server refuses", () => {
+  it("names one blocked file, and counts several", () => {
+    expect(blockedFilesHeading(["pic.png"])).toBe('Can\'t delete "pic.png"');
+    expect(blockedFilesHeading(["a.png", "b.png"]))
+      .toBe("Can't delete 2 files");
+  });
+
+  it("says what removing the link would do", () => {
+    expect(fileBlockerReasonLabel("limit")).toBe(
+      "removing the link would put this block over a size or nesting limit");
   });
 });

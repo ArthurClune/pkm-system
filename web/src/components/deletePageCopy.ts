@@ -45,5 +45,7 @@ export function blockerReasonLabel(reason: DeleteBlocker["reason"]): string {
       return "unlinking would make this an attribute";
     case "residual":
       return "unlinking would still leave a link to this page";
+    case "limit":
+      return "the copied text would put this block over a size or nesting limit";
   }
 }

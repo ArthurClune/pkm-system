@@ -185,7 +185,8 @@ def apply_title_migration(
     db: Db, expected_digest: Sha256Hex, now_ms: int
 ) -> TitleMigrationOutcome:
     """Re-audit, migrate, activate, and rotate generation in one write
-    transaction."""
+    transaction. A rewritten block over a text limit raises
+    store.RewriteTextLimitError and rolls the whole transaction back."""
     if db.in_transaction:
         raise RuntimeError("title migration apply cannot run inside a caller transaction")
 

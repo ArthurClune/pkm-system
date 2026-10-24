@@ -41,4 +41,6 @@ it("labels each blocker reason", () => {
   expect(blockerReasonLabel("used_as_attribute")).toBe("this page is used as an attribute");
   expect(blockerReasonLabel("attribute")).toBe("unlinking would make this an attribute");
   expect(blockerReasonLabel("residual")).toBe("unlinking would still leave a link to this page");
+  expect(blockerReasonLabel("limit")).toBe(
+    "the copied text would put this block over a size or nesting limit");
 });

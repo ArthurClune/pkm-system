@@ -164,8 +164,9 @@ export interface paths {
          *     text, and inbound ((block refs)) are replaced by a copy of the referenced
          *     text. 409 with the offending blocks when a query macro names the page or
          *     unlinking would change a block's leading attribute name (`[[page]]:: v`)
-         *     or still leave a reference, since those cannot be rewritten; nothing is
-         *     changed.
+         *     or still leave a reference, since those cannot be rewritten, or when the
+         *     copies inlined would carry a block over the text length cap or nest its
+         *     `[[` past the cap; nothing is changed.
          */
         delete: operations["delete_page_api_page__title__delete"];
         options?: never;
@@ -206,7 +207,8 @@ export interface paths {
          *     text and ((block refs)) become copies (blocks and distinct pages), and the
          *     blocks that would make DELETE refuse (a query macro naming the page, or a
          *     rewrite that would change the leading attribute name, as for
-         *     `[[page]]:: v`, or still reference the page). Read-only; 404 when the page
+         *     `[[page]]:: v`, still reference the page, or carry the block over a text
+         *     limit with the copies it inlines). Read-only; 404 when the page
          *     does not exist. Not under /api/page/ because GET /api/page/{title:wholepath}
          *     would swallow it.
          */
@@ -236,7 +238,9 @@ export interface paths {
          *     top-level blocks appended after the target's, referencing text
          *     rewritten to the target, source page row dropped) -- a confirm-gated
          *     merge, not a silent overwrite. Case-sensitive throughout, like
-         *     pages.title itself.
+         *     pages.title itself. 422 when the rewrite would carry a block over the
+         *     text length cap or nest its `[[` past the cap (a longer title lengthens
+         *     every link to it); the detail names the block, and nothing changes.
          */
         post: operations["rename_page_api_page__title__rename_post"];
         delete?: never;
@@ -600,7 +604,9 @@ export interface paths {
          *     per-uid DELETE is required to keep the FTS delete trigger firing).
          *     `block_refs` needs no reindex either, for the same reason:
          *     `strip_asset_tokens` removes only asset-embed tokens, a syntax disjoint
-         *     from `((uid))`.
+         *     from `((uid))`. 409 with the offending blocks, as a page delete's
+         *     blockers, when a stripped block would be over the text length cap or
+         *     nest `[[` past the cap; nothing is changed.
          *
          *     `if_unreferenced=true` changes the mode: nothing is stripped, and the
          *     asset is deleted only while no block references it (409 otherwise).
@@ -1396,7 +1402,10 @@ export interface components {
          *     `Name::` attribute is the page. `attribute`: unlinking would add or
          *     change the block's leading `Name::` attribute (as for `[[page]]:: v`),
          *     turning it into a property block. `residual`: the rewritten text would
-         *     still reference the page or one of its blocks.
+         *     still reference the page or one of its blocks. `limit`: the rewrite (a
+         *     page delete's inlined copies, an asset delete's stripped tokens) would
+         *     carry the block over the text length cap or the `[[` nesting cap, or
+         *     further past one it was already over.
          */
         DeleteBlockerModel: {
             /** Uid */
@@ -1409,7 +1418,7 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "query" | "used_as_attribute" | "attribute" | "residual";
+            reason: "query" | "used_as_attribute" | "attribute" | "residual" | "limit";
         };
         /** DeleteOp */
         DeleteOp: {

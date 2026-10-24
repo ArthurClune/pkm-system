@@ -7,8 +7,9 @@ scanners `refs.extract()` uses (bracket_spans, tag_spans,
 attribute_title_span), never a second grammar, and are spliced back to
 front on `strip_code()` output whose offsets index the original text, as
 `rename.py` does. The delete never touches a leading `Title::` attribute; a
-rewrite that would add or change one, a query macro naming the page, and a
-rewrite that would still reference the page are reported as blockers instead.
+rewrite that would add or change one, a query macro naming the page, a
+rewrite that would still reference the page, and one whose inlined copies
+would put the block over a text limit are reported as blockers instead.
 The stale path (`unlink_stale_refs`) has no blockers to report, so
 `defuse_attribute` fences a leading attribute naming the page in backticks.
 """
@@ -31,6 +32,7 @@ from pkm.refs import (
     strip_code,
     tag_spans,
 )
+from pkm.text_limits import rewrite_text_limit_violation
 from pkm.todo import with_state
 
 # Given a title as written, is it the deleted page.
@@ -196,8 +198,11 @@ def apply_delete_rewrite(
 # leading `Name::` attribute is the page, which a delete cannot rewrite and
 # the next edit would recreate; attribute: the rewrite would change the
 # block's leading attribute; residual: the rewritten text would still
-# reference the page or one of its blocks.
-BlockerReason = Literal["query", "used_as_attribute", "attribute", "residual"]
+# reference the page or one of its blocks; limit: the copies inlined would
+# carry the block over a text limit, or further past one
+# (text_limits.rewrite_text_limit_violation).
+BlockerReason = Literal["query", "used_as_attribute", "attribute", "residual",
+                        "limit"]
 
 
 @dataclass(frozen=True)
@@ -301,6 +306,9 @@ def plan_page_delete(
         pre = inline_block_refs(source.text, applied)
         new = unlink_title_refs(pre, is_target)
         reason = _blocker_reason(is_target, page_blocks, source, new)
+        if reason is None and \
+                rewrite_text_limit_violation(source.text, new) is not None:
+            reason = "limit"
         if reason is not None:
             blockers.append(
                 DeleteBlocker(source.uid, source.page_title, source.text, reason)

@@ -130,11 +130,15 @@ class DeleteBlockerModel(StrictModel):
     `Name::` attribute is the page. `attribute`: unlinking would add or
     change the block's leading `Name::` attribute (as for `[[page]]:: v`),
     turning it into a property block. `residual`: the rewritten text would
-    still reference the page or one of its blocks."""
+    still reference the page or one of its blocks. `limit`: the rewrite (a
+    page delete's inlined copies, an asset delete's stripped tokens) would
+    carry the block over the text length cap or the `[[` nesting cap, or
+    further past one it was already over."""
     uid: BlockUid
     page_title: CanonicalTitle
     text: str
-    reason: Literal["query", "used_as_attribute", "attribute", "residual"]
+    reason: Literal["query", "used_as_attribute", "attribute", "residual",
+                    "limit"]
 
 
 class DeletePreview(StrictModel):

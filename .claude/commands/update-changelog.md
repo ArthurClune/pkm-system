@@ -27,3 +27,5 @@ Before saving, reread what you wrote and rewrite any sentence that:
 - closes on a moral or a "lesson worth keeping";
 - leans on intensifiers or hedges: "deliberately", "actually", "merely", "genuinely", "by design", "load-bearing";
 - uses an em-dash aside where a full stop or comma would do.
+
+Then commit the entry on `main`. Parallel sessions share the main checkout, so run `git status -sb` first and confirm it is on `main`, then stage `CHANGELOG.md` alone (`git add CHANGELOG.md`, never `-A`) and commit it as `changelog: YYYY-MM-DD`. Do not push.

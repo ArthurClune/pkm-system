@@ -143,8 +143,11 @@ class GatherBudget:
     is one the renderer would make: a query is one render_query_result call;
     an item is one resolve_text call at the depth it renders at, plus
     _ITEM_CHARS and every character of its text outside the spans that call
-    substitutes (a substitution replaces a span, never the text around
-    it)."""
+    substitutes (a substitution replaces a span, never the text around it),
+    plus each substituted query macro's expression, which the renderer
+    writes in the result's header or, unresolved, leaves in the macro as
+    written. A ref span is priced by its scan alone: resolved it costs the
+    renderer a call and no characters, missing its characters and no call."""
 
     __slots__ = ("_budget",)
 
@@ -174,9 +177,10 @@ class GatherBudget:
     def charge_item(self, text: str, depth: int) -> None:
         """Charge one query result item whose text renders at `depth`."""
         self._budget.call(_scan_units(text))
-        substituted = sum(end - start
-                          for start, end, _, _ in _substitutions(text, depth))
-        self._budget.charge(_ITEM_CHARS + len(text) - substituted)
+        dropped = sum(end - start - (len(payload) if kind == "query" else 0)
+                      for start, end, kind, payload
+                      in _substitutions(text, depth))
+        self._budget.charge(_ITEM_CHARS + len(text) - dropped)
 
 
 @dataclass(frozen=True)

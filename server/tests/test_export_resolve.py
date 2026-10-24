@@ -567,11 +567,13 @@ def test_gather_budget_refuses_items_the_characters_left_cannot_hold():
 @pytest.mark.parametrize(("text", "depth", "chars"), [
     ("ab((uid_r1))cd", 1, 5 + 4),
     ("ab((uid_r1))cd", 3, 5 + 14),
-    ("a{{query: x}}b", 1, 5 + 2),
+    # A substituted macro still costs its expression: the renderer writes
+    # it in the result's header, or leaves the whole macro as written.
+    ("a{{query: x}}b", 1, 5 + 2 + 1),
     ("a{{query: x}}b", 2, 5 + 14),
     # A ref inside a query macro goes with the macro; once macros stay raw
     # the ref inside one is substituted on its own, until refs stay raw too.
-    ("{{query: ((uid_r1))}}", 1, 5),
+    ("{{query: ((uid_r1))}}", 1, 5 + 10),
     ("{{query: ((uid_r1))}}", 2, 5 + 11),
     ("{{query: ((uid_r1))}}", 3, 5 + 21),
 ])

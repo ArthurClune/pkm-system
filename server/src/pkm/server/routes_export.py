@@ -88,7 +88,9 @@ def _run_query(db: Db, expr: str, budget: GatherBudget,
     total = count_matches(db, sql, params)
     budget.check_room(total)
     rows: list[Row] = []
-    for row in iter_plan_rows(db, sql, params):
+    # A plan's rows query costs another scan of what it matches; with no
+    # match counted it is skipped.
+    for row in iter_plan_rows(db, sql, params) if total else ():
         budget.charge_item(row["text"], item_depth)
         rows.append(row)
     groups = tuple(

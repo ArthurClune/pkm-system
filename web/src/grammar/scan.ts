@@ -123,7 +123,12 @@ const EMBED_RE = new RegExp(
 // [\p{L}\p{N}_] mirrors Python's unicode-aware \w closely enough for titles.
 const TAG_CHARS_RE = /[\p{L}\p{N}_./\-]+/uy;
 const TAG_BOUNDARY_RE = new RegExp(`[${PY_SPACE}(]`);
-const WORD_CHAR_RE = /[\p{L}\p{N}_]/u;
+// ASCII on purpose, the same class as refs.py's _WORD_CHAR: a Unicode
+// class follows each runtime's Unicode table, which differs between Python
+// and a browser, and a fence closer tests one UTF-16 unit, so a non-ASCII
+// letter after ``` used to close a fence on one side and open one on the
+// other, and the two disagreed on the refs and `[[` depth of the block.
+const WORD_CHAR_RE = /[A-Za-z0-9_]/;
 const INLINE_CODE_RE = /`[^`\n]*`/y;
 
 /** Left-to-right opaque-code pass: closed fences win over inline code, and
@@ -147,11 +152,11 @@ function scanCode(text: string): { codeTokens: GrammarToken[]; clean: string } {
   let fencePossible = true;
   while (i < text.length) {
     if (fencePossible && text.startsWith("```", i)) {
-      // A ``` run followed by a word character is a fence *opener* with an
-      // info string (```css, ```mermaid), never a closer — without this
-      // skip, an outer fence pairs with the first inner example's opener,
-      // fence parity flips, and hex colours in the exposed code mint pages
-      // named "0277bd" (mirrors _CODE_FENCE in refs.py).
+      // A ``` run followed by an ASCII word character is a fence *opener*
+      // with an info string (```css, ```mermaid), never a closer — without
+      // this skip, an outer fence pairs with the first inner example's
+      // opener, fence parity flips, and hex colours in the exposed code mint
+      // pages named "0277bd" (mirrors _fence_end in refs.py).
       let close = text.indexOf("```", i + 3);
       while (close !== -1 && close + 3 < text.length
              && WORD_CHAR_RE.test(text[close + 3])) {

@@ -25,7 +25,13 @@ from pkm.contracts.titles import RawTitle
 # Punctuation and whitespace after ``` still close as before.
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
 _BACKTICK = re.compile("`")
-_WORD_CHAR = re.compile(r"\w")
+# The word test is ASCII on purpose, and grammar/scan.ts WORD_CHAR_RE is
+# the same class: a Unicode `\w` follows each runtime's Unicode table
+# (Python's lags a browser's) and the web tests one UTF-16 unit, so a
+# non-ASCII letter after ``` closed the fence on one side and opened one on
+# the other. The two then hid different text as code and disagreed on the
+# refs and the `[[` nesting depth of the same block.
+_WORD_CHAR = re.compile(r"[A-Za-z0-9_]")
 # No leading `\s*` here (see attribute_title_span() below): `\s` is a
 # near-subset of this negated class, and pairing a greedy `\s*` with a lazy
 # quantifier over an overlapping class is O(n^2) to fail on an all-whitespace
@@ -177,7 +183,8 @@ class ParsedRefs:
 def _fence_end(text: str, start: int) -> int:
     """End of the closed fence opening at `start`, or -1 when none closes.
 
-    A closer is a ``` run not followed by a word character (see above).
+    A closer is a ``` run not followed by an ASCII word character (see
+    `_WORD_CHAR`).
     """
     close = text.find("```", start + 3)
     while close != -1 and close + 3 < len(text) and _WORD_CHAR.match(

@@ -6,12 +6,17 @@
 // programmatic value change, because those two are the same concern — a value
 // swap that doesn't restore the caret sends it to the end of the text.
 //
+// It is where an edit past the text limits (grammar/textLimits.ts) is
+// refused: the draft never takes a text the server would refuse, so the
+// textarea keeps its old text and the caller is told why.
+//
 // It does NOT know about autocomplete, slash commands, uploads or the /date
 // picker: callers decide what the new text is and whether its flush is held,
 // this only holds it and reports it.
 import { useEffect, useLayoutEffect, useRef, useState,
          type MutableRefObject } from "react";
-import { clampCaret } from "./edits";
+import { textLimitNotice, textLimitViolation } from "../grammar/textLimits";
+import { clampCaret, refusedEditCaret } from "./edits";
 import type { ResumedDraft } from "./handlers";
 import { heightChanged, mayHaveShrunk } from "./textareaHeight";
 
@@ -55,6 +60,8 @@ export interface BlockDraftOptions {
   /** Called when committed text is adopted over the draft: the replacement
    * text invalidates any offset into the old text the caller remembered. */
   onAdopt(): void;
+  /** An edit was refused for a text limit; `notice` says which. */
+  onRefused(notice: string): void;
 }
 
 export interface BlockDraft {
@@ -65,11 +72,16 @@ export interface BlockDraft {
   /** Record what the user typed (the change event). No caret placement — the
    * browser has already put the caret where it belongs. */
   typed(text: string, holdFlush: boolean): void;
+  /** May the draft become `next`? False when `next` is past a text limit:
+   * the refusal is reported (onRefused) and the draft is unchanged. When the
+   * textarea already shows `next` (a typed change), the caret goes back to
+   * where the refused text first differs from the draft's. */
+  admit(next: string): boolean;
   /** Replace the draft programmatically (key edit, completion, /date
    * insertion) and restore `selStart..selEnd` once React has committed the
-   * new value. */
+   * new value. Judged by admit first; returns its answer. */
   replace(text: string, selStart: number, selEnd: number,
-          holdFlush: boolean): void;
+          holdFlush: boolean): boolean;
   onCompositionStart(): void;
   onCompositionEnd(): void;
   /** The draft has been committed and the tree has since changed this block
@@ -81,7 +93,7 @@ export interface BlockDraft {
 }
 
 export function useBlockDraft(
-  { text, cursor, onEdit, onDirty, onAdopt, resume,
+  { text, cursor, onEdit, onDirty, onAdopt, onRefused, resume,
     onUnmount }: BlockDraftOptions,
 ): BlockDraft {
   const [resumedText] = useState(() => resume()?.text ?? null);
@@ -211,15 +223,33 @@ export function useBlockDraft(
     dirtyRef.current = true;
   };
 
+  const admit = (next: string): boolean => {
+    const violation = textLimitViolation(next);
+    if (violation === null) return true;
+    onRefused(textLimitNotice(violation));
+    const el = ref.current;
+    if (el && el.value === next) {
+      // The browser has already put the refused text in the textarea and
+      // React puts the draft back once the handler returns, sending the
+      // caret to the end. A microtask runs after that restore and before
+      // the next event, so the caret is back before another key lands.
+      const at = refusedEditCaret(draftRef.current, next);
+      queueMicrotask(() => el.setSelectionRange(at, at));
+    }
+    return false;
+  };
+
   return {
     ref,
     text: draft,
+    admit,
     typed: (next, holdFlush) => {
       markDirty();
       setDraft(next);
       onEdit(next, holdFlush);
     },
     replace: (next, selStart, selEnd, holdFlush) => {
+      if (!admit(next)) return false;
       markDirty();
       const el = ref.current;
       if (el && el.value === next) {
@@ -231,6 +261,7 @@ export function useBlockDraft(
       }
       setDraft(next);
       onEdit(next, holdFlush);
+      return true;
     },
     onCompositionStart: () => {
       composingRef.current = true;

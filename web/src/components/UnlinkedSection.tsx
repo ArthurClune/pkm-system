@@ -5,6 +5,7 @@ import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { UpdateTextOp } from "../api/ops";
 import type { BlockGroup } from "../api/payloads";
 import { linkUnlinkedReference } from "../grammar/linkReference";
+import { textLimitNotice, textLimitViolation } from "../grammar/textLimits";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { sha256Hex } from "../replica/sha256";
 import type { WriteTicket } from "../sync/opQueue";
@@ -67,6 +68,12 @@ export function UnlinkedSection({ title, onLinked }: {
     const transformed = linkUnlinkedReference(item.text, title);
     if (transformed.status === "no-safe-match") {
       setStatus(item.uid, { state: "error", message: "No linkable occurrence found." });
+      return;
+    }
+    // The server would refuse the batch whole; never queue it.
+    const overLimit = textLimitViolation(transformed.text);
+    if (overLimit !== null) {
+      setStatus(item.uid, { state: "error", message: textLimitNotice(overLimit) });
       return;
     }
 

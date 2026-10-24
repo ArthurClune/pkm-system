@@ -25,7 +25,7 @@ function handlers(): OutlineHandlers {
     onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),
     onIndentSelection: vi.fn(), onOutdentSelection: vi.fn(),
     onMoveSelectionUp: vi.fn(), onMoveSelectionDown: vi.fn(),
-    onDeleteBlockSelection: vi.fn(),
+    onDeleteBlockSelection: vi.fn(), onRefusedEdit: vi.fn(),
     onUndo: vi.fn(), onRedo: vi.fn(),
   };
 }
@@ -1057,6 +1057,83 @@ test("read-only outlines do not intercept text pastes", () => {
     clipboardData: { files: [], getData: () => "a\nb" },
   });
   expect(h.onPasteOutline).not.toHaveBeenCalled();
+});
+
+// An edit past the text limits never reaches the outline: the server would
+// refuse its batch, and the snapshot repair would drop the rest with it.
+describe("an edit past the text limits", () => {
+  const nest = (n: number) => "[[a//".repeat(n) + "x" + "]]".repeat(n);
+  const NESTING = "Links can't nest more than 32 levels deep.";
+  const LENGTH = "A block can't be longer than 1,000,000 characters.";
+
+  test("typing that nests past the cap is refused with the notice", () => {
+    const h = handlers();
+    mount(h, 0);
+    fireEvent.change(focusedTextarea(), { target: { value: nest(33) } });
+    expect(focusedTextarea().value).toBe("hello [[World]]");
+    expect(h.onRefusedEdit).toHaveBeenCalledWith(NESTING);
+    expect(h.onDraftChange).not.toHaveBeenCalled();
+    expect(h.onDraftStart).not.toHaveBeenCalled();
+  });
+
+  test("typing up to the cap is accepted", () => {
+    const h = handlers();
+    mount(h, 0);
+    fireEvent.change(focusedTextarea(), { target: { value: nest(32) } });
+    expect(h.onRefusedEdit).not.toHaveBeenCalled();
+    expect(h.onDraftChange).toHaveBeenCalledWith("tuid-u1", nest(32));
+  });
+
+  test("a refused change puts the caret back where the insertion began",
+       async () => {
+    const h = handlers();
+    mount(h, 1, false, block("tuid-ab", "ab", { order_idx: orderIdxOf(0) }));
+    const ta = focusedTextarea();
+    fireEvent.change(ta, { target: { value: `a${nest(33)}b` } });
+    await waitFor(() => expect(ta.selectionStart).toBe(1));
+    expect(ta.selectionEnd).toBe(1);
+    expect(ta.value).toBe("ab");
+  });
+
+  test("a plain paste past the length cap is prevented, with the notice",
+       () => {
+    const h = handlers();
+    mount(h, 0);
+    const ta = focusedTextarea();
+    ta.setSelectionRange(6, 15); // replaces "[[World]]"
+    const pasted = "y".repeat(1_000_001 - "hello ".length);
+    const prevented = !fireEvent.paste(ta, {
+      clipboardData: { files: [], getData: () => pasted },
+    });
+    expect(prevented).toBe(true);
+    expect(h.onRefusedEdit).toHaveBeenCalledWith(LENGTH);
+    expect(ta.value).toBe("hello [[World]]");
+    expect(h.onDraftChange).not.toHaveBeenCalled();
+  });
+
+  test("a paste measured in code points, not UTF-16 units, is native", () => {
+    const h = handlers();
+    mount(h, 10, false,
+          block("tuid-ten", "0123456789", { order_idx: orderIdxOf(0) }));
+    const pasted = "\u{1F600}".repeat(999_990);
+    const prevented = !fireEvent.paste(focusedTextarea(), {
+      clipboardData: { files: [], getData: () => pasted },
+    });
+    expect(prevented).toBe(false);
+    expect(h.onRefusedEdit).not.toHaveBeenCalled();
+  });
+
+  test("an armed outline paste keeps its own path", () => {
+    const h = handlers();
+    mount(h, 0);
+    const ta = focusedTextarea();
+    pressPasteChord(ta);
+    fireEvent.paste(ta, {
+      clipboardData: { files: [], getData: () => `${nest(33)}\nb` },
+    });
+    expect(h.onRefusedEdit).not.toHaveBeenCalled();
+    expect(h.onPasteOutline).toHaveBeenCalled();
+  });
 });
 
 describe("/date picker", () => {

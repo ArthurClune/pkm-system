@@ -4,7 +4,8 @@ import { findNode } from "./tree";
 import { backspaceAtStart, clampCaret, deleteSelection, indentBlock,
          indentSelection, moveBlockDown, moveBlocksTo, moveBlockUp,
          moveSelectionDown, moveSelectionUp, moveSubtreeDown, moveSubtreeUp,
-         outdentBlock, outdentSelection, revealBlock, setCollapsed,
+         outdentBlock, outdentSelection, refusedEditCaret, revealBlock,
+         setCollapsed,
          setHeading, setViewType, splitBlock } from "./edits";
 
 const someUid = uidOf("abcdef");
@@ -20,6 +21,25 @@ describe("clampCaret", () => {
 
   test("never goes negative", () => {
     expect(clampCaret(-3, 10)).toBe(0);
+  });
+});
+
+describe("refusedEditCaret", () => {
+  test("is where the refused insertion began", () => {
+    expect(refusedEditCaret("ab", "aXYZb")).toBe(1);
+  });
+
+  test("is the end of the shown text when the edit appended", () => {
+    expect(refusedEditCaret("ab", "abXYZ")).toBe(2);
+  });
+
+  test("is where a replaced selection began", () => {
+    expect(refusedEditCaret("abcdef", "abXYZef")).toBe(2);
+  });
+
+  test("never lands inside a surrogate pair", () => {
+    // U+1F600 and U+1F601 share their high surrogate
+    expect(refusedEditCaret("a\u{1F600}", "a\u{1F601}")).toBe(1);
   });
 });
 

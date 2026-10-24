@@ -100,6 +100,9 @@ export interface OutlineHandlers {
   /** App-level undo/redo: global history, not per-outline. */
   onUndo(): void;
   onRedo(): void;
+  /** The editor refused an edit past a text limit (grammar/textLimits.ts);
+   * `notice` says which, for the outline's notice slot. */
+  onRefusedEdit(notice: string): void;
 }
 
 /** A pending draft a mounting textarea takes over. `selection` is where the

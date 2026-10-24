@@ -11,6 +11,8 @@ import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { apiPost } from "../api/typedClient";
 import { useConfirm } from "../components/ConfirmDialog";
 import type { OutlineDndApi } from "../dnd/DndContext";
+import { findOpTextLimitViolation,
+         textLimitNotice } from "../grammar/textLimits";
 import { toggleTodo } from "../grammar/todo";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
@@ -70,14 +72,26 @@ export interface Outline {
    * failure notice (see outline/goodlinks.ts). */
   goodlinksNotice: string | null;
   dismissGoodlinksNotice(): void;
-  /** DEPTH_NOTICE while the last command was refused for putting a block
-   * past the outline depth cap; the next command that applies clears it. */
-  depthNotice: string | null;
-  dismissDepthNotice(): void;
+  /** Why the last edit was refused: DEPTH_NOTICE for a command that would
+   * put a block past the outline depth cap, or a text limit's notice for a
+   * command or keystroke that would store a block text past one. The next
+   * command that applies clears it. */
+  editNotice: string | null;
+  dismissEditNotice(): void;
   /** In-app confirm dialog: render this once in the owning
    * component's tree. Backs onDeleteBlockSelection's large-selection prompt —
    * window.confirm is suppressed by iPadOS Safari in standalone mode. */
   dialog: ReactNode;
+}
+
+/** Why `result` must not apply, or null when it may: the depth cap first,
+ * then the text limits of the texts its ops would store. */
+function commandRefusal(result: EditResult): string | null {
+  if (findDepthViolation(result.blocks, result.ops) !== null) {
+    return DEPTH_NOTICE;
+  }
+  const overLimit = findOpTextLimitViolation(result.ops);
+  return overLimit === null ? null : textLimitNotice(overLimit.violation);
 }
 
 export function useOutline(
@@ -103,9 +117,10 @@ export function useOutline(
   // Outcome of the last /goodlinks pick: "Saved to Goodlinks" or a failure
   // notice. Cleared at the start of the next pick or by dismissGoodlinksNotice.
   const [goodlinksNotice_, setGoodlinksNotice] = useState<string | null>(null);
-  // Set when run() refuses a command for the depth cap, cleared by the next
-  // command that applies or by dismissDepthNotice.
-  const [depthNotice, setDepthNotice] = useState<string | null>(null);
+  // Set when run() refuses a command for the depth cap or a text limit, or
+  // the editor refuses a keystroke; cleared by the next command that applies
+  // or by dismissEditNotice. One slot: the latest refusal is the one to tell.
+  const [editNotice, setEditNotice] = useState<string | null>(null);
   // A live multi-block selection (Shift+Arrow), mutually exclusive with an
   // editing focus: starting one blurs the textarea, focusing a block clears it.
   const [selection, setSelection] = useState<BlockSelection | null>(null);
@@ -197,14 +212,16 @@ export function useOutline(
       ? applyOps(pre, textOps, pageTitle)
       : pre;
     let result = fn(base);
-    // A command that would put a block past the depth cap applies none of
-    // its ops, but the draft's text ops above still ship: they are what the
-    // user typed, and sent with the command the server would refuse them
-    // too, since it refuses a batch whole.
+    // A command that would put a block past the depth cap, or store a text
+    // past a text limit, applies none of its ops, but the draft's text ops
+    // above still ship: they are what the user typed, and sent with the
+    // command the server would refuse them too, since it refuses a batch
+    // whole. Queued, that refusal would also drop the batch's other ops
+    // (sync/rejection.ts), so the web never queues one.
     if (result.ops.length > 0) {
-      const refused = findDepthViolation(result.blocks, result.ops) !== null;
-      setDepthNotice(refused ? DEPTH_NOTICE : null);
-      if (refused) result = { blocks: base, ops: [], focus: null };
+      const refusal = commandRefusal(result);
+      setEditNotice(refusal);
+      if (refusal !== null) result = { blocks: base, ops: [], focus: null };
     }
     const ops = [...textOps, ...result.ops];
     if (ops.length === 0) return;
@@ -284,7 +301,7 @@ export function useOutline(
       setSelection(null);
       setFocus(f ? validateOutlineFocus(f, blocksRef.current) : null);
     },
-    showNotice: (text) => setDepthNotice(text),
+    showNotice: (text) => setEditNotice(text),
   }), [pageTitle, flushNow]);
 
   // A hidden tab can be killed without blur ever firing: flush the draft as
@@ -574,6 +591,7 @@ export function useOutline(
     // flushPending, including this outline's.
     onUndo: () => { performUndo(sync); },
     onRedo: () => { performRedo(sync); },
+    onRefusedEdit: (notice) => setEditNotice(notice),
   }), [run, flushNow, flushOtherDraft, pageTitle, selection, sync, confirm]);
 
   const dnd = useMemo<OutlineDndApi>(() => ({
@@ -672,8 +690,8 @@ export function useOutline(
     dismissUploadError: () => setUploadError(null),
     goodlinksNotice: goodlinksNotice_,
     dismissGoodlinksNotice: () => setGoodlinksNotice(null),
-    depthNotice,
-    dismissDepthNotice: () => setDepthNotice(null),
+    editNotice,
+    dismissEditNotice: () => setEditNotice(null),
     dialog,
   };
 }

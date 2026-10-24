@@ -89,6 +89,27 @@ def _block_info(db: Db, uid: BlockUid) -> BlockInfo | None:
     return BlockInfo(row["uid"], row["page_id"], row["parent_uid"])
 
 
+def _block_with_depth(db: Db,
+                      uid: BlockUid) -> tuple[BlockInfo | None, int]:
+    """The block and the level it sits at (1 at top level), in one query;
+    (None, 0) when it is gone. The level counts _parent_chain's walk, under
+    the same visited-path guard, and comes back as `n`."""
+    row = db.select_one(
+        """WITH RECURSIVE chain(uid, parent_uid, path) AS (
+              SELECT uid, parent_uid, ',' || uid || ',' FROM blocks
+               WHERE uid = ?
+              UNION ALL
+              SELECT b.uid, b.parent_uid, c.path || b.uid || ','
+                FROM chain c JOIN blocks b ON b.uid = c.parent_uid
+               WHERE instr(c.path, ',' || b.uid || ',') = 0
+            ) SELECT b.uid, b.page_id, b.parent_uid,
+                     (SELECT COUNT(*) FROM chain) AS n
+                FROM blocks b WHERE b.uid = ?""", (uid, uid))
+    if row is None:
+        return None, 0
+    return BlockInfo(row["uid"], row["page_id"], row["parent_uid"]), row["n"]
+
+
 def _block_rewrites(db: Db,
                     uid: BlockUid) -> tuple[BlockRewrite, ...]:
     """Every recorded rename/merge/delete rewrite of this block, newest
@@ -123,12 +144,14 @@ def _parent_chain(db: Db, uid: BlockUid) -> tuple[BlockUid, ...]:
     return tuple(r["uid"] for r in rows)
 
 
-def _subtree_deepest_first(db: Db,
-                           uid: BlockUid) -> tuple[BlockUid, ...]:
+def _subtree_with_height(db: Db, uid: BlockUid
+                         ) -> tuple[tuple[BlockUid, ...], int]:
     """uid and every descendant, deepest first (children before parents, as
-    DeleteBlocks and SetPageId both require). Same visited-path guard as
-    _parent_chain: a proper tree can't revisit a uid, so the guard only ever
-    fires on already-corrupted data, and otherwise traverses to full depth."""
+    DeleteBlocks and SetPageId both require), and the subtree's height: how
+    many levels its deepest block sits below uid, 0 for a leaf. Same
+    visited-path guard as _parent_chain: a proper tree can't revisit a uid,
+    so the guard only ever fires on already-corrupted data, and otherwise
+    traverses to full depth. Each row's depth comes back as `n`."""
     rows = db.select(
         """WITH RECURSIVE sub(uid, path, depth) AS (
               SELECT uid, ',' || uid || ',', 0 FROM blocks WHERE uid = ?
@@ -136,8 +159,14 @@ def _subtree_deepest_first(db: Db,
               SELECT b.uid, s.path || b.uid || ',', s.depth + 1
                 FROM sub s JOIN blocks b ON b.parent_uid = s.uid
                WHERE instr(s.path, ',' || b.uid || ',') = 0
-            ) SELECT uid FROM sub ORDER BY depth DESC""", (uid,))
-    return tuple(r["uid"] for r in rows)
+            ) SELECT uid, depth AS n FROM sub ORDER BY depth DESC""", (uid,))
+    return tuple(r["uid"] for r in rows), rows[0]["n"] if rows else 0
+
+
+def _subtree_deepest_first(db: Db,
+                           uid: BlockUid) -> tuple[BlockUid, ...]:
+    """uid and every descendant, deepest first (_subtree_with_height)."""
+    return _subtree_with_height(db, uid)[0]
 
 
 def _subtree_rows(db: Db,
@@ -338,7 +367,13 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
     block = _block_info(db, op.uid)
     parent_uid = (op.parent_uid if isinstance(op, (CreateOp, MoveOp))
                   else None)
-    parent = _block_info(db, parent_uid) if parent_uid else None
+    if isinstance(op, CreateOp) and parent_uid:
+        # a create reads its parent's level in the query that reads the
+        # parent, so the depth cap costs it no extra query
+        parent, parent_depth = _block_with_depth(db, parent_uid)
+    else:
+        parent = _block_info(db, parent_uid) if parent_uid else None
+        parent_depth = 0
     # a move's target chain: what classify_skip's cycle test reads
     chain = (_parent_chain(db, parent.uid)
              if isinstance(op, MoveOp) and block is not None
@@ -360,15 +395,19 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
         # page. It places only a top-level create.
         page_id = (parent.page_id if parent is not None
                    else _resolve_page(db, op.page_title, now_ms)["page_id"])
-        return CreateContext(uid_taken=block is not None, page_id=page_id)
+        return CreateContext(uid_taken=block is not None, page_id=page_id,
+                             depth=parent_depth + 1)
     assert block is not None  # classify_skip covered its absence
     if isinstance(op, MoveOp):
         # same rule as create: page_title places only a top-level move
         page_id = (_resolve_page(db, op.page_title, now_ms)["page_id"]
                    if op.page_title is not None and parent is None
                    else None)
-        return MoveContext(block, parent, page_id,
-                           _subtree_deepest_first(db, op.uid))
+        subtree, height = _subtree_with_height(db, op.uid)
+        # the target chain runs from the parent up, so its length is the
+        # parent's level; a top-level move's is empty
+        return MoveContext(block, parent, page_id, subtree,
+                           deepest=len(chain) + 1 + height)
     if isinstance(op, DeleteOp):
         if op.base_subtree_hash is None:
             return DeleteContext(block, _subtree_deepest_first(db, op.uid))

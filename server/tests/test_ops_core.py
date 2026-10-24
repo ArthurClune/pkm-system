@@ -5,7 +5,7 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from rawread import read
-from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
+from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockOp, BlockUid, CreateOp, CreatePageOp,
                                DeleteOp, MoveOp, OpBatch, PageId, SetCollapsedOp,
                                SetHeadingOp,
                                SetViewTypeOp, UpdateTextOp, subtree_hash,
@@ -107,7 +107,8 @@ def test_plan_create():
                   parent_uid=uid_of("uid_b2"), order_idx=order_idx_of(1), text="t [[X]]",
                   view_type="numbered")
     effects = plan_op(0, op, CreateContext(uid_taken=False,
-                                           page_id=page_id_of(1)))
+                                           page_id=page_id_of(1),
+                                           depth=2))
     assert effects == (
         ShiftSiblings(page_id_of(1), uid_of("uid_b2"), order_idx_of(1)),
         InsertBlock(uid=uid_of("newuid1"), page_id=page_id_of(1),
@@ -122,11 +123,41 @@ def test_plan_create_rejects_bad_uid_and_dup():
     with pytest.raises(OpError, match="invalid uid"):
         plan_op(0, CreateOp(op="create", uid=malformed_uid("a!"), page_title=raw_title_of("P"),
                             order_idx=order_idx_of(0), text=""),
-                CreateContext(uid_taken=False, page_id=page_id_of(1)))
+                CreateContext(uid_taken=False, page_id=page_id_of(1), depth=1))
     with pytest.raises(OpError, match="already exists"):
         plan_op(0, CreateOp(op="create", uid=uid_of("uid_b3"), page_title=raw_title_of("P"),
                             order_idx=order_idx_of(0), text=""),
-                CreateContext(uid_taken=True, page_id=page_id_of(1)))
+                CreateContext(uid_taken=True, page_id=page_id_of(1), depth=1))
+
+
+def test_plan_create_refuses_a_level_past_the_depth_cap():
+    op = CreateOp(op="create", uid=uid_of("deep01"), page_title=raw_title_of("P"),
+                  order_idx=order_idx_of(0), text="")
+    assert plan_op(0, op, CreateContext(uid_taken=False, page_id=page_id_of(1),
+                                        depth=MAX_OUTLINE_DEPTH))
+    with pytest.raises(OpError) as e:
+        plan_op(3, op, CreateContext(uid_taken=False, page_id=page_id_of(1),
+                                     depth=MAX_OUTLINE_DEPTH + 1))
+    assert (e.value.index, e.value.reason) == (
+        3, "block deep01 would sit 101 levels deep; the limit is 100")
+    # a taken uid outranks depth
+    with pytest.raises(OpError, match="already exists"):
+        plan_op(0, op, CreateContext(uid_taken=True, page_id=page_id_of(1),
+                                     depth=MAX_OUTLINE_DEPTH + 1))
+
+
+def test_plan_move_refuses_a_subtree_landing_past_the_depth_cap():
+    op = MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=uid_of("uid_b1"),
+                order_idx=order_idx_of(0))
+    parent = BlockInfo(uid_of("uid_b1"), page_id_of(1), None)
+    subtree = (uid_of("uid_b3"),)
+    assert plan_op(0, op, MoveContext(B, parent, None, subtree,
+                                      deepest=MAX_OUTLINE_DEPTH))
+    with pytest.raises(OpError) as e:
+        plan_op(0, op, MoveContext(B, parent, None, subtree,
+                                   deepest=MAX_OUTLINE_DEPTH + 1))
+    assert e.value.reason == (
+        "block uid_b3 would sit 101 levels deep; the limit is 100")
 
 
 def test_plan_create_rejects_a_uid_with_a_trailing_newline():
@@ -136,7 +167,7 @@ def test_plan_create_rejects_a_uid_with_a_trailing_newline():
     with pytest.raises(OpError, match="invalid uid"):
         plan_op(0, CreateOp(op="create", uid=malformed_uid("abcdef\n"), page_title=raw_title_of("P"),
                             order_idx=order_idx_of(0), text=""),
-                CreateContext(uid_taken=False, page_id=page_id_of(1)))
+                CreateContext(uid_taken=False, page_id=page_id_of(1), depth=1))
 
 
 def test_plan_create_page_executes_nothing():
@@ -155,7 +186,7 @@ def test_plan_update_text():
 
 def test_plan_move():
     ctx = MoveContext(B, BlockInfo(uid_of("uid_b1"), page_id_of(1), None),
-                      None, (uid_of("uid_b3"),))
+                      None, (uid_of("uid_b3"),), deepest=2)
     assert plan_op(0, MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=uid_of("uid_b1"),
                              order_idx=order_idx_of(0)), ctx) == (
         ShiftSiblings(page_id_of(1), uid_of("uid_b1"), order_idx_of(0)),
@@ -164,7 +195,8 @@ def test_plan_move():
     # to top level
     assert plan_op(0, MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=None,
                              order_idx=order_idx_of(2)),
-                   MoveContext(B, None, None, (uid_of("uid_b3"),))) == (
+                   MoveContext(B, None, None, (uid_of("uid_b3"),),
+                               deepest=1)) == (
         ShiftSiblings(page_id_of(1), None, order_idx_of(2)),
         SetParent(uid_of("uid_b3"), None, order_idx_of(2)), TouchPage(page_id_of(1)))
 
@@ -322,7 +354,7 @@ def test_op_error_carries_index():
     with pytest.raises(OpError) as e:
         plan_op(7, CreateOp(op="create", uid=malformed_uid("a!"), page_title=raw_title_of("P"),
                             order_idx=order_idx_of(0), text=""),
-                CreateContext(uid_taken=False, page_id=page_id_of(1)))
+                CreateContext(uid_taken=False, page_id=page_id_of(1), depth=1))
     assert e.value.index == 7 and "invalid uid" in e.value.reason
 
 
@@ -363,7 +395,7 @@ def _move_ctx(block_page: int = 1, parent_page: int = 1,
         BlockInfo(uid_of("u_child"), page_id_of(block_page), None),
         BlockInfo(uid_of("u_parent"), page_id_of(parent_page), None),
         page_id,
-        (uid_of("tuid-u_gc"), uid_of("u_child")))
+        (uid_of("tuid-u_gc"), uid_of("u_child")), deepest=3)
 
 
 def test_move_cross_page_under_parent_reassigns_subtree():
@@ -382,7 +414,7 @@ def test_move_top_level_to_named_page():
                 page_title=raw_title_of("July 1st, 2026"))
     ctx = MoveContext(
         BlockInfo(uid_of("u_child"), page_id_of(1), uid_of("tuid-u_old")),
-        None, page_id_of(7), (uid_of("u_child"),))
+        None, page_id_of(7), (uid_of("u_child"),), deepest=1)
     effects = plan_op(0, op, ctx)
     assert effects == (
         ShiftSiblings(page_id_of(7), None, order_idx_of(0)),

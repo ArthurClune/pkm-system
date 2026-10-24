@@ -14,8 +14,9 @@ from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, Union
 
-from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
-                               DeleteOp, MoveOp, OrderIdx, PageId,
+from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockOp, BlockUid,
+                               CreateOp, CreatePageOp, DeleteOp, MoveOp,
+                               OrderIdx, PageId,
                                RewriteKind, SetCollapsedOp, SetHeadingOp,
                                SetViewTypeOp, Sha256Hex, UID_RE, UpdateTextOp,
                                ViewType, subtree_hash, text_hash)
@@ -375,9 +376,10 @@ class PageContext:
 class CreateContext:
     """A create whose parent, if it names one, exists. `page_id` is where
     the block lands: its live parent's page, or op.page_title's for a
-    top-level create."""
+    top-level create; `depth` is the level it lands at, 1 at top level."""
     uid_taken: bool
     page_id: PageId
+    depth: int
 
 
 @dataclass(frozen=True)
@@ -385,11 +387,13 @@ class MoveContext:
     """A move of a live block to a live parent, or to top level, that makes
     no cycle. `page_id` is op.page_title resolved, set only for a top-level
     move that names one; `subtree` is the block and its descendants,
-    deepest first."""
+    deepest first; `deepest` is the level the subtree's deepest block
+    lands at."""
     block: BlockInfo
     parent: BlockInfo | None
     page_id: PageId | None
     subtree: tuple[BlockUid, ...]
+    deepest: int
 
 
 @dataclass(frozen=True)
@@ -921,6 +925,18 @@ def impossible_uid_reason(op: BlockOp, skip: Skip) -> str | None:
     return None
 
 
+def _check_depth(index: int, uid: BlockUid, depth: int) -> None:
+    """Refuse the batch when the client's create or move would put a block
+    past MAX_OUTLINE_DEPTH (`depth` is the deepest level it places any
+    block at). A 400 rather than a skip: a skip would need its own note
+    and replica mirror, and only an outline near the cap can reach it.
+    Server-made landings (conflict entries, a diverged delete's copies)
+    are never judged: the client did not place them."""
+    if depth > MAX_OUTLINE_DEPTH:
+        raise OpError(index, f"block {uid} would sit {depth} levels deep;"
+                             f" the limit is {MAX_OUTLINE_DEPTH}")
+
+
 def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
     """The effects of one op, from the context the shell's classification
     chose. A context that does not fit the op is a shell bug and fails as
@@ -942,6 +958,7 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
         assert isinstance(op, CreateOp)
         if ctx.uid_taken:
             raise OpError(index, f"uid already exists: {op.uid}")
+        _check_depth(index, op.uid, ctx.depth)
         return (ShiftSiblings(ctx.page_id, op.parent_uid, op.order_idx),
                 InsertBlock(uid=op.uid, page_id=ctx.page_id,
                             parent_uid=op.parent_uid, order_idx=op.order_idx,
@@ -969,6 +986,7 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
                 TouchPage(ctx.block.page_id))
     if isinstance(ctx, MoveContext):
         assert isinstance(op, MoveOp)
+        _check_depth(index, op.uid, ctx.deepest)
         if op.parent_uid is not None:
             assert ctx.parent is not None
             # under a parent the block follows it, whatever page_title

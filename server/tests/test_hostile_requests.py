@@ -30,6 +30,7 @@ from annotated_types import Interval
 
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.int64 import INT64_MAX, INT64_MIN
+from pkm.contracts.ops import MAX_OUTLINE_DEPTH
 from pkm.contracts.strict import StrictModel
 from pkm.contracts.text import WellFormedModel
 from pkm.server.app import create_app
@@ -304,6 +305,21 @@ def test_ops_refuse_text_nesting_references_past_any_sane_depth(
              "page_title": f"Src{depth}", "order_idx": 0, "text": text}]})
     assert 400 <= r.status_code < 500, r.text[:200]
     assert f"Src{depth}" not in _titles(seeded_config)
+
+
+def test_ops_refuse_an_outline_past_the_depth_cap(client, seeded_config):
+    """An outline 255 levels deep made the page, block and journal reads
+    answer 500, so the write path refuses one past the cap."""
+    ops, parent = [], None
+    for level in range(MAX_OUTLINE_DEPTH + 1):
+        uid = f"deep_{level:06d}"
+        ops.append({"op": "create", "uid": uid, "page_title": "DeepCap",
+                    "parent_uid": parent, "order_idx": 0, "text": "d"})
+        parent = uid
+    r = client.post("/api/ops", json={
+        "client_id": "c1", "batch_id": "batch-deep-cap", "ops": ops})
+    assert r.status_code == 400, r.text[:200]
+    assert "DeepCap" not in _titles(seeded_config)
 
 
 _INT64_EXTREMES = [INT64_MIN, INT64_MAX, 0, -1]

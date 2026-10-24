@@ -7,7 +7,7 @@ from pkm.refs import normalize_title
 
 from rawread import read, trace
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import (BlockUid, CreateOp, CreatePageOp, DeleteOp, MoveOp, OpBatch,
+from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockUid, CreateOp, CreatePageOp, DeleteOp, MoveOp, OpBatch,
                                SetCollapsedOp, SetHeadingOp, SetViewTypeOp, subtree_hash,
                                SyncSeq, text_hash, UpdateTextOp)
 from pkm.server import ops_apply, ops_core
@@ -49,6 +49,18 @@ def _linear_chain(page: str, depth: int, prefix: str = "level"):
                     "parent_uid": parent, "order_idx": 0, "text": f"n{i}"})
         parent = uid
     return ops
+
+
+def _seed_chain(db, page: str, depth: int) -> None:
+    """_linear_chain's blocks written straight to the database: a chain
+    past MAX_OUTLINE_DEPTH can only be one built before the cap, and the
+    rows of one must still be found whole by every traversal."""
+    db.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)"
+        " VALUES (?, (SELECT id FROM pages WHERE title = ?), ?, 0, ?)",
+        [(op["uid"], page, op["parent_uid"], op["text"])
+         for op in _linear_chain(page, depth)])
+    db.commit()
 
 
 def test_create_inserts_shifts_and_derives_refs(db):
@@ -263,8 +275,8 @@ def test_move_root_under_own_descendant_is_always_a_cycle(db, depth):
     # A move that would nest a hierarchy under its own descendant must be
     # caught at every depth, not just within the old 100-level cap: ancestry
     # traversal has to see the full chain to notice op.uid reappearing in it.
-    apply_batch(db, _batch(*_linear_chain("Machine Learning", depth)), NOW)
-    db.commit()
+    # A skipped move is never judged against the depth cap.
+    _seed_chain(db, "Machine Learning", depth)
     deepest = f"level{depth - 1}"
     result = apply_batch(db, _batch(
         {"op": "move", "uid": "level0", "parent_uid": deepest,
@@ -277,18 +289,20 @@ def test_move_root_under_own_descendant_is_always_a_cycle(db, depth):
 def test_cross_page_move_updates_every_descendant(db, depth):
     # SetPageId must cover the whole subtree: a descendant left behind on the
     # source page after a cross-page move is silent corruption (its parent is
-    # now on a different page than it is).
-    apply_batch(db, _batch(*_linear_chain("Machine Learning", depth)), NOW)
-    db.commit()
+    # now on a different page than it is). The moved subtree is the tallest
+    # a move may carry, MAX_OUTLINE_DEPTH levels, from a chain that deep or
+    # deeper.
+    _seed_chain(db, "Machine Learning", depth)
+    top = depth - MAX_OUTLINE_DEPTH
     apply_batch(db, _batch(
-        {"op": "move", "uid": "level0", "parent_uid": None, "order_idx": 0,
-         "page_title": "AI"}), NOW)
+        {"op": "move", "uid": f"level{top}", "parent_uid": None,
+         "order_idx": 0, "page_title": "AI"}), NOW)
     db.commit()
     ai_page_id = db.select_one("SELECT id AS page_id FROM pages WHERE title='AI'")["page_id"]
-    uids = [f"level{i}" for i in range(depth)]
-    placeholders = ",".join("?" * depth)
+    uids = [f"level{i}" for i in range(top, depth)]
+    placeholders = ",".join("?" * len(uids))
     rows = db.select(f"SELECT uid, page_id FROM blocks WHERE uid IN ({placeholders})", uids)
-    assert len(rows) == depth
+    assert len(rows) == MAX_OUTLINE_DEPTH
     stranded = [r["uid"] for r in rows if r["page_id"] != ai_page_id]
     assert stranded == []
 
@@ -297,8 +311,7 @@ def test_cross_page_move_updates_every_descendant(db, depth):
 def test_delete_removes_entire_deep_subtree(db, depth):
     # Subtree enumeration for delete must not silently truncate: anything
     # left behind past the old cap is an orphaned block nobody can reach.
-    apply_batch(db, _batch(*_linear_chain("Machine Learning", depth)), NOW)
-    db.commit()
+    _seed_chain(db, "Machine Learning", depth)
     apply_batch(db, _batch({"op": "delete", "uid": "level0"}), NOW)
     db.commit()
     remaining = read(db,

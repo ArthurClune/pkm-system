@@ -31,7 +31,7 @@ it("same-page drop delegates to the registered outline's moveTo", () => {
   const { sync, dnd } = setup();
   const api = fakeOutline();
   dnd().registerOutline(canonicalTitleOf("P"), api);
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P") },
+  dnd().drop({ kind: "blocks", height: 0, uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P") },
              { parent_uid: null, order_idx: orderIdxOf(2), page_title: canonicalTitleOf("P") });
   expect(api.moveTo).toHaveBeenCalledWith(["tuid-u1"],
     { parent_uid: null, order_idx: 2, page_title: "P" });
@@ -42,7 +42,7 @@ it("a same-page group drop passes the whole selection to moveTo", () => {
   const { sync, dnd } = setup();
   const api = fakeOutline();
   dnd().registerOutline(canonicalTitleOf("P"), api);
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u2"), pageTitle: canonicalTitleOf("P"),
+  dnd().drop({ kind: "blocks", height: 0, uid: uidOf("tuid-u2"), pageTitle: canonicalTitleOf("P"),
     uids: [uidOf("tuid-u1"), uidOf("tuid-u2"),
     uidOf("tuid-u3")] },
              { parent_uid: null, order_idx: orderIdxOf(5), page_title: canonicalTitleOf("P") });
@@ -53,7 +53,7 @@ it("a same-page group drop passes the whole selection to moveTo", () => {
 
 it("same-page drop with no registered outline enqueues the op directly", () => {
   const { sync, dnd } = setup();
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P") },
+  dnd().drop({ kind: "blocks", height: 0, uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P") },
              { parent_uid: uidOf("tuid-x"), order_idx: orderIdxOf(0), page_title: canonicalTitleOf("P") });
   expect(sync.sent).toEqual([[
     { op: "move", uid: "tuid-u1", parent_uid: "tuid-x", order_idx: 0 }]]);
@@ -62,7 +62,7 @@ it("same-page drop with no registered outline enqueues the op directly", () => {
 
 it("group drop with no registered outline enqueues sequential move ops", () => {
   const { sync, dnd } = setup();
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P"),
+  dnd().drop({ kind: "blocks", height: 0, uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P"),
     uids: [uidOf("tuid-u1"), uidOf("tuid-u2")] },
              { parent_uid: uidOf("tuid-x"), order_idx: orderIdxOf(3), page_title: canonicalTitleOf("P") });
   expect(sync.sent).toEqual([[
@@ -81,7 +81,7 @@ it("cross-page drop does two-outline surgery and one op with page_title", () => 
   const dst = fakeOutline();
   dnd().registerOutline(canonicalTitleOf("A"), src);
   dnd().registerOutline(canonicalTitleOf("B"), dst);
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("A") },
+  dnd().drop({ kind: "blocks", height: 0, uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("A") },
              { parent_uid: null, order_idx: orderIdxOf(1), page_title: canonicalTitleOf("B") });
   expect(src.removeSubtreeLocal).toHaveBeenCalledWith("tuid-u1");
   expect(dst.insertSubtreeLocal).toHaveBeenCalledWith(moved,
@@ -109,7 +109,7 @@ it("unmounted cross-page target skips insertion but retains subtree replay", () 
   const targetRegistration = dnd().registerOutline(canonicalTitleOf("B"), unmountedDst);
   if (targetRegistration.accepted) targetRegistration.unregister();
   // target page "B" has no registered outline: nothing to insert into.
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("A") },
+  dnd().drop({ kind: "blocks", height: 0, uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("A") },
              { parent_uid: null, order_idx: orderIdxOf(1), page_title: canonicalTitleOf("B") });
   expect(src.removeSubtreeLocal).toHaveBeenCalledWith("tuid-u1");
   expect(unmountedDst.insertSubtreeLocal).not.toHaveBeenCalled();
@@ -134,7 +134,7 @@ it("a cross-page group drop moves every block: surgery, ops, and replays", () =>
   const dst = fakeOutline();
   dnd().registerOutline(canonicalTitleOf("A"), src);
   dnd().registerOutline(canonicalTitleOf("B"), dst);
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("A"),
+  dnd().drop({ kind: "blocks", height: 0, uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("A"),
     uids: [uidOf("tuid-u1"), uidOf("tuid-u2")] },
              { parent_uid: null, order_idx: orderIdxOf(1), page_title: canonicalTitleOf("B") });
   expect(removeSubtreeLocal.mock.calls.map((c) => c[0])).toEqual(["tuid-u1", "tuid-u2"]);
@@ -160,7 +160,7 @@ it("cross-page drop without a source node fabricates no target replay", () => {
   const dst = fakeOutline();
   dnd().registerOutline(canonicalTitleOf("B"), dst);
 
-  dnd().drop({ kind: "blocks", uid: uidOf("missing"), pageTitle: canonicalTitleOf("A") },
+  dnd().drop({ kind: "blocks", height: 0, uid: uidOf("missing"), pageTitle: canonicalTitleOf("A") },
              { parent_uid: null, order_idx: orderIdxOf(0), page_title: canonicalTitleOf("B") });
 
   expect(dst.insertSubtreeLocal).not.toHaveBeenCalled();
@@ -177,7 +177,7 @@ it("unregister stops delivery", () => {
   const registration = dnd().registerOutline(canonicalTitleOf("P"), api);
   expect(registration.accepted).toBe(true);
   if (registration.accepted) registration.unregister();
-  dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P") },
+  dnd().drop({ kind: "blocks", height: 0, uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P") },
              { parent_uid: null, order_idx: orderIdxOf(0), page_title: canonicalTitleOf("P") });
   expect(api.moveTo).not.toHaveBeenCalled();
   expect(sync.sent.length).toBe(1); // fell back to direct enqueue
@@ -201,7 +201,7 @@ it.each(["first", "duplicate"] as const)(
       firstRegistration.unregister();
     }
 
-    dnd().drop({ kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P") },
+    dnd().drop({ kind: "blocks", height: 0, uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P") },
       { parent_uid: null, order_idx: orderIdxOf(0), page_title: canonicalTitleOf("P") });
     if (released === "first") {
       expect(first.moveTo).not.toHaveBeenCalled();

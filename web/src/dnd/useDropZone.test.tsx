@@ -220,7 +220,7 @@ it("does not commit a new indicator object when the position hasn't moved",
       <DndProvider><Capture /><Harness /></DndProvider>
     </SyncContext.Provider>);
   stubRects();
-  act(() => { dnd.startDrag({ kind: "blocks", uid: uidOf("tuid-u2"), pageTitle: canonicalTitleOf("P") }); });
+  act(() => { dnd.startDrag({ kind: "blocks", height: 0, uid: uidOf("tuid-u2"), pageTitle: canonicalTitleOf("P") }); });
 
   const zone = document.querySelector('[data-testid="zone"]')!;
   const transfer = dt();

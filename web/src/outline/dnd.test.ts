@@ -1,8 +1,8 @@
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { block, orderIdxOf, uidOf, canonicalTitleOf } from "../test-helpers";
 import type { BlockNode } from "../api/payloads";
 import { allowedDepths, depthFromX, dropRows, resolveDrop,
-         INDENT_PX, type DragSource } from "./dnd";
+         INDENT_PX, type DragSource, type DropRow } from "./dnd";
 
 // Page "P":  a(0) [ b(0) [ c(0) ] ]  d(1, collapsed) [ e(0) ]  f(2)
 function page(): BlockNode[] {
@@ -15,12 +15,15 @@ function page(): BlockNode[] {
     block("tuid-f", "F", { order_idx: orderIdxOf(2) }),
   ];
 }
-const OTHER: DragSource = { kind: "blocks", uid: uidOf("tuid-zz"), pageTitle: canonicalTitleOf("Elsewhere") };
+const OTHER: DragSource = {
+  kind: "blocks", height: 0, uid: uidOf("tuid-zz"),
+  pageTitle: canonicalTitleOf("Elsewhere"),
+};
 
 it("dropRows hides collapsed children and excludes the dragged subtree", () => {
   expect(dropRows(page(), OTHER, canonicalTitleOf("P")).map((r) => r.uid))
     .toEqual(["tuid-a", "tuid-b", "tuid-c", "tuid-d", "tuid-f"]); // e hidden under collapsed d
-  expect(dropRows(page(), { kind: "blocks", uid: uidOf("tuid-b"), pageTitle: canonicalTitleOf("P") },
+  expect(dropRows(page(), { kind: "blocks", height: 0, uid: uidOf("tuid-b"), pageTitle: canonicalTitleOf("P") },
                   canonicalTitleOf("P")).map((r) => r.uid))
     .toEqual(["tuid-a", "tuid-d", "tuid-f"]);           // b and c lifted out
 });
@@ -76,7 +79,7 @@ it("resolveDrop picks parent and order_idx from the chosen depth", () => {
 
 it("resolveDrop returns null for a same-position drop", () => {
   // dragging f, dropping at the very end at depth 0 = where it already is
-  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-f"), pageTitle: canonicalTitleOf("P") };
+  const drag: DragSource = { kind: "blocks", height: 0, uid: uidOf("tuid-f"), pageTitle: canonicalTitleOf("P") };
   const rows = dropRows(page(), drag, canonicalTitleOf("P"));
   expect(resolveDrop(page(), canonicalTitleOf("P"), drag, { boundary: rows.length, depth: 0 })).toBeNull();
   // and dropping right before its own old slot is also a no-op
@@ -91,7 +94,7 @@ it("resolveDrop from another page never returns null (content must move)", () =>
 // --- group drag: a drag that carries a multi-block selection ---
 
 it("dropRows excludes every dragged subtree of a group drag", () => {
-  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-a"),
+  const drag: DragSource = { kind: "blocks", height: 0, uid: uidOf("tuid-a"),
     pageTitle: canonicalTitleOf("P"), uids: [uidOf("tuid-a"),
     uidOf("tuid-d")] };
   expect(dropRows(page(), drag, canonicalTitleOf("P")).map((r) => r.uid)).toEqual(["tuid-f"]);
@@ -99,7 +102,7 @@ it("dropRows excludes every dragged subtree of a group drag", () => {
 
 it("resolveDrop resolves a group drop to the run's first slot", () => {
   // dragging [d, f] above a: insert at the top, before a
-  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-d"),
+  const drag: DragSource = { kind: "blocks", height: 0, uid: uidOf("tuid-d"),
     pageTitle: canonicalTitleOf("P"), uids: [uidOf("tuid-d"),
     uidOf("tuid-f")] };
   expect(resolveDrop(page(), canonicalTitleOf("P"), drag, { boundary: 0, depth: 0 }))
@@ -108,7 +111,7 @@ it("resolveDrop resolves a group drop to the run's first slot", () => {
 
 it("resolveDrop returns null when a group drop changes nothing", () => {
   // [d, f] dropped right back where they already sit (after a's subtree)
-  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-d"),
+  const drag: DragSource = { kind: "blocks", height: 0, uid: uidOf("tuid-d"),
     pageTitle: canonicalTitleOf("P"), uids: [uidOf("tuid-d"),
     uidOf("tuid-f")] };
   const rows = dropRows(page(), drag, canonicalTitleOf("P")); // [a, b, c]
@@ -139,4 +142,32 @@ it("resolveDrop on an empty page puts a files drag first at the root", () => {
 
 it("resolveDrop still returns null where a files drag has no parent", () => {
   expect(resolveDrop(page(), canonicalTitleOf("P"), FILES, { boundary: 0, depth: 2 })).toBeNull();
+});
+
+describe("allowedDepths and the outline depth cap", () => {
+  const chain = (depth: number): DropRow[] =>
+    Array.from({ length: depth + 1 },
+               (_, d) => ({ uid: uidOf(`tuid-r${d}`), depth: d, collapsed: false }));
+
+  it("never offers level 101 below a level-100 row", () => {
+    const rows = chain(99);
+    const allowed = allowedDepths(rows, rows.length);
+    expect(allowed[allowed.length - 1]).toBe(99);
+  });
+
+  it("leaves room for the dragged subtree's height", () => {
+    const rows = chain(99);
+    const allowed = allowedDepths(rows, rows.length, 5);
+    expect(allowed[allowed.length - 1]).toBe(94);
+  });
+
+  it("is unchanged by the cap when every row is far above it", () => {
+    const rows = chain(3);
+    expect(allowedDepths(rows, rows.length)).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it("stays non-empty when the dragged subtree alone is past the cap", () => {
+    const rows = chain(2);
+    expect(allowedDepths(rows, rows.length, 150)).toEqual([0]);
+  });
 });

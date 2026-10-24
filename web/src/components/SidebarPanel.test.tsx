@@ -77,7 +77,8 @@ it("panel bullets are draggable and start a drag for the panel's page", async ()
   expect(bullet).toHaveAttribute("draggable", "true");
 
   fireEvent.dragStart(bullet!, { dataTransfer: dt() });
-  expect(dnd().drag).toEqual({ kind: "blocks", uid: "tuid-s1", pageTitle: "Some Page" });
+  expect(dnd().drag).toEqual({ kind: "blocks", uid: "tuid-s1", pageTitle: "Some Page",
+    height: 0 });
 });
 
 it("dragging is disabled while disconnected (writes paused invariant)", async () => {

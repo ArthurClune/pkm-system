@@ -294,12 +294,12 @@ A `DragSource` (`outline/dnd.ts`) is `blocks` or `files`; both share the
 zone's geometry and `resolveDrop`.
 
 `allowedDepths` offers no depth that would put the dragged subtree past
-`MAX_OUTLINE_DEPTH`, so a drag needs no depth notice: the indicator never
-shows a refused spot. The subtree's height travels in `BlockDragSource.height`,
-measured at drag start, so a drop on another page needs no source tree.
-That is the only depth check a cross-page drop meets, since `DndProvider`
-moves it without `run()`. A legacy subtree too tall for any depth still
-gets the shallowest, which `run()` or the server refuses.
+`MAX_OUTLINE_DEPTH`, so a drag needs no depth notice. The exception is a
+legacy subtree too tall for any depth: it still gets the shallowest, which
+`run()` or the server refuses. The subtree's height travels in
+`BlockDragSource.height`, measured at drag start, so a drop on another
+page needs no source tree. That is the only depth check a cross-page drop
+meets, since `DndProvider` moves it without `run()`.
 
 | Files drag | Rule |
 |---|---|

@@ -67,7 +67,7 @@ test("Tab at level 100 is refused with the notice and sends nothing",
   const answered: Promise<unknown>[] = [];
   page.on("request", (request) => {
     if (request.method() === "POST" && request.url().endsWith("/api/ops")) {
-      sent.push(...(request.postDataJSON() as { ops: Op[] }).ops);
+      sent.push(...((request.postDataJSON() as { ops?: Op[] } | null)?.ops ?? []));
       answered.push(request.response());
     }
   });

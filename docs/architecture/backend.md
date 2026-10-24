@@ -512,9 +512,10 @@ page, block and journal reads answer 500 on an outline 255 levels deep,
 because pydantic-core's serialiser has a fixed recursion guard, so one
 bound on writes protects every reader. `plan_op` judges a create by its
 own level and a move by the level its subtree's deepest block lands at.
-Each op sees the batch's earlier ops applied, and a skipped op places
-nothing, so it is not judged. Only where an op puts blocks is judged, so
-legacy rows past the cap stay editable.
+Each op sees the batch's earlier ops applied. A skipped op places none of
+the client's blocks, so it is not judged. Only where an op puts blocks is
+judged: legacy rows past the cap stay readable and their text editable,
+but a move that leaves them past the cap is refused.
 
 **Depth rejects the batch rather than skipping the op like `move_cycle`.**
 A skip would need its own note, journal rows and replica mirror, for a case
@@ -524,10 +525,20 @@ is a web offline batch [discarded](sync-recovery.md#a-batch-the-server-rejects)
 when two devices' edits, each legal alone, stack past the cap. The web
 refuses what it can see first ([frontend-editor.md](frontend-editor.md#rules-an-edit-must-not-break)).
 
-Server-made landings are never judged: a 400 over a conflict note or a
-diverged delete's copies would discard a batch for something the client
-did not send. They stay under 255 anyway. A conflict header sits at most at
-the cap, and the subtree copied under it is at most the cap tall.
+Server-made landings are never refused, and never land past the cap. A
+400 over a conflict note or a diverged delete's copies would discard a
+batch for something the client did not send. Left unbounded, they stack:
+a diverged delete of a top-level block copies its subtree one level
+deeper, under a new header, and a client may send any
+`base_subtree_hash`. Deleting each new header in turn then adds a level
+per batch. The planner bounds them instead, and no text is lost, only
+nesting below the cap:
+
+| Landing | Bound |
+|---|---|
+| Conflict entry | `_conflict_landing` reuses today's header only while it sits shallower than the cap; a deeper one (only a legacy row) gets a fresh top-level header |
+| A diverged delete's copies | `descendant_copy_effects` keeps their shape down to the cap. A copy one level above the cap takes the rest of its copied subtree as children at the cap, in document order |
+| Root copy at the cap, under a reused header | its copied descendants follow it under the header, in document order |
 
 ### Stale batches
 
@@ -815,7 +826,7 @@ route.
 | A Roam heading outside 1–3 or a time past 64 bits | `parse_export` reads it as absent | `test_no_500_stored_props.py` |
 | A deep or wide `/api/query` expression | `parse_query` refuses past `MAX_QUERY_DEPTH` / `MAX_QUERY_OPERANDS` and the route answers 400; rule in the [`/api/query` row](#http-api-reference) | `test_query.py` |
 | An id set past SQLite's bound-variable limit | Queries over an unbounded id set go through `sync_core.chunk_ids`; rule in [Database](#database) | `test_sql_variable_limit.py` |
-| An outline nested past the readers' 255-level limit | `/api/ops` refuses a block placed past `MAX_OUTLINE_DEPTH`, and the importer an export holding one (`validate_export_depth`); rule in [Missing targets](#missing-targets) | `test_outline_depth.py`, `test_hostile_requests.py` |
+| An outline nested past the readers' 255-level limit | `/api/ops` refuses a client's block placed past `MAX_OUTLINE_DEPTH` and lands its own conflict copies no deeper; the importer refuses an export holding one (`validate_export_depth`); rule in [Missing targets](#missing-targets) | `test_outline_depth.py`, `test_hostile_requests.py` |
 | `[[` nested past Python's recursion limit | Rename and unlink walk iteratively (`_rewrite_range`, `_unlink_range`); rule in [Ref grammar](#ref-grammar) | `test_legacy_deep_brackets.py` |
 
 Path and query values cannot carry a lone surrogate, because the server

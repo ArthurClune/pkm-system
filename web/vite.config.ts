@@ -1,7 +1,9 @@
+import type { ClientRequest, IncomingMessage } from "node:http";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { defineConfig } from "vitest/config";
+import { devProxyOrigin } from "./tooling/devProxyOrigin";
 import { budgetPlugin, precacheBudgetTransform } from "./tooling/viteBudgetPlugin";
 
 // The Help view's `docs/keyboard.md?raw` import reaches one directory above
@@ -91,7 +93,29 @@ export default defineConfig({
   server: {
     fs: { allow: [repoRoot] },
     proxy: {
-      "/api": { target: apiTarget, ws: true },
+      "/api": {
+        target: apiTarget,
+        ws: true,
+        // The backend refuses any Origin but its own on /api/ws and unsafe
+        // methods; devProxyOrigin turns only the dev server's own origin
+        // into the backend's. Both events fire before the upstream request
+        // is sent.
+        configure(proxy) {
+          const forwardOrigin = (
+            proxyReq: ClientRequest,
+            req: IncomingMessage,
+          ): void => {
+            const origin = devProxyOrigin(
+              req.headers.origin,
+              req.headers.host,
+              apiTarget,
+            );
+            if (origin !== undefined) proxyReq.setHeader("origin", origin);
+          };
+          proxy.on("proxyReq", forwardOrigin);
+          proxy.on("proxyReqWs", forwardOrigin);
+        },
+      },
       "/assets": apiTarget,
       "/login": apiTarget,
     },

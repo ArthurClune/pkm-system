@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from pkm.server.config import load_config
 
 
@@ -26,6 +28,31 @@ def test_bind_and_upload_explicit(tmp_path):
     }))
     assert c.bind_hosts == ("127.0.0.1", "100.104.1.2")
     assert c.max_upload_bytes == 1024
+
+
+def test_serve_origins_default_empty(tmp_path):
+    assert load_config(write_config(tmp_path, {})).serve_origins == ()
+
+
+def test_serve_origins_normalised(tmp_path):
+    c = load_config(write_config(tmp_path, {
+        "serve_origins": ["HTTPS://Biber.bobtail-dorian.ts.net/"]}))
+    assert c.serve_origins == ("https://biber.bobtail-dorian.ts.net",)
+
+
+def test_serve_origins_refuses_a_bare_hostname(tmp_path):
+    p = write_config(tmp_path, {
+        "serve_origins": ["biber.bobtail-dorian.ts.net"]})
+    with pytest.raises(ValueError) as exc:
+        load_config(p)
+    assert "serve_origins" in str(exc.value)
+    assert "biber.bobtail-dorian.ts.net" in str(exc.value)
+
+
+def test_serve_origins_refuses_a_string(tmp_path):
+    p = write_config(tmp_path, {"serve_origins": "https://h.example"})
+    with pytest.raises(ValueError, match="serve_origins"):
+        load_config(p)
 
 
 def test_image_description_defaults(tmp_path):

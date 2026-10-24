@@ -51,12 +51,16 @@ existing `config.json` or database.
    ```
    This prompts for the app password and writes `config.json` (mode 0600)
    with the password hash, session secret, and `web_dist`.
-4. Add the `bind_hosts` line that `install.sh` printed (loopback plus your
-   Tailscale IP) to `config.json` by hand. `setup.py` doesn't know your
-   Tailscale IP:
+4. Add the `bind_hosts` and `serve_origins` lines that `install.sh` printed
+   (loopback plus your Tailscale IP; your Serve hostname) to `config.json`
+   by hand. `setup.py` knows neither:
    ```json
    "bind_hosts": ["127.0.0.1", "100.x.y.z"],
+   "serve_origins": ["https://<machine>.<tailnet>.ts.net"],
    ```
+   Without `serve_origins` the server refuses every write and live-update
+   connection from the Serve hostname as a foreign origin
+   ([backend.md § Auth](../docs/architecture/backend.md#auth)).
 5. Restart the server so it picks up the new config:
    `launchctl kickstart -k "gui/$UID/com.$USER.pkm.server"`.
 6. After the first start, open a Local copy file (or run `pkm local check`)
@@ -64,6 +68,10 @@ existing `config.json` or database.
 7. Run `deploy/smoke.sh` to verify the install end-to-end.
 
 ## Updating
+
+An install that predates the Origin guard needs `serve_origins` in
+`data/config.json` (install step 4) before `update.sh`, or the server
+refuses every write from the Serve hostname.
 
 Run `$PKM_HOME/app/deploy/update.sh`. It refuses to run from any other
 checkout (set `PKM_UPDATE_FORCE=1` to override), because it would rebuild

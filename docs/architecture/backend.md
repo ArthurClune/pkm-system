@@ -52,6 +52,7 @@ server/
 ├── db.py                Shell  init_db() at startup, open_db() per request, migrations
 ├── wholepath.py         Shell  the {name:wholepath} DOTALL route convertor
 ├── auth.py, auth_core.py, throttle_core.py   login, require_auth, LoginThrottle; scrypt and tokens; backoff policy
+├── origin_core.py, origin_guard.py  Core / Shell  allowed origins; OriginGuardMiddleware
 ├── routes_*.py          Shell  the HTTP surface
 ├── ops_core.py          Core   plan_op(), classify_skip, classify_text_edit
 ├── ops_apply.py         Shell  apply_batch: read context, plan, execute effects
@@ -734,8 +735,46 @@ effectively global.
 
 `GET /login`, `POST /api/login`, `GET /healthz` and the SPA shell are public.
 Every feature router declares `dependencies=[Depends(require_auth)]`.
-`/api/ws` checks the cookie and closes with 4401 before accepting, which
-uvicorn sends as an HTTP 403.
+`/api/ws` checks the cookie and closes with 4401 before accepting.
+
+`OriginGuardMiddleware` (`origin_guard.py`, rules in `origin_core.py`)
+checks `Origin` on every `/api/ws` handshake and on every HTTP method
+outside `SAFE_METHODS`. `ts.net` is a public suffix, so every tailnet host
+is same-site with the app and the `Lax` cookie rides along on a sibling
+host's handshake and simple POSTs. A request with no `Origin` passes,
+because browsers send one on every request the guard checks; only
+non-browser clients omit it. A request with exactly one `Origin`, in the
+allowed set, passes. Anything else is refused.
+
+| Allowed origin | Source |
+|---|---|
+| each entry of `serve_origins` | config.json, canonicalised on load (`canonical_origin`) |
+| `http://<host>:<port>` | each bind host; `--host` replaces `bind_hosts` |
+| `http://127.0.0.1:<port>`, `http://localhost:<port>`, `http://[::1]:<port>` | always |
+
+`<port>` is the `api_port` `create_app()` is given, the port `run.py`
+serves on. A refused HTTP request gets 403
+`{"detail": "origin not allowed"}`. A refused handshake is closed with
+4403 before accepting. uvicorn sends both closes, 4403 and 4401, as an
+HTTP 403. The guard runs before routing, so an anonymous handshake from a
+foreign origin sees 4403, not 4401.
+
+Two tests pin rules that would lock the app out if broken:
+`Origin: null` is refused, because a sibling page can produce it
+(`test_origin_allowed`, `test_ws_refuses_a_foreign_origin`), and the web
+treats 403 as retry-later (`RETRY_LATER_STATUSES` in
+`web/src/sync/rejection.ts`, pinned by `rejection.test.ts`), so a wrong
+`serve_origins` queues edits instead of discarding them.
+
+Nothing enforces these rules:
+
+- The app must never set `Referrer-Policy: no-referrer`, as a header or a
+  meta tag on its own documents. Fetch writes, uploads and the WebSocket
+  keep the real origin under that policy. The no-cors form posts do not:
+  the export form in `web/src/views/Files.tsx` (Chromium and WebKit) and
+  the assistant close beacon in `web/src/assistant/client.ts` (WebKit)
+  would send `Origin: null` and be refused.
+- A new hostname or Serve port needs its origin in `serve_origins`.
 
 ## HTTP API reference
 
@@ -881,6 +920,7 @@ to `config.json`'s directory, so the data directory moves as a unit.
 | `cookie_secure` | `true` | `Secure` flag on the session cookie |
 | `web_dist` | unset | Built SPA directory; unset serves the API only |
 | `bind_hosts` | `["127.0.0.1"]` | Interfaces to listen on |
+| `serve_origins` | `[]` | Origins browsers use to reach the server through Tailscale Serve, e.g. `["https://<machine>.<tailnet>.ts.net"]`; loopback and `bind_hosts` listeners are always allowed ([Auth](#auth)) |
 | `max_upload_bytes` | 150 MB | Upload size cap |
 | `image_descriptions` | `true` | Master switch for image captions |
 | `image_description_model` | `gpt-4o-mini` | Vision model |
@@ -893,7 +933,9 @@ to `config.json`'s directory, so the data directory moves as a unit.
 A key file wins over its environment variable. Key files default to one
 level above the data directory, outside anything servable or exportable.
 
-`python -m pkm.server.run` serves port 8974 on `bind_hosts`. launchd runs it
+`python -m pkm.server.run` serves port 8974 on `bind_hosts`. Its `--host`
+flags replace `bind_hosts`, for the listeners and for the origin guard's
+allowed set alike. launchd runs it
 through `$PKM_HOME/bin/pkm-server`, which stays the Python process's parent,
 so macOS attributes file-access consent to a binary that does not change
 ([the launcher](../../deploy/README.md#the-launcher)). `create_app()` always

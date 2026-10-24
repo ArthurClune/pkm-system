@@ -33,9 +33,12 @@ the finished body's length and the refusal is exact. Indents are added with
 str.replace rather than by splitting into lines, so memory stays a few
 objects per charged piece rather than one per line.
 
-The budget also counts resolve_text and render_query_result calls, at most
-one per CHARS_PER_CALL characters allowed: refs written back to back over
-an empty leaf produce no characters, yet the K**3 calls would still run.
+The budget also counts call units, at most one per CHARS_PER_CALL
+characters of the character bound. Each resolve_text and
+render_query_result call costs one, so refs written back to back over an
+empty leaf, which produce no characters, cannot make K**3 calls. A
+resolve_text call also pays for the text it scans, since text it never
+outputs (a resolved query macro's padding) is rescanned on every ref.
 """
 from __future__ import annotations
 
@@ -58,6 +61,10 @@ BLOCK_REF_MAX_DEPTH = 3
 QUERY_MAX_DEPTH = 2
 EXPORT_MAX_CHARS = 10_000_000
 CHARS_PER_CALL = 10
+# Scanning has to be paid for, but cheaply enough that the character bound
+# is still the one a text-heavy page reaches: literal text is both scanned
+# and output, so at the character bound its scan uses a tenth of the units.
+SCAN_CHARS_PER_UNIT = 100
 
 _BLOCK_REF_RE = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")
 # Mirrors web/src/grammar/tokenize.ts's QUERY_PREFIX (no case-insensitivity,
@@ -94,8 +101,8 @@ class _Budget:
                 f" {_in_words(self.max_chars)} characters once block refs"
                 " and queries are expanded")
 
-    def call(self) -> None:
-        self.calls_left -= 1
+    def call(self, units: int = 1) -> None:
+        self.calls_left -= units
         if self.calls_left < 0:
             raise ExportTooLarge("page too large to export: its block refs"
                                  " and queries expand too many times")
@@ -194,7 +201,7 @@ def resolve_text(text: str, uid_to_text: Mapping[str, str],
     is left exactly as written."""
     if budget is None:
         budget = _unbounded()
-    budget.call()
+    budget.call(1 + len(text) // SCAN_CHARS_PER_UNIT)
     query_macros: list[tuple[int, int, str]] = (
         find_query_macros(text) if depth < QUERY_MAX_DEPTH else [])
     query_starts = [s for s, _, _ in query_macros]
@@ -251,7 +258,8 @@ def render_page_resolved(title: CanonicalTitle, tree: Sequence[BlockNode],
     text (no wrapping parens) and {{query: ...}} macros execute to their
     matching results -- the end-user export's rendering mode. Raises
     ExportTooLarge once the body would pass `max_chars` characters, or
-    expansion would take more than one call per CHARS_PER_CALL of them."""
+    expansion would take more than one call unit per CHARS_PER_CALL of
+    them."""
     budget = _Budget(max_chars)
     lines = [f"# {title}", ""]
     # Every line, these two included, ends in a newline once joined.

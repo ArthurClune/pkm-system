@@ -288,14 +288,41 @@ def test_a_fan_out_that_produces_nothing_is_still_refused():
 
 
 def test_the_call_bound_scales_with_the_character_bound():
-    # 1 + 10 + 100 + 1_000 calls: refused at a bound allowing 1_000 calls,
-    # rendered at one allowing 10_000.
+    # 1 + 10 + 100 + 1_000 calls, plus a unit each for the first three
+    # levels' scans: refused at a bound allowing 1_000 units, rendered at
+    # one allowing 10_000.
     tree, uid_to_text = _amp_tree(10, sep=""), _amp(10, "", sep="")
     title = canonical_title_of("Amp")
     with pytest.raises(ExportTooLarge, match=_TOO_MANY_CALLS):
         render_page_resolved(title, tree, uid_to_text, {}, max_chars=10_000)
     assert render_page_resolved(title, tree, uid_to_text, {},
                                 max_chars=100_000) == "# Amp\n\n- \n"
+
+
+def test_text_a_call_scans_but_never_outputs_is_paid_for():
+    # A resolved query macro's padding is scanned on every ref to it, but
+    # only the stripped expression is output: 50 refs over 100_000 spaces
+    # is 5M characters scanned for under 3_000 written.
+    expr = "[[X]]"
+    macro = "{{query: " + " " * 100_000 + expr + "}}"
+    tree = [node("((wsq_uid1))" * 50)]
+    with pytest.raises(ExportTooLarge, match=_TOO_MANY_CALLS):
+        render_page_resolved(canonical_title_of("Ws"), tree,
+                             {"wsq_uid1": macro},
+                             {expr: QueryResult(total=0, groups=())},
+                             max_chars=100_000)
+
+
+def test_a_text_heavy_page_at_the_character_bound_is_not_refused_by_calls():
+    # 20**3 hundred-character leaves: 8_421 calls and as many units of
+    # scanning, well inside the 80_000 or so units the bound allows, so
+    # the character bound is the one reached.
+    page = (canonical_title_of("Amp"), _amp_tree(20),
+            _amp(20, "Z" * 100), {})
+    n = len(render_page_resolved(*page))
+    assert render_page_resolved(*page, max_chars=n).startswith("# Amp")
+    with pytest.raises(ExportTooLarge, match=_TOO_MANY_CHARS):
+        render_page_resolved(*page, max_chars=n - 1)
 
 
 def test_every_resolve_and_query_rendering_is_one_call():
@@ -316,7 +343,9 @@ def _refusal_peak(k: int, max_chars: int, leaf: str, sep: str = " ") -> int:
     tree = _amp_tree(k, sep)
     tracemalloc.start()
     try:
-        with pytest.raises(ExportTooLarge):
+        # The character bound, not the call bound, so the refusal reaches
+        # the charge sites these tests guard.
+        with pytest.raises(ExportTooLarge, match=_TOO_MANY_CHARS):
             render_page_resolved(canonical_title_of("Amp"), tree,
                                  uid_to_text, {}, max_chars=max_chars)
         return tracemalloc.get_traced_memory()[1]
@@ -346,6 +375,26 @@ def test_a_refusal_of_many_short_lines_holds_no_object_per_line():
     # each line's indent is charged. Splitting into one string per line
     # before that charge would cost about fifty bytes a line.
     peak = _refusal_peak(40, 1_000_000, "ab\n" * 4, sep="")
+    assert peak < 3 * 1_000_000, peak
+
+
+def test_a_refusal_of_short_lines_in_a_query_item_holds_no_object_per_line():
+    # The same through a query item: 250**2 leaves of four short lines,
+    # under the bound until each item line's indent is charged.
+    k, expr = 250, "{and: [[T]]}"
+    result = QueryResult(total=1, groups=_groups(
+        ("P", [("qitem_01", "((amp_lvl2))" * k)])))
+    uid_to_text = {"amp_lvl2": "((amp_lvl3))" * k, "amp_lvl3": "ab\n" * 4}
+    tree = [node(f"{{{{query: {expr}}}}}")]
+    tracemalloc.start()
+    try:
+        with pytest.raises(ExportTooLarge, match=_TOO_MANY_CHARS):
+            render_page_resolved(canonical_title_of("Amp"), tree,
+                                 uid_to_text, {expr: result},
+                                 max_chars=1_000_000)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
     assert peak < 3 * 1_000_000, peak
 
 

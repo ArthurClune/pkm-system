@@ -449,3 +449,18 @@ describe("tokenizeBlock past the link nesting limit", () => {
     expect(segs.some((s) => s.kind === "page-ref")).toBe(true);
   });
 });
+
+describe("tokenizeBlock on a long line of lone [", () => {
+  // Every `[` that does not open `[[` is probed as a markdown link. A
+  // generous bound: the per-[ walk to the end of the line took 17.8 s on
+  // 200,000 characters.
+  it.each([
+    ["[a ×100,000", "[a".repeat(100_000)],
+    ["[a ×500,000", "[a".repeat(500_000)],
+    ["[a]( ×250,000", "[a](".repeat(250_000)],
+  ])("renders %s as text in linear time", (_name, text) => {
+    const started = performance.now();
+    expect(tokenizeBlock(text)).toEqual([{ kind: "text", text }]);
+    expect(performance.now() - started).toBeLessThan(3000);
+  }, 30_000);
+});

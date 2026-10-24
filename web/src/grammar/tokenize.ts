@@ -11,7 +11,7 @@
 
 import type { BlockUid, NormalizedTitle, Sha256Hex } from "../api/brands";
 import { parseSha256Hex } from "../replica/sha256";
-import { scanMarkdownLinkAt } from "./markdown";
+import { markdownLinkScanner, type MarkdownSpan } from "./markdown";
 import { isRefTitle, normalizeRefTitle, scanGrammar, type GrammarToken } from "./scan";
 import { MAX_LINK_NESTING } from "./textLimits";
 
@@ -45,7 +45,7 @@ const PDF_PREFIX = /^\{\{(?:\[\[)?pdf(?:\]\])?:\s*/;
 const BLOCK_MATH_RE = /^\$\$([\s\S]+)\$\$$/;
 
 // Bare (not already inside markdown [text](...) / ![alt](...) syntax, which
-// are consumed whole by scanMarkdownLinkAt before this rule ever sees them)
+// the markdown link probe consumes whole before this rule ever sees it)
 // asset URL, e.g. a chat reply mentioning "/assets/<sha256>/name.jpeg" as
 // plain prose. The 64 hex chars are the uploader's sha256.
 const ASSET_LINK_RE = /^\/assets\/([0-9a-f]{64})\/(\S+)/;
@@ -117,13 +117,21 @@ function isDeadRef(tok: GrammarToken): boolean {
     || tok.kind === "attribute") && !isRefTitle(tok.title);
 }
 
+/** What tokenizeInline reads of the whole block, built once per block:
+ * the scanner's tokens by start, and the markdown link probe, which pairs
+ * the block's brackets once rather than once per `[`. */
+interface BlockScan {
+  byStart: ReadonlyMap<number, GrammarToken>;
+  linkAt: (start: number) => MarkdownSpan | null;
+}
+
 /** Render [from, to) as inline segments, consuming scanner tokens that lie
  * fully inside the range. `from` is a chunk boundary for autolinking (the
  * old per-chunk scan treated chunk starts like whitespace). */
 function tokenizeInline(
-  text: string, byStart: ReadonlyMap<number, GrammarToken>,
-  from: number, to: number,
+  text: string, scan: BlockScan, from: number, to: number,
 ): InlineSegment[] {
+  const { byStart, linkAt } = scan;
   const out: InlineSegment[] = [];
   let buf = "";
   const flushText = () => {
@@ -147,7 +155,7 @@ function tokenizeInline(
         if (tok.kind === "page-ref") {
           buf += text.slice(tok.start, tok.content.start);
           for (const seg of tokenizeInline(
-            text, byStart, tok.content.start, tok.content.end)) {
+            text, scan, tok.content.start, tok.content.end)) {
             if (seg.kind === "text") buf += seg.text;
             else { flushText(); out.push(seg); }
           }
@@ -167,7 +175,7 @@ function tokenizeInline(
       }
     }
     if (ch === "!" && text.startsWith("![", i)) {
-      const link = scanMarkdownLinkAt(text, i);
+      const link = linkAt(i);
       if (link?.kind === "image" && link.end <= to) {
         flushText();
         out.push({
@@ -180,7 +188,7 @@ function tokenizeInline(
       }
     }
     if (ch === "[" && !text.startsWith("[[", i)) {
-      const link = scanMarkdownLinkAt(text, i);
+      const link = linkAt(i);
       if (link?.kind === "link" && link.end <= to) {
         flushText();
         out.push({
@@ -250,7 +258,7 @@ function tokenizeInline(
       const inner = text.slice(i + 2, close);
       if (inner.includes("\n")) continue;
       flushText();
-      out.push({ kind, children: tokenizeInline(text, byStart, i + 2, close) });
+      out.push({ kind, children: tokenizeInline(text, scan, i + 2, close) });
       i = close + 2;
       matchedEmphasis = true;
       break;
@@ -310,6 +318,8 @@ function tokenizeBlockUncached(text: string): BlockSegment[] {
     if (!byStart.has(t.start)) byStart.set(t.start, t);
   }
 
+  const scan: BlockScan = { byStart, linkAt: markdownLinkScanner(text) };
+
   const out: BlockSegment[] = [];
   const todo = tokens.find((t) => t.kind === "todo");
   const start = todo ? todo.suffixEnd : 0;
@@ -321,7 +331,7 @@ function tokenizeBlockUncached(text: string): BlockSegment[] {
   let i = start;
   let chunkStart = start;
   const flush = (end: number) => {
-    if (end > chunkStart) out.push(...tokenizeInline(text, byStart, chunkStart, end));
+    if (end > chunkStart) out.push(...tokenizeInline(text, scan, chunkStart, end));
   };
   while (i < text.length) {
     const tok = byStart.get(i);

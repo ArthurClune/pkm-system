@@ -36,6 +36,12 @@ def test_build_server_rejects_an_unknown_name():
         mcp_server.build_server(["nope"])
 
 
+@pytest.mark.parametrize("arg", ["", "get_page,"])
+def test_main_names_an_empty_tool_name(arg):
+    with pytest.raises(ValueError, match="''"):
+        mcp_server.main(["--tools", arg])
+
+
 def test_main_passes_tools_through(monkeypatch):
     ran = []
     monkeypatch.setattr(FastMCP, "run", lambda self, *a, **k: ran.append(self))

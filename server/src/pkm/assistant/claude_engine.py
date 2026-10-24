@@ -430,6 +430,10 @@ class ClaudeEngine:
                     }
                 },
                 setting_sources=[],
+                # setting_sources=[] does not stop the account's claude.ai
+                # connectors loading; without this their tools would sit
+                # beside pkm's with can_use_tool as their only guard.
+                strict_mcp_config=True,
                 include_partial_messages=True,
                 max_turns=MAX_TURNS,
                 env=harness.env,

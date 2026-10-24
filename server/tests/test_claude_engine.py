@@ -96,6 +96,7 @@ def test_create_conversation_options_and_config_file(tmp_path):
     assert opts.system_prompt == SYSTEM_PROMPT
     assert opts.tools == []
     assert opts.setting_sources == []
+    assert opts.strict_mcp_config is True
     assert opts.include_partial_messages is True
     assert opts.max_turns == 40
     assert opts.env == {"ENABLE_TOOL_SEARCH": "false"}
@@ -304,9 +305,10 @@ def test_upload_asset_is_denied_without_a_card(tmp_path):
 
 
 def test_assistant_mcp_server_offers_exactly_the_policy_tools(tmp_path):
-    """Starts the MCP subprocess exactly as the harness would and lists
+    """Starts the pkm MCP subprocess exactly as the harness would and lists
     what it offers: a tool the policy does not name must not exist there,
-    whatever the permission gate would decide."""
+    whatever the permission gate would decide. That it is the harness's
+    only MCP server is `strict_mcp_config`, asserted in the options test."""
     engine = make_engine(tmp_path)
     conv = asyncio.run(engine.create_conversation(SYSTEM_PROMPT, "sonnet"))
     cfg = FakeSDKClient.instances[0].options.mcp_servers["pkm"]

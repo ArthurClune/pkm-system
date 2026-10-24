@@ -559,6 +559,7 @@ def _outline_text(items, depth=0):
 
 def test_preview_matches_what_the_tool_receives(monkeypatch):
     rec = _Recorder(monkeypatch)
+    assert set(_hostile_inputs()) == set(WRITE_TOOLS)
     for short, raw in _hostile_inputs().items():
         preview = _preview(short, raw)
         asyncio.run(mcp_server.mcp.call_tool(short, raw))

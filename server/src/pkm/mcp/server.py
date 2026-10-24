@@ -19,7 +19,8 @@ def build_server(names: Sequence[str] | None = None) -> FastMCP:
     known = {fn.__name__ for fn in TOOLS}
     unknown = sorted(set(names or ()) - known)
     if unknown:
-        raise ValueError(f"unknown MCP tool(s): {', '.join(unknown)}")
+        raise ValueError(
+            f"unknown MCP tool(s): {', '.join(map(repr, unknown))}")
     server = FastMCP("pkm")
     for fn in TOOLS:
         if names is None or fn.__name__ in names:

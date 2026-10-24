@@ -3,11 +3,15 @@
 executed to their matching results. Unlike pkm.export.markdown.render_page
 (the backup renderer, untested here -- see test_export_markdown.py), which
 keeps the raw query command and one-level, parens-wrapped ref resolution."""
+import re
 import sys
 import tracemalloc
+from collections.abc import Callable
 
 import pytest
 from conftest import tree_node as node
+from hypothesis import event, given, settings
+from hypothesis import strategies as st
 from pkm.export import resolve
 from pkm.export.resolve import (
     CHARS_PER_CALL, EXPORT_MAX_CHARS, ExportTooLarge, QueryResult,
@@ -36,6 +40,66 @@ def test_find_query_macros_accepts_bracketed_query_spelling():
 
 def test_find_query_macros_none_when_absent():
     assert find_query_macros("just plain text, no macros here") == []
+
+
+def test_an_unclosed_query_macro_does_not_hide_a_later_closed_one():
+    # The first prefix never closes; the second, inside it, does.
+    text = "{{query: {{{{ {{query: x}}"
+    assert find_query_macros(text) == [(14, 26, "x")]
+
+
+_QUERY_PREFIX_RE = re.compile(r"\{\{(?:\[\[)?query(?:\]\])?:\s*")
+
+
+def _quadratic_find_query_macros(text: str) -> list[tuple[int, int, str]]:
+    # The direct scan find_query_macros replaced, kept verbatim as the
+    # reference: each prefix walks forward until its braces balance.
+    out: list[tuple[int, int, str]] = []
+    i, n = 0, len(text)
+    while i < n - 1:
+        if text[i] == "{" and text[i + 1] == "{":
+            m = _QUERY_PREFIX_RE.match(text, i)
+            if m:
+                depth, j = 2, i + 2
+                while j < n and depth:
+                    if text[j] == "{":
+                        depth += 1
+                    elif text[j] == "}":
+                        depth -= 1
+                    j += 1
+                if depth == 0:
+                    out.append((i, j, text[m.end():j - 2].strip()))
+                    i = j
+                    continue
+        i += 1
+    return out
+
+
+_MACRO_PIECES = st.sampled_from([
+    "{", "}", "{{", "}}", "{{query:", "{{[[query]]:", "{{query: ", "query:",
+    " ", "  ", "\n", "\t", "a", "x", "[[T]]", "{and: [[T]]}"])
+
+
+@settings(max_examples=3_000, deadline=None)
+@given(st.lists(_MACRO_PIECES, max_size=40).map("".join))
+def test_find_query_macros_matches_the_direct_scan(text):
+    expected = _quadratic_find_query_macros(text)
+    if any(_QUERY_PREFIX_RE.match(text, i)
+           for i in range(len(text))) and not expected:
+        event("only unclosed prefixes")
+    if expected and expected[0][0] > text.find("{{query"):
+        event("a closed macro after an unclosed prefix")
+    assert find_query_macros(text) == expected
+
+
+def test_find_query_macros_costs_near_linear_work_on_unclosed_prefixes():
+    # Every prefix is unclosed, so a direct scan walks to the end from each.
+    def steps(n: int) -> int:
+        return _loop_steps(lambda: find_query_macros("{{query:" * n))
+
+    small, large = steps(500), steps(2_000)
+    # Linear work grows about 4x from N to 4N; quadratic about 16x.
+    assert large < 6 * small, (small, large)
 
 
 # -- resolve_text: block refs --------------------------------------------
@@ -163,8 +227,8 @@ def test_resolve_text_query_item_text_is_itself_resolved():
     assert "((uid_x1))" not in out
 
 
-def _resolve_loop_steps(text: str) -> int:
-    # Loop iterations (jumps) in resolve.py while resolving `text`: a count
+def _loop_steps(run: Callable[[], object]) -> int:
+    # Loop iterations (jumps) in resolve.py during `run()`: a count
     # of the work done that, unlike a timing, does not move on a busy
     # machine, and that sees a generator expression's iterations, which
     # raise no line events. sys.monitoring rather than sys.settrace, so
@@ -182,7 +246,7 @@ def _resolve_loop_steps(text: str) -> int:
     mon.register_callback(tool, mon.events.JUMP, on_jump)
     mon.set_events(tool, mon.events.JUMP)
     try:
-        resolve_text(text, {}, {})
+        run()
     finally:
         mon.set_events(tool, 0)
         mon.register_callback(tool, mon.events.JUMP, None)
@@ -196,7 +260,8 @@ def test_refs_inside_many_query_macros_cost_linear_work():
     def text(n: int) -> str:
         return "".join(f"{{{{query: ((qref{i:06d}))}}}}" for i in range(n))
 
-    small, large = (_resolve_loop_steps(text(n)) for n in (250, 1_000))
+    small, large = (_loop_steps(lambda n=n: resolve_text(text(n), {}, {}))
+                    for n in (250, 1_000))
     # Linear work grows about 4x from N to 4N; quadratic about 16x.
     assert large < 6 * small, (small, large)
 

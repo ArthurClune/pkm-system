@@ -1,5 +1,7 @@
 from datetime import timedelta, timezone
 
+import pytest
+
 from pkm.render import (clip_depth, render_assets, render_backlinks,
                         render_block, render_changed, render_groups,
                         render_page, render_search,
@@ -382,6 +384,45 @@ def test_render_title_migration_audit_active_empty_says_apply_is_unavailable_bec
         "No padded plain-space titles need migration.\n"
         "Migration is already active; apply mode is unavailable.\n"
     )
+
+
+@pytest.mark.parametrize(
+    ("active", "has_group", "has_blocker", "state"),
+    [
+        (False, True, False, "ready"),
+        (False, True, True, "blocked"),
+        (True, True, False, "active, ready"),
+        (True, False, True, "active, blocked"),
+        (True, True, True, "active, blocked"),
+    ],
+)
+def test_render_title_migration_audit_state_says_when_an_active_database_has_work(
+        active, has_group, has_blocker, state):
+    """A fold rule changed after activation leaves an active database with
+    groups to apply; the state must not read as plain "active" then."""
+    pair = TitleMigrationGroup(
+        canonical_title=canonical_title_of("A B"),
+        survivor=TitleMigrationPage(page_id=page_id_of(1),
+                                    title=canonical_title_of("A B")),
+        sources=[TitleMigrationPage(
+            page_id=page_id_of(2),
+            title=malformed_canonical_title("A  B"))],
+        has_clean_twin=True,
+        block_count=0,
+        inbound_ref_count=0,
+        sidebar_count=0,
+    )
+    blocker = TitleMigrationBlocker(
+        page_id=page_id_of(3), title=malformed_canonical_title("\u3000"),
+        reason="all_space")
+    payload = TitleMigrationAuditPayload(
+        active=active,
+        digest=sha_of("3" * 64),
+        groups=[pair] if has_group else [],
+        blockers=[blocker] if has_blocker else [],
+    )
+
+    assert f"\nstate: {state}\n" in render_title_migration_audit(payload)
 
 
 def test_render_title_migration_apply_includes_applied_counts_and_generation():

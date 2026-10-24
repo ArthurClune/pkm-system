@@ -2,7 +2,9 @@ import hashlib
 import json
 from dataclasses import replace
 
-from pkm.refs import CanonicalTitle
+from typing import Callable
+
+from pkm.refs import CanonicalTitle, canonicalize_title
 from pkm.title_migration import (
     InventoryBlock,
     InventoryPage,
@@ -10,6 +12,7 @@ from pkm.title_migration import (
     InventorySidebar,
     TitleMigrationInventory,
     build_title_migration_plan,
+    noncanonical_titles,
 )
 from pkm.test_data.ids import (canonical_title_of, order_idx_of,
                                page_id_of, sidebar_entry_id_of,
@@ -259,6 +262,53 @@ def test_build_title_migration_plan_groups_padded_titles_deterministically():
         "\u00a0Gamma\u00a0": "Gamma",
     }
     assert plan.active is False
+
+
+def test_plan_groups_pages_that_fold_to_one_spelling():
+    """Pages whose titles differ only in a whitespace run share one
+    spelling under the fold, so they merge like padded twins; a lone
+    page with a wide space is retitled."""
+    plan = build_title_migration_plan(
+        _inventory(
+            InventoryPage(page_id=page_id_of(1), title=_ct("A B")),
+            InventoryPage(page_id=page_id_of(2), title=_ct("A  B")),
+            InventoryPage(page_id=page_id_of(3), title=_ct("A\u00a0B")),
+            InventoryPage(page_id=page_id_of(4), title=_ct("Lone\u3000Page")),
+        )
+    )
+
+    assert [group.canonical_title for group in plan.groups] == [
+        "A B", "Lone Page"]
+    pair, lone = plan.groups
+    assert pair.survivor == InventoryPage(
+        page_id=page_id_of(1), title=_ct("A B"))
+    assert pair.has_clean_twin is True
+    assert [page.page_id for page in pair.sources] == [2, 3]
+    assert lone.survivor == InventoryPage(
+        page_id=page_id_of(4), title=_ct("Lone\u3000Page"))
+    assert lone.has_clean_twin is False
+    assert lone.sources == ()
+    assert plan.blockers == ()
+    assert plan.replacements == {
+        "A  B": "A B",
+        "A\u00a0B": "A B",
+        "Lone\u3000Page": "Lone Page",
+    }
+
+
+def _reader(*, active: bool) -> Callable[[str], str]:
+    return lambda text: canonicalize_title(text, plain_space=active)
+
+
+def test_noncanonical_titles_lists_only_changed_titles():
+    """Sorted and distinct; a title the live rule leaves alone is not
+    listed, so inactive single-space padding stays quiet."""
+    titles = ["A B", "A  B", " P ", "A  B"]
+
+    assert noncanonical_titles(titles, _reader(active=True)) == (
+        " P ", "A  B")
+    assert noncanonical_titles(titles, _reader(active=False)) == ("A  B",)
+    assert noncanonical_titles([], _reader(active=True)) == ()
 
 
 def test_build_title_migration_plan_normalizes_control_whitespace_before_plain_space_grouping():

@@ -206,13 +206,15 @@ def _render_migration_blocker(blocker: TitleMigrationBlocker) -> str:
 
 
 def _title_migration_state(payload: TitleMigrationAuditPayload) -> str:
-    if payload.active:
-        return "active"
+    """An active database can still hold work: titles that a later change
+    to the fold rule left non-canonical."""
     if payload.blockers:
-        return "blocked"
-    if payload.groups:
-        return "ready"
-    return "clean"
+        state = "blocked"
+    elif payload.groups:
+        state = "ready"
+    else:
+        return "active" if payload.active else "clean"
+    return f"active, {state}" if payload.active else state
 
 
 def _count_label(n: int, singular: str, plural: str | None = None) -> str:

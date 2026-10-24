@@ -5,7 +5,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Literal, Mapping
+from typing import Any, Callable, Iterable, Literal, Mapping
 
 from pkm.contracts.ops import (BlockUid, OrderIdx, PageId, Sha256Hex,
                                SidebarEntryId, SidebarOrderIdx)
@@ -197,7 +197,7 @@ def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigra
     sidebars = tuple(sorted(inventory.sidebars, key=lambda sidebar: sidebar.sidebar_id))
 
     pages_by_stored_title = {page.title: page for page in pages}
-    padded_groups: dict[CanonicalTitle, list[InventoryPage]] = {}
+    fold_groups: dict[CanonicalTitle, list[InventoryPage]] = {}
     blockers: list[TitleMigrationBlocker] = []
     for page in pages:
         canonical = target_canonical_title(page.title)
@@ -210,11 +210,11 @@ def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigra
                 page.page_id, page.title, "forbidden_syntax"
             ))
         elif page.title != canonical:
-            padded_groups.setdefault(canonical, []).append(page)
+            fold_groups.setdefault(canonical, []).append(page)
 
     groups: list[TitleMigrationGroup] = []
     replacements: dict[CanonicalTitle, CanonicalTitle] = {}
-    for canonical_title, group_pages in padded_groups.items():
+    for canonical_title, group_pages in fold_groups.items():
         clean_twin = pages_by_stored_title.get(canonical_title)
         survivor = clean_twin or min(group_pages, key=lambda page: page.page_id)
         pages_in_group = list(group_pages)
@@ -276,3 +276,13 @@ def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigra
         sidebar_count=len(sidebars),
         digest=_plan_digest(payload),
     )
+
+
+def noncanonical_titles(
+    titles: Iterable[str], canonical: Callable[[str], str]
+) -> tuple[str, ...]:
+    """The stored titles `canonical` would change, sorted and distinct.
+
+    A lookup key goes through the same rule before it meets a row, so a
+    title listed here is one no key can reach."""
+    return tuple(sorted({title for title in titles if canonical(title) != title}))

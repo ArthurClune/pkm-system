@@ -390,22 +390,117 @@ def test_apply_rejects_invalid_title_blocker_without_mutation(
     assert plain_space_title_canonicalization_active(db) is False
 
 
-def test_apply_rejects_already_active_database_without_rotation():
-    """Mutation caught: reapply migration after activation and rotate generation
-    again."""
-    db = _database()
-    _seed_migration_graph(db)
+def _activate(db: Db) -> None:
     db.execute(
         "UPDATE sync_meta SET value='1' WHERE key='plain_space_title_canonicalization'"
     )
     db.commit()
+
+
+def test_apply_rejects_active_database_with_nothing_to_do():
+    """Mutation caught: reapply migration after activation and rotate generation
+    again when every title is already canonical."""
+    db = _database()
+    db.executemany(
+        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        [(1, "Acme", 10, 11), (2, "A B", 20, 21)],
+    )
+    db.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, collapsed) "
+        "VALUES ('see-acme', 2, NULL, 0, 'see [[Acme]]', 0)"
+    )
+    db.execute(
+        "INSERT INTO refs(src_block_uid, target_page_id, kind) "
+        "VALUES ('see-acme', 1, 'link')"
+    )
+    _activate(db)
     plan = audit_title_migration(db)
+    assert plan.groups == () and plan.blockers == ()
     before = _state(db)
 
     with pytest.raises(AlreadyActiveTitleMigration):
         apply_title_migration(db, plan.digest, now_ms=10_003)
 
     assert _state(db) == before
+    assert db.in_transaction is False
+
+
+def test_apply_on_active_database_names_its_blockers():
+    """A title that is only listed whitespace is blank under the fold; on an
+    active database with nothing else to do, apply names that blocker
+    rather than answering "already active".
+    Mutation caught: check the active flag before the blockers."""
+    db = _database()
+    db.execute("INSERT INTO pages(id, title) VALUES (1, '\u3000')")
+    _activate(db)
+    plan = audit_title_migration(db)
+    assert plan.groups == ()
+    before = _state(db)
+
+    with pytest.raises(BlockedTitleMigration) as raised:
+        apply_title_migration(db, plan.digest, now_ms=10_007)
+
+    assert [(blocker.page_id, blocker.reason)
+            for blocker in raised.value.blockers] == [(1, "all_space")]
+    assert _state(db) == before
+
+
+def test_apply_on_active_database_merges_fold_twins():
+    """A database activated under the old rule can hold two pages whose
+    titles now fold to one spelling; its audited apply merges them.
+    Mutation caught: refuse every apply on an active database."""
+    db = _database()
+    db.executemany(
+        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        [(1, "A B", 10, 11), (2, "A  B", 20, 21), (3, "Other", 30, 31)],
+    )
+    db.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, collapsed) "
+        "VALUES (?, ?, ?, ?, ?, 0)",
+        [
+            ("fold-clean", 1, None, 0, "first"),
+            ("fold-legacy", 2, None, 0, "second"),
+            ("fold-linker", 3, None, 0, "see [[A  B]]"),
+        ],
+    )
+    db.execute(
+        "INSERT INTO refs(src_block_uid, target_page_id, kind) "
+        "VALUES ('fold-linker', 2, 'link')"
+    )
+    _activate(db)
+    old_generation = database_generation(db)
+
+    plan = audit_title_migration(db)
+    assert plan.active is True
+    assert plan.blockers == ()
+    assert [
+        (group.canonical_title, group.survivor.page_id,
+         [page.page_id for page in group.sources])
+        for group in plan.groups
+    ] == [("A B", 1, [2])]
+
+    outcome = apply_title_migration(db, plan.digest, now_ms=10_006)
+
+    assert (outcome.groups_applied, outcome.pages_merged,
+            outcome.pages_retitled) == (1, 1, 0)
+    assert [tuple(row.values()) for row in db.select(
+        "SELECT id AS page_id, title FROM pages ORDER BY id"
+    )] == [(1, "A B"), (3, "Other")]
+    assert [tuple(row.values()) for row in db.select(
+        "SELECT uid, page_id, order_idx, text FROM blocks"
+        " ORDER BY page_id, order_idx"
+    )] == [
+        ("fold-clean", 1, 0, "first"),
+        ("fold-legacy", 1, 1, "second"),
+        ("fold-linker", 3, 0, "see [[A B]]"),
+    ]
+    assert [tuple(row.values()) for row in db.select(
+        "SELECT src_block_uid, target_page_id FROM refs"
+    )] == [("fold-linker", 1)]
+    assert plain_space_title_canonicalization_active(db) is True
+    assert database_generation(db) not in ("", old_generation)
+    assert database_generation(db) == outcome.generation
+    assert db.in_transaction is False
 
 
 def test_apply_rolls_back_all_effects_when_rewrite_fails(monkeypatch):

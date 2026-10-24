@@ -327,18 +327,25 @@ def test_title_migration_apply_returns_409_for_blocked_migration(client, seeded_
     assert r.json() == {"detail": "title migration is blocked by invalid titles"}
 
 
-def test_title_migration_apply_returns_409_for_already_active_database(
-    client, seeded_config
-):
-    _seed_migration_graph(seeded_config.db_path)
-    con = connect(seeded_config.db_path)
+def _activate(db_path) -> None:
+    con = connect(db_path)
     con.execute(
         "UPDATE sync_meta SET value='1' WHERE key='plain_space_title_canonicalization'"
     )
     con.commit()
     con.close()
+
+
+def test_title_migration_apply_returns_409_for_already_active_database(
+    client, seeded_config
+):
+    """The conftest seed is canonical: an active database with nothing to
+    migrate refuses a second generation rotation."""
+    _activate(seeded_config.db_path)
     audit = client.get("/api/migrations/title-canonicalization")
     assert audit.status_code == 200
+    assert audit.json()["groups"] == []
+    before = _state(seeded_config.db_path)
 
     r = client.post(
         "/api/migrations/title-canonicalization",
@@ -349,3 +356,38 @@ def test_title_migration_apply_returns_409_for_already_active_database(
     assert r.json() == {
         "detail": "plain-space title canonicalization is already active"
     }
+    assert _state(seeded_config.db_path) == before
+
+
+def test_title_migration_apply_merges_fold_twins_on_active_database(
+    client, seeded_config
+):
+    con = connect(seeded_config.db_path)
+    con.executemany(
+        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        [(20, "A B", 10, 11), (21, "A\u00a0B", 20, 21)],
+    )
+    con.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, collapsed) "
+        "VALUES (?, ?, ?, ?, ?, 0)",
+        [("twin-clean", 20, None, 0, "clean"), ("twin-nbsp", 21, None, 0, "nbsp")],
+    )
+    con.commit()
+    con.close()
+    _activate(seeded_config.db_path)
+    audit = client.get("/api/migrations/title-canonicalization")
+    assert audit.status_code == 200
+    assert audit.json()["active"] is True
+
+    r = client.post(
+        "/api/migrations/title-canonicalization",
+        json={"audit_digest": audit.json()["digest"]},
+    )
+
+    assert r.status_code == 200
+    assert r.json()["groups_applied"] == 1
+    assert r.json()["pages_merged"] == 1
+    assert [
+        (row[0], row[1]) for row in _table_rows(seeded_config.db_path, "pages")
+        if row[0] in (20, 21)
+    ] == [(20, "A B")]

@@ -33,6 +33,7 @@ from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        orphan_header_text,
                                        overwritten_header_text,
                                        stale_page_move_note)
+from pkm.text_limits import TextLimitViolation, text_limit_violation
 from pkm.unlink import (TitleMatch, apply_delete_rewrite, defuse_attribute,
                         unlink_stale_refs)
 
@@ -82,6 +83,28 @@ def find_op_title_violation(
                     )
     return None
 
+
+@dataclass(frozen=True)
+class OpTextLimitViolation:
+    op_index: int
+    uid: BlockUid
+    violation: TextLimitViolation
+
+
+def find_op_text_limit_violation(
+    ops: Sequence[BlockOp],
+) -> OpTextLimitViolation | None:
+    """The first create or text edit whose text a write may not store.
+
+    Only the text an op sends is judged: a move, heading change or delete
+    of a row already over a limit goes through, and so does an edit that
+    brings one back under it."""
+    for op_index, op in enumerate(ops):
+        if isinstance(op, (CreateOp, UpdateTextOp)):
+            violation = text_limit_violation(op.text)
+            if violation is not None:
+                return OpTextLimitViolation(op_index, op.uid, violation)
+    return None
 
 
 @dataclass(frozen=True)

@@ -1,10 +1,12 @@
 """Rename, delete and delete-preview over a block whose `[[` nesting is
 deeper than Python's recursion limit.
 
-No write path bounds nesting depth. The `/api/ops` title guard judges only
-runs that are refs, and a run whose title has an empty `/` segment is no
-ref, so `[[a//[[a//...[[Deep]]...]]]]` is accepted however deep it goes.
-The page such a block links must stay renamable and deletable.
+`/api/ops` refuses text whose `[[` runs nest past `MAX_LINK_NESTING`, but
+rows stored before that limit may nest however deep, and the page such a
+block links must stay renamable and deletable. A run whose title has an
+empty `/` segment is no ref, so the title guard passes
+`[[a//[[a//...[[Deep]]...]]]]`: at a shallow depth it is written through
+`/api/ops`, and past the limit it is seeded as a legacy row.
 
 A link nested in a link (`[[[[Deep]]]]`) is refused by the guard, but rows
 stored before that rule may hold one; delete peels it a layer per pass, so
@@ -15,6 +17,8 @@ import sys
 
 import pytest
 
+from pkm.contracts.ops import MAX_LINK_NESTING
+from pkm.refs import link_nesting_depth
 from pkm.server.db import open_db
 from pkm.server.store import reindex_refs_for_text
 from pkm.test_data.ids import uid_of
@@ -34,7 +38,7 @@ def _peeled(depth: int, inner: str) -> str:
 
 def _guarded(depth: int, inner: str) -> str:
     """`inner` inside `depth` runs that are no refs (`a//` is unreachable),
-    so `/api/ops` accepts the text."""
+    so the title guard passes the text."""
     return "[[a//" * depth + inner + "]]" * depth
 
 
@@ -82,7 +86,11 @@ def _block_text(config) -> str:
 
 def _seed(client, config, shape: str, depth: int) -> None:
     if shape == "guarded":
-        _write_through_ops(client, _guarded(depth, "[[Deep]]"))
+        text = _guarded(depth, "[[Deep]]")
+        if link_nesting_depth(text) <= MAX_LINK_NESTING:
+            _write_through_ops(client, text)
+        else:
+            _write_legacy_row(client, config, text)
     else:
         _write_legacy_row(client, config, _peeled(depth, TITLE))
 

@@ -275,14 +275,23 @@ apply, and no route reaches it, because every lookup key folds. Retitle it by
 hand:
 
 1. Back up the database ([deploy/README.md § Backups](../deploy/README.md#backups)).
-2. From Python's `sqlite3`, so the invisible characters survive, run
+2. From Python's `sqlite3`, list the blocks that link the page, so you can
+   find them after the rename:
+   `SELECT b.uid, b.text FROM refs r JOIN blocks b ON b.uid = r.src_block_uid
+   WHERE r.target_page_id = ?` with the blocker's id.
+3. Still in `sqlite3`, run
    `UPDATE pages SET title = ?, updated_at = ? WHERE id = ? AND title = ?`
    in one `BEGIN IMMEDIATE`. Pass a canonical title no page holds, the time
    in ms, and the blocker's id and exact title from the audit's `--json`.
    Roll back unless one row changed. The `pages_chg_au` trigger records the
    change for replicas.
-3. Rename the page as usual, then audit again. Block text that spells the
-   old title is not rewritten.
+4. Rename the page as usual, then audit again. The rename re-indexes the
+   linking blocks, and their old spelling folds to a refused title, so those
+   links stop being backlinks, and the web refuses to edit a block that still
+   holds one. Edit each block from step 2 to link the new title.
+5. The page's own pin keeps the old spelling. Call
+   `DELETE /api/sidebar/{entry_id}` with its id from `GET /api/sidebar` (or
+   remove it in the sidebar's edit mode), then pin the new title.
 
 A sidebar entry whose canonical form is blank or refused is skipped, because
 no pin can hold that title. With nothing else to do, apply answers "already

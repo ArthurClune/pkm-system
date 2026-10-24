@@ -304,8 +304,7 @@ def render_title_migration_audit(payload: TitleMigrationAuditPayload) -> str:
             and not payload.sidebar_retitles):
         lines.extend([
             "",
-            "Every page title and sidebar entry is canonical: nothing to"
-            " merge or retitle.",
+            "Nothing to merge or retitle.",
             "Migration is already active; apply mode is unavailable."
             if payload.active else
             "Apply mode is disabled until you provide an audit digest explicitly.",

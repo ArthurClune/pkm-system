@@ -366,8 +366,7 @@ def test_render_title_migration_audit_empty_explains_that_only_a_reviewed_audit_
         "blockers: 0\n"
         "sidebar retitles: 0\n"
         "\n"
-        "Every page title and sidebar entry is canonical: nothing to merge"
-        " or retitle.\n"
+        "Nothing to merge or retitle.\n"
         "Apply mode is disabled until you provide an audit digest explicitly.\n"
     )
 
@@ -389,8 +388,7 @@ def test_render_title_migration_audit_active_empty_says_apply_is_unavailable_bec
         "blockers: 0\n"
         "sidebar retitles: 0\n"
         "\n"
-        "Every page title and sidebar entry is canonical: nothing to merge"
-        " or retitle.\n"
+        "Nothing to merge or retitle.\n"
         "Migration is already active; apply mode is unavailable.\n"
     )
 

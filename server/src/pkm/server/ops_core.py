@@ -10,7 +10,8 @@ contract every client builds against, so they must not sit behind
 `pkm.server`."""
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import (Callable, Collection, Iterator, Mapping,
+                             Sequence)
 from dataclasses import dataclass, field
 from typing import Literal, Union
 
@@ -334,10 +335,13 @@ class BlockInfo:
 
 @dataclass(frozen=True)
 class ExistingHeader:
-    """Today's live conflict header for the target block, and the next
-    child order_idx under it."""
+    """Today's live conflict header for the target block, the next child
+    order_idx under it, and the level it sits at. The shell reuses one only
+    while it sits shallower than MAX_OUTLINE_DEPTH, so its entry lands at
+    the cap at most."""
     uid: BlockUid
     next_idx: OrderIdx
+    level: int
 
 
 @dataclass(frozen=True)
@@ -357,6 +361,13 @@ class ConflictLanding:
     daily_title: CanonicalTitle
     entry_uid: BlockUid
     header: ExistingHeader | FreshHeader
+
+    @property
+    def entry_level(self) -> int:
+        """The level the entry lands at: under a fresh top-level header, 2."""
+        if isinstance(self.header, ExistingHeader):
+            return self.header.level + 1
+        return 2
 
 
 # --- per-kind contexts -----------------------------------------------------
@@ -433,16 +444,25 @@ def delete_diverged(base_subtree_hash: Sha256Hex, rows: Sequence[SubtreeRow]) ->
 
 
 def descendant_copy_effects(
-    rows: Sequence[SubtreeRow], root_uid: BlockUid, root_copy_uid: BlockUid,
-    copy_uids: Mapping[BlockUid, BlockUid], daily_page_id: PageId,
+    rows: Sequence[SubtreeRow], root_uid: BlockUid,
+    copy_uids: Mapping[BlockUid, BlockUid], landing: ConflictLanding,
 ) -> tuple[Effect, ...]:
     """InsertBlock + ReindexRefs for every row but the root (the root's copy
-    goes through `conflict_entry_effects` instead), walked from `root_uid` in
-    pre-order so a parent's copy always lands before its children's, and
-    renumbered 0..n per parent by `(order_idx, uid)` -- fresh uids nested as
-    the subtree was, text only (offline-editing-design.md §3). The root is
-    left out of the child map: a corrupted tree whose root's parent lies
-    inside the subtree must not lead the walk back into its start."""
+    is `landing.entry_uid`, through `conflict_entry_effects`), walked from
+    `root_uid` in pre-order so a parent's copy always lands before its
+    children's, and renumbered 0..n per parent by `(order_idx, uid)` --
+    fresh uids nested as the subtree was, text only
+    (offline-editing-design.md §3). The root is left out of the child map:
+    a corrupted tree whose root's parent lies inside the subtree must not
+    lead the walk back into its start.
+
+    No copy lands past MAX_OUTLINE_DEPTH: a copy at the level above the cap
+    takes its whole copied subtree as children at the cap, in pre-order,
+    so only nesting below the cap is lost. Each diverged delete copies one
+    level deeper than it deletes, so without the bound deleting each new
+    header in turn would stack the copies a level per batch. When the root's
+    copy itself sits at the cap (under a reused header just above it), its
+    descendants follow it under the header."""
     children: dict[BlockUid | None, list[SubtreeRow]] = {}
     for row in rows:
         if row.uid != root_uid:
@@ -452,20 +472,42 @@ def descendant_copy_effects(
 
     effects: list[Effect] = []
 
-    def walk(orig_parent_uid: BlockUid, copy_parent_uid: BlockUid) -> None:
+    def place(row: SubtreeRow, copy_parent_uid: BlockUid, idx: int) -> None:
+        copy_uid = copy_uids[row.uid]
+        effects.append(InsertBlock(
+            uid=copy_uid, page_id=landing.daily_page_id,
+            parent_uid=copy_parent_uid, order_idx=OrderIdx(idx),
+            text=row.text, heading=None))
+        effects.append(ReindexRefs(copy_uid, row.text))
+
+    def preorder(orig_uid: BlockUid) -> Iterator[SubtreeRow]:
+        for row in children.get(orig_uid, ()):
+            yield row
+            yield from preorder(row.uid)
+
+    def walk(orig_parent_uid: BlockUid, copy_parent_uid: BlockUid,
+             level: int) -> None:
+        if level + 1 >= MAX_OUTLINE_DEPTH:
+            # the children land at the cap: everything below them does too
+            for idx, row in enumerate(preorder(orig_parent_uid)):
+                place(row, copy_parent_uid, idx)
+            return
         for idx, row in enumerate(children.get(orig_parent_uid, ())):
-            copy_uid = copy_uids[row.uid]
             # The deliberate dense->order-key renumber: idx is the copy's
             # position among its new siblings, 0..n, which IS its order_idx
             # since the copy starts the parent's child list from scratch.
-            effects.append(InsertBlock(
-                uid=copy_uid, page_id=daily_page_id,
-                parent_uid=copy_parent_uid, order_idx=OrderIdx(idx),
-                text=row.text, heading=None))
-            effects.append(ReindexRefs(copy_uid, row.text))
-            walk(row.uid, copy_uid)
+            place(row, copy_parent_uid, idx)
+            walk(row.uid, copy_uids[row.uid], level + 1)
 
-    walk(root_uid, root_copy_uid)
+    header = landing.header
+    if (isinstance(header, ExistingHeader)
+            and landing.entry_level >= MAX_OUTLINE_DEPTH):
+        # the entry took header.next_idx; its descendants follow it
+        for idx, row in enumerate(preorder(root_uid),
+                                  start=header.next_idx + 1):
+            place(row, header.uid, idx)
+    else:
+        walk(root_uid, landing.entry_uid, landing.entry_level)
     return tuple(effects)
 
 
@@ -1015,8 +1057,7 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
                 op.uid, root.text, deleted_header_text(ctx.page_title),
                 ctx.landing),
             *descendant_copy_effects(
-                ctx.rows, op.uid, ctx.landing.entry_uid, ctx.copy_uids,
-                ctx.landing.daily_page_id),
+                ctx.rows, op.uid, ctx.copy_uids, ctx.landing),
             DeleteBlocks(tuple(row.uid for row in ctx.rows)),
             TouchPage(ctx.block.page_id),
         )

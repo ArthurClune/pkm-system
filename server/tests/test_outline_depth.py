@@ -1,17 +1,24 @@
 """The outline depth cap: /api/ops refuses a batch whose create or move
 would put a block past MAX_OUTLINE_DEPTH, so no reader has to survive an
-outline deeper than that. A top-level block sits at level 1."""
+outline deeper than that. A top-level block sits at level 1. What the
+server lands itself (conflict entries, a diverged delete's copies) is never
+refused, and never lands past the cap either."""
 import itertools
 import json
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from urllib.parse import quote
 
+from fastapi.testclient import TestClient
+
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import MAX_OUTLINE_DEPTH, BlockUid, text_hash
+from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockUid, OrderIdx,
+                               text_hash)
 from pkm.contracts.titles import RawTitle
 from pkm.server.config import Config
 from pkm.server.db import open_db
+from pkm.server.sync_meta import read_title
 from pkm.test_data.ids import raw_title_of, uid_of
 
 FIXTURE = (Path(__file__).resolve().parents[2] / "shared" / "fixtures"
@@ -220,33 +227,186 @@ def _children(config: Config, uid: BlockUid) -> list[BlockUid]:
         con.close()
 
 
-def test_server_landings_are_not_judged(client, seeded_config):
+@dataclass(frozen=True)
+class _Placed:
+    uid: BlockUid
+    parent_uid: BlockUid | None
+    order_idx: OrderIdx
+    text: str
+    level: int
+
+
+def _placed(config: Config, title: RawTitle) -> list[_Placed]:
+    """Every block of the page with its level, in document order."""
+    con = open_db(config.db_path)
+    try:
+        rows = con.select(
+            "SELECT b.uid, b.parent_uid, b.order_idx, b.text FROM blocks b"
+            " JOIN pages p ON p.id = b.page_id WHERE p.title = ?",
+            (read_title(con, title),))
+    finally:
+        con.close()
+    children: dict[BlockUid | None, list] = {}
+    for row in rows:
+        children.setdefault(row["parent_uid"], []).append(row)
+    out: list[_Placed] = []
+
+    def walk(parent: BlockUid | None, level: int) -> None:
+        for row in sorted(children.get(parent, ()),
+                          key=lambda r: (r["order_idx"], r["uid"])):
+            out.append(_Placed(row["uid"], row["parent_uid"],
+                               row["order_idx"], row["text"], level))
+            walk(row["uid"], level + 1)
+
+    walk(None, 1)
+    assert len(out) == len(rows)
+    return out
+
+
+def _by_text(placed: list[_Placed], text: str) -> _Placed:
+    (found,) = [p for p in placed if p.text == text]
+    return found
+
+
+def _stale_delete(uid: BlockUid) -> dict:
+    return {"op": "delete", "uid": uid,
+            "base_subtree_hash": text_hash("stale")}
+
+
+def test_stacked_diverged_deletes_never_land_past_the_cap(
+        client, seeded_config):
+    """Each diverged delete copies the subtree one level deeper under a
+    fresh top-level header; deleting that header in turn used to stack a
+    level per batch until the page read answered 500."""
     today = _today()
-    # a diverged delete copies the whole 100-level subtree under a fresh
-    # header, so its deepest copy lands at level 101
-    assert _ops(client, *_chain("dl", 100, today)).status_code == 200
-    r = _ops(client, {"op": "delete", "uid": _uid("dl", 1),
-                      "base_subtree_hash": text_hash("stale")})
-    assert r.status_code == 200, r.text[:200]
-    assert _count(seeded_config, "dl") == 0
+    assert _ops(client, *_chain("st", 100, today)).status_code == 200
+    target = _uid("st", 1)
+    for _ in range(5):
+        assert _ops(client, _stale_delete(target)).status_code == 200
+        target = _conflict_header(seeded_config, target)
+    placed = _placed(seeded_config, today)
+    assert max(p.level for p in placed) == MAX_OUTLINE_DEPTH
     page = client.get(f"/api/page/{quote(today)}")
     assert page.status_code == 200, page.text[:200]
-    assert _height(page.json()["blocks"]) == 101
+    assert _height(page.json()["blocks"]) == MAX_OUTLINE_DEPTH
+    assert client.get("/api/journal").status_code == 200
 
-    # a conflict note lands under its header, here moved to level 100
-    assert _ops(client, {"op": "create", "uid": "cf_target",
+
+def test_a_diverged_delete_flattens_copies_below_the_cap(
+        client, seeded_config):
+    """The copies keep their shape to level 100; a copy that would sit
+    deeper lands at 100 under its nearest copied ancestor at 99, in
+    document order, and no text is lost."""
+    today = _today()
+    # a 100-level chain, plus a second branch under level 98 that reaches
+    # level 100 too
+    assert _ops(client, *_chain("fl", 100, today),
+                {"op": "create", "uid": "fl_side99", "page_title": today,
+                 "parent_uid": _uid("fl", 98), "order_idx": 1,
+                 "text": "side 99"},
+                {"op": "create", "uid": "fl_side100", "page_title": today,
+                 "parent_uid": "fl_side99", "order_idx": 0,
+                 "text": "side 100"}).status_code == 200
+    r = _ops(client, _stale_delete(_uid("fl", 1)))
+    assert r.status_code == 200, r.text[:200]
+    assert _count(seeded_config, "fl") == 0
+
+    placed = _placed(seeded_config, today)
+    assert max(p.level for p in placed) == MAX_OUTLINE_DEPTH
+    texts = [p.text for p in placed]
+    for level in range(1, 101):
+        assert f"fl {level}" in texts
+    assert "side 99" in texts and "side 100" in texts
+    # the header is level 1, so the copy of level k sits at k + 1
+    assert _by_text(placed, "fl 97").level == 98
+    at_99 = _by_text(placed, "fl 98")
+    assert at_99.level == 99
+    under = [p for p in placed if p.parent_uid == at_99.uid]
+    assert [(p.text, p.level) for p in under] == [
+        ("fl 99", 100), ("fl 100", 100), ("side 99", 100), ("side 100", 100)]
+    assert [p.order_idx for p in under] == [0, 1, 2, 3]
+
+
+def _make_conflict_header(client: TestClient, config: Config,
+                          target: str) -> BlockUid:
+    """Today's conflict header for `target`, made by a hashed edit that
+    conflicts with its text."""
+    r = _ops(client, {"op": "update_text", "uid": target, "text": "incoming",
+                      "base_text_hash": text_hash("seen")})
+    assert r.status_code == 200, r.text[:200]
+    return _conflict_header(config, uid_of(target))
+
+
+def _sink_header(client, config: Config, header: BlockUid, level: int,
+                 prefix: str) -> None:
+    """Put the header at `level` on today's page by direct SQL: no op may
+    put a header with entries at the cap, but a legacy row can sit
+    there."""
+    assert _ops(client, *_chain(prefix, level - 1, _today())
+                ).status_code == 200
+    _set_parent(config, header, _uid(prefix, level - 1))
+
+
+def test_a_conflict_note_reuses_a_header_above_the_cap(client, seeded_config):
+    assert _ops(client, {"op": "create", "uid": "rh_target",
                          "page_title": "Notes", "order_idx": 0,
                          "text": "server"}).status_code == 200
-    conflict = {"op": "update_text", "uid": "cf_target", "text": "incoming",
-                "base_text_hash": text_hash("seen")}
-    assert _ops(client, conflict).status_code == 200
-    header = _conflict_header(seeded_config, uid_of("cf_target"))
-    assert _ops(client, *_chain("hd", 99, today)).status_code == 200
-    _set_parent(seeded_config, header, _uid("hd", 99))
+    header = _make_conflict_header(client, seeded_config, "rh_target")
+    _sink_header(client, seeded_config, header, MAX_OUTLINE_DEPTH - 1, "rh")
     before = _children(seeded_config, header)
-    r = _ops(client, {**conflict, "text": "again"})
+    r = _ops(client, {"op": "update_text", "uid": "rh_target",
+                      "text": "again", "base_text_hash": text_hash("seen")})
     assert r.status_code == 200, r.text[:200]
     assert len(_children(seeded_config, header)) == len(before) + 1
+    placed = _placed(seeded_config, _today())
+    assert max(p.level for p in placed) == MAX_OUTLINE_DEPTH
+
+
+def test_a_conflict_note_under_a_header_at_the_cap_gets_a_fresh_header(
+        client, seeded_config):
+    assert _ops(client, {"op": "create", "uid": "fh_target",
+                         "page_title": "Notes", "order_idx": 0,
+                         "text": "server"}).status_code == 200
+    header = _make_conflict_header(client, seeded_config, "fh_target")
+    _sink_header(client, seeded_config, header, MAX_OUTLINE_DEPTH, "fh")
+    before = _children(seeded_config, header)
+    r = _ops(client, {"op": "update_text", "uid": "fh_target",
+                      "text": "again", "base_text_hash": text_hash("seen")})
+    assert r.status_code == 200, r.text[:200]
+    assert _children(seeded_config, header) == before
+    fresh = _conflict_header(seeded_config, uid_of("fh_target"))
+    assert fresh != header
+    placed = _placed(seeded_config, _today())
+    (entry,) = [p for p in placed if p.parent_uid == fresh]
+    assert entry.level == 2
+    assert next(p for p in placed if p.uid == fresh).level == 1
+
+
+def test_a_diverged_delete_under_a_header_at_99_lands_flat_beside_its_entry(
+        client, seeded_config):
+    """Under a reused header at level 99 the root's copy sits at 100, so
+    its descendants' copies follow it under the header, in document
+    order."""
+    notes = raw_title_of("Notes")
+    assert _ops(client,
+                {"op": "create", "uid": "eh_target", "page_title": notes,
+                 "order_idx": 0, "text": "server"},
+                {"op": "create", "uid": "eh_child", "page_title": notes,
+                 "parent_uid": "eh_target", "order_idx": 0, "text": "child"},
+                {"op": "create", "uid": "eh_grand", "page_title": notes,
+                 "parent_uid": "eh_child", "order_idx": 0,
+                 "text": "grandchild"}).status_code == 200
+    header = _make_conflict_header(client, seeded_config, "eh_target")
+    _sink_header(client, seeded_config, header, MAX_OUTLINE_DEPTH - 1, "eh")
+    before = _children(seeded_config, header)
+    r = _ops(client, _stale_delete(uid_of("eh_target")))
+    assert r.status_code == 200, r.text[:200]
+    placed = _placed(seeded_config, _today())
+    assert max(p.level for p in placed) == MAX_OUTLINE_DEPTH
+    under = [p for p in placed if p.parent_uid == header]
+    assert [p.uid for p in under[:len(before)]] == before
+    assert [p.text for p in under[len(before):]] == [
+        "incoming", "child", "grandchild"]
 
 
 def test_skipped_ops_are_not_judged(client, seeded_config):

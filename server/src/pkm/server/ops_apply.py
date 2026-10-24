@@ -9,8 +9,9 @@ from datetime import datetime
 from typing import Union
 
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
-                               DeleteOp, MoveOp, OpBatch, OrderIdx, PageId,
+from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockOp, BlockUid,
+                               CreateOp, CreatePageOp,
+                               DeleteOp, MoveOp, OpBatch, PageId,
                                SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
                                UpdateTextOp, new_uid)
 from pkm.contracts.responses import SkippedOp
@@ -195,15 +196,24 @@ def _subtree_rows(db: Db,
 
 
 def _conflict_header(db: Db, target_uid: BlockUid, day: str,
-                     daily_page_id: PageId
-                     ) -> tuple[BlockUid, OrderIdx] | None:
-    """(header_uid, next child order_idx) of today's conflict header for
-    target_uid, or None when there is none or the user has deleted it (or
-    moved it off the daily page) since it was recorded."""
+                     daily_page_id: PageId) -> ExistingHeader | None:
+    """Today's conflict header for target_uid, with the next child order_idx
+    under it and its level, or None when there is none or the user has
+    deleted it (or moved it off the daily page) since it was recorded. The
+    level is _parent_chain's walk counted, under the same visited-path
+    guard, in the query that finds the header (`n`)."""
     row = db.select_one(
-        "SELECT h.header_uid FROM conflict_headers h"
-        " JOIN blocks b ON b.uid = h.header_uid"
-        " WHERE h.target_uid = ? AND h.day = ? AND b.page_id = ?",
+        """WITH RECURSIVE chain(uid, parent_uid, path, header_uid) AS (
+              SELECT b.uid, b.parent_uid, ',' || b.uid || ',', b.uid
+                FROM conflict_headers h JOIN blocks b ON b.uid = h.header_uid
+               WHERE h.target_uid = ? AND h.day = ? AND b.page_id = ?
+              UNION ALL
+              SELECT b.uid, b.parent_uid, c.path || b.uid || ',',
+                     c.header_uid
+                FROM chain c JOIN blocks b ON b.uid = c.parent_uid
+               WHERE instr(c.path, ',' || b.uid || ',') = 0
+            ) SELECT header_uid, COUNT(*) AS n FROM chain
+               GROUP BY header_uid""",
         (target_uid, day, daily_page_id))
     if row is None:
         return None
@@ -211,7 +221,8 @@ def _conflict_header(db: Db, target_uid: BlockUid, day: str,
         "SELECT COALESCE(MAX(order_idx) + 1, 0) AS next_order_idx"
         " FROM blocks WHERE parent_uid = ?", (row["header_uid"],))
     assert next_idx is not None  # an aggregate always yields a row
-    return row["header_uid"], next_idx["next_order_idx"]
+    return ExistingHeader(row["header_uid"], next_idx["next_order_idx"],
+                          row["n"])
 
 
 def _conflict_landing(db: Db, target_uid: BlockUid,
@@ -224,8 +235,10 @@ def _conflict_landing(db: Db, target_uid: BlockUid,
 
     An existing header whose uid is in `exclude` is passed over for a fresh
     one: a delete passes the subtree it removes, and a header inside that
-    subtree would take the copies down with it. The fresh header is then
-    recorded in its place."""
+    subtree would take the copies down with it. So is one at
+    MAX_OUTLINE_DEPTH or deeper (only a legacy row can be), whose entry
+    would land past the cap. The fresh header is then recorded in its
+    place."""
     local_day = datetime.fromtimestamp(now_ms / 1000).date()
     day = title_for_date(local_day)
     daily_title = canonical_daily_title(local_day)
@@ -238,13 +251,13 @@ def _conflict_landing(db: Db, target_uid: BlockUid,
     assert next_top is not None  # an aggregate always yields a row
     idx = next_top["next_order_idx"]
     existing = _conflict_header(db, target_uid, day, daily_page_id)
-    if existing is not None and existing[0] in exclude:
+    if existing is not None and (existing.uid in exclude
+                                 or existing.level >= MAX_OUTLINE_DEPTH):
         existing = None
     # A fresh header uid is minted only when there's no existing header to
     # append under: minting one anyway would be a uid neither this apply nor
     # any later one ever uses. It is minted before the entry uid.
-    header = (FreshHeader(new_uid(), idx) if existing is None
-              else ExistingHeader(*existing))
+    header = FreshHeader(new_uid(), idx) if existing is None else existing
     return ConflictLanding(daily_page_id=daily_page_id, daily_title=daily_title,
                            entry_uid=new_uid(), header=header)
 

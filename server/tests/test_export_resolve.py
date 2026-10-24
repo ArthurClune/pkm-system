@@ -3,10 +3,12 @@
 executed to their matching results. Unlike pkm.export.markdown.render_page
 (the backup renderer, untested here -- see test_export_markdown.py), which
 keeps the raw query command and one-level, parens-wrapped ref resolution."""
+import sys
 import tracemalloc
 
 import pytest
 from conftest import tree_node as node
+from pkm.export import resolve
 from pkm.export.resolve import (
     CHARS_PER_CALL, EXPORT_MAX_CHARS, ExportTooLarge, QueryResult,
     QueryResultGroup, QueryResultItem, find_query_macros,
@@ -159,6 +161,44 @@ def test_resolve_text_query_item_text_is_itself_resolved():
                        {"{and: [[Tag]]}": result})
     assert "the resolved detail" in out
     assert "((uid_x1))" not in out
+
+
+def _resolve_loop_steps(text: str) -> int:
+    # Loop iterations (jumps) in resolve.py while resolving `text`: a count
+    # of the work done that, unlike a timing, does not move on a busy
+    # machine, and that sees a generator expression's iterations, which
+    # raise no line events. sys.monitoring rather than sys.settrace, so
+    # coverage's tracer stays in place.
+    mon = sys.monitoring
+    tool = next(i for i in range(6) if mon.get_tool(i) is None)
+    count = 0
+
+    def on_jump(code, offset, target):
+        nonlocal count
+        if code.co_filename == resolve.__file__:
+            count += 1
+
+    mon.use_tool_id(tool, "export-scaling-test")
+    mon.register_callback(tool, mon.events.JUMP, on_jump)
+    mon.set_events(tool, mon.events.JUMP)
+    try:
+        resolve_text(text, {}, {})
+    finally:
+        mon.set_events(tool, 0)
+        mon.register_callback(tool, mon.events.JUMP, None)
+        mon.free_tool_id(tool)
+    return count
+
+
+def test_refs_inside_many_query_macros_cost_linear_work():
+    # N unresolvable macros, each holding a ref: deciding whether each ref
+    # sits inside a macro must not compare it against every macro.
+    def text(n: int) -> str:
+        return "".join(f"{{{{query: ((qref{i:06d}))}}}}" for i in range(n))
+
+    small, large = (_resolve_loop_steps(text(n)) for n in (250, 1_000))
+    # Linear work grows about 4x from N to 4N; quadratic about 16x.
+    assert large < 6 * small, (small, large)
 
 
 def test_resolve_text_caps_nested_query_depth():

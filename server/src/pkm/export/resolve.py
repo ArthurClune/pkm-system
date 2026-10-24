@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import re
 import sys
+from bisect import bisect_right
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -196,10 +197,13 @@ def resolve_text(text: str, uid_to_text: Mapping[str, str],
     budget.call()
     query_macros: list[tuple[int, int, str]] = (
         find_query_macros(text) if depth < QUERY_MAX_DEPTH else [])
-    query_spans = [(s, e) for s, e, _ in query_macros]
+    query_starts = [s for s, _, _ in query_macros]
 
     def _inside_a_query(pos: int) -> bool:
-        return any(s <= pos < e for s, e in query_spans)
+        # The macros are sorted and disjoint, so only the last one starting
+        # at or before `pos` can hold it: one lookup, not one per macro.
+        i = bisect_right(query_starts, pos) - 1
+        return i >= 0 and pos < query_macros[i][1]
 
     ref_matches: list[re.Match[str]] = (
         [m for m in _BLOCK_REF_RE.finditer(text) if not _inside_a_query(m.start())]

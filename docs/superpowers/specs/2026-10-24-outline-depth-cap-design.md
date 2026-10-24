@@ -44,14 +44,30 @@ an op sees the earlier ops of its own batch applied:
   judged, so a top-level move passes unless the subtree itself is over 100
   levels tall.
 
-**Server-made landings are exempt** (my call). Conflict notes and a
-diverged delete's copied subtree are written by the server, not sent by the
-client, so a 400 there would discard a batch over something the client did
-not do (`plan_op`'s docstring makes the same point for skips). They are
-placed as today. Their depth stays under the 255 limit: a header the user
-moved as deep as allowed sits at 100, and a copied subtree is at most 100
-tall, so the deepest copy lands at 200. The check therefore sits on the
-client's `create` and `move` only, never on effects the planner adds.
+**Server-made landings are never refused, and never land past the cap**
+(my call). Conflict notes and a diverged delete's copied subtree are written
+by the server, not sent by the client, so a 400 there would discard a batch
+over something the client did not do (`plan_op`'s docstring makes the same
+point for skips). They are bounded instead:
+
+- An existing conflict header is reused only while it sits shallower than
+  100; a deeper one (only legacy rows can be) gets a fresh top-level header,
+  as `_conflict_landing`'s `exclude` already does for a header inside the
+  deleted subtree. So an entry lands at 100 at most.
+- A diverged delete's copies keep their shape down to level 100; a copy that
+  would sit deeper lands at level 100 instead, under its nearest copied
+  ancestor at level 99, in document order. No text is lost, only nesting
+  below the cap.
+
+*Added after the task review:* the first version of this rule left landings
+unjudged, claiming they stay under 255. They do not: each diverged delete
+copies the subtree one level deeper under a new top-level header, and any
+client can send a stale `base_subtree_hash`, so deleting each new header in
+turn stacked a level per batch until `GET /api/page/<today>` answered 500
+(160 deletes on a 100-level chain).
+
+The client check sits on the client's `create` and `move` only; the bound on
+landings sits where the planner places them.
 
 A failure raises `OpError` with the op's index and a message naming the
 uid, the depth it would reach and the limit, the same shape as the title
@@ -136,8 +152,10 @@ check can run, unless the builder moves the check ahead of it.
 - A move of a 60-level subtree under a block at depth 41 is refused; at
   depth 40 it is accepted.
 - `test_hostile_requests.py` gains the deep-chain case as a refusal.
-- Server: a diverged delete of a 100-level subtree and a conflict note
-  under a header at depth 100 both still apply (the landing exemption).
+- Server: a diverged delete of a 100-level subtree applies, and no copy
+  sits past 100; repeating the delete on each new header never deepens past
+  100 (the reviewer's stacking probe); a conflict note for a header that
+  sits at 100 or deeper lands under a fresh top-level header.
 - Web: vitest at the choke point (create, indent, move, paste, undo each
   refused at the cap, accepted one level shallower; a multi-block indent
   with one too-deep block applies nothing; a refused undo leaves the

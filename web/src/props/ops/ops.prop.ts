@@ -13,8 +13,8 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import type { BlockNode } from "../../api/payloads";
 import { PATH, SEED } from "../sync/env";
 import { connectServer, type ServerControl } from "../sync/serverControl";
-import { type Example, exampleArb, OPS_PAGES } from "./arbitraries";
-import { newTally, runExample, showTally } from "./example";
+import { type Example, exampleArb, OPS_PAGES, type RawDraft } from "./arbitraries";
+import { clipText, newTally, runExample, showTally } from "./example";
 import { captureFaultWarnings } from "../warningsCapture";
 import { uidOf, orderIdxOf, batchIdOf } from "../../test-helpers";
 
@@ -48,7 +48,8 @@ function showTree(blocks: readonly BlockNode[]): string {
   const lines: string[] = [];
   const walk = (nodes: readonly BlockNode[], depth: number): void => {
     for (const n of nodes) {
-      lines.push(`    ${"  ".repeat(depth)}${n.uid} @${n.order_idx} ${JSON.stringify(n.text)}` +
+      lines.push(`    ${"  ".repeat(depth)}${n.uid} @${n.order_idx}` +
+        ` ${JSON.stringify(clipText(n.text))}` +
         ` h=${n.heading ?? "-"} view=${n.view_type ?? "-"}${n.collapsed ? " collapsed" : ""}`);
       walk(n.children, depth + 1);
     }
@@ -57,14 +58,18 @@ function showTree(blocks: readonly BlockNode[]): string {
   return lines.length > 0 ? lines.join("\n") : "    (empty)";
 }
 
+/** A draft as JSON, its text clipped as example.ts's trace clips it. */
+const showDraft = (d: RawDraft): string =>
+  JSON.stringify("text" in d ? { ...d, text: clipText(d.text) } : d);
+
 function showExample(ex: Example): string {
   const pages = OPS_PAGES.map((p) => `  ${p}\n${showTree(ex.start.pages[p])}`).join("\n");
   const steps = ex.kind === "command"
     ? ex.commands.map((c, i) => `  ${i} ${JSON.stringify(c)}`).join("\n")
     : ex.steps.map((s, i) => [
       `  step ${i + 1}`,
-      ...s.batch.map((d) => `    B ${JSON.stringify(d)}`),
-      ...(s.other ?? []).map((d) => `    O ${JSON.stringify(d)}`),
+      ...s.batch.map((d) => `    B ${showDraft(d)}`),
+      ...(s.other ?? []).map((d) => `    O ${showDraft(d)}`),
     ].join("\n")).join("\n");
   return `${ex.kind} example\nstart\n${pages}\n${ex.kind === "command" ? "commands" : "steps"}\n${steps}`;
 }

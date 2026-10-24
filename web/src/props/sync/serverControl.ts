@@ -72,6 +72,11 @@ export interface ServerControl {
    * edit of the block conflicts: a deliberate corruption for the oracle's
    * teeth. A reset turns it off. */
   setRewriteTeeth(on: boolean): Promise<void>;
+  /** With `off`, POST /api/ops judges no text against the length and
+   * nesting limits, so it stores a text enqueueBatch refuses: a deliberate
+   * corruption for the ops suite's teeth. A reset turns the limits back
+   * on. */
+  setLimitTeeth(off: boolean): Promise<void>;
   /** GET /api/sync/changes?since=. */
   changes(since: SyncSeq): Promise<Changes>;
   /** The journal's latest seq. */
@@ -142,6 +147,7 @@ function control(cookie: string, signal?: AbortSignal): ServerControl {
     setRewriteTeeth: async (on) => {
       await post("/__proptest/rewrites/teeth", { drop_replayed: on });
     },
+    setLimitTeeth: async (off) => { await post("/__proptest/limits/teeth", { off }); },
     changes: async (since) =>
       parseChanges(await (await call(`/api/sync/changes?since=${since}`)).json()),
     latestSeq: async () => {

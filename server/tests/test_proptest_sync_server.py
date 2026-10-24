@@ -379,6 +379,38 @@ def test_rewrite_teeth_route_needs_auth(tmp_path: Path, clock: Clock) -> None:
                          json={"drop_replayed": True}).status_code == 401
 
 
+def _nest(depth: int) -> str:
+    """`[[` runs nested `depth` deep, none of them a ref (`a//` is no
+    title), so only the nesting limit can refuse it."""
+    return "[[a//" * depth + "x" + "]]" * depth
+
+
+def _deep_create(batch_id: BatchId) -> dict:
+    return _batch(batch_id, [
+        {"op": "create", "uid": f"pt_{batch_id}", "page_title": "Proptest",
+         "parent_uid": None, "order_idx": 0, "text": _nest(33)}])
+
+
+def test_limit_teeth_let_text_past_the_limits_through_until_reset(client: TestClient) -> None:
+    try:
+        r = client.post("/__proptest/limits/teeth", json={"off": True})
+        assert r.status_code == 200 and r.json() == {"off": True}
+        r = client.post("/api/ops", json=_deep_create(batch_id_of("batch_deep_01")))
+        assert r.status_code == 200, r.text
+        assert _text_of(client, uid_of("pt_batch_deep_01")) == _nest(33)
+    finally:
+        client.post("/__proptest/reset")
+    r = client.post("/api/ops", json=_deep_create(batch_id_of("batch_deep_02")))
+    assert r.status_code == 400
+    assert "nested 33 levels deep is over the limit of 32" in r.text
+
+
+def test_limit_teeth_route_needs_auth(tmp_path: Path, clock: Clock) -> None:
+    with TestClient(build_app(tmp_path, clock)) as anon:
+        assert anon.post("/__proptest/limits/teeth",
+                         json={"off": True}).status_code == 401
+
+
 def test_no_harness_alias_puts_another_kind_of_value_under_a_vocabulary_key():
     """`ord AS n` read an ordinal under the count key. An alias to a `Row`
     key outside the harness's own four must name a value of that key's own

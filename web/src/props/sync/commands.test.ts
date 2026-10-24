@@ -45,6 +45,7 @@ const stubServer = (): ServerControl => ({
   setEchoTeeth: unstubbed("setEchoTeeth"),
   setStaleTeeth: unstubbed("setStaleTeeth"),
   setRewriteTeeth: unstubbed("setRewriteTeeth"),
+  setLimitTeeth: unstubbed("setLimitTeeth"),
   changes: unstubbed("changes"),
   latestSeq: unstubbed("latestSeq"),
   postRaw: unstubbed("postRaw"),

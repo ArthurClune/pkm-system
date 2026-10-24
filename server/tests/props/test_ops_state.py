@@ -29,7 +29,9 @@ from props.harness import (DAILY_TITLE, FROZEN_NOW, FreshApp,
                            assert_unique_keys, assert_well_formed, examples,
                            fresh_app, read_db, seed_ops, template_db_path)
 from props.model import MBlock, Model
-from props.strategies import PAGES, batch_for, seed_tree, texts, uid_pool
+from props.strategies import (AT_NESTING_LIMIT, NEST_IN_CODE, PAGES,
+                              PAST_LIMIT_TEXTS, batch_for, seed_tree, texts,
+                              uid_pool)
 from pkm.test_data.ids import raw_title_of, seq_of
 
 pytestmark = pytest.mark.proptest
@@ -69,6 +71,21 @@ def _hash_events(model: Model, ops: list[dict],
                 label = "match" if base == current else "stale"
             labels.append(f"{kind} hash: {label}")
         sim.apply([op], seen_seq)
+    return labels
+
+
+def _limit_events(ops: list[dict]) -> set[str]:
+    """Which of the strategies' texts at or past the write-time limits a
+    batch's creates and edits carry: one the server must refuse, the
+    deepest nest it stores, or a deeper one hidden in a fence."""
+    sent = {op["text"] for op in ops if op["op"] in ("create", "update_text")}
+    labels: set[str] = set()
+    if sent.intersection(PAST_LIMIT_TEXTS):
+        labels.add("text: past a limit")
+    if AT_NESTING_LIMIT in sent:
+        labels.add("text: at the nesting limit")
+    if NEST_IN_CODE in sent:
+        labels.add("text: nest hidden in code")
     return labels
 
 
@@ -242,6 +259,8 @@ class OpsMachine(RuleBasedStateMachine):
         model's outcome."""
         assert self.app is not None
         for label in _hash_events(self.model, ops, seen_seq):
+            event(label)
+        for label in sorted(_limit_events(ops)):
             event(label)
         payload: dict[str, Any] = {"client_id": CLIENT_ID,
                                    "batch_id": self._batch_id(), "ops": ops}

@@ -35,6 +35,21 @@ _HEADINGS = st.sampled_from((None, None, None, 1, 2, 3))
 _VIEW_TYPES = st.sampled_from((None, None, "numbered", "document"))
 
 
+def _nest(depth: int) -> str:
+    """`[[` runs nested `depth` deep. `a//` has an unreachable segment, so
+    no run is a ref and title syntax never refuses one."""
+    return "[[a//" * depth + "x" + "]]" * depth
+
+
+# Texts at and past the write-time limits (backend.md § Planning (text
+# limits)): the two a write refuses, the deepest nest it stores, and a nest
+# past the limit inside a closed fence, which the measure does not count.
+PAST_LIMIT_TEXTS = (_nest(33), "x" * 1_000_001)
+AT_NESTING_LIMIT = _nest(32)
+NEST_IN_CODE = f"```\n{_nest(40)}\n```"
+_LIMIT_TEXTS = (*PAST_LIMIT_TEXTS, AT_NESTING_LIMIT, NEST_IN_CODE)
+
+
 def uid_pool(n: int) -> list[BlockUid]:
     """n distinct UID_RE-valid uids. Deterministic, so `texts()` can name
     pool blocks in `((uid))` refs; the `pool` prefix keeps them clear of the
@@ -44,13 +59,19 @@ def uid_pool(n: int) -> list[BlockUid]:
 
 @st.composite
 def texts(draw: st.DrawFn, uids: Sequence[BlockUid] | None = None,
-          linked: Sequence[str] = ()) -> str:
+          linked: Sequence[str] = (), limits: bool = False) -> str:
     """Short texts of up to three tokens: plain words, `[[Alpha]]`, `#Beta`,
     a `((uid))` ref to a pool block (`uids`, default the first eight of
     `uid_pool`), and a `[[link]]` or `#tag` to each `linked` title; no
     tokens gives "". About 1 in 8 leads with an attribute naming a page,
     `Gamma:: ` or `[[Gamma]]:: `, which a stale batch fences and a page
-    delete refuses or rewrites."""
+    delete refuses or rewrites.
+
+    With `limits`, about 1 in 40 is instead one of `_LIMIT_TEXTS`, which
+    hold no ref, so no rewrite reaches inside one. Only an op's text asks
+    for them: a seed row past a limit would refuse the seed batch."""
+    if limits and draw(st.integers(0, 39)) == 39:
+        return draw(st.sampled_from(_LIMIT_TEXTS))
     pool = list(uids) if uids else uid_pool(8)
     extra = [f"[[{t}]]" for t in linked] + [f"#{t}" for t in linked]
     token = st.one_of(st.sampled_from(_WORDS), st.just("[[Alpha]]"),
@@ -171,7 +192,7 @@ def _edit_text(draw: st.DrawFn, model: Model, uid: BlockUid,
     choice = _weighted(draw, [(3, "fresh"), (1 if befores else 0, "before"),
                               (1 if befores else 0, "extended")])
     if choice == "fresh":
-        return draw(texts(uids, stale))
+        return draw(texts(uids, stale, limits=True))
     before = draw(st.sampled_from(befores))
     return before if choice == "before" else f"{before} {draw(st.sampled_from(_WORDS))}"
 
@@ -199,7 +220,7 @@ def _create_op(draw: st.DrawFn, model: Model, uids: Sequence[BlockUid],
             "parent_uid": (None if parent is None
                            else _target(draw, model, uids)),
             "order_idx": _order_idx(draw, model),
-            "text": draw(texts(uids, stale)),
+            "text": draw(texts(uids, stale, limits=True)),
             "heading": draw(_HEADINGS), "view_type": draw(_VIEW_TYPES)}
 
 

@@ -36,6 +36,7 @@ from pkm.contracts.titles import RawTitle
 from pkm.refs import (attribute_title_span, extract, is_blank_title,
                       strip_code, title_syntax_reason)
 from pkm.test_data.ids import order_idx_of, raw_title_of, uid_of
+from pkm.text_limits import text_limit_violation
 
 # What a whitespace-only page_title resolves to: the ops path never rejects
 # a batch over a blank title (code: ops_apply.UNTITLED_PAGE_TITLE).
@@ -105,6 +106,17 @@ def _title_violation(ops: Sequence[Op]) -> bool:
                    for ref in extract(op["text"]).refs):
                 return True
     return False
+
+
+def _limit_violation(ops: Sequence[Op]) -> bool:
+    """backend.md § Planning (text limits): a create's or edit's text
+    longer than `MAX_BLOCK_TEXT_CHARS` code points, or with `[[` runs
+    nested deeper than `MAX_LINK_NESTING` outside code, is a 400 for the
+    whole batch. Judged over the whole batch before titles, an op the
+    server would skip included; no other op's text is judged."""
+    return any(op["op"] in ("create", "update_text")
+               and text_limit_violation(op["text"]) is not None
+               for op in ops)
 
 
 def _page_name(title: RawTitle) -> str:
@@ -315,7 +327,7 @@ class Model:
         kept: list[str] = []
         self._paths = []
         try:
-            if _title_violation(ops):
+            if _limit_violation(ops) or _title_violation(ops):
                 raise _Rejected
             for index, op in enumerate(ops):
                 self._apply_op(index, op, skipped, kept, stale)

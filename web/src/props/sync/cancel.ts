@@ -47,6 +47,7 @@ export function cancellable(server: ServerControl): Cancellable {
       setEchoTeeth: async (on) => { live(); await bound.setEchoTeeth(on); },
       setStaleTeeth: async (on) => { live(); await bound.setStaleTeeth(on); },
       setRewriteTeeth: async (on) => { live(); await bound.setRewriteTeeth(on); },
+      setLimitTeeth: async (off) => { live(); await bound.setLimitTeeth(off); },
       changes: async (since) => { live(); return bound.changes(since); },
       latestSeq: async () => { live(); return bound.latestSeq(); },
       postRaw: async (body) => { live(); return bound.postRaw(body); },

@@ -51,7 +51,8 @@ from pkm.server.config import Config
 from pkm.server.db import init_db, open_db
 from pkm.server.notify import Frame, OpsFrame
 from pkm.server.ops_apply import apply_batch
-from pkm.server.ops_core import Effect, RewriteStep, rewrite_effects
+from pkm.server.ops_core import (Effect, OpTextLimitViolation, RewriteStep,
+                                 find_op_text_limit_violation, rewrite_effects)
 from pkm.server.store import stale_titles
 
 PORT = int(os.environ.get("PROPTEST_PORT", "8978"))
@@ -238,6 +239,20 @@ def _rewrite_effects_with_teeth(original: BlockOp, planned: tuple[Effect, ...],
     return rewrite_effects(original, planned, stale, canonical, replayed, settled)
 
 
+# Harness-only teeth for the ops property's "rejection" check: while armed,
+# /api/ops judges no text against the length and nesting limits, as before
+# the limits existed, so the server stores a text the replica's enqueue
+# refuses. ops_apply reads find_op_text_limit_violation through its module
+# global, which build_app points here; disarmed, it is the real function.
+# Reset disarms it, as it does _stale_teeth.
+_limit_teeth = {"off": False}
+
+
+def _find_op_text_limit_violation_with_teeth(
+        ops: Sequence[BlockOp]) -> OpTextLimitViolation | None:
+    return None if _limit_teeth["off"] else find_op_text_limit_violation(ops)
+
+
 class _ClockBody(StrictModel):
     ms: int
 
@@ -252,6 +267,10 @@ class _StaleTeethBody(StrictModel):
 
 class _RewriteTeethBody(StrictModel):
     drop_replayed: bool
+
+
+class _LimitTeethBody(StrictModel):
+    off: bool
 
 
 def _batch_lookup(con: Db) -> list[tuple[int, BatchId]]:
@@ -318,6 +337,8 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     _stale_teeth["empty"] = False
     ops_apply.rewrite_effects = _rewrite_effects_with_teeth
     _rewrite_teeth["drop_replayed"] = False
+    ops_apply.find_op_text_limit_violation = _find_op_text_limit_violation_with_teeth
+    _limit_teeth["off"] = False
 
     @app.post("/__proptest/reset", dependencies=[Depends(require_auth)])
     def reset(request: Request) -> dict:
@@ -335,6 +356,7 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
         echo["drop_cross_page_title"] = False
         _stale_teeth["empty"] = False
         _rewrite_teeth["drop_replayed"] = False
+        _limit_teeth["off"] = False
         return {"db_path": str(db_path)}
 
     @app.post("/__proptest/clock", dependencies=[Depends(require_auth)])
@@ -440,6 +462,11 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     def rewrite_teeth(body: _RewriteTeethBody) -> dict:
         _rewrite_teeth["drop_replayed"] = body.drop_replayed
         return {"drop_replayed": body.drop_replayed}
+
+    @app.post("/__proptest/limits/teeth", dependencies=[Depends(require_auth)])
+    def limit_teeth(body: _LimitTeethBody) -> dict:
+        _limit_teeth["off"] = body.off
+        return {"off": body.off}
 
     return app
 

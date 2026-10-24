@@ -1,10 +1,10 @@
 // pattern: Imperative Shell
 // The ops property's teeth: deliberately wrong versions of the echo apply,
 // the optimistic enqueue and the window replay, swapped in through the
-// runner's seam (and the harness server's echo fault), each of which the
-// property must catch. A catch counts only when the problems include the
-// check the mutant breaks: a `harness:` error, or another check failing
-// alone, is not the property seeing the bug.
+// runner's seam (and the harness server's echo and text-limit faults), each
+// of which the property must catch. A catch counts only when the problems
+// include the check the mutant breaks: a `harness:` error, or another check
+// failing alone, is not the property seeing the bug.
 import fc from "fast-check";
 import { expect, test } from "vitest";
 import type { BlockUid, RawTitle } from "../../api/brands";
@@ -151,6 +151,15 @@ test("the ops property catches: the echo drops a cross-page title", async () => 
                        () => server.setEchoTeeth(true));
   } finally {
     await server.setEchoTeeth(false);
+  }
+}, TIME_LIMIT_MS + 30_000);
+
+test("the ops property catches: the server takes text past the limits", async () => {
+  try {
+    await expectCaught("the server takes text past the limits", "rejection:", REAL_OPS,
+                       () => server.setLimitTeeth(true));
+  } finally {
+    await server.setLimitTeeth(false);
   }
 }, TIME_LIMIT_MS + 30_000);
 

@@ -103,22 +103,36 @@ it is charged against the same limits through `GatherBudget`: one per export,
 shared by every query expression in every round. Expressions that differ only
 in spacing slip past the `visited` set, so the shared budget is what bounds Q
 expressions over M matches each. A query's match count (`count_matches`) is
-checked before any row is fetched. Its rows then stream
-(`query_exec.iter_plan_rows`) and are charged one at a time, so a refusal never
-holds more rows than the budget allows.
+checked before any row is fetched, and a count of zero runs no rows query.
+Its rows then stream (`query_exec.iter_plan_rows`) and are charged one at a
+time.
 
 Each gather charge is at most what rendering that piece once costs:
 
 | Gathered | Calls | Characters |
 |---|---|---|
 | a query | one, its `render_query_result` call | none |
-| an item | its `resolve_text` call, scan included | five, plus its text outside the spans `resolve_text` substitutes at the item's depth (`_substitutions`, shared by both) |
+| an item | its `resolve_text` call, scan included | five, plus its text outside the spans `resolve_text` substitutes at the item's depth (`_substitutions`, shared by both), plus each substituted query macro's expression |
+
+A substituted macro still costs the renderer its expression. A resolved one
+writes it in the result's header, and an unresolved one is left as written. A
+ref span costs the renderer a call when resolved and its characters when
+missing, so neither alone is a floor, and the gather prices it by its scan
+only. So the gather bounds the rows it holds by the call budget, but not the
+text in them by `EXPORT_MAX_CHARS`. Text the renderer may drop, ref spans and
+a macro's padding, is priced at one call unit per `SCAN_CHARS_PER_UNIT`
+characters. Held text can therefore reach about `SCAN_CHARS_PER_UNIT` times the
+call budget: 100 million characters at the real bound.
 
 Every expression the gather runs is rendered at least once, so it refuses only
 what the renderer would. One exception is accepted. The gather follows the refs
 `refs.extract` finds; the renderer follows those `_BLOCK_REF_RE` finds outside
 query macros. A query reached only through a ref inside a query macro's body is
-gathered and charged but never rendered.
+gathered and charged but never rendered. Blocks in a parent cycle would be a
+second case: the gather reads every block of the page, and `build_tree` renders
+none of a cycle. No write makes one, because `/api/ops` skips a move into the
+block's own subtree as `move_cycle` ([backend.md § Concurrent structure
+edits](backend.md#concurrent-structure-edits)).
 
 ## Importer (Roam EDN → fresh database)
 

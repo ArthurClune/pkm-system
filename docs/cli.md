@@ -171,6 +171,7 @@ Some bad ops are skipped and some fail the whole batch:
 | `move` under the block itself or one of its descendants | skipped |
 | `((uid))` parent that is not on the named page | batch fails |
 | `delete` uid that is not a valid uid | batch fails |
+| an `as` name given twice, or used before the command that makes it | batch fails |
 | `move` to a `"## Heading"` the page does not have | batch fails |
 | unknown command, param or `{{alias}}` | batch fails |
 
@@ -187,7 +188,9 @@ daily page first.
 
 `as` names a created block so later commands can refer to it as
 `"parent": "{{alias}}"`, or as `"uid": "{{alias}}"` for `update`, `move` and
-`delete`.
+`delete`. Each name can be used once per batch, and only after the command
+that makes it: a reused name, or one used earlier (or by its own command),
+fails the batch before anything is sent.
 
 A `"## Heading"` parent matches a heading at that level with that text, the
 first in document order. `create`, `todo` and `outline` create a missing one

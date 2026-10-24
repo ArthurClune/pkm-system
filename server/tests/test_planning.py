@@ -2,7 +2,7 @@ import itertools
 
 import pytest
 
-from pkm.batch import (delete_uids, plan_batch, referenced_pages,
+from pkm.batch import (batch_aliases, delete_uids, plan_batch, referenced_pages,
                        validate_batch)
 from pkm.contracts.ops import (BlockUid, CreateOp, CreatePageOp, DeleteOp,
                                MoveOp, OrderIdx, SetHeadingOp, UpdateTextOp,
@@ -1085,3 +1085,67 @@ def test_an_outline_item_nested_past_the_stack_is_clamped_not_an_error(
     assert [o.parent_uid if o.parent_uid is None else
             next(t for t, u in by_text.items() if u == o.parent_uid)
             for o in ops] == parents
+
+
+# -- aliases: one name once per batch, and only after the command that makes it
+
+def _create(text, **params):
+    return {"command": "create",
+            "params": {"page": "Machine Learning", "text": text, **params}}
+
+
+def test_validate_batch_refuses_a_reused_alias():
+    cmds = [_create("a", **{"as": "n"}), _create("b", **{"as": "n"})]
+    with pytest.raises(BuildError) as exc:
+        validate_batch(cmds)
+    assert str(exc.value) == 'batch[1]: as "n" already names the block item 0 creates'
+
+
+def test_plan_batch_refuses_a_reused_alias_identically():
+    cmds = [_create("a", **{"as": "n"}), _create("b", **{"as": "n"})]
+    with pytest.raises(BuildError) as exc:
+        plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen())
+    assert str(exc.value) == 'batch[1]: as "n" already names the block item 0 creates'
+
+
+def test_an_alias_used_before_it_is_made_is_refused_upfront():
+    cmds = [{"command": "update", "params": {"uid": "{{n}}", "text": "x"}},
+            _create("a", **{"as": "n"})]
+    with pytest.raises(BuildError) as exc:
+        validate_batch(cmds)
+    assert str(exc.value) == 'batch[0]: unknown alias: "n"'
+
+
+def test_a_command_cannot_name_its_own_alias_as_parent():
+    with pytest.raises(BuildError) as exc:
+        validate_batch([_create("a", parent="{{n}}", **{"as": "n"})])
+    assert str(exc.value) == 'batch[0]: unknown alias: "n"'
+
+
+def test_an_empty_as_is_no_alias():
+    validate_batch([_create("a", **{"as": ""}), _create("b", **{"as": ""})])
+
+
+def test_batch_aliases_maps_each_name_to_its_item():
+    cmds = validate_batch([
+        _create("a", **{"as": "a"}), _create("x"), _create("b", **{"as": "b"})])
+    assert batch_aliases(cmds) == {"a": 0, "b": 2}
+
+
+@pytest.mark.parametrize("name", ["a}", "{a", "a b"])
+def test_alias_names_with_braces_agree_with_the_planner(name):
+    cmds = [_create("a", **{"as": name}),
+            {"command": "update",
+             "params": {"uid": "{{" + name + "}}", "text": "y"}}]
+    validate_batch(cmds)
+    ops = plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen())
+    new_uid = as_create(ops[0]).uid
+    assert UpdateTextOp(op="update_text", uid=new_uid, text="y") in ops
+
+
+def test_an_overlong_alias_is_echoed_bounded():
+    name = "n" * 10_000
+    with pytest.raises(BuildError) as exc:
+        validate_batch([_create("a", parent="{{" + name + "}}")])
+    assert len(str(exc.value)) < 200
+    assert str(exc.value).endswith("\u2026 (10,000 characters)")

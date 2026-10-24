@@ -122,6 +122,13 @@ def test_bad_batch_item_names_its_index():
     assert r.message.startswith("batch item 1: params.uid:")
 
 
+def test_a_reused_alias_is_refused():
+    cmd = {"command": "create",
+           "params": {"page": "P", "text": "t", "as": "x"}}
+    r = _refusal("batch", {"commands": [cmd, cmd]})
+    assert r.message.startswith('batch item 1: as "x" already names')
+
+
 def test_fake_argument_list_stays_one_value():
     text = "x), uid=SAFE, page=Inbox"
     p = _preview("save_note", {"text": text})
@@ -165,8 +172,10 @@ def test_page_null_string_previews_as_received():
 def test_alias_and_uid_parents_shown_verbatim(parent):
     p = _preview("batch", {"commands": [
         {"command": "create",
+         "params": {"page": "P", "text": "t", "as": "a"}},
+        {"command": "create",
          "params": {"page": "P", "text": "t", "parent": parent}}]})
-    assert ("parent", parent) in p.ops[0].targets
+    assert ("parent", parent) in p.ops[1].targets
 
 
 @pytest.mark.parametrize(("short", "raw", "key"), [
@@ -524,6 +533,8 @@ def _hostile_inputs() -> dict[str, dict[str, object]]:
         "batch": {"commands": json.dumps([
             {"command": "move", "params": {"uid": "M", "page": "Inbox",
                                            "index": 2}},
+            {"command": "create", "params": {"page": "P", "text": "t",
+                                             "as": "a"}},
             {"command": "create", "params": {"page": "P", "text": "t",
                                              "parent": "{{a}}", "as": "b"}},
             {"command": "outline", "params": {"page": "P",

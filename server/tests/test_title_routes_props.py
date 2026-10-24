@@ -2,10 +2,12 @@
 a title to the same page as the title itself.
 
 A variant is what the documented canonicalisation folds onto the title:
-control whitespace widened into the plain-space gaps and padding the
-edges always (`normalize_title`), and plain-space padding too while the
-plain-space flag is on (`canonicalize_title(..., plain_space=True)`). The
-generator builds each variant from that rule, not from the code under
+the plain-space gaps widened into runs of the listed whitespace
+(`TITLE_WHITESPACE`) and the edges padded with it, folded whatever the
+flag once a run holds anything but one plain space (`normalize_title`);
+and plain-space padding alone, folded only while the plain-space flag is
+on (`canonicalize_title(..., plain_space=True)`).
+The generator builds each variant from that rule, not from the code under
 test, and the check is differential: a read answers the variant exactly
 as it answers the title, and a write leaves the same database behind.
 
@@ -41,6 +43,7 @@ from pkm.cli.main import build_parser, main
 from pkm.client.api import PkmClient
 from pkm.client.core import CliConfig
 from pkm.contracts.daily import title_for_date
+from pkm.contracts.titles import TITLE_WHITESPACE
 from pkm.database import connect
 from pkm.refs import canonicalize_title, title_syntax_reason
 from pkm.server.app import create_app
@@ -55,10 +58,24 @@ ROUTE_BUDGET = {"plain": 7, "daily": 1, "refused": 1}
 # Each CLI example runs every verb twice through argparse and the client.
 CLI_BUDGET = {"plain": 3, "daily": 1, "refused": 1}
 # Plain-space padding folds only under the flag, so the padded kinds run
-# with it on; the others run either way.
+# with it on; the others run either way. A fold cell runs once for each of
+# `FOLD_CLASSES`.
 CELLS = [(False, "identity"), (True, "identity"), (False, "control"),
-         (True, "control"), (True, "padded"), (True, "padded_control")]
+         (True, "control"), (False, "fold"), (True, "fold"),
+         (True, "padded"), (True, "padded_control")]
 CONTROL = "\t\n\r\f\v"
+# The listed whitespace a fold variant holds one piece of, by class and
+# the label that counts it; the rest of its runs draw on the whole list.
+# A fold cell runs once per class, so every class is reached by
+# construction, and every piece folds with the flag off.
+FOLD_CLASSES = {
+    "NBSP in the variant": ["\xa0"],
+    "non-Latin space in the variant": list(
+        "\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008"
+        "\u2009\u200a\u202f\u205f\u3000"),
+    "line separator in the variant": list("\x85\u2028\u2029"),
+    "doubled space in the variant": ["  "],
+}
 SEEDED_DAILY = "July 7th, 2026"
 
 
@@ -85,12 +102,13 @@ def assert_reach(labels: list[str]) -> None:
 _CELL_LABELS = [
     "flag inactive, identity variant", "flag active, identity variant",
     "flag inactive, control variant", "flag active, control variant",
+    "flag inactive, fold variant", "flag active, fold variant",
     "flag active, padded variant", "flag active, padded_control variant",
 ]
-ROUTE_LABELS = ["daily title", "refused title",
-                "slash in title", *_CELL_LABELS]
+ROUTE_LABELS = ["daily title", "refused title", "slash in title",
+                *_CELL_LABELS, *FOLD_CLASSES]
 CLI_LABELS = ["batch spellings that only the flag can fold", "daily title",
-              "refused title", *_CELL_LABELS]
+              "refused title", *_CELL_LABELS, *FOLD_CLASSES]
 
 
 # Words never hold whitespace, `#` or a backtick; brackets come singly and
@@ -139,14 +157,38 @@ def control_variant(draw: st.DrawFn, canonical: str) -> str:
     return out if any(c in out for c in CONTROL) else out + draw(st.sampled_from(list(CONTROL)))
 
 
+_LISTED = st.sampled_from(list(TITLE_WHITESPACE))
+
+
 @st.composite
-def variant_of(draw: st.DrawFn, canonical: str, kind: str, active: bool) -> str:
-    """A `kind` spelling of `title` that folds onto it."""
+def fold_variant(draw: st.DrawFn, canonical: str, must: str) -> str:
+    """`title` with each plain-space gap widened into a run of the listed
+    whitespace and the listed whitespace on both edges, holding a piece of
+    the `must` class of `FOLD_CLASSES` in one of those runs."""
+    words = canonical.split(" ")
+    runs = [draw(st.text(_LISTED, max_size=3)),
+            *(draw(st.text(_LISTED, min_size=1, max_size=3)) for _ in words[1:]),
+            draw(st.text(_LISTED, max_size=3))]
+    slot = draw(st.integers(0, len(runs) - 1))
+    at = draw(st.integers(0, len(runs[slot])))
+    piece = draw(st.sampled_from(FOLD_CLASSES[must]))
+    runs[slot] = runs[slot][:at] + piece + runs[slot][at:]
+    return runs[0] + "".join(w + run for w, run in zip(words, runs[1:]))
+
+
+@st.composite
+def variant_of(draw: st.DrawFn, canonical: str, kind: str, active: bool,
+               must: str | None = None) -> str:
+    """A `kind` spelling of `title` that folds onto it; a fold variant
+    holds a piece of the `must` class, or of any class."""
     pad = st.integers(0, 3)
     if kind == "identity":
         variant = canonical
     elif kind == "control":
         variant = draw(control_variant(canonical))
+    elif kind == "fold":
+        variant = draw(fold_variant(
+            canonical, must or draw(st.sampled_from(list(FOLD_CLASSES)))))
     elif kind == "padded":
         lead, trail = draw(pad), draw(pad)
         variant = " " * lead + canonical + " " * max(trail, 1 - lead)
@@ -158,12 +200,14 @@ def variant_of(draw: st.DrawFn, canonical: str, kind: str, active: bool) -> str:
 
 
 @st.composite
-def cases(draw: st.DrawFn, active: bool, kind: str,
-          family: str) -> tuple[bool, str, str, str]:
+def cases(draw: st.DrawFn, active: bool, kind: str, family: str,
+          must: str | None) -> tuple[bool, str, str, str]:
     """(plain-space flag, title, a variant of it, the variant's kind) for
-    one cell of `CELLS` and one title family."""
+    one cell of `CELLS`, one fold class for a fold cell, and one title
+    family."""
     canonical = draw(tidy_titles(family))
-    return active, canonical, draw(variant_of(canonical, kind, active)), kind
+    variant = draw(variant_of(canonical, kind, active, must))
+    return active, canonical, variant, kind
 
 
 def label(active: bool, canonical: str, variant: str, kind: str) -> None:
@@ -177,6 +221,9 @@ def label(active: bool, canonical: str, variant: str, kind: str) -> None:
         event("percent in title")
     if "/" in canonical:
         event("slash in title")
+    for name, pieces in FOLD_CLASSES.items():
+        if any(p in variant for p in pieces):
+            event(name)
 
 
 # --- the graph each example starts from --------------------------------------
@@ -433,18 +480,22 @@ def _refuses(rig: Rig, base: Path, request: Request, spelling: str) -> None:
 
 def run_cells(body, budget: dict[str, int], rig: Rig,
               keep: Callable[[tuple], bool] = lambda case: True) -> None:
-    """Run `body` as its own property for every cell and title family, with
-    the family's share of the examples. No example database: each run
-    stands alone."""
+    """Run `body` as its own property for every cell (a fold cell once for
+    each fold class) and title family, with the family's share of the
+    examples. Each run's first example is Hypothesis's simplest, so a fold
+    class gets the whole share, not a slice of it. No example database:
+    each run stands alone."""
     SEEN.clear()
     for active, kind in CELLS:
-        for family, examples in budget.items():
-            def prop(rig, case, data):
-                body(rig, case, data)
+        for must in FOLD_CLASSES if kind == "fold" else [None]:
+            for family, examples in budget.items():
+                def prop(rig, case, data):
+                    body(rig, case, data)
 
-            given(cases(active, kind, family).filter(keep), st.data())(
-                settings(max_examples=examples, deadline=None,
-                         database=None)(prop))(rig)
+                given(cases(active, kind, family, must).filter(keep),
+                      st.data())(
+                    settings(max_examples=examples, deadline=None,
+                             database=None)(prop))(rig)
 
 
 def _routes_property(rig, case, data):

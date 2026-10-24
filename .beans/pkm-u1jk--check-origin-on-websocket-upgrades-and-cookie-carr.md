@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: high
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-23T11:49:58Z
+updated_at: 2026-10-24T19:02:24Z
 parent: pkm-mfd0
 ---
 
@@ -14,7 +14,11 @@ Review finding (Medium): ts.net is a public suffix, so every tailnet host (Funne
 - [ ] Red test first, from the review probe: sec-cross/probe_ws_origin.py and sec-cross/probe_csrf.py. Probes live in docs/superpowers/handoffs/security-review-2026-10-23-probes (main checkout, gitignored; README maps probes)
 - [ ] /api/ws refuses a handshake whose Origin is not the app's own origin(s)
 - [ ] Same check on the state-changing routes that accept simple requests: POST /api/journal/cleanup, /api/assets/scan, /api/assets (multipart), the assistant close beacon, /api/assets/export.zip
-- [ ] Decide how the allowed origin is configured (Serve hostname, direct-IP listener)
+- [x] Decide how the allowed origin is configured (Serve hostname, direct-IP listener)
 - [ ] Tests: foreign Origin refused, own Origin accepted, missing Origin (non-browser clients, CLI) still works
 
 Note from the guard tests: test_hostile_requests.py's content-type walk counts 415, or a 422 whose only loc is ["body"], as a refusal. A fix that refuses non-JSON bodies some other way (403 from an Origin check) must widen that predicate, not delete the walk.
+
+## Decision (Arthur, 2026-10-24)
+
+See docs/superpowers/specs/2026-10-24-security-epic-decisions-design.md, row pkm-u1jk.

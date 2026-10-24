@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: low
 created_at: 2026-10-23T22:09:59Z
-updated_at: 2026-10-23T22:09:59Z
+updated_at: 2026-10-24T19:02:24Z
 parent: pkm-mfd0
 ---
 
@@ -17,3 +17,7 @@ Adversarial re-review of security/approval-card at 2cd286c4 (2026-10-23) found t
 - [ ] A target value starting with an RTL letter renders RTL while the same title in the warning renders LTR ("ד 2" vs "2 ד"): put dir="ltr" on values.
 - [ ] Defence in depth: the web card renders any key the server sends; consider rejecting keys not in a per-action allow-list client-side.
 - [ ] Possible feature: show a uid target's current block text on the card, so a model that lies about which block a uid is gets caught (outside the stated property).
+
+## Decision (Arthur, 2026-10-24)
+
+See docs/superpowers/specs/2026-10-24-security-epic-decisions-design.md, row pkm-g2w9.

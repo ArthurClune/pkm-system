@@ -5,7 +5,7 @@ status: todo
 type: bug
 priority: normal
 created_at: 2026-10-23T19:33:04Z
-updated_at: 2026-10-23T19:33:04Z
+updated_at: 2026-10-24T19:02:24Z
 parent: pkm-mfd0
 blocking:
     - pkm-e95y
@@ -17,3 +17,7 @@ Found during the pkm-lbj1 review fixes (2026-10-23). tokenizeInline (web/src/gra
 - [ ] Iterative tokenizer for nested [[ (equivalence test against the current one at depths it handles), or decide a server-side nesting bound for writes (Arthur's call: that would be a product limit)
 - [ ] Check the server/web parity fixtures still pass
 - [ ] troubleshooting.md row
+
+## Decision (Arthur, 2026-10-24)
+
+See docs/superpowers/specs/2026-10-24-security-epic-decisions-design.md, row pkm-bppf.

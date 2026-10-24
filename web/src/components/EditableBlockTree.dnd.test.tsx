@@ -1,9 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useEffect } from "react";
 import { expect, it } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
-import { DndProvider } from "../dnd/DndContext";
+import { DndProvider, useDnd } from "../dnd/DndContext";
 import { EditablePage } from "../views/EditablePage";
 import { block, makeSync, orderIdxOf, reserveOutlineEditor, canonicalTitleOf } from "../test-helpers";
 
@@ -17,14 +18,21 @@ function dt() {
   };
 }
 
+function Harness({ onReady }: { onReady: (dnd: ReturnType<typeof useDnd>) => void }) {
+  const dnd = useDnd();
+  useEffect(() => onReady(dnd), [dnd, onReady]);
+  return null;
+}
+
 function renderPage(blocks = [
   block("tuid-u1", "one", { order_idx: orderIdxOf(0) }),
   block("tuid-u2", "two", { order_idx: orderIdxOf(1) }),
-]) {
+], onDnd: (dnd: ReturnType<typeof useDnd>) => void = () => undefined) {
   const sync = makeSync();
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>
+        <Harness onReady={onDnd} />
         <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
           <EditablePage title={canonicalTitleOf("P")} initial={blocks} />
         </MemoryRouter>
@@ -80,6 +88,45 @@ it("dragging a block inside a multi-block selection moves the whole selection", 
   ]]);
   const texts = [...document.querySelectorAll(".block-text")].map((n) => n.textContent);
   expect(texts).toEqual(["two", "three", "one"]);
+});
+
+// A cross-page drop moves the block with sync.enqueue, past run()'s depth
+// check, so the height measured here is the web's only bound on that path.
+it("a drag carries the grabbed block's subtree height", () => {
+  let dnd!: ReturnType<typeof useDnd>;
+  renderPage([
+    block("tuid-u1", "one", { order_idx: orderIdxOf(0), children: [
+      block("tuid-u1a", "one a", { children: [block("tuid-u1b", "one b")] }),
+    ] }),
+    block("tuid-u2", "two", { order_idx: orderIdxOf(1) }),
+  ], (d) => { dnd = d; });
+
+  fireEvent.dragStart(document.querySelector('[data-uid="tuid-u1"] .bullet')!,
+                      { dataTransfer: dt() });
+  expect(dnd.drag).toEqual({ kind: "blocks", uid: "tuid-u1", pageTitle: "P",
+                             height: 2 });
+});
+
+it("a selection drag carries the tallest root's height, not the grabbed one's", () => {
+  let dnd!: ReturnType<typeof useDnd>;
+  renderPage([
+    block("tuid-u1", "one", { order_idx: orderIdxOf(0) }),
+    block("tuid-u2", "two", { order_idx: orderIdxOf(1), children: [
+      block("tuid-u2a", "two a", { children: [
+        block("tuid-u2b", "two b", { children: [block("tuid-u2c", "two c")] }),
+      ] }),
+    ] }),
+  ], (d) => { dnd = d; });
+  fireEvent.click(screen.getByText("one"));
+  const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+  ta.setSelectionRange(0, 0);
+  fireEvent.keyDown(ta, { key: "ArrowDown", shiftKey: true });
+
+  // grab the leaf root: the selection's other root is three levels tall
+  fireEvent.dragStart(document.querySelector('[data-uid="tuid-u1"] .bullet')!,
+                      { dataTransfer: dt() });
+  expect(dnd.drag).toEqual({ kind: "blocks", uid: "tuid-u1", pageTitle: "P",
+                             uids: ["tuid-u1", "tuid-u2"], height: 3 });
 });
 
 it("dragging a block outside the selection moves only that block", () => {

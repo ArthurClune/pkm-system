@@ -103,7 +103,8 @@ export function useDropZone(pageTitle: CanonicalTitle,
     const cache = cacheFor(container, drag, rows);
     const rectAt = measure(container, cache, rows);
     const boundary = boundaryFromRects(rows, rectAt, at.y);
-    const depth = depthFromX(allowedDepths(rows, boundary),
+    const depth = depthFromX(allowedDepths(rows, boundary,
+                                            drag.kind === "blocks" ? drag.height : 0),
                              at.x - cache.containerLeft);
     candidateRef.current = { boundary, depth };
     const top = indicatorTopFromRects(rows, rectAt, cache.containerTop, boundary);

@@ -5,7 +5,7 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from rawread import read
-from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
+from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockOp, BlockUid, CreateOp, CreatePageOp,
                                DeleteOp, MoveOp, OpBatch, PageId, SetCollapsedOp,
                                SetHeadingOp,
                                SetViewTypeOp, UpdateTextOp, subtree_hash,
@@ -47,7 +47,7 @@ B = BlockInfo(uid=uid_of("uid_b3"), page_id=page_id_of(1),
              parent_uid=uid_of("uid_b2"))
 _DAY = canonical_title_of("September 28th, 2026")
 # today's header for the target already exists: entries append under it
-_EXISTING = ExistingHeader(uid_of("uid_old"), order_idx_of(3))
+_EXISTING = ExistingHeader(uid_of("uid_old"), order_idx_of(3), 1)
 
 
 def _landing(header: ExistingHeader | FreshHeader | None = None
@@ -107,7 +107,8 @@ def test_plan_create():
                   parent_uid=uid_of("uid_b2"), order_idx=order_idx_of(1), text="t [[X]]",
                   view_type="numbered")
     effects = plan_op(0, op, CreateContext(uid_taken=False,
-                                           page_id=page_id_of(1)))
+                                           page_id=page_id_of(1),
+                                           depth=2))
     assert effects == (
         ShiftSiblings(page_id_of(1), uid_of("uid_b2"), order_idx_of(1)),
         InsertBlock(uid=uid_of("newuid1"), page_id=page_id_of(1),
@@ -122,11 +123,41 @@ def test_plan_create_rejects_bad_uid_and_dup():
     with pytest.raises(OpError, match="invalid uid"):
         plan_op(0, CreateOp(op="create", uid=malformed_uid("a!"), page_title=raw_title_of("P"),
                             order_idx=order_idx_of(0), text=""),
-                CreateContext(uid_taken=False, page_id=page_id_of(1)))
+                CreateContext(uid_taken=False, page_id=page_id_of(1), depth=1))
     with pytest.raises(OpError, match="already exists"):
         plan_op(0, CreateOp(op="create", uid=uid_of("uid_b3"), page_title=raw_title_of("P"),
                             order_idx=order_idx_of(0), text=""),
-                CreateContext(uid_taken=True, page_id=page_id_of(1)))
+                CreateContext(uid_taken=True, page_id=page_id_of(1), depth=1))
+
+
+def test_plan_create_refuses_a_level_past_the_depth_cap():
+    op = CreateOp(op="create", uid=uid_of("deep01"), page_title=raw_title_of("P"),
+                  order_idx=order_idx_of(0), text="")
+    assert plan_op(0, op, CreateContext(uid_taken=False, page_id=page_id_of(1),
+                                        depth=MAX_OUTLINE_DEPTH))
+    with pytest.raises(OpError) as e:
+        plan_op(3, op, CreateContext(uid_taken=False, page_id=page_id_of(1),
+                                     depth=MAX_OUTLINE_DEPTH + 1))
+    assert (e.value.index, e.value.reason) == (
+        3, "block deep01 would sit 101 levels deep; the limit is 100")
+    # a taken uid outranks depth
+    with pytest.raises(OpError, match="already exists"):
+        plan_op(0, op, CreateContext(uid_taken=True, page_id=page_id_of(1),
+                                     depth=MAX_OUTLINE_DEPTH + 1))
+
+
+def test_plan_move_refuses_a_subtree_landing_past_the_depth_cap():
+    op = MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=uid_of("uid_b1"),
+                order_idx=order_idx_of(0))
+    parent = BlockInfo(uid_of("uid_b1"), page_id_of(1), None)
+    subtree = (uid_of("uid_b3"),)
+    assert plan_op(0, op, MoveContext(B, parent, None, subtree,
+                                      deepest=MAX_OUTLINE_DEPTH))
+    with pytest.raises(OpError) as e:
+        plan_op(0, op, MoveContext(B, parent, None, subtree,
+                                   deepest=MAX_OUTLINE_DEPTH + 1))
+    assert e.value.reason == (
+        "block uid_b3 would sit 101 levels deep; the limit is 100")
 
 
 def test_plan_create_rejects_a_uid_with_a_trailing_newline():
@@ -136,7 +167,7 @@ def test_plan_create_rejects_a_uid_with_a_trailing_newline():
     with pytest.raises(OpError, match="invalid uid"):
         plan_op(0, CreateOp(op="create", uid=malformed_uid("abcdef\n"), page_title=raw_title_of("P"),
                             order_idx=order_idx_of(0), text=""),
-                CreateContext(uid_taken=False, page_id=page_id_of(1)))
+                CreateContext(uid_taken=False, page_id=page_id_of(1), depth=1))
 
 
 def test_plan_create_page_executes_nothing():
@@ -155,7 +186,7 @@ def test_plan_update_text():
 
 def test_plan_move():
     ctx = MoveContext(B, BlockInfo(uid_of("uid_b1"), page_id_of(1), None),
-                      None, (uid_of("uid_b3"),))
+                      None, (uid_of("uid_b3"),), deepest=2)
     assert plan_op(0, MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=uid_of("uid_b1"),
                              order_idx=order_idx_of(0)), ctx) == (
         ShiftSiblings(page_id_of(1), uid_of("uid_b1"), order_idx_of(0)),
@@ -164,7 +195,8 @@ def test_plan_move():
     # to top level
     assert plan_op(0, MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=None,
                              order_idx=order_idx_of(2)),
-                   MoveContext(B, None, None, (uid_of("uid_b3"),))) == (
+                   MoveContext(B, None, None, (uid_of("uid_b3"),),
+                               deepest=1)) == (
         ShiftSiblings(page_id_of(1), None, order_idx_of(2)),
         SetParent(uid_of("uid_b3"), None, order_idx_of(2)), TouchPage(page_id_of(1)))
 
@@ -206,13 +238,21 @@ def test_delete_diverged_compares_the_subtree_hash():
     assert delete_diverged(base, changed) is True
 
 
+def _copy_landing(header: ExistingHeader | FreshHeader | None = None
+                  ) -> ConflictLanding:
+    """Daily page 9; the root's copy is copy_r, under a fresh header unless
+    one is given."""
+    return ConflictLanding(page_id_of(9), _DAY, uid_of("copy_r"),
+                           header if header is not None
+                           else FreshHeader(uid_of("uid_hd1"), order_idx_of(4)))
+
+
 def test_descendant_copies_nest_and_renumber():
     copy_uids = {uid_of("tuid-c1"): uid_of("copy_c1"),
                 uid_of("tuid-c2"): uid_of("copy_c2"),
                 uid_of("tuid-g"): uid_of("copy_g")}
     effects = descendant_copy_effects(_SUBTREE_ROWS, uid_of("tuid-r"),
-                                      uid_of("copy_r"), copy_uids,
-                                      daily_page_id=page_id_of(9))
+                                      copy_uids, _copy_landing())
     assert effects == (
         InsertBlock(uid=uid_of("copy_c1"), page_id=page_id_of(9),
                    parent_uid=uid_of("copy_r"), order_idx=order_idx_of(0),
@@ -229,12 +269,54 @@ def test_descendant_copies_nest_and_renumber():
     )
 
 
+def _copy(copy: str, parent: str, idx: int, text: str) -> tuple:
+    return (InsertBlock(uid=uid_of(copy), page_id=page_id_of(9),
+                        parent_uid=uid_of(parent), order_idx=order_idx_of(idx),
+                        text=text, heading=None),
+            ReindexRefs(uid_of(copy), text))
+
+
+_COPY_UIDS = {uid_of("tuid-c1"): uid_of("copy_c1"),
+              uid_of("tuid-c2"): uid_of("copy_c2"),
+              uid_of("tuid-g"): uid_of("copy_g")}
+
+
+def test_descendant_copies_below_the_cap_land_flat_at_it():
+    # the entry sits at 99, so its children land at the cap and the
+    # grandchild, which would sit at 101, follows its parent there
+    header = ExistingHeader(uid_of("uid_old"), order_idx_of(3),
+                            MAX_OUTLINE_DEPTH - 2)
+    effects = descendant_copy_effects(_SUBTREE_ROWS, uid_of("tuid-r"),
+                                      _COPY_UIDS, _copy_landing(header))
+    assert effects == (*_copy("copy_c1", "copy_r", 0, "c1 text"),
+                       *_copy("copy_g", "copy_r", 1, "g text"),
+                       *_copy("copy_c2", "copy_r", 2, "c2 text"))
+
+
+def test_descendant_copies_of_an_entry_at_the_cap_follow_it_under_the_header():
+    # a header reused at 99 puts the entry at the cap (order_idx 3); the
+    # rest of the subtree follows it under the header, in document order
+    header = ExistingHeader(uid_of("uid_old"), order_idx_of(3),
+                            MAX_OUTLINE_DEPTH - 1)
+    effects = descendant_copy_effects(_SUBTREE_ROWS, uid_of("tuid-r"),
+                                      _COPY_UIDS, _copy_landing(header))
+    assert effects == (*_copy("copy_c1", "uid_old", 4, "c1 text"),
+                       *_copy("copy_g", "uid_old", 5, "g text"),
+                       *_copy("copy_c2", "uid_old", 6, "c2 text"))
+
+
+def test_the_entry_level_follows_the_header():
+    assert _copy_landing().entry_level == 2
+    assert _copy_landing(ExistingHeader(uid_of("uid_old"), order_idx_of(0),
+                                        7)).entry_level == 8
+
+
 def test_descendant_copies_keep_blank_texts():
     rows = (SubtreeRow(uid_of("tuid-c1"), uid_of("tuid-r"), order_idx_of(0), ""),
             SubtreeRow(uid_of("tuid-r"), None, order_idx_of(0), "root"))
     effects = descendant_copy_effects(
-        rows, uid_of("tuid-r"), uid_of("copy_r"),
-        {uid_of("tuid-c1"): uid_of("copy_c1")}, daily_page_id=page_id_of(9))
+        rows, uid_of("tuid-r"),
+        {uid_of("tuid-c1"): uid_of("copy_c1")}, _copy_landing())
     assert effects == (
         InsertBlock(uid=uid_of("copy_c1"), page_id=page_id_of(9),
                    parent_uid=uid_of("copy_r"), order_idx=order_idx_of(0),
@@ -249,8 +331,8 @@ def test_descendant_copies_never_walk_back_into_the_root():
     rows = (SubtreeRow(uid_of("tuid-c1"), uid_of("tuid-r"), order_idx_of(0), "c1 text"),
             SubtreeRow(uid_of("tuid-r"), uid_of("tuid-c1"), order_idx_of(0), "root"))
     effects = descendant_copy_effects(
-        rows, uid_of("tuid-r"), uid_of("copy_r"),
-        {uid_of("tuid-c1"): uid_of("copy_c1")}, daily_page_id=page_id_of(9))
+        rows, uid_of("tuid-r"),
+        {uid_of("tuid-c1"): uid_of("copy_c1")}, _copy_landing())
     assert effects == (
         InsertBlock(uid=uid_of("copy_c1"), page_id=page_id_of(9),
                    parent_uid=uid_of("copy_r"), order_idx=order_idx_of(0),
@@ -273,8 +355,7 @@ def test_plan_diverged_delete_lands_copies_then_deletes():
         *conflict_entry_effects(uid_of("tuid-r"), _ROOT.text,
                                 deleted_header_text(canonical_title_of("Project X")), landing),
         *descendant_copy_effects(_SUBTREE_ROWS, uid_of("tuid-r"),
-                                 landing.entry_uid, copy_uids,
-                                 landing.daily_page_id),
+                                 copy_uids, landing),
         DeleteBlocks(tuple(row.uid for row in _SUBTREE_ROWS)),
         TouchPage(page_id_of(1)),
     )
@@ -322,7 +403,7 @@ def test_op_error_carries_index():
     with pytest.raises(OpError) as e:
         plan_op(7, CreateOp(op="create", uid=malformed_uid("a!"), page_title=raw_title_of("P"),
                             order_idx=order_idx_of(0), text=""),
-                CreateContext(uid_taken=False, page_id=page_id_of(1)))
+                CreateContext(uid_taken=False, page_id=page_id_of(1), depth=1))
     assert e.value.index == 7 and "invalid uid" in e.value.reason
 
 
@@ -363,7 +444,7 @@ def _move_ctx(block_page: int = 1, parent_page: int = 1,
         BlockInfo(uid_of("u_child"), page_id_of(block_page), None),
         BlockInfo(uid_of("u_parent"), page_id_of(parent_page), None),
         page_id,
-        (uid_of("tuid-u_gc"), uid_of("u_child")))
+        (uid_of("tuid-u_gc"), uid_of("u_child")), deepest=3)
 
 
 def test_move_cross_page_under_parent_reassigns_subtree():
@@ -382,7 +463,7 @@ def test_move_top_level_to_named_page():
                 page_title=raw_title_of("July 1st, 2026"))
     ctx = MoveContext(
         BlockInfo(uid_of("u_child"), page_id_of(1), uid_of("tuid-u_old")),
-        None, page_id_of(7), (uid_of("u_child"),))
+        None, page_id_of(7), (uid_of("u_child"),), deepest=1)
     effects = plan_op(0, op, ctx)
     assert effects == (
         ShiftSiblings(page_id_of(7), None, order_idx_of(0)),
@@ -810,7 +891,7 @@ def test_skipped_op_on_missing_block_lands_a_note_under_the_orphan_header(
 
 def test_skipped_op_appends_under_an_existing_header_for_the_block():
     effs = plan_op(0, _MOVE, _skip_ctx(
-        _MOVE, header=ExistingHeader(uid_of("uid_old"), order_idx_of(2))))
+        _MOVE, header=ExistingHeader(uid_of("uid_old"), order_idx_of(2), 1)))
     assert [e for e in effs if isinstance(e, InsertBlock)] == [
         InsertBlock(uid=uid_of("uid_ch1"), page_id=page_id_of(9),
                    parent_uid=uid_of("uid_old"), order_idx=order_idx_of(2),
@@ -1021,7 +1102,7 @@ def test_move_under_itself_is_skipped_like_any_cycle():
 
 def test_cycle_note_appends_under_an_existing_header_for_the_block():
     effs = plan_op(0, _CYCLE_MOVE, _cycle_ctx(
-        header=ExistingHeader(uid_of("uid_old"), order_idx_of(2))))
+        header=ExistingHeader(uid_of("uid_old"), order_idx_of(2), 1)))
     assert [e for e in effs if isinstance(e, InsertBlock)] == [
         InsertBlock(uid=uid_of("uid_ch1"), page_id=page_id_of(9),
                    parent_uid=uid_of("uid_old"), order_idx=order_idx_of(2),

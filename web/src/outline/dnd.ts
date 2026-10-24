@@ -4,6 +4,7 @@
 // (useDropZone) only measures pixels and calls in here.
 import type { BlockUid, OrderIdx, CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
+import { MAX_OUTLINE_DEPTH } from "./depthCap";
 import { groupMoveOps } from "./edits";
 import { FIRST_ORDER_IDX, orderIdxAfter } from "./orderIdx";
 import { applyOps, locate } from "./tree";
@@ -20,6 +21,10 @@ export interface BlockDragSource {
    * group being dragged: the selection's root uids in document order,
    * including `uid`. Absent for a plain single-block drag. */
   uids?: BlockUid[];
+  /** How many levels the tallest dragged root's subtree reaches below it
+   * (0 for leaves), so the drop zone offers no depth that would put a
+   * descendant past the outline depth cap. */
+  height: number;
 }
 
 /** Files dragged in from outside the app. It carries nothing: the File
@@ -68,11 +73,17 @@ export function dropRows(blocks: BlockNode[], drag: DragSource,
 
 /** Depths legal at `boundary` (the gap above rows[boundary]; rows.length =
  * after the last row), ascending. A collapsed row above admits no child
- * depth — nothing may land invisibly inside a closed subtree. */
-export function allowedDepths(rows: DropRow[], boundary: number): number[] {
+ * depth — nothing may land invisibly inside a closed subtree. No depth is
+ * offered whose dragged subtree (`height` levels tall) would reach past
+ * `maxLevel`; a drag too tall for any depth still gets the shallowest, and
+ * the move is refused where it runs. */
+export function allowedDepths(rows: DropRow[], boundary: number,
+                              height = 0,
+                              maxLevel = MAX_OUTLINE_DEPTH): number[] {
   const above = rows[boundary - 1];
   const below = rows[boundary];
-  let max = above ? (above.collapsed ? above.depth : above.depth + 1) : 0;
+  const reach = above ? (above.collapsed ? above.depth : above.depth + 1) : 0;
+  const max = Math.min(reach, Math.max(0, maxLevel - 1 - height));
   const min = below ? below.depth : 0;
   const out: number[] = [];
   for (let d = Math.min(min, max); d <= max; d++) out.push(d);

@@ -70,7 +70,7 @@ describe("indicatorTopFromRects", () => {
 });
 
 describe("cachedRectFor", () => {
-  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-u9"), pageTitle: canonicalTitleOf("P") };
+  const drag: DragSource = { kind: "blocks", height: 0, uid: uidOf("tuid-u9"), pageTitle: canonicalTitleOf("P") };
   const measured = { drag, rowCount: 3, containerTop: 0, containerLeft: 0,
                      rects: [{ top: 0, bottom: 20 }, null,
                              { top: 40, bottom: 60 }],
@@ -97,7 +97,7 @@ describe("cachedRectFor", () => {
 });
 
 describe("cacheIsUsable", () => {
-  const drag: DragSource = { kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P") };
+  const drag: DragSource = { kind: "blocks", height: 0, uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P") };
   const cache = (over: object) =>
     ({ drag, rowCount: 3, containerTop: 0, containerLeft: 0,
        rects: [], uids: [], ...over });
@@ -110,7 +110,7 @@ describe("cacheIsUsable", () => {
     // the drop that ended the last drag re-laid-out the rows it moved
     expect(cacheIsUsable(
       cache({}),
-      { kind: "blocks", uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P") },
+      { kind: "blocks", height: 0, uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("P") },
       rows(3)))
       .toBe(false);
   });

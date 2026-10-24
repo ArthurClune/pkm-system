@@ -19,7 +19,8 @@ from pkm.edn import EdnError, parse_edn
 from pkm.filenames import safe_filename
 from pkm.importer.assets import UID_PREFIX_LEN, Asset, rewrite_asset_urls
 from pkm.importer.parse_export import parse_export
-from pkm.importer.preflight import (ImportStructureError, ImportUidError,
+from pkm.importer.preflight import (ImportDepthError, ImportStructureError,
+                                    ImportUidError, validate_export_depth,
                                     validate_export_structure,
                                     validate_export_uids)
 from pkm.importer.report import ImportReport, render
@@ -124,6 +125,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         validate_export_uids(export)
     except ImportUidError as exc:
+        print(f"error: import refused: {exc}", file=sys.stderr)
+        return 2
+    try:
+        validate_export_depth(export)
+    except ImportDepthError as exc:
         print(f"error: import refused: {exc}", file=sys.stderr)
         return 2
     sanitized_import = sanitize_export_titles(export)

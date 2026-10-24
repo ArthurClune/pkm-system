@@ -7,7 +7,8 @@ import { useDnd } from "../dnd/DndContext";
 import { useDropZone } from "../dnd/useDropZone";
 import type { DropTarget } from "../outline/dnd";
 import { selectionDragUids } from "../outline/blockSelection";
-import { hidingAncestors } from "../outline/tree";
+import { subtreeHeight } from "../outline/depthCap";
+import { findNode, hidingAncestors } from "../outline/tree";
 import { useOutline } from "../outline/useOutline";
 
 /** One editable outline (a page body or a journal day).
@@ -100,9 +101,14 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
     // whole selection; grabbing any other block drags just it.
     const group = outline.selection
       ? selectionDragUids(blocksRef.current, outline.selection, uid) : null;
+    const roots = group && group.length > 1 ? group : [uid];
+    const height = Math.max(0, ...roots.map((root) => {
+      const node = findNode(blocksRef.current, root);
+      return node ? subtreeHeight(node) : 0;
+    }));
     dnd.startDrag(group && group.length > 1
-      ? { kind: "blocks", uid, pageTitle: title, uids: group }
-      : { kind: "blocks", uid, pageTitle: title });
+      ? { kind: "blocks", uid, pageTitle: title, uids: group, height }
+      : { kind: "blocks", uid, pageTitle: title, height });
   }, [ownsEditor, outline.readOnly, outline.selection, dnd, title]);
   // The tree hands this object to every row, so a fresh literal per render
   // would defeat EditableBlock's memo — one Journal day's worth of wasted
@@ -130,6 +136,15 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
           {outline.goodlinksNotice}
           <button type="button" className="btn-secondary"
                   onClick={outline.dismissGoodlinksNotice}>
+            Dismiss
+          </button>
+        </p>
+      )}
+      {ownsEditor && outline.depthNotice && (
+        <p className="editor-notice" role="status">
+          {outline.depthNotice}
+          <button type="button" className="btn-secondary"
+                  onClick={outline.dismissDepthNotice}>
             Dismiss
           </button>
         </p>

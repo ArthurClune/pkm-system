@@ -1101,3 +1101,44 @@ def test_bad_uid_refuses_before_sanitization_or_linked_file_work(
     assert report.read_text(encoding="utf-8") == "report-sentinel"
     assert not (out / "pkm.sqlite3.tmp").exists()
     assert not (out / "import-report.txt.tmp").exists()
+
+
+def test_import_refuses_an_export_deeper_than_the_outline_cap(
+    tmp_path, monkeypatch, capsys
+):
+    levels = 101
+    datoms = ['  [1 :node/title "Deep" 1]', "  [1 :block/children 2 1]"]
+    for level in range(1, levels + 1):
+        entity = level + 1
+        datoms += [
+            f'  [{entity} :block/uid "deep-{level:04d}" 1]',
+            f'  [{entity} :block/string "level {level}" 1]',
+            f"  [{entity} :block/order 0 1]",
+        ]
+        if level < levels:
+            datoms.append(f"  [{entity} :block/children {entity + 1} 1]")
+    raw = (
+        "#datascript/DB {:schema {:block/children "
+        "{:db/cardinality :db.cardinality/many}}\n :datoms [\n"
+        + "\n".join(datoms)
+        + "\n ]}"
+    )
+    export_file = _write_export(tmp_path, "deep.edn", raw)
+    out = tmp_path / "data"
+    out.mkdir()
+
+    def unexpected_work(*_args, **_kwargs):
+        raise AssertionError("depth refusal happened too late")
+
+    monkeypatch.setattr(run_module, "sanitize_export_titles", unexpected_work)
+
+    rc = main([str(export_file), "--out", str(out)])
+
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "error: import refused: block deep-0101 on 'Deep' sits 101 levels "
+        "deep; the limit is 100\n"
+    )
+    assert not (out / "pkm.sqlite3").exists()

@@ -453,7 +453,7 @@ describe("legacy repair of a rejected batch", () => {
         { length: 500 }, (_, i) => ({ op: "delete" as const, uid: uidOf(`tuid-bad-${i}`) }),
       ), ["page", sourceTitle]);
       dnd.drop(
-        { kind: "blocks", uid: uidOf("tuid-moved"), pageTitle: sourceTitle },
+        { kind: "blocks", height: 0, uid: uidOf("tuid-moved"), pageTitle: sourceTitle },
         { parent_uid: uidOf("target-root"), order_idx: orderIdxOf(1), page_title: targetTitle },
       );
 

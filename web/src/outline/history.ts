@@ -305,3 +305,20 @@ export function takeRedo(state: HistoryState):
     entry,
   };
 }
+
+/** Undoes a takeUndo ("undo") or takeRedo ("redo") of `entry` whose replay
+ * was refused: the entry leaves the other stack, if still there, and goes
+ * back on top of its own. An upload's take clears the redo stack, but
+ * its inverse places no blocks, so its replay is never refused and never
+ * reaches here. */
+export function restoreEntry(state: HistoryState, entry: HistoryEntry,
+                             kind: "undo" | "redo"): HistoryState {
+  const without = (stack: HistoryEntry[]): HistoryEntry[] => {
+    const at = stack.lastIndexOf(entry);
+    return at < 0 ? stack : [...stack.slice(0, at), ...stack.slice(at + 1)];
+  };
+  return kind === "undo"
+    ? { undo: [...state.undo, entry].slice(-HISTORY_CAP),
+        redo: without(state.redo) }
+    : { undo: without(state.undo), redo: [...state.redo, entry] };
+}

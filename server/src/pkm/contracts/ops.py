@@ -14,7 +14,7 @@ import hashlib
 import re
 import secrets
 from collections.abc import Iterable
-from typing import Annotated, Literal, NewType, Union
+from typing import Annotated, Final, Literal, NewType, Union
 
 from pydantic import Field
 from pkm.contracts.text import WellFormedModel, well_formed
@@ -136,6 +136,13 @@ brand(OrderIdx)
 # one per create, so a key this small can never carry it past int64.
 MAX_WIRE_ORDER_IDX = 2 ** 53 - 1
 WIRE_ORDER_IDX = Field(ge=0, le=MAX_WIRE_ORDER_IDX)
+
+# The deepest level a create or move may put a block at; a top-level block
+# is level 1. An outline 255 levels deep made the page, block and journal
+# reads answer 500 (pydantic-core's serialiser has a fixed recursion
+# guard), so ops_core.plan_op refuses the batch rather than let one be
+# built. shared/fixtures/outline_depth.json pins the web's copy equal.
+MAX_OUTLINE_DEPTH: Final = 100
 
 # A sidebar entry's order key (sidebar_entries.order_idx): the server
 # assigns it and clients reorder by array position, so it never meets block

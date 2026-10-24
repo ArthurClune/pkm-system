@@ -9,8 +9,9 @@ from datetime import datetime
 from typing import Union
 
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, CreatePageOp,
-                               DeleteOp, MoveOp, OpBatch, OrderIdx, PageId,
+from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockOp, BlockUid,
+                               CreateOp, CreatePageOp,
+                               DeleteOp, MoveOp, OpBatch, PageId,
                                SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
                                UpdateTextOp, new_uid)
 from pkm.contracts.responses import SkippedOp
@@ -89,6 +90,27 @@ def _block_info(db: Db, uid: BlockUid) -> BlockInfo | None:
     return BlockInfo(row["uid"], row["page_id"], row["parent_uid"])
 
 
+def _block_with_depth(db: Db,
+                      uid: BlockUid) -> tuple[BlockInfo | None, int]:
+    """The block and the level it sits at (1 at top level), in one query;
+    (None, 0) when it is gone. The level counts _parent_chain's walk, under
+    the same visited-path guard, and comes back as `n`."""
+    row = db.select_one(
+        """WITH RECURSIVE chain(uid, parent_uid, path) AS (
+              SELECT uid, parent_uid, ',' || uid || ',' FROM blocks
+               WHERE uid = ?
+              UNION ALL
+              SELECT b.uid, b.parent_uid, c.path || b.uid || ','
+                FROM chain c JOIN blocks b ON b.uid = c.parent_uid
+               WHERE instr(c.path, ',' || b.uid || ',') = 0
+            ) SELECT b.uid, b.page_id, b.parent_uid,
+                     (SELECT COUNT(*) FROM chain) AS n
+                FROM blocks b WHERE b.uid = ?""", (uid, uid))
+    if row is None:
+        return None, 0
+    return BlockInfo(row["uid"], row["page_id"], row["parent_uid"]), row["n"]
+
+
 def _block_rewrites(db: Db,
                     uid: BlockUid) -> tuple[BlockRewrite, ...]:
     """Every recorded rename/merge/delete rewrite of this block, newest
@@ -123,12 +145,14 @@ def _parent_chain(db: Db, uid: BlockUid) -> tuple[BlockUid, ...]:
     return tuple(r["uid"] for r in rows)
 
 
-def _subtree_deepest_first(db: Db,
-                           uid: BlockUid) -> tuple[BlockUid, ...]:
+def _subtree_with_height(db: Db, uid: BlockUid
+                         ) -> tuple[tuple[BlockUid, ...], int]:
     """uid and every descendant, deepest first (children before parents, as
-    DeleteBlocks and SetPageId both require). Same visited-path guard as
-    _parent_chain: a proper tree can't revisit a uid, so the guard only ever
-    fires on already-corrupted data, and otherwise traverses to full depth."""
+    DeleteBlocks and SetPageId both require), and the subtree's height: how
+    many levels its deepest block sits below uid, 0 for a leaf. Same
+    visited-path guard as _parent_chain: a proper tree can't revisit a uid,
+    so the guard only ever fires on already-corrupted data, and otherwise
+    traverses to full depth. Each row's depth comes back as `n`."""
     rows = db.select(
         """WITH RECURSIVE sub(uid, path, depth) AS (
               SELECT uid, ',' || uid || ',', 0 FROM blocks WHERE uid = ?
@@ -136,8 +160,14 @@ def _subtree_deepest_first(db: Db,
               SELECT b.uid, s.path || b.uid || ',', s.depth + 1
                 FROM sub s JOIN blocks b ON b.parent_uid = s.uid
                WHERE instr(s.path, ',' || b.uid || ',') = 0
-            ) SELECT uid FROM sub ORDER BY depth DESC""", (uid,))
-    return tuple(r["uid"] for r in rows)
+            ) SELECT uid, depth AS n FROM sub ORDER BY depth DESC""", (uid,))
+    return tuple(r["uid"] for r in rows), rows[0]["n"] if rows else 0
+
+
+def _subtree_deepest_first(db: Db,
+                           uid: BlockUid) -> tuple[BlockUid, ...]:
+    """uid and every descendant, deepest first (_subtree_with_height)."""
+    return _subtree_with_height(db, uid)[0]
 
 
 def _subtree_rows(db: Db,
@@ -166,15 +196,24 @@ def _subtree_rows(db: Db,
 
 
 def _conflict_header(db: Db, target_uid: BlockUid, day: str,
-                     daily_page_id: PageId
-                     ) -> tuple[BlockUid, OrderIdx] | None:
-    """(header_uid, next child order_idx) of today's conflict header for
-    target_uid, or None when there is none or the user has deleted it (or
-    moved it off the daily page) since it was recorded."""
+                     daily_page_id: PageId) -> ExistingHeader | None:
+    """Today's conflict header for target_uid, with the next child order_idx
+    under it and its level, or None when there is none or the user has
+    deleted it (or moved it off the daily page) since it was recorded. The
+    level is _parent_chain's walk counted, under the same visited-path
+    guard, in the query that finds the header (`n`)."""
     row = db.select_one(
-        "SELECT h.header_uid FROM conflict_headers h"
-        " JOIN blocks b ON b.uid = h.header_uid"
-        " WHERE h.target_uid = ? AND h.day = ? AND b.page_id = ?",
+        """WITH RECURSIVE chain(uid, parent_uid, path, header_uid) AS (
+              SELECT b.uid, b.parent_uid, ',' || b.uid || ',', b.uid
+                FROM conflict_headers h JOIN blocks b ON b.uid = h.header_uid
+               WHERE h.target_uid = ? AND h.day = ? AND b.page_id = ?
+              UNION ALL
+              SELECT b.uid, b.parent_uid, c.path || b.uid || ',',
+                     c.header_uid
+                FROM chain c JOIN blocks b ON b.uid = c.parent_uid
+               WHERE instr(c.path, ',' || b.uid || ',') = 0
+            ) SELECT header_uid, COUNT(*) AS n FROM chain
+               GROUP BY header_uid""",
         (target_uid, day, daily_page_id))
     if row is None:
         return None
@@ -182,7 +221,8 @@ def _conflict_header(db: Db, target_uid: BlockUid, day: str,
         "SELECT COALESCE(MAX(order_idx) + 1, 0) AS next_order_idx"
         " FROM blocks WHERE parent_uid = ?", (row["header_uid"],))
     assert next_idx is not None  # an aggregate always yields a row
-    return row["header_uid"], next_idx["next_order_idx"]
+    return ExistingHeader(row["header_uid"], next_idx["next_order_idx"],
+                          row["n"])
 
 
 def _conflict_landing(db: Db, target_uid: BlockUid,
@@ -195,8 +235,11 @@ def _conflict_landing(db: Db, target_uid: BlockUid,
 
     An existing header whose uid is in `exclude` is passed over for a fresh
     one: a delete passes the subtree it removes, and a header inside that
-    subtree would take the copies down with it. The fresh header is then
-    recorded in its place."""
+    subtree would take the copies down with it. So is one at
+    MAX_OUTLINE_DEPTH or deeper, whose entry would land past the cap: a
+    client can move an emptied header to exactly the cap, and only a
+    legacy row sits deeper. The fresh header is then recorded in its
+    place."""
     local_day = datetime.fromtimestamp(now_ms / 1000).date()
     day = title_for_date(local_day)
     daily_title = canonical_daily_title(local_day)
@@ -209,13 +252,13 @@ def _conflict_landing(db: Db, target_uid: BlockUid,
     assert next_top is not None  # an aggregate always yields a row
     idx = next_top["next_order_idx"]
     existing = _conflict_header(db, target_uid, day, daily_page_id)
-    if existing is not None and existing[0] in exclude:
+    if existing is not None and (existing.uid in exclude
+                                 or existing.level >= MAX_OUTLINE_DEPTH):
         existing = None
     # A fresh header uid is minted only when there's no existing header to
     # append under: minting one anyway would be a uid neither this apply nor
     # any later one ever uses. It is minted before the entry uid.
-    header = (FreshHeader(new_uid(), idx) if existing is None
-              else ExistingHeader(*existing))
+    header = FreshHeader(new_uid(), idx) if existing is None else existing
     return ConflictLanding(daily_page_id=daily_page_id, daily_title=daily_title,
                            entry_uid=new_uid(), header=header)
 
@@ -338,7 +381,13 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
     block = _block_info(db, op.uid)
     parent_uid = (op.parent_uid if isinstance(op, (CreateOp, MoveOp))
                   else None)
-    parent = _block_info(db, parent_uid) if parent_uid else None
+    if isinstance(op, CreateOp) and parent_uid:
+        # a create reads its parent's level in the query that reads the
+        # parent, so the depth cap costs it no extra query
+        parent, parent_depth = _block_with_depth(db, parent_uid)
+    else:
+        parent = _block_info(db, parent_uid) if parent_uid else None
+        parent_depth = 0
     # a move's target chain: what classify_skip's cycle test reads
     chain = (_parent_chain(db, parent.uid)
              if isinstance(op, MoveOp) and block is not None
@@ -360,15 +409,19 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
         # page. It places only a top-level create.
         page_id = (parent.page_id if parent is not None
                    else _resolve_page(db, op.page_title, now_ms)["page_id"])
-        return CreateContext(uid_taken=block is not None, page_id=page_id)
+        return CreateContext(uid_taken=block is not None, page_id=page_id,
+                             depth=parent_depth + 1)
     assert block is not None  # classify_skip covered its absence
     if isinstance(op, MoveOp):
         # same rule as create: page_title places only a top-level move
         page_id = (_resolve_page(db, op.page_title, now_ms)["page_id"]
                    if op.page_title is not None and parent is None
                    else None)
-        return MoveContext(block, parent, page_id,
-                           _subtree_deepest_first(db, op.uid))
+        subtree, height = _subtree_with_height(db, op.uid)
+        # the target chain runs from the parent up, so its length is the
+        # parent's level; a top-level move's is empty
+        return MoveContext(block, parent, page_id, subtree,
+                           deepest=len(chain) + 1 + height)
     if isinstance(op, DeleteOp):
         if op.base_subtree_hash is None:
             return DeleteContext(block, _subtree_deepest_first(db, op.uid))

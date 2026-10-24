@@ -18,6 +18,7 @@ import {
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
+import { DEPTH_NOTICE } from "../outline/depthCap";
 import { resetHistory } from "../outline/undoManager";
 import { EditablePage } from "./EditablePage";
 
@@ -1118,4 +1119,27 @@ test("once the first instance unmounts, a freshly mounted one becomes editable a
     </MemoryRouter>);
   fireEvent.click(screen.getByText("first"));
   expect(screen.getByRole("textbox")).toBeInTheDocument();
+});
+
+test("Tab past the depth cap shows the depth notice, which dismisses", () => {
+  stubFetch([]);
+  // d1 > ... > d99 > [d100a, d100b]: Tab on d100b would put it at level 101
+  let node = block("tuid-d99", "d99", { children: [
+    block("tuid-d100a", "d100a", { order_idx: orderIdxOf(0) }),
+    block("tuid-d100b", "d100b", { order_idx: orderIdxOf(1) }),
+  ] });
+  for (let level = 98; level >= 1; level--) {
+    node = block(`tuid-d${level}`, `d${level}`, { children: [node] });
+  }
+  const sync = mount(makeSync(), [node]);
+  const ta = focusBlock("d100b");
+  fireEvent.keyDown(ta, { key: "Tab" });
+
+  expect(sync.sent).toEqual([]);
+  const notice = screen.getByText(DEPTH_NOTICE);
+  expect(notice).toHaveAttribute("role", "status");
+  expect(notice).toHaveClass("editor-notice");
+
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+  expect(screen.queryByText(DEPTH_NOTICE)).toBeNull();
 });

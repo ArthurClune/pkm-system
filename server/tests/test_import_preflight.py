@@ -2,12 +2,13 @@ import pytest
 
 from pkm.edn import parse_edn
 from pkm.importer.parse_export import Block, Export, Page, parse_export
-from pkm.importer.preflight import (ImportStructureError, ImportUidError,
+from pkm.importer.preflight import (ImportDepthError, ImportStructureError,
+                                    ImportUidError, validate_export_depth,
                                     validate_export_structure,
                                     validate_export_uids)
 from pkm.importer.rows import RECOVERY_PAGE_TITLE
 from pkm.test_data.ids import malformed_uid, raw_title_of, uid_of
-from pkm.contracts.ops import BlockUid
+from pkm.contracts.ops import MAX_OUTLINE_DEPTH, BlockUid
 
 
 def _block(uid: BlockUid, children: tuple[Block, ...] = ()) -> Block:
@@ -202,3 +203,52 @@ def test_validate_export_uids_refuses_a_non_string_uid_instead_of_crashing():
     (bad,) = exc_info.value.invalid
     assert bad.uid == 123456  # the raw EDN value, not coerced to a string
     assert bad.page_title == "Tree"
+
+
+def _chain(levels: int) -> Block:
+    """A single-child chain `levels` deep, built bottom-up (no recursion)."""
+    block = _block(uid_of(f"level-{levels}"))
+    for level in range(levels - 1, 0, -1):
+        block = _block(uid_of(f"level-{level}"), (block,))
+    return block
+
+
+def test_an_export_at_the_depth_cap_passes():
+    export = _export(pages=(_page("A", (_chain(MAX_OUTLINE_DEPTH),)),))
+
+    validate_export_depth(export)
+
+
+def test_an_export_past_the_cap_is_refused_naming_the_block():
+    export = _export(pages=(_page("A", (_chain(MAX_OUTLINE_DEPTH + 1),)),))
+
+    with pytest.raises(ImportDepthError) as raised:
+        validate_export_depth(export)
+
+    error = raised.value
+    assert error.uid == uid_of(f"level-{MAX_OUTLINE_DEPTH + 1}")
+    assert error.page_title == raw_title_of("A")
+    assert error.depth == MAX_OUTLINE_DEPTH + 1
+    assert str(error) == (
+        f"block {error.uid} on 'A' sits {MAX_OUTLINE_DEPTH + 1} levels deep; "
+        f"the limit is {MAX_OUTLINE_DEPTH}"
+    )
+
+
+def test_an_orphan_subtree_counts_from_the_recovery_page_top_level():
+    export = _export(orphans=(_chain(MAX_OUTLINE_DEPTH + 1),))
+
+    with pytest.raises(ImportDepthError) as raised:
+        validate_export_depth(export)
+
+    assert raised.value.page_title == RECOVERY_PAGE_TITLE
+    assert raised.value.depth == MAX_OUTLINE_DEPTH + 1
+
+
+def test_depth_check_is_iterative():
+    export = _export(pages=(_page("A", (_chain(5000),)),))
+
+    with pytest.raises(ImportDepthError) as raised:
+        validate_export_depth(export)
+
+    assert raised.value.depth == MAX_OUTLINE_DEPTH + 1

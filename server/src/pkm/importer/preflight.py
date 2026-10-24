@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from pkm.contracts.ops import BlockUid, UID_RE
+from pkm.contracts.ops import MAX_OUTLINE_DEPTH, BlockUid, UID_RE
 from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.importer.parse_export import Block, Export
 from pkm.importer.rows import RECOVERY_PAGE_TITLE
@@ -127,3 +127,43 @@ def validate_export_uids(export: Export) -> None:
 
     if invalid:
         raise ImportUidError(tuple(invalid))
+
+
+class ImportDepthError(ValueError):
+    """Refuses the whole import: a block sits deeper than the outline depth
+    cap the server enforces on every write. A top-level block is depth 1."""
+
+    uid: BlockUid
+    page_title: RawTitle
+    depth: int
+
+    def __init__(
+        self, uid: BlockUid, page_title: RawTitle, depth: int, max_depth: int
+    ) -> None:
+        self.uid = uid
+        self.page_title = page_title
+        self.depth = depth
+        super().__init__(
+            f"block {uid} on {page_title!r} sits {depth} levels deep; "
+            f"the limit is {max_depth}"
+        )
+
+
+def validate_export_depth(
+    export: Export, max_depth: int = MAX_OUTLINE_DEPTH
+) -> None:
+    """Reject the whole import at the first block, in document order, deeper
+    than max_depth. Orphan subtrees count from the top level of
+    RECOVERY_PAGE_TITLE, where to_rows lands them. Walks with an explicit
+    stack: an over-deep chain is the input this check exists to survive."""
+    roots: list[tuple[RawTitle, tuple[Block, ...]]] = [
+        (as_raw_title(page.title), page.children) for page in export.pages
+    ]
+    roots.append((as_raw_title(RECOVERY_PAGE_TITLE), export.orphan_blocks))
+    for page_title, top_level in roots:
+        stack = [(block, 1) for block in reversed(top_level)]
+        while stack:
+            block, depth = stack.pop()
+            if depth > max_depth:
+                raise ImportDepthError(block.uid, page_title, depth, max_depth)
+            stack.extend((child, depth + 1) for child in reversed(block.children))

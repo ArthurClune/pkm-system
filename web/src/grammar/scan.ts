@@ -1,9 +1,10 @@
 // pattern: Functional Core
 // The single shared scanner for reference and TODO grammar. Every consumer
 // (tokenize.ts rendering, grammar/refs.ts + replica/refs.ts extraction,
-// outline/refAtCaret.ts caret lookup, grammar/todo.ts toggling, and
-// outline/slashCommands.ts via the todo helpers) derives its behavior from
-// this token stream instead of keeping a private scan.
+// outline/refAtCaret.ts caret lookup, grammar/todo.ts toggling,
+// outline/slashCommands.ts via the todo helpers, and grammar/textLimits.ts
+// via linkNestingDepth) derives its behavior from this token stream, or the
+// bracket pairs beneath it, instead of keeping a private scan.
 //
 // Canonical rules (mirroring server/src/pkm/refs.py, pinned by
 // shared/fixtures/ref_grammar.json):
@@ -231,11 +232,11 @@ function holdsBacktick(ticks: number[], start: number, end: number): boolean {
   return lo < ticks.length && ticks[lo] < end;
 }
 
-/** Convert matched pairs into page-ref tokens: pre-order (outer before
- * children), depth/parent counted over MATCHED ancestors only, and a tag's
- * span extended to include its leading #. */
-function pageRefTokens(clean: string, pairs: BracketPair[]): GrammarToken[] {
-  pairs.sort((a, b) => a.open - b.open);
+/** Convert matched pairs, sorted by open, into page-ref tokens: pre-order
+ * (outer before children), depth/parent counted over MATCHED ancestors
+ * only, and a tag's span extended to include its leading #. */
+function pageRefTokens(clean: string, pairs: readonly BracketPair[],
+): GrammarToken[] {
   const tokens: GrammarToken[] = [];
   const ancestors: { start: number; close: number }[] = [];
   for (const p of pairs) {
@@ -317,8 +318,48 @@ function validate(tokens: GrammarToken[], length: number): void {
   }
 }
 
-export function scanGrammar(text: string): { tokens: readonly GrammarToken[] } {
+interface BracketScan {
+  codeTokens: GrammarToken[];
+  clean: string;      // the text with every code range blanked
+  ticks: number[];    // backtickPositions of the text as written
+  pairs: BracketPair[];
+}
+
+/** The code pass and the `[[...]]` runs over what it leaves, as refs.py
+ * _bracket_pairs reports them: a pair whose title as written holds a
+ * backtick is dropped before nesting is counted, and the rest are sorted by
+ * open. scanGrammar builds its tokens from this, and linkNestingDepth
+ * measures it, so the two cannot disagree on which runs exist. */
+function scanBrackets(text: string): BracketScan {
   const { codeTokens, clean } = scanCode(text);
+  const ticks = backtickPositions(text);
+  const pairs = matchBracketPairs(clean)
+    .filter((p) => !holdsBacktick(ticks, p.open + 2, p.close - 2))
+    .sort((a, b) => a.open - b.open);
+  return { codeTokens, clean, ticks, pairs };
+}
+
+/** How deep `text`'s `[[...]]` runs nest: one more than the deepest
+ * page-ref token scanGrammar reports, 0 when it has none. A walk over the
+ * sorted pairs with a stack of enclosing closes, so a nest hundreds of
+ * thousands deep is measured without recursion and without building tokens.
+ * Mirrors refs.py link_nesting_depth, pinned equal by
+ * shared/fixtures/text_limits_parity.json. */
+export function linkNestingDepth(text: string): number {
+  const closes: number[] = []; // close offsets of the pairs enclosing this one
+  let deepest = 0;
+  for (const p of scanBrackets(text).pairs) {
+    while (closes.length > 0 && p.open >= closes[closes.length - 1]) {
+      closes.pop();
+    }
+    closes.push(p.close);
+    deepest = Math.max(deepest, closes.length);
+  }
+  return deepest;
+}
+
+export function scanGrammar(text: string): { tokens: readonly GrammarToken[] } {
+  const { codeTokens, clean, ticks, pairs } = scanBrackets(text);
   const tokens: GrammarToken[] = [...codeTokens];
 
   const todo = TODO_RE.exec(text); // marker chars can never be code
@@ -335,7 +376,6 @@ export function scanGrammar(text: string): { tokens: readonly GrammarToken[] } {
 
   ATTRIBUTE_RE.lastIndex = clean.length - stripStartLikePython(clean).length;
   const attr = ATTRIBUTE_RE.exec(clean);
-  const ticks = backtickPositions(text);
   if (attr) {
     const end = ATTRIBUTE_RE.lastIndex;
     const start = end - 2 - attr[1].length;
@@ -346,9 +386,6 @@ export function scanGrammar(text: string): { tokens: readonly GrammarToken[] } {
   }
 
   tokens.push(...scanFlatTokens(clean));
-  // Dropped before nesting is counted, as refs.py bracket_spans does.
-  const pairs = matchBracketPairs(clean).filter(
-    (p) => !holdsBacktick(ticks, p.open + 2, p.close - 2));
   tokens.push(...pageRefTokens(clean, pairs));
 
   // Source order; on a shared start the wider (outer) token comes first.

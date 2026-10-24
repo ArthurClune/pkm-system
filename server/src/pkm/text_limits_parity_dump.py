@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from collections.abc import Callable, Iterable
 from typing import TypedDict
 
@@ -65,6 +66,23 @@ CASES: list[HandCase] = [
      "parts": [("[[a`", 40), ("x", 1), ("]]", 40)]},
     {"name": "stray_closers", "parts": [("]]", 100), ("[[a]]", 1)]},
     {"name": "side_by_side", "parts": [("[[x]] ", 500)]},
+    # The character after ``` decides opener or closer; only an ASCII word
+    # character makes an opener, whatever either side's Unicode table says.
+    {"name": "ascii_letter_after_fence_opens_one",
+     "parts": [("```\n", 1), *_nest(40), ("```x", 1)]},
+    {"name": "latin_letter_after_closer_hides_a_nest",
+     "parts": [("```\n", 1), *_nest(40), ("```\u00e9", 1)]},
+    {"name": "latin_letter_after_closer_exposes_a_nest",
+     "parts": [("```\nx```\u00e9", 1), *_nest(40), ("```", 1)]},
+    {"name": "astral_letter_after_closer_hides_a_nest",
+     "parts": [("```\n", 1), *_nest(40), ("```\U0001d400", 1)]},
+    {"name": "astral_letter_after_closer_exposes_a_nest",
+     "parts": [("```\nx```\U0001d400", 1), *_nest(40), ("```", 1)]},
+    # U+A7CB is a letter from Unicode 16, which Python 3.12's table lacks.
+    {"name": "unicode_16_letter_after_closer_hides_a_nest",
+     "parts": [("```\n", 1), *_nest(40), ("```\ua7cb", 1)]},
+    {"name": "unicode_16_letter_after_closer_exposes_a_nest",
+     "parts": [("```\nx```\ua7cb", 1), *_nest(40), ("```", 1)]},
 ]
 
 
@@ -76,9 +94,11 @@ GENERATED_SEED = 20261024
 GENERATED_COUNT = 400
 
 # The token alphabet of test_text_limits' properties, with the run tokens
-# repeated so draws nest.
+# repeated so draws nest. The non-ASCII tokens reach the one place the two
+# sides could disagree: whether the character after ``` closes a fence.
 _PIECES = ["[[", "[[", "[[", "]]", "]]", "]]", "[", "]", "`", "```", "\n",
-           "#", "a", "a//", " "]
+           "#", "a", "a//", " ", "```\U0001d400", "```\ua7cb", "```\u00e9",
+           "\U0001f600", "\ud800"]
 
 
 def generated_cases(
@@ -125,6 +145,8 @@ SHAPES: dict[str, Callable[[str], bool]] = {
     "stray closer": lambda t: strip_code(t).count("]]")
     > strip_code(t).count("[["),
     "triple bracket": lambda t: "[[[" in t or "]]]" in t,
+    "fence closer followed by non-ASCII": lambda t: bool(
+        re.search(r"```[^\x00-\x7f]", t)),
 }
 
 

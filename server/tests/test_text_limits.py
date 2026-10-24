@@ -82,7 +82,8 @@ def test_describe_strings():
 
 # --- properties -----------------------------------------------------------
 
-_TOKENS = ["[[", "]]", "[", "]", "`", "```", "\n", "#", "a", "a//", " "]
+_TOKENS = ["[[", "]]", "[", "]", "`", "```", "\n", "#", "a", "a//", " ",
+           "```\U0001d400", "```\ua7cb", "```\u00e9", "\U0001f600", "\ud800"]
 
 
 @st.composite
@@ -109,6 +110,11 @@ def _tree_height(spans: tuple[BracketSpan, ...]) -> int:
 @settings(max_examples=500, deadline=None)
 @given(_texts())
 def test_depth_matches_the_bracket_span_tree(text):
+    """The stack walk against the height of the span tree. Both read the
+    pairs `refs._bracket_pairs` makes, so this checks the walk, not the
+    pairing: the pairing (and code stripping) is checked against an
+    independent implementation only when the web replays
+    shared/fixtures/text_limits_parity.json."""
     depth = link_nesting_depth(text)
     event("deep" if depth > MAX_LINK_NESTING else "shallow")
     assert depth == _tree_height(bracket_spans(strip_code(text), text))

@@ -376,1608 +376,1824 @@
       "code_points": 3000,
       "nesting_depth": 1,
       "violation": null
+    },
+    {
+      "name": "ascii_letter_after_fence_opens_one",
+      "parts": [
+        [
+          "```\n",
+          1
+        ],
+        [
+          "[[a//",
+          40
+        ],
+        [
+          "x",
+          1
+        ],
+        [
+          "]]",
+          40
+        ],
+        [
+          "```x",
+          1
+        ]
+      ],
+      "code_points": 289,
+      "nesting_depth": 40,
+      "violation": {
+        "kind": "nesting",
+        "measured": 40,
+        "limit": 32,
+        "describe": "[[ nested 40 levels deep is over the limit of 32"
+      }
+    },
+    {
+      "name": "latin_letter_after_closer_hides_a_nest",
+      "parts": [
+        [
+          "```\n",
+          1
+        ],
+        [
+          "[[a//",
+          40
+        ],
+        [
+          "x",
+          1
+        ],
+        [
+          "]]",
+          40
+        ],
+        [
+          "```\u00e9",
+          1
+        ]
+      ],
+      "code_points": 289,
+      "nesting_depth": 0,
+      "violation": null
+    },
+    {
+      "name": "latin_letter_after_closer_exposes_a_nest",
+      "parts": [
+        [
+          "```\nx```\u00e9",
+          1
+        ],
+        [
+          "[[a//",
+          40
+        ],
+        [
+          "x",
+          1
+        ],
+        [
+          "]]",
+          40
+        ],
+        [
+          "```",
+          1
+        ]
+      ],
+      "code_points": 293,
+      "nesting_depth": 40,
+      "violation": {
+        "kind": "nesting",
+        "measured": 40,
+        "limit": 32,
+        "describe": "[[ nested 40 levels deep is over the limit of 32"
+      }
+    },
+    {
+      "name": "astral_letter_after_closer_hides_a_nest",
+      "parts": [
+        [
+          "```\n",
+          1
+        ],
+        [
+          "[[a//",
+          40
+        ],
+        [
+          "x",
+          1
+        ],
+        [
+          "]]",
+          40
+        ],
+        [
+          "```\ud835\udc00",
+          1
+        ]
+      ],
+      "code_points": 289,
+      "nesting_depth": 0,
+      "violation": null
+    },
+    {
+      "name": "astral_letter_after_closer_exposes_a_nest",
+      "parts": [
+        [
+          "```\nx```\ud835\udc00",
+          1
+        ],
+        [
+          "[[a//",
+          40
+        ],
+        [
+          "x",
+          1
+        ],
+        [
+          "]]",
+          40
+        ],
+        [
+          "```",
+          1
+        ]
+      ],
+      "code_points": 293,
+      "nesting_depth": 40,
+      "violation": {
+        "kind": "nesting",
+        "measured": 40,
+        "limit": 32,
+        "describe": "[[ nested 40 levels deep is over the limit of 32"
+      }
+    },
+    {
+      "name": "unicode_16_letter_after_closer_hides_a_nest",
+      "parts": [
+        [
+          "```\n",
+          1
+        ],
+        [
+          "[[a//",
+          40
+        ],
+        [
+          "x",
+          1
+        ],
+        [
+          "]]",
+          40
+        ],
+        [
+          "```\ua7cb",
+          1
+        ]
+      ],
+      "code_points": 289,
+      "nesting_depth": 0,
+      "violation": null
+    },
+    {
+      "name": "unicode_16_letter_after_closer_exposes_a_nest",
+      "parts": [
+        [
+          "```\nx```\ua7cb",
+          1
+        ],
+        [
+          "[[a//",
+          40
+        ],
+        [
+          "x",
+          1
+        ],
+        [
+          "]]",
+          40
+        ],
+        [
+          "```",
+          1
+        ]
+      ],
+      "code_points": 293,
+      "nesting_depth": 40,
+      "violation": {
+        "kind": "nesting",
+        "measured": 40,
+        "limit": 32,
+        "describe": "[[ nested 40 levels deep is over the limit of 32"
+      }
     }
   ],
   "generated": [
     {
-      "text": "]]\n[[[[[[]]]]]]`a//a[[#\n",
-      "nesting_depth": 3
-    },
-    {
-      "text": " `a// \n```` ]][[[[[[[[[a[[]]]]]]] ]```a//]]]]]]]]]][[a//[[a//",
-      "nesting_depth": 3
-    },
-    {
-      "text": "a//]]#`[[[[[[]]]]  [[]]]]\n```[[",
-      "nesting_depth": 3
-    },
-    {
-      "text": "][[a// [[[]][[]]#[[#[[#[[[[`[[\n]]]]]][[]]###]][[[[`[[[[[]]a//a//",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[]#`[[[[[[[[]]#[`]]]]]]\n]]]]",
+      "text": "```[[[[[[[[```\ua7cb]]]]]]```\u00e9",
       "nesting_depth": 0
     },
     {
-      "text": "[[``[[\na\n\na[```]]]]a[[ ]]a//#a[[\n``\n`[",
-      "nesting_depth": 1
+      "text": "```\ua7cb\ud800#a```\ua7cb]]]]```\ud835\udc00a//```\ud835\udc00\ud83d\ude00``#\n```a//",
+      "nesting_depth": 0
     },
     {
-      "text": "`]]][]][[[[[[[[[[a//#][]]]]]]]]]]#]]]][",
+      "text": "```\ua7cb]]]]`[[#]\ud83d\ude00[[```\n [[a",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\ud835\udc00```\u00e9]]```\u00e9[[```\ud835\udc00]]#][[[[```\ua7cb[[a//[[```\ua7cb]][[ ```\ua7cb]]\ud800",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\u00e9]]]```]]][[```\u00e9```\u00e9]] a//```\u00e9[[a//````]][]]```\ua7cb```\u00e9```\u00e9a",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\ua7cb```\ud835\udc00]a\n[[[[[[[[[[ a]]#]]]]]]]]]]a##````\u00e9\n```]]",
       "nesting_depth": 5
     },
     {
-      "text": "]]`]]\n]][[]]#a]]aa//`#`\n#[[a// #[[]]a//][a[[#",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[]]][[]] [[[]]a//]][[#[[#[[[[[[`[[[[[][\n#]`]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "`a[]]]]]]]]a//]][[```#[[#[[#[[]]]```]]]]]]]]][[\n",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]a//[[#a//\n`[]][[[[[[[[a//[[a//[[a//[[a//[[a//]]]]]]]]]][[[[\n]]#aa//]]\n]]]] a]][[]]`[]]]]",
-      "nesting_depth": 8
-    },
-    {
-      "text": "[[```\n]]]]a```[[\n\n```]]][[`",
+      "text": "```\ua7cb```\u00e9[[[[[```\ud835\udc00a",
       "nesting_depth": 0
     },
     {
-      "text": "]][[```]][[[[#]]]]`[[]]\n# a//````````]]a//#]][[[[[[",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]]]]#\n[[[[]]]]\n]a//][[[a#````[[[[aa```[[`\n `#\n]]a//",
-      "nesting_depth": 2
-    },
-    {
-      "text": "aa//]]]]a]]`\n`]]#[[`]]][[\n]][[]] [[a//]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]a``]]#a//[[aa]]a//]]a```]][[[[[[[[[[]]]]]]]]]]]]]]a]]```]] ```[[`[[]]```````",
-      "nesting_depth": 1
-    },
-    {
-      "text": " ]]\n[[[[[[a]]]]]]]\n[```\n[[]]\n[]```\n\n]]",
+      "text": "] #[[#[[#[[]]]]]]a//]]#`[[]]] ]]",
       "nesting_depth": 3
     },
     {
-      "text": "[[]]]]\n]][[]][[```]]`]]\n#[[a//]a]]a]][[[##a//[[]]a//a//a[[ ]]",
+      "text": "[[[[a//```\ud835\udc00a ```\u00e9#```\ua7cba//#```\ua7cba//]##]]]\ud83d\ude00# \ud800]]````\ud835\udc00[[\ud800a```]]```\ua7cba",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]]][[\n]`[\n[[]```\ua7cba//``````]\n][[\ud800##",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\ud83d\ude00[[a//[[a//[[a//`]]]]]][[```\ua7cb[[]][[[\ud83d\ude00\ud83d\ude00[[[[[```[```\ua7cb",
       "nesting_depth": 1
     },
     {
-      "text": "a//[[ ]][[```]]`]][[][#[[#[[#[[#[[#[[]]]]]]]]]]]]]]]]]]",
-      "nesting_depth": 6
+      "text": "```\u00e9\ud83d\ude00\ud83d\ude00```\u00e9```#]][[[[[``````\ua7cb\n`]]]]`[```\ud835\udc00```\ud835\udc00[[[[```\ua7cb```\u00e9]]]]\ud83d\ude00]]```\ua7cb```\u00e9`\n\n\n][[```\u00e9```\ua7cb#````\u00e9",
+      "nesting_depth": 0
     },
     {
-      "text": "\n[[a//[[a//[[a// ```\na//]]]]]]```a//a//]]]]a```[[[[]]\n#`[[[[[[\n]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[]][[]][[] ]]a[[[[[[]]\n]a//[[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "```a[]]`]][[]`]][[]a`[[]]]]a//\n]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a#[[#[[]]]]][[[`[",
+      "text": "]#[[#[[]]]]]]`]]```\ua7cb````\ua7cb```\ua7cb[]]",
       "nesting_depth": 2
     },
     {
-      "text": " ```\n \n[[[ ]][[ a//\n```\n[[ ```\n",
+      "text": "`]]```\ua7cb``\n\ud800  \ud800]]```\u00e9[[``````\u00e9\ud83d\ude00\ud83d\ude00a//#[[]]]]]] ` a//a//\ud800",
       "nesting_depth": 0
     },
     {
-      "text": "]]`]] ]][[]]]]a//#]]]]`[[``]]]]a//a// ]][[##\n]]]]a//a]]]][[[ \n",
-      "nesting_depth": 1
-    },
-    {
-      "text": "\n#]]]]\naa//```[[```]]`]]]][[[[[[[[[[a[]]]]]]]]]]]][[[[```\n[]][[```",
+      "text": "a//```\ud835\udc00\ud83d\ude00]``````\u00e9 [[[[#[[[[[[[[[[]]]]]]]]]][[\ud83d\ude00#```\u00e9##```\ud835\udc00",
       "nesting_depth": 0
     },
     {
-      "text": "a//]]]]`[[\n[[[`a//a//[#[[#[[#[[a]]]]a//]]]]]][[[[[][```[[]][[\n]][[]][[[[[[\n",
+      "text": "[[a//]]]]]`#a]]```#[[#[[#[[#[[#[[\ud800]]]]]]]]]]```\ua7cb```[[ a//[[]]]# ",
+      "nesting_depth": 5
+    },
+    {
+      "text": "```\u00e9[[```\u00e9\ud83d\ude00\ud800\ud83d\ude00```\ud835\udc00] \ud800[[]]\n```\u00e9]]]]]]#]]`a//```[[[[ ]`[[]]]]]]",
       "nesting_depth": 1
     },
     {
-      "text": "]][[]]a[[[]#]]]] `]][[\n\n]]]]`aa//[[\n```[[",
+      "text": "```[[ \ud83d\ude00a//#[[#[[#[[#[[#[[```\u00e9]]]]]]]]]][[ ```\ua7cb```[[ ```\ua7cb",
+      "nesting_depth": 0
+    },
+    {
+      "text": "``` \n[[[[]]```\ud835\udc00]]a//```\u00e9]][[[[]```\ua7cba//[[`]]\ud83d\ude00[[\ud83d\ude00`[ \n```\ua7cb`\n[[#",
+      "nesting_depth": 0
+    },
+    {
+      "text": " ]```\u00e9````\ua7cb```\ua7cb  ][[```]```#]```\ud835\udc00``````\ud800]]\ud83d\ude00]```\ua7cb```\ud835\udc00]```\ud835\udc00#",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]]]\ud800a//`]]#[[#[[\ud83d\ude00#a\n]]]]```\ua7cb]]a//]]```\u00e9a```\u00e9#[\ud83d\ude00",
+      "nesting_depth": 2
+    },
+    {
+      "text": " a\ud83d\ude00[[```\ud835\udc00 ]]```[[`[[]][[\n```]]`]]a  [```\ud835\udc00[```\ua7cba//",
       "nesting_depth": 1
     },
     {
-      "text": " ][[a//[[[[a//[[a//[[a//[[a//[[a//[]]]]]]]]]]]]]]]a//```] ```]]",
+      "text": "`\n```\u00e9]]\ud800]]]]```\ud835\udc00[[[[]]a//```[ \n\ud83d\ude00 \ud800][[a//\ud83d\ude00]]a//```\u00e9[[#\ud800```\u00e9[[[[][[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "#```\u00e9``` ```\ud835\udc00```\ua7cb]]\ud800] [[```\ua7cb```a//] ```[[[[```\ud835\udc00]]]]\ud83d\ude00```\u00e9a//a#\n```a[[```\ua7cb",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\ud83d\ude00```\n]]```\ud835\udc00a//]]```\ua7cb```\ud835\udc00```\ua7cb\ud800#\ud800[[]]\n\ud800#[[#[[#[[#[[#[[]]]]]]]]]]]]\ud800 ```\ud835\udc00`[[[[]][[[]```\u00e9```\ud835\udc00[[```\u00e9a] ]][[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "````\u00e9 \ud800```\ua7cb]\n]```\u00e9a//[[a```\ud835\udc00]]```\ua7cb\ud800 ```\ua7cb``\ud800#\ud83d\ude00[[```\ua7cb",
+      "nesting_depth": 0
+    },
+    {
+      "text": " #`\ud83d\ude00]]\na//]]]]a//[[[[ [[]]```#]]a#",
+      "nesting_depth": 1
+    },
+    {
+      "text": " [[```##]\ud800\na```\ua7cb```\ua7cb[[[[[[[[[[```\u00e9]]]]]]]]]]]][[```\u00e9][[]]]][[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]\na[[#[[#[[\ud800a]]]]#```\ua7cb\ud800a]a\n a[[a//# ```\ud835\udc00",
+      "nesting_depth": 2
+    },
+    {
+      "text": "] [[a//[[a//]]]]````\ud835\udc00\n]][a]]```\ua7cb[]]```\ud835\udc00\n`]]]]",
+      "nesting_depth": 2
+    },
+    {
+      "text": "```\ua7cb\na//[```a\ud83d\ude00 a//`\ud83d\ude00]]]\ud800```\ua7cb\ud800 ```\ud835\udc00][[]]]```\ud835\udc00\ud83d\ude00[[[]a[[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "a[[\n[]```\ud835\udc00\n```\ud835\udc00```\u00e9``` ]```\ua7cb```\ua7cb[[[[a//[[a//[[```]]]]]]] ]]]]a a//\ud83d\ude00",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\ud83d\ude00a// ```\u00e9[[[[a//[[a//[[a//```]]]]]]]]]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "`[[]][[]```\u00e9```[[]\ud800```\ua7cb`[[\ud800[[]]]][[a//[[a//```\u00e9```]]\n]]]]```\ud835\udc00]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]#\ud83d\ude00 ```\ua7cb]```]]#\ud83d\ude00\ud83d\ude00]]#```\ua7cb```]]a[[[[a```\u00e9[[a//]]]][[a//[[aa//]]]]]]]```\ua7cb]]]]\ud800]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\ud835\udc00```]a]]```[[\na//\n[`",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\ud83d\ude00#a//#\ud800[[```a//[[]]  [[[#[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\ud83d\ude00\ud83d\ude00```\ua7cb\ud800\n] a//```\ud835\udc00```\u00e9[[]]a[[[[[[]]]]]]]]```[[[#```\u00e9]]]]]]```\ud835\udc00a//```\u00e9[[```[[a",
+      "nesting_depth": 0
+    },
+    {
+      "text": "`]`[[[[ ]]```\ua7cb[\ud800[[a//```\ud835\udc00\ud800[[#[[]]]][[a//[[a//[[a//[[a//[[a//```\ua7cb]]]]]]]]]][a```\ud835\udc00a]]#[[```\ua7cb]]]```\ua7cb[[[a```\ud835\udc00",
+      "nesting_depth": 2
+    },
+    {
+      "text": "]]]][[ [[a//]``````\u00e9a[[[[```]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "a//# ````\n```]`[[[[[[```\u00e9]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]] ]` #]]][[```\u00e9[[\ud83d\ude00][[\ud83d\ude00]][[[[```\u00e9#[[a//[[a//[[a//[[a//[[a//#[[[[```]]]]]]]]]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\ud800[[[[```\ud83d\ude00``````\ud835\udc00\ud800a//[[[a```\u00e9```]]```\ua7cb#[[#[[#[[[[[[]]]]]]```\ud835\udc00]]``````\u00e9]]a```\ud835\udc00",
+      "nesting_depth": 3
+    },
+    {
+      "text": "a//[[\ud83d\ude00\n```[[[[[[a//]]]]]]```\ud835\udc00```\ua7cb",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]`  ```]][```\ua7cb[[\ud800```\u00e9[[\ud83d\ude00[[```\ua7cb ][]]```\u00e9a//`]] \n\n]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\ud835\udc00```a//a//]][[[[[[```[[]]]]]]`]] ```\ua7cbaa//#[[]`[`[[]]a\ud83d\ude00",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]]```\ud83d\ude00`  ]]\n\n\ud800]]]][[a//[[a//]]]]]```\ud835\udc00]]```\u00e9```\u00e9```\ua7cb```[a//\ud83d\ude00[\ud800[[]]\ud83d\ude00]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\ud835\udc00\ud83d\ude00```\u00e9```\ua7cb```\ua7cb[[a//#]#[[a[[[[]]`[[][]]\na//[[]]]]]]]]```\ud835\udc00[[```\ud835\udc00\n[[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[a// ]]]][[ ]]#``` ]]`\ud800]]\ud83d\ude00[[\ud800]]```\ua7cba//[[```\u00e9]]a [[ a// \ud800\ud800```\ud800",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\n]]```\u00e9 ]][[]]]]#```[[[[[[[[[[[[]][[```]]]]]]]]]][[]]][\ud83d\ude00```\ua7cba//```\ud835\udc00 ```\ua7cb]][[]][[\ud83d\ude00]]\n[[\ud83d\ude00",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\ud83d\ude00\ud83d\ude00]][a```\ud835\udc00[[a//\ud800a[]] [[\ud800a```\ua7cb [[a//[[a//[[a//#]]]]]]]][[[]][]] a[[a//a[[",
+      "nesting_depth": 3
+    },
+    {
+      "text": "\n[[a//#a//[ ```\u00e9```[[a//```\ua7cb```\ud835\udc00[[\ud83d\ude00\ud83d\ude00]][[```\u00e9a//",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\ud835\udc00\ud83d\ude00\ud800```\ud835\udc00[[```\u00e9 ]]```\ua7cb\ud800[[```\ua7cb[[[[[[[[[[[```\ua7cb]]]]]]]][[```` ",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[[\ud800\ud800]]```\ua7cb]]][[a```\ua7cb`\n[[[[```\ud835\udc00###[[#[[#[[a```\ua7cb#\n]]]]]]]][\n]```\u00e9]]```\ud835\udc00[[][[`[[]][[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[]]aa]\ud83d\ude00[[```\ud83d\ude00```\ud835\udc00]]]a//```\u00e9\ud800]]```\ud835\udc00```\ud835\udc00```\ua7cb[[[[]]#a//[[[[]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[[[[[[a//[[[[]]\ud83d\ude00]#[]]```\u00e9```\ud835\udc00`[[\ud83d\ude00```\ua7cba//a//a//",
+      "nesting_depth": 2
+    },
+    {
+      "text": "]]``````\ua7cb`[[]][[[[a//a//[[]]```\u00e9[[]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]`\n]]```# ]][[[#````\ud835\udc00[[]]```\ud835\udc00]a//]]\ud800#[[[[[[[\n\n#```\ud835\udc00`]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#a```\n]] a//#[[]]#]#]]``` ```\ua7cba]] \na```\ua7cb[[#[[]] [[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\ud800]][[a//[[\ud83d\ude00\n[[\ud83d\ude00[ [[]][[[[[\ud800[[a// \ud800\ud800\ud800\ud800a//\ud83d\ude00 \ud800]][[`[[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[```\ua7cb[]]]]a```\ud835\udc00``]]]]]]]]``` `[[[[```\ud835\udc00[[a",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]][[[[[[`````\ua7cb]]]]]]```\ud835\udc00]]\ud83d\ude00[[]]]```][a//\ud83d\ude00",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\u00e9[[]]\ud800```\ua7cb[[]```\ud835\udc00]][[]]```\ud835\udc00\n`a//][[[[```\ud835\udc00]]]```\ud835\udc00 a\n",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\ud835\udc00[[[[]][[[[[[ [\n\n]]]]]][[```\u00e9a//a//\n]#```\u00e9```\u00e9]]```\u00e9",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[[\ud83d\ude00`\n\n\ud83d\ude00```\ua7cb[[  [[[]]]][[[[[```\ua7cb[[[[```\u00e9[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#```\ua7cb\ud83d\ude00[[```\ud835\udc00#`a]]```\ud835\udc00\n[[]][[``aa#[[[a]]```\ua7cb]]` ```\ua7cba  [```\ud835\udc00\n[[a//[[[#[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\ud835\udc00]]\ud83d\ude00`\ud83d\ude00\ud83d\ude00```\u00e9```\ud835\udc00a]]```[[```\ud835\udc00 ]\ud800[[a//[[a//]]```\ud835\udc00]]]]`]\n```\ud835\udc00 ```\ud835\udc00",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#```\u00e9\n[[a//[[\n```\ud835\udc00a\ud83d\ude00]]#[\n```\u00e9aa//][[[[\n[]]]]]]\ud800a\ud800",
+      "nesting_depth": 2
+    },
+    {
+      "text": "\ud83d\ude00a//\n```\ud835\udc00```\u00e9```\n\ud83d\ude00 ]]\n]][[\ud800#```\ua7cb```\u00e9\ud83d\ude00[[a// ]]]][]#a//\ud800```\u00e9a//  [`",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]\n\n\ud83d\ude00a\ud800\ud83d\ude00[[]]]]a```\ua7cb```\ud835\udc00\ud83d\ude00aa]][[]][[#[[#[[]]]][a[[```\ud835\udc00#aa#\ud800a//[```\u00e9```\u00e9\ud83d\ude00```\ua7cb]][[[```\ud835\udc00```\ua7cb",
+      "nesting_depth": 2
+    },
+    {
+      "text": "]]\ud83d\ude00[[```a[[#[[]]]]a```\u00e9",
+      "nesting_depth": 0
+    },
+    {
+      "text": " ```[[#```\ud835\udc00[[a//[[a//]]]]][[a[[]][[[[ \ud800#\ud800[[]]",
+      "nesting_depth": 2
+    },
+    {
+      "text": "\n\n[]]]]aa//```\ua7cb]][[[[```\u00e9```\ud800]]]]\n]]#\ud800```\u00e9][[```\ud835\udc00```\ud835\udc00#```\ud835\udc00",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#```\u00e9[[a//[[a//]]\ud800]]]]\ud83d\ude00[[]]#[[",
+      "nesting_depth": 2
+    },
+    {
+      "text": "[a//",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[[]][[a//[[a//[[a//[[a//[[a//```\u00e9]]]]]]]]]]\ud800[[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[```\ud83d\ude00\ud800[[[[[[[[[[```\ud835\udc00]]]]]]]]]]]```\u00e9[[][[]][[\n]]```\u00e9```\ua7cb]]a",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\u00e9\ud83d\ude00[``[[```a//```\u00e9[[[a[]]a//]][[]]][[a//[[a//[[a//```\u00e9]]]]]]]][[a#a//[[\ud800`[[```\u00e9`#",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[a```\u00e9```\ua7cb```\ud835\udc00\ud83d\ude00a\n````\u00e9]][```\u00e9[]]a//```\u00e9[]]`\ud83d\ude00]]```\u00e9[[```",
+      "nesting_depth": 0
+    },
+    {
+      "text": " [[#```\u00e9]```\ud835\udc00]][[```\ua7cb[[```\ua7cb```\u00e9[[[[\ud800[[[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\u00e9[[[[[[[[`]] ]]]]]][[]]\ud800a//[[]][[]][[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[ ]]\ud83d\ude00#[[[#\ud800`a//[[[```\ud835\udc00]]#[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\ud83d\ude00]]]a[[ a//#[[a//[[a//[[a//a//]]]]]]#]]```[[[ \ud83d\ude00```[[[[]]\ud83d\ude00\n]]",
+      "nesting_depth": 4
+    },
+    {
+      "text": "\ud83d\ude00```\ud835\udc00]]`a//\ud800a//\ud83d\ude00```\ua7cb```a//[[a//[[a//[[]]]]```\ua7cb```[```\u00e9[[````\ud835\udc00]```\ud835\udc00 ```\ud835\udc00a//[[[[]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[```\u00e9[\ud83d\ude00```\ua7cb\ud83d\ude00a```\ud835\udc00]]\ud800]] [[\ud83d\ude00#```\ud83d\ude00`[\ud800#[[#[[#[[]]]]]]```[[][[[```[[\ud83d\ude00",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]\n]]\ud800]]]]```\u00e9",
+      "nesting_depth": 0
+    },
+    {
+      "text": "  [[[[[[]\ud800a//[[]]]]]] ]] #```\ud835\udc00```\u00e9#\ud800a\ud800]]]] ",
+      "nesting_depth": 4
+    },
+    {
+      "text": "[[```\u00e9[[a//[[a//[[a//[[a//[[a//]]]]]]]]]][[a\ud800]]]]```\ud835\udc00a[[```\ud835\udc00`]]\ud800[[```\ua7cb[[[[[a[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": " ````\ua7cb#\ud800[[```\ud835\udc00\ud83d\ude00\n```\u00e9a//```\ud835\udc00a]]a]]]]a]]```\ua7cb````]\ud800#```\u00e9]a//````\ud835\udc00```\u00e9]]]]]]`[[\ud83d\ude00\ud800```\u00e9",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\u00e9]]\ud800```\u00e9\na//```\u00e9```\ud835\udc00`]]```\ua7cb#  a]]\ud800\n[[```\ud835\udc00\n]] `a[```\u00e9[ ]]\ud800]]\n[[a\ud800",
+      "nesting_depth": 0
+    },
+    {
+      "text": "a ```\u00e9```\u00e9`]]]][[#\ud83d\ude00\ud800#[[a]][[\ud83d\ude00a]]```\u00e9#[[#[[#[[```a]]]]]]]]]][[[[]]``````\u00e9```\ud83d\ude00]\ud800",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\u00e9```\ud835\udc00```a//[[[#[[a]]\ud800`#```\ud835\udc00a#]]]]]```",
+      "nesting_depth": 0
+    },
+    {
+      "text": "``````\ud835\udc00aa[[a//[[[[[`]]a]]`\ud800[]]\ud83d\ude00[[[[```a//[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]]][[```\ud800[[\ud83d\ude00[[\n````[[[[\ud83d\ude00a//a//```\ud835\udc00]]```\ud835\udc00```\u00e9[[a//[[a//[[a//```\ud835\udc00]]]]]]]]]]\ud83d\ude00```\ud835\udc00\n\n[[]\n[]]```\ud835\udc00]]```\u00e9a// a//[[\ud800[```",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\u00e9 a[[```\ua7cb]]]] \n\ud83d\ude00[[\ud800a [][[```]][[`\na//[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#]```\ua7cb[[\ud800]][[[[\n```\u00e9[[a//[[a\na ```a```\ua7cba[[[\ud83d\ude00[]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\ud800\ud83d\ude00]]\n```\u00e9]][[a//[[a//[[a//[[a//[[a//\ud83d\ude00a]]]]]]]]]]]][[[[\n]]]][[]`\ud83d\ude00```\ua7cb````\ua7cb]]]]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\ud800]]```\n`[[[[```\u00e9a//[[[[[[[[[[[[ ]]]]]]]]]]a// ]]\n#a\n```\u00e9]][[]]aa[[ [[ ```\ud835\udc00[",
+      "nesting_depth": 6
+    },
+    {
+      "text": "##\n\n]][\ud83d\ude00 #[[#[[#[[a]]]]]]]][[[\ud83d\ude00[]][[a//[[`[[\n`[[",
+      "nesting_depth": 3
+    },
+    {
+      "text": "[[```[[[[```\ud835\udc00```\u00e9[[````\ua7cb```````a]][[[[[[[a//[[a//[[a//[[a//[[a//```\ud835\udc00```\ud835\udc00aa//]]]]]]]]]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[```\ud83d\ude00##]]`[ `[[`\n#\n` ###[[#[[#[[#[[#[[[[]]]]]]]]]]```\ud835\udc00```\ua7cb[[[\ud83d\ude00[[a//`]]\ud83d\ude00`#[[\ud83d\ude00]]]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]`]]\ud83d\ude00[\ud800[[[[[[\n]]#]]]]]]\n\ud800[```[[[[]``` ```\ua7cb```\u00e9[[```\ua7cb]]]]`]]][[#",
+      "nesting_depth": 3
+    },
+    {
+      "text": "a\ud83d\ude00[[a//[[a//[[a// ```\ud835\udc00\n]]]]]]\ud800]\n]]]]\ud800[[\n```\u00e9\ud800[[]]]]] ```\ua7cb##a//#",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]]]\ud83d\ude00\ud800```\ud83d\ude00```\ua7cb\ud83d\ude00```\ud835\udc00[[#[[[[[a//]] [[[[\ud800a//]]]]]]`\na[[]]]]][[ ]]`[[[]]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]][[]]\n[[]#```\ud835\udc00\ud800]]```[[a//[[[`#[[#[[#[[[[]]]]]]]\n ]][[[[",
+      "nesting_depth": 4
+    },
+    {
+      "text": "[[[[a//]]\ud83d\ude00```\ua7cb```\u00e9]]]\ud83d\ude00a\ud800```\ud83d\ude00",
+      "nesting_depth": 1
+    },
+    {
+      "text": "`[[a//]]]```\ua7cb",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]```\ud835\udc00\na//[[a  [a//[[[[[]] ][][[a//[[a//[[a//[[a//[[a//]]]]]]]]]][[[\n\ud800]]]][[[[\ud83d\ude00```\u00e9```\ua7cb````\ud835\udc00] #][[[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "a//a]]]]\ud800\ud800a]]]]]]\ud800]]a[[```\u00e9\ud83d\ude00\ud83d\ude00[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\ud800]]#[[]]]]]]]]``````\ua7cb\ud800]]a//`",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[```[[]a//`[[a//`]]```\ua7cb]][[a[[]]\ud800```\ua7cba//[ ```\ud835\udc00` ]][[[[[\ud83d\ude00`]]]]]]```\ud835\udc00]][a",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]][[```a```\ud835\udc00[[ ```\ua7cb\ud83d\ude00\ud83d\ude00[[`]]#[[#[[[[[[```\u00e9]]]][[# [[]]\n]#```\ua7cb\ud83d\ude00]]`[[[[\ud83d\ude00```\ud835\udc00```\ud835\udc00]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": " [[#a````\ud835\udc00[\ud83d\ude00```\ud835\udc00```\u00e9\ud800[[a#\ud800]]]]a//[\ud800[[a//a]]]]```\u00e9```\u00e9\ud83d\ude00]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "##a//```\ud835\udc00\ud83d\ude00[```\ud835\udc00```]]]]aa//`]]\n[[ ]\ud800]]\ud800]]]]```",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[[ ```\u00e9` []]][[a//[[a//[[a//]]]]]]]]\ud83d\ude00````\ua7cb```\ud835\udc00a//#][[]]]]```\u00e9```\u00e9[[\ud800] a//",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[\n]]]\ud800```\ud835\udc00[[a//]]```\u00e9[[```\ud835\udc00a]#```\u00e9```\ud835\udc00```\ua7cb\ud800\ud800 ```\u00e9a ",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\ud835\udc00\ud800[[# a//```\u00e9[[\n```\ud835\udc00[[\n\n[[]]``````[[[[```\ua7cb]]\n```\ua7cb```\ua7cb[[[````\u00e9[]]```\ua7cb```",
+      "nesting_depth": 0
+    },
+    {
+      "text": " ]\n\ud800\ud83d\ude00#[[\ud800]][[]]a#```\ud835\udc00]]]#]```\u00e9```\ua7cb[[```\ua7cb\ud800a]`#a#]]```\u00e9",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\ud800```\ud835\udc00[```[[`]]```\ua7cb\n]]]]```\ua7cb]]```\ud835\udc00[[[[[[[[[[[[[[[[]][]]]]]]]]]]```\u00e9```\ua7cb```\ua7cb```\n```\ua7cb]]\ud800```\ua7cb",
+      "nesting_depth": 6
+    },
+    {
+      "text": "#]][[a//[[a//[[a//\ud800]]a[]]]]]]",
+      "nesting_depth": 3
+    },
+    {
+      "text": "[[a//]]```][[]]```\ud800```\ud835\udc00[[]][[a[[[[\ud83d\ude00]]]]]]```\u00e9a\ud83d\ude00]#][```\ua7cb[[a//[[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]]]a//```\ua7cb #\ud83d\ude00`[[ [[[[[[]]]]]]#a\n",
+      "nesting_depth": 3
+    },
+    {
+      "text": "]][[ ```\u00e9[[]\ud800#[[[[]][[a\ud800[[]]]]\ud800```\ua7cb][[`\n",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\n##[[#[[#[[````\u00e9\n]]]]]][[[[]]a//#a[[\n]```\ua7cb\ud800",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\u00e9```\ud835\udc00a```\ud835\udc00]]\n\ud800\ud800[[#a//```[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#[[a```\ud835\udc00]][[a//[[\ud83d\ude00 ]]```\ud835\udc00]]````\ud835\udc00```\ud835\udc00```\ua7cb [[[```\ua7cb[[[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]][[[[a//]]a//]]\ud800]]```\ud835\udc00[[a]]`\ud800",
+      "nesting_depth": 2
+    },
+    {
+      "text": "a//````\u00e9a//`]]]]#\ud83d\ude00```\ua7cba[[##[[]]a//]]][#```\ua7cb#[[```\ud835\udc00#",
+      "nesting_depth": 2
+    },
+    {
+      "text": "#```[[```a[[```\ua7cb[a//a//```\ua7cb` ][[a//```# \n\n``````\ud835\udc00\ud800]]```\u00e9]]```\ud835\udc00\ud83d\ude00```a\n[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "a//[[]]```\ua7cb]]]]a\n[[]][",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]`a#[[]]```\ua7cb[[\ud800a//\n```\ud835\udc00##````#[[]][[][[ [[]]```[[]]]][[]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\u00e9[[\ud800]]```\ud835\udc00```\ua7cb```\ud835\udc00 `[[a//[[a//\ud800[[```\u00e9]]]]]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#]]# [[a//[[a//\ud800\ud83d\ude00]]]]#````\ud835\udc00]][[a//a//\n\n",
+      "nesting_depth": 2
+    },
+    {
+      "text": "`#``````\ud835\udc00]````\ua7cb]] \n`\ud83d\ude00[```\u00e9```\ud835\udc00]` aa#[[]]#a",
+      "nesting_depth": 1
+    },
+    {
+      "text": "a\ud83d\ude00````\ud835\udc00\n```\ud835\udc00]]\n]]```\ud835\udc00]]```\u00e9#[[#[[```\ud835\udc00[[]]]]a//]]]```\ua7cb\ud800\ud800",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#[[#[[]]]]]]a//```\ud835\udc00`]]`````````\ua7cb```\ud835\udc00```\ud835\udc00a//#a//a// ```\u00e9]]",
+      "nesting_depth": 2
+    },
+    {
+      "text": " [[\ud800]#`a```\ua7cb[[[[\ud83d\ude00][[]]]]]",
+      "nesting_depth": 2
+    },
+    {
+      "text": "][[]]```\ud835\udc00 [[#a #[[ \n\na]]]][[  ```",
+      "nesting_depth": 1
+    },
+    {
+      "text": "#[[[[a//[[a//[[a//[[a//[[a//[[\ud800]]]]]]]]]]```a//```\u00e9\ud83d\ude00````\ud83d\ude00```\ua7cb```a//a]]] ]a[[",
+      "nesting_depth": 5
+    },
+    {
+      "text": "#[[#[[#[[]```\u00e9]]]]]]]]]]```]]`\ud83d\ude00]]]]a\n]]a// ]]\ud800\na//",
+      "nesting_depth": 0
+    },
+    {
+      "text": "`[[a//[[a//[[a//[[a//[[a//[[\n]]]]]]]]]][\ud83d\ude00\ud83d\ude00a`[[ ",
+      "nesting_depth": 5
+    },
+    {
+      "text": "]\ud800`\ud83d\ude00a]]``` a```\u00e9`\n[[[[[[```\ud835\udc00[[\ud83d\ude00]]]]]]]a```\ua7cb\ud83d\ude00]]]] a#a a//]][[ \ud83d\ude00  ```\ua7cb",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\n#]```\ud835\udc00``````\ud835\udc00```\ua7cb[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[[a]][[a\ud83d\ude00]````\ud835\udc00]]```\u00e9[[ ]```\ud835\udc00]]a//]]]```\u00e9][[````[[]]]```\ua7cb]][[`[[[\ud83d\ude00```\ud835\udc00",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]]\na//```[```\u00e9[[a//[[a//[[a//]]```\u00e9]]]]]][`[[]]]][```\ud835\udc00 `#```\ud835\udc00```\u00e9\n",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\u00e9[[[[[[]]]] ```\ua7cba\ud800[[a//[[a//[[a//[[a//[[a//[[]][[[[]]]]]]]]]]``` [[[[[```#[[```\u00e9[[a//#```]```\ud835\udc00`",
+      "nesting_depth": 5
+    },
+    {
+      "text": "```\u00e9`[[[```\ud835\udc00]]a//a//[\ud83d\ude00[[[[]][[\n[[[[[#[[]\ud800[[[[]\ud800\n[[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]]]]]\ud83d\ude00a]]]][[]]`[[\ud800\ud800 ]] [[[[]]]]]]#a//[[```]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]] ]]####[[#[[#[[[`]]]]]][[a\n#\n```a//```\ud835\udc00\ud83d\ude00\ud83d\ude00\ud83d\ude00a\ud800[[\n[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[```\ua7cb#[[]]```\ua7cb[[`a//```\ud835\udc00a\n]]```\ua7cb[[]]```\ua7cb#[[#[[```\ud835\udc00```\ua7cb]]a//]]]]#```\ua7cba//[```\ud835\udc00```\ud835\udc00[\ud83d\ude00#",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[[[```\u00e9[[]][[\ud800][[[# \n \ud800\ud83d\ude00```\ud835\udc00\ud800]]```\ua7cb\ud83d\ude00[[a```]] ]]]]```\ua7cb[[\ud800\ud83d\ude00\ud83d\ude00",
+      "nesting_depth": 0
+    },
+    {
+      "text": " ]]]][[]]`\n[[\n`\ud83d\ude00``````\ua7cb[[\n#```]][ ```\u00e9a[[``````\ud835\udc00]]]]]]\n ",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\ud83d\ude00#\ud83d\ude00```[[\ud800]]]a//#[[]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]\n[[]][[a//\ud83d\ude00]]]]][[a//]]]][[`a```\ud835\udc00```\ua7cb[[```\ud835\udc00`",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]\ud83d\ude00[[]```\ua7cb```\u00e9\ud800```\ua7cb[[```\u00e9\ud800[[]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[[ ",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[\ud800#[[[[```]]]]```\ua7cb`]][[[[````\ud835\udc00",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\ud83d\ude00[```\ud835\udc00```\n\n\ud800\ud800[[ ]]a```\ud835\udc00]]]]a```\ud835\udc00```#[[[[a//[[a//[[a//[[a//[[a//a// a]]]]]]]]]]]]]]````[[]]\ud83d\ude00]][[ `#",
+      "nesting_depth": 1
+    },
+    {
+      "text": "#a```\n[[ \ud83d\ude00```\ud835\udc00\ud800[[ ]]#\n]]\ud83d\ude00]]]]]]]\ud83d\ude00[[]`]]]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "``````\ud83d\ude00```\ua7cb\n````\ua7cb\n[[[[[[\ud800\ud83d\ude00\ud83d\ude00  `#[[#[[]]]]a[[#```\u00e9```\ua7cb`]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\ud83d\ude00[]]]]```\ud835\udc00\ud83d\ude00``````\ua7cb```\u00e9]]]]#[[a//[[a//[[a//[[a//[[a//\n```\ua7cb]]]]]]]]]]a[]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]```\ua7cb ]]]```\ud83d\ude00]]```\u00e9[ ][[```\ud835\udc00```\u00e9 a#[[#[[#[[]]]]]] ]]]]```\ua7cb```\ua7cb",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[]]]```][[[[aa//```\u00e9][[[a//[[a//[[a//[[a//[[a//a//a]]]]]]]]]]#[[[a```\ua7cb]][[\ud83d\ude00",
+      "nesting_depth": 5
+    },
+    {
+      "text": "##]]#[[#[[#[[\n#[[```\ud835\udc00]]]]]]``````\ud835\udc00\ud800 ]]]```a//```\u00e9[[\ud83d\ude00 [ ",
+      "nesting_depth": 0
+    },
+    {
+      "text": "a//]a```]]]]````````````#[[]]]]`#",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#[[\ud83d\ude00]#```\u00e9`]]```\ua7cb[[a//[[a//]]]]#\ud800",
+      "nesting_depth": 2
+    },
+    {
+      "text": "]]a//```\u00e9 ]]\na\ud800```\ud800[[\ud800[[``````\u00e9]][[][[a//]```\ud835\udc00```]] `\ud83d\ude00```\u00e9[[[[```\ud835\udc00]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "`]]\ud800\ud800a//\ud83d\ude00a\ud83d\ude00```\ud835\udc00[[a]][[[[```#[[#[[[[]]]]#a[[a[[\n\n\ud800",
+      "nesting_depth": 2
+    },
+    {
+      "text": "\ud83d\ude00\n#[[#[[#[[ ]]a//]]]]]][[\ud800````\ud835\udc00```\ua7cb[[]]",
+      "nesting_depth": 3
+    },
+    {
+      "text": "[[```\ud835\udc00```\ua7cb]]a]]a//[[[\ud83d\ude00[[#]\n#[[#[[#[[#[[#[[\ud83d\ude00]]]]]]]]]]]]\ud83d\ude00]]",
       "nesting_depth": 7
     },
     {
-      "text": "``` ]][`\n[[]]```a\n `#[[#[[#[[#[[#[[]]]]]]]]]][[a]][[[a//[[a`]]a//a`]]a//\n]\n]`",
+      "text": "[[[]]```\u00e9a``````\u00e9`aa//`",
       "nesting_depth": 1
     },
     {
-      "text": "][[a//`]][]]]]a//[[]]````[[a]]]]\n\n]][[[`#",
+      "text": "[[[a//]]\ud83d\ude00a\n[[]] ##]```\ud835\udc00 \ud83d\ude00\n[",
       "nesting_depth": 1
     },
     {
-      "text": "]]]][[][[[`]aa`a```]]```[[[[]][[a//[[a//[[[[ ```]]]]]]a//]][[ [[[[[[]]]]`]\na//a[[`\n",
+      "text": "[[]]]\ud83d\ude00```\u00e9```\ud835\udc00\ud83d\ude00a//#[[```[#`]]a//a//a#\ud83d\ude00```\ua7cb\n[[[[]]``` #[a]\ud83d\ude00```\u00e9````\u00e9",
       "nesting_depth": 1
     },
     {
-      "text": "[[[[]]`[   ]]`a]````[[[[]]]]]]a//` [[[[```",
+      "text": "[[\ud800]]```\ua7cb```\ud835\udc00a``````\ua7cb[]]a//\n]][[\ud800#[[\ud83d\ude00a//\n#```\ud835\udc00```",
       "nesting_depth": 1
     },
     {
-      "text": "`a//a [[a//[[a//#]]#]]]]]]]]]```]]# ```[[`a[[[[ [[\na",
+      "text": "]]```[[``````\ua7cb]\ud800]]\n```]```\u00e9[`][[\n]`[a\ud800[[a//",
       "nesting_depth": 0
     },
     {
-      "text": "```]]```\na[[]][\n[[[[[[[[\na//[[]]]]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "]][[[#]]\n[[]]]]]# \n]]aa//]]```",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[``a #[[`]]]][[a//[[a//[[a//[[a//[[a//[[]]]]]]]]]]]][[[[#[[[[][[[[[]][[[]]```[]",
+      "text": "[[ ```\ua7cb#[[]][[#]```\u00e9]]```\u00e9#a//\ud800```\ua7cb```\ua7cb```\u00e9]]a//",
       "nesting_depth": 0
     },
     {
-      "text": "```[a]] a[]] \n][[[[\n]][[a//][a//]]]]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "\n]]] ]][[a\n ]][]]]]`a//]][[[[[[[[[[]]]]]]]]]]] ]]#[[[[[[a//[[[`",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]][```]#[#[[```a//]]\n```a]]```",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]]]][[a//]][[]```]][[ ]]#[[a//[[a//[[a//[[#]]]]]]]]``` a//]a//\naa//[[[a]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]]`a//# a\n]]]\n]]a``#[[]] [[#]]a//]]][[[[[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a```````[[ #\n```a//a//# #[[#[[#[[#[[#[[]a`]]]]]]]]]]",
-      "nesting_depth": 0
-    },
-    {
-      "text": "#[[\n`]]## a//[[[[#[[]]`]]",
-      "nesting_depth": 0
-    },
-    {
-      "text": "\n`a]][[```[[ [[[[````]][[]][[  #[[a//[`[[]]```]\n",
-      "nesting_depth": 0
-    },
-    {
-      "text": "#[[]] `````` [[]][[[[[[ #]] ]]]]]][`[a//",
-      "nesting_depth": 3
-    },
-    {
-      "text": "][[[\n[[[[\n\n[[  ]][[[[[[ ]]]]]]\n`[[[[#",
-      "nesting_depth": 3
-    },
-    {
-      "text": "\n]]a][[[[[[a//a]]]]]]]][[[a//]][[]][] ]]\n]]]][[a[[]]]```",
-      "nesting_depth": 3
-    },
-    {
-      "text": "]]```a//\n[[]]\n[ a//[[[[]]#[[#[[#[[#[[#[[aa ]]]]]]]]]]a//a\n[[#[[\naa//]]]]]]`[[",
+      "text": "```\ua7cba//]\ud800[[a//[[a//[[a//[[a//[[a//[[]]]]]]]]]]]][",
       "nesting_depth": 6
     },
     {
-      "text": "`a//a```]]a]]][a]\n`[[[[[[[`[[a//[[a//]]]]]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "[[[[a# #[[][a//`[[]][[[\n`]]\n]]]]",
+      "text": "\ud83d\ude00]#[[[[[]]```\u00e9\ud83d\ude00]]]]```\u00e9\ud83d\ude00]]\ud83d\ude00]][[]][[]] `",
       "nesting_depth": 1
     },
     {
-      "text": "`#]][[[]```]]",
+      "text": "```\u00e9\ud83d\ude00\ud83d\ude00```\u00e9```\ud835\udc00]][[[[\ud800 [[\ud83d\ude00]]a\n]]]]`[[a//]][[[[```\ua7cb]#]]]a```\ud835\udc00```\ua7cb```\ua7cb]`#\n#",
       "nesting_depth": 0
     },
     {
-      "text": " [[\n\n]a]][[[[]][[\n`[[]]#`a\n]][[\n",
+      "text": "```a```\ud83d\ude00]]]]]\ud800```\ud835\udc00[[]]```\ua7cb```\ua7cb[[[\ud800]a//]]]]  ]]",
       "nesting_depth": 1
     },
     {
-      "text": "]]#[[#[[\n]]]]]]#]][[",
-      "nesting_depth": 2
+      "text": "\ud83d\ude00`#\ud83d\ude00][[[[\n[ [[a//[[a//[[a//\n]]]]]]```\ua7cb[[##```a//```\u00e9",
+      "nesting_depth": 3
     },
     {
-      "text": "]] ]]]]]]a//##`[[[#[[[[[[]][[]]]]",
-      "nesting_depth": 2
+      "text": "```\ua7cb]]a`````````\ud835\udc00[[[```\ua7cba//[[]]]]]][[\ud83d\ude00[[a//[[a//[[a//[[a//[[a//```]]]]]]]]]]][[```]]]\ud800a//",
+      "nesting_depth": 0
     },
     {
-      "text": "]]]]]a//]]a//a//]]#]]##[[[[#]][[",
+      "text": "]][[```\ua7cb\ud83d\ude00```\ua7cb[[```]]\ud83d\ude00 [[[[[[#```\u00e9]]]]]]]]][[[[ # ]][[#\n\ud800",
       "nesting_depth": 1
     },
     {
-      "text": "`[[[[[[[[[[[[\n[[]#]]]]]]]]]]# a ]]]]]",
-      "nesting_depth": 7
-    },
-    {
-      "text": "[[`a[[[[[[[[[[]]]]]]]]]]]][[a//```[[[[a  [[`a//\n]]```]]aa//",
+      "text": "]]]][[```\u00e9[[```\ua7cb]]]]\ud83d\ude00\ud83d\ude00```\ua7cba//]][[```\ud835\udc00\ud800```\u00e9```\ud835\udc00 [[",
       "nesting_depth": 0
     },
     {
-      "text": "[[`a//]````\n[[ ```]]]a//a//a//```[]]",
+      "text": "[][[a//]]`]]``[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\ud83d\ude00]]a[[[[\ud83d\ude00[[]]\n`]]]\ud800] [[a//[[a//[[[```\ud835\udc00[]]]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[[[[````\ua7cb[[ ]]``````]]]]]][[###```]]`]]]]a//[a[\ud800[[[[]]```\u00e9]]",
       "nesting_depth": 0
     },
     {
-      "text": "]][[\n#`a//a]][[ [[]]a][[]]`[`a[[[[#[[[```]]]][[[[[]a//",
+      "text": "]]\n[[a [[a[[a\ud800a//#]] ]]\ud800```\ud835\udc00]]\ud800# a//#]] [[aa//]]\ud83d\ude00```\ua7cb# ]][",
+      "nesting_depth": 2
+    },
+    {
+      "text": "]]#][[\ud800][a//a]]\ud83d\ude00\ud800`[[##[[```",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]][[```#a```\u00e9]]\n]]]]#```\n`````#```\ua7cb[[[[ \ud800]\ud800\ud800",
       "nesting_depth": 0
     },
     {
-      "text": "[[]]]]a//]][[[[[[[[]]]]]]]]a# [[``````\n` [[```a[[ `]",
+      "text": "]]a//````\ud835\udc00```\ud835\udc00 ]]```\ua7cb``#]]]]```\u00e9\ud83d\ude00```\ua7cb```][#[[#[[#[[#[[#[[```\ua7cb]]]]]]]]]]]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "# [[ #[[[[[[a//[[a//[[a//[[a//[[a//]]]]]]]]]]\ud83d\ude00a//```a]]]][[``````\ua7cb[[][",
+      "nesting_depth": 5
+    },
+    {
+      "text": "]]a//]]\ud83d\ude00````\u00e9```\ua7cb]][[[[]][[[[[```\ud835\udc00``````\u00e9#\n[[```\ua7cba]]a\ud83d\ude00\ud83d\ude00[[```\u00e9[[\n",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[```\ud835\udc00]]]]a[ ```\u00e9`#```\ua7cb[[```\ud83d\ude00[[[[[[]]]]]] ",
+      "nesting_depth": 3
+    },
+    {
+      "text": "[[[[```\ua7cb]]]\ud800a//[```[[\n",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]```\ud835\udc00```aa//#```#[[[[]]```\u00e9\ud83d\ude00[```\ud835\udc00``````\u00e9```\ud835\udc00[[[[[[]]```]]]]]][[a//\n\ud800```",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\ua7cb] ]][[\n\ud83d\ude00]]]]][[]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "a//a//```\ud835\udc00]] `[[[[[[[[[[]][[a]]]]]]]]]]]]]]\ud800]]]]]]```\ud800 ",
+      "nesting_depth": 0
+    },
+    {
+      "text": "a// [[a]]```\u00e9[[]]````\ud800```\ua7cb[[```\ua7cb#[[```\u00e9a//\ud800]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```#```\u00e9\ud83d\ude00#[[#[[]]]]```\ud835\udc00```\u00e9#][\ud800\ud800[[```\ud835\udc00\ud83d\ude00[[[[[```\ud835\udc00]]",
+      "nesting_depth": 2
+    },
+    {
+      "text": "[][[\ud83d\ude00\ud800][```\u00e9\ud83d\ude00\ud83d\ude00]]\n ]]\ud83d\ude00\ud800]][[```\ua7cb]]]][[]]\ud83d\ude00```\ud835\udc00]]]]]][[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "a//a//`]]]]]][\n#]]]#[[````\ua7cba````\u00e9```\u00e9]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]``````\ud835\udc00]]#[[[]]]] [[```\u00e9  [[[[\ud83d\ude00```]]\ud800\n```\u00e9```\u00e9]]\ud800[[#]]]```[[ ",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```a//]a//```\ua7cb\na\ud83d\ude00`\ud800][[a//]][[]]][[]]a//```\u00e9a]]a//",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\ud800a//\ud800```\u00e9 `]```\u00e9#  ```\ud835\udc00]]\ud83d\ude00a\n\n[[]][#a//`[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[[[[[[[[[a]]]]]]]]]][[#]]````\ua7cba//\n```\ud835\udc00]][[\ud83d\ude00a//",
+      "nesting_depth": 5
+    },
+    {
+      "text": "#```\ud835\udc00 ```\u00e9\ud83d\ude00```\u00e9]][[[\n```\u00e9[[]]]]]```]]```\ud835\udc00```\ud835\udc00]]]```\ua7cb]]```\ua7cb```\u00e9",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\u00e9\ud800[ []]```\ud835\udc00[[a//[\ud800```]]a//#[[#[[#[[#[[#[[\ud83d\ude00\ud800]]]]]]]]]] [[",
+      "nesting_depth": 5
+    },
+    {
+      "text": "```\ua7cb\ud83d\ude00[[[[[[[[[[[[[]]]]]]]]]]```\u00e9#[[```\ua7cb[[```\ud835\udc00]]```\ud835\udc00```\ud835\udc00",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\u00e9a```[```\u00e9\ud83d\ude00]]]]a//]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[[\ud800```\u00e9```\ud835\udc00[```\ud835\udc00[[[[[[```\ud835\udc00```\ud835\udc00\ud800]]]]]]````\ud835\udc00\n\ud83d\ude00\ud800[[```\ud83d\ude00a//[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\ud83d\ude00\n\ud83d\ude00``````\ud835\udc00\ud800][[[[[[\ud800\ud83d\ude00]]```\u00e9#[`\ud800[[[[[[[[[[[[ ```\ud835\udc00```\ua7cb]]]]]]]]]]```\ud835\udc00\ud800 ",
+      "nesting_depth": 1
+    },
+    {
+      "text": "#[[#[[#[[#[[#[[```\ua7cb\ud83d\ude00]]]]]]]]]]a\n```\u00e9\ud800[[``````\ua7cb][#]]]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]a//```\ud835\udc00#\ud83d\ude00[[```]]\na\ud800\ud800```\ud835\udc00```\u00e9 [a//[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\u00e9]][[```\u00e9]]\ud83d\ude00 #\n```]]\ud83d\ude00#[[\n\ud800]][#```\ud835\udc00a`",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\ud800#```\ud83d\ude00\ud83d\ude00`a//]\ud83d\ude00```\u00e9#```\u00e9\n]]a```\u00e9```\u00e9\ud800 ]]]]a\n]]`a//```\ua7cb]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\ud835\udc00```\ud835\udc00```\ua7cb[[a```\u00e9#```]```\ua7cb\ud800``````\ua7cb[[[[[[]]]]]]```\u00e9 [[\ud800```\ud835\udc00a[[[[```[[``````\u00e9```\u00e9#",
+      "nesting_depth": 3
+    },
+    {
+      "text": "\ud83d\ude00```\u00e9[[#a]]```\ud835\udc00\ud83d\ude00`]]]]```\u00e9```\u00e9[[[[\n[[[[\n``` ]]]]```\ua7cba\n#[[\ud800```\ua7cb[[```\u00e9\n]] [[```\ud835\udc00##\ud83d\ude00]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "a//\n [[```\u00e9]]```\u00e9[[\n[```\u00e9[\ud800]]#a//]]\ud800``` #[[]]]]]][[a//]```\u00e9]a//",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]\ud83d\ude00[[[[[[ ][[#[[[[a//[[[[\n```\ud835\udc00",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#`#\n`a[[```\ud835\udc00```\u00e9`[[```\ud835\udc00\n \n\n[]][[[[[[[[```\u00e9#]]]]]]]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```[[[[[[[[[[[[]][```]]]]]]]]]]]]`\ud800##```\ud835\udc00```\ud835\udc00]````\u00e9a```\ua7cb",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\u00e9]]\ud83d\ude00#``[[a// [[]]]]#\ud83d\ude00 \ud83d\ude00]]```\ud835\udc00```]]#",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\ud835\udc00\ud800```\ua7cb```[[[[[[````\u00e9]]]]]]```]]```\ud835\udc00]]]]]`]a\n[[[[\n```\ua7cb",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[````\ua7cb```\ud835\udc00``[[a ]#[[#[[#[[]]]]]]]]```\u00e9 ```\ua7cba```\ua7cb\ud800`a\n\ud800```\ud83d\ude00#]]\ud800]]````[[```",
       "nesting_depth": 4
     },
     {
-      "text": "#[[`[]]a//[[[[[[[[[[]]]]]]]]]]]aa//]] [[`[[[[]]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "#]]]]#[[#[[]]]]]][[]`a[[]][[#]]#  ]]a",
+      "text": "```\n]]```\ua7cb]]```\u00e9\ud800\ud800\ud800[[ [[```\u00e9#]]``````\u00e9[[##[[#[[]]]]",
       "nesting_depth": 2
     },
     {
-      "text": "[]#[]]a//[[]]```]]a//]][[]]]]```[[#",
-      "nesting_depth": 1
-    },
-    {
-      "text": "\n]]\n][[[[[[[[[[[[#`]]]]]]]]]]a``#]]]] [```]]```[[[[```[[]]]]]]a]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "` `[[[]]]]][[[[[ `a//a//]][[[[a//[[a//[[a//]]]]]]]]]][[[[[\n",
-      "nesting_depth": 4
-    },
-    {
-      "text": "][[a]][[[[]a//[[[]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]a//\n]]a//]#[[]]\na```",
-      "nesting_depth": 1
-    },
-    {
-      "text": "```a//[[#a//#```[[#`[[[`a//[[[][[ []```]]```#[[]]]][[a//#`\n][[#[[#[[a[[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[#[[ ]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[a//#]]]]```a//",
-      "nesting_depth": 1
-    },
-    {
-      "text": "#]]`[[[[[[ [[```[[]][[[[a//[[a//[[a//`````` ```]]]]]]```[[]][][[[a```[\n]][[]#[[a//#",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]]]] [[a]] ]][[a// [[]][[]#[[#[[#[[a//\n#]]]]]][[",
-      "nesting_depth": 3
-    },
-    {
-      "text": "]]]][[a//a//[a]][#]]]`]][[[`][[\n``````[[ [[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[a]]``````][[#`a][[`a```  ##[[#[[#[[]]]]]]a[[\n#]]a\n[[[[\n`a//[[[[\n ",
-      "nesting_depth": 3
-    },
-    {
-      "text": "a]]]```]`\n[[```[[`[[]][",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[[[a//]]]]]`[\n #[[#[[#[[a//]]]]]]]]]]]]]]]#",
-      "nesting_depth": 3
-    },
-    {
-      "text": "]\n[[\n[[\n[[[[[[]][[]]a",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[]]``````]]\n```]a]]][```[[# ]`[[[[#[[]]#\na//[[[[[ [[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a//a]][[a//]]]][[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]#a#a]]a// ]][[`]]] [[#````[[]][[]]`\n]][[a//",
+      "text": "a//```\ud835\udc00]]]]]][[a//[[[[]]```[```#",
       "nesting_depth": 0
     },
     {
-      "text": "a//[#a//[[a//\n[[#[[a//[[]]`[[##",
-      "nesting_depth": 1
-    },
-    {
-      "text": " ]]aa//#[[][[]]]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "[[[[]a[\n]]\n\na//#a[a\n#[[]]```]][[a[[]]\n[[]]\na//]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "a]] ]]]]\n]]a#[[a[]]]][[][#[[#a```",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[]] ]` a//[#[[\n[[]] []][[]][[[[][[[[`` a``` [[[[#",
-      "nesting_depth": 2
-    },
-    {
-      "text": "]][[``` ]]][[[[#[[[[]]```[[[[ ][[[[[`````````]]]][```]```[[a//\n #a[[]][[aa[[]]a//]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "\n[[a[[ [ ]]```[[[[[[]][[]]]]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "[[]\n\n\n[[[```[[[[[[[]]\n]]\n`]]]a//[[[[[[[[[[a]]]]]]]]]][[\na//]][[#]]a//  ]]\n]][```]]]]]]",
+      "text": "]]```]`a//[[a//[[a//]]]] ]]]]```\u00e9]```\ud835\udc00```\u00e9```\u00e9]]`a[[[[````",
       "nesting_depth": 0
     },
     {
-      "text": "``` `[[[[[[]]]]]]]]a//]`[[[[[[] ",
+      "text": "[[[[```\n[[]]]][[#[[[a//\ud800[[[[[[]]]]]]\n```\u00e9a\n```\u00e9`[[[[[]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[a]][[]]```\ud835\udc00a//```\ua7cb````\ud835\udc00```\u00e9```\ua7cb`[[]]#\ud800``````\ua7cb#[[#[[#[[[[]]]]]]]]````a\ud800``````\u00e9```\ud835\udc00```\ua7cb#```\ua7cb]]```\ud835\udc00",
+      "nesting_depth": 1
+    },
+    {
+      "text": "`a```\ua7cba`]]]]#a]][[a//``````\u00e9]]]]```[[\n]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\ud800]]]]\n`[[[[]`[[````[[[[[[[[[[[`\ud83d\ude00\ud800]]]]]]]]]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "a//`[`\n]]\n[[[[[]]]][[a//]]a]]]]`]][[a//```\ua7cba//[[```\ud835\udc00]```\ud835\udc00",
+      "nesting_depth": 2
+    },
+    {
+      "text": "```\u00e9\ud83d\ude00[`#[[#```\ud835\udc00```\ua7cb]]a//# ```\u00e9[[[[[[`]]\ud800]]]]]]\n]][[```\u00e9```a\ud83d\ude00```\u00e9#",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]][[]]```\ud835\udc00``` \ud800#][[]][[[[```]]```a\ud800]][```\ua7cb]][[[```\u00e9[[[]]`",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]\ud83d\ude00]]#]]]\ud800]a//]]] ```\ua7cba//]][[[[]]a\n]]`]]]#",
+      "nesting_depth": 2
+    },
+    {
+      "text": "#[[#[[#]]]]```\ua7cb`]][[]a \ud83d\ude00 [[]]```````\u00e9]] [[```[[",
+      "nesting_depth": 2
+    },
+    {
+      "text": "```\ud835\udc00[[a//[[a//]`]]```\ua7cb]]]][[]]```\u00e9]]]```]]```\ua7cb  [[]]```\ud835\udc00#\ud800```\ua7cb]]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "a//#[[#[[[[[[]]]]]]] [[",
       "nesting_depth": 3
     },
     {
-      "text": "]][[[[][[ ]]aa//]][a#[[```]]]]][[[[[[",
-      "nesting_depth": 2
+      "text": "\n]a//\ud83d\ude00a//\n```\ud835\udc00`]]][[[[[```]]`#]]]]#````[[a]```\ud835\udc00[[]]a[[`\n[[a`\n",
+      "nesting_depth": 1
     },
     {
-      "text": "]]]]]][[a//a#[[#[[#[[[#[\n]]]]]]]] ]]a//``\n[[` ",
-      "nesting_depth": 4
+      "text": "\ud83d\ude00[[[ ```a[[a//a//[[]]]]a//```\u00e9[[ [[```\ua7cb\n[[[[[[[[[[]]]]]]]]]]\ud83d\ude00[[[]]```\ud835\udc00[[aa```\u00e9",
+      "nesting_depth": 0
     },
     {
-      "text": "[[```]]#]]]]````[[a][[]]]]  [[ a//[[[[[[\n]]`",
-      "nesting_depth": 2
+      "text": "```\ud835\udc00]][[]]```[[[[\n```[[[#```\ud835\udc00[[\n]][ []][[a//[[a//[[a//[[a//[[a//a`]]]]]]]]]]]]```\ua7cb",
+      "nesting_depth": 1
     },
     {
-      "text": "[[]]]```]] `a```[[]]]]][[[#]\n[[#[[]]]]",
-      "nesting_depth": 2
+      "text": "````\ud835\udc00]][#[[#[[#[[[[[[]]]]]]a```a//]][[```",
+      "nesting_depth": 0
     },
     {
-      "text": "]]#[[[` ]]]]\n`\na//[]a//]#[[#[[]]]]]#[[[]][[]]]][\n`",
-      "nesting_depth": 2
+      "text": "][\ud83d\ude00[[]][[[a//[[```\u00e9]][[```\u00e9]]```\ua7cb#[```\ud835\udc00\n[[`\n[[\ud800\ud800a//a//```\u00e9```",
+      "nesting_depth": 1
     },
     {
-      "text": "]]```````][[[a]][[a// ]]a//]]a//```[[[[#[[]]]]]]\n]]#]]]]]]]][[```\n]]`",
+      "text": "]][[[[`[[a//\ud83d\ude00 [[]][\n[```\u00e9[]]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\ud83d\ude00[a//\ud800]]```\u00e9a//\ud800]][[\ud800[[\ud800```\ud835\udc00#[[`]][]]]]#[[]]````[[[[```a// ",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\ua7cb```\u00e9]]]a//#[[[[a//[[a//[[a//]]]]]][[\ud800[\ud800```\u00e9`a```",
       "nesting_depth": 3
     },
     {
-      "text": "[\n[[a//]] ]\naa[```a[[a",
+      "text": "a[[]#`[[a//a\n[]] [[[\na]]]][[#[[#[[```\ud835\udc00]][[\ud83d\ude00]]]]\ud83d\ude00]]````\ud835\udc00\n[[a[]]\n[[",
       "nesting_depth": 1
     },
     {
-      "text": "\na`[[]]]]]]#]][[ ]]a ```[",
-      "nesting_depth": 0
-    },
-    {
-      "text": " a``````[#]]a]`]]\n]]```]\n[[]]#[[#[[#[[]]]]]]```",
-      "nesting_depth": 0
-    },
-    {
-      "text": "```[[# ][[[a//]]]]]][````[]][[a//]]]]]\n[[]]]]```\n[``````[[a//",
-      "nesting_depth": 1
-    },
-    {
-      "text": "`]```[[\na//[[[[\n\n[[\n",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]\n[]]```[]] a//``#``` `",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]a ]][ [[```[[]][",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[a[a//`\n[[]]]a//[[]]][[#a//[]][[a//a//[[[[[a//[[[[a//",
-      "nesting_depth": 1
-    },
-    {
-      "text": "```[[[[][[]]]]]]\n]]a[[a//[[a//]]]][[`",
-      "nesting_depth": 3
-    },
-    {
-      "text": "` ]] ```]]]]a[[]]````[[[[[[[[[[#]]]]]]]]]]]",
+      "text": "```\ua7cb\n\n\ud83d\ude00]```[[]][[[[[[[[[[  ]]]]]]]]]]]][[]]a[[\ud800]][[\ud83d\ude00]]",
       "nesting_depth": 5
     },
     {
-      "text": "][\na[[a//\n]]` ]]#[[#[[#[[#[[#[[]]]]]]]]]][[```[[[[]][[[[[[[[]][[[[[#\n[[[[[[]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "```[[[[a//[[a//[[a//[[a//[[a//]]]]]]]]]]a//a//[[]]",
-      "nesting_depth": 5
-    },
-    {
-      "text": "a//[[][aa//]]`[[a// ]]aa#[[[[[[\n]][[a//[[a//[[a//`]]]]]][[[ `````````#` ```#\n ]]]]]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "`]][[[a//]]a//a[[[[[ \n[[[[`[ \n[[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "\n]][a//[[```]]a[[`]]]] ",
+      "text": "]]][[``````\ud835\udc00\ud83d\ude00[[[[a\ud83d\ude00[```\u00e9[[[ ````\ud835\udc00[[[[[[a//[[a//[[a//[[a//[[a//```\u00e9]]]]]]]]]] \n",
       "nesting_depth": 0
     },
     {
-      "text": "`a`#  ]]]``````a#\n]]a//`[[\n]]`]][[[",
+      "text": "[]][[\n]]a//\n]]\n]]]]````\ua7cb\ud83d\ude00```\u00e9\ud83d\ude00````\ud835\udc00[[a//[[a//[[a//]]]]]]]][#]]```\u00e9\n```\u00e9a]]]]```\ua7cb\ud800a//[[#\ud800[[```\ud835\udc00[",
       "nesting_depth": 1
     },
     {
-      "text": "]]```[[[[[[[[[[]][[[[]]]]]]][[]]`]]][[[[`[[a`` [[",
+      "text": "[[[[```[\ud800]]```\ud835\udc00```\ud835\udc00[[aa//[[a\n\ud800`\n[[[[[[\ud83d\ude00\ud83d\ude00[[]]]]]]```\u00e9\ud800]]`a//a]][[",
       "nesting_depth": 0
     },
     {
-      "text": "[[\n[[[[a//[[```]][[` ```a[[]][[  ][[[[[ [[[[[[a//##[[#  \n[[[[[[]][[]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "##\n]][[]]```a//]][[[[[][[ ]]]]```",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a//[[]][[[][]]a]][]]][[]][[]]]#[[#[[#[[#[[#[[]]#a//[[]]]]]]]]]][[#",
-      "nesting_depth": 5
-    },
-    {
-      "text": "]\n]]#[[#[[#[[][[]][]]]]]][```a`]]a\n[#a//[[[[ ]`a//]]]]`",
-      "nesting_depth": 4
-    },
-    {
-      "text": "]][[a//[[a//[[a//[[a//[[a//#]]]]]]]]]]]]]][[[[[[[`]\n\n[[a`a//]]",
-      "nesting_depth": 5
-    },
-    {
-      "text": "[]a//[[```[[][[```]]]]```]]#a]]  [[a//[[a//[[a//[[]]]][[]]]]]][[]]]][[```[[ ",
-      "nesting_depth": 0
-    },
-    {
-      "text": "a//]][[[[]] a[[]][[a//",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[[[a//[[a//[[a//#]#]]]]]]]]```[[[[][[]\n]]]a//`a//#a//]]",
-      "nesting_depth": 4
-    },
-    {
-      "text": "#[[## [[]a//# a//`[[[[`a//[[```[[#[[#[[#[[```a//\n]]]]]][[][[[",
-      "nesting_depth": 0
-    },
-    {
-      "text": " [[```[[`[[ [[#[[#[[#[[#[[#[[ ]]]]]]]]]][[[[`` ]\n\n]]`\n]]",
-      "nesting_depth": 5
-    },
-    {
-      "text": "```]] `[][[[[[[[[]] [[[[[[[[[ a#]]]]]]]]a]]#\n```]]`]]#",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]a//`[[[[[[\n]]#[[#[[#[[#[[#[[]]]]]]]]]]````[[```aa//#``[[```` ]]a [a//",
-      "nesting_depth": 5
-    },
-    {
-      "text": "[[\na `]]]]#[[#[[#[[[[```]]]]]]]][[` a//]]][[]]]a//",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]] ]a[[```[[#]][[[```a```]\n [[[[]``]]]][[a[[[[\n]]``````",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[a//[[a//[[]] a```[[[``a//]][[[a a[[]][[[[[[]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]```]]]]]]`]]][a//[[]]]] a[]]a//#[[#[[#[[]]a//]]]]]]]]]]] ]][[\n#a//aa[[]]]]",
-      "nesting_depth": 3
-    },
-    {
-      "text": "]a//[a//[`]]a//\n[[[[[[]]]]]]a//",
-      "nesting_depth": 3
-    },
-    {
-      "text": " a[[]] \n```]][[#```[[#[[]]\n[a[[` ```\n ",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[]]```[[[[[[[[[[]]]]]]]]]][[]]]]#]]aa[[a[[\n```\n[a//a[#",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a//`a[]a//]][[\n]]```]]]a//]][[[[]]]]]]]][[a a// ",
-      "nesting_depth": 2
-    },
-    {
-      "text": "[]#[[[```\n]]]]a[[`[[`][[[[[[[```[[[[#]]]]]]]``` [[```[]]]]][[ ]]a//",
-      "nesting_depth": 2
-    },
-    {
-      "text": "]][[[[[````]]a//`",
-      "nesting_depth": 0
-    },
-    {
-      "text": "[[#[[[[a//[[a//[[a//[[a//[[a//`[[]]]]]]]]]][[a//[]][]]]\n]][#\n]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "#[[]]``` ]][[#```]]```a[[a//[[a//[[a//[[]] `]]]]]]a// ]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[#[[[[a]][[[[ [[]]#  #a//#[[#[[#[[#```]]]]]]]]`]][[#[[#[[]] \n```[[  ]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[#[[[[[]]a//]]```[ ][[ ]]\na//]]a//a//\n[",
-      "nesting_depth": 2
-    },
-    {
-      "text": "[[[[[[[a//[[]\n]]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "`]]] ]]]]#[[#[[#[[#[[#[[a\n]]]]]]]]]][[]]```a]]][[[[]]",
-      "nesting_depth": 5
-    },
-    {
-      "text": "]]##[[[[ [[[]]\na [[\n]]#]]###`[[]][[[[]`a//a [[]]`]]#]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": " a #a//[[ \n[[ [[]]#[[#[[#[[#[[#[[]][a//]]]]]]]]]][[a\n[```]]]]```]]]][[]]]]",
+      "text": "\n \n`]]```\ua7cb```\u00e9[[a//[[a//[[a//[[a//[[a//\ud83d\ude00[[]]]]]]]]]]]a//a\ud83d\ude00\n[a]][[ [[]\ud800aa",
       "nesting_depth": 6
     },
     {
-      "text": "]]#[[#[[#a//]]]]]]]]]]]]]#[[[[`]a//",
-      "nesting_depth": 2
-    },
-    {
-      "text": "\na//```#\n[[[[[[[[#a]]]]]]]]```\n ]]",
+      "text": "\n```\ua7cb[[ \ud83d\ude00\ud83d\ude00]]]]`]]]][[aa]]]]\n[[[]]```\u00e9#]]a\ud83d\ude00]]]]\na// a//\ud800\ud83d\ude00\ud800a```\ua7cb]]`[[][[\ud800",
       "nesting_depth": 0
     },
     {
-      "text": "[[\n#```#[[[[`[[]][[[[a//[[a//[[a//[[a//[[a//# ]]]]]]]]]]```]]  ",
+      "text": "a]\ud800```\ua7cba//\ud800\n[[ #```\u00e9[[] ```\ud835\udc00\ud83d\ude00[\ud83d\ude00#[[#[[#[[#[[#[[]]]]]]]]]]```a```\u00e9```\u00e9[[[[```a[[]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "`#[[#[[```\ud835\udc00]]]]\ud800```\ud835\udc00",
       "nesting_depth": 0
     },
     {
-      "text": "[[ #]] \n]]```]]]]#[[#[[#[[]]]]]]a",
+      "text": "][[```\u00e9\ud800```\ud83d\ude00a```\ua7cb\ud800[]]`[[]]]]]\ud800\ud83d\ude00 #a//a\n`",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[a//]] \n]]```\ua7cb]][[a//``````\ud835\udc00 ",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]```\ud835\udc00`````` [[```\ud835\udc00[[a//[[a//a[\ud83d\ude00[[]]]]#]] ]]```\ud835\udc00\ud83d\ude00[[a//]]\ud800````",
       "nesting_depth": 3
     },
     {
-      "text": "`aa\n#`[[\n`a//[[[[]]]][[``````[[[a//a//```]]]]]",
-      "nesting_depth": 0
+      "text": "a``[[```\u00e9[[]]```\u00e9`]]]][[[[[[```\u00e9[[[[\ud800]]]]]][[ ]]\n\ud83d\ude00[[```\ua7cb]\ud83d\ude00```\ud835\udc00\n#```\ua7cb\n",
+      "nesting_depth": 2
     },
     {
-      "text": "]]#[[[[```a// [[a//[[a//[[a//[[a//[[a//]]]]]]]]]]`\n``` [[a[[ [[]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]#]][#\n]][]]`a[[a//a//[[```#[[#[[#[[#[[#[[]]a```#]]]]]]]]]] ```][[]][[]] [[[[[\n\n]a//]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[]]]]][[[[[]][[[[][[]][[a//[[a//[[a// ]]]]]]",
+      "text": "]a#[[#[[#[[]]]]]]",
       "nesting_depth": 3
     },
     {
-      "text": "]]`\n#[[a[[[[\n ]][[\n]]]]a//]\na//[[]][[[[[]]\n[[#[[",
-      "nesting_depth": 2
-    },
-    {
-      "text": " a// ]]] [[[[[[[[[[[[]]]]]]]]]] ",
-      "nesting_depth": 5
-    },
-    {
-      "text": "[[[[a//[[```\n`]]]] aa//]]```a[```#]]#```]]#[[]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]`[[[[[[[[[[```a//[[ ]]]]]]]]]]]]\n[[[#\n []]]][[[]][[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]]]#\n[[```\n a//",
+      "text": "```\u00e9]]]]```]]```\ud835\udc00\na```#]]][[```\u00e9]]a//[[#[[#[[#[[#[[#[[]]```\ud835\udc00]]]]]]]]]]aa//[[[[```\ua7cb```",
       "nesting_depth": 0
     },
     {
-      "text": "[[[[[[[[a//`````]]]]]]]]\na]] # #[[#[[#[[#[[#[[]]]]]]]]]][[",
-      "nesting_depth": 5
-    },
-    {
-      "text": "   `a[a#a//a//aa [[[[[[]]]] [ ```[[[[[[[a//#```[[[[[\n`#a//```",
+      "text": "[[```\ud835\udc00]]\ud800]]]]]]]] #aa]][[\n```\ua7cb\ud800#]]```\u00e9[[]]] \ud800```\ud800]```",
       "nesting_depth": 0
     },
     {
-      "text": "]][[```[[ \n[[]][[[[[[[[[[]]]]]]```` \n[[[]][[[",
+      "text": "]]a\ud800]```\ua7cb```\ud835\udc00\ud800]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]]\ud83d\ude00[\ud83d\ude00```\u00e9```\u00e9```\ua7cb \ud800```a``````\u00e9\ud800```\ua7cb[[]`a//]]```\ud835\udc00]a//[aa]]```\u00e9",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\ud835\udc00a]]```[```\ud835\udc00\ud800a//\n[[[]aa[[#]]\ud83d\ude00```\ua7cb]]\ud800`\n]]```\u00e9\ud83d\ude00a` ]]```\ua7cb[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#a//[[[```]]\ud83d\ude00`[[#\ud800\n[[a#```\ua7cb]]```\ud835\udc00```\ud83d\ude00\n]]]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#]]\n#a\n```\ua7cb\n]]]```\u00e9[[\ud800```\n]][[```]][[\ud800```]]a`",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\ud835\udc00```[[```\ua7cb\ud800\ud83d\ude00\n```\ud83d\ude00a//]]#[[#[[]]\ud800`]]]]#`\ud83d\ude00 [[\ud800]][[",
       "nesting_depth": 1
     },
     {
-      "text": "]][[\n]][]][[a//[[a//[[a//[[a//[[a//]]]]]]]]]][]]\n[[`[[[[[[[[[```` ##[]]a//#[[",
-      "nesting_depth": 5
+      "text": "a//]]\ud83d\ude00[[ ```a[````\ud835\udc00[[[[[[]]# ]]]]]]][[[]]][[ ]```\u00e9```\ua7cb[[\ud83d\ude00```a ",
+      "nesting_depth": 0
     },
     {
-      "text": "]]][[[[ ]]#[[```#]]a//[[a//##[[#[[#[[]]]]]]][[]]",
+      "text": "```\ud835\udc00 \ud800]]]]]]]\ud800]]a#``````\ud835\udc00a\n]]]```\u00e9[[]```\u00e9```\u00e9[a//",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]\n[[[[```\ua7cb```\ua7cba\n``````\u00e9\ud83d\ude00[[[[[[`[[[[```\u00e9```\u00e9[```\u00e9[[\ud800```\ud835\udc00\n \ud83d\ude00\ud800```\ud835\udc00a//`]\ud800#\n```",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[[a ]][[]]\ud83d\ude00`a//]#]#\ud83d\ude00]```\ua7cb```\u00e9a//`[[```\ua7cb",
+      "nesting_depth": 1
+    },
+    {
+      "text": "a```\u00e9[[```\ud835\udc00[[[\ud800```\ua7cb#[```\ua7cb]]]]```\ua7cb]][[[[#[[]]\ud800",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\u00e9\n\ud800 [[]]#```\ud835\udc00```\ua7cb```\ua7cb``]`[[```\ua7cb```\ud835\udc00]]#[```\ua7cba//```\ud835\udc00```\ud835\udc00]][[[[````\ud835\udc00\ud83d\ude00a//]]]]\n```\ua7cb`]] ",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]] ```\u00e9\ud800```\u00e9\ud800a[[a```\u00e9[[[a//```\ua7cb ]```\ud835\udc00\n````\u00e9#] ",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\ud800[ #[[#[[#[[#[[#[[```\u00e9]][[]]]]]]]]]] \na//",
+      "nesting_depth": 1
+    },
+    {
+      "text": "#\n[[]]`[[]][[[```#[[#[[#[[#[[#[[[[```\ud835\udc00]]]]]]]]]][[[ [\ud83d\ude00[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]]][[]]#[[]]]```\u00e9```\u00e9#[```\ud83d\ude00#```\ua7cb```a] [a//",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\ua7cb```#```\ud835\udc00````]```\ud835\udc00]]```]]]][[[[#````[[[[[[[[]```[]]]]]][[```\u00e9#[```\u00e9[#[]][[```]] a[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "a//```a```#[[]]]]]][[\n]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\ua7cb```\ua7cba```\ua7cb```\ud835\udc00```]]\n[[a//[[a//[[a//[[a//[[a//]]]]]]]]]]]]```\ua7cb]]\ud83d\ude00[[]]]]```\ud835\udc00]]]]a//\n]]```\ua7cb```\u00e9[[a//]]\ud83d\ude00[[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "a`a//a```\u00e9",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]]\n[[[# ```\ud835\udc00[[\n```[[a//]]\ud800[```\ud83d\ude00##```\u00e9[[]]``````\ua7cb##```\ua7cb#[````\ud835\udc00",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\ud800``````\ua7cb```\ua7cb````[]]a]]\n[[]]```\ud835\udc00\n````[````\ud835\udc00 a//```\u00e9```\ua7cb[[]\ud800",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[\ud800```\ud835\udc00```\u00e9\ud83d\ude00\ud800`a//[\n[[```\ud835\udc00]]\ud83d\ude00a```\ud835\udc00[]]```\ud835\udc00]]]]]\ud83d\ude00]]]][[a```\ua7cb\ud800\ud800```\ud835\udc00\n```",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\ud800[[]]\n[[]]\ud800[[#[[[]]aa``````\n]]```\ua7cb]][[ a//#[[`[[a",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\ua7cb]]```]```\ud835\udc00]]`\ud83d\ude00\ud800[[a#[[[[a//a]]]]]]\n[[]][[]]",
       "nesting_depth": 3
     },
     {
-      "text": "][[[a\n[[]][a][[#]`#[[#[[#[[#[[#[[```[[a//]]]]]]]]]]]] [[[",
+      "text": "a]]#[[a\n```\u00e9```\ua7cb]][a//]] a\ud800]]]\ud83d\ude00]][[]]\n",
       "nesting_depth": 1
     },
     {
-      "text": "```[[#a]]][[[[]]]]]]````[[]][[[[[[[[[[[[[[a]]a//]]]]]]]]]] ]]`",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]][#[[#[[#[[#[[#[[]a//]]]]]]]]]]```]````#[[",
+      "text": " #]] [[[[a//]]]]]]a// #[[#[[#[[#[[#[[]]]]]]]]]]]]\n[[]]a]]]]```\u00e9```[\n[[`[[ ]```\u00e9",
       "nesting_depth": 5
     },
     {
-      "text": "[[[[[]]```#]]a//[\n[[\na[[a\n` `#[[#[[]]]]##]]]]]]]][a] ```]] a]]][[[[\n[[]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]] [[[[ a```#[[[[ ]]```a#]][[ \n]`",
+      "text": "```\ud835\udc00```[[\ud83d\ude00``` [[ [[```\ud835\udc00a]```\ud835\udc00\ud83d\ude00]]][```]]#`[[]]```\u00e9````\u00e9]]]]```\ua7cb[[``````\ud835\udc00````\u00e9[[",
       "nesting_depth": 0
     },
     {
-      "text": "]]]]a//[[]][[#````]]`][a//#[[#[[#[[#[[#[[ ]]]]]]]]]]]]#",
-      "nesting_depth": 5
-    },
-    {
-      "text": "`a[[```]]][]]#]]]]]]#a//[[]]```[[  `[[a//a]#[]] a//]]` ]`",
-      "nesting_depth": 1
-    },
-    {
-      "text": "` a[][[```]]]```[[\n\n]][[a//[[a//[[a//[`[[]]]]]]a]\n[[a//]] ]] \n",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a//\n#[[#[[#[[#[[#[[]]]]]]]]]]]]#a[[a//[[a`[[a//",
-      "nesting_depth": 5
-    },
-    {
-      "text": "]]a//a// \n[[a#]]`]][[`]]]]\n[[a//\n]]]]]`````` ]][[```[[[[#[[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "```\n]]][[ ]]\na]]`[[[[ \n[[`]]]][ ]]\n]]]]a//[]] [[`\n[[]a//```]]]",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]] [[a//a]]]]# [[#\na [[`[[## ]\n",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[[[]]aa\na``]]]]`[[````````[[]]a",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a[[a//[]][[[[[# ]a//\n[[[[[]]]][[```\n][[#[[[[[]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "a//[[`[```a//  ]]\n]]#[[a//[[a//[[a//[[a//[[a//]]]]]]]]]]]][[[[[]]]]]a// [[[[[\n`]]]a//",
-      "nesting_depth": 5
-    },
-    {
-      "text": "[[][[]][[a//[[]][[a//[[a//[[a//]]]]]]]]]]]][[[[a\n]`a//",
-      "nesting_depth": 5
-    },
-    {
-      "text": "#[[[[[#[[[\na//#```aa#[[[[[[````a//]]",
-      "nesting_depth": 0
-    },
-    {
-      "text": "[[]]]]a#]a//]]`]]]]a[[a//]]a//",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[[]]]]````[[]][[`aa ]]\n#]]][[]]``````a//[[ ]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]##[[#[[]]]]]][a//",
-      "nesting_depth": 2
-    },
-    {
-      "text": "[[```][\n#]\n[[]]]][[[[]]][[`]]]]\n",
-      "nesting_depth": 1
-    },
-    {
-      "text": " [[[[[[\n ]][[[]]```\n[[] [[[]]]]]][ []]`[]] [[[[]]a//a````[[[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[]]]]\n]]#[[` ]]#[[]  ]][[a#```]]",
-      "nesting_depth": 0
-    },
-    {
-      "text": "a//[[[a` ]][#[[` ]]]]]][[[]]]]]]]]]a]][ ]]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[ a] ```]]a[]][[[[]]]][[[a//[[[[[[`]]]]]][[a\n",
-      "nesting_depth": 0
-    },
-    {
-      "text": "#[[#[[]]]]a//[[[[]]a//]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "[]][[#[[`[[\n[[[[[[[a]] ]]]]]]]]]]]]]]]][[[[]][[]]]][[a//][[",
-      "nesting_depth": 4
-    },
-    {
-      "text": "\n[[[[a[[[[a[[[#a]]`",
-      "nesting_depth": 1
-    },
-    {
-      "text": "`]]#]]]``` [[ `a[[ [[[[[[[[```[[\n]]]]]][[]]]]]```#a\n\n```]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "][[ [[ [[]][[a//]][]]]]#]]]]]]]]]#a//`a//[[]#]]]]```\n]]a",
-      "nesting_depth": 3
-    },
-    {
-      "text": "a//]]][[[[[[#[[#[[#[[a//[]]]]]][[[aa```]]]]]]a[[\n",
-      "nesting_depth": 3
-    },
-    {
-      "text": "[[` ]]]\n[[]][[[aa]]` [[```]][[]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[a//a//a//a//[[a//[[a//[[a//[[a//[[a//]][[]]]]]]]]]]]]]]]] #`#]]",
-      "nesting_depth": 5
-    },
-    {
-      "text": "[]a//`[[a//]][[[\n]#[[#[[#[[]] ]]]]]]]]`[[[[```#]]]]]][[[[[[a",
-      "nesting_depth": 4
-    },
-    {
-      "text": "[[a[[ ]][[#[[[\n]]]]\n[[]]]`]][[[#a//[[a[[",
-      "nesting_depth": 2
-    },
-    {
-      "text": "a//]]#`[[]] [[]][[````]][```]] ]]\n`]][[[[#]]a] ]][ #[[`]]",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]]` `aa//[[[[\n[[]]```[[\n[[[]]\na[[a//[]a//[[```a//]][\n",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a//]][[]] ]]##[[[[[[[[[[```]]]]]]]]]]#[]][[ a//a]```a[[[a//]]```\n]]\n",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a//```[a//[[\n]]][ `a \n]]a//a//]]\n\n[[a//[[a//[[a//[[a//[[a//][[```]]]]]]]]]] ]]a[#a`\n#```[[[[][]][][#",
-      "nesting_depth": 1
-    },
-    {
-      "text": "##```#]#`[[\na//[[#]]]]a//]]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "[[`]]]][[]][[[[[a//[[[```]]]][[[[`a//]] ]]]]\n ```[[[a]]#",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]]][[[[[[]]]]]]\n  ",
-      "nesting_depth": 3
-    },
-    {
-      "text": "a//[[]][[]```a//a//\n]]#\n]][[]][]]]]`]]\n[[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]][[a//[[[[]]#[[#[[#[[a]]]]]]]]]]`]]a#\n]]`[[ [[",
-      "nesting_depth": 5
-    },
-    {
-      "text": "[[]a//`a//[``` #\n[[[[[[`a//#",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]]]a[[]][[ ]]]]#[[`[[#[]]]] ]]][[a//[[a//[[a//[[a//[[a//[[]]]]]]]]]]]]`]]]][[][[a[a//[a//",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[[[a[[a",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]][[ a//]]a//\n[[]]``` [[[[ ]] ```#]][[[[]]#a//[[[[[[[[aa//```[]][[\n",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]a//\na//a//```][[\n][[[[[[[[[[]][ [[]]\n[[`]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[]]a]]]]]]]]]]\n` a[[a]]\n]]]]a//]]#[a// ]``````a```[```[[#]]]][]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]][[[[`[[]][#]\n[]][[a//`[[[[[[[[]]]]]]```\na] a\n`[[\n\n[a//]]]]`",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]a//]]```a//[[a//[[a//a]]]]]]#a//```[[]]`[[  ",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a//]][[]]a//]]]]]]```a//```]```[[][[`a[[[]][[[[[[`\n[[`````````[[a//[[a]]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[a[[\n[[[[[[[[[[]]#]]]]]]]]]] ",
+      "text": "[[```\ua7cb]]]][[[[[\ud800a//[[]][```\ud835\udc00]]a//#[[\n[[[[[[[[[[]]]]]]]]]]]][a//#]] [[a//#[[",
       "nesting_depth": 6
     },
     {
-      "text": "a```]]`[[`]]]]a//#]]a[[#\n]]]#[[[\na[[]]][[a//[[ a//[[]]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "#```]]```]][[ ```a#[[[[]][[ [[]]# ]][[]][[\na[[",
-      "nesting_depth": 2
-    },
-    {
-      "text": "[[[[a]][[]][[a//[[]][]`]]]] ]]][[a//[[```[[]]``````",
-      "nesting_depth": 1
-    },
-    {
-      "text": "\n```#a//[[[[]]`[[a]#[[]]][[][[a//[[a//a//]]]]]]```a",
-      "nesting_depth": 3
-    },
-    {
-      "text": "#]]`a]][[[[[[\n[[]#]]```]]]]]\na//]]a//]]``` ```##[[]##a[[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "#a[[#[[#[[]#]]]]]][[```[][[[]][[]]# ",
-      "nesting_depth": 3
-    },
-    {
-      "text": "[[```[[a//]]] ",
-      "nesting_depth": 1
-    },
-    {
-      "text": "`#[[]][]]]]\n[[#]```#]```[[a",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[]]]]][[#[[#[[#[[#[[#[[[[##[[]]]]]]]]]] [[``` [[ #",
-      "nesting_depth": 5
-    },
-    {
-      "text": "[[a]a//]]]]# a````]]\na//\n]]`]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "```#\n```]aa//]][[a//]]#[[[\n]]`\n",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]a//a#\n[```a//[[a//[[a//[[a//[[a//[[a//[[]]]]]]]]]]#]```]]`",
+      "text": "[[`[[a//[[a//[[a//[[a//[[a//```\u00e9]]a//]]]]]]]]]]",
       "nesting_depth": 0
     },
     {
-      "text": "#a\n\n[[[[[[a//]]]]]]]]#`[[[]]\n[[```[`",
+      "text": "\ud83d\ude00`[[ \ud83d\ude00[[#\ud83d\ude00]][[```\ud835\udc00````\u00e9\n\ud83d\ude00",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\u00e9a\n]a\ud83d\ude00]][ [[a//]]#\ud800```\u00e9",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]```\ua7cb\ud83d\ude00]]]][]]\ud83d\ude00```\ud835\udc00]]]]\ud800[[[`",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[#]]][[[[[[[[```\ud835\udc00[```\ud835\udc00]]]]]]a ",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\u00e9``````\ud835\udc00```]][[````\u00e9]\n[[a//[[a//[[a//[[a//[[a//[[a//]]]]]]]]]]]][[a\ud83d\ude00]]```\u00e9",
+      "nesting_depth": 0
+    },
+    {
+      "text": " \ud83d\ude00```\ud835\udc00\n] ```\ua7cb]]]][[]a// ]] ```\ua7cb [[[```#[[#[[#[[]]]]]]a//\ud83d\ude00]]",
       "nesting_depth": 3
     },
     {
-      "text": "a//]]] a//a \n[[]]```[[`]]]]]`] a//[[[[[ ]a//[[[[\n`a",
+      "text": "`a]]```\ud835\udc00]]]]a//\ud800]][[[[[[\ud800[[```[[]]]]]] [[[[\na\ud800a//a",
       "nesting_depth": 1
     },
     {
-      "text": "[]][[]]a ]]a]]#[[a[[\n\n [[a//[[a//[[a//[[a//]]#a//a]]]]]]]][[]]]] ",
+      "text": "]]a//````\u00e9```\u00e9[[```[[a//[[a//[[a//]]]]]]]a\n```]]a//[[]]```\ud835\udc00a]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[\ud800 ```\ud835\udc00 ```\ua7cb]\n]][[\ud83d\ude00#[[#[[#[[#[[#[[`a]]]]]]]]]]```\ud835\udc00\ud800a\n```\ua7cb]]#```\ud83d\ude00\n]]][[```\ua7cb`\ud800\ud83d\ude00\n",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]```\u00e9 ```\u00e9[[[a//[[\n[[```\ua7cb[[\ud83d\ude00[[[[ ```\ud835\udc00```````[\ud800\ud800```\ud835\udc00```\ua7cb[[[[[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[[[]]```\u00e9] [[]]]]`a//]]\ud800#```\ud835\udc00]]```\ud835\udc00##]][```\u00e9]][[",
+      "nesting_depth": 1
+    },
+    {
+      "text": " a]]]```\u00e9```\ua7cb````\u00e9#```\u00e9```[][[]][[[[[[```\ud835\udc00`]]]]]][[\ud83d\ude00a```\ua7cb```\u00e9]]#\ud83d\ude00```\u00e9\ud83d\ude00```\u00e9",
+      "nesting_depth": 0
+    },
+    {
+      "text": "`[[```\u00e9]\n\ud800a//```[[]]\ud800\ud800```\u00e9]]]]]] `\n",
+      "nesting_depth": 0
+    },
+    {
+      "text": "a[a//```\ua7cb`\ud83d\ude00]]```[[[a//```\ua7cb\ud800`[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[[#[[\n\ud83d\ude00\ud83d\ude00a#[[#[[#[[]]]]]]a]]\ud800`[```\ua7cba ]a\n`\n]]",
+      "nesting_depth": 4
+    },
+    {
+      "text": "\na//\ud800```\ud835\udc00```[[ [[```\u00e9\ud800[[a//[[a//]]]]]]]]][[ #",
+      "nesting_depth": 2
+    },
+    {
+      "text": "``` ```\ua7cb]]```\ua7cb```\u00e9a[[```\ud835\udc00]]```\ua7cb\ud800]]a//[[```\ud835\udc00 \ud83d\ude00]][[```\ua7cb\n```[[[[```\u00e9",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#[[#[[#[[#[[#[[]]]]]]]]]][```\ua7cb\ud800\ud800]]```\ua7cb```\u00e9 [[ \n`]]```\u00e9\n[a",
+      "nesting_depth": 5
+    },
+    {
+      "text": "]```\ua7cb]][[```\u00e9[[]]```\ud835\udc00\ud83d\ude00\na//\ud800```\u00e9#[[#\n[[]]```\ud835\udc00]][````\u00e9 #]`]]\ud83d\ude00]]```\ud83d\ude00```\u00e9```\u00e9]]]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "#[[#[[#[[[[]]]]]]][[",
+      "nesting_depth": 3
+    },
+    {
+      "text": " ]][[]]a//\n\ud83d\ude00\ud83d\ude00```\ua7cb  [[a//[[  ]]```\ud800]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[\ud800aa [ ```\ud835\udc00`]][[]][[a//[[a//]]]]",
+      "nesting_depth": 2
+    },
+    {
+      "text": "\ud800[ ]]```\ud835\udc00`aa//\ud83d\ude00\n```\ud835\udc00a```\u00e9\ud800]\ud83d\ude00 a//]]\ud800a//```\u00e9]]```\ua7cb",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\n[#[[]]\ud83d\ude00```][[a//[[a//[[a//[[a//[[a//[a]]]]]]]]]] [ [[[][[ \ud83d\ude00[[]]```\ud835\udc00```\ua7cb]]a//a//```a",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]`[[]][]]````]]\ud800\ud83d\ude00a]]````\ua7cb\ud800```]]```]]]]][]]```\u00e9",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]][[[a[```\ua7cb]]]]```[[]][]]\ud83d\ude00[[```]]```\ua7cb[[```\u00e9[[[[a//[[[[ ]]````\ua7cb`a//``````\ua7cb```\ud835\udc00",
+      "nesting_depth": 1
+    },
+    {
+      "text": "`]```\ua7cb```\ua7cb#[[a//```\ud835\udc00#[[]]  ```\ua7cb[]]]`[[`",
+      "nesting_depth": 1
+    },
+    {
+      "text": "a//a```\ua7cb[[[[a//[[a//`]]]]#a`#[[]]]]```\u00e9 ",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]#[[`]][[[[\n\ud800```\ud835\udc00]]]]#[[#[[#[[#[[#[[]]]]]]]]]]",
+      "nesting_depth": 5
+    },
+    {
+      "text": "]][[[[\ud800````\ua7cb```\ud835\udc00\ud83d\ude00`]][]\n]]##````\u00e9[[\ud83d\ude00````\ud835\udc00#]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\n```\ud835\udc00a//```\ud835\udc00[a//```\ud835\udc00```\ud835\udc00]][]]#\ud800[[[[[[[[[[]]]]]]]]]]]```\u00e9[[a ][`]]",
+      "nesting_depth": 5
+    },
+    {
+      "text": "a//[]]```\ud835\udc00a ```\u00e9\ud83d\ude00#a//]]][\ud800[[```\ua7cb \ud800]] ",
+      "nesting_depth": 0
+    },
+    {
+      "text": "``````]]```\u00e9[[[#```\u00e9```\ua7cb`[[\ud800]]]]\ud800```\ud83d\ude00```\u00e9[[a//\ud800a]]\ud800[[a```\ud835\udc00]]a//#\ud800```\ua7cba//[[```\u00e9[[[[\ud83d\ude00[[```\u00e9\ud800[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[[#]][[]]```\ua7cb#[[[[`]]]]```\u00e9]]```\u00e9\na[[]]]\ud800]]\n]]```\u00e9",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]\n#```\ud835\udc00[[]][[a//[[a//[[a//\ud83d\ude00]]]]]]#``````\n\n[[```[[][[]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]```\ud835\udc00\n[[\naa```\ud835\udc00```[[]][[a//[]]a//a//[[aa//",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\ud835\udc00a//]]```\u00e9[[[[[]]]#[[]]`[[```]```\u00e9#[[```\ud835\udc00]]##]]```\ua7cb`]][[a//]]a\n#",
+      "nesting_depth": 1
+    },
+    {
+      "text": "`\ud800\ud83d\ude00[a//```\ud835\udc00```\ua7cba//```\ud835\udc00[[``````\ua7cb```\u00e9]]```a//```\u00e9]]aaa//]]`a\n]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#[\n\ud83d\ude00\n[[]```\ud835\udc00a//a```\ud835\udc00][[#a//```\ud835\udc00]]\ud800[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]][[\ud83d\ude00]]\ud83d\ude00[[]]```\ua7cb[[[[[[]]`\ud83d\ude00#```\n```[[a//[[a//\ud800[[ ```\ud835\udc00]]]]```\u00e9```\ud83d\ude00]]]#```\ud835\udc00`[[][[a]][a\n```\u00e9#\n",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[a//[[a//[[a//]][[[[[[]]]]]]\ud83d\ude00a//`a```\ud835\udc00`a \n[[[[```\ud835\udc00[[]]#[[]]```\ua7cb ]]",
+      "nesting_depth": 3
+    },
+    {
+      "text": "]]```\ua7cb][[[```\u00e9[[[[]]```\u00e9]] `[[]]```\ua7cb[[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]][[```\u00e9]]]][[```\ud835\udc00a// ```\ud835\udc00[[a//[[a//[[a//``````\ud835\udc00```\ua7cb\ud83d\ude00]]]]]]\ud83d\ude00````\ud835\udc00```\ua7cb]]]#\ud800",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\n`a```\u00e9[[[[[[[[[[[[```\ud835\udc00]]]]]]]]]]`]]]]a]a][[a//",
+      "nesting_depth": 0
+    },
+    {
+      "text": "a//]]```\ua7cb```\u00e9a[[\ud83d\ude00```\ua7cb [[a//[[\n]]a",
+      "nesting_depth": 1
+    },
+    {
+      "text": "][[\ud83d\ude00```#]]```[[]]]]#\ud83d\ude00`]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "a//]]]]`[[```\ua7cb]]\ud800a]]\ud83d\ude00a//#]]\ud83d\ude00```# [[a//[[a//[[a//[`]]]]]]\ud800[[[[]]\n#[[````\u00e9]#",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[[[[[]\ud800 `[[[[[\n[[```\ua7cb```\u00e9[[[[]]`a\n\ud83d\ude00\ud800 ]][]]]]]]\ud800a//```\u00e9a//]]]]```\ua7cb]][[[[```\ud835\udc00",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\na//\ud800]a//\ud800```[[```[[[[]]]]```\u00e9`a```\u00e9]\n]]```\ud835\udc00[[[\n]]```\ud835\udc00[[[[]][#",
+      "nesting_depth": 2
+    },
+    {
+      "text": "]]`#[[][\n\n]]\ud800\n```\ud835\udc00]][\ud800#[[[[a//[[a//[[a//]]]]]]]",
+      "nesting_depth": 3
+    },
+    {
+      "text": "```\ua7cb```\u00e9```\u00e9\n[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "`\ud83d\ude00```\ud800`][  [```a#]][[a//[[a//]]]]```\u00e9]]```\u00e9]```[[```\ud835\udc00",
+      "nesting_depth": 2
+    },
+    {
+      "text": "```\u00e9```\ud835\udc00```[[]]]a//##```\ua7cb#```\ud835\udc00 \n[[a//[[`[```\ud835\udc00",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\u00e9#a]]\ud800```\ud835\udc00```\ua7cba````\u00e9a//`[[]][[]]a//[[```\u00e9```\ud835\udc00[[[\n`]][[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\ua7cb[[a//[[a//[[a//```\u00e9[[]]]]]]\ud83d\ude00\ud800[[]]]````]]]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\ud835\udc00aa//]]```\ua7cb[[[]]#[[#[[#[[#[[#[[[`]]]]]]]]]]\ud800\ud83d\ude00```\ud835\udc00[\ud83d\ude00[[[[\n\n]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "#```\u00e9```\ua7cb\ud83d\ude00\n[```]][[[[[[[[[[```\u00e9[[]][[]]]]]]]]]]\ud83d\ude00]#]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\ud83d\ude00[[a##\n\n````\ud835\udc00\ud800```\u00e9```\u00e9\n```\ud835\udc00\n \ud800[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\ud83d\ude00```\ud835\udc00a//```\u00e9[[]]]] ``[[a \ud83d\ude00]]][[[\n[[[]]```\ua7cb[[```\ua7cb``a```\u00e9a[[",
+      "nesting_depth": 1
+    },
+    {
+      "text": " [[```\u00e9```\u00e9`]][a a```\ud835\udc00\ud83d\ude00a#]]a]  a",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[[[[```\u00e9[[`[[[[ ]]]a//",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[```\ud835\udc00]]```\ud835\udc00]]]```\ua7cb]] [[[[[[[[[[]]]]]]]]]]]]]a[[#]]]]]]]]]]\n```\ud835\udc00",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\ud835\udc00```\ud835\udc00[]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]```\u00e9 `]]]]\ud800`[[[\ud83d\ude00[[]]```]]`\ud83d\ude00a//\ud800\ud800#[[\ud83d\ude00```\ud835\udc00[[[[]]\ud800a```\u00e9```\ud835\udc00  [",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[]]```\ua7cb]]\ud83d\ude00]]]]```\u00e9#````\ua7cb]]#```]] #[[[[```\u00e9```\ua7cb`]]]]a]][]a//a[[\n[[[]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]```\ua7cb```\ua7cb]]a//[\n```[```\ua7cb\ud800[[`\ud83d\ude00a]]]]```\ua7cb\n ```\ud835\udc00]]a\n#]]\n`\ud800[```#[[```\ua7cb]]",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]\ud83d\ude00\ud83d\ude00```\ud835\udc00```\ua7cb\n]]```\u00e9\ud83d\ude00[[a//```\u00e9```\ua7cb\ud83d\ude00[[```\ud835\udc00]] \ud800```\ud835\udc00```[[\ud800\ud800",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```#[[[[[[[[a//a//[\ud83d\ude00[[[[a//#]`]]]]```\u00e9\n",
+      "nesting_depth": 0
+    },
+    {
+      "text": "\ud83d\ude00 \ud83d\ude00\ud800```\ua7cb[[[[[[```]]][]]]]]]```\ua7cb]]]\ud800[[]]]\ud800[[[[[]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "[[[[]]]]a//[```\ua7cb[[[[[#```\ua7cb]]#[[a[[\ud800```\ua7cb[[```\u00e9` ]]",
+      "nesting_depth": 2
+    },
+    {
+      "text": " \ud800]]```\ud835\udc00\n#[[#[[#[[#[[#[[a\ud83d\ude00]]]]]]]]]]```\ua7cb[[[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]a ```\u00e9a]a``````\ud835\udc00]]][[]]\ud83d\ude00[[[[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```\u00e9`[]]\ud800`#\ud800```]]#]]```\ua7cb[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]````\ua7cb\n\ud800]]a```]][[]]#```\ud835\udc00]]\ud83d\ude00]]`\ud800\ud83d\ude00`a```][[#```\ud83d\ude00a[[]]]]\ud83d\ude00`\ud83d\ude00[```#",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]`]]]]```\ua7cb]]]]\n\n```]]\ud83d\ude00\n\ud83d\ude00]]a//```a//```\ua7cb#[[a//\n\ud800```\ud835\udc00]]\ud83d\ude00[```\ud835\udc00][````]\ud800```#][",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]````a]]\ud800]]#\n[[\ud800[[a//[[a//]]]]]",
+      "nesting_depth": 2
+    },
+    {
+      "text": "\ud800[[```\u00e9```\u00e9\ud83d\ude00\ud800#```\u00e9\ud83d\ude00[[a//[[a//[[a//[[a//[[a//\ud800 ```\ua7cb]]]]]]]]]]]]`a//a//`]```\ua7cb",
+      "nesting_depth": 0
+    },
+    {
+      "text": "```\ud835\udc00a```\ud835\udc00```\ud835\udc00[[[[[a//[[\ud83d\ude00aa//]][[```#[[[[]]]]",
+      "nesting_depth": 2
+    },
+    {
+      "text": "`\ud83d\ude00[[]]```\u00e9\n[[`a[[[[a//]]\n]][[]][[]]a\n```",
+      "nesting_depth": 2
+    },
+    {
+      "text": "a[]]]][[\n]]a//```[]]```\ud835\udc00]]]a//`",
+      "nesting_depth": 1
+    },
+    {
+      "text": "#```]][[\n#]]\ud800\ud800a``` a[[[[\ud83d\ude00\n\ud83d\ude00]]a//a[[]```",
+      "nesting_depth": 1
+    },
+    {
+      "text": "#[[ [[[[[[\ud83d\ude00] ]]]]]] #]\ud83d\ude00```\ua7cb\n```\u00e9\ud800[[]]\ud83d\ude00\ud83d\ude00]\ud800]]]`",
+      "nesting_depth": 3
+    },
+    {
+      "text": "a\n]]\ud800\ud800```\u00e9 #[[#[[#[[#[[#[[[[[[]]\n]]]]]]]]]][[",
       "nesting_depth": 6
     },
     {
-      "text": "a#`[[#```",
-      "nesting_depth": 0
-    },
-    {
-      "text": "a//]]]]#[[#[[#[[```]]]]]] aa]]]][[\n\n]]]]]#```]a#a// [[",
-      "nesting_depth": 0
-    },
-    {
-      "text": "a//[` a// [[```]a]]]][#[]] []][[[[]]]]#",
-      "nesting_depth": 2
-    },
-    {
-      "text": "a//]]]]a//]][[[[#[[a//#]]]]```]]]][[```]]\n]]`]][[`[[[[",
-      "nesting_depth": 2
-    },
-    {
-      "text": "a[[ ]  ```a//[[[`]\na//[[]][```a[[a//```[[]][[a//]]a//`[[\n[[\n]]\n[[][[ []]]]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "```a`[[[[a][[[]]]#``````[",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]a[[[[[#[[[[ ]][[a//\n[[\n]] ]]#[[#[[#[[\n[[[]]]]]]]]",
-      "nesting_depth": 4
-    },
-    {
-      "text": "a//[ [[```]] a//]][[[#a//]][[```[[a//]a]][[[[#]]][[a//\naa//a//]`[[[[[",
+      "text": "]]a//aa[[a//a]][[]]a//```\u00e9[[]][[]\ud800",
       "nesting_depth": 1
     },
     {
-      "text": "```[[a]]]]]][[[[```]]]]#[[```",
-      "nesting_depth": 0
+      "text": "]]a[[```\ud835\udc00```\ua7cb[#a//a```[[ ]]\n`][[\n[[a//[[a//[[a//[[[[a]]]]]]]][]]\n \ud83d\ude00]]#[[[]]]]```\ua7cb[[]]\n`]]",
+      "nesting_depth": 1
     },
     {
-      "text": "#]][[[[[[[[[[]]]]]]]]]][[ `[]]`",
+      "text": "\ud800 ``````\u00e9```\u00e9`\ud83d\ude00]a//[```\ua7cb[\ud83d\ude00\ud800]][[a//[[a//[[a//[[a//[[a//[[]]]]]]]]]]a//  \ud800````\u00e9\ud83d\ude00]]]]#```\ua7cb```[[[[] [[[[]]```",
       "nesting_depth": 5
     },
     {
-      "text": "[[[#[[]]\n]]\n",
+      "text": "]\ud800\n]]]]]```\ua7cb\ud800]]\n[[[[[[[[[]][[]]]]]]````\ud835\udc00]][[a//[[\ud83d\ude00a//",
+      "nesting_depth": 0
+    },
+    {
+      "text": "``````]][[a//[[a//[[a//\ud800```\ua7cb]]]]]][\ud800[[]][[ ",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]]]\ud83d\ude00[[```\u00e9]]```\ud835\udc00```\u00e9```\u00e9[```\ud83d\ude00`\n[[ ][[[a//[[a//\na//```\ud835\udc00]]]]```\ua7cb]] #[[a//[[[[\n[[\n```\ua7cb\n]]]]a//]]#",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#]]\ud800``````\ua7cb```[[[a//\na[[ a]][[a//[[a//]]]]]]\ud83d\ude00]]]]\n```]]```]\ud800\ud800```\ud835\udc00\ud800\n````\u00e9```\ud835\udc00a//[[]]\n```\u00e9[",
+      "nesting_depth": 1
+    },
+    {
+      "text": "`[[[[a//[[a//[[a//[[a//[[a//]]]]]]]]]]]]```\u00e9]]\ud800[##]]\n[[ ```\u00e9```\ud835\udc00[[```\ua7cb```[[```\u00e9",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]][[````\ud835\udc00a//```\ud835\udc00#[[#[[ ```]]`]]]]a\n```\ud835\udc00```\u00e9 \n",
+      "nesting_depth": 0
+    },
+    {
+      "text": "[]a//```\ud835\udc00]#]]`[[\ud800]]````]]a//[[a//]]\n]]]]]] ```\ud835\udc00```]]]```\u00e9[[\ud800",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]]#  [`[[##[[]]]][[a//[[a//[[a//[[a//[[a//\ud83d\ude00]]]]]]]]]]]]```\ud835\udc00[[`[[",
+      "nesting_depth": 0
+    },
+    {
+      "text": "#a[[```\u00e9```\ud835\udc00[[[[[[``` a]]][[a//[[a//a//]]]][[]]]][[```\ud835\udc00",
+      "nesting_depth": 0
+    },
+    {
+      "text": "]]```\u00e9[[[[]`\ud83d\ude00[[\n\ud800]]````\u00e9```\ua7cb[[\n```\ud835\udc00`]][[a//[[a//]]]]",
       "nesting_depth": 2
     },
     {
-      "text": "```[]]\n[[a//[[\na\n]]]]]]]a//]```]]]]]]]]]]]]]]\n\n[[",
+      "text": "```\ud835\udc00a\ud800[[a//][`[[a//\ud800]]\ud800a//[[a//a//]\ud83d\ude00",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]][[```\ua7cb[[```\n```a]][[```\u00e9]]\ud83d\ude00 [[]]```\ud835\udc00```]]\ud800```\ud835\udc00```\ud835\udc00",
+      "nesting_depth": 1
+    },
+    {
+      "text": "]][\ud800\ud83d\ude00]]```\ua7cb[[```\u00e9\ud800][[[[][#]][[```\ud835\udc00\ud800 \ud83d\ude00]]```]]````\ua7cb\n[[[]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "\na\ud800\ud800\ud800```\u00e9```\ud835\udc00#[[```\u00e9a//[[]]`a```\ua7cb[[]]```\u00e9```\u00e9```\ud835\udc00```]]```\ud835\udc00```\ud835\udc00 ",
+      "nesting_depth": 1
+    },
+    {
+      "text": "```[[[[]#[[\ud800\ud83d\ude00]]",
+      "nesting_depth": 1
+    },
+    {
+      "text": "a//[\ud800\n[[[\ud800a[```\u00e9[[]]a#[[#[[#[[```\u00e9a//`]]]]]][[a```]]\ud800```\ud835\udc00`][]]#\n",
       "nesting_depth": 0
     },
     {
-      "text": "```[a//\n```]]#]]]]]]#\na[[[[a//[[a//[[a//]]````]]]]]]\n[[a//[[[[]]]#]]]]",
-      "nesting_depth": 3
+      "text": "\ud83d\ude00```\ud835\udc00 ]#[[```\u00e9]]\ud83d\ude00][]````[[[[[[]]]]]]``````[[```\u00e9]a`[[#[\ud800```[[a//```\ua7cb`",
+      "nesting_depth": 0
     },
     {
-      "text": "a````]]`a[[[[a//[[a//```[[a//a]]]][[`a//][]]`]]a[[[a]] #[[a//[[```",
-      "nesting_depth": 1
+      "text": "[]][[```[[a//[[a//]]]]\ud83d\ude00[[]]\ud800]]\ud800\ud800\ud83d\ude00```\u00e9`]]",
+      "nesting_depth": 0
     },
     {
-      "text": "[[]]]][[]]]a]][[[[a[[]]  [[]][[````]]#a//##```[[\n",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a\n\n`]]]]]]#[[]] ]]]]]][```[[[]]#",
-      "nesting_depth": 1
-    },
-    {
-      "text": "`a//]][[\n \n[[[[]]]]a//`[[[[[[a//]][[#]]]]a//a// a\n]]````a//`\n `",
-      "nesting_depth": 3
-    },
-    {
-      "text": "`[a//#```[[[[[[  ]][]]",
+      "text": "a//```\ud835\udc00aa]]`\ud83d\ude00[[\na//#[[]][a[\ud83d\ude00a[[a// [\ud800]]]][a```\ud835\udc00\na[[a// [[ \ud83d\ude00]]\n]]```\u00e9``````\ud835\udc00a//",
       "nesting_depth": 2
     },
     {
-      "text": "#]]]]]]##]a[[`aa```]]````[[a[[[[[[[[]]][[",
-      "nesting_depth": 1
-    },
-    {
-      "text": " `\na//``````a`][[[[[[#```#[[a//[[a//[[ ```]]]][[\n#[]]a]a[[[[]]#```a#[[a[ [[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "\n]]]] aa[[]][]`` ]]]]]]]][[ ```",
-      "nesting_depth": 1
-    },
-    {
-      "text": " \n```[[[[]]```][[#[[`]] ]][[```]]a[[[# aa//a]][[[[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "````]]#[[#[[]]]]\n#]]]] ]]#[[]]a#]]]]]]][[]]]]`a//[[]]",
+      "text": "[[```\ud835\udc00`]][[```\ud835\udc00[[[```\u00e9a//```\ua7cb]]```\ua7cb]]a#[[#[[ [[]]]]a//",
       "nesting_depth": 2
     },
     {
-      "text": "[`a ## #`#[[#[[#[[#[[#[[[[[]]]]]]]]]]]]]] ]][[`#[]]]][[[[[[a[[```]]",
-      "nesting_depth": 6
-    },
-    {
-      "text": "]][[a//\n]][[]][[a// [aa]][[]][[ [[`````a//[[]][[```]\n]] ]]`",
+      "text": "]a\n\n[[[[[[[[]]```[a//`````\ud835\udc00]]\n",
       "nesting_depth": 1
-    },
-    {
-      "text": "\n[[[[[[#]]]#[[#[[#[[#[[#[[ [[[[]]]]]]]]]]]]```[[#  \n\na[[[[",
-      "nesting_depth": 6
-    },
-    {
-      "text": "[[ `a#a[[[[#a//```````[[[\n[[````a][[[[# [[]]` [[a]] ]] ",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[a]]a]]]][\n[[```[[a]]a//[[[[a//a//#```a\n#[[[[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a//]]#```#[[]]][[]]]]]a//\n[[[[]]]]]]a//a//a[[a[[]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "][[[[a//[[a//[[a//]] ]]]]]]] a[[]] \n",
-      "nesting_depth": 4
-    },
-    {
-      "text": "\na]]#]]a[[]]a[[[[\n[a",
-      "nesting_depth": 1
-    },
-    {
-      "text": "```[[[[]]]]`[[```[[]]#\n[[[][[[[[[ \n",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[][[```\n\n][[\n```a#[[#[[#[[]]]]]]]]]\n[]][[]a//a//[[ [[[[````",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]][[```#[[[[a ]] ]][[```]]]][\n[\n[[",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]][[]]]][[a//[[]][[[[[[\n[[[[]]]]]][[a//[[a//[[a//````[[]]]]]][[\n[[]]]]]]]]]]a//]]",
-      "nesting_depth": 3
-    },
-    {
-      "text": "[[[[]```]]```#a//```\n]]```[[[]]a//[[a//]][[]]\n]]]]]][[a[[````` #]]]]]]]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[[[[[]]a]]]]]]]]]",
-      "nesting_depth": 3
-    },
-    {
-      "text": "a#[[#[[]]]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "a]]a[[[a[[[[#]]`[[]][[a//[[a//[[]]]]a//a//[[[[[[a```  ]]`#`[[\n[[ ",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a[[[[a//a]]]]`]]]][[`\na[[[[#``````[[",
-      "nesting_depth": 2
-    },
-    {
-      "text": "```]]][[\n][[[[[\n[[[[[[\n]]]]]]`]]]]`#[[\n\n]] ```[[[[]",
-      "nesting_depth": 0
-    },
-    {
-      "text": "#a",
-      "nesting_depth": 0
-    },
-    {
-      "text": "[[\n]] \n```[]]]][[ ]]`[[```[[[[]]a//[]]]] ]]]][[[[\n [[\n````#",
-      "nesting_depth": 2
-    },
-    {
-      "text": "`]]][[]][[a[[[a \n]][[ [[]]`a]]][[[[]]\n```a//a\n[[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]][[[[[[#[[[a a//\na] a//[[]a]]a",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a//[[[[[[[a]]]]]]\n[[#```]][[# [[",
-      "nesting_depth": 3
-    },
-    {
-      "text": "]]][[[[[]#a```[[[`#\na//[[[]]]]`[[`\n[[`[```a\na//[[]]][[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a//```[[]]`a]] ]]]]``````[[a//a]#[[]]a//[[[[]][[[[```]] ]]]][[# ``````]]]]#",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]]]]a]]# #]]a//```a\n] [[``````#[[a//[[a//[[a//]]]]]]]]",
-      "nesting_depth": 3
-    },
-    {
-      "text": " [[a//[[[[a//[[a//[[a//[[a//[[a//]]]]]]]]]]][[[[\n[[[[ ]]```a//][[]]\n #\n",
-      "nesting_depth": 5
-    },
-    {
-      "text": "]]]]]][[]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "`[[[]]a//`a//a`[[[[#[[#[[#[[#[[#[[]][[]]]]]]]]]]]]#[[ #\n]]]]a//[[#a\n[[#[[",
-      "nesting_depth": 7
-    },
-    {
-      "text": "a`\n]] [[[[]]]]```",
-      "nesting_depth": 2
-    },
-    {
-      "text": "``` ]]``[[a//]][[]][[\n]]a]][[\n]]]\n]]]][]][a//`",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]```]][[]][[\n\n]]a//[[[[#[[[#`[#[[]][[#[[```a//```[a```aa//`\n",
-      "nesting_depth": 0
-    },
-    {
-      "text": "a//]]`#]]]a//][[a//[[a//#[[```]]]][]] ]][[[[#]] ]][]]\n]]\n[[[[\n[[[",
-      "nesting_depth": 2
-    },
-    {
-      "text": "[[]]\n`[ ]] ][[[[[[[[#[[[#]]]]]]]#]` \na// ````",
-      "nesting_depth": 1
-    },
-    {
-      "text": " a//[[][[[[]][[]] [[ ]] [[a//]]`",
-      "nesting_depth": 1
-    },
-    {
-      "text": "#[]````#\n]]]#]]\n[[][[a//a]]```]]#[]]``````",
-      "nesting_depth": 0
-    },
-    {
-      "text": "\na//[[```]][[]]]]`]]a[[a`\n \n[[]",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]]] [[[[`aa\n[]]a]]\n`[[[[[[[[[[```]]\n]]]]]]]]]][[ [[[[[```[[",
-      "nesting_depth": 0
-    },
-    {
-      "text": "`] #a]]a//\n]\naa]] ]a//``` #]]#]]```\n#a//\n```[[]] a```[[[",
-      "nesting_depth": 0
-    },
-    {
-      "text": "```]]```#]]]a//```]]]][[#]][[```a//a//``` [[[[[[[[[[a//]]]]]]]]]]a//]]\n]]]]````[[a//]]`[[#]  ",
-      "nesting_depth": 5
-    },
-    {
-      "text": "\n#[[a//]]#````[[a]]#[[#[[#[[```[[]]`]]]]]]]]]]a//#a[[[[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[#[]\n]]```[[# ]]]]#",
-      "nesting_depth": 1
-    },
-    {
-      "text": "`````` ]a\n`a#a//]]]#[[#[[#[[#[[#[[[[]]a//]]]]]]]]]][`[[[[\n`[[#  a",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]]]][[```]]]]```[[]]]]]#[[#[[#[[]][[[]]]]]]```aa// ]]]]a```",
-      "nesting_depth": 3
-    },
-    {
-      "text": "[]][[``````a`#[[a//[[a//[[a//\n#]]]]]]]][[[`````#][[\n# [[\n[]]\n",
-      "nesting_depth": 1
-    },
-    {
-      "text": "`#[[ ```[[[]]`a[[[#]]]]]]```# ]]\na//`[[a#a]`][[```",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[#[[#[[\n[[]]]]`\n#`]][]]`a//",
-      "nesting_depth": 2
-    },
-    {
-      "text": "a[[a//[[a//[[a//[[[]]]]]]```\n]]# [[[[\n``[[[[]]\na",
-      "nesting_depth": 3
-    },
-    {
-      "text": "\n#\n]````[]]]]#[[#[[]]]]`[[a `]][[\n]a//a//a//[[ ]\na]]]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "[[]]]]# `[]]][[a//`[[`[[]]]]`[[a//[[a//[[a//[[a//[[a//```]]]]]]]]]]]][[[]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a// ]]][[[[[[[[[[#[[#[[#[[]]\na//]]]]]]\n]] [[[a//[[ ]]\n[[a//```[[]]\n]]",
-      "nesting_depth": 5
-    },
-    {
-      "text": "```]][[]][[a\n#]][[a//a//a\n[[[[[[[[[[[[[[]]]]]]]]]]]]`[[```]]a a//]]]]]]]][[[#]",
-      "nesting_depth": 0
-    },
-    {
-      "text": "\n\n[[]]]#]a ]]]]]][[[[a//]]`]][[[[#[[#[[#[[]]]]]]]][[",
-      "nesting_depth": 4
-    },
-    {
-      "text": "a//##]][[]][[[[[[```]]]]]]]]a]]]]]]\na//`a[`",
-      "nesting_depth": 1
-    },
-    {
-      "text": "`[[```]]\n\n]]]][[a//[][[[[[[]]]```[[[[]]][[]]```",
-      "nesting_depth": 1
-    },
-    {
-      "text": "#a//```a//`]]\n]]a//]]` #]\n[[]]][[\n",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[\na//#]][[a//#[[#[[#[[#[[#[[]]]]]]]]]]`` a]]]]]]]` ",
-      "nesting_depth": 5
-    },
-    {
-      "text": "[[[]  a]][[#[[#[[]]]]`#a//###]a//`\n a//#aa[ ````]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "a```]]#``` \n]][[```#[[#[[#[[#[[#[[]]]]]]]]]]]][[]]][```]]#",
-      "nesting_depth": 0
-    },
-    {
-      "text": "`[[ `[[a//``````a//[[]][[`  #]][[]]`[[ \n ]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "#[[][[[[ a ##[[]][[[[[[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "aa//]]]\n[[ [[a//[[]]]]]][[#]a][[[[`#]]#]`",
-      "nesting_depth": 3
-    },
-    {
-      "text": "#[[[[[ ]]  [[[[[[```a]]]]]][a[[a//a[[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[[[[[[[]]a//\n]][[\n[[a//```[[#]]]]`\n  [ a//]]#",
-      "nesting_depth": 2
-    },
-    {
-      "text": "a//]]# [[[[a//a[[a//[[a//[[a//]]]]]]a]```#[[[[[[[[[][ `]]]`",
-      "nesting_depth": 3
-    },
-    {
-      "text": "#[[#[[#[[]]]]]]a\n```a//]]`a ]][[[",
-      "nesting_depth": 3
-    },
-    {
-      "text": "[``` ]]`]`]]a//a #[[]]a//a// ```]]]]a//a//[`[]]]]]]",
-      "nesting_depth": 0
-    },
-    {
-      "text": "[[]]]a`[[[[]]#[[]][[```[[#[[#]]]][[a//[[ ]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "]][[a//a//`]]]]``````[[][[",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]] ]]]]a//a[[ ]]]]a[[[a\n[[[\n[[[[]][[[[#[ ",
-      "nesting_depth": 1
-    },
-    {
-      "text": "\n#[[#[[#[[]]]a]]]]]][[# ]`a// ```]]]]]]a//[[#a//#]]",
-      "nesting_depth": 3
-    },
-    {
-      "text": "[\n]]][[a//[[a//]]][[#]]]] ```#a]]]][[[[`]]a//[````]]]][[[\na//",
-      "nesting_depth": 2
-    },
-    {
-      "text": "]]]] aa//\n]][[[[[[#[[a ",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]]\na]#[[#[[#```]]]]]]]]`#a# a//",
-      "nesting_depth": 0
-    },
-    {
-      "text": "\n`[[]]]]` ]]",
-      "nesting_depth": 0
-    },
-    {
-      "text": "[[]]]]a//[[```]][\n\n [[a// [[]a#[[[[[[[[[[]]]]]]]]]]][[[a[[a[[[[[]]\n[[a]]a[[#",
-      "nesting_depth": 5
-    },
-    {
-      "text": "][[]]]]```\na//`]]a[[[[a\n]]]``` a//[[ [[\n\na//]]a//]]`a//a//[[",
-      "nesting_depth": 2
-    },
-    {
-      "text": "\n[[[\n[[]```\na//[[[[a]]]][[````[[[[`[[]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "\n]][[[[\n a//]a//]]#````[[]][[]][[a//]]][[[[  ]]a//a//[[a//\n[[]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "#a//]]]][[\n a//]]   #]]][[]]]]`]][[]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "#]]]]#[[[]]][[[[a[[a//\n[[]]]] #[[[a//]]]]#[[a//",
-      "nesting_depth": 3
-    },
-    {
-      "text": "[[a//[[a//[[a//]]]]]]][\n[[[[[[\n[[a//",
-      "nesting_depth": 3
-    },
-    {
-      "text": "[[]a\n[[`aa]][[#]]a``` [[]]]a//",
-      "nesting_depth": 1
-    },
-    {
-      "text": "#\n\n][[ [[[[ \n]]#[[[[\n]] #[[#[[a//]]]]]]a]]",
-      "nesting_depth": 4
-    },
-    {
-      "text": "[[a//[[a//[[]]]]]]]] [[[a[a]] [[#[[a`",
-      "nesting_depth": 3
-    },
-    {
-      "text": "a//]]a##[[#[[#[[[[]]]]]]]]]]",
-      "nesting_depth": 4
-    },
-    {
-      "text": "]]a//\n[[[[[a//]][[[[`a]][[a//[[[[]][#[[`[[[[`a//[[a//\n`a//",
-      "nesting_depth": 1
-    },
-    {
-      "text": " ]]]]][[]]]][[\na\n``````[[[`]]]]#",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[[[]]#[[#[[#[[#[[#[[]]]]]]]]]]```][[a[[ ]]]]]]`]]\n]]",
-      "nesting_depth": 5
-    },
-    {
-      "text": "a//a]```]][```[[`a// [#```",
-      "nesting_depth": 0
-    },
-    {
-      "text": "[[a```]a//```]][[]][[]]a]]a[[ [[  ]][[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a//``]]`\na`[[]]#[]]a//#[[]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]````]] []][]#```[[[a]]\n]]]]a//[[]][#[]]a ]]\n[[]]]a#[[]][[[[[[[```",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[[[]]```[[a]]]]  a]a]][[ ",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]][[\n]]]][[[[]]]]```]]]]]][[[[[]]a//[[]]a//",
-      "nesting_depth": 2
-    },
-    {
-      "text": "[[[```[[[[\n\n```[[]][[]] ]```[[a//a//[[[```]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[a//[[a//[[a//]]]]]]]a//a][[[[#\n]]",
-      "nesting_depth": 3
-    },
-    {
-      "text": "]]][[a//[[a//[[a//``````a//]]]]]]]][[\n ]][[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]][[a//#[[#[[]]]]]]a//\n```````]]][[```[[]]]][[`]]`",
-      "nesting_depth": 3
-    },
-    {
-      "text": " a[[[[` ```a\n[[[]][[a//[[a//[[a//[[a//[[a//[[  ]]]]]]]]]]]`[[`[[\n[[",
-      "nesting_depth": 5
-    },
-    {
-      "text": "[[]][[[[[[a//\n[]]```]]]] [```aa[[[[ ]]`]][[]][[[[a// a//[[aa// a//\n#\n]]]]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "\n``#]]#[[\n \n[[]]]][[ ```]]a]][a[[[[][[]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "[[[[```]]`[[#]a//``````[[#[[#[[#[[]]]]]]]]#[[[[[",
-      "nesting_depth": 4
-    },
-    {
-      "text": "]]]]`[[[[]]]]`\n]]\n[[",
-      "nesting_depth": 0
-    },
-    {
-      "text": " [[]]#a[[a//[[a//#]a]]]]``````#```# [`[[]][[]][[",
-      "nesting_depth": 2
-    },
-    {
-      "text": "  ```[aa]]#````a[```a//[[a//[[a//[[a//[[]]]]]]]`[[aa//]]]] \n```#",
-      "nesting_depth": 3
-    },
-    {
-      "text": "#a//]]``[[a[[]][[[\n[[a//[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[ ]a// aa[[[[]  ]]]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "[[[[```]]```[]]]]```a]][[#]] \n[[]]]]#[[```a//```",
-      "nesting_depth": 0
-    },
-    {
-      "text": "#[]]]]]][[[[\n```[[[] #[[#[[]]`]]]][[a//[",
-      "nesting_depth": 0
-    },
-    {
-      "text": " [`]]]]]]]\n]]]a[[]\n#[[[]]##]]\n[[a//[]] [[][[]```[[[[[```]]]]```",
-      "nesting_depth": 2
-    },
-    {
-      "text": "]]]]a[[\na`[[[[`]][[`a[[[[```] [[]\n[[]]#```\na//[[\n",
-      "nesting_depth": 1
-    },
-    {
-      "text": "#]]]]]\n`]]```[[[]][a//[[ [[#]][[[[[[\n`[[[[]]]]]][[]]][a]]]]a[[",
-      "nesting_depth": 2
-    },
-    {
-      "text": "[[`[[[a//[[ a//]][[ ]]] [[[[a//[[`[[[[[[[[[[[[```]]]]]]]]]]#[[][[```[[[[[[[[]]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "`a//[[[[]] ````]][[`[[[[[[\n]]]]]```]]```]]]][[",
-      "nesting_depth": 0
-    },
-    {
-      "text": "[[[[a//[[a//[[a//a//#[#]]]]]]]] `#[[]```]][[[a]]]][[a//```]]````",
-      "nesting_depth": 4
-    },
-    {
-      "text": "\n```a]]a//[[]]`]````[[ [[a//[[a//[[a// ]]]]]][[[]]] []][",
-      "nesting_depth": 4
-    },
-    {
-      "text": "]]\na[] [a[[]]a//]]]\na```[[[[[[[]]]]]]]] []][[[`]][[a//````[[a//```]]]][[`a",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a//]]][[a`[[[[`]]]]a[[a//[[a//[[a//#]][[]]]]]]]]aa]]#a//```]] ",
-      "nesting_depth": 3
-    },
-    {
-      "text": "[```\n ]][[[]]\n`[[[[]]a```]][[[[]][[`a]][[]] ",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]`]]a [[]]aa//`[[```[[a//#]]]]a//a//\n[[]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": " a// ]][[[a\na//]][]]]]]]]a[[````]]a//]] a//[[[][[```]]]]a]]\n ]]```][[\n ",
-      "nesting_depth": 1
-    },
-    {
-      "text": "```a//[[[[[[]]]]]]]][[##```[[]]][a]]#]]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]]][[]]a]][[#[[][[[[`]]]][[\n```]][][[#[]]#```[[\n]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[\n[]]a//]]#[[]]] a//[]][[#]]`[[`]][ [[````[[#]][[[[`#\n`[a",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a````[[[[[[]][[```#[[#[[#[[#[[#[[]]]]]]]]]]`]]`a`[[a//```]]]]``` a//\na//```",
-      "nesting_depth": 5
-    },
-    {
-      "text": "#\n]]```\n]]#]]#[[#[[a//[[]]]]#  # [[[[a\n[a//[[```\n]a//[[[[[[```",
-      "nesting_depth": 0
-    },
-    {
-      "text": "\n]]]]]]```a//]]#[[ \n`[]] [[`]]a//[`a",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]]][[a//[[a//]]]]a//a`]]]]`#[[[[`[[[[[[[[ [[```]]]",
-      "nesting_depth": 2
-    },
-    {
-      "text": "]]```]a//[[[[]]]``]]\n]]]]]][[ `][[[[a//[[a//[[a//[[a//[[a// ]]]]]]]]]]]]`[`]]a//[[a//[[[[ ",
-      "nesting_depth": 0
-    },
-    {
-      "text": "```#a[ #[[[[\n]]`]][[][[[[a//[[]]]```````[[[a//a//[aa`]][[[[[[`",
-      "nesting_depth": 0
-    },
-    {
-      "text": "]]]]]`]]a]]#[[#[[#[[#[[#[[\n]][[]]]]]]]]]]]]] ]`#[[ \n[[[[ ]#]][\na//]]",
-      "nesting_depth": 5
-    },
-    {
-      "text": "]] [[[[]][[[[\n[[]]a#[[#[[#[[#[[#[[]][[]]]]]]]]]] ]]]][[] ]]```]][[]][[[[\n#",
-      "nesting_depth": 7
-    },
-    {
-      "text": "a//a//]]\n[[aa//[[]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": " ]]]]]]```]]`]][]]a]]]\n[```[[[[a//[[a//[[a//`]]\n]]]]]]]]#]]]]]]#]#[[aa]]\n[[[[ ",
-      "nesting_depth": 1
-    },
-    {
-      "text": "a//]][[[[[[[[[[]][[]]]]]]]]]]]]]]]]] [[`a]]]]`]]]]]]",
-      "nesting_depth": 5
-    },
-    {
-      "text": "a\n[[[[[[[[[[[[]]]]]]]]]]][[[[#]]a[]]a[]]]][[",
-      "nesting_depth": 6
-    },
-    {
-      "text": " a[[[[]][[",
-      "nesting_depth": 1
-    },
-    {
-      "text": "``[`]]][[]][[a//[[a//[[a//[[a//[[a//[[]]]]]]]]]]` [[```  \n[[[[[[][[[[[]]a//[[``",
-      "nesting_depth": 1
-    },
-    {
-      "text": "```[[a]",
-      "nesting_depth": 0
-    },
-    {
-      "text": "a [[[\n[ `#[[#[[```]]]]]][[]]a//]]\n[[]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "]]#[[#[[[[```]]]]\n#]]#]] ```]]]]`aa//[[[[]]`]]]]`",
-      "nesting_depth": 0
-    },
-    {
-      "text": "\n][[```]]```]]`[[]]]]`]]]]a[[[`\n",
-      "nesting_depth": 0
-    },
-    {
-      "text": "#[[#[[#[[#[[#[[]]]]]]]]]]\n]]a a//]]]]]]]]a]][``",
-      "nesting_depth": 5
-    },
-    {
-      "text": "[[#[[[```]\n```````]][]]#a#]]#[[\n[[\n```[]]] a// `[[][[\n[[]]a//```[[\n",
-      "nesting_depth": 1
-    },
-    {
-      "text": "[[[[[[[[[[```````]]]]]]]]]]]]]]]]a]]]a//``` #[[a[[#]]",
-      "nesting_depth": 1
-    },
-    {
-      "text": "```[[ a[[a\n[[aa]]]] a]][[a//`[[[[a//",
-      "nesting_depth": 3
     }
   ]
 }

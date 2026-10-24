@@ -152,9 +152,10 @@ MAX_OUTLINE_DEPTH: Final = 100
 MAX_BLOCK_TEXT_CHARS: Final = 1_000_000
 
 # The deepest `[[` nesting a write may store (refs.link_nesting_depth). The
-# web tokenizer recurses once per nested run, so a deeper text overflows
-# its stack. shared/fixtures/text_limits_parity.json pins the web's copy
-# equal.
+# web tokenizer recurses once per nested run whose title names no page, plus
+# a few emphasis frames, and overflows its stack near 4,100 levels; 32 is a
+# product limit with a wide margin under that (real notes nest 2 deep).
+# shared/fixtures/text_limits_parity.json pins the web's copy equal.
 MAX_LINK_NESTING: Final = 32
 
 # A sidebar entry's order key (sidebar_entries.order_idx): the server

@@ -143,3 +143,18 @@ def test_select_one_of_a_returning_write_stays_in_the_callers_transaction(
     db.select_one("INSERT INTO blocks VALUES ('yyyyyyyyy', 't') RETURNING uid AS uid")
     db.commit()
     assert len(db.select("SELECT uid FROM blocks")) == 2
+
+
+def test_select_iter_yields_what_select_returns(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    db.execute("INSERT INTO blocks VALUES ('bcdefghij', 'second')")
+    sql = "SELECT uid, text FROM blocks ORDER BY uid"
+    assert list(db.select_iter(sql)) == db.select(sql)
+
+
+def test_select_iter_checks_rows_as_select_does(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PKM_ROW_CHECK", "1")
+    db = _db(tmp_path)
+    with pytest.raises(RowCheckError):
+        list(db.select_iter("SELECT text AS uid FROM blocks"))

@@ -206,13 +206,15 @@ def _render_migration_blocker(blocker: TitleMigrationBlocker) -> str:
 
 
 def _title_migration_state(payload: TitleMigrationAuditPayload) -> str:
-    if payload.active:
-        return "active"
+    """An active database can still hold work: titles that a later change
+    to the fold rule left non-canonical."""
     if payload.blockers:
-        return "blocked"
-    if payload.groups:
-        return "ready"
-    return "clean"
+        state = "blocked"
+    elif payload.groups or payload.sidebar_retitles:
+        state = "ready"
+    else:
+        return "active" if payload.active else "clean"
+    return f"active, {state}" if payload.active else state
 
 
 def _count_label(n: int, singular: str, plural: str | None = None) -> str:
@@ -262,6 +264,7 @@ def render_title_migration_audit(payload: TitleMigrationAuditPayload) -> str:
         f"digest: {payload.digest}",
         f"groups: {len(payload.groups)}",
         f"blockers: {len(payload.blockers)}",
+        f"sidebar retitles: {len(payload.sidebar_retitles)}",
     ]
     if payload.groups:
         for group in payload.groups:
@@ -286,14 +289,22 @@ def render_title_migration_audit(payload: TitleMigrationAuditPayload) -> str:
                 f" -> {_render_migration_page(group.survivor)}"
                 for page in group.sources
             )
+    if payload.sidebar_retitles:
+        lines.extend(["", "## Sidebar entries"])
+        lines.extend(
+            f'- [{retitle.sidebar_id}] "{retitle.title}"'
+            f' -> "{retitle.canonical_title}"'
+            for retitle in payload.sidebar_retitles
+        )
     if payload.blockers:
         lines.extend(["", "## Blockers"])
         lines.extend(f"- {_render_migration_blocker(blocker)}"
                      for blocker in payload.blockers)
-    if not payload.groups and not payload.blockers:
+    if (not payload.groups and not payload.blockers
+            and not payload.sidebar_retitles):
         lines.extend([
             "",
-            "No padded plain-space titles need migration.",
+            "Nothing to merge or retitle.",
             "Migration is already active; apply mode is unavailable."
             if payload.active else
             "Apply mode is disabled until you provide an audit digest explicitly.",
@@ -311,6 +322,7 @@ def render_title_migration_apply(payload: TitleMigrationApplyResponse) -> str:
         f"pages merged: {payload.pages_merged}",
         f"blocks moved: {payload.blocks_moved}",
         f"blocks rewritten: {payload.blocks_rewritten}",
+        f"sidebar entries retitled: {payload.sidebars_retitled}",
         f"generation: {payload.generation}",
     ]
     return "\n".join(lines) + "\n"

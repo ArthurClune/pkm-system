@@ -48,8 +48,8 @@ function NotFound() {
   );
 }
 
-/** The /page/ URL a title holding control whitespace (a hand-typed %0A)
- * folds to, or null: the title is one line everywhere else. */
+/** The /page/ URL a title the fold changes (a hand-typed %0A, a double
+ * space, an NBSP) folds to, or null when the fold leaves it as it is. */
 function foldedPagePath(pathname: string): string | null {
   if (!pathname.startsWith(PAGE_ROUTE_PREFIX)) return null;
   const title = titleFromPathname(pathname);

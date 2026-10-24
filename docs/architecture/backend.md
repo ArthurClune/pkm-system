@@ -38,7 +38,7 @@ pkm/
 ├── refs.py              Core   the ref grammar and title normalisation
 ├── todo.py              Core   {{TODO}}/{{DONE}} markers, mirrored by grammar/todo.ts
 ├── rename.py, unlink.py Core   rename and page-delete rewrites of block text
-├── title_migration.py   Core   plain-space title migration planner
+├── title_migration.py   Core   title migration planner
 ├── planning.py, batch.py, render.py   Core   shared by the CLI, MCP and client
 ├── *_dump.py            Shell  generated-artifact writers
 ├── server/                     the FastAPI app (below)
@@ -635,17 +635,30 @@ client never resyncs.
 
 ## Title integrity and one-time activation
 
-The durable `plain_space_title_canonicalization` flag selects the second
-layer of `refs.canonicalize_title`:
+`refs.canonicalize_title` has two layers. The durable
+`plain_space_title_canonicalization` flag selects the second:
 
-| Flag | `canonicalize_title` does |
-|---|---|
-| inactive (default) | a control character makes whitespace runs collapse to one space and trims their boundary; plain-space padding stays byte-exact, so legacy rows still resolve |
-| active | also strips leading and trailing U+0020; internal spaces and NBSP are unchanged |
+| Layer | Runs | Does |
+|---|---|---|
+| fold (`normalize_title`) | always | every run of `TITLE_WHITESPACE` becomes one U+0020; if that changed anything, edge U+0020 goes too, else the title comes back byte for byte |
+| plain-space strip | flag active | strips edge U+0020 whatever the fold did, so a canonical title is its words joined by single spaces |
+
+The flag is inactive on any database neither imported nor migrated, since
+only the title migration sets it and every import runs that migration.
+There a title with nothing to fold keeps its single-space edge padding
+(` A `), so legacy rows still resolve.
+
+`contracts/titles.TITLE_WHITESPACE` is the whitespace set, written out
+rather than taken from either language. Python's `\s` adds U+001C-U+001F
+and JS's adds U+FEFF and drops U+0085, so either would split a page between
+server and replica. The web gets the list
+[generated](#generated-artifacts-and-parity-fixtures). Blankness keeps
+Python's `strip()` (`is_blank_title`, mirrored by `stripLikePython`), and
+after the fold the edge strip is `strip(" ")`, never `strip()`.
 
 **A title that arrives as a lookup key goes through `sync_meta.read_title`
 before it meets `pages.title` or `sidebar_entries.title`.** Both are exact
-matches, so a raw title misses its page once the flag is active. The entry
+matches, so a raw title the rules would change misses its page. The entry
 points are a `{title:wholepath}` route parameter, the `page` filter on
 `/api/todos` and `/api/changed`, a `[[Page]]` operand in `{{query}}`
 (`query_exec.parse_canonical_query`) and the `POST /api/sidebar` title.
@@ -655,8 +668,8 @@ on title and file-path routes and the SPA fallback. `path` stops before a
 final newline, so `Foo%20%0A` would arrive as `Foo `. `test_title_routes_props.py`
 checks every title-taking route and CLI verb against generated spellings;
 its route list comes from OpenAPI, so a new title route fails until covered.
-The web's sidebar form sends input untrimmed, because `trim()` would strip
-NBSP.
+The web's sidebar form sends input untrimmed, because `trim()`'s set is not
+`TITLE_WHITESPACE` and the flag decides edge U+0020.
 
 Every creation path funnels through `store.get_or_create_page()`. Daily pages
 (`daily.py`) are auto-created on read and cannot be renamed.
@@ -666,17 +679,43 @@ Every creation path funnels through `store.get_or_create_page()`. Daily pages
 Activation is an operator action: `pkm migrate-titles`, then
 `pkm migrate-titles --apply DIGEST`
 ([docs/cli.md](../cli.md#one-time-title-canonicalization)).
-`pkm/title_migration.py` groups padded titles under a canonical spelling,
-picks a survivor and reports `all_space` or `forbidden_syntax` blockers.
-Replacement values are opaque (`rename.rewrite_title_refs_map()` never
-rescans one), and the digest covers the whole relevant snapshot.
+`pkm/title_migration.py` groups pages whose titles share a
+`target_canonical_title`, picks a survivor and reports `all_space` or
+`forbidden_syntax` blockers. It also lists `sidebar_retitles`: every sidebar
+entry the target rule changes that no group already moves. Replacement
+values are opaque (`rename.rewrite_title_refs_map()` never rescans one), and
+the digest covers the whole relevant snapshot.
 `audit_title_migration()` runs in a read transaction it always rolls back.
 Apply takes that `audit_digest`, re-inventories under the
-[write lock](#the-write-lock), and answers 409 to a stale digest, a
-blocker or an active flag. Every change, through activation and the
-`db_generation` rotation, is one transaction, followed by one forced seq
-frame; replicas rebootstrap before replaying pending intent
+[write lock](#the-write-lock), and answers 409 to a stale digest, to a
+blocker, or to an active flag with no groups and no sidebar retitles. Every
+change, through activation and the `db_generation` rotation, is one
+transaction, followed by one forced seq frame; replicas rebootstrap before
+replaying pending intent
 ([sync-and-offline.md](sync-and-offline.md#title-activation-across-online-and-offline-paths)).
+
+Apply runs on an active database when the audit finds work, because a
+change to the fold rule leaves rows that were canonical under the old one.
+A page whose stored title the new fold changes is unreachable, since every
+key folds, so rename cannot touch it and only the migration merges or
+retitles it. On
+an inactive database the same apply also activates the flag.
+
+`server/title_migration.check_titles_at_startup`, run from the app lifespan,
+logs one ERROR on `pkm.titles` naming the stored page and sidebar titles the
+live rule would change, with `pkm migrate-titles` as the remedy. It never
+refuses to start: the remedy is an HTTP call, and under launchd's KeepAlive a
+refusal is a crash loop. It never repairs either, because a merge is
+irreversible and stays a digest-confirmed operator action. A failure inside
+the check is logged and the server serves on.
+
+Two reported rows have no migration remedy, and
+[docs/cli.md](../cli.md#rows-the-migration-cannot-fix) gives each one's fix:
+
+| Row | Why the migration leaves it |
+|---|---|
+| a page whose title the fold turns into a refused or blank one (`Notes/` + NBSP) | it is a blocker, and no route reaches the stored spelling to rename it |
+| a sidebar entry whose canonical form is blank or refused | no pin can hold that title, so apply skips it and, with nothing else to do, answers "already active" |
 
 ### Refused titles
 
@@ -805,8 +844,8 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | POST | `/api/journal/cleanup` | Prune empty, unreferenced daily pages from the week before today |
 | GET | `/api/current-work` | Recently edited pages, bucketed by age |
 | **Migrations** | | |
-| GET | `/api/migrations/title-canonicalization` | Side-effect-free audit and digest ([Title integrity](#title-integrity-and-one-time-activation)) |
-| POST | `/api/migrations/title-canonicalization` | Apply the audited digest; 409 on stale, blocked or active |
+| GET | `/api/migrations/title-canonicalization` | Side-effect-free audit and digest: `groups`, `blockers`, `sidebar_retitles` ([Title integrity](#title-integrity-and-one-time-activation)) |
+| POST | `/api/migrations/title-canonicalization` | Apply the audited digest, returning counts such as `sidebars_retitled`; 409 on stale, blocked, or active with nothing to do |
 | **Search & queries** | | |
 | GET | `/api/search?q` | FTS5 search over pages and blocks |
 | GET | `/api/query?expr` | `{{[[query]]}}` evaluation; 400 past `query.MAX_QUERY_DEPTH` nesting or `MAX_QUERY_OPERANDS` page operands |
@@ -885,6 +924,7 @@ Python commands run from `server/`, `pnpm` ones from `web/`.
 | `web/src/api/openapi.json`, `types.d.ts` | `uv run python -m pkm.server.openapi_dump > ../web/src/api/openapi.json`, then `pnpm gen-types` | `test_openapi_sync.py`, `genTypes.drift.test.ts` | the web's API types to the response models |
 | `web/src/replica/baseSchema.gen.ts` | `uv run python -m pkm.schema_dump > ../web/src/replica/baseSchema.gen.ts` | `test_schema_artifact.py` | the replica schema to `BASE_DDL` |
 | `web/src/replica/columns.gen.ts`, `web/tooling/brandRegistry.gen.json` | `uv run python -m pkm.rows_dump` | `test_rows_artifact.py`, `columns.test.ts` | `Columns`, `COLUMN_META` and the web lint's registry to `rows.Row` and `brand_registry` |
+| `web/src/grammar/titleWhitespace.gen.ts` | `uv run python -m pkm.title_whitespace_dump > ../web/src/grammar/titleWhitespace.gen.ts` | `test_title_whitespace_artifact.py`, the `TITLE_WHITESPACE` case in `replica/titles.test.ts` | the web's fold set to `TITLE_WHITESPACE` |
 | `shared/fixtures/refs_parity.json` | `uv run python -m pkm.refs_parity_dump > ../shared/fixtures/refs_parity.json` | `test_refs_parity_fixture.py` | `refs.extract` |
 | `shared/fixtures/title_parity.json` | `uv run python -m pkm.title_parity_dump > ../shared/fixtures/title_parity.json` | `test_title_parity_fixture.py`, `titleParity.test.ts` | `normalize_title`, `target_canonical_title`, `title_syntax_reason`, `is_blank_title`, `extract` |
 | `shared/fixtures/shim_parity.json` | `uv run python -m pkm.server.shim_parity_dump > ../shared/fixtures/shim_parity.json` | `test_shim_parity_fixture.py` | the offline shim (`replica/localApi/`) to the read routes' JSON |

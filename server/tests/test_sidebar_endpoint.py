@@ -58,16 +58,14 @@ def test_add_entry_rejects_duplicate_title(client, seeded_config):
     assert r.status_code == 409
 
 
-def test_add_entry_keeps_nbsp_edges(client):
-    """canonicalize_title only ever strips plain U+0020 -- an NBSP-edged
-    title must survive untouched, unlike web's old .trim() (which strips
-    all Unicode whitespace, including NBSP)."""
-    nbsp_title = "\u00a0Foo\u00a0"
-    r = client.post("/api/sidebar", json={"title": nbsp_title})
+def test_add_entry_folds_nbsp_edges(client):
+    """NBSP is title whitespace: an NBSP-edged title folds to its words,
+    as the page it names does, under either plain-space flag."""
+    r = client.post("/api/sidebar", json={"title": "\u00a0Foo\u00a0"})
     assert r.status_code == 200
-    assert r.json()["title"] == nbsp_title
+    assert r.json()["title"] == "Foo"
     assert client.get("/api/sidebar").json()["entries"] == [
-        {"id": r.json()["id"], "title": nbsp_title}]
+        {"id": r.json()["id"], "title": "Foo"}]
 
 
 def test_add_entry_canonicalizes_padded_title_when_plain_space_migration_is_active(

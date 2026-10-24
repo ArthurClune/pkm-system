@@ -542,11 +542,18 @@ class TitleMigrationGroup(StrictModel):
     sidebar_count: int
 
 
+class TitleMigrationSidebarRetitle(StrictModel):
+    sidebar_id: SidebarEntryId
+    title: CanonicalTitle
+    canonical_title: CanonicalTitle
+
+
 class TitleMigrationAuditPayload(StrictModel):
     active: bool
     digest: Sha256Hex
     groups: list[TitleMigrationGroup]
     blockers: list[TitleMigrationBlocker]
+    sidebar_retitles: list[TitleMigrationSidebarRetitle]
 
 
 class TitleMigrationApplyRequest(WellFormedModel):
@@ -564,6 +571,7 @@ class TitleMigrationApplyResponse(StrictModel):
     pages_merged: int
     blocks_moved: int
     blocks_rewritten: int
+    sidebars_retitled: int
     generation: str
 
 

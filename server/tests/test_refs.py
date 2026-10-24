@@ -234,12 +234,14 @@ def test_normalize_title_collapses_control_whitespace():
     assert normalize_title("\n Spaced \n") == "Spaced"
 
 
-def test_normalize_title_leaves_control_free_titles_byte_for_byte():
-    # Deliberately narrow: only a title that actually contains a control
-    # whitespace char is collapsed. Runs of plain spaces are untouched, so
-    # an existing "foo  bar" page can never become collateral damage.
-    for title in ("Two  Spaces", " Padded ", "Machine Learning", "A/B", ""):
+def test_normalize_title_leaves_a_title_with_nothing_to_fold_byte_for_byte():
+    # A title with no whitespace run to fold comes back unchanged, single-
+    # space edge padding included: with the plain-space flag off, " Padded "
+    # is still its own page. A run of plain spaces now folds like any other.
+    for title in (" Padded ", "Machine Learning", "A/B", "", "\x1cA\x1c"):
         assert normalize_title(title) == title
+    assert normalize_title("Two  Spaces") == "Two Spaces"
+    assert normalize_title("  Padded  ") == "Padded"
 
 
 def test_normalize_title_is_idempotent():
@@ -247,11 +249,13 @@ def test_normalize_title_is_idempotent():
     assert normalize_title(once) == once
 
 
-def test_canonicalize_title_preserves_plain_space_when_inactive_and_strips_only_plain_space_when_active():
+def test_canonicalize_title_folds_listed_whitespace_and_strips_edge_space_only_when_active():
     assert canonicalize_title("A\t B", plain_space=False) == "A B"
     assert canonicalize_title(" A ", plain_space=False) == " A "
     assert canonicalize_title(" A ", plain_space=True) == "A"
-    assert canonicalize_title("\u00a0A\u00a0", plain_space=True) == "\u00a0A\u00a0"
+    # NBSP is title whitespace: it folds, so its edges go under either flag.
+    assert canonicalize_title("\u00a0A\u00a0", plain_space=False) == "A"
+    assert canonicalize_title("\u00a0A\u00a0", plain_space=True) == "A"
     assert canonicalize_title("  ", plain_space=True) == ""
 
 

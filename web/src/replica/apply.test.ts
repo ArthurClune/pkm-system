@@ -288,23 +288,23 @@ describe("applyChanges", () => {
 
   test("activation reconciles already-applied pending page targets before replay", () => {
     enqueueBatch(t.db, [
-      { op: "create_page", page_title: rawTitleOf("  New Page Target  ") },
+      { op: "create_page", page_title: rawTitleOf(" New Page Target ") },
     ], 5, bid("pending-create-page"));
     enqueueBatch(t.db, [
-      { op: "create", uid: uidOf("uid_pending1"), page_title: rawTitleOf("  Created Block Target  "),
+      { op: "create", uid: uidOf("uid_pending1"), page_title: rawTitleOf(" Created Block Target "),
         parent_uid: null, order_idx: orderIdxOf(0), text: "pending create" },
     ], 5, bid("pending-create"));
     enqueueBatch(t.db, [
       { op: "move", uid: uidOf("uid_b2"), parent_uid: null, order_idx: orderIdxOf(0),
-        page_title: rawTitleOf("  Moved Block Target  ") },
+        page_title: rawTitleOf(" Moved Block Target ") },
     ], 5, bid("pending-move"));
 
     expect(t.db.select(
       "SELECT id AS page_id, title FROM pages WHERE id < 0 ORDER BY title", ["page_id", "title"]))
       .toEqual([
-        { page_id: -2, title: "  Created Block Target  " },
-        { page_id: -3, title: "  Moved Block Target  " },
-        { page_id: -1, title: "  New Page Target  " },
+        { page_id: -2, title: " Created Block Target " },
+        { page_id: -3, title: " Moved Block Target " },
+        { page_id: -1, title: " New Page Target " },
       ]);
     expect(t.db.select(
       "SELECT uid, page_id FROM blocks" +
@@ -316,11 +316,11 @@ describe("applyChanges", () => {
       ]);
     const wireOpsBefore = allBatches(t.db).map((batch) => batch.ops);
     expect(wireOpsBefore).toEqual([
-      [{ op: "create_page", page_title: "  New Page Target  " }],
-      [{ op: "create", uid: "uid_pending1", page_title: "  Created Block Target  ",
+      [{ op: "create_page", page_title: " New Page Target " }],
+      [{ op: "create", uid: "uid_pending1", page_title: " Created Block Target ",
         parent_uid: null, order_idx: 0, text: "pending create" }],
       [{ op: "move", uid: "uid_b2", parent_uid: null, order_idx: 0,
-        page_title: "  Moved Block Target  " }],
+        page_title: " Moved Block Target " }],
     ]);
 
     expect(applyChanges(t.db, emptyFeed({

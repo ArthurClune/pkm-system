@@ -310,13 +310,16 @@ def test_export_all_markdown_cleans_up_temp_dir_on_build_error(
 def test_export_page_names_any_title_in_its_header(client, name):
     """A header is latin-1 on the wire: a title outside printable ASCII
     goes in RFC 6266's UTF-8 `filename*`, with an ASCII `filename` beside
-    it for clients that read only that."""
-    assert client.post("/api/pages", json={"title": name}).status_code == 200
+    it for clients that read only that. The header names the stored title,
+    whose whitespace runs (the NBSP here) are folded."""
+    created = client.post("/api/pages", json={"title": name})
+    assert created.status_code == 200
+    stored = created.json()["title"]
     r = client.get(f"/api/export/page/{quote(name, safe='')}")
     assert r.status_code == 200
     disposition = r.headers["content-disposition"]
     assert disposition.startswith('attachment; filename="')
-    assert f"filename*=UTF-8''{quote(name + '.md', safe='')}" in disposition
+    assert f"filename*=UTF-8''{quote(stored + '.md', safe='')}" in disposition
     fallback = disposition.split('filename="', 1)[1].split('"', 1)[0]
     assert fallback.isascii() and '"' not in fallback
 

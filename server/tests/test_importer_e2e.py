@@ -824,6 +824,64 @@ def test_import_rewrites_every_extracted_title_before_rows(tmp_path):
     ]
 
 
+FOLD_TWIN_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "A B" 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "uid-fold-plain" 1]
+  [2 :block/string "plain" 1]
+  [2 :block/order 0 1]
+  [10 :node/title "A  B" 1]
+  [10 :block/children 11 1]
+  [11 :block/uid "uid-fold-double" 1]
+  [11 :block/string "double" 1]
+  [11 :block/order 0 1]
+  [20 :node/title "A\u00a0B" 1]
+  [20 :block/children 21 1]
+  [21 :block/uid "uid-fold-nbsp" 1]
+  [21 :block/string "nbsp" 1]
+  [21 :block/order 0 1]
+  [30 :node/title "Linker" 1]
+  [30 :block/children 31 1]
+  [31 :block/uid "uid-fold-link" 1]
+  [31 :block/string "see [[A\tB]]" 1]
+  [31 :block/order 0 1]
+ ]}"""
+
+
+def test_import_merges_pages_that_fold_to_one_title(tmp_path):
+    export_file = _write_export(tmp_path, "fold.edn", FOLD_TWIN_EXPORT)
+    out = tmp_path / "data"
+
+    rc = main([str(export_file), "--out", str(out)])
+
+    assert rc == 0
+    con = connect(out / "pkm.sqlite3")
+    page_ids = {
+        str(row["title"]): row["page_id"]
+        for row in con.select("SELECT id AS page_id, title FROM pages ORDER BY id")
+    }
+    assert page_ids.keys() == {"A B", "Linker"}
+    assert [row["uid"] for row in con.select(
+        "SELECT uid FROM blocks WHERE page_id=? ORDER BY order_idx",
+        (page_ids["A B"],),
+    )] == ["uid-fold-plain", "uid-fold-double", "uid-fold-nbsp"]
+    assert con.select(
+        "SELECT text FROM blocks WHERE uid='uid-fold-link'"
+    )[0]["text"] == "see [[A B]]"
+    assert [tuple(row.values()) for row in con.select(
+        "SELECT src_block_uid, target_page_id, kind AS ref_kind FROM refs"
+    )] == [("uid-fold-link", page_ids["A B"], "link")]
+
+    # The tab spelling is a ref, which extract() reads already folded, so
+    # only the two page spellings are recorded as changed.
+    report = (out / "import-report.txt").read_text(encoding="utf-8")
+    assert "title spellings sanitized: 2" in report
+    for spelling in ('"A  B"', '"A\u00a0B"'):
+        assert f'  {spelling} -> "A B" (merged; ' in report
+
+
 ORPHAN_CLAIM_EXPORT = """\
 #datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
  :datoms [

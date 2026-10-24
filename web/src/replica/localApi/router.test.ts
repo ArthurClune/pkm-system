@@ -60,9 +60,9 @@ describe("unmatched routes", () => {
 
 describe("activation-aware title reads", () => {
   test("inactive page lookup preserves exact boundary U+0020", () => {
-    t.db.exec("INSERT INTO pages(id, title) VALUES (1, '  Exact Page  ')");
+    t.db.exec("INSERT INTO pages(id, title) VALUES (1, ' Exact Page ')");
 
-    expectStatus(call("GET", "/api/page/%20%20Exact%20Page%20%20"), 200);
+    expectStatus(call("GET", "/api/page/%20Exact%20Page%20"), 200);
     expectStatus(call("GET", "/api/page/Exact%20Page"), 404);
   });
 
@@ -383,17 +383,17 @@ describe("create page", () => {
 
   test("preserves exact boundary U+0020 while inactive", () => {
     const body = expectStatus(
-      call("POST", "/api/pages", { title: "  Fresh Page  " },
+      call("POST", "/api/pages", { title: " Fresh Page " },
            { newBatchId: () => batchIdOf("batch-1") }), 200,
     ) as { id: number };
-    expect(body).toMatchObject({ title: "  Fresh Page  " });
+    expect(body).toMatchObject({ title: " Fresh Page " });
     expect(body.id).toBeLessThan(0);
     const rows = (t.db.select(
       "SELECT batch_id, ops_json FROM pending_ops", ["batch_id", "ops_json"]));
     expect(rows).toHaveLength(1);
     expect(rows[0].batch_id).toBe("batch-1");
     expect(JSON.parse(rows[0].ops_json)).toEqual(
-      [{ op: "create_page", page_title: "  Fresh Page  " }]);
+      [{ op: "create_page", page_title: " Fresh Page " }]);
   });
 
   test("active POST returns and enqueues the canonical title", () => {

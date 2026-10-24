@@ -512,7 +512,7 @@ def test_migrate_titles_audits_by_default_and_renders_human_output(
     assert err == ""
     assert out.startswith("# Title migration audit\n")
     assert "state: ready\n" in out
-    assert "digest: d621560f1350eda15118dbd597ccd82bb80bc18ddbc646fc4165fe332dabb647\n" in out
+    assert "digest: d59f04ab0d5d2ff59fa00e661a3e273294a04230f79df456e8515fa61f7e7b09\n" in out
     assert "- [11] \" Acme\" -> [10] \"Acme\"\n" in out
     assert "- [14] \"Beta \" -> [13] \" Beta \"\n" in out
 
@@ -570,7 +570,7 @@ def test_migrate_titles_apply_renders_human_output(run, seeded_config, pkm_clien
     assert err == ""
     assert out.startswith("# Title migration applied\n")
     assert f"digest: {digest}\n" in out
-    assert "groups applied: 2\n" in out
+    assert "groups applied: 3\n" in out
     assert "generation: " in out
 
 
@@ -585,7 +585,7 @@ def test_migrate_titles_apply_json_uses_the_validated_payload(
     assert err == ""
     payload = json.loads(out)
     assert payload["digest"] == digest
-    assert payload["groups_applied"] == 2
+    assert payload["groups_applied"] == 3
     assert payload["pages_merged"] == 3
     assert isinstance(payload["generation"], str) and len(payload["generation"]) == 32
 

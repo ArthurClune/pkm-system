@@ -211,15 +211,15 @@ def _collect_title_locations(export: Export) -> dict[str, list[str]]:
     the refusal message; block refs are recorded in walk order after them.
 
     The two kinds of key are spelled differently, and _rewrite_block depends
-    on it. A page title is recorded raw, so a key here can hold control
-    whitespace that extract() would never report; a block ref is recorded as
-    extract() normalized it. The rewriter looks up normalized spellings only,
-    so a raw key is reached through its normalized twin -- which exists for
-    any spelling extract() recognizes, and the rewriter recognizes nothing
-    else: both read the grammar out of refs (bracket_spans, tag_spans,
-    attribute_title_span), so neither can find a ref the other missed. A raw
-    key with no twin is one no block mentions, and only the page's own
-    retitling looks it up.
+    on it. A page title is recorded raw, so a key here can hold a
+    whitespace run that extract() would never report; a block ref is
+    recorded as extract() normalized it. The rewriter looks up normalized
+    spellings only, so a raw key is reached through its normalized twin --
+    which exists for any spelling extract() recognizes, and the rewriter
+    recognizes nothing else: both read the grammar out of refs
+    (bracket_spans, tag_spans, attribute_title_span), so neither can find a
+    ref the other missed. A raw key with no twin is one no block mentions,
+    and only the page's own retitling looks it up.
     """
     locations: dict[str, list[str]] = {}
     for index, page in enumerate(export.pages):

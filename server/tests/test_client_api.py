@@ -485,6 +485,9 @@ def test_audit_title_migration_uses_the_canonicalization_route_and_validates_res
         "blockers": [
             {"page_id": 19, "title": "Bad #Title", "reason": "forbidden_syntax"}
         ],
+        "sidebar_retitles": [
+            {"sidebar_id": 3, "title": "X  Y", "canonical_title": "X Y"}
+        ],
     }
     seen: dict[str, object] = {}
 
@@ -514,6 +517,7 @@ def test_audit_title_migration_uses_the_canonicalization_route_and_validates_res
     assert audit.groups[0].survivor.page_id == 10
     assert audit.blockers[0].title == "Bad #Title"
     assert audit.blockers[0].reason == "forbidden_syntax"
+    assert audit.sidebar_retitles[0].canonical_title == "X Y"
 
 
 def test_apply_title_migration_posts_the_audit_digest_and_validates_response(
@@ -525,6 +529,7 @@ def test_apply_title_migration_posts_the_audit_digest_and_validates_response(
         "pages_merged": 3,
         "blocks_moved": 4,
         "blocks_rewritten": 3,
+        "sidebars_retitled": 1,
         "generation": "0123456789abcdef0123456789abcdef",
     }
     seen: dict[str, object] = {}

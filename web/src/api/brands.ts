@@ -81,9 +81,9 @@ export type SidebarEntryId = number & { readonly __brand: "SidebarEntryId" };
 // registry's MINT_SITES. A test mints one with `rawTitleOf` (test-helpers.ts).
 export type RawTitle = string & { readonly __brand: "RawTitle" };
 
-// A RawTitle that has been through normalize_title / normalizeRefTitle: one
-// holding control whitespace has had every whitespace run collapsed to a
-// space and been trimmed; any other is unchanged. Minted by
+// A RawTitle that has been through normalize_title / normalizeRefTitle:
+// every run of TITLE_WHITESPACE folded to one U+0020 and, when that changed
+// anything, edge U+0020 stripped; any other title is unchanged. Minted by
 // `normalizeRefTitle` and the hashtag token (grammar/scan.ts) and by
 // `canonicalizeTitle` (replica/titles.ts), which knows no live flag.
 export type NormalizedTitle = RawTitle & { readonly __normalized: true };

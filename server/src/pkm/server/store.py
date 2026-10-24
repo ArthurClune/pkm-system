@@ -50,11 +50,12 @@ def get_or_create_page(db: Db, title: RawTitle,
                        now_ms: int) -> Row:
     """Canonicalize at the choke point shared by every creation path.
 
-    Control whitespace is always normalized because such titles are
-    unreachable through the HTTP path. Boundary U+0020 remains byte-exact
-    before the title migration, then is stripped only after the durable
-    activation flag is set. This lets pre-migration padded rows keep resolving
-    to themselves while preventing their recreation after migration.
+    Whitespace runs always fold (refs.normalize_title), because a lookup
+    key folds too and an unfolded title would be unreachable. Boundary U+0020
+    on a title with nothing to fold remains byte-exact before the title
+    migration, then is stripped only after the durable activation flag is
+    set. This lets pre-migration padded rows keep resolving to themselves
+    while preventing their recreation after migration.
 
     Blankness remains a separate policy: a title that is all whitespace is
     refused with BlankTitleError. Interactive routes translate that to 422;

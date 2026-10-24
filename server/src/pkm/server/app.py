@@ -39,6 +39,7 @@ from pkm.server.routes_search import router as search_router
 from pkm.server.routes_sidebar import router as sidebar_router
 from pkm.server.routes_sync import router as sync_router
 from pkm.server.security_headers import SecurityHeadersMiddleware
+from pkm.server.title_migration import check_titles_at_startup
 from pkm.server.validation_echo import echo_errors
 from pkm.server import wholepath  # noqa: F401 -- registers {full_path:wholepath}
 from pkm.server.ws import Hub, router as ws_router
@@ -93,6 +94,10 @@ async def _validation_error(request: Request,
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Here rather than in create_app: uvicorn configures logging between
+    # building the app and starting it, so an ERROR logged earlier would
+    # miss the server log.
+    check_titles_at_startup(app.state.config.db_path)
     app.state.describe.start()
     yield
     try:

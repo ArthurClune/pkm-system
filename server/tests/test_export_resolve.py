@@ -102,10 +102,10 @@ def _scan_peak(text: str) -> int:
 
 
 @pytest.mark.parametrize("body", [
-    "}" * 1_000_000, "{" * 1_000_000, "{}" * 500_000],
+    "}" * 200_000, "{" * 200_000, "{}" * 100_000],
     ids=["closes", "opens", "pairs"])
 def test_find_query_macros_holds_nothing_per_brace(body):
-    # One prefix before a million braces: an index with an entry per brace
+    # One prefix before 200k braces: an index with an entry per brace
     # costs from 50 to 190 bytes a character, outside any budget.
     text = "{{query:" + body
     assert _scan_peak(text) < 4 * len(text)

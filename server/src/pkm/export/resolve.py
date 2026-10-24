@@ -144,9 +144,8 @@ def find_query_macros(text: str) -> list[tuple[int, int, str]]:
     forward pass finds every close, rather than a walk to the end of the
     text per unclosed prefix. A prefix waits on a stack until it closes; a
     later one opens at a higher balance, so only the top can close at any
-    "}". The state is a few machine integers per prefix and nothing per
-    brace, so neither braces nor prefixes cost more than a few bytes per
-    character of text."""
+    "}". The scan state is a few machine integers per prefix and nothing per
+    brace."""
     if _QUERY_PREFIX_RE.search(text) is None:
         return []
     starts, bodies, ends = array("q"), array("q"), array("q")

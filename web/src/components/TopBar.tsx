@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ApiError, apiDownload } from "../api/client";
+import { ApiError, OfflineError, apiDownload } from "../api/client";
 import type { RawTitle } from "../api/brands";
 import { apiDelete, apiGet } from "../api/typedClient";
 import { BlockStampsContext, SidebarContext } from "../contexts";
@@ -100,6 +100,11 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
     navigate("/");
   };
 
+  // The page the bar shows now, so a slow export that settles after the user
+  // has navigated away neither downloads nor reports against the new route.
+  const titleRef = useRef(title);
+  titleRef.current = title;
+
   const handleExport = async () => {
     if (title === null) return;
     setMenuOpen(false);
@@ -107,6 +112,7 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
     try {
       const { blob, filename } = await apiDownload(
         `/api/export/page/${encodeTitle(title)}`);
+      if (titleRef.current !== title) return;
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -114,12 +120,17 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
       document.body.appendChild(a);
       a.click();
       a.remove();
-      // after the click, so Safari has started the download
-      setTimeout(() => URL.revokeObjectURL(url), 0);
+      // Safari may still be reading the blob well after the click returns
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (e) {
+      if (titleRef.current !== title) return;
       // ApiError's message prefixes "request failed: 422 path:", which is
-      // noise to a user; the server's detail is the reason.
-      const reason = e instanceof ApiError && e.detail ? e.detail : String(e);
+      // noise to a user; the server's detail is the reason. An offline or
+      // network failure has no detail, so it gets its own plain copy.
+      const reason = e instanceof ApiError && e.detail ? e.detail
+        : e instanceof OfflineError ? e.message
+        : e instanceof TypeError ? "couldn't reach the server"
+        : String(e);
       setMenuError(`Couldn't export "${title}": ${reason}`);
     }
   };

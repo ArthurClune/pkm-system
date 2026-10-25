@@ -16,7 +16,7 @@ block's current text and page, which the shell reads for the uids
 `write_target_uids` names and passes in: a uid alone does not tell the
 user what they are approving away. A delete removes the block's subtree
 too, so for the uids `delete_target_uids` names the shell also counts the
-blocks under it.
+blocks under it and hashes the subtree.
 
 That count is of the store as read, so a batch delete must not take a
 block an earlier write of the same batch moved under it: the count would
@@ -24,6 +24,13 @@ leave that block and its subtree out. Such a batch is refused, and so is
 one where the card cannot tell where such a move lands; for that the shell
 reads the ancestors of the `((uid))` parents `ancestor_uids` names. The
 CLI's batch is not checked: its user wrote the batch.
+
+Allow runs the write only while every block the card showed stands as
+shown: `approved_input` adds an `expect` entry per such block (its full
+text's hash, its subtree's for a delete, or that no block had the uid),
+and the server checks them in the write's own transaction. The hashes go
+from the shell's read to the tool and never through the browser or the
+model.
 
 The tool functions come from `pkm.mcp.tools`, never `pkm.mcp.server`:
 constructing the server's `FastMCP` configures the root logger and reads
@@ -40,12 +47,13 @@ from mcp.server.fastmcp.utilities.func_metadata import (FuncMetadata,
                                                         func_metadata)
 from pydantic import ValidationError
 
-from pkm.assistant.policy import (CURRENT_TEXT_ENTRIES,
-                                  SUBTREE_DELETE_ENTRIES,
+from pkm.assistant.policy import (CURRENT_TEXT_ENTRIES, GATE_FIELDS,
+                                  GUARDED_TOOLS, SUBTREE_DELETE_ENTRIES,
                                   WRITE_PREVIEW_FIELDS, WRITE_TOOLS)
 from pkm.batch import (BatchItemError, NestedItem, alias_name, batch_aliases,
                        nested_items, validate_batch)
-from pkm.contracts.ops import MAX_OPS_PER_BATCH, BlockUid
+from pkm.contracts.ops import (MAX_OPS_PER_BATCH, BlockUid, ExpectedBlock,
+                               ExpectKind, Sha256Hex, text_hash)
 from pkm.contracts.titles import CanonicalTitle
 from pkm.echo import echo, loc_text
 from pkm.mcp import tools as mcp_tools
@@ -86,6 +94,9 @@ class StoredBlock:
     # The blocks above it, its parent first: read only for a uid
     # `ancestor_uids` names, else None.
     ancestors: tuple[BlockUid, ...] | None = None
+    # `subtree_hash` of it and every block under it, walked as the server's
+    # check walks them: read with `descendants`, else None.
+    subtree_hash: Sha256Hex | None = None
 
 
 @dataclass(frozen=True)
@@ -145,6 +156,14 @@ class WritePreview:
 @dataclass(frozen=True)
 class Refusal:
     message: str
+
+
+@dataclass(frozen=True)
+class Approval:
+    preview: WritePreview
+    # What the tool runs with on Allow: the input the card was built from,
+    # plus `expect` for a tool in GUARDED_TOOLS.
+    tool_input: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -536,6 +555,62 @@ def _targets(short: str, tool_input: Mapping[str, object],
     return list(dict.fromkeys(uid for uid in uids if uid is not None))
 
 
+def shown_blocks(short: str, tool_input: Mapping[str, object],
+                 blocks: Mapping[BlockUid, StoredBlock]
+                 ) -> list[ExpectedBlock]:
+    """One expectation per existing block the card for this call shows,
+    first-seen, from the `blocks` its card was built from: the hash of the
+    block's whole text (never the excerpt the card displays, so an edit
+    past it still refuses), of its subtree when the call deletes it (that
+    covers its own text too), or `absent` for a uid no block had. An alias
+    or malformed spec names no stored block, so it expects nothing.
+
+    Raises ValueError rather than return a weaker guard: for input the
+    card refuses, and for a delete target read without its subtree hash."""
+    checked = _validate(short, tool_input)
+    if isinstance(checked, Refusal):
+        raise ValueError("the card refuses this input")
+    kinds: dict[BlockUid, ExpectKind] = {}
+    for entry, validated in checked.ops:
+        uid = _target_uid(entry, validated)
+        if uid is None:
+            continue
+        if entry in SUBTREE_DELETE_ENTRIES:
+            kinds[uid] = "subtree"
+        else:
+            kinds.setdefault(uid, "text")
+    out: list[ExpectedBlock] = []
+    for uid, kind in kinds.items():
+        stored = blocks.get(uid)
+        if stored is None:
+            out.append(ExpectedBlock(uid=uid, kind="absent"))
+        elif kind == "subtree":
+            if stored.subtree_hash is None:
+                raise ValueError("a delete target was read without its "
+                                 "subtree hash")
+            out.append(ExpectedBlock(uid=uid, kind="subtree",
+                                     shown_hash=stored.subtree_hash))
+        else:
+            out.append(ExpectedBlock(uid=uid, kind="text",
+                                     shown_hash=text_hash(stored.text)))
+    return out
+
+
+def approved_input(short: str, tool_input: Mapping[str, object],
+                   blocks: Mapping[BlockUid, StoredBlock]
+                   ) -> dict[str, object]:
+    """The input write tool `short` runs with once the user allows the card
+    built from `tool_input` and `blocks`: that input, and for a tool in
+    GUARDED_TOOLS the `shown_blocks` as its `expect`, `[]` when the call
+    names no stored block (the tool then knows the card set it). Raises
+    as `shown_blocks` does."""
+    if short not in GUARDED_TOOLS:
+        return dict(tool_input)
+    return {**tool_input,
+            "expect": [e.model_dump(mode="json")
+                       for e in shown_blocks(short, tool_input, blocks)]}
+
+
 def build_write_preview(short: str, tool_input: Mapping[str, object],
                         blocks: Mapping[BlockUid, StoredBlock]
                         ) -> WritePreview | Refusal:
@@ -566,6 +641,10 @@ def _validate(short: str, tool_input: Mapping[str, object]
     meta = _ARG_MODELS.get(short)
     if meta is None:
         return Refusal(f"{short} is not a write tool")
+    gated = next((k for k in tool_input if k in GATE_FIELDS), None)
+    if gated is not None:
+        return Refusal(f"{short}: {gated} is set by the approval card, "
+                       "never by the caller")
     unknown = _unknown_key(meta, tool_input)
     if unknown is not None:
         return Refusal(f"{short}: unknown argument {echo(unknown)}")
@@ -574,7 +653,8 @@ def _validate(short: str, tool_input: Mapping[str, object]
             meta.pre_parse_json(dict(tool_input)))
     except ValidationError as exc:
         return Refusal(f"{short}: {_first_error(exc)}")
-    validated = model.model_dump(mode="json", by_alias=True)
+    validated = {k: v for k, v in model.model_dump(
+        mode="json", by_alias=True).items() if k not in GATE_FIELDS}
     if short != "batch":
         return _Checked(ops=[(short, validated)], aliases={})
     commands = validated["commands"]

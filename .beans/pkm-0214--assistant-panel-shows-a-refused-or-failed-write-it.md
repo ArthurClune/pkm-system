@@ -1,0 +1,14 @@
+---
+# pkm-0214
+title: Assistant panel shows a refused or failed write itself
+status: draft
+type: feature
+priority: low
+created_at: 2026-10-25T17:04:04Z
+updated_at: 2026-10-25T17:04:04Z
+parent: pkm-mfd0
+---
+
+From the pkm-6fcv plan (2026-10-25). When an allowed write is refused (412: the block changed since the card showed it) or any tool call errors, the user learns of it only through the model's reply; a prompt-injected model could claim the write succeeded. Question for Arthur: should the panel itself show the refusal/error under the tool call?
+
+- [ ] Arthur: show tool errors in the panel, or leave it to the model's reply

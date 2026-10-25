@@ -10,6 +10,7 @@ because constructing a `FastMCP` configures the root logger and reads
 assistant's write preview) without running an MCP server."""
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
@@ -18,7 +19,7 @@ from pkm.client.api import PkmClient
 from pkm.changed import local_tz
 from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
                                   upload_and_link)
-from pkm.contracts.ops import BlockUid
+from pkm.contracts.ops import BlockUid, ExpectedBlock
 from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.todo import TaskMark
 from pkm.render import (render_assets, render_backlinks, render_block,
@@ -28,6 +29,12 @@ from pkm.render import (render_assets, render_backlinks, render_block,
 
 _client_factory = lambda: PkmClient(client_api.load_config())  # noqa: E731
 _cached_client: PkmClient | None = None
+# Set by `pkm-mcp --require-expect`, as the in-app assistant starts it.
+# There every update_block and batch has passed the approval card, which
+# always sets `expect` (`[]` when the call names no stored block) and
+# refuses one from the model; a call without it means the card's input
+# never reached this tool, so it is refused rather than run unguarded.
+_require_expect = False
 
 
 def _client() -> PkmClient:
@@ -35,6 +42,24 @@ def _client() -> PkmClient:
     if _cached_client is None:
         _cached_client = _client_factory()
     return _cached_client
+
+
+def require_expect() -> None:
+    """From now on, update_block and batch refuse a call without `expect`."""
+    global _require_expect
+    _require_expect = True
+
+
+def _card_expect(tool: str, expect: Sequence[ExpectedBlock] | None
+                 ) -> Sequence[ExpectedBlock]:
+    """The `expect` tool `tool` forwards, checked before any request."""
+    if expect is not None:
+        return expect
+    if _require_expect:
+        raise ValueError(
+            f"{tool}: no expect argument, so nothing was written: in the "
+            "PKM assistant the approval card always sets it")
+    return ()
 
 
 def get_page(title: RawTitle, resolve_refs: bool = False) -> str:
@@ -117,19 +142,23 @@ def save_note(text: str, page: str | None = None,
 
 
 def update_block(uid: BlockUid, text: str | None = None,
-                 mark: TaskMark | None = None) -> str:
+                 mark: TaskMark | None = None,
+                 expect: list[ExpectedBlock] | None = None) -> str:
     """Replace a block's text, or set its task marker (mark='TODO' or
     'DONE'). Provide exactly one of text/mark. A `text` beginning '# ',
     '## ' or '### ' makes the block a heading at that level (1-3); '#Tag'
     (no space) and '#### ' or deeper stay literal text. Text without
     those hashes clears any heading it had. `mark` only changes the task
     marker and never the heading level. Concurrent-edit safe: the current
-    text's hash rides along."""
-    edit_block(_client(), uid, text=text, mark=mark)
+    text's hash rides along. `expect` is set by the PKM assistant's
+    approval card, which refuses it from anyone else; leave it out."""
+    guard = _card_expect("update_block", expect)
+    edit_block(_client(), uid, text=text, mark=mark, expect=guard)
     return f"updated ^{uid}"
 
 
-def batch(commands: list[dict[str, object]]) -> str:
+def batch(commands: list[dict[str, object]],
+          expect: list[ExpectedBlock] | None = None) -> str:
     """Apply several commands in ONE atomic transaction. Each item is
     {"command": ..., "params": {...}} with commands: create (page, text,
     parent?, index?, as?), todo (like create, {{TODO}}-prefixed), update
@@ -152,8 +181,11 @@ def batch(commands: list[dict[str, object]]) -> str:
     then starts with 'warning:' and lists each skipped op and where its
     note landed, while the other ops were applied and committed (do not
     re-send the batch). A '((uid))' parent is checked before sending, so
-    a mistyped one fails the whole batch."""
-    return render_ops_ack(apply_batch(_client(), commands))
+    a mistyped one fails the whole batch. `expect` is set by the PKM
+    assistant's approval card, which refuses it from anyone else; leave
+    it out."""
+    guard = _card_expect("batch", expect)
+    return render_ops_ack(apply_batch(_client(), commands, expect=guard))
 
 
 def upload_asset(path: str, page: str | None = None,

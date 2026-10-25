@@ -39,7 +39,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from pkm.assistant.policy import READ_TOOLS, SYSTEM_PROMPT, WRITE_TOOLS
 from pkm.assistant.write_preview import FoundBlock, StoredBlock
-from pkm.contracts.ops import BlockUid
+from pkm.contracts.ops import BlockUid, text_hash
 from pkm.test_data.ids import canonical_title_of, confirm_id_of, uid_of
 
 
@@ -110,7 +110,8 @@ def test_create_conversation_options_and_config_file(tmp_path):
     }
     server_cfg = opts.mcp_servers["pkm"]
     assert server_cfg["args"] == ["-m", "pkm.mcp.server", "--tools",
-                                  ",".join(READ_TOOLS + WRITE_TOOLS)]
+                                  ",".join(READ_TOOLS + WRITE_TOOLS),
+                                  "--require-expect"]
     cfg_path = Path(server_cfg["env"]["PKM_CLI_CONFIG"])
     assert cfg_path.parent == tmp_path
     assert stat.S_IMODE(cfg_path.stat().st_mode) == 0o600
@@ -332,6 +333,38 @@ def test_assistant_mcp_server_offers_exactly_the_policy_tools(tmp_path):
         asyncio.run(conv.close())
     assert names == set(READ_TOOLS) | set(WRITE_TOOLS)
     assert "upload_asset" not in names
+
+
+def test_assistant_mcp_server_refuses_a_guarded_write_without_expect(
+        tmp_path):
+    """The subprocess the harness starts refuses an update_block or batch
+    that arrives without `expect`, before any request: the card always sets
+    it, so its absence means the card's input never reached the tool."""
+    engine = make_engine(tmp_path)
+    conv = asyncio.run(engine.create_conversation(SYSTEM_PROMPT, "sonnet"))
+    cfg = FakeSDKClient.instances[0].options.mcp_servers["pkm"]
+
+    async def called():
+        params = StdioServerParameters(
+            command=cfg["command"], args=cfg["args"],
+            env={**os.environ, **cfg["env"]})
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                return [await session.call_tool(name, args) for name, args in (
+                    ("update_block", {"uid": "AAAAAAAA", "text": "t"}),
+                    ("batch", {"commands": [{"command": "delete",
+                                             "params": {"uid": "AAAAAAAA"}}]}),
+                )]
+
+    try:
+        results = asyncio.run(asyncio.wait_for(called(), 30))
+    finally:
+        asyncio.run(conv.close())
+    for name, result in zip(("update_block", "batch"), results):
+        assert result.isError
+        text = " ".join(getattr(c, "text", "") for c in result.content)
+        assert f"{name}: no expect argument" in text
 
 
 def test_write_tool_emits_confirm_and_blocks(tmp_path):
@@ -1131,6 +1164,105 @@ def test_an_unreadable_target_is_refused_not_shown(tmp_path):
     assert isinstance(decision, PermissionResultDeny)
     assert decision.message == (
         "update_block: the blocks this write changes could not be read")
+    assert queued == 0
+
+
+# -- what Allow hands the tool ---------------------------------------------
+
+def _no_blocks(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+               ancestors_of: Collection[BlockUid]):
+    return {}
+
+
+def _allowed(tmp_path, short: str, tool_input: dict[str, object],
+             read_blocks=_no_blocks, before_allow=lambda: None
+             ) -> PermissionResultAllow:
+    """Park the card for write `short`, run `before_allow`, then Allow it:
+    the decision the SDK receives."""
+    engine = make_engine(tmp_path, read_blocks=read_blocks)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        task = asyncio.create_task(conv.can_use_tool(
+            f"mcp__pkm__{short}", tool_input, None))
+        card = await _next_card(conv)
+        before_allow()
+        conv.resolve_confirm(card.confirm_id, True)
+        decision = await asyncio.wait_for(task, timeout=5)
+        await conv.close()
+        return decision
+
+    decision = asyncio.run(scenario())
+    assert isinstance(decision, PermissionResultAllow)
+    return decision
+
+
+def _inbox_old(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+               ancestors_of: Collection[BlockUid]):
+    return {uid_of("AAAAAAAA"): StoredBlock(canonical_title_of("Inbox"),
+                                            "old")}
+
+
+def test_allow_hands_the_tool_the_carded_input_with_expect(tmp_path):
+    a = uid_of("AAAAAAAA")
+    decision = _allowed(tmp_path, "update_block", {"uid": a, "text": "new"},
+                        _inbox_old)
+    assert decision.updated_input == {
+        "uid": a, "text": "new",
+        "expect": [{"uid": a, "kind": "text",
+                    "shown_hash": text_hash("old")}]}
+
+
+@pytest.mark.parametrize("short,tool_input", [
+    ("save_note", {"text": "Demo", "page": "Demo"}),
+    ("rename_page", {"title": "Old", "new_title": "New"}),
+])
+def test_allow_carries_updated_input_for_every_write_tool(
+        tmp_path, short, tool_input):
+    # never None: the SDK would then send the model's own input
+    decision = _allowed(tmp_path, short, dict(tool_input))
+    assert decision.updated_input == tool_input
+
+
+def test_allow_input_ignores_a_change_to_the_dict_after_the_card(tmp_path):
+    a = uid_of("AAAAAAAA")
+    tool_input: dict[str, object] = {"uid": a, "text": "new"}
+
+    def tamper() -> None:
+        tool_input["text"] = "swapped"
+        tool_input["uid"] = uid_of("BBBBBBBB")
+        tool_input["expect"] = []
+
+    decision = _allowed(tmp_path, "update_block", tool_input, _inbox_old,
+                        tamper)
+    assert decision.updated_input == {
+        "uid": a, "text": "new",
+        "expect": [{"uid": a, "kind": "text",
+                    "shown_hash": text_hash("old")}]}
+
+
+@pytest.mark.parametrize("short,tool_input", [
+    ("update_block", {"uid": "AAAAAAAA", "text": "t", "expect": []}),
+    ("batch", {"commands": [{"command": "delete",
+                             "params": {"uid": "AAAAAAAA"}}],
+               "expect": None}),
+])
+def test_a_model_expect_is_denied_without_a_card(tmp_path, short,
+                                                  tool_input):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        decision = await asyncio.wait_for(conv.can_use_tool(
+            f"mcp__pkm__{short}", tool_input, None), timeout=5)
+        queued = conv._queue.qsize()
+        await conv.close()
+        return decision, queued
+
+    decision, queued = asyncio.run(scenario())
+    assert isinstance(decision, PermissionResultDeny)
+    assert decision.message == (
+        f"{short}: expect is set by the approval card, never by the caller")
     assert queued == 0
 
 

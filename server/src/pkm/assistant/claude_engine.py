@@ -194,15 +194,15 @@ class ClaudeConversation:
         # or one parks or is allowed during it.
         in_flight = self._writes_in_flight()
         events = self._write_events
-        preview = await preview_write(short, tool_input or {},
-                                      self._read_blocks)
-        if isinstance(preview, Refusal):
+        approval = await preview_write(short, tool_input or {},
+                                       self._read_blocks)
+        if isinstance(approval, Refusal):
             # Input the tool's schema rejects is never shown as a card:
             # the user cannot approve what the tool would not run as shown.
             logger.warning("assistant write %s refused: %s", short,
-                           preview.message)
-            return PermissionResultDeny(message=preview.message)
-        preview = replace(preview, writes_in_flight=(
+                           approval.message)
+            return PermissionResultDeny(message=approval.message)
+        preview = replace(approval.preview, writes_in_flight=(
             in_flight or events != self._write_events))
         self._confirm_seq += 1
         # A local counter, not the SDK's own tool_use id (that id lives on
@@ -225,7 +225,12 @@ class ClaudeConversation:
             tool_use_id = context.tool_use_id if context is not None else None
             self._running_writes.add(tool_use_id or confirm_id)
             self._write_events += 1
-            return PermissionResultAllow()
+            # The SDK hands the tool `updated_input` in place of the
+            # model's input, falling back to it only when this is None:
+            # so the tool runs the call the card showed, carrying the
+            # blocks it showed as `expect`, whatever the dict passed in
+            # holds by now.
+            return PermissionResultAllow(updated_input=approval.tool_input)
         return PermissionResultDeny(message="The user declined this action.")
 
     def _writes_in_flight(self) -> bool:
@@ -467,8 +472,11 @@ class ClaudeEngine:
                     "pkm": {
                         "type": "stdio",
                         "command": sys.executable,
+                        # --require-expect: a guarded write without the
+                        # card's `expect` is refused, never run unguarded
                         "args": ["-m", "pkm.mcp.server", "--tools",
-                                 ",".join(READ_TOOLS + WRITE_TOOLS)],
+                                 ",".join(READ_TOOLS + WRITE_TOOLS),
+                                 "--require-expect"],
                         "env": {"PKM_CLI_CONFIG": str(config_path)},
                     }
                 },

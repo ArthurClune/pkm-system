@@ -39,8 +39,8 @@ otherwise).
 | `changed_blocks` | read | blocks edited/created in a `since`/`until` window, grouped by page, tagged new/edited |
 | `search_assets` | read | uploads by image description or filename |
 | `save_note` | write | create block(s); multi-line text becomes an outline, default page is today's daily note |
-| `update_block` | write | replace a block's text or set its task marker |
-| `batch` | write | several commands in one atomic transaction; skipped ops are flagged with `warning:` |
+| `update_block` | write | replace a block's text or set its task marker; `expect` is set by the assistant's [approval card](assistant.md#the-write-approval-card) |
+| `batch` | write | several commands in one atomic transaction; skipped ops are flagged with `warning:`; `expect` as for `update_block` |
 | `upload_asset` | write, `pkm-mcp` only | upload a local file and link it from a page |
 | `rename_page` | write | retitle a page, rewriting every reference to it; 409 unless `allow_merge`; 422 when a rewritten block would be past a [text limit](backend.md#page-mutations-and-the-sidebar) |
 

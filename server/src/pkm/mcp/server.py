@@ -9,7 +9,7 @@ from collections.abc import Sequence
 
 from mcp.server.fastmcp import FastMCP
 
-from pkm.mcp.tools import TOOLS
+from pkm.mcp.tools import TOOLS, require_expect
 
 
 def build_server(names: Sequence[str] | None = None) -> FastMCP:
@@ -35,8 +35,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="pkm-mcp")
     parser.add_argument(
         "--tools", help="comma-separated tool names to offer (default: all)")
+    parser.add_argument(
+        "--require-expect", action="store_true",
+        help="refuse update_block and batch without expect (the PKM "
+             "assistant's approval card sets it)")
     args = parser.parse_args(argv)
     names = args.tools.split(",") if args.tools is not None else None
+    if args.require_expect:
+        require_expect()
     build_server(names).run()  # stdio transport
 
 

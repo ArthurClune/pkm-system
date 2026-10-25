@@ -26,7 +26,8 @@ from pkm.client.api import PkmClient
 from pkm.client.core import ApiError
 from pkm.contracts.titles import RawTitle
 from pkm.refs import canonical_daily_title
-from pkm.contracts.ops import BatchId, BlockOp, BlockUid, CreateOp, new_uid
+from pkm.contracts.ops import (BatchId, BlockOp, BlockUid, CreateOp,
+                               ExpectedBlock, new_uid)
 from pkm.contracts.responses import BlockNode, OpsAck
 from pkm.planning import (asset_block_text, create_page_ops, find_block,
                           plan_mark, plan_save, plan_update, resolve_parent)
@@ -75,7 +76,8 @@ def save_blocks(client: PkmClient, text: str, page: RawTitle | None = None,
 
 
 def edit_block(client: PkmClient, uid: BlockUid, text: str | None = None,
-               mark: TaskMark | None = None) -> None:
+               mark: TaskMark | None = None,
+               expect: Sequence[ExpectedBlock] = ()) -> None:
     """Replace a block's text, or set its task marker. Exactly one of
     `text`/`mark`.
 
@@ -103,10 +105,11 @@ def edit_block(client: PkmClient, uid: BlockUid, text: str | None = None,
         assert text is not None
         ops = plan_update(uid, text, block.text, block.heading,
                           page_title=page_title)
-    client.post_ops(ops, batch_id=_batch_id())
+    client.post_ops(ops, batch_id=_batch_id(), expect=expect)
 
 
-def apply_batch(client: PkmClient, commands: object) -> OpsAck:
+def apply_batch(client: PkmClient, commands: object,
+                expect: Sequence[ExpectedBlock] = ()) -> OpsAck:
     """Apply a `{command, params}` batch atomically; returns the server's
     ack. Its `skipped` list names ops whose uid no longer exists, creates
     and moves whose parent no longer exists, and moves that would make a
@@ -127,7 +130,9 @@ def apply_batch(client: PkmClient, commands: object) -> OpsAck:
 
     Delete subtrees are cut from those same fetched pages wherever
     possible, so fetch count scales with the pages a batch touches, not
-    with how many blocks it deletes -- see `_delete_subtrees`."""
+    with how many blocks it deletes -- see `_delete_subtrees`.
+
+    `expect` is the approval card's guard, passed through to the server."""
     parsed = validate_batch(commands)
     spellings = referenced_pages(parsed)
     plain_space = (client.plain_space_title_canonicalization()
@@ -143,7 +148,7 @@ def apply_batch(client: PkmClient, commands: object) -> OpsAck:
     ops: list[BlockOp] = [*create_page_ops(missing),
                           *plan_batch(parsed, pages, uids=_uids(),
                                       subtrees=subtrees, keys=keys)]
-    return client.post_ops(ops, batch_id=_batch_id())
+    return client.post_ops(ops, batch_id=_batch_id(), expect=expect)
 
 
 def _delete_subtrees(

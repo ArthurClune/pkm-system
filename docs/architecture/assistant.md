@@ -16,8 +16,8 @@ symptom in [troubleshooting.md](../troubleshooting.md).
 |---|---|---|
 | `events.py` | Core | The event union routes and the web UI speak, plus `encode_sse()`. Nothing engine-specific leaks upward |
 | `policy.py` | Core | The tool gate (`READ_TOOLS` auto-allowed, `WRITE_TOOLS` confirm-gated, `MCP_ONLY_TOOLS` never offered), `MODELS`, `available_models()`, `default_model()`, `WRITE_PREVIEW_FIELDS` (which arguments of each write are targets and which are content), the system prompt |
-| `write_preview.py` | Core | `build_write_preview()`: the approval card's content for a write, or a `Refusal`; `write_target_uids()` and `delete_target_uids()`: the blocks the shell reads for it |
-| `target_reader.py` | Shell | `preview_write()`: reads those blocks through a `BlockReader` (`db_block_reader()` in production) and builds the card |
+| `write_preview.py` | Core | `build_write_preview()`: the approval card's content for a write, or a `Refusal`; `write_target_uids()` and `delete_target_uids()`: the blocks the shell reads for it; `approved_input()`: the input Allow runs |
+| `target_reader.py` | Shell | `preview_write()`: reads those blocks through a `BlockReader` (`db_block_reader()` in production) and builds the card and the input Allow runs (an `Approval`) |
 | `preview_keys_dump.py` | Shell | Writes `web/src/assistant/previewKeys.gen.ts`, the keys each card action may carry ([generated artifacts](backend.md#generated-artifacts-and-parity-fixtures)) |
 | `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols: the seam the test double plugs into. `send()` is an async generator because the caller closes it |
 | `harness_env.py` | Core | `resolve_harness_env()`: requested model and available key → the SDK alias and the subprocess env |
@@ -47,7 +47,7 @@ sequenceDiagram
     H->>H: model calls a write tool —<br/>can_use_tool parks it on a future
     R-->>B: confirm_request (preview from write_preview.py)
     B->>R: POST …/{id}/confirm {confirm_id, allow}
-    R->>H: resolve future — tool runs, or "the user declined"
+    R->>H: resolve future — tool runs the carded input + expect,<br/>or "the user declined"
     H->>A: pkm-mcp verb → HTTP API (minted session token)
     H-->>R: turn ends
     R-->>B: turn_done
@@ -68,6 +68,9 @@ user who has had the chance to read all of it.
 | Content values (`text`, `items`) reach the card whole; one over `CONTENT_LIMIT_CHARS`, or a target string over `TARGET_LIMIT_CHARS`, is a `Refusal` | `[show]` must be able to reveal every character approved. A target has no server-side bound, and a multi-MB value would freeze the tab |
 | Any exception inside `build_write_preview()` is a `Refusal`, logged with its type only | Raised out of `can_use_tool`, it would reach the SDK as a control error rather than a reason; its message can quote the attacker's input |
 | `ClaudeConversation.can_use_tool` denies a `Refusal` without a confirm | The user cannot approve what the tool would not run as shown |
+| Allow applies only while every block the card shows stands as shown. Allow returns `approved_input` (the card's input plus an `expect` entry per block) as `updated_input`. The tool posts it as `OpBatch.expect`, which `routes_ops.post_ops` checks ([the write path](backend.md#the-write-path)) | The hashes travel server to server. The browser sends only `confirm_id` and a boolean, and the model never sees `updated_input`, so neither can forge or drop one |
+| `_validate` refuses input carrying a `GATE_FIELDS` key (`expect`), whatever its value | A model's own `expect` could carry stale hashes or `[]`. The key stays in the tool's schema, because the CLI refuses an Allow whose `updated_input` fails that schema |
+| `ClaudeEngine` starts `pkm-mcp` with `--require-expect`: `update_block` and `batch` then refuse a call with no `expect` key before any request. The card always sets one, `[]` when the call names no stored block | An SDK or CLI that dropped `updated_input` would run the model's input unguarded; this fails closed instead. External `pkm-mcp` callers run without the flag |
 | An op carries warnings for an `allow_merge` rename, a `((uid))` or `{{alias}}` parent, and a batch `update` or `move` uid | The target rows alone can mislead. An alias parent overrides the op's `page`; a uid that names no block sends the text, or a note, to today's daily note. The wording follows `plan_save`, `plan_batch` and `ops_core.classify_skip` |
 | The tool functions are imported from `pkm.mcp.tools`, not `pkm.mcp.server` | Building the server's `FastMCP` configures the root logger |
 | The card's labels (keys, action) and warnings are escaped by `parseWritePreview`; values are quoted by `quoteValue`, and a target's newlines are escaped too | A value cannot close a quote or start a line that reads as another argument. `writePreview.ts` owns the character classes |
@@ -102,19 +105,22 @@ marker past its top, and "scroll to the end" would point the wrong way.
 Each op in `CURRENT_TEXT_ENTRIES` carries a `current` block, so the user sees
 what an update, move or delete acts on, not only its uid:
 
-| `current.state` | When | The card shows |
-|---|---|---|
-| `found` | a row has the uid | `current page` (`currently on page` for a move, whose own `page` reads `to page`), then the text's first `CURRENT_EXCERPT_CHARS` code points, with `(first N of M characters)` and `…` when clipped. A delete adds `and N blocks under it`, counted in the store as read |
-| `missing` | no row has the uid, or it is malformed (never sent to SQL) | `no block has this uid`; for a batch update or move, the warnings say where the write goes instead |
-| `created` | a batch `{{alias}}` | `none yet (write N above creates it as "a")` |
+| `current.state` | When | The card shows | Allow requires (`expect`) |
+|---|---|---|---|
+| `found` | a row has the uid | `current page` (`currently on page` for a move, whose own `page` reads `to page`), then the text's first `CURRENT_EXCERPT_CHARS` code points, with `(first N of M characters)` and `…` when clipped. A delete adds `and N blocks under it`, counted in the store as read | `text`: the `text_hash` of the whole text, never the excerpt. A delete: `subtree`, the `subtree_hash` of the block and all under it, so a child added beneath refuses too |
+| `missing` | no row has the uid, or it is malformed (never sent to SQL) | `no block has this uid`; for a batch update or move, the warnings say where the write goes instead | `absent`: a block with the uid at Allow, such as a synced offline create, refuses. A malformed uid expects nothing, because `ops_core.impossible_uid_reason` refuses its batch with 400 |
+| `created` | a batch `{{alias}}` | `none yet (write N above creates it as "a")` | nothing: the batch creates it |
+
+A uid that a batch both deletes and updates or moves gets the one `subtree`
+entry, whichever op comes first.
 
 | Rule | Reason |
 |---|---|
 | `preview_write` reads the blocks on the server, in a thread, from one deep copy of the tool input, just before the `confirm_request`. The web fetches nothing | The tool writes the server's database, so that is the text to show. A web fetch would add a route, a loading state and a race with Allow arming |
-| `db_block_reader` reads texts, pages, delete counts and parents' ancestors in one read transaction. A failed read, or a block whose page row is missing, is a `Refusal`, never an absent entry | An absent uid is what the card shows as `missing`, so it must mean only "no row" |
+| `db_block_reader` reads texts, pages, delete counts and subtree hashes, and parents' ancestors in one read transaction. A failed read, or a block whose page row is missing, is a `Refusal`, never an absent entry | An absent uid is what the card shows as `missing`, so it must mean only "no row" |
 | The excerpt is a clip with `text_length` beside it, never a silent cut. `parseWritePreview` accepts only the server's exact clip (`CURRENT_EXCERPT_CHARS` is in `previewKeys.gen.ts`) | A block can hold a million characters, and "first N of M" must be the clip the server made |
 | `_moved_into_delete` refuses a batch delete, naming both writes, when an earlier write moves an existing block into its subtree, directly, through an `as` alias or under a descendant. A move it cannot place (a `## Heading` parent, a parent uid with no row, a cycle) is refused too. It places parents by the ancestors read for `ancestor_uids` | The count is of the store before the batch runs, so a block moved in would go uncounted. No batch needs to move a block where it then deletes it. `pkm batch` is unchecked: its user wrote the batch |
-| A delete's count is one walk of `_DESCENDANTS_SQL` per target | Its cost is the sizes of nested targets' subtrees times their depth. Real outlines count in milliseconds, but a chain at `MAX_OUTLINE_DEPTH` over tens of thousands of blocks holds the card back for seconds |
+| A delete's count and subtree hash come from one walk of `ops_apply.subtree_rows` per target, the walk the server's `expect` check runs | Two walks could disagree on a corrupted parent chain and refuse an unchanged subtree. Its cost is the sizes of nested targets' subtrees times their depth. Real outlines count in milliseconds, but a chain at `MAX_OUTLINE_DEPTH` over tens of thousands of blocks holds the card back for seconds |
 
 A card is a snapshot taken when its `confirm_request` was built, so a write
 the user allows on another card can land after it. That write may be the
@@ -134,9 +140,11 @@ waiting or running when the read started, or parked during it. The card is
 then stamped, and the Allow that released the write is counted. The stamp
 errs towards the marker: a write still counts as running until the pump has
 read its result.
-Edits from outside the turn, such as the editor beside the panel, are not
-covered. A re-read would mean serializing confirms on the server, losing the
-queue's "1 of 2".
+Edits from outside the turn, such as the editor beside the panel, get no
+marker. Allow refuses them instead: 412, and nothing is written. The model
+relays the tool's error, and a retry builds a fresh card. An `update_block`
+on a block deleted meanwhile fails on `edit_block`'s own 404 before the
+check runs.
 
 ## Conversation registry
 

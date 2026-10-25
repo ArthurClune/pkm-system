@@ -1641,3 +1641,97 @@ def test_a_set_collapsed_op_refuses_an_int_for_a_bool(client):
         "op": "set_collapsed", "uid": "uid_b1", "collapsed": 1})
     assert r.status_code == 422
     assert r.json()["detail"][0]["loc"][-1] == "collapsed"
+
+
+def _post_expect(client, expect, *ops, batch_id: BatchId | None = None):
+    batch_id = batch_id or batch_id_of(f"expect_{uuid.uuid4().hex[:12]}")
+    return client.post("/api/ops", json={
+        "client_id": "c1", "batch_id": batch_id, "ops": list(ops),
+        "expect": expect})
+
+
+def _stored_text(config, which: str) -> str | None:
+    db = connect(config.db_path)
+    try:
+        row = db.select_one("SELECT text FROM blocks WHERE uid = ?", (which,))
+        return None if row is None else row["text"]
+    finally:
+        db.close()
+
+
+def _text_of(config, which: str) -> str:
+    text = _stored_text(config, which)
+    assert text is not None
+    return text
+
+
+def test_expect_refuses_the_whole_batch_with_412(client, seeded_config):
+    seed = _text_of(seeded_config, "uid_b4")
+    ops = [{"op": "create", "uid": "newexp1", "page_title": "AI",
+            "parent_uid": None, "order_idx": 5, "text": "X"},
+           {"op": "update_text", "uid": "uid_b4", "text": "changed"}]
+    bad = [{"uid": "uid_b4", "kind": "text",
+            "shown_hash": text_hash("not the text")}]
+    r = _post_expect(client, bad, *ops, batch_id=batch_id_of("batch-expect-1"))
+    assert r.status_code == 412
+    assert r.json()["detail"] == {
+        "index": None,
+        "reason": "block ((uid_b4)) changed after the approval card showed"
+                  " it, so nothing was written"}
+    assert _text_of(seeded_config, "uid_b4") == seed
+    assert _stored_text(seeded_config, "newexp1") is None
+    met = [{"uid": "uid_b4", "kind": "text", "shown_hash": text_hash(seed)}]
+    assert _post_expect(client, met, *ops,
+                        batch_id=batch_id_of("batch-expect-1")).status_code == 200
+
+
+def test_expect_met_applies(client, seeded_config):
+    met = [{"uid": "uid_b4", "kind": "text",
+            "shown_hash": text_hash(_text_of(seeded_config, "uid_b4"))}]
+    r = _post_expect(client, met, {"op": "update_text", "uid": "uid_b4",
+                                   "text": "replaced"})
+    assert r.status_code == 200
+    assert _text_of(seeded_config, "uid_b4") == "replaced"
+
+
+def test_expect_subtree_sees_a_new_child(client, seeded_config):
+    shown = subtree_hash([("uid_b2", "Papers"),
+                          ("uid_b3", _text_of(seeded_config, "uid_b3"))])
+    expect = [{"uid": "uid_b2", "kind": "subtree", "shown_hash": shown}]
+    noop = {"op": "set_collapsed", "uid": "uid_b2", "collapsed": False}
+    assert _post_expect(client, expect, noop).status_code == 200
+    assert _post(client, {"op": "create", "uid": "newchld1",
+                          "page_title": "Machine Learning",
+                          "parent_uid": "uid_b2", "order_idx": 5,
+                          "text": "kid"}).status_code == 200
+    r = _post_expect(client, expect, noop)
+    assert r.status_code == 412
+    assert "or a block under it changed" in r.json()["detail"]["reason"]
+
+
+def test_expect_absent(client):
+    noop = {"op": "set_collapsed", "uid": "uid_b2", "collapsed": False}
+    free = [{"uid": "neverused1", "kind": "absent"}]
+    assert _post_expect(client, free, noop).status_code == 200
+    taken = [{"uid": "uid_b4", "kind": "absent"}]
+    r = _post_expect(client, taken, noop)
+    assert r.status_code == 412
+    assert "did not exist when" in r.json()["detail"]["reason"]
+
+
+_H = text_hash("x")
+
+
+@pytest.mark.parametrize("expect", [
+    [{"uid": "uid_b4", "kind": "absent", "shown_hash": _H}],
+    [{"uid": "uid_b4", "kind": "text"}],
+    [{"uid": "uid_b4", "kind": "text", "shown_hash": _H[:63]}],
+    [{"uid": "uid_b4", "kind": "text", "shown_hash": _H},
+     {"uid": "uid_b4", "kind": "subtree", "shown_hash": _H}],
+    [{"uid": f"uid_{i:06d}", "kind": "absent"} for i in range(501)],
+], ids=["absent-with-hash", "text-without-hash", "short-hash", "duplicate",
+        "too-many"])
+def test_expect_validation_422(client, expect):
+    r = _post_expect(client, expect, {"op": "set_collapsed",
+                                      "uid": "uid_b2", "collapsed": False})
+    assert r.status_code == 422

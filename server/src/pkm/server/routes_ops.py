@@ -75,7 +75,8 @@ async def post_ops(request: Request,
     try:
         judged = await run_in_threadpool(judge_batch, batch)
     except OpError as e:
-        stored = _stored_ack(db, batch)
+        # hashing a large batch is the judges' kind of work: off the loop
+        stored = await run_in_threadpool(_stored_ack, db, batch)
         if stored is not None:
             return stored
         raise HTTPException(status_code=400,

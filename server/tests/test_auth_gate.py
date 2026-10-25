@@ -18,8 +18,11 @@ from pkm.server import run as run_module
 from pkm.server.app import create_app
 from pkm.server.auth_core import sign_session
 from pkm.server.auth_gate import AuthGateMiddleware
-from pkm.server.auth_gate_core import (PUBLIC_BODY_MAX_BYTES,
-                                       declared_over_cap, is_public)
+from pkm.server import auth_gate_core
+from pkm.server.auth_gate_core import (PRIVATE_BODY_MAX_BYTES,
+                                       PUBLIC_BODY_MAX_BYTES,
+                                       declared_content_length, is_public,
+                                       private_body_cap)
 
 MiB64 = 64 << 20
 TWO_YEARS_MS = 2 * 365 * 24 * 3600 * 1000
@@ -137,6 +140,80 @@ def test_an_authenticated_body_reaches_the_route(seeded_config,
     s = run(_stream(app, "POST", "/api/client/diagnostics",
                     "application/json", 0, prefix=body, cookie=client_cookie))
     assert s.status == 200
+
+
+OVER_PRIVATE_CAP = str(PRIVATE_BODY_MAX_BYTES + 1).encode()
+
+
+def test_an_authenticated_body_declared_past_the_cap_is_refused_unread(
+        seeded_config, client_cookie):
+    app = create_app(seeded_config)
+    s = run(_stream(app, "POST", "/api/ops", "application/json", MiB64,
+                    prefix=b'{"x":"', suffix=b'"}', cookie=client_cookie,
+                    headers=[(b"content-length", OVER_PRIVATE_CAP)]))
+    assert (s.status, s.consumed) == (413, 0)
+    assert json.loads(s.body) == {"detail": "request body too large"}
+
+
+def test_an_authenticated_body_without_a_length_stops_at_the_cap(
+        seeded_config, client_cookie, monkeypatch):
+    monkeypatch.setattr(auth_gate_core, "PRIVATE_BODY_MAX_BYTES", 4 << 20)
+    app = create_app(seeded_config)
+    s = run(_stream(app, "POST", "/api/ops", "application/json", 16 << 20,
+                    prefix=b'{"x":"', suffix=b'"}', cookie=client_cookie))
+    assert s.status == 413
+    assert s.consumed <= (4 << 20) + (1 << 20) + len(b'{"x":"')
+    assert json.loads(s.body) == {"detail": "request body too large"}
+
+
+def test_a_length_beside_chunked_framing_is_not_trusted(
+        seeded_config, client_cookie, monkeypatch):
+    # h11 frames by Transfer-Encoding when both are sent, so the declared
+    # length says nothing about how much will arrive.
+    monkeypatch.setattr(auth_gate_core, "PRIVATE_BODY_MAX_BYTES", 4 << 20)
+    s = run(_stream(create_app(seeded_config), "POST", "/api/ops",
+                    "application/json", 16 << 20, prefix=b'{"x":"',
+                    suffix=b'"}', cookie=client_cookie,
+                    headers=[(b"content-length", b"10"),
+                             (b"transfer-encoding", b"chunked")]))
+    assert s.status == 413
+    assert s.consumed <= (4 << 20) + (1 << 20) + len(b'{"x":"')
+
+
+def test_an_authenticated_body_within_the_cap_reaches_the_route(
+        seeded_config, client_cookie):
+    body = json.dumps({"client_id": "cap", "batch_id": "cap_within_1",
+                       "ops": [{"op": "delete", "uid": "uid_b1"}]}).encode()
+    s = run(_stream(create_app(seeded_config), "POST", "/api/ops",
+                    "application/json", 0, prefix=body, cookie=client_cookie,
+                    headers=[(b"content-length", str(len(body)).encode())]))
+    assert s.status == 200
+
+
+def test_an_upload_declared_past_the_cap_is_left_to_its_route(
+        seeded_config, client_cookie):
+    prefix = (b"--BND\r\ncontent-disposition: form-data; name=\"file\"; "
+              b"filename=\"a.png\"\r\ncontent-type: image/png\r\n\r\n")
+    s = run(_stream(create_app(seeded_config), "POST", "/api/assets",
+                    "multipart/form-data; boundary=BND", 1 << 20,
+                    prefix=prefix, suffix=b"\r\n--BND--\r\n",
+                    cookie=client_cookie,
+                    headers=[(b"content-length", OVER_PRIVATE_CAP)]))
+    assert s.consumed > 0  # the route read it; the gate did not refuse it
+    assert json.loads(s.body) != {"detail": "request body too large"}
+
+
+@pytest.mark.parametrize("method,path,cap", [
+    ("POST", "/api/ops", PRIVATE_BODY_MAX_BYTES),
+    ("GET", "/api/page/x", None), ("HEAD", "/api/page/x", None),
+    ("OPTIONS", "/api/ops", None),
+    ("POST", "/api/assets", None),
+    ("DELETE", "/api/assets/abc", PRIVATE_BODY_MAX_BYTES),
+    ("PUT", "/api/sidebar", PRIVATE_BODY_MAX_BYTES),
+    ("POST", "/api/assets/export.zip", PRIVATE_BODY_MAX_BYTES),
+])
+def test_private_body_cap(method, path, cap):
+    assert private_body_cap(method, path) == cap
 
 
 def test_the_gate_401_is_logged_and_carries_the_security_header(
@@ -310,15 +387,17 @@ def test_after_the_replay_the_route_reads_the_clients_own_messages():
     ]
 
 
-@pytest.mark.parametrize("headers,over", [
-    ([], False), ([(b"content-length", b"8192")], False),
-    ([(b"content-length", b"8193")], True),
-    ([(b"content-length", b"abc")], False),
-    ([(b"content-length", b"1"), (b"content-length", b"99999")], True),
-    ([(b"content-length", b"9" * 5000)], False),
+@pytest.mark.parametrize("headers,length", [
+    ([], None), ([(b"content-length", b"8192")], 8192),
+    ([(b"Content-Length", b" 8193 ")], 8193),
+    ([(b"content-length", b"abc")], None),
+    ([(b"content-length", b"1"), (b"content-length", b"99999")], 99999),
+    ([(b"content-length", b"9" * 5000)], None),
+    ([(b"content-length", b"10"), (b"transfer-encoding", b"chunked")], None),
+    ([(b"Transfer-Encoding", b"chunked"), (b"content-length", b"10")], None),
 ])
-def test_declared_over_cap(headers, over):
-    assert declared_over_cap(headers, 8192) is over
+def test_declared_content_length(headers, length):
+    assert declared_content_length(headers) == length
 
 
 # A real uvicorn socket, loaded as `run.uvicorn_config` loads production's.
@@ -405,4 +484,25 @@ def test_over_a_real_socket_a_login_past_the_cap_is_refused(seeded_config):
             b"HTTP/1.1 413 Request Entity Too Large")
         assert app.bytes == 0
         assert _status_before_the_body_ends(port, chunked, chunks) == (
+            b"HTTP/1.1 413 Request Entity Too Large")
+
+
+@_uvicorn_warning
+def test_over_a_real_socket_an_authenticated_body_is_capped(
+        seeded_config, client_cookie, monkeypatch):
+    monkeypatch.setattr(auth_gate_core, "PRIVATE_BODY_MAX_BYTES", 64 << 10)
+    app = _Pulled(create_app(seeded_config))
+    head = (b"POST /api/ops HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Cookie: pkm_session=" + client_cookie.encode() + b"\r\n")
+    declared = head + b"Content-Length: 65537\r\n\r\n"
+    # A short length beside chunked framing: the server reads the chunks.
+    framed = head + (b"Content-Length: 10\r\n"
+                     b"Transfer-Encoding: chunked\r\n\r\n")
+    chunks = b"".join(b"400\r\n" + b"a" * 1024 + b"\r\n" for _ in range(128))
+    with _serving(app) as port:
+        assert _status_before_the_body_ends(port, declared, b"") == (
+            b"HTTP/1.1 413 Request Entity Too Large")
+        assert app.bytes == 0
+        assert _status_before_the_body_ends(port, framed, chunks) == (
             b"HTTP/1.1 413 Request Entity Too Large")

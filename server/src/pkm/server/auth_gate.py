@@ -20,7 +20,17 @@ message. No session bounds such a body, and FastAPI would read any size
 before the route runs. The gate keeps at most `PUBLIC_BODY_MAX_BYTES`: a
 declared length past it gets 413 unread, and a streamed body gets 413 as
 soon as it passes it. Reading stops one server message past the cap, so
-the server's read size (uvicorn's) bounds the overshoot."""
+the server's read size (uvicorn's) bounds the overshoot.
+
+An authenticated body is capped the same way at `PRIVATE_BODY_MAX_BYTES`
+(`auth_gate_core.private_body_cap` says which), for the same reason:
+FastAPI would parse any size before the route's own limits run. Uploads
+are exempt and bound themselves while streaming to disk. A declared length
+within the cap passes untouched, without the buffered read and replay:
+the server (h11) frames the body to that length, so no more can arrive
+than was declared. A length sent beside `Transfer-Encoding` is no such
+promise (h11 frames by the chunks), so `declared_content_length` ignores
+it and that body is counted here like any chunked one."""
 from __future__ import annotations
 
 from fastapi.responses import JSONResponse
@@ -32,7 +42,8 @@ from starlette.websockets import WebSocketClose
 from pkm.server.auth import (NOT_AUTHENTICATED_DETAIL,
                              NOT_AUTHENTICATED_WS_CODE, session_is_valid)
 from pkm.server.auth_gate_core import (PUBLIC_BODY_MAX_BYTES,
-                                       declared_over_cap, is_public)
+                                       declared_content_length,
+                                       private_body_cap, is_public)
 from pkm.server.origin_core import SAFE_METHODS
 
 BODY_TOO_LARGE_DETAIL = "request body too large"
@@ -48,13 +59,14 @@ class AuthGateMiddleware:
             return
         if is_public(scope["type"], scope.get("method"), get_route_path(scope)):
             if scope["type"] == "http" and scope["method"] not in SAFE_METHODS:
-                await self._capped(scope, receive, send)
+                await self._capped(scope, receive, send,
+                                   PUBLIC_BODY_MAX_BYTES)
             else:
                 await self.app(scope, receive, send)
             return
         if session_is_valid(HTTPConnection(scope),
                             scope["app"].state.config):
-            await self.app(scope, receive, send)
+            await self._private(scope, receive, send)
         elif scope["type"] == "websocket":
             await WebSocketClose(code=NOT_AUTHENTICATED_WS_CODE)(
                 scope, receive, send)
@@ -62,9 +74,23 @@ class AuthGateMiddleware:
             await JSONResponse({"detail": NOT_AUTHENTICATED_DETAIL},
                                status_code=401)(scope, receive, send)
 
-    async def _capped(self, scope: Scope, receive: Receive,
-                      send: Send) -> None:
-        if declared_over_cap(scope["headers"], PUBLIC_BODY_MAX_BYTES):
+    async def _private(self, scope: Scope, receive: Receive,
+                       send: Send) -> None:
+        cap = (None if scope["type"] != "http"
+               else private_body_cap(scope["method"], get_route_path(scope)))
+        if cap is None:
+            await self.app(scope, receive, send)
+            return
+        declared = declared_content_length(scope["headers"])
+        if declared is not None and declared <= cap:
+            await self.app(scope, receive, send)
+            return
+        await self._capped(scope, receive, send, cap)
+
+    async def _capped(self, scope: Scope, receive: Receive, send: Send,
+                      cap: int) -> None:
+        declared = declared_content_length(scope["headers"])
+        if declared is not None and declared > cap:
             await _too_large(scope, receive, send)
             return
         chunks: list[bytes] = []
@@ -75,7 +101,7 @@ class AuthGateMiddleware:
                 return
             chunk = message.get("body", b"")
             size += len(chunk)
-            if size > PUBLIC_BODY_MAX_BYTES:
+            if size > cap:
                 await _too_large(scope, receive, send)
                 return
             chunks.append(chunk)

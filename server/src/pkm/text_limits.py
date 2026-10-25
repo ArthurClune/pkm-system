@@ -19,8 +19,8 @@ from pkm.refs import link_nesting_depth
 TextLimitKind = Literal["length", "nesting"]
 
 # Most unlink work a server rewrite may ask for, measured as the text's
-# `[[` depth times its length: `unlink.unlink_title_refs` peels a nested
-# link one layer per pass, each reading the whole text. Judged where a page
+# `[[` depth times its length: `unlink.unlink_title_refs` makes up to
+# depth + 3 passes, each reading the whole text. Judged where a page
 # delete or a delete's replay splices copies in, since copies that each
 # nest within the cap can wrap thousands of links 32 deep. At twice the
 # length cap, any text within the length cap nested twice passes, and no

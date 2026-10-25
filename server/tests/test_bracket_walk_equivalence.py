@@ -29,10 +29,11 @@ from pkm.test_data.ids import raw_title_of
 def _reference_unlink_range(
     text: str, clean: str, is_target: Callable[[str], bool], start: int,
     stop: int, brackets: Sequence[BracketSpan],
-    spans: list[tuple[int, int, str]],
+    spans: list[tuple[int, int, str]], fence: bool = False,
 ) -> None:
     """`unlink._unlink_range` as it was before the walk kept its own
-    stack."""
+    stack, for the unlink only: the fence came later."""
+    assert not fence
     index = start
     for bracket in brackets:
         unlink._unlink_tags(text, clean, is_target, index, bracket.start, spans)

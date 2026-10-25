@@ -6,25 +6,30 @@ re-forms a link to itself after each unlink (`[[a[]]` then `[a[]]`), so a
 text one level deep took one pass per link. And a delete replay could
 splice a stale edit into text nested to the cap around the deleted title,
 which the unlink peels one layer per pass over the whole text. Titles
-ending in `[` are refused now, and the sites that splice copies in judge
-the depth times the length first."""
+ending in `[` are refused now, the unlink stops after the passes its depth
+needs, and the sites that splice copies in judge the depth times the
+length first."""
 from __future__ import annotations
 
 from urllib.parse import quote
 
+import httpx
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from scaling import loop_steps
-from test_text_limits_rewrites import _page_exists, _seed
+from test_text_limits_rewrites import _page_exists, _seed, _text
 
 from pkm import refs, spans, text_limits, unlink
 from pkm.contracts.ops import MAX_LINK_NESTING, BlockUid, SyncSeq, text_hash
-from pkm.refs import link_nesting_depth, normalize_title
+from pkm.refs import extract, link_nesting_depth, normalize_title
 from pkm.server import ops_core
 from pkm.server.db import open_db
 from pkm.server.ops_core import BlockRewrite, TextEditOutcome, classify_text_edit
 from pkm.test_data.ids import (batch_id_of, canonical_title_of, client_id_of,
                                order_idx_of, seq_of, uid_of)
-from pkm.unlink import (SourceBlock, plan_page_delete)
+from pkm.unlink import (SourceBlock, plan_page_delete, unlink_stale_refs,
+                        unlink_title_refs)
 
 LEGACY = "a["
 OTHER = canonical_title_of("Other")
@@ -41,6 +46,10 @@ def nest(depth: int) -> str:
     return "[[a//" * depth + "x" + "]]" * depth
 
 
+def is_legacy(raw: str) -> bool:
+    return normalize_title(raw) == LEGACY
+
+
 def is_t(raw: str) -> bool:
     return normalize_title(raw) == "T"
 
@@ -49,6 +58,10 @@ def chain(k: int) -> str:
     """One link to `a[`, then k spellings that each join the `a[` the
     unlink leaves into a fresh link. One level deep."""
     return "[[a[]]" + "[a[]]" * k
+
+
+def _refs_to(text: str, is_target) -> list[str]:
+    return [r.title for r in extract(text).refs if is_target(r.title)]
 
 
 def _post(client, *ops, seen_seq: SyncSeq | None = None):
@@ -71,6 +84,14 @@ def _execute(config, *statements: tuple[str, tuple[object, ...]]) -> None:
         con.commit()
     finally:
         con.close()
+
+
+def _legacy_ref(config, src: BlockUid) -> None:
+    """The refs row to `a[` a reindex wrote before that title was refused:
+    a reindex now skips it, as it skips every refused title."""
+    _execute(config, (
+        "INSERT OR IGNORE INTO refs VALUES (?, (SELECT id FROM pages"
+        " WHERE title = ?), 'link')", (src, LEGACY)))
 
 
 def _forget(config, *uids: BlockUid) -> None:
@@ -110,6 +131,93 @@ def test_a_sidebar_pin_of_a_title_ending_in_an_open_bracket_is_422(client):
     assert r.status_code == 422, r.text
 
 
+# -- a link that re-forms after each unlink (legacy titles) ---------------
+
+def test_a_link_that_reforms_after_each_unlink_stops_at_the_pass_cap():
+    # One pass per link at depth 1 made this quadratic: 40,006 characters
+    # held the write lock 15 s. The passes stop at the depth plus two.
+    def run(k: int) -> tuple[int, str]:
+        out: list[str] = []
+        work = loop_steps(MODULES, lambda: out.append(
+            unlink_title_refs(chain(k), is_legacy)))
+        return work, out[0]
+
+    (small, _), (large, out) = run(500), run(2000)
+    # four times the text: linear work grows about 4x
+    assert large < 6 * small, (small, large)
+    assert _refs_to(out, is_legacy)  # what the cap left
+
+
+def test_a_delete_whose_unlink_does_not_settle_reports_the_source_residual():
+    def run(k: int) -> tuple[int, list[str]]:
+        plans: list[unlink.DeletePlan] = []
+        work = loop_steps(MODULES, lambda: plans.append(plan_page_delete(
+            is_legacy, {}, [SourceBlock(SRC, OTHER, chain(k))])))
+        return work, [b.reason for b in plans[0].blockers]
+
+    (small, _), (large, reasons) = run(500), run(2000)
+    assert large < 6 * small, (small, large)
+    assert reasons == ["residual"]
+
+
+def test_a_stale_unlink_that_does_not_settle_fences_what_is_left():
+    def run(k: int) -> tuple[int, str]:
+        out: list[str] = []
+        work = loop_steps(MODULES, lambda: out.append(
+            unlink_stale_refs(chain(k), is_legacy)))
+        return work, out[0]
+
+    (small, _), (large, out) = run(500), run(2000)
+    assert large < 6 * small, (small, large)
+    assert _refs_to(out, is_legacy) == []
+    # nothing the user wrote is lost: the fence only adds backticks
+    assert out.replace("`", "").count("a") == chain(2000).count("a")
+
+
+@pytest.mark.parametrize("text", [
+    "x ` [[a[]]",       # a lone backtick before: the fence pairs with it
+    "[[a[]] [[a[]] `",  # a lone backtick after
+    "#[[a[]][a[]]",     # a tag
+    "[l]([[a[]])[a[]]",  # an alias
+    "[[a[]]\n[[a[]][a[]]",
+])
+def test_the_fence_leaves_no_link_to_the_page(text):
+    # The fence alone, on text no unlink has touched.
+    out = unlink._fence_title_refs(text, is_legacy)
+    assert _refs_to(out, is_legacy) == []
+    assert out.replace("`", "") == text.replace("`", "")
+
+
+def test_a_legacy_delete_reports_the_residual_on_delete_and_preview(
+        client, seeded_config):
+    # A page titled `a[` stored before the rule, and a block linking it in
+    # the shape that re-forms.
+    def run(k: int) -> tuple[int, int, list[str], list[str]]:
+        _forget(seeded_config, SRC)
+        _seed(seeded_config, [(SRC, "Src", chain(k))], pages=(LEGACY,))
+        _legacy_ref(seeded_config, SRC)
+        got: dict[str, httpx.Response] = {}
+
+        def go() -> None:
+            got["preview"] = client.get("/api/delete-preview",
+                                        params={"title": LEGACY})
+            got["delete"] = client.delete(f"/api/page/{quote(LEGACY)}")
+        work = loop_steps(MODULES, go)
+        preview, delete = got["preview"], got["delete"]
+        blocked = (delete.json()["detail"]["blockers"]
+                   if delete.status_code == 409 else [])
+        return (work, delete.status_code,
+                [b["reason"] for b in preview.json()["blockers"]],
+                [b["reason"] for b in blocked])
+
+    (small, *_), (large, status, previewed, blocked) = run(500), run(2000)
+    assert large < 6 * small, (small, large)
+    assert status == 409
+    assert previewed == blocked == ["residual"]
+    assert _page_exists(seeded_config, LEGACY)
+    assert _text(seeded_config, SRC) == chain(2000)
+
+
 def test_a_stale_batch_linking_a_legacy_title_is_refused_on_arrival(
         client, seeded_config):
     # The batch predates the delete of `a[` (seen_seq 0), so its text
@@ -133,6 +241,82 @@ def test_a_stale_batch_linking_a_legacy_title_is_refused_on_arrival(
     assert large < 6 * small, (small, large)
     assert status == 400
     assert not _page_exists(seeded_config, LEGACY)
+
+
+def test_a_replay_whose_splice_reforms_links_fences_what_is_left(
+        client, seeded_config):
+    # The delete of a legacy `a[` inlined a copy of `[a[]]` x k. A stale
+    # edit sent before the delete ends in `[[a[`, holding no link, so it is
+    # not refused; its replay splices the copy in after it and forms the
+    # chain, which the unlink would peel one link per pass.
+    def run(k: int) -> tuple[int, str]:
+        _forget(seeded_config, SRC, COPY_BLK)
+        original = f"[[a[]] (({COPY_BLK}))"
+        _seed(seeded_config, [(COPY_BLK, LEGACY, "[a[]]" * k),
+                              (SRC, "Src", original)])
+        _legacy_ref(seeded_config, SRC)
+        r = client.delete(f"/api/page/{quote(LEGACY)}")
+        assert r.status_code == 200, r.text[:300]
+        got = []
+        work = loop_steps(MODULES, lambda: got.append(_post(client, {
+            "op": "update_text", "uid": SRC,
+            "text": f"[[a[(({COPY_BLK}))",
+            "base_text_hash": text_hash(original)})))
+        assert got[0].status_code == 200, got[0].text[:300]
+        return work, str(_text(seeded_config, SRC))
+
+    (small, _), (large, stored) = run(500), run(2000)
+    assert large < 6 * small, (small, large)
+    assert not _page_exists(seeded_config, LEGACY)
+    assert _refs_to(stored, is_legacy) == []
+    assert stored.replace("`", "").count("a") == 1 + 2000
+
+
+# -- the cap never cuts an unlink short for an allowed title --------------
+
+_TARGETS = ["T", "[x", "]x", "a ]b", "x y"]
+
+
+def _settled(text: str, is_target) -> str:
+    """The unlink without a cap: passes until nothing changes."""
+    for _ in range(len(text) + 1):
+        unlinked = unlink._unlink_pass(text, is_target)
+        if unlinked == text:
+            break
+        text = unlinked
+    return text
+
+
+@settings(max_examples=3000, deadline=None)
+@given(st.sampled_from(_TARGETS), st.data())
+def test_the_pass_cap_never_stops_an_unlink_of_an_allowed_title(target, data):
+    # Without code: a code span that moves as links go can show further
+    # links, which the cap stops (fenced or `residual`).
+    assert refs.title_syntax_reason(target) is None
+    tokens = ["[[", "]]", "[", "]", "(", ")", "](", "#", "##", " ", "x",
+              "T", "a", "\n", f"[[{target}]]", f"#[[{target}]]",
+              f"[[ #{target} ]]", f"]]#{target}", f"[l]([[{target}]])",
+              f"{target}::"]
+    text = "".join(data.draw(st.lists(st.sampled_from(tokens), max_size=24)))
+
+    def is_target(raw: str) -> bool:
+        return normalize_title(raw) == target
+
+    expected = _settled(text, is_target)
+    assert unlink_title_refs(text, is_target) == expected
+    assert unlink_stale_refs(text, is_target) == \
+        unlink.defuse_attribute(expected, is_target)
+
+
+@settings(max_examples=3000, deadline=None)
+@given(st.data())
+def test_a_stale_unlink_leaves_no_ref_to_a_legacy_title(data):
+    tokens = ["[[", "]]", "[", "]", "(", ")", "](", "#", " ", "a", "a[",
+              "[a[]]", "[[a[]]", "#[[a[]]", "[l]([[a[]])", "`", "\n",
+              "a[::"]
+    text = "".join(data.draw(st.lists(st.sampled_from(tokens), max_size=24)))
+    out = unlink_stale_refs(text, is_legacy)
+    assert _refs_to(out, is_legacy) == []
 
 
 # -- the work the sites that splice copies in may ask for -----------------

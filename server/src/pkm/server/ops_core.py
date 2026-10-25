@@ -38,8 +38,7 @@ from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
 from pkm.spans import splice, spliced_length
 from pkm.text_limits import (TextLimitViolation, describe_text_limit,
                               text_limit_violation, unlink_refused)
-from pkm.unlink import (TitleMatch, block_ref_spans, defuse_attribute,
-                        unlink_stale_refs, unlink_title_refs)
+from pkm.unlink import TitleMatch, block_ref_spans, unlink_stale_refs
 
 # Most renames a stale edit can be behind. Each step is one recorded
 # rewrite of the same block, so the bound only matters for a block renamed
@@ -254,15 +253,17 @@ def _replay_step(text: str, step: RewriteStep,
     carry it past `MAX_BLOCK_TEXT_CHARS`. That is judged from the spans
     before splicing: each link grows by the title's growth, and titles have
     no length cap, so the text itself could be far too long to build. The
-    unlink that follows an inline only shortens, bar the two backticks
-    `defuse_attribute` adds; the caller judges what comes out.
+    unlink that follows an inline only shortens, bar the backticks
+    `defuse_attribute` and a fence add (`unlink.unlink_stale_refs`); the
+    caller judges what comes out.
 
     Also None when the spliced text nests past `MAX_LINK_NESTING`, deeper
     than the step found it, or its depth times its length passes
     `text_limits.MAX_UNLINK_WORK`, judged before the unlink
     (`text_limits.unlink_refused`): copies that each nest within the cap
     can join into one deep link, and the unlink's passes grow with the
-    depth (`unlink.unlink_title_refs`)."""
+    depth (`unlink.unlink_title_refs`). A link the passes leave is fenced
+    (`unlink.unlink_stale_refs`)."""
     entering = text
     if step.retitles:
         spans = title_ref_spans(
@@ -287,8 +288,7 @@ def _replay_step(text: str, step: RewriteStep,
         spliced = splice(text, spans)
         if unlink_refused(entering, spliced):
             return None
-        text = defuse_attribute(
-            unlink_title_refs(spliced, is_deleted), is_deleted)
+        text = unlink_stale_refs(spliced, is_deleted)
     return text
 
 
@@ -329,7 +329,9 @@ def over_limit_landing_text(text: str, replayed: Sequence[RewriteStep],
     re-create the pages. Nothing is renamed, since a longer title is what
     can carry a replay past the cap, and `((uid))` refs stay: one to a
     deleted block is legal and only renders broken. The text can grow only
-    by `defuse_attribute`'s two backticks."""
+    by `defuse_attribute`'s two backticks, and two more per link the
+    unlink's passes leave (`unlink.unlink_stale_refs`), which only a title
+    stored before it was refused can re-form."""
     gone = {canonical(title) for step in replayed
             for title in (*step.unlinked, *step.retitles)}
     if not gone:

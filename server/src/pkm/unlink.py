@@ -15,9 +15,11 @@ splice's projected length, so a copy too long to store is never built. The
 nesting limit and the unlink's work are judged on the spliced text before
 unlinking too, a page block's copy and each source with its copies in
 (`text_limits.unlink_refused`), since the unlink's passes grow with the
-depth (`unlink_title_refs`).
+depth (`unlink_title_refs`). An unlink that has not settled when its passes
+run out leaves the source `residual`.
 The stale path (`unlink_stale_refs`) has no blockers to report, so
-`defuse_attribute` fences a leading attribute naming the page in backticks.
+`defuse_attribute` fences a leading attribute naming the page in backticks,
+and a link the passes left is fenced too (`_fence_title_refs`).
 """
 from __future__ import annotations
 
@@ -35,6 +37,7 @@ from pkm.refs import (
     attribute_title_span,
     bracket_spans,
     extract,
+    link_nesting_depth,
     parse_block_uid,
     strip_code,
     tag_spans,
@@ -50,10 +53,11 @@ TitleMatch = Callable[[str], bool]
 # each copy at its projected length once per place it lands. It bounds the
 # copy work a delete does under the write lock however many blocks refer to
 # the page. The rest grows with the page's and the referrers' own text and
-# the copy text counted, times the unlink's passes, and each text unlinked
-# is held to `text_limits.MAX_UNLINK_WORK` in depth times length. It sits
-# far above what a page written by hand needs; a referrer past it is
-# refused as `limit`.
+# the copy text counted, times the unlink's passes: at most the depth plus
+# three per text, and each text unlinked is held to
+# `text_limits.MAX_UNLINK_WORK` in depth times length. It sits far above
+# what a page written by hand needs; a referrer past it is refused as
+# `limit`.
 MAX_DELETE_COPY_CHARS: Final = 4 * MAX_BLOCK_TEXT_CHARS
 
 _NEWLINE_RUN = re.compile(r"[ \t\r]*\n\s*")
@@ -121,12 +125,32 @@ def _unlink_bracket(
     spans.append((bracket.start, bracket.end, inner))
 
 
+def _fence_tags(
+    text: str, clean: str, is_target: TitleMatch, start: int, stop: int,
+    spans: list[Span],
+) -> None:
+    for tag in tag_spans(clean, start, stop):
+        if is_target(tag.raw_title):
+            name = text[tag.start + 1:tag.end]
+            spans.append((tag.start + 1, tag.end, f"`{name}`"))
+
+
+def _fence_bracket(
+    text: str, clean: str, is_target: TitleMatch, bracket: BracketSpan,
+    spans: list[Span],
+) -> None:
+    inner = text[bracket.inner_start:bracket.inner_end]
+    spans.append((bracket.inner_start, bracket.inner_end, f"`{inner}`"))
+
+
 def _unlink_range(
     text: str, clean: str, is_target: TitleMatch, start: int, stop: int,
-    brackets: Sequence[BracketSpan], spans: list[Span],
+    brackets: Sequence[BracketSpan], spans: list[Span], fence: bool = False,
 ) -> None:
     """Outer match wins; an unmatched run is descended so nested links are
     reached. Nothing overlaps, so the caller can splice back to front.
+    With `fence`, each match keeps its brackets and has its title fenced
+    in backticks instead (`_fence_title_refs`).
 
     The descent keeps its own stack rather than recursing: no write path
     bounds `[[` nesting, so block text can nest past the recursion limit.
@@ -134,6 +158,8 @@ def _unlink_range(
     `_unlink_bracket` relies on: an alias drops the spans already collected
     from its label onward, so a span to its right must not have been
     collected yet."""
+    on_tags = _fence_tags if fence else _unlink_tags
+    on_bracket = _fence_bracket if fence else _unlink_bracket
     # Each frame is a window still to walk: where its next gap starts,
     # where the window stops, and the runs in it not yet reached.
     stack: list[tuple[int, int, Iterator[BracketSpan]]] = [
@@ -142,41 +168,71 @@ def _unlink_range(
         index, window_stop, rest = stack.pop()
         bracket = next(rest, None)
         if bracket is None:
-            _unlink_tags(text, clean, is_target, index, window_stop, spans)
+            on_tags(text, clean, is_target, index, window_stop, spans)
             continue
-        _unlink_tags(text, clean, is_target, index, bracket.start, spans)
+        on_tags(text, clean, is_target, index, bracket.start, spans)
         stack.append((bracket.end, window_stop, rest))
         if is_target(clean[bracket.inner_start:bracket.inner_end]):
-            _unlink_bracket(text, clean, is_target, bracket, spans)
+            on_bracket(text, clean, is_target, bracket, spans)
         else:
             stack.append((bracket.inner_start, bracket.inner_end,
                           iter(bracket.children)))
 
 
-def _unlink_pass(text: str, is_target: TitleMatch) -> str:
+def _unlink_pass(text: str, is_target: TitleMatch,
+                 fence: bool = False) -> str:
     clean = strip_code(text)
     spans: list[Span] = []
     _unlink_range(
-        text, clean, is_target, 0, len(clean), bracket_spans(clean, text), spans
-    )
+        text, clean, is_target, 0, len(clean), bracket_spans(clean, text),
+        spans, fence)
     return splice(text, spans)
+
+
+def unlink_settled(text: str, is_target: TitleMatch) -> tuple[str, bool]:
+    """`unlink_title_refs`, and whether its last pass found nothing left to
+    unlink. False when the passes ran out first: the text may still link
+    the target."""
+    # A nested legacy link (`[[[[AI]]]]`, `[[ [[AI]] ]]`) loses one layer
+    # per pass, so the depth sets the passes that change the text. Two
+    # more cover what an unlink exposes: a tag a tag leaves (`##[[AI]]`,
+    # then `#AI`), and one a link's `]]` hid (`[[ #AI ]]#AI`). Then one
+    # pass that finds nothing. Nothing bounds the passes otherwise: a
+    # title ending in `[` re-forms a link after each one (`[[a[]]` then
+    # `[a[]]`), such titles stored before they were refused still exist,
+    # and a code span that moves as links go can show another link.
+    for _ in range(link_nesting_depth(text) + 3):
+        unlinked = _unlink_pass(text, is_target)
+        if unlinked == text:
+            return text, True
+        text = unlinked
+    return text, False
 
 
 def unlink_title_refs(text: str, is_target: TitleMatch) -> str:
     """Turn every link, tag and aliased link to the target into plain text.
 
-    Repeated until nothing changes: a nested legacy link (`[[[[AI]]]]`,
-    `[[ [[AI]] ]]`) loses one layer per pass, and the outer layer would
-    otherwise re-derive the page. Every pass that changes the text makes it
-    shorter, so the length bounds the loop. The passes are at most the
-    text's `[[` depth plus one, each reading the text once per level it
-    nests, so a caller unlinking text it spliced together judges the depth
-    first (`text_limits.rewrite_nesting_violation`)."""
-    for _ in range(len(text) + 1):
-        unlinked = _unlink_pass(text, is_target)
-        if unlinked == text:
+    Repeated until nothing changes, for at most the text's `[[` depth plus
+    two passes that change it (`unlink_settled`), each reading the whole
+    text, so a caller unlinking text it spliced together judges the depth
+    times the length first (`text_limits.unlink_refused`). A link the
+    passes leave is still a link: a delete reports it `residual`, and a
+    stale text has it fenced (`unlink_stale_refs`)."""
+    return unlink_settled(text, is_target)[0]
+
+
+def _fence_title_refs(text: str, is_target: TitleMatch) -> str:
+    """`text` with every link, tag and aliased link to the target kept but
+    its title fenced in backticks (`[[`a[`]]`, `` #`AI` ``). Nothing is
+    removed, so nothing re-forms. A run whose title holds a backtick is no
+    run, so a fence that pairs with a stray backtick still leaves none;
+    only a run whose title spans a line hides a nested run from the inline
+    fence, and the next pass fences that one."""
+    for _ in range(link_nesting_depth(text) + 2):
+        fenced = _unlink_pass(text, is_target, fence=True)
+        if fenced == text:
             break
-        text = unlinked
+        text = fenced
     return text
 
 
@@ -196,8 +252,13 @@ def defuse_attribute(text: str, is_target: TitleMatch) -> str:
 def unlink_stale_refs(text: str, is_target: TitleMatch) -> str:
     """`unlink_title_refs` plus the leading attribute it never touches: what
     a stale offline text gets, since a rewrite of it may not leave the page
-    referenced. A real delete refuses attribute blocks instead."""
-    return defuse_attribute(unlink_title_refs(text, is_target), is_target)
+    referenced. A real delete refuses attribute blocks instead, and reports
+    a source whose unlink has not settled; here what the passes left is
+    fenced (`_fence_title_refs`)."""
+    text, settled = unlink_settled(text, is_target)
+    if not settled:
+        text = _fence_title_refs(text, is_target)
+    return defuse_attribute(text, is_target)
 
 
 def block_ref_spans(text: str, copies: Mapping[BlockUid, str]) -> list[Span]:
@@ -239,15 +300,15 @@ def apply_delete_rewrite(
 # leading `Name::` attribute is the page, which a delete cannot rewrite and
 # the next edit would recreate; attribute: the rewrite would change the
 # block's leading attribute; residual: the rewritten text would still
-# reference the page or one of its blocks; limit: the copies inlined would
-# carry the block over a text limit, or further past one
-# (text_limits.rewrite_text_limit_violation). The length is judged first on
-# the projected inlined text before unlinking, and a page block whose own
-# copy would pass the cap blocks every block that refers to it, as does a
-# block whose copies would carry the delete past MAX_DELETE_COPY_CHARS.
-# The nesting and the unlink's work are judged next
-# (text_limits.unlink_refused), also before unlinking, on each copy and on
-# the source with its copies in.
+# reference the page or one of its blocks, or its unlink ran out of passes
+# (`unlink_settled`); limit: the copies inlined would carry the block over a
+# text limit, or further past one (text_limits.rewrite_text_limit_violation).
+# The length is judged first on the projected inlined text before
+# unlinking, and a page block whose own copy would pass the cap blocks every
+# block that refers to it, as does a block whose copies would carry the
+# delete past MAX_DELETE_COPY_CHARS. The nesting and the unlink's work are
+# judged next (text_limits.unlink_refused), also before unlinking, on each
+# copy and on the source with its copies in.
 BlockerReason = Literal["query", "used_as_attribute", "attribute", "residual",
                         "limit"]
 
@@ -313,7 +374,9 @@ class _Copies:
         """The copy of page block `uid`, or None when the blocks it splices
         in nest it past the cap, deeper than the block itself, or make its
         unlink too much work (`text_limits.unlink_refused`), judged before
-        it is unlinked. Callers judge `projected` first."""
+        it is unlinked. Callers judge `projected` first. A link the
+        unlink's passes leave rides into the source, whose own unlink and
+        residual check see it."""
         if uid not in self._built:
             self.projected(uid)
             text = splice(self._plain[uid], self._spans[uid])
@@ -461,8 +524,9 @@ def plan_page_delete(
                 DeleteBlocker(source.uid, source.page_title, source.text,
                               "limit"))
             continue
-        new = unlink_title_refs(pre, is_target)
-        reason = _rewrite_blocker_reason(is_target, page_blocks, source, new)
+        new, settled = unlink_settled(pre, is_target)
+        reason = "residual" if not settled else \
+            _rewrite_blocker_reason(is_target, page_blocks, source, new)
         if reason is None and \
                 rewrite_text_limit_violation(source.text, new) is not None:
             reason = "limit"

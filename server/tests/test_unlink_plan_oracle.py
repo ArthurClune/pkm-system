@@ -13,7 +13,8 @@ referrers, and the unlink's passes, which grow with the depth).
 The plan must equal the eager planner with the switch on, and differ from
 it with the switch off only by refusing more sources as `limit`. Both run
 on random pages and sources under a small cap, budget, nesting cap and
-work budget so the limit paths are reached."""
+work budget so the limit paths are reached. Either way a source whose
+unlink runs out of passes is `residual`."""
 from __future__ import annotations
 
 from collections import Counter
@@ -33,7 +34,7 @@ from pkm.spans import Span
 from pkm.unlink import (DeleteBlocker, DeletePlan, SourceBlock, TitleMatch,
                         _rewrite_blocker_reason, _source_blocker_reason,
                         block_ref_spans, inline_block_refs, plain_copy,
-                        plan_page_delete, unlink_title_refs)
+                        plan_page_delete, unlink_settled, unlink_title_refs)
 
 SMALL_CAP = 80
 SMALL_BUDGET = 60
@@ -153,8 +154,9 @@ def _eager_plan(
                 DeleteBlocker(source.uid, source.page_title, source.text,
                               "limit"))
             continue
-        new = unlink_title_refs(pre, is_target)
-        reason = _rewrite_blocker_reason(is_target, page_blocks, source, new)
+        new, settled = unlink_settled(pre, is_target)
+        reason = "residual" if not settled else \
+            _rewrite_blocker_reason(is_target, page_blocks, source, new)
         if reason is None and \
                 rewrite_text_limit_violation(source.text, new) is not None:
             reason = "limit"

@@ -8,7 +8,12 @@ mistypes once waits at most a second. A success clears the source's
 history. The caller must consult `is_throttled` *before* running the
 password check -- a throttled attempt is rejected at zero cost,
 including one that would have had the right password, because the
-whole point is to avoid spending scrypt work on it.
+whole point is to avoid spending scrypt work on it. Consulting is not
+enough on its own: the check and the recording of its verdict are
+separate steps, so the caller must also run one check per source at a
+time and consult again once its turn comes (`auth.LoginThrottle`'s
+`take_turn`). Otherwise every request of a concurrent burst passes
+before the first failure is recorded.
 """
 from __future__ import annotations
 

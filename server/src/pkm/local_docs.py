@@ -12,7 +12,7 @@ a 404, not a warning.
 Two decode paths, exactly one `unquote` each: uvicorn already
 percent-decodes the `{path:path}` route parameter before FastAPI binds
 it, so the file route calls `clean_relative` directly on that decoded
-string. `/api/local/check` starts from a raw, still-encoded href found
+string. `/api/local-check` starts from a raw, still-encoded href found
 in block text, so it calls `resolve_relative`, which decodes once and
 then defers to `clean_relative`. Decoding twice on the file route would
 make it disagree with `check` for any filename containing a literal

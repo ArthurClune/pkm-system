@@ -311,7 +311,7 @@ class LocalCheckProblem(StrictModel):
 
 
 class LocalCheckPayload(StrictModel):
-    """GET /api/local/check: every /api/local/ href found in block text,
+    """GET /api/local-check: every /api/local/ href found in block text,
     classified against the disk. `enabled` is False when no
     local_docs_root is configured."""
     enabled: bool

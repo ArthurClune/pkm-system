@@ -131,7 +131,7 @@ def _seed_local_links(db_path):
 
 def test_check_classifies_every_href(local_client, seeded_config, local_root):
     _seed_local_links(seeded_config.db_path)
-    r = local_client.get("/api/local/check")
+    r = local_client.get("/api/local-check")
     assert r.status_code == 200
     body = r.json()
     assert body["enabled"] is True
@@ -145,21 +145,35 @@ def test_check_classifies_every_href(local_client, seeded_config, local_root):
 
 
 def test_check_disabled_when_root_unset(client):
-    r = client.get("/api/local/check")
+    r = client.get("/api/local-check")
     assert r.status_code == 200
     assert r.json() == {"enabled": False, "total": 0, "ok": 0, "problems": []}
 
 
-def test_check_wins_over_a_file_named_check(local_client, local_root):
-    (local_root / "check").write_bytes(b"x")
-    assert local_client.get("/api/local/check").json()["enabled"] is True
+def test_a_root_file_named_check_is_served(local_client, local_root):
+    """The link checker lives outside the file namespace, so a file the
+    index lists under any name, `check` included, is the file served."""
+    (local_root / "check").write_bytes(b"the check file")
+    r = local_client.get("/api/local/check")
+    assert r.status_code == 200
+    assert r.content == b"the check file"
+    assert local_client.get("/api/local-check").json()["enabled"] is True
+
+
+def test_an_evicted_root_file_named_check_is_503(local_client, local_root,
+                                                 monkeypatch):
+    monkeypatch.setattr(routes_local, "_request_download", lambda p: None)
+    (local_root / ".check.icloud").write_bytes(b"stub")
+    r = local_client.get("/api/local/check")
+    assert r.status_code == 503
+    assert r.json() == {"detail": "not downloaded on the host", "path": "check"}
 
 
 def test_check_agrees_with_file_route_on_symlinked_evicted_stub(
         local_client, seeded_config, local_root):
     """A stub reachable only by following a symlinked directory out of
     root is not "evicted": the file route 404s it (is_within rejects the
-    resolved stub), so /api/local/check must call it "missing", not
+    resolved stub), so /api/local-check must call it "missing", not
     "evicted", or the two would disagree about the same href."""
     outside = local_root.parent / "outside"
     outside.mkdir()
@@ -175,7 +189,7 @@ def test_check_agrees_with_file_route_on_symlinked_evicted_stub(
 
     assert local_client.get("/api/local/link/X.pdf").status_code == 404
 
-    body = local_client.get("/api/local/check").json()
+    body = local_client.get("/api/local-check").json()
     by_uid = {p["uid"]: p for p in body["problems"]}
     assert by_uid["uid_l5"]["status"] == "missing"
 
@@ -193,7 +207,7 @@ def test_check_survives_a_symlink_loop_href(local_client, seeded_config, local_r
     con.commit()
     con.close()
 
-    r = local_client.get("/api/local/check")
+    r = local_client.get("/api/local-check")
     assert r.status_code == 200
     by_uid = {p["uid"]: p for p in r.json()["problems"]}
     assert by_uid["uid_loop"]["status"] == "missing"
@@ -223,7 +237,7 @@ def test_check_agrees_with_file_route_on_percent_in_filename(
 
     assert single_decode_get(local_client, href).status_code == 200
 
-    body = local_client.get("/api/local/check").json()
+    body = local_client.get("/api/local-check").json()
     by_uid = {p["uid"]: p for p in body["problems"]}
     assert "uid_pct" not in by_uid
 
@@ -270,7 +284,7 @@ def test_check_reports_busy_as_unchecked(local_client, seeded_config, monkeypatc
     monkeypatch.setattr(routes_local, "default_prober",
                         OpenProber(opener=lambda p: None, timeout=0.2, cap=0))
     _seed_local_links(seeded_config.db_path)
-    body = local_client.get("/api/local/check").json()
+    body = local_client.get("/api/local-check").json()
     assert ("uid_l1", "unchecked") in {(p["uid"], p["status"]) for p in body["problems"]}
 
 
@@ -298,7 +312,7 @@ def test_dataless_file_is_evicted_and_never_opened(local_client, local_root, mon
 
 def test_check_reports_unreadable_file(local_client, seeded_config, blocking_prober):
     _seed_local_links(seeded_config.db_path)
-    body = local_client.get("/api/local/check").json()
+    body = local_client.get("/api/local-check").json()
     statuses = {(p["uid"], p["status"]) for p in body["problems"]}
     assert ("uid_l1", "unreadable") in statuses
     assert body["ok"] == 0
@@ -311,7 +325,7 @@ def test_check_reports_dataless_as_evicted_without_opening(
                         OpenProber(opener=calls.append, timeout=1, cap=2))
     monkeypatch.setattr(routes_local, "_is_dataless", lambda p: True)
     _seed_local_links(seeded_config.db_path)
-    body = local_client.get("/api/local/check").json()
+    body = local_client.get("/api/local-check").json()
     assert ("uid_l1", "evicted") in {(p["uid"], p["status"]) for p in body["problems"]}
     assert calls == []
 

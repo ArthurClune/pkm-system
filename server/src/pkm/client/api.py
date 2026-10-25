@@ -380,7 +380,7 @@ class PkmClient:
                              params=params)
 
     def local_check(self) -> LocalCheckPayload:
-        return self._request("GET", "/api/local/check", LocalCheckPayload)
+        return self._request("GET", "/api/local-check", LocalCheckPayload)
 
     def goodlinks_check(self) -> GoodlinksCheckPayload:
         return self._request("GET", "/api/goodlinks/check", GoodlinksCheckPayload)

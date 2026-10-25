@@ -7,6 +7,11 @@ and a resolved path that is not under the resolved root (a symlink out,
 say) is a 404 too. Never a 403: the response must not confirm what
 exists.
 
+Every path under /api/local/ names a file, so the fixed routes sit
+beside it (/api/local-check, /api/local-index), never under it: one
+there would shadow the file of the same name that the index lists, and
+stored notes link files by that path.
+
 iCloud can evict a file, leaving only a `.Name.ext.icloud` stub. That
 case is a 503 with Retry-After, after a best-effort `brctl download` so
 the next click usually succeeds. A dataless file (macOS's newer eviction,
@@ -94,7 +99,7 @@ def _resolve_contained_file(root: Path, candidate: Path) -> Path | None:
 def _is_evicted(root: Path, candidate: Path) -> bool:
     """True when `candidate` itself is absent but its `.icloud` stub is
     present and contained in `root`. The single source of truth for
-    eviction, shared by the file route and /api/local/check so they can
+    eviction, shared by the file route and /api/local-check so they can
     never disagree about a symlinked-out stub. Any filesystem error
     while checking (e.g. ENAMETOOLONG, or a symlink loop from
     `resolve()`) is treated as "not evicted", the same as "not found"."""
@@ -140,7 +145,7 @@ def _classify(root: Path, href: str) -> Literal[
     return "missing"
 
 
-@router.get("/api/local/check", response_model=LocalCheckPayload)
+@router.get("/api/local-check", response_model=LocalCheckPayload)
 def check_local_links(db: Db = Depends(get_db),
                       config: Config = Depends(get_config)) -> LocalCheckPayload:
     if config.local_docs_root is None:

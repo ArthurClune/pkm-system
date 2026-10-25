@@ -1,11 +1,11 @@
 ---
 # pkm-hrzs
 title: 'Web test: a page with rows past the depth cap stays editable elsewhere'
-status: in-progress
+status: completed
 type: task
 priority: low
 created_at: 2026-10-24T14:58:27Z
-updated_at: 2026-10-25T09:38:33Z
+updated_at: 2026-10-25T13:48:39Z
 parent: pkm-mfd0
 ---
 

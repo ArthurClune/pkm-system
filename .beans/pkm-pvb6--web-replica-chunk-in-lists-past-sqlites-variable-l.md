@@ -1,11 +1,11 @@
 ---
 # pkm-pvb6
 title: 'Web replica: chunk IN-lists past SQLite''s variable limit'
-status: in-progress
+status: completed
 type: bug
 priority: low
 created_at: 2026-10-23T18:46:47Z
-updated_at: 2026-10-25T09:38:33Z
+updated_at: 2026-10-25T13:48:39Z
 parent: pkm-mfd0
 ---
 

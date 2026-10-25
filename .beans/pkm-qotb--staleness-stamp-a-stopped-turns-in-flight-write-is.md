@@ -1,11 +1,11 @@
 ---
 # pkm-qotb
 title: 'Staleness stamp: a stopped turn''s in-flight write is forgotten by the next turn'
-status: in-progress
+status: completed
 type: bug
 priority: low
 created_at: 2026-10-25T02:20:05Z
-updated_at: 2026-10-25T09:38:34Z
+updated_at: 2026-10-25T13:48:39Z
 parent: pkm-mfd0
 ---
 

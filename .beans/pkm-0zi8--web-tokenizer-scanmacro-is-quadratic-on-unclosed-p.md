@@ -1,11 +1,11 @@
 ---
 # pkm-0zi8
 title: 'Web tokenizer: scanMacro is quadratic on unclosed {{ prefixes'
-status: in-progress
+status: completed
 type: bug
 priority: low
 created_at: 2026-10-24T16:57:14Z
-updated_at: 2026-10-25T09:38:33Z
+updated_at: 2026-10-25T13:48:39Z
 parent: pkm-mfd0
 ---
 

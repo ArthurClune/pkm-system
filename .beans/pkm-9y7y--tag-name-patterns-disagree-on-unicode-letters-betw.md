@@ -1,11 +1,11 @@
 ---
 # pkm-9y7y
 title: Tag-name patterns disagree on Unicode letters between server and web
-status: in-progress
+status: completed
 type: bug
 priority: low
 created_at: 2026-10-25T02:14:32Z
-updated_at: 2026-10-25T09:38:33Z
+updated_at: 2026-10-25T13:48:39Z
 parent: pkm-mfd0
 ---
 

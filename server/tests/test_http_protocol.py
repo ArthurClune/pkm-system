@@ -3,6 +3,8 @@ import socket
 import time
 
 import pytest
+import uvicorn
+from uvicorn.server import ServerState
 from uvicorn_harness import closed_within, read_response, serve
 
 from pkm.server import http_protocol
@@ -119,15 +121,39 @@ async def _wire_app(scope, receive, send) -> None:
             break
     if scope["path"] == "/slow":
         await asyncio.sleep(SLOW_S)
+    if scope["path"] in ("/stream", "/one"):
+        await _send_large(scope["path"], send)
+        return
     answer = str(len(body)).encode()
     await send({"type": "http.response.start", "status": 200,
                 "headers": [(b"content-length", str(len(answer)).encode())]})
     await send({"type": "http.response.body", "body": answer})
 
 
+# /stream sends many small messages, as a file response does; /one sends
+# its body in a single message, as a large JSON response does.
+STREAM_BYTES = 32 << 20
+ONE_BYTES = 4 << 20
+
+
+async def _send_large(path: str, send) -> None:
+    size = STREAM_BYTES if path == "/stream" else ONE_BYTES
+    await send({"type": "http.response.start", "status": 200,
+                "headers": [(b"content-length", str(size).encode())]})
+    if path == "/one":
+        await send({"type": "http.response.body", "body": b"a" * size})
+        return
+    chunk = b"a" * (64 << 10)
+    for _ in range(size // len(chunk) - 1):
+        await send({"type": "http.response.body", "body": chunk,
+                    "more_body": True})
+    await send({"type": "http.response.body", "body": chunk})
+
+
 @pytest.fixture()
 def wire_port(monkeypatch):
     monkeypatch.setattr(http_protocol, "HEADER_READ_TIMEOUT_S", 0.3)
+    monkeypatch.setattr(http_protocol, "WRITE_STALL_TIMEOUT_S", 0.3)
     with serve(_wire_app) as port:
         yield port
 
@@ -183,3 +209,130 @@ def test_a_pipelined_websocket_outlives_the_head_deadline(wire_port):
             data += chunk
         assert data.startswith(b"HTTP/1.1 200 OK")
         assert not closed_within(conn, 1.5)
+
+
+# A response the client stops taking. While writing is paused (the
+# client's buffers are full) or the response is finished with bytes still
+# unsent, some of it must leave within the stall deadline (0.3 s here).
+
+def _small_window(port: int) -> socket.socket:
+    conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    conn.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 16 << 10)
+    conn.settimeout(5)
+    conn.connect(("127.0.0.1", port))
+    return conn
+
+
+def _body_bytes_until_closed(conn: socket.socket) -> int:
+    data = b""
+    while True:
+        try:
+            chunk = conn.recv(1 << 20)
+        except OSError:  # reset by an aborted server
+            break
+        if not chunk:
+            break
+        data += chunk
+    return len(data.partition(b"\r\n\r\n")[2])
+
+
+def test_a_client_that_stops_reading_a_response_is_cut(wire_port):
+    with _small_window(wire_port) as conn:
+        conn.sendall(_get("/stream"))
+        time.sleep(2)
+        assert _body_bytes_until_closed(conn) < STREAM_BYTES
+
+
+def test_a_slow_reader_of_one_large_message_is_not_cut(wire_port,
+                                                      monkeypatch):
+    # Writing stays paused for seconds while the one message drains, but
+    # the client takes some of it in every stall window. The kernel moves
+    # bytes out of the transport in steps of a few hundred KiB, so the
+    # window is a second here and the client reads about 1.5 MiB/s.
+    monkeypatch.setattr(http_protocol, "WRITE_STALL_TIMEOUT_S", 1.0)
+    with _small_window(wire_port) as conn:
+        conn.sendall(_get("/one"))
+        data = b""
+        while b"\r\n\r\n" not in data or (
+                len(data.partition(b"\r\n\r\n")[2]) < ONE_BYTES):
+            chunk = conn.recv(16 << 10)
+            assert chunk, len(data)
+            data += chunk
+            time.sleep(0.01)
+    assert data.startswith(b"HTTP/1.1 200 OK")
+
+
+class _Transport:
+    """Just enough of an asyncio transport to hold `unsent` bytes."""
+
+    def __init__(self, unsent: int) -> None:
+        self.unsent = unsent
+        self.closing = False
+        self.aborted = False
+        self.protocol = None
+
+    def get_write_buffer_size(self) -> int:
+        return self.unsent
+
+    def get_protocol(self):
+        return self.protocol
+
+    def get_extra_info(self, name, default=None):
+        return default
+
+    def is_closing(self) -> bool:
+        return self.closing
+
+    def close(self) -> None:
+        self.closing = True
+
+    def abort(self) -> None:
+        self.aborted = self.closing = True
+
+    def pause_reading(self) -> None:
+        pass
+
+    def resume_reading(self) -> None:
+        pass
+
+
+def _after_a_finished_response(unsent: int, drain_by: int,
+                               upgraded: bool = False) -> bool:
+    """Whether the connection is aborted when a response finished with
+    `unsent` bytes left in the transport and the client then takes
+    `drain_by` bytes every tenth of a second, the stall deadline being a
+    quarter of a second. `upgraded`: the transport has been handed on, as
+    a WebSocket upgrade pipelined behind the response hands it."""
+    async def scenario() -> bool:
+        loop = asyncio.get_running_loop()
+        protocol = http_protocol.DeadlineH11Protocol(
+            config=uvicorn.Config(_wire_app), server_state=ServerState(),
+            app_state={}, _loop=loop)
+        transport = _Transport(unsent)
+        protocol.connection_made(transport)  # type: ignore[arg-type]
+        transport.protocol = object() if upgraded else protocol
+        protocol.on_response_complete()
+        for _ in range(10):
+            await asyncio.sleep(0.1)
+            transport.unsent = max(0, transport.unsent - drain_by)
+        protocol.connection_lost(None)
+        return transport.aborted
+
+    return asyncio.run(scenario())
+
+
+def test_a_finished_response_the_client_stops_taking_is_cut(monkeypatch):
+    monkeypatch.setattr(http_protocol, "WRITE_STALL_TIMEOUT_S", 0.25)
+    assert _after_a_finished_response(unsent=10_000, drain_by=0)
+
+
+def test_a_finished_response_the_client_keeps_taking_is_not_cut(
+        monkeypatch):
+    monkeypatch.setattr(http_protocol, "WRITE_STALL_TIMEOUT_S", 0.25)
+    assert not _after_a_finished_response(unsent=10_000, drain_by=500)
+
+
+def test_a_transport_handed_to_a_websocket_is_not_watched(monkeypatch):
+    monkeypatch.setattr(http_protocol, "WRITE_STALL_TIMEOUT_S", 0.25)
+    assert not _after_a_finished_response(unsent=10_000, drain_by=0,
+                                          upgraded=True)

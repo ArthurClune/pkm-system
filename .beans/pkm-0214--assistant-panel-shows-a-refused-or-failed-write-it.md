@@ -1,11 +1,11 @@
 ---
 # pkm-0214
 title: Assistant panel shows a refused or failed write itself
-status: todo
+status: in-progress
 type: feature
 priority: low
 created_at: 2026-10-25T17:04:04Z
-updated_at: 2026-10-25T17:22:55Z
+updated_at: 2026-10-25T17:23:00Z
 parent: pkm-mfd0
 ---
 

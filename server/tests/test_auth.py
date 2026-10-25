@@ -18,9 +18,11 @@ from test_routes_models import _api_routes, fill_path
 from pkm.server.app import create_app
 
 import pkm.server.auth as auth_module
+import pkm.server.auth_gate as auth_gate_module
 from pkm.server.auth import MAX_CONCURRENT_SCRYPT, LoginThrottle
 from pkm.server.auth_core import (hash_password, sign_session,
                                   verify_password, verify_session)
+from pkm.server.auth_gate_core import is_public
 from pkm.server.throttle_core import BASE_BACKOFF_MS
 
 SECRET = b"s" * 32
@@ -510,12 +512,13 @@ class TestLoginThrottle:
         assert not holder_thread.is_alive()
 
 
-# The routes that answer without a session: `pkm.server.auth.router` (login
-# page and login), `create_app`'s healthz and the SPA catch-all, which serves
-# the same shell to everyone. Every other route sits behind
-# `pkm.server.auth.require_auth` (a websocket checks the cookie inline), so a
-# route missing from this set that answers an anonymous request is a private
-# route that forgot its guard.
+# The routes `AuthGateMiddleware` admits without a session
+# (`auth_gate_core.is_public`): `pkm.server.auth.router` (login page and
+# login), `create_app`'s healthz and the SPA catch-all, which serves the
+# same shell to everyone. The gate refuses every other route before its
+# body is read, and each still carries its own `require_auth` (a websocket
+# checks the cookie inline), so a route missing from this set that answers
+# an anonymous request is a route the gate admits that forgot its guard.
 PUBLIC_ROUTES = {
     ("GET", "/login"),
     ("POST", "/api/login"),
@@ -643,7 +646,24 @@ def test_public_routes_do_not_demand_a_session(seeded_config, tmp_path):
     assert {k: answers[k] for k in PUBLIC_ROUTES if answers[k] == 401} == {}
 
 
-def test_the_route_walk_names_a_private_route_without_the_guard(
+def _admitted(app) -> set[tuple[str, str]]:
+    """The routes the gate lets an anonymous request reach."""
+    admitted = {(m, r.path) for r in _api_routes(app.routes)
+                for m in r.methods or ()
+                if m not in ("HEAD", "OPTIONS")
+                and is_public("http", m, fill_path(r.path))}
+    admitted |= {(WEBSOCKET, r.path) for r in _ws_routes(app.routes)
+                 if is_public("websocket", None, fill_path(r.path))}
+    return admitted
+
+
+def test_the_gate_admits_exactly_the_public_routes(seeded_config, tmp_path):
+    assert _admitted(_walk_app(seeded_config, tmp_path)) == PUBLIC_ROUTES
+    # The static mount the walk skips is admitted too.
+    assert is_public("http", "GET", "/app-assets/index-abc.js")
+
+
+def test_a_private_route_that_forgot_its_guard_is_refused_by_the_gate(
         seeded_config, tmp_path):
     app = _walk_app(seeded_config, tmp_path)
 
@@ -651,11 +671,61 @@ def test_the_route_walk_names_a_private_route_without_the_guard(
     def forgot_auth() -> dict[str, bool]:
         return {"ok": True}
 
-    assert _leaked(_anonymous_answers(app)) == [("GET", "/api/forgot-auth")]
+    answers = _anonymous_answers(app)
+    assert answers[("GET", "/api/forgot-auth")] == 401
+    assert _leaked(answers) == []
+
+
+def test_the_route_walk_names_a_route_the_gate_admits_without_a_guard(
+        seeded_config, tmp_path):
+    # Outside /api, so the gate admits it: only the route's own guard
+    # could refuse it.
+    app = _walk_app(seeded_config, tmp_path)
+
+    @app.get("/forgot-auth")
+    def forgot_auth() -> dict[str, bool]:
+        return {"ok": True}
+
+    assert _leaked(_anonymous_answers(app)) == [("GET", "/forgot-auth")]
+    assert _admitted(app) - PUBLIC_ROUTES == {("GET", "/forgot-auth")}
+
+
+def test_a_websocket_that_forgot_its_guard_is_closed_4401_by_the_gate(
+        seeded_config, tmp_path):
+    app = _walk_app(seeded_config, tmp_path)
+
+    @app.websocket("/api/ws-forgot")
+    async def forgot_auth(websocket: WebSocket) -> None:
+        await websocket.accept()
+        await websocket.send_text("secret")
+        await websocket.receive_text()
+
+    answers = _anonymous_answers(app)
+    assert answers[(WEBSOCKET, "/api/ws-forgot")] == 4401
+    assert _leaked(answers) == []
+
+
+def _gate_admits(monkeypatch, path: str) -> None:
+    """The gate lets an anonymous handshake for `path` through, as it would
+    if a websocket were ever made public, so the walk meets the route's
+    own handling."""
+    real = auth_gate_module.is_public
+    monkeypatch.setattr(
+        auth_gate_module, "is_public",
+        lambda scope_type, method, route_path:
+            route_path == path or real(scope_type, method, route_path))
+
+
+def test_the_websocket_endpoint_keeps_its_own_check(
+        seeded_config, tmp_path, monkeypatch):
+    _gate_admits(monkeypatch, "/api/ws")
+    answers = _anonymous_answers(_walk_app(seeded_config, tmp_path))
+    assert answers[(WEBSOCKET, "/api/ws")] == 4401
 
 
 def test_the_route_walk_names_a_websocket_without_the_guard(
-        seeded_config, tmp_path):
+        seeded_config, tmp_path, monkeypatch):
+    _gate_admits(monkeypatch, "/api/ws-forgot")
     app = _walk_app(seeded_config, tmp_path)
 
     @app.websocket("/api/ws-forgot")
@@ -672,6 +742,7 @@ def test_the_route_walk_names_a_websocket_without_the_guard(
 def test_the_route_walk_names_a_websocket_that_never_answers(
         seeded_config, tmp_path, monkeypatch):
     monkeypatch.setattr(sys.modules[__name__], "WEBSOCKET_CONNECT_SECONDS", 1)
+    _gate_admits(monkeypatch, "/api/ws-silent")
     app = _walk_app(seeded_config, tmp_path)
 
     @app.websocket("/api/ws-silent")

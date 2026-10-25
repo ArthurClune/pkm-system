@@ -1,9 +1,11 @@
 import json
+import time
 
 from conftest import asgi_request
 from fastapi.testclient import TestClient
 
 from pkm.server.app import create_app
+from pkm.server.auth_core import sign_session
 from pkm.server.config import Config, load_config
 from pkm.server.setup import main as setup_main
 
@@ -16,6 +18,11 @@ def _dist(tmp_path):
     (dist / "app-assets" / "main.js").write_text(
         "console.log('pkm')", encoding="utf-8")
     return dist
+
+
+def minted_session() -> str:
+    """A valid session for `_config`'s secret."""
+    return sign_session(bytes.fromhex("cd" * 32), int(time.time() * 1000))
 
 
 def _config(tmp_path, web_dist=None) -> Config:
@@ -58,12 +65,15 @@ def test_api_and_asset_routes_not_shadowed(tmp_path):
     assert client.get("/healthz").json() == {"ok": True}
     assert client.get("/api/search", params={"q": "x"}).status_code == 401
     assert client.get("/login").status_code == 200  # login page, not index.html
-    # unknown api/assets paths 404 rather than returning HTML
-    assert client.get("/api/nonexistent").status_code == 404
-    assert client.get("/assets/not-a-sha").status_code == 404
-    # bare prefixes (no trailing slash) also 404, never HTML
-    assert client.get("/api").status_code == 404
-    assert client.get("/assets").status_code == 404
+    private = ["/api/nonexistent", "/assets/not-a-sha", "/api", "/assets"]
+    # the auth gate refuses an anonymous request for any of them
+    assert {p: client.get(p).status_code for p in private} == {
+        p: 401 for p in private}
+    client.cookies.set("pkm_session", minted_session())
+    # unknown api/assets paths 404 rather than returning HTML, and so do
+    # the bare prefixes (no trailing slash)
+    assert {p: client.get(p).status_code for p in private} == {
+        p: 404 for p in private}
     assert client.get("/app-assets").status_code == 404
     assert client.get("/app-assets/does-not-exist.js").status_code == 404
 

@@ -53,6 +53,7 @@ server/
 ├── db.py                Shell  init_db() at startup, open_db() per request, migrations
 ├── wholepath.py         Shell  the {name:wholepath} DOTALL route convertor
 ├── auth.py, auth_core.py, throttle_core.py   login, require_auth, LoginThrottle; scrypt and tokens; backoff policy
+├── auth_gate_core.py, auth_gate.py  Core / Shell  which requests are public, the body cap; AuthGateMiddleware
 ├── origin_core.py, origin_guard.py  Core / Shell  allowed origins; OriginGuardMiddleware
 ├── routes_*.py          Shell  the HTTP surface
 ├── ops_core.py          Core   plan_op(), classify_skip, classify_text_edit
@@ -835,9 +836,41 @@ Response headers that apply to every route are set in one place,
 `SecurityHeadersMiddleware`; routes set only their own. An
 unhandled exception's 500 is built outside it and carries none.
 
-`GET /login`, `POST /api/login`, `GET /healthz` and the SPA shell are public.
-Every feature router declares `dependencies=[Depends(require_auth)]`.
-`/api/ws` checks the cookie and closes with 4401 before accepting.
+`AuthGateMiddleware` (`auth_gate.py`, rules in `auth_gate_core.py`)
+refuses an anonymous request before routing, without calling `receive`.
+**FastAPI reads and parses a body before it runs any dependency**, so a
+guard that is only a dependency takes in an anonymous upload whole before
+its 401. The refusals are 401 `{"detail": "not authenticated"}` and a 4401
+handshake close before accepting. `session_is_valid` (`auth.py`) is the
+one session check. The app never reads a refused body, but uvicorn still
+reads and discards the rest of it, so a slow client can hold the
+connection past the keep-alive timeout.
+
+| Request (`is_public`) | At the gate |
+|---|---|
+| `POST /api/login` | public, body capped |
+| `GET` or `HEAD` outside `/api` and `/assets`: `GET /login`, `GET /healthz`, `/app-assets/*`, the SPA shell | public |
+| anything else, every WebSocket handshake included | needs a valid `pkm_session` |
+
+The gate hands `is_public` `get_route_path(scope)`, the string the router
+matches, so the two cannot disagree on decoding. A public body (a method outside
+`SAFE_METHODS`) is read by the gate, session or not, and replayed to the
+route as one message. The gate keeps at most `PUBLIC_BODY_MAX_BYTES` and
+answers 413 `{"detail": "request body too large"}` past it, before the
+app reads any of it when `Content-Length` declares it. This runs before the login throttle.
+
+`require_auth` stays on every router
+(`dependencies=[Depends(require_auth)]`) as the route's own check, and
+`/api/ws` checks the cookie inline. It is the only check on a `GET`
+outside `/api` and `/assets`. `test_the_gate_admits_exactly_the_public_routes`
+fails when the gate admits a route of `create_app`'s table outside
+`PUBLIC_ROUTES`; routes another app adds, such as the proptest sync
+server's `GET /__proptest/*`, are not walked.
+
+Middleware runs outermost first: `RequestLogMiddleware` →
+`SecurityHeadersMiddleware` → `OriginGuardMiddleware` →
+`AuthGateMiddleware` → router. The two that refuse are innermost, so
+their refusals are logged and carry the security headers.
 
 `OriginGuardMiddleware` (`origin_guard.py`, rules in `origin_core.py`)
 checks `Origin` on every `/api/ws` handshake and on every HTTP method
@@ -858,8 +891,8 @@ allowed set, passes. Anything else is refused.
 serves on. A refused HTTP request gets 403
 `{"detail": "origin not allowed"}`. A refused handshake is closed with
 4403 before accepting. uvicorn sends both closes, 4403 and 4401, as an
-HTTP 403. The guard runs before routing, so an anonymous handshake from a
-foreign origin sees 4403, not 4401.
+HTTP 403. The guard runs before the auth gate, so an anonymous handshake
+from a foreign origin sees 4403, not 4401.
 
 Two tests pin rules that would lock the app out if broken:
 `Origin: null` is refused, because a sibling page can produce it
@@ -877,6 +910,13 @@ Nothing enforces these rules:
   the assistant close beacon in `web/src/assistant/client.ts` (WebKit)
   would send `Origin: null` and be refused.
 - A new hostname or Serve port needs its origin in `serve_origins`.
+- Every public route that takes a body is capped, so one added to
+  `PUBLIC_UNSAFE_ROUTES` must accept a body within
+  `PUBLIC_BODY_MAX_BYTES`. The cap applies only outside `SAFE_METHODS`, so a
+  public `GET` route must not read a body.
+- The gate reads the config from `scope["app"].state.config` on every
+  request, never once at startup: the proptest sync server replaces
+  `app.state.config` after `create_app`.
 
 ### Login throttle
 
@@ -975,7 +1015,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/login` *(public)* | Password → session cookie |
+| POST | `/api/login` *(public)* | Password → session cookie; a body past `PUBLIC_BODY_MAX_BYTES` gets 413 ([Auth](#auth)) |
 | GET | `/login` *(public)* | HTML login form |
 | GET | `/healthz` *(public)* | Liveness check |
 | GET | `/{path}` *(public)* | SPA fallback; hashed bundles under `/app-assets/` |
@@ -1050,6 +1090,7 @@ route.
 | An int past 64 bits | Int parameters are `Int64` or carry `INT64_RANGE`; `WellFormedModel` refuses one in a body | `test_every_int_parameter_is_bounded_to_sqlite_range` |
 | A 422 echoing a surrogate, NaN or deep nesting | `validation_echo.echo_errors`, cut at `MAX_ECHO_DEPTH` | `test_validation_echo.py` |
 | A NUL, an over-long component or a link loop in an SPA path | The catch-all treats a path `resolve()` or `is_file()` rejects as naming no file, and serves the shell | `test_spa.py` |
+| An anonymous body of any size | `AuthGateMiddleware` refuses before the app reads it; a public body is capped at `PUBLIC_BODY_MAX_BYTES`; rule in [Auth](#auth) | `test_auth_gate.py` |
 | A session cookie signature that is not ASCII | `verify_session` refuses it before `hmac.compare_digest`, which raises on non-ASCII | `test_hostile_requests.py` |
 | A NUL in a search term | `fts.py` makes it a space: FTS5 reads a C string | `test_hostile_requests.py` |
 | A GoodLinks or OpenAI body that is not JSON, nests too deep, or holds a surrogate | An unusable answer (503, `DescribeError`); decoded strings made well-formed | `test_no_500_upstream_props.py` |

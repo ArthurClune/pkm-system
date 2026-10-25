@@ -293,3 +293,8 @@ def test_extract_stays_fast_on_long_generated_inputs(unit):
     started = time.perf_counter()
     extract(text)
     assert time.perf_counter() - started < 5.0
+
+
+def test_bare_tag_title_follows_the_shared_table():
+    assert is_bare_tag_title("caf\u00e9")
+    assert not is_bare_tag_title("a\ua7cb")

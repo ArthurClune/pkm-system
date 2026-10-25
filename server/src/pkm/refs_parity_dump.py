@@ -58,6 +58,8 @@ CASES = [
     # a block ref, a 33-char one can never have been minted and stays text.
     "ref ((" + "a" * 32 + ")) here",
     "ref ((" + "a" * 33 + ")) here",
+    # A letter newer than the shared tag table ends a hashtag on both sides.
+    "#caf\u00e9 and #a\ua7cbb",
 ]
 
 

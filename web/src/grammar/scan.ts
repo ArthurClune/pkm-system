@@ -26,6 +26,7 @@
 //   bracket side ({{[[TODO}} etc.) so togglers can echo the spelling back.
 
 import type { BlockUid, NormalizedTitle } from "../api/brands";
+import { TAG_WORD_CLASS } from "./tagChars.gen";
 import { TITLE_WHITESPACE } from "./titleWhitespace.gen";
 
 export interface Span {
@@ -140,8 +141,11 @@ export const UID_TOKEN = "[a-zA-Z0-9_-]{6,32}";
 const BLOCK_REF_RE = new RegExp(`\\(\\((${UID_TOKEN})\\)\\)`, "y");
 const EMBED_RE = new RegExp(
   `\\{\\{[${PY_SPACE}]*(?:\\[\\[)?embed(?:\\]\\])?[${PY_SPACE}]*[:}]`, "y");
-// [\p{L}\p{N}_] mirrors Python's unicode-aware \w closely enough for titles.
-const TAG_CHARS_RE = /[\p{L}\p{N}_./\-]+/uy;
+// A tag name's word characters are one frozen table, generated from
+// server/src/pkm/contracts/tag_chars.py, which refs.py compiles too: each
+// runtime's Unicode tables differ, so a class of its own would make the two
+// sides disagree on a block's tags.
+const TAG_CHARS_RE = new RegExp(`[${TAG_WORD_CLASS}./\\-]+`, "uy");
 const TAG_BOUNDARY_RE = new RegExp(`[${PY_SPACE}(]`);
 // ASCII on purpose, the same class as refs.py's _WORD_CHAR: a Unicode
 // class follows each runtime's Unicode table, which differs between Python

@@ -348,6 +348,20 @@
       "block_refs": []
     },
     {
+      "text": "#café and #aꟋb",
+      "refs": [
+        {
+          "title": "café",
+          "kind": "tag"
+        },
+        {
+          "title": "a",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
       "text": "{{embed: `code [[X]] #t`#tag]#a/b.c-d\n",
       "refs": [
         {

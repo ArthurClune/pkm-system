@@ -14,6 +14,7 @@ from typing import Iterable, Iterator, Literal
 
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BLOCK_REF_TOKEN, UID_RE, BlockUid
+from pkm.contracts.tag_chars import TAG_WORD_RANGES
 from pkm.contracts.titles import CanonicalTitle as CanonicalTitle
 from pkm.contracts.titles import NormalizedTitle as NormalizedTitle
 from pkm.contracts.titles import TITLE_WHITESPACE, RawTitle
@@ -40,10 +41,16 @@ _WORD_CHAR = re.compile(r"[A-Za-z0-9_]")
 # block collapses to exactly such a run once strip_code() blanks it out
 # (a ~258KB pasted block took ~224s to `.match()` here).
 _ATTRIBUTE = re.compile(r"([^\[\]{}:\n]+?)::")
-# The tag name and the hashtag that carries it are one definition, so a
-# rewriter can ask "would this title read back as a bare #tag?" (see
-# is_bare_tag_title) without hand-copying the class.
-_TAG_NAME = r"[\w/.\-]+"
+# A tag name's word characters are one frozen table (contracts/tag_chars.py),
+# not `\w`, and grammar/scan.ts compiles the same table: each runtime's
+# Unicode tables differ, so a class of its own would make the two sides
+# disagree on a block's tags. The tag name and the hashtag that carries it
+# are one definition, so a rewriter can ask "would this title read back as a
+# bare #tag?" (see is_bare_tag_title) without hand-copying the class.
+_TAG_WORD_CLASS = "".join(
+    rf"\U{lo:08x}" if lo == hi else rf"\U{lo:08x}-\U{hi:08x}"
+    for lo, hi in TAG_WORD_RANGES)
+_TAG_NAME = rf"[{_TAG_WORD_CLASS}/.\-]+"
 _BARE_TAG = re.compile(_TAG_NAME)
 _HASHTAG = re.compile(rf"(?:^|(?<=[\s(]))#({_TAG_NAME})")
 _BLOCK_REF = re.compile(rf"\(\(({BLOCK_REF_TOKEN})\)\)")

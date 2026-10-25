@@ -16,7 +16,7 @@ from pkm.refs import (
     title_syntax_reason,
 )
 from pkm.rename import rewrite_title_refs_map
-from pkm.unlink import unlink_stale_refs
+from pkm.unlink import defuse_attribute, unlink_stale_refs, unlink_title_refs
 
 ImportTitleErrorReason = Literal["malformed_syntax", "blank"]
 
@@ -160,48 +160,56 @@ def _walk_block(block: Block) -> tuple[Block, ...]:
     )
 
 
-def _rewrite_block(block: Block,
-                   title_map: dict[str, NormalizedTitle]) -> Block:
-    # Every lookup normalizes first, which reaches both halves of title_map's
-    # key set -- see _collect_title_locations for why that is safe.
-    return Block(
-        uid=block.uid,
-        text=rewrite_title_refs_map(
-            block.text, title_map, normalize=normalize_title
-        ),
-        heading=block.heading,
-        view_type=block.view_type,
-        open=block.open,
-        created_at=block.created_at,
-        edited_at=block.edited_at,
-        children=tuple(_rewrite_block(child, title_map) for child in block.children),
-    )
+def _without_formed_refs(text: str, allowed: AbstractSet[str]) -> str:
+    """`text` with every ref whose title is not in `allowed` made plain.
 
-
-def _unlink_block(
-    block: Block, is_refused: Callable[[str], bool], changed: list[BlockUid]
-) -> Block:
-    """The block with every ref to a refused title turned into plain text.
-
-    A refused spelling cannot stay a ref: it would make the block uneditable
-    (the title check refuses any text holding it) and create an implicit page
-    the title migration audit then refuses.
+    Unlinking a refused ref removes the brackets that kept its text apart
+    from its neighbours, so what was around it can read as a new ref: the
+    `#` left by `[[#]]a b:: v` makes the attribute `#a b` and the tag `a`.
+    Such a ref names a page the export never mentioned, and its title may
+    be one the title migration refuses. A formed attribute is fenced in
+    backticks, which hides the tags in its name too, and any other formed
+    ref is unlinked. Each pass either shortens the text or fences the one
+    leading attribute, which no later pass can re-form, so the bound is
+    never reached.
     """
-    text = unlink_stale_refs(block.text, is_refused)
-    if text != block.text:
-        changed.append(block.uid)
-    return Block(
-        uid=block.uid,
-        text=text,
-        heading=block.heading,
-        view_type=block.view_type,
-        open=block.open,
-        created_at=block.created_at,
-        edited_at=block.edited_at,
-        children=tuple(
-            _unlink_block(child, is_refused, changed) for child in block.children
-        ),
-    )
+    for _ in range(len(text) + 2):
+        formed = {ref.title for ref in extract(text).refs} - allowed
+        if not formed:
+            break
+
+        def is_formed(spelling: str, formed: AbstractSet[str] = formed) -> bool:
+            return normalize_title(spelling) in formed
+
+        text = unlink_title_refs(defuse_attribute(text, is_formed), is_formed)
+    return text
+
+
+def _sanitized_text(
+    text: str,
+    title_map: Mapping[str, NormalizedTitle],
+    is_refused: Callable[[str], bool],
+) -> tuple[str, bool]:
+    """The block text with every ref renamed to its sanitized title, and
+    whether a refused ref had to be made plain text to get there.
+
+    Renaming comes first, so a refused run nested in a kept one
+    (`[[a [[#]] b]]`) goes with the outer title's rewrite; unlinking it
+    first would leave the outer title `a # b`, which nothing renames. A
+    refused spelling cannot stay a ref: it would make the block uneditable
+    (the title check refuses any text holding it) and create an implicit
+    page the title migration audit then refuses. Every rename keeps its
+    spelling's sanitized title, so `allowed` is the set of titles the
+    output may name.
+
+    Every lookup normalizes first, which reaches both halves of title_map's
+    key set -- see _collect_title_locations for why that is safe.
+    """
+    allowed = {title_map[ref.title] for ref in extract(text).refs
+               if ref.title in title_map}
+    renamed = rewrite_title_refs_map(text, title_map, normalize=normalize_title)
+    plain = _without_formed_refs(unlink_stale_refs(renamed, is_refused), allowed)
+    return plain, plain != renamed
 
 
 def _collect_title_locations(export: Export) -> dict[str, list[str]]:
@@ -210,7 +218,7 @@ def _collect_title_locations(export: Export) -> dict[str, list[str]]:
     Page titles come first so a page's own location wins the one that decides
     the refusal message; block refs are recorded in walk order after them.
 
-    The two kinds of key are spelled differently, and _rewrite_block depends
+    The two kinds of key are spelled differently, and _sanitized_text depends
     on it. A page title is recorded raw, so a key here can hold a
     whitespace run that extract() would never report; a block ref is
     recorded as extract() normalized it. The rewriter looks up normalized
@@ -368,7 +376,22 @@ def sanitize_export_titles(export: Export) -> SanitizedImport:
     unlinked: list[BlockUid] = []
 
     def prepare(block: Block) -> Block:
-        return _rewrite_block(_unlink_block(block, is_refused, unlinked), title_map)
+        def visit(node: Block) -> Block:
+            text, changed = _sanitized_text(node.text, title_map, is_refused)
+            if changed:
+                unlinked.append(node.uid)
+            return Block(
+                uid=node.uid,
+                text=text,
+                heading=node.heading,
+                view_type=node.view_type,
+                open=node.open,
+                created_at=node.created_at,
+                edited_at=node.edited_at,
+                children=tuple(visit(child) for child in node.children),
+            )
+
+        return visit(block)
 
     skipped_pages: list[SkippedPage] = []
     skipped_blocks: list[Block] = []  # unprepared: prepared after the orphans

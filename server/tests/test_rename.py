@@ -142,6 +142,20 @@ def test_bare_tag_inside_a_bracket_is_rewritten_when_the_outer_title_is_not():
     assert _rewrite("[[A #Old]]", "Old", "New") == "[[A #New]]"
 
 
+def test_a_replaced_attribute_wins_over_a_tag_inside_its_name():
+    # "#Machine Learning::" reads as the attribute "#Machine Learning" and
+    # the tag "Machine" inside it. Splicing both overlapping spans made
+    # "#MachineLearning::", a new attribute with a refused title.
+    assert _map("#Machine Learning:: v",
+                {"#Machine Learning": "Machine Learning",
+                 "Machine": "Machine"}) == "Machine Learning:: v"
+
+
+def test_a_tag_after_a_replaced_attribute_is_still_rewritten():
+    assert _map("#a b:: #Old", {"#a b": "a b", "Old": "New"}) == \
+        "a b:: #New"
+
+
 def test_hash_at_the_start_of_bracket_content_is_not_a_tag():
     # "[[" is not whitespace, so this "#Old" is title text. refs.extract()
     # reads it the same way -- _HASHTAG's lookbehind is also [\s(].

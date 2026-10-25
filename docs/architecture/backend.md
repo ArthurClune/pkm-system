@@ -311,7 +311,10 @@ code and disagree on a block's refs and nesting depth.
 `rename.py` and `unlink.py` keep no copy of the grammar. They locate refs
 through `strip_code`, `bracket_spans`, `tag_spans` and `attribute_title_span`,
 so they cannot find a ref the index missed or splice over code. `rename.py`
-adds which span wins when refs nest and how to spell the replacement. Its
+adds which span wins when refs nest and how to spell the replacement. A
+replaced span hides every ref inside it: an outer `[[run]]` its nested runs,
+and a leading attribute the `#tags` in its name (`#a b::` is the attribute
+`#a b` and the tag `a`). `spans.splice` assumes no two spans overlap. Its
 `normalize` argument maps a spelling in the text onto a replacement key.
 Rename, merge and their replay pass `rename.spelled_or_canonical`: a spelling
 that is itself a key, else its canonical form under the live flag. Matched

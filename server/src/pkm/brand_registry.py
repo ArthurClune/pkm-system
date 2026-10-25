@@ -199,11 +199,14 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
     # live plain-space flag. The web's twin is `titleReader`, and a daily
     # title is canonical by its format. `titleReaderFor` (replica/titles.ts)
     # is the web's pure constructor, shared by `titleReader` and the main
-    # thread's copy of the flag.
+    # thread's copy of the flag. The approval card's preview names the page
+    # a target block is on as the server read it; the web narrows that
+    # where it parses the preview.
     "CanonicalTitle": (_CONTRACTS, "server/src/pkm/refs.py",
                        "server/src/pkm/server/sync_meta.py",
                        "web/src/replica/meta.ts", "web/src/replica/daily.ts",
                        "web/src/replica/titles.ts",
+                       "web/src/assistant/writePreview.ts",
                        _WEB_ROWS, _WEB_WIRE),
     # Web-only brands. A pending row's id is the row's own autoincrement key.
     "PendingRowId": (_WEB_ROWS, _WEB_POISON),

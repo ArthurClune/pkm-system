@@ -2,7 +2,7 @@ import itertools
 
 import pytest
 
-from pkm.batch import (delete_uids, plan_batch, referenced_pages,
+from pkm.batch import (batch_aliases, delete_uids, plan_batch, referenced_pages,
                        validate_batch)
 from pkm.contracts.ops import (BlockUid, CreateOp, CreatePageOp, DeleteOp,
                                MoveOp, OrderIdx, SetHeadingOp, UpdateTextOp,
@@ -794,8 +794,29 @@ def test_validate_batch_rejects_missing_command():
         validate_batch([{"params": {}}])
 
 
+def test_validate_batch_echoes_an_over_range_int_bounded():
+    # the CLI and MCP print this refusal whole, so a 4,000-digit index
+    # must not come back as 4,000 digits
+    with pytest.raises(BuildError) as caught:
+        validate_batch([{"command": "create", "params": {
+            "page": "P", "text": "t", "index": 10 ** 4000}}])
+    message = str(caught.value)
+    assert len(message) < 300, len(message)
+    assert "… (4,001 characters) is outside the 64-bit integer range" \
+        in message
+
+
+def test_validate_batch_echoes_a_short_over_range_int_whole():
+    with pytest.raises(BuildError) as caught:
+        validate_batch([{"command": "create", "params": {
+            "page": "P", "text": "t", "index": 2 ** 63}}])
+    assert '"9223372036854775808" is outside the 64-bit integer range' \
+        in str(caught.value)
+
+
 def test_validate_batch_rejects_unknown_command():
-    with pytest.raises(BuildError, match=r"batch\[0\]: unknown command: 'zap'"):
+    with pytest.raises(BuildError,
+                       match=r'batch\[0\]: unknown command: "zap"'):
         validate_batch([{"command": "zap", "params": {}}])
 
 
@@ -1085,3 +1106,75 @@ def test_an_outline_item_nested_past_the_stack_is_clamped_not_an_error(
     assert [o.parent_uid if o.parent_uid is None else
             next(t for t, u in by_text.items() if u == o.parent_uid)
             for o in ops] == parents
+
+
+# -- aliases: one name once per batch, and only after the command that makes it
+
+def _create(text, **params):
+    return {"command": "create",
+            "params": {"page": "Machine Learning", "text": text, **params}}
+
+
+def test_validate_batch_refuses_a_reused_alias():
+    cmds = [_create("a", **{"as": "n"}), _create("b", **{"as": "n"})]
+    with pytest.raises(BuildError) as exc:
+        validate_batch(cmds)
+    assert str(exc.value) == 'batch[1]: as "n" already names the block item 0 creates'
+
+
+def test_plan_batch_refuses_a_reused_alias_identically():
+    cmds = [_create("a", **{"as": "n"}), _create("b", **{"as": "n"})]
+    with pytest.raises(BuildError) as exc:
+        plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen())
+    assert str(exc.value) == 'batch[1]: as "n" already names the block item 0 creates'
+
+
+def test_an_alias_used_before_it_is_made_is_refused_upfront():
+    cmds = [{"command": "update", "params": {"uid": "{{n}}", "text": "x"}},
+            _create("a", **{"as": "n"})]
+    with pytest.raises(BuildError) as exc:
+        validate_batch(cmds)
+    assert str(exc.value) == 'batch[0]: unknown alias: "n"'
+
+
+def test_a_command_cannot_name_its_own_alias_as_parent():
+    with pytest.raises(BuildError) as exc:
+        validate_batch([_create("a", parent="{{n}}", **{"as": "n"})])
+    assert str(exc.value) == 'batch[0]: unknown alias: "n"'
+
+
+def test_an_empty_as_is_no_alias():
+    validate_batch([_create("a", **{"as": ""}), _create("b", **{"as": ""})])
+
+
+def test_batch_aliases_maps_each_name_to_its_item():
+    cmds = validate_batch([
+        _create("a", **{"as": "a"}), _create("x"), _create("b", **{"as": "b"})])
+    assert batch_aliases(cmds) == {"a": 0, "b": 2}
+
+
+@pytest.mark.parametrize("name", ["a}", "{a", "a b"])
+def test_alias_names_with_braces_agree_with_the_planner(name):
+    cmds = [_create("a", **{"as": name}),
+            {"command": "update",
+             "params": {"uid": "{{" + name + "}}", "text": "y"}}]
+    validate_batch(cmds)
+    ops = plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen())
+    new_uid = as_create(ops[0]).uid
+    assert UpdateTextOp(op="update_text", uid=new_uid, text="y") in ops
+
+
+def test_an_overlong_alias_is_echoed_bounded():
+    name = "n" * 10_000
+    with pytest.raises(BuildError) as exc:
+        validate_batch([_create("a", parent="{{" + name + "}}")])
+    assert len(str(exc.value)) < 200
+    assert str(exc.value).endswith("\u2026 (10,000 characters)")
+
+
+def test_validate_batch_echoes_an_extra_param_key_bounded():
+    with pytest.raises(BuildError) as info:
+        validate_batch([{"command": "delete",
+                         "params": {"uid": "A", "k" * 1_000_000: 1}}])
+    assert len(str(info.value)) < 200
+    assert "… (1,000,000 characters)" in str(info.value)

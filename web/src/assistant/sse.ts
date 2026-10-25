@@ -43,7 +43,9 @@ function parseFrame(frame: string): AssistantEvent | null {
         preview: parseWritePreview(payload.preview),
       };
     }
-    return { ...payload, type: eventName } as AssistantEvent;
+    // every other event is plain JSON; only the preview carries a brand
+    return { ...payload, type: eventName } as
+      Exclude<AssistantEvent, { type: "confirm_request" }>;
   } catch {
     return null;
   }

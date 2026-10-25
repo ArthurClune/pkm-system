@@ -34,6 +34,14 @@ async function openPanel(page: Page): Promise<Locator> {
   return panel;
 }
 
+// pages a test made, deleted after it whether it passed or not
+const createdPages: string[] = [];
+test.afterEach(async ({ page }) => {
+  for (const title of createdPages.splice(0)) {
+    await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
+  }
+});
+
 test("assistant panel: toggle, echo turn, confirm allow/deny", async ({ page }) => {
   await login(page);
 
@@ -193,4 +201,39 @@ test("pagehide closes the live conversation via sendBeacon", async ({ page }) =>
   );
   await page.goto("about:blank"); // fires `pagehide` on the outgoing document
   await beacon;
+});
+
+// FakeEngine's "please update <uid>" builds its card with the real preview
+// over the live store, so the card reads the block as it stands
+test("the card shows the current text of the block an update targets", async ({ page }) => {
+  const panel = await openPanel(page);
+  const card = confirmCard(panel);
+  const stamp = Date.now();
+  const title = `ApprovalCardTarget${stamp}`;
+  const uid = `act${stamp}`;
+  createdPages.push(title);
+  expect((await page.request.post("/api/pages", { data: { title } })).ok()).toBeTruthy();
+  const ops = await page.request.post("/api/ops", { data: {
+    client_id: "e2e-approval-card", batch_id: `e2e-approval-card-${stamp}`,
+    ops: [{ op: "create", uid, page_title: title, parent_uid: null,
+      order_idx: 0, text: "Original text. ".repeat(20) }],
+  } });
+  expect(ops.ok()).toBeTruthy();
+
+  await askInput(panel).fill(`please update ${uid}`);
+  await askInput(panel).press("Enter");
+  await expect(card.locator(".assistant-confirm-action")).toHaveText("update block");
+  await expect(card).toContainText(`current page: "${title}"`);
+  await expect(card.locator(".assistant-confirm-current .assistant-confirm-length"))
+    .toHaveText("(first 200 of 300 characters)");
+  await panel.getByRole("button", { name: "Deny" }).click();
+  await expect(panel.getByText("Not updating.")).toBeVisible();
+  await expect(card).toHaveCount(0);
+
+  await askInput(panel).fill("please update nosuchuid99");
+  await askInput(panel).press("Enter");
+  await expect(card.locator(".assistant-confirm-current"))
+    .toHaveText("current text: no block has this uid");
+  await panel.getByRole("button", { name: "Deny" }).click();
+  await expect(card).toHaveCount(0);
 });

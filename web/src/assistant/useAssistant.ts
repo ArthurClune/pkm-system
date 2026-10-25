@@ -75,6 +75,11 @@ export type PendingConfirm = {
   // after a failure only this answer may be sent again; it lives here rather
   // than in the card so a remounted card cannot forget it.
   sentDecision: boolean | null;
+  // how many cards of this turn the user allowed before answering this one,
+  // before it arrived or while it waited. When the server stamped the card
+  // (`writes_in_flight`), one of those writes may have landed after it read
+  // the current text, and the card says that text may have changed.
+  allowedAhead: number;
 };
 
 /** What the busy line shows: the server's phase label ("reasoning",
@@ -126,6 +131,8 @@ export function useAssistant() {
     setAnsweringState(next);
   }, []);
   const status = confirmQueue.length > 0 ? "confirm" : runStatus;
+  // the Allows posted in the running turn, which a card arriving now counts
+  const allowedInTurn = useRef(0);
   const conversationId = useRef<ConversationId | null>(null);
   const abortController = useRef<AbortController | null>(null);
   const stopRequested = useRef(false);
@@ -205,7 +212,7 @@ export function useAssistant() {
       case "confirm_request":
         setConfirmQueue([...confirmQueueRef.current, {
           confirmId: ev.confirm_id, opsPreview: ev.ops_preview, preview: ev.preview,
-          sentDecision: null,
+          sentDecision: null, allowedAhead: allowedInTurn.current,
         }]);
         break;
       case "turn_done":
@@ -275,6 +282,7 @@ export function useAssistant() {
       setStatus("busy");
       setPhase({ label: null, since: Date.now() });
       setItems((prev) => [...prev, { kind: "user", text }]);
+      allowedInTurn.current = 0;
       stopRequested.current = false;
       const run = (async () => {
         try {
@@ -350,8 +358,10 @@ export function useAssistant() {
       }
       if (gen !== turnGen.current) return;
       setAnswering(false);
+      if (allow) allowedInTurn.current += 1;
       if (!confirmQueueRef.current.includes(pending)) return;
-      const rest = confirmQueueRef.current.filter((p) => p !== pending);
+      const rest = confirmQueueRef.current.filter((p) => p !== pending)
+        .map((p) => (allow ? { ...p, allowedAhead: p.allowedAhead + 1 } : p));
       setConfirmQueue(rest);
       // the parked stretch was the user's silence, not the model's: restart
       // the busy line's clock rather than resume a stale label

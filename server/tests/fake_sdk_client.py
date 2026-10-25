@@ -9,11 +9,14 @@ cleanup path at all.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Collection, Sequence
 from pathlib import Path
 
 from claude_agent_sdk import ResultMessage
 
 from pkm.assistant.claude_engine import ClaudeEngine
+from pkm.assistant.target_reader import BlockReader
+from pkm.contracts.ops import BlockUid
 
 SECRET = "ab" * 32
 
@@ -83,7 +86,14 @@ class HangingInterruptClient(FakeSDKClient):
         await asyncio.Event().wait()  # never set
 
 
-def make_engine(tmp_path: Path, factory=FakeSDKClient, zai_token=None) -> ClaudeEngine:
+def _no_rows(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+            ancestors_of: Collection[BlockUid]):
+    """A reader for an engine with no database: no block has any uid."""
+    return {}
+
+
+def make_engine(tmp_path: Path, factory=FakeSDKClient, zai_token=None,
+                read_blocks: BlockReader = _no_rows) -> ClaudeEngine:
     FakeSDKClient.instances.clear()
     return ClaudeEngine(
         base_url="http://127.0.0.1:8999",
@@ -91,4 +101,5 @@ def make_engine(tmp_path: Path, factory=FakeSDKClient, zai_token=None) -> Claude
         client_factory=factory,
         config_dir=tmp_path,
         zai_token=zai_token,
+        read_blocks=read_blocks,
     )

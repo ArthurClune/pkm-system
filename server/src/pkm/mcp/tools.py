@@ -135,7 +135,9 @@ def batch(commands: list[dict[str, object]]) -> str:
     parent?, index?, as?), todo (like create, {{TODO}}-prefixed), update
     (uid, text), move (uid, page, parent?, index?), delete (uid), outline
     (page, parent?, items: nested string arrays). 'as' names a created
-    block; later parents may reference it as '{{alias}}'. A '## Heading'
+    block; later parents may reference it as '{{alias}}'; use each 'as'
+    name once per batch, and only after the command that makes it. A
+    '## Heading'
     parent is matched on the page or created once per batch: repeating
     the same spec across commands reuses the heading already created.
     'index' (create/todo/move) is a 0-based position among the parent's

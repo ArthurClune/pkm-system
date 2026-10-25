@@ -230,7 +230,8 @@ read from stdin, as one atomic write. Commands and their params:
   create   {page, text, parent?, index?, as?}
       appends one block. "as": "name" lets later commands in the same
       batch reference the created block via a parent/uid param of
-      "{{name}}". A text beginning "# ", "## " or "### " becomes a
+      "{{name}}". Use each "as" name once per batch, and only after the
+      command that makes it. A text beginning "# ", "## " or "### " becomes a
       heading block at that level (1-3), hashes not stored; a heading
       created this way also satisfies a later "## Heading" parent for
       the same level and text rather than creating a second one.

@@ -25,6 +25,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, DeleteOp, MoveOp,
                                Sha256Hex, UpdateTextOp, subtree_hash)
 from pkm.contracts.responses import BlockNode, walk_blocks
 from pkm.contracts.titles import UNTITLED_PAGE_TITLE, RawTitle
+from pkm.echo import echo, loc_text
 from pkm.refs import canonicalize_title, is_blank_title, normalize_title
 from pkm.planning import (BuildError, Planner, parse_uid_spec, plan_update,
                           resolve_parent)
@@ -58,7 +59,7 @@ def _resolve_alias(spec: str | None, aliases: dict[str, BlockUid]) -> str | None
         if m:
             alias = m.group(1)
             if alias not in aliases:
-                raise BuildError(f"unknown alias: {alias}")
+                raise BuildError(f"unknown alias: {echo(alias)}")
             return f"(({aliases[alias]}))"
     return spec
 
@@ -68,7 +69,7 @@ def _alias_uid(spec: str, aliases: dict[str, BlockUid]) -> BlockUid:
     m = _ALIAS_SPEC.match(spec)
     if m:
         if m.group(1) not in aliases:
-            raise BuildError(f"unknown alias: {m.group(1)}")
+            raise BuildError(f"unknown alias: {echo(m.group(1))}")
         return aliases[m.group(1)]
     return BlockUid(spec)
 
@@ -89,11 +90,11 @@ def _in_batch_uid(spec: str | None, created: set[BlockUid]) -> BlockUid | None:
 # so a typo'd param is a validation error rather than a silent no-op. This
 # is the FULL structural contract for a batch item: object shape, field
 # presence/types, index range. What it deliberately does NOT check --
-# whether a `page` was fetched, whether an `{{alias}}` was defined earlier
-# in the batch, whether a "## Heading" move target exists -- is inherently
-# stateful (depends on fetched pages / on-batch ordering) and stays in
-# each command's planner below, raising the same `BuildError` it always
-# has.
+# whether a `page` was fetched, whether a "## Heading" move target exists --
+# is inherently stateful (depends on fetched pages) and stays in each
+# command's planner below, raising the same `BuildError` it always has.
+# Alias order across items is `batch_aliases`' job, run right after the
+# parse.
 
 # Recursive alias for `outline`'s nested item lists: a leaf string, or a
 # list of items one level deeper, e.g. ["Groceries", ["Milk", "Eggs"]].
@@ -213,8 +214,8 @@ def _command_problem(exc: ValidationError) -> str:
     if kind == "union_tag_not_found":
         return "missing 'command'"
     if kind == "union_tag_invalid":
-        return f"unknown command: {first['ctx']['tag']!r}"
-    path = ".".join(str(p) for p in first["loc"][1:])
+        return f"unknown command: {echo(str(first['ctx']['tag']))}"
+    path = loc_text(first["loc"][1:])
     return f"{path}: {first['msg']}" if path else first["msg"]
 
 
@@ -247,7 +248,39 @@ def validate_batch(commands: object) -> list[BatchCommand]:
     validates first."""
     if not isinstance(commands, list):
         raise BuildError("batch input must be a JSON array")
-    return [_parse_command(cmd, i) for i, cmd in enumerate(commands)]
+    parsed = [_parse_command(cmd, i) for i, cmd in enumerate(commands)]
+    batch_aliases(parsed)
+    return parsed
+
+
+def _alias_refs(cmd: BatchCommand) -> list[str]:
+    """The alias names a command reads: its `parent` and `uid` specs."""
+    p = cmd.params
+    specs = [getattr(p, "parent", None), getattr(p, "uid_spec", None)]
+    return [n for s in specs
+            if isinstance(s, str) and (n := alias_name(s)) is not None]
+
+
+def batch_aliases(commands: Sequence[BatchCommand]) -> dict[str, int]:
+    """Each `as` name mapped to the index of the item that creates it.
+    Walks the items in order: an item's references are checked before its
+    own `as` is recorded, so a name used before its command, or by the
+    command that makes it, is unknown. A second `as` of one name is
+    refused, because the later items would silently follow the newer
+    block. An empty `as` is no alias, as in `_batch_create`."""
+    made: dict[str, int] = {}
+    for i, cmd in enumerate(commands):
+        for name in _alias_refs(cmd):
+            if name not in made:
+                raise BatchItemError(i, f"unknown alias: {echo(name)}")
+        if isinstance(cmd, CreateCommand | TodoCommand) and cmd.params.as_:
+            name = cmd.params.as_
+            if name in made:
+                raise BatchItemError(
+                    i, f"as {echo(name)} already names the block item "
+                       f"{made[name]} creates")
+            made[name] = i
+    return made
 
 
 def referenced_pages(commands: Sequence[BatchCommand]) -> list[RawTitle]:
@@ -524,6 +557,7 @@ def plan_batch(commands: Sequence[object], pages: PageBlocks,
     model by the time a `delete`/`move` earlier in the batch needs it.
     """
     parsed = [_parse_command(cmd, i) for i, cmd in enumerate(commands)]
+    batch_aliases(parsed)
     planner = Planner(uids)
     for title, blocks in pages.items():
         planner.seed_page(title, blocks)
@@ -552,5 +586,6 @@ def plan_batch(commands: Sequence[object], pages: PageBlocks,
 
 __all__ = [
     "NestedItem", "BatchCommand", "PageBlocks", "validate_batch", "alias_name",
+    "batch_aliases",
     "referenced_pages", "delete_uids", "plan_batch",
 ]

@@ -68,7 +68,8 @@ it("keeps an in-viewport anchor position unchanged", async () => {
 it("fetches and renders referencing blocks", async () => {
   mockApiGet.mockResolvedValueOnce({ groups: [{
     page_id: 2, page_title: "Source Page",
-    items: [{ uid: "uid_s1", text: "see ((uid_t1))", breadcrumbs: ["Parent"] }],
+    items: [{ uid: "uid_s1", text: "see ((uid_t1))", breadcrumbs: ["…"], ancestors: [0] }],
+    ancestor_texts: ["Parent"],
   }] });
   render(<BlockRefBacklinksPopover uid={UID} x={10} y={20}
                                    onClose={vi.fn()} />, { wrapper });

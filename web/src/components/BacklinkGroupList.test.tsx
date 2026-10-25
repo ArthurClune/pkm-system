@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { expect, it, vi } from "vitest";
-import type { BacklinkGroup } from "../api/payloads";
+import type { ShownBacklinkGroup } from "./groups";
 import { SidebarContext } from "../contexts";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { pageIdOf, canonicalTitleOf, typeProbe, uidOf } from "../test-helpers";
@@ -10,9 +10,9 @@ import { BacklinkGroupList } from "./BacklinkGroupList";
 
 type OnNavigate = NonNullable<ComponentProps<typeof BacklinkGroupList>["onNavigate"]>;
 
-const group: BacklinkGroup = {
+const group: ShownBacklinkGroup = {
   page_id: pageIdOf(1), page_title: canonicalTitleOf("Source"),
-  items: [{ uid: uidOf("tuid-uid_a"), text: "text", breadcrumbs: [] }],
+  items: [{ uid: uidOf("tuid-uid_a"), text: "text", crumbs: [] }],
 };
 
 function mount(onNavigate: OnNavigate) {

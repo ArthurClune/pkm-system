@@ -4,6 +4,7 @@ test_unlinked.py."""
 from pkm.contracts.responses import (BacklinkGroup, BlockGroup, ChangedGroup,
                                      ChangedItem, GroupItem)
 from pkm.rows import Row
+from pkm.server.tree import Ancestors
 from pkm.server.grouping import (ChangedRow, group_backlinks, group_by_page,
                                  group_changed)
 from pkm.test_data.ids import canonical_title_of, page_id_of, uid_of
@@ -66,12 +67,19 @@ def test_group_backlinks_pure():
         _backlink(uid_of("tuid-x2"), "t2", page_id_of(7), "P1"),
         _backlink(uid_of("tuid-y1"), "t3", page_id_of(9), "P2"),
     ]
-    groups = group_backlinks(rows, {uid_of("tuid-x2"): ["root text"]})
+    root, mid = uid_of("tuid-r"), uid_of("tuid-m")
+    groups = group_backlinks(rows, Ancestors(
+        trails={uid_of("tuid-x1"): [root], uid_of("tuid-x2"): [root, mid]},
+        texts={root: "root text", mid: "mid text"}))
     assert [g.page_title for g in groups] == ["P1", "P2"]
     assert all(isinstance(g, BacklinkGroup) for g in groups)
-    assert groups[0].items[0].model_dump() == {
-        "uid": "tuid-x1", "text": "t1", "breadcrumbs": []}
-    assert groups[0].items[1].breadcrumbs == ["root text"]
+    # each group lists its ancestors once, in first-appearance order, and
+    # items name them by position
+    assert groups[0].ancestor_texts == ["root text", "mid text"]
+    assert [i.ancestors for i in groups[0].items] == [[0], [0, 1]]
+    assert groups[1].model_dump(mode="json") == {
+        "page_id": 9, "page_title": "P2",
+        "items": [{"uid": "tuid-y1", "text": "t3", "breadcrumbs": []}]}
 
 
 def test_group_changed_pure():

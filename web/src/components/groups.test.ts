@@ -6,7 +6,7 @@
 import { expect, it } from "vitest";
 import type { AssetRefGroup } from "../views/filesCore";
 import { pageIdOf, typeProbe, uidOf, canonicalTitleOf } from "../test-helpers";
-import { mergeGroups } from "./groups";
+import { MISSING_ANCESTOR_TEXT, mergeGroups, showBacklinkGroups } from "./groups";
 
 // AssetRefGroup (asset refs, keyed by page_title -- the search payload
 // carries no page ids) must never reach mergeGroups, whose page_id key
@@ -27,4 +27,28 @@ it("still merges real backlink groups by page_id and dedupes items", () => {
   expect(merged).toEqual([
     { page_id: pageIdOf(1), page_title: "A", items: [{ uid: uidOf("tuid-u1") }, { uid: uidOf("tuid-u2") }] },
   ]);
+});
+
+it("shows each item's trail as its group's ancestor texts, root first", () => {
+  const [group] = showBacklinkGroups([{
+    page_id: pageIdOf(1), page_title: canonicalTitleOf("A"),
+    ancestor_texts: ["Root", "Mid"],
+    items: [
+      { uid: uidOf("tuid-s1"), text: "one", breadcrumbs: ["…"], ancestors: [0, 1] },
+      { uid: uidOf("tuid-s2"), text: "two", breadcrumbs: ["…"], ancestors: [0] },
+      { uid: uidOf("tuid-s3"), text: "three", breadcrumbs: [] }],
+  }]);
+  expect(group.items).toEqual([
+    { uid: "tuid-s1", text: "one", crumbs: ["Root", "Mid"] },
+    { uid: "tuid-s2", text: "two", crumbs: ["Root"] },
+    { uid: "tuid-s3", text: "three", crumbs: [] }]);
+});
+
+it("marks an ancestor position its group lacks, never dropping it", () => {
+  const [group] = showBacklinkGroups([{
+    page_id: pageIdOf(1), page_title: canonicalTitleOf("A"),
+    items: [{ uid: uidOf("tuid-s1"), text: "one", breadcrumbs: ["…"],
+              ancestors: [0] }],
+  }]);
+  expect(group.items[0].crumbs).toEqual([MISSING_ANCESTOR_TEXT]);
 });

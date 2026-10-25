@@ -378,10 +378,17 @@
                   "uid": "uid_b4",
                   "text": "deep child mentioning [[AI]]",
                   "breadcrumbs": [
-                    "Papers",
-                    "[[Attention Is All You Need]] is a [[Paper]]"
+                    "…"
+                  ],
+                  "ancestors": [
+                    0,
+                    1
                   ]
                 }
+              ],
+              "ancestor_texts": [
+                "Papers",
+                "[[Attention Is All You Need]] is a [[Paper]]"
               ]
             }
           ],

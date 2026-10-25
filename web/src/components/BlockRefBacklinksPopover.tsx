@@ -7,16 +7,16 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { BlockUid } from "../api/brands";
 import { apiGet } from "../api/typedClient";
-import type { BacklinkGroup } from "../api/payloads";
 import { pagePath } from "../paths";
 import { Popover } from "../Popover";
 import { BacklinkGroupList } from "./BacklinkGroupList";
+import { showBacklinkGroups, type ShownBacklinkGroup } from "./groups";
 
 export function BlockRefBacklinksPopover({ uid, x, y, onClose }: {
   uid: BlockUid; x: number; y: number; onClose: () => void;
 }) {
   const navigate = useNavigate();
-  const [groups, setGroups] = useState<BacklinkGroup[] | null>(null);
+  const [groups, setGroups] = useState<ShownBacklinkGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -24,7 +24,9 @@ export function BlockRefBacklinksPopover({ uid, x, y, onClose }: {
     setGroups(null);
     setError(null);
     apiGet("/api/block/{uid}/backlinks", { path: { uid } })
-      .then((payload) => { if (!cancelled) setGroups(payload.groups); })
+      .then((payload) => {
+        if (!cancelled) setGroups(showBacklinkGroups(payload.groups));
+      })
       .catch((fetchFailure: unknown) => {
         if (!cancelled) setError(String(fetchFailure));
       });

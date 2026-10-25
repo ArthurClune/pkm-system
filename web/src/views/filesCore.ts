@@ -2,8 +2,9 @@
 // Pure logic for the /files asset browser. The Files view is
 // the imperative shell; everything testable without I/O lives here.
 import type { BlockUid, CanonicalTitle } from "../api/brands";
-import type { AssetSearchItem, BacklinkItem } from "../api/payloads";
+import type { AssetSearchItem } from "../api/payloads";
 import type { DeleteBlocker } from "../components/deletePageCopy";
+import type { ShownBacklinkItem } from "../components/groups";
 import { assetLabel } from "../sync/assetNames";
 
 export interface FileFilters {
@@ -148,11 +149,11 @@ export const MISSING_BLOCK_TEXT = "(block not found)";
 // must never collide through that key.
 export interface AssetRefGroup {
   page_title: CanonicalTitle;
-  items: BacklinkItem[];
+  items: ShownBacklinkItem[];
 }
 
 // Shape an asset's refs for BacklinkGroupList, grouped by page title
-// (breadcrumbs aren't available here, so rows carry text only).
+// (ancestors aren't available here, so rows carry no crumbs).
 export function refGroups(
   refs: readonly AssetRef[],
   texts: Record<string, { text: string; page_title: CanonicalTitle }>,
@@ -169,7 +170,7 @@ export function refGroups(
     group.items.push({
       uid: ref.uid,
       text: texts[ref.uid]?.text ?? MISSING_BLOCK_TEXT,
-      breadcrumbs: [],
+      crumbs: [],
     });
   }
   return groups;

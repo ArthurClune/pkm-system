@@ -5,19 +5,22 @@ order (callers order their rows by page title, then uid).
 
 Backlinks keep their own loop rather than routing through `group_by_page`:
 their rows name the page differently (`src_page_*`, since the row's own
-page is the reference target) and each item carries a breadcrumb trail.
+page is the reference target) and each item carries a breadcrumb trail,
+as positions in its group's list of ancestor texts.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import TypedDict
 
 from pkm.changed import ChangeStatus
 from pkm.contracts.ops import BlockUid, PageId
-from pkm.contracts.responses import (BacklinkGroup, BacklinkItem, BlockGroup,
-                                     ChangedGroup, ChangedItem, GroupItem)
+from pkm.contracts.responses import (STALE_BUNDLE_CRUMB, BacklinkGroup,
+                                     BacklinkItem, BlockGroup, ChangedGroup,
+                                     ChangedItem, GroupItem)
 from pkm.refs import CanonicalTitle
 from pkm.rows import Row
+from pkm.server.tree import Ancestors
 
 
 class ChangedRow(TypedDict):
@@ -68,17 +71,26 @@ def group_changed(rows: Sequence[ChangedRow]) -> list[ChangedGroup]:
 
 
 def group_backlinks(rows: Sequence[Row],
-                    ancestors: Mapping[BlockUid, list[str]]
-                    ) -> list[BacklinkGroup]:
-    """Rows of `uid, text, src_page_id, src_page_title` -> page groups whose
-    items also carry the block's breadcrumb trail."""
+                    ancestors: Ancestors) -> list[BacklinkGroup]:
+    """Rows of `uid, text, src_page_id, src_page_title` -> page groups. Each
+    group lists its items' ancestor texts once, in first-appearance order
+    (items in row order, each trail root first), and each item names its
+    trail by position in that list. The replica's `groupBacklinkRows` must
+    number them the same way."""
     titles: dict[PageId, CanonicalTitle] = {}
     index: dict[PageId, list[BacklinkItem]] = {}
+    positions: dict[PageId, dict[BlockUid, int]] = {}
     for r in rows:
         items = index.setdefault(r["src_page_id"], [])
         titles.setdefault(r["src_page_id"], r["src_page_title"])
+        seen = positions.setdefault(r["src_page_id"], {})
+        trail = [seen.setdefault(uid, len(seen))
+                 for uid in ancestors.trails.get(r["uid"], [])]
         items.append(BacklinkItem(
             uid=r["uid"], text=r["text"],
-            breadcrumbs=list(ancestors.get(r["uid"], []))))
-    return [BacklinkGroup(page_id=pid, page_title=titles[pid], items=items)
-            for pid, items in index.items()]
+            breadcrumbs=[STALE_BUNDLE_CRUMB] if trail else [],
+            ancestors=trail))
+    return [BacklinkGroup(
+        page_id=pid, page_title=titles[pid], items=items,
+        ancestor_texts=[ancestors.texts[uid] for uid in positions[pid]])
+        for pid, items in index.items()]

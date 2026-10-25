@@ -4,9 +4,9 @@
 recursive CTE, a string of every uid above that row, and to search it to
 stop on a parent cycle. Breadcrumbs for every block of a chain `d` deep then
 cost about `d³`. The walk now reads each distinct ancestor once and rebuilds
-the trails in `tree.ancestor_texts`. Its output must match the old query's
-exactly, cycles and dangling parents included, so the old query is kept
-here verbatim as the oracle."""
+the trails in `tree.ancestor_trails`. Its trails, read as texts, must
+match the old query's exactly, cycles and dangling parents included, so
+the old query is kept here verbatim as the oracle."""
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -24,7 +24,7 @@ from pkm.server import routes_pages
 from pkm.server.db import init_db, open_db
 from pkm.server.routes_pages import _fetch_ancestors
 from pkm.server.sync_core import chunk_ids
-from pkm.server.tree import ancestor_texts
+from pkm.server.tree import Ancestors, ancestor_trails, ancestors_of
 from pkm.test_data.ids import uid_of
 
 
@@ -94,24 +94,40 @@ def _rows(parents: dict[str, str | None]
             for u, p in parents.items()}
 
 
+def _us(names: str) -> list[BlockUid]:
+    return [_u(n) for n in names]
+
+
 def test_trails_run_root_first_and_skip_starts_without_ancestors():
     rows = _rows({"a": None, "b": "a", "c": "b"})
-    assert ancestor_texts([_u("c"), _u("a")], rows) == {_u("c"): ["A", "B"]}
+    assert ancestor_trails([_u("c"), _u("a")], rows) == {_u("c"): _us("ab")}
 
 
 def test_a_trail_stops_at_the_first_uid_already_on_it():
     rows = _rows({"a": "c", "b": "a", "c": "b", "x": "a"})
-    assert ancestor_texts([_u("a"), _u("x")], rows) == {
-        _u("a"): ["B", "C"], _u("x"): ["B", "C", "A"]}
+    assert ancestor_trails([_u("a"), _u("x")], rows) == {
+        _u("a"): _us("bc"), _u("x"): _us("bca")}
 
 
 def test_a_self_parent_has_no_trail():
-    assert ancestor_texts([_u("a")], _rows({"a": "a"})) == {}
+    assert ancestor_trails([_u("a")], _rows({"a": "a"})) == {}
 
 
 def test_a_trail_ends_at_a_missing_parent_and_unknown_starts_are_absent():
     rows = _rows({"b": "gone", "c": "b"})
-    assert ancestor_texts([_u("c"), _u("nope")], rows) == {_u("c"): ["B"]}
+    assert ancestor_trails([_u("c"), _u("nope")], rows) == {_u("c"): _us("b")}
+
+
+def test_texts_hold_each_ancestor_on_a_trail_once_and_no_start():
+    rows = _rows({"a": None, "b": "a", "c": "b", "d": "c"})
+    got = ancestors_of(_us("bcd"), rows)
+    assert got.texts == {_u("a"): "A", _u("b"): "B", _u("c"): "C"}
+    assert got.trails[_u("d")] == _us("abc")
+
+
+def _as_texts(got: Ancestors) -> dict[BlockUid, list[str]]:
+    return {start: [got.texts[a] for a in trail]
+            for start, trail in got.trails.items()}
 
 
 # --- the query against the oracle ------------------------------------------
@@ -162,7 +178,7 @@ def test_fetch_ancestors_matches_the_path_string_walk(db, case):
     _store(db, parents)
     with patch.object(routes_pages, "chunk_ids",
                       lambda ids: chunk_ids(ids, chunk)):
-        got = _fetch_ancestors(db, starts)
+        got = _as_texts(_fetch_ancestors(db, starts))
     assert got == _reference_fetch_ancestors(db, starts)
 
 
@@ -170,7 +186,7 @@ def test_a_chain_at_the_outline_cap_matches(db):
     parents = _chain(MAX_OUTLINE_DEPTH + 1)
     _store(db, parents)
     starts = [uid_of(u) for u in parents]
-    got = _fetch_ancestors(db, starts)
+    got = _as_texts(_fetch_ancestors(db, starts))
     assert got == _reference_fetch_ancestors(db, starts)
     assert len(got[starts[-1]]) == MAX_OUTLINE_DEPTH
 
@@ -181,7 +197,7 @@ def test_a_cycle_as_long_as_the_outline_cap_matches(db):
     parents[first] = last
     _store(db, parents)
     starts = [uid_of(u) for u in parents]
-    got = _fetch_ancestors(db, starts)
+    got = _as_texts(_fetch_ancestors(db, starts))
     assert got == _reference_fetch_ancestors(db, starts)
     assert all(len(trail) == MAX_OUTLINE_DEPTH for trail in got.values())
 

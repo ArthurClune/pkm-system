@@ -8,7 +8,7 @@
 // held in a filter is a CanonicalTitle, the kind page titles are.
 
 import type { CanonicalTitle } from "../api/brands";
-import type { BacklinkGroup, BacklinkItem } from "../api/payloads";
+import type { ShownBacklinkGroup, ShownBacklinkItem } from "./groups";
 import { extractRefs } from "../grammar/refs";
 import type { TitleReader } from "../replica/titles";
 
@@ -28,12 +28,12 @@ export function isFiltering(f: FilterState): boolean {
 // One cache per reader: a flag flip must not serve titles canonicalized
 // under the other value.
 const refCaches = new WeakMap<
-  TitleReader, WeakMap<BacklinkItem, ReadonlySet<CanonicalTitle>>>();
+  TitleReader, WeakMap<ShownBacklinkItem, ReadonlySet<CanonicalTitle>>>();
 
 /** Every page title the item references in its own text or any ancestor
  * (breadcrumb) block: a block nested under "Papers to read #Paper" counts
  * as tagged Paper. Kinds merge: #X, [[X]] and X:: are all just "X". */
-export function itemRefTitles(item: BacklinkItem,
+export function itemRefTitles(item: ShownBacklinkItem,
                               read: TitleReader): ReadonlySet<CanonicalTitle> {
   let refCache = refCaches.get(read);
   if (!refCache) {
@@ -43,7 +43,7 @@ export function itemRefTitles(item: BacklinkItem,
   const hit = refCache.get(item);
   if (hit) return hit;
   const titles = new Set<CanonicalTitle>();
-  for (const text of [item.text, ...item.breadcrumbs]) {
+  for (const text of [item.text, ...item.crumbs]) {
     for (const r of extractRefs(text).refs) titles.add(read(r.title));
   }
   refCache.set(item, titles);
@@ -52,14 +52,14 @@ export function itemRefTitles(item: BacklinkItem,
 
 /** Item visible = references ALL includes and NONE of the excludes;
  * groups left with no visible items disappear. */
-export function applyFilter(groups: BacklinkGroup[], f: FilterState,
-                            read: TitleReader): BacklinkGroup[] {
+export function applyFilter(groups: ShownBacklinkGroup[], f: FilterState,
+                            read: TitleReader): ShownBacklinkGroup[] {
   if (!isFiltering(f)) return groups;
   // Entries picked under the other flag value are re-read: canonicalizing
   // is idempotent on a title already canonical under this one.
   const include = f.include.map((t) => read(t));
   const exclude = f.exclude.map((t) => read(t));
-  const out: BacklinkGroup[] = [];
+  const out: ShownBacklinkGroup[] = [];
   for (const g of groups) {
     const items = g.items.filter((it) => {
       const refs = itemRefTitles(it, read);
@@ -79,7 +79,7 @@ export interface Chip {
 /** Candidate chips over the *visible* items (counts show what selecting
  * the chip would leave), count-desc then title-asc. `omit` drops the
  * current page's own title and titles already active as filters. */
-export function chipCounts(visible: BacklinkGroup[],
+export function chipCounts(visible: ShownBacklinkGroup[],
                            omit: Iterable<CanonicalTitle>,
                            read: TitleReader): Chip[] {
   const skip = new Set([...omit].map((t) => read(t)));

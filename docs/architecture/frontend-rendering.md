@@ -22,6 +22,24 @@ slash commands adapt its token stream rather than scanning privately.
 `shared/fixtures/ref_grammar.json` pins it to `server/src/pkm/refs.py`; both
 sides' tests replay the fixture.
 
+A block whose `[[` runs nest past `MAX_LINK_NESTING` gets no run tokens
+from `scanGrammar`. Its brackets render as text, and `extractRefs` reports
+none of its links, though its hashtags and `((uid))` refs survive.
+`tokenizeInline` recurses once per nested run, so following such a nest
+would overflow the stack. Only a row stored before the
+[limit](backend.md#planning) reaches this. `refs.extract` still reports
+those links, yet nothing diverges: the replica takes a pulled block's `refs`
+rows from the server, derives only `block_refs` itself, and refuses a local
+op whose text nests that deep.
+
+**Grammar code stays linear in the text, and never spreads a token array
+into a call (`push(...xs)`).** A block at `MAX_BLOCK_TEXT_CHARS` holds
+hundreds of thousands of tokens. A spread passes each one as a call
+argument and overflows the stack. A rescan per token, such as a closer
+search from every `[` or every `{{query:`, takes minutes at that size. The
+length-cap cases in `tokenize.test.ts`, `refs.test.ts`, `markdown.test.ts`
+and `replica/blockRefs.test.ts` pin it.
+
 `tokenize.ts` adds what the scanner does not model: markdown links and images,
 bare-URL autolinking (including bare `/assets/<sha256>/`), emphasis,
 `{{query}}` and `{{pdf}}` macros, `$$` math and line breaks.

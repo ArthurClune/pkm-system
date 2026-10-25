@@ -55,6 +55,12 @@ The stripping rules:
   (`grammar/markdown.ts`) and removes both URL spellings, the percent-encoded
   one `asset_url` returns and the raw name older uploads wrote.
 - Each removed token takes one adjacent space; every other character stays.
+- A token between `[` and `[` keeps them apart, so a strip can nest a block
+  deeper or past a text limit. A strip that makes a block worse on a limit
+  refuses the whole delete before any write: 409 with `blockers` in page
+  delete's shape, reason `limit`
+  ([backend.md § Page mutations](backend.md#page-mutations-and-the-sidebar)).
+  `/files` shows them in `DeleteBlockedDialog`.
 - A block left empty and childless is deleted. An emptied parent is kept,
   because asset deletion must never cascade away real content.
 - The file is unlinked after the commit, so a crash leaves at worst an

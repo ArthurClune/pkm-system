@@ -306,6 +306,17 @@ and edits enqueue durably. `enqueueBatch` applies each optimistically under its
 own SAVEPOINT; an op that cannot apply locally is skipped, never dropped from
 the queue.
 
+`enqueueBatch` first refuses, whole and before anything is stored, a batch
+the server would always refuse. That is a text past a
+[text limit](backend.md#planning) (`findOpTextLimitViolation`), judged before
+titles as the server judges it, or a [forbidden title](#title-activation-across-online-and-offline-paths).
+It throws `LocalOpError`, whose `rejected` flag makes `opQueue` treat it as
+the server's refusal rather than retain the op
+([sync-recovery.md § A local write fails](sync-recovery.md#a-local-write-fails)).
+The editor refuses such an edit earlier, with a notice
+([frontend-editor.md](frontend-editor.md#rules-an-edit-must-not-break)), so
+this is the backstop for a producer that missed it.
+
 The optimistic apply mirrors the server's rules as well as its rows: for
 example `set_collapsed` leaves `updated_at` alone. Local `refs` resolve titles
 to negative page ids that `remapLocalPage` (`reconcile.ts`) remaps later. Both

@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import time
 
+import pytest
 from hypothesis import event, given, settings
 from hypothesis import strategies as st
 from scaling import loop_steps
 from test_text_limits_rewrites import _seed, _text
 
 from pkm import refs, spans, text_limits, unlink
-from pkm.contracts.ops import UpdateTextOp, text_hash
+from pkm.contracts.ops import BlockUid, UpdateTextOp, text_hash
 from pkm.refs import normalize_title
 from pkm.server import ops_apply, ops_core
 from pkm.server.ops_core import MAX_REPLAYED_REWRITES
@@ -45,19 +46,19 @@ def _post(client, ops):
         "ops": ops})
 
 
-def _history(config, copy: str, steps: int) -> str:
-    """SRC on page Src, and the rows of `steps` page deletes, each of
+def _history(config, copy: str, steps: int, uid: BlockUid = SRC) -> str:
+    """`uid` on page Src, and the rows of `steps` page deletes, each of
     which inlined `copy` for `((COPY))` and unlinked `T`. Each copy ends
     in its step's number, so no two steps are the same and none is
     replayed once for another. Returns the text the first delete started
     from, the base a stale edit names."""
     original = f"(({COPY})) [[T]]"
-    _seed(config, [(SRC, "Src", "current")])
+    _seed(config, [(uid, "Src", "current")])
     hashes = [text_hash(original)] + [
         text_hash(f"after step {i}") for i in range(steps)]
     con = open_db(config.db_path)
     try:
-        con.execute("DELETE FROM block_rewrites WHERE uid = ?", (SRC,))
+        con.execute("DELETE FROM block_rewrites WHERE uid = ?", (uid,))
         for i in range(steps):
             for kind, old, new in (("unlink", "T", ""),
                                    ("inline", COPY, f"{copy}{i}")):
@@ -65,15 +66,15 @@ def _history(config, copy: str, steps: int) -> str:
                     "INSERT INTO block_rewrites(uid, base_hash, after_hash,"
                     " old_title, new_title, created_at, kind)"
                     " VALUES (?,?,?,?,?,?,?)",
-                    (SRC, hashes[i], hashes[i + 1], old, new, i, kind))
+                    (uid, hashes[i], hashes[i + 1], old, new, i, kind))
         con.commit()
     finally:
         con.close()
     return original
 
 
-def _stale_edit(original: str) -> dict[str, object]:
-    return {"op": "update_text", "uid": SRC, "text": SENT,
+def _stale_edit(original: str, uid: BlockUid = SRC) -> dict[str, object]:
+    return {"op": "update_text", "uid": uid, "text": SENT,
             "base_text_hash": text_hash(original)}
 
 
@@ -97,21 +98,29 @@ def test_an_edit_pays_for_its_replay_once(client, seeded_config):
     assert route < 1.6 * once, (once, route)
 
 
-def test_a_batch_stops_replaying_at_its_work_budget(client, seeded_config):
+@pytest.mark.parametrize("blocks", ["one", "each"])
+def test_a_batch_stops_replaying_at_its_work_budget(
+        client, seeded_config, blocks):
     # Each op replays ten steps over a 180,000-character copy. Past the
     # batch's budget the rest land as sent, so four times the ops cost
-    # about the same work, not four times it.
-    original = _history(seeded_config, "[[a]] " * 30_000,
-                        MAX_REPLAYED_REWRITES)
+    # about the same work, not four times it. On one block the first edit
+    # conflicts and the rest are identical to what it left; on a block
+    # each, never edited before, every edit conflicts.
+    uids = [uid_of(f"rbw_blk_{i:03d}") for i in range(20)] \
+        if blocks == "each" else [SRC] * 20
+    originals = {uid: _history(seeded_config, "[[a]] " * 30_000,
+                               MAX_REPLAYED_REWRITES, uid)
+                 for uid in dict.fromkeys(uids)}
 
-    def run(ops: int) -> tuple[int, list[str]]:
+    def run(first: int, ops: int) -> tuple[int, list[str]]:
         got = []
         work = loop_steps(MODULES, lambda: got.append(
-            _post(client, [_stale_edit(original)] * ops)))
+            _post(client, [_stale_edit(originals[uid], uid)
+                           for uid in uids[first:first + ops]])))
         assert got[0].status_code == 200, got[0].text[:300]
         return work, [s["reason"] for s in got[0].json()["skipped"]]
 
-    (small, _), (large, skipped) = run(4), run(16)
+    (small, _), (large, skipped) = run(0, 4), run(4, 16)
     assert large < 2 * small, (small, large)
     assert skipped.count("text_limit") > 8
 
@@ -133,9 +142,10 @@ def test_the_reviewed_batch_lands_every_op_in_bounded_time(
     reasons = [s["reason"] for s in r.json()["skipped"]]
     assert len(reasons) == 500 and set(reasons) == {"text_limit"}
     assert _text(seeded_config, SRC) == "current"
-    # generous: the budget's unlinks take about 2 s, and every op still
-    # reads its block's rewrite rows
-    assert elapsed < 60, elapsed
+    # generous: about 1 s here. The splices past the budget run in C, so
+    # this is wall clock, not loop steps: splicing each op's megabyte
+    # before judging the budget took about 55 s.
+    assert elapsed < 20, elapsed
 
 
 
@@ -173,6 +183,13 @@ def test_the_rows_reuse_the_replay_and_record_the_same(
                                           rewrites)
     if outcome.kind == "over_limit":
         return
+    # the replay itself, against one that keeps nothing
+    plain = unlinked
+    for step in outcome.replayed:
+        stepped, _ = ops_core._replay_step(plain, step, normalize_title)
+        assert stepped is not None
+        plain = stepped
+    assert outcome.text == plain
     planned = (ops_core.UpdateText(sent.uid, outcome.text),)
     reused = ops_core.rewrite_effects(sent, planned, stale, normalize_title,
                                       outcome.replayed, outcome.text,

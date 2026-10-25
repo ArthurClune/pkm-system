@@ -470,6 +470,7 @@ same header.
 | Block gone, hint missing, blank or [refused](#refused-titles) | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
 | Block exists, move target gone or inside it, or a replayed edit over a text limit | `` [[conflict]] [[Page]] — ((uid)) `` |
 | Guarded `delete` whose subtree changed | `` [[conflict]] [[Page]] — deleted while edited elsewhere `` |
+| Any of these, when the page's name would put the header past a [text limit](#planning) | the name replaced by `(page title too long)` (`LONG_TITLE_LABEL`) |
 
 The `page_title` hint never changes whether or where an op applies, and
 `find_op_title_violation` never reads it. A hint naming no current page is
@@ -599,6 +600,14 @@ nesting below the cap:
 | Conflict entry | `_conflict_landing` reuses today's header only above the cap. One at the cap or deeper gets a fresh top-level header. A client can move an emptied header to the cap; only a legacy row sits deeper |
 | A diverged delete's copies | `descendant_copy_effects` keeps their shape down to the cap. A copy one level above the cap takes the rest of its copied subtree as children at the cap, in document order |
 | Root copy at the cap, under a reused header | its copied descendants follow it under the header, in document order |
+
+Nor is server-made text ever past a [text limit](#planning). Neither a
+page title nor a `page_title` hint is length-capped, so every header and
+note that names a page is judged, and names it `LONG_TITLE_LABEL` when
+the name would not fit (`conflict_notes._fitted`). Text the planner copies
+from a stored row, such as an overwritten edit or a diverged delete's
+copies, is level with that row, so it is within the limits whenever its
+source is.
 
 ### Stale batches
 

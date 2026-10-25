@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from pkm.contracts.ops import BlockUid, OrderIdx
+from pkm.contracts.ops import MAX_BLOCK_TEXT_CHARS, BlockUid, OrderIdx
 from pkm.server import db as db_module
 from pkm.server.db import open_db
 from pkm.server.store import reindex_refs_for_text
@@ -208,3 +208,17 @@ def test_a_judged_batch_still_waits_for_the_lock(client, write_lock_held):
     r = _post(client, _create(FINE_BLK_01, "fine"))
     assert r.status_code == 503, r.text[:500]
     assert r.headers["retry-after"] == "1"
+
+
+def test_a_huge_page_title_hint_lands_a_header_within_the_cap(
+        client, seeded_config):
+    r = _post(client, {"op": "update_text", "uid": MISSING_001,
+                       "text": "edit", "page_title": "h" * 3_000_000})
+    assert r.status_code == 200, r.text[:500]
+    con = open_db(seeded_config.db_path)
+    try:
+        row = con.select_one("SELECT max(length(text)) AS n FROM blocks")
+    finally:
+        con.close()
+    assert row is not None
+    assert row["n"] <= MAX_BLOCK_TEXT_CHARS

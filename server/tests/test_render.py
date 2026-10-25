@@ -36,7 +36,8 @@ def _node(uid: BlockUid, text, children=(), heading=None) -> BlockNode:
                      updated_at=None, children=list(children))
 
 
-NO_BACKLINKS = Backlinks(groups=[], total_pages=0, offset=0, limit=100)
+NO_BACKLINKS = Backlinks(groups=[], ancestor_texts={}, total_pages=0,
+                         offset=0, limit=100)
 
 
 def _meta(title: CanonicalTitle) -> PageMeta:
@@ -153,8 +154,8 @@ def test_render_backlinks():
             page_id=page_id_of(3),
             page_title=canonical_title_of("July 7th, 2026"),
             items=[BacklinkItem(uid=uid_of("tuid-b4"), text="Studying",
-                                breadcrumbs=[])])],
-        total_pages=1, offset=0, limit=100)
+                                ancestor_uids=[])])],
+        ancestor_texts={}, total_pages=1, offset=0, limit=100)
     assert render_backlinks(raw_title_of("Machine Learning"), backlinks) == (
         "# Backlinks: Machine Learning (1 pages)\n"
         "\n"

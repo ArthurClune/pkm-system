@@ -2509,21 +2509,23 @@
             "type": "string",
             "title": "Text"
           },
-          "breadcrumbs": {
+          "ancestor_uids": {
             "items": {
-              "type": "string"
+              "type": "string",
+              "x-brand": "BlockUid"
             },
             "type": "array",
-            "title": "Breadcrumbs"
+            "title": "Ancestor Uids"
           }
         },
         "type": "object",
         "required": [
           "uid",
           "text",
-          "breadcrumbs"
+          "ancestor_uids"
         ],
-        "title": "BacklinkItem"
+        "title": "BacklinkItem",
+        "description": "A block linking the page (or block), with its breadcrumb trail as\nancestor uids, root first. The texts are in the enclosing payload's\n`ancestor_texts`."
       },
       "Backlinks": {
         "properties": {
@@ -2533,6 +2535,16 @@
             },
             "type": "array",
             "title": "Groups"
+          },
+          "ancestor_texts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "x-brand": "BlockUid"
+            },
+            "type": "object",
+            "title": "Ancestor Texts"
           },
           "total_pages": {
             "type": "integer",
@@ -2550,11 +2562,13 @@
         "type": "object",
         "required": [
           "groups",
+          "ancestor_texts",
           "total_pages",
           "offset",
           "limit"
         ],
-        "title": "Backlinks"
+        "title": "Backlinks",
+        "description": "One page of backlink groups. `ancestor_texts` holds the text of\nevery uid an item's `ancestor_uids` names, each once: a trail per item\nrepeated the shared ancestors of a deep chain about depth\u00b2/2 times."
       },
       "BlockBacklinksPayload": {
         "properties": {
@@ -2564,14 +2578,25 @@
             },
             "type": "array",
             "title": "Groups"
+          },
+          "ancestor_texts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "x-brand": "BlockUid"
+            },
+            "type": "object",
+            "title": "Ancestor Texts"
           }
         },
         "type": "object",
         "required": [
-          "groups"
+          "groups",
+          "ancestor_texts"
         ],
         "title": "BlockBacklinksPayload",
-        "description": "GET /api/block/{uid}/backlinks: every block referencing ((uid)),\ngrouped like page backlinks. Unpaginated by design -- counts are small\nand nothing user-visible truncates silently."
+        "description": "GET /api/block/{uid}/backlinks: every block referencing ((uid)),\ngrouped like page backlinks. Unpaginated by design -- counts are small\nand nothing user-visible truncates silently. `ancestor_texts` as in\n`Backlinks`."
       },
       "BlockGroup": {
         "properties": {

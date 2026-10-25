@@ -4,6 +4,7 @@ walk parent links into breadcrumb trails."""
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from typing import NamedTuple
 
 from pkm.contracts.ops import BlockUid
 from pkm.contracts.responses import BlockNode
@@ -64,26 +65,46 @@ def collect_block_ref_uids(texts: Iterable[str]) -> list[BlockUid]:
     return out
 
 
-def ancestor_texts(starts: Sequence[BlockUid],
-                   blocks: Mapping[BlockUid, tuple[BlockUid | None, str]]
-                   ) -> dict[BlockUid, list[str]]:
-    """Each start's breadcrumb trail, root first, from `uid -> (parent_uid,
-    text)`: the parent links followed up to a uid missing from `blocks`
-    or one already on the trail (the start counts), so a corrupt parent
-    cycle ends rather than repeating. Starts with no ancestor in `blocks`
-    are absent."""
-    out: dict[BlockUid, list[str]] = {}
+def ancestor_trails(starts: Sequence[BlockUid],
+                    blocks: Mapping[BlockUid, tuple[BlockUid | None, str]]
+                    ) -> dict[BlockUid, list[BlockUid]]:
+    """Each start's breadcrumb trail of ancestor uids, root first, from
+    `uid -> (parent_uid, text)`: the parent links followed up to a uid
+    missing from `blocks` or one already on the trail (the start counts),
+    so a corrupt parent cycle ends rather than repeating. Starts with no
+    ancestor in `blocks` are absent. Trails hold uids, not texts: a
+    response carries each ancestor's text once, however many trails pass
+    through it."""
+    out: dict[BlockUid, list[BlockUid]] = {}
     for start in starts:
         if start not in blocks:
             continue
         seen = {start}
-        trail: list[str] = []
+        trail: list[BlockUid] = []
         parent = blocks[start][0]
         while parent is not None and parent in blocks and parent not in seen:
             seen.add(parent)
-            trail.append(blocks[parent][1])
+            trail.append(parent)
             parent = blocks[parent][0]
         if trail:
             trail.reverse()
             out[start] = trail
     return out
+
+
+class Ancestors(NamedTuple):
+    """Breadcrumb trails as uids, and the text of every uid on a trail:
+    the shape a backlinks response carries (`ancestor_uids` per item,
+    one `ancestor_texts` map beside them)."""
+    trails: dict[BlockUid, list[BlockUid]]
+    texts: dict[BlockUid, str]
+
+
+def ancestors_of(starts: Sequence[BlockUid],
+                 blocks: Mapping[BlockUid, tuple[BlockUid | None, str]]
+                 ) -> Ancestors:
+    """`ancestor_trails` plus the texts its trails name, each once."""
+    trails = ancestor_trails(starts, blocks)
+    texts = {uid: blocks[uid][1]
+             for trail in trails.values() for uid in trail}
+    return Ancestors(trails, texts)

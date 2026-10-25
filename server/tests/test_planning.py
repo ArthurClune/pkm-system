@@ -984,7 +984,8 @@ def test_render_then_save_round_trips_a_heading():
         page=PageMeta(id=page_id_of(1), title=canonical_title_of("Machine Learning"),
                       created_at=None, updated_at=None),
         blocks=BLOCKS,
-        backlinks=Backlinks(groups=[], total_pages=0, offset=0, limit=100),
+        backlinks=Backlinks(groups=[], ancestor_texts={}, total_pages=0,
+                            offset=0, limit=100),
         block_ref_texts={}, block_ref_counts={})
     line = next(ln for ln in render_page(page).splitlines()
                 if "Papers" in ln)

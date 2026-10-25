@@ -66,12 +66,12 @@ def test_group_backlinks_pure():
         _backlink(uid_of("tuid-x2"), "t2", page_id_of(7), "P1"),
         _backlink(uid_of("tuid-y1"), "t3", page_id_of(9), "P2"),
     ]
-    groups = group_backlinks(rows, {uid_of("tuid-x2"): ["root text"]})
+    groups = group_backlinks(rows, {uid_of("tuid-x2"): [uid_of("tuid-r")]})
     assert [g.page_title for g in groups] == ["P1", "P2"]
     assert all(isinstance(g, BacklinkGroup) for g in groups)
     assert groups[0].items[0].model_dump() == {
-        "uid": "tuid-x1", "text": "t1", "breadcrumbs": []}
-    assert groups[0].items[1].breadcrumbs == ["root text"]
+        "uid": "tuid-x1", "text": "t1", "ancestor_uids": []}
+    assert groups[0].items[1].ancestor_uids == ["tuid-r"]
 
 
 def test_group_changed_pure():

@@ -7,7 +7,8 @@ from pkm.client import api as client_api
 from pkm.client.api import PkmClient, login
 from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.contracts.ops import UID_RE, BlockUid, CreateOp, CreatePageOp, new_uid
-from pkm.contracts.responses import BacklinkGroup, Backlinks, PageMeta, PagePayload
+from pkm.contracts.responses import (BacklinkGroup, BacklinkItem, Backlinks,
+                                     PageMeta, PagePayload)
 from pkm.contracts.titles import RawTitle
 from pkm.refs import normalize_title
 from pkm.server.db import open_db
@@ -408,7 +409,8 @@ def test_get_backlinks_no_backlinks_makes_one_request(pkm_client, monkeypatch):
     monkeypatch.setattr(pkm_client._http, "request", spy)
     result = pkm_client.get_backlinks("July 7th, 2026")
     assert len(calls) == 1  # no extra round trip once total_pages is 0
-    assert result == Backlinks(groups=[], total_pages=0, offset=0, limit=100)
+    assert result == Backlinks(groups=[], ancestor_texts={}, total_pages=0,
+                               offset=0, limit=100)
 
 
 def test_get_backlinks_restarts_when_source_order_shifts_mid_fetch(
@@ -461,11 +463,40 @@ def test_get_backlinks_gives_up_loudly_if_ordering_never_stabilizes(
             backlinks=Backlinks(
                 groups=[BacklinkGroup(page_id=page_id_of(1), page_title=title_x,
                                       items=[])],
+                ancestor_texts={},
                 total_pages=2, offset=bl_offset, limit=bl_limit))
 
     monkeypatch.setattr(pkm_client, "get_page", flaky_get_page)
     with pytest.raises(ApiError, match="reorder"):
         pkm_client.get_backlinks("whatever", page_size=1)
+
+
+def test_get_backlinks_keeps_every_pages_ancestor_texts(pkm_client,
+                                                        monkeypatch):
+    """Each page of /api/page's backlinks carries the ancestor texts of
+    its own items only, so the merged result must hold them all, or an
+    item fetched on a later page names an ancestor with no text."""
+    title_x = canonical_title_of("X")
+
+    def paged(title: RawTitle, bl_limit=100, bl_offset=0):
+        n = bl_offset + 1
+        uid, anc = uid_of(f"tuid-item{n}"), uid_of(f"tuid-anc{n}")
+        return PagePayload(
+            page=PageMeta(id=page_id_of(1), title=title_x, created_at=None,
+                          updated_at=None),
+            blocks=[], block_ref_texts={}, block_ref_counts={},
+            backlinks=Backlinks(
+                groups=[BacklinkGroup(
+                    page_id=page_id_of(n), page_title=title_x,
+                    items=[BacklinkItem(uid=uid, text="t",
+                                        ancestor_uids=[anc])])],
+                ancestor_texts={anc: f"ancestor {n}"},
+                total_pages=2, offset=bl_offset, limit=bl_limit))
+
+    monkeypatch.setattr(pkm_client, "get_page", paged)
+    result = pkm_client.get_backlinks("X", page_size=1)
+    assert result.ancestor_texts == {uid_of("tuid-anc1"): "ancestor 1",
+                                     uid_of("tuid-anc2"): "ancestor 2"}
 
 
 def test_audit_title_migration_uses_the_canonicalization_route_and_validates_response(

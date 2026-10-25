@@ -89,13 +89,13 @@ def test_block_backlinks_groups(client):
     assert [g["page_title"] for g in groups] == ["July 7th, 2026"]
     assert [i["uid"] for i in groups[0]["items"]] == ["uid_b5"]
     assert groups[0]["items"][0]["text"] == "See ((uid_b3)) for details"
-    assert groups[0]["items"][0]["breadcrumbs"] == []
+    assert groups[0]["items"][0]["ancestor_uids"] == []
 
 
 def test_block_backlinks_empty_for_unreferenced_block(client):
     r = client.get("/api/block/uid_b1/backlinks")
     assert r.status_code == 200
-    assert r.json() == {"groups": []}
+    assert r.json() == {"groups": [], "ancestor_texts": {}}
 
 
 def test_block_backlinks_unknown_uid_404s(client):

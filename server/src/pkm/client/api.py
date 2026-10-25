@@ -209,6 +209,7 @@ class PkmClient:
         offset = 0
         seen_page_ids: set[int] = set()
         groups = []
+        ancestor_texts: dict[BlockUid, str] = {}
         total: int | None = None
         observed_limit: int | None = None
         while True:
@@ -228,13 +229,15 @@ class PkmClient:
                     return None  # a source reappeared -- restart
                 seen_page_ids.add(g.page_id)
             groups.extend(new_groups)
+            ancestor_texts.update(backlinks.ancestor_texts)
             offset += len(new_groups)
             if len(groups) >= total:
                 break
         total = total or 0
         if len(groups) != total:
             return None  # fewer distinct pages arrived than promised
-        return Backlinks(groups=groups, total_pages=total, offset=0,
+        return Backlinks(groups=groups, ancestor_texts=ancestor_texts,
+                         total_pages=total, offset=0,
                          limit=observed_limit or 0)
 
     def get_page_blocks(self, title: RawTitle) -> tuple[list[BlockNode], bool]:

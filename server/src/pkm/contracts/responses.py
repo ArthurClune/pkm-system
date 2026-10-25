@@ -73,9 +73,12 @@ def walk_blocks(nodes: Sequence[BlockNode]) -> Iterator[BlockNode]:
 
 
 class BacklinkItem(StrictModel):
+    """A block linking the page (or block), with its breadcrumb trail as
+    ancestor uids, root first. The texts are in the enclosing payload's
+    `ancestor_texts`."""
     uid: BlockUid
     text: str
-    breadcrumbs: list[str]
+    ancestor_uids: list[BlockUid]
 
 
 class BacklinkGroup(StrictModel):
@@ -85,7 +88,11 @@ class BacklinkGroup(StrictModel):
 
 
 class Backlinks(StrictModel):
+    """One page of backlink groups. `ancestor_texts` holds the text of
+    every uid an item's `ancestor_uids` names, each once: a trail per item
+    repeated the shared ancestors of a deep chain about depth²/2 times."""
     groups: list[BacklinkGroup]
+    ancestor_texts: dict[BlockUid, str]
     total_pages: int
     offset: int
     limit: int
@@ -94,8 +101,10 @@ class Backlinks(StrictModel):
 class BlockBacklinksPayload(StrictModel):
     """GET /api/block/{uid}/backlinks: every block referencing ((uid)),
     grouped like page backlinks. Unpaginated by design -- counts are small
-    and nothing user-visible truncates silently."""
+    and nothing user-visible truncates silently. `ancestor_texts` as in
+    `Backlinks`."""
     groups: list[BacklinkGroup]
+    ancestor_texts: dict[BlockUid, str]
 
 
 class BlockRefText(StrictModel):

@@ -5,7 +5,8 @@ order (callers order their rows by page title, then uid).
 
 Backlinks keep their own loop rather than routing through `group_by_page`:
 their rows name the page differently (`src_page_*`, since the row's own
-page is the reference target) and each item carries a breadcrumb trail.
+page is the reference target) and each item carries its breadcrumb trail
+as ancestor uids.
 """
 from __future__ import annotations
 
@@ -68,10 +69,11 @@ def group_changed(rows: Sequence[ChangedRow]) -> list[ChangedGroup]:
 
 
 def group_backlinks(rows: Sequence[Row],
-                    ancestors: Mapping[BlockUid, list[str]]
+                    trails: Mapping[BlockUid, list[BlockUid]]
                     ) -> list[BacklinkGroup]:
     """Rows of `uid, text, src_page_id, src_page_title` -> page groups whose
-    items also carry the block's breadcrumb trail."""
+    items also carry the block's breadcrumb trail as uids; the texts travel
+    once, beside the groups."""
     titles: dict[PageId, CanonicalTitle] = {}
     index: dict[PageId, list[BacklinkItem]] = {}
     for r in rows:
@@ -79,6 +81,6 @@ def group_backlinks(rows: Sequence[Row],
         titles.setdefault(r["src_page_id"], r["src_page_title"])
         items.append(BacklinkItem(
             uid=r["uid"], text=r["text"],
-            breadcrumbs=list(ancestors.get(r["uid"], []))))
+            ancestor_uids=list(trails.get(r["uid"], []))))
     return [BacklinkGroup(page_id=pid, page_title=titles[pid], items=items)
             for pid, items in index.items()]

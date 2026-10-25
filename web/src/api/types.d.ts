@@ -1127,19 +1127,33 @@ export interface components {
             /** Items */
             items: components["schemas"]["BacklinkItem"][];
         };
-        /** BacklinkItem */
+        /**
+         * BacklinkItem
+         * @description A block linking the page (or block), with its breadcrumb trail as
+         *     ancestor uids, root first. The texts are in the enclosing payload's
+         *     `ancestor_texts`.
+         */
         BacklinkItem: {
             /** Uid */
             uid: Brands.BlockUid;
             /** Text */
             text: string;
-            /** Breadcrumbs */
-            breadcrumbs: string[];
+            /** Ancestor Uids */
+            ancestor_uids: Brands.BlockUid[];
         };
-        /** Backlinks */
+        /**
+         * Backlinks
+         * @description One page of backlink groups. `ancestor_texts` holds the text of
+         *     every uid an item's `ancestor_uids` names, each once: a trail per item
+         *     repeated the shared ancestors of a deep chain about depth²/2 times.
+         */
         Backlinks: {
             /** Groups */
             groups: components["schemas"]["BacklinkGroup"][];
+            /** Ancestor Texts */
+            ancestor_texts: {
+                [key: string]: string;
+            };
             /** Total Pages */
             total_pages: number;
             /** Offset */
@@ -1151,11 +1165,16 @@ export interface components {
          * BlockBacklinksPayload
          * @description GET /api/block/{uid}/backlinks: every block referencing ((uid)),
          *     grouped like page backlinks. Unpaginated by design -- counts are small
-         *     and nothing user-visible truncates silently.
+         *     and nothing user-visible truncates silently. `ancestor_texts` as in
+         *     `Backlinks`.
          */
         BlockBacklinksPayload: {
             /** Groups */
             groups: components["schemas"]["BacklinkGroup"][];
+            /** Ancestor Texts */
+            ancestor_texts: {
+                [key: string]: string;
+            };
         };
         /** BlockGroup */
         BlockGroup: {

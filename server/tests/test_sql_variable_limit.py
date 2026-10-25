@@ -71,11 +71,13 @@ def test_page_counts_refs_to_each_of_many_blocks(client, db):
 def test_block_backlinks_carry_breadcrumbs_for_every_referrer(client, db):
     _referrers(db, 201, "uid_b3")
     db.commit()
-    groups = client.get("/api/block/uid_b3/backlinks").json()["groups"]
-    items = [i for g in groups for i in g["items"]
+    body = client.get("/api/block/uid_b3/backlinks").json()
+    items = [i for g in body["groups"] for i in g["items"]
              if i["uid"].startswith("ref_")]
     assert len(items) == N
-    assert all(i["breadcrumbs"] == ["root"] for i in items)
+    texts = body["ancestor_texts"]
+    assert all([texts[u] for u in i["ancestor_uids"]] == ["root"]
+               for i in items)
 
 
 def test_page_with_many_referrers_resolves_refs_and_backlinks(client, db):
@@ -139,5 +141,5 @@ def test_breadcrumb_is_not_doubled_when_a_block_straddles_chunks(client, db):
     groups = client.get("/api/page/Target").json()["backlinks"]["groups"]
     items = {i["uid"]: i for g in groups for i in g["items"]}
     assert len(items) == 501
-    assert items["kid_0000499"]["breadcrumbs"] == ["root"]
-    assert items["kid_0000500"]["breadcrumbs"] == ["root"]
+    assert items["kid_0000499"]["ancestor_uids"] == ["root_0000000"]
+    assert items["kid_0000500"]["ancestor_uids"] == ["root_0000000"]

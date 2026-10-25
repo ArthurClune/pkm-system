@@ -455,7 +455,8 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
                                      row["text"], rewrites, canonical)
         if outcome.kind == "over_limit":
             return ReplayOverLimitContext(
-                block, row["title"], _conflict_landing(db, op.uid, now_ms))
+                block, row["title"], _conflict_landing(db, op.uid, now_ms),
+                outcome.replayed, canonical)
         if outcome.kind != "conflict":
             return TextEditContext(block, outcome)
         # only a real conflict pays for today's daily page and its extra

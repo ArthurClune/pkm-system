@@ -436,13 +436,13 @@ server bug.
   measure never reads past the cap. Only the text an op sends
   is judged: a move, `set_*` op or delete of a row stored over a limit goes
   through, and an edit that brings it under is accepted. The links a
-  [stale batch](#stale-batches) unlinks are not judged: an unlink only
-  shortens the text, bar the two backticks a fenced attribute adds. So a
-  text at the cap whose leading attribute names a deleted page is stored at
-  `MAX_BLOCK_TEXT_CHARS` + 2. Every spelling that keeps the name's text and
-  stops it indexing needs the two backticks, and refusing would discard the
-  offline batch for text the client sent within the limit
-  (`test_a_stale_defuse_at_the_cap_stores_at_most_two_more`).
+  [stale batch](#stale-batches) or an over-limit landing unlinks are not
+  judged: an unlink only shortens the text, bar the two backticks a fenced
+  attribute adds. So a text at the cap whose leading attribute names a
+  deleted page is stored at `MAX_BLOCK_TEXT_CHARS` + 2. Every spelling that
+  keeps the name's text and stops it indexing needs the two backticks, and
+  refusing would discard the offline batch for text the client sent within
+  the limit (`test_a_stale_defuse_at_the_cap_stores_at_most_two_more`).
 - **Replayed text.** A stale edit replayed over a rename or page delete
   ([Conflicts](#conflicts)) is never stored past a limit, though nobody sent
   the text the replay makes. Each link grows by the title's growth, and
@@ -451,9 +451,12 @@ server bug.
   length from its spans (`spans.spliced_length`) and stops before building
   one past `MAX_BLOCK_TEXT_CHARS`. `classify_text_edit` then judges the
   result with `text_limit_violation`. Either refusal is the `over_limit`
-  outcome: the block keeps its text, and the edit as sent lands as a
-  conflict entry. A 400 would poison the client's queue over text it never
-  sent.
+  outcome: the block keeps its text, and the edit lands as a conflict
+  entry. A 400 would poison the client's queue over text it never sent.
+  The entry is the edit as sent with every title the replay's chain deleted
+  or renamed away made plain (`ops_core.over_limit_landing_text`), or its
+  links would re-create those pages. The chain is walked past the step
+  that stopped the replay, so a later step's titles count too.
 
 Conflicts, missing targets, stale batches and concurrent structure edits are
 what a batch meets when the tree changed after it was planned. None rejects

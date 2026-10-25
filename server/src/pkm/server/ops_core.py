@@ -270,21 +270,44 @@ def _replay(
 ) -> tuple[str | None, Sha256Hex, tuple[RewriteStep, ...]]:
     """`replay_title_rewrites`, also returning the steps it consumed in the
     order it walked them. The text is None when a step would carry it past
-    the length cap (`_replay_step`)."""
+    the length cap (`_replay_step`), and the hash is then the base of that
+    step. The walk still follows the chain past it, so the steps name every
+    title the chain deleted or renamed away (`over_limit_landing_text`)."""
     steps = _rewrite_steps(rewrites)
     consumed: list[RewriteStep] = []
+    replayed: str | None = text
+    stopped_at: Sha256Hex | None = None
     for _ in range(MAX_REPLAYED_REWRITES):
         match = next((s for s in steps if s.base_hash == base_hash), None)
         if match is None:
             break
         steps = [s for s in steps if s is not match]
         consumed.append(match)
-        replayed = _replay_step(text, match, canonical)
-        if replayed is None:
-            return None, base_hash, tuple(consumed)
-        text = replayed
+        if replayed is not None:
+            replayed = _replay_step(replayed, match, canonical)
+            if replayed is None:
+                stopped_at = base_hash
         base_hash = match.after_hash
-    return text, base_hash, tuple(consumed)
+    if stopped_at is not None:
+        return None, stopped_at, tuple(consumed)
+    return replayed, base_hash, tuple(consumed)
+
+
+def over_limit_landing_text(text: str, replayed: Sequence[RewriteStep],
+                            canonical: Callable[[str], str]) -> str:
+    """An `over_limit` edit as it lands: as sent, with every title a step of
+    its replay deleted (`unlinked`) or renamed away (`retitles`' keys) made
+    plain, as a stale unlink does. Landed with those links, the entry would
+    re-create the pages. Nothing is renamed, since a longer title is what
+    can carry a replay past the cap, and `((uid))` refs stay: one to a
+    deleted block is legal and only renders broken. The text can grow only
+    by `defuse_attribute`'s two backticks."""
+    gone = {canonical(title) for step in replayed
+            for title in (*step.unlinked, *step.retitles)}
+    if not gone:
+        return text
+    return unlink_stale_refs(
+        text, lambda raw: canonical(normalize_title(raw)) in gone)
 
 
 @dataclass(frozen=True)
@@ -631,11 +654,15 @@ class TextConflictContext:
 @dataclass(frozen=True)
 class ReplayOverLimitContext:
     """A hashed update_text on a live block that `classify_text_edit` found
-    `over_limit`: the block keeps its text, and the edit as sent lands under
-    a header naming `page_title`, the block's own page."""
+    `over_limit`: the block keeps its text, and the edit lands under a
+    header naming `page_title`, the block's own page, as
+    `over_limit_landing_text` makes it. `replayed` and `canonical` are as on
+    the outcome."""
     block: BlockInfo
     page_title: CanonicalTitle
     landing: ConflictLanding
+    replayed: tuple[RewriteStep, ...] = ()
+    canonical: Callable[[str], str] = normalize_title
 
 
 @dataclass(frozen=True)
@@ -1141,7 +1168,8 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
         # applied the edit gets its row back
         assert isinstance(op, UpdateTextOp) and op.base_text_hash is not None
         header_text = live_block_header_text(ctx.page_title, op.uid)
-        return (*conflict_entry_effects(op.uid, op.text, header_text,
+        landed = over_limit_landing_text(op.text, ctx.replayed, ctx.canonical)
+        return (*conflict_entry_effects(op.uid, landed, header_text,
                                         ctx.landing),
                 JournalBlock(op.uid, False))
     if isinstance(ctx, MoveContext):

@@ -3,10 +3,14 @@ text length cap or nests `[[` past the nesting cap, naming the block, and
 leaves rows already over a limit readable, movable and deletable."""
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from pkm import text_limits
-from pkm.contracts.ops import MAX_BLOCK_TEXT_CHARS, BlockUid, OrderIdx
+from pkm.contracts.daily import title_for_date
+from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, BlockUid, OrderIdx,
+                               text_hash)
 from pkm.server import db as db_module
 from pkm.server.db import open_db
 from pkm.server.store import reindex_refs_for_text
@@ -263,3 +267,82 @@ def test_a_huge_page_title_hint_lands_a_header_within_the_cap(
         con.close()
     assert row is not None
     assert row["n"] <= MAX_BLOCK_TEXT_CHARS
+
+
+# An edit whose replay would be over a limit lands as a conflict entry. The
+# replay it skipped had unlinked or renamed titles away; landed as sent,
+# its links would re-create those pages.
+
+def _today_conflicts(client) -> list[tuple[str, list[str]]]:
+    r = client.get(f"/api/page/{title_for_date(date.today())}")
+    if r.status_code == 404:
+        return []
+    return [(b["text"], [c["text"] for c in b["children"]])
+            for b in r.json()["blocks"]
+            if b["text"].startswith("[[conflict]]")]
+
+
+def _replay_skipped_over_limit(client, uid: BlockUid, base: str,
+                               text: str) -> None:
+    r = _post(client, {"op": "update_text", "uid": uid, "text": text,
+                       "base_text_hash": text_hash(base)})
+    assert r.status_code == 200, r.text[:500]
+    assert [(s["uid"], s["reason"]) for s in r.json()["skipped"]] == [
+        (uid, "text_limit")]
+
+
+def test_an_over_limit_replay_after_a_delete_does_not_recreate_the_page(
+        client):
+    _page(client)
+    source, referrer = uid_of("rp_src_0001"), uid_of("rp_ref_0001")
+    original = f"[[RpDel]] (({source}))"
+    r = _post(client,
+              {"op": "create", "uid": source, "page_title": "RpDel",
+               "parent_uid": None, "order_idx": 0, "text": "d" * 600_000},
+              _create(referrer, original))
+    assert r.status_code == 200, r.text[:500]
+    assert client.delete("/api/page/RpDel").status_code == 200
+
+    _replay_skipped_over_limit(client, referrer, original,
+                               f"[[RpDel]] (({source})) (({source}))")
+
+    assert client.get("/api/page/RpDel").status_code == 404
+    [(_, [landed])] = _today_conflicts(client)
+    assert landed == f"RpDel (({source})) (({source}))"
+
+
+def test_an_over_limit_replay_after_a_rename_does_not_recreate_the_old_title(
+        client):
+    _page(client)
+    referrer = uid_of("rp_ref_0002")
+    original = "[[Old]] " * 900
+    assert _post(client, _create(referrer, original)).status_code == 200
+    r = client.post("/api/page/Old/rename", json={"new_title": "n" * 1000})
+    assert r.status_code == 200, r.text[:500]
+
+    _replay_skipped_over_limit(client, referrer, original, "[[Old]] " * 1000)
+
+    assert client.get("/api/page/Old").status_code == 404
+    [(_, [landed])] = _today_conflicts(client)
+    assert landed == "Old " * 1000
+
+
+def test_an_over_limit_replay_unlinks_titles_past_the_step_it_stopped_at(
+        client):
+    # The rename's step is over the cap; the later delete of RpX is a step
+    # the replay never reached, and its title must not come back either.
+    _page(client)
+    referrer = uid_of("rp_ref_0003")
+    original = "[[RpX]] " + "[[Old]] " * 900
+    assert _post(client, _create(referrer, original)).status_code == 200
+    r = client.post("/api/page/Old/rename", json={"new_title": "n" * 1000})
+    assert r.status_code == 200, r.text[:500]
+    assert client.delete("/api/page/RpX").status_code == 200
+
+    _replay_skipped_over_limit(client, referrer, original,
+                               "[[RpX]] " + "[[Old]] " * 1000)
+
+    assert client.get("/api/page/RpX").status_code == 404
+    assert client.get("/api/page/Old").status_code == 404
+    [(_, [landed])] = _today_conflicts(client)
+    assert landed == "RpX " + "Old " * 1000

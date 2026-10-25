@@ -638,13 +638,22 @@ class Model:
         steps = self.rewrites.get(block.uid, ())
         if replay_peak(steps, unreplayed, base) > TEXT_CAP:
             # backend.md § Conflicts: a replay may not store text past a
-            # limit. The edit as sent lands, the block keeps its text. A
-            # copy lands where `((uid))` stood, never inside a `[[` run,
-            # so only the length cap can be reached (code:
+            # limit. The edit lands, the block keeps its text. A copy
+            # lands where `((uid))` stood, never inside a `[[` run, so
+            # only the length cap can be reached (code:
             # ops_core._replay_step judges each step's splice).
-            self._paths.append("update_text replay: over the length cap")
+            # § Planning, "Replayed text": the landing has every title
+            # the chain deleted made plain, the steps past the one over
+            # the cap included (code: ops_core.over_limit_landing_text).
+            gone = frozenset().union(
+                *(step.unlinked
+                  for step in replay_chain(steps, unreplayed, base)[2]))
+            landed = unlink_stale(unreplayed, gone)
+            self._paths.append(
+                "update_text replay: over the length cap"
+                + (", gone titles unlinked" if landed != unreplayed else ""))
             skip("text_limit")
-            kept.append(unreplayed)
+            kept.append(landed)
             return
         text, base, replayed = self._replay(block.uid, text, base)
         kind = ("identical" if text == block.text else

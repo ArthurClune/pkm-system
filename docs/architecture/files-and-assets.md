@@ -65,7 +65,9 @@ The stripping rules:
   because asset deletion must never cascade away real content.
 - The file is unlinked after the commit, so a crash leaves at worst an
   unreferenced file, never a row pointing at a missing one.
-- Asset URLs produce no `refs` rows, so no reindex is needed.
+- Asset URLs produce no `refs` rows, so the delete runs no reindex. A
+  strip that joins `[` and `[` (above) can therefore make a link that is
+  not indexed until the block is next edited.
 - An upload of the same bytes that dedups onto the row before its linking
   batch commits is not protected: an `if_unreferenced` delete in between
   removes the file under it. The window is accepted.

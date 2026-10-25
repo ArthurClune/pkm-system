@@ -186,9 +186,10 @@ flowchart LR
 
 A depth refusal (`DEPTH_NOTICE`) or a text-limit one (`textLimitNotice`)
 shows in the one `editNotice` slot `EditablePage` renders. The next command
-that applies, or Dismiss, clears it. A refused keystroke or paste leaves the
-textarea as it was, with the caret where the refused insertion began
-(`refusedEditCaret`). The draft's own text still ships, and a refused undo or
+that applies, or Dismiss, clears it. A refused keystroke leaves the textarea
+as it was, with the caret where the refused insertion began
+(`refusedEditCaret`). A refused paste is prevented, so its caret and
+selection are untouched. The draft's own text still ships, and a refused undo or
 redo keeps its entry for a retry.
 Code can hide a nest: a split inside a fence can cut off its closing
 backticks, so the first half exposes the nest and is refused, here and by the

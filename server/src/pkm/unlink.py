@@ -15,8 +15,8 @@ splice's projected length, so a copy too long to store is never built. The
 nesting limit and the unlink's work are judged on the spliced text before
 unlinking too, a page block's copy and each source with its copies in
 (`text_limits.unlink_refused`), since the unlink's passes grow with the
-depth (`unlink_title_refs`). An unlink that has not settled when its passes
-run out leaves the source `residual`.
+depth (`unlink_title_refs`). An unlink whose passes run out before it
+settles leaves a link, so the source is `residual`.
 The stale path (`unlink_stale_refs`) has no blockers to report, so
 `defuse_attribute` fences a leading attribute naming the page in backticks,
 and a link the passes left is fenced too (`_fence_title_refs`).
@@ -196,8 +196,9 @@ def unlink_settled(text: str, is_target: TitleMatch) -> tuple[str, bool]:
     # A nested legacy link (`[[[[AI]]]]`, `[[ [[AI]] ]]`) loses one layer
     # per pass, so the depth sets the passes that change the text. Two
     # more cover what an unlink exposes: a tag a tag leaves (`##[[AI]]`,
-    # then `#AI`), and one a link's `]]` hid (`[[ #AI ]]#AI`). Then one
-    # pass that finds nothing. Nothing bounds the passes otherwise: a
+    # then `#AI`), and one a link's `]]` hid once the tag inside it made
+    # it a link to the target (`[[\n#AI\n]]#AI`). Then one pass that finds
+    # nothing. Nothing bounds the passes otherwise: a
     # title ending in `[` re-forms a link after each one (`[[a[]]` then
     # `[a[]]`), such titles stored before they were refused still exist,
     # and a code span that moves as links go can show another link.
@@ -300,15 +301,16 @@ def apply_delete_rewrite(
 # leading `Name::` attribute is the page, which a delete cannot rewrite and
 # the next edit would recreate; attribute: the rewrite would change the
 # block's leading attribute; residual: the rewritten text would still
-# reference the page or one of its blocks, or its unlink ran out of passes
-# (`unlink_settled`); limit: the copies inlined would carry the block over a
-# text limit, or further past one (text_limits.rewrite_text_limit_violation).
-# The length is judged first on the projected inlined text before
-# unlinking, and a page block whose own copy would pass the cap blocks every
-# block that refers to it, as does a block whose copies would carry the
-# delete past MAX_DELETE_COPY_CHARS. The nesting and the unlink's work are
-# judged next (text_limits.unlink_refused), also before unlinking, on each
-# copy and on the source with its copies in.
+# reference the page or one of its blocks, as a link the unlink's passes
+# leave does (`unlink_settled`); limit: the copies inlined would carry the
+# block over a text limit, or further past one
+# (text_limits.rewrite_text_limit_violation). The length is judged first on
+# the projected inlined text before unlinking, and a page block whose own
+# copy would pass the cap blocks every block that refers to it, as does a
+# block whose copies would carry the delete past MAX_DELETE_COPY_CHARS.
+# The nesting and the unlink's work are judged next
+# (text_limits.unlink_refused), also before unlinking, on each copy and on
+# the source with its copies in.
 BlockerReason = Literal["query", "used_as_attribute", "attribute", "residual",
                         "limit"]
 
@@ -524,9 +526,9 @@ def plan_page_delete(
                 DeleteBlocker(source.uid, source.page_title, source.text,
                               "limit"))
             continue
-        new, settled = unlink_settled(pre, is_target)
-        reason = "residual" if not settled else \
-            _rewrite_blocker_reason(is_target, page_blocks, source, new)
+        # a link the unlink's passes leave makes the source `residual`
+        new = unlink_title_refs(pre, is_target)
+        reason = _rewrite_blocker_reason(is_target, page_blocks, source, new)
         if reason is None and \
                 rewrite_text_limit_violation(source.text, new) is not None:
             reason = "limit"

@@ -182,10 +182,21 @@ def test_a_stale_unlink_that_does_not_settle_fences_what_is_left():
     "[[a[]]\n[[a[]][a[]]",
 ])
 def test_the_fence_leaves_no_link_to_the_page(text):
-    # The fence alone, on text no unlink has touched.
-    out = unlink._fence_title_refs(text, is_legacy)
+    # The fence alone, on text no unlink has touched: one pass inerts every
+    # link on a line, whatever its backticks pair with.
+    out = unlink._unlink_pass(text, is_legacy, fence=True)
     assert _refs_to(out, is_legacy) == []
     assert out.replace("`", "") == text.replace("`", "")
+    assert unlink._fence_title_refs(text, is_legacy) == out
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("[[[[T]]]]", "T"),           # a layer per level
+    ("##[[T]]", "T"),             # a tag the tag left
+    ("[[\n#T\n]]#T", "\nT\nT"),  # the tag made the link one, which hid a tag
+])
+def test_an_unlink_settles_within_its_depth_plus_two_passes(text, expected):
+    assert unlink.unlink_settled(text, is_t) == (expected, True)
 
 
 def test_a_legacy_delete_reports_the_residual_on_delete_and_preview(
@@ -400,6 +411,11 @@ def test_the_work_budget_is_judged_on_depth_times_length():
     assert text_limits.unlink_refused("", within + "x")
     # no run, so nothing for the passes to peel, however long
     assert not text_limits.unlink_refused("", "x" * 2 * budget)
+    # more `[[` than the nesting cap, so the depth is measured
+    links = "[[T]]" * (MAX_LINK_NESTING + 1)
+    at = links + "x" * (budget - len(links))
+    assert not text_limits.unlink_refused("", at)
+    assert text_limits.unlink_refused("", at + "x")
 
 
 def test_each_rule_is_judged_against_the_text_before():
@@ -413,6 +429,12 @@ def test_each_rule_is_judged_against_the_text_before():
     assert not text_limits.unlink_refused(costly, costly)
     assert not text_limits.unlink_refused(costly + "x", costly)
     assert text_limits.unlink_refused(costly, costly + "x")
+    # level nesting past the cap, longer: refused only past the budget
+    legacy = nest(40)
+    at = legacy + "x" * (text_limits.MAX_UNLINK_WORK // 40 - len(legacy))
+    assert link_nesting_depth(at) * len(at) == text_limits.MAX_UNLINK_WORK
+    assert not text_limits.unlink_refused(legacy, at)
+    assert text_limits.unlink_refused(legacy, at + "x")
 
 
 @pytest.mark.parametrize("ops", [1, 4])

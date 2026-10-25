@@ -4,9 +4,10 @@
 // precedent as JournalDayReferences reusing BacklinksSection rather than
 // growing a second renderer.
 import type { BlockUid, CanonicalTitle } from "../api/brands";
-import type { BacklinkGroup } from "../api/payloads";
+import type { AncestorTexts, BacklinkGroup } from "../api/payloads";
 import { tokenizeBlock } from "../grammar/tokenize";
 import type { AssetRefGroup } from "../views/filesCore";
+import { breadcrumbTexts } from "./backlinkFilter";
 import { InlineSegments } from "./InlineSegments";
 import { PageLink } from "./PageLink";
 
@@ -17,8 +18,11 @@ function groupKey(g: BacklinkGroup | AssetRefGroup): string | number {
   return "page_id" in g ? g.page_id : g.page_title;
 }
 
-export function BacklinkGroupList({ groups, onNavigate }: {
+export function BacklinkGroupList({ groups, ancestorTexts, onNavigate }: {
   groups: (BacklinkGroup | AssetRefGroup)[];
+  /** The payload's shared ancestor texts, which items' `ancestor_uids`
+   * name: each ancestor's text travels once, not once per trail. */
+  ancestorTexts: AncestorTexts;
   /** When set, each item becomes a navigation target (the popover);
    * without it, items render inertly (the backlinks section, where
    * navigation lives on the inline links themselves). */
@@ -45,8 +49,10 @@ export function BacklinkGroupList({ groups, onNavigate }: {
                      onNavigate(g.page_title, item.uid);
                    }
                  } : undefined}>
-              {item.breadcrumbs.length > 0 && (
-                <div className="breadcrumbs">{item.breadcrumbs.join(" › ")}</div>
+              {item.ancestor_uids.length > 0 && (
+                <div className="breadcrumbs">
+                  {breadcrumbTexts(item, ancestorTexts).join(" › ")}
+                </div>
               )}
               <div className="backlink-text">
                 <InlineSegments segments={tokenizeBlock(item.text)} />

@@ -52,7 +52,7 @@ export function FileRefsPopover({ refs, x, y, onClose }: {
       )}
       {groups !== null && (
         <InertMediaContext.Provider value={true}>
-          <BacklinkGroupList groups={groups}
+          <BacklinkGroupList groups={groups} ancestorTexts={{}}
             onNavigate={(pageTitle, uid) => {
               onClose();
               navigate(`${pagePath(pageTitle)}#${uid}`);

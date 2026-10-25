@@ -18,11 +18,11 @@ const initial: Backlinks = {
   groups: [{
     page_id: pageIdOf(3), page_title: canonicalTitleOf("Daily"),
     items: [
-      { uid: uidOf("tuid-a"), text: "[[AI]] and [[ML]]", breadcrumbs: [] },
-      { uid: uidOf("tuid-b"), text: "[[ AI ]] and [[ML ]]", breadcrumbs: [] },
+      { uid: uidOf("tuid-a"), text: "[[AI]] and [[ML]]", ancestor_uids: [] },
+      { uid: uidOf("tuid-b"), text: "[[ AI ]] and [[ML ]]", ancestor_uids: [] },
     ],
   }],
-  total_pages: 1, offset: 0, limit: 20,
+  ancestor_texts: {}, total_pages: 1, offset: 0, limit: 20,
 };
 
 const openPanel = () => render(

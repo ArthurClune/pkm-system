@@ -152,7 +152,7 @@ export interface AssetRefGroup {
 }
 
 // Shape an asset's refs for BacklinkGroupList, grouped by page title
-// (breadcrumbs aren't available here, so rows carry text only).
+// (ancestors aren't available here, so rows carry no breadcrumbs).
 export function refGroups(
   refs: readonly AssetRef[],
   texts: Record<string, { text: string; page_title: CanonicalTitle }>,
@@ -169,7 +169,7 @@ export function refGroups(
     group.items.push({
       uid: ref.uid,
       text: texts[ref.uid]?.text ?? MISSING_BLOCK_TEXT,
-      breadcrumbs: [],
+      ancestor_uids: [],
     });
   }
   return groups;

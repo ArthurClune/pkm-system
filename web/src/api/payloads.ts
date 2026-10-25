@@ -13,6 +13,8 @@ export type BlockNode = Schemas["BlockNode"];
 export type BacklinkItem = Schemas["BacklinkItem"];
 export type BacklinkGroup = Schemas["BacklinkGroup"];
 export type Backlinks = Schemas["Backlinks"];
+/** uid -> text of every ancestor a backlinks payload's items name. */
+export type AncestorTexts = Backlinks["ancestor_texts"];
 export type BlockRefText = Schemas["BlockRefText"];
 export type BlockRefsPayload = Schemas["BlockRefsPayload"];
 export type BlockBacklinksPayload = Schemas["BlockBacklinksPayload"];

@@ -6,8 +6,8 @@
 // page_title anyway (offline-editing-design.md §1).
 
 import type { BlockUid, PageId } from "../../api/brands";
-import type { BacklinkGroup, BlockBacklinksPayload, BlockGroup, CurrentWorkPage,
-              CurrentWorkPayload, GroupsPayload, PageMeta,
+import type { BacklinkGroup, Backlinks, BlockBacklinksPayload, BlockGroup,
+              CurrentWorkPage, CurrentWorkPayload, GroupsPayload, PageMeta,
               PagePayload } from "../../api/payloads";
 import { titleForDate } from "../daily";
 import type { Columns } from "../columns.gen";
@@ -47,13 +47,14 @@ const CURRENT_WORK_SECTIONS = [
     maxAge: 7 * 24 * HOUR_MS },
 ] as const;
 
-/** Shared with the journal shim, which previews each day's references from
- * the same query rather than a page read per day. A page's own
- * blocks are excluded even when they reference it, as the server's
- * `_backlinks` and unlinked references do. */
+/** One page of a page's backlinks, and the texts of their blocks. Shared
+ * with the journal shim, which previews each day's references from the same
+ * query rather than a page read per day. A page's own blocks are excluded
+ * even when they reference it, as the server's `_backlinks` and unlinked
+ * references do. */
 export function backlinks(db: ReplicaDb, pageId: PageId, offset: number,
                           limit: number):
-    { groups: BacklinkGroup[]; total: number; texts: string[] } {
+    { backlinks: Backlinks; texts: string[] } {
   const total = Number(db.select(
     `SELECT count(DISTINCT b.page_id) AS n FROM refs r
       JOIN blocks b ON b.uid = r.src_block_uid
@@ -65,7 +66,10 @@ export function backlinks(db: ReplicaDb, pageId: PageId, offset: number,
      WHERE r.target_page_id = ? AND b.page_id != ?
      ORDER BY p.updated_at DESC NULLS LAST, p.title
      LIMIT ? OFFSET ?`, ["page_id"], [pageId, pageId, limit, offset]).map((r) => r.page_id);
-  if (pageIds.length === 0) return { groups: [], total, texts: [] };
+  if (pageIds.length === 0) {
+    return { backlinks: { groups: [], ancestor_texts: {}, total_pages: total,
+                          offset, limit }, texts: [] };
+  }
   const marks = pageIds.map(() => "?").join(",");
   const rows = db.select(
     `SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
@@ -75,14 +79,18 @@ export function backlinks(db: ReplicaDb, pageId: PageId, offset: number,
       WHERE r.target_page_id = ? AND b.page_id IN (${marks})
       ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid`, ["uid", "text", "src_page_id", "src_page_title"],
     [pageId, ...pageIds]);
-  const groups = groupBacklinkRows(
-    rows, fetchAncestors(db, rows.map((r) => r.uid)));
-  return { groups, total, texts: rows.map((r) => r.text) };
+  const ancestors = fetchAncestors(db, rows.map((r) => r.uid));
+  return {
+    backlinks: { groups: groupBacklinkRows(rows, ancestors.trails),
+                 ancestor_texts: ancestors.texts, total_pages: total,
+                 offset, limit },
+    texts: rows.map((r) => r.text),
+  };
 }
 
 /** Rows arrive already ordered; grouping preserves first-seen page order. */
 function groupBacklinkRows(rows: BacklinkRow[],
-                           ancestors: Map<BlockUid, string[]>): BacklinkGroup[] {
+                           trails: Map<BlockUid, BlockUid[]>): BacklinkGroup[] {
   const groups: BacklinkGroup[] = [];
   const index = new Map<PageId, BacklinkGroup>();
   for (const r of rows) {
@@ -94,7 +102,7 @@ function groupBacklinkRows(rows: BacklinkRow[],
       groups.push(group);
     }
     group.items.push({ uid: r.uid, text: r.text,
-                       breadcrumbs: ancestors.get(r.uid) ?? [] });
+                       ancestor_uids: trails.get(r.uid) ?? [] });
   }
   return groups;
 }
@@ -112,8 +120,9 @@ export function blockBacklinks(db: ReplicaDb,
        JOIN pages p ON p.id = b.page_id
       WHERE r.target_block_uid = ?
       ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid`, ["uid", "text", "src_page_id", "src_page_title"], [uid]);
-  return { groups: groupBacklinkRows(
-    rows, fetchAncestors(db, rows.map((r) => r.uid))) };
+  const ancestors = fetchAncestors(db, rows.map((r) => r.uid));
+  return { groups: groupBacklinkRows(rows, ancestors.trails),
+           ancestor_texts: ancestors.texts };
 }
 
 /** null = page not found (and not a daily title): the caller 404s. */
@@ -138,8 +147,7 @@ export function pagePayload(db: ReplicaDb, requested: string, blOffset: number,
   return {
     page,
     blocks: buildTree(blocks),
-    backlinks: { groups: bl.groups, total_pages: bl.total,
-                 offset: blOffset, limit },
+    backlinks: bl.backlinks,
     block_ref_texts: blockRefTexts(
       db, [...blocks.map((r) => r.text), ...bl.texts]),
     block_ref_counts: blockRefCounts(db, blocks.map((r) => r.uid)),

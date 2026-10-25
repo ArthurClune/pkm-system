@@ -24,7 +24,7 @@ export type MissingPagePolicy<Title extends RawTitle = RawTitle> = (
 const emptyPagePayload = (title: CanonicalTitle): PagePayload => ({
   page: { id: MISSING_PAGE_ID, title, created_at: 0, updated_at: 0 },
   blocks: [],
-  backlinks: { groups: [], total_pages: 0, offset: 0, limit: 20 },
+  backlinks: { groups: [], ancestor_texts: {}, total_pages: 0, offset: 0, limit: 20 },
   block_ref_texts: {},
   block_ref_counts: {},
 });

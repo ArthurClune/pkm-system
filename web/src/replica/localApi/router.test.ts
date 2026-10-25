@@ -270,8 +270,8 @@ describe("block backlinks", () => {
     expect(call("GET", "/api/block/uid_t1/backlinks")).toEqual({
       handled: true, status: 200, body: { groups: [{
         page_id: 2, page_title: "Source",
-        items: [{ uid: "uid_s1", text: "see ((uid_t1))", breadcrumbs: [] }],
-      }] },
+        items: [{ uid: "uid_s1", text: "see ((uid_t1))", ancestor_uids: [] }],
+      }], ancestor_texts: {} },
     });
     expect(call("GET", "/api/block/uid_nope99/backlinks")).toEqual({
       handled: true, status: 404, body: { detail: "block not found" },
@@ -288,7 +288,7 @@ describe("block backlinks", () => {
       " VALUES ('uid_t1', 1, NULL, 0, 'the target')");
 
     expect(expectStatus(call("GET", "/api/block/uid_t1/backlinks"), 200))
-      .toEqual({ groups: [] });
+      .toEqual({ groups: [], ancestor_texts: {} });
   });
 });
 

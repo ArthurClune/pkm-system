@@ -129,27 +129,27 @@ export function blockRefCounts(db: ReplicaDb,
   return out;
 }
 
-/** Each start's breadcrumb trail, root first, from `uid -> [parent_uid,
- * text]`: the parent links followed up to a uid missing from `blocks` or
- * one already on the trail (the start counts), so a corrupt parent cycle
- * ends rather than repeating. Starts with no ancestor in `blocks` are
- * absent. Mirrors server tree.ancestor_texts. */
-export function ancestorTexts(
+/** Each start's breadcrumb trail of ancestor uids, root first, from
+ * `uid -> [parent_uid, text]`: the parent links followed up to a uid missing
+ * from `blocks` or one already on the trail (the start counts), so a corrupt
+ * parent cycle ends rather than repeating. Starts with no ancestor in
+ * `blocks` are absent. Mirrors server tree.ancestor_trails. */
+export function ancestorTrails(
   starts: readonly BlockUid[],
   blocks: ReadonlyMap<BlockUid, readonly [BlockUid | null, string]>,
-): Map<BlockUid, string[]> {
-  const out = new Map<BlockUid, string[]>();
+): Map<BlockUid, BlockUid[]> {
+  const out = new Map<BlockUid, BlockUid[]>();
   for (const start of new Set(starts)) {
     const first = blocks.get(start);
     if (!first) continue;
     const seen = new Set<BlockUid>([start]);
-    const trail: string[] = [];
+    const trail: BlockUid[] = [];
     let parent = first[0];
     while (parent !== null && !seen.has(parent)) {
       const row = blocks.get(parent);
       if (!row) break;
       seen.add(parent);
-      trail.push(row[1]);
+      trail.push(parent);
       parent = row[0];
     }
     if (trail.length > 0) out.set(start, trail.reverse());
@@ -157,15 +157,22 @@ export function ancestorTexts(
   return out;
 }
 
-/** Breadcrumb trails: root-first ancestor texts per start uid. Mirrors
- * routes_pages._fetch_ancestors: the CTE holds `uid` alone and joins with
- * UNION, which queues a row only once, so each distinct ancestor is read
- * once and a corrupt parent cycle ends the walk. It must never carry a
- * per-row path string: one row per (start, ancestor), each copying an
- * O(depth) string, made breadcrumbs cost O(depth^3). */
-export function fetchAncestors(db: ReplicaDb,
-                               uids: BlockUid[]): Map<BlockUid, string[]> {
-  if (uids.length === 0) return new Map();
+/** Breadcrumb trails as uids, and the text of every uid on a trail, once:
+ * what a backlinks response carries as `ancestor_uids` per item and one
+ * `ancestor_texts` map. Mirrors server tree.Ancestors. */
+export interface Ancestors {
+  trails: Map<BlockUid, BlockUid[]>;
+  texts: Record<BlockUid, string>;
+}
+
+/** Breadcrumb trails: root-first ancestor uids per start uid, with each
+ * ancestor's text once. Mirrors routes_pages._fetch_ancestors: the CTE holds
+ * `uid` alone and joins with UNION, which queues a row only once, so each
+ * distinct ancestor is read once and a corrupt parent cycle ends the walk.
+ * It must never carry a per-row path string: one row per (start, ancestor),
+ * each copying an O(depth) string, made breadcrumbs cost O(depth^3). */
+export function fetchAncestors(db: ReplicaDb, uids: BlockUid[]): Ancestors {
+  if (uids.length === 0) return { trails: new Map(), texts: {} };
   const marks = uids.map(() => "?").join(",");
   const blocks = new Map<BlockUid, readonly [BlockUid | null, string]>();
   for (const r of db.select(
@@ -180,5 +187,13 @@ export function fetchAncestors(db: ReplicaDb,
     ["uid", "parent_uid", "text"], uids)) {
     blocks.set(r.uid, [r.parent_uid, r.text]);
   }
-  return ancestorTexts(uids, blocks);
+  const trails = ancestorTrails(uids, blocks);
+  const texts: Record<BlockUid, string> = {};
+  for (const trail of trails.values()) {
+    for (const uid of trail) {
+      const row = blocks.get(uid);
+      if (row) texts[uid] = row[1]; // every trail uid has a row
+    }
+  }
+  return { trails, texts };
 }

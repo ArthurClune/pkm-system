@@ -23,6 +23,7 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   // derived from the latest known value.
   const [backlinks, setBacklinks] = useState<BacklinkBatchState>({
     groups: initial.groups, totalPages: initial.total_pages, refTexts: {},
+    ancestorTexts: initial.ancestor_texts,
   });
   // Shared by loadMore and loadAll, not per-caller: if both are ever in
   // flight together the first to settle re-enables both buttons early. Both
@@ -103,7 +104,8 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
       // reading state.totalPages first — a check that ran before the first
       // batch landed would never see anything but Infinity and loop forever.
       const result = await walkBacklinkBatches(
-        fetchBatch, { groups: [], totalPages: Infinity, refTexts: {} },
+        fetchBatch,
+        { groups: [], totalPages: Infinity, refTexts: {}, ancestorTexts: {} },
         (state, batchesFetched) => (batchesFetched === 0
           ? (panelOpen ? 100 : initial.limit)
           : (panelOpen && state.groups.length < state.totalPages ? 100 : null)),
@@ -133,13 +135,16 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   };
 
   const filtering = isFiltering(filter);
-  const visible = useMemo(() => applyFilter(backlinks.groups, filter, read),
-    [backlinks.groups, filter, read]);
+  const visible = useMemo(
+    () => applyFilter(backlinks.groups, backlinks.ancestorTexts, filter, read),
+    [backlinks.groups, backlinks.ancestorTexts, filter, read]);
   const chips = useMemo(
     () => panelOpen && fullyLoaded
-      ? chipCounts(visible, [title, ...filter.include, ...filter.exclude], read)
+      ? chipCounts(visible, backlinks.ancestorTexts,
+                   [title, ...filter.include, ...filter.exclude], read)
       : [],
-    [panelOpen, fullyLoaded, visible, title, filter, read]);
+    [panelOpen, fullyLoaded, visible, backlinks.ancestorTexts, title, filter,
+     read]);
 
   const chipButton = (t: CanonicalTitle, side: "include" | "exclude", label: string) => (
     <button key={`${side}:${t}`} className={`filter-chip ${side}d`}
@@ -191,7 +196,8 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
             )}
           </div>
         )}
-        <BacklinkGroupList groups={visible} />
+        <BacklinkGroupList groups={visible}
+                           ancestorTexts={backlinks.ancestorTexts} />
         {filtering && fullyLoaded && visible.length === 0 && (
           <p className="filter-no-match">No matching references</p>
         )}

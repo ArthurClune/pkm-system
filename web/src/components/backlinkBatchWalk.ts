@@ -1,19 +1,22 @@
 // pattern: Functional Core
-import type { BacklinkGroup, BlockRefText } from "../api/payloads";
+import type { AncestorTexts, BacklinkGroup, BlockRefText } from "../api/payloads";
 import { mergeGroups } from "./groups";
 
-/** groups, total page count, and extra reference texts change in lockstep --
- * one value so a partial update (e.g. groups without a matching totalPages)
- * can't happen. */
+/** groups, total page count, extra reference texts and the items' ancestor
+ * texts change in lockstep -- one value so a partial update (e.g. groups
+ * without a matching totalPages, or without their crumbs' texts) can't
+ * happen. */
 export type BacklinkBatchState = {
   groups: BacklinkGroup[];
   totalPages: number;
   refTexts: Record<string, BlockRefText>;
+  ancestorTexts: AncestorTexts;
 };
 
 /** The slice of a page-payload response the walk consumes. */
 export type BacklinkBatchPayload = {
-  backlinks: { groups: BacklinkGroup[]; total_pages: number };
+  backlinks: { groups: BacklinkGroup[]; ancestor_texts: AncestorTexts;
+               total_pages: number };
   block_ref_texts: Record<string, BlockRefText>;
 };
 
@@ -60,10 +63,12 @@ export async function walkBacklinkBatches(
       return { ...current, totalPages, refTexts };
     }
     const groups = mergeGroups(current.groups, payload.backlinks.groups);
+    const ancestorTexts = { ...current.ancestorTexts,
+                            ...payload.backlinks.ancestor_texts };
     if (groups.length === current.groups.length) {
-      return { groups, totalPages, refTexts };
+      return { groups, totalPages, refTexts, ancestorTexts };
     }
-    current = { groups, totalPages, refTexts };
+    current = { groups, totalPages, refTexts, ancestorTexts };
     limit = nextLimit(current, batchesFetched);
   }
   return current;
@@ -90,5 +95,6 @@ export function mergeBacklinkResult(
     groups: mergeGroups(current.groups, result.groups),
     totalPages: result.totalPages,
     refTexts: { ...current.refTexts, ...result.refTexts },
+    ancestorTexts: { ...current.ancestorTexts, ...result.ancestorTexts },
   };
 }

@@ -1,8 +1,11 @@
+import asyncio
 import sys
 import threading
 import time
 from dataclasses import replace
 
+import httpx
+from conftest import TEST_PASSWORD
 from fastapi.routing import APIRoute, APIWebSocketRoute
 from fastapi.testclient import TestClient
 from starlette.staticfiles import StaticFiles
@@ -11,9 +14,11 @@ from test_routes_models import _api_routes, fill_path
 
 from pkm.server.app import create_app
 
+import pkm.server.auth as auth_module
 from pkm.server.auth import MAX_CONCURRENT_SCRYPT, LoginThrottle
 from pkm.server.auth_core import (hash_password, sign_session,
                                   verify_password, verify_session)
+from pkm.server.throttle_core import BASE_BACKOFF_MS
 
 SECRET = b"s" * 32
 SALT = b"\x01" * 16
@@ -102,6 +107,156 @@ def test_login_fails_fast_instead_of_hanging_when_scrypt_slots_are_saturated(
     assert elapsed < 1.0  # bounded by acquire_timeout_s, not indefinite
 
 
+ATTACKER = "100.64.0.10"
+USER = "100.64.0.20"
+WRONG = {"detail": "wrong password"}
+BURST = 200
+
+
+def _count_checks(monkeypatch) -> list[str]:
+    """Each password the route checks, in order. The pause keeps a check in
+    flight long enough for a concurrent burst to pile up behind it."""
+    checks: list[str] = []
+    real = auth_module.verify_password
+
+    def counting(password: str, salt: bytes, stored: str) -> bool:
+        checks.append(password)
+        time.sleep(0.05)
+        return real(password, salt, stored)
+
+    monkeypatch.setattr(auth_module, "verify_password", counting)
+    return checks
+
+
+def _frozen_throttle(app, **kwargs) -> tuple[LoginThrottle, list[int]]:
+    """A throttle whose clock moves only when the test moves `frozen[0]`,
+    so "one check per backoff window" is exact, not a timing race."""
+    frozen = [0]
+    throttle = LoginThrottle(clock_ms=lambda: frozen[0], **kwargs)
+    app.state.login_throttle = throttle
+    return throttle, frozen
+
+
+async def _logins(app, peer: str,
+                  passwords: list[str]) -> list[httpx.Response]:
+    """All `passwords` posted at once from one client address."""
+    transport = httpx.ASGITransport(app=app, client=(peer, 50000))
+    async with httpx.AsyncClient(transport=transport, timeout=60,
+                                 base_url="http://testserver") as c:
+        return list(await asyncio.gather(
+            *[c.post("/api/login", json={"password": p}) for p in passwords]))
+
+
+def test_a_concurrent_burst_runs_one_check_per_backoff_window(
+        anon_client, monkeypatch):
+    checks = _count_checks(monkeypatch)
+    throttle, frozen = _frozen_throttle(anon_client.app)
+    guesses = [f"guess-{i}" for i in range(BURST)]
+
+    first = asyncio.run(_logins(anon_client.app, ATTACKER, guesses))
+    assert len(checks) == 1
+    assert {r.status_code for r in first} == {401}
+    assert all(r.json() == WRONG for r in first)
+    assert throttle._attempts[ATTACKER].failures == 1
+
+    frozen[0] += BASE_BACKOFF_MS
+    asyncio.run(_logins(anon_client.app, ATTACKER, guesses))
+    assert len(checks) == 2
+    assert throttle._attempts[ATTACKER].failures == 2
+    assert throttle._turns == {}
+
+
+def test_a_burst_from_one_source_does_not_lock_out_another(
+        anon_client, monkeypatch):
+    _count_checks(monkeypatch)
+    _frozen_throttle(anon_client.app)
+
+    async def both() -> list[httpx.Response]:
+        burst, user = await asyncio.gather(
+            _logins(anon_client.app, ATTACKER, ["guess"] * BURST),
+            _logins(anon_client.app, USER, [TEST_PASSWORD]))
+        return user
+
+    [r] = asyncio.run(both())
+    assert r.status_code == 200
+    assert "pkm_session" in r.cookies
+
+
+def test_two_concurrent_correct_logins_from_one_source_both_succeed(
+        anon_client, monkeypatch):
+    # A double-submit by the real user: the second waits for the first's
+    # check, finds the source not in backoff, and gets its own check --
+    # never a "wrong password" for the right one.
+    checks = _count_checks(monkeypatch)
+    throttle, _ = _frozen_throttle(anon_client.app)
+
+    rs = asyncio.run(_logins(anon_client.app, USER,
+                             [TEST_PASSWORD, TEST_PASSWORD]))
+    assert [r.status_code for r in rs] == [200, 200]
+    assert all("pkm_session" in r.cookies for r in rs)
+    assert len(checks) == 2
+    assert throttle._turns == {}
+
+
+def test_a_wait_for_the_source_that_times_out_gets_the_throttle_refusal(
+        anon_client, monkeypatch):
+    checks = _count_checks(monkeypatch)
+    throttle, _ = _frozen_throttle(anon_client.app, acquire_timeout_s=0.1)
+
+    async def behind_a_stuck_check() -> httpx.Response:
+        async with throttle.source_turn(USER) as ours:
+            assert ours
+            [r] = await _logins(anon_client.app, USER, [TEST_PASSWORD])
+            return r
+
+    r = asyncio.run(behind_a_stuck_check())
+    assert (r.status_code, r.json()) == (401, WRONG)
+    assert checks == []
+    assert USER not in throttle._attempts
+    assert throttle._turns == {}
+
+
+def test_slot_timeout_releases_the_turn_and_records_nothing(anon_client):
+    throttle = LoginThrottle(acquire_timeout_s=0.1)
+    anon_client.app.state.login_throttle = throttle
+    held = [throttle.scrypt_slots.acquire(blocking=False)
+            for _ in range(MAX_CONCURRENT_SCRYPT)]
+    assert all(held)
+
+    r = anon_client.post("/api/login", json={"password": TEST_PASSWORD})
+    assert (r.status_code, r.json()) == (401, WRONG)
+    assert throttle._attempts == {}
+    assert throttle._turns == {}
+
+    for _ in held:
+        throttle.scrypt_slots.release()
+    r = anon_client.post("/api/login", json={"password": TEST_PASSWORD})
+    assert r.status_code == 200
+
+
+def test_an_exception_during_the_check_releases_the_turn(anon_client,
+                                                         monkeypatch):
+    real = auth_module.verify_password
+    calls: list[str] = []
+
+    def fails_once(password: str, salt: bytes, stored: str) -> bool:
+        calls.append(password)
+        if len(calls) == 1:
+            raise RuntimeError("check blew up")
+        return real(password, salt, stored)
+
+    monkeypatch.setattr(auth_module, "verify_password", fails_once)
+    throttle = anon_client.app.state.login_throttle
+    anon = TestClient(anon_client.app, raise_server_exceptions=False)
+
+    assert anon.post("/api/login",
+                     json={"password": TEST_PASSWORD}).status_code == 500
+    assert throttle._attempts == {}
+    assert throttle._turns == {}
+    assert anon.post("/api/login",
+                     json={"password": TEST_PASSWORD}).status_code == 200
+
+
 class TestLoginThrottle:
     """Unit tests against the shell class directly: all state transitions
     take an explicit monotonic clock reading (`mono_ms`, never reads the
@@ -163,6 +318,63 @@ class TestLoginThrottle:
         assert "a" not in throttle._attempts
         assert "b" in throttle._attempts
         assert "c" in throttle._attempts
+
+    def test_a_source_takes_one_turn_at_a_time(self):
+        throttle = LoginThrottle(acquire_timeout_s=0.05)
+        waited: list[bool] = []
+
+        async def wait_for_a() -> None:
+            async with throttle.source_turn("a") as ours:
+                waited.append(ours)
+
+        async def scenario() -> None:
+            async with throttle.source_turn("a") as ours:
+                assert ours
+                async with throttle.source_turn("b") as other:
+                    assert other  # another source is never held up
+                await asyncio.create_task(wait_for_a())  # times out
+                assert "a" in throttle._turns  # still ours
+            await asyncio.create_task(wait_for_a())
+
+        asyncio.run(scenario())
+        assert waited == [False, True]
+        assert throttle._turns == {}
+
+    def test_a_waiter_gets_the_turn_when_the_holder_ends(self):
+        throttle = LoginThrottle(acquire_timeout_s=5)
+        order: list[str] = []
+
+        async def take(name: str, hold_s: float) -> None:
+            async with throttle.source_turn("a") as ours:
+                assert ours
+                order.append(f"{name} in")
+                await asyncio.sleep(hold_s)
+                order.append(f"{name} out")
+
+        async def scenario() -> None:
+            await asyncio.gather(take("first", 0.05), take("second", 0))
+
+        asyncio.run(scenario())
+        assert order == ["first in", "first out", "second in", "second out"]
+        assert throttle._turns == {}
+
+    def test_the_turn_is_released_when_the_body_raises(self):
+        throttle = LoginThrottle(acquire_timeout_s=0.05)
+
+        async def scenario() -> bool:
+            try:
+                async with throttle.source_turn("a"):
+                    raise RuntimeError("boom")
+            except RuntimeError:
+                pass
+            async with throttle.source_turn("a") as ours:
+                return ours
+
+        assert asyncio.run(scenario())
+        assert throttle._turns == {}
+
+    def test_now_ms_reads_the_injected_clock(self):
+        assert LoginThrottle(clock_ms=lambda: 1_234).now_ms() == 1_234
 
     def test_scrypt_slot_fails_fast_instead_of_blocking_when_saturated(self):
         """Real threads, not a single-threaded semaphore probe: a slot

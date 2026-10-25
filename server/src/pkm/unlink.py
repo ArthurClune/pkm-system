@@ -18,6 +18,7 @@ The stale path (`unlink_stale_refs`) has no blockers to report, so
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Iterator, Literal, Mapping, Sequence
 
@@ -235,27 +236,34 @@ class DeletePlan:
     blockers: tuple[DeleteBlocker, ...]
 
 
-def _build_copies(
-    is_target: TitleMatch, page_blocks: Mapping[BlockUid, str]
-) -> tuple[dict[BlockUid, str], frozenset[BlockUid]]:
-    """Each page block's copy, and the uids whose copy would be over the
-    length cap. Those are never built: the length is projected before the
-    splice, since one block repeating a long block's ref would otherwise
-    force a string the size of every copy. The passes after the first
-    splice (blanking deeper refs, unlinking) only shorten a copy."""
-    plain = {uid: plain_copy(text) for uid, text in page_blocks.items()}
-    blanks = {uid: "" for uid in page_blocks}
-    copies: dict[BlockUid, str] = {}
-    oversized: set[BlockUid] = set()
-    for uid in page_blocks:
-        spans = block_ref_spans(plain[uid], plain)
-        if spliced_length(plain[uid], spans) > MAX_BLOCK_TEXT_CHARS:
-            oversized.add(uid)
-            continue
-        text = splice(plain[uid], spans)
-        text = inline_block_refs(text, blanks)
-        copies[uid] = unlink_title_refs(text, is_target)
-    return copies, frozenset(oversized)
+class _Copies:
+    """The copy of each page block a source refers to, built on first use
+    and kept for the next source. A copy nothing refers to is never built:
+    each can be up to the cap, and a page of small blocks that each repeat
+    a long block's ref would otherwise force their total."""
+
+    def __init__(self, is_target: TitleMatch,
+                 page_blocks: Mapping[BlockUid, str]) -> None:
+        self._is_target = is_target
+        self._plain = {uid: plain_copy(text)
+                       for uid, text in page_blocks.items()}
+        self._blanks = {uid: "" for uid in page_blocks}
+        self._built: dict[BlockUid, str | None] = {}
+
+    def get(self, uid: BlockUid) -> str | None:
+        """The copy of page block `uid`, or None when it would be over the
+        length cap. That is judged on the splice of the refs it holds,
+        projected before it is built and before deeper refs are blanked
+        and links unlinked, which only shorten it."""
+        if uid not in self._built:
+            plain = self._plain[uid]
+            spans = block_ref_spans(plain, self._plain)
+            copy = None
+            if spliced_length(plain, spans) <= MAX_BLOCK_TEXT_CHARS:
+                text = inline_block_refs(splice(plain, spans), self._blanks)
+                copy = unlink_title_refs(text, self._is_target)
+            self._built[uid] = copy
+        return self._built[uid]
 
 
 def _attribute_raw(text: str) -> str | None:
@@ -299,14 +307,38 @@ def _rewrite_blocker_reason(
     return None
 
 
-def _inlined_over_limit(text: str, spans: Sequence[Span]) -> bool:
-    """Would splicing the copies in carry `text` over the length cap, or
-    further past it? Judged from the projected length of the inlined text
-    before unlinking, so nothing that size is built. Unlinking only
-    removes link syntax, so this is stricter than judging the final text
-    only for a source within a few characters of the cap."""
-    projected = spliced_length(text, spans)
-    return projected > MAX_BLOCK_TEXT_CHARS and projected > len(text)
+def _over_length(text: str, length: int) -> bool:
+    """Is `length` over the cap and longer than `text`?"""
+    return length > MAX_BLOCK_TEXT_CHARS and length > len(text)
+
+
+def _inline_copies(
+    source: SourceBlock, referenced: Sequence[BlockUid], copies: _Copies,
+) -> dict[BlockUid, str] | None:
+    """The copies `source` inlines, or None when inlining them would carry
+    it over the length cap, or further past it. Judged on the inlined
+    text before unlinking, from lengths, so no text that size is built.
+    Unlinking can take out any amount of link syntax, so this refuses some
+    texts that unlinking would bring back under the cap.
+
+    Copies are fetched one at a time, and fetching stops once the ones
+    fetched already put the inlined length past the cap: the rest could
+    only add to it. A copy over the cap refuses the source outright."""
+    places = Counter(uid for _start, _end, uid in
+                     block_ref_spans(source.text, {u: u for u in referenced}))
+    # the source without its refs, then each copy once per place it lands
+    length = spliced_length(source.text, block_ref_spans(
+        source.text, {u: "" for u in referenced}))
+    applied: dict[BlockUid, str] = {}
+    for uid in referenced:
+        copy = copies.get(uid)
+        if copy is None:
+            return None
+        applied[uid] = copy
+        length += places[uid] * len(copy)
+        if _over_length(source.text, length):
+            return None
+    return applied
 
 
 def plan_page_delete(
@@ -314,7 +346,7 @@ def plan_page_delete(
     page_blocks: Mapping[BlockUid, str],
     sources: Sequence[SourceBlock],
 ) -> DeletePlan:
-    copies, oversized = _build_copies(is_target, page_blocks)
+    copies = _Copies(is_target, page_blocks)
     rewrites: dict[BlockUid, str] = {}
     unlinked: set[BlockUid] = set()
     inlined: dict[BlockUid, Mapping[BlockUid, str]] = {}
@@ -330,28 +362,20 @@ def plan_page_delete(
                if ref.kind != "attribute"):
             links += 1
             link_pages.add(source.page_title)
-        referenced = [u for u in parsed.block_refs if u in page_blocks]
+        referenced = list(dict.fromkeys(
+            u for u in parsed.block_refs if u in page_blocks))
         if referenced:
             block_refs += 1
             ref_pages.add(source.page_title)
         reason = _source_blocker_reason(is_target, source)
-        applied: dict[BlockUid, str] = {}
-        spans: list[Span] = []
-        if reason is None:
-            # an oversized copy was never built, so it can only block
-            if any(u in oversized for u in referenced):
-                reason = "limit"
-            else:
-                applied = {u: copies[u] for u in referenced}
-                spans = block_ref_spans(source.text, applied)
-                if _inlined_over_limit(source.text, spans):
-                    reason = "limit"
-        if reason is not None:
-            blockers.append(
-                DeleteBlocker(source.uid, source.page_title, source.text, reason)
-            )
+        applied = None if reason is not None else \
+            _inline_copies(source, referenced, copies)
+        if applied is None:
+            # a source blocker, or else the copies pass the length cap
+            blockers.append(DeleteBlocker(
+                source.uid, source.page_title, source.text, reason or "limit"))
             continue
-        pre = splice(source.text, spans)
+        pre = inline_block_refs(source.text, applied)
         new = unlink_title_refs(pre, is_target)
         reason = _rewrite_blocker_reason(is_target, page_blocks, source, new)
         if reason is None and \

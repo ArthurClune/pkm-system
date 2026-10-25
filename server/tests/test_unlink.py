@@ -3,6 +3,7 @@ from collections.abc import Callable
 
 import pytest
 
+from pkm.contracts.ops import BlockUid
 from pkm.refs import canonicalize_title, extract, normalize_title
 from pkm.unlink import (
     SourceBlock,
@@ -274,3 +275,31 @@ def test_a_projected_limit_outranks_the_rewrite_s_own_blockers():
     source = SourceBlock(SRC, OTHER, f"(({TARGET}))y:: v")
     plan = plan_page_delete(is_t, page, [source])
     assert [b.reason for b in plan.blockers] == ["limit"]
+
+
+def _long_page(blocks: int, long_chars: int) -> dict[BlockUid, str]:
+    # one long block, and `blocks` blocks that each refer to it twice:
+    # every copy of them is twice the long block
+    page: dict[BlockUid, str] = {PAGE_B: "x" * long_chars}
+    for i in range(blocks):
+        page[uid_of(f"page_blk_{i:04d}")] = f"(({PAGE_B})) (({PAGE_B}))"
+    return page
+
+
+def test_copies_nothing_refers_to_are_never_built():
+    page = _long_page(40, 300_000)
+    source = SourceBlock(SRC, OTHER, "see [[T]]")
+    plan, peak = _traced(lambda: plan_page_delete(is_t, page, [source]))
+    assert plan.blockers == () and plan.rewrites[SRC] == "see T"
+    # 40 copies of 600,000 characters were built before
+    assert peak < 10 * 300_000
+
+
+def test_a_source_past_the_cap_stops_building_copies_once_it_is_known():
+    page = _long_page(40, 300_000)
+    refs = " ".join(f"(({uid}))" for uid in page if uid != PAGE_B)
+    source = SourceBlock(SRC, OTHER, refs)
+    plan, peak = _traced(lambda: plan_page_delete(is_t, page, [source]))
+    assert [b.reason for b in plan.blockers] == ["limit"]
+    # the copies it refers to come to 24M characters; two pass the cap
+    assert peak < 10 * 300_000

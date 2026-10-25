@@ -203,7 +203,7 @@ def page_copies(title: RawTitle, page_texts: Mapping[BlockUid, str]) -> dict[Blo
     """The text a page delete copies in place of a `((ref))` to each of the
     page's blocks: the block's plain copy, with refs to the page's other
     blocks resolved one level deep (deeper ones and cycles dropped, code:
-    unlink._build_copies) and links to the page unlinked."""
+    unlink._Copies) and links to the page unlinked."""
     plain = {u: _plain_copy(t) for u, t in page_texts.items()}
     blanks = {u: "" for u in page_texts}
     return {u: unlink_titles(inline_refs(inline_refs(t, plain), blanks),

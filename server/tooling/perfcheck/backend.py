@@ -47,6 +47,11 @@ _STALE_HASH = "a" * 64
 # must not exist yet (classify_skip checks block_exists on it
 # too), so it is neither a fixture uid nor MISSING_BLOCK_UID/MISSING_PARENT_UID.
 _NEW_CREATE_UID = "ghostcreate0001"
+# page/deep-backlinks: the deepest chain /api/ops allows (MAX_OUTLINE_DEPTH
+# levels, the root at level 1).
+DEEP_CHAIN_PAGE = "Perf Deep Chain"
+DEEP_CHAIN_TARGET = "Perf Deep Target"
+DEEP_CHAIN_BLOCKS = 100
 
 
 class UnstableCountError(RuntimeError):
@@ -61,6 +66,10 @@ class Scenario:
     params: dict | None = None
     body: dict | None = None
     writes: bool = False
+    # An op batch POSTed, untraced and untimed, to a fresh fixture copy
+    # before each run: data a scenario needs that fixture.py lacks, kept
+    # out of it because its hash gates every baseline on both sides.
+    seed: dict | None = None
 
 
 def scenarios(lm: Landmarks, max_seq: int) -> list[Scenario]:
@@ -75,6 +84,12 @@ def scenarios(lm: Landmarks, max_seq: int) -> list[Scenario]:
 
     def batch(ops: list[dict]) -> dict:
         return {"client_id": "perf-check", "batch_id": "perfcheck-000001", "ops": ops}
+
+    # A chain as deep as /api/ops allows, every block linking the target:
+    # each backlink's breadcrumb trail is the whole chain above it.
+    deep = [{"op": "create", "uid": f"deep{i:06d}", "page_title": DEEP_CHAIN_PAGE,
+             "parent_uid": f"deep{i - 1:06d}" if i else None, "order_idx": 0,
+             "text": f"[[{DEEP_CHAIN_TARGET}]]"} for i in range(DEEP_CHAIN_BLOCKS)]
 
     return [
         g("page/big", f"/api/page/{lm.big_page}"),
@@ -154,6 +169,8 @@ def scenarios(lm: Landmarks, max_seq: int) -> list[Scenario]:
               "page_title": lm.hub}]), writes=True),
         Scenario("rename/hub", "POST", f"/api/page/{lm.hub}/rename",
                  body={"new_title": f"{lm.hub} Renamed"}, writes=True),
+        Scenario("page/deep-backlinks", "GET", f"/api/page/{DEEP_CHAIN_TARGET}",
+                 seed=batch(deep)),
     ]
 
 
@@ -218,8 +235,13 @@ class DirtyReadError(RuntimeError):
 
 
 def _guard_dirty(env: _Env, s: Scenario) -> None:
-    if s.writes:
+    if s.writes or s.seed:
         env.fresh()
+        if s.seed:
+            r = env.client.post("/api/ops", json=s.seed)
+            if r.status_code != 200:
+                raise RuntimeError(f"{s.name}: seed HTTP {r.status_code} {r.text[:300]}")
+            env.dirty = True
     elif env.dirty:
         raise DirtyReadError(
             f"{s.name}: a read scenario ran against a DB an earlier write scenario left "

@@ -1,5 +1,5 @@
 {
-  "commit": "7e7d6ab7+dirty",
+  "commit": "c9fa843a+dirty",
   "env": {
     "python": "3.12.10",
     "sqlite": "3.47.1"
@@ -498,6 +498,32 @@
       "vm_steps_k": {
         "class": "exact",
         "value": 24
+      }
+    },
+    "page/deep-backlinks": {
+      "bytes": {
+        "class": "exact",
+        "value": 120828
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 29.13
+      },
+      "statements": {
+        "class": "exact",
+        "value": 7
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 259
       }
     },
     "page/hub": {

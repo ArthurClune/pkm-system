@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Collection, Sequence
+from dataclasses import replace
 
 from fake_engine import FakeEngine
 from pkm.assistant.engine import AgentEngine
@@ -50,7 +51,8 @@ def test_confirm_flow_allow():
     assert isinstance(preview, WritePreview)
     assert events[1] == ConfirmRequest(
         confirm_id=confirm_id_of("fake-confirm-1"),
-        ops_preview=preview.summary, preview=preview)
+        ops_preview=preview.summary,
+        preview=replace(preview, writes_in_flight=False))
     assert ToolFinished(name="save_note") in events
     assert TextDelta(text="Saved.") in events
     assert isinstance(events[-1], TurnDone)
@@ -143,6 +145,9 @@ def test_write_twice_queues_both_confirms_before_either_answer():
     assert second.confirm_id == confirm_id_of("fake-confirm-6")
     assert first.preview.ops[0].targets[0] == ("page", "Demo")
     assert second.preview.ops[0].targets[0] == ("page", "Demo 2")
+    # the second card was read while the first waited on the user
+    assert first.preview.writes_in_flight is False
+    assert second.preview.writes_in_flight is True
     texts = [e.text for e in rest if isinstance(e, TextDelta)]
     assert texts == ["Saved 1.", "Not saving 2."]
     assert isinstance(rest[-1], TurnDone)

@@ -276,12 +276,49 @@ describe("useAssistant", () => {
       expect(latest.pendingConfirm?.allowedAhead).toBe(1);
       await act(() => latest.respondConfirm(true));
       expect(latest.pendingConfirm?.allowedAhead).toBe(2);
-      // built after those writes, so read after them
+      // built after those Allows: the server's stamp says whether their
+      // writes could still land after its read, so it counts them too
       act(() => emit(confirmEvent("c5")));
       await act(() => latest.respondConfirm(false));
       expect(latest.pendingConfirm?.confirmId).toBe("c5");
-      expect(latest.pendingConfirm?.allowedAhead).toBe(0);
+      expect(latest.pendingConfirm?.allowedAhead).toBe(2);
     });
+
+  test("a new turn counts no Allow from the last", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
+    const turnOne = deferredValue<void>();
+    let calls = 0;
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+        calls += 1;
+        if (calls === 1) {
+          onEvent(confirmEvent("c1"));
+          await turnOne.promise;
+          return;
+        }
+        onEvent(confirmEvent("c2"));
+        await new Promise<void>(() => {});
+      },
+    );
+    mocks.confirmTool.mockResolvedValue(undefined);
+    render(<Harness />);
+    let first!: Promise<void>;
+    await act(async () => {
+      first = latest.send("one");
+      await Promise.resolve();
+    });
+    await act(() => latest.respondConfirm(true));
+    await act(async () => {
+      turnOne.resolve();
+      await first;
+    });
+    await act(async () => {
+      void latest.send("two");
+      await Promise.resolve();
+    });
+    expect(latest.pendingConfirm?.confirmId).toBe("c2");
+    expect(latest.pendingConfirm?.allowedAhead).toBe(0);
+  });
 
   test("an Allow that fails to post counts for no card behind it", async () => {
     mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });

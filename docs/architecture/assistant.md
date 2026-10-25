@@ -72,7 +72,7 @@ user who has had the chance to read all of it.
 | The tool functions are imported from `pkm.mcp.tools`, not `pkm.mcp.server` | Building the server's `FastMCP` configures the root logger |
 | The card's labels (keys, action) and warnings are escaped by `parseWritePreview`; values are quoted by `quoteValue`, and a target's newlines are escaped too | A value cannot close a quote or start a line that reads as another argument. `writePreview.ts` owns the character classes |
 | Every value `<bdi>` and every warning line has `dir="ltr"` | A value that starts with an RTL letter otherwise renders reversed beside the same title quoted in a warning |
-| `parseWritePreview` gives each action only the keys, `current` state and count that `PREVIEW_KEYS` gives its label, each key once. Anything else leaves Deny only | Any other row could only be a decoy beside the real target. `previewKeys.gen.ts` is generated from `WRITE_PREVIEW_FIELDS`, `CURRENT_TEXT_ENTRIES` and `SUBTREE_DELETE_ENTRIES`, so it cannot drift; a `Map` cannot match `__proto__` |
+| `parseWritePreview` gives each action only the keys, `current` state and count that `PREVIEW_KEYS` gives its label, each key once, and requires a boolean `writes_in_flight`. Anything else leaves Deny only. A test fails until it carries each of `PREVIEW_FIELDS` | Any other row could only be a decoy beside the real target. `previewKeys.gen.ts` is generated from `WRITE_PREVIEW_FIELDS`, `CURRENT_TEXT_ENTRIES` and `SUBTREE_DELETE_ENTRIES`, so it cannot drift; a `Map` cannot match `__proto__` |
 | `batch_aliases` (`pkm.batch`, run by `validate_batch` and `plan_batch`) refuses a reused `as`, and an alias used before or by the command that makes it | A reused name sends later references to the newer block. With one creator per name, the card can name that write by number |
 
 The browser keeps confirms in a queue. The head stays until its POST settles,
@@ -116,14 +116,26 @@ what an update, move or delete acts on, not only its uid:
 | `_moved_into_delete` refuses a batch delete, naming both writes, when an earlier write moves an existing block into its subtree, directly, through an `as` alias or under a descendant. A move it cannot place (a `## Heading` parent, a parent uid with no row, a cycle) is refused too. It places parents by the ancestors read for `ancestor_uids` | The count is of the store before the batch runs, so a block moved in would go uncounted. No batch needs to move a block where it then deletes it. `pkm batch` is unchecked: its user wrote the batch |
 | A delete's count is one walk of `_DESCENDANTS_SQL` per target | Its cost is the sizes of nested targets' subtrees times their depth. Real outlines count in milliseconds, but a chain at `MAX_OUTLINE_DEPTH` over tens of thousands of blocks holds the card back for seconds |
 
-A card is a snapshot taken when its `confirm_request` was built, so a queued
-card can predate a write the user allows on the card ahead of it. Each
-successful Allow post adds one to every queued card's `allowedAhead`, and a
-card with a `found` or `missing` block then shows `.assistant-confirm-stale`.
-Known limit: a card the server read before an Allow but which arrives after
-it starts at 0, so the marker misses it; the window is the SSE latency.
-A re-read would mean serializing confirms on the server, losing the queue's
-"1 of 2".
+A card is a snapshot taken when its `confirm_request` was built, so a write
+the user allows on another card of the turn can land after it. The two sides
+mark that case together:
+
+| Side | What it records |
+|---|---|
+| server, `ClaudeConversation.can_use_tool` | stamps `writes_in_flight` when another write of the turn could land after the read: a confirm waited on the user, or an allowed write was still running, as the read started; or a confirm parked or a write was allowed during it |
+| server, `_pump` | an allowed write stops running when its tool result arrives (`finished_tool_ids`). Without a `tool_use_id` it runs until the turn ends |
+| web, `useAssistant` | `allowedAhead` counts the Allows posted in the turn before the card is answered, before it arrived or while it waited |
+| web, `ConfirmCard` | a stamped card with a `found` or `missing` block and `allowedAhead` above zero shows `.assistant-confirm-stale` |
+
+**A card is never silently stale from the assistant's own writes.** The
+queue answers cards in order. So a write that lands after a card's read was
+waiting or running when the read started, or parked during it. The card is
+then stamped, and the Allow that released the write is counted. The stamp
+errs towards the marker: a write still counts as running until the pump has
+read its result.
+Edits from outside the turn, such as the editor beside the panel, are not
+covered. A re-read would mean serializing confirms on the server, losing the
+queue's "1 of 2".
 
 ## Conversation registry
 

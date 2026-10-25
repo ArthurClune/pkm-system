@@ -29,7 +29,11 @@ export type PreviewOp = {
   // null: the write touches no existing block
   current: CurrentBlock | null;
 };
-export type WritePreview = { ops: PreviewOp[]; summary: string };
+/** `writes_in_flight` is the server's stamp: another write of the same turn
+ * was awaiting its answer or running when it read the blocks, so it may land
+ * after that read. */
+export type WritePreview = {
+  ops: PreviewOp[]; summary: string; writes_in_flight: boolean };
 
 function isRecord(raw: unknown): raw is Record<string, unknown> {
   return typeof raw === "object" && raw !== null && !Array.isArray(raw);
@@ -140,15 +144,16 @@ function parseOp(raw: unknown, index: number): PreviewOp | null {
     current };
 }
 
-/** The preview rebuilt from `raw` field by field, or null when any field has
- * the wrong type, or an op carries an action, key or current block its table
- * entry does not give it. No ops is also null: a card listing nothing must
- * not offer Allow. */
+/** The preview rebuilt from `raw` field by field (`PREVIEW_FIELDS`), or null
+ * when any field has the wrong type, or an op carries an action, key or
+ * current block its table entry does not give it. No ops is also null: a card
+ * listing nothing must not offer Allow. */
 export function parseWritePreview(raw: unknown): WritePreview | null {
   if (!isRecord(raw) || typeof raw.summary !== "string") return null;
+  if (typeof raw.writes_in_flight !== "boolean") return null;
   const ops = parseAll(raw.ops, parseOp);
   if (ops === null || ops.length === 0) return null;
-  return { ops, summary: raw.summary };
+  return { ops, summary: raw.summary, writes_in_flight: raw.writes_in_flight };
 }
 
 // Controls (C0, DEL, C1), format characters (bidi overrides and isolates,

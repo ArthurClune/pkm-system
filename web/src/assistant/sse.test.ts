@@ -61,6 +61,7 @@ describe("createSseParser", () => {
         current: { state: "found", page_title: "Inbox", excerpt: "old",
           text_length: 3, descendants: null } }],
       summary: "update_block(uid='VICTIMUID01')",
+      writes_in_flight: true,
     };
     const data = JSON.stringify({
       confirm_id: "c1", ops_preview: preview.summary, preview });

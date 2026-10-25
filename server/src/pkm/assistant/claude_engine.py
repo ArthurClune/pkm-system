@@ -13,6 +13,7 @@ import sys
 import tempfile
 import time
 from collections.abc import AsyncGenerator, Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,14 @@ INTERRUPT_TIMEOUT_S = 5.0
 # -- EXCEPT while a confirm is parked on the user, whose silence is
 # never a stall (see _pump).
 STALL_TIMEOUT_S = 300.0
+
+
+def finished_tool_ids(msg: object) -> list[str]:
+    """The tool calls whose results `msg` carries."""
+    if not isinstance(msg, UserMessage) or not isinstance(msg.content, list):
+        return []
+    return [block.tool_use_id for block in msg.content
+            if isinstance(block, ToolResultBlock)]
 
 
 def stall_message(seconds: float) -> str:
@@ -147,6 +156,13 @@ class ClaudeConversation:
         self._queue: asyncio.Queue[AssistantEvent] = asyncio.Queue()
         self._pending: dict[ConfirmId, asyncio.Future[bool]] = {}
         self._confirm_seq = 0
+        # The turn's allowed writes whose results have not arrived, by
+        # tool_use_id (the confirm id when the SDK gives none, which then
+        # counts as running until the turn ends).
+        self._running_writes: set[str] = set()
+        # Bumped when a confirm parks or a write is allowed, so a read that
+        # spans one is known to have.
+        self._write_events = 0
         self._pump_task: asyncio.Task[None] | None = None
         # Flips to False the moment an interrupt on this harness goes
         # unacknowledged (timed out or raised) -- see send()'s cleanup
@@ -172,6 +188,11 @@ class ClaudeConversation:
             logger.warning("assistant requested unexpected tool %s", tool_name)
             return PermissionResultDeny(message="Tool not permitted.")
         short = short_tool_name(tool_name)
+        # Whether another write of this turn could land after the read:
+        # one waits on the user or runs as the read starts, or one parks
+        # or is allowed during it.
+        in_flight = self._writes_in_flight()
+        events = self._write_events
         preview = await preview_write(short, tool_input or {},
                                       self._read_blocks)
         if isinstance(preview, Refusal):
@@ -180,6 +201,8 @@ class ClaudeConversation:
             logger.warning("assistant write %s refused: %s", short,
                            preview.message)
             return PermissionResultDeny(message=preview.message)
+        preview = replace(preview, writes_in_flight=(
+            in_flight or events != self._write_events))
         self._confirm_seq += 1
         # A local counter, not the SDK's own tool_use id (that id lives on
         # the ToolUseBlock/ToolResultBlock pair TurnMapper reads above, a
@@ -188,6 +211,7 @@ class ClaudeConversation:
         confirm_id = ConfirmId(f"confirm-{self._confirm_seq}")
         fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         self._pending[confirm_id] = fut
+        self._write_events += 1
         await self._queue.put(
             ConfirmRequest(confirm_id=confirm_id, ops_preview=preview.summary,
                            preview=preview)
@@ -197,8 +221,14 @@ class ClaudeConversation:
         finally:
             self._pending.pop(confirm_id, None)
         if allowed:
+            tool_use_id = context.tool_use_id if context is not None else None
+            self._running_writes.add(tool_use_id or confirm_id)
+            self._write_events += 1
             return PermissionResultAllow()
         return PermissionResultDeny(message="The user declined this action.")
+
+    def _writes_in_flight(self) -> bool:
+        return bool(self._pending) or bool(self._running_writes)
 
     def resolve_confirm(self, confirm_id: ConfirmId, allow: bool) -> None:
         fut = self._pending.get(confirm_id)
@@ -210,6 +240,8 @@ class ClaudeConversation:
         # not leak into the next turn
         while not self._queue.empty():
             self._queue.get_nowait()
+        # the last turn's writes have all finished by its result
+        self._running_writes.clear()
         await self._live_client().query(text)
         mapper = TurnMapper()
         pump = asyncio.create_task(self._pump(mapper))
@@ -322,6 +354,8 @@ class ClaudeConversation:
                     msg = settled.result()
                 except StopAsyncIteration:
                     return
+                self._running_writes.difference_update(
+                    finished_tool_ids(msg))
                 for event in mapper.map(msg):
                     await self._queue.put(event)
         except Exception as exc:  # subprocess died, JSON decode, etc.

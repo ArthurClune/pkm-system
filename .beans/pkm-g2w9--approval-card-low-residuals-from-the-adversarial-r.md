@@ -45,8 +45,9 @@ Plan: docs/superpowers/plans/2026-10-25-approval-card-targets.md.
   take a block an earlier write of the batch moved under it (directly,
   through an alias, or under a descendant), or where the card cannot tell,
   is refused, so the count leaves out no existing block. The server reads
-  them in one snapshot just before the card, and a queued card read before
-  an earlier Allow says so.
+  them in one snapshot just before the card, and stamps the card when
+  another write of the turn could land after that read; a stamped card
+  says its text may have changed once an earlier card is allowed.
 - Docs: assistant.md (approval card, bounds, the blocks a write changes),
   cli-and-mcp.md, cli.md, backend.md generated artifacts, frontend.md mint
   site, two troubleshooting rows.

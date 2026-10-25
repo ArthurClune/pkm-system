@@ -55,8 +55,9 @@ function op(overrides: Partial<PreviewOp> = {}): PreviewOp {
     ...overrides };
 }
 
+// stamped: another write of the turn could land after the read
 function previewOf(...ops: PreviewOp[]): WritePreview {
-  return { ops, summary: "s" };
+  return { ops, summary: "s", writes_in_flight: true };
 }
 
 function showConfirm(preview: WritePreview | null, count = 1,
@@ -550,17 +551,27 @@ describe("ConfirmCard", () => {
       ['currently on page: "Src"', 'current text: "Old wording."']);
   });
 
-  // a card queued behind one the user allowed was read before that write
+  // the server read the card while an earlier write of the turn could
+  // still land, and the user allowed one
   test.each([
-    [1, "Read before you allowed 1 earlier card in this turn; "
-      + "the current text it shows may have changed."],
-    [2, "Read before you allowed 2 earlier cards in this turn; "
-      + "the current text it shows may have changed."],
-  ])("a card read before %i allowed cards says so", (allowed, copy) => {
+    [1, "You allowed 1 earlier card in this turn, and its write may have "
+      + "landed after this card was read; the current text it shows may "
+      + "have changed."],
+    [2, "You allowed 2 earlier cards in this turn, and their writes may have "
+      + "landed after this card was read; the current text it shows may "
+      + "have changed."],
+  ])("a stamped card after %i allowed cards says so", (allowed, copy) => {
     showConfirm(previewOf(op()), 1, null, allowed);
     render(<AssistantPanel open onClose={() => {}} />);
     expect(card().querySelector(".assistant-confirm-stale")!.textContent)
       .toBe(copy);
+  });
+
+  // every write of the turn had landed when the server read it
+  test("a card the server did not stamp has no staleness note", () => {
+    showConfirm({ ...previewOf(op()), writes_in_flight: false }, 1, null, 2);
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(card().querySelector(".assistant-confirm-stale")).toBeNull();
   });
 
   test("a card no earlier allow precedes has no staleness note", () => {
@@ -591,7 +602,7 @@ describe("ConfirmCard", () => {
 
   // what the server sends, through the parser the SSE stream uses
   const parsedPreview = (op: unknown) =>
-    parseWritePreview({ ops: [op], summary: "s" });
+    parseWritePreview({ ops: [op], summary: "s", writes_in_flight: false });
 
   // the server JSON-quotes a title inside a warning; the card must show its
   // escape as sent, not double it into a quote that seems to close early

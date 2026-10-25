@@ -20,7 +20,7 @@ _PREVIEW = WritePreview(
     ops=[PreviewOp(action="update block", targets=[("uid", "U1")],
                    content=[("text", "hi", 2)], warnings=["careful"],
                    current=FoundBlock(canonical_title_of("Inbox"), "old", 3))],
-    summary='update_block: uid="U1"')
+    summary='update_block: uid="U1"', writes_in_flight=False)
 
 
 def test_event_names():
@@ -78,6 +78,7 @@ def test_confirm_request_sse_shape():
                                  "text_length": 3, "descendants": None,
                                  "state": "found"}}],
             "summary": 'update_block: uid="U1"',
+            "writes_in_flight": False,
         },
     }
 

@@ -135,6 +135,11 @@ class WritePreview:
     ops: list[PreviewOp]
     # One line for logs and transcripts.
     summary: str
+    # Another write of the same turn was awaiting its answer or running
+    # while the blocks were read, so it may land after the read and the
+    # current text may be stale. The engine stamps it; until then it is
+    # True, so an unstamped card errs towards saying so.
+    writes_in_flight: bool = True
 
 
 @dataclass(frozen=True)

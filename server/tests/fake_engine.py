@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator, Collection, Mapping, Sequence
+from dataclasses import replace
 
 from pkm.assistant.events import (
     AssistantEvent,
@@ -138,10 +139,15 @@ class FakeConversation:
                     ) -> tuple[ConfirmRequest, asyncio.Future[bool]] | Refusal:
         """A confirm card for write `short`, built as the real engine
         builds it, with the future its decision lands in; or the refusal
-        the real engine would send the model instead."""
+        the real engine would send the model instead. Its stamp says
+        whether another card of this double was undecided at the read: its
+        writes finish when decided."""
+        in_flight = self._undecided()
         preview = await preview_write(short, tool_input, self._read_blocks)
         if isinstance(preview, Refusal):
             return preview
+        preview = replace(preview,
+                          writes_in_flight=in_flight or self._undecided())
         self._confirm_seq += 1
         confirm_id = confirm_id_of(f"fake-confirm-{self._confirm_seq}")
         fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
@@ -149,6 +155,9 @@ class FakeConversation:
         card = ConfirmRequest(confirm_id=confirm_id,
                               ops_preview=preview.summary, preview=preview)
         return card, fut
+
+    def _undecided(self) -> bool:
+        return any(not fut.done() for fut in self._decisions.values())
 
     def resolve_confirm(self, confirm_id: ConfirmId, allow: bool) -> None:
         fut = self._decisions.get(confirm_id)

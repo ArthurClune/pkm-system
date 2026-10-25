@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { PREVIEW_FIELDS } from "./previewKeys.gen";
 import { formatTarget, parseWritePreview, quoteValue } from "./writePreview";
 
 const found = { state: "found", page_title: "Inbox", excerpt: "Old wording.",
@@ -135,19 +136,35 @@ describe("formatTarget", () => {
 });
 
 describe("parseWritePreview", () => {
-  const parsed = (op: unknown) => parseWritePreview({ ops: [op], summary: "s" });
+  const parsed = (op: unknown) => parseWritePreview(
+    { ops: [op], summary: "s", writes_in_flight: false });
   const parsedOps = (...ops: unknown[]) =>
-    parseWritePreview({ ops, summary: "s" });
+    parseWritePreview({ ops, summary: "s", writes_in_flight: false });
 
   test("accepts a well-formed preview", () => {
-    const raw = { ops: [validOp], summary: "update_block(uid='VICTIMUID01')" };
+    const raw = { ops: [validOp], summary: "update_block(uid='VICTIMUID01')",
+      writes_in_flight: false };
     expect(parseWritePreview(raw)).toEqual(raw);
+  });
+
+  test.each([true, false])("carries the server's stamp (%s)", (stamp) => {
+    expect(parseWritePreview({ ops: [validOp], summary: "s",
+      writes_in_flight: stamp })?.writes_in_flight).toBe(stamp);
+  });
+
+  // a field the server adds to WritePreview reaches previewKeys.gen.ts, and
+  // this fails until the parser carries it
+  test("carries every field the server's preview has", () => {
+    const raw = { ops: [validOp], summary: "s", writes_in_flight: true };
+    expect(Object.keys(parseWritePreview(raw) ?? {}).sort())
+      .toEqual([...PREVIEW_FIELDS].sort());
   });
 
   test("keeps target values of any JSON type", () => {
     for (const [uid, mark] of [[1, false], [null, { x: [1] }]]) {
       const op = { ...validOp, targets: [["uid", uid], ["mark", mark]] };
-      expect(parseWritePreview({ ops: [op], summary: "" })?.ops[0].targets)
+      expect(parseWritePreview({ ops: [op], summary: "",
+        writes_in_flight: false })?.ops[0].targets)
         .toEqual(op.targets);
     }
   });
@@ -185,8 +202,10 @@ describe("parseWritePreview", () => {
 
   test("drops keys outside the shape", () => {
     const raw = { ops: [{ ...validOp, extra: 1,
-      current: { ...found, extra: 3 } }], summary: "s", extra: 2 };
-    expect(parseWritePreview(raw)).toEqual({ ops: [validOp], summary: "s" });
+      current: { ...found, extra: 3 } }], summary: "s", extra: 2,
+      writes_in_flight: true };
+    expect(parseWritePreview(raw))
+      .toEqual({ ops: [validOp], summary: "s", writes_in_flight: true });
   });
 
   test("an op that touches no existing block carries current null", () => {
@@ -234,36 +253,44 @@ describe("parseWritePreview", () => {
   const created = (write: unknown, alias: unknown = "a") =>
     ({ state: "created", write, alias });
 
+  // one op in an otherwise well-formed preview
+  const one = (op: unknown) =>
+    ({ ops: [op], summary: "s", writes_in_flight: false });
+
   test.each([
     ["not an object", 42],
     ["null", null],
     ["an array", []],
-    ["a missing ops", { summary: "s" }],
-    ["ops not an array", { ops: {}, summary: "s" }],
-    ["no ops", { ops: [], summary: "s" }],
-    ["a missing summary", { ops: [validOp] }],
-    ["an op that is not an object", { ops: ["x"], summary: "s" }],
-    ["an action that is not a string", { ops: [{ ...validOp, action: 1 }], summary: "s" }],
-    ["targets not an array", { ops: [{ ...validOp, targets: {} }], summary: "s" }],
-    ["a target that is not a pair", { ops: [{ ...validOp, targets: [["uid"]] }], summary: "s" }],
-    ["a target with three items", { ops: [{ ...validOp, targets: [["uid", "x", "y"]] }], summary: "s" }],
-    ["a target key that is not a string", { ops: [{ ...validOp, targets: [[1, "x"]] }], summary: "s" }],
-    ["content not an array", { ops: [{ ...validOp, content: "x" }], summary: "s" }],
+    ["a missing ops", { summary: "s", writes_in_flight: false }],
+    ["ops not an array", { ops: {}, summary: "s", writes_in_flight: false }],
+    ["no ops", { ops: [], summary: "s", writes_in_flight: false }],
+    ["a missing summary", { ops: [validOp], writes_in_flight: false }],
+    // whether the card may be stale is the server's to say
+    ["a missing stamp", { ops: [validOp], summary: "s" }],
+    ["a stamp that is not a boolean",
+      { ops: [validOp], summary: "s", writes_in_flight: "yes" }],
+    ["an op that is not an object", one("x")],
+    ["an action that is not a string", one({ ...validOp, action: 1 })],
+    ["targets not an array", one({ ...validOp, targets: {} })],
+    ["a target that is not a pair", one({ ...validOp, targets: [["uid"]] })],
+    ["a target with three items", one({ ...validOp, targets: [["uid", "x", "y"]] })],
+    ["a target key that is not a string", one({ ...validOp, targets: [[1, "x"]] })],
+    ["content not an array", one({ ...validOp, content: "x" })],
     ["a content entry whose length is not a number",
-      { ops: [{ ...validOp, content: [["text", "x", "480"]] }], summary: "s" }],
+      one({ ...validOp, content: [["text", "x", "480"]] })],
     ["a content entry whose length is negative",
-      { ops: [{ ...validOp, content: [["text", "x", -1]] }], summary: "s" }],
+      one({ ...validOp, content: [["text", "x", -1]] })],
     ["a content value that is not a string",
-      { ops: [{ ...validOp, content: [["text", 5, 1]] }], summary: "s" }],
+      one({ ...validOp, content: [["text", 5, 1]] })],
     ["a content value longer than its total length",
-      { ops: [{ ...validOp, content: [["text", "abcdef", 2]] }], summary: "s" }],
+      one({ ...validOp, content: [["text", "abcdef", 2]] })],
     // the server sends content whole: a shorter value would be approved
     // partly unseen
     ["a content value shorter than its total length",
-      { ops: [{ ...validOp, content: [["text", "ab", 5000]] }], summary: "s" }],
-    ["a content entry with two items", { ops: [{ ...validOp, content: [["text", "x"]] }], summary: "s" }],
-    ["warnings not an array", { ops: [{ ...validOp, warnings: "w" }], summary: "s" }],
-    ["a warning that is not a string", { ops: [{ ...validOp, warnings: [1] }], summary: "s" }],
+      one({ ...validOp, content: [["text", "ab", 5000]] })],
+    ["a content entry with two items", one({ ...validOp, content: [["text", "x"]] })],
+    ["warnings not an array", one({ ...validOp, warnings: "w" })],
+    ["a warning that is not a string", one({ ...validOp, warnings: [1] })],
   ])("rejects %s", (_label, raw) => {
     expect(parseWritePreview(raw)).toBeNull();
   });

@@ -243,10 +243,14 @@ function ConfirmCard({
   const position = count > 1 ? ` (1 of ${count})` : "";
   const writes = n === 1 ? "write" : "writes";
   const hint = confirmHint(start, end);
-  // only a block read from the store can have changed under an earlier write
+  // only a block read from the store can have changed under an earlier
+  // write, and only while the server's stamp says one could still land
   const readsStore = preview?.ops.some((op) =>
     op.current !== null && op.current.state !== "created") ?? false;
-  const cards = allowedAhead === 1 ? "card" : "cards";
+  const stale = readsStore && (preview?.writes_in_flight ?? false)
+    && allowedAhead > 0;
+  const cards = allowedAhead === 1
+    ? "card in this turn, and its write" : "cards in this turn, and their writes";
   return (
     <div className="assistant-confirm-card" ref={cardRef}>
       <div className="assistant-confirm-start" ref={startRef} aria-hidden="true" />
@@ -255,10 +259,10 @@ function ConfirmCard({
           ? `The assistant wants to make ${n} ${writes}${position}:`
           : `The assistant wants to write${position}:`}
       </div>
-      {readsStore && allowedAhead > 0 && (
+      {stale && (
         <div className="assistant-confirm-stale">
-          {`Read before you allowed ${allowedAhead} earlier ${cards} in this turn; `
-            + "the current text it shows may have changed."}
+          {`You allowed ${allowedAhead} earlier ${cards} may have landed after `
+            + "this card was read; the current text it shows may have changed."}
         </div>
       )}
       {preview ? (

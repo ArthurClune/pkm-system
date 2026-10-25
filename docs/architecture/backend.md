@@ -200,7 +200,7 @@ than `MAX_OUTLINE_DEPTH` from before the cap reads whole.
 
 | Walk | Server | Replica mirror | Cycle guard |
 |---|---|---|---|
-| Ancestors with text, for breadcrumbs and backlink groups | `routes_pages._fetch_ancestors` | `localApi/tree.ts::fetchAncestors` | `UNION` on the server; the replica still carries the path string |
+| Ancestors with text, for breadcrumbs and backlink groups | `routes_pages._fetch_ancestors` | `localApi/tree.ts::fetchAncestors` | `UNION` |
 | One block's parent chain, for a move's cycle check | `ops_apply._parent_chain` | `localOps.ts::parentChain` | path string |
 | One block's subtree, deepest first, for delete, re-paging and journalling | `ops_apply._subtree_deepest_first` | `localOps.ts::subtreeUids` | path string |
 

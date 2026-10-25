@@ -399,7 +399,7 @@ def _all_texts(export: Export) -> list[str]:
     return texts
 
 
-@pytest.mark.parametrize("spelling", ["", ".", "a]", "a`b"])
+@pytest.mark.parametrize("spelling", ["", ".", "a]", "a[", "a`b"])
 def test_a_page_with_a_refused_title_is_skipped_and_reported(
     spelling: str,
 ) -> None:

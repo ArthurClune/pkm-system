@@ -153,7 +153,9 @@ def title_syntax_reason(text: str) -> TitleSyntaxReason | None:
     `[[` and `]]` are ref syntax, a trailing `]` merges with the closing
     `]]` (`[[a]]]` is the title `a`), and a backtick pairs with another one
     on the line into a code span that hides the ref. It is also refused
-    when it has no URL (`has_unreachable_segment`).
+    when it has no URL (`has_unreachable_segment`), and when it ends in
+    `[`: unlinking `[[a[]]` leaves `a[`, which joins a following `[a[]]`
+    into a fresh link, so a page delete's unlink re-forms a link per pass.
 
     Every rule judges the edge-stripped title (`target_canonical_title`),
     whatever this database's plain-space flag: the pure ops check never
@@ -161,7 +163,7 @@ def title_syntax_reason(text: str) -> TitleSyntaxReason | None:
     flag, then sees `a]`."""
     canonical = target_canonical_title(text)
     if ("#" in canonical or "[[" in canonical or "]]" in canonical
-            or canonical.endswith("]") or "`" in canonical
+            or canonical.endswith(("]", "[")) or "`" in canonical
             or has_unreachable_segment(canonical)):
         return "forbidden_syntax"
     return None

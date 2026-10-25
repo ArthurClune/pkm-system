@@ -163,7 +163,7 @@ def _expected_digest(inventory: TitleMigrationInventory) -> str:
         if (canonical != sidebar.title and canonical != ""
                 and sidebar.title not in group_titles_all
                 and not any(mark in canonical for mark in ("#", "[[", "]]"))
-                and not canonical.endswith("]")):
+                and not canonical.endswith(("]", "["))):
             sidebar_retitles.append({
                 "canonical_title": canonical,
                 "sidebar_id": sidebar.sidebar_id,

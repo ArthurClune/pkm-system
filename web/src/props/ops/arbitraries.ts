@@ -40,11 +40,11 @@ export type PoolTitle = (typeof TITLE_POOL)[number];
  * all. The cap is judged on the fold, which keeps single-space edges, so
  * ` t…t ` is refused at 1,002 though either flag stores it shorter. */
 export const FORBIDDEN_TITLES = [
-  "Bad #title", "x [[y", "x]", "x`y", "x/", ".", "a/../b",
+  "Bad #title", "x [[y", "x]", "x[", "x`y", "x/", ".", "a/../b",
   "t".repeat(1_001), ` ${"t".repeat(1_000)} `,
 ] as const;
 export const FORBIDDEN_REF_TEXTS = [
-  "see [[Ops #Bad]]", "#[[x #y]]", "see [[Ops Bad#]]",
+  "see [[Ops #Bad]]", "#[[x #y]]", "see [[Ops Bad#]]", "see [[x[]][x[]]",
   `see [[${"t".repeat(1_001)}]]`, `#${"t".repeat(1_001)}`,
 ] as const;
 

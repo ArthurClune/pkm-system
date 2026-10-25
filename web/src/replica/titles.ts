@@ -20,11 +20,14 @@ export function asRawTitle(text: string): RawTitle {
 export type TitleSyntaxReason = "forbidden_syntax";
 
 /** Mirrors refs.py title_syntax_reason: every rule judges the title
- * edge-stripped of U+0020, whatever the plain-space flag. */
+ * edge-stripped of U+0020, whatever the plain-space flag. A trailing `[`
+ * is refused because unlinking `[[a[]]` leaves `a[`, which joins a
+ * following `[a[]]` into a fresh link. */
 export function titleSyntaxReason(text: string): TitleSyntaxReason | null {
   const canonical = canonicalizeTitle(text, true);
   return canonical.includes("#") || canonical.includes("[[")
     || canonical.includes("]]") || canonical.endsWith("]")
+    || canonical.endsWith("[")
     || canonical.includes("`") || hasUnreachableSegment(canonical)
     ? "forbidden_syntax"
     : null;

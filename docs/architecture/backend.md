@@ -928,7 +928,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | DELETE | `/api/assets/{sha256}` | Delete, stripping its tokens; 409 with `limit` `blockers` when a strip would carry a block past a text limit; `if_unreferenced=true` 409s instead while referenced |
 | POST | `/api/assets/export.zip` | Zip the selected assets |
 | **Local documents** ([files-and-assets.md](files-and-assets.md#local-documents)) | | |
-| GET | `/api/local/check` | Classify every `/api/local/` href in block text |
+| GET | `/api/local-check` | Classify every `/api/local/` href in block text |
 | GET | `/api/local-index` | Every visible file under `local_docs_root`; 503 when the listing fails |
 | GET | `/api/local/{path}` | Serve one file; 404 outside the root, 503 when evicted or unopenable |
 | **GoodLinks copies** ([files-and-assets.md](files-and-assets.md#goodlinks-copies)) | | |
@@ -959,7 +959,7 @@ route.
 | A deep or wide `/api/query` expression | `parse_query` refuses past `MAX_QUERY_DEPTH` / `MAX_QUERY_OPERANDS` and the route answers 400; rule in the [`/api/query` row](#http-api-reference) | `test_query.py` |
 | An id set past SQLite's bound-variable limit | Queries over an unbounded id set go through `sync_core.chunk_ids`; rule in [Database](#database) | `test_sql_variable_limit.py` |
 | An outline nested past the readers' 255-level limit | `/api/ops` refuses a client's block placed past `MAX_OUTLINE_DEPTH` and lands its own conflict copies no deeper; the importer refuses an export holding one (`validate_export_depth`); rule in [Missing targets](#missing-targets) | `test_outline_depth.py`, `test_hostile_requests.py` |
-| A page whose `((refs))` or queries fan out past `EXPORT_MAX_CHARS`, or into more expansions than it allows | `export/resolve.py` counts characters and calls as it expands and the route answers 422; rule in [Single-page export](import-export-and-backup.md#single-page-export) | `test_export_resolve.py`, `test_export_routes.py` |
+| A page whose `((refs))` or queries fan out past `EXPORT_MAX_CHARS`, or into more expansions than it allows | `export/resolve.py` counts characters and calls as it expands, the route's gather charges the same limits (`GatherBudget`), and the route answers 422; rule in [Single-page export](import-export-and-backup.md#single-page-export) | `test_export_resolve.py`, `test_export_routes.py` |
 | Block text longer than `MAX_BLOCK_TEXT_CHARS` or nesting `[[` past `MAX_LINK_NESTING` | `ops_core.find_op_text_limit_violation` refuses the batch; `store.rewrite_snapshotted_blocks`, `unlink.plan_page_delete` and `routes_assets._strip_references` refuse a rewrite that makes a block worse; `preflight.validate_row_text_limits` refuses the import; rule in [Planning](#planning) | `test_text_limits_ops.py`, `test_text_limits_rewrites.py`, `test_import_preflight.py` |
 | `[[` nested past Python's recursion limit, which only a row stored before the nesting limit reaches | Rename and unlink walk iteratively (`_rewrite_range`, `_unlink_range`); rule in [Ref grammar](#ref-grammar) | `test_legacy_deep_brackets.py` |
 

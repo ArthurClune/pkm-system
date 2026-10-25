@@ -122,17 +122,22 @@ written as a `Local copy::` attribute. The `/api/local*` routes are
 the only ones that read outside the data directory, and `/api/local/{path}`
 is the only one that returns file contents.
 
+Every path under `/api/local/` names a file, so the fixed routes
+(`/api/local-check`, `/api/local-index`) sit beside the prefix, never under it.
+A fixed route under it would shadow the file of the same name, which the index
+lists and stored notes link.
+`test_nothing_but_the_file_route_sits_in_a_file_namespace` fails on one.
+
 **Every rejection is a 404, never a 403, so a response never confirms what
 exists.** `local_docs.clean_relative` rejects an absolute path, a `.` or `..`
 segment, a control character or a backslash. `is_within` then re-checks the
 resolved path against the resolved root, so a symlink out is a 404 too. The
 file route's parameter arrives decoded once through the
 [`wholepath` convertor](backend.md#title-integrity-and-one-time-activation).
-`/api/local/check` starts from a raw href in block text, so it uses
-`resolve_relative`, which unquotes once. `check` is registered ahead of the
-catch-all.
+`/api/local-check` starts from a raw href in block text, so it uses
+`resolve_relative`, which unquotes once.
 
-| File state | `/api/local/{path}` | `/api/local/check` |
+| File state | `/api/local/{path}` | `/api/local-check` |
 |---|---|---|
 | href fails `resolve_relative` | — | `invalid` |
 | outside the root, not a regular file, or absent with no stub | 404 | `missing` |
@@ -168,8 +173,7 @@ An overrun walk or an unreadable directory is a 503
 
 The index lists only names `clean_relative` accepts (`visible_name`), so the
 picker never offers a link the file route 404s. An evicted `.Name.ext.icloud`
-stub is listed as `Name.ext`. Hrefs come from `local_href`. The route sits
-outside `/api/local/` so the catch-all cannot shadow it.
+stub is listed as `Name.ext`. Hrefs come from `local_href`.
 
 ### Errors a person sees
 

@@ -24,7 +24,8 @@ from export_hostile import (
 )
 from fastapi.testclient import TestClient
 
-from pkm.database import connect
+from pkm.database import Db, connect
+from pkm.export.resolve import CHARS_PER_CALL
 from pkm.export.markdown import page_filename
 from pkm.filenames import attachment_disposition
 from pkm.server.app import create_app
@@ -543,3 +544,142 @@ def test_export_page_markdown_refuses_a_fan_out_that_produces_nothing(
     assert r.json() == {"detail": "page too large to export: its block refs"
                         " and queries expand too many times"}
     assert "content-disposition" not in r.headers
+
+
+_REFUSED = "page too large to export: "
+
+
+def _plan_rows_counter(monkeypatch) -> list[int]:
+    # Counts query-result rows the database hands back, materialised in one
+    # list (select) or streamed one at a time (select_iter).
+    seen = [0]
+    select, select_iter = Db.select, Db.select_iter
+
+    def counted_select(self, sql, params=()):
+        rows = select(self, sql, params)
+        if "page_title" in sql:
+            seen[0] += len(rows)
+        return rows
+
+    def counted_select_iter(self, sql, params=()):
+        for row in select_iter(self, sql, params):
+            if "page_title" in sql:
+                seen[0] += 1
+            yield row
+
+    monkeypatch.setattr(Db, "select", counted_select)
+    monkeypatch.setattr(Db, "select_iter", counted_select_iter)
+    return seen
+
+
+def _query_graph_client(tmp_path, exprs: list[str], matches: int):
+    blocks = [(f"src_{i:05d}", 1, None, i, f"{{{{query: {e}}}}}",
+               None, 0, None, None) for i, e in enumerate(exprs)]
+    blocks += [(f"hit_{i:05d}", 3, None, i, f"match {i} [[Tag]]",
+                None, 0, None, None) for i in range(matches)]
+    return seeded_client(
+        tmp_path,
+        pages=[(1, "Source", None, None), (2, "Tag", None, None),
+               (3, "Graph", None, None)],
+        blocks=blocks,
+        refs=[(f"hit_{i:05d}", 2, "link") for i in range(matches)])
+
+
+def test_export_refuses_many_equivalent_queries_without_fetching_them_all(
+        tmp_path, monkeypatch):
+    # String-distinct but equivalent expressions each run once: 50 of them
+    # over 40 matches would hold 2_000 rows. A budget of 200 calls stops
+    # the gather after a handful, before rendering anything.
+    exprs = ["{and: [[Tag]]" + " " * i + "}" for i in range(50)]
+    tc = _query_graph_client(tmp_path, exprs, 40)
+    monkeypatch.setattr(routes_export, "EXPORT_MAX_CHARS",
+                        CHARS_PER_CALL * 200)
+    rendered = []
+    monkeypatch.setattr(routes_export, "render_page_resolved",
+                        lambda *a, **k: rendered.append(a) or "")
+    seen = _plan_rows_counter(monkeypatch)
+    r = tc.get("/api/export/page/Source")
+    assert r.status_code == 422
+    assert r.json()["detail"].startswith(_REFUSED)
+    assert "content-disposition" not in r.headers
+    assert seen[0] <= 200
+    assert rendered == []
+
+
+def test_export_refuses_a_query_matching_past_the_budget_before_any_row(
+        tmp_path, monkeypatch):
+    tc = _query_graph_client(tmp_path, ["{and: [[Tag]]}"], 500)
+    monkeypatch.setattr(routes_export, "EXPORT_MAX_CHARS",
+                        CHARS_PER_CALL * 200)
+    seen = _plan_rows_counter(monkeypatch)
+    r = tc.get("/api/export/page/Source")
+    assert r.status_code == 422
+    assert r.json() == {"detail": "page too large to export: its block refs"
+                        " and queries expand too many times"}
+    assert seen[0] == 0
+
+
+def test_export_under_the_lowered_bound_still_renders_every_match(
+        tmp_path, monkeypatch):
+    # 150 matches of about 20 rendered characters each fit a lowered
+    # bound of 5_000: nothing is refused or dropped.
+    tc = _query_graph_client(tmp_path, ["{and: [[Tag]]}"], 150)
+    monkeypatch.setattr(routes_export, "EXPORT_MAX_CHARS",
+                        CHARS_PER_CALL * 500)
+    r = tc.get("/api/export/page/Source")
+    assert r.status_code == 200
+    assert "150 results" in r.text
+    assert all(f"match {i} " in r.text for i in range(150))
+
+
+def test_iter_plan_rows_streams_what_execute_plan_returns(tmp_path):
+    from pkm.server.query import plan_sql
+    from pkm.server.query_exec import (
+        execute_plan, iter_plan_rows, parse_canonical_query)
+    _query_graph_client(tmp_path, ["{and: [[Tag]]}"], 30)
+    db = connect(tmp_path / "pkm.sqlite3")
+    sql, params = plan_sql(parse_canonical_query(db, "{and: [[Tag]]}"))
+    rows = execute_plan(db, sql, params).rows
+    assert len(rows) == 30
+    assert list(iter_plan_rows(db, sql, params)) == list(rows)
+
+
+def test_export_refuses_items_whose_query_macros_cannot_render(
+        tmp_path, monkeypatch):
+    # Each match holds one macro of a 300-character expression, which the
+    # renderer writes out whether or not it runs: 10 of them pass a
+    # 2_000-character bound, so the gather refuses before rendering.
+    # (Text after "see " so the match is not a macro block, which a query
+    # never returns.)
+    body = "see {{query: " + "Z" * 300 + "}}"
+    blocks = [("src_00000", 1, None, 0, "{{query: {and: [[Tag]]}}}",
+               None, 0, None, None)]
+    blocks += [(f"hit_{i:05d}", 3, None, i, body, None, 0, None, None)
+               for i in range(10)]
+    tc = seeded_client(
+        tmp_path,
+        pages=[(1, "Source", None, None), (2, "Tag", None, None),
+               (3, "Graph", None, None)],
+        blocks=blocks,
+        refs=[(f"hit_{i:05d}", 2, "link") for i in range(10)])
+    monkeypatch.setattr(routes_export, "EXPORT_MAX_CHARS",
+                        CHARS_PER_CALL * 200)
+    rendered = []
+    monkeypatch.setattr(routes_export, "render_page_resolved",
+                        lambda *a, **k: rendered.append(a) or "")
+    r = tc.get("/api/export/page/Source")
+    assert r.status_code == 422
+    assert r.json()["detail"].startswith(_REFUSED)
+    assert rendered == []
+
+
+def test_a_query_matching_nothing_runs_no_rows_query(tmp_path, monkeypatch):
+    tc = _query_graph_client(tmp_path, ["{and: [[Nowhere]]}"], 5)
+    streamed = []
+    real = routes_export.iter_plan_rows
+    monkeypatch.setattr(routes_export, "iter_plan_rows",
+                        lambda *a: streamed.append(a) or real(*a))
+    r = tc.get("/api/export/page/Source")
+    assert r.status_code == 200
+    assert "0 results" in r.text
+    assert streamed == []

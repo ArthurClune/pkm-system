@@ -13,7 +13,7 @@ each route: /api/query returns the `BlockGroup` models of
 """
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 
 from pkm.database import Db
@@ -83,15 +83,23 @@ def count_matches(db: Db, sql: str,
     return row["n"]
 
 
+def _rows_sql(sql: str) -> str:
+    return f"""SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
+                 FROM ({sql}) m JOIN blocks b ON b.uid = m.uid
+                 JOIN pages p ON p.id = b.page_id
+                WHERE {_SOURCE_FILTER}
+                ORDER BY p.title, b.uid"""
+
+
 def execute_plan(db: Db, sql: str,
                  params: Sequence[str]) -> QueryMatches:
     """Total and matching rows for a `query.plan_sql` plan."""
     total = count_matches(db, sql, params)
-    rows = db.select(
-        f"""SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
-              FROM ({sql}) m JOIN blocks b ON b.uid = m.uid
-              JOIN pages p ON p.id = b.page_id
-             WHERE {_SOURCE_FILTER}
-             ORDER BY p.title, b.uid""",
-        params)
-    return QueryMatches(total=total, rows=rows)
+    return QueryMatches(total=total, rows=db.select(_rows_sql(sql), params))
+
+
+def iter_plan_rows(db: Db, sql: str,
+                   params: Sequence[str]) -> Iterator[Row]:
+    """`execute_plan`'s rows, in its order, streamed: for a caller that
+    checks `count_matches` first and may stop part way through."""
+    return db.select_iter(_rows_sql(sql), params)

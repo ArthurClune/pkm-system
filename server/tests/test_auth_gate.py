@@ -249,6 +249,14 @@ def test_a_logged_in_client_can_log_in_again(client):
     assert r.status_code == 200
 
 
+def test_a_session_does_not_lift_the_cap(seeded_config, client_cookie):
+    s = run(_stream(create_app(seeded_config), "POST", "/api/login",
+                    "application/json", 0, prefix=_login_body(9000),
+                    headers=[(b"content-length", b"9000")],
+                    cookie=client_cookie))
+    assert (s.status, s.consumed) == (413, 0)
+
+
 def test_a_disconnect_during_the_login_read_calls_nothing():
     called: list[bool] = []
     sent: list[dict] = []
@@ -390,11 +398,11 @@ def test_over_a_real_socket_a_login_past_the_cap_is_refused(seeded_config):
     chunked = (b"POST /api/login HTTP/1.1\r\nHost: x\r\n"
                b"Content-Type: application/json\r\n"
                b"Transfer-Encoding: chunked\r\n\r\n")
-    chunks = b"".join(b"400\r\n" + b"a" * 1024 + b"\r\n" for _ in range(16))
+    # Eight times the cap, never terminated: only a capped read answers.
+    chunks = b"".join(b"400\r\n" + b"a" * 1024 + b"\r\n" for _ in range(64))
     with _serving(app) as port:
         assert _status_before_the_body_ends(port, declared, b"") == (
             b"HTTP/1.1 413 Request Entity Too Large")
         assert app.bytes == 0
         assert _status_before_the_body_ends(port, chunked, chunks) == (
             b"HTTP/1.1 413 Request Entity Too Large")
-    assert app.bytes <= 16 * 1024

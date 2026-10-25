@@ -15,10 +15,12 @@ because the proptest server replaces `app.state.config` after
 `create_app`.
 
 A public request that may carry a body (`POST /api/login` is the only
-one) has it read here, at most `PUBLIC_BODY_MAX_BYTES`, and anything
-longer gets 413. No session bounds such a body, and FastAPI would read any
-size before the route runs. The body read is replayed to the app as one
-message."""
+one) has it read here, session or not, and replayed to the app as one
+message. No session bounds such a body, and FastAPI would read any size
+before the route runs. The gate keeps at most `PUBLIC_BODY_MAX_BYTES`: a
+declared length past it gets 413 unread, and a streamed body gets 413 as
+soon as it passes it. Reading stops one server message past the cap, so
+the server's read size (uvicorn's) bounds the overshoot."""
 from __future__ import annotations
 
 from fastapi.responses import JSONResponse

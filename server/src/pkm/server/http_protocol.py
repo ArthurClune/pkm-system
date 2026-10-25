@@ -30,15 +30,17 @@ the transport's drain while writing is paused, and a close waits for
 unsent bytes to leave. So a client that requests a large response and
 reads nothing holds the connection for good. While nothing more can be
 written until the client takes some (writing is paused, or the response
-is finished with bytes unsent), some of those bytes must leave within
-`WRITE_STALL_TIMEOUT_S`, or the connection is aborted. The rule is about
-progress, not how long writing stays paused: one large message (a big
-JSON response) keeps writing paused until nearly all of it has gone, and
-a slow reader of it must not be cut. Progress is measured by the
-transport's buffer shrinking, which is sound only in those two states,
-because then nothing else adds to it. The kernel may still take a few
-KiB just after the client stops reading, which counts as progress, so
-such a client is cut after one or two windows (measured: 115 to 125 s).
+is finished with bytes unsent), the transport's buffer must shrink
+within `WRITE_STALL_TIMEOUT_S`, or the connection is aborted. The rule is
+about progress, not how long writing stays paused: one large message (a
+big JSON response) keeps writing paused until nearly all of it has gone.
+Because the kernel and flow control release bytes in large steps, this
+is in effect a minimum read rate of about one resume step per window
+(roughly 1 KiB/s on loopback), far below any usable link. Progress is
+measured only in those two states, because then nothing else adds to the
+buffer. The kernel may still take a few KiB just after the client stops
+reading, which counts as progress, so such a client is cut one or two
+windows later.
 
 It leans on uvicorn internals (`self.cycle`, `self.flow`,
 `on_response_complete`, `pause_writing`); the real-socket tests in
@@ -55,11 +57,13 @@ from uvicorn.protocols.http.h11_impl import H11Protocol
 # Ten seconds for a request head of a few hundred bytes: far beyond any
 # honest client, short enough that a pool of held connections drains.
 HEADER_READ_TIMEOUT_S: Final = 10.0
-# As nginx's send_timeout: a client must take some of a waiting response
-# every minute. One reading at any speed a person would use takes bytes
-# every few milliseconds; a minute leaves room for a phone moving between
-# networks, while a pool of clients that read nothing still drains.
-WRITE_STALL_TIMEOUT_S: Final = 60.0
+# The connection is aborted when writing stays paused (the client's
+# receive window stays full) for this long. The kernel and flow control
+# release bytes in large steps, so this is in effect a minimum read rate
+# of about one resume step per window: roughly 1 KiB/s on loopback, far
+# below any usable link. Five minutes leaves room for a phone moving
+# between networks, while a pool of clients that read nothing drains.
+WRITE_STALL_TIMEOUT_S: Final = 300.0
 
 
 class DeadlineH11Protocol(H11Protocol):

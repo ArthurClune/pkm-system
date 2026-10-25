@@ -947,23 +947,27 @@ the gate bound a slow client:
 | the request head, from the connection's open or its last response | `HEADER_READ_TIMEOUT_S` (`DeadlineH11Protocol`) | the connection is closed |
 | the rest of a body answered without reading it (a 401, 403 or 413) | the same deadline, which the leftover body counts against | the connection is closed |
 | a public body | `PUBLIC_BODY_READ_TIMEOUT_S` for the whole read | 408 with `Connection: close` |
-| the client taking a response, while writing is paused or the response is finished with bytes unsent | some bytes must leave within `WRITE_STALL_TIMEOUT_S` | the connection is aborted |
+| the client taking a response, while writing is paused or the response is finished with bytes unsent | the transport's buffer must shrink within `WRITE_STALL_TIMEOUT_S` | the connection is aborted |
 | an authenticated body | none | — |
 | a request every few seconds on one connection | none: uvicorn's 5 s keep-alive restarts with each one | — |
 
 The write deadline measures progress, not paused time: one large JSON
-message keeps writing paused until nearly all of it has left, and a slow
-reader of it must not be cut. The kernel takes bytes from the transport
-in steps of its socket buffer, so a client must read about that much (a
-few hundred KiB) each window. It may also take a few KiB just after the
-client stops reading, so a client that stops is cut one or two windows
-later.
+message keeps writing paused until nearly all of it has left. The kernel
+takes bytes from the transport in steps of its socket buffer (a few
+hundred KiB), so the rule is in effect a minimum read rate of one step
+per window, about 1 KiB/s at 300 s: far below any usable link, and the
+accepted cost of a bound that needs no kernel queries. The kernel may also
+take a few KiB just after the client stops reading, so a client that stops
+is cut one or two windows later.
 
 A 401 or 413 does not close the connection at once. uvicorn drops the rest
 of the refused body, and a client that sends it promptly can reuse the
 connection. Closing with that body unread resets the connection, and a
 client still sending could lose the answer. An authenticated body has no
-deadline because an upload over a slow link may take minutes.
+deadline because an upload over a slow link may take minutes. An upload
+past its limit plus the multipart envelope gets the gate's 413 at once
+and the sender is cut at the head deadline, so a browser may show a reset
+instead of the 413; the upload fails either way.
 
 `require_auth` stays on every router
 (`dependencies=[Depends(require_auth)]`) as the route's own check, and

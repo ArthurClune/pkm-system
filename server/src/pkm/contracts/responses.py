@@ -72,27 +72,59 @@ def walk_blocks(nodes: Sequence[BlockNode]) -> Iterator[BlockNode]:
         yield from walk_blocks(n.children)
 
 
+# Text the old item field carries where a trail exists. A bundle built
+# before `ancestors` renders it as its whole trail: an elision a click on
+# the item resolves, never the texts, which were the amplification.
+STALE_BUNDLE_CRUMB = "…"
+
+
+def _omit_empty(model: BaseModel, handler: SerializerFunctionWrapHandler,
+                field: str) -> object:
+    """Serialize `model`, leaving `field` out when it is empty."""
+    data = handler(model)
+    if isinstance(data, dict) and not data.get(field):
+        data.pop(field, None)
+    return data
+
+
 class BacklinkItem(StrictModel):
-    """A block linking the page (or block), with its breadcrumb trail as
-    ancestor uids, root first. The texts are in the enclosing payload's
-    `ancestor_texts`."""
+    """A block linking the page (or block). `ancestors` is its breadcrumb
+    trail, root first, as positions in its group's `ancestor_texts`; left
+    out when the block has no parent.
+
+    `breadcrumbs` is for bundles built before `ancestors`, which read it
+    off every item and throw on a missing one: `[STALE_BUNDLE_CRUMB]` where
+    the item has a trail, else empty. Nothing current reads it."""
     uid: BlockUid
     text: str
-    ancestor_uids: list[BlockUid]
+    breadcrumbs: list[str]
+    ancestors: list[int] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
+        # No return annotation: pydantic reads it into the OpenAPI schema.
+        return _omit_empty(self, handler, "ancestors")
 
 
 class BacklinkGroup(StrictModel):
+    """One source page's backlinks. `ancestor_texts` holds the text of each
+    ancestor its items' trails name, once, in first-appearance order; left
+    out when no item has a trail. A trail of texts on every item repeated
+    a deep chain's shared ancestors about depth²/2 times. An ancestor is
+    on its item's page, so no two groups share one."""
     page_id: PageId
     page_title: CanonicalTitle
     items: list[BacklinkItem]
+    ancestor_texts: list[str] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
+        # No return annotation: pydantic reads it into the OpenAPI schema.
+        return _omit_empty(self, handler, "ancestor_texts")
 
 
 class Backlinks(StrictModel):
-    """One page of backlink groups. `ancestor_texts` holds the text of
-    every uid an item's `ancestor_uids` names, each once: a trail per item
-    repeated the shared ancestors of a deep chain about depth²/2 times."""
     groups: list[BacklinkGroup]
-    ancestor_texts: dict[BlockUid, str]
     total_pages: int
     offset: int
     limit: int
@@ -101,10 +133,8 @@ class Backlinks(StrictModel):
 class BlockBacklinksPayload(StrictModel):
     """GET /api/block/{uid}/backlinks: every block referencing ((uid)),
     grouped like page backlinks. Unpaginated by design -- counts are small
-    and nothing user-visible truncates silently. `ancestor_texts` as in
-    `Backlinks`."""
+    and nothing user-visible truncates silently."""
     groups: list[BacklinkGroup]
-    ancestor_texts: dict[BlockUid, str]
 
 
 class BlockRefText(StrictModel):
@@ -468,10 +498,7 @@ def _omit_empty_applied(model: BaseModel,
     """Serialize `model`, leaving `applied_batches` out when it is empty: a
     request that named no pending batches gets the payload it got before the
     field existed, byte for byte."""
-    data = handler(model)
-    if isinstance(data, dict) and not data.get("applied_batches"):
-        data.pop("applied_batches", None)
-    return data
+    return _omit_empty(model, handler, "applied_batches")
 
 
 class ChangesPayload(StrictModel):

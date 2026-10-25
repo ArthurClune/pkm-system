@@ -6,7 +6,7 @@ import { pageIdOf, canonicalTitleOf, uidOf } from "../test-helpers";
 function batch(over: Partial<BacklinkBatchPayload["backlinks"]> = {},
                refTexts: BacklinkBatchPayload["block_ref_texts"] = {}): BacklinkBatchPayload {
   return {
-    backlinks: { groups: [], ancestor_texts: {}, total_pages: 1, ...over },
+    backlinks: { groups: [], total_pages: 1, ...over },
     block_ref_texts: refTexts,
   };
 }
@@ -14,53 +14,28 @@ function batch(over: Partial<BacklinkBatchPayload["backlinks"]> = {},
 // totalPages unknown until the first batch reports it -- a sentinel that's
 // always "more remaining" so the walk fetches at least once, same trick
 // BacklinksSection's refresh uses for a from-scratch walk.
-const unknown: BacklinkBatchState =
-  { groups: [], totalPages: Infinity, refTexts: {}, ancestorTexts: {} };
-
-it("keeps every batch's ancestor texts", async () => {
-  const item = (n: number) => ({ uid: uidOf(`tuid-u${n}`), text: "t",
-                                 ancestor_uids: [uidOf(`tuid-a${n}`)] });
-  const fetchBatch = vi.fn()
-    .mockResolvedValueOnce(batch({
-      groups: [{ page_id: pageIdOf(1), page_title: canonicalTitleOf("A"),
-                 items: [item(1)] }],
-      ancestor_texts: { "tuid-a1": "first" }, total_pages: 2 }))
-    .mockResolvedValueOnce(batch({
-      groups: [{ page_id: pageIdOf(2), page_title: canonicalTitleOf("B"),
-                 items: [item(2)] }],
-      ancestor_texts: { "tuid-a2": "second" }, total_pages: 2 }));
-  const result = await walkBacklinkBatches(
-    fetchBatch, unknown,
-    (state) => (state.groups.length < state.totalPages ? 1 : null),
-    () => false);
-  expect(result !== "stale" && result.ancestorTexts)
-    .toEqual({ "tuid-a1": "first", "tuid-a2": "second" });
-  const merged = mergeBacklinkResult(
-    { groups: [], totalPages: 2, refTexts: {}, ancestorTexts: { "tuid-a0": "kept" } },
-    { groups: [], totalPages: 2, refTexts: {}, ancestorTexts: { "tuid-a3": "added" } });
-  expect(merged.ancestorTexts).toEqual({ "tuid-a0": "kept", "tuid-a3": "added" });
-});
+const unknown: BacklinkBatchState = { groups: [], totalPages: Infinity, refTexts: {} };
 
 it("walks multiple batches, growing groups and total pages as it goes", async () => {
   const fetchBatch = vi.fn()
     .mockResolvedValueOnce(batch({
       groups: [
         { page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-u1"), text: "one",
-          ancestor_uids: [] }] },
+          breadcrumbs: [] }] },
       ],
       total_pages: 3,
     }))
     .mockResolvedValueOnce(batch({
       groups: [
         { page_id: pageIdOf(2), page_title: canonicalTitleOf("B"), items: [{ uid: uidOf("tuid-u2"), text: "two",
-          ancestor_uids: [] }] },
+          breadcrumbs: [] }] },
       ],
       total_pages: 3,
     }))
     .mockResolvedValueOnce(batch({
       groups: [
         { page_id: pageIdOf(3), page_title: canonicalTitleOf("C"), items: [{ uid: uidOf("tuid-u3"), text: "three",
-          ancestor_uids: [] }] },
+          breadcrumbs: [] }] },
       ],
       total_pages: 3,
     }));
@@ -73,12 +48,12 @@ it("walks multiple batches, growing groups and total pages as it goes", async ()
 
   expect(result).toEqual({
     groups: [
-      { page_id: pageIdOf(1), page_title: "A", items: [{ uid: "tuid-u1", text: "one", ancestor_uids: [] }] },
-      { page_id: pageIdOf(2), page_title: "B", items: [{ uid: "tuid-u2", text: "two", ancestor_uids: [] }] },
-      { page_id: pageIdOf(3), page_title: "C", items: [{ uid: "tuid-u3", text: "three", ancestor_uids: [] }] },
+      { page_id: pageIdOf(1), page_title: "A", items: [{ uid: "tuid-u1", text: "one", crumbs: [] }] },
+      { page_id: pageIdOf(2), page_title: "B", items: [{ uid: "tuid-u2", text: "two", crumbs: [] }] },
+      { page_id: pageIdOf(3), page_title: "C", items: [{ uid: "tuid-u3", text: "three", crumbs: [] }] },
     ],
     totalPages: 3,
-    refTexts: {}, ancestorTexts: {},
+    refTexts: {},
   });
   expect(fetchBatch).toHaveBeenNthCalledWith(1, 0, 1);
   expect(fetchBatch).toHaveBeenNthCalledWith(2, 1, 1);
@@ -90,15 +65,15 @@ it("dedupes items a later batch repeats for an already-seen page", async () => {
     .mockResolvedValueOnce(batch({
       groups: [
         { page_id: pageIdOf(9), page_title: canonicalTitleOf("Src"), items: [{ uid: uidOf("tuid-s1"), text: "one",
-          ancestor_uids: [] }] },
+          breadcrumbs: [] }] },
       ],
       total_pages: 2,
     }))
     .mockResolvedValueOnce(batch({
       // same page, one repeated item + one new item
       groups: [{ page_id: pageIdOf(9), page_title: canonicalTitleOf("Src"),
-                 items: [{ uid: uidOf("tuid-s1"), text: "one", ancestor_uids: [] },
-                         { uid: uidOf("tuid-s2"), text: "two", ancestor_uids: [] }] }],
+                 items: [{ uid: uidOf("tuid-s1"), text: "one", breadcrumbs: [] },
+                         { uid: uidOf("tuid-s2"), text: "two", breadcrumbs: [] }] }],
       total_pages: 2,
     }));
 
@@ -114,7 +89,7 @@ it("dedupes items a later batch repeats for an already-seen page", async () => {
     {
       page_id: pageIdOf(9),
       page_title: "Src",
-      items: [{ uid: "tuid-s1", text: "one", ancestor_uids: [] }, { uid: "tuid-s2", text: "two", ancestor_uids: [] }],
+      items: [{ uid: "tuid-s1", text: "one", crumbs: [] }, { uid: "tuid-s2", text: "two", crumbs: [] }],
     },
   ]);
 });
@@ -128,7 +103,7 @@ it("stops without applying a batch once the caller reports staleness", async () 
         {
           page_id: pageIdOf(calls),
           page_title: canonicalTitleOf(`P${calls}`),
-          items: [{ uid: uidOf(`tuid-u${calls}`), text: "x", ancestor_uids: [] }],
+          items: [{ uid: uidOf(`tuid-u${calls}`), text: "x", breadcrumbs: [] }],
         },
       ],
       total_pages: 3,
@@ -152,7 +127,7 @@ it("propagates a batch fetch failure without applying any partial progress", asy
     .mockResolvedValueOnce(batch({
       groups: [
         { page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-u1"), text: "one",
-          ancestor_uids: [] }] },
+          breadcrumbs: [] }] },
       ],
       total_pages: 3,
     }))
@@ -174,7 +149,7 @@ it("stops on an empty batch even though the reported total says there's more", a
     () => false,
   );
 
-  expect(result).toEqual({ groups: [], totalPages: 5, refTexts: {}, ancestorTexts: {} });
+  expect(result).toEqual({ groups: [], totalPages: 5, refTexts: {} });
   expect(fetchBatch).toHaveBeenCalledTimes(1);
 });
 
@@ -183,14 +158,14 @@ it("stops when a non-empty batch yields no new distinct group (no-growth termina
     // merges into the page already present in the starting state -- group count
     // doesn't grow
     groups: [{ page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-u2"), text: "two",
-      ancestor_uids: [] }] }],
+      breadcrumbs: [] }] }],
     total_pages: 5,
   }));
   const starting: BacklinkBatchState = {
     groups: [{ page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-u1"), text: "one",
-      ancestor_uids: [] }] }],
+      crumbs: [] }] }],
     totalPages: 2, // stale total from an earlier response -- looks like there's more
-    refTexts: {}, ancestorTexts: {},
+    refTexts: {},
   };
 
   const result = await walkBacklinkBatches(
@@ -201,10 +176,10 @@ it("stops when a non-empty batch yields no new distinct group (no-growth termina
 
   expect(result).toEqual({
     groups: [{ page_id: pageIdOf(1), page_title: "A",
-               items: [{ uid: "tuid-u1", text: "one", ancestor_uids: [] }, { uid: "tuid-u2", text: "two",
-                 ancestor_uids: [] }] }],
+               items: [{ uid: "tuid-u1", text: "one", crumbs: [] }, { uid: "tuid-u2", text: "two",
+                 crumbs: [] }] }],
     totalPages: 5,
-    refTexts: {}, ancestorTexts: {},
+    refTexts: {},
   });
   expect(fetchBatch).toHaveBeenCalledTimes(1);
 });
@@ -215,7 +190,7 @@ it("merges block_ref_texts across batches", async () => {
       {
         groups: [
           { page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-u1"), text: "one",
-            ancestor_uids: [] }] },
+            breadcrumbs: [] }] },
         ],
         total_pages: 2,
       },
@@ -225,7 +200,7 @@ it("merges block_ref_texts across batches", async () => {
       {
         groups: [
           { page_id: pageIdOf(2), page_title: canonicalTitleOf("B"), items: [{ uid: uidOf("tuid-u2"), text: "two",
-            ancestor_uids: [] }] },
+            breadcrumbs: [] }] },
         ],
         total_pages: 2,
       },
@@ -250,11 +225,11 @@ it("fetches a single batch and stops when nextLimit only allows one (loadMore-st
   const fetchBatch = vi.fn().mockResolvedValueOnce(batch({
     groups: [
       { page_id: pageIdOf(4), page_title: canonicalTitleOf("D"), items: [{ uid: uidOf("tuid-u4"), text: "four",
-        ancestor_uids: [] }] },
+        breadcrumbs: [] }] },
     ],
     total_pages: 9,
   }));
-  const starting: BacklinkBatchState = { groups: [], totalPages: 9, refTexts: {}, ancestorTexts: {} };
+  const starting: BacklinkBatchState = { groups: [], totalPages: 9, refTexts: {} };
 
   const result = await walkBacklinkBatches(
     fetchBatch, starting,
@@ -263,9 +238,9 @@ it("fetches a single batch and stops when nextLimit only allows one (loadMore-st
   );
 
   expect(result).toEqual({
-    groups: [{ page_id: pageIdOf(4), page_title: "D", items: [{ uid: "tuid-u4", text: "four", ancestor_uids: [] }] }],
+    groups: [{ page_id: pageIdOf(4), page_title: "D", items: [{ uid: "tuid-u4", text: "four", crumbs: [] }] }],
     totalPages: 9,
-    refTexts: {}, ancestorTexts: {},
+    refTexts: {},
   });
   expect(fetchBatch).toHaveBeenCalledTimes(1);
   expect(fetchBatch).toHaveBeenCalledWith(0, 20);
@@ -274,31 +249,28 @@ it("fetches a single batch and stops when nextLimit only allows one (loadMore-st
 it("mergeBacklinkResult merges a walk result onto the latest state without dropping either side", () => {
   const current: BacklinkBatchState = {
     groups: [{ page_id: pageIdOf(3), page_title: canonicalTitleOf("C"), items: [{ uid: uidOf("tuid-c1"), text: "c",
-      ancestor_uids: [] }] }],
+      crumbs: [] }] }],
     totalPages: 3,
-    ancestorTexts: {},
     refTexts: { rc: { text: "ref c", page_title: canonicalTitleOf("C") } },
   };
   const result: BacklinkBatchState = {
     groups: [
       { page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-a1"), text: "a",
-        ancestor_uids: [] }] },
+        crumbs: [] }] },
       { page_id: pageIdOf(2), page_title: canonicalTitleOf("B"), items: [{ uid: uidOf("tuid-b1"), text: "b",
-        ancestor_uids: [] }] },
+        crumbs: [] }] },
     ],
     totalPages: 3,
-    ancestorTexts: {},
     refTexts: { ra: { text: "ref a", page_title: canonicalTitleOf("A") } },
   };
 
   expect(mergeBacklinkResult(current, result)).toEqual({
     groups: [
-      { page_id: pageIdOf(3), page_title: "C", items: [{ uid: "tuid-c1", text: "c", ancestor_uids: [] }] },
-      { page_id: pageIdOf(1), page_title: "A", items: [{ uid: "tuid-a1", text: "a", ancestor_uids: [] }] },
-      { page_id: pageIdOf(2), page_title: "B", items: [{ uid: "tuid-b1", text: "b", ancestor_uids: [] }] },
+      { page_id: pageIdOf(3), page_title: "C", items: [{ uid: "tuid-c1", text: "c", crumbs: [] }] },
+      { page_id: pageIdOf(1), page_title: "A", items: [{ uid: "tuid-a1", text: "a", crumbs: [] }] },
+      { page_id: pageIdOf(2), page_title: "B", items: [{ uid: "tuid-b1", text: "b", crumbs: [] }] },
     ],
     totalPages: 3,
-    ancestorTexts: {},
     refTexts: {
       rc: { text: "ref c", page_title: "C" },
       ra: { text: "ref a", page_title: "A" },
@@ -312,33 +284,33 @@ it("mergeBacklinkResult is order-independent for two concurrent results (loadMor
   // reverse order -- converging to the same union either way.
   const initial: BacklinkBatchState = {
     groups: [{ page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-a1"), text: "a",
-      ancestor_uids: [] }] }],
+      crumbs: [] }] }],
     totalPages: 3,
-    refTexts: {}, ancestorTexts: {},
+    refTexts: {},
   };
   const loadAllResult: BacklinkBatchState = {
     groups: [
       { page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-a1"), text: "a",
-        ancestor_uids: [] }] },
+        crumbs: [] }] },
       { page_id: pageIdOf(2), page_title: canonicalTitleOf("B"), items: [{ uid: uidOf("tuid-b1"), text: "b",
-        ancestor_uids: [] }] },
+        crumbs: [] }] },
       { page_id: pageIdOf(3), page_title: canonicalTitleOf("C"), items: [{ uid: uidOf("tuid-c1"), text: "c",
-        ancestor_uids: [] }] },
+        crumbs: [] }] },
     ],
     totalPages: 3,
-    refTexts: {}, ancestorTexts: {},
+    refTexts: {},
   };
   const loadMoreResult: BacklinkBatchState = {
     // loadMore started from the stale 1-group snapshot and only fetched one
     // more batch -- it never saw page C.
     groups: [
       { page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-a1"), text: "a",
-        ancestor_uids: [] }] },
+        crumbs: [] }] },
       { page_id: pageIdOf(2), page_title: canonicalTitleOf("B"), items: [{ uid: uidOf("tuid-b1"), text: "b",
-        ancestor_uids: [] }] },
+        crumbs: [] }] },
     ],
     totalPages: 3,
-    refTexts: {}, ancestorTexts: {},
+    refTexts: {},
   };
 
   const loadAllThenLoadMore =
@@ -356,8 +328,8 @@ it("makes no fetch when nextLimit immediately says to stop", async () => {
   const fetchBatch = vi.fn();
   const alreadyDone: BacklinkBatchState = { groups: [{
     page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-u1"), text: "one",
-      ancestor_uids: [] }],
-  }], totalPages: 1, refTexts: {}, ancestorTexts: {} };
+      crumbs: [] }],
+  }], totalPages: 1, refTexts: {} };
 
   const result = await walkBacklinkBatches(
     fetchBatch, alreadyDone,

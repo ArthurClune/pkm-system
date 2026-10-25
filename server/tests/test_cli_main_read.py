@@ -96,8 +96,8 @@ def _full_page() -> PagePayload:
         backlinks=Backlinks(groups=[BacklinkGroup(
             page_id=page_id_of(42), page_title=canonical_title_of("Elsewhere"),
             items=[BacklinkItem(uid=uid_of("clifullback1"), text="see [[Full Page]]",
-                                ancestor_uids=[uid_of("clifullanc1")])])],
-            ancestor_texts={uid_of("clifullanc1"): "Elsewhere"}, total_pages=5, offset=2, limit=9),
+                                breadcrumbs=["…"], ancestors=[0])],
+            ancestor_texts=["Elsewhere"])], total_pages=5, offset=2, limit=9),
         block_ref_texts={uid_of("clifullhead1"): ref},
         block_ref_counts={uid_of("clifullhead1"): 4})
 

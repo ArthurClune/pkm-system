@@ -8,7 +8,7 @@
 // held in a filter is a CanonicalTitle, the kind page titles are.
 
 import type { CanonicalTitle } from "../api/brands";
-import type { AncestorTexts, BacklinkGroup, BacklinkItem } from "../api/payloads";
+import type { ShownBacklinkGroup, ShownBacklinkItem } from "./groups";
 import { extractRefs } from "../grammar/refs";
 import type { TitleReader } from "../replica/titles";
 
@@ -23,46 +23,27 @@ export function isFiltering(f: FilterState): boolean {
   return f.include.length > 0 || f.exclude.length > 0;
 }
 
-/** The item's breadcrumb trail as texts, root first, read from the
- * payload's shared `ancestor_texts`. An ancestor the map lacks (a broken
- * payload) shows as its uid rather than vanishing from the trail. */
-export function breadcrumbTexts(item: BacklinkItem,
-                                texts: AncestorTexts): string[] {
-  return item.ancestor_uids.map((uid) => texts[uid] ?? uid);
-}
-
 // mergeGroups copies group objects but reuses item objects across
 // pagination batches, so a WeakMap keyed by item survives load-all merges.
 // One cache per reader: a flag flip must not serve titles canonicalized
-// under the other value. One per texts map too: a merge builds a new map,
-// and a later batch may carry a newer text for an ancestor.
-const refCaches = new WeakMap<TitleReader, WeakMap<AncestorTexts,
-  WeakMap<BacklinkItem, ReadonlySet<CanonicalTitle>>>>();
-
-function cacheFor(read: TitleReader, texts: AncestorTexts) {
-  let byTexts = refCaches.get(read);
-  if (!byTexts) {
-    byTexts = new WeakMap();
-    refCaches.set(read, byTexts);
-  }
-  let byItem = byTexts.get(texts);
-  if (!byItem) {
-    byItem = new WeakMap();
-    byTexts.set(texts, byItem);
-  }
-  return byItem;
-}
+// under the other value.
+const refCaches = new WeakMap<
+  TitleReader, WeakMap<ShownBacklinkItem, ReadonlySet<CanonicalTitle>>>();
 
 /** Every page title the item references in its own text or any ancestor
  * (breadcrumb) block: a block nested under "Papers to read #Paper" counts
  * as tagged Paper. Kinds merge: #X, [[X]] and X:: are all just "X". */
-export function itemRefTitles(item: BacklinkItem, texts: AncestorTexts,
+export function itemRefTitles(item: ShownBacklinkItem,
                               read: TitleReader): ReadonlySet<CanonicalTitle> {
-  const refCache = cacheFor(read, texts);
+  let refCache = refCaches.get(read);
+  if (!refCache) {
+    refCache = new WeakMap();
+    refCaches.set(read, refCache);
+  }
   const hit = refCache.get(item);
   if (hit) return hit;
   const titles = new Set<CanonicalTitle>();
-  for (const text of [item.text, ...breadcrumbTexts(item, texts)]) {
+  for (const text of [item.text, ...item.crumbs]) {
     for (const r of extractRefs(text).refs) titles.add(read(r.title));
   }
   refCache.set(item, titles);
@@ -71,18 +52,17 @@ export function itemRefTitles(item: BacklinkItem, texts: AncestorTexts,
 
 /** Item visible = references ALL includes and NONE of the excludes;
  * groups left with no visible items disappear. */
-export function applyFilter(groups: BacklinkGroup[], texts: AncestorTexts,
-                            f: FilterState,
-                            read: TitleReader): BacklinkGroup[] {
+export function applyFilter(groups: ShownBacklinkGroup[], f: FilterState,
+                            read: TitleReader): ShownBacklinkGroup[] {
   if (!isFiltering(f)) return groups;
   // Entries picked under the other flag value are re-read: canonicalizing
   // is idempotent on a title already canonical under this one.
   const include = f.include.map((t) => read(t));
   const exclude = f.exclude.map((t) => read(t));
-  const out: BacklinkGroup[] = [];
+  const out: ShownBacklinkGroup[] = [];
   for (const g of groups) {
     const items = g.items.filter((it) => {
-      const refs = itemRefTitles(it, texts, read);
+      const refs = itemRefTitles(it, read);
       return include.every((t) => refs.has(t)) &&
              !exclude.some((t) => refs.has(t));
     });
@@ -99,14 +79,14 @@ export interface Chip {
 /** Candidate chips over the *visible* items (counts show what selecting
  * the chip would leave), count-desc then title-asc. `omit` drops the
  * current page's own title and titles already active as filters. */
-export function chipCounts(visible: BacklinkGroup[], texts: AncestorTexts,
+export function chipCounts(visible: ShownBacklinkGroup[],
                            omit: Iterable<CanonicalTitle>,
                            read: TitleReader): Chip[] {
   const skip = new Set([...omit].map((t) => read(t)));
   const counts = new Map<CanonicalTitle, number>();
   for (const g of visible)
     for (const it of g.items)
-      for (const t of itemRefTitles(it, texts, read))
+      for (const t of itemRefTitles(it, read))
         if (!skip.has(t)) counts.set(t, (counts.get(t) ?? 0) + 1);
   return [...counts.entries()]
     .map(([title, count]) => ({ title, count }))

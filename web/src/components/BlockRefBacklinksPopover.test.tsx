@@ -45,7 +45,7 @@ function mockPopoverRect(width: number, height: number) {
 
 it("clamps a popover opened near the right/bottom edges into the viewport", async () => {
   mockPopoverRect(480, 300);
-  mockApiGet.mockResolvedValueOnce({ groups: [], ancestor_texts: {} });
+  mockApiGet.mockResolvedValueOnce({ groups: [] });
   render(<BlockRefBacklinksPopover uid={UID} x={2000} y={1500}
                                    onClose={vi.fn()} />, { wrapper });
   await screen.findByText(/no.*references/i);
@@ -56,7 +56,7 @@ it("clamps a popover opened near the right/bottom edges into the viewport", asyn
 
 it("keeps an in-viewport anchor position unchanged", async () => {
   mockPopoverRect(300, 150);
-  mockApiGet.mockResolvedValueOnce({ groups: [], ancestor_texts: {} });
+  mockApiGet.mockResolvedValueOnce({ groups: [] });
   render(<BlockRefBacklinksPopover uid={UID} x={40} y={60}
                                    onClose={vi.fn()} />, { wrapper });
   await screen.findByText(/no.*references/i);
@@ -68,8 +68,9 @@ it("keeps an in-viewport anchor position unchanged", async () => {
 it("fetches and renders referencing blocks", async () => {
   mockApiGet.mockResolvedValueOnce({ groups: [{
     page_id: 2, page_title: "Source Page",
-    items: [{ uid: "uid_s1", text: "see ((uid_t1))", ancestor_uids: ["uid_p1"] }],
-  }], ancestor_texts: { uid_p1: "Parent" } });
+    items: [{ uid: "uid_s1", text: "see ((uid_t1))", breadcrumbs: ["…"], ancestors: [0] }],
+    ancestor_texts: ["Parent"],
+  }] });
   render(<BlockRefBacklinksPopover uid={UID} x={10} y={20}
                                    onClose={vi.fn()} />, { wrapper });
   expect(await screen.findByText("Source Page")).toBeInTheDocument();
@@ -86,14 +87,14 @@ it("shows a verbose error when the fetch fails", async () => {
 });
 
 it("shows a stale-badge message when there are no references", async () => {
-  mockApiGet.mockResolvedValueOnce({ groups: [], ancestor_texts: {} });
+  mockApiGet.mockResolvedValueOnce({ groups: [] });
   render(<BlockRefBacklinksPopover uid={UID} x={0} y={0}
                                    onClose={vi.fn()} />, { wrapper });
   expect(await screen.findByText(/no references.*badge may be stale/i)).toBeInTheDocument();
 });
 
 it("Escape closes", async () => {
-  mockApiGet.mockResolvedValueOnce({ groups: [], ancestor_texts: {} });
+  mockApiGet.mockResolvedValueOnce({ groups: [] });
   const onClose = vi.fn();
   render(<BlockRefBacklinksPopover uid={UID} x={0} y={0}
                                    onClose={onClose} />, { wrapper });
@@ -103,7 +104,7 @@ it("Escape closes", async () => {
 });
 
 it("outside mousedown closes", async () => {
-  mockApiGet.mockResolvedValueOnce({ groups: [], ancestor_texts: {} });
+  mockApiGet.mockResolvedValueOnce({ groups: [] });
   const onClose = vi.fn();
   render(<BlockRefBacklinksPopover uid={UID} x={0} y={0}
                                    onClose={onClose} />, { wrapper });
@@ -115,8 +116,8 @@ it("outside mousedown closes", async () => {
 it("navigates on Enter when the item itself is focused", async () => {
   mockApiGet.mockResolvedValueOnce({ groups: [{
     page_id: 2, page_title: "Source Page",
-    items: [{ uid: "uid_s1", text: "mentions it here", ancestor_uids: [] }],
-  }], ancestor_texts: {} });
+    items: [{ uid: "uid_s1", text: "mentions it here", breadcrumbs: [] }],
+  }] });
   const onClose = vi.fn();
   render(<BlockRefBacklinksPopover uid={UID} x={0} y={0}
                                    onClose={onClose} />, { wrapper });
@@ -129,8 +130,8 @@ it("navigates on Enter when the item itself is focused", async () => {
 it("navigates to the referencing page and hash on click, and closes", async () => {
   mockApiGet.mockResolvedValueOnce({ groups: [{
     page_id: 2, page_title: "Source Page",
-    items: [{ uid: "uid_s1", text: "mentions it here", ancestor_uids: [] }],
-  }], ancestor_texts: {} });
+    items: [{ uid: "uid_s1", text: "mentions it here", breadcrumbs: [] }],
+  }] });
   const onClose = vi.fn();
   render(<BlockRefBacklinksPopover uid={UID} x={0} y={0}
                                    onClose={onClose} />, { wrapper });

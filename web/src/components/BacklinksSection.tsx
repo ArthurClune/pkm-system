@@ -11,6 +11,7 @@ import { mergeBacklinkResult, walkBacklinkBatches } from "./backlinkBatchWalk";
 import { applyFilter, chipCounts, EMPTY_FILTER, isFiltering, toggleChip,
          type FilterState } from "./backlinkFilter";
 import { BacklinkGroupList } from "./BacklinkGroupList";
+import { showBacklinkGroups } from "./groups";
 
 export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
     { title: CanonicalTitle; initial: Backlinks; refreshGeneration?: number }) {
@@ -22,8 +23,8 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   // tracked here (not frozen from the initial prop) so completion is
   // derived from the latest known value.
   const [backlinks, setBacklinks] = useState<BacklinkBatchState>({
-    groups: initial.groups, totalPages: initial.total_pages, refTexts: {},
-    ancestorTexts: initial.ancestor_texts,
+    groups: showBacklinkGroups(initial.groups), totalPages: initial.total_pages,
+    refTexts: {},
   });
   // Shared by loadMore and loadAll, not per-caller: if both are ever in
   // flight together the first to settle re-enables both buttons early. Both
@@ -104,8 +105,7 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
       // reading state.totalPages first — a check that ran before the first
       // batch landed would never see anything but Infinity and loop forever.
       const result = await walkBacklinkBatches(
-        fetchBatch,
-        { groups: [], totalPages: Infinity, refTexts: {}, ancestorTexts: {} },
+        fetchBatch, { groups: [], totalPages: Infinity, refTexts: {} },
         (state, batchesFetched) => (batchesFetched === 0
           ? (panelOpen ? 100 : initial.limit)
           : (panelOpen && state.groups.length < state.totalPages ? 100 : null)),
@@ -135,16 +135,13 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   };
 
   const filtering = isFiltering(filter);
-  const visible = useMemo(
-    () => applyFilter(backlinks.groups, backlinks.ancestorTexts, filter, read),
-    [backlinks.groups, backlinks.ancestorTexts, filter, read]);
+  const visible = useMemo(() => applyFilter(backlinks.groups, filter, read),
+    [backlinks.groups, filter, read]);
   const chips = useMemo(
     () => panelOpen && fullyLoaded
-      ? chipCounts(visible, backlinks.ancestorTexts,
-                   [title, ...filter.include, ...filter.exclude], read)
+      ? chipCounts(visible, [title, ...filter.include, ...filter.exclude], read)
       : [],
-    [panelOpen, fullyLoaded, visible, backlinks.ancestorTexts, title, filter,
-     read]);
+    [panelOpen, fullyLoaded, visible, title, filter, read]);
 
   const chipButton = (t: CanonicalTitle, side: "include" | "exclude", label: string) => (
     <button key={`${side}:${t}`} className={`filter-chip ${side}d`}
@@ -196,8 +193,7 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
             )}
           </div>
         )}
-        <BacklinkGroupList groups={visible}
-                           ancestorTexts={backlinks.ancestorTexts} />
+        <BacklinkGroupList groups={visible} />
         {filtering && fullyLoaded && visible.length === 0 && (
           <p className="filter-no-match">No matching references</p>
         )}

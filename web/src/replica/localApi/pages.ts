@@ -6,8 +6,8 @@
 // page_title anyway (offline-editing-design.md §1).
 
 import type { BlockUid, PageId } from "../../api/brands";
-import type { BacklinkGroup, Backlinks, BlockBacklinksPayload, BlockGroup,
-              CurrentWorkPage, CurrentWorkPayload, GroupsPayload, PageMeta,
+import type { BacklinkGroup, BlockBacklinksPayload, BlockGroup, CurrentWorkPage,
+              CurrentWorkPayload, GroupsPayload, PageMeta,
               PagePayload } from "../../api/payloads";
 import { titleForDate } from "../daily";
 import type { Columns } from "../columns.gen";
@@ -15,8 +15,8 @@ import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
 import { canonicalTitle } from "../meta";
 import { phraseQuery } from "./fts";
-import { BLOCK_COLS, blockRefCounts, blockRefTexts, buildTree,
-         fetchAncestors } from "./tree";
+import { type Ancestors, BLOCK_COLS, blockRefCounts, blockRefTexts,
+         buildTree, fetchAncestors } from "./tree";
 
 // db.select names `Columns` keys, so a row's types are the vocabulary's and
 // the row check verifies them. Every query that feeds a response still maps
@@ -37,6 +37,10 @@ const fetchPage = (db: ReplicaDb, requested: string): PageMeta | null => {
 type BacklinkRow = Pick<Columns, "uid" | "text" | "src_page_id"
   | "src_page_title">;
 
+/** responses.STALE_BUNDLE_CRUMB, pinned by shim_parity.json: what a bundle
+ * built before `ancestors` shows as an item's whole trail. */
+const STALE_BUNDLE_CRUMB = "…";
+
 const HOUR_MS = 60 * 60 * 1000;
 const CURRENT_WORK_SECTIONS = [
   { id: "last-24-hours", heading: "Last 24 hours", minAge: 0,
@@ -47,14 +51,13 @@ const CURRENT_WORK_SECTIONS = [
     maxAge: 7 * 24 * HOUR_MS },
 ] as const;
 
-/** One page of a page's backlinks, and the texts of their blocks. Shared
- * with the journal shim, which previews each day's references from the same
- * query rather than a page read per day. A page's own blocks are excluded
- * even when they reference it, as the server's `_backlinks` and unlinked
- * references do. */
+/** Shared with the journal shim, which previews each day's references from
+ * the same query rather than a page read per day. A page's own
+ * blocks are excluded even when they reference it, as the server's
+ * `_backlinks` and unlinked references do. */
 export function backlinks(db: ReplicaDb, pageId: PageId, offset: number,
                           limit: number):
-    { backlinks: Backlinks; texts: string[] } {
+    { groups: BacklinkGroup[]; total: number; texts: string[] } {
   const total = Number(db.select(
     `SELECT count(DISTINCT b.page_id) AS n FROM refs r
       JOIN blocks b ON b.uid = r.src_block_uid
@@ -66,10 +69,7 @@ export function backlinks(db: ReplicaDb, pageId: PageId, offset: number,
      WHERE r.target_page_id = ? AND b.page_id != ?
      ORDER BY p.updated_at DESC NULLS LAST, p.title
      LIMIT ? OFFSET ?`, ["page_id"], [pageId, pageId, limit, offset]).map((r) => r.page_id);
-  if (pageIds.length === 0) {
-    return { backlinks: { groups: [], ancestor_texts: {}, total_pages: total,
-                          offset, limit }, texts: [] };
-  }
+  if (pageIds.length === 0) return { groups: [], total, texts: [] };
   const marks = pageIds.map(() => "?").join(",");
   const rows = db.select(
     `SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
@@ -79,30 +79,48 @@ export function backlinks(db: ReplicaDb, pageId: PageId, offset: number,
       WHERE r.target_page_id = ? AND b.page_id IN (${marks})
       ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid`, ["uid", "text", "src_page_id", "src_page_title"],
     [pageId, ...pageIds]);
-  const ancestors = fetchAncestors(db, rows.map((r) => r.uid));
-  return {
-    backlinks: { groups: groupBacklinkRows(rows, ancestors.trails),
-                 ancestor_texts: ancestors.texts, total_pages: total,
-                 offset, limit },
-    texts: rows.map((r) => r.text),
-  };
+  const groups = groupBacklinkRows(
+    rows, fetchAncestors(db, rows.map((r) => r.uid)));
+  return { groups, total, texts: rows.map((r) => r.text) };
 }
 
-/** Rows arrive already ordered; grouping preserves first-seen page order. */
+/** Rows arrive already ordered; grouping preserves first-seen page order.
+ * Each group lists its items' ancestor texts once and items name them by
+ * position, numbered as server grouping.group_backlinks numbers them: items
+ * in row order, each trail root first. Like the server, an empty trail or
+ * list is left out, and `breadcrumbs` is the stale-bundle field. */
 function groupBacklinkRows(rows: BacklinkRow[],
-                           trails: Map<BlockUid, BlockUid[]>): BacklinkGroup[] {
+                           ancestors: Ancestors): BacklinkGroup[] {
   const groups: BacklinkGroup[] = [];
-  const index = new Map<PageId, BacklinkGroup>();
+  const index = new Map<PageId,
+    { group: BacklinkGroup; seen: Map<BlockUid, number> }>();
   for (const r of rows) {
-    let group = index.get(r.src_page_id);
-    if (!group) {
-      group = { page_id: r.src_page_id, page_title: r.src_page_title,
-                items: [] };
-      index.set(r.src_page_id, group);
-      groups.push(group);
+    let entry = index.get(r.src_page_id);
+    if (!entry) {
+      entry = { group: { page_id: r.src_page_id, page_title: r.src_page_title,
+                         items: [] }, seen: new Map() };
+      index.set(r.src_page_id, entry);
+      groups.push(entry.group);
     }
-    group.items.push({ uid: r.uid, text: r.text,
-                       ancestor_uids: trails.get(r.uid) ?? [] });
+    const { group, seen } = entry;
+    const trail = (ancestors.trails.get(r.uid) ?? []).map((uid) => {
+      let at = seen.get(uid);
+      if (at === undefined) {
+        at = seen.size;
+        seen.set(uid, at);
+      }
+      return at;
+    });
+    group.items.push(trail.length > 0
+      ? { uid: r.uid, text: r.text, breadcrumbs: [STALE_BUNDLE_CRUMB],
+          ancestors: trail }
+      : { uid: r.uid, text: r.text, breadcrumbs: [] });
+  }
+  for (const { group, seen } of index.values()) {
+    if (seen.size > 0) {
+      group.ancestor_texts = [...seen.keys()].map((uid) =>
+        ancestors.texts[uid]);
+    }
   }
   return groups;
 }
@@ -120,9 +138,8 @@ export function blockBacklinks(db: ReplicaDb,
        JOIN pages p ON p.id = b.page_id
       WHERE r.target_block_uid = ?
       ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid`, ["uid", "text", "src_page_id", "src_page_title"], [uid]);
-  const ancestors = fetchAncestors(db, rows.map((r) => r.uid));
-  return { groups: groupBacklinkRows(rows, ancestors.trails),
-           ancestor_texts: ancestors.texts };
+  return { groups: groupBacklinkRows(
+    rows, fetchAncestors(db, rows.map((r) => r.uid))) };
 }
 
 /** null = page not found (and not a daily title): the caller 404s. */
@@ -147,7 +164,8 @@ export function pagePayload(db: ReplicaDb, requested: string, blOffset: number,
   return {
     page,
     blocks: buildTree(blocks),
-    backlinks: bl.backlinks,
+    backlinks: { groups: bl.groups, total_pages: bl.total,
+                 offset: blOffset, limit },
     block_ref_texts: blockRefTexts(
       db, [...blocks.map((r) => r.text), ...bl.texts]),
     block_ref_counts: blockRefCounts(db, blocks.map((r) => r.uid)),

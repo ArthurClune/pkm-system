@@ -172,8 +172,8 @@ def _backlinks(db: Db, page_id: PageId,
            ORDER BY p.updated_at DESC NULLS LAST, p.title
            LIMIT ? OFFSET ?""", (page_id, page_id, limit, offset))]
     if not page_ids:
-        return (Backlinks(groups=[], ancestor_texts={}, total_pages=total,
-                          offset=offset, limit=limit), [])
+        return (Backlinks(groups=[], total_pages=total, offset=offset,
+                          limit=limit), [])
     marks = ",".join("?" * len(page_ids))
     rows = db.select(
         f"""SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
@@ -184,9 +184,8 @@ def _backlinks(db: Db, page_id: PageId,
              ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid""",
         [page_id, *page_ids])
     ancestors = _fetch_ancestors(db, [r["uid"] for r in rows])
-    return (Backlinks(groups=group_backlinks(rows, ancestors.trails),
-                      ancestor_texts=ancestors.texts, total_pages=total,
-                      offset=offset, limit=limit),
+    return (Backlinks(groups=group_backlinks(rows, ancestors),
+                      total_pages=total, offset=offset, limit=limit),
             [r["text"] for r in rows])
 
 
@@ -230,8 +229,7 @@ def get_block_backlinks(uid: BlockUid,
         (uid,))
     ancestors = _fetch_ancestors(db, [r["uid"] for r in rows])
     return BlockBacklinksPayload(
-        groups=group_backlinks(rows, ancestors.trails),
-        ancestor_texts=ancestors.texts)
+        groups=group_backlinks(rows, ancestors))
 
 
 @router.get("/api/block/{uid}", response_model=BlockPayload)

@@ -83,7 +83,8 @@ export function journalPayload(db: ReplicaDb, before: string | null,
     uids.push(...blocks.map((r) => r.uid));
     out.push({ date: isoDate(d), title: page.title, exists: true,
                blocks: buildTree(blocks),
-               backlinks: bl.backlinks });
+               backlinks: { groups: bl.groups, total_pages: bl.total,
+                            offset: 0, limit: BACKLINK_PREVIEW } });
   }
   return { days: out, block_ref_texts: blockRefTexts(db, texts),
            block_ref_counts: blockRefCounts(db, uids) };

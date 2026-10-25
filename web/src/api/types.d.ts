@@ -1118,7 +1118,14 @@ export interface components {
              */
             default: "sonnet" | "opus" | "haiku" | "fable" | "glm";
         };
-        /** BacklinkGroup */
+        /**
+         * BacklinkGroup
+         * @description One source page's backlinks. `ancestor_texts` holds the text of each
+         *     ancestor its items' trails name, once, in first-appearance order; left
+         *     out when no item has a trail. A trail of texts on every item repeated
+         *     a deep chain's shared ancestors about depth²/2 times. An ancestor is
+         *     on its item's page, so no two groups share one.
+         */
         BacklinkGroup: {
             /** Page Id */
             page_id: Brands.PageId;
@@ -1126,34 +1133,33 @@ export interface components {
             page_title: Brands.CanonicalTitle;
             /** Items */
             items: components["schemas"]["BacklinkItem"][];
+            /** Ancestor Texts */
+            ancestor_texts?: string[];
         };
         /**
          * BacklinkItem
-         * @description A block linking the page (or block), with its breadcrumb trail as
-         *     ancestor uids, root first. The texts are in the enclosing payload's
-         *     `ancestor_texts`.
+         * @description A block linking the page (or block). `ancestors` is its breadcrumb
+         *     trail, root first, as positions in its group's `ancestor_texts`; left
+         *     out when the block has no parent.
+         *
+         *     `breadcrumbs` is for bundles built before `ancestors`, which read it
+         *     off every item and throw on a missing one: `[STALE_BUNDLE_CRUMB]` where
+         *     the item has a trail, else empty. Nothing current reads it.
          */
         BacklinkItem: {
             /** Uid */
             uid: Brands.BlockUid;
             /** Text */
             text: string;
-            /** Ancestor Uids */
-            ancestor_uids: Brands.BlockUid[];
+            /** Breadcrumbs */
+            breadcrumbs: string[];
+            /** Ancestors */
+            ancestors?: number[];
         };
-        /**
-         * Backlinks
-         * @description One page of backlink groups. `ancestor_texts` holds the text of
-         *     every uid an item's `ancestor_uids` names, each once: a trail per item
-         *     repeated the shared ancestors of a deep chain about depth²/2 times.
-         */
+        /** Backlinks */
         Backlinks: {
             /** Groups */
             groups: components["schemas"]["BacklinkGroup"][];
-            /** Ancestor Texts */
-            ancestor_texts: {
-                [key: string]: string;
-            };
             /** Total Pages */
             total_pages: number;
             /** Offset */
@@ -1165,16 +1171,11 @@ export interface components {
          * BlockBacklinksPayload
          * @description GET /api/block/{uid}/backlinks: every block referencing ((uid)),
          *     grouped like page backlinks. Unpaginated by design -- counts are small
-         *     and nothing user-visible truncates silently. `ancestor_texts` as in
-         *     `Backlinks`.
+         *     and nothing user-visible truncates silently.
          */
         BlockBacklinksPayload: {
             /** Groups */
             groups: components["schemas"]["BacklinkGroup"][];
-            /** Ancestor Texts */
-            ancestor_texts: {
-                [key: string]: string;
-            };
         };
         /** BlockGroup */
         BlockGroup: {

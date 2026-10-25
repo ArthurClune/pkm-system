@@ -303,8 +303,7 @@ export function block(rawUid: string, text: string,
  * page with more still to fetch. */
 export function backlinks(groups: Backlinks["groups"] = [],
                           over: Partial<Backlinks> = {}): Backlinks {
-  return { groups, ancestor_texts: {}, total_pages: groups.length, offset: 0,
-           limit: 20, ...over };
+  return { groups, total_pages: groups.length, offset: 0, limit: 20, ...over };
 }
 
 /** The same shape as /api/journal carries per day: a preview page of

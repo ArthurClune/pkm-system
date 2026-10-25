@@ -586,7 +586,7 @@ it("shows a day's linked references from the journal payload, but not for a " +
       day("2026-07-08", "July 8th, 2026", undefined, true, journalBacklinks([
         { page_id: pageIdOf(9), page_title: canonicalTitleOf("Plans"), items: [
           { uid: uidOf("uid_p1"), text: "Remind me on [[July 8th, 2026]]",
-            ancestor_uids: [] }] },
+            breadcrumbs: [] }] },
       ], { limit: 5 })),
       day("2026-07-07", "July 7th, 2026"),
     ] }],
@@ -618,7 +618,7 @@ async () => {
     ["/api/journal?days=5", {
       days: [day("2026-07-08", "July 8th, 2026", undefined, true, journalBacklinks([
         { page_id: pageIdOf(9), page_title: canonicalTitleOf("Plans"), items: [
-          { uid: uidOf("uid_p1"), text: "see ((ref_cccc))", ancestor_uids: [] }] },
+          { uid: uidOf("uid_p1"), text: "see ((ref_cccc))", breadcrumbs: [] }] },
       ], { limit: 5 }))],
       block_ref_texts: {
         ref_cccc: { text: "resolved gamma", page_title: "C" },

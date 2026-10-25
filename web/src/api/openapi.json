@@ -2488,6 +2488,13 @@
             },
             "type": "array",
             "title": "Items"
+          },
+          "ancestor_texts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Ancestor Texts"
           }
         },
         "type": "object",
@@ -2496,7 +2503,8 @@
           "page_title",
           "items"
         ],
-        "title": "BacklinkGroup"
+        "title": "BacklinkGroup",
+        "description": "One source page's backlinks. `ancestor_texts` holds the text of each\nancestor its items' trails name, once, in first-appearance order; left\nout when no item has a trail. A trail of texts on every item repeated\na deep chain's shared ancestors about depth\u00b2/2 times. An ancestor is\non its item's page, so no two groups share one."
       },
       "BacklinkItem": {
         "properties": {
@@ -2509,23 +2517,29 @@
             "type": "string",
             "title": "Text"
           },
-          "ancestor_uids": {
+          "breadcrumbs": {
             "items": {
-              "type": "string",
-              "x-brand": "BlockUid"
+              "type": "string"
             },
             "type": "array",
-            "title": "Ancestor Uids"
+            "title": "Breadcrumbs"
+          },
+          "ancestors": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Ancestors"
           }
         },
         "type": "object",
         "required": [
           "uid",
           "text",
-          "ancestor_uids"
+          "breadcrumbs"
         ],
         "title": "BacklinkItem",
-        "description": "A block linking the page (or block), with its breadcrumb trail as\nancestor uids, root first. The texts are in the enclosing payload's\n`ancestor_texts`."
+        "description": "A block linking the page (or block). `ancestors` is its breadcrumb\ntrail, root first, as positions in its group's `ancestor_texts`; left\nout when the block has no parent.\n\n`breadcrumbs` is for bundles built before `ancestors`, which read it\noff every item and throw on a missing one: `[STALE_BUNDLE_CRUMB]` where\nthe item has a trail, else empty. Nothing current reads it."
       },
       "Backlinks": {
         "properties": {
@@ -2535,16 +2549,6 @@
             },
             "type": "array",
             "title": "Groups"
-          },
-          "ancestor_texts": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "x-brand": "BlockUid"
-            },
-            "type": "object",
-            "title": "Ancestor Texts"
           },
           "total_pages": {
             "type": "integer",
@@ -2562,13 +2566,11 @@
         "type": "object",
         "required": [
           "groups",
-          "ancestor_texts",
           "total_pages",
           "offset",
           "limit"
         ],
-        "title": "Backlinks",
-        "description": "One page of backlink groups. `ancestor_texts` holds the text of\nevery uid an item's `ancestor_uids` names, each once: a trail per item\nrepeated the shared ancestors of a deep chain about depth\u00b2/2 times."
+        "title": "Backlinks"
       },
       "BlockBacklinksPayload": {
         "properties": {
@@ -2578,25 +2580,14 @@
             },
             "type": "array",
             "title": "Groups"
-          },
-          "ancestor_texts": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "x-brand": "BlockUid"
-            },
-            "type": "object",
-            "title": "Ancestor Texts"
           }
         },
         "type": "object",
         "required": [
-          "groups",
-          "ancestor_texts"
+          "groups"
         ],
         "title": "BlockBacklinksPayload",
-        "description": "GET /api/block/{uid}/backlinks: every block referencing ((uid)),\ngrouped like page backlinks. Unpaginated by design -- counts are small\nand nothing user-visible truncates silently. `ancestor_texts` as in\n`Backlinks`."
+        "description": "GET /api/block/{uid}/backlinks: every block referencing ((uid)),\ngrouped like page backlinks. Unpaginated by design -- counts are small\nand nothing user-visible truncates silently."
       },
       "BlockGroup": {
         "properties": {

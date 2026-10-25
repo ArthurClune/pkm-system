@@ -7,24 +7,26 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { BlockUid } from "../api/brands";
 import { apiGet } from "../api/typedClient";
-import type { BlockBacklinksPayload } from "../api/payloads";
 import { pagePath } from "../paths";
 import { Popover } from "../Popover";
 import { BacklinkGroupList } from "./BacklinkGroupList";
+import { showBacklinkGroups, type ShownBacklinkGroup } from "./groups";
 
 export function BlockRefBacklinksPopover({ uid, x, y, onClose }: {
   uid: BlockUid; x: number; y: number; onClose: () => void;
 }) {
   const navigate = useNavigate();
-  const [payload, setPayload] = useState<BlockBacklinksPayload | null>(null);
+  const [groups, setGroups] = useState<ShownBacklinkGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setPayload(null);
+    setGroups(null);
     setError(null);
     apiGet("/api/block/{uid}/backlinks", { path: { uid } })
-      .then((body) => { if (!cancelled) setPayload(body); })
+      .then((payload) => {
+        if (!cancelled) setGroups(showBacklinkGroups(payload.groups));
+      })
       .catch((fetchFailure: unknown) => {
         if (!cancelled) setError(String(fetchFailure));
       });
@@ -33,15 +35,14 @@ export function BlockRefBacklinksPopover({ uid, x, y, onClose }: {
 
   return (
     <Popover label="References" x={x} y={y} onClose={onClose}
-             remeasure={[payload, error]}>
+             remeasure={[groups, error]}>
       {error !== null && <p className="error">Could not load references: {error}</p>}
-      {error === null && payload === null && <p className="loading">Loading…</p>}
-      {payload !== null && payload.groups.length === 0 && (
+      {error === null && groups === null && <p className="loading">Loading…</p>}
+      {groups !== null && groups.length === 0 && (
         <p className="loading">No references — the badge may be stale.</p>
       )}
-      {payload !== null && payload.groups.length > 0 && (
-        <BacklinkGroupList groups={payload.groups}
-          ancestorTexts={payload.ancestor_texts}
+      {groups !== null && groups.length > 0 && (
+        <BacklinkGroupList groups={groups}
           onNavigate={(pageTitle, itemUid) => {
             onClose();
             // same-page hash navigation may not unmount the tree, so close

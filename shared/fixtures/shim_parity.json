@@ -309,12 +309,11 @@
                 {
                   "uid": "uid_b5",
                   "text": "Studying [[Machine Learning]] today",
-                  "ancestor_uids": []
+                  "breadcrumbs": []
                 }
               ]
             }
           ],
-          "ancestor_texts": {},
           "total_pages": 1,
           "offset": 0,
           "limit": 20
@@ -368,28 +367,31 @@
                 {
                   "uid": "uid_b1",
                   "text": "Tags:: #AI",
-                  "ancestor_uids": []
+                  "breadcrumbs": []
                 },
                 {
                   "uid": "uid_b1",
                   "text": "Tags:: #AI",
-                  "ancestor_uids": []
+                  "breadcrumbs": []
                 },
                 {
                   "uid": "uid_b4",
                   "text": "deep child mentioning [[AI]]",
-                  "ancestor_uids": [
-                    "uid_b2",
-                    "uid_b3"
+                  "breadcrumbs": [
+                    "…"
+                  ],
+                  "ancestors": [
+                    0,
+                    1
                   ]
                 }
+              ],
+              "ancestor_texts": [
+                "Papers",
+                "[[Attention Is All You Need]] is a [[Paper]]"
               ]
             }
           ],
-          "ancestor_texts": {
-            "uid_b2": "Papers",
-            "uid_b3": "[[Attention Is All You Need]] is a [[Paper]]"
-          },
           "total_pages": 1,
           "offset": 0,
           "limit": 20
@@ -434,7 +436,6 @@
         ],
         "backlinks": {
           "groups": [],
-          "ancestor_texts": {},
           "total_pages": 0,
           "offset": 0,
           "limit": 20
@@ -486,7 +487,6 @@
         ],
         "backlinks": {
           "groups": [],
-          "ancestor_texts": {},
           "total_pages": 1,
           "offset": 1,
           "limit": 1
@@ -557,7 +557,6 @@
             ],
             "backlinks": {
               "groups": [],
-              "ancestor_texts": {},
               "total_pages": 0,
               "offset": 0,
               "limit": 5
@@ -577,12 +576,11 @@
                     {
                       "uid": "uid_b9",
                       "text": "Remind me on [[July 9th, 2026]] to check this",
-                      "ancestor_uids": []
+                      "breadcrumbs": []
                     }
                   ]
                 }
               ],
-              "ancestor_texts": {},
               "total_pages": 1,
               "offset": 0,
               "limit": 5
@@ -619,12 +617,11 @@
                     {
                       "uid": "uid_b9",
                       "text": "Remind me on [[July 9th, 2026]] to check this",
-                      "ancestor_uids": []
+                      "breadcrumbs": []
                     }
                   ]
                 }
               ],
-              "ancestor_texts": {},
               "total_pages": 1,
               "offset": 0,
               "limit": 5
@@ -688,7 +685,7 @@
               {
                 "uid": "uid_b10",
                 "text": "Follow-up to ((uid_b3)) findings",
-                "ancestor_uids": []
+                "breadcrumbs": []
               }
             ]
           },
@@ -699,12 +696,11 @@
               {
                 "uid": "uid_b6",
                 "text": "See ((uid_b3)) for details",
-                "ancestor_uids": []
+                "breadcrumbs": []
               }
             ]
           }
-        ],
-        "ancestor_texts": {}
+        ]
       }
     },
     {

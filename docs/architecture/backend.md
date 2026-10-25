@@ -440,9 +440,10 @@ server bug.
   judged: an unlink only shortens the text, bar the two backticks a fenced
   attribute adds. So a text at the cap whose leading attribute names a
   deleted page is stored at `MAX_BLOCK_TEXT_CHARS` + 2. Every spelling that
-  keeps the name's text and stops it indexing needs the two backticks, and
-  refusing would discard the offline batch for text the client sent within
-  the limit (`test_a_stale_defuse_at_the_cap_stores_at_most_two_more`).
+  stops the name indexing adds characters; the fence adds two and leaves
+  the user's text intact. Refusing would discard the offline batch for text
+  the client sent within the limit
+  (`test_a_stale_defuse_at_the_cap_stores_at_most_two_more`).
 - **Replayed text.** A stale edit replayed over a rename or page delete
   ([Conflicts](#conflicts)) is never stored past a limit, though nobody sent
   the text the replay makes. Each link grows by the title's growth, and
@@ -456,7 +457,11 @@ server bug.
   The entry is the edit as sent with every title the replay's chain deleted
   or renamed away made plain (`ops_core.over_limit_landing_text`), or its
   links would re-create those pages. The chain is walked past the step
-  that stopped the replay, so a later step's titles count too.
+  that stopped the replay, so a later step's titles count too. The replay
+  and the landing match titles through `title_reader` whenever the block
+  has a rewrite row (`ops_apply._context_for`), as the rename or delete
+  they replay did: under plain-space canonicalisation a `[[ Old ]]` the
+  client added offline is the page `Old`, and left linked it re-creates it.
 
 Conflicts, missing targets, stale batches and concurrent structure edits are
 what a batch meets when the tree changed after it was planned. None rejects
@@ -611,10 +616,12 @@ nesting below the cap:
 | A diverged delete's copies | `descendant_copy_effects` keeps their shape down to the cap. A copy one level above the cap takes the rest of its copied subtree as children at the cap, in document order |
 | Root copy at the cap, under a reused header | its copied descendants follow it under the header, in document order |
 
-Nor is server-made text ever past a [text limit](#planning). Neither a
-page title nor a `page_title` hint is length-capped, so every header and
-note that names a page is judged, and names it `LONG_TITLE_LABEL` when
-the name would not fit (`conflict_notes._fitted`). Text the planner copies
+Nor is server-made text ever past a [text limit](#planning), bar the two
+backticks a defused attribute adds. Neither a page title nor a `page_title`
+hint is length-capped, so every header and note that names a page is
+judged, and names it `LONG_TITLE_LABEL` when the name would not fit
+(`conflict_notes._fitted`). Only the name is replaced, so a header for a
+hint naming no page still says `(page not found)`. Text the planner copies
 from a stored row, such as an overwritten edit or a diverged delete's
 copies, is level with that row, so it is within the limits whenever its
 source is.
@@ -684,12 +691,16 @@ length cap and longer than `before`, or nested past the cap and deeper than
 worse,** so the page it links stays renamable and deletable. Client writes
 keep the strict rule ([Planning](#planning)).
 
-A page delete judges length before it builds anything, so the work it does
-under the write lock is bounded per delete. It builds a page block's copy
+A page delete judges length before it builds anything. The copy work it
+does under the write lock is bounded per delete, and the rest is linear in
+the page's text and its referrers' own text. It builds a page block's copy
 only when a source refers to it (`unlink._Copies`). Every judgement counts a
 copy at its projected length (`spans.spliced_length` of the refs it holds),
 before deeper refs are blanked and links unlinked. A copy that blanks down
-to `""` still costs that length to build.
+to `""` still costs that length to build. `_Copies.projected` sums a block's
+spans once and keeps the length. Summed again per referrer, the work would
+grow with the referrers while the budget counted nothing, since refs to an
+empty block project to 0.
 
 | Counted | Past the bound | Refused as `limit` |
 |---|---|---|
@@ -697,11 +708,11 @@ to `""` still costs that length to build.
 | one source's inlined text | `MAX_BLOCK_TEXT_CHARS`, and longer than the source | that source |
 | copy text over all sources, in order | `MAX_DELETE_COPY_CHARS` | each source that would carry the total past it |
 
-No copy is built for a refused source. A source is judged before unlinking,
-and the shortening passes can remove any amount of text, so a delete whose
-final text would fit can still be refused. `MAX_DELETE_COPY_CHARS` sits far
-above what a page written by hand needs; it trades such a delete for a
-bound on the work. The source's `limit` comes ahead of `attribute` and
+No copy is built for a source refused on its projected length. A source is
+judged before unlinking, and the shortening passes can remove any amount of
+text, so a delete whose final text would fit can still be refused.
+`MAX_DELETE_COPY_CHARS` sits far above what a page written by hand needs;
+it trades such a delete for a bound on the work. The source's `limit` comes ahead of `attribute` and
 `residual`, so the delete dialog names the length first.
 
 | Rewrite | Judged in | A refusal |

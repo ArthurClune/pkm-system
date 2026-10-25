@@ -12,7 +12,7 @@ whole point is to avoid spending scrypt work on it. Consulting is not
 enough on its own: the check and the recording of its verdict are
 separate steps, so the caller must also run one check per source at a
 time and consult again once its turn comes (`auth.LoginThrottle`'s
-`source_turn`). Otherwise every request of a concurrent burst passes
+`take_turn`). Otherwise every request of a concurrent burst passes
 before the first failure is recorded.
 """
 from __future__ import annotations

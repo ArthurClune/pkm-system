@@ -4,7 +4,9 @@ import threading
 import time
 from dataclasses import replace
 
+import anyio
 import httpx
+import pytest
 from conftest import TEST_PASSWORD
 from fastapi.routing import APIRoute, APIWebSocketRoute
 from fastapi.testclient import TestClient
@@ -113,15 +115,16 @@ WRONG = {"detail": "wrong password"}
 BURST = 200
 
 
-def _count_checks(monkeypatch) -> list[str]:
-    """Each password the route checks, in order. The pause keeps a check in
-    flight long enough for a concurrent burst to pile up behind it."""
+def _count_checks(monkeypatch, pause_s: float = 0.05) -> list[str]:
+    """Each password the route checks, in order, appended as the check
+    starts. The pause keeps a check in flight long enough for a concurrent
+    burst to pile up behind it."""
     checks: list[str] = []
     real = auth_module.verify_password
 
     def counting(password: str, salt: bytes, stored: str) -> bool:
         checks.append(password)
-        time.sleep(0.05)
+        time.sleep(pause_s)
         return real(password, salt, stored)
 
     monkeypatch.setattr(auth_module, "verify_password", counting)
@@ -204,15 +207,64 @@ def test_a_wait_for_the_source_that_times_out_gets_the_throttle_refusal(
     throttle, _ = _frozen_throttle(anon_client.app, acquire_timeout_s=0.1)
 
     async def behind_a_stuck_check() -> httpx.Response:
-        async with throttle.source_turn(USER) as ours:
-            assert ours
-            [r] = await _logins(anon_client.app, USER, [TEST_PASSWORD])
-            return r
+        assert await throttle.take_turn(USER)
+        [r] = await _logins(anon_client.app, USER, [TEST_PASSWORD])
+        throttle.end_turn(USER)
+        return r
 
     r = asyncio.run(behind_a_stuck_check())
     assert (r.status_code, r.json()) == (401, WRONG)
     assert checks == []
     assert USER not in throttle._attempts
+    assert throttle._turns == {}
+
+
+def test_a_cancelled_request_leaves_its_turn_to_the_check(anon_client,
+                                                          monkeypatch):
+    # A native Task.cancel() of the request mid-check. The check's thread
+    # runs on regardless, so it must keep the source's turn and record its
+    # own failure, or the next request from that source would start a
+    # second check with no backoff.
+    checks = _count_checks(monkeypatch, pause_s=0.3)
+    throttle, _ = _frozen_throttle(anon_client.app)
+
+    async def cancel_mid_check() -> list[httpx.Response]:
+        holder = asyncio.create_task(
+            _logins(anon_client.app, ATTACKER, ["guess"]))
+        while not checks:
+            await asyncio.sleep(0.005)
+        holder.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await holder
+        assert ATTACKER not in throttle._attempts  # no verdict yet ...
+        assert ATTACKER in throttle._turns  # ... and the check holds the turn
+        return await _logins(anon_client.app, ATTACKER, [TEST_PASSWORD])
+
+    [r] = asyncio.run(cancel_mid_check())
+    assert (r.status_code, r.json()) == (401, WRONG)
+    assert checks == ["guess"]  # the next request was throttled, unchecked
+    assert throttle._attempts[ATTACKER].failures == 1
+    assert throttle._turns == {}
+
+
+def test_a_deadline_around_the_request_cuts_the_wait_not_the_check(
+        anon_client, monkeypatch):
+    checks = _count_checks(monkeypatch, pause_s=0.3)
+    throttle, _ = _frozen_throttle(anon_client.app)
+
+    async def under_a_deadline() -> tuple[float, httpx.Response]:
+        start = time.monotonic()
+        with anyio.move_on_after(0.05):
+            await _logins(anon_client.app, ATTACKER, ["guess"])
+        gave_up_after = time.monotonic() - start
+        [r] = await _logins(anon_client.app, ATTACKER, [TEST_PASSWORD])
+        return gave_up_after, r
+
+    gave_up_after, r = asyncio.run(under_a_deadline())
+    assert gave_up_after < 0.25  # the deadline's, not the check's 0.3 s
+    assert (r.status_code, r.json()) == (401, WRONG)
+    assert checks == ["guess"]
+    assert throttle._attempts[ATTACKER].failures == 1
     assert throttle._turns == {}
 
 
@@ -321,23 +373,18 @@ class TestLoginThrottle:
 
     def test_a_source_takes_one_turn_at_a_time(self):
         throttle = LoginThrottle(acquire_timeout_s=0.05)
-        waited: list[bool] = []
-
-        async def wait_for_a() -> None:
-            async with throttle.source_turn("a") as ours:
-                waited.append(ours)
 
         async def scenario() -> None:
-            async with throttle.source_turn("a") as ours:
-                assert ours
-                async with throttle.source_turn("b") as other:
-                    assert other  # another source is never held up
-                await asyncio.create_task(wait_for_a())  # times out
-                assert "a" in throttle._turns  # still ours
-            await asyncio.create_task(wait_for_a())
+            assert await throttle.take_turn("a")
+            assert await throttle.take_turn("b")  # never held up by "a"
+            assert not await throttle.take_turn("a")  # times out
+            assert throttle._turns["a"].users == 1  # the waiter left
+            throttle.end_turn("a")
+            assert await throttle.take_turn("a")
+            throttle.end_turn("a")
+            throttle.end_turn("b")
 
         asyncio.run(scenario())
-        assert waited == [False, True]
         assert throttle._turns == {}
 
     def test_a_waiter_gets_the_turn_when_the_holder_ends(self):
@@ -345,11 +392,11 @@ class TestLoginThrottle:
         order: list[str] = []
 
         async def take(name: str, hold_s: float) -> None:
-            async with throttle.source_turn("a") as ours:
-                assert ours
-                order.append(f"{name} in")
-                await asyncio.sleep(hold_s)
-                order.append(f"{name} out")
+            assert await throttle.take_turn("a")
+            order.append(f"{name} in")
+            await asyncio.sleep(hold_s)
+            order.append(f"{name} out")
+            throttle.end_turn("a")
 
         async def scenario() -> None:
             await asyncio.gather(take("first", 0.05), take("second", 0))
@@ -358,19 +405,44 @@ class TestLoginThrottle:
         assert order == ["first in", "first out", "second in", "second out"]
         assert throttle._turns == {}
 
-    def test_the_turn_is_released_when_the_body_raises(self):
-        throttle = LoginThrottle(acquire_timeout_s=0.05)
+    def test_a_cancelled_waiter_leaves_the_turn_free_for_the_next(self):
+        throttle = LoginThrottle(acquire_timeout_s=5)
 
         async def scenario() -> bool:
-            try:
-                async with throttle.source_turn("a"):
-                    raise RuntimeError("boom")
-            except RuntimeError:
-                pass
-            async with throttle.source_turn("a") as ours:
-                return ours
+            assert await throttle.take_turn("a")
+            waiter = asyncio.create_task(throttle.take_turn("a"))
+            await asyncio.sleep(0.01)
+            assert throttle._turns["a"].users == 2
+            waiter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter
+            assert throttle._turns["a"].users == 1
+            throttle.end_turn("a")
+            assert throttle._turns == {}
+            ours = await throttle.take_turn("a")
+            throttle.end_turn("a")
+            return ours
 
         assert asyncio.run(scenario())
+        assert throttle._turns == {}
+
+    def test_a_handed_over_turn_ends_when_the_check_does(self):
+        throttle = LoginThrottle(acquire_timeout_s=5)
+
+        async def scenario() -> None:
+            assert await throttle.take_turn("a")
+            check: asyncio.Future[bool | None] = (
+                asyncio.get_running_loop().create_future())
+            throttle.hand_turn_to("a", check)
+            waiter = asyncio.create_task(throttle.take_turn("a"))
+            await asyncio.sleep(0.01)
+            assert not waiter.done()
+            check.set_exception(RuntimeError("check blew up"))
+            assert await waiter
+            assert isinstance(check.exception(), RuntimeError)
+            throttle.end_turn("a")
+
+        asyncio.run(scenario())
         assert throttle._turns == {}
 
     def test_now_ms_reads_the_injected_clock(self):

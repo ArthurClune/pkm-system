@@ -2,10 +2,11 @@
 """Login routes and the auth gate every other router depends on."""
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import threading
 import time
-from collections.abc import AsyncGenerator, Callable, Generator
+from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 
 import anyio
@@ -54,15 +55,22 @@ def _monotonic_ms() -> int:
 
 @dataclass
 class _SourceTurn:
-    """The lock that orders one source's password checks, and how many
-    requests hold or wait for it, so the last one out can drop it."""
-    lock: anyio.Lock = field(default_factory=anyio.Lock)
+    """The lock that orders one source's password checks, how many
+    requests hold or wait for it (so the last one out can drop it), and
+    the check that holds it once handed over (kept referenced here: the
+    event loop holds only weak references to tasks).
+
+    An `asyncio.Lock`, not an `anyio.Lock`: the turn is released from the
+    check's done-callback, which runs in no task, and anyio's lock may be
+    released only by the task that acquired it."""
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     users: int = 0
+    check: asyncio.Future[bool | None] | None = None
 
 
 class LoginThrottle:
     """Per-source login-failure backoff, one password check at a time per
-    source (`source_turn`), and a process-wide bound on concurrent scrypt
+    source (`take_turn`), and a process-wide bound on concurrent scrypt
     work (see throttle_core for the backoff policy).
 
     Lives on `app.state`, so every app -- including each test's -- gets
@@ -89,32 +97,47 @@ class LoginThrottle:
         """The monotonic reading the route passes as `mono_ms`."""
         return self._clock_ms()
 
-    @contextlib.asynccontextmanager
-    async def source_turn(self, source: str) -> AsyncGenerator[bool, None]:
-        """Yields True once this request is the only one from `source`
-        inside the block, False if that took longer than the configured
-        timeout (the caller then refuses without a check). Waiting
-        happens on the event loop and holds no worker thread. The entry
-        is dropped when its last holder or waiter leaves, so the map
-        holds only sources with a request in flight."""
+    async def take_turn(self, source: str) -> bool:
+        """True once the caller is the only holder of `source`'s turn; it
+        must then call `end_turn` or `hand_turn_to` exactly once. False if
+        that took longer than the configured timeout (the caller then
+        refuses without a check). Waiting happens on the event loop and
+        holds no worker thread. A waiter that is cancelled or times out
+        leaves holding nothing."""
         turn = self._turns.get(source)
         if turn is None:
             turn = self._turns[source] = _SourceTurn()
         turn.users += 1
+        ours = False
         try:
-            ours = False
             with anyio.move_on_after(self._acquire_timeout_s):
                 await turn.lock.acquire()
                 ours = True
-            try:
-                yield ours
-            finally:
-                if ours:
-                    turn.lock.release()
         finally:
-            turn.users -= 1
-            if turn.users == 0:
-                del self._turns[source]
+            if not ours:
+                self._leave(source, turn)
+        return ours
+
+    def end_turn(self, source: str) -> None:
+        turn = self._turns[source]
+        turn.check = None
+        turn.lock.release()
+        self._leave(source, turn)
+
+    def hand_turn_to(self, source: str,
+                     check: asyncio.Future[bool | None]) -> None:
+        """The caller's turn now ends when `check` does, not when the
+        caller does: a request cancelled mid-check leaves the turn held
+        until the check's verdict is in."""
+        self._turns[source].check = check
+        check.add_done_callback(lambda _: self.end_turn(source))
+
+    def _leave(self, source: str, turn: _SourceTurn) -> None:
+        """Drops the entry with its last holder or waiter, so the map
+        holds only sources with a request in flight."""
+        turn.users -= 1
+        if turn.users == 0:
+            del self._turns[source]
 
     @contextlib.contextmanager
     def scrypt_slot(self) -> Generator[bool, None, None]:
@@ -184,15 +207,22 @@ def _wrong_password() -> HTTPException:
     return HTTPException(status_code=401, detail="wrong password")
 
 
-def _check_password(throttle: LoginThrottle, password: str,
+def _check_password(throttle: LoginThrottle, source: str, password: str,
                     config: Config) -> bool | None:
-    """Runs on a worker thread. None when every scrypt slot stayed busy
-    past the timeout -- no check ran, so nothing is recorded."""
+    """Runs on a worker thread and records the verdict there, so a
+    request cancelled while it runs cannot lose the failure. None when
+    every scrypt slot stayed busy past the timeout -- no check ran, so
+    nothing is recorded."""
     with throttle.scrypt_slot() as acquired:
         if not acquired:
             return None
-        return verify_password(password, bytes.fromhex(config.password_salt),
-                               config.password_hash)
+        ok = verify_password(password, bytes.fromhex(config.password_salt),
+                             config.password_hash)
+    if ok:
+        throttle.record_success(source)
+    else:
+        throttle.record_failure(source, throttle.now_ms())
+    return ok
 
 
 @router.post("/api/login", response_model=OkAck)
@@ -214,20 +244,21 @@ async def login(body: LoginBody, request: Request, response: Response,
     # the verdict are separate steps, so without the turn every request
     # of a concurrent burst passes the check above and runs scrypt. The
     # rest wait for the turn rather than being refused, so a double-submit
-    # of the right password is never told it was wrong; holding the turn
-    # until the verdict is recorded, then re-checking, is what makes a
-    # failure put every waiter into the backoff without a check of its own.
-    async with throttle.source_turn(source) as ours:
-        if not ours or throttle.is_throttled(source, throttle.now_ms()):
-            raise _wrong_password()
-        ok = await anyio.to_thread.run_sync(_check_password, throttle,
-                                            body.password, config)
-        if ok is None:
-            raise _wrong_password()
-        if ok:
-            throttle.record_success(source)
-        else:
-            throttle.record_failure(source, throttle.now_ms())
+    # of the right password is never told it was wrong. The check records
+    # its own verdict on its thread and holds the turn until it returns,
+    # whatever happens to this request (a worker thread cannot be
+    # stopped); the next holder re-checks the backoff, so a failure puts
+    # every waiter into it without a check of its own.
+    if not await throttle.take_turn(source):
+        raise _wrong_password()
+    if throttle.is_throttled(source, throttle.now_ms()):
+        throttle.end_turn(source)
+        raise _wrong_password()
+    check = asyncio.ensure_future(anyio.to_thread.run_sync(
+        _check_password, throttle, source, body.password, config))
+    throttle.hand_turn_to(source, check)
+    # A cancellation of this request stops only the wait, not the check.
+    ok = await asyncio.shield(check)
     if not ok:
         raise _wrong_password()
     token = sign_session(bytes.fromhex(config.session_secret),

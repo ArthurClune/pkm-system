@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:27Z
-updated_at: 2026-10-24T20:01:13Z
+updated_at: 2026-10-25T02:23:27Z
 parent: pkm-mfd0
 blocked_by:
     - pkm-tk9i
@@ -38,7 +38,7 @@ SECURITY.md is the high-level model; update it once the fixes we take on have sh
 - [ ] Local files: only allowlisted raster images and PDFs inline; HTML/SVG download with nosniff
 - [ ] Image descriptions send the complete original image, metadata included
 - [ ] upload_asset reach: pkm-d8vp withholds it from the assistant (pkm-mcp keeps it; it runs as the user). The prompt-injection bullet should say the assistant gets only the READ_TOOLS/WRITE_TOOLS subset, with --strict-mcp-config
-- [ ] Write gating: what the card guarantees to show
+- [ ] Write gating: what the card guarantees to show (pkm-g2w9; read docs/architecture/assistant.md's approval-card section as shipped). Guaranteed: card built server-side from the arguments the tool receives; every target and content value whole (content refused past CONTENT_LIMIT_CHARS); for each update/move/delete target its current page and text excerpt with full length, read just before the card, plus a delete's descendant count; a batch delete of a subtree an earlier move fills is refused; reused/premature aliases refused; Allow arms after a delay with both ends in view; the browser renders only allow-listed keys per action, values quoted, LTR-isolated, controls escaped; a card stamped writes_in_flight shows a staleness marker. Not guaranteed: the card is a snapshot (text can change before Allow; Allow doesn't guard an edit made while the card is open, pkm-6fcv; a stopped turn's in-flight write, pkm-qotb)
 - [ ] On-device replica/outbox/cached uploads outlive session-secret rotation
 - [ ] Diagnostics body bound
 - [ ] Origin guard (pkm-u1jk): § Authentication 'There is no CORS…' paragraph — CSRF protection is SameSite=Lax plus the origin guard (/api/ws and every non-GET/HEAD/OPTIONS request carrying an Origin must name one of PKM's own origins: serve_origins, the bind_hosts listeners, loopback on the served port; Origin: null refused); requests with no Origin are non-browser clients and still need the cookie. Known limitations: drop 'No Origin checks on writes or WebSocket upgrades'. Hardening priorities: item 4 done; item 5 must exclude Referrer-Policy: no-referrer (it makes no-cors POSTs — the Files export form, and the assistant close beacon in WebKit — send Origin: null, which the guard refuses). Safe methods stay unchecked: GET /api/journal creates today's page, GET /api/local/... can trigger an iCloud download

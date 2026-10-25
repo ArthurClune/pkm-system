@@ -154,7 +154,6 @@ class TurnMapper:
             return [TurnDone(usage=msg.usage)]
         return []
 
-
     def _finished(self, block: ToolResultBlock) -> ToolFinished:
         tool_use_id = block.tool_use_id
         full_name = self._tools.pop(tool_use_id, None)

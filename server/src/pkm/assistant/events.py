@@ -93,6 +93,14 @@ _EVENT_NAMES: dict[type, str] = {
 # before it reaches the stream (the Refusal clip's format).
 TOOL_ERROR_LIMIT_CHARS = 300
 
+# The bundled CLI wraps the error results it builds itself (input that
+# fails the schema, a permission-rule deny) in this tag, around the whole
+# text; an MCP tool's isError text arrives unwrapped. A tag inside the
+# text is the tool's own.
+_CLI_WRAPPER = re.compile(r"<tool_use_error>(.*)</tool_use_error>", re.DOTALL)
+# What the CLI puts before a thrown error's message: "Error: ", or
+# "Error calling tool (<name>): ".
+_CLI_PREFIX = re.compile(r"^Error(?: calling tool \([^)]*\))?: ")
 # FastMCP wraps a raising tool's message in this, at the start only.
 _FASTMCP_PREFIX = re.compile(r"^Error executing tool \w+: ")
 
@@ -106,7 +114,11 @@ def tool_error_reason(content: str | list[dict[str, Any]] | None) -> str:
                          if item.get("type") == "text")
     else:
         text = ""
-    text = _FASTMCP_PREFIX.sub("", text.strip(), count=1).strip()
+    text = text.strip()
+    if wrapped := _CLI_WRAPPER.fullmatch(text):
+        text = wrapped.group(1).strip()
+    text = _CLI_PREFIX.sub("", text, count=1)
+    text = _FASTMCP_PREFIX.sub("", text, count=1).strip()
     if not text:
         return "no reason given"
     if len(text) > TOOL_ERROR_LIMIT_CHARS:

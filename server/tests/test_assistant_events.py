@@ -121,6 +121,51 @@ def test_tool_error_reason_reads_text_items_and_drops_fastmcp_prefix():
                               {"type": "text", "text": "b"}]) == "a\nb"
 
 
+_REFUSAL = ("block ((AbC)) changed after the approval card showed it, "
+            "so nothing was written")
+
+
+def test_tool_error_reason_of_a_refused_allow_from_the_real_harness():
+    # The content a live run delivered (haiku, bundled CLI, SDK 0.2.168):
+    # the MCP isError text as is, unwrapped. "412: " is pkm's ApiError.
+    content = ("Error executing tool update_block: 412: block "
+               "((lr1792953900)) changed after the approval card showed it, "
+               "so nothing was written")
+    assert tool_error_reason(content) == (
+        "412: block ((lr1792953900)) changed after the approval card "
+        "showed it, so nothing was written")
+
+
+def test_tool_error_reason_drops_the_cli_wrapper_then_the_fastmcp_prefix():
+    # unwrapped, as FastMCP's isError text
+    assert tool_error_reason(
+        f"Error executing tool update_block: {_REFUSAL}") == _REFUSAL
+    # wrapped, no prefix: the shape of the CLI's own deny results
+    assert tool_error_reason(
+        f"<tool_use_error>{_REFUSAL}</tool_use_error>") == _REFUSAL
+    # wrapped with the FastMCP prefix, and with the CLI's own prefixes
+    assert tool_error_reason(
+        "<tool_use_error>Error executing tool update_block: "
+        f"{_REFUSAL}</tool_use_error>") == _REFUSAL
+    assert tool_error_reason(
+        "<tool_use_error>Error: Error executing tool update_block: "
+        f"{_REFUSAL}</tool_use_error>") == _REFUSAL
+    assert tool_error_reason(
+        "<tool_use_error>Error calling tool (mcp__pkm__update_block): "
+        f"Error executing tool update_block: {_REFUSAL}</tool_use_error>"
+    ) == _REFUSAL
+    assert tool_error_reason([{"type": "text", "text": (
+        f"  <tool_use_error>{_REFUSAL}</tool_use_error>\n")}]) == _REFUSAL
+
+
+def test_tool_error_reason_keeps_a_wrapper_that_is_not_the_whole_text():
+    text = f"see <tool_use_error>{_REFUSAL}</tool_use_error>"
+    assert tool_error_reason(text) == text
+    assert tool_error_reason("<tool_use_error>a") == "<tool_use_error>a"
+    assert tool_error_reason("<tool_use_error></tool_use_error>") == (
+        "no reason given")
+
+
 def test_tool_error_reason_empty_and_clipped():
     assert tool_error_reason(None) == "no reason given"
     assert tool_error_reason("  ") == "no reason given"

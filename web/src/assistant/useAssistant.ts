@@ -209,7 +209,8 @@ export function useAssistant() {
       case "tool_finished":
         setItems((prev) => {
           const idx = prev.findIndex(
-            (item) => item.kind === "tool" && item.toolUseId === ev.tool_use_id,
+            (item) => item.kind === "tool" && item.toolUseId === ev.tool_use_id
+              && !item.done,
           );
           if (idx === -1) return prev;
           const item = prev[idx];

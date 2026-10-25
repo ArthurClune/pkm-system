@@ -54,7 +54,7 @@ server/
 ├── wholepath.py         Shell  the {name:wholepath} DOTALL route convertor
 ├── auth.py, auth_core.py, throttle_core.py   login, require_auth, LoginThrottle; scrypt and tokens; backoff policy
 ├── auth_gate_core.py, auth_gate.py  Core / Shell  which requests are public, the body caps; AuthGateMiddleware
-├── http_protocol.py     Shell  DeadlineH11Protocol: closes a connection whose request head is late
+├── http_protocol.py     Shell  DeadlineH11Protocol: closes a connection whose request head is late or whose client stops reading
 ├── origin_core.py, origin_guard.py  Core / Shell  allowed origins; OriginGuardMiddleware
 ├── routes_*.py          Shell  the HTTP surface
 ├── ops_core.py          Core   plan_op(), classify_skip, classify_text_edit
@@ -915,25 +915,47 @@ route as one message. The gate keeps at most `PUBLIC_BODY_MAX_BYTES` and
 answers 413 `{"detail": "request body too large"}` past it, before the
 app reads any of it when `Content-Length` declares it. This runs before the login throttle.
 
-An authenticated body outside `SAFE_METHODS` is capped the same way at
-`PRIVATE_BODY_MAX_BYTES` (`private_body_cap`). FastAPI would otherwise
-parse a batch of any size before `MAX_OPS_PER_BATCH` or the text limits
-refuse it. Uploads (`UNCAPPED_PRIVATE_ROUTES`) are exempt, because
-`upload_asset` streams the file to disk under its own limit. A declared
-`Content-Length` within the cap passes untouched, since h11 frames the body
-to it. `declared_content_length` ignores a length sent beside
-`Transfer-Encoding`, because h11 then frames by the chunks, so such a body
-is counted like any chunked one.
+An authenticated body outside `SAFE_METHODS` is capped too, at the size
+`private_body_cap` gives. FastAPI would otherwise parse a body of any size
+before the route's own limits refuse it.
 
-uvicorn has no read timeout of its own, so slow clients are bounded in two
-places:
+| Authenticated request | Cap |
+|---|---|
+| an upload (`UPLOAD_ROUTES`) | the config's `max_upload_bytes` plus `UPLOAD_ENVELOPE_BYTES` |
+| any other method outside `SAFE_METHODS` | `PRIVATE_BODY_MAX_BYTES` |
+
+An upload needs the cap as much as a batch does. FastAPI parses the whole
+multipart form before `upload_asset` runs: it spools the file to disk and
+holds other fields in memory, and the route checks `max_upload_bytes` only
+afterwards. `UPLOAD_ENVELOPE_BYTES` is slack for the multipart framing, so
+a file just past its limit still gets the route's own 413
+`upload too large`.
+
+A declared `Content-Length` past the cap gets 413 unread. One within it
+passes untouched, since h11 frames the body to it.
+`declared_content_length` ignores a length sent beside
+`Transfer-Encoding`, because h11 then frames by the chunks. A body with no
+length the gate trusts is counted as the route reads it, never buffered
+by the gate. The message that passes the cap raises `_BodyOverCap`, an
+`HTTPException`, out of `receive`, and FastAPI answers it 413.
+
+uvicorn has no read or write timeout of its own. `DeadlineH11Protocol` and
+the gate bound a slow client:
 
 | What is late | Bound | Answer |
 |---|---|---|
 | the request head, from the connection's open or its last response | `HEADER_READ_TIMEOUT_S` (`DeadlineH11Protocol`) | the connection is closed |
 | the rest of a body answered without reading it (a 401, 403 or 413) | the same deadline, which the leftover body counts against | the connection is closed |
 | a public body | `PUBLIC_BODY_READ_TIMEOUT_S` for the whole read | 408 with `Connection: close` |
+| the client taking a response, while writing is paused or the response is finished with bytes unsent | some bytes must leave within `WRITE_STALL_TIMEOUT_S` | the connection is aborted |
 | an authenticated body | none | — |
+| a request every few seconds on one connection | none: uvicorn's 5 s keep-alive restarts with each one | — |
+
+The write deadline measures progress, not paused time: one large JSON
+message keeps writing paused until nearly all of it has left, and a slow
+reader of it must not be cut. The kernel takes bytes from the transport
+in steps of its socket buffer, so a client must read about that much (a
+few hundred KiB) each window.
 
 A 401 or 413 does not close the connection at once. uvicorn drops the rest
 of the refused body, and a client that sends it promptly can reuse the
@@ -996,15 +1018,24 @@ Nothing enforces these rules:
   `PUBLIC_UNSAFE_ROUTES` must accept a body within
   `PUBLIC_BODY_MAX_BYTES`. The cap applies only outside `SAFE_METHODS`, so a
   public `GET` route must not read a body.
-- A new upload route joins `UNCAPPED_PRIVATE_ROUTES`, or its bodies are
-  cut at `PRIVATE_BODY_MAX_BYTES`.
-- Only `run.uvicorn_config` installs `DeadlineH11Protocol`, so the server
-  must keep starting through `python -m pkm.server.run` (the launchd job
-  does). Another launcher, or uvicorn's `httptools` protocol, has no head
-  deadline. The protocol reads uvicorn internals (`conn`, `cycle`,
-  `on_response_complete`, `handle_websocket_upgrade`);
-  `test_http_protocol.py` catches an upgrade that moves them. A deadline
-  left armed across a WebSocket upgrade would close the socket 10 s in.
+- A new upload route joins `UPLOAD_ROUTES`, or its bodies are cut at
+  `PRIVATE_BODY_MAX_BYTES`. A route that reads a body itself must let an
+  `HTTPException` from `receive` through, as FastAPI's body parsing does
+  (it turns any other exception into a 400), or a streamed body past the
+  cap is not answered 413.
+- Only `run.uvicorn_config` installs `DeadlineH11Protocol`, and `run.serve`
+  is the one way to start a server through it: `run.main`,
+  `tests/e2e_serve.py` and `tooling/proptest/sync_server.py` all call it,
+  so E2E runs the production protocol. The server must keep starting
+  through `python -m pkm.server.run` (the launchd job does). The `uvicorn`
+  CLI, or its `httptools` protocol, has neither deadline.
+- The protocol reads uvicorn internals (`cycle`, `flow`,
+  `on_response_complete`, `pause_writing`, `handle_websocket_upgrade`);
+  `test_http_protocol.py` catches an upgrade that moves them. Its timers
+  are re-armed after a pipelined request has started, or after an upgrade
+  behind a response has taken the transport. So the checks at fire time
+  (a request in progress; the transport still the protocol's) are what
+  spare a request and a WebSocket, not any disarm.
 - The gate reads the config from `scope["app"].state.config` on every
   request, never once at startup: the proptest sync server replaces
   `app.state.config` after `create_app`.
@@ -1063,9 +1094,9 @@ Nothing enforces the conditions this keying needs:
 - `run.uvicorn_config` passes `proxy_headers` and `forwarded_allow_ips`
   explicitly. Left unset, uvicorn reads the `FORWARDED_ALLOW_IPS`
   environment variable, and `*` there would key on the left-most entry,
-  which the client chooses. Only `run.main` builds that config, so launchd
-  must start the server through `python -m pkm.server.run`, not the
-  `uvicorn` CLI.
+  which the client chooses. Only `run.serve` builds that config, so
+  launchd must start the server through `python -m pkm.server.run`, not
+  the `uvicorn` CLI.
 - Serve's upstream must stay `http://127.0.0.1:<port>` (`install.sh`'s
   `serve` line). Pointed at the Tailscale IP, Serve becomes an untrusted
   peer, and every Serve client shares the host's backoff bucket unless
@@ -1150,7 +1181,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | POST | `/api/assistant/conversations/{id}/confirm` | Answer a write confirmation |
 | DELETE | `/api/assistant/conversations/{id}` | Close the conversation |
 | **Assets** ([files-and-assets.md](files-and-assets.md)) | | |
-| POST | `/api/assets` | Multipart upload |
+| POST | `/api/assets` | Multipart upload; 413 `upload too large` past `max_upload_bytes`, and 413 `request body too large` for a body past that plus `UPLOAD_ENVELOPE_BYTES` ([Auth](#auth)) |
 | GET | `/assets/{sha256}/{filename}` | Serve by digest; the name segment is ignored |
 | GET | `/api/assets/describe-status` | Whether image descriptions are on, and why not |
 | POST | `/api/assets/scan?force` | Enqueue undescribed images |
@@ -1181,7 +1212,7 @@ route.
 | An int past 64 bits | Int parameters are `Int64` or carry `INT64_RANGE`; `WellFormedModel` refuses one in a body | `test_every_int_parameter_is_bounded_to_sqlite_range` |
 | A 422 echoing a surrogate, NaN or deep nesting | `validation_echo.echo_errors`, cut at `MAX_ECHO_DEPTH` | `test_validation_echo.py` |
 | A NUL, an over-long component or a link loop in an SPA path | The catch-all treats a path `resolve()` or `is_file()` rejects as naming no file, and serves the shell | `test_spa.py` |
-| A request body of any size | `AuthGateMiddleware` refuses an anonymous one before the app reads it, caps a public one at `PUBLIC_BODY_MAX_BYTES` and an authenticated one at `PRIVATE_BODY_MAX_BYTES`, uploads excepted; rule in [Auth](#auth) | `test_auth_gate.py` |
+| A request body of any size | `AuthGateMiddleware` refuses an anonymous one before the app reads it, caps a public one at `PUBLIC_BODY_MAX_BYTES`, an upload at `max_upload_bytes` plus `UPLOAD_ENVELOPE_BYTES` and any other authenticated one at `PRIVATE_BODY_MAX_BYTES`; rule in [Auth](#auth) | `test_auth_gate.py` |
 | A session cookie signature that is not ASCII | `verify_session` refuses it before `hmac.compare_digest`, which raises on non-ASCII | `test_hostile_requests.py` |
 | A NUL in a search term | `fts.py` makes it a space: FTS5 reads a C string | `test_hostile_requests.py` |
 | A GoodLinks or OpenAI body that is not JSON, nests too deep, or holds a surrogate | An unusable answer (503, `DescribeError`); decoded strings made well-formed | `test_no_500_upstream_props.py` |

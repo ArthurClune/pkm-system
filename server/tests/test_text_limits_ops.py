@@ -3,7 +3,10 @@ text length cap or nests `[[` past the nesting cap, naming the block, and
 leaves rows already over a limit readable, movable and deletable."""
 from __future__ import annotations
 
+import pytest
+
 from pkm.contracts.ops import BlockUid, OrderIdx
+from pkm.server import db as db_module
 from pkm.server.db import open_db
 from pkm.server.store import reindex_refs_for_text
 from pkm.test_data.ids import (batch_id_of, client_id_of, order_idx_of,
@@ -164,3 +167,44 @@ def test_a_skipped_create_is_still_judged(client):
         "reason": f"block {ORPHAN_0001}: text of 1000001 characters is over"
                   " the limit of 1000000"}
     assert _block_text(client, ORPHAN_0001) is None
+
+
+# -- the judges run before the write lock ---------------------------------
+
+@pytest.fixture
+def write_lock_held(seeded_config, monkeypatch):
+    """Another connection holds the write lock for the test's duration, and
+    the busy timeout is short, so a request that waits for it 503s fast."""
+    monkeypatch.setattr(db_module, "BUSY_TIMEOUT_MS", 50)
+    holder = db_module.open_db(seeded_config.db_path)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        yield
+    finally:
+        holder.commit()
+        holder.close()
+
+
+def test_an_over_limit_batch_is_refused_without_the_write_lock(
+        client, write_lock_held):
+    r = _post(client, _create(OVER_LEN_01, "x" * 1_000_001))
+    assert r.status_code == 400, r.text[:500]
+    assert r.json()["detail"] == {
+        "index": 0,
+        "reason": f"block {OVER_LEN_01}: text of 1000001 characters is over"
+                  " the limit of 1000000"}
+
+
+def test_a_bad_title_batch_is_refused_without_the_write_lock(
+        client, write_lock_held):
+    r = _post(client, {"op": "create_page", "page_title": "New #Old"})
+    assert r.status_code == 400, r.text[:500]
+    assert r.json()["detail"] == {
+        "index": 0,
+        "reason": "unsupported page_title title syntax: 'New #Old'"}
+
+
+def test_a_judged_batch_still_waits_for_the_lock(client, write_lock_held):
+    r = _post(client, _create(FINE_BLK_01, "fine"))
+    assert r.status_code == 503, r.text[:500]
+    assert r.headers["retry-after"] == "1"

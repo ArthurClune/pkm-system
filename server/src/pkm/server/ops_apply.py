@@ -11,7 +11,7 @@ from typing import Union
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockOp, BlockUid,
                                CreateOp, CreatePageOp,
-                               DeleteOp, MoveOp, OpBatch, PageId,
+                               DeleteOp, MoveOp, PageId,
                                SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
                                UpdateTextOp, new_uid)
 from pkm.contracts.responses import SkippedOp
@@ -26,7 +26,7 @@ from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  DeleteContext, Effect,
                                  ExistingHeader, FreshHeader, InsertBlock,
                                  JournalBlock, LandedSkipContext, MoveContext,
-                                 OpContext, OpError, PageContext,
+                                 JudgedBatch, OpContext, PageContext,
                                  RecordConflictHeader, RecordRewrite, RewriteStep,
                                  ReindexRefs,
                                  SetCollapsed, SetHeading, SetPageId,
@@ -37,16 +37,13 @@ from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  TextConflictContext,
                                  TextEditContext, TouchPage, UpdateText,
                                  classify_skip, classify_text_edit,
-                                 delete_diverged,
-                                 find_op_text_limit_violation,
-                                 find_op_title_violation, plan_op,
+                                 delete_diverged, plan_op,
                                  skip_report, rewrite_effects,
                                  unlink_stale_text)
 from pkm.server.store import (BlankTitleError, fetch_page,
                               get_or_create_page, reindex_refs_for_text,
                               stale_titles)
 from pkm.server.sync_meta import read_title, title_reader
-from pkm.text_limits import describe_text_limit
 from pkm.unlink import TitleMatch
 
 # Every op that addresses a block by uid: BlockOp minus create_page.
@@ -597,23 +594,13 @@ class AppliedBatch:
     skipped: list[SkippedOp]
 
 
-def apply_batch(db: Db, batch: OpBatch,
+def apply_batch(db: Db, judged: JudgedBatch,
                 now_ms: int) -> AppliedBatch:
-    """Apply a batch inside the caller's transaction."""
-    # Limits first, over the whole batch: the title pass below runs
-    # `extract` over every text, which must never read one past the caps.
-    limit = find_op_text_limit_violation(batch.ops)
-    if limit is not None:
-        raise OpError(
-            limit.op_index,
-            f"block {limit.uid}: {describe_text_limit(limit.violation)}",
-        )
-    violation = find_op_title_violation(batch.ops)
-    if violation is not None:
-        raise OpError(
-            violation.op_index,
-            f"unsupported {violation.source} title syntax: {violation.title!r}",
-        )
+    """Apply a batch inside the caller's transaction. The text and title
+    judges have run already (`ops_core.judge_batch`), before the caller
+    took the write lock; nothing here judges them again. Planning can
+    still raise `OpError` (a depth cap, a move cycle)."""
+    batch = judged.batch
     broadcast_ops: list[dict[str, object]] = []
     skipped: list[SkippedOp] = []
     stale = stale_titles(db, batch.seen_seq)

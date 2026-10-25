@@ -44,7 +44,7 @@ from pkm.contracts.strict import StrictModel
 from pkm.database import Db
 from pkm.contracts.titles import RawTitle
 from pkm.refs import CanonicalTitle, link_nesting_depth
-from pkm.server import ops_apply, sync_meta
+from pkm.server import ops_apply, ops_core, sync_meta
 from pkm.server.app import create_app
 from pkm.server.auth import require_auth
 from pkm.server.auth_core import hash_password
@@ -53,7 +53,8 @@ from pkm.server.db import init_db, open_db
 from pkm.server.notify import Frame, OpsFrame
 from pkm.server.ops_apply import apply_batch
 from pkm.server.ops_core import (Effect, OpTextLimitViolation, RewriteStep,
-                                 find_op_text_limit_violation, rewrite_effects)
+                                 find_op_text_limit_violation, judge_batch,
+                                 rewrite_effects)
 from pkm.server.store import stale_titles
 from pkm.text_limits import TextLimitViolation
 
@@ -199,7 +200,7 @@ def build_template(path: Path) -> None:
                         batch_id=BatchId("proptest-seed-batch"),
                         ops=ops)
         con.execute("BEGIN IMMEDIATE")
-        apply_batch(con, batch, START_MS)
+        apply_batch(con, judge_batch(batch), START_MS)
         con.commit()
         con.executescript(RENAME_LOG_DDL + DELETE_LOG_DDL + CONFLICT_LOG_DDL)
     finally:
@@ -245,10 +246,10 @@ def _rewrite_effects_with_teeth(original: BlockOp, planned: tuple[Effect, ...],
 # /api/ops judges no text against the length and nesting limits, as before
 # the limits existed, so the server stores a text the replica's enqueue
 # refuses. With "at_limit", it refuses a text at a limit too (each limit one
-# lower), so it refuses a text the replica stores. ops_apply reads
-# find_op_text_limit_violation through its module global, which build_app
-# points here; disarmed, it is the real function. Reset disarms both, as it
-# does _stale_teeth.
+# lower), so it refuses a text the replica stores. judge_batch reads
+# find_op_text_limit_violation through ops_core's module global, which
+# build_app points here; disarmed, it is the real function. Reset disarms
+# both, as it does _stale_teeth.
 _limit_teeth = {"off": False, "at_limit": False}
 
 
@@ -364,7 +365,7 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     _stale_teeth["empty"] = False
     ops_apply.rewrite_effects = _rewrite_effects_with_teeth
     _rewrite_teeth["drop_replayed"] = False
-    ops_apply.find_op_text_limit_violation = _find_op_text_limit_violation_with_teeth
+    ops_core.find_op_text_limit_violation = _find_op_text_limit_violation_with_teeth
     _limit_teeth["off"] = _limit_teeth["at_limit"] = False
 
     @app.post("/__proptest/reset", dependencies=[Depends(require_auth)])

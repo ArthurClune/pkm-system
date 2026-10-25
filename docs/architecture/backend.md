@@ -356,7 +356,8 @@ renamed or deleted.
 
 ```mermaid
 flowchart LR
-    C[Client batch] --> R
+    C[Client batch] --> JB["ops_core.judge_batch (Core, threadpool)<br/>text limits, then titles → 400"]
+    JB --> R
     subgraph TX["one transaction: BEGIN IMMEDIATE before the dedupe read"]
         R["routes_ops.py (Shell)<br/>idempotency check"] --> CTX["ops_apply._context_for (Shell)<br/>read SQLite, classify once → per-kind context"]
         CTX --> P["ops_core.plan_op (Core)<br/>pure: op + context → effect tuples"]
@@ -374,7 +375,7 @@ route whose decision rests on what it reads joins them.
 
 | Route | Lock taken before | Busy lock |
 |---|---|---|
-| `POST /api/ops` | the dedupe read and every op's context read | 503 + `Retry-After` |
+| `POST /api/ops` | the dedupe read and every op's context read; the text and title judges run before it, in the threadpool | 503 + `Retry-After` |
 | `POST /api/page/{title}/rename` | the snapshot of referencing blocks, so no batch commits an unrewritten `[[Old]]`; a title race cannot reach the `UPDATE` | 503 + `Retry-After` |
 | `DELETE /api/page/{title}` | the snapshot of referencing blocks | 503 + `Retry-After` |
 | `DELETE /api/assets/{sha256}` | the strip's read of each referencing block, or with `if_unreferenced=true` the reference check | 503 + `Retry-After` |
@@ -420,9 +421,15 @@ server bug.
   `MAX_BLOCK_TEXT_CHARS` code points, or nests `[[` past `MAX_LINK_NESTING`,
   makes the whole batch a 400 (`ops_core.find_op_text_limit_violation`,
   over `text_limits.text_limit_violation`). Export holds a whole block in
-  memory, and the web tokenizer recurses once per nested run. `apply_batch`
-  judges every op first, a skipped one included, before the title check, so
-  `extract` never scans an over-long text. Length is judged before nesting,
+  memory, and the web tokenizer recurses once per nested run.
+  `ops_core.judge_batch` judges every op, a skipped one included, before
+  the title check, so `extract` never scans an over-long text. The route
+  runs it in the threadpool before `BEGIN IMMEDIATE`: judging a large batch
+  takes seconds, which must hold neither the single writer nor the event
+  loop. `apply_batch` takes only a `JudgedBatch`, so no caller applies an
+  unjudged batch. The judge also runs before the dedupe read, so a retry of
+  a stored batch meets the current limits: a limit a deploy tightened
+  refuses it rather than replaying its ack. Length is judged before nesting,
   so the nesting measure never reads past the cap. Only the text an op sends
   is judged: a move, `set_*` op or delete of a row stored over a limit goes
   through, and an edit that brings it under is accepted. The links a

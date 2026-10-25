@@ -14,7 +14,7 @@ from pkm.server import ops_apply, ops_core
 from pkm.server.db import open_db
 from pkm.server.ops_apply import (_parent_chain, _subtree_deepest_first,
                                   _subtree_rows, apply_batch)
-from pkm.server.ops_core import OpError, SubtreeRow
+from pkm.server.ops_core import OpError, SubtreeRow, judge_batch
 from pkm.test_data.ids import batch_id_of, client_id_of, order_idx_of, raw_title_of, sha_of, uid_of
 
 NOW = 1_800_000_000_000
@@ -64,11 +64,11 @@ def _seed_chain(db, page: str, depth: int) -> None:
 
 
 def test_create_inserts_shifts_and_derives_refs(db):
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "create", "uid": "newuid1", "page_title": "Machine Learning",
          "parent_uid": None, "order_idx": 0, "text": "see [[Brand New]] #AI",
          "view_type": "numbered"},
-    ), NOW)
+    )), NOW)
     db.commit()
     rows = db.select("SELECT uid, order_idx FROM blocks WHERE page_id = 1"
         "  AND parent_uid IS NULL ORDER BY order_idx")
@@ -91,9 +91,9 @@ def test_create_inserts_shifts_and_derives_refs(db):
 
 
 def test_update_text_rederives_refs_and_fts(db):
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "update_text", "uid": "uid_b4", "text": "now [[Paper]] only"},
-    ), NOW)
+    )), NOW)
     db.commit()
     refs = db.select("SELECT target_page_id, kind AS ref_kind FROM refs"
                       " WHERE src_block_uid='uid_b4'")
@@ -103,7 +103,7 @@ def test_update_text_rederives_refs_and_fts(db):
 
 
 def test_delete_removes_subtree_and_fts(db):
-    apply_batch(db, _batch({"op": "delete", "uid": "uid_b2"}), NOW)
+    apply_batch(db, judge_batch(_batch({"op": "delete", "uid": "uid_b2"})), NOW)
     db.commit()
     left = {r["uid"] for r in db.select("SELECT uid FROM blocks WHERE page_id = 1")}
     assert left == {"uid_b1"}          # uid_b2 and child uid_b3 gone
@@ -114,9 +114,9 @@ def test_delete_removes_subtree_and_fts(db):
 
 
 def test_move_reparents_and_shifts(db):
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "move", "uid": "uid_b3", "parent_uid": None, "order_idx": 0},
-    ), NOW)
+    )), NOW)
     db.commit()
     row = db.select_one("SELECT parent_uid, order_idx FROM blocks"
                      " WHERE uid='uid_b3'")
@@ -132,9 +132,9 @@ def test_set_collapsed_does_not_bump_block_or_page_updated_at(db):
     db.execute("UPDATE pages SET updated_at = ? WHERE id = 1", (1_000,))
     db.commit()
 
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
-    ), NOW)
+    )), NOW)
     db.commit()
 
     row = db.select_one("SELECT collapsed, updated_at FROM blocks"
@@ -145,9 +145,9 @@ def test_set_collapsed_does_not_bump_block_or_page_updated_at(db):
     assert db.select_one("SELECT updated_at FROM pages WHERE id=1")["updated_at"] == 1_000
 
     # contrast: a real edit on the same block/page DOES bump both.
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "update_text", "uid": "uid_b2", "text": "Papers (renamed)"},
-    ), NOW)
+    )), NOW)
     db.commit()
     assert db.select_one("SELECT updated_at FROM blocks WHERE uid='uid_b2'")["updated_at"] == NOW
     assert db.select_one("SELECT updated_at FROM pages WHERE id=1")["updated_at"] == NOW
@@ -158,9 +158,9 @@ def test_set_collapsed_still_journals_a_change_but_no_page_touch(db):
     # whether updated_at moved, so collapse-only batches still sync -- but
     # unlike update_text (test above), no page row is touched either.
     before = read(db, "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
-    ), NOW)
+    )), NOW)
     db.commit()
     rows = db.select("SELECT kind AS change_kind, entity_id FROM changes"
                      " WHERE seq > ?", (before,))
@@ -170,10 +170,10 @@ def test_set_collapsed_still_journals_a_change_but_no_page_touch(db):
 
 def test_create_broadcast_uses_the_stored_page_title(db):
     title = "Paper/Levels of AGI:\nthe Path to AGI"
-    broadcast = apply_batch(db, _batch(
+    broadcast = apply_batch(db, judge_batch(_batch(
         {"op": "create", "uid": "titlecast1", "page_title": title,
          "parent_uid": None, "order_idx": 0, "text": "body text"},
-    ), NOW).broadcast_ops
+    )), NOW).broadcast_ops
 
     assert broadcast == [{
         "op": "create",
@@ -188,9 +188,9 @@ def test_create_broadcast_uses_the_stored_page_title(db):
 
 
 def test_create_page_broadcast_uses_the_stored_page_title(db):
-    broadcast = apply_batch(db, _batch(
+    broadcast = apply_batch(db, judge_batch(_batch(
         {"op": "create_page", "page_title": "Paper/Levels of AGI:\nthe Path to AGI"},
-    ), NOW).broadcast_ops
+    )), NOW).broadcast_ops
 
     assert broadcast == [{
         "op": "create_page",
@@ -199,10 +199,10 @@ def test_create_page_broadcast_uses_the_stored_page_title(db):
 
 
 def test_move_broadcast_uses_the_destination_page_title_after_apply(db):
-    broadcast = apply_batch(db, _batch(
+    broadcast = apply_batch(db, judge_batch(_batch(
         {"op": "move", "uid": "uid_b4", "parent_uid": None,
          "order_idx": 0, "page_title": "Paper/Levels of AGI:\nthe Path to AGI"},
-    ), NOW).broadcast_ops
+    )), NOW).broadcast_ops
 
     assert broadcast == [{
         "op": "move",
@@ -241,13 +241,13 @@ def test_applied_page_broadcast_fails_closed_when_authoritative_title_is_missing
     monkeypatch.setattr(ops_apply, "_page_title", lambda *_args: None)
 
     with pytest.raises(AssertionError, match="authoritative page title"):
-        apply_batch(db, _batch(op), NOW)
+        apply_batch(db, judge_batch(_batch(op)), NOW)
 
 
 def test_same_page_move_broadcast_keeps_page_title_null(db):
-    broadcast = apply_batch(db, _batch(
+    broadcast = apply_batch(db, judge_batch(_batch(
         {"op": "move", "uid": "uid_b3", "parent_uid": None, "order_idx": 0},
-    ), NOW).broadcast_ops
+    )), NOW).broadcast_ops
 
     assert broadcast == [{
         "op": "move",
@@ -260,9 +260,9 @@ def test_same_page_move_broadcast_keeps_page_title_null(db):
 
 def test_move_cycle_against_db_chain(db):
     # child of uid_b2 is uid_b3; moving uid_b2 under uid_b3 is skipped
-    result = apply_batch(db, _batch(
+    result = apply_batch(db, judge_batch(_batch(
         {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
-         "order_idx": 0}), NOW)
+         "order_idx": 0})), NOW)
     assert [s.reason for s in result.skipped] == ["cycle"]
     assert result.broadcast_ops == []
     row = db.select_one("SELECT parent_uid, order_idx FROM blocks"
@@ -278,9 +278,9 @@ def test_move_root_under_own_descendant_is_always_a_cycle(db, depth):
     # A skipped move is never judged against the depth cap.
     _seed_chain(db, "Machine Learning", depth)
     deepest = f"level{depth - 1}"
-    result = apply_batch(db, _batch(
+    result = apply_batch(db, judge_batch(_batch(
         {"op": "move", "uid": "level0", "parent_uid": deepest,
-         "order_idx": 0}), NOW)
+         "order_idx": 0})), NOW)
     assert [s.reason for s in result.skipped] == ["cycle"]
     assert db.select_one("SELECT parent_uid FROM blocks WHERE uid = 'level0'")["parent_uid"] is None
 
@@ -294,9 +294,9 @@ def test_cross_page_move_updates_every_descendant(db, depth):
     # deeper.
     _seed_chain(db, "Machine Learning", depth)
     top = depth - MAX_OUTLINE_DEPTH
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "move", "uid": f"level{top}", "parent_uid": None,
-         "order_idx": 0, "page_title": "AI"}), NOW)
+         "order_idx": 0, "page_title": "AI"})), NOW)
     db.commit()
     ai_page_id = db.select_one("SELECT id AS page_id FROM pages WHERE title='AI'")["page_id"]
     uids = [f"level{i}" for i in range(top, depth)]
@@ -312,7 +312,7 @@ def test_delete_removes_entire_deep_subtree(db, depth):
     # Subtree enumeration for delete must not silently truncate: anything
     # left behind past the old cap is an orphaned block nobody can reach.
     _seed_chain(db, "Machine Learning", depth)
-    apply_batch(db, _batch({"op": "delete", "uid": "level0"}), NOW)
+    apply_batch(db, judge_batch(_batch({"op": "delete", "uid": "level0"})), NOW)
     db.commit()
     remaining = read(db,
         "SELECT count(*) FROM blocks WHERE uid LIKE 'level%'").fetchone()[0]
@@ -327,7 +327,7 @@ def test_parent_chain_and_subtree_terminate_on_preexisting_cycle(db):
     # over a real cycle never terminates on its own. Exercised directly on
     # the two traversal functions so a regressed guard fails this test
     # (finite-but-wrong, or a hang) rather than being masked by any caller.
-    apply_batch(db, _batch(*_linear_chain("Machine Learning", 5, prefix="cycle")),
+    apply_batch(db, judge_batch(_batch(*_linear_chain("Machine Learning", 5, prefix="cycle"))),
                NOW)
     db.commit()
     # Close the chain into a cycle by hand: ops_core's plan_op would skip
@@ -349,12 +349,12 @@ def test_subtree_rows_is_deepest_first_with_columns(db):
     # One query reads what both the hash and the conflict copies need:
     # every block of the subtree with its parent, position and text,
     # children before parents like _subtree_deepest_first.
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "create", "uid": "rows_c1", "page_title": "Machine Learning",
          "parent_uid": "uid_b2", "order_idx": 1, "text": "second child"},
         {"op": "create", "uid": "rows_g1", "page_title": "Machine Learning",
          "parent_uid": "uid_b3", "order_idx": 0, "text": "grandchild"},
-    ), NOW)
+    )), NOW)
     db.commit()
     rows = _subtree_rows(db, uid_of("uid_b2"))
     assert rows[0] == SubtreeRow(uid_of("rows_g1"), uid_of("uid_b3"), order_idx_of(0),
@@ -371,7 +371,7 @@ def test_subtree_rows_is_deepest_first_with_columns(db):
 
 
 def test_subtree_rows_terminates_on_preexisting_cycle(db):
-    apply_batch(db, _batch(*_linear_chain("Machine Learning", 5, prefix="cycrow")),
+    apply_batch(db, judge_batch(_batch(*_linear_chain("Machine Learning", 5, prefix="cycrow"))),
                 NOW)
     db.commit()
     db.execute("UPDATE blocks SET parent_uid = 'cycrow4' WHERE uid = 'cycrow0'")
@@ -383,13 +383,13 @@ def test_subtree_rows_terminates_on_preexisting_cycle(db):
 def test_diverged_delete_of_a_preexisting_cycle_copies_each_block_once(db):
     # corrupted data must not turn a guarded delete into a crash or a
     # runaway walk: the root is the walk's start, never its own descendant
-    apply_batch(db, _batch(*_linear_chain("Machine Learning", 3, prefix="cycdel")),
+    apply_batch(db, judge_batch(_batch(*_linear_chain("Machine Learning", 3, prefix="cycdel"))),
                 NOW)
     db.commit()
     db.execute("UPDATE blocks SET parent_uid = 'cycdel2' WHERE uid = 'cycdel0'")
     db.commit()
-    apply_batch(db, _batch({"op": "delete", "uid": "cycdel0",
-                            "base_subtree_hash": sha_of("0" * 64)}), NOW)
+    apply_batch(db, judge_batch(_batch({"op": "delete", "uid": "cycdel0",
+                            "base_subtree_hash": sha_of("0" * 64)})), NOW)
     db.commit()
     assert read(db, "SELECT count(*) FROM blocks WHERE uid LIKE 'cycdel%'"
                       ).fetchone()[0] == 0
@@ -405,10 +405,10 @@ def test_diverged_delete_mints_header_then_root_then_descendants(
     # header and root entry come from _conflict_landing (header first, as
     # every conflict path mints them); one uid per descendant follows, in
     # the deepest-first order of the subtree's rows
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "create", "uid": "mint_c2", "page_title": "Machine Learning",
          "parent_uid": "uid_b2", "order_idx": 1, "text": "second child"},
-    ), NOW)
+    )), NOW)
     db.commit()
     minted = iter(["hdrmint00001", "rootmint0001", "descmint0001",
                    "descmint0002"])
@@ -427,14 +427,14 @@ def test_diverged_delete_mints_header_then_root_then_descendants(
 
 
 def test_set_heading_updates_and_clears(db):
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "set_heading", "uid": "uid_b2", "heading": 1},
-    ), NOW)
+    )), NOW)
     db.commit()
     assert db.select_one("SELECT heading FROM blocks WHERE uid='uid_b2'")["heading"] == 1
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "set_heading", "uid": "uid_b2", "heading": None},
-    ), NOW)
+    )), NOW)
     db.commit()
     assert db.select_one("SELECT heading FROM blocks WHERE uid='uid_b2'")["heading"] is None
 
@@ -442,9 +442,9 @@ def test_set_heading_updates_and_clears(db):
 def test_set_view_type_updates_metadata_without_changing_block_state(db):
     before = db.select_one("SELECT text, parent_uid, order_idx, collapsed FROM blocks"
         " WHERE uid='uid_b2'")
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "set_view_type", "uid": "uid_b2", "view_type": "numbered"},
-    ), NOW)
+    )), NOW)
     db.commit()
     row = db.select_one("SELECT text, parent_uid, order_idx, collapsed, view_type FROM blocks"
         " WHERE uid='uid_b2'")
@@ -460,10 +460,10 @@ def test_conflict_uids_retry_until_alphanumeric_first_char(db, monkeypatch):
                        "_underscore12", "goodchild123"])
     monkeypatch.setattr(secrets, "token_urlsafe",
                         lambda n: next(candidates))
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "update_text", "uid": "uid_b1", "text": "offline edit",
          "base_text_hash": text_hash("some stale base")},
-    ), NOW)
+    )), NOW)
     db.commit()
     child = db.select_one("SELECT b.uid, b.parent_uid FROM blocks b JOIN pages p"
         " ON p.id = b.page_id WHERE b.text = 'Tags:: #AI' AND p.title = ?", (NOW_DAY,))
@@ -555,13 +555,13 @@ def test_apply_batch_preflights_every_op_before_context_or_mutation(db):
     }
 
     with pytest.raises(OpError) as exc:
-        apply_batch(db, _batch(
+        apply_batch(db, judge_batch(_batch(
             {"op": "create", "uid": "atomicgood1",
              "page_title": "Atomic First Page", "parent_uid": None,
              "order_idx": 0, "text": "[[Atomic Safe Ref]]"},
             {"op": "update_text", "uid": "uid_b4",
              "text": "[[New #Old]]"},
-        ), NOW)
+        )), NOW)
 
     assert (exc.value.index, exc.value.reason) == (
         1,
@@ -580,11 +580,11 @@ def test_apply_batch_preflights_every_op_before_context_or_mutation(db):
 
 def test_op_error_index_reports_failing_op(db):
     with pytest.raises(OpError) as e:
-        apply_batch(db, _batch(
+        apply_batch(db, judge_batch(_batch(
             {"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
             {"op": "create", "uid": "uid_b1", "page_title": "AI",
              "order_idx": 0, "text": "dup"},  # uid exists
-        ), NOW)
+        )), NOW)
     assert e.value.index == 1
     db.rollback()
     assert db.select_one("SELECT collapsed FROM blocks WHERE uid='uid_b2'")["collapsed"] == 0  # rollback undid op 0
@@ -663,11 +663,11 @@ def test_clean_edit_with_block_rewrites_does_not_create_daily_page(db):
         ("rew_uid1", text_hash(t0), text_hash(t1), "Old", "New", NOW))
     db.commit()
 
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "update_text", "uid": "rew_uid1",
          "text": "see [[Old]] page plus extra",
          "base_text_hash": text_hash(t0)},
-    ), NOW)
+    )), NOW)
     db.commit()
 
     assert db.select_one("SELECT text FROM blocks WHERE uid='rew_uid1'")["text"] == "see [[New]] page plus extra"
@@ -678,7 +678,7 @@ def test_clean_edit_with_block_rewrites_does_not_create_daily_page(db):
 def _flag_reads(db, op) -> int:
     seen: list[str] = []
     trace(db, seen.append)
-    apply_batch(db, _batch(op), NOW)
+    apply_batch(db, judge_batch(_batch(op)), NOW)
     trace(db, None)
     return sum("sync_meta" in sql and "SELECT" in sql for sql in seen)
 
@@ -716,10 +716,10 @@ def test_stale_hash_identical_text_does_not_create_daily_page(db):
     # Device 2 pushes text device 1 already synced, under a stale base
     # hash -- check 2 (identical), never a conflict, so no daily page gets
     # created for it.
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "update_text", "uid": "uid_b1", "text": "Tags:: #AI",
          "base_text_hash": text_hash("something else entirely")},
-    ), NOW)
+    )), NOW)
     db.commit()
 
     assert db.select_one("SELECT text FROM blocks WHERE uid='uid_b1'")["text"] == "Tags:: #AI"
@@ -738,15 +738,15 @@ def test_second_conflict_same_day_reuses_header_and_mints_no_stray_conflict_uid(
     monkeypatch.setattr(secrets, "token_urlsafe",
                         lambda n: next(uids))
 
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "update_text", "uid": "uid_b1", "text": "offline edit 1",
          "base_text_hash": text_hash("stale base 1")},
-    ), NOW)
+    )), NOW)
     db.commit()
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "update_text", "uid": "uid_b1", "text": "offline edit 2",
          "base_text_hash": text_hash("stale base 2")},
-    ), NOW)
+    )), NOW)
     db.commit()
 
     # exactly 3 uids consumed: a header + child for the first conflict, a
@@ -790,7 +790,7 @@ def _max_seq(db):
 
 
 def test_skipped_ops_are_not_broadcast_as_applied(db):
-    result = apply_batch(db, _batch(
+    result = apply_batch(db, judge_batch(_batch(
         {"op": "set_collapsed", "uid": "ghost_bc1", "collapsed": True},
         {"op": "move", "uid": "ghost_bc1", "parent_uid": None,
          "order_idx": 0},
@@ -800,7 +800,7 @@ def test_skipped_ops_are_not_broadcast_as_applied(db):
         {"op": "move", "uid": "uid_b3", "parent_uid": "ghost_bc1",
          "order_idx": 0},
         {"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
-    ), NOW)
+    )), NOW)
     # only the op that actually applied reaches other tabs; they pick up
     # the daily-note entries through the changes feed
     assert result.broadcast_ops == [{"op": "set_collapsed", "uid": "uid_b2",
@@ -816,10 +816,10 @@ def test_skipped_ops_are_not_broadcast_as_applied(db):
 
 def test_noop_batch_journals_the_ghost_without_a_daily_page(db):
     before = _max_seq(db)
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "set_collapsed", "uid": "ghost_nb1", "collapsed": True},
         {"op": "delete", "uid": "ghost_nb2"},
-    ), NOW)
+    )), NOW)
     db.commit()
     assert _journal_rows_since(db, before) == [("ghost_nb1", 1)]
     day = NOW_DAY
@@ -828,10 +828,10 @@ def test_noop_batch_journals_the_ghost_without_a_daily_page(db):
 
 def test_move_to_missing_parent_journals_the_live_block_and_the_parent(db):
     before = _max_seq(db)
-    apply_batch(db, _batch(
+    apply_batch(db, judge_batch(_batch(
         {"op": "move", "uid": "uid_b3", "parent_uid": "ghost_mp1",
          "order_idx": 0},
-    ), NOW)
+    )), NOW)
     db.commit()
     rows = _journal_rows_since(db, before)
     assert rows[0] == ("ghost_mp1", 1)   # the tombstone leads
@@ -854,12 +854,12 @@ def _page_id(db, title_text: str):
 
 def test_create_under_a_parent_on_another_page_follows_the_parent(db):
     before = _max_seq(db)
-    result = apply_batch(db, _batch(
+    result = apply_batch(db, judge_batch(_batch(
         # uid_b6 lives on AI (page 2); the create was queued for a page the
         # parent has since left, which does not exist here any more
         {"op": "create", "uid": "follow_c1", "page_title": "Stale Page",
          "parent_uid": "uid_b6", "order_idx": 0, "text": "typed child"},
-    ), NOW)
+    )), NOW)
     db.commit()
     row = db.select_one("SELECT page_id, parent_uid FROM blocks"
                      " WHERE uid = 'follow_c1'")
@@ -874,11 +874,11 @@ def test_create_under_a_parent_on_another_page_follows_the_parent(db):
 
 
 def test_move_with_a_stale_page_title_follows_the_parent(db):
-    result = apply_batch(db, _batch(
+    result = apply_batch(db, judge_batch(_batch(
         # uid_b4 is on page 3; uid_b6 is on AI (page 2), not "Stale Page"
         {"op": "move", "uid": "uid_b4", "parent_uid": "uid_b6",
          "order_idx": 0, "page_title": "Stale Page"},
-    ), NOW)
+    )), NOW)
     db.commit()
     row = db.select_one("SELECT page_id, parent_uid FROM blocks"
                      " WHERE uid = 'uid_b4'")
@@ -890,11 +890,11 @@ def test_move_with_a_stale_page_title_follows_the_parent(db):
 
 def test_cycle_move_journals_the_moved_subtree_and_creates_no_page(db):
     before = _max_seq(db)
-    result = apply_batch(db, _batch(
+    result = apply_batch(db, judge_batch(_batch(
         {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
          "order_idx": 0, "page_title": "Stale Page"},
         {"op": "set_collapsed", "uid": "uid_b1", "collapsed": True},
-    ), NOW)
+    )), NOW)
     db.commit()
     # the rest of the batch applies and is the only op broadcast
     assert result.broadcast_ops == [{"op": "set_collapsed", "uid": "uid_b1",
@@ -999,10 +999,10 @@ def test_conflict_landing_uses_the_batch_clock(db):
     morning = datetime(2026, 3, 11, 0, 0, 5).astimezone()
     now_ms = int(evening.timestamp() * 1000)
     with time_machine.travel(morning, tick=False):
-        apply_batch(db, _batch(
+        apply_batch(db, judge_batch(_batch(
             {"op": "update_text", "uid": "uid_b1", "text": "offline edit",
              "base_text_hash": text_hash("stale base")},
-        ), now_ms)
+        )), now_ms)
         db.commit()
 
     landed = db.select_one(

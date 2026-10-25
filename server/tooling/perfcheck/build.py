@@ -32,6 +32,7 @@ from pkm.contracts.ops import BatchId, BlockOp, ClientId, OpBatch
 from pkm.schema import DDL
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
+from pkm.server.ops_core import judge_batch
 from pkm.server.store import fetch_page, rename_page_rows
 from pkm.server.sync_meta import title_reader
 
@@ -123,7 +124,7 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
                          batch_id=BatchId(f"fixture-{i:06d}"),
                          ops=[_BLOCK_OP.validate_python(op)
                               for op in batch.ops])
-            apply_batch(con, ob, batch.now_ms)
+            apply_batch(con, judge_batch(ob), batch.now_ms)
             con.commit()
         # Seeded once, directly through the store function a real rename
         # uses (rename is a route, not an op batch): leaves a block_rewrites

@@ -21,6 +21,7 @@ from pkm.server.conflict_notes import (deleted_header_text,
                                        stale_page_move_note)
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
+from pkm.server.ops_core import judge_batch
 from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
                                  ConflictLanding, CreateContext, DeleteBlocks,
                                  DeleteConflictContext, DeleteContext,
@@ -959,7 +960,7 @@ def test_placement_matches_shared_fixture(case, tmp_path):
         batch = OpBatch(client_id=client_id_of("fixture"),
                         batch_id=batch_id_of(f"placement_{case['name']}"[:64]),
                         ops=ops)
-        apply_batch(db, batch, 1_800_000_000_000)
+        apply_batch(db, judge_batch(batch), 1_800_000_000_000)
         db.commit()
         placed = {r["uid"]: {"uid": r["uid"], "page": r["title"],
                              "parent_uid": r["parent_uid"],

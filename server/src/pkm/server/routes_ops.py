@@ -6,6 +6,7 @@ import sqlite3
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 
 from pkm.contracts.ops import OpBatch
 from pkm.contracts.responses import OpsAck
@@ -15,7 +16,7 @@ from pkm.server.notify import OpsFrame
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.ops_apply import apply_batch
-from pkm.server.ops_core import OpError
+from pkm.server.ops_core import OpError, judge_batch
 from pkm.server.ops_hash import batch_replay_hash, batch_request_hash
 from pkm.server.sync_meta import latest_seq
 
@@ -31,7 +32,18 @@ async def post_ops(request: Request,
     (their own connections, on the threadpool) can no longer land between
     the dedupe read and this batch's writes. A write lock the busy timeout
     could not take (a concurrent writer already holds it) returns 503 with
-    Retry-After rather than surfacing the raw sqlite3.OperationalError."""
+    Retry-After rather than surfacing the raw sqlite3.OperationalError.
+
+    The text-limit and title judges (`judge_batch`) run first, in the
+    threadpool: off the write lock, so one large batch's refusal never
+    holds every other write, and off the event loop. They run before the
+    dedupe read too, so a retry of a stored batch meets the current
+    limits."""
+    try:
+        judged = await run_in_threadpool(judge_batch, batch)
+    except OpError as e:
+        raise HTTPException(status_code=400,
+                            detail={"index": e.index, "reason": e.reason})
     now = int(time.time() * 1000)
     try:
         db.begin_immediate()
@@ -68,7 +80,7 @@ async def post_ops(request: Request,
         # a row stored before seq/skipped existed gains seq: null / [] here
         return OpsAck.model_validate_json(row["response"])
     try:
-        result = apply_batch(db, batch, now)
+        result = apply_batch(db, judged, now)
     except OpError as e:
         db.rollback()
         raise HTTPException(status_code=400,

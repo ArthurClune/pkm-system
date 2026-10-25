@@ -18,7 +18,7 @@ from typing import Literal, Union
 from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, MAX_OUTLINE_DEPTH,
                                BlockOp, BlockUid,
                                CreateOp, CreatePageOp, DeleteOp, MoveOp,
-                               OrderIdx, PageId,
+                               OpBatch, OrderIdx, PageId,
                                RewriteKind, SetCollapsedOp, SetHeadingOp,
                                SetViewTypeOp, Sha256Hex, UID_RE, UpdateTextOp,
                                ViewType, subtree_hash, text_hash)
@@ -35,7 +35,8 @@ from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        overwritten_header_text,
                                        stale_page_move_note)
 from pkm.spans import splice, spliced_length
-from pkm.text_limits import TextLimitViolation, text_limit_violation
+from pkm.text_limits import (TextLimitViolation, describe_text_limit,
+                              text_limit_violation)
 from pkm.unlink import (TitleMatch, block_ref_spans, defuse_attribute,
                         unlink_stale_refs, unlink_title_refs)
 
@@ -107,6 +108,35 @@ def find_op_text_limit_violation(
             if violation is not None:
                 return OpTextLimitViolation(op_index, op.uid, violation)
     return None
+
+
+@dataclass(frozen=True)
+class JudgedBatch:
+    """A batch whose every op passed the text-limit and title judges, so
+    it may be applied. `apply_batch` takes only this, so no caller can
+    apply a batch the judges have not seen."""
+    batch: OpBatch
+
+
+def judge_batch(batch: OpBatch) -> JudgedBatch:
+    """Judge every op's text and titles, a skipped one included, or raise
+    `OpError` naming the first refused op. Pure, so the route runs it off
+    the write lock and the event loop. Limits first, over the whole batch:
+    the title pass runs `extract` over every text, which must never read
+    one past the caps."""
+    limit = find_op_text_limit_violation(batch.ops)
+    if limit is not None:
+        raise OpError(
+            limit.op_index,
+            f"block {limit.uid}: {describe_text_limit(limit.violation)}",
+        )
+    violation = find_op_title_violation(batch.ops)
+    if violation is not None:
+        raise OpError(
+            violation.op_index,
+            f"unsupported {violation.source} title syntax: {violation.title!r}",
+        )
+    return JudgedBatch(batch)
 
 
 @dataclass(frozen=True)

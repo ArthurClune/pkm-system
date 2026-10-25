@@ -315,7 +315,11 @@ the server's refusal rather than retain the op
 ([sync-recovery.md § A local write fails](sync-recovery.md#a-local-write-fails)).
 The editor refuses such an edit earlier, with a notice
 ([frontend-editor.md](frontend-editor.md#rules-an-edit-must-not-break)), so
-this is the backstop for a producer that missed it.
+this is the backstop for a producer that missed it. `opQueue.enqueue` judges
+text limits too, before the replica, because a session without a usable
+replica never reaches `enqueueBatch`: it retains the ops and posts them. A
+refusal there takes the same terminal path as a `rejected` one, a failed
+delivery and a desync, since the outline has already applied the ops.
 
 The optimistic apply mirrors the server's rules as well as its rows: for
 example `set_collapsed` leaves `updated_at` alone. Local `refs` resolve titles

@@ -13,6 +13,7 @@ import { ApiError } from "../api/client";
 import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { OpBatch, OpsAck } from "../api/payloads";
+import { describeTextLimit, findOpTextLimitViolation } from "../grammar/textLimits";
 import { apiPost } from "../api/typedClient";
 import type { PendingBatch, Replica } from "../replica/client";
 import { wellFormedOps } from "../replica/wellFormed";
@@ -674,11 +675,27 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
       const delivered = new Promise<DeliveryOutcome>((done) => {
         resolveDelivery = done;
       });
+      // The server's guard, judged before the replica's copy of it: a
+      // session with no usable replica retains whatever its enqueue throws
+      // and posts it, and the server's 400 would discard the batch's other
+      // ops too. Every producer judges its own text first; this catches one
+      // that does not.
+      const overLimit = findOpTextLimitViolation(ops);
       const persist = async (): Promise<void> => {
         if (qstate.disposed) {
           const error = new Error("op queue disposed");
           resolve({ status: "failed", error });
           resolveDelivery({ status: "failed", error });
+          return;
+        }
+        if (overLimit !== null) {
+          // Terminal like an op the replica rejects (below): the outline
+          // already applied the ops, so only a desync repairs it.
+          const error = new Error(
+            `block ${overLimit.uid}: ${describeTextLimit(overLimit.violation)}`);
+          resolve({ status: "failed", error });
+          resolveDelivery({ status: "failed", error });
+          desync.emit(error);
           return;
         }
         // Minted BEFORE the RPC so a lost reply cannot split the batch's

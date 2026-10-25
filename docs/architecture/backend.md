@@ -371,6 +371,11 @@ renamed or deleted.
 
 `POST /api/ops` applies an `OpBatch` of 1–500 ops. `batch_id` is required (a
 422 without it), because an id-less batch cannot be deduplicated.
+`OpBatch.expect`, which only the assistant's approval card sets
+([assistant.md](assistant.md#the-write-approval-card)), is checked after the
+dedupe read and before any op runs: an entry that no longer holds refuses the
+whole batch with 412. Checking after dedupe lets a retried batch that already
+applied replay its ack instead of being refused by its own effect.
 
 | Op | Does |
 |---|---|
@@ -385,7 +390,8 @@ renamed or deleted.
 flowchart LR
     C[Client batch] --> R
     subgraph TX["one transaction: BEGIN IMMEDIATE before the dedupe read"]
-        R["routes_ops.py (Shell)<br/>idempotency check"] --> CTX["ops_apply._context_for (Shell)<br/>read SQLite, classify once → per-kind context"]
+        R["routes_ops.py (Shell)<br/>idempotency check"] --> E["ops_expect.unmet_expectation (Core)<br/>expect check → 412, nothing written"]
+        E --> CTX["ops_apply._context_for (Shell)<br/>read SQLite, classify once → per-kind context"]
         CTX --> P["ops_core.plan_op (Core)<br/>pure: op + context → effect tuples"]
         P --> X["ops_apply._execute (Shell)<br/>effects → SQL"]
     end
@@ -1048,7 +1054,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | GET | `/{path}` *(public)* | SPA fallback; hashed bundles under `/app-assets/` |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |
-| POST | `/api/ops` | Apply an `OpBatch` ([The write path](#the-write-path)); `applied` counts skipped ops too; 400 for the whole batch past a [text limit](#planning) |
+| POST | `/api/ops` | Apply an `OpBatch` ([The write path](#the-write-path)); `applied` counts skipped ops too; 400 for the whole batch past a [text limit](#planning); 412 when an `expect` entry no longer holds, and nothing is written |
 | **Pages & blocks** | | |
 | GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree, paginated backlinks (not from the page itself) with [`ancestor_texts`](#breadcrumbs-and-recursive-traversal) per group, `block_ref_counts`; daily pages auto-created |
 | GET | `/api/block/{uid}` | One block subtree with its page and [breadcrumbs](#breadcrumbs-and-recursive-traversal) |

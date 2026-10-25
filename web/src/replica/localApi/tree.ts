@@ -97,10 +97,11 @@ export function resolveRefUids(db: ReplicaDb, uids: BlockUid[]): BlockRefTexts {
     const fresh = pending.filter((u) => !seen.has(u));
     if (fresh.length === 0) return out;
     fresh.forEach((u) => seen.add(u));
-    const marks = fresh.map(() => "?").join(",");
     const rows = db.select(
       `SELECT b.uid, b.text, p.title AS page_title FROM blocks b
-        JOIN pages p ON p.id = b.page_id WHERE b.uid IN (${marks})`, ["uid", "text", "page_title"], fresh);
+        JOIN pages p ON p.id = b.page_id
+       WHERE b.uid IN (SELECT value FROM json_each(?))`,
+      ["uid", "text", "page_title"], [JSON.stringify(fresh)]);
     for (const r of rows) {
       out[r.uid] = { text: r.text, page_title: r.page_title };
     }
@@ -114,16 +115,18 @@ export function blockRefTexts(db: ReplicaDb, texts: string[]): BlockRefTexts {
 
 /** Incoming ((ref)) count per uid, nonzero entries only: one
  * GROUP BY against idx_block_refs_target. Source rows CASCADE with their
- * block, so every counted row has a live source. */
+ * block, so every counted row has a live source. The uids are bound whole
+ * as one JSON array, as every id set in this file is: SQLite refuses a
+ * statement past its variable limit, and a page's uids are unbounded. */
 export function blockRefCounts(db: ReplicaDb,
                                uids: BlockUid[]): Record<string, number> {
   if (uids.length === 0) return {};
-  const marks = uids.map(() => "?").join(",");
   const out: Record<string, number> = {};
   for (const r of db.select(
     `SELECT target_block_uid, count(*) AS n FROM block_refs
-      WHERE target_block_uid IN (${marks})
-      GROUP BY target_block_uid`, ["n", "target_block_uid"], uids)) {
+      WHERE target_block_uid IN (SELECT value FROM json_each(?))
+      GROUP BY target_block_uid`, ["n", "target_block_uid"],
+    [JSON.stringify(uids)])) {
     out[r.target_block_uid] = Number(r.n);
   }
   return out;
@@ -166,18 +169,18 @@ export function ancestorTexts(
 export function fetchAncestors(db: ReplicaDb,
                                uids: BlockUid[]): Map<BlockUid, string[]> {
   if (uids.length === 0) return new Map();
-  const marks = uids.map(() => "?").join(",");
   const blocks = new Map<BlockUid, readonly [BlockUid | null, string]>();
   for (const r of db.select(
     `WITH RECURSIVE anc(uid) AS (
-       SELECT uid FROM blocks WHERE uid IN (${marks})
+       SELECT uid FROM blocks
+        WHERE uid IN (SELECT value FROM json_each(?))
        UNION
        SELECT b.parent_uid FROM anc a JOIN blocks b ON b.uid = a.uid
         WHERE b.parent_uid IS NOT NULL
      )
      SELECT b.uid, b.parent_uid, b.text
        FROM anc JOIN blocks b ON b.uid = anc.uid`,
-    ["uid", "parent_uid", "text"], uids)) {
+    ["uid", "parent_uid", "text"], [JSON.stringify(uids)])) {
     blocks.set(r.uid, [r.parent_uid, r.text]);
   }
   return ancestorTexts(uids, blocks);

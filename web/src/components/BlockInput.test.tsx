@@ -1095,6 +1095,53 @@ describe("an edit past the text limits", () => {
     expect(ta.value).toBe("ab");
   });
 
+  test("an auto-paired [ that would nest past the cap is refused", () => {
+    // Auto-pair, wrapping a selection and the phone key bar edit through
+    // the key path, not onChange: the second `[` inside the innermost run
+    // of nest(32) would open a 33rd.
+    stubFetch([["/api/titles", { titles: [] }]]);
+    const h = handlers();
+    const caret = 5 * 32 + 1; // after the innermost "x"
+    mount(h, caret, false,
+          block("tuid-deep", nest(32), { order_idx: orderIdxOf(0) }));
+    const ta = focusedTextarea();
+    ta.setSelectionRange(caret, caret);
+    fireEvent.keyDown(ta, { key: "[" }); // "[]" inside the run: accepted
+    const paired = nest(32).slice(0, caret) + "[]" + nest(32).slice(caret);
+    expect(ta.value).toBe(paired);
+    expect(h.onRefusedEdit).not.toHaveBeenCalled();
+    // jsdom won't run the rAF that puts the caret between the pair
+    ta.setSelectionRange(caret + 1, caret + 1);
+    fireEvent.keyDown(ta, { key: "[" }); // "[[]]": the 33rd run
+    expect(h.onRefusedEdit).toHaveBeenCalledWith(NESTING);
+    expect(ta.value).toBe(paired);
+    // the last change is the accepted pair, held while the caret is in a run
+    expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-deep", paired, true);
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  test("wrapping a selection in a [[ past the cap is refused, popup closed",
+       () => {
+    // The refused text would read as a [[hello]] completion; its popup
+    // must not open over a text the block does not hold.
+    stubFetch([["/api/titles", { titles: [] }]]);
+    const h = handlers();
+    const deep = "[[a//".repeat(32) + "hello" + "]]".repeat(32);
+    const at = 5 * 32;
+    mount(h, at, false, block("tuid-deep", deep, { order_idx: orderIdxOf(0) }));
+    const ta = focusedTextarea();
+    ta.setSelectionRange(at, at + 5); // "hello"
+    fireEvent.keyDown(ta, { key: "[" }); // "[hello]", hello kept selected
+    const wrapped = deep.slice(0, at) + "[hello]" + deep.slice(at + 5);
+    expect(ta.value).toBe(wrapped);
+    // jsdom won't run the rAF that restores the selection
+    ta.setSelectionRange(at + 1, at + 6);
+    fireEvent.keyDown(ta, { key: "[" }); // "[[hello]]": the 33rd run
+    expect(h.onRefusedEdit).toHaveBeenCalledWith(NESTING);
+    expect(ta.value).toBe(wrapped);
+    expect(screen.queryByRole("option", { name: /New page: hello/ })).toBeNull();
+  });
+
   test("a plain paste past the length cap is prevented, with the notice",
        () => {
     const h = handlers();

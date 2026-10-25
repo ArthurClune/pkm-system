@@ -101,6 +101,45 @@ test("typing links nested 32 deep is saved", async ({ page }) => {
     .toHaveCount(0);
 });
 
+test("a real [ keypress that would nest links past 32 is refused",
+     async ({ page }) => {
+  // Keys, not insertText: auto-pair edits through keydown, a path an
+  // inserted string never takes.
+  const { title, seed, sent } = await openSeeded(page, "Nest Keys");
+  await page.keyboard.insertText(nest(32));
+  await page.keyboard.press("Escape");
+  await waitForServerText(page, title, seed + nest(32));
+
+  await page.getByText(seed, { exact: false }).first().click();
+  await expect(input(page)).toHaveValue(seed + nest(32));
+  await page.keyboard.press("End");
+  for (let i = 0; i < 64; i++) await page.keyboard.press("ArrowLeft");
+  const inner = seed.length + 5 * 32 + 1; // after the innermost "x"
+  expect(await input(page).evaluate(
+    (el: HTMLTextAreaElement) => el.selectionStart)).toBe(inner);
+
+  await page.keyboard.press("["); // "[]" inside the run: accepted
+  const paired = (seed + nest(32)).slice(0, inner) + "[]"
+    + (seed + nest(32)).slice(inner);
+  await expect(input(page)).toHaveValue(paired);
+  await page.keyboard.press("["); // "[[]]" would be the 33rd run
+  await expect(page.getByRole("status").filter({ hasText: NESTING }))
+    .toBeVisible();
+  await expect(input(page)).toHaveValue(paired);
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+
+  await page.keyboard.press("y");
+  const typed = paired.slice(0, inner + 1) + "y" + paired.slice(inner + 1);
+  await expect(input(page)).toHaveValue(typed);
+  // the caret sits inside a run, where the first Escape only closes the
+  // completion popup
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expect(input(page)).toHaveCount(0);
+  await waitForServerText(page, title, typed);
+  expect(sent.some((t) => t.includes("x[[]]"))).toBe(false);
+});
+
 test("a paste past the length cap shows the notice and does not paste",
      async ({ page }) => {
   const { seed, sent } = await openSeeded(page, "Length Cap");

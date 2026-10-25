@@ -435,3 +435,113 @@ describe("tokenizeBlock caching", () => {
     expect(afterBound).toEqual(firstResult);
   });
 });
+
+describe("tokenizeBlock past the link nesting limit", () => {
+  const nest = (n: number) => "[[a//".repeat(n) + "[[Deep]]" + "]]".repeat(n);
+
+  it("never recurses on a legacy block nested thousands deep", () => {
+    const segs = tokenizeBlock(nest(6000));
+    expect(segs.some((s) => s.kind === "page-ref")).toBe(false);
+  });
+
+  it("still yields the inner page-ref of a 32-deep nest", () => {
+    const segs = tokenizeBlock(nest(31));
+    expect(segs.some((s) => s.kind === "page-ref")).toBe(true);
+  });
+});
+
+// Texts every write path accepts that make one token, segment or line break
+// per few characters. None may throw: a spread of this many tokens as call
+// arguments overflows the stack. The legacy nest, which also threw, is in
+// the lone-[ cases below.
+const CAP_TEXTS: [string, string, number][] = [
+  ["#a ×150,000", "#a ".repeat(150_000), 150_000],
+  ["[[x]] ×100,000", "[[x]] ".repeat(100_000), 100_000],
+  ["`x` ×333,333", "`x`".repeat(333_333), 333_333],
+  ["a\\n ×500,000", "a\n".repeat(500_000), 500_000],
+];
+
+describe("tokenizeBlock at the block length cap", () => {
+  it.each(CAP_TEXTS)("renders %s without throwing", (_name, text, count) => {
+    const segs = tokenizeBlock(text);
+    const kinds = segs.filter((s) => s.kind !== "text").length;
+    expect(kinds).toBe(count);
+  }, 30_000);
+});
+
+describe("tokenizeBlock on a long line of lone [", () => {
+  // Every `[` that does not open `[[` is probed as a markdown link, the
+  // second `[` of each `[[` in a nest too. A generous bound: the per-[ walk
+  // to the end of the line took 17.8 s on 200,000 characters, and minutes
+  // on the 1,000,000-character legacy nest, a block no write may store any
+  // more whose stored row must still render, its brackets as text.
+  it.each([
+    ["[a ×100,000", "[a".repeat(100_000)],
+    ["[a ×500,000", "[a".repeat(500_000)],
+    ["[a]( ×250,000", "[a](".repeat(250_000)],
+    ["a legacy nest", "[[a//".repeat(142_857) + "]]".repeat(142_857)],
+  ])("renders %s as text in linear time", (_name, text) => {
+    const started = performance.now();
+    expect(tokenizeBlock(text)).toEqual([{ kind: "text", text }]);
+    expect(performance.now() - started).toBeLessThan(3000);
+  }, 30_000);
+});
+
+describe("tokenizeBlock on long runs of math and macro openers", () => {
+  // Each `$$` used to list every token of the block to find the code spans
+  // it may not close in, and each `{{query:` walked its braces to the end
+  // of the text: 25.7 s and about 80 s at the length cap. A generous bound.
+  it("renders `$$ #a ` ×166,666 in linear time", () => {
+    const text = "$$ #a ".repeat(166_666);
+    const started = performance.now();
+    const segs = tokenizeBlock(text);
+    expect(performance.now() - started).toBeLessThan(3000);
+    expect(segs.filter((s) => s.kind === "math")).toHaveLength(83_333);
+  }, 60_000);
+
+  it("renders `{{query: ` ×111,111 in linear time", () => {
+    const text = "{{query: ".repeat(111_111);
+    const started = performance.now();
+    const segs = tokenizeBlock(text);
+    expect(performance.now() - started).toBeLessThan(3000);
+    expect(segs).toEqual([{ kind: "text", text }]);
+  }, 300_000);
+
+  it("skips a $$ inside inline code when closing math", () => {
+    expect(tokenizeBlock("$$a `$$` b$$ c")).toEqual([
+      { kind: "math", tex: "a `$$` b", display: false },
+      { kind: "text", text: " c" },
+    ]);
+  });
+
+  it("closes a query at the brace matching its opener", () => {
+    expect(tokenizeBlock("{{query: {and: [[a]] {x}}}} tail")).toEqual([
+      { kind: "query", expr: "{and: [[a]] {x}}" },
+      { kind: "text", text: " tail" },
+    ]);
+  });
+});
+
+describe("tokenizeBlock on a long run of punctuation in a URL", () => {
+  // Trailing punctuation was trimmed with a regex that retries from every
+  // character of an inner run: 0.6 s at 40,000 characters, minutes at the
+  // cap. A generous bound.
+  const run = ".".repeat(999_000);
+  it.each([
+    ["a bare URL", `https://x${run}a`, "link"],
+    ["an asset URL", `/assets/${"ab".repeat(32)}/f${run}a`, "asset-link"],
+  ])("autolinks %s in linear time", (_name, text, kind) => {
+    const started = performance.now();
+    const segs = tokenizeBlock(text);
+    expect(performance.now() - started).toBeLessThan(3000);
+    expect(segs.map((s) => s.kind)).toEqual([kind]);
+  }, 300_000);
+
+  it("still trims trailing punctuation off a URL", () => {
+    expect(tokenizeBlock("see https://x.org/a).")).toEqual([
+      { kind: "text", text: "see " },
+      { kind: "link", text: "https://x.org/a", href: "https://x.org/a" },
+      { kind: "text", text: ")." },
+    ]);
+  });
+});

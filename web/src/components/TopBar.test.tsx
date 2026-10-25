@@ -423,8 +423,9 @@ const NO_BLOCKERS = { links: 0, link_pages: 0, block_refs: 0, block_ref_pages: 0
 const BLOCKERS = {
   ...NO_BLOCKERS,
   blockers: [
-    { uid: "u1", page_title: "Queries", text: "{{query: [[Paper]]}}", reason: "query" },
-    { uid: "u2", page_title: "Notes/Sub", text: "Paper:: x", reason: "attribute" },
+    { uid: "u1", page_title: "Queries", excerpt: "{{query: [[Paper]]}}", text_length: 20,
+      reason: "query" },
+    { uid: "u2", page_title: "Notes/Sub", excerpt: "Paper:: x", text_length: 9, reason: "attribute" },
   ],
 };
 
@@ -441,6 +442,7 @@ it("a preview with blockers shows the blocked dialog and never sends DELETE", as
   expect(dialog).toHaveTextContent("Change these blocks first:");
   expect(dialog).toHaveTextContent("a query names this page");
   expect(dialog).toHaveTextContent("unlinking would make this an attribute");
+  expect(dialog).toHaveTextContent("Notes/Sub: Paper:: x (unlinking would make this an attribute)");
   expect(screen.getByRole("link", { name: "Queries" })).toHaveAttribute("href", "/page/Queries");
   expect(screen.getByRole("link", { name: "Notes/Sub" })).toHaveAttribute("href", "/page/Notes/Sub");
   expect(screen.queryByRole("alertdialog")).toBeNull();

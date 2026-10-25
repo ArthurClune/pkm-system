@@ -2,6 +2,7 @@
 import type { CanonicalTitle } from "../api/brands";
 import { scanMarkdownLinks, type MarkdownSpan } from "./markdown";
 import { scanGrammar, type Span } from "./scan";
+import { trimUrlPunctuation } from "./tokenize";
 
 export type LinkReferenceResult =
   | { status: "linked"; text: string; match: "plain" | "markdown" | "url" }
@@ -26,7 +27,7 @@ function scanBareUrls(text: string): Span[] {
     const start = match.index;
     if (start === undefined) continue;
     if (start > 0 && !/[\s([{]/.test(text[start - 1])) continue;
-    const url = match[0].replace(/[.,;:!?'")\]}>]+$/, "");
+    const url = trimUrlPunctuation(match[0]);
     if (/^https?:\/\/$/.test(url)) continue;
     spans.push({ start, end: start + url.length });
   }

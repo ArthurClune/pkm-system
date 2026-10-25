@@ -1,11 +1,14 @@
 import json
+import tracemalloc
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from rawread import read
-from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockOp, BlockUid, CreateOp, CreatePageOp,
+from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING,
+                               MAX_OUTLINE_DEPTH, BlockOp, BlockUid, CreateOp, CreatePageOp,
                                DeleteOp, MoveOp, OpBatch, PageId, SetCollapsedOp,
                                SetHeadingOp,
                                SetViewTypeOp, UpdateTextOp, subtree_hash,
@@ -28,6 +31,7 @@ from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
                                  ReindexRefs, SetCollapsed, SetHeading,
                                  SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, Skip, SkipContext,
+                                 ReplayOverLimitContext,
                                  SkippedContext, StuckMoveContext,
                                  SubtreeRow, TextConflictContext,
                                  TextEditContext, TextEditOutcome, TouchPage,
@@ -38,6 +42,7 @@ from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
                                  plan_op, skip_report, rewrite_effects,
                                  unlink_stale_text)
 from pkm.server.ops_core import MAX_REPLAYED_REWRITES
+from pkm.text_limits import text_limit_violation
 from pkm.unlink import unlink_stale_refs
 from pkm.test_data.ids import (
     batch_id_of, canonical_title_of, client_id_of, malformed_uid, order_idx_of, page_id_of,
@@ -716,6 +721,124 @@ def test_classify_text_edit_conflict_with_rewrite_replay():
     outcome = classify_text_edit(edit, text_hash(t0), live, rewrites)
     assert outcome == TextEditOutcome(
         "conflict", "note about [[New]] plus comment")
+
+
+# --- a replay that would carry an edit past a text limit ------------------
+#
+# The edit itself was judged at the batch's entry; what a recorded rename or
+# page delete makes of it never was. A replay the plain judge would refuse is
+# never stored: the outcome is over_limit, and the sent text lands as a
+# conflict entry instead. The growth is projected before any splice, so the
+# oversized text is never built.
+
+
+def _retitle(old: str, new: str) -> tuple[str, str, tuple[BlockRewrite, ...]]:
+    t0, t1 = f"[[{old}]]", f"[[{new}]]"
+    return t0, t1, (BlockRewrite(text_hash(t0), text_hash(t1), old, new),)
+
+
+def test_classify_text_edit_over_limit_when_a_rename_replay_passes_the_cap():
+    # the review's repro: 2,000 links of a title grown by 998 characters
+    t0, t1, rewrites = _retitle("a", "Z" * 1000)
+    edit = "[[a]] " * 2000
+    outcome = classify_text_edit(edit, text_hash(t0), t1, rewrites)
+    assert outcome.kind == "over_limit"
+    assert outcome.text == edit
+
+
+def test_classify_text_edit_applies_a_replay_landing_exactly_at_the_cap():
+    t0, t1, rewrites = _retitle("a", "Z" * 1000)
+    links = "[[a]] " * 900
+    grown = 900 * len("[[" + "Z" * 1000 + "]] ")
+    edit = links + "x" * (MAX_BLOCK_TEXT_CHARS - grown)
+    outcome = classify_text_edit(edit, text_hash(t0), t1, rewrites)
+    assert outcome.kind == "clean"
+    assert len(outcome.text) == MAX_BLOCK_TEXT_CHARS
+    over = classify_text_edit(edit + "x", text_hash(t0), t1, rewrites)
+    assert over.kind == "over_limit"
+
+
+def test_classify_text_edit_over_limit_when_a_rename_replay_nests_past_the_cap():
+    # `#Old` inside 32 runs is 32 deep; renamed to a title with a space it
+    # reads `#[[New title]]`, a 33rd run. The text barely grows.
+    t0, t1 = "#Old", "#[[New title]]"
+    rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "Old", "New title"),)
+    edit = "[[a//" * MAX_LINK_NESTING + " #Old" + "]]" * MAX_LINK_NESTING
+    assert text_limit_violation(edit) is None
+    outcome = classify_text_edit(edit, text_hash(t0), t1, rewrites)
+    assert outcome == TextEditOutcome("over_limit", edit)
+
+
+def test_classify_text_edit_over_limit_when_a_delete_inlines_past_the_cap():
+    copy = "c" * 1000
+    t0, t1 = "see ((uid_p1))", f"see {copy}"
+    rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "uid_p1", copy,
+                             "inline"),)
+    edit = "((uid_p1)) " * 1000
+    outcome = classify_text_edit(edit, text_hash(t0), t1, rewrites)
+    assert outcome == TextEditOutcome("over_limit", edit)
+
+
+def _peak_bytes(run: Callable[[], object]) -> int:
+    tracemalloc.start()
+    try:
+        run()
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+def test_replay_past_the_cap_is_refused_without_building_the_text():
+    # Three links of a title grown by 400,000 characters would make 1.2
+    # million. An ASCII str of more than the cap's characters takes more
+    # than the cap in bytes, so a peak under it shows none was built.
+    t0, t1, rewrites = _retitle("a", "Z" * 400_000)
+    edit = "[[a]] " * 3
+    outcome: list[TextEditOutcome] = []
+    peak = _peak_bytes(lambda: outcome.append(
+        classify_text_edit(edit, text_hash(t0), t1, rewrites)))
+    assert peak < MAX_BLOCK_TEXT_CHARS
+    assert outcome[0].kind == "over_limit"
+
+
+@pytest.mark.parametrize("kind", ["retitle", "inline"])
+def test_replay_refuses_the_worst_amplification_without_building_it(kind):
+    # A 1M-character edit of ~100k links, over a title (or a copy) of a
+    # million characters: ~10^11 characters had it been spliced.
+    big = "Z" * MAX_BLOCK_TEXT_CHARS
+    if kind == "retitle":
+        t0, t1, rewrites = _retitle("a", big)
+        link = "[[a]] "
+    else:
+        t0, t1 = "((uid_p1))", big
+        rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "uid_p1", big,
+                                 "inline"),)
+        link = "((uid_p1)) "
+    edit = link * (MAX_BLOCK_TEXT_CHARS // len(link))
+    outcome: list[TextEditOutcome] = []
+    peak = _peak_bytes(lambda: outcome.append(
+        classify_text_edit(edit, text_hash(t0), t1, rewrites)))
+    assert outcome[0].kind == "over_limit"
+    # linear in the edit (the scan and its span list, one tuple per link
+    # sharing one title), where the spliced text would be ~10^11
+    assert peak < 200 * len(edit)
+
+
+def test_plan_replay_over_limit_lands_the_edit_and_keeps_the_block():
+    op = UpdateTextOp(op="update_text", uid=uid_of("uid_b3"),
+                      text="[[a]] " * 2000, base_text_hash=text_hash("[[a]]"))
+    ctx = ReplayOverLimitContext(B, canonical_title_of("Machine Learning"),
+                                 _landing())
+    assert plan_op(0, op, ctx) == (
+        *conflict_entry_effects(
+            uid_of("uid_b3"), op.text,
+            live_block_header_text(canonical_title_of("Machine Learning"),
+                                   uid_of("uid_b3")),
+            ctx.landing),
+        JournalBlock(uid_of("uid_b3"), False))
+    assert skip_report(4, op, ctx).model_dump() == {
+        "index": 4, "op": "update_text", "uid": "uid_b3",
+        "reason": "text_limit", "note_page": _DAY}
 
 
 # --- ops on missing blocks -------------------------------------------------

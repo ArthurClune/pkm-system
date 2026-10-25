@@ -800,6 +800,32 @@ it("reports no-safe-match without enqueueing", async () => {
   expect(enqueue).not.toHaveBeenCalled();
 });
 
+it("refuses a link that would put the block past the length cap", async () => {
+  // at the cap already: the four brackets the link adds put it past
+  const text = `ACME ${"x".repeat(1_000_000 - "ACME ".length)}`;
+  stubFetch([["/api/unlinked?title=ACME", {
+    groups: [{ page_id: pageIdOf(2), page_title: "Source", items: [
+      { uid: "uid_u1", text },
+    ] }],
+    total: 1,
+  }]]);
+  const sync = makeSync();
+  const enqueue = vi.fn(sync.enqueue);
+  sync.enqueue = enqueue;
+  render(
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <UnlinkedSection title={canonicalTitleOf("ACME")} />
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  fireEvent.click(screen.getByText(/unlinked references/i));
+  fireEvent.click(await screen.findByRole("button", { name: "Link" }));
+  expect(await screen.findByText(
+    "A block can't be longer than 1,000,000 characters.")).toBeInTheDocument();
+  expect(enqueue).not.toHaveBeenCalled();
+});
+
 it("shows an error and re-enables the button when unlinked show-more fails", async () => {
   let calls = 0;
   vi.stubGlobal("fetch", vi.fn(async () => {

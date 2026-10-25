@@ -11,7 +11,8 @@ import { useDismiss } from "../useDismiss";
 import { useConfirm } from "./ConfirmDialog";
 import { DeleteBlockedDialog } from "./DeleteBlockedDialog";
 import {
-  deleteConfirmMessage, plainDeleteMessage, type DeleteBlocker, type DeletePreview,
+  blockedHeading, deleteConfirmMessage, plainDeleteMessage, type DeleteBlocker,
+  type DeletePreview,
 } from "./deletePageCopy";
 import { HelpCircleIcon, MoreHorizontalIcon, PanelLeftIcon } from "./icons";
 import { SearchBar } from "./SearchBar";
@@ -211,7 +212,7 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
         )}
         {dialog}
         {blockers !== null && title !== null && (
-          <DeleteBlockedDialog title={title} blockers={blockers}
+          <DeleteBlockedDialog heading={blockedHeading(title)} blockers={blockers}
                                onClose={closeBlocked} />
         )}
       </div>

@@ -4,7 +4,7 @@
 // notes, daily pages).
 import type { BlockNode } from "../../api/payloads";
 import type { Snapshot, SyncBlock } from "../../replica/apply";
-import type { NormalGraph } from "../sync/normalise";
+import { fieldsDiffer, type NormalGraph, showField } from "../sync/normalise";
 
 const show = (v: unknown): string => JSON.stringify(v) ?? "undefined";
 
@@ -106,7 +106,9 @@ export function diffTrees(a: BlockNode[], b: BlockNode[],
       ["collapsed", x.node.collapsed, y.node.collapsed],
     ];
     for (const [f, p, q] of fields) {
-      if (show(p) !== show(q)) lines.push(`${uid}: ${f} ${show(p)} (${na}) vs ${show(q)} (${nb})`);
+      if (fieldsDiffer(p, q)) {
+        lines.push(`${uid}: ${f} ${showField(p)} (${na}) vs ${showField(q)} (${nb})`);
+      }
     }
   }
   return lines;

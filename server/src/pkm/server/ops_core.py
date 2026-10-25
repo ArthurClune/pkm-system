@@ -15,7 +15,8 @@ from collections.abc import (Callable, Collection, Iterator, Mapping,
 from dataclasses import dataclass, field
 from typing import Literal, Union
 
-from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockOp, BlockUid,
+from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, MAX_OUTLINE_DEPTH,
+                               BlockOp, BlockUid,
                                CreateOp, CreatePageOp, DeleteOp, MoveOp,
                                OrderIdx, PageId,
                                RewriteKind, SetCollapsedOp, SetHeadingOp,
@@ -25,7 +26,7 @@ from pkm.contracts.responses import SkipReason, SkippedOp
 from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.refs import (CanonicalTitle, TitleSyntaxReason, extract,
                       normalize_title, parse_block_uid, title_syntax_reason)
-from pkm.rename import rewrite_title_refs_map, spelled_or_canonical
+from pkm.rename import spelled_or_canonical, title_ref_spans
 from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        deleted_header_text,
                                        live_block_header_text,
@@ -33,8 +34,10 @@ from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        orphan_header_text,
                                        overwritten_header_text,
                                        stale_page_move_note)
-from pkm.unlink import (TitleMatch, apply_delete_rewrite, defuse_attribute,
-                        unlink_stale_refs)
+from pkm.spans import splice, spliced_length
+from pkm.text_limits import TextLimitViolation, text_limit_violation
+from pkm.unlink import (TitleMatch, block_ref_spans, defuse_attribute,
+                        unlink_stale_refs, unlink_title_refs)
 
 # Most renames a stale edit can be behind. Each step is one recorded
 # rewrite of the same block, so the bound only matters for a block renamed
@@ -82,6 +85,28 @@ def find_op_title_violation(
                     )
     return None
 
+
+@dataclass(frozen=True)
+class OpTextLimitViolation:
+    op_index: int
+    uid: BlockUid
+    violation: TextLimitViolation
+
+
+def find_op_text_limit_violation(
+    ops: Sequence[BlockOp],
+) -> OpTextLimitViolation | None:
+    """The first create or text edit whose text a write may not store.
+
+    Only the text an op sends is judged: a move, heading change or delete
+    of a row already over a limit goes through, and so does an edit that
+    brings one back under it."""
+    for op_index, op in enumerate(ops):
+        if isinstance(op, (CreateOp, UpdateTextOp)):
+            violation = text_limit_violation(op.text)
+            if violation is not None:
+                return OpTextLimitViolation(op_index, op.uid, violation)
+    return None
 
 
 @dataclass(frozen=True)
@@ -137,7 +162,7 @@ def replay_title_rewrites(
     base_hash: Sha256Hex,
     rewrites: Sequence[BlockRewrite],
     canonical: Callable[[str], str] = normalize_title,
-) -> tuple[str, Sha256Hex]:
+) -> tuple[str | None, Sha256Hex]:
     """Re-apply the renames this block already went through to an edit made
     before them, returning the edit's text and base hash as they would read
     had the device seen those renames first.
@@ -167,17 +192,30 @@ def replay_title_rewrites(
 
     The unlink step also defuses a leading attribute naming the deleted page
     (`X:: v` becomes `` `X`:: v ``), so the replayed text never re-creates it.
+
+    The text is None when a step would grow it past the length cap
+    (`_replay_step`); `classify_text_edit` then lands the edit as sent.
     """
-    text, base_hash, _ = _replay(text, base_hash, rewrites, canonical)
-    return text, base_hash
+    replayed, base_hash, _ = _replay(text, base_hash, rewrites, canonical)
+    return replayed, base_hash
 
 
 def _replay_step(text: str, step: RewriteStep,
-                 canonical: Callable[[str], str]) -> str:
+                 canonical: Callable[[str], str]) -> str | None:
+    """`text` with one recorded rewrite replayed onto it, or None when a
+    splice that can grow the text (a longer title, an inlined copy) would
+    carry it past `MAX_BLOCK_TEXT_CHARS`. That is judged from the spans
+    before splicing: each link grows by the title's growth, and titles have
+    no length cap, so the text itself could be far too long to build. The
+    unlink that follows an inline only shortens, bar the two backticks
+    `defuse_attribute` adds; the caller judges what comes out."""
     if step.retitles:
-        text = rewrite_title_refs_map(
+        spans = title_ref_spans(
             text, step.retitles,
             normalize=spelled_or_canonical(canonical, step.retitles))
+        if spliced_length(text, spans) > MAX_BLOCK_TEXT_CHARS:
+            return None
+        text = splice(text, spans)
     if step.unlinked or step.inlines:
         unlinked = {canonical(title) for title in step.unlinked}
 
@@ -188,17 +226,21 @@ def _replay_step(text: str, step: RewriteStep,
         # map is keyed by uid; a key that is no uid never matches a `((ref))`.
         copies = {uid: copy for key, copy in step.inlines.items()
                   if (uid := parse_block_uid(key)) is not None}
+        spans = block_ref_spans(text, copies)
+        if spliced_length(text, spans) > MAX_BLOCK_TEXT_CHARS:
+            return None
         text = defuse_attribute(
-            apply_delete_rewrite(text, is_deleted, copies), is_deleted)
+            unlink_title_refs(splice(text, spans), is_deleted), is_deleted)
     return text
 
 
 def _replay(
     text: str, base_hash: Sha256Hex, rewrites: Sequence[BlockRewrite],
     canonical: Callable[[str], str],
-) -> tuple[str, Sha256Hex, tuple[RewriteStep, ...]]:
+) -> tuple[str | None, Sha256Hex, tuple[RewriteStep, ...]]:
     """`replay_title_rewrites`, also returning the steps it consumed in the
-    order it walked them."""
+    order it walked them. The text is None when a step would carry it past
+    the length cap (`_replay_step`)."""
     steps = _rewrite_steps(rewrites)
     consumed: list[RewriteStep] = []
     for _ in range(MAX_REPLAYED_REWRITES):
@@ -207,7 +249,10 @@ def _replay(
             break
         steps = [s for s in steps if s is not match]
         consumed.append(match)
-        text = _replay_step(text, match, canonical)
+        replayed = _replay_step(text, match, canonical)
+        if replayed is None:
+            return None, base_hash, tuple(consumed)
+        text = replayed
         base_hash = match.after_hash
     return text, base_hash, tuple(consumed)
 
@@ -221,10 +266,18 @@ class TextEditOutcome:
     a conflict (check 5). `text` is the replayed edit -- what actually gets
     applied or diffed, not the caller's original op.text.
 
+    `over_limit`: the replay would make text a write may not store
+    (`text_limits.text_limit_violation`), so nothing is replayed and `text`
+    is the edit as sent, which lands as a conflict entry while the block
+    keeps its text. The edit was judged on arrival; only what the replay
+    made of it is refused, and never with a 400, which would poison the
+    client's queue over text it did not write.
+
     `ops_apply._context_for` classifies once, and the outcome rides to the
     planner in a TextEditContext or, for a conflict, a TextConflictContext
-    carrying the landing only a conflict pays for."""
-    kind: Literal["identical", "clean", "conflict"]
+    carrying the landing only a conflict pays for (ReplayOverLimitContext
+    for `over_limit`)."""
+    kind: Literal["identical", "clean", "conflict", "over_limit"]
     text: str
     replayed: tuple[RewriteStep, ...] = field(default=(), compare=False)
     canonical: Callable[[str], str] = field(default=normalize_title,
@@ -238,8 +291,12 @@ def classify_text_edit(
 ) -> TextEditOutcome:
     replayed_text, replayed_hash, steps = _replay(
         text, base_hash, rewrites, canonical)
+    if replayed_text is None:
+        return TextEditOutcome("over_limit", text, steps, canonical)
     if replayed_text == current_text:
         return TextEditOutcome("identical", replayed_text, steps, canonical)
+    if steps and text_limit_violation(replayed_text) is not None:
+        return TextEditOutcome("over_limit", text, steps, canonical)
     if text_hash(current_text) == replayed_hash:
         return TextEditOutcome("clean", replayed_text, steps, canonical)
     return TextEditOutcome("conflict", replayed_text, steps, canonical)
@@ -542,6 +599,16 @@ class TextConflictContext:
 
 
 @dataclass(frozen=True)
+class ReplayOverLimitContext:
+    """A hashed update_text on a live block that `classify_text_edit` found
+    `over_limit`: the block keeps its text, and the edit as sent lands under
+    a header naming `page_title`, the block's own page."""
+    block: BlockInfo
+    page_title: CanonicalTitle
+    landing: ConflictLanding
+
+
+@dataclass(frozen=True)
 class SkipContext:
     """A skipped op that lands nothing (`skip.landing_uid` is None): a
     noop, or a blank orphan_edit / diverted_create. `ghost_page`: see
@@ -590,16 +657,22 @@ SkippedContext = Union[SkipContext, LandedSkipContext, StuckMoveContext]
 SKIPPED_CONTEXTS = (SkipContext, LandedSkipContext, StuckMoveContext)
 OpContext = Union[PageContext, CreateContext, MoveContext, DeleteContext,
                   DeleteConflictContext, BlockContext, TextEditContext,
-                  TextConflictContext, SkipContext, LandedSkipContext,
-                  StuckMoveContext]
+                  TextConflictContext, ReplayOverLimitContext, SkipContext,
+                  LandedSkipContext, StuckMoveContext]
 
 
-def skip_report(index: int, op: BlockOp, ctx: SkippedContext) -> SkippedOp:
-    """The ack's `skipped` entry for an op `classify_skip` flagged: which
-    op, which uid, why, and the daily page its entry landed on (None when
-    nothing landed). It is the only signal a caller that sends uids
-    unchecked (`pkm batch`) gets for a mistyped one."""
+def skip_report(index: int, op: BlockOp,
+                ctx: SkippedContext | ReplayOverLimitContext) -> SkippedOp:
+    """The ack's `skipped` entry for an op `classify_skip` flagged, or an
+    edit whose replay was over a limit: which op, which uid, why, and the
+    daily page its entry landed on (None when nothing landed). It is the
+    only signal a caller that sends uids unchecked (`pkm batch`) gets for a
+    mistyped one."""
     assert not isinstance(op, CreatePageOp)  # never classified skipped
+    if isinstance(ctx, ReplayOverLimitContext):
+        return SkippedOp(index=index, op=op.op, uid=op.uid,
+                         reason="text_limit",
+                         note_page=ctx.landing.daily_title)
     kind = ctx.skip.kind
     reason: SkipReason = (
         "cycle" if kind == "move_cycle" else
@@ -904,7 +977,10 @@ def _rewrite_chain(
             sent, lambda raw: canonical(normalize_title(raw)) in titles),
             [("unlink", t, "") for t in sorted(titles)])
     for step in replayed:
-        record(_replay_step(text, step, canonical),
+        after_text = _replay_step(text, step, canonical)
+        if after_text is None:
+            return ()
+        record(after_text,
                [*(("retitle", o, n) for o, n in step.retitles.items()),
                 *(("unlink", t, "") for t in sorted(step.unlinked)),
                 *(("inline", u, t) for u, t in step.inlines.items())])
@@ -1012,7 +1088,9 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
                 TouchPage(ctx.page_id))
     if isinstance(ctx, TextEditContext):
         assert isinstance(op, UpdateTextOp) and op.base_text_hash is not None
-        assert ctx.outcome.kind != "conflict"  # that is a TextConflictContext
+        # a conflict is a TextConflictContext, over_limit a
+        # ReplayOverLimitContext
+        assert ctx.outcome.kind in ("identical", "clean")
         if ctx.outcome.kind == "identical":
             return ()                                # check 2: identical
         return (UpdateText(op.uid, ctx.outcome.text),  # check 4: clean apply
@@ -1028,6 +1106,14 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
                 UpdateText(op.uid, ctx.text),
                 ReindexRefs(op.uid, ctx.text),
                 TouchPage(ctx.block.page_id))
+    if isinstance(ctx, ReplayOverLimitContext):
+        # the block keeps its text, and is journalled so a replica that
+        # applied the edit gets its row back
+        assert isinstance(op, UpdateTextOp) and op.base_text_hash is not None
+        header_text = live_block_header_text(ctx.page_title, op.uid)
+        return (*conflict_entry_effects(op.uid, op.text, header_text,
+                                        ctx.landing),
+                JournalBlock(op.uid, False))
     if isinstance(ctx, MoveContext):
         assert isinstance(op, MoveOp)
         _check_depth(index, op.uid, ctx.deepest)

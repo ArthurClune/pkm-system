@@ -21,10 +21,10 @@ from fastapi.responses import FileResponse
 from pkm.assets_core import (
     AssetCategory, asset_url, export_limit_violation, hasher_hex, parse_sha256,
     strip_asset_tokens, type_where, zip_arcnames)
-from pkm.contracts.ops import Sha256Hex
+from pkm.contracts.ops import BlockUid, Sha256Hex
 from pkm.contracts.responses import (
     AssetDeleteAck, AssetRef, AssetSearchItem, AssetSearchPayload,
-    AssetUploadResponse)
+    AssetUploadResponse, DeleteBlockerModel)
 from pkm.contracts.int64 import Int64
 from pkm.database import Db
 from pkm.describe.core import derive_status
@@ -36,6 +36,7 @@ from pkm.server.db import get_config, get_db
 from pkm.server.fts import phrase_query
 from pkm.server.mime_sniff import resolve_stored_mime, sniff_mime
 from pkm.server.tempfile_response import CleanupFileResponse
+from pkm.text_limits import rewrite_text_limit_violation
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -164,8 +165,13 @@ def search_assets(q: str = "", limit: Int64 = 50, offset: Int64 = 0,
 
 
 def _strip_references(db: Db, sha: Sha256Hex) -> int:
+    """Strip the asset's tokens from every block holding one. Raises a 409
+    naming each block whose stripped text is over a text limit, before any
+    write: a token between `[` and `[` keeps them apart, so text judged at
+    depth 0 can nest arbitrarily deep once the token goes."""
     now_ms = int(time.time() * 1000)
-    refs_removed = 0
+    stripped: list[tuple[BlockUid, str]] = []
+    blockers: list[DeleteBlockerModel] = []
     for ref in referencing_blocks(db, sha):
         block = db.select_one("SELECT text FROM blocks WHERE uid = ?",
                               (ref.uid,))
@@ -174,16 +180,26 @@ def _strip_references(db: Db, sha: Sha256Hex) -> int:
         new_text = strip_asset_tokens(block["text"], sha)
         if new_text == block["text"]:
             continue
-        refs_removed += 1
+        if rewrite_text_limit_violation(block["text"], new_text) is not None:
+            blockers.append(DeleteBlockerModel.of(
+                ref.uid, ref.page_title, block["text"], "limit"))
+        stripped.append((ref.uid, new_text))
+    if blockers:
+        raise HTTPException(status_code=409, detail={
+            "message": "removing the file's links would put these blocks"
+                       " over a text limit",
+            "blockers": [b.model_dump() for b in blockers],
+        })
+    for uid, new_text in stripped:
         has_children = db.select_one(
             "SELECT uid FROM blocks WHERE parent_uid = ? LIMIT 1",
-            (ref.uid,)) is not None
+            (uid,)) is not None
         if not new_text and not has_children:
-            db.execute("DELETE FROM blocks WHERE uid = ?", (ref.uid,))
+            db.execute("DELETE FROM blocks WHERE uid = ?", (uid,))
         else:
             db.execute("UPDATE blocks SET text = ?, updated_at = ?"
-                       " WHERE uid = ?", (new_text, now_ms, ref.uid))
-    return refs_removed
+                       " WHERE uid = ?", (new_text, now_ms, uid))
+    return len(stripped)
 
 
 @router.delete("/api/assets/{sha256}", response_model=AssetDeleteAck)
@@ -203,7 +219,9 @@ def delete_asset(request: Request, sha256: Sha256Hex,
     per-uid DELETE is required to keep the FTS delete trigger firing).
     `block_refs` needs no reindex either, for the same reason:
     `strip_asset_tokens` removes only asset-embed tokens, a syntax disjoint
-    from `((uid))`.
+    from `((uid))`. 409 with the offending blocks, as a page delete's
+    blockers, when a stripped block would be over the text length cap or
+    nest `[[` past the cap; nothing is changed.
 
     `if_unreferenced=true` changes the mode: nothing is stripped, and the
     asset is deleted only while no block references it (409 otherwise).

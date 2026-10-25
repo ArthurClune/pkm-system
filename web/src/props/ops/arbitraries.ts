@@ -44,6 +44,26 @@ export const FORBIDDEN_REF_TEXTS = [
   "see [[Ops #Bad]]", "#[[x #y]]", "see [[Ops Bad#]]",
 ] as const;
 
+/** `[[` runs nested `depth` deep. `a//` has an unreachable segment, so no
+ * run is a ref and the title guard never refuses one. */
+const linkNest = (depth: number): string =>
+  `${"[[a//".repeat(depth)}x${"]]".repeat(depth)}`;
+
+// Two UTF-16 units, one code point: a judge counting units refuses a text
+// of it at the cap.
+const EMOJI = "\u{1F600}";
+
+/** Refused by both the server and enqueueBatch (`textLimitViolation`) as a
+ * create's or an edit's text: nested one past the limit, and one code
+ * point past the length cap, in one-unit and two-unit code points. */
+export const OVER_LIMIT_TEXTS = [
+  linkNest(33), "x".repeat(1_000_001), EMOJI.repeat(1_000_001),
+] as const;
+
+/** Stored by both: exactly the length cap in code points, twice that in
+ * UTF-16 units. */
+export const AT_CAP_TEXT = EMOJI.repeat(1_000_000);
+
 /** A parent no pool block can ever have: the fallback when every pool uid
  * is in the graph. Server-valid, so the op fails on the parent alone. */
 const NO_SUCH_UID = "opsm00";
@@ -60,8 +80,12 @@ export interface StartState {
   pages: Record<OpsPage, BlockNode[]>;
 }
 
+// Page and block refs, and the nests both sides store: the deepest the
+// limit lets through, and a deeper one a closed fence hides from the
+// measure.
 const REF_TEXT: fc.Arbitrary<string> = fc.oneof(
-  fc.constantFrom("[[Outline Props]]", "x [[Ops Two]]", "#[[Ops Three]]"),
+  fc.constantFrom("[[Outline Props]]", "x [[Ops Two]]", "#[[Ops Three]]", linkNest(32),
+                  ["```", linkNest(40), "```"].join("\n")),
   fc.nat(UID_POOL.length - 1).map((n) => `((${UID_POOL[n]}))`),
 );
 
@@ -256,29 +280,54 @@ const twinArb = moveDraft(fc.constant<RawTarget>({ of: "first" }), moveParent, m
 
 const badTitle = fc.constantFrom<string>(...FORBIDDEN_TITLES);
 const badText = fc.constantFrom<string>(...FORBIDDEN_REF_TEXTS);
-/** A title both sides refuse: as the page title of each op that carries
- * one, or as a ref in a create's or an edit's text. */
-const forbiddenArb: fc.Arbitrary<RawDraft> = fc.oneof(
-  fc.record({ kind: fc.constant("create_page" as const), page: badTitle }),
-  createDraft(badTitle),
-  moveDraft(liveTarget, top, badTitle),
-  createDraft(pageOpt, badText),
-  fc.record({ kind: fc.constant("update_text" as const), target: liveTarget, text: badText, hash }),
+const overLimit = fc.constantFrom<string>(...OVER_LIMIT_TEXTS);
+/** A draft both sides refuse, half the time for a forbidden title (as the
+ * page title of each op that carries one, or as a ref in a create's or an
+ * edit's text) and half the time for a create's or an edit's text past a
+ * limit. Halves, not one arm each: the limit teeth (teeth.prop.ts) are
+ * caught only by a B batch carrying such a text, and must be within their
+ * run budget whatever the seed. */
+const forbiddenArb: fc.Arbitrary<RawDraft> = weighted<RawDraft>(
+  [1, fc.oneof(
+    fc.record({ kind: fc.constant("create_page" as const), page: badTitle }),
+    createDraft(badTitle),
+    moveDraft(liveTarget, top, badTitle),
+    createDraft(pageOpt, badText),
+    fc.record({ kind: fc.constant("update_text" as const), target: liveTarget, text: badText,
+                hash }),
+  )],
+  [1, fc.oneof(
+    createDraft(pageOpt, overLimit),
+    fc.record({ kind: fc.constant("update_text" as const), target: liveTarget, text: overLimit,
+                hash }),
+  )],
+);
+
+/** A create or an edit of the text at the length cap, which both sides
+ * must store. Its own rare extra, not a TEXT arm: every snapshot of an
+ * example that stored it carries four megabytes, which costs the run about
+ * a second, and the ops property has a time budget. */
+const atCapArb: fc.Arbitrary<RawDraft> = fc.oneof(
+  createDraft(pageOpt, fc.constant(AT_CAP_TEXT)),
+  fc.record({ kind: fc.constant("update_text" as const), target: liveTarget,
+              text: fc.constant(AT_CAP_TEXT), hash }),
 );
 
 const MAX_BATCH = 6;
 
-/** 1 to 6 drafts. About one batch in four ends with a twin move, and about
- * one in thirty with a forbidden title; each extra replaces a base draft
- * when the batch is full. */
+/** 1 to 6 drafts. About one batch in four ends with a twin move, about one
+ * in sixty with a forbidden title, one in sixty with a text past a limit
+ * and one in 300 with the text at the length cap; each extra replaces a
+ * base draft when the batch is full. */
 export const rawBatchArb: fc.Arbitrary<RawDraft[]> = fc
   .record({
     base: fc.array(rawDraftArb, { minLength: 1, maxLength: MAX_BATCH }),
     twin: weighted<RawDraft | null>([3, fc.constant(null)], [1, twinArb]),
     bad: weighted<RawDraft | null>([29, fc.constant(null)], [1, forbiddenArb]),
+    atCap: weighted<RawDraft | null>([299, fc.constant(null)], [1, atCapArb]),
   })
-  .map(({ base, twin, bad }) => {
-    const extras = [twin, bad].filter((d): d is RawDraft => d !== null);
+  .map(({ base, twin, bad, atCap }) => {
+    const extras = [twin, bad, atCap].filter((d): d is RawDraft => d !== null);
     return [...base.slice(0, MAX_BATCH - extras.length), ...extras];
   });
 

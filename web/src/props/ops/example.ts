@@ -17,10 +17,14 @@
 //              does, and is then the server's graph exactly, minted rows
 //              included; the next step starts from it, so nothing check 3
 //              tolerates carries into a later step;
-//   rejection  enqueueBatch refuses a batch for its title syntax exactly
-//              when the server does; a command batch both refuse for its
-//              title syntax is tallied and ends the example, and any other
-//              refusal of one is a failure.
+//   rejection  enqueueBatch refuses a batch for its title syntax or a text
+//              past a limit (a guarded refusal) exactly when the server
+//              does, and for the same guard (a text limit with the same
+//              reason, word for word); a command batch both refuse for the
+//              same guard is tallied and ends the example (the editor's
+//              run() refuses it before enqueue), and any other refusal of
+//              one is a failure. A seed the server refuses for a text limit
+//              that enqueueBatch's judge takes is a rejection too.
 // The only exclusions are the spec's: rows the server minted (1, 3 and R),
 // a page whose echo the session would reload instead of applying (1), and
 // timestamps. Checks 3 and R compare every other key exactly: replay is a
@@ -45,11 +49,12 @@ import { LocalOpError } from "../../replica/localOps";
 import { getMeta } from "../../replica/meta";
 import { allBatches, deleteBatch, enqueueBatch } from "../../replica/queue";
 import { openTestDb } from "../../replica/testDb";
+import { findOpTextLimitViolation } from "../../grammar/textLimits";
 import { findOpTitleViolation } from "../../replica/titles";
 import { runSequence } from "../outline/run";
 import { diffGraphs, fromReplica, fromSnapshot, type NormalGraph } from "../sync/normalise";
 import type { ServerControl } from "../sync/serverControl";
-import { type Example, OPS_PAGES, type RawDraft, rawUidMinter, resolveRaw, seedOps,
+import { AT_CAP_TEXT, type Example, OPS_PAGES, type RawDraft, rawUidMinter, resolveRaw, seedOps,
          TITLE_POOL } from "./arbitraries";
 import { diffTrees, pruneGraph, pruneTree, treesFromSnapshot } from "./compare";
 import { batchIdOf, clientIdOf, rawTitleOf, seqOf } from "../../test-helpers";
@@ -81,9 +86,10 @@ export interface Tally {
   /** Pages set aside because the session would reload them. */
   reloads: number;
   /** B batches the server answered 400, by cause. */
-  rejections: { "title syntax": number; other: number };
-  /** Command batches both sides refused for title syntax (the example ends). */
-  commandTitleRefused: number;
+  rejections: Record<RejectionCause, number>;
+  /** Command batches both sides refused for the same guard (the example
+   * ends). */
+  commandGuardRefused: number;
 }
 
 export function newTally(): Tally {
@@ -94,8 +100,8 @@ export function newTally(): Tally {
     others: { windows: 0, rejected: 0 },
     skipped: {},
     reloads: 0,
-    rejections: { "title syntax": 0, other: 0 },
-    commandTitleRefused: 0,
+    rejections: { "title syntax": 0, "text limit": 0, other: 0 },
+    commandGuardRefused: 0,
   };
 }
 
@@ -105,7 +111,7 @@ const bump = (r: Record<string, number>, key: string, n = 1): void => {
 
 const VARIATIONS = ["cycle", "missing parent", "cross-page create", "cross-page move",
                     "stale text hash", "stale subtree hash", "block named twice",
-                    "forbidden title"] as const;
+                    "forbidden title", "text past a limit", "text at the length cap"] as const;
 
 export function showTally(t: Tally): string {
   const row = (r: Record<string, number>): string =>
@@ -120,8 +126,9 @@ export function showTally(t: Tally): string {
     `  skipped ops: ${row(t.skipped)}`,
     `  pages set aside for an authoritative reload: ${t.reloads}`,
     `  rejections: title syntax ${t.rejections["title syntax"]},` +
-      ` other ${t.rejections.other}`,
-    `  command batches both sides refused for title syntax: ${t.commandTitleRefused}`,
+      ` text limit ${t.rejections["text limit"]}, other ${t.rejections.other}`,
+    "  command batches both sides refused for title syntax or a text limit:" +
+      ` ${t.commandGuardRefused}`,
   ].join("\n");
 }
 
@@ -129,7 +136,37 @@ const harness = (what: string): Error => new Error(`harness: ${what}`);
 
 type Posted = { status: 200; ack: OpsAck } | { status: 400; reason: string };
 
-const isTitleSyntax = (reason: string): boolean => reason.includes("title syntax");
+type RejectionCause = "title syntax" | "text limit" | "other";
+
+// The tail of describe_text_limit's wording, the server's and
+// enqueueBatch's alike.
+const TEXT_LIMIT = /(?:characters|levels deep) is over the limit of \d+$/;
+
+/** Why a batch was refused, from the server's 400 reason or enqueueBatch's
+ * LocalOpError message. Title syntax and the text limits are the guards
+ * both sides apply; anything else only the server knows. */
+const causeOf = (reason: string): RejectionCause =>
+  TEXT_LIMIT.test(reason) ? "text limit"
+    : reason.includes("title syntax") ? "title syntax" : "other";
+
+/** Did enqueueBatch refuse for the guard the server's 400 names? Title
+ * syntax is worded differently on the two sides, so the cause decides; a
+ * text limit is `block <uid>: <limit>` on both, so the words must match,
+ * which also catches the two refusing different ops of one batch. */
+const sameGuard = (refused: LocalOpError, reason: string): boolean => {
+  const cause = causeOf(reason);
+  if (cause === "text limit") return refused.message === reason;
+  return cause !== "other" && causeOf(refused.message) === cause;
+};
+
+const CLIP_OVER = 200;
+const CLIP_TO = 40;
+
+/** `text`, or past 200 characters its length and first 40, so a failure
+ * report stays readable when an example carries a text past the length
+ * cap. */
+export const clipText = (text: string): string => text.length > CLIP_OVER
+  ? `${text.slice(0, CLIP_TO)}… (${text.length} characters)` : text;
 
 /** POST /api/ops as the queue sends it. 200 and 400 are answers the checks
  * read; anything else (a 409 above all: a reused batch id) is the harness's
@@ -161,7 +198,8 @@ const namedTitles = (ops: readonly BlockOp[]): string[] =>
     ? [op.page_title] : []));
 
 const showOps = (ops: readonly BlockOp[]): string =>
-  ops.map((op) => JSON.stringify(op)).join("\n      ");
+  ops.map((op) => JSON.stringify("text" in op ? { ...op, text: clipText(op.text) } : op))
+    .join("\n      ");
 
 const showAck = (p: Posted): string => p.status === 400
   ? `400 ${p.reason}`
@@ -197,13 +235,19 @@ function tallyRaw(t: Tally, drafts: readonly RawDraft[], ops: readonly BlockOp[]
     }
   }
   if ([...named.values()].some((n) => n > 1)) seen.add("block named twice");
-  if (findOpTitleViolation(ops) !== null) seen.add("forbidden title");
+  // Judged in the server's order: a batch past a limit never reaches the
+  // title pass, which would scan megabytes of text to no end.
+  if (findOpTextLimitViolation(ops) !== null) seen.add("text past a limit");
+  else if (findOpTitleViolation(ops) !== null) seen.add("forbidden title");
+  if (ops.some((op) => "text" in op && op.text === AT_CAP_TEXT)) seen.add("text at the length cap");
   for (const v of seen) bump(t.variations, v);
 }
 
 export interface RunOptions {
   seam?: OpsSeam;
   tally?: Tally;
+  /** Runs once the server is reset, before the seed is posted. */
+  beforeSeed?: () => Promise<void>;
   /** Runs once the seed's echo is cleared, before the first step. */
   afterSeed?: () => Promise<void>;
   /** The batch id for the n-th POST of this example (n = 0: the seed). A
@@ -237,7 +281,18 @@ export async function runExample(server: ServerControl, ex: Example,
   try {
     // Seed.
     await server.reset();
-    const seeded = await post(server, nextBatchId(), clientIdOf("ops-seed"), seedOps(ex.start));
+    await opts.beforeSeed?.();
+    const seed = seedOps(ex.start);
+    const seeded = await post(server, nextBatchId(), clientIdOf("ops-seed"), seed);
+    // Every start text is one both sides store, so a text limit refusing
+    // the seed is the server's judge disagreeing with the replica's.
+    if (seeded.status === 400 && causeOf(seeded.reason) === "text limit" &&
+        findOpTextLimitViolation(seed) === null) {
+      tally.rejections["text limit"] += 1;
+      return ["at the seed",
+              `rejection: the server refused the seed for its text limit (${seeded.reason})` +
+              " but enqueueBatch's judge takes it"];
+    }
     if (seeded.status !== 200 || (seeded.ack.skipped ?? []).length > 0) {
       throw harness(`seed batch: ${showAck(seeded)}`);
     }
@@ -249,7 +304,16 @@ export async function runExample(server: ServerControl, ex: Example,
       if (off.length > 0) throw harness(`seed of ${p} differs from the start:\n${off.join("\n")}`);
     }
     await server.takeEcho();
-    await opts.afterSeed?.();
+    // The server as last read, or null once a batch it applied may have
+    // moved it. A snapshot round trip is much of a step's time, and the
+    // server changes only when it applies a batch: a 400 leaves it as it
+    // was, and the replica's enqueue and pulls never touch it.
+    let latest: Snapshot | null = s0;
+    const snapshot = async (): Promise<Snapshot> => (latest ??= await server.snapshot());
+    if (opts.afterSeed) {
+      await opts.afterSeed();
+      latest = null;
+    }
 
     const known = new Set<string>(s0.blocks.map((b) => b.uid));
     const keep = new Set<string>(s0.pages.map((p) => p.title));
@@ -364,24 +428,27 @@ export async function runExample(server: ServerControl, ex: Example,
         const row = refused === null ? storedRow(batchId) : null;
         const sent = row?.ops ?? batch.ops;
         const posted = await post(server, batchId, clientIdOf("ops-device"), sent);
+        if (posted.status !== 400) latest = null;
         ackSkips(posted);
         trace.push(`  command batch ${i + 1} (${batchId}): ${showAck(posted)}`,
                    `      ${showOps(sent)}`);
         if (posted.status === 400) {
-          const titled = isTitleSyntax(posted.reason);
-          tally.rejections[titled ? "title syntax" : "other"] += 1;
+          const cause = causeOf(posted.reason);
+          const guarded = cause !== "other";
+          tally.rejections[cause] += 1;
           if (await server.takeEcho() !== null) throw harness(`an echo after ${batchId}'s 400`);
-          // Both sides refusing a title is the designed guard: tallied, and
-          // the editor's tree has nowhere further to go.
-          if (titled && refused !== null) {
-            tally.commandTitleRefused += 1;
+          // Both sides refusing for one guard is the designed refusal (a
+          // split can cut a fence off a nest it hid): tallied, and the
+          // editor's tree has nowhere further to go.
+          if (refused !== null && sameGuard(refused, posted.reason)) {
+            tally.commandGuardRefused += 1;
             return [];
           }
           if (refused !== null) {
             problems.push(`rejection: enqueueBatch refused a command batch (${refused.message})` +
                           ` but the server answered 400 ${posted.reason}`);
-          } else if (titled) {
-            problems.push(`rejection: the server refused a command batch for its title syntax` +
+          } else if (guarded) {
+            problems.push(`rejection: the server refused a command batch for its ${cause}` +
                           ` (${posted.reason}) but enqueueBatch took it`);
           }
           problems.push(`check 2: the server rejected a command batch: ${posted.reason}`);
@@ -399,7 +466,7 @@ export async function runExample(server: ServerControl, ex: Example,
         if (row) deleteBatch(replica.db, row.id, row.batch_id);
         const echo = await server.takeEcho();
         if (echo === null) throw harness(`no echo after ${batchId}'s 200`);
-        const s1 = await server.snapshot();
+        const s1 = await snapshot();
         const outline = pruneTree(treesFromSnapshot(s1, ["Outline Props"]).get("Outline Props") ?? [],
                                   known);
         for (const line of diffTrees(batch.after, outline, ["editor", "server"])) {
@@ -418,7 +485,7 @@ export async function runExample(server: ServerControl, ex: Example,
     for (const [i, step] of ex.steps.entries()) {
       const header = `at raw step ${i + 1} of ${ex.steps.length}`;
       const problems: string[] = [];
-      const g = fromSnapshot(await server.snapshot());
+      const g = fromSnapshot(await snapshot());
       const opsB = resolveRaw(step.batch, g, mint);
       tallyRaw(tally, step.batch, opsB, g);
       learn(opsB);
@@ -433,11 +500,12 @@ export async function runExample(server: ServerControl, ex: Example,
 
       // Another device's batch, then a window over B's optimistic apply.
       if (step.other !== null) {
-        const gO = fromSnapshot(await server.snapshot());
+        const gO = fromSnapshot(await snapshot());
         const opsO = resolveRaw(step.other, gO, mint);
         learn(opsO);
         const batchO = nextBatchId();
         const postedO = await post(server, batchO, clientIdOf("ops-other"), opsO);
+        if (postedO.status !== 400) latest = null;
         ackSkips(postedO);
         trace.push(`  step ${i + 1} O (${batchO}): ${showAck(postedO)}`,
                    `      ${showOps(opsO)}`);
@@ -447,7 +515,7 @@ export async function runExample(server: ServerControl, ex: Example,
         } else {
           const echoO = await server.takeEcho();
           if (echoO === null) throw harness(`no echo after ${batchO}'s 200`);
-          const sO = await server.snapshot();
+          const sO = await snapshot();
           problems.push(...checkEcho(echoO, sO, TITLE_POOL, "O's echo"));
 
           const pending = allBatches(replica.db).filter((b) => !b.poisoned);
@@ -479,23 +547,28 @@ export async function runExample(server: ServerControl, ex: Example,
       const row = refused === null ? storedRow(batchB) : null;
       const sent = row?.ops ?? opsB;
       const posted = await post(server, batchB, clientIdOf("ops-device"), sent);
+      if (posted.status !== 400) latest = null;
       ackSkips(posted);
       trace.push(`  step ${i + 1} B (${batchB}): ${showAck(posted)}`,
                  `      ${showOps(sent)}`);
       if (posted.status === 400) {
-        const titled = isTitleSyntax(posted.reason);
-        tally.rejections[titled ? "title syntax" : "other"] += 1;
+        const cause = causeOf(posted.reason);
+        // A guard both sides apply, which enqueueBatch must have applied too.
+        const guarded = cause !== "other";
+        tally.rejections[cause] += 1;
         if (await server.takeEcho() !== null) throw harness(`an echo after ${batchB}'s 400`);
-        if (titled !== (refused !== null)) {
-          problems.push(refused === null
-            ? `rejection: the server refused B for its title syntax (${posted.reason})` +
-              " but enqueueBatch took it"
-            : `rejection: enqueueBatch refused B (${refused.message}) but the server` +
-              ` answered 400 ${posted.reason}`);
+        if (refused === null) {
+          if (guarded) {
+            problems.push(`rejection: the server refused B for its ${cause} (${posted.reason})` +
+                          " but enqueueBatch took it");
+          }
+        } else if (!sameGuard(refused, posted.reason)) {
+          problems.push(`rejection: enqueueBatch refused B (${refused.message}) but the server` +
+                        ` answered 400 ${posted.reason}`);
         }
         if (problems.length > 0) return fail(header, problems);
         // A batch the poison path would repair: nothing further to compare.
-        if (!titled) return [];
+        if (!guarded) return [];
         continue;
       }
       if (refused !== null) {
@@ -506,7 +579,7 @@ export async function runExample(server: ServerControl, ex: Example,
       if (row) deleteBatch(replica.db, row.id, row.batch_id);
       const echo = await server.takeEcho();
       if (echo === null) throw harness(`no echo after ${batchB}'s 200`);
-      const s1 = await server.snapshot();
+      const s1 = await snapshot();
       problems.push(...checkEcho(echo, s1, TITLE_POOL, "B's echo"));
       problems.push(...checkReplica(s1));
       problems.push(...await settle(s1));

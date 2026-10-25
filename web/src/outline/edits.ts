@@ -26,6 +26,17 @@ export function clampCaret(offset: CaretOffset, length: number): CaretOffset {
   return Math.max(0, Math.min(offset, length));
 }
 
+/** Where the caret goes back to when an edit of `shown` into `refused` is
+ * refused: where the two texts first differ, which is where the refused
+ * insertion began, kept off the middle of a surrogate pair in `shown`. */
+export function refusedEditCaret(shown: string, refused: string,
+): CaretOffset {
+  const most = Math.min(shown.length, refused.length);
+  let at = 0;
+  while (at < most && shown.charCodeAt(at) === refused.charCodeAt(at)) at++;
+  return snapCaret(shown, at);
+}
+
 export interface EditResult {
   blocks: BlockNode[];
   ops: BlockOp[];

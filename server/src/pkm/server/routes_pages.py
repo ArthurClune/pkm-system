@@ -36,7 +36,8 @@ from pkm.server.store import (BlankTitleError, DeleteBlockedError,
                               ForbiddenTitleError, delete_page_rows,
                               delete_page_unlinking, fetch_page,
                               get_or_create_page, merge_page_rows,
-                              plan_delete, rename_page_rows)
+                              plan_delete, rename_page_rows,
+                              RewriteTextLimitError)
 from pkm.server.sync_core import chunk_ids
 from pkm.server.sync_meta import read_title, title_reader
 from pkm.server.tree import build_tree, collect_block_ref_uids, find_node
@@ -296,8 +297,7 @@ def create_page(request: Request, body: CreatePageRequest,
 
 
 def _blocker_models(blockers: Sequence[DeleteBlocker]) -> list[DeleteBlockerModel]:
-    return [DeleteBlockerModel(uid=b.uid, page_title=b.page_title,
-                               text=b.text, reason=b.reason)
+    return [DeleteBlockerModel.of(b.uid, b.page_title, b.text, b.reason)
             for b in blockers]
 
 
@@ -308,7 +308,8 @@ def delete_preview(title: RawTitle,
     text and ((block refs)) become copies (blocks and distinct pages), and the
     blocks that would make DELETE refuse (a query macro naming the page, or a
     rewrite that would change the leading attribute name, as for
-    `[[page]]:: v`, or still reference the page). Read-only; 404 when the page
+    `[[page]]:: v`, still reference the page, or carry the block over a text
+    limit with the copies it inlines). Read-only; 404 when the page
     does not exist. Not under /api/page/ because GET /api/page/{title:wholepath}
     would swallow it."""
     canonical_title = read_title(db, title)
@@ -330,8 +331,9 @@ def delete_page(request: Request, title: RawTitle,
     text, and inbound ((block refs)) are replaced by a copy of the referenced
     text. 409 with the offending blocks when a query macro names the page or
     unlinking would change a block's leading attribute name (`[[page]]:: v`)
-    or still leave a reference, since those cannot be rewritten; nothing is
-    changed."""
+    or still leave a reference, since those cannot be rewritten, or when the
+    copies inlined would carry a block over the text length cap or nest its
+    `[[` past the cap; nothing is changed."""
     # Same ordering rule as rename: the write lock precedes the snapshot of
     # referencing blocks, so no batch can commit between snapshot and rewrite.
     try:
@@ -371,7 +373,9 @@ def rename_page(request: Request, title: RawTitle, body: RenamePageRequest,
     top-level blocks appended after the target's, referencing text
     rewritten to the target, source page row dropped) -- a confirm-gated
     merge, not a silent overwrite. Case-sensitive throughout, like
-    pages.title itself."""
+    pages.title itself. 422 when the rewrite would carry a block over the
+    text length cap or nest its `[[` past the cap (a longer title lengthens
+    every link to it); the detail names the block, and nothing changes."""
     # The write lock is taken before the first read the decision rests on
     # (existence, target, the snapshot of referencing blocks), so a batch
     # cannot commit between that snapshot and the rewrite and escape it:
@@ -423,6 +427,10 @@ def rename_page(request: Request, title: RawTitle, body: RenamePageRequest,
             merge_page_rows(db, page["page_id"], target["page_id"], canonical_title, new_title,
                             now_ms, canonical)
             result = "merged"
+    except RewriteTextLimitError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422,
+                            detail=f"rename refused: {exc}") from None
     except BaseException:
         db.rollback()
         raise

@@ -37,6 +37,7 @@ test("SkipReason is exactly the shared fixture's reasons", () => {
     parent_not_found: true,
     cycle: true,
     page_deleted: true,
+    text_limit: true,
   };
   expect(Object.keys(reasons)).toEqual(fixture.skip_reasons);
 });

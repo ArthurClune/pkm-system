@@ -140,11 +140,11 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
           </button>
         </p>
       )}
-      {ownsEditor && outline.depthNotice && (
+      {ownsEditor && outline.editNotice && (
         <p className="editor-notice" role="status">
-          {outline.depthNotice}
+          {outline.editNotice}
           <button type="button" className="btn-secondary"
-                  onClick={outline.dismissDepthNotice}>
+                  onClick={outline.dismissEditNotice}>
             Dismiss
           </button>
         </p>

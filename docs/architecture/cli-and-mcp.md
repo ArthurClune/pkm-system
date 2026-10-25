@@ -42,7 +42,7 @@ otherwise).
 | `update_block` | write | replace a block's text or set its task marker |
 | `batch` | write | several commands in one atomic transaction; skipped ops are flagged with `warning:` |
 | `upload_asset` | write, `pkm-mcp` only | upload a local file and link it from a page |
-| `rename_page` | write | retitle a page, rewriting every reference to it; 409 unless `allow_merge` |
+| `rename_page` | write | retitle a page, rewriting every reference to it; 409 unless `allow_merge`; 422 when a rewritten block would be past a [text limit](backend.md#page-mutations-and-the-sidebar) |
 
 The operator checks `pkm local check` and `pkm goodlinks check` have no MCP
 counterpart ([docs/cli.md](../cli.md#reading)).

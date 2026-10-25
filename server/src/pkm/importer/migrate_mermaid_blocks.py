@@ -51,6 +51,7 @@ from pkm.importer.mermaid_preservation import (
     plan_mermaid_preservation,
 )
 from pkm.refs import extract
+from pkm.text_limits import text_limit_violation
 
 MERMAID_PAGE_TITLE = "mermaid"
 
@@ -69,6 +70,8 @@ class Plan:
     transaction around applying `candidates`."""
     candidates: tuple[tuple[str, str], ...]  # (uid, fence_text): safe to convert
     preserved: tuple[PreservedRef, ...]  # left alone, and why
+    # components whose fence would breach a text limit, left unconverted
+    over_limit: tuple[str, ...] = ()
 
 
 def _load_subtree(con: Db, parent_uid: BlockUid) -> tuple[_Node, ...]:
@@ -112,6 +115,7 @@ def plan_migration(con: Db) -> Plan:
     """Plan globally safe Mermaid conversions from database-backed inputs."""
     ref_sources = _all_block_ref_sources(con)
     candidate_fences: list[tuple[str, str]] = []
+    over_limit: list[str] = []
     component_descendants: dict[str, set[BlockUid]] = {}
     rows = con.select("SELECT uid, text FROM blocks ORDER BY rowid")
     for row in rows:
@@ -121,6 +125,9 @@ def plan_migration(con: Db) -> Plan:
         children = _load_subtree(con, uid)
         fence = convert_to_fence(text, children)
         if fence is None:
+            continue
+        if text_limit_violation(fence) is not None:
+            over_limit.append(uid)
             continue
         candidate_fences.append((uid, fence))
         component_descendants[uid] = _subtree_uids(con, uid)
@@ -134,7 +141,9 @@ def plan_migration(con: Db) -> Plan:
         for candidate in candidate_fences
         if candidate[0] not in preservation_plan.preserved_component_uids
     )
-    return Plan(candidates=candidates, preserved=preservation_plan.preserved_refs)
+    return Plan(candidates=candidates,
+                preserved=preservation_plan.preserved_refs,
+                over_limit=tuple(over_limit))
 
 
 def convert_candidates(con: Db,
@@ -158,6 +167,15 @@ def convert_candidates(con: Db,
                 "DELETE FROM refs WHERE src_block_uid = ? AND target_page_id = ?",
                 (uid, mermaid_page_id),
             )
+
+
+def _print_over_limit(over_limit: tuple[str, ...]) -> None:
+    if not over_limit:
+        return
+    print(f"mermaid migration: {len(over_limit)} component(s) whose fence "
+          f"would be over a text limit, not converted:")
+    for uid in over_limit:
+        print(f"  {uid}")
 
 
 def _print_preserved(preserved: tuple[PreservedRef, ...]) -> None:
@@ -189,9 +207,11 @@ def main(argv: list[str] | None = None) -> int:
             for uid, _ in plan.candidates:
                 print(f"  {uid}")
             _print_preserved(plan.preserved)
+            _print_over_limit(plan.over_limit)
             return 0
 
         _print_preserved(plan.preserved)  # report before any deletion happens
+        _print_over_limit(plan.over_limit)
         con.execute("BEGIN")
         try:
             convert_candidates(con, plan.candidates)

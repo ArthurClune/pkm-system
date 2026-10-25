@@ -38,6 +38,7 @@ pkm/
 ├── refs.py              Core   the ref grammar and title normalisation
 ├── todo.py              Core   {{TODO}}/{{DONE}} markers, mirrored by grammar/todo.ts
 ├── rename.py, unlink.py Core   rename and page-delete rewrites of block text
+├── text_limits.py       Core   the length and `[[` nesting limits on block text
 ├── title_migration.py   Core   title migration planner
 ├── planning.py, batch.py, render.py   Core   shared by the CLI, MCP and client
 ├── *_dump.py            Shell  generated-artifact writers
@@ -286,15 +287,20 @@ raw SQL.
 | Rule | Python | TS | Pinned by |
 |---|---|---|---|
 | Code hides refs; in one left-to-right pass, whichever of a closed fence or an inline span starts first wins | `strip_code` | `scanCode` | `ref_grammar.json` |
+| Three backticks followed by an ASCII word character (`[A-Za-z0-9_]`) open a fence rather than close one | `_WORD_CHAR` | `WORD_CHAR_RE` | `ref_grammar.json` |
 | A link, `#[[tag]]` or attribute whose title as written holds a backtick is no ref; an enclosing run goes with it | `holds_backtick` | `holdsBacktick` | `ref_grammar.json` |
 | A title blank once normalised is no ref | `is_blank_title` | `isBlankRefTitle` | `refs_parity.json`, `title_parity.json` |
 | A title with a `.`, `..` or empty `/` segment is no ref, so `#work/` typed on the way to `#work/notes` is never refused | `has_unreachable_segment` | `hasUnreachableSegment` | `title_parity.json` |
 | An indented `Title::` is an attribute, its span anchored on the title | `attribute_title_span` | `scanGrammar` | `scan.test.ts` (`"  Key:: v"` at offset 2) |
 | The `((uid))` shape, which `UID_RE` and the `BlockUid` brand shape are built from | `BLOCK_REF_TOKEN` | `UID_TOKEN` | `scan.test.ts`, `test_rows_vocabulary.py` |
+| How deep `[[` runs nest: the height of the run tree over the code-stripped text | `link_nesting_depth` | `linkNestingDepth` | `text_limits_parity.json` |
 
 The backtick check reads the original text, because `strip_code()` has
 blanked code to spaces. Both scanners stay linear: a failed fence-closer
-search retires the fence rule for the rest of the text.
+search retires the fence rule for the rest of the text. The fence-closer word
+test is ASCII on both sides. A Unicode class follows each runtime's Unicode
+table, and Python's lags a browser's, so the two would hide different text as
+code and disagree on a block's refs and nesting depth.
 
 `rename.py` and `unlink.py` keep no copy of the grammar. They locate refs
 through `strip_code`, `bracket_spans`, `tag_spans` and `attribute_title_span`,
@@ -306,13 +312,23 @@ that is itself a key, else its canonical form under the live flag. Matched
 byte for byte, `[[ Old ]]` would survive a rename under plain-space
 canonicalisation, and the reindex would recreate `Old`.
 
-No write path bounds `[[` nesting depth. The ops guard
-(`ops_core.find_op_title_violation`) judges only runs that are refs, and a
-run whose title has an unreachable segment (`[[a//...`) is none, so the runs
-inside it are never judged. Every walk over `BracketSpan.children` therefore
-keeps its own stack, as `bracket_spans`, `rename._rewrite_range` and
-`unlink._unlink_range` do. A recursive one fails past the recursion limit,
-and the page the block links can then not be renamed or deleted.
+Writes refuse a text whose runs nest past `MAX_LINK_NESTING`
+([text limits](#planning)). `link_nesting_depth` counts every run, ref or
+not, and `#[[` like `[[`. Brackets in code, an unclosed `[[`, a stray `]]`
+and a run whose title holds a backtick do not count. The title guard
+(`ops_core.find_op_title_violation`) cannot stand in for it: it judges only
+runs that are refs, and a run whose title has an unreachable segment
+(`[[a//...`) is none. Runs inside a `{{query: …}}` or
+`{{pdf: …}}` body count too, though the web renders that body without
+tokenizing it. That only over-counts, and a change to it must change
+`linkNestingDepth` with it, because `text_limits_parity.json` pins the two
+equal.
+
+Rows stored before the limit can nest far deeper. Every walk over
+`BracketSpan.children` therefore keeps its own stack, as `bracket_spans`,
+`rename._rewrite_range` and `unlink._unlink_range` do. A recursive one fails
+past the recursion limit, and the page such a block links could then not be
+renamed or deleted.
 
 ## The write path
 
@@ -390,6 +406,29 @@ server bug.
   ([Hostile input](#hostile-input)). The rule is to normalise, never reject:
   SQLite cannot bind a surrogate, a 5xx is retried forever and a 4xx poisons
   the batch. `text_hash` hashes the well-formed form, as the web does.
+- **Text limits.** A `create` or `update_text` whose text is longer than
+  `MAX_BLOCK_TEXT_CHARS` code points, or nests `[[` past `MAX_LINK_NESTING`,
+  makes the whole batch a 400 (`ops_core.find_op_text_limit_violation`,
+  over `text_limits.text_limit_violation`). Export holds a whole block in
+  memory, and the web tokenizer recurses once per nested run. `apply_batch`
+  judges every op first, a skipped one included, before the title check, so
+  `extract` never scans an over-long text. Length is judged before nesting,
+  so the nesting measure never reads past the cap. Only the text an op sends
+  is judged: a move, `set_*` op or delete of a row stored over a limit goes
+  through, and an edit that brings it under is accepted. The links a
+  [stale batch](#stale-batches) unlinks are not judged: an unlink only
+  shortens the text, bar the two backticks a fenced attribute adds.
+- **Replayed text.** A stale edit replayed over a rename or page delete
+  ([Conflicts](#conflicts)) is never stored past a limit, though nobody sent
+  the text the replay makes. Each link grows by the title's growth, and
+  titles have no length cap, so the replayed text could be orders of
+  magnitude past the cap. `ops_core._replay_step` projects each splice's
+  length from its spans (`spans.spliced_length`) and stops before building
+  one past `MAX_BLOCK_TEXT_CHARS`. `classify_text_edit` then judges the
+  result with `text_limit_violation`. Either refusal is the `over_limit`
+  outcome: the block keeps its text, and the edit as sent lands as a
+  conflict entry. A 400 would poison the client's queue over text it never
+  sent.
 
 Conflicts, missing targets, stale batches and concurrent structure edits are
 what a batch meets when the tree changed after it was planned. None rejects
@@ -411,7 +450,7 @@ same header.
 | Block gone, hint names an existing page | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
 | Block gone, hint names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
 | Block gone, hint missing, blank or [refused](#refused-titles) | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
-| Block exists, move target gone or inside it | `` [[conflict]] [[Page]] — ((uid)) `` |
+| Block exists, move target gone or inside it, or a replayed edit over a text limit | `` [[conflict]] [[Page]] — ((uid)) `` |
 | Guarded `delete` whose subtree changed | `` [[conflict]] [[Page]] — deleted while edited elsewhere `` |
 
 The `page_title` hint never changes whether or where an op applies, and
@@ -428,6 +467,7 @@ checking in this order:
 | Situation | Outcome |
 |---|---|
 | `base_text_hash` matches a pre-rewrite snapshot of this block | The `block_rewrites` rows replay over the incoming text (`ops_core.replay_title_rewrites`), which then meets the rows below |
+| The replay would be over a text limit | The block keeps its text; the edit as sent lands under a conflict header, and the ack lists the op as skipped (`text_limit`) |
 | Incoming text equals current | No-op, even with a stale hash |
 | `hash(current) == base_text_hash` | Clean apply |
 | Hashes differ | Incoming wins; the overwritten text lands under a conflict header |
@@ -589,12 +629,35 @@ before any write:
 | a leading `Title:: v` | refused, `used_as_attribute`: the block's next edit would recreate the page |
 | unlinking would change the leading attribute name (`[[Title]]:: v`) | refused, `attribute` |
 | rewritten text still references the page | refused, `residual` |
+| the inlined copies would carry the block past a text limit | refused, `limit` |
 
 `unlink_title_refs` repeats until the text is stable, because a nested legacy
 link loses one layer per pass. Rewritten blocks get `unlink` and `inline`
 rows and a reindex, and the title goes into `page_deletions`. The replay of
 an `unlink` row matches titles through the same `title_reader`, or a stale
 padded `[[ Title ]]` would survive and recreate the page.
+
+A rewrite the server makes of stored text can grow it: a longer title per
+link, a copy per `((uid))`, a stripped asset token that joins `[` to `[`.
+Those paths judge each block with
+`text_limits.rewrite_text_limit_violation(before, after)`, before any write.
+Each limit is judged on its own: `after` is refused when it is over the
+length cap and longer than `before`, or nested past the cap and deeper than
+`before`. **A row stored over a limit may stay level or improve, never get
+worse,** so the page it links stays renamable and deletable. Client writes
+keep the strict rule ([Planning](#planning)).
+
+| Rewrite | Judged in | A refusal |
+|---|---|---|
+| rename, merge | `store.rewrite_snapshotted_blocks` (`RewriteTextLimitError`) | 422 `rename refused: block <uid> on <page>: …` |
+| title migration | the same | 409 `title migration refused: …` |
+| page delete, delete preview | `unlink.plan_page_delete` | blocker `limit` |
+| asset delete | `routes_assets._strip_references` | 409 `{message, blockers}`, each `limit` ([files-and-assets.md](files-and-assets.md#assets-and-the-file-browser)) |
+
+A blocker carries `excerpt`, the block's first `BLOCKER_EXCERPT_CHARS` code
+points, and `text_length` in code points, never the whole text
+(`DeleteBlockerModel.of`). A reader shows a cut excerpt as cut: the web's
+`blockerExcerpt` appends `… (N characters)`.
 
 `cleanup_journal` spares any daily note with an incoming link, so a link to a
 journal day cannot dangle. `POST /api/sidebar` is its own path under the
@@ -829,23 +892,23 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | GET | `/{path}` *(public)* | SPA fallback; hashed bundles under `/app-assets/` |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |
-| POST | `/api/ops` | Apply an `OpBatch` ([The write path](#the-write-path)); `applied` counts skipped ops too |
+| POST | `/api/ops` | Apply an `OpBatch` ([The write path](#the-write-path)); `applied` counts skipped ops too; 400 for the whole batch past a [text limit](#planning) |
 | **Pages & blocks** | | |
 | GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree, paginated backlinks (not from the page itself), `block_ref_counts`; daily pages auto-created |
 | GET | `/api/block/{uid}` | One block subtree with its page and [breadcrumbs](#breadcrumbs-and-recursive-traversal) |
 | GET | `/api/block/{uid}/backlinks` | Blocks referencing `((uid))`, unpaginated |
 | GET | `/api/block-refs?uids=` | Resolve `((uid))` references |
 | POST | `/api/pages` | Idempotent page create |
-| DELETE | `/api/page/{title}` | Delete a page, unlinking inbound refs; 409 with `blockers` ([Page mutations](#page-mutations-and-the-sidebar)) |
-| GET | `/api/delete-preview?title=` | What a delete would rewrite or be refused for |
-| POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge` |
+| DELETE | `/api/page/{title}` | Delete a page, unlinking inbound refs; 409 with `blockers`, each an `excerpt` and `text_length` ([Page mutations](#page-mutations-and-the-sidebar)) |
+| GET | `/api/delete-preview?title=` | What a delete would rewrite or be refused for, a `limit` blocker included |
+| POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge`; 422 when the rewrite would carry a block past a text limit |
 | GET | `/api/unlinked?title` | Unlinked mentions, not from the page itself |
 | GET | `/api/journal?before&days` | Daily-notes feed |
 | POST | `/api/journal/cleanup` | Prune empty, unreferenced daily pages from the week before today |
 | GET | `/api/current-work` | Recently edited pages, bucketed by age |
 | **Migrations** | | |
 | GET | `/api/migrations/title-canonicalization` | Side-effect-free audit and digest: `groups`, `blockers`, `sidebar_retitles` ([Title integrity](#title-integrity-and-one-time-activation)) |
-| POST | `/api/migrations/title-canonicalization` | Apply the audited digest, returning counts such as `sidebars_retitled`; 409 on stale, blocked, or active with nothing to do |
+| POST | `/api/migrations/title-canonicalization` | Apply the audited digest, returning counts such as `sidebars_retitled`; 409 on stale, blocked, a rewrite past a text limit, or active with nothing to do |
 | **Search & queries** | | |
 | GET | `/api/search?q` | FTS5 search over pages and blocks |
 | GET | `/api/query?expr` | `{{[[query]]}}` evaluation; 400 past `query.MAX_QUERY_DEPTH` nesting or `MAX_QUERY_OPERANDS` page operands |
@@ -872,7 +935,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | GET | `/api/assets/describe-status` | Whether image descriptions are on, and why not |
 | POST | `/api/assets/scan?force` | Enqueue undescribed images |
 | GET | `/api/assets/search?q&limit&offset&type&from_ms&to_ms&linked` | Search behind `/files` |
-| DELETE | `/api/assets/{sha256}` | Delete, stripping its tokens; `if_unreferenced=true` 409s instead while referenced |
+| DELETE | `/api/assets/{sha256}` | Delete, stripping its tokens; 409 with `limit` `blockers` when a strip would carry a block past a text limit; `if_unreferenced=true` 409s instead while referenced |
 | POST | `/api/assets/export.zip` | Zip the selected assets |
 | **Local documents** ([files-and-assets.md](files-and-assets.md#local-documents)) | | |
 | GET | `/api/local-check` | Classify every `/api/local/` href in block text |
@@ -907,7 +970,8 @@ route.
 | An id set past SQLite's bound-variable limit | Queries over an unbounded id set go through `sync_core.chunk_ids`; rule in [Database](#database) | `test_sql_variable_limit.py` |
 | An outline nested past the readers' 255-level limit | `/api/ops` refuses a client's block placed past `MAX_OUTLINE_DEPTH` and lands its own conflict copies no deeper; the importer refuses an export holding one (`validate_export_depth`); rule in [Missing targets](#missing-targets) | `test_outline_depth.py`, `test_hostile_requests.py` |
 | A page whose `((refs))` or queries fan out past `EXPORT_MAX_CHARS`, or into more expansions than it allows | `export/resolve.py` counts characters and calls as it expands, the route's gather charges the same limits (`GatherBudget`), and the route answers 422; rule in [Single-page export](import-export-and-backup.md#single-page-export) | `test_export_resolve.py`, `test_export_routes.py` |
-| `[[` nested past Python's recursion limit | Rename and unlink walk iteratively (`_rewrite_range`, `_unlink_range`); rule in [Ref grammar](#ref-grammar) | `test_legacy_deep_brackets.py` |
+| Block text longer than `MAX_BLOCK_TEXT_CHARS` or nesting `[[` past `MAX_LINK_NESTING` | `ops_core.find_op_text_limit_violation` refuses the batch; `store.rewrite_snapshotted_blocks`, `unlink.plan_page_delete` and `routes_assets._strip_references` refuse a rewrite that makes a block worse; `preflight.validate_row_text_limits` refuses the import; rule in [Planning](#planning) | `test_text_limits_ops.py`, `test_text_limits_rewrites.py`, `test_import_preflight.py` |
+| `[[` nested past Python's recursion limit, which only a row stored before the nesting limit reaches | Rename and unlink walk iteratively (`_rewrite_range`, `_unlink_range`); rule in [Ref grammar](#ref-grammar) | `test_legacy_deep_brackets.py` |
 
 Path and query values cannot carry a lone surrogate, because the server
 decodes them from bytes. The `test_no_500_*_props.py`
@@ -928,6 +992,7 @@ Python commands run from `server/`, `pnpm` ones from `web/`.
 | `web/src/grammar/titleWhitespace.gen.ts` | `uv run python -m pkm.title_whitespace_dump > ../web/src/grammar/titleWhitespace.gen.ts` | `test_title_whitespace_artifact.py`, the `TITLE_WHITESPACE` case in `replica/titles.test.ts` | the web's fold set to `TITLE_WHITESPACE` |
 | `shared/fixtures/refs_parity.json` | `uv run python -m pkm.refs_parity_dump > ../shared/fixtures/refs_parity.json` | `test_refs_parity_fixture.py` | `refs.extract` |
 | `shared/fixtures/title_parity.json` | `uv run python -m pkm.title_parity_dump > ../shared/fixtures/title_parity.json` | `test_title_parity_fixture.py`, `titleParity.test.ts` | `normalize_title`, `target_canonical_title`, `title_syntax_reason`, `is_blank_title`, `extract` |
+| `shared/fixtures/text_limits_parity.json` | `uv run python -m pkm.text_limits_parity_dump > ../shared/fixtures/text_limits_parity.json` | `test_text_limits_parity_fixture.py`, `textLimitsParity.test.ts` | `text_limit_violation`, `link_nesting_depth`, `describe_text_limit`, `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` |
 | `shared/fixtures/shim_parity.json` | `uv run python -m pkm.server.shim_parity_dump > ../shared/fixtures/shim_parity.json` | `test_shim_parity_fixture.py` | the offline shim (`replica/localApi/`) to the read routes' JSON |
 | `shared/fixtures/text_hash_parity.json` | `UPDATE_TEXT_HASH_FIXTURE=1 pnpm vitest run src/replica/textHashParity.test.ts` | that test, `test_text_hash_parity.py` | `text_hash`, `subtree_hash`, `well_formed` |
 | `shared/fixtures/local_links_parity.json` | `UPDATE_LOCAL_LINKS_FIXTURE=1 pnpm vitest run src/outline/localLinksParity.test.ts` | that test, `test_local_links_parity.py` | `local_docs.extract_local_hrefs` |
@@ -940,9 +1005,9 @@ Python commands run from `server/`, `pnpm` ones from `web/`.
 | `draft_flush.json` | hand-edited | `test_ops_endpoint.py`, `EditablePage.draftFlush.test.tsx` | the op an editor draft flushes |
 
 Hand-edited fixtures live in `shared/fixtures/`. `rows_dump` fails for a
-brand `brands.ts` lacks. The seeded corpora in `refs_parity.json` and
-`title_parity.json` are tallied by shape, so they cannot go vacuous. The
-[ops property](checks.md#property-gate)
+brand `brands.ts` lacks. The seeded corpora in `refs_parity.json`,
+`title_parity.json` and `text_limits_parity.json` are tallied by shape, so
+they cannot go vacuous. The [ops property](checks.md#property-gate)
 checks the server, replica and in-memory implementations against each other
 on random batches.
 

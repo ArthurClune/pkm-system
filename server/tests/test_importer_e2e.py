@@ -1200,3 +1200,29 @@ def test_import_refuses_an_export_deeper_than_the_outline_cap(
         "deep; the limit is 100\n"
     )
     assert not (out / "pkm.sqlite3").exists()
+
+
+def test_import_refuses_a_block_over_the_text_limit(tmp_path, capsys):
+    raw = (
+        "#datascript/DB {:schema {:block/children "
+        "{:db/cardinality :db.cardinality/many}}\n :datoms [\n"
+        '  [1 :node/title "Long" 1]\n'
+        "  [1 :block/children 2 1]\n"
+        '  [2 :block/uid "long-0001" 1]\n'
+        f'  [2 :block/string "{"x" * 1_000_001}" 1]\n'
+        "  [2 :block/order 0 1]\n ]}"
+    )
+    export_file = _write_export(tmp_path, "long.edn", raw)
+    out = tmp_path / "data"
+    out.mkdir()
+
+    rc = main([str(export_file), "--out", str(out)])
+
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "error: import refused: block long-0001 on 'Long': text of 1000001 "
+        "characters is over the limit of 1000000\n"
+    )
+    assert not (out / "pkm.sqlite3").exists()

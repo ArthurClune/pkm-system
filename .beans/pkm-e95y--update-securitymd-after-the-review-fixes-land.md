@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:27Z
-updated_at: 2026-10-25T02:23:27Z
+updated_at: 2026-10-25T03:41:58Z
 parent: pkm-mfd0
 blocked_by:
     - pkm-tk9i
@@ -45,3 +45,5 @@ SECURITY.md is the high-level model; update it once the fixes we take on have sh
 - [ ] Known limitations / hardening priority 2: the anonymous route-walk test now exists (pkm-t74a)
 
 - [ ] Delete docs/superpowers/handoffs/security-review-2026-10-23-probes once the last fix bean has turned its probe into a red test (pkm-t74a handed this on)
+
+- [ ] Write-time limits (pkm-gc3n, pkm-bppf): block text ≤ 1,000,000 code points and [[ nesting ≤ 32, refused on every write path (ops, replica/op-queue backstops, server-made rewrites judged per axis, stale-edit replay lands a conflict entry, importer); the web grammar is linear and never throws at the cap. Open follow-ups: request size (pkm-0l8g), delete inline copies (pkm-49rh), conflict headers / title length (pkm-iruc).

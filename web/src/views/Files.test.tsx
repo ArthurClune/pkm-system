@@ -9,7 +9,10 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { makeSync, canonicalTitleOf, uidOf, shaOf } from "../test-helpers";
 import { Files } from "./Files";
 
-vi.mock("../api/client", () => ({ apiFetch: vi.fn() }));
+vi.mock("../api/client", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../api/client")>(),
+  apiFetch: vi.fn(),
+}));
 vi.mock("../sync/SyncProvider", () => ({ useSyncHealth: vi.fn() }));
 // The real PdfEmbed lazy-imports react-pdf/pdfjs; stub it with a dialog that
 // exposes its props so these tests only assert the card -> viewer wiring.
@@ -22,7 +25,7 @@ vi.mock("../components/PdfEmbed", () => ({
   ),
 }));
 
-import { apiFetch } from "../api/client";
+import { ApiError, apiFetch } from "../api/client";
 import { useSyncHealth } from "../sync/SyncProvider";
 
 const mockFetch = vi.mocked(apiFetch);
@@ -252,6 +255,36 @@ describe("Files", () => {
     expect(await screen.findByText("Deleted 1 file.")).toBeInTheDocument();
     expect(mockFetch).toHaveBeenCalledWith(
       `/api/assets/${"ab".repeat(32)}`, { method: "DELETE" });
+  });
+
+  it("lists the blocks a refused delete names, as a page delete does",
+     async () => {
+    const linked = item({
+      refs: [{ uid: uidOf("tuid-b1"), page_title: canonicalTitleOf("AI") }] });
+    mockFetch.mockResolvedValueOnce(payload([linked]));
+    renderFiles();
+    fireEvent.click(await screen.findByLabelText("Select pic.png"));
+    const blocker = { uid: uidOf("tuid-b1"), page_title: "AI",
+                      excerpt: "[deep text", text_length: 1_000_000,
+                      reason: "limit" };
+    mockFetch
+      .mockRejectedValueOnce(new ApiError(409, "/api/assets/x", undefined,
+        { detail: { message: "m", blockers: [blocker] } }))
+      .mockResolvedValueOnce(payload([linked]));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete file" }));
+    const dialog = await screen.findByRole("dialog",
+                                           { name: 'Can\'t delete "pic.png"' });
+    expect(dialog).toHaveTextContent("Change these blocks first:");
+    expect(dialog).toHaveTextContent(
+      "AI: [deep text… (1,000,000 characters) (removing the link would put"
+      + " this block over a size or nesting limit)");
+    expect(screen.getByRole("link", { name: "AI" }))
+      .toHaveAttribute("href", "/page/AI");
+    expect(screen.getByText("Deleted 0 of 1 files. Failed: pic.png"))
+      .toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("disables the danger action while deletion is pending", async () => {

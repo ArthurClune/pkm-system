@@ -182,14 +182,24 @@ flowchart LR
 | An offset transform, and a caret the editor places, snaps with `snapCaret` (`keyEdits.ts`); `outline/surrogatePairs.props.test.ts` covers each | a slice between surrogate halves stores two U+FFFD |
 | `set_collapsed` does not stamp (`opBumpsUpdatedAt`, which `replica/localOps.test.ts` pins for the replica) | collapsing re-dates the block |
 | No create or move lands a block past `MAX_OUTLINE_DEPTH`. `run()` and `undoManager`'s dispatch judge each by its subtree in the tree the ops leave (`depthCap.ts`), and refuse the whole command | the server refuses the batch whole, and the offline queue's [rebase](sync-recovery.md#a-batch-the-server-rejects) drops its other ops with it |
+| No edit queues a text past a [text limit](backend.md#planning). `useBlockDraft.admit` judges typing and a plain paste, `run()` and `undoManager`'s dispatch a command's ops, `UnlinkedSection` a Link | the same: the server's 400 poisons the batch, and the repair drops its other ops with it |
 
-A depth refusal shows `DEPTH_NOTICE` in `EditablePage`'s notice slot. The
-draft's own text still ships, and a refused undo or redo keeps its entry
-for a retry once there is room. Where the web cannot see the tree, it
-sends and the server decides. An undo for an unmounted page whose read
-fails ships unjudged, and a cross-page drop meets only `allowedDepths`
-([below](#drag-and-drop)). Refusing there would block an edit the web
-cannot check, for a case that needs an outline near the cap.
+A depth refusal (`DEPTH_NOTICE`) or a text-limit one (`textLimitNotice`)
+shows in the one `editNotice` slot `EditablePage` renders. The next command
+that applies, or Dismiss, clears it. A refused keystroke leaves the textarea
+as it was, with the caret where the refused insertion began
+(`refusedEditCaret`). A refused paste is prevented, so its caret and
+selection are untouched. The draft's own text still ships, and a refused undo or
+redo keeps its entry for a retry.
+Code can hide a nest: a split inside a fence can cut off its closing
+backticks, so the first half exposes the nest and is refused, here and by the
+server.
+
+Where the web cannot see the tree, it sends and the server decides. An undo
+for an unmounted page whose read fails is judged for text limits only, and
+a cross-page drop meets only `allowedDepths` ([below](#drag-and-drop)).
+Refusing there would block an edit the web cannot check, for a case that
+needs an outline near the cap.
 
 ### Drafts and commit points
 
@@ -259,9 +269,10 @@ is placed in a layout effect of the commit that sets the value
 
 ### Paste
 
-Plain Cmd-V is native. `Shift-Cmd-V` arms an outline paste, which `paste.ts`
-plans as one batch, comparing indent widths ordinally so 2-space, 4-space and
-tab clipboards all work. `ClipboardEvent` carries no modifiers, so the chord is
+Plain Cmd-V is native, unless its result would be past a text limit:
+`BlockInput` judges it first and prevents it. `Shift-Cmd-V` arms an outline
+paste, which `paste.ts` plans as one batch, comparing indent widths
+ordinally so 2-space, 4-space and tab clipboards all work. `ClipboardEvent` carries no modifiers, so the chord is
 recorded on keydown without `preventDefault`, and the next `paste` consumes it.
 
 ### Slash commands

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { scanGrammar, type GrammarToken } from "./scan";
+import { MAX_LINK_NESTING } from "./textLimits";
 
 const tokens = (text: string): readonly GrammarToken[] => scanGrammar(text).tokens;
 const ofKind = (text: string, kind: GrammarToken["kind"]): GrammarToken[] =>
@@ -293,8 +294,8 @@ describe("scanGrammar: token stream contract", () => {
     }
   });
 
-  it("handles 10,000 nested references iteratively without RangeError", () => {
-    const n = 10_000;
+  it("reports every run of a nest at the link limit, iteratively", () => {
+    const n = MAX_LINK_NESTING;
     const text = "[[".repeat(n) + "x" + "]]".repeat(n);
     const ts = tokens(text);
     expect(ts).toHaveLength(n);
@@ -307,6 +308,26 @@ describe("scanGrammar: token stream contract", () => {
       title: "x", depth: n - 1, parentStart: 2 * n - 4,
     });
   });
+
+  // A nest past the limit is legacy text no write may store. Its titles
+  // sum to depth x length, so building them is quadratic; the scanner
+  // reports none of its runs and everything else as usual.
+  it("reports no run of a nest one past the link limit", () => {
+    const n = MAX_LINK_NESTING + 1;
+    const text = "#tag " + "[[".repeat(n) + "x" + "]]".repeat(n);
+    expect(ofKind(text, "page-ref")).toEqual([]);
+    expect(ofKind(text, "hashtag")).toHaveLength(1);
+  });
+
+  it("scans a 1,000,000-character legacy nest without RangeError", () => {
+    const n = 142_857;
+    const text = "[[a//".repeat(n) + "((uid_b1))" + "]]".repeat(n);
+    const started = performance.now();
+    const ts = tokens(text);
+    expect(ts.map((t) => t.kind)).toEqual(["block-ref"]);
+    // Generous: the quadratic title work took minutes at this size.
+    expect(performance.now() - started).toBeLessThan(5000);
+  }, 30_000);
 });
 
 describe("scanGrammar: long code-heavy inputs stay fast", () => {

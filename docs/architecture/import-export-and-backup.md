@@ -148,7 +148,8 @@ flowchart TD
     F["linked-files dir"] --> G["index files + transform asset URLs"]
     T --> G
     G --> D["rows.py + mermaid_preservation.py<br/>rows, refs, global Mermaid plan (Core)"]
-    D --> E["write pkm.sqlite3.tmp + copy assets"]
+    D --> L["preflight.py — text-limit refusal on the rows (Core)"]
+    L --> E["write pkm.sqlite3.tmp + copy assets"]
     E --> M["audit + apply shared title migration on tmp DB"]
     M --> R["render + write import-report.txt.tmp (Core render, Shell write)"]
     R --> H["atomic os.replace: database, then report"]
@@ -159,9 +160,10 @@ flowchart TD
 | EDN parse | Malformed input exits 2 with `error: malformed export at offset N: DETAIL`. The solidus escape `\/` stays invalid |
 | Preflight | Duplicate block uids, a block reached through two parents, and any uid failing `UID_RE` refuse the run, listing every offender before any output. A block past [`MAX_OUTLINE_DEPTH`](backend.md#missing-targets) refuses it too (`validate_export_depth`). No uid is re-minted, because every `((uid))` recognizer shares `UID_RE`'s bound |
 | Title sanitization | `importer/titles.py` strips balanced `[[`/`]]` and `#` markers and rewrites refs. Collisions merge in source order, preferring an already-clean survivor |
-| Title migration | The operator route's `audit_title_migration()` / `apply_title_migration()` run on the temp database, so `plain_space_title_canonicalization` arrives active. A blocker exits 2 |
+| Text limits | A block past a [text limit](backend.md#planning) refuses the run, naming the block and its sanitised page (`validate_row_text_limits`). It judges rows, since asset-URL rewriting and mermaid folding change the text. A deep nest pays `extract`, quadratic in depth, before its refusal, which a local operator tool can bear |
+| Title migration | The operator route's `audit_title_migration()` / `apply_title_migration()` run on the temp database, so `plain_space_title_canonicalization` arrives active. A blocker, or a rewrite past a text limit (`RewriteTextLimitError`), exits 2 |
 | Timestamps | `:create/time`, `:edit/time`, uids and sibling order survive, so every `((block ref))` resolves. A time past 64 bits or a heading outside 1–3 reads as absent |
-| Mermaid flattening | A component with an inbound `((uid))` into its subtree stays nested blocks (`mermaid_preservation.py`, shared with `migrate_mermaid_blocks.py`) |
+| Mermaid flattening | A component with an inbound `((uid))` into its subtree stays nested blocks (`mermaid_preservation.py`, shared with `migrate_mermaid_blocks.py`). `migrate_mermaid_blocks.py` also leaves a component whose fence would be past a text limit unconverted, and lists it (`Plan.over_limit`) |
 | Orphan blocks | Every subtree unreachable from a page (`Export.orphan_blocks`, cycles included) is attached intact under `RECOVERY_PAGE_TITLE`, so refs into it resolve. The first placement of a block stands, and later claims are listed (`Export.dropped_claims`) |
 | Asset copying | The [export's verify-then-copy check](#markdown-export), rewriting a mismatched destination atomically. It runs after the row `commit()`, which the title migration needs |
 

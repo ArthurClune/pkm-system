@@ -68,6 +68,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     },
     onDirty: (shown) => handlers.onDraftStart(node.uid, shown),
     onAdopt: () => setDatePickerAt(null), // adopted text invalidates the offset
+    onRefused: (notice) => handlers.onRefusedEdit(notice),
     // `?? null`: a handler fake may answer undefined.
     resume: () => handlers.pendingDraft(node.uid) ?? null,
     onUnmount: (selStart, selEnd) =>
@@ -111,7 +112,11 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   const applyKeyEdit = (r: TextSelection) => {
     setDatePickerAt(null);
     const ctx = ac.onEdit(r.text, r.selEnd);
-    draft.replace(r.text, r.selStart, r.selEnd, holdsDraftFlush(ctx));
+    // A refused edit leaves the draft as it was, so a completion context
+    // read off the refused text points at nothing.
+    if (!draft.replace(r.text, r.selStart, r.selEnd, holdsDraftFlush(ctx))) {
+      ac.close();
+    }
   };
 
   // Ctrl-O / Ctrl-Shift-O over a [[page reference]]: the target
@@ -223,6 +228,9 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setDatePickerAt(null); // any typed edit invalidates the stored offset
     const value = e.target.value;
+    // A text past a limit never becomes the draft: React puts the old value
+    // back once this returns.
+    if (!draft.admit(value)) return;
     const pos = e.target.selectionStart ?? value.length;
     const ctx = ac.onEdit(value, pos);
     draft.typed(value, holdsDraftFlush(ctx));
@@ -422,9 +430,17 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       return;
     }
     const text = e.clipboardData.getData("text/plain");
-    // Plain paste is always native; the split needs both the
-    // Shift-Cmd-V arm and a clipboard with actual structure to splice into.
-    if (!armed || !isOutlinePaste(text)) return;
+    // Plain paste is native unless it would put the block past a text limit:
+    // judged here, so a refused paste never reaches the textarea at all.
+    // The split needs both the Shift-Cmd-V arm and a clipboard with actual
+    // structure to splice into; run() judges what it plans.
+    if (!armed || !isOutlinePaste(text)) {
+      const el = e.currentTarget;
+      const next = draft.text.slice(0, el.selectionStart) + text
+        + draft.text.slice(el.selectionEnd);
+      if (!draft.admit(next)) e.preventDefault();
+      return;
+    }
     e.preventDefault();
     handlers.onPasteOutline(node.uid, e.currentTarget.selectionStart,
                             e.currentTarget.selectionEnd, text);

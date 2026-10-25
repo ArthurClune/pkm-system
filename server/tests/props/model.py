@@ -264,19 +264,23 @@ class PageDelete:
         if any(r.kind == "attribute" and r.title == self.title
                for r in extract(text).refs):
             return "used_as_attribute"
-        new = self.rewrite(text)[0]
+        new, _, applied = self.rewrite(text)
+        # backend.md § Page mutations: the copies inlined may not carry a
+        # text past the length cap, nor further past it, judged on the
+        # inlined text before unlinking and ahead of the rewrite's own
+        # blockers. Unlinking only shortens, so the unlinked text needs no
+        # second length judgement. A copy lands where `((uid))` stood,
+        # never inside a `[[` run, so inlining never deepens a drawn
+        # text's nesting.
+        inlined = inline_refs(text, applied)
+        if len(inlined) > TEXT_CAP and len(inlined) > len(text):
+            return "limit"
         if attribute_name(text) != attribute_name(new):
             return "attribute"
         parsed = extract(new)
         if (any(r.title == self.title for r in parsed.refs)
                 or any(u in self.copies for u in parsed.block_refs)):
             return "residual"
-        # backend.md § Page mutations: the copies inlined may not carry a
-        # text past the length cap, nor further past it. A copy lands
-        # where `((uid))` stood, never inside a `[[` run, so inlining
-        # never deepens a drawn text's nesting.
-        if len(new) > TEXT_CAP and len(new) > len(text):
-            return "limit"
         return None
 
 

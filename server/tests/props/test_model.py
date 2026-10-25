@@ -361,6 +361,12 @@ def test_delete_page_refused_when_a_copy_carries_a_text_past_the_length_cap():
     assert m.delete_page(raw_title_of("Alpha"), {}, seq_of(9)).blockers == {B: "limit"}
 
 
+def test_delete_page_judges_the_length_before_the_rewrite_s_own_blockers():
+    m = model(blk(P, page="Alpha", text=EMOJI_AT_CAP),
+              blk(B, page="Beta", text=f"(({P}))y:: v"))
+    assert m.delete_page(raw_title_of("Alpha"), {}, seq_of(9)).blockers == {B: "limit"}
+
+
 # --- backend.md § Planning (text limits) --------------------------------------
 
 @pytest.mark.parametrize("text", PAST_LIMIT_TEXTS)

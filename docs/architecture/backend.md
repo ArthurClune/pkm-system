@@ -637,9 +637,9 @@ before any write:
 | `((uid))` to a block of the page | replaced by a copy of that block's text, without its task marker or leading attribute, newlines folded |
 | a query macro naming the page | refused: 409 with `blockers`, `reason` `query`; nothing changes |
 | a leading `Title:: v` | refused, `used_as_attribute`: the block's next edit would recreate the page |
+| the inlined copies would carry the block past a text limit | refused, `limit` |
 | unlinking would change the leading attribute name (`[[Title]]:: v`) | refused, `attribute` |
 | rewritten text still references the page | refused, `residual` |
-| the inlined copies would carry the block past a text limit | refused, `limit` |
 
 `unlink_title_refs` repeats until the text is stable, because a nested legacy
 link loses one layer per pass. Rewritten blocks get `unlink` and `inline`
@@ -656,6 +656,15 @@ length cap and longer than `before`, or nested past the cap and deeper than
 `before`. **A row stored over a limit may stay level or improve, never get
 worse,** so the page it links stays renamable and deletable. Client writes
 keep the strict rule ([Planning](#planning)).
+
+A page delete judges the length before it builds anything. It projects each
+splice with `spans.spliced_length`, so one block repeating a long block's
+`((uid))` cannot force a string the size of every copy. A page block whose
+own copy would pass the cap is never built, and every block referring to it
+is refused as `limit`. A source is judged on its inlined text before
+unlinking, ahead of `attribute` and `residual`; unlinking only removes link
+syntax, so this is stricter only for a text within a few characters of the
+cap.
 
 | Rewrite | Judged in | A refusal |
 |---|---|---|

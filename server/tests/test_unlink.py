@@ -1,3 +1,6 @@
+import tracemalloc
+from collections.abc import Callable
+
 import pytest
 
 from pkm.refs import canonicalize_title, extract, normalize_title
@@ -215,3 +218,59 @@ def test_defuse_attribute_leaves_a_backtick_name_alone():
     # Such a name is no attribute, so there is nothing to fence.
     text = "a`b" + ":" * 5000 + " v"
     assert defuse_attribute(text, lambda raw: "`" in raw) == text
+
+
+# -- the text limit, judged before copies are built ----------------------
+
+def is_t(raw: str) -> bool:
+    return normalize_title(raw) == "T"
+
+
+TARGET = uid_of("tgt_blk01")
+PAGE_A = uid_of("page_blk_a")
+PAGE_B = uid_of("page_blk_b")
+SRC = uid_of("src_blk01")
+OTHER = canonical_title_of("Other")
+
+
+def _traced[R](run: Callable[[], R]) -> tuple[R, int]:
+    """`run()`'s result and the peak bytes it allocated."""
+    tracemalloc.start()
+    try:
+        result = run()
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    return result, peak
+
+
+def test_inlining_past_the_cap_is_refused_before_the_copies_are_built():
+    page = {TARGET: "x" * 200_000}
+    source = SourceBlock(SRC, OTHER, " ".join([f"(({TARGET}))"] * 100))
+    plan, peak = _traced(lambda: plan_page_delete(is_t, page, [source]))
+    assert [b.reason for b in plan.blockers] == ["limit"]
+    assert peak < 10 * 200_000  # 20M characters were built before
+
+
+def test_a_page_block_whose_own_copy_passes_the_cap_blocks_its_referrers():
+    page = {PAGE_A: " ".join([f"(({PAGE_B}))"] * 100), PAGE_B: "y" * 200_000}
+    source = SourceBlock(SRC, OTHER, f"(({PAGE_A}))")
+    plan, peak = _traced(lambda: plan_page_delete(is_t, page, [source]))
+    assert [b.reason for b in plan.blockers] == ["limit"]
+    assert peak < 10 * 200_000
+
+
+def test_a_legacy_source_over_the_cap_that_inlines_nothing_new_stays_deletable():
+    # level is allowed: only the link goes
+    source = SourceBlock(SRC, OTHER, "z" * 1_000_100 + " [[T]]")
+    plan = plan_page_delete(is_t, {}, [source])
+    assert plan.blockers == () and plan.rewrites[SRC].endswith(" T")
+
+
+def test_a_projected_limit_outranks_the_rewrite_s_own_blockers():
+    # Inlining makes the text an attribute block too long to store: the
+    # length is judged before the rewrite it would take to see the rest.
+    page = {TARGET: "x" * 1_000_000}
+    source = SourceBlock(SRC, OTHER, f"(({TARGET}))y:: v")
+    plan = plan_page_delete(is_t, page, [source])
+    assert [b.reason for b in plan.blockers] == ["limit"]

@@ -133,6 +133,7 @@ Owner: [backend.md](architecture/backend.md)
 | 200 concurrent wrong passwords from one source ran 40 scrypt checks in 0.3 s; one per backoff window was expected | `login` checked the backoff before the password and recorded the failure after, with nothing holding the source's turn between them (`LoginThrottle.take_turn`) | [backend.md § Login throttle](architecture/backend.md#login-throttle) | pkm-v3t1 |
 | The login backoff key depended on uvicorn's defaults: a `FORWARDED_ALLOW_IPS=*` in the server's environment would let any client choose its key with `X-Forwarded-For` | `run.py` left `proxy_headers` and `forwarded_allow_ips` unset (`run.uvicorn_config`) | [backend.md § Login throttle](architecture/backend.md#login-throttle) | pkm-lamg |
 | An anonymous 64 MiB `POST /api/ops` was held in memory, and a multipart `POST /api/assets` spooled to `$TMPDIR`, before the 401; a 64 MiB login password was read whole | FastAPI reads and parses the body before resolving `Depends(require_auth)`. `AuthGateMiddleware` now refuses first and caps public bodies at `PUBLIC_BODY_MAX_BYTES` | [backend.md § Auth](architecture/backend.md#auth) | pkm-zav2, `test_auth_gate.py` |
+| Deleting a page, or opening its delete preview, runs for minutes or exhausts memory when a block refers to the page's long blocks many times | `plan_page_delete` built every inlined copy before judging the text limit | [backend.md § Page mutations and the sidebar](architecture/backend.md#page-mutations-and-the-sidebar) | pkm-49rh |
 
 ### 500s from hostile input
 

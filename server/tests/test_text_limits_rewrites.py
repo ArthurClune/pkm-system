@@ -9,6 +9,7 @@ from rawread import read
 
 from pkm.assets_core import strip_asset_tokens
 from pkm.contracts.ops import BlockUid
+from pkm.contracts.responses import BLOCKER_EXCERPT_CHARS
 from pkm.server.db import open_db
 from pkm.server.store import reindex_refs_for_text
 from pkm.test_data.ids import sha_of, uid_of
@@ -182,17 +183,19 @@ def test_rename_within_the_cap_still_rewrites(client, seeded_config):
     assert not _page_exists(seeded_config, "Old")
 
 
-def _assert_delete_blocked(client, config, source_text: str) -> None:
-    preview = client.get("/api/delete-preview", params={"title": "P"})
+def _assert_delete_blocked(client, config, source_text: str,
+                           page: str = "P") -> None:
+    preview = client.get("/api/delete-preview", params={"title": page})
     assert preview.status_code == 200, preview.text
     blocker = {"uid": DEL_SOURCE1, "page_title": "Src",
-               "excerpt": source_text, "text_length": len(source_text),
+               "excerpt": source_text[:BLOCKER_EXCERPT_CHARS],
+               "text_length": len(source_text),
                "reason": "limit"}
     assert preview.json()["blockers"] == [blocker]
-    r = client.delete("/api/page/P")
+    r = client.delete(f"/api/page/{page}")
     assert r.status_code == 409, r.text
     assert r.json()["detail"]["blockers"] == [blocker]
-    assert _page_exists(config, "P")
+    assert _page_exists(config, page)
     assert _text(config, DEL_SOURCE1) == source_text
 
 
@@ -202,6 +205,17 @@ def test_delete_inlining_past_the_cap_is_blocked(client, seeded_config):
                           (DEL_SOURCE1, "Src", source)])
     _assert_delete_blocked(client, seeded_config, source)
     assert _text(seeded_config, DEL_TARGET1) == "y" * 600_000
+
+
+def test_delete_preview_reports_a_projected_limit_without_building_it(
+        client, seeded_config):
+    # 100 refs to a 200,000-character block: the copies would come to
+    # 20M characters, which the judge projects rather than builds.
+    source = " ".join([f"(({DEL_TARGET1}))"] * 100)
+    _seed(seeded_config, [(DEL_TARGET1, "T", "x" * 200_000),
+                          (DEL_SOURCE1, "Src", source)])
+    _assert_delete_blocked(client, seeded_config, source, page="T")
+    assert _text(seeded_config, DEL_TARGET1) == "x" * 200_000
 
 
 def test_delete_inlining_past_the_nesting_limit_is_blocked(

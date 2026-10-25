@@ -14,7 +14,7 @@ from collections import Counter
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from pkm.assets_core import asset_label, asset_url, strip_asset_tokens
+from pkm.assets_core import _remove_spans, asset_label, asset_url, strip_asset_tokens
 from pkm.contracts.ops import Sha256Hex
 from pkm.test_data.ids import sha_of
 
@@ -162,3 +162,111 @@ def test_a_token_of_another_asset_with_the_same_name_survives():
     mine = token("markdown", name, SHA_A, False, False)
     other = token("markdown", name, SHA_B, False, False)
     assert strip_asset_tokens(f"{mine} {other}", SHA_A) == other
+
+
+# A verbatim copy of strip_asset_tokens and its link helpers as they were
+# before the linear rewrite: an oracle for the rewrite, run on small texts
+# only, since its scan rescans to the end of the line from every opener.
+
+def _reference_destination_close(text: str, start: int) -> int:
+    depth = 0
+    i = start
+    while i < len(text) and text[i] != "\n":
+        if text[i] == "(":
+            depth += 1
+        elif text[i] == ")":
+            if depth == 0:
+                return i
+            depth -= 1
+        i += 1
+    return text.find(")", start)
+
+
+def _reference_link_span_at(text: str, start: int) -> tuple[int, int, str] | None:
+    image = text[start] == "!"
+    open_ = start + 1 if image else start
+    if (open_ >= len(text) or text[open_] != "["
+            or text.startswith("[[", open_)):
+        return None
+    depth = 1
+    cursor = open_ + 1
+    while cursor < len(text) and depth > 0:
+        if text[cursor] == "\n":
+            return None
+        if text[cursor] == "[":
+            depth += 1
+        elif text[cursor] == "]":
+            depth -= 1
+        cursor += 1
+    if depth != 0 or cursor >= len(text) or text[cursor] != "(":
+        return None
+    close = _reference_destination_close(text, cursor + 1)
+    if close == -1 or "\n" in text[cursor + 1:close]:
+        return None
+    return start, close + 1, text[cursor + 1:close]
+
+
+def _reference_asset_spans(text: str, prefix: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    cursor = 0
+    n = len(text)
+    while cursor < n:
+        looks_like_link = (
+            (text[cursor] == "!" and text[cursor + 1:cursor + 2] == "[")
+            or (text[cursor] == "[" and not text.startswith("[[", cursor)))
+        span = _reference_link_span_at(text, cursor) if looks_like_link else None
+        if span is not None:
+            span_start, span_end, destination = span
+            if destination.startswith(prefix):
+                spans.append((span_start, span_end))
+            cursor = span_end
+        else:
+            cursor += 1
+    return spans
+
+
+def _reference_strip(text: str, sha256: Sha256Hex) -> str:
+    prefix = f"/assets/{sha256}/"
+    spans = _reference_asset_spans(text, prefix)
+    macro = (r"\{\{(?:\[\[pdf\]\]|pdf):\s*" + re.escape(prefix)
+             + r"[^\n]*?\}\}")
+    spans += [m.span() for m in re.finditer(macro, text)]
+    bare_url = re.escape(prefix) + r"[^\s)}]*"
+    spans += [m.span() for m in re.finditer(bare_url, text)]
+    if not spans:
+        return text
+    rest = _remove_spans(text, spans)
+    return rest if rest.strip() else ""
+
+
+ORACLE_TOKENS = [
+    "[", "]", "(", ")", "!", "{{pdf: ", "{{[[pdf]]: ", "}}", "}", "\n", " ",
+    "a", "[[", "]]", f"/assets/{SHA_A}/f.png", f"/assets/{SHA_B}/g.png",
+    # Composites, so a link or macro around an asset URL is drawn often
+    # enough.
+    "](", f"](/assets/{SHA_A}/f.png", f"[a](/assets/{SHA_A}/f.png)",
+    f"{{{{pdf: /assets/{SHA_A}/f", f"{{{{[[pdf]]: /assets/{SHA_A}/f",
+]
+
+
+def test_the_linear_strip_equals_the_reference():
+    seen = Counter()
+
+    @settings(max_examples=3000, deadline=None, suppress_health_check=list(HealthCheck))
+    @given(st.lists(st.sampled_from(ORACLE_TOKENS), max_size=40).map("".join))
+    def prop(text):
+        expected = _reference_strip(text, SHA_A)
+        assert strip_asset_tokens(text, SHA_A) == expected
+        prefix = f"/assets/{SHA_A}/"
+        seen["cases"] += 1
+        seen["stripped"] += expected != text
+        seen["markdown"] += bool(_reference_asset_spans(text, prefix))
+        seen["macro"] += bool(re.search(
+            r"\{\{(?:\[\[pdf\]\]|pdf):\s*" + re.escape(prefix) + r"[^\n]*?\}\}", text))
+
+    prop()
+    # Each shape must be drawn often enough that a broken pairing or macro
+    # close shows: an oracle that never sees the case passes vacuously.
+    # The floors are about half the lowest rate seen over unseeded runs.
+    for shape, share in {"stripped": 0.35, "markdown": 0.12, "macro": 0.04}.items():
+        assert seen[shape] > seen["cases"] * share, (shape, seen[shape], seen["cases"])

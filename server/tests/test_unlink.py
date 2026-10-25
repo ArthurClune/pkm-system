@@ -8,6 +8,7 @@ from pkm import unlink
 from pkm.contracts.ops import BlockUid
 from pkm.refs import canonicalize_title, extract, normalize_title
 from pkm.unlink import (
+    MAX_DELETE_COPY_CHARS,
     SourceBlock,
     apply_delete_rewrite,
     inline_block_refs,
@@ -324,5 +325,41 @@ def test_copies_that_blank_to_nothing_still_count_toward_the_stop():
         return loop_steps(unlink, lambda: plan_page_delete(is_t, page, [source]))
 
     small, large = steps(4), steps(16)
-    # Bounded work stays level from 4 to 16 refs; a copy each grows 4x.
+    # Building even one copy loops over its 76,000 refs. The source is
+    # refused on the copies' projected lengths before any is built, so all
+    # that is left is bookkeeping per ref.
+    assert small < 10_000 and large < 10_000, (small, large)
+
+
+def _blanking_page(count: int) -> dict[BlockUid, str]:
+    # page_blk_b splices in 76,000 refs (988,000 characters) that the
+    # blank pass then empties; each of `count` blocks refers to it once
+    long = uid_of("pgblkCCCC")
+    page: dict[BlockUid, str] = {long: "c", PAGE_B: f"(({long}))" * 76_000}
+    for i in range(count):
+        page[uid_of(f"page_blk_{i:04d}")] = f"(({PAGE_B}))"
+    return page
+
+
+def test_a_delete_s_copies_share_one_budget_across_its_referrers():
+    # One referrer per page block: each is within the cap on its own, but
+    # together they would have the delete build a copy each.
+    def run(count: int):
+        page = _blanking_page(count)
+        sources = [SourceBlock(uid_of(f"src_blk_{i:04d}"), OTHER,
+                               f"((page_blk_{i:04d}))") for i in range(count)]
+        plan = None
+
+        def go():
+            nonlocal plan
+            plan = plan_page_delete(is_t, page, sources)
+        steps = loop_steps(unlink, go)
+        assert plan is not None
+        return steps, plan
+
+    (small, _), (large, plan) = run(8), run(32)
+    # Bounded work stays level from 8 to 32 referrers; a copy each grows 4x.
     assert large < 1.5 * small, (small, large)
+    within = MAX_DELETE_COPY_CHARS // 988_000
+    assert [b.reason for b in plan.blockers] == ["limit"] * (32 - within)
+    assert len(plan.rewrites) == within

@@ -7,6 +7,7 @@ from __future__ import annotations
 import pytest
 from rawread import read
 
+from pkm import unlink
 from pkm.assets_core import strip_asset_tokens
 from pkm.contracts.ops import BlockUid
 from pkm.contracts.responses import BLOCKER_EXCERPT_CHARS
@@ -216,6 +217,27 @@ def test_delete_preview_reports_a_projected_limit_without_building_it(
                           (DEL_SOURCE1, "Src", source)])
     _assert_delete_blocked(client, seeded_config, source, page="T")
     assert _text(seeded_config, DEL_TARGET1) == "x" * 200_000
+
+
+def test_a_delete_past_its_copy_budget_is_blocked(
+        client, seeded_config, monkeypatch):
+    # Each referrer is within the cap alone; together they count more copy
+    # text than the delete may build.
+    monkeypatch.setattr(unlink, "MAX_DELETE_COPY_CHARS", 1_000)
+    others = [uid_of("del_source2")]
+    _seed(seeded_config, [(DEL_TARGET1, "T", "y" * 600),
+                          (DEL_SOURCE1, "Src", f"(({DEL_TARGET1}))"),
+                          (others[0], "Src", f"(({DEL_TARGET1}))")])
+    preview = client.get("/api/delete-preview", params={"title": "T"})
+    assert preview.status_code == 200, preview.text
+    blockers = preview.json()["blockers"]
+    assert [b["reason"] for b in blockers] == ["limit"]
+    assert blockers[0]["uid"] in (DEL_SOURCE1, others[0])
+    r = client.delete("/api/page/T")
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["blockers"] == blockers
+    assert _page_exists(seeded_config, "T")
+    assert _text(seeded_config, DEL_SOURCE1) == f"(({DEL_TARGET1}))"
 
 
 def test_delete_inlining_past_the_nesting_limit_is_blocked(

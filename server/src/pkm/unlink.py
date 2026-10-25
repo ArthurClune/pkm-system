@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass
-from typing import Callable, Iterator, Literal, Mapping, Sequence
+from typing import Callable, Final, Iterator, Literal, Mapping, Sequence
 
 from pkm.contracts.ops import BlockUid, MAX_BLOCK_TEXT_CHARS
 from pkm.export.resolve import find_query_macros
@@ -41,6 +41,13 @@ from pkm.todo import with_state
 
 # Given a title as written, is it the deleted page.
 TitleMatch = Callable[[str], bool]
+
+# Most copy text one page delete may count over all its referring blocks,
+# each copy at its projected length once per place it lands. It bounds the
+# work a delete does under the write lock however many blocks refer to the
+# page, and sits far above what a page written by hand needs; a referrer
+# past it is refused as `limit`.
+MAX_DELETE_COPY_CHARS: Final = 4 * MAX_BLOCK_TEXT_CHARS
 
 _ALIAS_LABEL = re.compile(r"\[([^\[\]\n]*)\]\(\Z")
 _NEWLINE_RUN = re.compile(r"[ \t\r]*\n\s*")
@@ -204,7 +211,8 @@ def apply_delete_rewrite(
 # carry the block over a text limit, or further past one
 # (text_limits.rewrite_text_limit_violation). The length is judged first on
 # the projected inlined text before unlinking, and a page block whose own
-# copy would pass the cap blocks every block that refers to it.
+# copy would pass the cap blocks every block that refers to it, as does a
+# block whose copies would carry the delete past MAX_DELETE_COPY_CHARS.
 BlockerReason = Literal["query", "used_as_attribute", "attribute", "residual",
                         "limit"]
 
@@ -248,23 +256,25 @@ class _Copies:
         self._plain = {uid: plain_copy(text)
                        for uid, text in page_blocks.items()}
         self._blanks = {uid: "" for uid in page_blocks}
-        self._built: dict[BlockUid, tuple[str | None, int]] = {}
+        self._spans: dict[BlockUid, list[Span]] = {}
+        self._built: dict[BlockUid, str] = {}
 
-    def get(self, uid: BlockUid) -> tuple[str | None, int]:
-        """The copy of page block `uid` and its projected length: the
-        splice of the refs it holds, before deeper refs are blanked and
-        links unlinked, which only shorten it. That length is the work
-        building the copy costs, and the copy is None, never built, when
-        it is over the cap."""
+    def projected(self, uid: BlockUid) -> int:
+        """The length of page block `uid`'s copy as the splice of the refs
+        it holds, before deeper refs are blanked and links unlinked, which
+        only shorten it: the work building the copy costs. Found without
+        building it."""
+        if uid not in self._spans:
+            self._spans[uid] = block_ref_spans(self._plain[uid], self._plain)
+        return spliced_length(self._plain[uid], self._spans[uid])
+
+    def get(self, uid: BlockUid) -> str:
+        """The copy of page block `uid`. Callers judge `projected` first."""
         if uid not in self._built:
-            plain = self._plain[uid]
-            spans = block_ref_spans(plain, self._plain)
-            projected = spliced_length(plain, spans)
-            copy = None
-            if projected <= MAX_BLOCK_TEXT_CHARS:
-                text = inline_block_refs(splice(plain, spans), self._blanks)
-                copy = unlink_title_refs(text, self._is_target)
-            self._built[uid] = (copy, projected)
+            self.projected(uid)
+            text = splice(self._plain[uid], self._spans[uid])
+            text = inline_block_refs(text, self._blanks)
+            self._built[uid] = unlink_title_refs(text, self._is_target)
         return self._built[uid]
 
 
@@ -314,36 +324,30 @@ def _over_length(text: str, length: int) -> bool:
     return length > MAX_BLOCK_TEXT_CHARS and length > len(text)
 
 
-def _inline_copies(
+def _copy_length(
     source: SourceBlock, referenced: Sequence[BlockUid], copies: _Copies,
-) -> dict[BlockUid, str] | None:
-    """The copies `source` inlines, or None when inlining them would carry
-    it over the length cap, or further past it. Each copy counts at its
-    projected length (`_Copies.get`), before the passes that shorten it,
-    and the source is judged before unlinking; no text that size is
-    built. Those passes can take out any amount of text, so this refuses
-    some texts that would come back under the cap.
-
-    Copies are fetched one at a time, and fetching stops once the length
-    so far is past the cap: the rest could only add to it. Counting each
-    copy before it shortens bounds the work, since a copy that blanks
-    down to "" still costs its projected length to build. A copy over the
-    cap refuses the source outright."""
+) -> tuple[int, int] | None:
+    """The length `source` would have with the copies inlined, each counted
+    at its projected length (`_Copies.projected`), and the part of it the
+    copies make up; None when a copy is itself over the cap. Nothing is
+    built: the copies are judged before the passes that shorten them, and
+    the source before unlinking. Those passes can take out any amount of
+    text, so a source judged here can be refused although its final text
+    would fit. A copy that blanks down to "" still costs its projected
+    length to build, so counting its final length would leave that work
+    unbounded."""
     places = Counter(uid for _start, _end, uid in
                      block_ref_spans(source.text, {u: u for u in referenced}))
-    # the source without its refs, then each copy once per place it lands
-    length = spliced_length(source.text, block_ref_spans(
-        source.text, {u: "" for u in referenced}))
-    applied: dict[BlockUid, str] = {}
+    added = 0
     for uid in referenced:
-        copy, projected = copies.get(uid)
-        if copy is None:
+        projected = copies.projected(uid)
+        if projected > MAX_BLOCK_TEXT_CHARS:
             return None
-        applied[uid] = copy
-        length += places[uid] * projected
-        if _over_length(source.text, length):
-            return None
-    return applied
+        added += places[uid] * projected
+    # the source without its refs, then each copy once per place it lands
+    rest = spliced_length(source.text, block_ref_spans(
+        source.text, {u: "" for u in referenced}))
+    return rest + added, added
 
 
 def plan_page_delete(
@@ -352,6 +356,7 @@ def plan_page_delete(
     sources: Sequence[SourceBlock],
 ) -> DeletePlan:
     copies = _Copies(is_target, page_blocks)
+    counted = 0  # copy text counted so far, against MAX_DELETE_COPY_CHARS
     rewrites: dict[BlockUid, str] = {}
     unlinked: set[BlockUid] = set()
     inlined: dict[BlockUid, Mapping[BlockUid, str]] = {}
@@ -373,13 +378,20 @@ def plan_page_delete(
             block_refs += 1
             ref_pages.add(source.page_title)
         reason = _source_blocker_reason(is_target, source)
-        applied = None if reason is not None else \
-            _inline_copies(source, referenced, copies)
-        if applied is None:
-            # a source blocker, or else the copies pass the length cap
-            blockers.append(DeleteBlocker(
-                source.uid, source.page_title, source.text, reason or "limit"))
+        if reason is None:
+            sized = _copy_length(source, referenced, copies)
+            # over the cap on its own, or past what the delete may build
+            if sized is None or _over_length(source.text, sized[0]) or \
+                    counted + sized[1] > MAX_DELETE_COPY_CHARS:
+                reason = "limit"
+            else:
+                counted += sized[1]
+        if reason is not None:
+            blockers.append(
+                DeleteBlocker(source.uid, source.page_title, source.text, reason)
+            )
             continue
+        applied = {u: copies.get(u) for u in referenced}
         pre = inline_block_refs(source.text, applied)
         new = unlink_title_refs(pre, is_target)
         reason = _rewrite_blocker_reason(is_target, page_blocks, source, new)

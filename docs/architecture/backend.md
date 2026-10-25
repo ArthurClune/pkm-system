@@ -684,21 +684,25 @@ length cap and longer than `before`, or nested past the cap and deeper than
 worse,** so the page it links stays renamable and deletable. Client writes
 keep the strict rule ([Planning](#planning)).
 
-A page delete judges the length before it builds anything, so the work it
-does under the write lock is bounded per referring block. It builds a page
-block's copy only when a source refers to it (`unlink._Copies`). Each copy
-is projected with `spans.spliced_length` before it is built: one whose
-splice of the refs it holds would pass the cap is never built, and every
-block referring to it is refused as `limit`. A source fetches its copies one
-at a time, each counted at that projected length, and is refused once they
-carry its inlined text past the cap. A copy that blanks down to `""` still
-costs its projected length to build, so counting the final length would
-leave that work unbounded. Both judgements come before the passes that
-shorten: a copy before its deeper refs are blanked and its links unlinked, a
-source before unlinking. Those passes can remove any amount of text, so a
-delete whose final text would fit can still be refused.
-The source's `limit` comes ahead of `attribute` and `residual`, so the
-delete dialog names the length first.
+A page delete judges length before it builds anything, so the work it does
+under the write lock is bounded per delete. It builds a page block's copy
+only when a source refers to it (`unlink._Copies`). Every judgement counts a
+copy at its projected length (`spans.spliced_length` of the refs it holds),
+before deeper refs are blanked and links unlinked. A copy that blanks down
+to `""` still costs that length to build.
+
+| Counted | Past the bound | Refused as `limit` |
+|---|---|---|
+| one copy | `MAX_BLOCK_TEXT_CHARS` | every source referring to it |
+| one source's inlined text | `MAX_BLOCK_TEXT_CHARS`, and longer than the source | that source |
+| copy text over all sources, in order | `MAX_DELETE_COPY_CHARS` | each source that would carry the total past it |
+
+No copy is built for a refused source. A source is judged before unlinking,
+and the shortening passes can remove any amount of text, so a delete whose
+final text would fit can still be refused. `MAX_DELETE_COPY_CHARS` sits far
+above what a page written by hand needs; it trades such a delete for a
+bound on the work. The source's `limit` comes ahead of `attribute` and
+`residual`, so the delete dialog names the length first.
 
 | Rewrite | Judged in | A refusal |
 |---|---|---|

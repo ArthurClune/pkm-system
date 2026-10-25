@@ -1,13 +1,16 @@
 """A page delete's plan builds copies only for the page blocks a source
 refers to, and stops once a source is known to pass the length cap. The
 oracle below is the planner that built every copy up front, kept as it
-was, with one switch: whether a source's inlined length counts each copy
-at its final length (the rule before copies were built lazily) or at its
-projected length before deeper refs are blanked (the rule now, which
-bounds the work a copy that blanks to "" costs). The plan must equal the
-eager planner under the new rule, and differ from it under the old rule
-only by refusing more sources as `limit`. Both run on random pages and
-sources under a small cap so the limit paths are reached."""
+was, with one switch. Off, a source's inlined length counts each copy at
+its final length, and nothing else is judged (the rule before copies were
+built lazily). On, each copy counts at its projected length before deeper
+refs are blanked, and the copy text counted over all referring blocks may
+not pass the delete's budget (the rules now, which bound the work a copy
+that blanks to "" costs, and the work over many referrers). The plan must
+equal the eager planner with the switch on, and differ from it with the
+switch off only by refusing more sources as `limit`. Both run on random
+pages and sources under a small cap and budget so the limit paths are
+reached."""
 from __future__ import annotations
 
 from collections import Counter
@@ -29,6 +32,10 @@ from pkm.unlink import (DeleteBlocker, DeletePlan, SourceBlock, TitleMatch,
                         plan_page_delete, unlink_title_refs)
 
 SMALL_CAP = 80
+SMALL_BUDGET = 60
+# sources the eager planner refused for the budget alone, for the reach
+# count below
+BUDGET_REFUSALS: list[BlockUid] = []
 PAGE_UIDS = [uid_of("pgblkAAA1"), uid_of("pgblkBBB2"), uid_of("pgblkCCC3")]
 
 
@@ -65,6 +72,7 @@ def _eager_plan(
     count_projected: bool,
 ) -> DeletePlan:
     copies, oversized, projected = _eager_copies(is_target, page_blocks)
+    counted = 0
     rewrites: dict[BlockUid, str] = {}
     unlinked: set[BlockUid] = set()
     inlined: dict[BlockUid, Mapping[BlockUid, str]] = {}
@@ -97,6 +105,15 @@ def _eager_plan(
                     if count_projected else spans
                 if _inlined_over_limit(source.text, judged):
                     reason = "limit"
+                elif count_projected:
+                    added = spliced_length(source.text, judged) - \
+                        spliced_length(source.text, block_ref_spans(
+                            source.text, {u: "" for u in referenced}))
+                    if counted + added > unlink.MAX_DELETE_COPY_CHARS:
+                        reason = "limit"
+                        BUDGET_REFUSALS.append(source.uid)
+                    else:
+                        counted += added
         if reason is not None:
             blockers.append(
                 DeleteBlocker(source.uid, source.page_title, source.text, reason)
@@ -151,7 +168,7 @@ def graphs(draw):
     page = {u: draw(text) for u in uids}
     sources = [SourceBlock(uid_of(f"srcblk{i:03d}"), canonical_title_of("Other"),
                            draw(st.lists(_tokens(uids), max_size=10).map("".join)))
-               for i in range(draw(st.integers(1, 3)))]
+               for i in range(draw(st.integers(1, 5)))]
     return page, sources
 
 
@@ -167,7 +184,9 @@ def test_the_lazy_plan_equals_the_eager_one(monkeypatch):
     @given(graphs())
     def prop(graph):
         page, sources = graph
+        BUDGET_REFUSALS.clear()
         expected = _eager_plan(is_t, page, sources, count_projected=True)
+        seen["budget"] += bool(BUDGET_REFUSALS)
         plan = plan_page_delete(is_t, page, sources)
         assert plan == expected
         # against the rule before: only more `limit` refusals
@@ -194,9 +213,10 @@ def test_the_lazy_plan_equals_the_eager_one(monkeypatch):
 
     monkeypatch.setattr(unlink, "MAX_BLOCK_TEXT_CHARS", SMALL_CAP)
     monkeypatch.setattr(text_limits, "MAX_BLOCK_TEXT_CHARS", SMALL_CAP)
+    monkeypatch.setattr(unlink, "MAX_DELETE_COPY_CHARS", SMALL_BUDGET)
     prop()
     # About half the lowest rate seen over unseeded runs: a shape never
     # drawn would let the two planners differ there unseen.
     for shape, share in {"limit": 0.24, "inlined": 0.11, "unblocked": 0.3,
-                         "stricter": 0.02}.items():
+                         "stricter": 0.02, "budget": 0.025}.items():
         assert seen[shape] > seen["cases"] * share, (shape, seen[shape], seen["cases"])

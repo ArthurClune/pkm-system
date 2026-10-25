@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import json
 import logging
 import socket
@@ -19,6 +20,7 @@ from pkm.server.auth_core import sign_session
 from pkm.server.auth_gate import AuthGateMiddleware
 from pkm.server.auth_gate_core import (PRIVATE_BODY_MAX_BYTES,
                                        PUBLIC_BODY_MAX_BYTES,
+                                       UPLOAD_ENVELOPE_BYTES,
                                        declared_content_length, is_public,
                                        private_body_cap)
 
@@ -188,30 +190,96 @@ def test_an_authenticated_body_within_the_cap_reaches_the_route(
     assert s.status == 200
 
 
-def test_an_upload_declared_past_the_cap_is_left_to_its_route(
+UPLOAD_HEAD = (b"--BND\r\ncontent-disposition: form-data; name=\"file\"; "
+               b"filename=\"a.txt\"\r\ncontent-type: text/plain\r\n\r\n")
+UPLOAD_TAIL = b"\r\n--BND--\r\n"
+UPLOAD_LIMIT = 1 << 20
+
+
+@pytest.fixture()
+def upload_config(seeded_config):
+    return dataclasses.replace(seeded_config, max_upload_bytes=UPLOAD_LIMIT)
+
+
+def _upload(config, cookie: str, file_bytes: int, *,
+            declared: bool) -> Sent:
+    """Uploads a file of `file_bytes`, its length declared or streamed."""
+    parts = [UPLOAD_HEAD, *[b"a" * (1 << 20)] * (file_bytes >> 20),
+             b"a" * (file_bytes % (1 << 20)), UPLOAD_TAIL]
+    length = sum(map(len, parts))
+    headers = [(b"content-length", str(length).encode())] if declared else []
+    return run(_stream(create_app(config), "POST", "/api/assets",
+                       "multipart/form-data; boundary=BND", 0, parts=parts,
+                       cookie=cookie, headers=headers))
+
+
+def test_an_upload_declared_past_the_private_cap_reaches_its_route(
         seeded_config, client_cookie):
-    prefix = (b"--BND\r\ncontent-disposition: form-data; name=\"file\"; "
-              b"filename=\"a.png\"\r\ncontent-type: image/png\r\n\r\n")
     s = run(_stream(create_app(seeded_config), "POST", "/api/assets",
                     "multipart/form-data; boundary=BND", 1 << 20,
-                    prefix=prefix, suffix=b"\r\n--BND--\r\n",
+                    prefix=UPLOAD_HEAD, suffix=UPLOAD_TAIL,
                     cookie=client_cookie,
                     headers=[(b"content-length", OVER_PRIVATE_CAP)]))
     assert s.consumed > 0  # the route read it; the gate did not refuse it
     assert json.loads(s.body) != {"detail": "request body too large"}
 
 
+@pytest.mark.parametrize("declared", [True, False])
+def test_an_upload_at_its_limit_is_stored(upload_config, client_cookie,
+                                         declared):
+    s = _upload(upload_config, client_cookie, UPLOAD_LIMIT,
+                declared=declared)
+    assert s.status == 200, s.body
+    assert json.loads(s.body)["size"] == UPLOAD_LIMIT
+
+
+@pytest.mark.parametrize("declared", [True, False])
+def test_an_upload_just_past_its_limit_gets_the_routes_answer(
+        upload_config, client_cookie, declared):
+    s = _upload(upload_config, client_cookie, UPLOAD_LIMIT + 1,
+                declared=declared)
+    assert s.status == 413
+    assert json.loads(s.body) == {"detail": "upload too large"}
+
+
+def test_an_upload_declared_past_its_cap_is_refused_unread(
+        upload_config, client_cookie):
+    over = UPLOAD_LIMIT + UPLOAD_ENVELOPE_BYTES + 1
+    s = run(_stream(create_app(upload_config), "POST", "/api/assets",
+                    "multipart/form-data; boundary=BND", 1 << 20,
+                    prefix=UPLOAD_HEAD, suffix=UPLOAD_TAIL,
+                    cookie=client_cookie,
+                    headers=[(b"content-length", str(over).encode())]))
+    assert (s.status, s.consumed) == (413, 0)
+    assert json.loads(s.body) == {"detail": "request body too large"}
+
+
+def test_a_streamed_upload_stops_at_its_cap(upload_config, client_cookie,
+                                            tmp_path):
+    # Read as it arrives, never buffered whole: the spool and the route's
+    # temp file see at most the cap and one message past it.
+    s = run(_stream(create_app(upload_config), "POST", "/api/assets",
+                    "multipart/form-data; boundary=BND", 16 << 20,
+                    prefix=UPLOAD_HEAD, suffix=UPLOAD_TAIL,
+                    cookie=client_cookie))
+    assert s.status == 413
+    assert s.consumed <= (UPLOAD_LIMIT + UPLOAD_ENVELOPE_BYTES + (1 << 20)
+                          + len(UPLOAD_HEAD))
+    assert json.loads(s.body) == {"detail": "request body too large"}
+    assert list(upload_config.assets_dir.glob(".upload-*")) == []
+
+
 @pytest.mark.parametrize("method,path,cap", [
     ("POST", "/api/ops", PRIVATE_BODY_MAX_BYTES),
     ("GET", "/api/page/x", None), ("HEAD", "/api/page/x", None),
     ("OPTIONS", "/api/ops", None),
-    ("POST", "/api/assets", None),
+    ("POST", "/api/assets", (150 << 20) + UPLOAD_ENVELOPE_BYTES),
     ("DELETE", "/api/assets/abc", PRIVATE_BODY_MAX_BYTES),
     ("PUT", "/api/sidebar", PRIVATE_BODY_MAX_BYTES),
     ("POST", "/api/assets/export.zip", PRIVATE_BODY_MAX_BYTES),
 ])
 def test_private_body_cap(method, path, cap):
-    assert private_body_cap(method, path) == cap
+    assert private_body_cap(method, path, 150 << 20) == cap
 
 
 def test_the_gate_401_is_logged_and_carries_the_security_header(

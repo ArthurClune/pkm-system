@@ -14,24 +14,34 @@ reads it within `PUBLIC_BODY_READ_TIMEOUT_S`.
 An authenticated body is capped too, at `PRIVATE_BODY_MAX_BYTES`, because
 FastAPI reads and parses a whole body before the route's own limits run:
 a batch of hundreds of MiB would cost GiBs before `MAX_OPS_PER_BATCH`
-refused it. Uploads (`UNCAPPED_PRIVATE_ROUTES`) are exempt: their route
-streams the file to disk under its own size limit, and a file may be
-larger than any JSON body."""
+refused it. An upload (`UPLOAD_ROUTES`) is capped at the configured
+`max_upload_bytes` plus `UPLOAD_ENVELOPE_BYTES` instead, since a file may
+be larger than any JSON body. FastAPI parses the whole multipart form,
+spooling the file to disk and holding other fields in memory, before
+`upload_asset` checks the file's size, so without this cap the spool and
+those fields would grow without limit."""
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Final
 
 from pkm.server.origin_core import SAFE_METHODS
 
-PUBLIC_BODY_MAX_BYTES = 8192
+PUBLIC_BODY_MAX_BYTES: Final = 8192
 # A whole public body (a login) is a few hundred bytes, so ten seconds is
 # far beyond any honest client and bounds how long a drip holds a
 # connection.
-PUBLIC_BODY_READ_TIMEOUT_S = 10.0
+PUBLIC_BODY_READ_TIMEOUT_S: Final = 10.0
 # 64 MiB: 500 ops of the largest text a block holds today fit many times
 # over, and a batch near it still parses in about a second.
-PRIVATE_BODY_MAX_BYTES = 64 << 20
-UNCAPPED_PRIVATE_ROUTES: frozenset[tuple[str, str]] = frozenset(
+PRIVATE_BODY_MAX_BYTES: Final = 64 * 1024 * 1024
+# The multipart framing around an upload's file: boundary lines, part
+# headers and the filename, a few hundred bytes from a browser. 64 KiB
+# holds the longest filename many times over, so a browser's upload of a
+# file within its limit passes the gate, and one just past it gets the
+# route's own "upload too large"; past the slack the gate answers.
+UPLOAD_ENVELOPE_BYTES: Final = 64 * 1024
+UPLOAD_ROUTES: Final[frozenset[tuple[str, str]]] = frozenset(
     {("POST", "/api/assets")})
 PRIVATE_FIRST_SEGMENTS: frozenset[str] = frozenset({"api", "assets"})
 PUBLIC_UNSAFE_ROUTES: frozenset[tuple[str, str]] = frozenset(
@@ -53,12 +63,16 @@ def is_public(scope_type: str, method: str | None, route_path: str) -> bool:
     return route_path.split("/", 2)[1] not in PRIVATE_FIRST_SEGMENTS
 
 
-def private_body_cap(method: str, route_path: str) -> int | None:
+def private_body_cap(method: str, route_path: str,
+                     max_upload_bytes: int) -> int | None:
     """The most an authenticated request's body may carry, or None when
     the gate leaves its body alone: a safe method carries none worth
-    capping, and an upload route bounds its own."""
-    if method in SAFE_METHODS or (method, route_path) in UNCAPPED_PRIVATE_ROUTES:
+    capping. An upload may carry a file of `max_upload_bytes` (the
+    config's limit) and its multipart framing."""
+    if method in SAFE_METHODS:
         return None
+    if (method, route_path) in UPLOAD_ROUTES:
+        return max_upload_bytes + UPLOAD_ENVELOPE_BYTES
     return PRIVATE_BODY_MAX_BYTES
 
 

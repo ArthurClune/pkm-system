@@ -24,16 +24,21 @@ the server's read size (uvicorn's) bounds the overshoot. The whole read
 must finish within `PUBLIC_BODY_READ_TIMEOUT_S` or gets 408, so a client
 dripping a login body cannot hold the connection.
 
-An authenticated body is capped the same way at `PRIVATE_BODY_MAX_BYTES`
-(`auth_gate_core.private_body_cap` says which), for the same reason:
-FastAPI would parse any size before the route's own limits run. Uploads
-are exempt and bound themselves while streaming to disk. A declared length
-within the cap passes untouched, without the buffered read and replay:
-the server (h11) frames the body to that length, so no more can arrive
-than was declared. A length sent beside `Transfer-Encoding` is no such
-promise (h11 frames by the chunks), so `declared_content_length` ignores
-it and that body is counted here like any chunked one. An authenticated
-body has no read deadline: an upload over a slow link may take minutes.
+An authenticated body is capped too, at the size `private_body_cap`
+gives (`PRIVATE_BODY_MAX_BYTES`, or an upload's own limit plus its
+multipart framing), for the same reason: FastAPI would parse any size
+before the route's own limits run. A declared length past the cap gets
+413 unread. One within it passes untouched: the server (h11) frames the
+body to that length, so no more can arrive than was declared. A length
+sent beside `Transfer-Encoding` is no such promise (h11 frames by the
+chunks), so `declared_content_length` ignores it. A body with no length
+it trusts is counted as the route reads it, not buffered here: an upload
+may be far larger than anything worth holding in memory. The message
+that passes the cap raises `_BodyOverCap` out of `receive`. FastAPI reads
+every body inside the route, passes an `HTTPException` from its body
+parsing on (any other exception becomes a 400), and answers it with its
+own handler, so the 413 is the same as the gate's. An authenticated body
+has no read deadline: an upload over a slow link may take minutes.
 
 A 401 or 413 leaves the connection open. uvicorn then reads and drops the
 rest of the refused body, and `http_protocol.DeadlineH11Protocol` closes
@@ -47,6 +52,7 @@ from __future__ import annotations
 import asyncio
 from enum import Enum
 
+from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from starlette.requests import HTTPConnection
 from starlette.routing import get_route_path
@@ -68,6 +74,11 @@ BODY_TIMED_OUT_DETAIL = "request body timed out"
 class _Unread(Enum):
     DISCONNECTED = "disconnected"
     OVER_CAP = "over cap"
+
+
+class _BodyOverCap(HTTPException):
+    def __init__(self) -> None:
+        super().__init__(status_code=413, detail=BODY_TOO_LARGE_DETAIL)
 
 
 class AuthGateMiddleware:
@@ -99,18 +110,33 @@ class AuthGateMiddleware:
     async def _private(self, scope: Scope, receive: Receive,
                        send: Send) -> None:
         cap = (None if scope["type"] != "http"
-               else private_body_cap(scope["method"], get_route_path(scope)))
+               else private_body_cap(
+                   scope["method"], get_route_path(scope),
+                   scope["app"].state.config.max_upload_bytes))
         if cap is None:
             await self.app(scope, receive, send)
             return
         declared = declared_content_length(scope["headers"])
-        if declared is not None and declared <= cap:
+        if declared is not None and declared > cap:
+            await _refuse(scope, receive, send, 413, BODY_TOO_LARGE_DETAIL)
+            return
+        if declared is not None:
             await self.app(scope, receive, send)
             return
-        await self._capped(scope, receive, send, cap)
+        seen = 0
+
+        async def counted() -> Message:
+            nonlocal seen
+            message = await receive()
+            seen += len(message.get("body", b""))
+            if seen > cap:
+                raise _BodyOverCap()
+            return message
+
+        await self.app(scope, counted, send)
 
     async def _capped(self, scope: Scope, receive: Receive, send: Send,
-                      cap: int, read_timeout: float | None = None) -> None:
+                      cap: int, read_timeout: float) -> None:
         declared = declared_content_length(scope["headers"])
         if declared is not None and declared > cap:
             await _refuse(scope, receive, send, 413, BODY_TOO_LARGE_DETAIL)

@@ -643,8 +643,11 @@ class Model:
             # only the length cap can be reached (code:
             # ops_core._replay_step judges each step's splice).
             # § Planning, "Replayed text": the landing has every title
-            # the chain deleted made plain, the steps past the one over
-            # the cap included (code: ops_core.over_limit_landing_text).
+            # the chain deleted or renamed away made plain, the steps past
+            # the one over the cap included (code:
+            # ops_core.over_limit_landing_text). The machine draws no
+            # rename, so a `Rewrite` carries no retitles and `gone` is the
+            # deleted titles alone; a rename rule must add the old titles.
             gone = frozenset().union(
                 *(step.unlinked
                   for step in replay_chain(steps, unreplayed, base)[2]))

@@ -34,8 +34,7 @@ from pkm.importer.run import insert_rows
 from pkm.importer.titles import sanitize_export_titles
 from pkm.refs import title_syntax_reason
 from pkm.schema import DDL
-from pkm.server.title_migration import (BlockedTitleMigration,
-                                        apply_title_migration,
+from pkm.server.title_migration import (apply_title_migration,
                                         audit_title_migration)
 
 _MANY = {":db/valueType": ":db.type/ref",
@@ -118,11 +117,16 @@ def roam_exports(draw, heading: str = "any", refused_title: bool = False
         parent = draw(st.sampled_from(page_eids + block_eids))
         put(parent, ":block/children", eid)
         text = draw(_stored_text)
-        ref = draw(st.sampled_from(["", "uid", "title"]))
+        ref = draw(st.sampled_from(["", "uid", "title", "attribute"]))
         if ref == "uid":
             text += f" (({draw(st.sampled_from(uids))}))"
         elif ref == "title":
             text += f" [[{draw(st.sampled_from(titles))}]]"
+        elif ref == "attribute":
+            # A leading attribute whose name holds a #tag: the attribute and
+            # the tag are two refs over the same characters.
+            text = f"#{draw(st.sampled_from(titles))}:: {text}"
+            event("block text: tagged attribute")
         put(eid, ":block/uid", uid)
         put(eid, ":block/string", text)
         for label in text_labels(text):
@@ -159,12 +163,12 @@ def _import(export_value: Tagged, path, migrate: bool,
             db.execute("UPDATE blocks SET heading = 0 WHERE heading IS NULL")
         db.commit()
         if migrate:
+            # Not a refusal: sanitize_export_titles leaves no title the
+            # migration refuses, so a blocker is the importer's own bug.
             plan = audit_title_migration(db)
+            assert not plan.blockers, plan.blockers
             apply_title_migration(db, plan.digest,
                                   now_ms=int(time.time() * 1000))
-    except BlockedTitleMigration:
-        event("import refused: title migration blocked")
-        return False
     finally:
         db.close()
     return True

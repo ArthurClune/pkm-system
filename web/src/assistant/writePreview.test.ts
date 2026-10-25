@@ -145,10 +145,11 @@ describe("parseWritePreview", () => {
   });
 
   test("keeps target values of any JSON type", () => {
-    const op = { ...validOp,
-      targets: [["uid", 1], ["mark", false], ["uid", null], ["mark", { x: [1] }]] };
-    expect(parseWritePreview({ ops: [op], summary: "" })?.ops[0].targets)
-      .toEqual(op.targets);
+    for (const [uid, mark] of [[1, false], [null, { x: [1] }]]) {
+      const op = { ...validOp, targets: [["uid", uid], ["mark", mark]] };
+      expect(parseWritePreview({ ops: [op], summary: "" })?.ops[0].targets)
+        .toEqual(op.targets);
+    }
   });
 
   // The server JSON-quotes values inside a warning, but the rest of it can
@@ -212,8 +213,9 @@ describe("parseWritePreview", () => {
     expect(parsed({ ...validOp, current })?.ops[0].current).toEqual(current);
   });
 
-  test("accepts text_length above the excerpt's code points", () => {
-    const current = { ...found, excerpt: "abc", text_length: 5000 };
+  // the server clips the excerpt at CURRENT_EXCERPT_CHARS code points
+  test("accepts text_length above a clipped excerpt's code points", () => {
+    const current = { ...found, excerpt: "😀".repeat(200), text_length: 5000 };
     expect(parsed({ ...validOp, current })?.ops[0].current).toEqual(current);
   });
 
@@ -278,6 +280,12 @@ describe("parseWritePreview", () => {
     ["a target key with a bidi override", { ...validOp, targets: [["uid‮", "x"]] }],
     ["a target key spelling an escape", { ...validOp, targets: [["uid\\u0022", "x"]] }],
     ["a target key named constructor", { ...validOp, targets: [["constructor", "x"]] }],
+    // the server builds each op's rows from one dict, so a repeated key
+    // could only be a decoy row beside the real one
+    ["a repeated target key",
+      { ...validOp, targets: [["uid", "VICTIMUID01"], ["uid", "DECOYUID01"]] }],
+    ["a repeated content key",
+      { ...validOp, content: [["text", "a", 1], ["text", "b", 1]] }],
     ["a content key the action does not declare",
       { ...validOp, content: [["items", "b", 1]] }],
     ["a content key with a bidi override", { ...validOp, content: [["te‮xt", "b", 1]] }],
@@ -309,6 +317,13 @@ describe("parseWritePreview", () => {
       { ...validOp, current: { ...found, text_length: 2 ** 53 } }],
     ["a found text_length below the excerpt's code points",
       { ...validOp, current: { ...found, excerpt: "😀😀", text_length: 1 } }],
+    // the server clips at 200 code points: a longer excerpt is not its own,
+    // and a shorter one with more text left would hide part of the clip
+    ["an excerpt longer than the server's clip",
+      { ...validOp, current: { ...found, excerpt: "y".repeat(201),
+        text_length: 201 } }],
+    ["an excerpt shorter than the clip with more text left",
+      { ...validOp, current: { ...found, excerpt: "abc", text_length: 5000 } }],
     ["a block created by the first write itself",
       { ...validOp, current: created(1) }],
     ["a created block with no write", { ...validOp, current: created(undefined) }],

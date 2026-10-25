@@ -9,7 +9,8 @@
 // server's table gives it (PREVIEW_KEYS): anything else could only be a decoy
 // row beside the real target, so the whole preview is refused.
 import type { CanonicalTitle } from "../api/brands";
-import { PREVIEW_KEYS, type PreviewKeys } from "./previewKeys.gen";
+import { CURRENT_EXCERPT_CHARS, PREVIEW_KEYS, type PreviewKeys }
+  from "./previewKeys.gen";
 
 /** The existing block a write replaces, moves or deletes, as it stands when
  * the card is built. `descendants` counts the blocks a delete removes with
@@ -71,9 +72,18 @@ function parseAll<T>(raw: unknown, parse: (item: unknown, index: number) => T | 
   return out;
 }
 
-// The excerpt is the start of the text, so the whole is at least as long.
-// The page title is the one the server's title reader read the block's page
-// by, so it is canonical as sent.
+// The server builds an op's rows from one dict, so each key comes once: a
+// repeat could only be a decoy row beside the real one.
+function uniqueKeys<T extends [string, ...unknown[]]>(rows: T[] | null): T[] | null {
+  if (rows === null) return null;
+  return new Set(rows.map(([key]) => key)).size === rows.length ? rows : null;
+}
+
+// The excerpt is the server's clip of the text's start: exactly its first
+// CURRENT_EXCERPT_CHARS code points, or all of it when shorter, so "first N
+// of M" on the card is the clip the server made. The page title is the one
+// the server's title reader read the block's page by, so it is canonical as
+// sent.
 function parseFound(raw: Record<string, unknown>, counted: boolean
 ): CurrentBlock | null {
   const { excerpt, text_length, descendants } = raw;
@@ -81,7 +91,10 @@ function parseFound(raw: Record<string, unknown>, counted: boolean
     return null;
   }
   const page_title = raw.page_title as CanonicalTitle;
-  if (!isCount(text_length) || text_length < [...excerpt].length) return null;
+  if (!isCount(text_length)
+    || [...excerpt].length !== Math.min(text_length, CURRENT_EXCERPT_CHARS)) {
+    return null;
+  }
   if (counted) {
     return isCount(descendants)
       ? { state: "found", page_title, excerpt, text_length, descendants }
@@ -116,8 +129,10 @@ function parseOp(raw: unknown, index: number): PreviewOp | null {
   } else if (raw.current !== null) {
     return null;
   }
-  const targets = parseAll(raw.targets, (t) => parseTarget(t, keys.targets));
-  const content = parseAll(raw.content, (c) => parseContent(c, keys.content));
+  const targets = uniqueKeys(
+    parseAll(raw.targets, (t) => parseTarget(t, keys.targets)));
+  const content = uniqueKeys(
+    parseAll(raw.content, (c) => parseContent(c, keys.content)));
   const warnings = parseAll(raw.warnings,
     (w) => (typeof w === "string" ? escapeWarning(w) : null));
   if (targets === null || content === null || warnings === null) return null;

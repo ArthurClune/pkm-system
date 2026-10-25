@@ -16,7 +16,9 @@ symptom in [troubleshooting.md](../troubleshooting.md).
 |---|---|---|
 | `events.py` | Core | The event union routes and the web UI speak, plus `encode_sse()`. Nothing engine-specific leaks upward |
 | `policy.py` | Core | The tool gate (`READ_TOOLS` auto-allowed, `WRITE_TOOLS` confirm-gated, `MCP_ONLY_TOOLS` never offered), `MODELS`, `available_models()`, `default_model()`, `WRITE_PREVIEW_FIELDS` (which arguments of each write are targets and which are content), the system prompt |
-| `write_preview.py` | Core | `build_write_preview()`: the approval card's content for a write, or a `Refusal` |
+| `write_preview.py` | Core | `build_write_preview()`: the approval card's content for a write, or a `Refusal`; `write_target_uids()` and `delete_target_uids()`: the blocks the shell reads for it |
+| `target_reader.py` | Shell | `preview_write()`: reads those blocks through a `BlockReader` (`db_block_reader()` in production) and builds the card |
+| `preview_keys_dump.py` | Shell | Writes `web/src/assistant/previewKeys.gen.ts`, the keys each card action may carry ([generated artifacts](backend.md#generated-artifacts-and-parity-fixtures)) |
 | `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols: the seam the test double plugs into. `send()` is an async generator because the caller closes it |
 | `harness_env.py` | Core | `resolve_harness_env()`: requested model and available key → the SDK alias and the subprocess env |
 | `service.py` | Shell | `AssistantService`, the in-memory conversation registry: a cap (`max_conversations`), a lazy idle reap (`idle_ttl`), a 409 for a second concurrent turn; `close_all()` on app shutdown |
@@ -69,6 +71,9 @@ user who has had the chance to read all of it.
 | An op carries warnings for an `allow_merge` rename, a `((uid))` or `{{alias}}` parent, and a batch `update` or `move` uid | The target rows alone can mislead. An alias parent overrides the op's `page`; a uid that names no block sends the text, or a note, to today's daily note. The wording follows `plan_save`, `plan_batch` and `ops_core.classify_skip` |
 | The tool functions are imported from `pkm.mcp.tools`, not `pkm.mcp.server` | Building the server's `FastMCP` configures the root logger |
 | The card's labels (keys, action) and warnings are escaped by `parseWritePreview`; values are quoted by `quoteValue`, and a target's newlines are escaped too | A value cannot close a quote or start a line that reads as another argument. `writePreview.ts` owns the character classes |
+| Every value `<bdi>` and every warning line has `dir="ltr"` | A value that starts with an RTL letter otherwise renders reversed beside the same title quoted in a warning |
+| `parseWritePreview` gives each action only the keys, `current` state and count that `PREVIEW_KEYS` gives its label, each key once. Anything else leaves Deny only | Any other row could only be a decoy beside the real target. `previewKeys.gen.ts` is generated from `WRITE_PREVIEW_FIELDS`, `CURRENT_TEXT_ENTRIES` and `SUBTREE_DELETE_ENTRIES`, so it cannot drift; a `Map` cannot match `__proto__` |
+| `batch_aliases` (`pkm.batch`, run by `validate_batch` and `plan_batch`) refuses a reused `as`, and an alias used before or by the command that makes it | A reused name sends later references to the newer block. With one creator per name, the card can name that write by number |
 
 The browser keeps confirms in a queue. The head stays until its POST settles,
 so a second `confirm_request` never swaps the card under the cursor. The hook
@@ -83,6 +88,41 @@ scrolling ancestor. Without `IntersectionObserver` Allow never arms; Deny
 still works. Until both markers are seen, `confirmHint` says which way the
 unseen one lies: in a very short window the transcript can scroll the end
 marker past its top, and "scroll to the end" would point the wrong way.
+
+### Bounds
+
+| Limit | Of | Past it | Reason |
+|---|---|---|---|
+| `MAX_PREVIEW_OPS` (= `MAX_OPS_PER_BATCH`) | a batch's commands | a `Refusal` | `apply_batch` sends one `/api/ops` batch of at most `MAX_OPS_PER_BATCH` ops, and each command plans at least one, so a longer batch could never apply |
+| `PREVIEW_LIMIT_CHARS` | the card's target strings, content, warnings, and current page, excerpt, alias and count | a `Refusal` | The tab must render the card before the user can approve it. It counts code points, not bytes on the wire |
+| `REFUSAL_LIMIT_CHARS` | a `Refusal`'s message | cut, ending `… (N characters)` | A refusal reaches the model and the log on every retry. It backstops `pkm.echo.echo`, which quotes and clips each echoed value at `ECHO_LIMIT_CHARS` |
+
+### The blocks a write changes
+
+Each op in `CURRENT_TEXT_ENTRIES` carries a `current` block, so the user sees
+what an update, move or delete acts on, not only its uid:
+
+| `current.state` | When | The card shows |
+|---|---|---|
+| `found` | a row has the uid | `current page` (`currently on page` for a move, whose own `page` reads `to page`), then the text's first `CURRENT_EXCERPT_CHARS` code points, with `(first N of M characters)` and `…` when clipped. A delete adds `and N blocks under it` |
+| `missing` | no row has the uid, or it is malformed (never sent to SQL) | `no block has this uid`; the warnings say where the write goes instead |
+| `created` | a batch `{{alias}}` | `none yet (write N above creates it as "a")` |
+
+| Rule | Reason |
+|---|---|
+| `preview_write` reads the blocks on the server, in a thread, from one deep copy of the tool input, just before the `confirm_request`. The web fetches nothing | The tool writes the server's database, so that is the text to show. A web fetch would add a route, a loading state and a race with Allow arming |
+| `db_block_reader` reads texts, pages and delete counts in one read transaction. A failed read, or a block whose page row is missing, is a `Refusal`, never an absent entry | An absent uid is what the card shows as `missing`, so it must mean only "no row" |
+| The excerpt is a clip with `text_length` beside it, never a silent cut. `parseWritePreview` accepts only the server's exact clip (`CURRENT_EXCERPT_CHARS` is in `previewKeys.gen.ts`) | A block can hold a million characters, and "first N of M" must be the clip the server made |
+| A delete's count is one walk of `_DESCENDANTS_SQL` per target | Its cost is the sizes of nested targets' subtrees times their depth. Real outlines count in milliseconds, but a chain at `MAX_OUTLINE_DEPTH` over tens of thousands of blocks holds the card back for seconds |
+
+A card is a snapshot taken when its `confirm_request` was built, so a queued
+card can predate a write the user allows on the card ahead of it. Each
+successful Allow post adds one to every queued card's `allowedAhead`, and a
+card with a `found` or `missing` block then shows `.assistant-confirm-stale`.
+Known limit: a card the server read before an Allow but which arrives after
+it starts at 0, so the marker misses it; the window is the SSE latency.
+A re-read would mean serializing confirms on the server, losing the queue's
+"1 of 2".
 
 ## Conversation registry
 

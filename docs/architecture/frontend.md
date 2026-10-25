@@ -123,6 +123,9 @@ Tests mint through the checked helpers in `test-helpers.ts`. `sync/wire.ts`
 reads network bodies, tombstone ids (`tombstoneIdOfWire`) and WebSocket frames
 (`wsFrameOfWire`) as the contract's types; `ReplicaDb.select` does the same for
 replica rows ([sync-and-offline.md](sync-and-offline.md#reading-rows)).
+`assistant/writePreview.ts` mints the `CanonicalTitle` of an approval card's
+current page where it parses the preview: the server sends the stored
+`pages.title`, which is canonical.
 
 A title no check has run on is a `RawTitle`: request bodies, `paths.ts`'s
 `titleFromPathname`, and the op `page_title`. That op field is canonical only

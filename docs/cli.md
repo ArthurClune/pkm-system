@@ -188,9 +188,9 @@ daily page first.
 
 `as` names a created block so later commands can refer to it as
 `"parent": "{{alias}}"`, or as `"uid": "{{alias}}"` for `update`, `move` and
-`delete`. Each name can be used once per batch, and only after the command
-that makes it: a reused name, or one used earlier (or by its own command),
-fails the batch before anything is sent.
+`delete`. Each `as` name can be given once per batch, and referred to only
+after the command that makes it: a reused name, or one used earlier (or by
+its own command), fails the batch before anything is sent.
 
 A `"## Heading"` parent matches a heading at that level with that text, the
 first in document order. `create`, `todo` and `outline` create a missing one

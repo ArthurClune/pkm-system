@@ -131,7 +131,7 @@ def test_once_the_budget_runs_out_later_edits_splice_nothing(
     # but its splice is short enough to pass the cheap check for a while
     # after the budget can no longer afford it. The edit that runs the
     # budget out spends the rest, so later ones stop before splicing and
-    # measuring it: eight edits and forty cost about the same.
+    # measuring it: forty edits cost what eight do.
     copy = ("[[" * 31 + "[[T]]" + "]]" * 31) * (62_000 // 129)
     uids = [uid_of(f"rbw_deep_{i:03d}") for i in range(48)]
     originals = {uid: _history(seeded_config, copy, 1, uid) for uid in uids}
@@ -145,7 +145,8 @@ def test_once_the_budget_runs_out_later_edits_splice_nothing(
         return work, [s["reason"] for s in got[0].json()["skipped"]]
 
     (small, _), (large, skipped) = run(0, 8), run(8, 40)
-    assert large < 1.3 * small, (small, large)
+    # the 32 more edits, together, cost under a quarter of one replay
+    assert large - small < small / 8 / 4, (small, large)
     assert skipped.count("text_limit") >= 32
 
 

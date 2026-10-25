@@ -118,8 +118,8 @@ what an update, move or delete acts on, not only its uid:
 
 A card is a snapshot taken when its `confirm_request` was built, so a write
 the user allows on another card can land after it. That write may be the
-turn's own or a stopped turn's still running. The two sides mark that case
-together:
+turn's own, or a stopped or errored turn's still running. The two sides mark
+that case together:
 
 | Side | What it records |
 |---|---|

@@ -1,4 +1,5 @@
 import asyncio
+import gc
 import sys
 import threading
 import time
@@ -443,6 +444,33 @@ class TestLoginThrottle:
             throttle.end_turn("a")
 
         asyncio.run(scenario())
+        assert throttle._turns == {}
+
+    def test_a_check_that_fails_with_no_request_waiting_is_logged_once(
+            self, caplog):
+        # A request cancelled mid-check no longer awaits the check, so
+        # nothing else reads its exception: unread, asyncio reports
+        # "exception was never retrieved" when the future is collected.
+        throttle = LoginThrottle(acquire_timeout_s=5)
+        unretrieved: list[dict] = []
+
+        async def scenario() -> None:
+            loop = asyncio.get_running_loop()
+            loop.set_exception_handler(
+                lambda _, context: unretrieved.append(context))
+            assert await throttle.take_turn("a")
+            check: asyncio.Future[bool | None] = loop.create_future()
+            throttle.hand_turn_to("a", check)
+            check.set_exception(RuntimeError("check blew up"))
+            await asyncio.sleep(0)  # the done-callback runs
+            del check
+            gc.collect()
+
+        with caplog.at_level("ERROR", logger="pkm.auth"):
+            asyncio.run(scenario())
+        assert unretrieved == []
+        assert [r.exc_info[1].args for r in caplog.records
+                if r.exc_info] == [("check blew up",)]
         assert throttle._turns == {}
 
     def test_now_ms_reads_the_injected_clock(self):

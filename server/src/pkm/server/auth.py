@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import threading
 import time
 from collections.abc import Callable, Generator
@@ -47,6 +48,7 @@ SCRYPT_ACQUIRE_TIMEOUT_S = 2.0
 MAX_TRACKED_SOURCES = 10_000
 
 router = APIRouter()
+logger = logging.getLogger("pkm.auth")
 
 
 def _monotonic_ms() -> int:
@@ -130,7 +132,17 @@ class LoginThrottle:
         caller does: a request cancelled mid-check leaves the turn held
         until the check's verdict is in."""
         self._turns[source].check = check
-        check.add_done_callback(lambda _: self.end_turn(source))
+        check.add_done_callback(lambda done: self._end_check(source, done))
+
+    def _end_check(self, source: str,
+                   check: asyncio.Future[bool | None]) -> None:
+        """Ends the turn and reads the check's exception. A request
+        cancelled mid-check no longer awaits it, so unread it would surface
+        only as asyncio's "exception was never retrieved" at collection.
+        Logged even when the request is still there to answer 500 with it."""
+        self.end_turn(source)
+        if not check.cancelled() and (error := check.exception()):
+            logger.error("login check failed", exc_info=error)
 
     def _leave(self, source: str, turn: _SourceTurn) -> None:
         """Drops the entry with its last holder or waiter, so the map

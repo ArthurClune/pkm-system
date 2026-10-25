@@ -271,8 +271,9 @@ class PageDelete:
         # blockers. Unlinking only shortens, so the unlinked text needs no
         # second length judgement. The code judges the nesting there too,
         # since copies that open runs and copies that close them join into
-        # one deep link; every drawn text closes the runs it opens, so
-        # inlining never deepens a drawn text's nesting.
+        # one deep link, and the depth times the length; every drawn text
+        # closes the runs it opens, so inlining never deepens a drawn
+        # text's nesting, and no drawn text with a ref is long.
         inlined = inline_refs(text, applied)
         if len(inlined) > TEXT_CAP and len(inlined) > len(text):
             return "limit"
@@ -643,7 +644,7 @@ class Model:
             # drawn text closes the runs it opens, so its copies cannot
             # join into a deeper link and only the length cap can be
             # reached (code: ops_core._replay_step judges each step's
-            # splice on both).
+            # splice on both, and on the depth times the length).
             # § Planning, "Replayed text": the landing has every title
             # the chain deleted or renamed away made plain, the steps past
             # the one over the cap included (code:

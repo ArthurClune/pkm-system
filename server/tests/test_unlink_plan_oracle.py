@@ -6,13 +6,14 @@ its final length, and nothing else is judged (the rule before copies were
 built lazily). On, each copy counts at its projected length before deeper
 refs are blanked, and the copy text counted over all referring blocks may
 not pass the delete's budget, and a copy or a source with its copies in
-may not nest past the cap, deeper than it was, before it is unlinked (the
-rules now, which bound the work a copy that blanks to "" costs, the work
-over many referrers, and the unlink's passes, which grow with the depth).
+may not nest past the cap, deeper than it was, nor pass the unlink's
+work budget in depth times length, before it is unlinked (the rules now,
+which bound the work a copy that blanks to "" costs, the work over many
+referrers, and the unlink's passes, which grow with the depth).
 The plan must equal the eager planner with the switch on, and differ from
 it with the switch off only by refusing more sources as `limit`. Both run
-on random pages and sources under a small cap, budget and nesting cap so
-the limit paths are reached."""
+on random pages and sources under a small cap, budget, nesting cap and
+work budget so the limit paths are reached."""
 from __future__ import annotations
 
 from collections import Counter
@@ -27,7 +28,7 @@ from pkm.refs import extract, normalize_title
 from pkm.spans import splice, spliced_length
 from pkm.test_data.ids import canonical_title_of, uid_of
 from pkm.text_limits import (rewrite_nesting_violation,
-                              rewrite_text_limit_violation)
+                              rewrite_text_limit_violation, unlink_refused)
 from pkm.spans import Span
 from pkm.unlink import (DeleteBlocker, DeletePlan, SourceBlock, TitleMatch,
                         _rewrite_blocker_reason, _source_blocker_reason,
@@ -37,12 +38,16 @@ from pkm.unlink import (DeleteBlocker, DeletePlan, SourceBlock, TitleMatch,
 SMALL_CAP = 80
 SMALL_BUDGET = 60
 SMALL_NESTING = 1
+SMALL_WORK = 20
 # sources the eager planner refused for the budget alone, for the reach
-# count below; those it refused for the nesting before unlinking; and of
-# those, the ones refused for a page block's own copy
+# count below; those it refused for the nesting or the unlink's work
+# before unlinking; of those, the ones refused for a page block's own
+# copy, and the ones only the work refused
 BUDGET_REFUSALS: list[BlockUid] = []
 NESTING_REFUSALS: list[BlockUid] = []
 COPY_NESTING_REFUSALS: list[BlockUid] = []
+WORK_REFUSALS: list[BlockUid] = []
+
 PAGE_UIDS = [uid_of("pgblkAAA1"), uid_of("pgblkBBB2"), uid_of("pgblkCCC3")]
 
 
@@ -52,7 +57,8 @@ def _eager_copies(
            frozenset[BlockUid]]:
     """The copies, the uids over the length cap (never built), each copy's
     projected length, and the uids whose spliced copy nests past the cap
-    deeper than the block (built and unlinked here all the same)."""
+    deeper than the block or passes the work budget (built and unlinked
+    here all the same)."""
     plain = {uid: plain_copy(text) for uid, text in page_blocks.items()}
     blanks = {uid: "" for uid in page_blocks}
     copies: dict[BlockUid, str] = {}
@@ -67,7 +73,7 @@ def _eager_copies(
             continue
         text = splice(plain[uid], spans)
         text = inline_block_refs(text, blanks)
-        if rewrite_nesting_violation(plain[uid], text) is not None:
+        if unlink_refused(plain[uid], text):
             deep.add(uid)
         copies[uid] = unlink_title_refs(text, is_target)
     return copies, frozenset(oversized), projected, frozenset(deep)
@@ -137,10 +143,12 @@ def _eager_plan(
         pre = splice(source.text, spans)
         if count_projected and (
                 any(u in deep for u in referenced)
-                or rewrite_nesting_violation(source.text, pre) is not None):
+                or unlink_refused(source.text, pre)):
             NESTING_REFUSALS.append(source.uid)
             if any(u in deep for u in referenced):
                 COPY_NESTING_REFUSALS.append(source.uid)
+            elif rewrite_nesting_violation(source.text, pre) is None:
+                WORK_REFUSALS.append(source.uid)
             blockers.append(
                 DeleteBlocker(source.uid, source.page_title, source.text,
                               "limit"))
@@ -237,10 +245,12 @@ def test_the_lazy_plan_equals_the_eager_one(monkeypatch):
         BUDGET_REFUSALS.clear()
         NESTING_REFUSALS.clear()
         COPY_NESTING_REFUSALS.clear()
+        WORK_REFUSALS.clear()
         expected = _eager_plan(is_t, page, sources, count_projected=True)
         seen["budget"] += bool(BUDGET_REFUSALS)
         seen["nesting"] += bool(NESTING_REFUSALS)
         seen["copy_nesting"] += bool(COPY_NESTING_REFUSALS)
+        seen["work"] += bool(WORK_REFUSALS)
         plan = plan_page_delete(is_t, page, sources)
         assert plan == expected
         # against the rule before: only more `limit` refusals
@@ -269,10 +279,11 @@ def test_the_lazy_plan_equals_the_eager_one(monkeypatch):
     monkeypatch.setattr(text_limits, "MAX_BLOCK_TEXT_CHARS", SMALL_CAP)
     monkeypatch.setattr(unlink, "MAX_DELETE_COPY_CHARS", SMALL_BUDGET)
     monkeypatch.setattr(text_limits, "MAX_LINK_NESTING", SMALL_NESTING)
+    monkeypatch.setattr(text_limits, "MAX_UNLINK_WORK", SMALL_WORK)
     prop()
     # About half the lowest rate seen over unseeded runs: a shape never
     # drawn would let the two planners differ there unseen.
     for shape, share in {"limit": 0.24, "inlined": 0.11, "unblocked": 0.3,
                          "stricter": 0.02, "budget": 0.025, "nesting": 0.02,
-                         "copy_nesting": 0.006}.items():
+                         "copy_nesting": 0.006, "work": 0.01}.items():
         assert seen[shape] > seen["cases"] * share, (shape, seen[shape], seen["cases"])

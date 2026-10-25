@@ -37,8 +37,7 @@ from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        stale_page_move_note)
 from pkm.spans import splice, spliced_length
 from pkm.text_limits import (TextLimitViolation, describe_text_limit,
-                              rewrite_nesting_violation,
-                              text_limit_violation)
+                              text_limit_violation, unlink_refused)
 from pkm.unlink import (TitleMatch, block_ref_spans, defuse_attribute,
                         unlink_stale_refs, unlink_title_refs)
 
@@ -240,8 +239,9 @@ def replay_title_rewrites(
     (`X:: v` becomes `` `X`:: v ``), so the replayed text never re-creates it.
 
     The text is None when a step would grow it past the length cap, or
-    nest its copies past the nesting cap (`_replay_step`);
-    `classify_text_edit` then lands the edit as sent.
+    nest its copies past the nesting cap or make their unlink too much
+    work (`_replay_step`); `classify_text_edit` then lands the edit as
+    sent.
     """
     replayed, base_hash, _ = _replay(text, base_hash, rewrites, canonical)
     return replayed, base_hash
@@ -258,9 +258,11 @@ def _replay_step(text: str, step: RewriteStep,
     `defuse_attribute` adds; the caller judges what comes out.
 
     Also None when the spliced text nests past `MAX_LINK_NESTING`, deeper
-    than the step found it, judged before the unlink: copies that each
-    nest within the cap can join into one deep link, and the unlink's
-    passes grow with the depth (`unlink.unlink_title_refs`)."""
+    than the step found it, or its depth times its length passes
+    `text_limits.MAX_UNLINK_WORK`, judged before the unlink
+    (`text_limits.unlink_refused`): copies that each nest within the cap
+    can join into one deep link, and the unlink's passes grow with the
+    depth (`unlink.unlink_title_refs`)."""
     entering = text
     if step.retitles:
         spans = title_ref_spans(
@@ -283,7 +285,7 @@ def _replay_step(text: str, step: RewriteStep,
         if spliced_length(text, spans) > MAX_BLOCK_TEXT_CHARS:
             return None
         spliced = splice(text, spans)
-        if rewrite_nesting_violation(entering, spliced) is not None:
+        if unlink_refused(entering, spliced):
             return None
         text = defuse_attribute(
             unlink_title_refs(spliced, is_deleted), is_deleted)

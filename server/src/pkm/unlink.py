@@ -12,9 +12,10 @@ rewrite that would still reference the page, and one whose inlined copies
 would put the block over a text limit are reported as blockers instead.
 The length limit is judged on the inlined text before unlinking, from the
 splice's projected length, so a copy too long to store is never built. The
-nesting limit is judged on the spliced text before unlinking too, a page
-block's copy and each source with its copies in, since the unlink's passes
-grow with the depth (`unlink_title_refs`).
+nesting limit and the unlink's work are judged on the spliced text before
+unlinking too, a page block's copy and each source with its copies in
+(`text_limits.unlink_refused`), since the unlink's passes grow with the
+depth (`unlink_title_refs`).
 The stale path (`unlink_stale_refs`) has no blockers to report, so
 `defuse_attribute` fences a leading attribute naming the page in backticks.
 """
@@ -39,8 +40,7 @@ from pkm.refs import (
     tag_spans,
 )
 from pkm.spans import Span, splice, spliced_length
-from pkm.text_limits import (rewrite_nesting_violation,
-                              rewrite_text_limit_violation)
+from pkm.text_limits import rewrite_text_limit_violation, unlink_refused
 from pkm.todo import with_state
 
 # Given a title as written, is it the deleted page.
@@ -50,10 +50,10 @@ TitleMatch = Callable[[str], bool]
 # each copy at its projected length once per place it lands. It bounds the
 # copy work a delete does under the write lock however many blocks refer to
 # the page. The rest grows with the page's and the referrers' own text and
-# the copy text counted, times the unlink's passes, which the nesting
-# judgement holds to the cap or the source's own depth. It sits far above
-# what a page written by hand needs; a referrer past it is refused as
-# `limit`.
+# the copy text counted, times the unlink's passes, and each text unlinked
+# is held to `text_limits.MAX_UNLINK_WORK` in depth times length. It sits
+# far above what a page written by hand needs; a referrer past it is
+# refused as `limit`.
 MAX_DELETE_COPY_CHARS: Final = 4 * MAX_BLOCK_TEXT_CHARS
 
 _NEWLINE_RUN = re.compile(r"[ \t\r]*\n\s*")
@@ -245,7 +245,8 @@ def apply_delete_rewrite(
 # the projected inlined text before unlinking, and a page block whose own
 # copy would pass the cap blocks every block that refers to it, as does a
 # block whose copies would carry the delete past MAX_DELETE_COPY_CHARS.
-# The nesting is judged next, also before unlinking, on each copy and on
+# The nesting and the unlink's work are judged next
+# (text_limits.unlink_refused), also before unlinking, on each copy and on
 # the source with its copies in.
 BlockerReason = Literal["query", "used_as_attribute", "attribute", "residual",
                         "limit"]
@@ -310,14 +311,15 @@ class _Copies:
 
     def get(self, uid: BlockUid) -> str | None:
         """The copy of page block `uid`, or None when the blocks it splices
-        in nest it past the cap, deeper than the block itself, before it is
-        unlinked. Callers judge `projected` first."""
+        in nest it past the cap, deeper than the block itself, or make its
+        unlink too much work (`text_limits.unlink_refused`), judged before
+        it is unlinked. Callers judge `projected` first."""
         if uid not in self._built:
             self.projected(uid)
             text = splice(self._plain[uid], self._spans[uid])
             text = inline_block_refs(text, self._blanks)
-            deep = rewrite_nesting_violation(self._plain[uid], text)
-            self._built[uid] = None if deep is not None else \
+            refused = unlink_refused(self._plain[uid], text)
+            self._built[uid] = None if refused else \
                 unlink_title_refs(text, self._is_target)
         return self._built[uid]
 
@@ -397,7 +399,7 @@ def _copy_length(
 def _built_copies(
     referenced: Sequence[BlockUid], copies: _Copies,
 ) -> dict[BlockUid, str] | None:
-    """Each referenced block's copy, or None when one nests past the cap
+    """Each referenced block's copy, or None when one is refused
     (`_Copies.get`)."""
     applied: dict[BlockUid, str] = {}
     for uid in referenced:
@@ -454,8 +456,7 @@ def plan_page_delete(
         applied = _built_copies(referenced, copies)
         pre = "" if applied is None else \
             inline_block_refs(source.text, applied)
-        if applied is None or \
-                rewrite_nesting_violation(source.text, pre) is not None:
+        if applied is None or unlink_refused(source.text, pre):
             blockers.append(
                 DeleteBlocker(source.uid, source.page_title, source.text,
                               "limit"))

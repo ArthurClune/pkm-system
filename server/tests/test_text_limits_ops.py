@@ -14,6 +14,7 @@ from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, BlockUid, OrderIdx,
 from pkm.server import db as db_module
 from pkm.server.db import open_db
 from pkm.server.store import reindex_refs_for_text
+from pkm.server.sync_meta import set_plain_space_title_canonicalization
 from pkm.test_data.ids import (batch_id_of, client_id_of, order_idx_of,
                                uid_of)
 
@@ -346,3 +347,32 @@ def test_an_over_limit_replay_unlinks_titles_past_the_step_it_stopped_at(
     assert client.get("/api/page/Old").status_code == 404
     [(_, [landed])] = _today_conflicts(client)
     assert landed == "RpX " + "Old " * 1000
+
+
+def _plain_space_titles(config) -> None:
+    con = open_db(config.db_path)
+    try:
+        set_plain_space_title_canonicalization(con, True)
+        con.commit()
+    finally:
+        con.close()
+
+
+def test_an_over_limit_replay_unlinks_a_padded_renamed_away_title(
+        client, seeded_config):
+    # Under plain-space titles `[[ Old ]]` is the page Old, as the rename
+    # that retitled it matched. The landing must match it the same way.
+    _plain_space_titles(seeded_config)
+    _page(client)
+    referrer = uid_of("rp_ref_0004")
+    original = "[[Old]] " * 900
+    assert _post(client, _create(referrer, original)).status_code == 200
+    r = client.post("/api/page/Old/rename", json={"new_title": "n" * 1000})
+    assert r.status_code == 200, r.text[:500]
+
+    _replay_skipped_over_limit(client, referrer, original,
+                               "[[Old]] " * 1000 + "[[ Old ]]")
+
+    assert client.get("/api/page/Old").status_code == 404
+    [(_, [landed])] = _today_conflicts(client)
+    assert landed == "Old " * 1000 + " Old "

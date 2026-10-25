@@ -1344,6 +1344,25 @@ def test_stale_edit_of_a_padded_link_stays_unlinked_under_plain_space(
     assert client.get("/api/page/conflict").status_code == 404
 
 
+def test_stale_edit_replays_a_rename_over_a_padded_link_under_plain_space(
+        client, seeded_config):
+    # The rename matched `[[ AI ]]` as the page AI; its replay must too.
+    con = connect(seeded_config.db_path)
+    con.execute("UPDATE sync_meta SET value = '1'"
+                " WHERE key = 'plain_space_title_canonicalization'")
+    con.commit()
+    con.close()
+    _rename(client, "AI", "Artificial Intelligence")
+
+    _stale_push(client, STALE_BASE, text="Tags:: #AI and [[ AI ]]")
+
+    assert _ml_texts(client)[0] == (
+        "Tags:: #[[Artificial Intelligence]]"
+        " and [[Artificial Intelligence]]")
+    assert client.get("/api/page/AI").status_code == 404
+    assert client.get("/api/page/conflict").status_code == 404
+
+
 def test_rewrite_records_are_pruned_past_the_retention_window(
         client, seeded_config):
     from pkm.server.db import open_db

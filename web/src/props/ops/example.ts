@@ -17,10 +17,11 @@
 //              does, and is then the server's graph exactly, minted rows
 //              included; the next step starts from it, so nothing check 3
 //              tolerates carries into a later step;
-//   rejection  enqueueBatch refuses a batch for its title syntax or a text
-//              past a limit (a guarded refusal) exactly when the server
-//              does, and for the same guard (a text limit with the same
-//              reason, word for word); a command batch both refuse for the
+//   rejection  enqueueBatch refuses a batch for its title syntax, a title
+//              past the title cap or a text past a limit (a guarded
+//              refusal) exactly when the server does, and for the same
+//              guard (a title length or a text limit with the same reason,
+//              word for word); a command batch both refuse for the
 //              same guard is tallied and ends the example (the editor's
 //              run() refuses it before enqueue), and any other refusal of
 //              one is a failure. A seed the server refuses for a text limit
@@ -100,7 +101,8 @@ export function newTally(): Tally {
     others: { windows: 0, rejected: 0 },
     skipped: {},
     reloads: 0,
-    rejections: { "title syntax": 0, "text limit": 0, other: 0 },
+    rejections: { "title syntax": 0, "title length": 0, "text limit": 0,
+                  other: 0 },
     commandGuardRefused: 0,
   };
 }
@@ -126,9 +128,10 @@ export function showTally(t: Tally): string {
     `  skipped ops: ${row(t.skipped)}`,
     `  pages set aside for an authoritative reload: ${t.reloads}`,
     `  rejections: title syntax ${t.rejections["title syntax"]},` +
+      ` title length ${t.rejections["title length"]},` +
       ` text limit ${t.rejections["text limit"]}, other ${t.rejections.other}`,
-    "  command batches both sides refused for title syntax or a text limit:" +
-      ` ${t.commandGuardRefused}`,
+    "  command batches both sides refused for title syntax, title length" +
+      ` or a text limit: ${t.commandGuardRefused}`,
   ].join("\n");
 }
 
@@ -136,26 +139,34 @@ const harness = (what: string): Error => new Error(`harness: ${what}`);
 
 type Posted = { status: 200; ack: OpsAck } | { status: 400; reason: string };
 
-type RejectionCause = "title syntax" | "text limit" | "other";
+type RejectionCause = "title syntax" | "title length" | "text limit"
+  | "other";
 
+// The tail of describe_title_length's wording, the server's and
+// enqueueBatch's alike. Tested before TEXT_LIMIT, which also matches it.
+const TITLE_LENGTH = /title of \d+ characters is over the limit of \d+$/;
 // The tail of describe_text_limit's wording, the server's and
 // enqueueBatch's alike.
 const TEXT_LIMIT = /(?:characters|levels deep) is over the limit of \d+$/;
 
 /** Why a batch was refused, from the server's 400 reason or enqueueBatch's
- * LocalOpError message. Title syntax and the text limits are the guards
- * both sides apply; anything else only the server knows. */
+ * LocalOpError message. Title syntax, the title cap and the text limits are
+ * the guards both sides apply; anything else only the server knows. */
 const causeOf = (reason: string): RejectionCause =>
-  TEXT_LIMIT.test(reason) ? "text limit"
+  TITLE_LENGTH.test(reason) ? "title length"
+    : TEXT_LIMIT.test(reason) ? "text limit"
     : reason.includes("title syntax") ? "title syntax" : "other";
 
 /** Did enqueueBatch refuse for the guard the server's 400 names? Title
  * syntax is worded differently on the two sides, so the cause decides; a
- * text limit is `block <uid>: <limit>` on both, so the words must match,
- * which also catches the two refusing different ops of one batch. */
+ * title length is `<source> title of …` and a text limit `block <uid>:
+ * <limit>` on both, so the words must match, which also catches the two
+ * refusing different ops of one batch. */
 const sameGuard = (refused: LocalOpError, reason: string): boolean => {
   const cause = causeOf(reason);
-  if (cause === "text limit") return refused.message === reason;
+  if (cause === "text limit" || cause === "title length") {
+    return refused.message === reason;
+  }
   return cause !== "other" && causeOf(refused.message) === cause;
 };
 

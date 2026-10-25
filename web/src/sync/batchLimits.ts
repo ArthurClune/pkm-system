@@ -5,6 +5,7 @@
 // notice instead of queueing one. shared/fixtures/batch_limits.json pins
 // both limits equal to the server's.
 import type { BlockOp } from "../api/ops";
+import { MAX_PAGE_TITLE_CHARS } from "../grammar/titleLength";
 
 export const MAX_OPS_PER_BATCH = 500;
 export const PRIVATE_BODY_MAX_BYTES = 67_108_864;
@@ -13,15 +14,24 @@ export const BATCH_TOO_LARGE_NOTICE =
 
 /** JSON escapes one code point to at most six bytes. */
 const MAX_ESCAPED_BYTES_PER_UNIT = 6;
-/** What the queue stamps onto each op (hashes, `page_title`). */
-const STAMP_BYTES_PER_OP = 1_024;
+/** What the queue stamps onto each op after this judge: hashes, and an
+ * `update_text`'s `page_title`, which may be a title at the cap whose
+ * every code point escapes to six bytes. */
+const STAMP_BYTES_PER_OP =
+  MAX_ESCAPED_BYTES_PER_UNIT * MAX_PAGE_TITLE_CHARS + 1_024;
 /** The batch envelope around the ops. */
 const ENVELOPE_BYTES = 4_096;
 
 const utf8 = new TextEncoder();
 
+/** The UTF-16 units of the op's free text: its `text`, and a `page_title`
+ * it already carries, which may be longer than the cap (an update_text
+ * hint is never judged). */
 function textLength(op: BlockOp): number {
-  return "text" in op && typeof op.text === "string" ? op.text.length : 0;
+  const text = "text" in op && typeof op.text === "string" ? op.text.length : 0;
+  const title = "page_title" in op && typeof op.page_title === "string"
+    ? op.page_title.length : 0;
+  return text + title;
 }
 
 /** Which limit the batch is over, or null when the server would take it.

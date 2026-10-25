@@ -13,7 +13,9 @@ import { useConfirm } from "../components/ConfirmDialog";
 import type { OutlineDndApi } from "../dnd/DndContext";
 import { findOpTextLimitViolation,
          textLimitNotice } from "../grammar/textLimits";
+import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
 import { toggleTodo } from "../grammar/todo";
+import { findOpTitleViolation } from "../replica/titles";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { BATCH_TOO_LARGE_NOTICE,
          findBatchSizeViolation } from "../sync/batchLimits";
@@ -88,7 +90,9 @@ export interface Outline {
 
 /** Why `result` must not apply, or null when it may: the depth cap first,
  * then the text limits of the texts its ops would store, then the size of
- * the whole batch (the draft's `textOps` ship with it). */
+ * the whole batch (the draft's `textOps` ship with it), then a title past
+ * the title cap, which the server refuses the whole batch for. A
+ * forbidden-syntax title is left to the queue's refusal. */
 function commandRefusal(result: EditResult,
                         textOps: readonly BlockOp[]): string | null {
   if (findDepthViolation(result.blocks, result.ops) !== null) {
@@ -96,8 +100,10 @@ function commandRefusal(result: EditResult,
   }
   const overLimit = findOpTextLimitViolation(result.ops);
   if (overLimit !== null) return textLimitNotice(overLimit.violation);
-  return findBatchSizeViolation([...textOps, ...result.ops]) === null
-    ? null : BATCH_TOO_LARGE_NOTICE;
+  const batch = [...textOps, ...result.ops];
+  if (findBatchSizeViolation(batch) !== null) return BATCH_TOO_LARGE_NOTICE;
+  return findOpTitleViolation(batch)?.reason === "too_long"
+    ? TITLE_LENGTH_NOTICE : null;
 }
 
 export function useOutline(

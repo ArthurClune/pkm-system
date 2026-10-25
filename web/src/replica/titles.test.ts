@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { TITLE_WHITESPACE } from "../grammar/titleWhitespace.gen";
-import { asRawTitle, canonicalizeTitle, findOpTitleViolation,
-         titleSyntaxReason } from "./titles";
+import { asRawTitle, canonicalizeTitle, describeOpTitleViolation,
+         findOpTitleViolation, titleSyntaxReason } from "./titles";
 import type { CanonicalTitle, NormalizedTitle, RawTitle } from "../api/brands";
 import type { components } from "../api/types";
 import {
@@ -91,6 +91,58 @@ describe("findOpTitleViolation", () => {
       opIndex: 0, source: "reference", title: "Outer [[New #Old]]",
       reason: "forbidden_syntax",
     });
+  });
+});
+
+const titleLength = JSON.parse(readFileSync(new URL(
+  "../../../shared/fixtures/title_length.json", import.meta.url,
+), "utf-8")) as {
+  texts: { name: string; parts: [string, number][]; violation: number | null;
+           op_describe?: string }[];
+};
+
+const partsText = (parts: readonly [string, number][]): string =>
+  parts.map(([piece, times]) => piece.repeat(times)).join("");
+
+describe("findOpTitleViolation and the title length cap", () => {
+  test.each(titleLength.texts)("refuses the linked title of $name as the "
+    + "fixture says", (c) => {
+    const violation = findOpTitleViolation([
+      { op: "create", uid: uidOf("fixture_001"),
+        page_title: rawTitleOf("Fixture"), parent_uid: null,
+        order_idx: orderIdxOf(0), text: partsText(c.parts) },
+    ]);
+    if (c.violation === null) {
+      expect(violation).toBeNull();
+      return;
+    }
+    expect(violation?.reason).toBe("too_long");
+    expect(violation && describeOpTitleViolation(violation))
+      .toBe(c.op_describe);
+  });
+
+  test("refuses a page title over the cap for length before syntax", () => {
+    const violation = findOpTitleViolation([
+      { op: "create_page", page_title: rawTitleOf(`#${"t".repeat(1001)}`) },
+    ]);
+    expect(violation?.reason).toBe("too_long");
+    expect(violation && describeOpTitleViolation(violation)).toBe(
+      "page_title title of 1002 characters is over the limit of 1000");
+  });
+
+  test("never judges an update_text page_title hint", () => {
+    expect(findOpTitleViolation([
+      { op: "update_text", uid: uidOf("uid_b4"), text: "edited",
+        page_title: rawTitleOf("t".repeat(1001)) },
+    ])).toBeNull();
+  });
+
+  test("words a syntax refusal as before", () => {
+    const violation = findOpTitleViolation([
+      { op: "create_page", page_title: rawTitleOf("New #Old") },
+    ]);
+    expect(violation && describeOpTitleViolation(violation)).toBe(
+      'unsupported page_title title syntax: "New #Old"');
   });
 });
 

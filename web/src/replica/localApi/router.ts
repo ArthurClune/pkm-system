@@ -12,6 +12,7 @@ import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
 import { canonicalTitle } from "../meta";
 import { enqueueBatch } from "../queue";
+import { describeTitleLength, titleLengthOver } from "../../grammar/titleLength";
 import { isBlankTitle, titleSyntaxReason } from "../titles";
 import { journalPayload } from "./journal";
 import { blockBacklinks, currentWorkPayload, fetchPage, pagePayload,
@@ -97,10 +98,15 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
                             Number(q.get("limit") ?? 20), exact));
   }
   if (method === "POST" && path === "/api/pages") {
-    const pageTitle = canonicalTitle(db, bodyText(req.body, "title"));
+    const sent = bodyText(req.body, "title");
+    const pageTitle = canonicalTitle(db, sent);
     if (isBlankTitle(pageTitle)) {
       return err(422, "title must not be blank");
     }
+    // On the title as sent, as the server's route judges it, and before
+    // the syntax check, whose detail echoes the title.
+    const measured = titleLengthOver(sent);
+    if (measured !== null) return err(422, describeTitleLength(measured));
     if (titleSyntaxReason(pageTitle) !== null) {
       return err(422,
                  `unsupported page-title syntax: ${JSON.stringify(pageTitle)}`);

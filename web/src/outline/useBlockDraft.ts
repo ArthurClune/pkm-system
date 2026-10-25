@@ -16,6 +16,8 @@
 import { useEffect, useLayoutEffect, useRef, useState,
          type MutableRefObject } from "react";
 import { textLimitNotice, textLimitViolation } from "../grammar/textLimits";
+import { linkedTitleLengthOver,
+         TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
 import { clampCaret, refusedEditCaret } from "./edits";
 import type { ResumedDraft } from "./handlers";
 import { heightChanged, mayHaveShrunk } from "./textareaHeight";
@@ -60,7 +62,8 @@ export interface BlockDraftOptions {
   /** Called when committed text is adopted over the draft: the replacement
    * text invalidates any offset into the old text the caller remembered. */
   onAdopt(): void;
-  /** An edit was refused for a text limit; `notice` says which. */
+  /** An edit was refused for a text limit or for a link to a title past
+   * the title cap; `notice` says which. */
   onRefused(notice: string): void;
 }
 
@@ -72,10 +75,11 @@ export interface BlockDraft {
   /** Record what the user typed (the change event). No caret placement — the
    * browser has already put the caret where it belongs. */
   typed(text: string, holdFlush: boolean): void;
-  /** May the draft become `next`? False when `next` is past a text limit:
-   * the refusal is reported (onRefused) and the draft is unchanged. When the
-   * textarea already shows `next` (a typed change), the caret goes back to
-   * where the refused text first differs from the draft's. */
+  /** May the draft become `next`? False when `next` is past a text limit
+   * or links a title past the title cap: the refusal is reported
+   * (onRefused) and the draft is unchanged. When the textarea already shows
+   * `next` (a typed change), the caret goes back to where the refused text
+   * first differs from the draft's. */
   admit(next: string): boolean;
   /** Replace the draft programmatically (key edit, completion, /date
    * insertion) and restore `selStart..selEnd` once React has committed the
@@ -224,9 +228,12 @@ export function useBlockDraft(
   };
 
   const admit = (next: string): boolean => {
+    // The text limits first: the ref scan must never read past them.
     const violation = textLimitViolation(next);
-    if (violation === null) return true;
-    onRefused(textLimitNotice(violation));
+    const notice = violation !== null ? textLimitNotice(violation)
+      : linkedTitleLengthOver(next) !== null ? TITLE_LENGTH_NOTICE : null;
+    if (notice === null) return true;
+    onRefused(notice);
     const el = ref.current;
     if (el && el.value === next) {
       // The browser has already put the refused text in the textarea and

@@ -38,3 +38,30 @@ it("a large batch of plain text under the cap is not refused", () => {
   const ops = Array.from({ length: 12 }, (_, i) => createOp(i, text));
   expect(findBatchSizeViolation(ops)).toBeNull();
 });
+
+// A page title is at most 1,000 code points, which JSON can escape to six
+// bytes each: more than the old per-op allowance of 1,024 bytes.
+const ESCAPED_TITLE = "\u0001".repeat(1_000);
+const textBytesJustUnder = (ops: number): number =>
+  Math.floor((PRIVATE_BODY_MAX_BYTES - ops * 1_024 - 4_096 - 6) / 6);
+
+it("a batch whose titles escape past the old allowance is not under-counted",
+   () => {
+  const each = Math.floor(textBytesJustUnder(500) / 500);
+  const ops: BlockOp[] = Array.from({ length: 500 }, (_, i) => ({
+    op: "create", uid: uidOf(`tuid-b${i}`),
+    page_title: canonicalTitleOf(ESCAPED_TITLE), parent_uid: null,
+    order_idx: orderIdxOf(i), text: "\u0001".repeat(each),
+  }));
+  expect(findBatchSizeViolation(ops)).toBe("bytes");
+});
+
+it("the allowance covers a title the queue stamps at the cap", () => {
+  // No title in the ops: the queue stamps update_text's page_title later.
+  const each = Math.floor(textBytesJustUnder(500) / 500);
+  const ops: BlockOp[] = Array.from({ length: 500 }, (_, i) => ({
+    op: "update_text", uid: uidOf(`tuid-b${i}`),
+    text: "\u0001".repeat(each),
+  }));
+  expect(findBatchSizeViolation(ops)).toBe("bytes");
+});

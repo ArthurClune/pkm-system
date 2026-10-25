@@ -25,7 +25,7 @@ import { parsePendingOps } from "./pendingOps";
 import { recordEnqueue } from "./replayLog";
 import { sha256Hex } from "./sha256";
 import { subtreeHash } from "./subtreeHash";
-import { findOpTitleViolation } from "./titles";
+import { describeOpTitleViolation, findOpTitleViolation } from "./titles";
 import { wellFormedOps } from "./wellFormed";
 
 const currentText = (db: ReplicaDb, uid: BlockUid): string | null => {
@@ -78,10 +78,7 @@ export function enqueueBatch(db: ReplicaDb, sent: BlockOp[], nowMs: number,
   }
   const violation = findOpTitleViolation(ops);
   if (violation !== null) {
-    throw new LocalOpError(
-      `unsupported ${violation.source} title syntax: ${JSON.stringify(violation.title)}`,
-      violation,
-    );
+    throw new LocalOpError(describeOpTitleViolation(violation), violation);
   }
   if (ops.length > 0) {
     db.transaction(() => {

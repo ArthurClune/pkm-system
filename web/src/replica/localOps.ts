@@ -25,8 +25,9 @@ import { existingLocalPageId, localPageTitle, pageIdByTitle } from "./pageLookup
 import { type Placement, type PlacementFacts, placementFor } from "./placement";
 import { recordBlocks, recordPage, recordSiblingsFrom } from "./replayLog";
 import type { FreedPages } from "./rewind";
-import { findOpTitleViolation, type OpTitleViolation,
-         titleSyntaxReason } from "./titles";
+import { describeTitleLength, titleLengthOver } from "../grammar/titleLength";
+import { describeOpTitleViolation, findOpTitleViolation,
+         type OpTitleViolation, titleSyntaxReason } from "./titles";
 
 export class LocalOpError extends Error {
   /** Read by serveRpc onto the wire error: this is the replica refusing the OP,
@@ -49,10 +50,7 @@ export class LocalOpError extends Error {
 }
 
 const titleViolationError = (violation: OpTitleViolation): LocalOpError =>
-  new LocalOpError(
-    `unsupported ${violation.source} title syntax: ${JSON.stringify(violation.title)}`,
-    violation,
-  );
+  new LocalOpError(describeOpTitleViolation(violation), violation);
 
 /** The batch a page mint is recorded under, and the ids a window's rewind
  * freed by title. */
@@ -71,6 +69,10 @@ export function getOrCreateLocalPage(db: ReplicaDb, requested: RawTitle,
   }
   const existing = pageIdByTitle(db, title);
   if (existing !== null) return existing;
+  // Judged on a miss only, as the server's store does: a page stored
+  // before the cap is still found, so its links keep their backlinks.
+  const measured = titleLengthOver(title);
+  if (measured !== null) throw new LocalOpError(describeTitleLength(measured));
   const reuse = record?.freed?.get(title);
   const next = reuse !== undefined
       && db.select("SELECT 1 AS n FROM pages WHERE id = ?", ["n"], [reuse]).length === 0

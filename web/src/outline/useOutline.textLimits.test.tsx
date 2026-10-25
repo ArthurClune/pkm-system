@@ -9,6 +9,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { LINK_NESTING_NOTICE,
          TEXT_LENGTH_NOTICE } from "../grammar/textLimits";
+import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, canonicalTitleOf, makeSync, orderIdxOf, type SyncFake,
@@ -104,6 +105,20 @@ it("an outline paste with one line past the length cap applies nothing",
   expect(sync.sent).toEqual([]);
   expect(outline().blocks).toEqual(before);
   expect(outline().editNotice).toBe(TEXT_LENGTH_NOTICE);
+});
+
+it("an outline paste with a line linking a title past the cap applies "
+   + "nothing", () => {
+  const sync = makeSync();
+  const outline = setup(sync);
+  const before = outline().blocks;
+
+  act(() => outline().handlers.onPasteOutline(
+    uidOf("tuid-small"), 5, 5, `a\nsee [[${"t".repeat(1001)}]]`));
+
+  expect(sync.sent).toEqual([]);
+  expect(outline().blocks).toEqual(before);
+  expect(outline().editNotice).toBe(TITLE_LENGTH_NOTICE);
 });
 
 it("a refused command still ships and applies the block's draft", () => {

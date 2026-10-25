@@ -54,6 +54,7 @@ from pkm.server.db import init_db, open_db
 from pkm.server.notify import Frame, OpsFrame
 from pkm.server.ops_apply import apply_batch
 from pkm.server.ops_core import (Effect, OpTextLimitViolation, RewriteStep,
+                                 StepKey,
                                  find_op_text_limit_violation, judge_batch,
                                  rewrite_effects)
 from pkm.server.run import serve as serve_as_production
@@ -238,10 +239,13 @@ def _rewrite_effects_with_teeth(original: BlockOp, planned: tuple[Effect, ...],
                                 stale: Collection[CanonicalTitle],
                                 canonical: Callable[[str], str],
                                 replayed: Sequence[RewriteStep] = (),
-                                settled: str | None = None) -> tuple[Effect, ...]:
+                                settled: str | None = None,
+                                known: Mapping[StepKey, str] | None = None,
+                                ) -> tuple[Effect, ...]:
     if _rewrite_teeth["drop_replayed"]:
         replayed = ()
-    return rewrite_effects(original, planned, stale, canonical, replayed, settled)
+    return rewrite_effects(original, planned, stale, canonical, replayed,
+                           settled, known)
 
 
 # Harness-only teeth for the ops property's "rejection" check. With "off",

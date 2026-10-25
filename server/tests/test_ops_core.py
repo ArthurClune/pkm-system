@@ -1514,7 +1514,7 @@ def _replay_effects(sent_text, base_text, rewrites, current, stale=()):
     planned = (() if outcome.kind == "identical"
                else (UpdateText(_U1, outcome.text),))
     return rewrite_effects(sent, planned, stale, normalize_title,
-                           outcome.replayed, outcome.text)
+                           outcome.replayed, outcome.text, outcome.known)
 
 
 def test_rewrite_effects_chain_each_replayed_step_from_the_sent_text():

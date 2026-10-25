@@ -189,6 +189,19 @@ def _unlink_pass(text: str, is_target: TitleMatch,
     return splice(text, spans)
 
 
+# The passes `unlink_settled` may make past the text's `[[` depth: two that
+# change it, and one that finds nothing.
+PASSES_PAST_DEPTH: Final = 3
+
+
+def unlink_reads(text: str) -> int:
+    """The most characters unlinking `text` reads: the passes the cap
+    allows (`unlink_settled`) times the length. Linear; a text with no
+    `[[` skips the depth measure."""
+    depth = link_nesting_depth(text) if "[[" in text else 0
+    return (depth + PASSES_PAST_DEPTH) * len(text)
+
+
 def unlink_settled(text: str, is_target: TitleMatch) -> tuple[str, bool]:
     """`unlink_title_refs`, and whether its last pass found nothing left to
     unlink. False when the passes ran out first: the text may still link
@@ -202,7 +215,7 @@ def unlink_settled(text: str, is_target: TitleMatch) -> tuple[str, bool]:
     # title ending in `[` re-forms a link after each one (`[[a[]]` then
     # `[a[]]`), such titles stored before they were refused still exist,
     # and a code span that moves as links go can show another link.
-    for _ in range(link_nesting_depth(text) + 3):
+    for _ in range(link_nesting_depth(text) + PASSES_PAST_DEPTH):
         unlinked = _unlink_pass(text, is_target)
         if unlinked == text:
             return text, True

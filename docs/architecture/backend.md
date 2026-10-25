@@ -415,11 +415,20 @@ server bug.
   `extract` never scans an over-long text. Length is judged before nesting,
   so the nesting measure never reads past the cap. Only the text an op sends
   is judged: a move, `set_*` op or delete of a row stored over a limit goes
-  through, and an edit that brings it under is accepted. Text the
-  server makes inside a batch is not judged: the links a
-  [stale batch](#stale-batches) unlinks, or a rename replayed over a stale
-  edit. Refusing it would need an outcome other than a 400, which would
-  poison the client's queue over text it never sent.
+  through, and an edit that brings it under is accepted. The links a
+  [stale batch](#stale-batches) unlinks are not judged: an unlink only
+  shortens the text, bar the two backticks a fenced attribute adds.
+- **Replayed text.** A stale edit replayed over a rename or page delete
+  ([Conflicts](#conflicts)) is never stored past a limit, though nobody sent
+  the text the replay makes. Each link grows by the title's growth, and
+  titles have no length cap, so the replayed text could be orders of
+  magnitude past the cap. `ops_core._replay_step` projects each splice's
+  length from its spans (`spans.spliced_length`) and stops before building
+  one past `MAX_BLOCK_TEXT_CHARS`. `classify_text_edit` then judges the
+  result with `text_limit_violation`. Either refusal is the `over_limit`
+  outcome: the block keeps its text, and the edit as sent lands as a
+  conflict entry. A 400 would poison the client's queue over text it never
+  sent.
 
 Conflicts, missing targets, stale batches and concurrent structure edits are
 what a batch meets when the tree changed after it was planned. None rejects
@@ -441,7 +450,7 @@ same header.
 | Block gone, hint names an existing page | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
 | Block gone, hint names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
 | Block gone, hint missing, blank or [refused](#refused-titles) | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
-| Block exists, move target gone or inside it | `` [[conflict]] [[Page]] — ((uid)) `` |
+| Block exists, move target gone or inside it, or a replayed edit over a text limit | `` [[conflict]] [[Page]] — ((uid)) `` |
 | Guarded `delete` whose subtree changed | `` [[conflict]] [[Page]] — deleted while edited elsewhere `` |
 
 The `page_title` hint never changes whether or where an op applies, and
@@ -458,6 +467,7 @@ checking in this order:
 | Situation | Outcome |
 |---|---|
 | `base_text_hash` matches a pre-rewrite snapshot of this block | The `block_rewrites` rows replay over the incoming text (`ops_core.replay_title_rewrites`), which then meets the rows below |
+| The replay would be over a text limit | The block keeps its text; the edit as sent lands under a conflict header, and the ack lists the op as skipped (`text_limit`) |
 | Incoming text equals current | No-op, even with a stale hash |
 | `hash(current) == base_text_hash` | Clean apply |
 | Hashes differ | Incoming wins; the overwritten text lands under a conflict header |

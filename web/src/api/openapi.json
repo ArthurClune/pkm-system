@@ -4448,7 +4448,8 @@
               "block_not_found",
               "parent_not_found",
               "cycle",
-              "page_deleted"
+              "page_deleted",
+              "text_limit"
             ],
             "title": "Reason"
           },
@@ -4474,7 +4475,7 @@
           "note_page"
         ],
         "title": "SkippedOp",
-        "description": "One op the server skipped because its block (or, for create/move,\nits parent) no longer exists, or because a move would nest the block\nunder itself or its own descendant (`ops_core.skip_report`)."
+        "description": "One op the server skipped because its block (or, for create/move,\nits parent) no longer exists, because a move would nest the block\nunder itself or its own descendant, or because an edit replayed over a\nrename or page delete it missed would be over a text limit\n(`ops_core.skip_report`)."
       },
       "SnapshotPayload": {
         "properties": {

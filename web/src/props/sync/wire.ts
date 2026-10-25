@@ -127,7 +127,7 @@ const readSkipped: Reader<SkippedOp> = (raw, at) => {
                               "set_heading", "set_view_type", "create_page"), at),
     uid: uidOf(field(r, "uid", text, at)),
     reason: field(r, "reason", choice("block_not_found", "parent_not_found", "cycle",
-                                      "page_deleted"), at),
+                                      "page_deleted", "text_limit"), at),
     note_page: note === null ? null : canonicalTitleOf(note),
   };
 };

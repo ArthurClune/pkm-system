@@ -36,7 +36,8 @@ from pkm.contracts.titles import RawTitle
 from pkm.refs import (attribute_title_span, extract, is_blank_title,
                       strip_code, title_syntax_reason)
 from pkm.test_data.ids import order_idx_of, raw_title_of, uid_of
-from props.limit_texts import PAST_LIMIT_TEXTS, TEXT_CAP
+from props.limit_texts import (LIMIT_TEXTS, NESTING_CAP, PAST_LIMIT_TEXTS,
+                               TEXT_CAP)
 
 # What a whitespace-only page_title resolves to: the ops path never rejects
 # a batch over a blank title (code: ops_apply.UNTITLED_PAGE_TITLE).
@@ -114,9 +115,21 @@ def _limit_violation(ops: Sequence[Op]) -> bool:
     than 32 outside code, is a 400 for the whole batch. Judged over the
     whole batch before titles, an op the server would skip included; no
     other op's text is judged. Of the texts the strategies draw, exactly
-    `PAST_LIMIT_TEXTS` are past a limit (props/limit_texts.py)."""
-    return any(op["op"] in ("create", "update_text")
-               and op["text"] in PAST_LIMIT_TEXTS for op in ops)
+    `PAST_LIMIT_TEXTS` are past a limit (props/limit_texts.py).
+
+    That holds only while every other drawn text stays well inside both
+    limits, so a text outside `LIMIT_TEXTS` is checked against a bound no
+    judge is needed for: at most the cap's characters and at most the
+    nesting cap's `[[` (a run nests only inside its own `[[`). A strategy
+    that starts drawing such texts fails here, not as a wrong verdict."""
+    texts = [op["text"] for op in ops if op["op"] in ("create", "update_text")]
+    for text in texts:
+        assert text in LIMIT_TEXTS or (
+            len(text) <= TEXT_CAP and text.count("[[") <= NESTING_CAP), (
+            "a drawn text outside props/limit_texts.py reaches a limit, so"
+            " membership no longer decides the verdict:"
+            f" {len(text)} characters, {text.count('[[')} `[[`")
+    return any(text in PAST_LIMIT_TEXTS for text in texts)
 
 
 def _page_name(title: RawTitle) -> str:
@@ -265,6 +278,18 @@ class PageDelete:
         if len(new) > TEXT_CAP and len(new) > len(text):
             return "limit"
         return None
+
+
+def replay_peak(steps: Sequence[Rewrite], text: str, base: str) -> int:
+    """The longest text `replay_chain` makes on its way: each step's
+    inlined copies, before its unlink shortens them, and each step's
+    result. 0 when no step replays: the sent text is judged on arrival."""
+    peak = 0
+    for step in replay_chain(steps, text, base)[2]:
+        peak = max(peak, len(inline_refs(text, dict(step.inlines))))
+        text = step.replay(text)
+        peak = max(peak, len(text))
+    return peak
 
 
 def replay_chain(steps: Sequence[Rewrite], text: str,
@@ -529,7 +554,7 @@ class Model:
                 kept.append(text)
             return
         if kind == "update_text":
-            self._update_text(op, block, text, kept, stale)
+            self._update_text(op, block, text, skip, kept, stale)
         elif kind == "move":
             self._move(op, block, skip, stale)
         elif kind == "delete":
@@ -595,7 +620,7 @@ class Model:
         self._record_written(uid, op["text"], text, stale, ())
         self.deleted.discard(uid)
 
-    def _update_text(self, op: Op, block: MBlock, text: str,
+    def _update_text(self, op: Op, block: MBlock, text: str, skip: SkipFn,
                      kept: list[str], stale: frozenset[str]) -> None:
         sent = op["text"]
         base = op.get("base_text_hash")
@@ -606,6 +631,17 @@ class Model:
             self._record_written(block.uid, sent, text, stale, ())
             return
         unreplayed = text
+        steps = self.rewrites.get(block.uid, ())
+        if replay_peak(steps, unreplayed, base) > TEXT_CAP:
+            # backend.md § Conflicts: a replay may not store text past a
+            # limit. The edit as sent lands, the block keeps its text. A
+            # copy lands where `((uid))` stood, never inside a `[[` run,
+            # so only the length cap can be reached (code:
+            # ops_core._replay_step judges each step's splice).
+            self._paths.append("update_text replay: over the length cap")
+            skip("text_limit")
+            kept.append(unreplayed)
+            return
         text, base, replayed = self._replay(block.uid, text, base)
         kind = ("identical" if text == block.text else
                 "clean" if text_hash(block.text) == base else "conflict")

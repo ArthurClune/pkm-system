@@ -608,13 +608,15 @@ class TitleMigrationApplyResponse(StrictModel):
 # the wire as `seq: null` (the client reads that as unknown, so refetches).
 
 SkipReason = Literal["block_not_found", "parent_not_found", "cycle",
-                    "page_deleted"]
+                    "page_deleted", "text_limit"]
 
 
 class SkippedOp(StrictModel):
     """One op the server skipped because its block (or, for create/move,
-    its parent) no longer exists, or because a move would nest the block
-    under itself or its own descendant (`ops_core.skip_report`)."""
+    its parent) no longer exists, because a move would nest the block
+    under itself or its own descendant, or because an edit replayed over a
+    rename or page delete it missed would be over a text limit
+    (`ops_core.skip_report`)."""
     index: int
     op: OpKind
     uid: BlockUid

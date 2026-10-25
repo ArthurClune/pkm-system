@@ -16,7 +16,7 @@ via `normalize` -- see rewrite_title_refs_map().
 """
 from __future__ import annotations
 
-from typing import Callable, Iterable, Iterator, Mapping
+from typing import Callable, Iterable, Iterator, Literal, Mapping
 
 from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.refs import (
@@ -27,22 +27,17 @@ from pkm.refs import (
     strip_code,
     tag_spans,
 )
+from pkm.spans import Span, splice
 
 # Resolves a title as written in the text to its replacement, or None.
 _TitleLookup = Callable[[RawTitle], "RawTitle | None"]
+# The replacement for one form of ref naming a new title.
+_FormKind = Literal["tag", "attribute", "bracket"]
+_Form = Callable[[_FormKind, RawTitle], str]
 
 
 def _verbatim(text: str) -> str:
     return text
-
-
-def _title_lookup(
-    replacements: Mapping[str, RawTitle], normalize: Callable[[str], str]
-) -> _TitleLookup:
-    def lookup(raw_title: RawTitle) -> RawTitle | None:
-        return replacements.get(normalize(raw_title))
-
-    return lookup
 
 
 def _tag_form(new_title: RawTitle) -> str:
@@ -58,28 +53,36 @@ def _attribute_form(new_title: RawTitle) -> str:
     return f"[[{new_title}]]"
 
 
+def _form_of(kind: _FormKind, new_title: RawTitle) -> str:
+    if kind == "tag":
+        return _tag_form(new_title)
+    if kind == "attribute":
+        return _attribute_form(new_title)
+    return f"[[{new_title}]]"
+
+
 def _rewrite_tags(
     clean: str,
     lookup: _TitleLookup,
+    form: _Form,
     start: int,
     stop: int,
-    spans: list[tuple[int, int, str]],
+    spans: list[Span],
 ) -> None:
     for tag in tag_spans(clean, start, stop):
         new_title = lookup(tag.raw_title)
         if new_title is not None:
-            spans.append(
-                (tag.start, tag.end, _tag_form(new_title))
-            )
+            spans.append((tag.start, tag.end, form("tag", new_title)))
 
 
 def _rewrite_range(
     clean: str,
     lookup: _TitleLookup,
+    form: _Form,
     start: int,
     stop: int,
     brackets: Iterable[BracketSpan],
-    spans: list[tuple[int, int, str]],
+    spans: list[Span],
 ) -> None:
     """Collect the spans to splice over `clean[start:stop]`, given the bracket
     runs `refs.bracket_spans()` found directly inside it.
@@ -104,14 +107,15 @@ def _rewrite_range(
         index, window_stop, rest = stack.pop()
         bracket = next(rest, None)
         if bracket is None:
-            _rewrite_tags(clean, lookup, index, window_stop, spans)
+            _rewrite_tags(clean, lookup, form, index, window_stop, spans)
             continue
-        _rewrite_tags(clean, lookup, index, bracket.start, spans)
+        _rewrite_tags(clean, lookup, form, index, bracket.start, spans)
         stack.append((bracket.end, window_stop, rest))
         new_title = lookup(
             as_raw_title(clean[bracket.inner_start:bracket.inner_end]))
         if new_title is not None:
-            spans.append((bracket.start, bracket.end, f"[[{new_title}]]"))
+            spans.append((bracket.start, bracket.end,
+                          form("bracket", new_title)))
         else:
             stack.append((bracket.inner_start, bracket.inner_end,
                           iter(bracket.children)))
@@ -137,6 +141,47 @@ def spelled_or_canonical(
     return normalize
 
 
+def title_ref_spans(
+    text: str,
+    replacements: Mapping[str, RawTitle],
+    *,
+    normalize: Callable[[str], str] = _verbatim,
+) -> list[Span]:
+    """The spans `rewrite_title_refs_map` splices, without splicing them.
+
+    Every span renaming to one title shares one replacement string, so the
+    spans cost memory for the titles, not for every link: a caller can
+    judge `spans.spliced_length` before building a text that a long title
+    repeated many times would make too long to hold."""
+    if not replacements:
+        return []
+
+    clean = strip_code(text)
+    forms: dict[tuple[_FormKind, RawTitle], str] = {}
+
+    def lookup(raw_title: RawTitle) -> RawTitle | None:
+        return replacements.get(normalize(raw_title))
+
+    def form(kind: _FormKind, new_title: RawTitle) -> str:
+        key = (kind, new_title)
+        if key not in forms:
+            forms[key] = _form_of(kind, new_title)
+        return forms[key]
+
+    spans: list[Span] = []
+
+    if (attribute := attribute_title_span(clean, text)) is not None:
+        new_title = lookup(attribute.raw_title)
+        if new_title is not None:
+            spans.append((attribute.start, attribute.end,
+                          form("attribute", new_title)))
+
+    _rewrite_range(
+        clean, lookup, form, 0, len(clean), bracket_spans(clean, text), spans
+    )
+    return spans
+
+
 def rewrite_title_refs_map(
     text: str,
     replacements: Mapping[str, RawTitle],
@@ -154,29 +199,8 @@ def rewrite_title_refs_map(
     entry the extractor recorded. Replacement values stay opaque either way:
     a value is never rescanned as another source spelling.
     """
-    if not replacements:
-        return text
-
-    clean = strip_code(text)
-    lookup = _title_lookup(replacements, normalize)
-    spans: list[tuple[int, int, str]] = []
-
-    if (attribute := attribute_title_span(clean, text)) is not None:
-        new_title = lookup(attribute.raw_title)
-        if new_title is not None:
-            spans.append(
-                (attribute.start, attribute.end,
-                 _attribute_form(new_title))
-            )
-
-    _rewrite_range(
-        clean, lookup, 0, len(clean), bracket_spans(clean, text), spans
-    )
-
-    out = text
-    for start, end, replacement in sorted(spans, reverse=True):
-        out = out[:start] + replacement + out[end:]
-    return out
+    return splice(text, title_ref_spans(text, replacements,
+                                        normalize=normalize))
 
 
 def rewrite_title_refs(text: str, old_title: RawTitle,

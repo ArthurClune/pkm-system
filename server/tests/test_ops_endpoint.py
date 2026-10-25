@@ -1376,6 +1376,84 @@ def test_stale_edit_replays_a_delete_unlink_instead_of_resurrecting_the_title(
     assert client.get("/api/page/conflict").status_code == 404
 
 
+# --- a replay that would carry a stale edit past a text limit -----------
+#
+# The edit was judged when it arrived; the rename replayed over it was not
+# sent by anyone. Stored, it could be far past the cap (each link grows by
+# the title's growth). It lands as a conflict entry instead, as sent, and the
+# block keeps its text: a 400 would poison the queue over text the client
+# never wrote.
+
+REPLAY_HEADER = "[[conflict]] [[Machine Learning]] — ((uid_b1))"
+
+
+def _replay_over_limit(client, stale: str):
+    r = _post(client, {"op": "update_text", "uid": "uid_b1", "text": stale,
+                       "base_text_hash": text_hash(STALE_BASE)})
+    assert r.status_code == 200, r.text
+    [skip] = r.json()["skipped"]
+    assert (skip["op"], skip["uid"], skip["reason"]) == (
+        "update_text", "uid_b1", "text_limit")
+    assert skip["note_page"] == title_for_date(date.today())
+    assert _conflicts(client) == [(REPLAY_HEADER, [stale])]
+
+
+def test_stale_edit_whose_rename_replay_passes_the_length_cap_is_not_stored(
+        client):
+    _rename(client, "AI", "Z" * 1000)
+    renamed = _ml_texts(client)[0]
+    seq = _latest_seq(client)
+    _replay_over_limit(client, "[[AI]] " * 2000)
+
+    assert _ml_texts(client)[0] == renamed
+    # the block is journalled, so a replica that applied the edit drops it
+    feed = client.get(f"/api/sync/changes?since={seq}").json()
+    assert {b["uid"]: b["text"] for b in feed["blocks"]}["uid_b1"] == renamed
+
+
+def test_stale_edit_whose_rename_replay_nests_past_the_cap_is_not_stored(
+        client):
+    _rename(client, "AI", "Artificial Intelligence")
+    stale = "[[a//" * 32 + " #AI" + "]]" * 32
+    _replay_over_limit(client, stale)
+
+    assert _ml_texts(client)[0] == "Tags:: #[[Artificial Intelligence]]"
+
+
+def test_stale_edit_whose_delete_replay_inlines_past_the_cap_is_not_stored(
+        client):
+    # The page delete inlines an at-cap copy into a block holding only the
+    # ref; a stale edit adding a word to that ref replays past the cap (the
+    # ops property's model, props/model.py, predicts the same).
+    at_cap = "\U0001f600" * 1_000_000
+    r = _post(client,
+              {"op": "create", "uid": "capsrc01", "page_title": "Cap Source",
+               "parent_uid": None, "order_idx": 0, "text": at_cap},
+              {"op": "create", "uid": "capref01", "page_title": "Cap Ref",
+               "parent_uid": None, "order_idx": 0, "text": "((capsrc01))"})
+    assert r.status_code == 200, r.text
+    assert client.delete("/api/page/Cap Source").status_code == 200
+    stale = "((capsrc01)) more"
+    r = _post(client, {"op": "update_text", "uid": "capref01", "text": stale,
+                       "base_text_hash": text_hash("((capsrc01))")})
+    assert r.status_code == 200, r.text
+    assert [s["reason"] for s in r.json()["skipped"]] == ["text_limit"]
+    page = client.get("/api/page/Cap%20Ref").json()
+    assert page["blocks"][0]["text"] == at_cap
+    assert _conflicts(client) == [
+        ("[[conflict]] [[Cap Ref]] — ((capref01))", [stale])]
+
+
+def test_stale_edit_whose_rename_replay_lands_at_the_cap_applies(client):
+    _rename(client, "AI", "Z" * 1000)
+    grown = 900 * len("[[" + "Z" * 1000 + "]] ")
+    stale = "[[AI]] " * 900 + "x" * (1_000_000 - grown)
+    _stale_push(client, STALE_BASE, stale)
+
+    assert len(_ml_texts(client)[0]) == 1_000_000
+    assert _conflicts(client) == []
+
+
 # --- chained offline edits after a replay --------------------------------
 #
 # The replica stamps edit N+1's base hash from its own text after edit N,

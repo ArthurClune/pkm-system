@@ -1,5 +1,5 @@
 {
-  "skip_reasons": ["block_not_found", "parent_not_found", "cycle", "page_deleted"],
+  "skip_reasons": ["block_not_found", "parent_not_found", "cycle", "page_deleted", "text_limit"],
   "cases": [
     {"name": "stored-before-seq",
      "stored": {"ok": true, "ts": 1, "applied": 2},

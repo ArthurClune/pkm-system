@@ -33,6 +33,7 @@ from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  SetParent, SetViewType, ShiftSiblings, Skip,
                                  SkipContext, SkippedContext,
                                  StuckMoveContext, SubtreeRow,
+                                 ReplayOverLimitContext,
                                  TextConflictContext,
                                  TextEditContext, TouchPage, UpdateText,
                                  classify_skip, classify_text_edit,
@@ -455,6 +456,9 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
                      else normalize_title)
         outcome = classify_text_edit(op.text, op.base_text_hash,
                                      row["text"], rewrites, canonical)
+        if outcome.kind == "over_limit":
+            return ReplayOverLimitContext(
+                block, row["title"], _conflict_landing(db, op.uid, now_ms))
         if outcome.kind != "conflict":
             return TextEditContext(block, outcome)
         # only a real conflict pays for today's daily page and its extra
@@ -643,7 +647,7 @@ def apply_batch(db: Db, batch: OpBatch,
                 ctx.outcome.text if isinstance(ctx, TextEditContext) else None)
         for eff in effects:
             _execute(db, eff, now_ms)
-        if isinstance(ctx, SKIPPED_CONTEXTS):
+        if isinstance(ctx, (*SKIPPED_CONTEXTS, ReplayOverLimitContext)):
             skipped.append(skip_report(index, op, ctx))
         else:
             broadcast_ops.append(_broadcast_op(db, op, ctx))

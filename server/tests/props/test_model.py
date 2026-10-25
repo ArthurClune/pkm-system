@@ -492,6 +492,32 @@ def test_edit_based_on_a_page_deletes_rewrite_replays_its_inline():
     assert out == Outcome(200, (), ()) and m.blocks[B].text == "y copied"
 
 
+@pytest.mark.parametrize("text", ["y" * 1_000_001, "[[" * 33,
+                                  "y" * 999_999 + "[[" * 33],
+                         ids=["long", "nested", "both"])
+def test_a_drawn_text_outside_the_limit_texts_must_stay_inside_the_limits(
+        text):
+    # membership decides the verdict only while nothing else reaches a limit
+    with pytest.raises(AssertionError, match="outside props/limit_texts.py"):
+        model().apply([create(X, 0, text=text)])
+
+
+def test_edit_whose_replayed_inline_passes_the_cap_lands_as_sent():
+    # The delete inlined an at-cap copy into a block that held only the
+    # ref; a stale edit adding a word to that ref replays past the cap.
+    m = model(blk(P, page="Alpha", text=EMOJI_AT_CAP),
+              blk(B, page="Beta", text=f"(({P}))"))
+    m.delete_page(raw_title_of("Alpha"), {}, seq_of(9))
+    assert m.blocks[B].text == EMOJI_AT_CAP
+    sent = f"(({P})) more"
+    out = m.apply([{"op": "update_text", "uid": B, "text": sent,
+                    "base_text_hash": text_hash(f"(({P}))")}])
+    assert out.skipped == ((0, "update_text", B, "text_limit"),)
+    assert out.kept_texts == (sent,)
+    assert out.paths == ("update_text replay: over the length cap",)
+    assert m.blocks[B].text == EMOJI_AT_CAP
+
+
 def test_recorded_rewrites_remember_the_text_they_rewrote():
     m = deleted(blk(B, page="Beta", text="see [[Alpha]]"))
     assert m.rewrites[B][0].before == "see [[Alpha]]"

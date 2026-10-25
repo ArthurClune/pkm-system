@@ -50,6 +50,7 @@ def _reference_unlink_range(
 def _reference_rewrite_range(
     clean: str,
     lookup: Callable[[RawTitle], RawTitle | None],
+    form: Callable[..., str],
     start: int,
     stop: int,
     brackets: Iterable[BracketSpan],
@@ -59,7 +60,7 @@ def _reference_rewrite_range(
     stack."""
     index = start
     for bracket in brackets:
-        rename._rewrite_tags(clean, lookup, index, bracket.start, spans)
+        rename._rewrite_tags(clean, lookup, form, index, bracket.start, spans)
         new_title = lookup(
             as_raw_title(clean[bracket.inner_start:bracket.inner_end]))
         if new_title is not None:
@@ -68,13 +69,14 @@ def _reference_rewrite_range(
             _reference_rewrite_range(
                 clean,
                 lookup,
+                form,
                 bracket.inner_start,
                 bracket.inner_end,
                 bracket.children,
                 spans,
             )
         index = bracket.end
-    rename._rewrite_tags(clean, lookup, index, stop, spans)
+    rename._rewrite_tags(clean, lookup, form, index, stop, spans)
 
 
 # --- texts ----------------------------------------------------------------
@@ -289,14 +291,18 @@ def _rename_cases(draw: st.DrawFn
 @given(_rename_cases())
 def test_rename_walk_matches_the_recursive_walk(case):
     text, replacements, normalize = case
-    lookup = rename._title_lookup(replacements, normalize)
+    def lookup(raw_title: RawTitle) -> RawTitle | None:
+        return replacements.get(normalize(raw_title))
+
     _tally(text, lambda raw: lookup(as_raw_title(raw)) is not None)
     clean = strip_code(text)
     runs = bracket_spans(clean, text)
     expected: list[tuple[int, int, str]] = []
     actual: list[tuple[int, int, str]] = []
-    _reference_rewrite_range(clean, lookup, 0, len(clean), runs, expected)
-    rename._rewrite_range(clean, lookup, 0, len(clean), runs, actual)
+    form = rename._form_of
+    _reference_rewrite_range(clean, lookup, form, 0, len(clean), runs,
+                             expected)
+    rename._rewrite_range(clean, lookup, form, 0, len(clean), runs, actual)
     assert actual == expected, text
 
     with patch.object(rename, "_rewrite_range", _reference_rewrite_range):

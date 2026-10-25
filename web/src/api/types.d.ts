@@ -1870,8 +1870,10 @@ export interface components {
         /**
          * SkippedOp
          * @description One op the server skipped because its block (or, for create/move,
-         *     its parent) no longer exists, or because a move would nest the block
-         *     under itself or its own descendant (`ops_core.skip_report`).
+         *     its parent) no longer exists, because a move would nest the block
+         *     under itself or its own descendant, or because an edit replayed over a
+         *     rename or page delete it missed would be over a text limit
+         *     (`ops_core.skip_report`).
          */
         SkippedOp: {
             /** Index */
@@ -1887,7 +1889,7 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "block_not_found" | "parent_not_found" | "cycle" | "page_deleted";
+            reason: "block_not_found" | "parent_not_found" | "cycle" | "page_deleted" | "text_limit";
             /** Note Page */
             note_page: Brands.CanonicalTitle | null;
         };

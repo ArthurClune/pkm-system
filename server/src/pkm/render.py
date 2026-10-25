@@ -228,6 +228,8 @@ _SKIP_REASON_TEXT: dict[SkipReason, str] = {
     "parent_not_found": "parent block not found",
     "cycle": "target is the block itself or one of its descendants",
     "page_deleted": "the page was deleted before this device synced",
+    "text_limit": ("replayed over a rename or page delete it missed, the"
+                   " edit would be over a text limit"),
 }
 
 

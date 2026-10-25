@@ -32,6 +32,7 @@ from pkm.refs import (
     strip_code,
     tag_spans,
 )
+from pkm.spans import Span, splice
 from pkm.text_limits import rewrite_text_limit_violation
 from pkm.todo import with_state
 
@@ -44,15 +45,6 @@ _REF_OR_EMBED = re.compile(
     rf"\{{\{{\s*(?:\[\[)?embed(?:\]\])?\s*:\s*\(\(({BLOCK_REF_TOKEN})\)\)\s*\}}\}}"
     rf"|\(\(({BLOCK_REF_TOKEN})\)\)"
 )
-
-Span = tuple[int, int, str]
-
-
-def _splice(text: str, spans: list[Span]) -> str:
-    for start, end, replacement in sorted(spans, reverse=True):
-        text = text[:start] + replacement + text[end:]
-    return text
-
 
 def _unlink_tags(
     text: str, clean: str, is_target: TitleMatch, start: int, stop: int,
@@ -128,7 +120,7 @@ def _unlink_pass(text: str, is_target: TitleMatch) -> str:
     _unlink_range(
         text, clean, is_target, 0, len(clean), bracket_spans(clean, text), spans
     )
-    return _splice(text, spans)
+    return splice(text, spans)
 
 
 def unlink_title_refs(text: str, is_target: TitleMatch) -> str:
@@ -166,16 +158,23 @@ def unlink_stale_refs(text: str, is_target: TitleMatch) -> str:
     return defuse_attribute(unlink_title_refs(text, is_target), is_target)
 
 
-def inline_block_refs(text: str, copies: Mapping[BlockUid, str]) -> str:
-    """Replace `((uid))` and a whole embed macro for each uid in `copies`."""
+def block_ref_spans(text: str, copies: Mapping[BlockUid, str]) -> list[Span]:
+    """The spans `inline_block_refs` splices: each `((uid))` or whole embed
+    macro for a uid in `copies`, replaced by that copy (one string shared by
+    every ref to it)."""
     if not copies:
-        return text
+        return []
     spans: list[Span] = []
     for match in _REF_OR_EMBED.finditer(strip_code(text)):
         uid = parse_block_uid(match.group(1) or match.group(2))
         if uid is not None and uid in copies:
             spans.append((match.start(), match.end(), copies[uid]))
-    return _splice(text, spans)
+    return spans
+
+
+def inline_block_refs(text: str, copies: Mapping[BlockUid, str]) -> str:
+    """Replace `((uid))` and a whole embed macro for each uid in `copies`."""
+    return splice(text, block_ref_spans(text, copies))
 
 
 def plain_copy(text: str) -> str:

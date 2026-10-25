@@ -40,6 +40,11 @@ existing `config.json` or database.
    plists from the templates in this directory, loads them with
    `launchctl bootstrap`, and configures Tailscale Serve to forward HTTPS on
    the tailnet to the local server port.
+   Serve must proxy to `http://127.0.0.1:<port>`. Pointed at another
+   address (the Tailscale IP, or `localhost` resolving to `::1`), every
+   Serve client shares one login-backoff bucket unless
+   `run.FORWARDED_ALLOW_IPS` changes with it
+   ([backend.md § Login throttle](../docs/architecture/backend.md#login-throttle)).
 2. Build the web app (required before first startup):
    ```bash
    cd "$PKM_HOME/app/web" && pnpm install --frozen-lockfile && pnpm build

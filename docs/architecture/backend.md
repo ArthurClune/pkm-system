@@ -826,15 +826,6 @@ Response headers that apply to every route are set in one place,
 `SecurityHeadersMiddleware`; routes set only their own. An
 unhandled exception's 500 is built outside it and carries none.
 
-`LoginThrottle` (`auth.py`, policy in `throttle_core.py`) applies a per-source exponential backoff
-(`BASE_BACKOFF_MS` to `MAX_BACKOFF_MS`) before scrypt runs, and a
-process-wide semaphore (`MAX_CONCURRENT_SCRYPT`) on scrypt work.
-`scrypt_slot()` waits at most `SCRYPT_ACQUIRE_TIMEOUT_S`, because `login()`
-is a sync route that an unbounded wait would let starve the threadpool. A
-throttled attempt gets the same 401 as a wrong password. Under
-`tailscale serve` every client shares the proxy address, so the backoff is
-effectively global.
-
 `GET /login`, `POST /api/login`, `GET /healthz` and the SPA shell are public.
 Every feature router declares `dependencies=[Depends(require_auth)]`.
 `/api/ws` checks the cookie and closes with 4401 before accepting.
@@ -877,6 +868,89 @@ Nothing enforces these rules:
   the assistant close beacon in `web/src/assistant/client.ts` (WebKit)
   would send `Origin: null` and be refused.
 - A new hostname or Serve port needs its origin in `serve_origins`.
+
+### Login throttle
+
+`LoginThrottle` (`auth.py`, policy in `throttle_core.py`) applies a
+per-source exponential backoff (`BASE_BACKOFF_MS` to `MAX_BACKOFF_MS`)
+before scrypt runs. It also lets one source run one password check at a
+time, and caps scrypt work process-wide at `MAX_CONCURRENT_SCRYPT` slots.
+`login()` is an async route: it waits for the source's turn on the event
+loop and runs the check on a worker thread.
+
+```mermaid
+flowchart TD
+  A[POST /api/login] --> B{source in backoff?}
+  B -- yes --> R[401 wrong password]
+  B -- no --> C[take_turn: wait on the event loop]
+  C -- timed out --> R
+  C -- turn taken --> D{in backoff now?}
+  D -- yes --> E[end_turn] --> R
+  D -- no --> F[hand_turn_to the check]
+  F --> G[worker thread: scrypt_slot]
+  G -- timed out, nothing recorded --> H
+  G -- slot --> V[verify_password, record the verdict]
+  V --> H[check done: turn ends]
+  H -- wrong or no slot --> R
+  H -- right --> S[200 + pkm_session]
+```
+
+Every refusal is the same 401 `wrong password` (`_wrong_password`), so a
+guesser cannot tell a wrong password from a throttled source or a
+timeout. Only the timing differs: a throttled source is refused without
+scrypt.
+
+The source is `request.client.host`, which uvicorn rewrites from
+`X-Forwarded-For` only when the TCP peer is in `run.FORWARDED_ALLOW_IPS`
+(`127.0.0.1`).
+
+| Listener | Throttle key |
+|---|---|
+| Tailscale IP (`bind_hosts`) | the TCP peer, the device's tailnet address; `X-Forwarded-For` is ignored |
+| `127.0.0.1`, through Tailscale Serve | the right-most `X-Forwarded-For` entry, which Serve sets to the device's tailnet address, replacing any the client sent |
+| `127.0.0.1`, no header (local processes, including the e2e and perf harnesses) | `127.0.0.1` |
+
+A device keys the same through Serve and direct. `X-Real-IP`, `Forwarded`
+and `Tailscale-User-*` are never read for the key. Serve passes `X-Real-IP`
+through from the client, and `Tailscale-User-*` is forgeable on the direct
+listeners. A local process can pick its key with `X-Forwarded-For`; the
+throttle does not defend against a process that can read `config.json`.
+
+Nothing enforces the conditions this keying needs:
+
+- `run.uvicorn_config` passes `proxy_headers` and `forwarded_allow_ips`
+  explicitly. Left unset, uvicorn reads the `FORWARDED_ALLOW_IPS`
+  environment variable, and `*` there would key on the left-most entry,
+  which the client chooses. Only `run.main` builds that config, so launchd
+  must start the server through `python -m pkm.server.run`, not the
+  `uvicorn` CLI.
+- Serve's upstream must stay `http://127.0.0.1:<port>` (`install.sh`'s
+  `serve` line). Pointed at the Tailscale IP or at `localhost` resolving to
+  `::1`, Serve becomes an untrusted peer. Every Serve client then shares one
+  backoff bucket, unless `FORWARDED_ALLOW_IPS` changes with it.
+
+**One password check is in flight per source.** Checking the backoff and
+recording the verdict are separate steps, so without a turn every request
+of a concurrent burst would pass the first and run scrypt. The other
+requests wait for the turn rather than being refused, so a double-submit
+of the right password is never told it was wrong. The next holder
+re-checks the backoff, so one failure puts every waiter into backoff
+without a check of its own.
+
+The turn belongs to the check, not the request. `hand_turn_to` ends it in
+the check's done-callback, and `_check_password` records the verdict on
+the worker thread. A request that is cancelled or disconnects stops
+waiting at once, but a worker thread cannot be stopped. If its turn ended
+with the request, the next request would start a second check before the
+first one's failure was recorded.
+
+The waits are bounded. `take_turn` gives up after
+`SCRYPT_ACQUIRE_TIMEOUT_S`, holding no worker thread meanwhile.
+`scrypt_slot()` then waits up to the same timeout on the worker thread,
+because an unbounded wait there would let concurrent logins starve the
+threadpool every sync route shares. So under contention a login can wait
+two timeouts plus one scrypt check, and a right password that times out
+in the queue gets the uniform 401.
 
 ## HTTP API reference
 

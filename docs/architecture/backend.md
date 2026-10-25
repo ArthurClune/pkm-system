@@ -908,9 +908,11 @@ The source is `request.client.host`, which uvicorn rewrites from
 |---|---|
 | Tailscale IP (`bind_hosts`) | the TCP peer, the device's tailnet address; `X-Forwarded-For` is ignored |
 | `127.0.0.1`, through Tailscale Serve | the right-most `X-Forwarded-For` entry, which Serve sets to the device's tailnet address, replacing any the client sent |
-| `127.0.0.1`, no header (local processes, including the e2e and perf harnesses) | `127.0.0.1` |
+| `127.0.0.1`, no header (local processes, such as Playwright and the frontend perf check) | `127.0.0.1` |
 
-A device keys the same through Serve and direct. `X-Real-IP`, `Forwarded`
+A device keys the same through Serve and direct over IPv4. Reaching Serve
+over its tailnet IPv6 address gives the device a second key, since the
+direct listener is IPv4 only. `X-Real-IP`, `Forwarded`
 and `Tailscale-User-*` are never read for the key. Serve passes `X-Real-IP`
 through from the client, and `Tailscale-User-*` is forgeable on the direct
 listeners. A local process can pick its key with `X-Forwarded-For`; the
@@ -925,9 +927,12 @@ Nothing enforces the conditions this keying needs:
   must start the server through `python -m pkm.server.run`, not the
   `uvicorn` CLI.
 - Serve's upstream must stay `http://127.0.0.1:<port>` (`install.sh`'s
-  `serve` line). Pointed at the Tailscale IP or at `localhost` resolving to
-  `::1`, Serve becomes an untrusted peer. Every Serve client then shares one
-  backoff bucket, unless `FORWARDED_ALLOW_IPS` changes with it.
+  `serve` line). Pointed at the Tailscale IP, Serve becomes an untrusted
+  peer, and every Serve client shares the host's backoff bucket unless
+  `FORWARDED_ALLOW_IPS` changes with it. An IPv6 loopback upstream (`[::1]`,
+  or a `localhost` that resolves to it) reaches no listener, because
+  `bind_sockets` opens IPv4 sockets only. It would need a `::1` listener
+  and `::1` in the trust list.
 
 **One password check is in flight per source.** Checking the backoff and
 recording the verdict are separate steps, so without a turn every request
@@ -939,10 +944,11 @@ without a check of its own.
 
 The turn belongs to the check, not the request. `hand_turn_to` ends it in
 the check's done-callback, and `_check_password` records the verdict on
-the worker thread. A request that is cancelled or disconnects stops
-waiting at once, but a worker thread cannot be stopped. If its turn ended
-with the request, the next request would start a second check before the
-first one's failure was recorded.
+the worker thread. A request that is cancelled stops waiting at once, but
+a worker thread cannot be stopped. If its turn ended with the request, the
+next request would start a second check before the first one's failure
+was recorded. A client disconnect does not cancel the route: its request
+stays queued until its turn or the timeout, holding no thread.
 
 The waits are bounded. `take_turn` gives up after
 `SCRYPT_ACQUIRE_TIMEOUT_S`, holding no worker thread meanwhile.

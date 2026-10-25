@@ -10,6 +10,7 @@ from pkm.assistant.events import (
     TurnDone,
     encode_sse,
     event_name,
+    tool_error_reason,
 )
 from pkm.assistant.write_preview import (CreatedInBatch, FoundBlock,
                                          MissingBlock, PreviewOp,
@@ -25,8 +26,8 @@ _PREVIEW = WritePreview(
 
 def test_event_names():
     assert event_name(TextDelta(text="hi")) == "text_delta"
-    assert event_name(ToolStarted(name="search", summary='searching "x"')) == "tool_started"
-    assert event_name(ToolFinished(name="search")) == "tool_finished"
+    assert event_name(ToolStarted(tool_use_id="t1", name="search", summary='searching "x"')) == "tool_started"
+    assert event_name(ToolFinished(tool_use_id="t1", name="search")) == "tool_finished"
     card = ConfirmRequest(confirm_id=confirm_id_of("c1"),
                           ops_preview=_PREVIEW.summary, preview=_PREVIEW)
     assert event_name(card) == "confirm_request"
@@ -103,3 +104,37 @@ def test_current_block_sse_shapes():
         "descendants": 2, "state": "found"}
     # a create touches no existing block
     assert _sse_current(None) is None
+
+
+def test_tool_error_reason_reads_text_items_and_drops_fastmcp_prefix():
+    content = [{"type": "text", "text": "Error executing tool update_block: "
+                "block ((AbC)) changed after the approval card showed it, "
+                "so nothing was written"},
+               {"type": "image", "data": "x"}]
+    assert tool_error_reason(content) == (
+        "block ((AbC)) changed after the approval card showed it, "
+        "so nothing was written")
+    assert tool_error_reason("plain reason") == "plain reason"
+    assert tool_error_reason("a: Error executing tool x: b") == (
+        "a: Error executing tool x: b")  # prefix only at the start
+    assert tool_error_reason([{"type": "text", "text": "a"},
+                              {"type": "text", "text": "b"}]) == "a\nb"
+
+
+def test_tool_error_reason_empty_and_clipped():
+    assert tool_error_reason(None) == "no reason given"
+    assert tool_error_reason("  ") == "no reason given"
+    assert tool_error_reason("x" * 300) == "x" * 300
+    assert tool_error_reason("x" * 1301) == "x" * 300 + "… (1,301 characters)"
+
+
+def test_tool_finished_encodes_its_error_and_decline():
+    frame = encode_sse(ToolFinished(tool_use_id="t1", name="update_block",
+                                    error="nope"))
+    assert '"tool_use_id": "t1"' in frame and '"error": "nope"' in frame
+    assert '"declined": false' in frame
+    bare = encode_sse(ToolFinished(tool_use_id="t1", name="search"))
+    assert '"error": null' in bare
+    declined = encode_sse(ToolFinished(tool_use_id="t1", name="update_block",
+                                       declined=True))
+    assert '"declined": true' in declined and '"error": null' in declined

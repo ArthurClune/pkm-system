@@ -748,7 +748,8 @@ def test_send_streams_mapped_events(tmp_path):
     assert queries == ["find alpha"]
     # no partial deltas were seen, so the full TextBlock is emitted as one delta
     assert TextDelta(text="Found it.") in events
-    assert ToolStarted(name="search", summary='searching "alpha"') in events
+    assert ToolStarted(tool_use_id="t1", name="search",
+                       summary='searching "alpha"') in events
     assert isinstance(events[-1], TurnDone)
     assert events[-1].usage == {"input_tokens": 5}
 
@@ -949,15 +950,19 @@ def test_turn_mapper_emits_tool_finished_from_tool_result():
         content=[ToolUseBlock(id="t1", name="mcp__pkm__search", input={"q": "alpha"})],
         model="sonnet",
     )
-    assert mapper.map(assistant_msg) == [ToolStarted(name="search", summary='searching "alpha"')]
+    assert mapper.map(assistant_msg) == [
+        ToolStarted(tool_use_id="t1", name="search",
+                    summary='searching "alpha"')]
 
     user_msg = UserMessage(content=[ToolResultBlock(tool_use_id="t1", content="ok")])
-    assert mapper.map(user_msg) == [ToolFinished(name="search")]
+    assert mapper.map(user_msg) == [
+        ToolFinished(tool_use_id="t1", name="search")]
 
     # an unrecognised tool_use_id (e.g. mapper created fresh mid-turn) falls
     # back to "tool"
     unknown_msg = UserMessage(content=[ToolResultBlock(tool_use_id="unknown", content="ok")])
-    assert mapper.map(unknown_msg) == [ToolFinished(name="tool")]
+    assert mapper.map(unknown_msg) == [
+        ToolFinished(tool_use_id="unknown", name="tool")]
 
     # a plain string UserMessage (no tool results) maps to nothing
     assert mapper.map(UserMessage(content="hi")) == []
@@ -1597,3 +1602,109 @@ def test_the_last_turns_writes_are_not_in_flight(tmp_path):
     first, second = asyncio.run(scenario())
     assert first.preview.writes_in_flight is False
     assert second.preview.writes_in_flight is False
+
+
+# -- a write's error and decline reach the tool event ---------------------
+
+_REFUSED = ("Error executing tool update_block: block ((AAAAAAAA)) changed "
+            "after the approval card showed it, so nothing was written")
+_REASON = _REFUSED.removeprefix("Error executing tool update_block: ")
+
+
+def _use(tool_id: str, name: str = _UPDATE) -> AssistantMessage:
+    return AssistantMessage(content=[ToolUseBlock(
+        id=tool_id, name=name, input={"uid": "AAAAAAAA", "text": "t"})],
+        model="sonnet")
+
+
+def _result(tool_id: str, is_error: bool | None,
+            text: str = _REFUSED) -> UserMessage:
+    return UserMessage(content=[ToolResultBlock(
+        tool_use_id=tool_id, content=[{"type": "text", "text": text}],
+        is_error=is_error)])
+
+
+def test_turn_mapper_carries_a_write_tools_error():
+    mapper = TurnMapper()
+    mapper.map(_use("t1"))
+    assert mapper.map(_result("t1", True)) == [ToolFinished(
+        tool_use_id="t1", name="update_block", error=_REASON)]
+
+
+def test_turn_mapper_ignores_read_errors_and_write_successes():
+    mapper = TurnMapper()
+    mapper.map(_use("r1", "mcp__pkm__search"))
+    assert mapper.map(_result("r1", True)) == [
+        ToolFinished(tool_use_id="r1", name="search")]
+    for tool_id, flag in (("w1", None), ("w2", False)):
+        mapper.map(_use(tool_id))
+        assert mapper.map(_result(tool_id, flag)) == [
+            ToolFinished(tool_use_id=tool_id, name="update_block")]
+
+
+def test_turn_mappers_sharing_a_map_carry_a_write_across_turns():
+    tools: dict[str, str] = {}
+    TurnMapper(tools).map(_use("t1"))
+    assert TurnMapper(tools).map(_result("t1", True)) == [ToolFinished(
+        tool_use_id="t1", name="update_block", error=_REASON)]
+    assert tools == {}  # the result popped its id
+
+
+def test_turn_mapper_marks_a_declined_write_not_failed():
+    tools: dict[str, str] = {}
+    mapper = TurnMapper(tools, declined={"t1"})
+    mapper.map(_use("t1"))
+    assert mapper.map(_result("t1", True, "The user declined this action.")
+                      ) == [ToolFinished(tool_use_id="t1",
+                                         name="update_block",
+                                         declined=True)]
+
+
+def test_a_decline_is_recorded_per_call_by_the_conversation(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        seen: asyncio.Queue = asyncio.Queue()
+        consumer = asyncio.create_task(_drain_into(conv.send("one"), seen))
+        await _declined_card(conv, seen, "AAAAAAAA", "t1")
+        client.feed(_use("t1"), _use("t2"),
+                    _result("t1", True, "The user declined this action."),
+                    _result("t2", True), make_result())
+        await asyncio.wait_for(consumer, timeout=5)
+        await conv.close()
+        out = []
+        while not seen.empty():
+            out.append(seen.get_nowait())
+        return out
+
+    finished = [e for e in asyncio.run(scenario())
+                if isinstance(e, ToolFinished)]
+    assert finished == [
+        ToolFinished(tool_use_id="t1", name="update_block", declined=True),
+        ToolFinished(tool_use_id="t2", name="update_block", error=_REASON)]
+
+
+def test_a_stopped_turns_refused_write_shows_its_error_next_turn(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        one = conv.send("one")
+        task = asyncio.create_task(anext(one))
+        client.feed(_use("t1"))
+        started = await asyncio.wait_for(task, timeout=5)
+        assert isinstance(started, ToolStarted)
+        await one.aclose()  # Stop
+        seen: asyncio.Queue = asyncio.Queue()
+        consumer = asyncio.create_task(_drain_into(conv.send("two"), seen))
+        client.feed(_result("t1", True), make_result())
+        finished = await _next_of(seen, ToolFinished)
+        await asyncio.wait_for(consumer, timeout=5)
+        await conv.close()
+        return finished
+
+    assert asyncio.run(scenario()) == ToolFinished(
+        tool_use_id="t1", name="update_block", error=_REASON)

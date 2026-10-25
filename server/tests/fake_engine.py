@@ -74,6 +74,11 @@ class FakeConversation:
         self.sent: list[str] = []
         self._decisions: dict[ConfirmId, asyncio.Future[bool]] = {}
         self._confirm_seq = 0
+        self._tool_seq = 0
+
+    def _tool_id(self) -> str:
+        self._tool_seq += 1
+        return f"fake-tool-{self._tool_seq}"
 
     async def send(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
         self.sent.append(text)
@@ -82,15 +87,19 @@ class FakeConversation:
             return  # pragma: no cover - unreachable
         if "please write twice" in text:
             futs: list[asyncio.Future[bool]] = []
+            ids: list[str] = []
             for page in ("Demo", "Demo 2"):
                 card, fut = await self._park_save_note(page)
                 futs.append(fut)
-                yield ToolStarted(name="save_note", summary="saving a note")
+                ids.append(self._tool_id())
+                yield ToolStarted(tool_use_id=ids[-1], name="save_note",
+                                  summary="saving a note")
                 yield card
             decisions = [await fut for fut in futs]
-            for allowed in decisions:
+            for tool_use_id, allowed in zip(ids, decisions):
                 if allowed:
-                    yield ToolFinished(name="save_note")
+                    yield ToolFinished(tool_use_id=tool_use_id,
+                                       name="save_note")
             if all(decisions):
                 yield TextDelta(text="Saved 2.")
             else:
@@ -105,11 +114,13 @@ class FakeConversation:
             return
         if "please write" in text:
             card, fut = await self._park_save_note("Demo")
-            yield ToolStarted(name="save_note", summary="saving a note")
+            tool_use_id = self._tool_id()
+            yield ToolStarted(tool_use_id=tool_use_id, name="save_note",
+                              summary="saving a note")
             yield card
             allowed = await fut
             if allowed:
-                yield ToolFinished(name="save_note")
+                yield ToolFinished(tool_use_id=tool_use_id, name="save_note")
                 yield TextDelta(text="Saved.")
             else:
                 yield TextDelta(text="Okay, not saving.")
@@ -123,7 +134,9 @@ class FakeConversation:
         uid = words[0] if words else ""
         tool_input: dict[str, object] = {"uid": uid, "text": "Replaced."}
         parked = await self._park("update_block", tool_input)
-        yield ToolStarted(name="update_block", summary="updating a block")
+        tool_use_id = self._tool_id()
+        yield ToolStarted(tool_use_id=tool_use_id, name="update_block",
+                          summary="updating a block")
         if isinstance(parked, Refusal):
             yield TextDelta(text=parked.message)
             yield TurnDone(usage={"input_tokens": 1})
@@ -132,7 +145,7 @@ class FakeConversation:
         yield card
         if await fut:
             failure = await self._run(approved)
-            yield ToolFinished(name="update_block")
+            yield ToolFinished(tool_use_id=tool_use_id, name="update_block")
             yield TextDelta(text="Updated." if failure is None
                             else f"Not updated: {failure}")
         else:

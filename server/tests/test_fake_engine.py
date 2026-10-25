@@ -44,7 +44,8 @@ def test_confirm_flow_allow():
         return events
 
     events = asyncio.run(scenario())
-    assert events[0] == ToolStarted(name="save_note", summary="saving a note")
+    assert events[0] == ToolStarted(tool_use_id="fake-tool-1", name="save_note",
+                                    summary="saving a note")
     preview = build_write_preview("save_note",
                                   {"text": "Demo", "page": "Demo"},
                                   blocks={})
@@ -53,7 +54,7 @@ def test_confirm_flow_allow():
         confirm_id=confirm_id_of("fake-confirm-1"),
         ops_preview=preview.summary,
         preview=replace(preview, writes_in_flight=False))
-    assert ToolFinished(name="save_note") in events
+    assert ToolFinished(tool_use_id="fake-tool-1", name="save_note") in events
     assert TextDelta(text="Saved.") in events
     assert isinstance(events[-1], TurnDone)
 
@@ -71,7 +72,7 @@ def test_confirm_flow_deny():
 
     events = asyncio.run(scenario())
     assert TextDelta(text="Okay, not saving.") in events
-    assert ToolFinished(name="save_note") not in events
+    assert ToolFinished(tool_use_id="fake-tool-1", name="save_note") not in events
 
 
 def test_hang_scenario_parks_until_cancelled():
@@ -167,7 +168,9 @@ def test_write_twice_both_allowed_says_saved_two():
     events = asyncio.run(asyncio.wait_for(scenario(), timeout=5))
     texts = [e.text for e in events if isinstance(e, TextDelta)]
     assert texts == ["Saved 2."]
-    assert events.count(ToolFinished(name="save_note")) == 2
+    assert [e for e in events if isinstance(e, ToolFinished)] == [
+        ToolFinished(tool_use_id="fake-tool-1", name="save_note"),
+        ToolFinished(tool_use_id="fake-tool-2", name="save_note")]
 
 
 def _update_turn(text: str, allow: bool, read_blocks=None):
@@ -198,7 +201,7 @@ def test_update_trigger_parks_a_card_with_the_blocks_current_text():
 
     events = _update_turn(f"please update {_VICTIM} now", True, read_blocks)
     assert reads == [([_VICTIM], [])]
-    assert events[0] == ToolStarted(name="update_block",
+    assert events[0] == ToolStarted(tool_use_id="fake-tool-1", name="update_block",
                                     summary="updating a block")
     card = events[1]
     assert isinstance(card, ConfirmRequest)
@@ -206,7 +209,7 @@ def test_update_trigger_parks_a_card_with_the_blocks_current_text():
     assert card.preview.ops[0].targets[0] == ("uid", _VICTIM)
     assert card.preview.ops[0].content == [("text", "Replaced.", 9)]
     assert card.preview.ops[0].current == FoundBlock(_INBOX, "old", 3)
-    assert ToolFinished(name="update_block") in events
+    assert ToolFinished(tool_use_id="fake-tool-1", name="update_block") in events
     assert TextDelta(text="Updated.") in events
     assert isinstance(events[-1], TurnDone)
 
@@ -214,7 +217,7 @@ def test_update_trigger_parks_a_card_with_the_blocks_current_text():
 def test_update_trigger_deny():
     events = _update_turn(f"please update {_VICTIM}", False)
     assert TextDelta(text="Not updating.") in events
-    assert ToolFinished(name="update_block") not in events
+    assert ToolFinished(tool_use_id="fake-tool-1", name="update_block") not in events
     # no database: no block has the uid
     card = events[1]
     assert isinstance(card, ConfirmRequest)
@@ -260,14 +263,14 @@ def test_please_update_runs_the_tool_on_allow():
     assert calls == [("update_block", {
         "uid": _VICTIM, "text": "Replaced.",
         "expect": [{"uid": _VICTIM, "kind": "absent", "shown_hash": None}]})]
-    assert ToolFinished(name="update_block") in events
+    assert ToolFinished(tool_use_id="fake-tool-1", name="update_block") in events
     assert [e.text for e in events if isinstance(e, TextDelta)] == ["Updated."]
 
     def raising(short: str, tool_input: Mapping[str, object]) -> str:
         raise RuntimeError("boom")
 
     events = _update_turn_running(f"please update {_VICTIM}", raising)
-    assert ToolFinished(name="update_block") in events
+    assert ToolFinished(tool_use_id="fake-tool-1", name="update_block") in events
     assert [e.text for e in events
             if isinstance(e, TextDelta)] == ["Not updated: boom"]
 

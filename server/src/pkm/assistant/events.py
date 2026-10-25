@@ -8,7 +8,9 @@ leaks upward.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass
+from typing import Any
 
 from pkm.assistant.write_preview import WritePreview
 from pkm.contracts.responses import ConfirmId
@@ -21,13 +23,25 @@ class TextDelta:
 
 @dataclass(frozen=True)
 class ToolStarted:
+    tool_use_id: str
     name: str
     summary: str
 
 
 @dataclass(frozen=True)
 class ToolFinished:
+    """A tool call's result.
+
+    `error` is a write tool's failure reason (set only when the harness
+    marked the result an error and the user did not decline the card).
+    `declined` is True when the user answered the card with a decline, so
+    the panel can show that as neither a success nor a failure.
+    """
+
+    tool_use_id: str
     name: str
+    error: str | None = None
+    declined: bool = False
 
 
 @dataclass(frozen=True)
@@ -73,6 +87,31 @@ _EVENT_NAMES: dict[type, str] = {
     TurnDone: "turn_done",
     ErrorEvent: "error",
 }
+
+
+# A failed write's reason can echo model-chosen input, so it is clipped
+# before it reaches the stream (the Refusal clip's format).
+TOOL_ERROR_LIMIT_CHARS = 300
+
+# FastMCP wraps a raising tool's message in this, at the start only.
+_FASTMCP_PREFIX = re.compile(r"^Error executing tool \w+: ")
+
+
+def tool_error_reason(content: str | list[dict[str, Any]] | None) -> str:
+    """The text a failed tool result carries, short enough for a panel line."""
+    if isinstance(content, str):
+        text = content
+    elif content:
+        text = "\n".join(str(item.get("text", "")) for item in content
+                         if item.get("type") == "text")
+    else:
+        text = ""
+    text = _FASTMCP_PREFIX.sub("", text.strip(), count=1).strip()
+    if not text:
+        return "no reason given"
+    if len(text) > TOOL_ERROR_LIMIT_CHARS:
+        return text[:TOOL_ERROR_LIMIT_CHARS] + f"… ({len(text):,} characters)"
+    return text
 
 
 def event_name(event: AssistantEvent) -> str:

@@ -1,0 +1,42 @@
+// pattern: Functional Core
+// The size limits the server judges a whole op batch by. It answers 422 to a
+// batch over the op count and 413 to a body over the private cap, and the
+// queue discards a refused batch, so the editor asks first and shows a
+// notice instead of queueing one. shared/fixtures/batch_limits.json pins
+// both limits equal to the server's.
+import type { BlockOp } from "../api/ops";
+
+export const MAX_OPS_PER_BATCH = 500;
+export const PRIVATE_BODY_MAX_BYTES = 67_108_864;
+export const BATCH_TOO_LARGE_NOTICE =
+  "This change is too large to save in one step.";
+
+/** JSON escapes one code point to at most six bytes. */
+const MAX_ESCAPED_BYTES_PER_UNIT = 6;
+/** What the queue stamps onto each op (hashes, `page_title`). */
+const STAMP_BYTES_PER_OP = 1_024;
+/** The batch envelope around the ops. */
+const ENVELOPE_BYTES = 4_096;
+
+const utf8 = new TextEncoder();
+
+function textLength(op: BlockOp): number {
+  return "text" in op && typeof op.text === "string" ? op.text.length : 0;
+}
+
+/** Which limit the batch is over, or null when the server would take it.
+ * The byte check is an estimate that errs high; it serialises only when the
+ * cheap bound does not already clear the cap. */
+export function findBatchSizeViolation(
+  ops: readonly BlockOp[],
+): "ops" | "bytes" | null {
+  if (ops.length > MAX_OPS_PER_BATCH) return "ops";
+  const overhead = ops.length * STAMP_BYTES_PER_OP + ENVELOPE_BYTES;
+  let units = 0;
+  for (const op of ops) units += textLength(op);
+  if (units * MAX_ESCAPED_BYTES_PER_UNIT + overhead <= PRIVATE_BODY_MAX_BYTES) {
+    return null;
+  }
+  const bytes = utf8.encode(JSON.stringify(ops)).length + overhead;
+  return bytes > PRIVATE_BODY_MAX_BYTES ? "bytes" : null;
+}

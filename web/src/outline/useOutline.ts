@@ -15,6 +15,8 @@ import { findOpTextLimitViolation,
          textLimitNotice } from "../grammar/textLimits";
 import { toggleTodo } from "../grammar/todo";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
+import { BATCH_TOO_LARGE_NOTICE,
+         findBatchSizeViolation } from "../sync/batchLimits";
 import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { stampBaseTextHashes, withoutStamps } from "./baseTextHash";
@@ -85,13 +87,17 @@ export interface Outline {
 }
 
 /** Why `result` must not apply, or null when it may: the depth cap first,
- * then the text limits of the texts its ops would store. */
-function commandRefusal(result: EditResult): string | null {
+ * then the text limits of the texts its ops would store, then the size of
+ * the whole batch (the draft's `textOps` ship with it). */
+function commandRefusal(result: EditResult,
+                        textOps: readonly BlockOp[]): string | null {
   if (findDepthViolation(result.blocks, result.ops) !== null) {
     return DEPTH_NOTICE;
   }
   const overLimit = findOpTextLimitViolation(result.ops);
-  return overLimit === null ? null : textLimitNotice(overLimit.violation);
+  if (overLimit !== null) return textLimitNotice(overLimit.violation);
+  return findBatchSizeViolation([...textOps, ...result.ops]) === null
+    ? null : BATCH_TOO_LARGE_NOTICE;
 }
 
 export function useOutline(
@@ -220,7 +226,7 @@ export function useOutline(
     // whole. Queued, that refusal would also drop the batch's other ops
     // (sync/rejection.ts), so the web never queues one.
     if (result.ops.length > 0) {
-      const refusal = commandRefusal(result);
+      const refusal = commandRefusal(result, textOps);
       setEditNotice(refusal);
       if (refusal !== null) {
         result = { blocks: base, ops: [], focus: null };

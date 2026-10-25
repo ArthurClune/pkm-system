@@ -183,8 +183,10 @@ flowchart LR
 | `set_collapsed` does not stamp (`opBumpsUpdatedAt`, which `replica/localOps.test.ts` pins for the replica) | collapsing re-dates the block |
 | No create or move lands a block past `MAX_OUTLINE_DEPTH`. `run()` and `undoManager`'s dispatch judge each by its subtree in the tree the ops leave (`depthCap.ts`), and refuse the whole command | the server refuses the batch whole, and the offline queue's [rebase](sync-recovery.md#a-batch-the-server-rejects) drops its other ops with it |
 | No edit queues a text past a [text limit](backend.md#planning). `useBlockDraft.admit` judges typing and a plain paste, `run()` and `undoManager`'s dispatch a command's ops, `UnlinkedSection` a Link | the same: the server's 400 poisons the batch, and the repair drops its other ops with it |
+| No command queues a batch past `MAX_OPS_PER_BATCH` or the private body cap (`findBatchSizeViolation`, `batchLimits.ts`). `run()` judges the draft's text ops together with the command's, for the reason it judges depth | the server refuses the batch whole, and a queued refusal discards it |
 
-A depth refusal (`DEPTH_NOTICE`) or a text-limit one (`textLimitNotice`)
+A depth refusal (`DEPTH_NOTICE`), a text-limit one (`textLimitNotice`) or a
+size one (`BATCH_TOO_LARGE_NOTICE`)
 shows in the one `editNotice` slot `EditablePage` renders. The next command
 that applies, or Dismiss, clears it. A refused keystroke leaves the textarea
 as it was, with the caret where the refused insertion began

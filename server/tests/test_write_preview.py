@@ -12,7 +12,8 @@ from pydantic.fields import FieldInfo
 
 from pkm import batch as batch_module
 from pkm.assistant import write_preview as wp_module
-from pkm.assistant.policy import WRITE_PREVIEW_FIELDS, WRITE_TOOLS
+from pkm.assistant.policy import (GATE_FIELDS, GUARDED_TOOLS,
+                                  WRITE_PREVIEW_FIELDS, WRITE_TOOLS)
 from pkm.assistant.write_preview import (CONTENT_LIMIT_CHARS,
                                          TARGET_LIMIT_CHARS,
                                          CreatedInBatch, FoundBlock,
@@ -488,12 +489,16 @@ def _batch_params_models() -> dict[str, type]:
 
 def test_every_tool_field_is_classified():
     batch_params = inspect.signature(mcp_tools.batch).parameters
-    assert set(batch_params) == {"commands"}
+    assert set(batch_params) - GATE_FIELDS == {"commands"}
+    assert GUARDED_TOOLS == {
+        short for short in WRITE_TOOLS
+        if "expect" in inspect.signature(getattr(mcp_tools, short)).parameters}
     for short in WRITE_TOOLS:
         if short == "batch":
             continue
         _, targets, content = WRITE_PREVIEW_FIELDS[short]
         params = set(inspect.signature(getattr(mcp_tools, short)).parameters)
+        params -= GATE_FIELDS
         assert params == set(targets) | set(content), short
     models = _batch_params_models()
     assert set(models) == {k.removeprefix("batch:")
@@ -522,10 +527,10 @@ class _Recorder:
                                    "parent": parent, "todo": todo}
         return []
 
-    def _edit(self, client, uid: BlockUid, text=None, mark=None):
+    def _edit(self, client, uid: BlockUid, text=None, mark=None, expect=None):
         self.calls["update_block"] = {"uid": uid, "text": text, "mark": mark}
 
-    def _batch(self, client, commands):
+    def _batch(self, client, commands, expect=None):
         self.calls["batch"] = {"commands": commands}
 
     def _rename(self, title: RawTitle, new_title: RawTitle,
@@ -601,6 +606,18 @@ def test_preview_matches_what_the_tool_receives(monkeypatch):
             assert _shown(op) == params
     assert rec.calls["save_note"]["page"] is None
     assert rec.calls["rename_page"]["allow_merge"] is True
+
+
+_EXPECT_VALID = [{"uid": "ABCDEFGHI", "kind": "absent", "shown_hash": None}]
+
+
+@pytest.mark.parametrize("short", ["update_block", "batch"])
+@pytest.mark.parametrize("value", [[], None, _EXPECT_VALID, "[]"])
+def test_a_callers_expect_is_refused(short, value):
+    raw = dict(_hostile_inputs()[short], expect=value)
+    assert _refusal(short, raw).message == (
+        f"{short}: expect is set by the approval card, never by the caller")
+    assert write_target_uids(short, raw) == []
 
 
 # -- the current text of the block a write replaces, moves or deletes ------

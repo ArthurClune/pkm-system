@@ -25,6 +25,13 @@ WRITE_TOOLS: tuple[str, ...] = ("save_note", "update_block", "batch",
 # no files of its own to upload.
 MCP_ONLY_TOOLS: tuple[str, ...] = ("upload_asset",)
 
+# Tool arguments only the approval gate sets: a write tool declares them,
+# and the card refuses a call that carries one from the model.
+GATE_FIELDS: frozenset[str] = frozenset({"expect"})
+
+# The write tools that take a gate field.
+GUARDED_TOOLS: frozenset[str] = frozenset({"update_block", "batch"})
+
 # What the approval card shows for each write: action key -> (label,
 # target keys in display order, content keys). A target says where a
 # write lands or how destructive it is, and the card shows it in full,

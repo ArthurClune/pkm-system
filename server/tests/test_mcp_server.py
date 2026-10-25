@@ -1,3 +1,6 @@
+import asyncio
+import json
+
 import pytest
 from mcp.server.fastmcp import FastMCP
 
@@ -5,7 +8,8 @@ from pkm.planning import BuildError
 from pkm.client.core import ApiError
 from pkm.mcp import server as mcp_server
 from pkm.mcp import tools as mcp_tools
-from pkm.contracts.ops import BatchId
+from pkm.contracts.ops import BatchId, text_hash
+from pkm.test_data.ids import batch_id_of, uid_of
 
 
 @pytest.fixture()
@@ -214,9 +218,9 @@ def test_update_block_sends_page_hint(tools, pkm_client, monkeypatch):
     captured: list = []
     real_post_ops = pkm_client.post_ops
 
-    def spy(ops, batch_id: BatchId):
+    def spy(ops, batch_id: BatchId, expect=()):
         captured.extend(ops)
-        return real_post_ops(ops, batch_id=batch_id)
+        return real_post_ops(ops, batch_id=batch_id, expect=expect)
 
     monkeypatch.setattr(pkm_client, "post_ops", spy)
 
@@ -469,3 +473,27 @@ def test_batch_reused_alias_raises(tools):
            "params": {"page": "AI", "text": "x", "as": "n"}}
     with pytest.raises(BuildError, match="already names"):
         tools.batch([cmd, cmd])
+
+
+@pytest.mark.parametrize("as_json", [False, True])
+def test_update_block_expect_through_fastmcp(tools, pkm_client, as_json):
+    uid = uid_of("expect-mcp")
+    pkm_client.post_ops([{"op": "create", "uid": uid, "page_title": "ExpMcp",
+                          "parent_uid": None, "order_idx": 0,
+                          "text": "orig"}], batch_id=batch_id_of("expect-mcp-seed"))
+    server = mcp_server.build_server(["update_block"])
+
+    def call(shown: str):
+        expect: object = [{"uid": uid, "kind": "text",
+                           "shown_hash": text_hash(shown)}]
+        if as_json:
+            expect = json.dumps(expect)
+        return asyncio.run(server.call_tool(
+            "update_block", {"uid": uid, "text": "new", "expect": expect}))
+
+    with pytest.raises(Exception,
+                       match="changed after the approval card showed it"):
+        call("stale")
+    assert pkm_client.get_block(uid).block.text == "orig"
+    call("orig")
+    assert pkm_client.get_block(uid).block.text == "new"

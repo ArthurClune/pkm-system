@@ -40,7 +40,7 @@ from mcp.server.fastmcp.utilities.func_metadata import (FuncMetadata,
                                                         func_metadata)
 from pydantic import ValidationError
 
-from pkm.assistant.policy import (CURRENT_TEXT_ENTRIES,
+from pkm.assistant.policy import (CURRENT_TEXT_ENTRIES, GATE_FIELDS,
                                   SUBTREE_DELETE_ENTRIES,
                                   WRITE_PREVIEW_FIELDS, WRITE_TOOLS)
 from pkm.batch import (BatchItemError, NestedItem, alias_name, batch_aliases,
@@ -566,6 +566,10 @@ def _validate(short: str, tool_input: Mapping[str, object]
     meta = _ARG_MODELS.get(short)
     if meta is None:
         return Refusal(f"{short} is not a write tool")
+    gated = next((k for k in tool_input if k in GATE_FIELDS), None)
+    if gated is not None:
+        return Refusal(f"{short}: {gated} is set by the approval card, "
+                       "never by the caller")
     unknown = _unknown_key(meta, tool_input)
     if unknown is not None:
         return Refusal(f"{short}: unknown argument {echo(unknown)}")
@@ -574,7 +578,8 @@ def _validate(short: str, tool_input: Mapping[str, object]
             meta.pre_parse_json(dict(tool_input)))
     except ValidationError as exc:
         return Refusal(f"{short}: {_first_error(exc)}")
-    validated = model.model_dump(mode="json", by_alias=True)
+    validated = {k: v for k, v in model.model_dump(
+        mode="json", by_alias=True).items() if k not in GATE_FIELDS}
     if short != "batch":
         return _Checked(ops=[(short, validated)], aliases={})
     commands = validated["commands"]

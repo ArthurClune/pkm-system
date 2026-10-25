@@ -18,7 +18,7 @@ from pkm.client.api import PkmClient
 from pkm.changed import local_tz
 from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
                                   upload_and_link)
-from pkm.contracts.ops import BlockUid
+from pkm.contracts.ops import BlockUid, ExpectedBlock
 from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.todo import TaskMark
 from pkm.render import (render_assets, render_backlinks, render_block,
@@ -117,19 +117,22 @@ def save_note(text: str, page: str | None = None,
 
 
 def update_block(uid: BlockUid, text: str | None = None,
-                 mark: TaskMark | None = None) -> str:
+                 mark: TaskMark | None = None,
+                 expect: list[ExpectedBlock] | None = None) -> str:
     """Replace a block's text, or set its task marker (mark='TODO' or
     'DONE'). Provide exactly one of text/mark. A `text` beginning '# ',
     '## ' or '### ' makes the block a heading at that level (1-3); '#Tag'
     (no space) and '#### ' or deeper stay literal text. Text without
     those hashes clears any heading it had. `mark` only changes the task
     marker and never the heading level. Concurrent-edit safe: the current
-    text's hash rides along."""
-    edit_block(_client(), uid, text=text, mark=mark)
+    text's hash rides along. `expect` is set by the PKM assistant's
+    approval card, which refuses it from anyone else; leave it out."""
+    edit_block(_client(), uid, text=text, mark=mark, expect=expect or ())
     return f"updated ^{uid}"
 
 
-def batch(commands: list[dict[str, object]]) -> str:
+def batch(commands: list[dict[str, object]],
+          expect: list[ExpectedBlock] | None = None) -> str:
     """Apply several commands in ONE atomic transaction. Each item is
     {"command": ..., "params": {...}} with commands: create (page, text,
     parent?, index?, as?), todo (like create, {{TODO}}-prefixed), update
@@ -152,8 +155,11 @@ def batch(commands: list[dict[str, object]]) -> str:
     then starts with 'warning:' and lists each skipped op and where its
     note landed, while the other ops were applied and committed (do not
     re-send the batch). A '((uid))' parent is checked before sending, so
-    a mistyped one fails the whole batch."""
-    return render_ops_ack(apply_batch(_client(), commands))
+    a mistyped one fails the whole batch. `expect` is set by the PKM
+    assistant's approval card, which refuses it from anyone else; leave
+    it out."""
+    return render_ops_ack(apply_batch(_client(), commands,
+                                      expect=expect or ()))
 
 
 def upload_asset(path: str, page: str | None = None,

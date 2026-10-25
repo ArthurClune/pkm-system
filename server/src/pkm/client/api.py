@@ -27,7 +27,8 @@ from pkm.client.core import (ApiError, CliConfig, ConfigError,
                              ResponseSchemaError, cookie_header,
                              friendly_error, parse_config, serialize_config,
                              validation_detail)
-from pkm.contracts.ops import BatchId, BlockOp, BlockUid, ClientId, OpBatch, Sha256Hex
+from pkm.contracts.ops import (BatchId, BlockOp, BlockUid, ClientId,
+                               ExpectedBlock, OpBatch, Sha256Hex)
 from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      AssetUploadResponse, Backlinks,
                                      BlockNode, BlockPayload, ChangedPayload,
@@ -344,16 +345,18 @@ class PkmClient:
         )
 
     def post_ops(self, ops: Sequence[BlockOp | Mapping[str, Any]],
-                 batch_id: BatchId) -> OpsAck:
+                 batch_id: BatchId,
+                 expect: Sequence[ExpectedBlock] = ()) -> OpsAck:
         """Apply `ops` as one atomic batch. The planners in `pkm.planning`
         hand over contract models; raw mappings are accepted too (tests and
         one-off scripts write ops by hand) and validated identically by
         OpBatch, so a malformed op fails here with 422 rather than on the
-        wire."""
+        wire. `expect` rides along for the server to check in the batch's
+        own transaction: any entry no longer true refuses it with 412."""
         try:
             block_ops = [_BLOCK_OP.validate_python(op) for op in ops]
             batch = OpBatch(client_id=CLIENT_ID, batch_id=batch_id,
-                            ops=block_ops)
+                            ops=block_ops, expect=list(expect))
         except ValueError as e:
             raise ApiError(422, f"invalid ops: {e}")
         return self._request("POST", "/api/ops", OpsAck,

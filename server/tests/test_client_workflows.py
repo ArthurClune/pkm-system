@@ -9,8 +9,9 @@ from collections.abc import Sequence
 import pytest
 
 from pkm.client.core import ApiError
-from pkm.client.workflows import apply_batch
-from pkm.contracts.ops import BatchId, BlockUid, DeleteOp, subtree_hash
+from pkm.client.workflows import apply_batch, edit_block
+from pkm.contracts.ops import (BatchId, BlockUid, DeleteOp, ExpectedBlock,
+                               subtree_hash, text_hash)
 from pkm.test_data.ids import batch_id_of, uid_of
 
 
@@ -129,3 +130,38 @@ def test_a_non_404_get_block_error_propagates(pkm_client, monkeypatch):
             {"command": "delete", "params": {"uid": "unreached-uid1"}},
         ])
     assert exc.value.status == 503
+
+
+def _text_expect(uid: BlockUid, text: str) -> ExpectedBlock:
+    return ExpectedBlock(uid=uid, kind="text", shown_hash=text_hash(text))
+
+
+def test_edit_block_sends_expect_and_a_mismatch_writes_nothing(pkm_client):
+    uid = uid_of("expect-edit")
+    _seed_leaves(pkm_client, "Expect", [uid], batch_id_of("expect-seed"))
+    stored = f"leaf text {uid}"
+    with pytest.raises(ApiError) as exc:
+        edit_block(pkm_client, uid, text="new",
+                   expect=[_text_expect(uid, "something else")])
+    assert exc.value.status == 412
+    assert pkm_client.get_block(uid).block.text == stored
+    edit_block(pkm_client, uid, text="new",
+               expect=[_text_expect(uid, stored)])
+    assert pkm_client.get_block(uid).block.text == "new"
+
+
+def test_apply_batch_sends_expect(pkm_client):
+    uid = uid_of("expect-batch")
+    _seed_leaves(pkm_client, "ExpectB", [uid], batch_id_of("expect-bseed"))
+    commands = [{"command": "create",
+                 "params": {"page": "ExpectB", "text": "made"}}]
+    with pytest.raises(ApiError) as exc:
+        apply_batch(pkm_client, commands,
+                    expect=[_text_expect(uid, "something else")])
+    assert exc.value.status == 412
+    blocks, _ = pkm_client.get_page_blocks("ExpectB")
+    assert [b.text for b in blocks] == [f"leaf text {uid}"]
+    apply_batch(pkm_client, commands,
+                expect=[_text_expect(uid, f"leaf text {uid}")])
+    blocks, _ = pkm_client.get_page_blocks("ExpectB")
+    assert len(blocks) == 2

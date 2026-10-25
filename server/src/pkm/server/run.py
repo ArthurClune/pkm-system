@@ -10,12 +10,25 @@ import argparse
 import dataclasses
 import socket
 from pathlib import Path
+from typing import Any
 
 import uvicorn
+from starlette.types import ASGIApp
 
 from pkm.server.app import create_app
 from pkm.server.config import load_config
 from pkm.server.logfmt import uvicorn_log_config
+
+# The only peer whose X-Forwarded-For uvicorn believes: Tailscale Serve's
+# upstream connection, which install.sh's `serve` line points at
+# http://127.0.0.1:<port>. Serve replaces any X-Forwarded-For the client
+# sent, so on loopback request.client.host (the login throttle's key) is
+# the connecting device's tailnet address; peers on the Tailscale-IP
+# listener are never trusted, so a forged header there is ignored. Passed
+# explicitly because otherwise uvicorn takes the FORWARDED_ALLOW_IPS
+# environment variable, and `*` there would key on the left-most entry,
+# which the client chooses. Must change if Serve's upstream ever does.
+FORWARDED_ALLOW_IPS = "127.0.0.1"
 
 
 def bind_sockets(hosts: list[str], port: int) -> list[socket.socket]:
@@ -36,6 +49,16 @@ def bind_sockets(hosts: list[str], port: int) -> list[socket.socket]:
     return socks
 
 
+def uvicorn_config(app: ASGIApp, port: int,
+                   log_config: dict[str, Any] | None) -> uvicorn.Config:
+    """How every listener serves `app`. access_log=False: the
+    RequestLogMiddleware in create_app() emits the access lines instead
+    (stdout, or access.log under --log-dir, plus durations)."""
+    return uvicorn.Config(app, port=port, log_config=log_config,
+                          access_log=False, proxy_headers=True,
+                          forwarded_allow_ips=FORWARDED_ALLOW_IPS)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Run the PKM server.")
     ap.add_argument("--data-dir", default="data")
@@ -52,21 +75,17 @@ def main(argv: list[str] | None = None) -> int:
     # create_app() runs init_db() (WAL mode + base schema) itself, so
     # serving is never accidentally started against a non-WAL or
     # schema-less (e.g. brand-new, never-imported) database.
-    # access_log=False: the RequestLogMiddleware in create_app() emits the
-    # access lines instead (stdout, or access.log under --log-dir, plus
-    # durations).
     if args.log_dir:
         Path(args.log_dir).mkdir(parents=True, exist_ok=True)
         log_config = uvicorn_log_config(Path(args.log_dir))
     else:
         log_config = uvicorn_log_config()
-    server = uvicorn.Server(uvicorn.Config(
+    server = uvicorn.Server(uvicorn_config(
         # The bound hosts, not the config's, are the listeners whose
         # origins the guard allows.
         create_app(dataclasses.replace(config, bind_hosts=tuple(hosts)),
                    api_port=args.port),
-        port=args.port,
-        log_config=log_config, access_log=False))
+        port=args.port, log_config=log_config))
     server.run(sockets=sockets)
     return 0
 

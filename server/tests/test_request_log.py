@@ -228,6 +228,20 @@ def test_main_passes_timestamped_log_config_to_uvicorn(tmp_path, monkeypatch):
     assert captured["log_config"] == uvicorn_log_config()
 
 
+def test_main_pins_proxy_trust_whatever_the_environment(tmp_path,
+                                                        monkeypatch):
+    # launchd's path: the login throttle's key is only as trustworthy as
+    # the proxy trust run.main hands uvicorn. Rebuilt with the real Config
+    # under a wide-open FORWARDED_ALLOW_IPS, an omitted argument would fall
+    # back to the environment and fail here.
+    real_config = run.uvicorn.Config
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "*")
+    captured = _run_main_capturing_uvicorn(tmp_path, monkeypatch, [])
+    loaded = real_config(lambda scope, receive, send: None, **captured)
+    assert loaded.proxy_headers is True
+    assert loaded.forwarded_allow_ips == run.FORWARDED_ALLOW_IPS == "127.0.0.1"
+
+
 def test_main_log_dir_creates_it_and_selects_file_config(tmp_path, monkeypatch):
     log_dir = tmp_path / "logs" / "nested"
     captured = _run_main_capturing_uvicorn(

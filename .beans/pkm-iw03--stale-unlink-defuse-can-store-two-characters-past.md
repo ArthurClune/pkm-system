@@ -1,11 +1,11 @@
 ---
 # pkm-iw03
 title: Stale-unlink defuse can store two characters past the text cap
-status: todo
+status: in-progress
 type: bug
 priority: low
 created_at: 2026-10-25T03:18:21Z
-updated_at: 2026-10-25T03:18:21Z
+updated_at: 2026-10-25T09:52:34Z
 parent: pkm-mfd0
 ---
 

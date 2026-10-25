@@ -1,11 +1,11 @@
 ---
 # pkm-0l8g
 title: Bound /api/ops request size before parsing
-status: todo
+status: in-progress
 type: bug
 priority: low
 created_at: 2026-10-25T02:14:31Z
-updated_at: 2026-10-25T02:14:31Z
+updated_at: 2026-10-25T09:52:34Z
 parent: pkm-mfd0
 ---
 

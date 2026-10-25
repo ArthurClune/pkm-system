@@ -1,11 +1,11 @@
 ---
 # pkm-cfi2
 title: Text-limit judge runs inside the write transaction
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-10-25T02:14:32Z
-updated_at: 2026-10-25T02:14:32Z
+updated_at: 2026-10-25T09:52:34Z
 parent: pkm-mfd0
 ---
 

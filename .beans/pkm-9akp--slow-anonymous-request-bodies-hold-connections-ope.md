@@ -1,11 +1,11 @@
 ---
 # pkm-9akp
 title: Slow anonymous request bodies hold connections open
-status: todo
+status: in-progress
 type: bug
 priority: low
 created_at: 2026-10-25T09:27:58Z
-updated_at: 2026-10-25T09:39:58Z
+updated_at: 2026-10-25T09:52:34Z
 parent: pkm-mfd0
 ---
 

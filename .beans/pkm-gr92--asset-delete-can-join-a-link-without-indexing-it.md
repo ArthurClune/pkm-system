@@ -1,11 +1,11 @@
 ---
 # pkm-gr92
 title: Asset delete can join a link without indexing it
-status: todo
+status: in-progress
 type: bug
 priority: low
 created_at: 2026-10-24T22:52:59Z
-updated_at: 2026-10-24T22:52:59Z
+updated_at: 2026-10-25T09:52:34Z
 parent: pkm-mfd0
 ---
 

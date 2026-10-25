@@ -1,11 +1,11 @@
 ---
 # pkm-n01x
 title: Refused upload or file drop leaves orphan assets
-status: todo
+status: in-progress
 type: bug
 priority: low
 created_at: 2026-10-24T14:58:27Z
-updated_at: 2026-10-24T14:58:27Z
+updated_at: 2026-10-25T09:52:34Z
 parent: pkm-mfd0
 ---
 

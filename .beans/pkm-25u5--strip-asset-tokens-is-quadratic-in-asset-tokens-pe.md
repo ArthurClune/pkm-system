@@ -1,11 +1,11 @@
 ---
 # pkm-25u5
 title: strip_asset_tokens is quadratic in asset tokens per block
-status: todo
+status: in-progress
 type: bug
 priority: normal
 created_at: 2026-10-24T21:19:31Z
-updated_at: 2026-10-24T21:19:31Z
+updated_at: 2026-10-25T09:52:34Z
 parent: pkm-mfd0
 ---
 

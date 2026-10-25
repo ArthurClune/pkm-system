@@ -28,7 +28,7 @@ def _seed(seed: str) -> tuple[BlockUid, StoredBlock]:
 def test_reader_returns_text_and_page_of_existing_uids(seeded_config):
     uid, stored = _seed("uid_b4")
     read = db_block_reader(seeded_config.db_path)
-    assert read([uid, _GONE], []) == {uid: stored}
+    assert read([uid, _GONE], [], []) == {uid: stored}
 
 
 def test_reader_counts_the_blocks_under_each_delete_target(seeded_config):
@@ -36,7 +36,7 @@ def test_reader_counts_the_blocks_under_each_delete_target(seeded_config):
     parent, parent_stored = _seed("uid_b2")
     leaf, leaf_stored = _seed("uid_b4")
     read = db_block_reader(seeded_config.db_path)
-    got = read([parent, leaf, _GONE], [parent, leaf, _GONE])
+    got = read([parent, leaf, _GONE], [parent, leaf, _GONE], [])
     assert got == {
         parent: StoredBlock(parent_stored.page_title, parent_stored.text, 1),
         leaf: StoredBlock(leaf_stored.page_title, leaf_stored.text, 0)}
@@ -54,7 +54,7 @@ def test_reader_counts_the_whole_subtree(seeded_config):
     con.commit()
     con.close()
     parent = uid_of("uid_b2")
-    got = db_block_reader(seeded_config.db_path)([parent], [parent])
+    got = db_block_reader(seeded_config.db_path)([parent], [parent], [])
     assert got[parent].descendants == 4
 
 
@@ -65,13 +65,13 @@ def test_reader_count_ends_on_a_cycle(seeded_config):
     con.commit()
     con.close()
     uid = uid_of("uid_b2")
-    got = db_block_reader(seeded_config.db_path)([uid], [uid])
+    got = db_block_reader(seeded_config.db_path)([uid], [uid], [])
     assert got[uid].descendants == 1
 
 
 def test_reader_counts_only_what_it_is_asked_to(seeded_config):
     uid = uid_of("uid_b2")
-    got = db_block_reader(seeded_config.db_path)([uid], [])
+    got = db_block_reader(seeded_config.db_path)([uid], [], [])
     assert got[uid].descendants is None
 
 
@@ -92,7 +92,7 @@ def test_reader_closes_its_connection(seeded_config, monkeypatch):
         return db
     monkeypatch.setattr(target_reader, "open_db", tracking_open)
     read = db_block_reader(seeded_config.db_path)
-    read([uid_of("uid_b2")], [uid_of("uid_b2")])
+    read([uid_of("uid_b2")], [uid_of("uid_b2")], [])
     assert closed == [True]
 
 
@@ -123,7 +123,7 @@ def test_reader_reads_text_and_counts_from_one_snapshot(seeded_config,
         db.select = select
         return db
     monkeypatch.setattr(target_reader, "open_db", racing_open)
-    got = db_block_reader(seeded_config.db_path)([leaf], [leaf])
+    got = db_block_reader(seeded_config.db_path)([leaf], [leaf], [])
     assert got == {leaf: StoredBlock(stored.page_title, stored.text, 0)}
 
 
@@ -146,13 +146,15 @@ def test_a_block_whose_page_row_is_missing_is_not_read_as_absent(
 
 class _Recording:
     def __init__(self, blocks: Mapping[BlockUid, StoredBlock]) -> None:
-        self.calls: list[tuple[list[BlockUid], list[BlockUid]]] = []
+        self.calls: list[tuple[list[BlockUid], list[BlockUid],
+                               list[BlockUid]]] = []
         self._blocks = blocks
 
     def __call__(self, uids: Sequence[BlockUid],
-                 count_under: Collection[BlockUid]
+                 count_under: Collection[BlockUid],
+                 ancestors_of: Collection[BlockUid]
                  ) -> Mapping[BlockUid, StoredBlock]:
-        self.calls.append((list(uids), list(count_under)))
+        self.calls.append((list(uids), list(count_under), list(ancestors_of)))
         return self._blocks
 
 
@@ -172,12 +174,24 @@ def test_preview_write_reads_only_what_the_card_shows():
                          _B: StoredBlock(_INBOX, "gone", 2)})
     out = asyncio.run(preview_write("batch", _BATCH, reader))
     assert reader.calls == [(write_target_uids("batch", _BATCH),
-                             delete_target_uids("batch", _BATCH))]
-    assert reader.calls == [([_A, _B], [_B])]
+                             delete_target_uids("batch", _BATCH), [])]
+    assert reader.calls == [([_A, _B], [_B], [])]
     assert isinstance(out, WritePreview)
     assert [op.current for op in out.ops] == [
         FoundBlock(_INBOX, "old", 3), FoundBlock(_INBOX, "gone", 4, 2),
         MissingBlock(), None]
+
+
+def test_preview_write_reads_the_parents_a_move_before_a_delete_names():
+    parent = uid_of("PARENT01")
+    raw = {"commands": [
+        {"command": "move", "params": {"uid": _A, "page": "P",
+                                       "parent": f"(({parent}))"}},
+        {"command": "delete", "params": {"uid": _B}}]}
+    reader = _Recording({parent: StoredBlock(_INBOX, "p", ancestors=())})
+    out = asyncio.run(preview_write("batch", raw, reader))
+    assert reader.calls == [([_A, _B, parent], [_B], [parent])]
+    assert isinstance(out, WritePreview)
 
 
 def test_preview_write_reads_nothing_for_a_write_without_targets():
@@ -195,7 +209,8 @@ def test_preview_write_of_refused_input_reads_nothing():
 
 
 def test_a_failing_read_is_a_refusal_not_a_raise(caplog):
-    def failing(uids: Sequence[BlockUid], count_under: Collection[BlockUid]):
+    def failing(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+            ancestors_of: Collection[BlockUid]):
         raise sqlite3.OperationalError("secret-path/pkm.sqlite3 is locked")
 
     with caplog.at_level(logging.WARNING, logger="pkm.assistant"):
@@ -211,7 +226,8 @@ def test_a_failing_read_is_a_refusal_not_a_raise(caplog):
 def test_preview_write_is_a_snapshot():
     tool_input: dict[str, object] = {"uid": _A, "text": "original"}
 
-    def mutating(uids: Sequence[BlockUid], count_under: Collection[BlockUid]):
+    def mutating(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+            ancestors_of: Collection[BlockUid]):
         tool_input["text"] = "swapped"
         tool_input["uid"] = _B
         return {_A: StoredBlock(_INBOX, "old"),
@@ -233,7 +249,8 @@ def test_preview_write_reads_off_the_event_loop():
         import threading
         main = threading.get_ident()
 
-        def reader(uids: Sequence[BlockUid], count_under: Collection[BlockUid]):
+        def reader(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+            ancestors_of: Collection[BlockUid]):
             loop_threads.append(threading.get_ident() == main)
             return {}
         return await preview_write("update_block", {"uid": _A, "text": "t"},
@@ -241,3 +258,101 @@ def test_preview_write_reads_off_the_event_loop():
 
     asyncio.run(scenario())
     assert loop_threads == [False]
+
+
+# -- the reader places the parents a move before a delete names ----------
+
+def _add_tree(config) -> None:
+    """A big root with 50 children on page "Big", and a one-block page
+    "Junk" whose block has a child, as the final review's reproduction
+    built them."""
+    con = open_db(config.db_path)
+    con.execute("INSERT INTO pages VALUES (10, 'Big', NULL, NULL)")
+    con.execute("INSERT INTO pages VALUES (11, 'Junk', NULL, NULL)")
+    rows = [("bigroot01", 10, None, 0, "Projects", None, 0, None, None),
+            ("junkleaf1", 11, None, 0, "tmp", None, 0, None, None),
+            ("junkkid01", 11, "junkleaf1", 0, "kid", None, 0, None, None)]
+    rows += [(f"bigkid{i:03d}", 10, "bigroot01", i, f"kid {i}", None, 0,
+              None, None) for i in range(50)]
+    con.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)", rows)
+    con.commit()
+    con.close()
+
+
+def test_reader_returns_the_ancestors_it_is_asked_for(seeded_config):
+    _add_tree(seeded_config)
+    kid, leaf = uid_of("junkkid01"), uid_of("junkleaf1")
+    got = db_block_reader(seeded_config.db_path)([kid, leaf], [], [kid,
+                                                                   leaf])
+    assert got[kid].ancestors == (leaf,)
+    assert got[leaf].ancestors == ()
+    assert db_block_reader(seeded_config.db_path)(
+        [kid], [], [])[kid].ancestors is None
+
+
+def test_reader_ancestors_end_on_a_cycle(seeded_config):
+    con = open_db(seeded_config.db_path)
+    con.execute("UPDATE blocks SET parent_uid = 'uid_b3' WHERE uid = 'uid_b2'")
+    con.commit()
+    con.close()
+    uid = uid_of("uid_b3")
+    got = db_block_reader(seeded_config.db_path)([uid], [], [uid])
+    assert got[uid].ancestors == (uid_of("uid_b2"),)
+
+
+def _batch_preview(config, commands):
+    return asyncio.run(preview_write(
+        "batch", {"commands": commands}, db_block_reader(config.db_path)))
+
+
+def test_a_move_under_a_leaf_then_its_delete_is_refused(seeded_config):
+    _add_tree(seeded_config)
+    out = _batch_preview(seeded_config, [
+        {"command": "move", "params": {"uid": "bigroot01", "page": "Junk",
+                                       "parent": "((junkleaf1))"}},
+        {"command": "delete", "params": {"uid": "junkleaf1"}}])
+    assert isinstance(out, Refusal)
+    assert out.message.startswith(
+        'batch: write 2 deletes "junkleaf1" and every block under it, and '
+        "write 1 moves an existing block there first")
+
+
+def test_a_move_under_an_alias_then_its_delete_is_refused(seeded_config):
+    _add_tree(seeded_config)
+    out = _batch_preview(seeded_config, [
+        {"command": "create", "params": {"page": "Junk", "text": "x",
+                                         "as": "t"}},
+        {"command": "move", "params": {"uid": "bigroot01", "page": "Junk",
+                                       "parent": "{{t}}"}},
+        {"command": "delete", "params": {"uid": "{{t}}"}}])
+    assert isinstance(out, Refusal)
+    assert out.message.startswith(
+        'batch: write 3 deletes "{{t}}" and every block under it, and '
+        "write 2 moves an existing block there first")
+
+
+def test_a_move_under_a_descendant_then_the_delete_is_refused(
+        seeded_config):
+    _add_tree(seeded_config)
+    out = _batch_preview(seeded_config, [
+        {"command": "move", "params": {"uid": "bigroot01", "page": "Junk",
+                                       "parent": "((junkkid01))"}},
+        {"command": "delete", "params": {"uid": "junkleaf1"}}])
+    assert isinstance(out, Refusal)
+    assert out.message.startswith(
+        'batch: write 2 deletes "junkleaf1" and every block under it, and '
+        "write 1 moves an existing block there first")
+
+
+def test_a_move_elsewhere_then_a_delete_is_previewed(seeded_config):
+    _add_tree(seeded_config)
+    out = _batch_preview(seeded_config, [
+        {"command": "move", "params": {"uid": "junkkid01", "page": "Big",
+                                       "parent": "((bigroot01))"}},
+        {"command": "delete", "params": {"uid": "junkleaf1"}}])
+    assert isinstance(out, WritePreview)
+    assert out.ops[1].current == FoundBlock(canonical_title_of("Junk"),
+                                            "tmp", 3, 1)

@@ -18,6 +18,13 @@ user what they are approving away. A delete removes the block's subtree
 too, so for the uids `delete_target_uids` names the shell also counts the
 blocks under it.
 
+That count is of the store as read, so a batch delete must not take a
+block an earlier write of the same batch moved under it: the count would
+leave that block and its subtree out. Such a batch is refused, and so is
+one where the card cannot tell where such a move lands; for that the shell
+reads the ancestors of the `((uid))` parents `ancestor_uids` names. The
+CLI's batch is not checked: its user wrote the batch.
+
 The tool functions come from `pkm.mcp.tools`, never `pkm.mcp.server`:
 constructing the server's `FastMCP` configures the root logger and reads
 `FASTMCP_*` settings, and the web server imports this module."""
@@ -25,7 +32,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -76,6 +83,9 @@ class StoredBlock:
     # How many blocks sit under it: counted only for a uid
     # `delete_target_uids` names, else None.
     descendants: int | None = None
+    # The blocks above it, its parent first: read only for a uid
+    # `ancestor_uids` names, else None.
+    ancestors: tuple[BlockUid, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -283,6 +293,131 @@ def _op(entry: str, validated: Mapping[str, Any],
                      current=_current(entry, validated, aliases, blocks))
 
 
+@dataclass(frozen=True)
+class _Existing:
+    """A block the store holds, by uid."""
+    uid: BlockUid
+
+
+@dataclass(frozen=True)
+class _Made:
+    """The block a batch create makes, by its `as` name."""
+    alias: str
+
+
+_Node = _Existing | _Made
+# Where a `parent` spec puts a block: under a node, at its page's top
+# level, or somewhere the card cannot place.
+_Place = _Node | Literal["top", "unplaced"]
+_CREATES = ("batch:create", "batch:todo")
+
+
+def _node(spec: object) -> _Node | None:
+    """The block a batch `uid` spec names; None for a malformed uid,
+    which names no block, so the write moves or deletes nothing."""
+    if not isinstance(spec, str):
+        return None
+    alias = alias_name(spec)
+    if alias is not None:
+        return _Made(alias)
+    uid = parse_block_uid(spec)
+    return _Existing(uid) if uid is not None else None
+
+
+def _place(parent: str | None) -> _Place:
+    """Where a create's or move's `parent` spec puts the block. A
+    "## Heading" resolves against the fetched page, and a malformed
+    `((uid))` fails planning: the card can place neither."""
+    if parent is None:
+        return "top"
+    alias = alias_name(parent)
+    if alias is not None:
+        return _Made(alias)
+    inner = parse_uid_spec(parent)
+    uid = parse_block_uid(inner) if inner is not None else None
+    return _Existing(uid) if uid is not None else "unplaced"
+
+
+def _ends_under(start: _Node, target: _Node,
+                parents: Mapping[_Node, _Place],
+                blocks: Mapping[BlockUid, StoredBlock]) -> bool | None:
+    """Whether `start` sits under `target` once the writes recorded in
+    `parents` have run. A block a create or move placed follows
+    `parents`; one left where it is follows its stored ancestors, read
+    for each `((uid))` parent `ancestor_uids` names. None: the card cannot
+    tell (an unplaced parent, an unread block, a cycle)."""
+    seen: set[_Node] = {start}
+    place = parents[start]
+    while True:
+        if place == "top":
+            return False
+        if place == "unplaced":
+            return None
+        if place == target:
+            return True
+        if place in seen:
+            return None
+        seen.add(place)
+        if place in parents:
+            place = parents[place]
+            continue
+        stored = (blocks.get(place.uid) if isinstance(place, _Existing)
+                  else None)
+        if stored is None or stored.ancestors is None:
+            return None
+        for ancestor in stored.ancestors:
+            node = _Existing(ancestor)
+            if node == target:
+                return True
+            if node in parents:
+                place = node
+                break
+        else:
+            return False
+
+
+def _moved_into_delete(ops: Sequence[tuple[str, Mapping[str, Any]]],
+                       blocks: Mapping[BlockUid, StoredBlock]
+                       ) -> Refusal | None:
+    """Why a batch delete would take an existing block an earlier write
+    moved under it, or None. The delete's count is of the store as read,
+    so that block and everything under it would go uncounted. Refused
+    rather than warned: moving a block where the same batch then deletes
+    it is never needed, so the batch can be split."""
+    parents: dict[_Node, _Place] = {}
+    moved: dict[_Existing, int] = {}
+    for i, (entry, params) in enumerate(ops):
+        if entry in _CREATES and params.get("as"):
+            parents[_Made(params["as"])] = _place(params.get("parent"))
+            continue
+        node = _node(params.get("uid"))
+        if node is None:
+            continue
+        if entry == "batch:move":
+            parents[node] = _place(params.get("parent"))
+            if isinstance(node, _Existing):
+                moved[node] = i
+        elif entry == "batch:delete":
+            for block, write in moved.items():
+                under = (False if block == node
+                         else _ends_under(block, node, parents, blocks))
+                if under is False:
+                    continue
+                deleted = (f"batch: write {i + 1} deletes "
+                           f"{echo(params['uid'])} and every block under "
+                           "it, and ")
+                if under:
+                    return Refusal(
+                        f"{deleted}write {write + 1} moves an existing "
+                        "block there first, so it would be deleted too; "
+                        "move it elsewhere or split the batch")
+                return Refusal(
+                    f"{deleted}the card cannot tell whether write "
+                    f"{write + 1} moves an existing block there first; "
+                    "split the batch")
+    return None
+
+
 def _limit_problem(op: PreviewOp) -> str | None:
     """Why `op` is too large to preview, or None."""
     for key, value in op.targets:
@@ -351,17 +486,45 @@ def delete_target_uids(short: str, tool_input: Mapping[str, object]
     return _targets(short, tool_input, SUBTREE_DELETE_ENTRIES)
 
 
-def _targets(short: str, tool_input: Mapping[str, object],
-             entries: frozenset[str]) -> list[BlockUid]:
-    """The uids the ops in `entries` name, first-seen and deduped; none for
-    input the preview refuses or cannot handle."""
+def ancestor_uids(short: str, tool_input: Mapping[str, object]
+                  ) -> list[BlockUid]:
+    """The `((uid))` parents of a batch's moves and aliased creates, when
+    a move comes before a delete, for the shell to read their ancestors:
+    without them the card cannot tell whether the move lands inside the
+    deleted subtree. Never raises."""
+    checked = _accepted(short, tool_input)
+    if checked is None:
+        return []
+    entries = [entry for entry, _ in checked.ops]
+    if "batch:move" not in entries or "batch:delete" not in entries[
+            entries.index("batch:move"):]:
+        return []
+    places = (_place(params.get("parent")) for entry, params in checked.ops
+              if entry == "batch:move"
+              or (entry in _CREATES and params.get("as")))
+    return list(dict.fromkeys(place.uid for place in places
+                              if isinstance(place, _Existing)))
+
+
+def _accepted(short: str, tool_input: Mapping[str, object]
+              ) -> _Checked | None:
+    """`_validate`'s result; None for input the preview refuses or cannot
+    handle."""
     try:
         checked = _validate(short, tool_input)
     except Exception as exc:
         logger.warning("write targets of %s failed: %s", short,
                        type(exc).__name__)
-        return []
-    if isinstance(checked, Refusal):
+        return None
+    return None if isinstance(checked, Refusal) else checked
+
+
+def _targets(short: str, tool_input: Mapping[str, object],
+             entries: frozenset[str]) -> list[BlockUid]:
+    """The uids the ops in `entries` name, first-seen and deduped; none for
+    input the preview refuses or cannot handle."""
+    checked = _accepted(short, tool_input)
+    if checked is None:
         return []
     uids = (_target_uid(entry, validated) for entry, validated in checked.ops
             if entry in entries)
@@ -372,11 +535,11 @@ def build_write_preview(short: str, tool_input: Mapping[str, object],
                         blocks: Mapping[BlockUid, StoredBlock]
                         ) -> WritePreview | Refusal:
     """The card for write tool `short` called with `tool_input`, given the
-    `blocks` the shell read for `write_target_uids`, or why the call must
-    be refused instead. An input the builder cannot handle (an outline
-    nested past pydantic's depth limit, say) is refused too: raised out of
-    `can_use_tool`, it would reach the SDK as a control error instead of a
-    reason the model can act on."""
+    `blocks` the shell read for `write_target_uids` and `ancestor_uids`,
+    or why the call must be refused instead. An input the builder cannot
+    handle (an outline nested past pydantic's depth limit, say) is refused
+    too: raised out of `can_use_tool`, it would reach the SDK as a control
+    error instead of a reason the model can act on."""
     try:
         out = _build(short, tool_input, blocks)
     except Exception as exc:
@@ -432,6 +595,9 @@ def _build(short: str, tool_input: Mapping[str, object],
     checked = _validate(short, tool_input)
     if isinstance(checked, Refusal):
         return checked
+    moved_in = _moved_into_delete(checked.ops, blocks)
+    if moved_in is not None:
+        return moved_in
     ops = [_op(entry, validated, checked.aliases, blocks)
            for entry, validated in checked.ops]
     for i, op in enumerate(ops):

@@ -186,7 +186,8 @@ _INBOX = canonical_title_of("Inbox")
 def test_update_trigger_parks_a_card_with_the_blocks_current_text():
     reads = []
 
-    def read_blocks(uids: Sequence[BlockUid], count_under: Collection[BlockUid]):
+    def read_blocks(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+            ancestors_of: Collection[BlockUid]):
         reads.append((list(uids), list(count_under)))
         return {_VICTIM: StoredBlock(_INBOX, "old")}
 
@@ -216,7 +217,8 @@ def test_update_trigger_deny():
 
 
 def test_update_trigger_unreadable_target_is_refused():
-    def failing(uids: Sequence[BlockUid], count_under: Collection[BlockUid]):
+    def failing(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+            ancestors_of: Collection[BlockUid]):
         raise OSError("disk gone")
 
     events = _update_turn(f"please update {_VICTIM}", True, failing)

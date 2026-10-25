@@ -1088,7 +1088,8 @@ def test_confirm_card_shows_the_blocks_current_text(tmp_path):
     inbox = canonical_title_of("Inbox")
     reads: list[list[str]] = []
 
-    def read_blocks(uids: Sequence[BlockUid], count_under: Collection[BlockUid]):
+    def read_blocks(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+            ancestors_of: Collection[BlockUid]):
         reads.append(list(uids))
         return {victim: StoredBlock(inbox, "old")}
 
@@ -1110,7 +1111,8 @@ def test_confirm_card_shows_the_blocks_current_text(tmp_path):
 
 
 def test_an_unreadable_target_is_refused_not_shown(tmp_path):
-    def read_blocks(uids: Sequence[BlockUid], count_under: Collection[BlockUid]):
+    def read_blocks(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+            ancestors_of: Collection[BlockUid]):
         raise OSError("disk gone")
 
     engine = make_engine(tmp_path, read_blocks=read_blocks)

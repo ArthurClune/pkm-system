@@ -86,7 +86,8 @@ class HangingInterruptClient(FakeSDKClient):
         await asyncio.Event().wait()  # never set
 
 
-def _no_rows(uids: Sequence[BlockUid], count_under: Collection[BlockUid]):
+def _no_rows(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+            ancestors_of: Collection[BlockUid]):
     """A reader for an engine with no database: no block has any uid."""
     return {}
 

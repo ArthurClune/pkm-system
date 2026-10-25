@@ -18,6 +18,7 @@ from pkm.assistant.write_preview import (CONTENT_LIMIT_CHARS,
                                          CreatedInBatch, FoundBlock,
                                          MissingBlock, PreviewOp, Refusal,
                                          StoredBlock, WritePreview,
+                                         ancestor_uids,
                                          build_write_preview,
                                          delete_target_uids,
                                          write_target_uids)
@@ -961,3 +962,162 @@ def test_a_refusal_exactly_at_the_cut_is_whole(monkeypatch):
                         lambda *a: Refusal("x" * 501))
     assert _refusal("save_note", {"text": "t"}).message \
         == "x" * 500 + "… (501 characters)"
+
+
+# -- a delete must not take an existing block an earlier write moved in ----
+
+_T = uid_of("TARGET0001")
+_KID = uid_of("TARGETKID1")
+_MOVED = uid_of("MOVEDROOT1")
+_ELSE = uid_of("ELSEWHERE1")
+_TOP = uid_of("TOPOFPAGE1")
+
+
+def _move(spec: str, parent: str | None = None) -> dict[str, object]:
+    params: dict[str, object] = {"uid": spec, "page": "P"}
+    if parent is not None:
+        params["parent"] = parent
+    return {"command": "move", "params": params}
+
+
+def _delete(spec: str) -> dict[str, object]:
+    return {"command": "delete", "params": {"uid": spec}}
+
+
+def _create(alias: str, parent: str | None = None) -> dict[str, object]:
+    params: dict[str, object] = {"page": "P", "text": "x", "as": alias}
+    if parent is not None:
+        params["parent"] = parent
+    return {"command": "create", "params": params}
+
+
+# What the reader holds: the delete target, a block under it, and a block
+# elsewhere, each with its ancestors parent first.
+_TREE = {
+    _T: StoredBlock(_INBOX, "target", 1, ancestors=(_TOP,)),
+    _KID: StoredBlock(_INBOX, "kid", ancestors=(_T, _TOP)),
+    _ELSE: StoredBlock(_INBOX, "else", ancestors=()),
+    _TOP: StoredBlock(_INBOX, "top", ancestors=()),
+}
+
+
+def _moved_in(write: int, delete: int, spec: str) -> str:
+    return (f"batch: write {delete} deletes {json.dumps(spec)} and every "
+            f"block under it, and write {write} moves an existing block "
+            "there first, so it would be deleted too; move it elsewhere or "
+            "split the batch")
+
+
+def _cannot_tell(write: int, delete: int, spec: str) -> str:
+    return (f"batch: write {delete} deletes {json.dumps(spec)} and every "
+            f"block under it, and the card cannot tell whether write "
+            f"{write} moves an existing block there first; split the batch")
+
+
+def test_a_delete_of_the_block_a_move_went_under_is_refused():
+    raw = {"commands": [_move(_MOVED, f"(({_T}))"), _delete(_T)]}
+    assert _refusal("batch", raw, _TREE).message == _moved_in(1, 2, _T)
+
+
+def test_a_delete_of_an_alias_a_move_went_under_is_refused():
+    raw = {"commands": [_create("t"), _move(_MOVED, "{{t}}"),
+                        _delete("{{t}}")]}
+    assert _refusal("batch", raw, _TREE).message \
+        == _moved_in(2, 3, "{{t}}")
+
+
+def test_a_move_under_a_block_inside_the_deleted_subtree_is_refused():
+    raw = {"commands": [_move(_MOVED, f"(({_KID}))"), _delete(_T)]}
+    assert _refusal("batch", raw, _TREE).message == _moved_in(1, 2, _T)
+
+
+def test_a_move_under_a_block_created_inside_the_subtree_is_refused():
+    raw = {"commands": [_create("c", f"(({_KID}))"),
+                        _move(_MOVED, "{{c}}"), _delete(_T)]}
+    assert _refusal("batch", raw, _TREE).message == _moved_in(2, 3, _T)
+
+
+def test_a_block_moved_into_the_subtree_after_its_parent_is_refused():
+    # the block lands under ELSEWHERE, which then moves under the target
+    raw = {"commands": [_move(_MOVED, f"(({_ELSE}))"),
+                        _move(_ELSE, f"(({_T}))"), _delete(_T)]}
+    assert "would be deleted too" in _refusal("batch", raw, _TREE).message
+
+
+def test_a_created_block_carrying_a_moved_one_into_the_subtree_is_refused():
+    raw = {"commands": [_create("c"), _move(_MOVED, "{{c}}"),
+                        _move("{{c}}", f"(({_T}))"), _delete(_T)]}
+    assert _refusal("batch", raw, _TREE).message == _moved_in(2, 4, _T)
+
+
+@pytest.mark.parametrize("commands", [
+    pytest.param([_move(_MOVED, f"(({_ELSE}))"), _delete(_T)],
+                 id="elsewhere"),
+    pytest.param([_move(_MOVED), _delete(_T)], id="page top level"),
+    pytest.param([_delete(_T), _move(_MOVED, f"(({_T}))")],
+                 id="move after the delete"),
+    pytest.param([_move(_KID, f"(({_ELSE}))"),
+                  _move(_MOVED, f"(({_KID}))"), _delete(_T)],
+                 id="its parent moved out first"),
+    pytest.param([_move(_MOVED, f"(({_T}))"),
+                  _move(_MOVED, f"(({_ELSE}))"), _delete(_T)],
+                 id="moved in then out"),
+    pytest.param([_move(_T, f"(({_ELSE}))"), _delete(_T)],
+                 id="the target itself moves"),
+    pytest.param([_create("c", f"(({_T}))"), _delete(_T)],
+                 id="a create under it"),
+])
+def test_a_delete_no_moved_block_ends_under_is_previewed(commands):
+    assert _preview("batch", {"commands": commands}, _TREE)
+
+
+@pytest.mark.parametrize("commands", [
+    pytest.param([_move(_MOVED, "## Done"), _delete(_T)],
+                 id="a heading"),
+    pytest.param([_move(_MOVED, "((GONEGONE01))"), _delete(_T)],
+                 id="a uid the reader has no row for"),
+    pytest.param([_move(_MOVED, "((no good))"), _delete(_T)],
+                 id="a malformed uid"),
+    pytest.param([_create("c", "## Done"), _move(_MOVED, "{{c}}"),
+                  _delete(_T)], id="an alias under a heading"),
+    pytest.param([_move(_MOVED, f"(({_ELSE}))"),
+                  _move(_ELSE, f"(({_MOVED}))"), _delete(_T)],
+                 id="a cycle"),
+])
+def test_a_move_the_card_cannot_place_before_a_delete_is_refused(commands):
+    write = 2 if commands[0]["command"] == "create" else 1
+    assert _refusal("batch", {"commands": commands}, _TREE).message \
+        == _cannot_tell(write, len(commands), _T)
+
+
+def test_a_block_read_without_ancestors_cannot_be_placed():
+    raw = {"commands": [_move(_MOVED, f"(({_ELSE}))"), _delete(_T)]}
+    blocks = {**_TREE, _ELSE: StoredBlock(_INBOX, "else")}
+    assert _refusal("batch", raw, blocks).message \
+        == _cannot_tell(1, 2, _T)
+
+
+def test_ancestor_uids_are_the_parents_a_move_before_a_delete_needs():
+    raw = {"commands": [_create("c", f"(({_KID}))"),
+                        _create("d", f"(({_TOP}))"),
+                        {"command": "create", "params": {
+                            "page": "P", "text": "x",
+                            "parent": "((NOALIAS01))"}},
+                        _move(_MOVED, f"(({_ELSE}))"),
+                        _move(_MOVED, "{{c}}"), _move(_MOVED, "## H"),
+                        _move(_MOVED, "((no good))"), _delete(_T)]}
+    assert ancestor_uids("batch", raw) == [_KID, _TOP, _ELSE]
+
+
+@pytest.mark.parametrize("commands", [
+    [_move(_MOVED, f"(({_ELSE}))")],
+    [_delete(_T), _move(_MOVED, f"(({_ELSE}))")],
+    [_create("c", f"(({_KID}))"), _delete(_T)],
+])
+def test_ancestor_uids_are_none_without_a_move_before_a_delete(commands):
+    assert ancestor_uids("batch", {"commands": commands}) == []
+
+
+def test_ancestor_uids_never_raise():
+    assert ancestor_uids("batch", {"commands": "nope"}) == []
+    assert ancestor_uids("update_block", {"uid": _A, "text": "t"}) == []

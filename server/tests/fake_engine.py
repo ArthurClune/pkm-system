@@ -45,7 +45,8 @@ from pkm.contracts.responses import ConfirmId
 from pkm.test_data.ids import confirm_id_of
 
 
-def _no_rows(uids: Sequence[BlockUid], count_under: Collection[BlockUid]
+def _no_rows(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+             ancestors_of: Collection[BlockUid]
              ) -> Mapping[BlockUid, StoredBlock]:
     """The reader of an engine with no database: no block has any uid."""
     return {}

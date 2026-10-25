@@ -40,9 +40,13 @@ Plan: docs/superpowers/plans/2026-10-25-approval-card-targets.md.
   anything else leaves Deny only.
 - The card shows each updated, moved or deleted block's current page and
   text (a clipped excerpt with its full length), "no block has this uid",
-  or the batch write that creates an alias; a delete says how many blocks
-  go with it. The server reads them in one snapshot just before the card,
-  and a queued card read before an earlier Allow says so.
+  or the batch write that creates an alias. A delete says how many blocks
+  sit under its target in the store as read; a batch whose delete would
+  take a block an earlier write of the batch moved under it (directly,
+  through an alias, or under a descendant), or where the card cannot tell,
+  is refused, so the count leaves out no existing block. The server reads
+  them in one snapshot just before the card, and a queued card read before
+  an earlier Allow says so.
 - Docs: assistant.md (approval card, bounds, the blocks a write changes),
   cli-and-mcp.md, cli.md, backend.md generated artifacts, frontend.md mint
   site, two troubleshooting rows.

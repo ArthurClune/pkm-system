@@ -794,6 +794,26 @@ def test_validate_batch_rejects_missing_command():
         validate_batch([{"params": {}}])
 
 
+def test_validate_batch_echoes_an_over_range_int_bounded():
+    # the CLI and MCP print this refusal whole, so a 4,000-digit index
+    # must not come back as 4,000 digits
+    with pytest.raises(BuildError) as caught:
+        validate_batch([{"command": "create", "params": {
+            "page": "P", "text": "t", "index": 10 ** 4000}}])
+    message = str(caught.value)
+    assert len(message) < 300, len(message)
+    assert "… (4,001 characters) is outside the 64-bit integer range" \
+        in message
+
+
+def test_validate_batch_echoes_a_short_over_range_int_whole():
+    with pytest.raises(BuildError) as caught:
+        validate_batch([{"command": "create", "params": {
+            "page": "P", "text": "t", "index": 2 ** 63}}])
+    assert '"9223372036854775808" is outside the 64-bit integer range' \
+        in str(caught.value)
+
+
 def test_validate_batch_rejects_unknown_command():
     with pytest.raises(BuildError,
                        match=r'batch\[0\]: unknown command: "zap"'):

@@ -437,7 +437,12 @@ server bug.
   is judged: a move, `set_*` op or delete of a row stored over a limit goes
   through, and an edit that brings it under is accepted. The links a
   [stale batch](#stale-batches) unlinks are not judged: an unlink only
-  shortens the text, bar the two backticks a fenced attribute adds.
+  shortens the text, bar the two backticks a fenced attribute adds. So a
+  text at the cap whose leading attribute names a deleted page is stored at
+  `MAX_BLOCK_TEXT_CHARS` + 2. Every spelling that keeps the name's text and
+  stops it indexing needs the two backticks, and refusing would discard the
+  offline batch for text the client sent within the limit
+  (`test_a_stale_defuse_at_the_cap_stores_at_most_two_more`).
 - **Replayed text.** A stale edit replayed over a rename or page delete
   ([Conflicts](#conflicts)) is never stored past a limit, though nobody sent
   the text the replay makes. Each link grows by the title's growth, and
@@ -624,7 +629,7 @@ deletion as newer.
 | `create_page` for a stale title | dropped, not reported; the replica removes its page (`dropStrandedLocalPages`) |
 | top-level `create` / `move` with a stale `page_title` | skipped as `stale_page` (a `SkipKind`), reported `page_deleted` (a `SkipReason`) ([above](#missing-targets)) |
 | text linking a stale title | the links become plain text (`ops_core.unlink_stale_text`) |
-| a leading `Title::` naming a stale title | fenced in place, `` `X`:: v `` (`unlink.defuse_attribute`), so it indexes no ref; the unlink replay defuses too |
+| a leading `Title::` naming a stale title | fenced in place, `` `X`:: v `` (`unlink.defuse_attribute`), so it indexes no ref; the unlink replay defuses too. A text at the cap is stored two characters past it ([Planning](#planning)) |
 
 A page re-created after its delete still matches until its row is pruned.
 

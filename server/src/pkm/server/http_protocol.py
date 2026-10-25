@@ -36,7 +36,9 @@ progress, not how long writing stays paused: one large message (a big
 JSON response) keeps writing paused until nearly all of it has gone, and
 a slow reader of it must not be cut. Progress is measured by the
 transport's buffer shrinking, which is sound only in those two states,
-because then nothing else adds to it.
+because then nothing else adds to it. The kernel may still take a few
+KiB just after the client stops reading, which counts as progress, so
+such a client is cut after one or two windows (measured: 115 to 125 s).
 
 It leans on uvicorn internals (`self.cycle`, `self.flow`,
 `on_response_complete`, `pause_writing`); the real-socket tests in

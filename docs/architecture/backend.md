@@ -955,7 +955,9 @@ The write deadline measures progress, not paused time: one large JSON
 message keeps writing paused until nearly all of it has left, and a slow
 reader of it must not be cut. The kernel takes bytes from the transport
 in steps of its socket buffer, so a client must read about that much (a
-few hundred KiB) each window.
+few hundred KiB) each window. It may also take a few KiB just after the
+client stops reading, so a client that stops is cut one or two windows
+later.
 
 A 401 or 413 does not close the connection at once. uvicorn drops the rest
 of the refused body, and a client that sends it promptly can reuse the

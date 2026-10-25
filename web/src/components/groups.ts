@@ -3,7 +3,7 @@ import type { BlockUid, PageId } from "../api/brands";
 
 /** Merge a later pagination batch into accumulated groups: same page_id
  * extends the existing group (deduped by uid), new pages append. Generic so
- * backlink groups (items carry breadcrumbs) merge with the same code. */
+ * backlink groups (items carry ancestor uids) merge with the same code. */
 export function mergeGroups<
   G extends { page_id: PageId; items: { uid: BlockUid }[] },
 >(

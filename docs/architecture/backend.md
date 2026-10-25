@@ -186,11 +186,20 @@ rebootstrap on a schema-hash change. Startup never runs the
 `GET /api/block/{uid}` and every backlink group. Its recursive CTE holds
 `uid` alone and joins with `UNION`, which queues a row only once. So each
 distinct ancestor is read once, however many starts share it, and a parent
-cycle in a hand-edited database ends the walk. `tree.ancestor_texts` then
+cycle in a hand-edited database ends the walk. `tree.ancestor_trails` then
 rebuilds each trail root first, stopping at the first uid already on it.
 **The ancestor walk must not carry a per-row path string.** One row per
 start and ancestor, each copying an `O(depth)` string, makes the backlinks
 of a deep chain cost `O(depth³)`.
+
+A backlinks payload sends each ancestor's text once. Each item carries
+`ancestor_uids`, root first, and the payload one `ancestor_texts` map
+(`Backlinks`, `BlockBacklinksPayload`). Texts on every item would repeat a
+deep chain's shared ancestors about `depth²/2` times, so a few MB stored
+became hundreds of MB per read. The web shows each ancestor's full text and
+the linked-references filter reads its refs, so an excerpt is no
+substitute. `GET /api/block/{uid}` has one trail and keeps it as texts in
+`breadcrumbs`.
 
 The single-chain walks carry `path` as `,uid,uid,…,` and keep a row only
 while `instr(c.path, ',' || b.uid || ',') = 0`, so a cycle stops at the
@@ -983,9 +992,9 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | **Writes** | | |
 | POST | `/api/ops` | Apply an `OpBatch` ([The write path](#the-write-path)); `applied` counts skipped ops too; 400 for the whole batch past a [text limit](#planning) |
 | **Pages & blocks** | | |
-| GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree, paginated backlinks (not from the page itself), `block_ref_counts`; daily pages auto-created |
+| GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree, paginated backlinks (not from the page itself) with their [`ancestor_texts`](#breadcrumbs-and-recursive-traversal), `block_ref_counts`; daily pages auto-created |
 | GET | `/api/block/{uid}` | One block subtree with its page and [breadcrumbs](#breadcrumbs-and-recursive-traversal) |
-| GET | `/api/block/{uid}/backlinks` | Blocks referencing `((uid))`, unpaginated |
+| GET | `/api/block/{uid}/backlinks` | Blocks referencing `((uid))`, unpaginated, with their [`ancestor_texts`](#breadcrumbs-and-recursive-traversal) |
 | GET | `/api/block-refs?uids=` | Resolve `((uid))` references |
 | POST | `/api/pages` | Idempotent page create |
 | DELETE | `/api/page/{title}` | Delete a page, unlinking inbound refs; 409 with `blockers`, each an `excerpt` and `text_length` ([Page mutations](#page-mutations-and-the-sidebar)) |

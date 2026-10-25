@@ -56,7 +56,6 @@ TitleMatch = Callable[[str], bool]
 # `limit`.
 MAX_DELETE_COPY_CHARS: Final = 4 * MAX_BLOCK_TEXT_CHARS
 
-_ALIAS_LABEL = re.compile(r"\[([^\[\]\n]*)\]\(\Z")
 _NEWLINE_RUN = re.compile(r"[ \t\r]*\n\s*")
 _REF_OR_EMBED = re.compile(
     rf"\{{\{{\s*(?:\[\[)?embed(?:\]\])?\s*:\s*\(\(({BLOCK_REF_TOKEN})\)\)\s*\}}\}}"
@@ -72,6 +71,25 @@ def _unlink_tags(
             spans.append((tag.start, tag.end, tag.raw_title))
 
 
+def _alias_label(clean: str, end: int) -> tuple[int, int] | None:
+    """The label of a `[label](` ending at `end`, as its start and end, or
+    None. A label holds no `[`, `]` or newline, so its `[` is the last one
+    before the `](`, and the look back stops at the run before it. A
+    search from the text's start for every link made the unlink quadratic
+    in its links."""
+    label_end = end - 2
+    if label_end < 0 or clean[label_end:end] != "](":
+        return None
+    opening = clean.rfind("[", 0, label_end)
+    if opening == -1:
+        return None
+    label_start = opening + 1
+    if clean.find("]", label_start, label_end) != -1 or \
+            clean.find("\n", label_start, label_end) != -1:
+        return None
+    return label_start, label_end
+
+
 def _unlink_bracket(
     text: str, clean: str, is_target: TitleMatch, bracket: BracketSpan,
     spans: list[Span],
@@ -80,21 +98,25 @@ def _unlink_bracket(
     if bracket.is_tag:
         spans.append((bracket.start - 1, bracket.end, inner))
         return
-    alias = _ALIAS_LABEL.search(clean, 0, bracket.start)
+    alias = _alias_label(clean, bracket.start)
     if alias is not None and clean[bracket.end:bracket.end + 1] == ")":
         # The label replaces the whole `[label](` run, so spans already
         # collected inside it are dropped and its tags are unlinked here:
         # once the brackets go, a `#tag` at the label's start reads as one.
-        spans[:] = [s for s in spans if s[0] < alias.start()]
-        label_start, label_end = alias.span(1)
-        before = clean[alias.start() - 1:alias.start()]
+        # Spans are collected in order of their start, so those are the
+        # last ones; rebuilding the list per alias was quadratic.
+        label_start, label_end = alias
+        alias_start = label_start - 1
+        while spans and spans[-1][0] >= alias_start:
+            spans.pop()
+        before = clean[alias_start - 1:alias_start]
         probe = before + clean[label_start:label_end]
         label = text[label_start:label_end]
         for tag in sorted(tag_spans(probe, len(before)), key=lambda t: -t.start):
             if is_target(tag.raw_title):
                 a, b = tag.start - len(before), tag.end - len(before)
                 label = label[:a] + tag.raw_title + label[b:]
-        spans.append((alias.start(), bracket.end + 1, label))
+        spans.append((alias_start, bracket.end + 1, label))
         return
     spans.append((bracket.start, bracket.end, inner))
 

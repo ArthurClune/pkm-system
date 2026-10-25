@@ -9,7 +9,7 @@ from pkm.contracts.daily import date_for_title
 from pkm.importer.mermaid import _TRIGGER
 from pkm.planning import BuildError, parse_uid_spec, resolve_parent, split_heading
 from pkm.test_data.ids import uid_of
-from pkm.unlink import _ALIAS_LABEL
+from pkm.unlink import _alias_label
 
 
 def test_split_heading_tolerates_exactly_one_trailing_newline():
@@ -58,6 +58,6 @@ def test_mermaid_trigger_still_tolerates_trailing_whitespace():
     assert _TRIGGER.match("  {{mermaid}}  ")
 
 
-def test_alias_label_needs_the_paren_at_the_search_end():
-    assert _ALIAS_LABEL.search("[x](", 0, 4)
-    assert _ALIAS_LABEL.search("[x](\n", 0, 5) is None
+def test_alias_label_needs_the_paren_at_the_look_back_end():
+    assert _alias_label("[x](", 4) == (1, 2)
+    assert _alias_label("[x](\n", 5) is None

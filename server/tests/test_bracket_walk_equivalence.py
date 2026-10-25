@@ -231,7 +231,7 @@ def test_unlink_walk_matches_the_recursive_walk(case):
     matched = _tally(text, is_target)
     clean = strip_code(text)
     if any(clean[s.end:s.end + 1] == ")"
-           and unlink._ALIAS_LABEL.search(clean, 0, s.start)
+           and unlink._alias_label(clean, s.start) is not None
            for s in matched):
         event("matched an aliased run")
     runs = bracket_spans(clean, text)

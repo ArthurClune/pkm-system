@@ -1,7 +1,11 @@
+import re
+import time
 import tracemalloc
 from collections.abc import Callable
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from scaling import loop_steps
 
 from pkm import refs, spans, unlink
@@ -462,3 +466,33 @@ def test_copies_may_nest_a_source_to_the_cap_and_no_further(link, refused):
         assert [b.reason for b in plan.blockers] == ["limit"]
     else:
         assert plan.blockers == () and plan.rewrites[SRC] == "T"
+
+
+# -- each unlink pass is linear in its text ------------------------------
+
+@pytest.mark.parametrize("unit", ["[[T]] ", "[a]([[T]]) "])
+def test_an_unlink_pass_is_linear_in_the_links_it_removes(unit):
+    # A text within every limit, dense with links to the page. Each link
+    # once searched the whole text before it for an alias label, and each
+    # alias rebuilt the list of spans collected so far: 40,000 links took
+    # 23 s, and a million characters of them minutes, under the write
+    # lock. The slow path ran in C (a regex), hence a wall-clock bound.
+    text = unit * 40_000
+    started = time.perf_counter()
+    out = unlink_title_refs(text, is_t)
+    assert time.perf_counter() - started < 3
+    assert out == unit.replace("[[T]]", "T").replace("[a](T)", "a") * 40_000
+
+
+# The alias label as the prefix search found it, kept as the oracle.
+_PREFIX_ALIAS = re.compile(r"\[([^\[\]\n]*)\]\(\Z")
+
+
+@settings(max_examples=2000, deadline=None)
+@given(st.lists(st.sampled_from(["[", "]", "(", ")", "\n", "a", " ", "]("]),
+                max_size=12).map("".join), st.data())
+def test_the_alias_lookback_finds_the_label_the_prefix_search_did(clean, data):
+    end = data.draw(st.integers(0, len(clean)))
+    found = _PREFIX_ALIAS.search(clean, 0, end)
+    assert unlink._alias_label(clean, end) == (
+        None if found is None else found.span(1))

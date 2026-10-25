@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:27Z
-updated_at: 2026-10-25T03:41:58Z
+updated_at: 2026-10-25T08:20:14Z
 parent: pkm-mfd0
 blocked_by:
     - pkm-tk9i
@@ -47,3 +47,5 @@ SECURITY.md is the high-level model; update it once the fixes we take on have sh
 - [ ] Delete docs/superpowers/handoffs/security-review-2026-10-23-probes once the last fix bean has turned its probe into a red test (pkm-t74a handed this on)
 
 - [ ] Write-time limits (pkm-gc3n, pkm-bppf): block text ≤ 1,000,000 code points and [[ nesting ≤ 32, refused on every write path (ops, replica/op-queue backstops, server-made rewrites judged per axis, stale-edit replay lands a conflict entry, importer); the web grammar is linear and never throws at the cap. Open follow-ups: request size (pkm-0l8g), delete inline copies (pkm-49rh), conflict headers / title length (pkm-iruc).
+
+- [ ] Login backoff row (pkm-lamg, pkm-v3t1) — replace with: | Login backoff is per source (`LoginThrottle`, `throttle_core.py`: `BASE_BACKOFF_MS` doubling to `MAX_BACKOFF_MS`), one password check in flight per source, with no lockout | The source is the device's tailnet address: on the loopback listener the `X-Forwarded-For` Tailscale Serve sets (trusted from `127.0.0.1` only, `run.FORWARDED_ALLOW_IPS`), on the Tailscale-IP listener the TCP peer. Each device has its own bucket, so a guessing device does not put the others in backoff; a local process can choose its key. Concurrent guesses from one source wait their turn, so a burst costs one scrypt check per backoff window. Every refusal is the same 401. Scrypt makes each guess expensive, but a weak password is open to patient guessing; use a strong one |

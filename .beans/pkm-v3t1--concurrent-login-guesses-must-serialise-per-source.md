@@ -1,11 +1,11 @@
 ---
 # pkm-v3t1
 title: Concurrent login guesses must serialise per source
-status: in-progress
+status: completed
 type: bug
 priority: normal
 created_at: 2026-10-23T18:15:37Z
-updated_at: 2026-10-25T03:15:18Z
+updated_at: 2026-10-25T08:20:15Z
 parent: pkm-mfd0
 blocking:
     - pkm-e95y

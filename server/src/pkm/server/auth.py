@@ -241,10 +241,12 @@ def _check_password(throttle: LoginThrottle, source: str, password: str,
 async def login(body: LoginBody, request: Request, response: Response,
                 config: Config = Depends(get_config)) -> OkAck:
     throttle: LoginThrottle = request.app.state.login_throttle
-    # The source is the client's tailnet address on both listeners: the TCP
-    # peer on the Tailscale-IP one, and the X-Forwarded-For that Tailscale
-    # Serve sets on loopback. That holds only while run.py's
-    # FORWARDED_ALLOW_IPS trusts the header from 127.0.0.1 alone.
+    # The source is the client's tailnet address for every tailnet client:
+    # the TCP peer on the Tailscale-IP listener, and the X-Forwarded-For that
+    # Tailscale Serve sets on loopback. That holds only while run.py's
+    # FORWARDED_ALLOW_IPS trusts the header from 127.0.0.1 alone. A local
+    # process on loopback keys as 127.0.0.1, or picks its key with the
+    # header.
     source = request.client.host if request.client else "unknown"
     # Throttled sources are rejected with the *same* 401 a wrong password
     # gets, before any scrypt work runs -- an attacker can't distinguish

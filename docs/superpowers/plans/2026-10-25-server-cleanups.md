@@ -363,6 +363,197 @@ and in `tests/test_text_limits_rewrites.py` `test_delete_preview_reports_a_proje
 - [ ] **Step 5: Perf gate,** on a quiet machine, serial: `perf/check.sh` (both sides from the diff). A regression is read along its path in the diff and fixed; only a surviving one goes to Arthur with the table.
 - [ ] **Step 6: Commit** the regenerated artifacts and any doc fixes: `docs: sweep for the server clean-ups; regenerate openapi`. The review package carries the perf table, the property run's summary and the before/after probe numbers from Tasks 1, 3, 4 and 6.
 
+### Task 12: Page titles are at most 1,000 characters (pkm-ax2j)
+
+**Model:** opus. It touches the ops judge, the store's create choke point, every title route, the importer, the replica and the editor, and legacy rows must keep working.
+
+**Runs:** after Task 10 (it edits `commandRefusal` as Task 10 left it) and before Task 11 (Task 11's sweep and gates cover it). If Task 11 has already run, Step 6 regenerates OpenAPI here, and Step 12's property run is followed by `proptest/check.sh` on both sides.
+
+**Prod survey:** already done. The longest title is 260 characters and the longest sidebar entry 20, so no row is over the cap. No migration is needed, and the legacy rules below are for old databases and tests.
+
+**Files:**
+- Create: `shared/fixtures/title_length.json` (hand-edited), `web/src/grammar/titleLength.ts` (`// pattern: Functional Core`)
+- Modify (server): `server/src/pkm/contracts/titles.py`, `server/src/pkm/refs.py`, `server/src/pkm/server/ops_core.py` (`OpTitleViolation`, `find_op_title_violation`, `judge_batch`), `server/src/pkm/server/store.py` (`TitleTooLongError`, `get_or_create_page`, `index_ref`), `server/src/pkm/server/routes_pages.py` (`create_page`, `rename_page`), `server/src/pkm/server/routes_sidebar.py` (`add_sidebar_entry`), `server/src/pkm/importer/titles.py` (`ImportTitleErrorReason`, `sanitize_import_title`), `server/src/pkm/server/conflict_notes.py` (module docstring only)
+- Modify (web): `web/src/replica/titles.ts`, `web/src/replica/queue.ts`, `web/src/replica/localOps.ts`, `web/src/replica/localApi/router.ts`, `web/src/outline/useBlockDraft.ts` (`admit`), `web/src/outline/useOutline.ts` (`commandRefusal`), `web/src/outline/undoManager.ts` (`refusalNotice`), `web/src/props/ops/arbitraries.ts`, `web/src/props/ops/example.ts` (`causeOf`, `RejectionCause`, tally)
+- Regenerate: `web/src/api/openapi.json`, `web/src/api/types.d.ts` (the `create_page` and `rename_page` docstrings change)
+- Test (server): create `server/tests/test_title_length_fixture.py` and `server/tests/test_title_length.py`; extend `server/tests/test_import_titles.py`, `server/tests/test_cli_main_write.py` and `server/tests/test_mcp_server.py`
+- Test (web): create `web/src/grammar/titleLength.test.ts`; extend `web/src/replica/titles.test.ts`, `web/src/replica/queue.test.ts`, `web/src/replica/localOps.test.ts`, `web/src/replica/localApi/router.test.ts`, `web/src/views/EditablePage.test.tsx`, `web/src/outline/useOutline.textLimits.test.tsx` and `web/src/outline/undoManager.test.ts`
+- Docs: `docs/architecture/backend.md` (§ Refused titles, § Planning "Replayed text" bullet, § Missing targets "Nor is server-made text…" paragraph, the HTTP API reference rows for `POST /api/pages`, rename and `/api/sidebar`, a § Hostile input row, a § Generated artifacts row), `docs/architecture/frontend-editor.md` (§ Rules an edit must not break: the text-limit row and the notice paragraph), `docs/architecture/sync-and-offline.md` (`enqueueBatch`'s refusal sentence), `docs/troubleshooting.md` (Backend › Titles and the ref grammar). Check `docs/architecture/import-export-and-backup.md`'s `sanitize_import_title` paragraph. It links § Refused titles, so it should need no edit.
+
+**Interfaces:**
+- Consumes: Task 4's `ops_core.judge_batch` (limits first, then titles), Task 7's `conflict_notes` (`LONG_TITLE_LABEL`, `_fitted`), and Task 10's `commandRefusal(result, textOps)`.
+- Produces (server):
+  - `pkm.contracts.titles.MAX_PAGE_TITLE_CHARS: Final = 1_000`, beside `UNTITLED_PAGE_TITLE`. Its comment says the value is in code points of the folded title, and that `shared/fixtures/title_length.json` pins the web's copy.
+  - `pkm.refs.TitleRefusal = Literal["forbidden_syntax", "too_long"]`. `TitleSyntaxReason` is unchanged.
+  - `pkm.refs.title_length_over(text: str) -> int | None`: `None` when `len(text) <= MAX_PAGE_TITLE_CHARS`, because the fold never lengthens. Otherwise it returns `len(normalize_title(text))` when that is over the cap, else `None`.
+  - `pkm.refs.describe_title_length(measured: int) -> str`, which returns `f"title of {measured} characters is over the limit of {MAX_PAGE_TITLE_CHARS}"`.
+  - `pkm.refs.title_refusal(text: str) -> TitleRefusal | None`: `"too_long"` when `title_length_over` says so, else `title_syntax_reason(text)`. Length is judged first.
+  - `ops_core.OpTitleViolation.reason: TitleRefusal`, and `ops_core.describe_op_title_violation(v: OpTitleViolation) -> str`. For `"too_long"` it returns `f"{v.source} {describe_title_length(n)}"`, so `page_title title of 1001 characters is over the limit of 1000` or `reference title of …`. For `"forbidden_syntax"` it returns today's `f"unsupported {v.source} title syntax: {v.title!r}"`. `judge_batch` raises `OpError(v.op_index, describe_op_title_violation(v))`.
+  - `store.TitleTooLongError(ValueError)` with `.title` and `.measured`, whose `str()` is `describe_title_length(measured)`. `get_or_create_page` raises it only on the insert branch, after `fetch_page` misses. `index_ref` catches it as it catches `BlankTitleError` and `ForbiddenTitleError`.
+  - `importer.titles.ImportTitleErrorReason = Literal["malformed_syntax", "blank", "too_long"]`.
+- Produces (web):
+  - `web/src/grammar/titleLength.ts` exports `MAX_PAGE_TITLE_CHARS = 1_000` and `TITLE_LENGTH_NOTICE = "A page title can't be longer than 1,000 characters."`.
+  - It also exports `titleLengthOver(text): number | null`: `null` when `text.length <= MAX_PAGE_TITLE_CHARS`, else `codePointLength(normalizeRefTitle(text))` when over the cap.
+  - It exports `describeTitleLength(measured): string` with the server's wording.
+  - It exports `linkedTitleLengthOver(text): number | null`: `null` when `text.length <= MAX_PAGE_TITLE_CHARS`, else the measure of the first ref, in `extractRefs` (grammar) order, whose title is over the cap.
+  - `replica/titles.ts` gains `TitleRefusal`, `titleRefusal(text)` and `describeOpTitleViolation(v)`, and `OpTitleViolation.reason` becomes a `TitleRefusal`. `findOpTitleViolation` judges each title with `titleRefusal`.
+
+- [ ] **Step 1: The parity fixture and its server test.** Write `shared/fixtures/title_length.json`. Text is given as `parts`, a list of `[string, repeat]` joined in order, as in `text_limits_parity.json`:
+
+  ```json
+  {
+    "max_page_title_chars": 1000,
+    "titles": [
+      {"name": "at_the_cap", "parts": [["t", 1000]], "violation": null},
+      {"name": "over_the_cap", "parts": [["t", 1001]], "violation": 1001,
+       "describe": "title of 1001 characters is over the limit of 1000"},
+      {"name": "astral_at_the_cap", "parts": [["😀", 1000]], "violation": null},
+      {"name": "astral_over_the_cap", "parts": [["😀", 1001]], "violation": 1001,
+       "describe": "title of 1001 characters is over the limit of 1000"},
+      {"name": "a_fold_brings_it_to_the_cap", "parts": [["t", 500], ["  \n", 1], ["t", 499]], "violation": null},
+      {"name": "a_fold_strips_its_edges", "parts": [["\n", 1], ["t", 1000], ["\t", 1]], "violation": null},
+      {"name": "single_space_edges_count", "parts": [[" ", 1], ["t", 1000], [" ", 1]], "violation": 1002,
+       "describe": "title of 1002 characters is over the limit of 1000"},
+      {"name": "a_run_counts_once", "parts": [["t", 999], ["   ", 1], ["t", 1]], "violation": 1001,
+       "describe": "title of 1001 characters is over the limit of 1000"}
+    ],
+    "texts": [
+      {"name": "a_long_text_of_short_links", "parts": [["x", 5000], [" [[Short]] #tag", 1]], "violation": null},
+      {"name": "link_at_the_cap", "parts": [["see [[", 1], ["t", 1000], ["]]", 1]], "violation": null},
+      {"name": "link_over_the_cap", "parts": [["see [[", 1], ["t", 1001], ["]]", 1]], "violation": 1001},
+      {"name": "tag_over_the_cap", "parts": [["#", 1], ["t", 1001]], "violation": 1001},
+      {"name": "bracket_tag_over_the_cap", "parts": [["#[[", 1], ["t", 1001], ["]]", 1]], "violation": 1001},
+      {"name": "attribute_over_the_cap", "parts": [["t", 1001], [":: v", 1]], "violation": 1001},
+      {"name": "a_code_span_hides_it", "parts": [["`[[", 1], ["t", 1001], ["]]`", 1]], "violation": null},
+      {"name": "a_fold_brings_a_link_to_the_cap", "parts": [["[[", 1], ["t", 600], ["\n\n", 1], ["t", 399], ["]]", 1]], "violation": null}
+    ]
+  }
+  ```
+
+  Every non-null `texts` case also carries `"op_describe": "reference title of <n> characters is over the limit of 1000"`. All measures were checked against `refs.extract` and `normalize_title` while planning. `server/tests/test_title_length_fixture.py` holds three tests:
+  - `test_the_cap_equals_the_fixture`.
+  - `test_title_length_over_matches_the_fixture[<name>]`. It compares against `violation`, and checks `describe_title_length` against `describe` when non-null.
+  - `test_the_ops_judge_refuses_linked_titles_as_the_fixture_says[<name>]`. It runs `find_op_title_violation` on one `create` op carrying the text, with `page_title` `"Fixture"`. The result is `None`, or reason `"too_long"` with `describe_op_title_violation` equal to `op_describe`.
+- [ ] **Step 2: Server entry-point tests.** All of them go in `server/tests/test_title_length.py` except the import, CLI and MCP tests. Use the `client` and `seeded_config` fixtures. `T1001 = "t" * 1001`. `LEGACY = "Legacy " + "l" * 1493` (1,500 code points), written straight into `pages` with `open_db`, with its refs indexed by `reindex_refs_for_text`, as `test_text_limits_ops._write_legacy_row` does.
+  - **Ops:**
+    - `test_create_page_at_the_cap_is_stored`: `"t" * 1000` gives 200, then GET 200.
+    - `test_create_page_over_the_cap_refuses_the_batch`: a fine `create` at op 0, then `create_page` of `T1001` at op 1. The response is 400 with `{"index": 1, "reason": "page_title title of 1001 characters is over the limit of 1000"}`, and neither op is stored.
+    - `test_a_create_or_move_page_title_over_the_cap_is_refused`: parametrized over `create` and top-level `move`.
+    - `test_a_link_tag_or_attribute_to_a_long_title_is_refused`: parametrized over `f"[[{T1001}]]"`, `f"#{T1001}"` and `f"{T1001}:: v"`, as a `create` and as an `update_text`. Each gets 400 with reason `reference title of 1001 characters is over the limit of 1000`, and no page is created.
+    - `test_a_fold_that_brings_a_title_to_the_cap_is_accepted`: `create_page` of `"t"*500 + "\n\n" + "t"*499` gives 200, and the stored title is 1,000 code points.
+    - `test_length_is_judged_before_syntax_and_never_echoed`: `create_page` of `"#" + "t" * 2_000_000` gives 400 with reason `page_title title of 2000001 characters is over the limit of 1000`, and `len(r.text) < 500`.
+    - `test_an_update_text_page_title_hint_is_never_judged`: `update_text` of a live block with `page_title` `T1001` gives 200.
+  - **Routes:**
+    - `test_post_pages_over_the_cap_is_422`: detail `title of 1001 characters is over the limit of 1000`, and the titles are unchanged.
+    - `test_rename_to_a_title_over_the_cap_is_422_before_any_mutation`: "Machine Learning" renamed to `T1001` with `allow_merge=True`. The response is 422 with the same detail, and pages, blocks and refs are unchanged.
+    - `test_a_sidebar_pin_over_the_cap_is_422`.
+  - **Legacy:**
+    - `test_a_legacy_long_page_stays_readable_renamable_and_deletable`: GET `/api/page/{LEGACY}` gives 200. Renaming it to `"Short"` gives 200, and a block that linked `[[LEGACY]]` now reads `[[Short]]`. DELETE `/api/page/Short` gives 200.
+    - `test_reindexing_a_block_keeps_its_backlink_to_a_legacy_long_page`: `uid_b4`'s text becomes `f"Studying [[Machine Learning]] and [[{LEGACY}]]"` and is reindexed. Rename "Machine Learning" to "ML Stuff". A `refs` row from `uid_b4` to the legacy page still exists. This pins "create branch only": a check before `fetch_page` would drop the backlink.
+    - `test_an_op_naming_a_legacy_long_title_is_refused_until_renamed`: a `create` with `page_title=LEGACY` gives 400 with reason `page_title title of 1500 characters is over the limit of 1000`.
+    - `test_post_pages_with_a_legacy_long_title_is_422`: the route judges the title it is sent, whatever exists.
+    - `test_a_rename_onto_a_legacy_long_title_is_422`: "AI" renamed to `LEGACY` with `allow_merge=True` gives 422, and nothing merges.
+  - **Store:**
+    - `test_get_or_create_page_refuses_only_creating_a_long_page`: it raises `TitleTooLongError` (with `measured == 1001`) for a new `T1001`, and returns the row for an existing `LEGACY`.
+    - `test_index_ref_never_creates_a_long_page`: `reindex_refs_for_text` of `f"[[{T1001}]]"` raises nothing and creates no page and no ref.
+    - The daily and `UNTITLED_PAGE_TITLE` creations need no test, because both titles are short by construction (see Decisions).
+  - **Import (`test_import_titles.py`):**
+    - `test_a_page_title_over_the_cap_is_skipped_and_its_refs_unlinked`: an export with page `T1001` and a block on another page reading `f"see [[{T1001}]]"`. `sanitize_export_titles` skips the page with `SkippedPage.reason == "too_long"` and moves its blocks to the orphans. The block's text becomes plain and its uid is in `unlinked_block_uids`.
+    - `test_the_cap_is_judged_on_the_sanitized_title`: `"#" + "t" * 1000` and `"[[" + "t" * 1000 + "]]"` both sanitize to the 1,000-character title and are kept.
+  - **CLI (`test_cli_main_write.py`):** `test_save_propagates_the_title_length_refusal`. `run("save", "-p", T1001, "x")` gives code 1, `"400: op 0: page_title title of 1001 characters is over the limit of 1000"` in err, and no page.
+  - **MCP (`test_mcp_server.py`):** `test_rename_page_propagates_the_title_length_refusal`. `tools.rename_page("AI", T1001)` raises `ApiError` whose `str` is `"422: title of 1001 characters is over the limit of 1000"`. The assistant's `rename_page` and `batch` reach the same routes through the MCP tools.
+- [ ] **Step 3: Run red.** `cd server && uv run pytest -q tests/test_title_length_fixture.py tests/test_title_length.py tests/test_import_titles.py tests/test_cli_main_write.py tests/test_mcp_server.py`. Expect these failures:
+  - the fixture file fails on importing `MAX_PAGE_TITLE_CHARS`;
+  - every refusal test fails, with 200 where 400 or 422 is expected;
+  - the import skip test fails;
+  - the store test fails on importing `TitleTooLongError`.
+
+  The acceptance, hint and legacy tests already pass and pin behaviour. Save the output to `t12-red.log`.
+- [ ] **Step 4: Implement the server.**
+  - The constant goes in `contracts/titles.py`. `refs.py` gets `TitleRefusal`, `title_length_over`, `describe_title_length` and `title_refusal`.
+  - `ops_core.find_op_title_violation` calls `title_refusal` on each `page_title` (`create`, `create_page`, `move`) and each `extract(op.text).refs` title, keeping today's op and title order. Add `describe_op_title_violation`; `judge_batch` uses it. `UpdateTextOp.page_title` stays unjudged.
+  - In `store`, `get_or_create_page` keeps the blank and syntax checks before `fetch_page`. On a miss it calls `title_length_over(canonical_title)`; when that is not `None` it raises `TitleTooLongError` before the `INSERT`. `index_ref` catches it too, and its docstring says why: a server-made text never creates a page past the cap, and an existing one keeps its backlink.
+  - `routes_pages.create_page` judges `title_length_over(body.title)` before `get_or_create_page` and answers 422 with `describe_title_length(n)`. Its docstring gains: "A title longer than 1,000 characters (`MAX_PAGE_TITLE_CHARS`) is a 422, even for a page stored before the cap."
+  - `rename_page` judges `title_length_over(body.new_title)` after the blank check and before `title_syntax_reason`, so a 2,000,000-character title is never echoed. It answers 422 with the same detail. Its docstring's 422 sentence gains "or when the new title is longer than 1,000 characters".
+  - `routes_sidebar.add_sidebar_entry` does the same on `body.title`, before its syntax check.
+  - `importer/titles.sanitize_import_title` raises `ImportTitleError(text, location=location, reason="too_long")` when `title_length_over(result)` is not `None`, after the blank check and before the syntax check. `ImportTitleError.__init__` must not put a 1,000,000-character title in its message for this reason, so use `f"too_long: {len(original_title)} characters"`.
+  - Reword the `conflict_notes` module docstring's "neither a page title nor a client's `page_title` hint is length-capped" to say that a client's `page_title` hint is never length-judged, and that a title stored before `MAX_PAGE_TITLE_CHARS` may be longer than the cap.
+- [ ] **Step 5: Run green.** Run the Step 3 command, then the full gates: `uv run pytest -q`, `uv run pyrefly check` and `uv run ruff check`, all exiting 0. In particular, `test_conflict_notes.py`, `test_title_routes_props.py`, `test_blank_titles.py`, `test_rename_endpoint.py` and `test_ops_endpoint.py` must stay green.
+- [ ] **Step 6: Regenerate OpenAPI.** The `create_page` and `rename_page` docstrings changed. Run `cd server && uv run python -m pkm.server.openapi_dump > ../web/src/api/openapi.json`, then `cd web && pnpm gen-types`. `uv run pytest -q tests/test_openapi_sync.py` must pass.
+- [ ] **Step 7: Commit the server.** Commit the fixture, the server sources, the five test files and the regenerated artifacts with the message `feat: refuse page titles longer than 1,000 characters on the server`.
+- [ ] **Step 8: Web tests.**
+  - `grammar/titleLength.test.ts`: the constants equal the fixture, imported as `depthCap.test.ts` imports its fixture. `titleLengthOver` and `describeTitleLength` cover every `titles` case, and `linkedTitleLengthOver` every `texts` case.
+  - `replica/titles.test.ts`:
+    - `findOpTitleViolation` on a `create` carrying each `texts` case: null, or reason `"too_long"` with `describeOpTitleViolation` equal to `op_describe`.
+    - `"refuses a page title over the cap for length before syntax"`: a `create_page` of `"#" + "t".repeat(1001)` gives `too_long`.
+    - `"never judges an update_text page_title hint"`.
+  - `replica/queue.test.ts`: `"enqueueBatch refuses a create_page past the title cap and stores nothing"`. It throws `LocalOpError` with `rejected` true and message `page_title title of 1001 characters is over the limit of 1000`, and the queue and pages are unchanged.
+  - `replica/localOps.test.ts`: `"getOrCreateLocalPage refuses minting a title past the cap but returns a stored one"`.
+  - `replica/localApi/router.test.ts`: `"offline POST /api/pages past the title cap is a 422"`, with detail `title of 1001 characters is over the limit of 1000`, and nothing enqueued.
+  - `views/EditablePage.test.tsx`: `"typing a link to a title past the cap shows the notice, saves nothing"`, modelled on the nesting test. `fireEvent.change` to `` `[[${"t".repeat(1001)}]]` `` leaves `ta.value === "first"` and shows `TITLE_LENGTH_NOTICE`, and the blur sends nothing.
+  - `outline/useOutline.textLimits.test.tsx`: `"an outline paste with a line linking a title past the cap applies nothing"`. Nothing is sent, the blocks are unchanged, and `editNotice === TITLE_LENGTH_NOTICE`.
+  - `outline/undoManager.test.ts`: `"an undo that would restore a link to a title past the cap is refused"`. The tree starts with a stored (legacy) block reading `[[<1,001 t>]]`. The user edits it to `"x"`, and undo is refused with `TITLE_LENGTH_NOTICE` while keeping its entry.
+- [ ] **Step 9: Run red.** `cd web && pnpm vitest run src/grammar/titleLength.test.ts src/replica/titles.test.ts src/replica/queue.test.ts src/replica/localOps.test.ts src/replica/localApi/router.test.ts src/views/EditablePage.test.tsx src/outline/useOutline.textLimits.test.tsx src/outline/undoManager.test.ts` should FAIL. Save the output to `t12-web-red.log`.
+- [ ] **Step 10: Implement the web.**
+  - Write `grammar/titleLength.ts` as in Interfaces. It imports `codePointLength` from `./textLimits`, `normalizeRefTitle` from `./scan` and `extractRefs` from `./refs`.
+  - `replica/titles.ts`: `titleRefusal` judges length first, and `findOpTitleViolation` uses it. Add `describeOpTitleViolation`.
+  - `queue.ts` and `localOps.titleViolationError` build their `LocalOpError` message with `describeOpTitleViolation`.
+  - `localOps.getOrCreateLocalPage` keeps its syntax throw before the lookup. After `existing` misses, it throws `LocalOpError(describeTitleLength(n))` when `titleLengthOver(title)` is not null, mirroring the store.
+  - `localApi/router.ts` `POST /api/pages` answers `err(422, describeTitleLength(n))` before the syntax check.
+  - `useBlockDraft.admit` judges `textLimitViolation(next)` first. When that passes it judges `linkedTitleLengthOver(next)`, and on a refusal calls `onRefused(TITLE_LENGTH_NOTICE)` with the same caret handling.
+  - `useOutline.commandRefusal` judges depth, then text limits, then batch size (Task 10), then `findOpTitleViolation([...textOps, ...result.ops])`. It refuses with `TITLE_LENGTH_NOTICE` when the reason is `"too_long"`; a forbidden-syntax violation keeps today's path.
+  - `undoManager.refusalNotice` adds the same check after `textLimitRefusal`.
+- [ ] **Step 11: Run green.** Run the Step 9 command, then `pnpm verify` (under `set -o pipefail` if piped). Both must pass.
+- [ ] **Step 12: Property gate (ops).**
+  - In `props/ops/arbitraries.ts`, add `"t".repeat(1_001)` and `` ` ${"t".repeat(1_000)} ` `` (refused because the fold keeps its edges) to `FORBIDDEN_TITLES`, and `` `see [[${"t".repeat(1_001)}]]` `` and `` `#${"t".repeat(1_001)}` `` to `FORBIDDEN_REF_TEXTS`. Update the doc comment to name `titleRefusal`.
+  - In `props/ops/example.ts`, add `RejectionCause` `"title length"` with `TITLE_LENGTH = /title of \d+ characters is over the limit of \d+$/`. `causeOf` tests it before `TEXT_LIMIT`, which would otherwise match. `sameGuard` requires equal messages for it, as for text limits, since both sides now word it identically. Add the tally key.
+  - Run `proptest/check.sh web --file ops`, and read that the `"title length"` rejection count is above 0.
+  - Teeth: set the web's `MAX_PAGE_TITLE_CHARS` to `1_001`, re-run, and confirm the property fails (the server refuses a title the replica takes). Revert, and re-run green.
+  - Save the summaries to `t12-proptest.log`.
+- [ ] **Step 13: Commit the web.** Commit `grammar/titleLength.ts` and its test, the replica, outline and props sources, and the extended tests, with the message `feat: refuse page titles past the cap in the editor and replica`.
+- [ ] **Step 14: Docs.** Invoke the `architecture-docs` skill first.
+  - **`backend.md`:**
+    - § Refused titles: add a paragraph. A title longer than `MAX_PAGE_TITLE_CHARS` code points of its fold (`normalize_title`) is refused (`refs.title_length_over`), at creation, rename, move, sidebar pin and import, but not in the migration audit, which only shortens a title. It is measured on the title as sent, before the flag's edge strip: the fold is the longest a stored title can be under either flag, and the pure ops check never knows the flag. Length is judged before syntax, so a refusal never echoes the title. `get_or_create_page` refuses only creating such a page (`TitleTooLongError`), so a row stored before the cap stays readable, renamable to a shorter title and deletable, and a reindex keeps its backlinks. An op naming it as a `page_title` or a link is refused until it is renamed. `update_text`'s `page_title` hint is never judged.
+    - § Planning "Replayed text": replace "titles have no length cap" with "a link grows by up to the title's growth (a title may be `MAX_PAGE_TITLE_CHARS` long, a legacy one longer)".
+    - § Missing targets: reword the "Neither a page title nor a `page_title` hint is length-capped" sentence. The hint is never judged and a legacy title may be longer, so `LONG_TITLE_LABEL` stays.
+    - The API reference rows: `POST /api/pages` gets "422 for a blank, refused or over-long title". Rename gets "422 when the new title is refused or longer than `MAX_PAGE_TITLE_CHARS`". The `/api/sidebar` row gets "a pin of a refused or over-long title is a 422".
+    - § Hostile input row: "A page title millions of characters long" | "refused past `MAX_PAGE_TITLE_CHARS` at every entry point; rule in [Refused titles](#refused-titles)" | `test_title_length.py`.
+    - § Generated artifacts row: `title_length.json` | hand-edited | `test_title_length_fixture.py`, `grammar/titleLength.test.ts`, `replica/titles.test.ts` | `MAX_PAGE_TITLE_CHARS`, `title_length_over` and the ops refusal wording.
+  - **`frontend-editor.md`:** the text-limit rule row also covers a link to a title past `MAX_PAGE_TITLE_CHARS`: `admit` judges it with `linkedTitleLengthOver`, and `run()` and undo with `findOpTitleViolation`. The notice paragraph names `TITLE_LENGTH_NOTICE`.
+  - **`sync-and-offline.md`:** `enqueueBatch` also refuses a title past the length cap, linking `backend.md#refused-titles`.
+  - **`troubleshooting.md`** (Backend › Titles and the ref grammar): "`create_page`, `POST /api/pages` or a rename stored a title millions of characters long, and every link to it carried the whole title" | "No rule bounded a title's length (`title_length_over` now refuses one past `MAX_PAGE_TITLE_CHARS`)" | [backend.md § Refused titles](architecture/backend.md#refused-titles) | pkm-ax2j.
+
+  Commit with the message `docs: page titles are at most 1,000 characters (added)`.
+
+**Decisions:**
+1. **"Characters" means code points of the title's fold (`normalize_title`), measured on what the client sent.**
+   - Code points match the block cap (`len`, `codePointLength`).
+   - The fold, not the raw text: a whitespace run stores as one space, so judging the raw text would refuse spellings that store short.
+   - The fold, not the flag's canonical form (`target_canonical_title`): the fold is the longest a stored title can be under either flag, and the pure ops check never knows the flag. This mirrors why the syntax rule judges its strictest form.
+   - Cost: ` t…t ` with single-space edges is refused at 1,002, though the active flag would store 1,000 (pinned in the fixture).
+2. **Length is judged before syntax**, both per title and in routes, so no refusal echoes a title millions of characters long. The importer's message carries the length, not the title.
+3. **Status and behaviour per entry point:**
+
+   | Entry point | Over the cap |
+   |---|---|
+   | `POST /api/ops` (`create_page`, `create`/`move` `page_title`, a `[[link]]`, `#tag` or `attr::` in `create`/`update_text` text) | 400 for the whole batch, as title syntax is; the web refuses first, so none is queued |
+   | `POST /api/pages`, rename and merge (the new title only), sidebar pin | 422 |
+   | Import | the page is skipped (`too_long`) and its blocks go to the recovery page; refs to it become plain text, as for the other refused titles |
+   | CLI `save`/`batch`/`rename`, MCP and the assistant | the 400/422 surfaces through the HTTP client |
+   | Server-made pages (daily titles, `"Untitled"`, `index_ref` of server-made text) | never 4xx: the daily and fallback titles are short by construction, and `index_ref` skips a page it may not create |
+
+4. **A `[[link]]` to a long title is refused by the title judge as a `reference`, not as a text limit.** It runs in the same `extract` pass that refuses `[[a#b]]`, after the text limits, so each op is still scanned once. Keeping it out of `text_limit_violation` leaves the rewrite, replay and page-delete judges, and `text_limits_parity.json`, unchanged. This matches how the nesting cap refuses text: a 400 for the batch, pre-judged by the editor.
+5. **Legacy rows stay usable.** `get_or_create_page` refuses only the insert, so a stored long page is readable, renamable to a shorter title (the old title is only a lookup) and deletable, and a rename elsewhere keeps its backlink. The pure judges cannot know a page exists, so an op naming it is refused until it is renamed, as for a legacy forbidden-syntax title. Prod has no such row.
+6. **Task 7's `LONG_TITLE_LABEL` stays.** `update_text`'s `page_title` hint is never judged: judging it would 400 an edit to a legacy page's block and discard the offline batch, and the hint only labels a header. A legacy title may also be longer than the cap. At a capped title a header is about 1,060 characters, so the fallback never fires for one.
+7. **The editor refuses rather than queueing a refusal.** `admit` (typing, paste, the `[[` wrap of a selection), `run()` and undo show `TITLE_LENGTH_NOTICE`. `enqueueBatch`, `applyLocalOps`, `getOrCreateLocalPage` and the offline `POST /api/pages` are the backstops. `admit` scans refs only for a draft longer than 1,000 UTF-16 units; Task 11's `perf/check.sh frontend` covers the per-keystroke cost on long blocks.
+8. **No pydantic `max_length` on the request or op models.** It would measure raw text and answer pydantic's 422, which on `/api/ops` is a terminal rejection that names no op.
+
+**Product questions (not blocking):**
+- The bean says "the importer refusing the import naming the page". Arthur's ruling says "refused … on import like the other title rules", and the other title rules skip the page and list it in the report (pkm-lvyl). This task follows the ruling. If Arthur wants the whole import refused instead, Step 4's importer change becomes a preflight error that exits 2, like `ImportTextLimitError`.
+- Finding outside this bean: the editor does not pre-judge forbidden-syntax link titles. A typed `[[a#b]]` reaches `enqueueBatch`'s `rejected` `LocalOpError`, and `opQueue` desyncs, which repairs the outline back to server state and loses the draft. It is worth its own bean; this task's `commandRefusal` and `admit` handle only the length.
+
+**Orchestrator addition (from Task 10's review, Minors 2–3):** `web/src/sync/batchLimits.ts` `findBatchSizeViolation` allows 1,024 bytes per op for the fields the queue stamps (`page_title`, hashes), and its fast path counts only op `text`. A page title is now at most 1,000 code points, which JSON can escape to 6,000 bytes, so in Step 10 make the per-op allowance cover a stamped title at the cap (derive it from the title limit, e.g. `6 * MAX_TITLE_CHARS + 1,024`, or count title fields in both the fast path and the slow path) and add a test in `batchLimits.test.ts` that a batch whose escaped titles exceed the old allowance is still measured as not under-counted.
+
 ## Order
 
 Chains share files and run in order; the chains are independent of each other.

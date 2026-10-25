@@ -303,7 +303,7 @@
       },
       "delete": {
         "summary": "Delete Page",
-        "description": "Deletes the page, its blocks, and any sidebar entry for it. Inbound\n[[links]] and #tags in other pages' blocks become plain\ntext, and inbound ((block refs)) are replaced by a copy of the referenced\ntext. 409 with the offending blocks when a query macro names the page or\nunlinking would change a block's leading attribute name (`[[page]]:: v`)\nor still leave a reference, since those cannot be rewritten; nothing is\nchanged.",
+        "description": "Deletes the page, its blocks, and any sidebar entry for it. Inbound\n[[links]] and #tags in other pages' blocks become plain\ntext, and inbound ((block refs)) are replaced by a copy of the referenced\ntext. 409 with the offending blocks when a query macro names the page or\nunlinking would change a block's leading attribute name (`[[page]]:: v`)\nor still leave a reference, since those cannot be rewritten, or when the\ncopies inlined would carry a block over the text length cap or nest its\n`[[` past the cap; nothing is changed.",
         "operationId": "delete_page_api_page__title__delete",
         "parameters": [
           {
@@ -383,7 +383,7 @@
     "/api/delete-preview": {
       "get": {
         "summary": "Delete Preview",
-        "description": "What deleting the page would rewrite: how many [[links]] become plain\ntext and ((block refs)) become copies (blocks and distinct pages), and the\nblocks that would make DELETE refuse (a query macro naming the page, or a\nrewrite that would change the leading attribute name, as for\n`[[page]]:: v`, or still reference the page). Read-only; 404 when the page\ndoes not exist. Not under /api/page/ because GET /api/page/{title:wholepath}\nwould swallow it.",
+        "description": "What deleting the page would rewrite: how many [[links]] become plain\ntext and ((block refs)) become copies (blocks and distinct pages), and the\nblocks that would make DELETE refuse (a query macro naming the page, or a\nrewrite that would change the leading attribute name, as for\n`[[page]]:: v`, still reference the page, or carry the block over a text\nlimit with the copies it inlines). Read-only; 404 when the page\ndoes not exist. Not under /api/page/ because GET /api/page/{title:wholepath}\nwould swallow it.",
         "operationId": "delete_preview_api_delete_preview_get",
         "parameters": [
           {
@@ -424,7 +424,7 @@
     "/api/page/{title}/rename": {
       "post": {
         "summary": "Rename Page",
-        "description": "Rename a page, rewriting every [[link]]/#tag/attr:: in block text.\nWhen the new title is taken: 409 unless allow_merge is true, in which\ncase the source page is concatenated onto the target (source's\ntop-level blocks appended after the target's, referencing text\nrewritten to the target, source page row dropped) -- a confirm-gated\nmerge, not a silent overwrite. Case-sensitive throughout, like\npages.title itself.",
+        "description": "Rename a page, rewriting every [[link]]/#tag/attr:: in block text.\nWhen the new title is taken: 409 unless allow_merge is true, in which\ncase the source page is concatenated onto the target (source's\ntop-level blocks appended after the target's, referencing text\nrewritten to the target, source page row dropped) -- a confirm-gated\nmerge, not a silent overwrite. Case-sensitive throughout, like\npages.title itself. 422 when the rewrite would carry a block over the\ntext length cap or nest its `[[` past the cap (a longer title lengthens\nevery link to it); the detail names the block, and nothing changes.",
         "operationId": "rename_page_api_page__title__rename_post",
         "parameters": [
           {
@@ -1400,7 +1400,7 @@
     "/api/assets/{sha256}": {
       "delete": {
         "summary": "Delete Asset",
-        "description": "Delete an asset: strip every reference token from block text\n(blocks left empty with no children are deleted outright \u2014 asset\ndeletion must never cascade away real content, so emptied parents\nare kept), drop the assets row, commit, then best-effort unlink the\nfile. Commit-before-unlink: a crash leaves at worst an unreferenced\nfile on disk, never a row pointing at a missing file. Asset URLs\nnever contribute refs rows ([[link]]/#tag/attr:: only), so no refs\nreindex is needed; refs rows of deleted blocks go via FK cascade\n(the refs table has no FTS trigger \u2014 unlike blocks, where explicit\nper-uid DELETE is required to keep the FTS delete trigger firing).\n`block_refs` needs no reindex either, for the same reason:\n`strip_asset_tokens` removes only asset-embed tokens, a syntax disjoint\nfrom `((uid))`.\n\n`if_unreferenced=true` changes the mode: nothing is stripped, and the\nasset is deleted only while no block references it (409 otherwise).\nThe reference check and the delete share one write transaction, so a\nblock that starts referencing the asset cannot slip in between. Undo\nhistory is its caller, releasing an upload once redo is gone.",
+        "description": "Delete an asset: strip every reference token from block text\n(blocks left empty with no children are deleted outright \u2014 asset\ndeletion must never cascade away real content, so emptied parents\nare kept), drop the assets row, commit, then best-effort unlink the\nfile. Commit-before-unlink: a crash leaves at worst an unreferenced\nfile on disk, never a row pointing at a missing file. Asset URLs\nnever contribute refs rows ([[link]]/#tag/attr:: only), so no refs\nreindex is needed; refs rows of deleted blocks go via FK cascade\n(the refs table has no FTS trigger \u2014 unlike blocks, where explicit\nper-uid DELETE is required to keep the FTS delete trigger firing).\n`block_refs` needs no reindex either, for the same reason:\n`strip_asset_tokens` removes only asset-embed tokens, a syntax disjoint\nfrom `((uid))`. 409 with the offending blocks, as a page delete's\nblockers, when a stripped block would be over the text length cap or\nnest `[[` past the cap; nothing is changed.\n\n`if_unreferenced=true` changes the mode: nothing is stripped, and the\nasset is deleted only while no block references it (409 otherwise).\nThe reference check and the delete share one write transaction, so a\nblock that starts referencing the asset cannot slip in between. Undo\nhistory is its caller, releasing an upload once redo is gone.",
         "operationId": "delete_asset_api_assets__sha256__delete",
         "parameters": [
           {
@@ -3251,9 +3251,13 @@
             "title": "Page Title",
             "x-brand": "CanonicalTitle"
           },
-          "text": {
+          "excerpt": {
             "type": "string",
-            "title": "Text"
+            "title": "Excerpt"
+          },
+          "text_length": {
+            "type": "integer",
+            "title": "Text Length"
           },
           "reason": {
             "type": "string",
@@ -3261,7 +3265,8 @@
               "query",
               "used_as_attribute",
               "attribute",
-              "residual"
+              "residual",
+              "limit"
             ],
             "title": "Reason"
           }
@@ -3270,11 +3275,12 @@
         "required": [
           "uid",
           "page_title",
-          "text",
+          "excerpt",
+          "text_length",
           "reason"
         ],
         "title": "DeleteBlockerModel",
-        "description": "A block whose reference to the page a delete cannot rewrite. `query`:\na query macro names the page. `used_as_attribute`: the block's leading\n`Name::` attribute is the page. `attribute`: unlinking would add or\nchange the block's leading `Name::` attribute (as for `[[page]]:: v`),\nturning it into a property block. `residual`: the rewritten text would\nstill reference the page or one of its blocks."
+        "description": "A block whose reference to the page a delete cannot rewrite. `query`:\na query macro names the page. `used_as_attribute`: the block's leading\n`Name::` attribute is the page. `attribute`: unlinking would add or\nchange the block's leading `Name::` attribute (as for `[[page]]:: v`),\nturning it into a property block. `residual`: the rewritten text would\nstill reference the page or one of its blocks. `limit`: the rewrite (a\npage delete's inlined copies, an asset delete's stripped tokens) would\ncarry the block over the text length cap or the `[[` nesting cap, or\nfurther past one it was already over.\n\n`excerpt` is the block's text up to its first `BLOCKER_EXCERPT_CHARS`\ncode points, and `text_length` the whole text's length in code points:\nthe excerpt is cut exactly when `text_length` is greater than its own\nlength, which a reader must show rather than pass the excerpt off as\nthe text."
       },
       "DeleteOp": {
         "properties": {
@@ -4442,7 +4448,8 @@
               "block_not_found",
               "parent_not_found",
               "cycle",
-              "page_deleted"
+              "page_deleted",
+              "text_limit"
             ],
             "title": "Reason"
           },
@@ -4468,7 +4475,7 @@
           "note_page"
         ],
         "title": "SkippedOp",
-        "description": "One op the server skipped because its block (or, for create/move,\nits parent) no longer exists, or because a move would nest the block\nunder itself or its own descendant (`ops_core.skip_report`)."
+        "description": "One op the server skipped because its block (or, for create/move,\nits parent) no longer exists, because a move would nest the block\nunder itself or its own descendant, or because an edit replayed over a\nrename or page delete it missed would be over a text limit\n(`ops_core.skip_report`)."
       },
       "SnapshotPayload": {
         "properties": {

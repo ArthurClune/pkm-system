@@ -6,6 +6,7 @@ import { defaultUnauthorizedHandler, setUnauthorizedHandler } from "../api/clien
 import type { BatchId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { OpsAck } from "../api/payloads";
+import { MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING } from "../grammar/textLimits";
 import type { Replica } from "../replica/client";
 import { ReplicaError, ReplicaUnusableError,
          RpcLifecycleError } from "../replica/errors";
@@ -395,6 +396,53 @@ describe("an enqueue the replica cannot persist", () => {
     expect(desyncs).toHaveLength(1);
     // Not retained: nothing is left pending to deliver.
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  });
+
+  test.each([
+    ["longer than the length cap", "x".repeat(MAX_BLOCK_TEXT_CHARS + 1)],
+    ["nested past the cap",
+     "[[a//".repeat(MAX_LINK_NESTING + 1) + "x" + "]]".repeat(MAX_LINK_NESTING + 1)],
+  ])("a text %s is refused before the replica: terminal, never posted",
+  async (_case, text) => {
+    // A session without a usable replica retains whatever its enqueue
+    // throws and posts it, and the server's 400 would then discard the
+    // batch's other ops too. The queue judges first, as the replica does,
+    // and takes the same terminal path as an op the replica rejects.
+    const { mock } = fetchSeq([() => jsonResponse({ ok: true })]);
+    const persisted: BlockOp[][] = [];
+    const replica = laneOnlyReplica({
+      enqueue: async (ops) => { persisted.push(ops); throw new Error(CANTOPEN); },
+    });
+    const desyncs: unknown[] = [];
+    const q = createOpQueue(replica);
+    q.onDesync((e) => desyncs.push(e));
+    const ticket = q.enqueue([
+      op("tuid-u0"),
+      { op: "update_text", uid: uidOf("tuid-u1"), text },
+    ]);
+
+    await expect(ticket.settled).resolves.toMatchObject({ status: "failed" });
+    await expect(ticket.delivered).resolves.toMatchObject({ status: "failed" });
+    expect(desyncs).toHaveLength(1);
+    expect(String(desyncs[0])).toContain("block tuid-u1:");
+    expect(persisted).toEqual([]);
+    await expect(q.drain()).resolves.toEqual({ status: "drained" });
+    expect(mock).not.toHaveBeenCalled();
+  });
+
+  test("a text at both caps is retained and posted", async () => {
+    const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+    const q = createOpQueue(laneOnlyReplica());
+    const desyncs: unknown[] = [];
+    q.onDesync((e) => desyncs.push(e));
+    const atCap = "[[a//".repeat(MAX_LINK_NESTING) + "]]".repeat(MAX_LINK_NESTING);
+    const text = atCap + "x".repeat(MAX_BLOCK_TEXT_CHARS - atCap.length);
+    const ticket = q.enqueue([{ op: "update_text", uid: uidOf("tuid-u1"), text }]);
+    await q.settled();
+    await q.drain();
+    expect(desyncs).toEqual([]);
+    expect(bodies).toHaveLength(1);
+    await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
   });
 
   test("an unclassified replica enqueue failure is retained, not desynced", async () => {

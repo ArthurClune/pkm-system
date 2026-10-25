@@ -6,7 +6,7 @@
 
 import type { CanonicalTitle, NormalizedTitle, RawTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
-import { hasUnreachableSegment, normalizeRefTitle } from "../grammar/scan";
+import { hasUnreachableSegment, normalizeRefTitle, trimSpaces } from "../grammar/scan";
 
 export { isBlankRefTitle as isBlankTitle } from "../grammar/scan";
 import { extractRefs } from "./refs";
@@ -69,7 +69,7 @@ export function canonicalizeTitle(text: string,
                                   plainSpaceActive: boolean): NormalizedTitle {
   const normalized = normalizeRefTitle(text);
   return plainSpaceActive
-    ? normalized.replace(/^ +| +$/g, "") as NormalizedTitle
+    ? trimSpaces(normalized) as NormalizedTitle
     : normalized;
 }
 

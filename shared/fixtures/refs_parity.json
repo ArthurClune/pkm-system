@@ -2242,16 +2242,7 @@
     },
     {
       "text": "```\n[[X]] #t\n```é😀\n((^abcdef123))((bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb))",
-      "refs": [
-        {
-          "title": "X",
-          "kind": "link"
-        },
-        {
-          "title": "t",
-          "kind": "tag"
-        }
-      ],
+      "refs": [],
       "block_refs": [
         "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       ]
@@ -3158,16 +3149,7 @@
     },
     {
       "text": "]]((]]]]é```\n[[X]] #t\n```é",
-      "refs": [
-        {
-          "title": "X",
-          "kind": "link"
-        },
-        {
-          "title": "t",
-          "kind": "tag"
-        }
-      ],
+      "refs": [],
       "block_refs": []
     },
     {

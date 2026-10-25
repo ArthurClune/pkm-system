@@ -5,12 +5,14 @@ import type { BlockOp } from "../../api/ops";
 import { applyOps } from "../../outline/tree";
 import { sha256Hex } from "../../replica/sha256";
 import { subtreeHash } from "../../replica/subtreeHash";
+import { findOpTextLimitViolation } from "../../grammar/textLimits";
 import { findOpTitleViolation } from "../../replica/titles";
 import { orderIdxOf, rawTitleOf } from "../../test-helpers";
 import { treeProblems } from "../outline/reading";
 import type { NormalBlock, NormalGraph } from "../sync/normalise";
 import {
-  OPS_PAGES, TITLE_POOL, UID_POOL, exampleArb, rawBatchArb, rawUidMinter, resolveRaw, seedOps,
+  AT_CAP_TEXT, OPS_PAGES, OVER_LIMIT_TEXTS, TITLE_POOL, UID_POOL, exampleArb, rawBatchArb,
+  rawUidMinter, resolveRaw, seedOps,
   startStateArb, type MovePage, type RawDraft, type RawParent, type RawSlot, type StartState,
 } from "./arbitraries";
 
@@ -284,13 +286,43 @@ describe("raw batches", () => {
     expect(s).toBeLessThanOrEqual(0.35);
   });
 
-  it("carry a forbidden title about one time in thirty, as a page title or a text ref", () => {
-    const violations = batches.map((b) => findOpTitleViolation(resolve(b)));
+  it("carry a forbidden title about one time in sixty, as a page title or a text ref", () => {
+    // The texts at and past the length cap hold no title, and scanning
+    // megabytes for one is slow under coverage.
+    const huge = new Set<string>([...OVER_LIMIT_TEXTS, AT_CAP_TEXT]);
+    const violations = batches.map((b) => findOpTitleViolation(
+      resolve(b).filter((op) => !("text" in op) || !huge.has(op.text))));
     const s = violations.filter((v) => v !== null).length / batches.length;
-    expect(s).toBeGreaterThanOrEqual(0.01);
-    expect(s).toBeLessThanOrEqual(0.07);
+    expect(s).toBeGreaterThanOrEqual(0.005);
+    expect(s).toBeLessThanOrEqual(0.035);
     const sources = new Set(violations.map((v) => v?.source).filter((x) => x !== undefined));
     expect([...sources].sort()).toEqual(["page_title", "reference"]);
+  });
+
+  it("carry a text past each limit about one time in sixty, in a create and in an edit", () => {
+    const violations = batches.map((b) => findOpTextLimitViolation(resolve(b)));
+    const s = violations.filter((v) => v !== null).length / batches.length;
+    expect(s).toBeGreaterThanOrEqual(0.005);
+    expect(s).toBeLessThanOrEqual(0.035);
+    const pastLimits = new Set<string>(OVER_LIMIT_TEXTS);
+    const over = batches.flat().flatMap((d) =>
+      (d.kind === "create" || d.kind === "update_text") && pastLimits.has(d.text) ? [d] : []);
+    expect(new Set(over.map((d) => d.kind))).toEqual(new Set(["create", "update_text"]));
+    const kinds = new Set(violations.map((v) => v?.violation.kind).filter((x) => x !== undefined));
+    expect([...kinds].sort()).toEqual(["length", "nesting"]);
+  });
+
+  it("carry the text at the length cap about one time in 300, which both sides store", () => {
+    const atCap = batches.filter((b) => b.some((d) =>
+      (d.kind === "create" || d.kind === "update_text") && d.text === AT_CAP_TEXT));
+    expect(atCap.length / batches.length).toBeGreaterThanOrEqual(0.001);
+    expect(atCap.length / batches.length).toBeLessThanOrEqual(0.008);
+    expect([...AT_CAP_TEXT].length).toBe(1_000_000);
+    expect(AT_CAP_TEXT.length).toBe(2_000_000);
+    for (const b of atCap) {
+      const ops = resolve(b).filter((op) => "text" in op && op.text === AT_CAP_TEXT);
+      expect(findOpTextLimitViolation(ops)).toBeNull();
+    }
   });
 
   it("title about half of parented moves, with the parent's page or another", () => {

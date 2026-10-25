@@ -25,7 +25,7 @@ function handlers(): OutlineHandlers {
     onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),
     onIndentSelection: vi.fn(), onOutdentSelection: vi.fn(),
     onMoveSelectionUp: vi.fn(), onMoveSelectionDown: vi.fn(),
-    onDeleteBlockSelection: vi.fn(),
+    onDeleteBlockSelection: vi.fn(), onRefusedEdit: vi.fn(),
     onUndo: vi.fn(), onRedo: vi.fn(),
   };
 }
@@ -1057,6 +1057,130 @@ test("read-only outlines do not intercept text pastes", () => {
     clipboardData: { files: [], getData: () => "a\nb" },
   });
   expect(h.onPasteOutline).not.toHaveBeenCalled();
+});
+
+// An edit past the text limits never reaches the outline: the server would
+// refuse its batch, and the snapshot repair would drop the rest with it.
+describe("an edit past the text limits", () => {
+  const nest = (n: number) => "[[a//".repeat(n) + "x" + "]]".repeat(n);
+  const NESTING = "Links can't nest more than 32 levels deep.";
+  const LENGTH = "A block can't be longer than 1,000,000 characters.";
+
+  test("typing that nests past the cap is refused with the notice", () => {
+    const h = handlers();
+    mount(h, 0);
+    fireEvent.change(focusedTextarea(), { target: { value: nest(33) } });
+    expect(focusedTextarea().value).toBe("hello [[World]]");
+    expect(h.onRefusedEdit).toHaveBeenCalledWith(NESTING);
+    expect(h.onDraftChange).not.toHaveBeenCalled();
+    expect(h.onDraftStart).not.toHaveBeenCalled();
+  });
+
+  test("typing up to the cap is accepted", () => {
+    const h = handlers();
+    mount(h, 0);
+    fireEvent.change(focusedTextarea(), { target: { value: nest(32) } });
+    expect(h.onRefusedEdit).not.toHaveBeenCalled();
+    expect(h.onDraftChange).toHaveBeenCalledWith("tuid-u1", nest(32));
+  });
+
+  test("a refused change puts the caret back where the insertion began",
+       async () => {
+    const h = handlers();
+    mount(h, 1, false, block("tuid-ab", "ab", { order_idx: orderIdxOf(0) }));
+    const ta = focusedTextarea();
+    fireEvent.change(ta, { target: { value: `a${nest(33)}b` } });
+    await waitFor(() => expect(ta.selectionStart).toBe(1));
+    expect(ta.selectionEnd).toBe(1);
+    expect(ta.value).toBe("ab");
+  });
+
+  test("an auto-paired [ that would nest past the cap is refused", () => {
+    // Auto-pair, wrapping a selection and the phone key bar edit through
+    // the key path, not onChange: the second `[` inside the innermost run
+    // of nest(32) would open a 33rd.
+    stubFetch([["/api/titles", { titles: [] }]]);
+    const h = handlers();
+    const caret = 5 * 32 + 1; // after the innermost "x"
+    mount(h, caret, false,
+          block("tuid-deep", nest(32), { order_idx: orderIdxOf(0) }));
+    const ta = focusedTextarea();
+    ta.setSelectionRange(caret, caret);
+    fireEvent.keyDown(ta, { key: "[" }); // "[]" inside the run: accepted
+    const paired = nest(32).slice(0, caret) + "[]" + nest(32).slice(caret);
+    expect(ta.value).toBe(paired);
+    expect(h.onRefusedEdit).not.toHaveBeenCalled();
+    // jsdom won't run the rAF that puts the caret between the pair
+    ta.setSelectionRange(caret + 1, caret + 1);
+    fireEvent.keyDown(ta, { key: "[" }); // "[[]]": the 33rd run
+    expect(h.onRefusedEdit).toHaveBeenCalledWith(NESTING);
+    expect(ta.value).toBe(paired);
+    // the last change is the accepted pair, held while the caret is in a run
+    expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-deep", paired, true);
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  test("wrapping a selection in a [[ past the cap is refused, popup closed",
+       () => {
+    // The refused text would read as a [[hello]] completion; its popup
+    // must not open over a text the block does not hold.
+    stubFetch([["/api/titles", { titles: [] }]]);
+    const h = handlers();
+    const deep = "[[a//".repeat(32) + "hello" + "]]".repeat(32);
+    const at = 5 * 32;
+    mount(h, at, false, block("tuid-deep", deep, { order_idx: orderIdxOf(0) }));
+    const ta = focusedTextarea();
+    ta.setSelectionRange(at, at + 5); // "hello"
+    fireEvent.keyDown(ta, { key: "[" }); // "[hello]", hello kept selected
+    const wrapped = deep.slice(0, at) + "[hello]" + deep.slice(at + 5);
+    expect(ta.value).toBe(wrapped);
+    // jsdom won't run the rAF that restores the selection
+    ta.setSelectionRange(at + 1, at + 6);
+    fireEvent.keyDown(ta, { key: "[" }); // "[[hello]]": the 33rd run
+    expect(h.onRefusedEdit).toHaveBeenCalledWith(NESTING);
+    expect(ta.value).toBe(wrapped);
+    expect(screen.queryByRole("option", { name: /New page: hello/ })).toBeNull();
+  });
+
+  test("a plain paste past the length cap is prevented, with the notice",
+       () => {
+    const h = handlers();
+    mount(h, 0);
+    const ta = focusedTextarea();
+    ta.setSelectionRange(6, 15); // replaces "[[World]]"
+    const pasted = "y".repeat(1_000_001 - "hello ".length);
+    const prevented = !fireEvent.paste(ta, {
+      clipboardData: { files: [], getData: () => pasted },
+    });
+    expect(prevented).toBe(true);
+    expect(h.onRefusedEdit).toHaveBeenCalledWith(LENGTH);
+    expect(ta.value).toBe("hello [[World]]");
+    expect(h.onDraftChange).not.toHaveBeenCalled();
+  });
+
+  test("a paste measured in code points, not UTF-16 units, is native", () => {
+    const h = handlers();
+    mount(h, 10, false,
+          block("tuid-ten", "0123456789", { order_idx: orderIdxOf(0) }));
+    const pasted = "\u{1F600}".repeat(999_990);
+    const prevented = !fireEvent.paste(focusedTextarea(), {
+      clipboardData: { files: [], getData: () => pasted },
+    });
+    expect(prevented).toBe(false);
+    expect(h.onRefusedEdit).not.toHaveBeenCalled();
+  });
+
+  test("an armed outline paste keeps its own path", () => {
+    const h = handlers();
+    mount(h, 0);
+    const ta = focusedTextarea();
+    pressPasteChord(ta);
+    fireEvent.paste(ta, {
+      clipboardData: { files: [], getData: () => `${nest(33)}\nb` },
+    });
+    expect(h.onRefusedEdit).not.toHaveBeenCalled();
+    expect(h.onPasteOutline).toHaveBeenCalled();
+  });
 });
 
 describe("/date picker", () => {

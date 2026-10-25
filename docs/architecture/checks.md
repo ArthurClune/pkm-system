@@ -150,12 +150,12 @@ specs: [server](../superpowers/specs/2026-10-02-property-checks-server-design.md
 
 | Suite | Holds |
 |---|---|
-| `test_ops_state.py` | blocks, pages, rewrite rows and acks match `props/model.py`; replay is inert |
+| `test_ops_state.py` | blocks, pages, rewrite rows and acks match `props/model.py`, title and text-limit refusals included; replay is inert |
 | `test_planner_props.py` | sibling order matches `positions_after` |
 | `test_unlink_props.py` | no rewritten source references the page; a second pass is inert |
 | `sync/` | the invariants in the header of `sync/oracle.ts` |
 | `outline/` | `checks.ts`: rows match a reading-view model; history undoes to the start |
-| `ops/` | the replica and the in-memory trees store what the server stores |
+| `ops/` | the replica and the in-memory trees store what the server stores; `enqueueBatch` refuses a batch for title syntax or a text limit exactly when the server does |
 
 Rules a change to the gate must keep:
 

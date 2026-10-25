@@ -1,7 +1,8 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, OfflineError, READ_TIMEOUT_MS, apiDownload, apiFetch,
-         defaultUnauthorizedHandler, setOfflineGateway,
-         setUnauthorizedHandler } from "./client";
+         defaultUnauthorizedHandler, deleteRefusalBlockers,
+         setOfflineGateway, setUnauthorizedHandler } from "./client";
+import { canonicalTitleOf, uidOf } from "../test-helpers";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -50,6 +51,15 @@ it("surfaces the server's detail message on ApiError", async () => {
   expect(err).toBeInstanceOf(ApiError);
   expect((err as ApiError).detail).toBe("at most 3 concurrent conversations");
   expect((err as ApiError).message).toContain("at most 3 concurrent conversations");
+});
+
+it("keeps a structured error body, whose detail is no string", async () => {
+  const body = { detail: { message: "blocked", blockers: [] } };
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body, 409)));
+  const err = await apiFetch("/api/x").catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(ApiError);
+  expect((err as ApiError).detail).toBeUndefined();
+  expect((err as ApiError).body).toEqual(body);
 });
 
 it("leaves detail undefined when the error body isn't JSON with a detail field", async () => {
@@ -230,4 +240,46 @@ it("apiDownload throws OfflineError without fetching when offline", async () => 
   setOfflineGateway({ offline: () => true, handle: async () => ({ handled: false }) });
   await expect(apiDownload("/api/x")).rejects.toBeInstanceOf(OfflineError);
   expect(fetchMock).not.toHaveBeenCalled();
+});
+
+describe("deleteRefusalBlockers", () => {
+  const blocker = {
+    uid: uidOf("tuid-b1"), page_title: canonicalTitleOf("AI"),
+    excerpt: "[x]", text_length: 3, reason: "limit" as const,
+  };
+  const refusal = (body: unknown, status = 409) =>
+    new ApiError(status, "/api/assets/x", undefined, body);
+
+  it("reads the blocks a delete's 409 names", () => {
+    expect(deleteRefusalBlockers(
+      refusal({ detail: { message: "m", blockers: [blocker] } })))
+      .toEqual([blocker]);
+  });
+
+  it("finds none in another error, status or body", () => {
+    expect(deleteRefusalBlockers(new Error("x"))).toBeNull();
+    expect(deleteRefusalBlockers(
+      refusal({ detail: { blockers: [blocker] } }, 422))).toBeNull();
+    expect(deleteRefusalBlockers(
+      refusal({ detail: "asset is referenced" }))).toBeNull();
+    expect(deleteRefusalBlockers(refusal(undefined))).toBeNull();
+    expect(deleteRefusalBlockers(
+      refusal({ detail: { blockers: [] } }))).toBeNull();
+    expect(deleteRefusalBlockers(
+      refusal({ detail: { blockers: [{ uid: 1 }] } }))).toBeNull();
+    expect(deleteRefusalBlockers(refusal({ detail: { blockers: [
+      { ...blocker, text_length: "3" }] } }))).toBeNull();
+  });
+
+  it("reads every reason the server sends, and refuses one it does not", () => {
+    for (const reason of ["query", "used_as_attribute", "attribute",
+                          "residual", "limit"]) {
+      expect(deleteRefusalBlockers(refusal({ detail: { blockers: [
+        { ...blocker, reason }] } }))).toHaveLength(1);
+    }
+    expect(deleteRefusalBlockers(refusal({ detail: { blockers: [
+      { ...blocker, reason: "future" }] } }))).toBeNull();
+    expect(deleteRefusalBlockers(refusal({ detail: { blockers: [
+      { ...blocker, reason: "toString" }] } }))).toBeNull();
+  });
 });

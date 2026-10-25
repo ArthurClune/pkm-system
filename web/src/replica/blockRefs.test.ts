@@ -142,3 +142,31 @@ describe("remote and local apply agree", () => {
     expect(targets("uid_b2")).toEqual(targets("uid_b1"));
   });
 });
+
+// A block at the length cap that the server accepted (or, for the nest, one
+// stored before the limits) reaches the replica in a change window or a
+// snapshot. Its block_refs must still be derived: a throw rolls the window
+// back and the pull retries the same window forever.
+describe("a block at the length cap applies", () => {
+  const CAP_BLOCKS: [string, string][] = [
+    ["#a ×333,000", "#a ".repeat(333_000)],
+    ["[[x]] ×166,000", "[[x]] ".repeat(166_000)],
+    ["`x` ×333,000", "`x`".repeat(333_000)],
+    ["a legacy nest", "[[a//".repeat(142_000) + "]]".repeat(142_000)],
+  ];
+
+  test.each(CAP_BLOCKS)("in a change window: %s", (_name, body) => {
+    const text = `${body}((uid_b2))`;
+    applyChanges(t.db, feed([block("uid_b1", { text })]));
+
+    expect(targets("uid_b1")).toEqual(["uid_b2"]);
+  }, 60_000);
+
+  test.each(CAP_BLOCKS)("in a snapshot: %s", (_name, body) => {
+    const text = `${body}((uid_b2))`;
+    applySnapshot(t.db, { ...SNAP, blocks: [block("uid_b1", { text }),
+                                            block("uid_b2")] });
+
+    expect(targets("uid_b1")).toEqual(["uid_b2"]);
+  }, 60_000);
+});

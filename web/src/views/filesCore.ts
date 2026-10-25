@@ -3,6 +3,7 @@
 // the imperative shell; everything testable without I/O lives here.
 import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { AssetSearchItem, BacklinkItem } from "../api/payloads";
+import type { DeleteBlocker } from "../components/deletePageCopy";
 import { assetLabel } from "../sync/assetNames";
 
 export interface FileFilters {
@@ -100,6 +101,20 @@ export function summarizeDeletes(ok: number, failures: string[]): string {
   if (failures.length === 0) return `Deleted ${plural(ok, "file")}.`;
   return `Deleted ${ok} of ${ok + failures.length} files.`
     + ` Failed: ${failures.join(", ")}`;
+}
+
+export function blockedFilesHeading(filenames: readonly string[]): string {
+  return filenames.length === 1
+    ? `Can't delete "${filenames[0]}"`
+    : `Can't delete ${plural(filenames.length, "file")}`;
+}
+
+/** An asset delete refuses only for `limit`: the server strips the file's
+ * links, so no other reason a page delete gives can arise. */
+export function fileBlockerReasonLabel(
+  _reason: DeleteBlocker["reason"],
+): string {
+  return "removing the link would put this block over a size or nesting limit";
 }
 
 export function formatSize(bytes: number): string {

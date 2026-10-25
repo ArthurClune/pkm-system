@@ -16,6 +16,8 @@ from pkm.refs import (CanonicalTitle, NormalizedTitle, extract,
 from pkm.rename import rewrite_title_refs_map, spelled_or_canonical
 from pkm.rows import Row
 from pkm.server.sync_meta import read_title, title_reader
+from pkm.text_limits import (TextLimitViolation, describe_text_limit,
+                             rewrite_text_limit_violation)
 from pkm.unlink import (DeleteBlocker, DeletePlan, SourceBlock,
                         plan_page_delete)
 
@@ -28,6 +30,21 @@ class ForbiddenTitleError(ValueError):
     def __init__(self, title: CanonicalTitle) -> None:
         super().__init__(f"unsupported page-title syntax: {title!r}")
         self.title = title
+
+
+class RewriteTextLimitError(ValueError):
+    """A rename, merge or title migration would store a block over a text
+    limit. A rename lengthens a block by the difference in title length per
+    link, so a block within the limits can grow past one; raised before
+    any block is written."""
+
+    def __init__(self, uid: BlockUid, page_title: CanonicalTitle,
+                 violation: TextLimitViolation) -> None:
+        super().__init__(f"block {uid} on {page_title!r}: "
+                         f"{describe_text_limit(violation)}")
+        self.uid = uid
+        self.page_title = page_title
+        self.violation = violation
 
 
 class BlankTitleError(ValueError):
@@ -205,6 +222,14 @@ def _prune_page_deletions(db: Db, now_ms: int) -> None:
                (now_ms - BLOCK_REWRITE_RETENTION_MS,))
 
 
+def _block_page_title(db: Db, uid: BlockUid) -> CanonicalTitle:
+    row = db.select_one(
+        "SELECT p.title FROM blocks b JOIN pages p ON p.id = b.page_id"
+        " WHERE b.uid = ?", (uid,))
+    assert row is not None  # the snapshot read it in this transaction
+    return row["title"]
+
+
 def rewrite_snapshotted_blocks(
     db: Db,
     snapshots: Sequence[tuple[BlockUid, str]],
@@ -219,17 +244,26 @@ def rewrite_snapshotted_blocks(
     source reference. Every changed block also leaves a `block_rewrites`
     record so the ops path can replay this rewrite over a stale device's
     edit to the same block. `canonical` is the caller's `title_reader`,
-    passed in so a rename reads the title flag once. Never commits.
+    passed in so a rename reads the title flag once. Every changed text is
+    judged before this writes any block: one over a limit raises
+    RewriteTextLimitError, and the caller rolls back the page moves it has
+    already made. Never commits.
     """
     rewritten = 0
-    seen: set[str] = set()
     normalize = spelled_or_canonical(canonical, replacements)
+    planned: dict[BlockUid, tuple[str, str]] = {}
     for uid, original_text in snapshots:
-        if uid in seen:
+        if uid in planned:
             continue
-        seen.add(uid)
         new_text = rewrite_title_refs_map(
             original_text, replacements, normalize=normalize)
+        planned[uid] = (original_text, new_text)
+        if new_text != original_text:
+            violation = rewrite_text_limit_violation(original_text, new_text)
+            if violation is not None:
+                raise RewriteTextLimitError(
+                    uid, _block_page_title(db, uid), violation)
+    for uid, (original_text, new_text) in planned.items():
         if new_text != original_text:
             db.execute(
                 "UPDATE blocks SET text = ?, updated_at = ? WHERE uid = ?",

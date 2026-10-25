@@ -33,10 +33,12 @@ from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
                                  SetParent, SetViewType, ShiftSiblings, Skip,
                                  SkipContext, SkippedContext,
                                  StuckMoveContext, SubtreeRow,
+                                 ReplayOverLimitContext,
                                  TextConflictContext,
                                  TextEditContext, TouchPage, UpdateText,
                                  classify_skip, classify_text_edit,
                                  delete_diverged,
+                                 find_op_text_limit_violation,
                                  find_op_title_violation, plan_op,
                                  skip_report, rewrite_effects,
                                  unlink_stale_text)
@@ -44,6 +46,7 @@ from pkm.server.store import (BlankTitleError, fetch_page,
                               get_or_create_page, reindex_refs_for_text,
                               stale_titles)
 from pkm.server.sync_meta import read_title, title_reader
+from pkm.text_limits import describe_text_limit
 from pkm.unlink import TitleMatch
 
 # Every op that addresses a block by uid: BlockOp minus create_page.
@@ -453,6 +456,9 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
                      else normalize_title)
         outcome = classify_text_edit(op.text, op.base_text_hash,
                                      row["text"], rewrites, canonical)
+        if outcome.kind == "over_limit":
+            return ReplayOverLimitContext(
+                block, row["title"], _conflict_landing(db, op.uid, now_ms))
         if outcome.kind != "conflict":
             return TextEditContext(block, outcome)
         # only a real conflict pays for today's daily page and its extra
@@ -594,6 +600,14 @@ class AppliedBatch:
 def apply_batch(db: Db, batch: OpBatch,
                 now_ms: int) -> AppliedBatch:
     """Apply a batch inside the caller's transaction."""
+    # Limits first, over the whole batch: the title pass below runs
+    # `extract` over every text, which must never read one past the caps.
+    limit = find_op_text_limit_violation(batch.ops)
+    if limit is not None:
+        raise OpError(
+            limit.op_index,
+            f"block {limit.uid}: {describe_text_limit(limit.violation)}",
+        )
     violation = find_op_title_violation(batch.ops)
     if violation is not None:
         raise OpError(
@@ -633,7 +647,7 @@ def apply_batch(db: Db, batch: OpBatch,
                 ctx.outcome.text if isinstance(ctx, TextEditContext) else None)
         for eff in effects:
             _execute(db, eff, now_ms)
-        if isinstance(ctx, SKIPPED_CONTEXTS):
+        if isinstance(ctx, (*SKIPPED_CONTEXTS, ReplayOverLimitContext)):
             skipped.append(skip_report(index, op, ctx))
         else:
             broadcast_ops.append(_broadcast_op(db, op, ctx))

@@ -75,7 +75,7 @@ it("an indent past the cap applies nothing and raises the notice", () => {
 
   expect(sync.sent).toEqual([]);
   expect(outline().blocks).toEqual(before);
-  expect(outline().depthNotice).toBe(DEPTH_NOTICE);
+  expect(outline().editNotice).toBe(DEPTH_NOTICE);
   // nothing was recorded: there is no entry to undo
   expect(performUndo(sync)).toBe(false);
 });
@@ -95,7 +95,7 @@ it("a refused indent still ships and applies the block's draft", () => {
   ]]);
   expect(findNode(outline().blocks, uidOf("tuid-d100b"))?.text).toBe("typed");
   expect(parentOf(outline(), "tuid-d100b")).toBe("tuid-d99");
-  expect(outline().depthNotice).toBe(DEPTH_NOTICE);
+  expect(outline().editNotice).toBe(DEPTH_NOTICE);
 });
 
 it("a multi-block indent with one root past the cap moves none", () => {
@@ -112,7 +112,7 @@ it("a multi-block indent with one root past the cap moves none", () => {
   expect(sync.sent).toEqual([]);
   expect(parentOf(outline(), "tuid-d100b")).toBe("tuid-d99");
   expect(parentOf(outline(), "tuid-d99b")).toBe("tuid-d98");
-  expect(outline().depthNotice).toBe(DEPTH_NOTICE);
+  expect(outline().editNotice).toBe(DEPTH_NOTICE);
 });
 
 it("a three-level paste at level 99 is refused, at level 98 applied", () => {
@@ -125,7 +125,7 @@ it("a three-level paste at level 99 is refused, at level 98 applied", () => {
 
   expect(sync.sent).toEqual([]);
   expect(findNode(outline().blocks, uidOf("tuid-d99"))?.text).toBe("d99");
-  expect(outline().depthNotice).toBe(DEPTH_NOTICE);
+  expect(outline().editNotice).toBe(DEPTH_NOTICE);
 
   act(() => outline().handlers.onPasteOutline(
     uidOf("tuid-d98"), 3, 3, pasted));
@@ -134,14 +134,14 @@ it("a three-level paste at level 99 is refused, at level 98 applied", () => {
   expect(sync.sent[0].map((op) => op.op))
     .toEqual(["update_text", "create", "create"]);
   expect(findNode(outline().blocks, uidOf("tuid-d98"))?.text).toBe("d98a");
-  expect(outline().depthNotice).toBeNull();
+  expect(outline().editNotice).toBeNull();
 });
 
 it("an indent to the cap applies, and clears a shown notice", () => {
   const sync = makeSync();
   const outline = setup(sync);
   act(() => outline().handlers.onIndent(uidOf("tuid-d100b")));
-  expect(outline().depthNotice).toBe(DEPTH_NOTICE);
+  expect(outline().editNotice).toBe(DEPTH_NOTICE);
 
   act(() => outline().handlers.onIndent(uidOf("tuid-d99b")));
 
@@ -149,7 +149,7 @@ it("an indent to the cap applies, and clears a shown notice", () => {
     [{ op: "move", uid: "tuid-d99b", parent_uid: "tuid-d99", order_idx: 2 }],
   ]);
   expect(parentOf(outline(), "tuid-d99b")).toBe("tuid-d99");
-  expect(outline().depthNotice).toBeNull();
+  expect(outline().editNotice).toBeNull();
 });
 
 it("an applied indent never raises the notice", () => {
@@ -157,18 +157,18 @@ it("an applied indent never raises the notice", () => {
   const outline = setup(sync);
   act(() => outline().handlers.onIndent(uidOf("tuid-d99b")));
   expect(sync.sent).toHaveLength(1);
-  expect(outline().depthNotice).toBeNull();
+  expect(outline().editNotice).toBeNull();
 });
 
-it("dismissDepthNotice clears the notice", () => {
+it("dismissEditNotice clears the notice", () => {
   const sync = makeSync();
   const outline = setup(sync);
   act(() => outline().handlers.onIndent(uidOf("tuid-d100b")));
-  expect(outline().depthNotice).toBe(DEPTH_NOTICE);
+  expect(outline().editNotice).toBe(DEPTH_NOTICE);
 
-  act(() => outline().dismissDepthNotice());
+  act(() => outline().dismissEditNotice());
 
-  expect(outline().depthNotice).toBeNull();
+  expect(outline().editNotice).toBeNull();
 });
 
 it("an undo the cap refuses raises the notice and applies nothing", () => {
@@ -194,5 +194,5 @@ it("an undo the cap refuses raises the notice and applies nothing", () => {
 
   expect(sync.sent).toHaveLength(sent);
   expect(outline().blocks).toEqual(before);
-  expect(outline().depthNotice).toBe(DEPTH_NOTICE);
+  expect(outline().editNotice).toBe(DEPTH_NOTICE);
 });

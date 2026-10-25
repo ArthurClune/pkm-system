@@ -19,6 +19,7 @@ import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
 import { DEPTH_NOTICE } from "../outline/depthCap";
+import { LINK_NESTING_NOTICE } from "../grammar/textLimits";
 import { resetHistory } from "../outline/undoManager";
 import { EditablePage } from "./EditablePage";
 
@@ -1142,4 +1143,22 @@ test("Tab past the depth cap shows the depth notice, which dismisses", () => {
 
   fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   expect(screen.queryByText(DEPTH_NOTICE)).toBeNull();
+});
+
+test("typing that nests links past the cap shows the notice, saves nothing",
+     () => {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  const nested = "[[a//".repeat(33) + "x" + "]]".repeat(33);
+  fireEvent.change(ta, { target: { value: nested } });
+
+  expect(ta.value).toBe("first");
+  const notice = screen.getByText(LINK_NESTING_NOTICE);
+  expect(notice).toHaveAttribute("role", "status");
+  fireEvent.blur(ta);
+  expect(sync.sent).toEqual([]);
+
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+  expect(screen.queryByText(LINK_NESTING_NOTICE)).toBeNull();
 });

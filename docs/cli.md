@@ -78,6 +78,13 @@ source page's top-level blocks are appended after the target's and the source
 page is dropped. Daily-note (date) pages cannot be renamed. The printed title
 is the server's normalised form, which may differ from what you typed.
 
+No write stores a block longer than 1,000,000 characters, or with `[[`
+nested more than 32 levels deep. A `save`, `update` or `batch` holding one
+exits 1 with the server's refusal, and nothing in it is written:
+`400: op 1: block <uid>: [[ nested 33 levels deep is over the limit of 32`.
+A rename that would push a linking block over either limit exits 1 with
+`422: rename refused: block <uid> on '<page>': …`, and nothing changes.
+
 `pkm save` treats multi-line text as an outline. Two spaces or one tab of
 indent is one level of nesting. A line indented more than one level below the
 line before it nests only one level deeper. Text given to `pkm update` or to

@@ -1,18 +1,23 @@
 // pattern: Imperative Shell
 // Shown instead of the delete confirmation when blocks would break if the
-// page's links were unlinked. Same overlay and classes as ConfirmDialog.
+// page's links were unlinked, and after an asset delete the server refused
+// for the blocks it would break. Same overlay and classes as ConfirmDialog.
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import type { RawTitle } from "../api/brands";
 import { pagePath } from "../paths";
 import {
-  BLOCKED_LEAD, blockedHeading, blockerReasonLabel, type DeleteBlocker,
+  BLOCKED_LEAD, blockerExcerpt, blockerReasonLabel, type DeleteBlocker,
 } from "./deletePageCopy";
 
-export function DeleteBlockedDialog({ title, blockers, onClose }: {
-  title: RawTitle;
+/** `label` says why each block stops the delete; a page delete's reasons
+ * by default. */
+export function DeleteBlockedDialog({
+  heading, blockers, label = blockerReasonLabel, onClose,
+}: {
+  heading: string;
   blockers: DeleteBlocker[];
+  label?: (reason: DeleteBlocker["reason"]) => string;
   onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
@@ -36,7 +41,7 @@ export function DeleteBlockedDialog({ title, blockers, onClose }: {
            aria-labelledby={headingId}
            onClick={(event) => event.stopPropagation()}>
         <p className="confirm-dialog-title" id={headingId}>
-          {blockedHeading(title)}
+          {heading}
         </p>
         <p className="confirm-dialog-message">{BLOCKED_LEAD}</p>
         <ul className="confirm-dialog-message">
@@ -45,7 +50,7 @@ export function DeleteBlockedDialog({ title, blockers, onClose }: {
               <Link to={pagePath(b.page_title)} onClick={onClose}>
                 {b.page_title}
               </Link>
-              {": "}{b.text}{" ("}{blockerReasonLabel(b.reason)}{")"}
+              {": "}{blockerExcerpt(b)}{" ("}{label(b.reason)}{")"}
             </li>
           ))}
         </ul>

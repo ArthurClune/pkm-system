@@ -5,12 +5,15 @@ import ast
 import copy
 from pathlib import Path
 
+import pytest
 from hypothesis import given, settings, strategies as st
 from pydantic import TypeAdapter
 
 from pkm.batch import validate_batch
 from pkm.contracts.ops import BlockOp, BlockUid, OpBatch, subtree_hash, SyncSeq, text_hash, UID_RE
 from props.harness import DAILY_TITLE
+from props.limit_texts import (AT_NESTING_LIMIT, EMOJI_AT_CAP, NEST_IN_CODE,
+                               PAST_LIMIT_TEXTS)
 from props.model import (MBlock, Model, Outcome, Rewrite, positions_after,
                          replay_chain, unlink_stale)
 from props.strategies import (PAGES, batch_for, cli_batch, op_for, seed_tree,
@@ -341,6 +344,51 @@ def test_delete_page_removes_its_blocks_and_rewrites_references():
         frozenset({"Alpha"}), ((P, "copy Alpha inner "),))]}
 
 
+def test_delete_page_folds_a_copy_s_newlines():
+    m = model(blk(P, page="Alpha", text=NEST_IN_CODE),
+              blk(B, page="Beta", text=f"see (({P}))"))
+    out = m.delete_page(raw_title_of("Alpha"), {}, seq_of(9))
+    assert out.status == 200
+    assert m.blocks[B].text == "see " + NEST_IN_CODE.replace("\n", " ")
+
+
+def test_delete_page_refused_when_a_copy_carries_a_text_past_the_length_cap():
+    m = model(blk(P, page="Alpha", text=EMOJI_AT_CAP),
+              blk(A, page="Beta", text=f"(({P}))"),
+              blk(B, page="Beta", text=f"x (({P}))"))
+    # the lone ref becomes the copy, exactly at the cap; one more code
+    # point carries it over
+    assert m.delete_page(raw_title_of("Alpha"), {}, seq_of(9)).blockers == {B: "limit"}
+
+
+# --- backend.md § Planning (text limits) --------------------------------------
+
+@pytest.mark.parametrize("text", PAST_LIMIT_TEXTS)
+def test_a_text_past_a_limit_refuses_the_batch(text):
+    m = model(blk(A))
+    before = m.snapshot()
+    # judged though the create is skipped (its parent is missing)
+    assert m.apply([create(X, 1), create(Y, 0, parent=C, text=text)]).status == 400
+    assert m.apply([{"op": "update_text", "uid": A, "text": text}]).status == 400
+    assert m.snapshot() == before
+
+
+@pytest.mark.parametrize("text", (AT_NESTING_LIMIT, NEST_IN_CODE, EMOJI_AT_CAP))
+def test_a_text_at_a_limit_is_stored(text):
+    m = model(blk(A))
+    assert m.apply([{"op": "update_text", "uid": A, "text": text}]).status == 200
+    assert m.blocks[A].text == text
+
+
+def test_limit_texts_are_what_they_claim():
+    """The constants measured without the server's judge: code points
+    by `len`, nesting by construction."""
+    assert [len(t) for t in PAST_LIMIT_TEXTS[1:]] == [1_000_001, 1_000_001]
+    assert len(EMOJI_AT_CAP) == 1_000_000 and len(EMOJI_AT_CAP.encode("utf-16-le")) == 4_000_000
+    assert PAST_LIMIT_TEXTS[0].count("[[") == 33 and AT_NESTING_LIMIT.count("[[") == 32
+    assert NEST_IN_CODE.startswith("```\n") and NEST_IN_CODE.endswith("\n```")
+
+
 # --- backend.md § Stale batches -----------------------------------------------
 
 def deleted(*rows, title_text="Alpha", seq: SyncSeq = seq_of(9)):
@@ -442,6 +490,32 @@ def test_edit_based_on_a_page_deletes_rewrite_replays_its_inline():
     out = m.apply([{"op": "update_text", "uid": B, "text": f"y (({P}))",
                     "base_text_hash": text_hash(f"x (({P}))")}])
     assert out == Outcome(200, (), ()) and m.blocks[B].text == "y copied"
+
+
+@pytest.mark.parametrize("text", ["y" * 1_000_001, "[[" * 33,
+                                  "y" * 999_999 + "[[" * 33],
+                         ids=["long", "nested", "both"])
+def test_a_drawn_text_outside_the_limit_texts_must_stay_inside_the_limits(
+        text):
+    # membership decides the verdict only while nothing else reaches a limit
+    with pytest.raises(AssertionError, match="outside props/limit_texts.py"):
+        model().apply([create(X, 0, text=text)])
+
+
+def test_edit_whose_replayed_inline_passes_the_cap_lands_as_sent():
+    # The delete inlined an at-cap copy into a block that held only the
+    # ref; a stale edit adding a word to that ref replays past the cap.
+    m = model(blk(P, page="Alpha", text=EMOJI_AT_CAP),
+              blk(B, page="Beta", text=f"(({P}))"))
+    m.delete_page(raw_title_of("Alpha"), {}, seq_of(9))
+    assert m.blocks[B].text == EMOJI_AT_CAP
+    sent = f"(({P})) more"
+    out = m.apply([{"op": "update_text", "uid": B, "text": sent,
+                    "base_text_hash": text_hash(f"(({P}))")}])
+    assert out.skipped == ((0, "update_text", B, "text_limit"),)
+    assert out.kept_texts == (sent,)
+    assert out.paths == ("update_text replay: over the length cap",)
+    assert m.blocks[B].text == EMOJI_AT_CAP
 
 
 def test_recorded_rewrites_remember_the_text_they_rewrote():

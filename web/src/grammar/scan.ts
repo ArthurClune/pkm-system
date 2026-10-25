@@ -1,9 +1,10 @@
 // pattern: Functional Core
 // The single shared scanner for reference and TODO grammar. Every consumer
 // (tokenize.ts rendering, grammar/refs.ts + replica/refs.ts extraction,
-// outline/refAtCaret.ts caret lookup, grammar/todo.ts toggling, and
-// outline/slashCommands.ts via the todo helpers) derives its behavior from
-// this token stream instead of keeping a private scan.
+// outline/refAtCaret.ts caret lookup, grammar/todo.ts toggling,
+// outline/slashCommands.ts via the todo helpers, and grammar/textLimits.ts
+// via linkNestingDepth) derives its behavior from this token stream, or the
+// bracket pairs beneath it, instead of keeping a private scan.
 //
 // Canonical rules (mirroring server/src/pkm/refs.py, pinned by
 // shared/fixtures/ref_grammar.json):
@@ -89,13 +90,24 @@ export function stripLikePython(text: string): string {
   return stripStartLikePython(text.slice(0, end));
 }
 
+/** `text` without its leading and trailing U+0020 runs. A loop, not
+ * `replace(/^ +| +$/g, "")`: that regex retries ` +$` from every space of
+ * a run that stops short of the end, the square of the run's length. */
+export function trimSpaces(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && text[start] === " ") start += 1;
+  while (end > start && text[end - 1] === " ") end -= 1;
+  return text.slice(start, end);
+}
+
 const UNREACHABLE_SEGMENTS = new Set(["", ".", ".."]);
 
 /** Mirrors refs.py has_unreachable_segment: does the title, edge-stripped
  * of U+0020 once normalized, hold a `.`, `..` or empty `/` segment? Such a
  * title has no URL. A blank title is not one. */
 export function hasUnreachableSegment(text: string): boolean {
-  const canonical = normalizeRefTitle(text).replace(/^ +| +$/g, "");
+  const canonical = trimSpaces(normalizeRefTitle(text));
   if (stripLikePython(canonical).length === 0) return false;
   return canonical.split("/").some((seg) => UNREACHABLE_SEGMENTS.has(seg));
 }
@@ -131,7 +143,12 @@ const EMBED_RE = new RegExp(
 // [\p{L}\p{N}_] mirrors Python's unicode-aware \w closely enough for titles.
 const TAG_CHARS_RE = /[\p{L}\p{N}_./\-]+/uy;
 const TAG_BOUNDARY_RE = new RegExp(`[${PY_SPACE}(]`);
-const WORD_CHAR_RE = /[\p{L}\p{N}_]/u;
+// ASCII on purpose, the same class as refs.py's _WORD_CHAR: a Unicode
+// class follows each runtime's Unicode table, which differs between Python
+// and a browser, and a fence closer tests one UTF-16 unit, so a non-ASCII
+// letter after ``` used to close a fence on one side and open one on the
+// other, and the two disagreed on the refs and `[[` depth of the block.
+const WORD_CHAR_RE = /[A-Za-z0-9_]/;
 const INLINE_CODE_RE = /`[^`\n]*`/y;
 
 /** Left-to-right opaque-code pass: closed fences win over inline code, and
@@ -155,11 +172,11 @@ function scanCode(text: string): { codeTokens: GrammarToken[]; clean: string } {
   let fencePossible = true;
   while (i < text.length) {
     if (fencePossible && text.startsWith("```", i)) {
-      // A ``` run followed by a word character is a fence *opener* with an
-      // info string (```css, ```mermaid), never a closer — without this
-      // skip, an outer fence pairs with the first inner example's opener,
-      // fence parity flips, and hex colours in the exposed code mint pages
-      // named "0277bd" (mirrors _CODE_FENCE in refs.py).
+      // A ``` run followed by an ASCII word character is a fence *opener*
+      // with an info string (```css, ```mermaid), never a closer — without
+      // this skip, an outer fence pairs with the first inner example's
+      // opener, fence parity flips, and hex colours in the exposed code mint
+      // pages named "0277bd" (mirrors _fence_end in refs.py).
       let close = text.indexOf("```", i + 3);
       while (close !== -1 && close + 3 < text.length
              && WORD_CHAR_RE.test(text[close + 3])) {
@@ -234,11 +251,11 @@ function holdsBacktick(ticks: number[], start: number, end: number): boolean {
   return lo < ticks.length && ticks[lo] < end;
 }
 
-/** Convert matched pairs into page-ref tokens: pre-order (outer before
- * children), depth/parent counted over MATCHED ancestors only, and a tag's
- * span extended to include its leading #. */
-function pageRefTokens(clean: string, pairs: BracketPair[]): GrammarToken[] {
-  pairs.sort((a, b) => a.open - b.open);
+/** Convert matched pairs, sorted by open, into page-ref tokens: pre-order
+ * (outer before children), depth/parent counted over MATCHED ancestors
+ * only, and a tag's span extended to include its leading #. */
+function pageRefTokens(clean: string, pairs: readonly BracketPair[],
+): GrammarToken[] {
   const tokens: GrammarToken[] = [];
   const ancestors: { start: number; close: number }[] = [];
   for (const p of pairs) {
@@ -320,8 +337,66 @@ function validate(tokens: GrammarToken[], length: number): void {
   }
 }
 
-export function scanGrammar(text: string): { tokens: readonly GrammarToken[] } {
+interface BracketScan {
+  codeTokens: GrammarToken[];
+  clean: string;      // the text with every code range blanked
+  ticks: number[];    // backtickPositions of the text as written
+  pairs: BracketPair[];
+}
+
+/** The code pass and the `[[...]]` runs over what it leaves, as refs.py
+ * _bracket_pairs reports them: a pair whose title as written holds a
+ * backtick is dropped before nesting is counted, and the rest are sorted by
+ * open. scanGrammar builds its tokens from this, and linkNestingDepth
+ * measures it, so the two cannot disagree on which runs exist. */
+function scanBrackets(text: string): BracketScan {
   const { codeTokens, clean } = scanCode(text);
+  const ticks = backtickPositions(text);
+  const pairs = matchBracketPairs(clean)
+    .filter((p) => !holdsBacktick(ticks, p.open + 2, p.close - 2))
+    .sort((a, b) => a.open - b.open);
+  return { codeTokens, clean, ticks, pairs };
+}
+
+/** How deep `text`'s `[[...]]` runs nest: one more than the deepest
+ * page-ref token scanGrammar reports, 0 when it has none. A walk over the
+ * sorted pairs with a stack of enclosing closes, so a nest hundreds of
+ * thousands deep is measured without recursion and without building tokens.
+ * Mirrors refs.py link_nesting_depth, pinned equal by
+ * shared/fixtures/text_limits_parity.json. */
+export function linkNestingDepth(text: string): number {
+  return pairNestingDepth(scanBrackets(text).pairs);
+}
+
+/** linkNestingDepth over pairs already matched and sorted by open. */
+function pairNestingDepth(pairs: readonly BracketPair[]): number {
+  const closes: number[] = []; // close offsets of the pairs enclosing this one
+  let deepest = 0;
+  for (const p of pairs) {
+    while (closes.length > 0 && p.open >= closes[closes.length - 1]) {
+      closes.pop();
+    }
+    closes.push(p.close);
+    deepest = Math.max(deepest, closes.length);
+  }
+  return deepest;
+}
+
+/** The deepest `[[` nesting a write may store (refs.py's
+ * MAX_LINK_NESTING). It lives here because the scanner obeys it too;
+ * textLimits.ts re-exports it with the length limit. */
+export const MAX_LINK_NESTING = 32;
+
+/** The token stream of `text`. A text whose `[[` runs nest past
+ * MAX_LINK_NESTING reports none of them: every write refuses such a text,
+ * so only a row stored before the limit (or out of band) holds one, and
+ * the titles of an n-deep nest sum to n times its length, minutes of work
+ * at the length cap. Its brackets read as plain text everywhere (rendering,
+ * extraction, the caret). refs.py still extracts its links, but the
+ * replica derives refs only from an op's text, which it refuses past the
+ * limit, so the two never disagree on a row either side writes. */
+export function scanGrammar(text: string): { tokens: readonly GrammarToken[] } {
+  const { codeTokens, clean, ticks, pairs } = scanBrackets(text);
   const tokens: GrammarToken[] = [...codeTokens];
 
   const todo = TODO_RE.exec(text); // marker chars can never be code
@@ -338,7 +413,6 @@ export function scanGrammar(text: string): { tokens: readonly GrammarToken[] } {
 
   ATTRIBUTE_RE.lastIndex = clean.length - stripStartLikePython(clean).length;
   const attr = ATTRIBUTE_RE.exec(clean);
-  const ticks = backtickPositions(text);
   if (attr) {
     const end = ATTRIBUTE_RE.lastIndex;
     const start = end - 2 - attr[1].length;
@@ -348,11 +422,13 @@ export function scanGrammar(text: string): { tokens: readonly GrammarToken[] } {
     }
   }
 
-  tokens.push(...scanFlatTokens(clean));
-  // Dropped before nesting is counted, as refs.py bracket_spans does.
-  const pairs = matchBracketPairs(clean).filter(
-    (p) => !holdsBacktick(ticks, p.open + 2, p.close - 2));
-  tokens.push(...pageRefTokens(clean, pairs));
+  // Loops, not push(...xs): a block at the length cap holds hundreds of
+  // thousands of tokens, and a spread passes each one as a call argument,
+  // which overflows the stack.
+  for (const t of scanFlatTokens(clean)) tokens.push(t);
+  if (pairNestingDepth(pairs) <= MAX_LINK_NESTING) {
+    for (const t of pageRefTokens(clean, pairs)) tokens.push(t);
+  }
 
   // Source order; on a shared start the wider (outer) token comes first.
   tokens.sort((a, b) => a.start - b.start || b.end - a.end);

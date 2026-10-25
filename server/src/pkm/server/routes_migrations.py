@@ -19,6 +19,7 @@ from pkm.database import Db
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
+from pkm.server.store import RewriteTextLimitError
 from pkm.server.title_migration import (
     AlreadyActiveTitleMigration,
     BlockedTitleMigration,
@@ -101,6 +102,9 @@ def apply_title_canonicalization(
         AlreadyActiveTitleMigration,
     ) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
+    except RewriteTextLimitError as exc:
+        raise HTTPException(status_code=409,
+                            detail=f"title migration refused: {exc}") from None
     notify.nudge_threadpool(
         request,
         db,

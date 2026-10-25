@@ -3,9 +3,12 @@ import pytest
 from pkm.edn import parse_edn
 from pkm.importer.parse_export import Block, Export, Page, parse_export
 from pkm.importer.preflight import (ImportDepthError, ImportStructureError,
-                                    ImportUidError, validate_export_depth,
+                                    ImportTextLimitError, ImportUidError,
+                                    validate_export_depth,
                                     validate_export_structure,
-                                    validate_export_uids)
+                                    validate_export_uids,
+                                    validate_row_text_limits)
+from pkm.importer.rows import Rows, to_rows
 from pkm.importer.rows import RECOVERY_PAGE_TITLE
 from pkm.test_data.ids import malformed_uid, raw_title_of, uid_of
 from pkm.contracts.ops import MAX_OUTLINE_DEPTH, BlockUid
@@ -252,3 +255,53 @@ def test_depth_check_is_iterative():
         validate_export_depth(export)
 
     assert raised.value.depth == MAX_OUTLINE_DEPTH + 1
+
+
+def _nest(depth: int) -> str:
+    return "[[a//" * depth + "x" + "]]" * depth
+
+
+def _rows_of(*, pages=(), orphans=()) -> Rows:
+    return to_rows(_export(pages=pages, orphans=orphans), lambda t: t)
+
+
+def _text_block(uid: BlockUid, text: str, children: tuple[Block, ...] = ()):
+    return Block(uid=uid, text=text, heading=None, view_type=None, open=True,
+                 created_at=None, edited_at=None, children=children)
+
+
+def test_rows_at_both_text_caps_pass():
+    rows = _rows_of(pages=(_page("A", (
+        _text_block(uid_of("at-length"), "x" * 1_000_000),
+        _text_block(uid_of("at-nest"), _nest(32)))),))
+    validate_row_text_limits(rows)
+
+
+def test_a_block_one_past_the_length_cap_names_uid_and_page():
+    rows = _rows_of(pages=(_page("A", (
+        _text_block(uid_of("fine-one"), "ok"),
+        _text_block(uid_of("too-long-1"), "x" * 1_000_001))),))
+    with pytest.raises(ImportTextLimitError) as raised:
+        validate_row_text_limits(rows)
+    assert raised.value.uid == uid_of("too-long-1")
+    assert raised.value.page_title == "A"
+    assert str(raised.value) == (
+        f"block {uid_of('too-long-1')} on 'A': text of 1000001 characters "
+        "is over the limit of 1000000")
+
+
+def test_a_block_nested_past_the_cap_is_refused():
+    rows = _rows_of(pages=(_page("A", (
+        _text_block(uid_of("deep-nest"), _nest(33)),)),))
+    with pytest.raises(ImportTextLimitError) as raised:
+        validate_row_text_limits(rows)
+    assert str(raised.value) == (
+        f"block {uid_of('deep-nest')} on 'A': [[ nested 33 levels deep is over "
+        "the limit of 32")
+
+
+def test_an_orphan_is_named_with_the_recovery_page():
+    rows = _rows_of(orphans=(_text_block(uid_of("orphan"), _nest(33)),))
+    with pytest.raises(ImportTextLimitError) as raised:
+        validate_row_text_limits(rows)
+    assert raised.value.page_title == RECOVERY_PAGE_TITLE

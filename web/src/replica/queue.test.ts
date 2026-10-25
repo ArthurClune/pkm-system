@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { BatchId, RawTitle } from "../api/brands";
+import type { BatchId, BlockUid, RawTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { LocalOpError } from "./localOps";
 import * as queue from "./queue";
@@ -442,5 +442,68 @@ describe("enqueueBatch keeps the replica well-formed", () => {
     expect(row.ops_json).not.toMatch(/\\ud[89a-f]/i);
     const ops = allBatches(t.db)[0].ops;
     expect(ops.map((o) => ("text" in o ? o.text : null))).toEqual(["a\uFFFDb", "\uFFFDc"]);
+  });
+});
+
+describe("enqueueBatch refuses text past the limits, as the server does", () => {
+  // runs that are no refs, so the title guard passes them
+  const nest = (depth: number) =>
+    "[[a//".repeat(depth) + "x" + "]]".repeat(depth);
+  const createOf = (uid: BlockUid, text: string): BlockOp => ({
+    op: "create", uid, page_title: rawTitleOf("AI"),
+    parent_uid: null, order_idx: orderIdxOf(1), text,
+  });
+  const refusal = (ops: BlockOp[]): unknown => {
+    try {
+      enqueueBatch(t.db, ops, 99, bid("batch-limits"));
+    } catch (error) {
+      return error;
+    }
+    return undefined;
+  };
+
+  test("a create nested past the limit throws the server's reason and stores nothing", () => {
+    const thrown = refusal([createOf(uidOf("uid_deep"), nest(33))]);
+    expect(thrown).toBeInstanceOf(LocalOpError);
+    expect(thrown).toMatchObject({
+      message: "block uid_deep: [[ nested 33 levels deep is over the limit of 32" });
+    expect(allBatches(t.db)).toEqual([]);
+    expect(t.db.select("SELECT uid FROM blocks WHERE uid = 'uid_deep'", ["uid"]))
+      .toEqual([]);
+  });
+
+  test("a later over-long update_text refuses the whole batch atomically", () => {
+    const before = durableAndOptimisticState();
+    const thrown = refusal([
+      { op: "update_text", uid: uidOf("uid_q1"), text: "would partially apply" },
+      { op: "update_text", uid: uidOf("uid_q1"), text: "x".repeat(1_000_001) },
+    ]);
+    expect(thrown).toBeInstanceOf(LocalOpError);
+    expect(thrown).toMatchObject({
+      message: "block uid_q1: text of 1000001 characters is over the limit of 1000000" });
+    expect(durableAndOptimisticState()).toEqual(before);
+  });
+
+  test("text limits are judged before titles, in the server's order", () => {
+    const thrown = refusal([
+      { op: "create_page", page_title: rawTitleOf("Queue #Bad") },
+      createOf(uidOf("uid_deep"), nest(33)),
+    ]);
+    expect(thrown).toMatchObject({
+      message: "block uid_deep: [[ nested 33 levels deep is over the limit of 32" });
+  });
+
+  test("text at the limits enqueues and applies", () => {
+    enqueueBatch(t.db, [
+      createOf(uidOf("uid_long"), "x".repeat(1_000_000)),
+      createOf(uidOf("uid_nest"), nest(32)),
+    ], 99, bid("batch-at-limits"));
+    expect(allBatches(t.db)).toHaveLength(1);
+    const stored = t.db.select(
+      "SELECT uid, text FROM blocks WHERE uid IN ('uid_long', 'uid_nest')"
+      + " ORDER BY uid", ["uid", "text"]);
+    expect(stored.map((r) => r.uid)).toEqual(["uid_long", "uid_nest"]);
+    expect(stored[0].text === "x".repeat(1_000_000)).toBe(true);
+    expect(stored[1].text).toBe(nest(32));
   });
 });

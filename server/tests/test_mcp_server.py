@@ -261,6 +261,21 @@ def test_batch_propagates_indexed_forbidden_reference_server_error(
     assert all(node.text != "first" for node in pkm_client.get_page("AI").blocks)
 
 
+def test_update_block_propagates_the_nesting_refusal(tools, pkm_client):
+    tools.save_note("temp", page="AI")
+    uid = next(n.uid for n in pkm_client.get_page("AI").blocks
+               if n.text == "temp")
+
+    with pytest.raises(ApiError) as exc:
+        tools.update_block(uid, text="[[a//" * 33 + "x" + "]]" * 33)
+
+    assert str(exc.value) == (
+        f"400: op 0: block {uid}: [[ nested 33 levels deep is over the"
+        " limit of 32"
+    )
+    assert pkm_client.get_block(uid).block.text == "temp"
+
+
 def test_save_note_empty_text_on_new_page_leaves_no_page_behind(tools, pkm_client):
     # plan_save rejects empty text after the page would already have been
     # fetched/created -- the page must not persist when the save as a

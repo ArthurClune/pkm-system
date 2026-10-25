@@ -281,8 +281,8 @@ def test_delete_refused_with_blockers_409(client):
         "page is still referenced in ways a delete cannot rewrite")
     assert detail["blockers"] == [{
         "uid": "uid_b4", "page_title": "July 7th, 2026",
-        "text": "{{query: {and: [[Machine Learning]] [[Paper]]}}}",
-        "reason": "query"}]
+        "excerpt": "{{query: {and: [[Machine Learning]] [[Paper]]}}}",
+        "text_length": 48, "reason": "query"}]
     assert client.get("/api/page/Machine Learning").status_code == 200
 
 

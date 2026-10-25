@@ -15,12 +15,14 @@
 // conditional server delete, refused while any block still references the
 // file). An undo whose delivery fails leaves the files.
 //
-// A replay that would put a block past the outline depth cap applies and
-// sends nothing (the server refuses such a batch whole, and the offline
-// queue would discard it), shows the depth notice, and puts its entry back,
+// A replay that would put a block past the outline depth cap, or store a
+// block text past a text limit (grammar/textLimits.ts), applies and sends
+// nothing (the server refuses such a batch whole, and the offline queue
+// would discard it), shows the refusal's notice, and puts its entry back,
 // so it can be retried once the user has made room. Its delivery resolves
 // "failed", so a refused upload undo keeps the files. A page this tab cannot
-// read is not judged: its batch ships and the server decides.
+// read is judged by the text limits only, which need no tree: its depth is
+// left to the server.
 import type { Sha256Hex, CanonicalTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
@@ -28,6 +30,8 @@ import { releaseAssets } from "../sync/assetRelease";
 import type { DeliveryOutcome, WriteTicket } from "../sync/opQueue";
 import { pagePath } from "../paths";
 import { stampBaseTextHashes } from "./baseTextHash";
+import { findOpTextLimitViolation,
+         textLimitNotice } from "../grammar/textLimits";
 import { DEPTH_NOTICE, findDepthViolation } from "./depthCap";
 import type { FocusTarget } from "./edits";
 import { emptyHistory, recordEntry, resolveAnchors, restoreEntry, takeRedo,
@@ -182,7 +186,7 @@ type Dispatched = Pick<WriteTicket, "delivered">;
 
 // Resolves with the dispatched write's delivery, never rejects: a dispatch
 // that throws, is dropped by a reset or is refused resolves "failed".
-// onRefused runs when the depth cap refuses the batch.
+// onRefused runs when the depth cap or a text limit refuses the batch.
 function dispatch(sync: HistoryDispatch, batch: BlockOp[],
                   anchors: BatchAnchors, title: CanonicalTitle,
                   focus: FocusTarget | null,
@@ -246,21 +250,28 @@ function dispatchWithSession(sync: HistoryDispatch, handle: SessionHandle,
   // try/finally because the handle is acquired before sync.enqueue, which
   // throws on a disposed queue (opQueue.ts); a leaked refcount pins the
   // session for the rest of the tab's life.
-  let write: WriteTicket | null = null;
+  // The write, or the notice of the refusal that stopped it.
+  let outcome: WriteTicket | string;
   try {
     const live = handle.getSnapshot().blocks;
     const resolved = resolveAnchors(live, title, batch, anchors);
-    if (!tooDeep(live, resolved, title)) {
+    const refusal = refusalNotice(live, resolved, title);
+    if (refusal === null) {
       const wireOps = stampBaseTextHashes(live, title, resolved);
-      write = sync.enqueue(wireOps, ["page", title]);
+      const write = sync.enqueue(wireOps, ["page", title]);
       handle.applyLocal(write, wireOps);
+      outcome = write;
+    } else {
+      outcome = refusal;
     }
   } finally {
     handle.release();
   }
-  if (!write) return refuse(title, focus, onRefused);
+  if (typeof outcome === "string") {
+    return refuse(title, focus, onRefused, outcome);
+  }
   settle(title, focus);
-  return write;
+  return outcome;
 }
 
 async function dispatchUnmounted(
@@ -273,45 +284,57 @@ async function dispatchUnmounted(
   // stamp against. If that read fails the recorded batch ships as it is: the
   // recorded keys are right only while nothing shifted the page's keys since
   // recording, and an online-only session never fills the missing hashes in.
-  // Nor is its depth judged: the server decides.
+  // Nor is its depth judged: the server decides. Its texts are, since that
+  // needs no tree.
   let wireOps: BlockOp[];
-  let refused = false;
+  let refusal: string | null;
   try {
     const live = await loadPage(title);
     const resolved = resolveAnchors(live, title, batch, anchors);
-    refused = tooDeep(live, resolved, title);
+    refusal = refusalNotice(live, resolved, title);
     wireOps = stampBaseTextHashes(live, title, resolved);
   } catch (e: unknown) {
     console.warn("undo/redo could not read the page; sending unstamped", e);
     wireOps = [...batch];
+    refusal = textLimitRefusal(batch);
   }
-  if (refused) return refuse(title, focus, onRefused);
+  if (refusal !== null) return refuse(title, focus, onRefused, refusal);
   const write = sync.enqueue(wireOps, ["page", title]);
   settle(title, focus);
   return write;
 }
 
-// Judged on the tree the batch would leave. A batch that places no block
-// (typing, a heading) cannot nest one deeper, and clones nothing.
-function tooDeep(live: BlockNode[], ops: BlockOp[],
-                 title: CanonicalTitle): boolean {
-  if (!ops.some((op) => op.op === "create" || op.op === "move")) return false;
-  return findDepthViolation(applyOps(live, ops, title), ops) !== null;
+// Why the batch must not ship, or null when it may: the depth cap first,
+// judged on the tree the batch would leave (a batch that places no block,
+// typing or a heading, cannot nest one deeper, and clones nothing), then the
+// text limits of the texts it would store.
+function refusalNotice(live: BlockNode[], ops: BlockOp[],
+                       title: CanonicalTitle): string | null {
+  const places = ops.some((op) => op.op === "create" || op.op === "move");
+  if (places && findDepthViolation(applyOps(live, ops, title), ops) !== null) {
+    return DEPTH_NOTICE;
+  }
+  return textLimitRefusal(ops);
+}
+
+function textLimitRefusal(ops: BlockOp[]): string | null {
+  const overLimit = findOpTextLimitViolation(ops);
+  return overLimit === null ? null : textLimitNotice(overLimit.violation);
 }
 
 // Nothing applied or sent; the notice goes to the page's outlines, or waits
 // for the next one when none is mounted, and settle brings the user there.
 function refuse(title: CanonicalTitle, focus: FocusTarget | null,
-                onRefused: () => void): Dispatched {
+                onRefused: () => void, notice: string): Dispatched {
   onRefused();
   const registered = hooks.get(title);
   if (registered) {
-    registered.forEach((h) => h.showNotice(DEPTH_NOTICE));
+    registered.forEach((h) => h.showNotice(notice));
   } else {
-    pendingNotices.set(title, DEPTH_NOTICE);
+    pendingNotices.set(title, notice);
   }
   settle(title, focus);
-  return { delivered: failed(new Error("depth cap")) };
+  return { delivered: failed(new Error(notice)) };
 }
 
 function settle(title: CanonicalTitle, focus: FocusTarget | null): void {

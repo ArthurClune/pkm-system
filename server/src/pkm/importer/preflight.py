@@ -8,7 +8,10 @@ from typing import Literal
 from pkm.contracts.ops import MAX_OUTLINE_DEPTH, BlockUid, UID_RE
 from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.importer.parse_export import Block, Export
-from pkm.importer.rows import RECOVERY_PAGE_TITLE
+from pkm.importer.rows import RECOVERY_PAGE_TITLE, Rows
+from pkm.refs import parse_block_uid
+from pkm.text_limits import (TextLimitViolation, describe_text_limit,
+                             text_limit_violation)
 
 StructureReason = Literal["duplicate_uid", "multi_parent"]
 
@@ -167,3 +170,36 @@ def validate_export_depth(
             if depth > max_depth:
                 raise ImportDepthError(block.uid, page_title, depth, max_depth)
             stack.extend((child, depth + 1) for child in reversed(block.children))
+
+
+class ImportTextLimitError(ValueError):
+    """Refuses the whole import: a block's text is over the length or `[[`
+    nesting limit every server write enforces."""
+
+    uid: BlockUid
+    page_title: RawTitle
+    violation: TextLimitViolation
+
+    def __init__(self, uid: BlockUid, page_title: RawTitle,
+                 violation: TextLimitViolation) -> None:
+        self.uid = uid
+        self.page_title = page_title
+        self.violation = violation
+        super().__init__(
+            f"block {uid} on {page_title!r}: {describe_text_limit(violation)}")
+
+
+def validate_row_text_limits(rows: Rows) -> None:
+    """Reject the whole import at the first block, in `rows.blocks` order,
+    whose text is over a text limit. Runs on rows rather than the parsed
+    export because to_rows rewrites asset URLs and folds mermaid
+    components into one fence: the rows are what lands."""
+    titles = {page[0]: page[1] for page in rows.pages}
+    for block in rows.blocks:
+        violation = text_limit_violation(block[4])
+        if violation is not None:
+            uid = parse_block_uid(block[0])
+            # validate_export_uids has already refused any uid off UID_RE
+            assert uid is not None, block[0]
+            raise ImportTextLimitError(
+                uid, as_raw_title(titles[block[1]]), violation)

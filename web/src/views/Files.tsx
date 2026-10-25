@@ -1,9 +1,12 @@
 // pattern: Imperative Shell
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Sha256Hex } from "../api/brands";
+import { deleteRefusalBlockers } from "../api/client";
 import { apiDelete, apiGet, apiPost } from "../api/typedClient";
 import type { AssetSearchItem } from "../api/payloads";
 import { useConfirm } from "../components/ConfirmDialog";
+import { DeleteBlockedDialog } from "../components/DeleteBlockedDialog";
+import type { DeleteBlocker } from "../components/deletePageCopy";
 import { ImageOverlay } from "../components/ImageOverlay";
 import { PdfEmbed } from "../components/PdfEmbed";
 import { SearchIcon } from "../components/icons";
@@ -12,8 +15,9 @@ import {
   FileDescriptionPopover, FileRefsPopover,
 } from "./FileCardPopovers";
 import {
-  EMPTY_FILTERS, clipboardToken, deleteConfirm, formatSize,
-  mimeCategory, searchQuery, summarizeDeletes,
+  EMPTY_FILTERS, blockedFilesHeading, clipboardToken, deleteConfirm,
+  fileBlockerReasonLabel, formatSize, mimeCategory, searchQuery,
+  summarizeDeletes,
 } from "./filesCore";
 import type { FileFilters } from "./filesCore";
 
@@ -180,6 +184,11 @@ export function Files() {
     useState<ReadonlySet<Sha256Hex>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The blocks a refused delete names: the server strips a file's links
+  // from block text, and refuses when that would break a block.
+  const [blocked, setBlocked] = useState<
+    { heading: string; blockers: DeleteBlocker[] } | null>(null);
+  const closeBlocked = useCallback(() => setBlocked(null), []);
   const loadMoreInFlight = useRef(false);
   const [loadingMore, setLoadingMore] = useState(false);
   // Stale-response guard: only the latest reload may set state.
@@ -276,6 +285,8 @@ export function Files() {
     if (!ok) return;
     setBusy(true);
     const failures: string[] = [];
+    const blockedFiles: string[] = [];
+    const blockers: DeleteBlocker[] = [];
     let deleted = 0;
     for (const item of chosen) {
       try {
@@ -283,12 +294,20 @@ export function Files() {
           path: { sha256: item.sha256 },
         });
         deleted += 1;
-      } catch {
+      } catch (e) {
         failures.push(item.filename);
+        const named = deleteRefusalBlockers(e);
+        if (named !== null) {
+          blockedFiles.push(item.filename);
+          blockers.push(...named);
+        }
       }
     }
     setBusy(false);
     setNotice(summarizeDeletes(deleted, failures));
+    if (blockers.length > 0) {
+      setBlocked({ heading: blockedFilesHeading(blockedFiles), blockers });
+    }
     reload(filters);
   };
 
@@ -421,6 +440,12 @@ export function Files() {
         </button>
       )}
       {dialog}
+      {blocked !== null && (
+        <DeleteBlockedDialog heading={blocked.heading}
+                             blockers={blocked.blockers}
+                             label={fileBlockerReasonLabel}
+                             onClose={closeBlocked} />
+      )}
     </article>
   );
 }

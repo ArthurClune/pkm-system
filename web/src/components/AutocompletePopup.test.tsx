@@ -28,7 +28,7 @@ function handlers(): OutlineHandlers {
     onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),
     onIndentSelection: vi.fn(), onOutdentSelection: vi.fn(),
     onMoveSelectionUp: vi.fn(), onMoveSelectionDown: vi.fn(),
-    onDeleteBlockSelection: vi.fn(),
+    onDeleteBlockSelection: vi.fn(), onRefusedEdit: vi.fn(),
     onUndo: vi.fn(), onRedo: vi.fn(),
   };
 }

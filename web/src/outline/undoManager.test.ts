@@ -12,6 +12,8 @@ import { historyIdle, performRedo, performUndo,
          setAssetReleaser, setHistoryNavigator,
          setHistoryPageLoader } from "./undoManager";
 import { DEPTH_NOTICE, MAX_OUTLINE_DEPTH } from "./depthCap";
+import { LINK_NESTING_NOTICE,
+         TEXT_LENGTH_NOTICE } from "../grammar/textLimits";
 import { historyAnchors, invertOps, type HistoryEntry } from "./history";
 import { applyOps, locate } from "./tree";
 
@@ -654,4 +656,72 @@ it("a refused undo deletes none of its upload's files; the retry does", async ()
   } finally {
     vi.unstubAllGlobals();
   }
+});
+
+// A replay judged by the text limits as well as the depth cap: an entry can
+// carry a text past a limit (a block stored before the limits existed, then
+// edited), and the server would refuse the batch whole.
+const nest = (n: number) => "[[a//".repeat(n) + "x" + "]]".repeat(n);
+const nestedEntry = (): HistoryEntry => ({
+  ...entry(),
+  ops: [{ op: "update_text", uid: uidOf("tuid-a"), text: nest(33) }],
+});
+
+it("a redo whose text is past a limit is refused, noticed and kept", () => {
+  const sync = makeSync();
+  recordHistory(nestedEntry());
+  const handle = acquireOutlineSession(PAGE, [
+    block("tuid-a", nest(33), { order_idx: orderIdxOf(0) })]);
+  const h = hooksFor();
+  performUndo(sync);
+  expect(sync.sent).toHaveLength(1);
+  expect(handle.getSnapshot().blocks[0].text).toBe("before");
+
+  expect(performRedo(sync)).toBe(true);
+  expect(sync.sent).toHaveLength(1);
+  expect(handle.getSnapshot().blocks[0].text).toBe("before");
+  expect(h.notices).toEqual([LINK_NESTING_NOTICE]);
+  // the entry stays on the redo stack: the next redo meets it again
+  expect(performRedo(sync)).toBe(true);
+  expect(h.notices).toEqual([LINK_NESTING_NOTICE, LINK_NESTING_NOTICE]);
+  expect(sync.sent).toHaveLength(1);
+  h.unregister();
+  handle.release();
+});
+
+it("an undo whose text is past a limit is refused on an unmounted page",
+   async () => {
+  const sync = makeSync();
+  const long = "l".repeat(1_000_001);
+  recordHistory({
+    ...entry(),
+    inverse: [{ op: "update_text", uid: uidOf("tuid-a"), text: long }],
+  });
+  setHistoryPageLoader(async () => [
+    block("tuid-a", "after", { order_idx: orderIdxOf(0) })]);
+  performUndo(sync);
+  await historyIdle();
+  expect(sync.sent).toEqual([]);
+  const h = hooksFor();
+  expect(h.notices).toEqual([TEXT_LENGTH_NOTICE]);
+  h.unregister();
+});
+
+it("a page that cannot be read still judges the text limits", async () => {
+  const sync = makeSync();
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  recordHistory(nestedEntry());
+  performUndo(sync);
+  await historyIdle();
+  expect(sync.sent).toHaveLength(1);
+  setHistoryPageLoader(async () => { throw new Error("offline"); });
+
+  performRedo(sync);
+  await historyIdle();
+
+  expect(sync.sent).toHaveLength(1);
+  const h = hooksFor();
+  expect(h.notices).toEqual([LINK_NESTING_NOTICE]);
+  h.unregister();
+  warn.mockRestore();
 });

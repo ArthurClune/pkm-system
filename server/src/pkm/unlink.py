@@ -7,8 +7,9 @@ scanners `refs.extract()` uses (bracket_spans, tag_spans,
 attribute_title_span), never a second grammar, and are spliced back to
 front on `strip_code()` output whose offsets index the original text, as
 `rename.py` does. The delete never touches a leading `Title::` attribute; a
-rewrite that would add or change one, a query macro naming the page, and a
-rewrite that would still reference the page are reported as blockers instead.
+rewrite that would add or change one, a query macro naming the page, a
+rewrite that would still reference the page, and one whose inlined copies
+would put the block over a text limit are reported as blockers instead.
 The stale path (`unlink_stale_refs`) has no blockers to report, so
 `defuse_attribute` fences a leading attribute naming the page in backticks.
 """
@@ -31,6 +32,8 @@ from pkm.refs import (
     strip_code,
     tag_spans,
 )
+from pkm.spans import Span, splice
+from pkm.text_limits import rewrite_text_limit_violation
 from pkm.todo import with_state
 
 # Given a title as written, is it the deleted page.
@@ -42,15 +45,6 @@ _REF_OR_EMBED = re.compile(
     rf"\{{\{{\s*(?:\[\[)?embed(?:\]\])?\s*:\s*\(\(({BLOCK_REF_TOKEN})\)\)\s*\}}\}}"
     rf"|\(\(({BLOCK_REF_TOKEN})\)\)"
 )
-
-Span = tuple[int, int, str]
-
-
-def _splice(text: str, spans: list[Span]) -> str:
-    for start, end, replacement in sorted(spans, reverse=True):
-        text = text[:start] + replacement + text[end:]
-    return text
-
 
 def _unlink_tags(
     text: str, clean: str, is_target: TitleMatch, start: int, stop: int,
@@ -126,7 +120,7 @@ def _unlink_pass(text: str, is_target: TitleMatch) -> str:
     _unlink_range(
         text, clean, is_target, 0, len(clean), bracket_spans(clean, text), spans
     )
-    return _splice(text, spans)
+    return splice(text, spans)
 
 
 def unlink_title_refs(text: str, is_target: TitleMatch) -> str:
@@ -164,16 +158,23 @@ def unlink_stale_refs(text: str, is_target: TitleMatch) -> str:
     return defuse_attribute(unlink_title_refs(text, is_target), is_target)
 
 
-def inline_block_refs(text: str, copies: Mapping[BlockUid, str]) -> str:
-    """Replace `((uid))` and a whole embed macro for each uid in `copies`."""
+def block_ref_spans(text: str, copies: Mapping[BlockUid, str]) -> list[Span]:
+    """The spans `inline_block_refs` splices: each `((uid))` or whole embed
+    macro for a uid in `copies`, replaced by that copy (one string shared by
+    every ref to it)."""
     if not copies:
-        return text
+        return []
     spans: list[Span] = []
     for match in _REF_OR_EMBED.finditer(strip_code(text)):
         uid = parse_block_uid(match.group(1) or match.group(2))
         if uid is not None and uid in copies:
             spans.append((match.start(), match.end(), copies[uid]))
-    return _splice(text, spans)
+    return spans
+
+
+def inline_block_refs(text: str, copies: Mapping[BlockUid, str]) -> str:
+    """Replace `((uid))` and a whole embed macro for each uid in `copies`."""
+    return splice(text, block_ref_spans(text, copies))
 
 
 def plain_copy(text: str) -> str:
@@ -196,8 +197,11 @@ def apply_delete_rewrite(
 # leading `Name::` attribute is the page, which a delete cannot rewrite and
 # the next edit would recreate; attribute: the rewrite would change the
 # block's leading attribute; residual: the rewritten text would still
-# reference the page or one of its blocks.
-BlockerReason = Literal["query", "used_as_attribute", "attribute", "residual"]
+# reference the page or one of its blocks; limit: the copies inlined would
+# carry the block over a text limit, or further past one
+# (text_limits.rewrite_text_limit_violation).
+BlockerReason = Literal["query", "used_as_attribute", "attribute", "residual",
+                        "limit"]
 
 
 @dataclass(frozen=True)
@@ -301,6 +305,9 @@ def plan_page_delete(
         pre = inline_block_refs(source.text, applied)
         new = unlink_title_refs(pre, is_target)
         reason = _blocker_reason(is_target, page_blocks, source, new)
+        if reason is None and \
+                rewrite_text_limit_violation(source.text, new) is not None:
+            reason = "limit"
         if reason is not None:
             blockers.append(
                 DeleteBlocker(source.uid, source.page_title, source.text, reason)

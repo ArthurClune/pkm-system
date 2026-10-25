@@ -150,3 +150,14 @@ describe("linkUnlinkedReference", () => {
       });
   });
 });
+
+describe("linkUnlinkedReference beside a long URL", () => {
+  // The bare-URL scan trimmed trailing punctuation with a regex that
+  // retries from every character of an inner run: minutes at the cap.
+  test("finds the title in linear time", () => {
+    const text = `Acme https://x${".".repeat(999_000)}a`;
+    const started = performance.now();
+    expect(linked(text, "Acme")).toMatchObject({ status: "linked", match: "plain" });
+    expect(performance.now() - started).toBeLessThan(3000);
+  }, 300_000);
+});

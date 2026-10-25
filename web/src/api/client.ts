@@ -4,17 +4,22 @@
 // shim first — same OpenAPI shapes, zero view changes. Routes the shim
 // doesn't cover throw OfflineError so views can show a clear online-only
 // state instead of a network failure.
+import type { components } from "./types";
 
 export class ApiError extends Error {
   readonly status: number;
   /** The server's `{"detail": "..."}` body, when present:
    * e.g. the assistant's 409 "at most 3 concurrent conversations". */
   readonly detail?: string;
+  /** The whole parsed JSON error body, for a refusal whose `detail` is not
+   * a string: an asset delete's 409 lists the blocks it would break. */
+  readonly body?: unknown;
 
-  constructor(status: number, path: string, detail?: string) {
+  constructor(status: number, path: string, detail?: string, body?: unknown) {
     super(detail ? `request failed: ${status} ${path}: ${detail}` : `request failed: ${status} ${path}`);
     this.status = status;
     this.detail = detail;
+    this.body = body;
   }
 }
 
@@ -22,15 +27,24 @@ export class ApiError extends Error {
  * body. Returns undefined for non-JSON bodies or bodies without a string
  * `detail` field; never throws. */
 export async function readErrorDetail(res: Response): Promise<string | undefined> {
+  return detailFromBody(await readErrorBody(res));
+}
+
+/** The error body parsed as JSON, or undefined when it is not JSON. Never
+ * throws. */
+async function readErrorBody(res: Response): Promise<unknown> {
   try {
-    const body: unknown = await res.clone().json();
-    if (body && typeof body === "object" && typeof (body as { detail?: unknown }).detail === "string") {
-      return (body as { detail: string }).detail;
-    }
+    return await res.clone().json();
   } catch {
-    // not JSON (or already consumed) -- no detail available
+    // not JSON (or already consumed) -- no body available
+    return undefined;
   }
-  return undefined;
+}
+
+/** The ApiError for a non-OK response, carrying its detail and body. */
+async function errorFor(res: Response, path: string): Promise<ApiError> {
+  const body = await readErrorBody(res);
+  return new ApiError(res.status, path, detailFromBody(body), body);
 }
 
 function detailFromBody(body: unknown): string | undefined {
@@ -38,6 +52,49 @@ function detailFromBody(body: unknown): string | undefined {
     return (body as { detail: string }).detail;
   }
   return undefined;
+}
+
+type DeleteBlocker = components["schemas"]["DeleteBlockerModel"];
+
+// Every reason the server sends: a key missing or extra here fails to
+// compile against the generated model. A reason not listed is a malformed
+// refusal, never shown with a guessed label.
+const BLOCKER_REASONS: Record<DeleteBlocker["reason"], true> = {
+  query: true, used_as_attribute: true, attribute: true, residual: true,
+  limit: true,
+};
+
+function isBlocker(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const fields = value as Record<string, unknown>;
+  return ["uid", "page_title", "excerpt", "reason"]
+      .every((key) => typeof fields[key] === "string")
+    && typeof fields.text_length === "number"
+    && Object.hasOwn(BLOCKER_REASONS, fields.reason as string);
+}
+
+/** The blocks a delete's 409 names (`{"detail": {"message", "blockers"}}`,
+ * as a page delete and an asset delete refuse), or null when `err` is no
+ * such refusal. */
+export function deleteRefusalBlockers(err: unknown): DeleteBlocker[] | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null;
+  const body = err.body;
+  if (typeof body !== "object" || body === null) return null;
+  const detail = (body as { detail?: unknown }).detail;
+  if (typeof detail !== "object" || detail === null) return null;
+  const blockers = (detail as { blockers?: unknown }).blockers;
+  if (!Array.isArray(blockers) || blockers.length === 0
+      || !blockers.every(isBlocker)) {
+    return null;
+  }
+  return serverModel<DeleteBlocker[]>(blockers);
+}
+
+/** A server error body typed as the route's model, as apiFetch types a
+ * response: the server owns the brands it carries. */
+function serverModel<T>(value: unknown): T {
+  // brand: untrusted -- a server error body, typed by the caller's route
+  return value as T;
 }
 
 /** The app is offline and the local shim does not serve this route. */
@@ -89,7 +146,7 @@ async function localFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await gateway!.handle(path, init);
   if (!res.handled) throw new OfflineError(path);
   if (res.status !== undefined && res.status >= 400) {
-    throw new ApiError(res.status, path, detailFromBody(res.body));
+    throw new ApiError(res.status, path, detailFromBody(res.body), res.body);
   }
   // brand: untrusted -- a local gateway body, typed by the caller's route
   return res.body as T;
@@ -155,10 +212,10 @@ export async function apiFetch<T>(
   }
   if (res.status === 401) {
     onUnauthorized();
-    throw new ApiError(401, path, await readErrorDetail(res));
+    throw await errorFor(res, path);
   }
   if (!res.ok) {
-    throw new ApiError(res.status, path, await readErrorDetail(res));
+    throw await errorFor(res, path);
   }
   // brand: untrusted -- an HTTP response body, typed by the caller's route
   return (await res.json()) as T;

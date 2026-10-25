@@ -36,6 +36,8 @@ from pkm.contracts.titles import RawTitle
 from pkm.refs import (attribute_title_span, extract, is_blank_title,
                       strip_code, title_syntax_reason)
 from pkm.test_data.ids import order_idx_of, raw_title_of, uid_of
+from props.limit_texts import (LIMIT_TEXTS, NESTING_CAP, PAST_LIMIT_TEXTS,
+                               TEXT_CAP)
 
 # What a whitespace-only page_title resolves to: the ops path never rejects
 # a batch over a blank title (code: ops_apply.UNTITLED_PAGE_TITLE).
@@ -107,6 +109,29 @@ def _title_violation(ops: Sequence[Op]) -> bool:
     return False
 
 
+def _limit_violation(ops: Sequence[Op]) -> bool:
+    """backend.md § Planning (text limits): a create's or edit's text
+    longer than 1,000,000 code points, or with `[[` runs nested deeper
+    than 32 outside code, is a 400 for the whole batch. Judged over the
+    whole batch before titles, an op the server would skip included; no
+    other op's text is judged. Of the texts the strategies draw, exactly
+    `PAST_LIMIT_TEXTS` are past a limit (props/limit_texts.py).
+
+    That holds only while every other drawn text stays well inside both
+    limits, so a text outside `LIMIT_TEXTS` is checked against a bound no
+    judge is needed for: at most the cap's characters and at most the
+    nesting cap's `[[` (a run nests only inside its own `[[`). A strategy
+    that starts drawing such texts fails here, not as a wrong verdict."""
+    texts = [op["text"] for op in ops if op["op"] in ("create", "update_text")]
+    for text in texts:
+        assert text in LIMIT_TEXTS or (
+            len(text) <= TEXT_CAP and text.count("[[") <= NESTING_CAP), (
+            "a drawn text outside props/limit_texts.py reaches a limit, so"
+            " membership no longer decides the verdict:"
+            f" {len(text)} characters, {text.count('[[')} `[[`")
+    return any(text in PAST_LIMIT_TEXTS for text in texts)
+
+
 def _page_name(title: RawTitle) -> str:
     return UNTITLED if is_blank_title(title) else title
 
@@ -162,12 +187,16 @@ def inline_refs(text: str, copies: Mapping[BlockUid, str]) -> str:
     return _BLOCK_REF.sub(copy_of, text)
 
 
+_NEWLINES = re.compile(r"\s*\n\s*")
+
+
 def _plain_copy(text: str) -> str:
     """backend.md § Page mutations and the sidebar: a block's copy drops
-    its leading attribute (generated texts carry no task marker or
-    newline)."""
+    its leading attribute, and its newlines are folded to one space each
+    run (generated texts carry no task marker)."""
     span = attribute_title_span(strip_code(text), text)
-    return text if span is None else text[span.end:].lstrip()
+    text = text if span is None else text[span.end:].lstrip()
+    return _NEWLINES.sub(" ", text)
 
 
 def page_copies(title: RawTitle, page_texts: Mapping[BlockUid, str]) -> dict[BlockUid, str]:
@@ -242,7 +271,25 @@ class PageDelete:
         if (any(r.title == self.title for r in parsed.refs)
                 or any(u in self.copies for u in parsed.block_refs)):
             return "residual"
+        # backend.md § Page mutations: the copies inlined may not carry a
+        # text past the length cap, nor further past it. A copy lands
+        # where `((uid))` stood, never inside a `[[` run, so inlining
+        # never deepens a drawn text's nesting.
+        if len(new) > TEXT_CAP and len(new) > len(text):
+            return "limit"
         return None
+
+
+def replay_peak(steps: Sequence[Rewrite], text: str, base: str) -> int:
+    """The longest text `replay_chain` makes on its way: each step's
+    inlined copies, before its unlink shortens them, and each step's
+    result. 0 when no step replays: the sent text is judged on arrival."""
+    peak = 0
+    for step in replay_chain(steps, text, base)[2]:
+        peak = max(peak, len(inline_refs(text, dict(step.inlines))))
+        text = step.replay(text)
+        peak = max(peak, len(text))
+    return peak
 
 
 def replay_chain(steps: Sequence[Rewrite], text: str,
@@ -315,7 +362,7 @@ class Model:
         kept: list[str] = []
         self._paths = []
         try:
-            if _title_violation(ops):
+            if _limit_violation(ops) or _title_violation(ops):
                 raise _Rejected
             for index, op in enumerate(ops):
                 self._apply_op(index, op, skipped, kept, stale)
@@ -507,7 +554,7 @@ class Model:
                 kept.append(text)
             return
         if kind == "update_text":
-            self._update_text(op, block, text, kept, stale)
+            self._update_text(op, block, text, skip, kept, stale)
         elif kind == "move":
             self._move(op, block, skip, stale)
         elif kind == "delete":
@@ -573,7 +620,7 @@ class Model:
         self._record_written(uid, op["text"], text, stale, ())
         self.deleted.discard(uid)
 
-    def _update_text(self, op: Op, block: MBlock, text: str,
+    def _update_text(self, op: Op, block: MBlock, text: str, skip: SkipFn,
                      kept: list[str], stale: frozenset[str]) -> None:
         sent = op["text"]
         base = op.get("base_text_hash")
@@ -584,6 +631,17 @@ class Model:
             self._record_written(block.uid, sent, text, stale, ())
             return
         unreplayed = text
+        steps = self.rewrites.get(block.uid, ())
+        if replay_peak(steps, unreplayed, base) > TEXT_CAP:
+            # backend.md § Conflicts: a replay may not store text past a
+            # limit. The edit as sent lands, the block keeps its text. A
+            # copy lands where `((uid))` stood, never inside a `[[` run,
+            # so only the length cap can be reached (code:
+            # ops_core._replay_step judges each step's splice).
+            self._paths.append("update_text replay: over the length cap")
+            skip("text_limit")
+            kept.append(unreplayed)
+            return
         text, base, replayed = self._replay(block.uid, text, base)
         kind = ("identical" if text == block.text else
                 "clean" if text_hash(block.text) == base else "conflict")

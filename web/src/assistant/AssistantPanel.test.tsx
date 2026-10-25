@@ -551,13 +551,13 @@ describe("ConfirmCard", () => {
       ['currently on page: "Src"', 'current text: "Old wording."']);
   });
 
-  // the server read the card while an earlier write of the turn could
-  // still land, and the user allowed one
+  // the server read the card while an earlier allowed write could still
+  // land, this turn's or a stopped one's, and the user allowed one
   test.each([
-    [1, "You allowed 1 earlier card in this turn, and its write may have "
+    [1, "You allowed 1 earlier card, and its write may have "
       + "landed after this card was read; the current text it shows may "
       + "have changed."],
-    [2, "You allowed 2 earlier cards in this turn, and their writes may have "
+    [2, "You allowed 2 earlier cards, and their writes may have "
       + "landed after this card was read; the current text it shows may "
       + "have changed."],
   ])("a stamped card after %i allowed cards says so", (allowed, copy) => {

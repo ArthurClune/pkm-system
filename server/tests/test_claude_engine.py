@@ -1336,6 +1336,79 @@ def test_a_write_running_when_a_read_starts_stamps_the_card(tmp_path):
     assert asyncio.run(scenario()).preview.writes_in_flight is True
 
 
+async def _stop_with_an_allowed_write(conv) -> None:
+    """Turn one: allow t1's write, then Stop before its result arrives."""
+    one = conv.send("one")
+    task = asyncio.create_task(conv.can_use_tool(
+        _UPDATE, {"uid": "AAAAAAAA", "text": "t"}, _ctx("t1")))
+    card = await asyncio.wait_for(anext(one), timeout=5)
+    assert isinstance(card, ConfirmRequest)
+    conv.resolve_confirm(card.confirm_id, True)
+    await asyncio.wait_for(task, timeout=5)
+    await one.aclose()  # Stop: t1 allowed, no result yet
+
+
+async def _declined_card(conv, seen: asyncio.Queue, target: str,
+                         tool_use_id: str) -> ConfirmRequest:
+    t = asyncio.create_task(conv.can_use_tool(
+        _UPDATE, {"uid": target, "text": "t"}, _ctx(tool_use_id)))
+    c = await _next_of(seen, ConfirmRequest)
+    conv.resolve_confirm(c.confirm_id, False)
+    await asyncio.wait_for(t, timeout=5)
+    return c
+
+
+def test_a_stopped_turns_running_write_stamps_the_next_turns_cards(
+        tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        await _stop_with_an_allowed_write(conv)
+
+        seen: asyncio.Queue = asyncio.Queue()
+        consumer = asyncio.create_task(_drain_into(conv.send("two"), seen))
+        stamped = await _declined_card(conv, seen, "BBBBBBBB", "t2")
+        client.feed(UserMessage(content=[
+            ToolResultBlock(tool_use_id="t1", content="ok")]))
+        await _next_of(seen, ToolFinished)
+        clear = await _declined_card(conv, seen, "CCCCCCCC", "t3")
+        client.feed(make_result())
+        await asyncio.wait_for(consumer, timeout=5)
+        await conv.close()
+        return stamped, clear
+
+    stamped, clear = asyncio.run(scenario())
+    assert stamped.preview.writes_in_flight is True
+    assert clear.preview.writes_in_flight is False
+
+
+def test_a_stopped_turns_write_with_no_result_ends_with_the_next_turn(
+        tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        await _stop_with_an_allowed_write(conv)
+        cards = []
+        for turn, target, tool_use_id in (("two", "BBBBBBBB", "t2"),
+                                          ("three", "CCCCCCCC", "t3")):
+            seen: asyncio.Queue = asyncio.Queue()
+            consumer = asyncio.create_task(_drain_into(conv.send(turn), seen))
+            cards.append(
+                await _declined_card(conv, seen, target, tool_use_id))
+            client.feed(make_result())
+            await asyncio.wait_for(consumer, timeout=5)
+        await conv.close()
+        return cards
+
+    second, third = asyncio.run(scenario())
+    assert second.preview.writes_in_flight is True
+    assert third.preview.writes_in_flight is False
+
+
 def test_the_last_turns_writes_are_not_in_flight(tmp_path):
     engine = make_engine(tmp_path)
 

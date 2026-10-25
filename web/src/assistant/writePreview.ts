@@ -29,9 +29,9 @@ export type PreviewOp = {
   // null: the write touches no existing block
   current: CurrentBlock | null;
 };
-/** `writes_in_flight` is the server's stamp: another write of the same turn
- * was awaiting its answer or running when it read the blocks, so it may land
- * after that read. */
+/** `writes_in_flight` is the server's stamp: another write, of this turn or
+ * of a stopped one, was awaiting its answer or running when it read the
+ * blocks, so it may land after that read. */
 export type WritePreview = {
   ops: PreviewOp[]; summary: string; writes_in_flight: boolean };
 

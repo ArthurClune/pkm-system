@@ -1,8 +1,9 @@
 # pattern: Functional Core
-"""Assemble flat block rows into a nested tree; collect ((block-ref)) uids."""
+"""Assemble flat block rows into a nested tree; collect ((block-ref)) uids;
+walk parent links into breadcrumb trails."""
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 from pkm.contracts.ops import BlockUid
 from pkm.contracts.responses import BlockNode
@@ -60,4 +61,29 @@ def collect_block_ref_uids(texts: Iterable[str]) -> list[BlockUid]:
             if uid not in seen:
                 seen.add(uid)
                 out.append(uid)
+    return out
+
+
+def ancestor_texts(starts: Sequence[BlockUid],
+                   blocks: Mapping[BlockUid, tuple[BlockUid | None, str]]
+                   ) -> dict[BlockUid, list[str]]:
+    """Each start's breadcrumb trail, root first, from `uid -> (parent_uid,
+    text)`: the parent links followed up to a uid missing from `blocks`
+    or one already on the trail (the start counts), so a corrupt parent
+    cycle ends rather than repeating. Starts with no ancestor in `blocks`
+    are absent."""
+    out: dict[BlockUid, list[str]] = {}
+    for start in starts:
+        if start not in blocks:
+            continue
+        seen = {start}
+        trail: list[str] = []
+        parent = blocks[start][0]
+        while parent is not None and parent in blocks and parent not in seen:
+            seen.add(parent)
+            trail.append(blocks[parent][1])
+            parent = blocks[parent][0]
+        if trail:
+            trail.reverse()
+            out[start] = trail
     return out

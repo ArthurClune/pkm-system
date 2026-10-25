@@ -40,7 +40,8 @@ from pkm.server.store import (BlankTitleError, DeleteBlockedError,
                               RewriteTextLimitError)
 from pkm.server.sync_core import chunk_ids
 from pkm.server.sync_meta import read_title, title_reader
-from pkm.server.tree import build_tree, collect_block_ref_uids, find_node
+from pkm.server.tree import (ancestor_texts, build_tree,
+                             collect_block_ref_uids, find_node)
 from pkm.server import wholepath  # noqa: F401 -- registers {title:wholepath}
 from pkm.unlink import DeleteBlocker
 
@@ -117,29 +118,30 @@ def _page_meta(page: Row) -> PageMeta:
 
 def _fetch_ancestors(db: Db, uids: list[BlockUid]
                      ) -> dict[BlockUid, list[str]]:
-    out: dict[BlockUid, list[str]] = {}
-    for chunk in chunk_ids(list(dict.fromkeys(uids))):
-        _fetch_ancestors_chunk(db, chunk, out)
-    return out
-
-
-def _fetch_ancestors_chunk(db: Db, uids: list[BlockUid],
-                           out: dict[BlockUid, list[str]]) -> None:
-    marks = ",".join("?" * len(uids))
-    rows = db.select(
-        f"""WITH RECURSIVE anc(start_uid, uid, parent_uid, text, depth, path) AS (
-              SELECT uid, uid, parent_uid, text, 0, ',' || uid || ',' FROM blocks
-               WHERE uid IN ({marks})
-              UNION ALL
-              SELECT a.start_uid, b.uid, b.parent_uid, b.text, a.depth + 1,
-                     a.path || b.uid || ','
-                FROM anc a JOIN blocks b ON b.uid = a.parent_uid
-               WHERE instr(a.path, ',' || b.uid || ',') = 0
-            )
-            SELECT start_uid AS uid, text FROM anc
-             WHERE depth > 0 ORDER BY start_uid, depth DESC""", uids)
-    for r in rows:  # depth only orders root-first; UID_RE excludes commas.
-        out.setdefault(r["uid"], []).append(r["text"])
+    """Breadcrumb trails (ancestor texts, root first) for each uid that has
+    ancestors. The CTE holds `uid` alone and joins with UNION, which queues
+    a row only once, so each distinct ancestor is read once however many
+    starts share it, and a corrupt parent cycle ends the walk without a
+    depth bound that would cut real deep chains short. It must never carry
+    a per-row path string: one row per (start, ancestor), each building
+    and searching an O(depth) string, made breadcrumbs cost O(depth^3).
+    `ancestor_texts` rebuilds the trails and stops on a repeated uid."""
+    starts = list(dict.fromkeys(uids))
+    blocks: dict[BlockUid, tuple[BlockUid | None, str]] = {}
+    for chunk in chunk_ids(starts):
+        marks = ",".join("?" * len(chunk))
+        for r in db.select(
+                f"""WITH RECURSIVE anc(uid) AS (
+                      SELECT uid FROM blocks WHERE uid IN ({marks})
+                      UNION
+                      SELECT b.parent_uid FROM anc a
+                        JOIN blocks b ON b.uid = a.uid
+                       WHERE b.parent_uid IS NOT NULL
+                    )
+                    SELECT b.uid, b.parent_uid, b.text
+                      FROM anc JOIN blocks b ON b.uid = anc.uid""", chunk):
+            blocks[r["uid"]] = (r["parent_uid"], r["text"])
+    return ancestor_texts(starts, blocks)
 
 
 def _backlinks(db: Db, page_id: PageId,

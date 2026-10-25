@@ -5,8 +5,10 @@ import { parseWritePreview, type WritePreview } from "./writePreview";
 
 export type AssistantEvent =
   | { type: "text_delta"; text: string }
-  | { type: "tool_started"; name: string; summary: string }
-  | { type: "tool_finished"; name: string }
+  | { type: "tool_started"; tool_use_id: string; name: string;
+      summary: string }
+  | { type: "tool_finished"; tool_use_id: string; name: string;
+      error: string | null; declined: boolean }
   | { type: "phase"; label: string }
   | { type: "confirm_request"; confirm_id: ConfirmId; ops_preview: string;
       preview: WritePreview | null }

@@ -10,6 +10,7 @@ from pkm.assistant.events import (
     TurnDone,
     encode_sse,
     event_name,
+    tool_error_reason,
 )
 from pkm.assistant.write_preview import (CreatedInBatch, FoundBlock,
                                          MissingBlock, PreviewOp,
@@ -25,8 +26,8 @@ _PREVIEW = WritePreview(
 
 def test_event_names():
     assert event_name(TextDelta(text="hi")) == "text_delta"
-    assert event_name(ToolStarted(name="search", summary='searching "x"')) == "tool_started"
-    assert event_name(ToolFinished(name="search")) == "tool_finished"
+    assert event_name(ToolStarted(tool_use_id="t1", name="search", summary='searching "x"')) == "tool_started"
+    assert event_name(ToolFinished(tool_use_id="t1", name="search")) == "tool_finished"
     card = ConfirmRequest(confirm_id=confirm_id_of("c1"),
                           ops_preview=_PREVIEW.summary, preview=_PREVIEW)
     assert event_name(card) == "confirm_request"
@@ -103,3 +104,95 @@ def test_current_block_sse_shapes():
         "descendants": 2, "state": "found"}
     # a create touches no existing block
     assert _sse_current(None) is None
+
+
+def test_tool_error_reason_reads_text_items_and_drops_fastmcp_prefix():
+    content = [{"type": "text", "text": "Error executing tool update_block: "
+                "block ((AbC)) changed after the approval card showed it, "
+                "so nothing was written"},
+               {"type": "image", "data": "x"}]
+    assert tool_error_reason(content) == (
+        "block ((AbC)) changed after the approval card showed it, "
+        "so nothing was written")
+    assert tool_error_reason("plain reason") == "plain reason"
+    assert tool_error_reason("a: Error executing tool x: b") == (
+        "a: Error executing tool x: b")  # prefix only at the start
+    assert tool_error_reason([{"type": "text", "text": "a"},
+                              {"type": "text", "text": "b"}]) == "a\nb"
+
+
+_REFUSAL = ("block ((AbC)) changed after the approval card showed it, "
+            "so nothing was written")
+
+
+def test_tool_error_reason_of_a_refused_allow_from_the_real_harness():
+    # The content a live run delivered (haiku, bundled CLI, SDK 0.2.168):
+    # the MCP isError text as is, unwrapped. "412: " is pkm's ApiError.
+    content = ("Error executing tool update_block: 412: block "
+               "((lr1792953900)) changed after the approval card showed it, "
+               "so nothing was written")
+    assert tool_error_reason(content) == (
+        "block ((lr1792953900)) changed after the approval card "
+        "showed it, so nothing was written")
+
+
+def test_tool_error_reason_drops_a_leading_http_status():
+    assert tool_error_reason(f"412: {_REFUSAL}") == _REFUSAL
+    assert tool_error_reason(_REFUSAL) == _REFUSAL
+    assert tool_error_reason(
+        f"<tool_use_error>Error executing tool batch: 400: "
+        f"{_REFUSAL}</tool_use_error>") == _REFUSAL
+    # only three digits then a colon and a space, once, at the start
+    for kept in ("2024: the year", "12: items", "412 block gone",
+                 "412:block gone", "4125: x", "a 412: b"):
+        assert tool_error_reason(kept) == kept
+    assert tool_error_reason("404: 404: Not Found") == "404: Not Found"
+
+
+def test_tool_error_reason_drops_the_cli_wrapper_then_the_fastmcp_prefix():
+    # unwrapped, as FastMCP's isError text
+    assert tool_error_reason(
+        f"Error executing tool update_block: {_REFUSAL}") == _REFUSAL
+    # wrapped, no prefix: the shape of the CLI's own deny results
+    assert tool_error_reason(
+        f"<tool_use_error>{_REFUSAL}</tool_use_error>") == _REFUSAL
+    # wrapped with the FastMCP prefix, and with the CLI's own prefixes
+    assert tool_error_reason(
+        "<tool_use_error>Error executing tool update_block: "
+        f"{_REFUSAL}</tool_use_error>") == _REFUSAL
+    assert tool_error_reason(
+        "<tool_use_error>Error: Error executing tool update_block: "
+        f"{_REFUSAL}</tool_use_error>") == _REFUSAL
+    assert tool_error_reason(
+        "<tool_use_error>Error calling tool (mcp__pkm__update_block): "
+        f"Error executing tool update_block: {_REFUSAL}</tool_use_error>"
+    ) == _REFUSAL
+    assert tool_error_reason([{"type": "text", "text": (
+        f"  <tool_use_error>{_REFUSAL}</tool_use_error>\n")}]) == _REFUSAL
+
+
+def test_tool_error_reason_keeps_a_wrapper_that_is_not_the_whole_text():
+    text = f"see <tool_use_error>{_REFUSAL}</tool_use_error>"
+    assert tool_error_reason(text) == text
+    assert tool_error_reason("<tool_use_error>a") == "<tool_use_error>a"
+    assert tool_error_reason("<tool_use_error></tool_use_error>") == (
+        "no reason given")
+
+
+def test_tool_error_reason_empty_and_clipped():
+    assert tool_error_reason(None) == "no reason given"
+    assert tool_error_reason("  ") == "no reason given"
+    assert tool_error_reason("x" * 300) == "x" * 300
+    assert tool_error_reason("x" * 1301) == "x" * 300 + "… (1,301 characters)"
+
+
+def test_tool_finished_encodes_its_error_and_decline():
+    frame = encode_sse(ToolFinished(tool_use_id="t1", name="update_block",
+                                    error="nope"))
+    assert '"tool_use_id": "t1"' in frame and '"error": "nope"' in frame
+    assert '"declined": false' in frame
+    bare = encode_sse(ToolFinished(tool_use_id="t1", name="search"))
+    assert '"error": null' in bare
+    declined = encode_sse(ToolFinished(tool_use_id="t1", name="update_block",
+                                       declined=True))
+    assert '"declined": true' in declined and '"error": null' in declined

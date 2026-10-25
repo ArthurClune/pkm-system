@@ -41,6 +41,7 @@ from pkm.assistant.events import (
     ToolFinished,
     ToolStarted,
     TurnDone,
+    tool_error_reason,
 )
 from pkm.assistant.harness_env import resolve_harness_env
 from pkm.assistant.policy import (
@@ -95,9 +96,14 @@ class TurnMapper:
     deltas were seen (older CLI versions).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, tools: dict[str, str] | None = None,
+                 declined: set[str] | None = None) -> None:
         self._saw_delta = False
-        self._tool_names: dict[str, str] = {}
+        # tool_use_id -> full SDK tool name and the ids whose card the user
+        # declined; both shared with the conversation, so a result landing
+        # in a later turn than its call still finds them.
+        self._tools = tools if tools is not None else {}
+        self._declined = declined if declined is not None else set()
 
     def map(self, msg: object) -> list[AssistantEvent]:
         if isinstance(msg, StreamEvent):
@@ -128,8 +134,10 @@ class TurnMapper:
                     out.append(TextDelta(text=block.text))
                 elif isinstance(block, ToolUseBlock):
                     short = short_tool_name(block.name)
-                    self._tool_names[block.id] = short
-                    out.append(ToolStarted(name=short, summary=tool_summary(short, block.input or {})))
+                    self._tools[block.id] = block.name
+                    out.append(ToolStarted(
+                        tool_use_id=block.id, name=short,
+                        summary=tool_summary(short, block.input or {})))
             return out
         if isinstance(msg, UserMessage):
             content = msg.content
@@ -138,14 +146,30 @@ class TurnMapper:
             out = []
             for block in content:
                 if isinstance(block, ToolResultBlock):
-                    name = self._tool_names.get(block.tool_use_id, "tool")
-                    out.append(ToolFinished(name=name))
+                    out.append(self._finished(block))
             return out
         if isinstance(msg, ResultMessage):
             if msg.is_error:
                 return [ErrorEvent(message=f"assistant error: {msg.subtype}")]
             return [TurnDone(usage=msg.usage)]
         return []
+
+    def _finished(self, block: ToolResultBlock) -> ToolFinished:
+        tool_use_id = block.tool_use_id
+        full_name = self._tools.pop(tool_use_id, None)
+        declined = tool_use_id in self._declined
+        self._declined.discard(tool_use_id)
+        name = short_tool_name(full_name) if full_name else "tool"
+        # Only a write's error is shown: reads fail routinely while the
+        # model probes, and its reply reports them.
+        if (block.is_error is not True or full_name is None
+                or classify_tool(full_name) != "write"):
+            return ToolFinished(tool_use_id=tool_use_id, name=name)
+        if declined:
+            return ToolFinished(tool_use_id=tool_use_id, name=name,
+                                declined=True)
+        return ToolFinished(tool_use_id=tool_use_id, name=name,
+                            error=tool_error_reason(block.content))
 
 
 class ClaudeConversation:
@@ -164,6 +188,11 @@ class ClaudeConversation:
         # Bumped when a confirm parks or a write is allowed, so a read that
         # spans one is known to have.
         self._write_events = 0
+        # Per tool_use_id, shared with each turn's TurnMapper: the full tool
+        # name of calls without a result yet, and the calls whose card the
+        # user declined. A stopped turn's call can report in the next turn.
+        self._tool_names: dict[str, str] = {}
+        self._declined: set[str] = set()
         self._pump_task: asyncio.Task[None] | None = None
         # Flips to False the moment an interrupt on this harness goes
         # unacknowledged (timed out or raised) -- see send()'s cleanup
@@ -231,6 +260,8 @@ class ClaudeConversation:
             # blocks it showed as `expect`, whatever the dict passed in
             # holds by now.
             return PermissionResultAllow(updated_input=approval.tool_input)
+        if context is not None and context.tool_use_id:
+            self._declined.add(context.tool_use_id)
         return PermissionResultDeny(message="The user declined this action.")
 
     def _writes_in_flight(self) -> bool:
@@ -247,7 +278,7 @@ class ClaudeConversation:
         while not self._queue.empty():
             self._queue.get_nowait()
         await self._live_client().query(text)
-        mapper = TurnMapper()
+        mapper = TurnMapper(self._tool_names, self._declined)
         pump = asyncio.create_task(self._pump(mapper))
         self._pump_task = pump
         finished = False

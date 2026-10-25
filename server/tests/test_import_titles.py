@@ -562,3 +562,54 @@ def test_a_backtick_ref_is_no_ref_and_is_left_as_written() -> None:
     assert [b.text for b in result.export.pages[0].children] == list(texts)
     assert result.unlinked_block_uids == ()
     assert result.title_changes == ()
+
+
+@pytest.mark.parametrize(
+    ("text", "sanitized"),
+    [
+        # The `#` left by an unlinked [[#]] joins what follows into a ref.
+        ("[[#]]a b:: v", "`#a b`:: v"),
+        ("[[#]][[#]]a:: v", "`##a`:: v"),
+        ("[#a b]([[#]]):: v", "`#a b`:: v"),
+        ("[[#]]x y", "x y"),
+        ("([[#]]x", "(x"),
+        ("#Fine [[#]]x", "#Fine x"),
+        # The brackets kept what was before them out of an attribute name.
+        ("a [[#]]:: v", "`a #`:: v"),
+        # The inner text ends in a space, so a `#b` after it is a tag.
+        ("[[#  ]]#b", "#  b"),
+    ],
+)
+def test_unlinking_a_refused_ref_forms_no_ref_from_what_was_around_it(
+    text: str, sanitized: str
+) -> None:
+    skipped = Page(raw_title_of("."), None, None, ())
+    home = Page(raw_title_of("Home"), None, None,
+                (_block(uid_of("uid-home"), text),))
+    result = sanitize_export_titles(_export_of(skipped, home))
+
+    (page,) = result.export.pages
+    assert page.children[0].text == sanitized
+    images = {sanitize_import_title(ref.title, location="check")
+              for ref in extract(text).refs if ref.title != "#"}
+    assert {ref.title for ref in extract(sanitized).refs} <= images
+    assert result.unlinked_block_uids == ("uid-home",)
+
+
+@pytest.mark.parametrize(
+    ("text", "sanitized"),
+    [("[[a [[#]] b]]", "[[a b]]"), ("[[[[#]]x]]", "[[x]]")],
+)
+def test_a_refused_run_inside_a_kept_one_goes_with_the_outer_rename(
+    text: str, sanitized: str
+) -> None:
+    # Unlinking the inner run first left the outer title `a # b`, which no
+    # rename covers and the title migration refuses.
+    skipped = Page(raw_title_of("."), None, None, ())
+    home = Page(raw_title_of("Home"), None, None,
+                (_block(uid_of("uid-home"), text),))
+    result = sanitize_export_titles(_export_of(skipped, home))
+
+    (page,) = result.export.pages
+    assert page.children[0].text == sanitized
+    assert result.unlinked_block_uids == ()

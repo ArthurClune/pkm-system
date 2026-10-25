@@ -311,6 +311,23 @@ def test_an_attribute_whose_name_holds_a_tag_imports(tmp_path):
     assert all(title_syntax_reason(t) is None for t in titles), titles
 
 
+def test_a_ref_formed_by_unlinking_a_refused_one_imports(tmp_path):
+    # Unlinking the refused [[#]] leaves `#`, which joins the text after it
+    # into the attribute `#a b`, a title the title migration refuses.
+    export_file = tmp_path / "formed-ref.edn"
+    export_file.write_text(TAG_IN_ATTRIBUTE_EXPORT.replace(
+        '"#Machine Learning::"', '"[[#]]a b:: v"'), encoding="utf-8")
+    out = tmp_path / "data"
+
+    assert main([str(export_file), "--out", str(out)]) == 0
+
+    con = connect(out / "pkm.sqlite3")
+    text = con.select("SELECT text FROM blocks WHERE uid = '00000000'")
+    assert [r["text"] for r in text] == ["`#a b`:: v"]
+    titles = [r["title"] for r in con.select("SELECT title FROM pages")]
+    assert all(title_syntax_reason(t) is None for t in titles), titles
+
+
 def test_rerun_replaces_database(tmp_path):
     files = _setup_files(tmp_path)
     out = tmp_path / "data"

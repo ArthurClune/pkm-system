@@ -181,6 +181,14 @@ A refused ref cannot stay a ref: the ops title check would refuse every edit
 to its block, and the title migration audit would refuse the implicit page
 `rows.py` creates.
 
+A sanitized block names no title its source did not, once sanitized
+(`titles._sanitized_text`). Refs are renamed before refused ones are
+unlinked, so a refused run nested in a kept one (`[[a [[#]] b]]`) goes with
+the outer rename. Unlinking still removes the brackets that kept a ref's
+text apart from its neighbours: `[[#]]a b:: v` becomes the attribute `#a b`.
+`_without_formed_refs` fences such a formed attribute in backticks and
+unlinks any other formed ref.
+
 | Failure at | Leaves | Healed by |
 |---|---|---|
 | any stage before the first `os.replace` | the published database and report untouched | — (the next run deletes `pkm.sqlite3.tmp` first) |

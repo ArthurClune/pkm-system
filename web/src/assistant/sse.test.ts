@@ -18,12 +18,27 @@ describe("createSseParser", () => {
   test("parses multiple frames in one chunk", () => {
     const p = createSseParser();
     const events = p.push(
-      'event: tool_started\ndata: {"name": "search", "summary": "searching \\"x\\""}\n\n' +
+      'event: tool_started\ndata: {"tool_use_id": "t1", "name": "search", "summary": "searching \\"x\\""}\n\n' +
         'event: turn_done\ndata: {"usage": null}\n\n',
     );
     expect(events).toEqual([
-      { type: "tool_started", name: "search", summary: 'searching "x"' },
+      { type: "tool_started", tool_use_id: "t1", name: "search", summary: 'searching "x"' },
       { type: "turn_done", usage: null },
+    ]);
+  });
+
+  test("tool_finished carries its id, error and declined flag", () => {
+    const p = createSseParser();
+    expect(p.push(
+      'event: tool_finished\ndata: {"tool_use_id": "t1", "name": "update_block", '
+        + '"error": "nope", "declined": false}\n\n'
+        + 'event: tool_finished\ndata: {"tool_use_id": "t2", "name": "update_block", '
+        + '"error": null, "declined": true}\n\n',
+    )).toEqual([
+      { type: "tool_finished", tool_use_id: "t1", name: "update_block",
+        error: "nope", declined: false },
+      { type: "tool_finished", tool_use_id: "t2", name: "update_block",
+        error: null, declined: true },
     ]);
   });
 

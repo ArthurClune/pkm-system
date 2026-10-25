@@ -1106,6 +1106,9 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .assistant-msg-user { align-self: flex-end; background: var(--color-bg-subtle);
   border-radius: var(--radius-card); padding: 6px 10px; max-width: 85%; }
 .assistant-tool-line { font-size: 0.85em; color: var(--color-text-secondary); font-style: italic; }
+/* A failed write's reason is the server's text, shown in full width; no
+   white-space override, so a newline in it cannot draw a second line. */
+.assistant-tool-failed { color: var(--color-error); font-style: normal; overflow-wrap: anywhere; }
 .assistant-confirm-card { border: 1px solid var(--color-border-input); border-radius: var(--radius-card);
   padding: 10px; }
 .assistant-confirm-title { font-weight: 600; margin-bottom: 6px; }

@@ -291,7 +291,9 @@ test("Allow refuses an update to a block edited after the card showed it", async
   await waitForServerText(page, title, "Shown text. Edited.");
 
   await panel.getByRole("button", { name: "Allow" }).click();
-  await expect(panel.getByText(/changed after the approval card showed it/)).toBeVisible();
+  // the panel's own failure line, whatever the model's reply says
+  await expect(panel.locator(".assistant-tool-failed")).toContainText(
+    /changed after the approval card showed it/);
   await expect(page.locator(".block-text", { hasText: "Shown text." }))
     .toHaveText("Shown text. Edited.");
   await expect.poll(() => serverPageTexts(page, title)).toContain("Shown text. Edited.");

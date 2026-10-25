@@ -108,13 +108,48 @@ describe("AssistantPanel", () => {
   test("renders messages and tool lines", () => {
     state.current.items = [
       { kind: "user", text: "find x" },
-      { kind: "tool", name: "search", summary: 'searching "x"', done: true },
+      { kind: "tool", toolUseId: "t1", name: "search", summary: 'searching "x"',
+        done: true, error: null, declined: false },
       { kind: "assistant", text: "Found **it**" },
     ];
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByText("find x")).toBeInTheDocument();
     expect(screen.getByText(/searching "x"/)).toBeInTheDocument();
     expect(screen.getByText("it")).toBeInTheDocument(); // bold rendered via InlineSegments
+  });
+
+  test("a failed write's line shows ✗ and its reason as text", () => {
+    state.current.items = [
+      { kind: "tool", toolUseId: "t1", name: "update_block",
+        summary: "update_block", done: true, declined: false,
+        error: 'block ((AbCdEfGh)) changed <img src=x onerror="alert(1)">' },
+      { kind: "tool", toolUseId: "t2", name: "update_block",
+        summary: "update_block", done: true, error: null, declined: false },
+    ];
+    const { container } = render(<AssistantPanel open onClose={() => {}} />);
+    const failed = container.querySelectorAll(".assistant-tool-failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0].textContent).toBe(
+      'Failed: block ((AbCdEfGh)) changed <img src=x onerror="alert(1)">');
+    expect(failed[0].querySelector("bdi")?.getAttribute("dir")).toBe("ltr");
+    expect(container.querySelector(".assistant-messages img")).toBeNull();
+    expect(container.querySelector(".assistant-messages a")).toBeNull();
+    const lines = container.querySelectorAll(".assistant-tool-line");
+    expect(lines[0].textContent).toMatch(/^✗ update_block/);
+    expect(lines[1].textContent).toMatch(/^✓ update_block/);
+  });
+
+  test("a declined write's line shows a neutral Declined, no ✗", () => {
+    state.current.items = [
+      { kind: "tool", toolUseId: "t1", name: "update_block",
+        summary: "update_block", done: true, error: null, declined: true },
+    ];
+    const { container } = render(<AssistantPanel open onClose={() => {}} />);
+    expect(container.querySelector(".assistant-tool-failed")).toBeNull();
+    const line = container.querySelector(".assistant-tool-line");
+    expect(line?.textContent).toMatch(/^✓ update_block/);
+    expect(line?.textContent).toContain("Declined");
+    expect(line?.textContent).not.toContain("✗");
   });
 
   test("Enter sends, Shift+Enter does not", () => {

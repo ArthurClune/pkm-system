@@ -389,7 +389,16 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
             {assistant.items.map((item, i) =>
               item.kind === "tool" ? (
                 <div key={i} className="assistant-tool-line">
-                  {item.done ? "✓" : "…"} {item.summary}
+                  {item.error !== null ? "✗" : item.done ? "✓" : "…"}{" "}
+                  {item.summary}
+                  {item.declined && (
+                    <span className="assistant-tool-declined"> Declined</span>
+                  )}
+                  {item.error !== null && (
+                    <div className="assistant-tool-failed">
+                      Failed: <bdi dir="ltr">{item.error}</bdi>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div key={i} className={`assistant-msg assistant-msg-${item.kind}`}>

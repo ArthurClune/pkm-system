@@ -1,11 +1,11 @@
 ---
 # pkm-0on4
 title: Backlink breadcrumbs amplify output d²/2 times
-status: todo
+status: in-progress
 type: bug
 priority: normal
 created_at: 2026-10-25T04:38:08Z
-updated_at: 2026-10-25T04:38:08Z
+updated_at: 2026-10-25T09:38:33Z
 parent: pkm-mfd0
 blocking:
     - pkm-e95y

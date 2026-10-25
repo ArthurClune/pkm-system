@@ -93,9 +93,10 @@ def ancestor_trails(starts: Sequence[BlockUid],
 
 
 class Ancestors(NamedTuple):
-    """Breadcrumb trails as uids, and the text of every uid on a trail:
-    the shape a backlinks response carries (`ancestor_uids` per item,
-    one `ancestor_texts` map beside them)."""
+    """Breadcrumb trails as uids, and the text of every uid on a trail,
+    each once. `grouping.group_backlinks` turns them into the wire shape:
+    per group, an `ancestor_texts` list, and per item, `ancestors` as
+    positions in it."""
     trails: dict[BlockUid, list[BlockUid]]
     texts: dict[BlockUid, str]
 

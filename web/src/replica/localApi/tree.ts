@@ -157,9 +157,10 @@ export function ancestorTrails(
   return out;
 }
 
-/** Breadcrumb trails as uids, and the text of every uid on a trail, once:
- * what a backlinks response carries as `ancestor_uids` per item and one
- * `ancestor_texts` map. Mirrors server tree.Ancestors. */
+/** Breadcrumb trails as uids, and the text of every uid on a trail, once.
+ * `pages.ts::groupBacklinkRows` turns them into the wire shape: per group,
+ * an `ancestor_texts` list, and per item, `ancestors` as positions in it.
+ * Mirrors server tree.Ancestors. */
 export interface Ancestors {
   trails: Map<BlockUid, BlockUid[]>;
   texts: Record<BlockUid, string>;

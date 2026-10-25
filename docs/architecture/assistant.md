@@ -105,7 +105,7 @@ what an update, move or delete acts on, not only its uid:
 | `current.state` | When | The card shows |
 |---|---|---|
 | `found` | a row has the uid | `current page` (`currently on page` for a move, whose own `page` reads `to page`), then the text's first `CURRENT_EXCERPT_CHARS` code points, with `(first N of M characters)` and `…` when clipped. A delete adds `and N blocks under it`, counted in the store as read |
-| `missing` | no row has the uid, or it is malformed (never sent to SQL) | `no block has this uid`; the warnings say where the write goes instead |
+| `missing` | no row has the uid, or it is malformed (never sent to SQL) | `no block has this uid`; for a batch update or move, the warnings say where the write goes instead |
 | `created` | a batch `{{alias}}` | `none yet (write N above creates it as "a")` |
 
 | Rule | Reason |

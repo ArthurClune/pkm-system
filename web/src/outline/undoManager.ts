@@ -19,10 +19,12 @@
 // block text past a text limit (grammar/textLimits.ts), applies and sends
 // nothing (the server refuses such a batch whole, and the offline queue
 // would discard it), shows the refusal's notice, and puts its entry back,
-// so it can be retried once the user has made room. Its delivery resolves
-// "failed", so a refused upload undo keeps the files. A page this tab cannot
-// read is judged by the text limits only, which need no tree: its depth is
-// left to the server.
+// so it can be retried once the user has made room. The entry goes back as
+// though it had been refused at the keypress (restoreEntry, history.ts), so
+// an edit recorded while the page was being read keeps its place. Its
+// delivery resolves "failed", so a refused upload undo keeps the files. A
+// page this tab cannot read is judged by the text limits only, which need
+// no tree: its depth is left to the server.
 import type { Sha256Hex, CanonicalTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
@@ -139,7 +141,7 @@ export function performUndo(sync: HistoryDispatch): boolean {
   if (!entry) return false;
   const delivered = dispatch(sync, entry.inverse, entry.anchors.inverse,
                              entry.pageTitle, entry.focusBefore, () => {
-    state = restoreEntry(state, entry, "undo");
+    state = restoreEntry(state, entry, "undo", next);
   });
   if (entry.freshAssets.length > 0) {
     void releaser.release(entry.freshAssets, [delivered]);
@@ -154,7 +156,7 @@ export function performRedo(sync: HistoryDispatch): boolean {
   if (!entry) return false;
   void dispatch(sync, entry.ops, entry.anchors.ops, entry.pageTitle,
                 entry.focusAfter, () => {
-    state = restoreEntry(state, entry, "redo");
+    state = restoreEntry(state, entry, "redo", next);
   });
   return true;
 }
@@ -184,6 +186,10 @@ const failed = (error: unknown): Promise<DeliveryOutcome> =>
 // The delivery of what a dispatch sent, or of nothing when it sent nothing.
 type Dispatched = Pick<WriteTicket, "delivered">;
 
+// A dispatch a reset overtook: nothing refused, sent, noticed or navigated.
+const dropped = (): Dispatched =>
+  ({ delivered: failed(new Error("history reset")) });
+
 // Resolves with the dispatched write's delivery, never rejects: a dispatch
 // that throws, is dropped by a reset or is refused resolves "failed".
 // onRefused runs when the depth cap or a text limit refuses the batch.
@@ -203,9 +209,7 @@ function dispatch(sync: HistoryDispatch, batch: BlockOp[],
   }
   const mine = epoch;
   // a reset meanwhile emptied the stacks; the entry stays dropped
-  const refused = () => {
-    if (mine === epoch) onRefused();
-  };
+  const stale = () => mine !== epoch;
   queued++;
   // The step resolves once the write is enqueued, not delivered (the chain
   // must not wait on the network), so the delivery rides in a wrapper.
@@ -213,15 +217,13 @@ function dispatch(sync: HistoryDispatch, batch: BlockOp[],
     delivered: Promise<DeliveryOutcome>;
   }> => {
     try {
-      if (mine !== epoch) {
-        return { delivered: failed(new Error("history reset")) };
-      }
+      if (stale()) return dropped();
       const handle = peekOutlineSession(title);
       const write = handle
         ? dispatchWithSession(sync, handle, batch, anchors, title, focus,
-                              refused)
+                              onRefused)
         : await dispatchUnmounted(sync, batch, anchors, title, focus,
-                                  refused);
+                                  onRefused, stale);
       return { delivered: write.delivered };
     } catch (e: unknown) {
       console.error("undo/redo dispatch failed", e);
@@ -277,6 +279,7 @@ function dispatchWithSession(sync: HistoryDispatch, handle: SessionHandle,
 async function dispatchUnmounted(
   sync: HistoryDispatch, batch: BlockOp[], anchors: BatchAnchors,
   title: CanonicalTitle, focus: FocusTarget | null, onRefused: () => void,
+  stale: () => boolean,
 ): Promise<Dispatched> {
   // A session disappears only when it has no handles and no undelivered
   // writes, so with none this tab holds nothing unresolved for the page and
@@ -285,15 +288,17 @@ async function dispatchUnmounted(
   // recorded keys are right only while nothing shifted the page's keys since
   // recording, and an online-only session never fills the missing hashes in.
   // Nor is its depth judged: the server decides. Its texts are, since that
-  // needs no tree.
+  // needs no tree. A reset during the read drops the dispatch whole.
   let wireOps: BlockOp[];
   let refusal: string | null;
   try {
     const live = await loadPage(title);
+    if (stale()) return dropped();
     const resolved = resolveAnchors(live, title, batch, anchors);
     refusal = refusalNotice(live, resolved, title);
     wireOps = stampBaseTextHashes(live, title, resolved);
   } catch (e: unknown) {
+    if (stale()) return dropped();
     console.warn("undo/redo could not read the page; sending unstamped", e);
     wireOps = [...batch];
     refusal = textLimitRefusal(batch);

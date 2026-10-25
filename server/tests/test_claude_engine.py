@@ -1409,6 +1409,37 @@ def test_a_stopped_turns_write_with_no_result_ends_with_the_next_turn(
     assert third.preview.writes_in_flight is False
 
 
+def test_an_errored_turns_running_write_stamps_the_next_turns_card(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(claude_engine, "STALL_TIMEOUT_S", 0.05)
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        seen: asyncio.Queue = asyncio.Queue()
+        consumer = asyncio.create_task(_drain_into(conv.send("one"), seen))
+        task = asyncio.create_task(conv.can_use_tool(
+            _UPDATE, {"uid": "AAAAAAAA", "text": "t"}, _ctx("t1")))
+        card = await _next_of(seen, ConfirmRequest)
+        conv.resolve_confirm(card.confirm_id, True)
+        await asyncio.wait_for(task, timeout=5)
+        # no result for t1, then silence: the turn ends in an error
+        await _next_of(seen, ErrorEvent)
+        await asyncio.wait_for(consumer, timeout=5)
+        monkeypatch.setattr(claude_engine, "STALL_TIMEOUT_S", 30)
+
+        seen = asyncio.Queue()
+        consumer = asyncio.create_task(_drain_into(conv.send("two"), seen))
+        stamped = await _declined_card(conv, seen, "BBBBBBBB", "t2")
+        client.feed(make_result())
+        await asyncio.wait_for(consumer, timeout=5)
+        await conv.close()
+        return stamped
+
+    assert asyncio.run(scenario()).preview.writes_in_flight is True
+
+
 def test_the_last_turns_writes_are_not_in_flight(tmp_path):
     engine = make_engine(tmp_path)
 

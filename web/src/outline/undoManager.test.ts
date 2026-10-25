@@ -731,6 +731,30 @@ it.each([
   clear();
 });
 
+it("a reset during a page read that fails ships nothing", async () => {
+  const sync = makeSync();
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  recordMove(indented(), outdentOps());
+  const gate = defer<BlockNode[]>();
+  const reading = defer<void>();
+  setHistoryPageLoader(() => {
+    reading.resolve();
+    return gate.promise;
+  });
+  const paths: string[] = [];
+  const clear = setHistoryNavigator((p) => paths.push(p));
+  performUndo(sync);
+  await reading.promise;
+  resetHistory();
+  gate.reject(new Error("offline"));
+  await new Promise((r) => setTimeout(r, 0));
+  expect(sync.sent).toEqual([]);
+  expect(paths).toEqual([]);
+  expect(warn).not.toHaveBeenCalled();
+  warn.mockRestore();
+  clear();
+});
+
 // A replay judged by the text limits as well as the depth cap: an entry can
 // carry a text past a limit (a block stored before the limits existed, then
 // edited), and the server would refuse the batch whole.

@@ -125,6 +125,30 @@ def test_a_batch_stops_replaying_at_its_work_budget(
     assert skipped.count("text_limit") > 8
 
 
+def test_once_the_budget_runs_out_later_edits_splice_nothing(
+        client, seeded_config):
+    # A copy of 62,000 characters nested to the cap reads 2.2M to unlink,
+    # but its splice is short enough to pass the cheap check for a while
+    # after the budget can no longer afford it. The edit that runs the
+    # budget out spends the rest, so later ones stop before splicing and
+    # measuring it: eight edits and forty cost about the same.
+    copy = ("[[" * 31 + "[[T]]" + "]]" * 31) * (62_000 // 129)
+    uids = [uid_of(f"rbw_deep_{i:03d}") for i in range(48)]
+    originals = {uid: _history(seeded_config, copy, 1, uid) for uid in uids}
+
+    def run(first: int, ops: int) -> tuple[int, list[str]]:
+        got = []
+        work = loop_steps(MODULES, lambda: got.append(
+            _post(client, [_stale_edit(originals[uid], uid)
+                           for uid in uids[first:first + ops]])))
+        assert got[0].status_code == 200, got[0].text[:300]
+        return work, [s["reason"] for s in got[0].json()["skipped"]]
+
+    (small, _), (large, skipped) = run(0, 8), run(8, 40)
+    assert large < 1.3 * small, (small, large)
+    assert skipped.count("text_limit") >= 32
+
+
 def test_the_reviewed_batch_lands_every_op_in_bounded_time(
         client, seeded_config):
     # The review's shape: 500 tiny stale edits, each replaying ten steps

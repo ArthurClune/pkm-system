@@ -55,9 +55,10 @@ MAX_REPLAYED_REWRITES = 10
 # an edit, for each of its ops. Past this the batch's remaining edits that
 # would unlink land as sent (`over_limit`). One step is at most about
 # 5,000,000 reads (a megabyte nested two deep, at `MAX_UNLINK_WORK`), so
-# this is about three such steps, some 2 s under the write lock; the steps
-# prod's largest copy makes read about 140,000, so ordinary batches stay
-# far below it.
+# this is about three such steps. Spent in full it holds the write lock
+# about 4 s for text nested to the cap, the slowest to read, and 2 s for
+# a megabyte dense with links; a step on prod's largest copy reads about
+# 140,000, so ordinary batches stay far below it.
 MAX_BATCH_REPLAY_WORK: Final = 8 * MAX_UNLINK_WORK
 
 # A step already replayed, keyed by the title canonicalisation, what the
@@ -288,9 +289,11 @@ def _replay_step(text: str, step: RewriteStep,
     (`unlink.unlink_stale_refs`).
 
     And None when the unlink would read past `allowance`, what is left of
-    the batch's `MAX_BATCH_REPLAY_WORK`: judged first from the splice's
-    projected length, which the unlink reads at least three times, so a
-    batch past its budget splices nothing."""
+    the batch's `MAX_BATCH_REPLAY_WORK`, judged first from the splice's
+    projected length, which the unlink reads at least three times. That
+    step spends all that is left, so once one edit has run the budget out,
+    the batch's later steps that would unlink stop before splicing: what
+    each costs is then its own sent text, not the copies from history."""
     entering = text
     if step.retitles:
         spans = title_ref_spans(
@@ -313,14 +316,16 @@ def _replay_step(text: str, step: RewriteStep,
         projected = spliced_length(text, spans)
         if projected > MAX_BLOCK_TEXT_CHARS:
             return None, 0
+        # Past the budget the step takes what is left of it, so every later
+        # step in the batch stops here before splicing anything.
         if allowance is not None and \
                 PASSES_PAST_DEPTH * projected > allowance:
-            return None, 0
+            return None, allowance
         spliced = splice(text, spans)
-        if unlink_refused(entering, spliced):
-            return None, 0
         reads = unlink_reads(spliced)
         if allowance is not None and reads > allowance:
+            return None, allowance
+        if unlink_refused(entering, spliced):
             return None, 0
         return unlink_stale_refs(spliced, is_deleted), reads
     return text, 0

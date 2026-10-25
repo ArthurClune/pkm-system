@@ -874,3 +874,90 @@ def test_every_refusal_is_bounded(monkeypatch):
                         lambda *a: Refusal("x" * 10_000))
     r = _refusal("save_note", {"text": "t"})
     assert r.message == "x" * 500 + "… (10,000 characters)"
+
+
+# -- each part of the card size, and both limits' boundaries ---------------
+
+def _size(short: str, raw: Mapping[str, object],
+          blocks: Mapping[BlockUid, StoredBlock] = {}) -> int:
+    """The size the card for this call counts, read off the refusal a
+    zero limit gives every card."""
+    out = build_write_preview(short, raw, blocks)
+    assert isinstance(out, Refusal), out
+    prefix = f"{short}: the card would hold "
+    assert out.message.startswith(prefix), out.message
+    return int(out.message[len(prefix):].split(" ")[0].replace(",", ""))
+
+
+def test_string_targets_count_toward_the_card_size(monkeypatch):
+    monkeypatch.setattr(wp_module, "PREVIEW_LIMIT_CHARS", 0)
+    # title 10 + new_title 20; allow_merge is a bool, not a string
+    assert _size("rename_page", {"title": "T" * 10,
+                                 "new_title": "U" * 20}) == 30
+
+
+def test_warnings_count_toward_the_card_size(monkeypatch):
+    raw = {"commands": [{"command": "update",
+                         "params": {"uid": _A, "text": "t"}}]}
+    (warning,) = _preview("batch", raw).ops[0].warnings
+    monkeypatch.setattr(wp_module, "PREVIEW_LIMIT_CHARS", 0)
+    # uid 8 + text 1 + the missing-uid warning; a missing block adds none
+    assert _size("batch", raw) == 8 + 1 + len(warning)
+
+
+def test_a_created_blocks_alias_counts_toward_the_card_size(monkeypatch):
+    monkeypatch.setattr(wp_module, "PREVIEW_LIMIT_CHARS", 0)
+    name = "n" * 40
+    raw = {"commands": [
+        {"command": "create", "params": {"page": "P", "text": "a",
+                                         "as": name}},
+        {"command": "update", "params": {"uid": f"{{{{{name}}}}}",
+                                         "text": "b"}}]}
+    # create: page 1 + as 40 + text 1; update: uid 44 + text 1 + alias 40
+    assert _size("batch", raw) == 42 + 45 + 40
+
+
+def test_a_found_blocks_page_and_excerpt_count_toward_the_card_size(
+        monkeypatch):
+    monkeypatch.setattr(wp_module, "PREVIEW_LIMIT_CHARS", 0)
+    raw = {"uid": _VICTIM, "text": "abc"}
+    # uid 11 + text 3 + page 5 + the 200-character excerpt, not the 300
+    assert _size("update_block", raw,
+                 {_VICTIM: StoredBlock(_INBOX, "y" * 300)}) == 219
+
+
+def test_a_deletes_descendants_count_toward_the_card_size(monkeypatch):
+    monkeypatch.setattr(wp_module, "PREVIEW_LIMIT_CHARS", 0)
+    raw = {"commands": [{"command": "delete", "params": {"uid": _A}}]}
+    # uid 8 + page 5 + excerpt 3 + the count's 5 digits
+    assert _size("batch", raw, {_A: StoredBlock(_INBOX, "old", 12345)}) \
+        == 21
+
+
+def test_moves_with_long_targets_are_refused_by_the_card_size():
+    page = "p" * TARGET_LIMIT_CHARS
+    raw = {"commands": [
+        {"command": "move", "params": {"uid": uid_of(f"MOVE{i:06d}"),
+                                       "page": page}}
+        for i in range(300)]}
+    r = _refusal("batch", raw)
+    assert "the card would hold" in r.message
+
+
+def test_a_card_exactly_at_the_size_limit_is_previewed(monkeypatch):
+    raw = {"title": "T" * 10, "new_title": "U" * 20}
+    monkeypatch.setattr(wp_module, "PREVIEW_LIMIT_CHARS", 30)
+    assert _preview("rename_page", raw)
+    monkeypatch.setattr(wp_module, "PREVIEW_LIMIT_CHARS", 29)
+    assert "the card would hold 30 characters" in _refusal(
+        "rename_page", raw).message
+
+
+def test_a_refusal_exactly_at_the_cut_is_whole(monkeypatch):
+    monkeypatch.setattr(wp_module, "_build",
+                        lambda *a: Refusal("x" * 500))
+    assert _refusal("save_note", {"text": "t"}).message == "x" * 500
+    monkeypatch.setattr(wp_module, "_build",
+                        lambda *a: Refusal("x" * 501))
+    assert _refusal("save_note", {"text": "t"}).message \
+        == "x" * 500 + "… (501 characters)"

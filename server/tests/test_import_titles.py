@@ -613,3 +613,35 @@ def test_a_refused_run_inside_a_kept_one_goes_with_the_outer_rename(
     (page,) = result.export.pages
     assert page.children[0].text == sanitized
     assert result.unlinked_block_uids == ()
+
+
+def test_a_page_title_over_the_cap_is_skipped_and_its_refs_unlinked() -> None:
+    long_title = "t" * 1001
+    long_page = Page(raw_title_of(long_title), None, None,
+                     (_block(uid_of("uid-long-body"), "body"),))
+    home = Page(raw_title_of("Home"), None, None,
+                (_block(uid_of("uid-linker"), f"see [[{long_title}]]"),))
+
+    result = sanitize_export_titles(_export_of(long_page, home))
+
+    assert [p.title for p in result.export.pages] == ["Home"]
+    (skipped,) = result.skipped_pages
+    assert (skipped.original_title, skipped.reason) == (long_title, "too_long")
+    assert [b.uid for b in result.export.orphan_blocks] == ["uid-long-body"]
+    assert result.export.pages[0].children[0].text == f"see {long_title}"
+    assert result.unlinked_block_uids == ("uid-linker",)
+
+
+def test_a_title_over_the_cap_is_refused_without_echoing_it() -> None:
+    with pytest.raises(ImportTitleError) as caught:
+        sanitize_import_title("t" * 1_000_000, location="page[0]")
+
+    assert caught.value.reason == "too_long"
+    assert str(caught.value) == "too_long: 1000000 characters"
+
+
+@pytest.mark.parametrize(
+    "original", ["#" + "t" * 1000, "[[" + "t" * 1000 + "]]"],
+    ids=["hash", "brackets"])
+def test_the_cap_is_judged_on_the_sanitized_title(original: str) -> None:
+    assert sanitize_import_title(original, location="page[0]") == "t" * 1000

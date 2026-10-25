@@ -454,6 +454,14 @@ def test_rename_page_collision_without_allow_merge_raises(tools):
     assert e.value.status == 409
 
 
+def test_rename_page_propagates_the_title_length_refusal(tools, pkm_client):
+    with pytest.raises(ApiError) as e:
+        tools.rename_page("AI", "t" * 1001)
+    assert str(e.value) == (
+        "422: title of 1001 characters is over the limit of 1000")
+    assert pkm_client.get_page("AI").page.title == "AI"
+
+
 def test_mcp_title_arguments_keep_their_names(tools):
     by_name = {t.name: t for t in mcp_server.mcp._tool_manager.list_tools()}
     expected = {"get_page": ["title"], "backlinks": ["title"],

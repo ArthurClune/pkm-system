@@ -24,8 +24,9 @@ from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, MAX_OUTLINE_DEPTH,
                                ViewType, subtree_hash, text_hash)
 from pkm.contracts.responses import SkipReason, SkippedOp
 from pkm.contracts.titles import RawTitle, as_raw_title
-from pkm.refs import (CanonicalTitle, TitleSyntaxReason, extract,
-                      normalize_title, parse_block_uid, title_syntax_reason)
+from pkm.refs import (CanonicalTitle, TitleRefusal, describe_title_length,
+                      extract, normalize_title, parse_block_uid,
+                      title_length_over, title_refusal)
 from pkm.rename import spelled_or_canonical, title_ref_spans
 from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        deleted_header_text,
@@ -60,12 +61,17 @@ class OpTitleViolation:
     op_index: int
     source: Literal["page_title", "reference"]
     title: RawTitle
-    reason: TitleSyntaxReason
+    reason: TitleRefusal
 
 
 def find_op_title_violation(
     ops: Sequence[BlockOp],
 ) -> OpTitleViolation | None:
+    """The first title an op names that may not be a page title: each op's
+    `page_title` (create, create_page, move), then every ref its text
+    holds. `update_text`'s `page_title` is only a conflict-header hint,
+    never judged: refusing it would refuse an edit to a block on a page
+    stored before a rule, and discard an offline client's batch."""
     for op_index, op in enumerate(ops):
         page_title: RawTitle | None = None
         if isinstance(op, (CreateOp, CreatePageOp)):
@@ -73,19 +79,30 @@ def find_op_title_violation(
         elif isinstance(op, MoveOp):
             page_title = op.page_title
         if page_title is not None:
-            reason = title_syntax_reason(page_title)
+            reason = title_refusal(page_title)
             if reason is not None:
                 return OpTitleViolation(
                     op_index, "page_title", page_title, reason
                 )
         if isinstance(op, (CreateOp, UpdateTextOp)):
             for ref in extract(op.text).refs:
-                reason = title_syntax_reason(ref.title)
+                reason = title_refusal(ref.title)
                 if reason is not None:
                     return OpTitleViolation(
                         op_index, "reference", ref.title, reason
                     )
     return None
+
+
+def describe_op_title_violation(violation: OpTitleViolation) -> str:
+    """The reason a batch is refused for `violation`. A title over the cap
+    is named by its length, never echoed."""
+    if violation.reason == "too_long":
+        measured = title_length_over(violation.title)
+        assert measured is not None  # title_refusal measured it so
+        return f"{violation.source} {describe_title_length(measured)}"
+    return (f"unsupported {violation.source} title syntax:"
+            f" {violation.title!r}")
 
 
 @dataclass(frozen=True)
@@ -133,10 +150,8 @@ def judge_batch(batch: OpBatch) -> JudgedBatch:
         )
     violation = find_op_title_violation(batch.ops)
     if violation is not None:
-        raise OpError(
-            violation.op_index,
-            f"unsupported {violation.source} title syntax: {violation.title!r}",
-        )
+        raise OpError(violation.op_index,
+                      describe_op_title_violation(violation))
     return JudgedBatch(batch)
 
 

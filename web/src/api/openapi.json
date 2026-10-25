@@ -344,7 +344,7 @@
     "/api/pages": {
       "post": {
         "summary": "Create Page",
-        "description": "Idempotent: creating an existing page returns its row, not an error.",
+        "description": "Idempotent: creating an existing page returns its row, not an error.\nA title longer than 1,000 characters (`MAX_PAGE_TITLE_CHARS`) is a 422,\neven for a page stored before the cap.",
         "operationId": "create_page_api_pages_post",
         "requestBody": {
           "content": {
@@ -424,7 +424,7 @@
     "/api/page/{title}/rename": {
       "post": {
         "summary": "Rename Page",
-        "description": "Rename a page, rewriting every [[link]]/#tag/attr:: in block text.\nWhen the new title is taken: 409 unless allow_merge is true, in which\ncase the source page is concatenated onto the target (source's\ntop-level blocks appended after the target's, referencing text\nrewritten to the target, source page row dropped) -- a confirm-gated\nmerge, not a silent overwrite. Case-sensitive throughout, like\npages.title itself. 422 when the rewrite would carry a block over the\ntext length cap or nest its `[[` past the cap (a longer title lengthens\nevery link to it); the detail names the block, and nothing changes.",
+        "description": "Rename a page, rewriting every [[link]]/#tag/attr:: in block text.\nWhen the new title is taken: 409 unless allow_merge is true, in which\ncase the source page is concatenated onto the target (source's\ntop-level blocks appended after the target's, referencing text\nrewritten to the target, source page row dropped) -- a confirm-gated\nmerge, not a silent overwrite. Case-sensitive throughout, like\npages.title itself. 422 when the new title is blank, refused or longer\nthan 1,000 characters, or when the rewrite would carry a block over the\ntext length cap or nest its `[[` past the cap (a longer title lengthens\nevery link to it); the detail names the block, and nothing changes.",
         "operationId": "rename_page_api_page__title__rename_post",
         "parameters": [
           {

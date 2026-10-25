@@ -7,8 +7,9 @@ does not exist renders broken.
 
 Every header and note that names a page is judged by the text limits, and
 names it `LONG_TITLE_LABEL` instead when the title would put it past one:
-neither a page title nor a client's `page_title` hint is length-capped,
-and the server would otherwise store text it refuses from any client."""
+a client's `page_title` hint is never length-judged, and a title stored
+before `MAX_PAGE_TITLE_CHARS` may be longer than the cap, so the server
+would otherwise store text it refuses from any client."""
 from __future__ import annotations
 
 from collections.abc import Callable

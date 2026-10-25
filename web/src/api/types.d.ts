@@ -194,6 +194,8 @@ export interface paths {
         /**
          * Create Page
          * @description Idempotent: creating an existing page returns its row, not an error.
+         *     A title longer than 1,000 characters (`MAX_PAGE_TITLE_CHARS`) is a 422,
+         *     even for a page stored before the cap.
          */
         post: operations["create_page_api_pages_post"];
         delete?: never;
@@ -246,7 +248,8 @@ export interface paths {
          *     top-level blocks appended after the target's, referencing text
          *     rewritten to the target, source page row dropped) -- a confirm-gated
          *     merge, not a silent overwrite. Case-sensitive throughout, like
-         *     pages.title itself. 422 when the rewrite would carry a block over the
+         *     pages.title itself. 422 when the new title is blank, refused or longer
+         *     than 1,000 characters, or when the rewrite would carry a block over the
          *     text length cap or nest its `[[` past the cap (a longer title lengthens
          *     every link to it); the detail names the block, and nothing changes.
          */

@@ -183,20 +183,26 @@ rebootstrap on a schema-hash change. Startup never runs the
 ### Breadcrumbs and recursive traversal
 
 `routes_pages.py::_fetch_ancestors` builds the breadcrumb trail behind
-`GET /api/block/{uid}` and every backlink group. Its recursive CTE carries
-`path` as `,uid,uid,…,`, and keeps a row only while
-`instr(a.path, ',' || b.uid || ',') = 0`, so a parent cycle in a hand-edited
-database stops at the repeat. `UID_RE` admits no comma, so the test is exact.
+`GET /api/block/{uid}` and every backlink group. Its recursive CTE holds
+`uid` alone and joins with `UNION`, which queues a row only once. So each
+distinct ancestor is read once, however many starts share it, and a parent
+cycle in a hand-edited database ends the walk. `tree.ancestor_texts` then
+rebuilds each trail root first, stopping at the first uid already on it.
+**The ancestor walk must not carry a per-row path string.** One row per
+start and ancestor, each copying an `O(depth)` string, makes the backlinks
+of a deep chain cost `O(depth³)`.
 
-Every recursive walk over `parent_uid` uses this guard, and each has a
-replica mirror written as the same CTE. Change a pair together. None caps
-depth.
+The single-chain walks carry `path` as `,uid,uid,…,` and keep a row only
+while `instr(c.path, ',' || b.uid || ',') = 0`, so a cycle stops at the
+repeat. `UID_RE` admits no comma, so the test is exact. Each walk has a
+replica mirror; change a pair together. None caps depth, so a chain deeper
+than `MAX_OUTLINE_DEPTH` from before the cap reads whole.
 
-| Walk | Server | Replica mirror |
-|---|---|---|
-| Ancestors with text, for breadcrumbs and backlink groups | `routes_pages._fetch_ancestors` | `localApi/tree.ts` |
-| One block's parent chain, for a move's cycle check | `ops_apply._parent_chain` | `localOps.ts::parentChain` |
-| One block's subtree, deepest first, for delete, re-paging and journalling | `ops_apply._subtree_deepest_first` | `localOps.ts::subtreeUids` |
+| Walk | Server | Replica mirror | Cycle guard |
+|---|---|---|---|
+| Ancestors with text, for breadcrumbs and backlink groups | `routes_pages._fetch_ancestors` | `localApi/tree.ts::fetchAncestors` | `UNION` on the server; the replica still carries the path string |
+| One block's parent chain, for a move's cycle check | `ops_apply._parent_chain` | `localOps.ts::parentChain` | path string |
+| One block's subtree, deepest first, for delete, re-paging and journalling | `ops_apply._subtree_deepest_first` | `localOps.ts::subtreeUids` | path string |
 
 ## Typed boundaries
 

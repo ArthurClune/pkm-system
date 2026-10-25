@@ -75,6 +75,10 @@ export type PendingConfirm = {
   // after a failure only this answer may be sent again; it lives here rather
   // than in the card so a remounted card cannot forget it.
   sentDecision: boolean | null;
+  // how many cards ahead of this one the user allowed while it waited. The
+  // server read its current text when it built the card, so that text
+  // predates those writes and the card says it may have changed.
+  allowedAhead: number;
 };
 
 /** What the busy line shows: the server's phase label ("reasoning",
@@ -205,7 +209,7 @@ export function useAssistant() {
       case "confirm_request":
         setConfirmQueue([...confirmQueueRef.current, {
           confirmId: ev.confirm_id, opsPreview: ev.ops_preview, preview: ev.preview,
-          sentDecision: null,
+          sentDecision: null, allowedAhead: 0,
         }]);
         break;
       case "turn_done":
@@ -351,7 +355,8 @@ export function useAssistant() {
       if (gen !== turnGen.current) return;
       setAnswering(false);
       if (!confirmQueueRef.current.includes(pending)) return;
-      const rest = confirmQueueRef.current.filter((p) => p !== pending);
+      const rest = confirmQueueRef.current.filter((p) => p !== pending)
+        .map((p) => (allow ? { ...p, allowedAhead: p.allowedAhead + 1 } : p));
       setConfirmQueue(rest);
       // the parked stretch was the user's silence, not the model's: restart
       // the busy line's clock rather than resume a stale label

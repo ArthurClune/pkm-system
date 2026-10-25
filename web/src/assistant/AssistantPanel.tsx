@@ -10,7 +10,9 @@ import { confirmHint, placeOf, type MarkerState } from "./confirmHint";
 import { elapsedLabel } from "./elapsed";
 import { stripCaretBlockRefs } from "./normalizeRefs";
 import { useAssistant, type PendingConfirm } from "./useAssistant";
-import { formatTarget, quoteValue, type WritePreview } from "./writePreview";
+import {
+  formatTarget, quoteValue, type CurrentBlock, type PreviewOp, type WritePreview,
+} from "./writePreview";
 
 // Each content value shows this many code points until [show] reveals the
 // rest, which the server always sends; targets are never clipped, so Allow
@@ -49,11 +51,75 @@ function ContentValue({ name, text, total }: {
       )}
       {/* the ellipsis sits outside the closing quote: it is the card's mark,
         * not part of the value */}
-      <bdi className="assistant-confirm-value assistant-confirm-text">
+      <bdi className="assistant-confirm-value assistant-confirm-text" dir="ltr">
         {quoteValue(shown.join(""))}{shown.length < total ? "…" : ""}
       </bdi>
     </div>
   );
+}
+
+const formatCount = (n: number) => n.toLocaleString("en-US");
+
+// The block a write replaces, moves or deletes, as the server read it when
+// it built the card. A move's own `page` target is where the block goes, so
+// the page it is on now is labelled apart from it.
+function CurrentRows({ current, moving }: {
+  current: CurrentBlock;
+  moving: boolean;
+}) {
+  if (current.state !== "found") {
+    return (
+      <div className="assistant-confirm-current">
+        <span className="assistant-confirm-key">current text</span>{": "}
+        {current.state === "missing" ? "no block has this uid" : (
+          <>
+            {`none yet (write ${current.write} above creates it as `}
+            <bdi className="assistant-confirm-value" dir="ltr">
+              {quoteValue(current.alias, false)}
+            </bdi>
+            {")"}
+          </>
+        )}
+      </div>
+    );
+  }
+  const { page_title, excerpt, text_length, descendants } = current;
+  // text_length counts code points, so the excerpt's share does too
+  const shown = [...excerpt].length;
+  const clipped = shown < text_length;
+  return (
+    <>
+      <div className="assistant-confirm-current">
+        <span className="assistant-confirm-key">
+          {moving ? "currently on page" : "current page"}
+        </span>{": "}
+        <bdi className="assistant-confirm-value" dir="ltr">
+          {quoteValue(page_title, false)}
+        </bdi>
+      </div>
+      <div className="assistant-confirm-current">
+        <span className="assistant-confirm-key">current text</span>{": "}
+        {clipped && (
+          <span className="assistant-confirm-length">
+            {`(first ${formatCount(shown)} of ${formatCount(text_length)} characters)`}
+          </span>
+        )}
+        {/* the ellipsis sits outside the closing quote, as on content */}
+        <bdi className="assistant-confirm-value assistant-confirm-text" dir="ltr">
+          {quoteValue(excerpt)}{clipped ? "…" : ""}
+        </bdi>
+        {descendants !== null && descendants > 0 && (
+          <div className="assistant-confirm-subtree">
+            {`and ${formatCount(descendants)} ${descendants === 1 ? "block" : "blocks"} under it`}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function targetLabel(op: PreviewOp, key: string): string {
+  return op.action === "move block" && key === "page" ? "to page" : key;
 }
 
 // The ops scroll inside a region of their own, itself inside the scrolling
@@ -78,10 +144,13 @@ function PreviewOps({ preview, endRef }: {
             <div className="assistant-confirm-action">{op.action}</div>
             {op.targets.map(([key, value], j) => (
               <div key={j} className="assistant-confirm-target">
-                <span className="assistant-confirm-key">{key}</span>{": "}
-                <bdi className="assistant-confirm-value">{formatTarget(key, value)}</bdi>
+                <span className="assistant-confirm-key">{targetLabel(op, key)}</span>{": "}
+                <bdi className="assistant-confirm-value" dir="ltr">{formatTarget(key, value)}</bdi>
               </div>
             ))}
+            {op.current && (
+              <CurrentRows current={op.current} moving={op.action === "move block"} />
+            )}
             {op.warnings.map((warning, j) => (
               <div key={j} className="assistant-confirm-warning">⚠ {warning}</div>
             ))}
@@ -109,7 +178,7 @@ function ConfirmCard({
   onAnswer: (allow: boolean) => void;
   scrollerRef: RefObject<HTMLDivElement>;
 }) {
-  const { preview, sentDecision } = pending;
+  const { preview, sentDecision, allowedAhead } = pending;
   const cardRef = useRef<HTMLDivElement>(null);
   const startRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -172,6 +241,10 @@ function ConfirmCard({
   const position = count > 1 ? ` (1 of ${count})` : "";
   const writes = n === 1 ? "write" : "writes";
   const hint = confirmHint(start, end);
+  // only a block read from the store can have changed under an earlier write
+  const readsStore = preview?.ops.some((op) =>
+    op.current !== null && op.current.state !== "created") ?? false;
+  const cards = allowedAhead === 1 ? "card" : "cards";
   return (
     <div className="assistant-confirm-card" ref={cardRef}>
       <div className="assistant-confirm-start" ref={startRef} aria-hidden="true" />
@@ -180,6 +253,12 @@ function ConfirmCard({
           ? `The assistant wants to make ${n} ${writes}${position}:`
           : `The assistant wants to write${position}:`}
       </div>
+      {readsStore && allowedAhead > 0 && (
+        <div className="assistant-confirm-stale">
+          {`Read before you allowed ${allowedAhead} earlier ${cards} in this turn; `
+            + "the current text it shows may have changed."}
+        </div>
+      )}
       {preview ? (
         <PreviewOps preview={preview} endRef={endRef} />
       ) : (

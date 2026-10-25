@@ -60,10 +60,11 @@ function previewOf(...ops: PreviewOp[]): WritePreview {
 }
 
 function showConfirm(preview: WritePreview | null, count = 1,
-  sentDecision: boolean | null = null) {
+  sentDecision: boolean | null = null, allowedAhead = 0) {
   state.current.status = "confirm";
   state.current.pendingConfirm = {
-    confirmId: confirmIdOf("t1"), opsPreview: "s", preview, sentDecision };
+    confirmId: confirmIdOf("t1"), opsPreview: "s", preview, sentDecision,
+    allowedAhead };
   state.current.pendingConfirmCount = count;
 }
 
@@ -419,8 +420,164 @@ describe("ConfirmCard", () => {
       op({ targets: [["uid", "אב"], ["page", "P"]] })));
     render(<AssistantPanel open onClose={() => {}} />);
     const values = card().querySelectorAll(".assistant-confirm-value");
-    expect(values).toHaveLength(3);
+    // two targets, the current page and text, and the content
+    expect(values).toHaveLength(5);
     for (const value of values) expect(value.tagName).toBe("BDI");
+  });
+
+  // an RTL value in an LTR card would otherwise draw right to left, and an
+  // override at its start must not reach the card's own text
+  test("every value is left-to-right", () => {
+    showConfirm(previewOf(op({ targets: [["uid", "ד 2"]],
+      current: { state: "found", page_title: canonicalTitleOf("שלום"),
+        excerpt: "\u202Eevil", text_length: 5, descendants: null } })));
+    render(<AssistantPanel open onClose={() => {}} />);
+    const values = [...card().querySelectorAll(".assistant-confirm-value")];
+    expect(values).toHaveLength(4);
+    for (const value of values) {
+      expect(value.tagName).toBe("BDI");
+      expect(value.getAttribute("dir")).toBe("ltr");
+    }
+    expect(values.map((v) => v.textContent)).toEqual(
+      ['"ד 2"', '"שלום"', '"\\u202Eevil"', '"Tidied wording."']);
+  });
+
+  const currentRows = () => [...card().querySelectorAll(
+    ".assistant-confirm-current")].map((el) => el.textContent);
+
+  test("current page and text follow the targets and precede warnings and "
+    + "content", () => {
+    showConfirm(previewOf(op({ warnings: ["mind this"] })));
+    render(<AssistantPanel open onClose={() => {}} />);
+    const target = card().querySelector(".assistant-confirm-target")!;
+    const rows = [...card().querySelectorAll(".assistant-confirm-current")];
+    const warning = card().querySelector(".assistant-confirm-warning")!;
+    const content = card().querySelector(".assistant-confirm-content")!;
+    expect(rows).toHaveLength(2);
+    const order = [target, ...rows, warning, content];
+    for (const [i, el] of order.slice(1).entries()) {
+      expect(order[i].compareDocumentPosition(el)
+        & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    expect(currentRows()).toEqual(
+      ['current page: "Inbox"', 'current text: "Old wording."']);
+    expect(rows[0].querySelector(".assistant-confirm-key")!.textContent)
+      .toBe("current page");
+    expect(rows[1].querySelector(".assistant-confirm-key")!.textContent)
+      .toBe("current text");
+  });
+
+  test("a clipped current text says so", () => {
+    showConfirm(previewOf(op({ current: { state: "found",
+      page_title: canonicalTitleOf("Inbox"), excerpt: "a".repeat(200),
+      text_length: 1234, descendants: null } })));
+    render(<AssistantPanel open onClose={() => {}} />);
+    const row = card().querySelectorAll(".assistant-confirm-current")[1];
+    expect(row.querySelector(".assistant-confirm-length")!.textContent)
+      .toBe("(first 200 of 1,234 characters)");
+    expect(row.querySelector(".assistant-confirm-value.assistant-confirm-text")!
+      .textContent).toBe('"' + "a".repeat(200) + '"…');
+  });
+
+  test("an unclipped current text shows no length and no ellipsis", () => {
+    showConfirm(previewOf(op()));
+    render(<AssistantPanel open onClose={() => {}} />);
+    const row = card().querySelectorAll(".assistant-confirm-current")[1];
+    expect(row.querySelector(".assistant-confirm-length")).toBeNull();
+    expect(row.querySelector(".assistant-confirm-text")!.textContent)
+      .toBe('"Old wording."');
+  });
+
+  // the 200 is the excerpt's own count of code points, not a constant
+  test("the clipped length counts the excerpt's code points", () => {
+    showConfirm(previewOf(op({ current: { state: "found",
+      page_title: canonicalTitleOf("Inbox"), excerpt: "😀".repeat(150),
+      text_length: 151, descendants: null } })));
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(card().querySelector(".assistant-confirm-current .assistant-confirm-length")!
+      .textContent).toBe("(first 150 of 151 characters)");
+  });
+
+  test("a missing block and a block made earlier in the batch", () => {
+    showConfirm(previewOf(
+      op({ action: "create block", targets: [["as", "a"]],
+        content: [["text", "x", 1]], current: null }),
+      op({ current: { state: "missing" } }),
+      op({ current: { state: "created", write: 1, alias: 'a"\n' } })));
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(currentRows()).toEqual([
+      "current text: no block has this uid",
+      'current text: none yet (write 1 above creates it as "a\\"\\u000A")',
+    ]);
+  });
+
+  // a delete removes the block's whole subtree, so the card says how much
+  test.each([
+    [0, null],
+    [1, "and 1 block under it"],
+    [1234, "and 1,234 blocks under it"],
+  ] as const)("a delete with %i blocks under it", (descendants, copy) => {
+    showConfirm(previewOf(op({ action: "delete block", content: [],
+      current: { state: "found", page_title: canonicalTitleOf("Inbox"),
+        excerpt: "Old wording.", text_length: 12, descendants } })));
+    render(<AssistantPanel open onClose={() => {}} />);
+    const subtree = card().querySelector(".assistant-confirm-subtree");
+    if (copy === null) expect(subtree).toBeNull();
+    else expect(subtree!.textContent).toBe(copy);
+  });
+
+  // the page the block is on now and the page it moves to are both pages:
+  // each says which it is
+  test("a move labels the page it is on apart from the page it goes to", () => {
+    showConfirm(previewOf(op({ action: "move block",
+      targets: [["uid", "U1"], ["page", "Dest"], ["index", 0]], content: [],
+      current: { state: "found", page_title: canonicalTitleOf("Src"),
+        excerpt: "Old wording.", text_length: 12, descendants: null } })));
+    render(<AssistantPanel open onClose={() => {}} />);
+    const targets = [...card().querySelectorAll(".assistant-confirm-target")]
+      .map((el) => el.textContent);
+    expect(targets).toEqual(['uid: "U1"', 'to page: "Dest"', "index: 0"]);
+    expect(currentRows()).toEqual(
+      ['currently on page: "Src"', 'current text: "Old wording."']);
+  });
+
+  // a card queued behind one the user allowed was read before that write
+  test.each([
+    [1, "Read before you allowed 1 earlier card in this turn; "
+      + "the current text it shows may have changed."],
+    [2, "Read before you allowed 2 earlier cards in this turn; "
+      + "the current text it shows may have changed."],
+  ])("a card read before %i allowed cards says so", (allowed, copy) => {
+    showConfirm(previewOf(op()), 1, null, allowed);
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(card().querySelector(".assistant-confirm-stale")!.textContent)
+      .toBe(copy);
+  });
+
+  test("a card no earlier allow precedes has no staleness note", () => {
+    showConfirm(previewOf(op()));
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(card().querySelector(".assistant-confirm-stale")).toBeNull();
+  });
+
+  // a block the batch itself creates, or none at all, was never read from
+  // the store
+  test.each([
+    ["no current block", null],
+    ["a block made earlier in the batch",
+      { state: "created", write: 1, alias: "a" }],
+  ] as const)("a card showing %s has no staleness note", (_name, current) => {
+    showConfirm(previewOf(
+      op({ action: "create block", targets: [["as", "a"]], current: null }),
+      op({ current })), 1, null, 1);
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(card().querySelector(".assistant-confirm-stale")).toBeNull();
+  });
+
+  test("a card that found no block still says it was read before", () => {
+    showConfirm(previewOf(op({ current: { state: "missing" } })), 1, null, 1);
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(card().querySelector(".assistant-confirm-stale")).not.toBeNull();
   });
 
   // what the server sends, through the parser the SSE stream uses
@@ -529,7 +686,7 @@ describe("ConfirmCard", () => {
     expect(screen.getByRole("button", { name: "Allow" })).toBeEnabled();
     state.current.pendingConfirm = {
       confirmId: confirmIdOf("t2"), opsPreview: "s", preview: previewOf(op()),
-      sentDecision: null };
+      sentDecision: null, allowedAhead: 0 };
     state.current.pendingConfirmCount = 1;
     rerender(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByRole("button", { name: "Allow" })).toBeDisabled();

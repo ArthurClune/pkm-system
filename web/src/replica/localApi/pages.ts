@@ -70,15 +70,15 @@ export function backlinks(db: ReplicaDb, pageId: PageId, offset: number,
      ORDER BY p.updated_at DESC NULLS LAST, p.title
      LIMIT ? OFFSET ?`, ["page_id"], [pageId, pageId, limit, offset]).map((r) => r.page_id);
   if (pageIds.length === 0) return { groups: [], total, texts: [] };
-  const marks = pageIds.map(() => "?").join(",");
   const rows = db.select(
     `SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
        FROM refs r
        JOIN blocks b ON b.uid = r.src_block_uid
        JOIN pages p ON p.id = b.page_id
-      WHERE r.target_page_id = ? AND b.page_id IN (${marks})
+      WHERE r.target_page_id = ?
+        AND b.page_id IN (SELECT value FROM json_each(?))
       ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid`, ["uid", "text", "src_page_id", "src_page_title"],
-    [pageId, ...pageIds]);
+    [pageId, JSON.stringify(pageIds)]);
   const groups = groupBacklinkRows(
     rows, fetchAncestors(db, rows.map((r) => r.uid)));
   return { groups, total, texts: rows.map((r) => r.text) };

@@ -3,7 +3,7 @@
 // still does, and the outline raises the depth notice.
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
@@ -35,11 +35,11 @@ function Harness({ initial, onReady }: {
   return null;
 }
 
-function setup(sync: SyncFake) {
+function setup(sync: SyncFake, initial: BlockNode[] = deepTree()) {
   let outline!: Outline;
   render(
     <SyncContext.Provider value={sync}>
-      <Harness initial={deepTree()} onReady={(o) => { outline = o; }} />
+      <Harness initial={initial} onReady={(o) => { outline = o; }} />
     </SyncContext.Provider>);
   return () => outline;
 }
@@ -195,4 +195,75 @@ it("an undo the cap refuses raises the notice and applies nothing", () => {
   expect(sync.sent).toHaveLength(sent);
   expect(outline().blocks).toEqual(before);
   expect(outline().editNotice).toBe(DEPTH_NOTICE);
+});
+
+// A page imported before the cap may already hold rows past it. Each
+// command is judged by the blocks it places, so those rows leave the rest
+// of the page, and their own text, editable.
+describe("a page holding rows past the cap", () => {
+  /** A legacy chain L1 > ... > L120, then shallow roots s1 and s2. */
+  function legacyTree(): BlockNode[] {
+    let node = block("tuid-L120", "L120");
+    for (let level = 119; level >= 1; level--) {
+      node = block(`tuid-L${level}`, `L${level}`, { children: [node] });
+    }
+    return [
+      node,
+      block("tuid-s1", "s1", { order_idx: orderIdxOf(1) }),
+      block("tuid-s2", "s2", { order_idx: orderIdxOf(2) }),
+    ];
+  }
+
+  it("an indent at a shallow level applies", () => {
+    const sync = makeSync();
+    const outline = setup(sync, legacyTree());
+    act(() => outline().handlers.onIndent(uidOf("tuid-s2")));
+    expect(sync.sent).toHaveLength(1);
+    expect(parentOf(outline(), "tuid-s2")).toBe("tuid-s1");
+    expect(outline().editNotice).toBeNull();
+    // the undo is judged by the blocks it places, too
+    act(() => { performUndo(sync); });
+    expect(sync.sent).toHaveLength(2);
+    expect(parentOf(outline(), "tuid-s2")).toBeNull();
+    expect(outline().editNotice).toBeNull();
+  });
+
+  it("a subtree move at a shallow level applies", () => {
+    const sync = makeSync();
+    const outline = setup(sync, legacyTree());
+    act(() => outline().handlers.onMoveSubtreeUp(uidOf("tuid-s2")));
+    expect(sync.sent).toHaveLength(1);
+    expect(sync.sent[0].map((op) => op.op)).toEqual(["move"]);
+    expect(outline().blocks.map((b) => b.uid))
+      .toEqual(["tuid-L1", "tuid-s2", "tuid-s1"]);
+    expect(outline().editNotice).toBeNull();
+  });
+
+  it("a paste at a shallow level applies", () => {
+    const sync = makeSync();
+    const outline = setup(sync, legacyTree());
+    act(() => outline().handlers.onPasteOutline(
+      uidOf("tuid-s1"), 2, 2, "a\n\tb"));
+    expect(sync.sent).toHaveLength(1);
+    expect(sync.sent[0].map((op) => op.op))
+      .toEqual(["update_text", "create"]);
+    expect(findNode(outline().blocks, uidOf("tuid-s1"))?.text).toBe("s1a");
+    expect(outline().editNotice).toBeNull();
+  });
+
+  it("the deep rows' text stays editable", () => {
+    const sync = makeSync();
+    const outline = setup(sync, legacyTree());
+    const deep = uidOf("tuid-L120");
+    act(() => outline().handlers.onFocusBlock(deep, 4));
+    act(() => outline().handlers.onDraftStart(deep, "L120"));
+    act(() => outline().handlers.onDraftChange(deep, "deep edit"));
+    act(() => outline().handlers.onFlushDraft());
+    expect(sync.sent).toEqual([[
+      { op: "update_text", uid: "tuid-L120", text: "deep edit",
+        base_text_hash: sha256Hex("L120"), page_title: PAGE },
+    ]]);
+    expect(findNode(outline().blocks, deep)?.text).toBe("deep edit");
+    expect(outline().editNotice).toBeNull();
+  });
 });

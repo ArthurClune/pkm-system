@@ -117,14 +117,15 @@ what an update, move or delete acts on, not only its uid:
 | A delete's count is one walk of `_DESCENDANTS_SQL` per target | Its cost is the sizes of nested targets' subtrees times their depth. Real outlines count in milliseconds, but a chain at `MAX_OUTLINE_DEPTH` over tens of thousands of blocks holds the card back for seconds |
 
 A card is a snapshot taken when its `confirm_request` was built, so a write
-the user allows on another card of the turn can land after it. The two sides
-mark that case together:
+the user allows on another card can land after it. That write may be the
+turn's own, or a stopped or errored turn's still running. The two sides mark
+that case together:
 
 | Side | What it records |
 |---|---|
-| server, `ClaudeConversation.can_use_tool` | stamps `writes_in_flight` when another write of the turn could land after the read: a confirm waited on the user, or an allowed write was still running, as the read started; or a confirm parked or a write was allowed during it |
-| server, `_pump` | an allowed write stops running when its tool result arrives (`finished_tool_ids`). Without a `tool_use_id` it runs until the turn ends |
-| web, `useAssistant` | `allowedAhead` counts the Allows posted in the turn before the card is answered, before it arrived or while it waited |
+| server, `ClaudeConversation.can_use_tool` | stamps `writes_in_flight` when another write could land after the read: a confirm waited on the user, or an allowed write was still running, as the read started; or a confirm parked or a write was allowed during it |
+| server, `_pump` and `send` | an allowed write stops running when its tool result arrives (`finished_tool_ids`), or when a turn finishes (`TurnDone`), the only end for one without a `tool_use_id`. A stopped or errored turn does not finish, so its running writes stamp the next turn's cards |
+| web, `useAssistant` | `allowedAhead` counts the Allows posted since the last finished turn (`turn_done`) or new conversation, before the card is answered, before it arrived or while it waited |
 | web, `ConfirmCard` | a stamped card with a `found` or `missing` block and `allowedAhead` above zero shows `.assistant-confirm-stale` |
 
 **A card is never silently stale from the assistant's own writes.** The

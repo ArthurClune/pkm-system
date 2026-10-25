@@ -156,9 +156,10 @@ class ClaudeConversation:
         self._queue: asyncio.Queue[AssistantEvent] = asyncio.Queue()
         self._pending: dict[ConfirmId, asyncio.Future[bool]] = {}
         self._confirm_seq = 0
-        # The turn's allowed writes whose results have not arrived, by
-        # tool_use_id (the confirm id when the SDK gives none, which then
-        # counts as running until the turn ends).
+        # The allowed writes whose results have not arrived, by tool_use_id
+        # (the confirm id when the SDK gives none, which then counts as
+        # running until a turn finishes). A stopped turn's writes carry
+        # over into the next turn.
         self._running_writes: set[str] = set()
         # Bumped when a confirm parks or a write is allowed, so a read that
         # spans one is known to have.
@@ -188,9 +189,9 @@ class ClaudeConversation:
             logger.warning("assistant requested unexpected tool %s", tool_name)
             return PermissionResultDeny(message="Tool not permitted.")
         short = short_tool_name(tool_name)
-        # Whether another write of this turn could land after the read:
-        # one waits on the user or runs as the read starts, or one parks
-        # or is allowed during it.
+        # Whether another write could land after the read: one waits on
+        # the user or runs as the read starts (a stopped turn's included),
+        # or one parks or is allowed during it.
         in_flight = self._writes_in_flight()
         events = self._write_events
         preview = await preview_write(short, tool_input or {},
@@ -240,8 +241,6 @@ class ClaudeConversation:
         # not leak into the next turn
         while not self._queue.empty():
             self._queue.get_nowait()
-        # the last turn's writes have all finished by its result
-        self._running_writes.clear()
         await self._live_client().query(text)
         mapper = TurnMapper()
         pump = asyncio.create_task(self._pump(mapper))
@@ -250,6 +249,11 @@ class ClaudeConversation:
         try:
             while True:
                 event = await self._queue.get()
+                if isinstance(event, TurnDone):
+                    # Every write of a finished turn has its result. A
+                    # stopped or failed turn's stay running until theirs
+                    # arrives in a later turn, or that turn finishes.
+                    self._running_writes.clear()
                 yield event
                 if isinstance(event, (TurnDone, ErrorEvent)):
                     finished = True

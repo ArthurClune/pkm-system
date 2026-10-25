@@ -294,6 +294,7 @@ describe("useAssistant", () => {
         if (calls === 1) {
           onEvent(confirmEvent("c1"));
           await turnOne.promise;
+          onEvent({ type: "turn_done", usage: null });
           return;
         }
         onEvent(confirmEvent("c2"));
@@ -312,6 +313,72 @@ describe("useAssistant", () => {
       turnOne.resolve();
       await first;
     });
+    await act(async () => {
+      void latest.send("two");
+      await Promise.resolve();
+    });
+    expect(latest.pendingConfirm?.confirmId).toBe("c2");
+    expect(latest.pendingConfirm?.allowedAhead).toBe(0);
+  });
+
+  // Turn one shows c1 and runs until aborted; turn two shows c2.
+  function stoppedThenNext() {
+    let calls = 0;
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void,
+             signal?: AbortSignal) => {
+        calls += 1;
+        if (calls === 1) {
+          onEvent(confirmEvent("c1"));
+          await new Promise((_resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          });
+          return;
+        }
+        onEvent(confirmEvent("c2"));
+        await new Promise<void>(() => {});
+      },
+    );
+    mocks.confirmTool.mockResolvedValue(undefined);
+  }
+
+  test("a stopped turn's Allows count for the next turn's cards", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
+    stoppedThenNext();
+    render(<Harness />);
+    let first!: Promise<void>;
+    await act(async () => {
+      first = latest.send("one");
+      await Promise.resolve();
+    });
+    await act(() => latest.respondConfirm(true));
+    await act(async () => {
+      latest.stop();
+      await first;
+    });
+    await act(async () => {
+      void latest.send("two");
+      await Promise.resolve();
+    });
+    expect(latest.pendingConfirm?.confirmId).toBe("c2");
+    expect(latest.pendingConfirm?.allowedAhead).toBe(1);
+  });
+
+  test("a new conversation counts no Allow from the old one", async () => {
+    mocks.createConversation
+      .mockResolvedValueOnce({ id: "conv1", model: "sonnet" })
+      .mockResolvedValueOnce({ id: "conv2", model: "sonnet" });
+    mocks.deleteConversation.mockResolvedValue(undefined);
+    stoppedThenNext();
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("one");
+      await Promise.resolve();
+    });
+    await act(() => latest.respondConfirm(true));
+    await act(() => latest.newChat());
     await act(async () => {
       void latest.send("two");
       await Promise.resolve();

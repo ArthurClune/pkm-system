@@ -250,7 +250,7 @@ function ConfirmCard({
   const stale = readsStore && (preview?.writes_in_flight ?? false)
     && allowedAhead > 0;
   const cards = allowedAhead === 1
-    ? "card in this turn, and its write" : "cards in this turn, and their writes";
+    ? "card, and its write" : "cards, and their writes";
   return (
     <div className="assistant-confirm-card" ref={cardRef}>
       <div className="assistant-confirm-start" ref={startRef} aria-hidden="true" />

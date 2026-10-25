@@ -307,18 +307,36 @@ export function takeRedo(state: HistoryState):
 }
 
 /** Undoes a takeUndo ("undo") or takeRedo ("redo") of `entry` whose replay
- * was refused: the entry leaves the other stack, if still there, and goes
- * back on top of its own. An upload's take clears the redo stack, but
- * its inverse places no blocks, so its replay is never refused and never
- * reaches here. */
+ * was refused, as though it had been refused at the take. `taken` is the
+ * state that take returned; an entry in neither of its stacks was recorded
+ * since. The entry leaves the other stack, if still there. A refused undo
+ * goes back on its own stack below every entry recorded since the take, or
+ * on top when there is none. A refused redo goes back on top of redo only
+ * when nothing was recorded since: a record cleared the redo stack, so the
+ * entry is dropped, and it stays off undo too, since it never applied.
+ * Taking an entry already on a stack is not a record. An upload's take
+ * clears the redo stack, but its inverse places no blocks, so its replay is
+ * never refused and never reaches here. */
 export function restoreEntry(state: HistoryState, entry: HistoryEntry,
-                             kind: "undo" | "redo"): HistoryState {
+                             kind: "undo" | "redo",
+                             taken: HistoryState): HistoryState {
   const without = (stack: HistoryEntry[]): HistoryEntry[] => {
     const at = stack.lastIndexOf(entry);
     return at < 0 ? stack : [...stack.slice(0, at), ...stack.slice(at + 1)];
   };
-  return kind === "undo"
-    ? { undo: [...state.undo, entry].slice(-HISTORY_CAP),
-        redo: without(state.redo) }
-    : { undo: without(state.undo), redo: [...state.redo, entry] };
+  const known = new Set([...taken.undo, ...taken.redo]);
+  const isFresh = (e: HistoryEntry) => e !== entry && !known.has(e);
+  if (kind === "redo") {
+    const recorded = state.undo.some(isFresh) || state.redo.some(isFresh);
+    return recorded
+      ? { undo: without(state.undo), redo: state.redo }
+      : { undo: without(state.undo), redo: [...state.redo, entry] };
+  }
+  const firstFresh = state.undo.findIndex(isFresh);
+  const at = firstFresh < 0 ? state.undo.length : firstFresh;
+  return {
+    undo: [...state.undo.slice(0, at), entry, ...state.undo.slice(at)]
+      .slice(-HISTORY_CAP),
+    redo: without(state.redo),
+  };
 }

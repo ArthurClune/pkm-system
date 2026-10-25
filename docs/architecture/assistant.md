@@ -155,18 +155,24 @@ reply, which can report a refused write as done.
 | Result of a write | `ToolFinished` | Panel line |
 |---|---|---|
 | succeeded | neither field set | `✓` |
+| a `batch` that skipped some ops (its result starts `warning:`) | neither field set: a skip is a successful result | `✓` |
 | the user declined the card | `declined=True` | `Declined`, no glyph |
-| allowed, or run without a card, then `is_error` | `error=<reason>` | `✗` and `Failed: <reason>` |
-| a read tool's error | neither field set | unmarked: reads fail while the model probes |
+| Stop while the card is parked | `declined=True`: Stop answers the card with a decline (`_decline_pending`) | `Declined`, no glyph |
+| allowed then errored, or refused before a card (a `Refusal`) | `error=<reason>` | `✗` and `Failed: <reason>` |
+| a read tool's error | neither field set | `✓`, no failure mark: reads fail while the model probes |
+| no result reaches the web: the turn stopped as it arrived, the harness was lost, or a New chat or reload | no event | `…` stays |
 
 - The truth is `ToolResultBlock.is_error`, observed by `TurnMapper` as the
-  SDK stream passes. The decline is known from the answer given to the card,
-  because the CLI also marks it `is_error`.
+  SDK stream passes. The CLI marks a deny `is_error` like a failure, so the
+  server tells them apart by the card answer it gave (`_declined`).
 - `TurnMapper` pairs a result with its call by `tool_use_id`, through maps the
-  conversation owns (`_tools`, `_declined`). A stopped turn's write can report
-  during the next turn, so the maps must outlive a mapper.
-- The reason can echo model-chosen input, so it is clipped server-side
-  (`tool_error_reason`) and the panel renders it as text.
+  conversation owns (`_tool_names`, which the mapper calls `_tools`, and
+  `_declined`). A stopped turn's write can report during the next turn, so
+  the maps must outlive a mapper.
+- `tool_error_reason` drops the CLI's `<tool_use_error>` wrapper and
+  FastMCP's `Error executing tool <name>:` prefix. The reason can echo
+  model-chosen input, so it is clipped server-side and the panel renders it
+  as text.
 
 ## Conversation registry
 

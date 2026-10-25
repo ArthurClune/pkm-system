@@ -1,9 +1,12 @@
 // @vitest-environment node
+import fc from "fast-check";
 import { afterEach, describe, expect, test } from "vitest";
 import type { BlockUid } from "../../api/brands";
+import { MAX_OUTLINE_DEPTH } from "../../outline/depthCap";
 import { orderIdxOf, uidOf } from "../../test-helpers";
+import type { ReplicaDb } from "../db";
 import { openTestDb, type TestDb } from "../testDb";
-import { buildTree, fetchAncestors, type BlockRow } from "./tree";
+import { ancestorTexts, buildTree, fetchAncestors, type BlockRow } from "./tree";
 
 function blockRow(over: Partial<BlockRow> = {}): BlockRow {
   return {
@@ -95,5 +98,166 @@ describe("fetchAncestors", () => {
       "cycle text 2",
       "cycle text 1",
     ]);
+  });
+});
+
+/** `fetchAncestors` as it was with the per-row path string: the oracle
+ * the rewrite must match, cycles and dangling parents included. */
+function referenceFetchAncestors(db: ReplicaDb,
+                                 uids: BlockUid[]): Map<BlockUid, string[]> {
+  const out = new Map<BlockUid, string[]>();
+  if (uids.length === 0) return out;
+  const marks = uids.map(() => "?").join(",");
+  const rows = db.select(
+    `WITH RECURSIVE anc(start_uid, uid, parent_uid, text, depth, path) AS (
+       SELECT uid, uid, parent_uid, text, 0, ',' || uid || ',' FROM blocks
+        WHERE uid IN (${marks})
+       UNION ALL
+       SELECT a.start_uid, b.uid, b.parent_uid, b.text, a.depth + 1,
+              a.path || b.uid || ','
+         FROM anc a JOIN blocks b ON b.uid = a.parent_uid
+        WHERE instr(a.path, ',' || b.uid || ',') = 0
+     )
+     SELECT start_uid, text, depth FROM anc WHERE depth > 0
+      ORDER BY start_uid, depth DESC`, ["text", "start_uid", "depth"], uids);
+  for (const r of rows) {
+    const list = out.get(r.start_uid);
+    if (list) list.push(r.text);
+    else out.set(r.start_uid, [r.text]);
+  }
+  return out;
+}
+
+/** Map contents in key order: callers read a trail by key, so the order
+ * the entries were inserted in is not part of the contract. */
+const sorted = (m: Map<BlockUid, string[]>) =>
+  [...m.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+
+/** Replace every block with `parents` (uid -> parent uid or null). Foreign
+ * keys are off: a dangling parent and a cycle are corrupt data no write
+ * path makes, but the read must cope with them. */
+function storeBlocks(parents: ReadonlyMap<string, string | null>) {
+  t.db.exec("DELETE FROM blocks");
+  let i = 0;
+  for (const [uid, parent] of parents) {
+    t.db.exec(
+      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+      + " heading, collapsed, created_at, updated_at)"
+      + " VALUES (?,?,?,?,?,?,?,?,?)",
+      [uid, 1, parent, i, `text of ${uid}`, null, 0, 0, 0],
+    );
+    i += 1;
+  }
+}
+
+async function openGraphDb() {
+  t = await openTestDb();
+  t.db.exec("PRAGMA foreign_keys=OFF");
+  insertPage(1, "Graph page");
+}
+
+const chainOf = (n: number) => new Map(Array.from({ length: n }, (_, i) =>
+  [`chain-${i}`, i ? `chain-${i - 1}` : null] as const));
+
+describe("ancestorTexts", () => {
+  const u = (name: string) => uidOf(`tuid-${name}`);
+  const rows = (parents: Record<string, string | null>) =>
+    new Map(Object.entries(parents).map(([k, p]) =>
+      [u(k), [p === null ? null : u(p), k.toUpperCase()] as const]));
+
+  test("runs root first and skips a start with no ancestors", () => {
+    expect(ancestorTexts([u("c"), u("a")], rows({ a: null, b: "a", c: "b" })))
+      .toEqual(new Map([[u("c"), ["A", "B"]]]));
+  });
+
+  test("stops at the first uid already on the trail", () => {
+    const graph = rows({ a: "c", b: "a", c: "b", x: "a" });
+    expect(ancestorTexts([u("a"), u("x")], graph)).toEqual(new Map([
+      [u("a"), ["B", "C"]], [u("x"), ["B", "C", "A"]]]));
+  });
+
+  test("gives a self-parent no trail", () => {
+    expect(ancestorTexts([u("a")], rows({ a: "a" }))).toEqual(new Map());
+  });
+
+  test("ends at a missing parent and leaves out an unknown start", () => {
+    expect(ancestorTexts([u("c"), u("nope")], rows({ b: "gone", c: "b" })))
+      .toEqual(new Map([[u("c"), ["B"]]]));
+  });
+});
+
+describe("fetchAncestors against the path-string walk", () => {
+  const NAMES = Array.from({ length: 12 }, (_, i) => `block-${i}`);
+  const MISSING = "block-missing";
+  const graphs = fc.integer({ min: 1, max: NAMES.length }).chain((n) => {
+    const names = NAMES.slice(0, n);
+    return fc.record({
+      parents: fc.array(fc.oneof(fc.constant(null), fc.constantFrom(...names),
+                                 fc.constant(MISSING)),
+                        { minLength: n, maxLength: n }),
+      starts: fc.array(fc.constantFrom(...names, "block-unknown"),
+                       { minLength: 1, maxLength: 2 * n }),
+    }).map(({ parents, starts }) => ({
+      parents: new Map(names.map((name, i) => [name, parents[i]] as const)),
+      starts: starts.map(uidOf),
+    }));
+  });
+
+  test("matches over random graphs with cycles and dangling parents", async () => {
+    await openGraphDb();
+    const seen = { cycle: 0, missing: 0 };
+    fc.assert(fc.property(graphs, ({ parents, starts }) => {
+      storeBlocks(parents);
+      for (const start of starts) {
+        const trail = new Set<string>([start]);
+        let cur = parents.get(start) ?? null;
+        while (cur !== null && parents.has(cur) && !trail.has(cur)) {
+          trail.add(cur);
+          cur = parents.get(cur) ?? null;
+        }
+        if (cur !== null && trail.has(cur)) seen.cycle += 1;
+        if (cur === MISSING) seen.missing += 1;
+      }
+      expect(sorted(fetchAncestors(t.db, starts)))
+        .toEqual(sorted(referenceFetchAncestors(t.db, starts)));
+    }), { numRuns: 300 });
+    // Both corrupt shapes must actually be drawn.
+    expect(seen.cycle).toBeGreaterThan(25);
+    expect(seen.missing).toBeGreaterThan(25);
+  });
+
+  test("matches on a chain and on a cycle as long as the outline cap", async () => {
+    await openGraphDb();
+    const chain = chainOf(MAX_OUTLINE_DEPTH + 1);
+    const starts = [...chain.keys()].map(uidOf);
+    storeBlocks(chain);
+    const got = fetchAncestors(t.db, starts);
+    expect(sorted(got)).toEqual(sorted(referenceFetchAncestors(t.db, starts)));
+    expect(got.get(starts[MAX_OUTLINE_DEPTH])).toHaveLength(MAX_OUTLINE_DEPTH);
+
+    chain.set("chain-0", `chain-${MAX_OUTLINE_DEPTH}`);
+    storeBlocks(chain);
+    const looped = fetchAncestors(t.db, starts);
+    expect(sorted(looped))
+      .toEqual(sorted(referenceFetchAncestors(t.db, starts)));
+    expect([...looped.values()].every((trail) =>
+      trail.length === MAX_OUTLINE_DEPTH)).toBe(true);
+  });
+
+  // Every block of the chain is a start, as when each links the page whose
+  // backlinks are read. Reading each ancestor once doubles the SQL work when
+  // the depth doubles; one row per (start, ancestor), as the path-string
+  // walk made, quadruples it.
+  test("does SQL work linear in the depth", async () => {
+    await openGraphDb();
+    const steps = (depth: number) => {
+      const chain = chainOf(depth);
+      storeBlocks(chain);
+      const starts = [...chain.keys()].map(uidOf);
+      return t.vmSteps(() => { fetchAncestors(t.db, starts); });
+    };
+    const shallow = steps(200);
+    const deep = steps(400);
+    expect(deep).toBeLessThan(3 * shallow);
   });
 });

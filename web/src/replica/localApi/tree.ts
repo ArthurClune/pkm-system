@@ -129,28 +129,56 @@ export function blockRefCounts(db: ReplicaDb,
   return out;
 }
 
-/** Breadcrumb trails: root-first ancestor texts per start uid. */
-export function fetchAncestors(db: ReplicaDb,
-                               uids: BlockUid[]): Map<BlockUid, string[]> {
+/** Each start's breadcrumb trail, root first, from `uid -> [parent_uid,
+ * text]`: the parent links followed up to a uid missing from `blocks` or
+ * one already on the trail (the start counts), so a corrupt parent cycle
+ * ends rather than repeating. Starts with no ancestor in `blocks` are
+ * absent. Mirrors server tree.ancestor_texts. */
+export function ancestorTexts(
+  starts: readonly BlockUid[],
+  blocks: ReadonlyMap<BlockUid, readonly [BlockUid | null, string]>,
+): Map<BlockUid, string[]> {
   const out = new Map<BlockUid, string[]>();
-  if (uids.length === 0) return out;
-  const marks = uids.map(() => "?").join(",");
-  const rows = db.select(
-    `WITH RECURSIVE anc(start_uid, uid, parent_uid, text, depth, path) AS (
-       SELECT uid, uid, parent_uid, text, 0, ',' || uid || ',' FROM blocks
-        WHERE uid IN (${marks})
-       UNION ALL
-       SELECT a.start_uid, b.uid, b.parent_uid, b.text, a.depth + 1,
-              a.path || b.uid || ','
-         FROM anc a JOIN blocks b ON b.uid = a.parent_uid
-        WHERE instr(a.path, ',' || b.uid || ',') = 0
-     )
-     SELECT start_uid, text, depth FROM anc WHERE depth > 0
-      ORDER BY start_uid, depth DESC`, ["text", "start_uid", "depth"], uids);
-  for (const r of rows) { // depth DESC = root first
-    const list = out.get(r.start_uid);
-    if (list) list.push(r.text);
-    else out.set(r.start_uid, [r.text]);
+  for (const start of new Set(starts)) {
+    const first = blocks.get(start);
+    if (!first) continue;
+    const seen = new Set<BlockUid>([start]);
+    const trail: string[] = [];
+    let parent = first[0];
+    while (parent !== null && !seen.has(parent)) {
+      const row = blocks.get(parent);
+      if (!row) break;
+      seen.add(parent);
+      trail.push(row[1]);
+      parent = row[0];
+    }
+    if (trail.length > 0) out.set(start, trail.reverse());
   }
   return out;
+}
+
+/** Breadcrumb trails: root-first ancestor texts per start uid. Mirrors
+ * routes_pages._fetch_ancestors: the CTE holds `uid` alone and joins with
+ * UNION, which queues a row only once, so each distinct ancestor is read
+ * once and a corrupt parent cycle ends the walk. It must never carry a
+ * per-row path string: one row per (start, ancestor), each copying an
+ * O(depth) string, made breadcrumbs cost O(depth^3). */
+export function fetchAncestors(db: ReplicaDb,
+                               uids: BlockUid[]): Map<BlockUid, string[]> {
+  if (uids.length === 0) return new Map();
+  const marks = uids.map(() => "?").join(",");
+  const blocks = new Map<BlockUid, readonly [BlockUid | null, string]>();
+  for (const r of db.select(
+    `WITH RECURSIVE anc(uid) AS (
+       SELECT uid FROM blocks WHERE uid IN (${marks})
+       UNION
+       SELECT b.parent_uid FROM anc a JOIN blocks b ON b.uid = a.uid
+        WHERE b.parent_uid IS NOT NULL
+     )
+     SELECT b.uid, b.parent_uid, b.text
+       FROM anc JOIN blocks b ON b.uid = anc.uid`,
+    ["uid", "parent_uid", "text"], uids)) {
+    blocks.set(r.uid, [r.parent_uid, r.text]);
+  }
+  return ancestorTexts(uids, blocks);
 }

@@ -8,7 +8,13 @@ import { installSchema } from "./clientSchema";
 
 interface Sqlite3Module {
   config: { warn: (...args: unknown[]) => void };
-  oo1: { DB: new (filename: string) => Oo1DbLike & { close(): void } };
+  capi: {
+    sqlite3_progress_handler(db: number, nOps: number,
+                             callback: (() => number) | 0, cbArg: 0): void;
+  };
+  oo1: {
+    DB: new (filename: string) => Oo1DbLike & { close(): void; pointer: number };
+  };
 }
 
 let sqlite3: Sqlite3Module | null = null;
@@ -16,6 +22,10 @@ let sqlite3: Sqlite3Module | null = null;
 export interface TestDb {
   db: ReplicaDb;
   close(): void;
+  /** How many times SQLite's progress handler fired, every `every` VM
+   * steps, while `fn` ran: work that grows with the rows a query visits,
+   * and unlike a clock, the same on every run. */
+  vmSteps(fn: () => void, every?: number): number;
 }
 
 /** The engine's bootstrap probes `localStorage` for its kvvfs backend; on
@@ -51,11 +61,25 @@ export async function openRawTestDb(opts: WrapOptions = {}): Promise<TestDb> {
     // see (and silence) the ones it provokes on purpose.
     sqlite3.config.warn = (...args) => console.warn(...args);
   }
-  const raw = new sqlite3.oo1.DB(":memory:");
+  const engine = sqlite3;
+  const raw = new engine.oo1.DB(":memory:");
   const db = wrapSqlite(raw, opts);
   db.exec("PRAGMA foreign_keys=ON");
   db.exec("PRAGMA recursive_triggers=ON");
-  return { db, close: () => raw.close() };
+  const vmSteps = (fn: () => void, every = 100): number => {
+    let ticks = 0;
+    engine.capi.sqlite3_progress_handler(raw.pointer, every, () => {
+      ticks += 1;
+      return 0;
+    }, 0);
+    try {
+      fn();
+    } finally {
+      engine.capi.sqlite3_progress_handler(raw.pointer, 0, 0, 0);
+    }
+    return ticks;
+  };
+  return { db, close: () => raw.close(), vmSteps };
 }
 
 /** Carry files over one in-memory database. Content persists across opens,

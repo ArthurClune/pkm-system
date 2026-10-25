@@ -1,5 +1,5 @@
 {
-  "commit": "7e7d6ab7+dirty",
+  "commit": "5126e359+dirty",
   "env": {
     "python": "3.12.10",
     "sqlite": "3.47.1"
@@ -107,7 +107,7 @@
       },
       "vm_steps_k": {
         "class": "exact",
-        "value": 147
+        "value": 89
       }
     },
     "block/get": {
@@ -500,6 +500,32 @@
         "value": 24
       }
     },
+    "page/deep-backlinks": {
+      "bytes": {
+        "class": "exact",
+        "value": 120828
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 29.13
+      },
+      "statements": {
+        "class": "exact",
+        "value": 7
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 7
+      }
+    },
     "page/hub": {
       "bytes": {
         "class": "exact",
@@ -523,7 +549,7 @@
       },
       "vm_steps_k": {
         "class": "exact",
-        "value": 28
+        "value": 19
       }
     },
     "page/hub-deep": {
@@ -549,7 +575,7 @@
       },
       "vm_steps_k": {
         "class": "exact",
-        "value": 15
+        "value": 14
       }
     },
     "page/journal-day": {

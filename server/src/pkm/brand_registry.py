@@ -248,6 +248,9 @@ SQLITE_SITES: dict[str, str] = {
     "server/tests/test_sql_variable_limit.py":
         "lowers SQLITE_LIMIT_VARIABLE_NUMBER on request connections so a"
         " few hundred rows trip an unchunked IN-list",
+    "server/tests/test_ancestor_walk.py":
+        "counts the VM steps of the breadcrumb ancestor query with a"
+        " progress handler, to show its work grows linearly with depth",
 }
 
 # The one module on each side that may mint every brand: the checked

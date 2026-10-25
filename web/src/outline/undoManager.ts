@@ -123,6 +123,11 @@ export function setAssetReleaser(r: AssetReleaser): () => void {
   };
 }
 
+/** Release files a refused command uploaded, which no history entry owns. */
+export function releaseUnusedAssets(shas: readonly Sha256Hex[]): void {
+  void releaser.release(shas, []);
+}
+
 /** Test seam: resolves when no queued dispatch remains. */
 export async function historyIdle(): Promise<void> {
   while (queued > 0) await chain;

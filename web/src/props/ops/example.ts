@@ -235,8 +235,10 @@ function tallyRaw(t: Tally, drafts: readonly RawDraft[], ops: readonly BlockOp[]
     }
   }
   if ([...named.values()].some((n) => n > 1)) seen.add("block named twice");
-  if (findOpTitleViolation(ops) !== null) seen.add("forbidden title");
+  // Judged in the server's order: a batch past a limit never reaches the
+  // title pass, which would scan megabytes of text to no end.
   if (findOpTextLimitViolation(ops) !== null) seen.add("text past a limit");
+  else if (findOpTitleViolation(ops) !== null) seen.add("forbidden title");
   if (ops.some((op) => "text" in op && op.text === AT_CAP_TEXT)) seen.add("text at the length cap");
   for (const v of seen) bump(t.variations, v);
 }
@@ -302,7 +304,16 @@ export async function runExample(server: ServerControl, ex: Example,
       if (off.length > 0) throw harness(`seed of ${p} differs from the start:\n${off.join("\n")}`);
     }
     await server.takeEcho();
-    await opts.afterSeed?.();
+    // The server as last read, or null once a batch it applied may have
+    // moved it. A snapshot round trip is much of a step's time, and the
+    // server changes only when it applies a batch: a 400 leaves it as it
+    // was, and the replica's enqueue and pulls never touch it.
+    let latest: Snapshot | null = s0;
+    const snapshot = async (): Promise<Snapshot> => (latest ??= await server.snapshot());
+    if (opts.afterSeed) {
+      await opts.afterSeed();
+      latest = null;
+    }
 
     const known = new Set<string>(s0.blocks.map((b) => b.uid));
     const keep = new Set<string>(s0.pages.map((p) => p.title));
@@ -417,6 +428,7 @@ export async function runExample(server: ServerControl, ex: Example,
         const row = refused === null ? storedRow(batchId) : null;
         const sent = row?.ops ?? batch.ops;
         const posted = await post(server, batchId, clientIdOf("ops-device"), sent);
+        if (posted.status !== 400) latest = null;
         ackSkips(posted);
         trace.push(`  command batch ${i + 1} (${batchId}): ${showAck(posted)}`,
                    `      ${showOps(sent)}`);
@@ -454,7 +466,7 @@ export async function runExample(server: ServerControl, ex: Example,
         if (row) deleteBatch(replica.db, row.id, row.batch_id);
         const echo = await server.takeEcho();
         if (echo === null) throw harness(`no echo after ${batchId}'s 200`);
-        const s1 = await server.snapshot();
+        const s1 = await snapshot();
         const outline = pruneTree(treesFromSnapshot(s1, ["Outline Props"]).get("Outline Props") ?? [],
                                   known);
         for (const line of diffTrees(batch.after, outline, ["editor", "server"])) {
@@ -473,7 +485,7 @@ export async function runExample(server: ServerControl, ex: Example,
     for (const [i, step] of ex.steps.entries()) {
       const header = `at raw step ${i + 1} of ${ex.steps.length}`;
       const problems: string[] = [];
-      const g = fromSnapshot(await server.snapshot());
+      const g = fromSnapshot(await snapshot());
       const opsB = resolveRaw(step.batch, g, mint);
       tallyRaw(tally, step.batch, opsB, g);
       learn(opsB);
@@ -488,11 +500,12 @@ export async function runExample(server: ServerControl, ex: Example,
 
       // Another device's batch, then a window over B's optimistic apply.
       if (step.other !== null) {
-        const gO = fromSnapshot(await server.snapshot());
+        const gO = fromSnapshot(await snapshot());
         const opsO = resolveRaw(step.other, gO, mint);
         learn(opsO);
         const batchO = nextBatchId();
         const postedO = await post(server, batchO, clientIdOf("ops-other"), opsO);
+        if (postedO.status !== 400) latest = null;
         ackSkips(postedO);
         trace.push(`  step ${i + 1} O (${batchO}): ${showAck(postedO)}`,
                    `      ${showOps(opsO)}`);
@@ -502,7 +515,7 @@ export async function runExample(server: ServerControl, ex: Example,
         } else {
           const echoO = await server.takeEcho();
           if (echoO === null) throw harness(`no echo after ${batchO}'s 200`);
-          const sO = await server.snapshot();
+          const sO = await snapshot();
           problems.push(...checkEcho(echoO, sO, TITLE_POOL, "O's echo"));
 
           const pending = allBatches(replica.db).filter((b) => !b.poisoned);
@@ -534,6 +547,7 @@ export async function runExample(server: ServerControl, ex: Example,
       const row = refused === null ? storedRow(batchB) : null;
       const sent = row?.ops ?? opsB;
       const posted = await post(server, batchB, clientIdOf("ops-device"), sent);
+      if (posted.status !== 400) latest = null;
       ackSkips(posted);
       trace.push(`  step ${i + 1} B (${batchB}): ${showAck(posted)}`,
                  `      ${showOps(sent)}`);
@@ -565,7 +579,7 @@ export async function runExample(server: ServerControl, ex: Example,
       if (row) deleteBatch(replica.db, row.id, row.batch_id);
       const echo = await server.takeEcho();
       if (echo === null) throw harness(`no echo after ${batchB}'s 200`);
-      const s1 = await server.snapshot();
+      const s1 = await snapshot();
       problems.push(...checkEcho(echo, s1, TITLE_POOL, "B's echo"));
       problems.push(...checkReplica(s1));
       problems.push(...await settle(s1));

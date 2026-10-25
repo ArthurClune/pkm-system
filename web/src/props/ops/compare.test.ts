@@ -72,6 +72,14 @@ describe("treesFromSnapshot input checks", () => {
 });
 
 describe("diffTrees", () => {
+  it("compares a long text by value and names it by length and hash", () => {
+    const long = (end: string) => [node("opsb00", 1, [], { text: "y".repeat(300) + end })];
+    expect(diffTrees(long(""), long(""), ["server", "tree"])).toEqual([]);
+    const [line] = diffTrees(long("a"), long("b"), ["server", "tree"]);
+    expect(line).toMatch(/^opsb00: text <301 UTF-16 units, sha256 [0-9a-f]{16}> \(server\) vs/);
+  });
+
+
   it("reports a uid appearing twice in one tree", () => {
     const a = [node("opsb00", 1), node("opsb00", 2)];
     expect(diffTrees(a, [node("opsb00", 1)], ["server", "tree"]))

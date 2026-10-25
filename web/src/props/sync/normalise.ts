@@ -14,6 +14,7 @@
 import type { OrderIdx } from "../../api/brands";
 import type { Snapshot } from "../../replica/apply";
 import type { ReplicaDb } from "../../replica/db";
+import { sha256Hex } from "../../replica/sha256";
 
 /** `key` and `parentKey` are block uids, or the positional names
  * canonicaliseMintedUids gives the ones the server minted, which are not
@@ -120,6 +121,22 @@ const FIELDS = ["page", "parentKey", "order_idx", "text", "heading", "collapsed"
 
 const show = (v: unknown): string => JSON.stringify(v) ?? "undefined";
 
+/** Texts longer than this are named in a difference by length and hash. */
+const LONG_TEXT = 200;
+
+/** Whether two field values differ. A string is compared as itself, which
+ * for an equal pair costs nothing like serialising the megabyte texts the
+ * limits draw, as every comparison in a step otherwise would. */
+export const fieldsDiffer = (a: unknown, b: unknown): boolean =>
+  typeof a === "string" && typeof b === "string" ? a !== b : show(a) !== show(b);
+
+/** A field value as a difference shows it: a long text by its length and
+ * hash, where printing it would be a megabyte to one line. */
+export const showField = (v: unknown): string =>
+  typeof v === "string" && v.length > LONG_TEXT
+    ? `<${v.length} UTF-16 units, sha256 ${sha256Hex(v).slice(0, 16)}>`
+    : show(v);
+
 /** null when equal; otherwise one line per differing page or block field,
  * naming the uid (or title) and both values. Nothing is left out. */
 export function diffGraphs(a: NormalGraph, b: NormalGraph,
@@ -144,8 +161,9 @@ export function diffGraphs(a: NormalGraph, b: NormalGraph,
     if (!y) { lines.push(`block ${uid}: only in ${na}`); continue; }
     if (!x) { lines.push(`block ${uid}: only in ${nb}`); continue; }
     for (const f of FIELDS) {
-      if (show(x[f]) !== show(y[f])) {
-        lines.push(`block ${uid}: ${f} ${show(x[f])} (${na}) vs ${show(y[f])} (${nb})`);
+      if (fieldsDiffer(x[f], y[f])) {
+        lines.push(`block ${uid}: ${f} ${showField(x[f])} (${na})` +
+                   ` vs ${showField(y[f])} (${nb})`);
       }
     }
   }

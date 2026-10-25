@@ -104,6 +104,27 @@ describe("diffGraphs", () => {
   });
 });
 
+describe("a long text in a difference", () => {
+  const graph = (text: string) => fromSnapshot({
+    generation: "g", plain_space_title_canonicalization: false, seq: seqOf(1),
+    pages: [page(1, "P")], blocks: [block({ tag: "uid_l1", text })], sidebar: [],
+  });
+
+  test("is equal by value, however long", () => {
+    expect(diffGraphs(graph("y".repeat(300)), graph("y".repeat(300)))).toBeNull();
+  });
+
+  test("is named by its length and hash, not printed", () => {
+    const diff = diffGraphs(graph("y".repeat(300)), graph("y".repeat(299) + "z"),
+                            ["replica", "server"]) ?? "";
+    expect(diff).toMatch(/^block uid_l1: text <300 UTF-16 units, sha256 [0-9a-f]{16}> \(replica\)/);
+    expect(diff).not.toContain("yyyy");
+    // the two hashes differ, so the line still says which is which
+    const hashes = [...diff.matchAll(/sha256 ([0-9a-f]{16})/g)].map((m) => m[1]);
+    expect(new Set(hashes).size).toBe(2);
+  });
+});
+
 describe("canonicaliseMintedUids", () => {
   const withMinted = (header: string, entry: string): Snapshot => snapshot([
     ...base().blocks,

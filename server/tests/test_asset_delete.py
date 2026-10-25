@@ -104,6 +104,21 @@ def test_deleted_block_drops_out_of_fts_refs(client):
     assert hit["refs"] == []
 
 
+def test_a_strip_that_joins_a_link_indexes_it(client, seeded_config):
+    # The token kept "[" and "[GrFoo]]" apart; once it goes they are a
+    # link, so the block's refs must be derived again from its new text.
+    a = _upload(client)
+    uid = uid_of("delgr92")
+    _create_block(client, uid, "Host", "[" + f"![x]({a['url']})" + "[GrFoo]]")
+    assert client.delete(f"/api/assets/{a['sha256']}").status_code == 200
+    assert _block_text(seeded_config, uid) == "[[GrFoo]]"
+    r = client.get("/api/page/GrFoo")
+    assert r.status_code == 200, r.text
+    items = [i["uid"] for g in r.json()["backlinks"]["groups"]
+             for i in g["items"]]
+    assert uid in items
+
+
 def test_delete_with_missing_disk_file_still_removes_row(client,
                                                          seeded_config):
     a = _upload(client)

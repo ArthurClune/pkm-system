@@ -398,9 +398,9 @@ server bug.
   leaves. A move onto its own slot still bumps every later sibling, because
   `ShiftSiblings` cannot tell staying put from moving there.
 - **Refs.** Every text change emits `ReindexRefs`, whose only implementation
-  is `store.reindex_refs_for_text`; the rename rewrite calls it too. It never
-  commits. The asset-token strip skips it, since asset tokens and `((uid))`
-  are disjoint, and so does `importer/migrate_mermaid_blocks.py`. The schema's
+  is `store.reindex_refs_for_text`; the rename rewrite and the asset-token
+  strip call it too. It never commits. `importer/migrate_mermaid_blocks.py`
+  skips it. The schema's
   triggers keep `blocks_fts` and `changes` current but never `refs`, so a
   direct SQL `UPDATE blocks SET text` that adds or changes a link leaves
   backlinks stale. Edit linking text through the ops path (`pkm batch`).

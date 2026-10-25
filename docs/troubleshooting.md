@@ -177,6 +177,7 @@ Owner: [files-and-assets.md](architecture/files-and-assets.md)
 | The local-file picker lists a file whose link 404s, or a link to `a\n` opens file `a` | The index listed names `clean_relative` rejects (`visible_name`), and the `path` convertor dropped a trailing newline | [files-and-assets.md § The index](architecture/files-and-assets.md#the-index) | pkm-e7z9 |
 | A local file named `check` at the root is listed by the picker, but its link returns the link checker's JSON (or 200, not 503, when it is evicted) | The checker was registered as `/api/local/check`, ahead of the catch-all file route, so it shadowed that file name | [files-and-assets.md § Local documents](architecture/files-and-assets.md#local-documents) | pkm-7wx3, test_a_root_file_named_check_is_served, test_an_evicted_root_file_named_check_is_503, test_nothing_but_the_file_route_sits_in_a_file_namespace |
 | Deleting a file from /files takes minutes, holding every write, when a block holds the file's link after thousands of unclosed `[` or `{{pdf:` | `strip_asset_tokens` rescanned to the end of the line from each opener | [files-and-assets.md § Assets and the file browser](architecture/files-and-assets.md#assets-and-the-file-browser) | pkm-25u5 |
+| After deleting a file, a `[[Foo]]` that appeared where its link sat is missing from Foo's backlinks, and Foo may not exist | `delete_asset` stored stripped text without re-deriving refs | [files-and-assets.md § Assets and the file browser](architecture/files-and-assets.md#assets-and-the-file-browser) | pkm-gr92 |
 
 ## Editor
 

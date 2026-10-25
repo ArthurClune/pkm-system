@@ -35,6 +35,7 @@ from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
 from pkm.server.fts import phrase_query
 from pkm.server.mime_sniff import resolve_stored_mime, sniff_mime
+from pkm.server.store import reindex_refs_for_text
 from pkm.server.tempfile_response import CleanupFileResponse
 from pkm.text_limits import rewrite_text_limit_violation
 
@@ -199,6 +200,7 @@ def _strip_references(db: Db, sha: Sha256Hex) -> int:
         else:
             db.execute("UPDATE blocks SET text = ?, updated_at = ?"
                        " WHERE uid = ?", (new_text, now_ms, uid))
+            reindex_refs_for_text(db, uid, new_text, now_ms)
     return len(stripped)
 
 
@@ -212,16 +214,15 @@ def delete_asset(request: Request, sha256: Sha256Hex,
     deletion must never cascade away real content, so emptied parents
     are kept), drop the assets row, commit, then best-effort unlink the
     file. Commit-before-unlink: a crash leaves at worst an unreferenced
-    file on disk, never a row pointing at a missing file. Asset URLs
-    never contribute refs rows ([[link]]/#tag/attr:: only), so no refs
-    reindex is needed; refs rows of deleted blocks go via FK cascade
-    (the refs table has no FTS trigger — unlike blocks, where explicit
-    per-uid DELETE is required to keep the FTS delete trigger firing).
-    `block_refs` needs no reindex either, for the same reason:
-    `strip_asset_tokens` removes only asset-embed tokens, a syntax disjoint
-    from `((uid))`. 409 with the offending blocks, as a page delete's
-    blockers, when a stripped block would be over the text length cap or
-    nest `[[` past the cap; nothing is changed.
+    file on disk, never a row pointing at a missing file. Every rewritten
+    block has its refs derived again from its new text: asset URLs index
+    nothing themselves, but removing a token can join what it kept apart,
+    `[` and `[Foo]]` into `[[Foo]]`, which links (and creates) Foo. Refs
+    rows of deleted blocks go via FK cascade (the refs table has no FTS
+    trigger — unlike blocks, where explicit per-uid DELETE is required to
+    keep the FTS delete trigger firing). 409 with the offending blocks, as
+    a page delete's blockers, when a stripped block would be over the text
+    length cap or nest `[[` past the cap; nothing is changed.
 
     `if_unreferenced=true` changes the mode: nothing is stripped, and the
     asset is deleted only while no block references it (409 otherwise).

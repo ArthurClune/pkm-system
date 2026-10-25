@@ -597,16 +597,15 @@ export interface paths {
          *     deletion must never cascade away real content, so emptied parents
          *     are kept), drop the assets row, commit, then best-effort unlink the
          *     file. Commit-before-unlink: a crash leaves at worst an unreferenced
-         *     file on disk, never a row pointing at a missing file. Asset URLs
-         *     never contribute refs rows ([[link]]/#tag/attr:: only), so no refs
-         *     reindex is needed; refs rows of deleted blocks go via FK cascade
-         *     (the refs table has no FTS trigger — unlike blocks, where explicit
-         *     per-uid DELETE is required to keep the FTS delete trigger firing).
-         *     `block_refs` needs no reindex either, for the same reason:
-         *     `strip_asset_tokens` removes only asset-embed tokens, a syntax disjoint
-         *     from `((uid))`. 409 with the offending blocks, as a page delete's
-         *     blockers, when a stripped block would be over the text length cap or
-         *     nest `[[` past the cap; nothing is changed.
+         *     file on disk, never a row pointing at a missing file. Every rewritten
+         *     block has its refs derived again from its new text: asset URLs index
+         *     nothing themselves, but removing a token can join what it kept apart,
+         *     `[` and `[Foo]]` into `[[Foo]]`, which links (and creates) Foo. Refs
+         *     rows of deleted blocks go via FK cascade (the refs table has no FTS
+         *     trigger — unlike blocks, where explicit per-uid DELETE is required to
+         *     keep the FTS delete trigger firing). 409 with the offending blocks, as
+         *     a page delete's blockers, when a stripped block would be over the text
+         *     length cap or nest `[[` past the cap; nothing is changed.
          *
          *     `if_unreferenced=true` changes the mode: nothing is stripped, and the
          *     asset is deleted only while no block references it (409 otherwise).

@@ -11,6 +11,7 @@ from pkm.assistant.write_preview import (FoundBlock, MissingBlock, Refusal,
                                          delete_target_uids,
                                          write_target_uids)
 from pkm.contracts.ops import BlockUid
+from pkm.database import connect
 from pkm.server.db import open_db
 from pkm.test_data.ids import canonical_title_of, uid_of
 
@@ -93,6 +94,54 @@ def test_reader_closes_its_connection(seeded_config, monkeypatch):
     read = db_block_reader(seeded_config.db_path)
     read([uid_of("uid_b2")], [uid_of("uid_b2")])
     assert closed == [True]
+
+
+def test_reader_reads_text_and_counts_from_one_snapshot(seeded_config,
+                                                       monkeypatch):
+    # a delete committed between the text read and the count must not
+    # pair the old text with a count of the block gone (-1)
+    from pkm.assistant import target_reader
+
+    leaf, stored = _seed("uid_b4")
+    real_open = target_reader.open_db
+
+    def racing_open(path):
+        db = real_open(path)
+        real_select = db.select
+        raced: list[bool] = []
+
+        def select(sql, params=()):
+            rows = real_select(sql, params)
+            if not raced:
+                raced.append(True)
+                other = real_open(path)
+                other.execute("DELETE FROM blocks WHERE uid = ?",
+                              (str(leaf),))
+                other.commit()
+                other.close()
+            return rows
+        db.select = select
+        return db
+    monkeypatch.setattr(target_reader, "open_db", racing_open)
+    got = db_block_reader(seeded_config.db_path)([leaf], [leaf])
+    assert got == {leaf: StoredBlock(stored.page_title, stored.text, 0)}
+
+
+def test_a_block_whose_page_row_is_missing_is_not_read_as_absent(
+        seeded_config):
+    # possible only with foreign keys off; the write would still find the
+    # block, so the card must not say no block has this uid
+    con = connect(seeded_config.db_path)
+    con.execute("PRAGMA foreign_keys=OFF")
+    con.execute("UPDATE blocks SET page_id = 999999 WHERE uid = 'uid_b4'")
+    con.commit()
+    con.close()
+    uid = uid_of("uid_b4")
+    out = asyncio.run(preview_write(
+        "update_block", {"uid": uid, "text": "t"},
+        db_block_reader(seeded_config.db_path)))
+    assert out == Refusal(
+        "update_block: the blocks this write changes could not be read")
 
 
 class _Recording:

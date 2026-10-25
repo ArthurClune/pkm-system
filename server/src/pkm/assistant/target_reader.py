@@ -41,28 +41,43 @@ _DESCENDANTS_SQL = """WITH RECURSIVE sub(uid, path) AS (
 
 
 def db_block_reader(db_path: Path) -> BlockReader:
-    """A reader over the database at `db_path`: one query for every uid's
-    text and page, then one count per delete target that exists."""
+    """A reader over the database at `db_path`: every uid's text and page,
+    then one count per delete target that exists, all in one read
+    transaction, so a write committed meanwhile cannot pair a block's text
+    with a count taken after it was deleted. A block whose page row is
+    missing (possible only with foreign keys off) raises: the write would
+    still find the block, so leaving it out would show it as missing."""
     def read(uids: Sequence[BlockUid], count_under: Collection[BlockUid]
              ) -> Mapping[BlockUid, StoredBlock]:
         if not uids:
             return {}
         db = open_db(db_path)
         try:
+            db.execute("BEGIN")  # one snapshot for texts, pages and counts
             marks = ",".join("?" * len(uids))
             rows = db.select(
-                "SELECT b.uid, b.text, p.title AS page_title FROM blocks b"
-                f" JOIN pages p ON p.id = b.page_id WHERE b.uid IN ({marks})",
-                tuple(uids))
+                "SELECT uid, text, page_id FROM blocks"
+                f" WHERE uid IN ({marks})", tuple(uids))
+            if not rows:
+                return {}
+            page_ids = list(dict.fromkeys(row["page_id"] for row in rows))
+            titles = {page["page_id"]: page["page_title"]
+                      for page in db.select(
+                          "SELECT id AS page_id, title AS page_title"
+                          " FROM pages WHERE id IN"
+                          f" ({','.join('?' * len(page_ids))})",
+                          tuple(page_ids))}
             out: dict[BlockUid, StoredBlock] = {}
             for row in rows:
                 uid = row["uid"]
+                if row["page_id"] not in titles:
+                    raise LookupError("a target block's page row is missing")
                 descendants = None
                 if uid in count_under:
                     counted = db.select_one(_DESCENDANTS_SQL, (uid,))
                     assert counted is not None  # an aggregate yields a row
                     descendants = counted["n"]
-                out[uid] = StoredBlock(page_title=row["page_title"],
+                out[uid] = StoredBlock(page_title=titles[row["page_id"]],
                                        text=row["text"],
                                        descendants=descendants)
             return out

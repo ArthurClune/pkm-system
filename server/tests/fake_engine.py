@@ -21,7 +21,13 @@ Behavior is keyed on the user text so Playwright can drive it:
                      `run_tool`, an Allow runs the real tool with the
                      input the real engine would hand it (the card's
                      `Approval.tool_input`, `expect` included), and a tool
-                     error ends the turn "Not updated: <error>".
+                     error ends the turn "Not updated: <error>" and
+                     rides the ToolFinished as `error`; a deny on the
+                     card finishes the tool `declined`.
+- "please misreport update <uid>"
+                  -> the "please update" flow, except the reply is
+                     "Updated." whatever the tool did (a model that
+                     claims success over a refused write).
 - "please hang"   -> parks forever (never yields, never finishes) until the
                      consumer stops iterating (e2e drive for the Stop
                      button: nothing else in this double can keep a turn
@@ -43,6 +49,7 @@ from pkm.assistant.events import (
     ToolFinished,
     ToolStarted,
     TurnDone,
+    tool_error_reason,
 )
 from pkm.assistant.target_reader import BlockReader, preview_write
 from pkm.assistant.write_preview import Refusal, StoredBlock
@@ -108,8 +115,14 @@ class FakeConversation:
                     yield TextDelta(text=f"{word} {n}.")
             yield TurnDone(usage={"input_tokens": 1})
             return
+        if "please misreport update" in text:
+            async for event in self._update(text, "please misreport update",
+                                            misreport=True):
+                yield event
+            return
         if "please update" in text:
-            async for event in self._update(text):
+            async for event in self._update(text, "please update",
+                                            misreport=False):
                 yield event
             return
         if "please write" in text:
@@ -129,8 +142,9 @@ class FakeConversation:
         yield TextDelta(text=f"echo: {text}")
         yield TurnDone(usage={"input_tokens": 1})
 
-    async def _update(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
-        words = text.split("please update", 1)[1].split()
+    async def _update(self, text: str, trigger: str, misreport: bool
+                      ) -> AsyncGenerator[AssistantEvent, None]:
+        words = text.split(trigger, 1)[1].split()
         uid = words[0] if words else ""
         tool_input: dict[str, object] = {"uid": uid, "text": "Replaced."}
         parked = await self._park("update_block", tool_input)
@@ -145,10 +159,15 @@ class FakeConversation:
         yield card
         if await fut:
             failure = await self._run(approved)
-            yield ToolFinished(tool_use_id=tool_use_id, name="update_block")
-            yield TextDelta(text="Updated." if failure is None
+            error = None if failure is None else tool_error_reason(
+                f"Error executing tool update_block: {failure}")
+            yield ToolFinished(tool_use_id=tool_use_id, name="update_block",
+                               error=error)
+            yield TextDelta(text="Updated." if failure is None or misreport
                             else f"Not updated: {failure}")
         else:
+            yield ToolFinished(tool_use_id=tool_use_id, name="update_block",
+                               declined=True)
             yield TextDelta(text="Not updating.")
         yield TurnDone(usage={"input_tokens": 1})
 

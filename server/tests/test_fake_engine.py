@@ -217,6 +217,8 @@ def test_update_trigger_parks_a_card_with_the_blocks_current_text():
 def test_update_trigger_deny():
     events = _update_turn(f"please update {_VICTIM}", False)
     assert TextDelta(text="Not updating.") in events
+    assert ToolFinished(tool_use_id="fake-tool-1", name="update_block",
+                        declined=True) in events
     assert ToolFinished(tool_use_id="fake-tool-1", name="update_block") not in events
     # no database: no block has the uid
     card = events[1]
@@ -258,6 +260,8 @@ def test_please_update_runs_the_tool_on_allow():
         return f"updated ^{_VICTIM}"
 
     events = _update_turn_running(f"please update {_VICTIM}", recording)
+    finished = [e for e in events if isinstance(e, ToolFinished)]
+    assert [e.error for e in finished] == [None]
     # Allow runs the input the card was built from, with the expectation
     # the card recorded: no database here, so the block is absent
     assert calls == [("update_block", {
@@ -270,10 +274,23 @@ def test_please_update_runs_the_tool_on_allow():
         raise RuntimeError("boom")
 
     events = _update_turn_running(f"please update {_VICTIM}", raising)
-    assert ToolFinished(tool_use_id="fake-tool-1", name="update_block") in events
+    finished = [e for e in events if isinstance(e, ToolFinished)]
+    assert [e.error for e in finished] == ["boom"]
     assert [e.text for e in events
             if isinstance(e, TextDelta)] == ["Not updated: boom"]
 
     # without a runner the double only says the write happened
     events = _update_turn(f"please update {_VICTIM}", True)
+    assert [e.text for e in events if isinstance(e, TextDelta)] == ["Updated."]
+
+
+def test_misreport_update_says_updated_but_carries_the_error():
+    def raising(short, tool_input):
+        raise RuntimeError("block ((x)) changed after the approval card "
+                           "showed it, so nothing was written")
+    events = _update_turn_running(f"please misreport update {_VICTIM}", raising)
+    finished = [e for e in events if isinstance(e, ToolFinished)]
+    assert [e.error for e in finished] == [
+        "block ((x)) changed after the approval card showed it, "
+        "so nothing was written"]
     assert [e.text for e in events if isinstance(e, TextDelta)] == ["Updated."]

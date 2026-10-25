@@ -13,4 +13,14 @@ From the pkm-g2w9 final re-review (2026-10-25). The assistant's send() clears th
 
 - [x] Red test: stop a turn with an allowed write running; next turn's first card is stamped
 - [x] Clear each write from the set when it finishes, not at turn start
-- [ ] troubleshooting.md row
+- [x] troubleshooting.md row
+
+## Summary of Changes
+
+c71b8f3d: a turn's allowed writes are forgotten when the turn finishes, not when the next one starts.
+- Server: `ClaudeConversation.send` clears `_running_writes` on `TurnDone`.
+- Web: `useAssistant` zeroes `allowedInTurn` on `turn_done` and on adopting a new conversation.
+- So after Stop, or a turn that errors, a write still running stamps the next turn's cards, and the stale line counts its Allow.
+- The card's copy drops "in this turn".
+
+33cbcc5e adds the errored-turn case. Docs: the stamp table in `assistant.md § The write approval card` was updated, and the Assistant table in troubleshooting.md gains a row.

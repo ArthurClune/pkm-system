@@ -13,3 +13,7 @@ The depth-cap spec promises legacy rows past level 100 stay readable and their t
 
 - [x] useOutline test: a page holding a 120-level legacy chain; indent/move/paste elsewhere at shallow levels applies, and editing the deep rows' text applies
 - [x] Show it goes red against a mutant that judges the whole page's depth
+
+## Summary of Changes
+
+84eb696a adds a useOutline test on a page holding a 120-level legacy chain beside shallow roots. Indent, subtree move, paste and undo at shallow levels all apply, and a text edit on the deep row applies. A mutant that judges the whole page's deepest row in `findDepthViolation` turns the placement tests red. This is test-only, so it has no troubleshooting row.

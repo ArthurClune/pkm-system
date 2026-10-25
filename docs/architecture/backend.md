@@ -80,7 +80,10 @@ Each request gets a fresh `Db` from `open_db()`, with `foreign_keys=ON`,
 An `IN (...)` list built from a set the data can grow without bound (a page's
 block uids, a block's referrers, a `((ref))` set) goes through
 `sync_core.chunk_ids`, because SQLite refuses a statement that binds more
-variables than its limit and the route would answer 500.
+variables than its limit and the route would answer 500. The offline shim
+(`replica/localApi/`) meets the same limit in the wasm build. It binds such a
+set whole as one JSON array, `IN (SELECT value FROM json_each(?))`, which
+needs one variable at any size and keeps one statement per read.
 
 ### Schema
 
@@ -300,13 +303,19 @@ raw SQL.
 | An indented `Title::` is an attribute, its span anchored on the title | `attribute_title_span` | `scanGrammar` | `scan.test.ts` (`"  Key:: v"` at offset 2) |
 | The `((uid))` shape, which `UID_RE` and the `BlockUid` brand shape are built from | `BLOCK_REF_TOKEN` | `UID_TOKEN` | `scan.test.ts`, `test_rows_vocabulary.py` |
 | How deep `[[` runs nest: the height of the run tree over the code-stripped text | `link_nesting_depth` | `linkNestingDepth` | `text_limits_parity.json` |
+| A `#tag` name is a run of `_`, `/`, `.`, `-` and the word characters in `TAG_WORD_RANGES` | `_TAG_NAME` | `TAG_CHARS_RE` | `ref_grammar.json`, `test_tag_chars_artifact.py` |
 
 The backtick check reads the original text, because `strip_code()` has
 blanked code to spaces. Both scanners stay linear: a failed fence-closer
 search retires the fence rule for the rest of the text. The fence-closer word
 test is ASCII on both sides. A Unicode class follows each runtime's Unicode
 table, and Python's lags a browser's, so the two would hide different text as
-code and disagree on a block's refs and nesting depth.
+code and disagree on a block's refs and nesting depth. A tag name cannot be
+ASCII, or `#café` would stop being a tag. Its word class is instead one frozen
+table, `contracts/tag_chars.py` (CPython 3.12's `\w`, Unicode
+`TAG_CHARS_UNICODE_VERSION`), which both sides compile. A Python or browser
+upgrade therefore changes no tag. Moving the table to a newer Unicode is a
+deliberate regeneration.
 
 `rename.py` and `unlink.py` keep no copy of the grammar. They locate refs
 through `strip_code`, `bracket_spans`, `tag_spans` and `attribute_title_span`,
@@ -1078,6 +1087,8 @@ Python commands run from `server/`, `pnpm` ones from `web/`.
 | `web/src/replica/baseSchema.gen.ts` | `uv run python -m pkm.schema_dump > ../web/src/replica/baseSchema.gen.ts` | `test_schema_artifact.py` | the replica schema to `BASE_DDL` |
 | `web/src/replica/columns.gen.ts`, `web/tooling/brandRegistry.gen.json` | `uv run python -m pkm.rows_dump` | `test_rows_artifact.py`, `columns.test.ts` | `Columns`, `COLUMN_META` and the web lint's registry to `rows.Row` and `brand_registry` |
 | `web/src/assistant/previewKeys.gen.ts` | `uv run python -m pkm.assistant.preview_keys_dump > ../web/src/assistant/previewKeys.gen.ts` | `test_preview_keys_artifact.py` | the approval card's allow-list (`PREVIEW_KEYS`) to `WRITE_PREVIEW_FIELDS`, `CURRENT_TEXT_ENTRIES` and `SUBTREE_DELETE_ENTRIES`, `CURRENT_EXCERPT_CHARS`, and `PREVIEW_FIELDS` to `WritePreview`'s fields |
+| `server/src/pkm/contracts/tag_chars.py` | `uv run python -m pkm.tag_chars_dump --table > src/pkm/contracts/tag_chars.py`, only to move the tag table to a new Unicode version | `test_tag_chars_artifact.py`, which compares it only under the Unicode version it froze | `TAG_WORD_RANGES` to the running CPython's `\w` |
+| `web/src/grammar/tagChars.gen.ts` | `uv run python -m pkm.tag_chars_dump > ../web/src/grammar/tagChars.gen.ts` | `test_tag_chars_artifact.py` | the web's tag class (`TAG_WORD_CLASS`) to `TAG_WORD_RANGES` |
 | `web/src/grammar/titleWhitespace.gen.ts` | `uv run python -m pkm.title_whitespace_dump > ../web/src/grammar/titleWhitespace.gen.ts` | `test_title_whitespace_artifact.py`, the `TITLE_WHITESPACE` case in `replica/titles.test.ts` | the web's fold set to `TITLE_WHITESPACE` |
 | `shared/fixtures/refs_parity.json` | `uv run python -m pkm.refs_parity_dump > ../shared/fixtures/refs_parity.json` | `test_refs_parity_fixture.py` | `refs.extract` |
 | `shared/fixtures/title_parity.json` | `uv run python -m pkm.title_parity_dump > ../shared/fixtures/title_parity.json` | `test_title_parity_fixture.py`, `titleParity.test.ts` | `normalize_title`, `target_canonical_title`, `title_syntax_reason`, `is_blank_title`, `extract` |
@@ -1094,9 +1105,11 @@ Python commands run from `server/`, `pnpm` ones from `web/`.
 | `draft_flush.json` | hand-edited | `test_ops_endpoint.py`, `EditablePage.draftFlush.test.tsx` | the op an editor draft flushes |
 
 Hand-edited fixtures live in `shared/fixtures/`. `rows_dump` fails for a
-brand `brands.ts` lacks. The seeded corpora in `refs_parity.json`,
-`title_parity.json` and `text_limits_parity.json` are tallied by shape, so
-they cannot go vacuous. The [ops property](checks.md#property-gate)
+brand `brands.ts` lacks. The `--table` redirect empties `tag_chars.py` before
+the dump runs. So `tag_chars_dump` imports the table only for the plain run,
+which writes the TS file, and must keep no top-level import of it. The seeded
+corpora in `refs_parity.json`, `title_parity.json` and
+`text_limits_parity.json` are tallied by shape, so they cannot go vacuous. The [ops property](checks.md#property-gate)
 checks the server, replica and in-memory implementations against each other
 on random batches.
 

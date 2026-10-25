@@ -120,6 +120,7 @@ Every path under `/api/local/` names a file, so the fixed routes
 (`/api/local-check`, `/api/local-index`) sit beside the prefix, never under it.
 A fixed route under it would shadow the file of the same name, which the index
 lists and stored notes link.
+`test_nothing_but_the_file_route_sits_in_a_file_namespace` fails on one.
 
 **Every rejection is a 404, never a 403, so a response never confirms what
 exists.** `local_docs.clean_relative` rejects an absolute path, a `.` or `..`

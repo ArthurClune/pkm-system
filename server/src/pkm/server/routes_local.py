@@ -11,6 +11,7 @@ Every path under /api/local/ names a file, so the fixed routes sit
 beside it (/api/local-check, /api/local-index), never under it: one
 there would shadow the file of the same name that the index lists, and
 stored notes link files by that path.
+test_nothing_but_the_file_route_sits_in_a_file_namespace enforces it.
 
 iCloud can evict a file, leaving only a `.Name.ext.icloud` stub. That
 case is a 503 with Retry-After, after a best-effort `brctl download` so

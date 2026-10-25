@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import single_decode_get
+from test_routes_models import _api_routes
 
 from pkm.local_docs import local_href
 from pkm.server import routes_local
@@ -167,6 +168,23 @@ def test_an_evicted_root_file_named_check_is_503(local_client, local_root,
     r = local_client.get("/api/local/check")
     assert r.status_code == 503
     assert r.json() == {"detail": "not downloaded on the host", "path": "check"}
+
+
+# A prefix whose every path names a file, and the one route that serves it.
+# GoodLinks is absent: its ids are 32 hex digits (`_ID_RE`), so a fixed
+# sibling like `check` can never be an article's id.
+_FILE_NAMESPACES = {
+    "/api/local/": "/api/local/{path:wholepath}",
+    "/assets/": "/assets/{sha256}/{filename}",
+}
+
+
+def test_nothing_but_the_file_route_sits_in_a_file_namespace(local_client):
+    """A fixed route under a file prefix would shadow the file of that name,
+    which the local index lists and stored notes link."""
+    paths = [r.path for r in _api_routes(local_client.app.routes)]
+    for prefix, file_route in _FILE_NAMESPACES.items():
+        assert [p for p in paths if p.startswith(prefix)] == [file_route]
 
 
 def test_check_agrees_with_file_route_on_symlinked_evicted_stub(

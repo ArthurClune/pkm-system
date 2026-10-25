@@ -19,7 +19,8 @@ Behavior is keyed on the user text so Playwright can drive it:
                      ToolFinished + "Updated." or "Not updating."; a
                      refused card is its message as text instead. Given
                      `run_tool`, an Allow runs the real tool with the
-                     input the real engine would hand it, and a tool
+                     input the real engine would hand it (the card's
+                     `Approval.tool_input`, `expect` included), and a tool
                      error ends the turn "Not updated: <error>".
 - "please hang"   -> parks forever (never yields, never finishes) until the
                      consumer stops iterating (e2e drive for the Stop
@@ -127,10 +128,10 @@ class FakeConversation:
             yield TextDelta(text=parked.message)
             yield TurnDone(usage={"input_tokens": 1})
             return
-        card, fut = parked
+        card, fut, approved = parked
         yield card
         if await fut:
-            failure = await self._run(tool_input)
+            failure = await self._run(approved)
             yield ToolFinished(name="update_block")
             yield TextDelta(text="Updated." if failure is None
                             else f"Not updated: {failure}")
@@ -142,7 +143,7 @@ class FakeConversation:
                    ) -> Exception | None:
         """Run update_block on Allow, as the harness would, when this
         double was given a runner: the error it raised, if any. The input
-        is the one the card previewed."""
+        is the one the real engine's Allow hands the tool."""
         if self._run_tool is None:
             return None
         try:
@@ -158,20 +159,22 @@ class FakeConversation:
         future its decision lands in."""
         parked = await self._park("save_note", {"text": "Demo", "page": page})
         assert not isinstance(parked, Refusal)
-        return parked
+        card, fut, _ = parked
+        return card, fut
 
     async def _park(self, short: str, tool_input: dict[str, object]
-                    ) -> tuple[ConfirmRequest, asyncio.Future[bool]] | Refusal:
+                    ) -> (tuple[ConfirmRequest, asyncio.Future[bool],
+                                dict[str, object]] | Refusal):
         """A confirm card for write `short`, built as the real engine
-        builds it, with the future its decision lands in; or the refusal
-        the real engine would send the model instead. Its stamp says
-        whether another card of this double was undecided at the read: its
-        writes finish when decided."""
+        builds it, with the future its decision lands in and the input an
+        Allow runs; or the refusal the real engine would send the model
+        instead. Its stamp says whether another card of this double was
+        undecided at the read: its writes finish when decided."""
         in_flight = self._undecided()
-        preview = await preview_write(short, tool_input, self._read_blocks)
-        if isinstance(preview, Refusal):
-            return preview
-        preview = replace(preview,
+        approval = await preview_write(short, tool_input, self._read_blocks)
+        if isinstance(approval, Refusal):
+            return approval
+        preview = replace(approval.preview,
                           writes_in_flight=in_flight or self._undecided())
         self._confirm_seq += 1
         confirm_id = confirm_id_of(f"fake-confirm-{self._confirm_seq}")
@@ -179,7 +182,7 @@ class FakeConversation:
         self._decisions[confirm_id] = fut
         card = ConfirmRequest(confirm_id=confirm_id,
                               ops_preview=preview.summary, preview=preview)
-        return card, fut
+        return card, fut, approval.tool_input
 
     def _undecided(self) -> bool:
         return any(not fut.done() for fut in self._decisions.values())

@@ -6,14 +6,16 @@ from collections.abc import Collection, Mapping, Sequence
 from conftest import SEED_BLOCKS, SEED_PAGES
 
 from pkm.assistant.target_reader import db_block_reader, preview_write
-from pkm.assistant.write_preview import (FoundBlock, MissingBlock, Refusal,
-                                         StoredBlock, WritePreview,
+from pkm.assistant.write_preview import (Approval, FoundBlock,
+                                         MissingBlock, Refusal, StoredBlock,
                                          delete_target_uids,
                                          write_target_uids)
-from pkm.contracts.ops import BlockUid
+from pkm.contracts.ops import (BlockUid, ExpectedBlock, subtree_hash,
+                               text_hash)
 from pkm.database import connect
 from pkm.server.db import open_db
-from pkm.test_data.ids import canonical_title_of, uid_of
+from pkm.server.ops_apply import expected_now
+from pkm.test_data.ids import canonical_title_of, sha_of, uid_of
 
 _GONE = uid_of("GONEGONE01")
 
@@ -34,12 +36,18 @@ def test_reader_returns_text_and_page_of_existing_uids(seeded_config):
 def test_reader_counts_the_blocks_under_each_delete_target(seeded_config):
     # uid_b2 has one child (uid_b3); uid_b4 has none
     parent, parent_stored = _seed("uid_b2")
+    child, child_stored = _seed("uid_b3")
     leaf, leaf_stored = _seed("uid_b4")
     read = db_block_reader(seeded_config.db_path)
     got = read([parent, leaf, _GONE], [parent, leaf, _GONE], [])
     assert got == {
-        parent: StoredBlock(parent_stored.page_title, parent_stored.text, 1),
-        leaf: StoredBlock(leaf_stored.page_title, leaf_stored.text, 0)}
+        parent: StoredBlock(parent_stored.page_title, parent_stored.text, 1,
+                            subtree_hash=subtree_hash(
+                                [(parent, parent_stored.text),
+                                 (child, child_stored.text)])),
+        leaf: StoredBlock(leaf_stored.page_title, leaf_stored.text, 0,
+                          subtree_hash=subtree_hash(
+                              [(leaf, leaf_stored.text)]))}
 
 
 def test_reader_counts_the_whole_subtree(seeded_config):
@@ -124,7 +132,9 @@ def test_reader_reads_text_and_counts_from_one_snapshot(seeded_config,
         return db
     monkeypatch.setattr(target_reader, "open_db", racing_open)
     got = db_block_reader(seeded_config.db_path)([leaf], [leaf], [])
-    assert got == {leaf: StoredBlock(stored.page_title, stored.text, 0)}
+    assert got == {leaf: StoredBlock(
+        stored.page_title, stored.text, 0,
+        subtree_hash=subtree_hash([(leaf, stored.text)]))}
 
 
 def test_a_block_whose_page_row_is_missing_is_not_read_as_absent(
@@ -171,13 +181,14 @@ _BATCH = {"commands": [
 
 def test_preview_write_reads_only_what_the_card_shows():
     reader = _Recording({_A: StoredBlock(_INBOX, "old"),
-                         _B: StoredBlock(_INBOX, "gone", 2)})
+                         _B: StoredBlock(_INBOX, "gone", 2,
+                                         subtree_hash=sha_of("b" * 64))})
     out = asyncio.run(preview_write("batch", _BATCH, reader))
     assert reader.calls == [(write_target_uids("batch", _BATCH),
                              delete_target_uids("batch", _BATCH), [])]
     assert reader.calls == [([_A, _B], [_B], [])]
-    assert isinstance(out, WritePreview)
-    assert [op.current for op in out.ops] == [
+    assert isinstance(out, Approval)
+    assert [op.current for op in out.preview.ops] == [
         FoundBlock(_INBOX, "old", 3), FoundBlock(_INBOX, "gone", 4, 2),
         MissingBlock(), None]
 
@@ -191,14 +202,14 @@ def test_preview_write_reads_the_parents_a_move_before_a_delete_names():
     reader = _Recording({parent: StoredBlock(_INBOX, "p", ancestors=())})
     out = asyncio.run(preview_write("batch", raw, reader))
     assert reader.calls == [([_A, _B, parent], [_B], [parent])]
-    assert isinstance(out, WritePreview)
+    assert isinstance(out, Approval)
 
 
 def test_preview_write_reads_nothing_for_a_write_without_targets():
     reader = _Recording({})
     out = asyncio.run(preview_write("save_note", {"text": "t"}, reader))
     assert reader.calls == []
-    assert isinstance(out, WritePreview)
+    assert isinstance(out, Approval)
 
 
 def test_preview_write_of_refused_input_reads_nothing():
@@ -234,8 +245,8 @@ def test_preview_write_is_a_snapshot():
                 _B: StoredBlock(_INBOX, "other")}
 
     out = asyncio.run(preview_write("update_block", tool_input, mutating))
-    assert isinstance(out, WritePreview)
-    (op,) = out.ops
+    assert isinstance(out, Approval)
+    (op,) = out.preview.ops
     assert op.targets[0] == ("uid", _A)
     assert op.content == [("text", "original", 8)]
     assert op.current == FoundBlock(_INBOX, "old", 3)
@@ -353,6 +364,54 @@ def test_a_move_elsewhere_then_a_delete_is_previewed(seeded_config):
         {"command": "move", "params": {"uid": "junkkid01", "page": "Big",
                                        "parent": "((bigroot01))"}},
         {"command": "delete", "params": {"uid": "junkleaf1"}}])
-    assert isinstance(out, WritePreview)
-    assert out.ops[1].current == FoundBlock(canonical_title_of("Junk"),
-                                            "tmp", 3, 1)
+    assert isinstance(out, Approval)
+    assert out.preview.ops[1].current == FoundBlock(
+        canonical_title_of("Junk"), "tmp", 3, 1)
+
+
+def test_a_delete_target_carries_its_subtree_hash(seeded_config):
+    # the reader and the server's check walk and hash the subtree alike, so
+    # an unchanged subtree passes the check
+    parent, leaf = uid_of("uid_b2"), uid_of("uid_b4")
+    got = db_block_reader(seeded_config.db_path)(
+        [parent, leaf], [parent], [])
+    shown = got[parent].subtree_hash
+    assert got[parent].descendants == 1
+    assert shown is not None
+    db = open_db(seeded_config.db_path)
+    try:
+        now = expected_now(db, [ExpectedBlock(uid=parent, kind="subtree",
+                                              shown_hash=shown)])
+    finally:
+        db.close()
+    assert now[parent] == shown
+    assert got[leaf].subtree_hash is None
+
+
+def test_preview_write_returns_an_approval_from_the_snapshot():
+    tool_input: dict[str, object] = {"uid": _A, "text": "original"}
+
+    def mutating(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+                 ancestors_of: Collection[BlockUid]):
+        tool_input["text"] = "swapped"
+        tool_input["uid"] = _B
+        return {_A: StoredBlock(_INBOX, "old")}
+
+    out = asyncio.run(preview_write("update_block", tool_input, mutating))
+    assert isinstance(out, Approval)
+    assert out.tool_input == {
+        "uid": _A, "text": "original",
+        "expect": [{"uid": _A, "kind": "text",
+                    "shown_hash": text_hash("old")}]}
+    assert out.preview.ops[0].current == FoundBlock(_INBOX, "old", 3)
+
+
+def test_a_delete_target_read_without_its_hash_is_refused(caplog):
+    # a weaker guard is never issued silently
+    raw = {"commands": [{"command": "delete", "params": {"uid": _B}}]}
+    with caplog.at_level(logging.WARNING, logger="pkm.assistant"):
+        out = asyncio.run(preview_write(
+            "batch", raw, _Recording({_B: StoredBlock(_INBOX, "b", 0)})))
+    assert out == Refusal(
+        "batch: the blocks this write changes could not be read")
+    assert "ValueError" in " ".join(r.getMessage() for r in caplog.records)

@@ -6,6 +6,7 @@ lets an editor write land while the card waits on the user, then allows
 it and runs the real MCP tool with the input the SDK would send the CLI.
 """
 import asyncio
+import json
 from collections.abc import Callable, Sequence
 from datetime import date
 
@@ -31,15 +32,29 @@ _B4 = uid_of("uid_b4")
 _B4_TEXT = "Studying [[Machine Learning]] today"
 _EDITED = "Edited in the editor."
 
-_NOT_YET = pytest.mark.xfail(
-    strict=True, reason="Allow is not yet checked against the shown text")
 
 
 @pytest.fixture()
 def tools(pkm_client, monkeypatch):
+    """The MCP tools as the assistant's `pkm-mcp --require-expect` runs
+    them."""
     monkeypatch.setattr(mcp_tools, "_client_factory", lambda: pkm_client)
     monkeypatch.setattr(mcp_tools, "_cached_client", None)
+    monkeypatch.setattr(mcp_tools, "_require_expect", True)
     return mcp_tools
+
+
+@pytest.fixture()
+def posted_ops(anon_client) -> list[dict[str, object]]:
+    """Every `/api/ops` body the in-process client sends, as sent."""
+    bodies: list[dict[str, object]] = []
+
+    def record(request) -> None:
+        if request.method == "POST" and request.url.path == "/api/ops":
+            bodies.append(json.loads(request.content))
+
+    anon_client.event_hooks["request"].append(record)
+    return bodies
 
 
 def _allow(tmp_path, db_path, short: str, tool_input: dict[str, object],
@@ -97,7 +112,6 @@ def _page_texts(pkm_client, title: RawTitle) -> list[str]:
     return _texts(blocks)
 
 
-@_NOT_YET
 def test_allow_refuses_an_update_whose_block_was_edited_after_the_card(
         tmp_path, seeded_config, pkm_client, tools):
     sent = _allow(tmp_path, seeded_config.db_path, "update_block",
@@ -111,7 +125,6 @@ def test_allow_refuses_an_update_whose_block_was_edited_after_the_card(
     assert pkm_client.get_block(_B4).block.text == _EDITED
 
 
-@_NOT_YET
 def test_allow_refuses_a_batch_update_whose_block_was_edited(
         tmp_path, seeded_config, pkm_client, tools):
     sent = _allow(tmp_path, seeded_config.db_path, "batch",
@@ -125,7 +138,6 @@ def test_allow_refuses_a_batch_update_whose_block_was_edited(
     assert pkm_client.get_block(_B4).block.text == _EDITED
 
 
-@_NOT_YET
 def test_allow_refuses_a_move_of_a_block_whose_text_changed(
         tmp_path, seeded_config, pkm_client, tools):
     sent = _allow(tmp_path, seeded_config.db_path, "batch",
@@ -141,7 +153,6 @@ def test_allow_refuses_a_move_of_a_block_whose_text_changed(
     assert after.block.text == _EDITED
 
 
-@_NOT_YET
 def test_allow_refuses_a_delete_after_a_child_was_added(
         tmp_path, seeded_config, pkm_client, tools):
     child = uid_of("addedUnderB2")
@@ -163,7 +174,6 @@ def test_allow_refuses_a_delete_after_a_child_was_added(
         assert pkm_client.get_block(uid).block.uid == uid
 
 
-@_NOT_YET
 def test_allow_refuses_a_write_to_a_block_deleted_after_the_card(
         tmp_path, seeded_config, pkm_client, tools):
     def delete_it() -> None:
@@ -182,7 +192,6 @@ def test_allow_refuses_a_write_to_a_block_deleted_after_the_card(
     assert not any("Replaced." in t for t in _page_texts(pkm_client, today))
 
 
-@_NOT_YET
 def test_allow_refuses_a_block_that_appeared_after_the_card_said_none(
         tmp_path, seeded_config, pkm_client, tools):
     later = uid_of("appearsLater01")
@@ -223,3 +232,48 @@ def test_an_alias_target_needs_no_expectation(
     texts = _page_texts(pkm_client, raw_title_of("AI"))
     assert "Replaced." in texts
     assert "Draft." not in texts
+
+
+@pytest.mark.parametrize("short,tool_input,shown", [
+    ("update_block", {"uid": _B4, "text": "Replaced."}, [(_B4, "text")]),
+    ("batch", _batch(("update", {"uid": _B4, "text": "Replaced."})),
+     [(_B4, "text")]),
+    ("batch", _batch(("move", {"uid": _B4, "page": "AI"})), [(_B4, "text")]),
+    ("batch", _batch(("delete", {"uid": _B2})), [(_B2, "subtree")]),
+    ("batch", _batch(("update", {"uid": _B4, "text": "Replaced."}),
+                     ("delete", {"uid": _B2})),
+     [(_B4, "text"), (_B2, "subtree")]),
+])
+def test_every_allowed_guarded_write_posts_its_expectations(
+        tmp_path, seeded_config, pkm_client, tools, posted_ops,
+        short, tool_input, shown):
+    # OpBatch ignores a key it does not know, so a guard under any other
+    # name, or none, would apply unchecked: read the body actually sent
+    sent = _allow(tmp_path, seeded_config.db_path, short, tool_input)
+    posted_ops.clear()
+
+    run_tool(short, sent)
+    (body,) = posted_ops
+    expect = body["expect"]
+    assert isinstance(expect, list) and expect
+    assert expect == sent["expect"]
+    assert [(e["uid"], e["kind"]) for e in expect] == shown
+    assert all(e["shown_hash"] for e in expect)
+
+
+@pytest.mark.parametrize("spec", ["((uid_b4))", " uid_b4", "uid_b4 "])
+def test_a_uid_spelling_the_card_does_not_read_writes_nothing(
+        tmp_path, seeded_config, pkm_client, tools, spec):
+    # the card guards no stored block for it, so the write must not reach
+    # one: the server refuses the uid no block can have
+    sent = _allow(tmp_path, seeded_config.db_path, "batch",
+                  _batch(("update", {"uid": spec, "text": "Replaced."})),
+                  lambda: _edit(pkm_client, _B4, _B4_TEXT, _EDITED))
+
+    assert sent["expect"] == []
+    with pytest.raises(ApiError) as caught:
+        run_tool("batch", sent)
+    assert caught.value.status == 400
+    assert pkm_client.get_block(_B4).block.text == _EDITED
+    today = raw_title_of(canonical_daily_title(date.today()))
+    assert not any("Replaced." in t for t in _page_texts(pkm_client, today))

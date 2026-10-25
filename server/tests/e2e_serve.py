@@ -188,7 +188,7 @@ def main() -> int:
         goodlinks_api_url=f"http://127.0.0.1:{goodlinks_port}/api/v1",
     )
     # An allowed write runs the real MCP tool against this server, signed
-    # in as the assistant's own subprocess would be.
+    # in and in the require-expect mode the assistant's own subprocess is.
     def _client() -> PkmClient:
         token = sign_session(bytes.fromhex(config.session_secret),
                              int(time.time() * 1000))
@@ -196,6 +196,7 @@ def main() -> int:
                                    token=token))
 
     pkm.mcp.tools._client_factory = _client
+    pkm.mcp.tools.require_expect()
     engine = FakeEngine(read_blocks=db_block_reader(db_path),
                         run_tool=run_tool)
     app = create_app(config, assistant_engine=engine, api_port=PORT)

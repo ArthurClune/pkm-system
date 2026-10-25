@@ -497,3 +497,60 @@ def test_update_block_expect_through_fastmcp(tools, pkm_client, as_json):
     assert pkm_client.get_block(uid).block.text == "orig"
     call("orig")
     assert pkm_client.get_block(uid).block.text == "new"
+
+
+# -- the assistant's subprocess: a guarded write needs the card's expect ---
+
+def test_main_require_expect_flag(monkeypatch):
+    monkeypatch.setattr(FastMCP, "run", lambda self, *a, **k: None)
+    monkeypatch.setattr(mcp_tools, "_require_expect", False)
+    mcp_server.main(["--tools", "update_block"])
+    assert mcp_tools._require_expect is False
+    mcp_server.main(["--tools", "update_block", "--require-expect"])
+    assert mcp_tools._require_expect is True
+
+
+def _ops_posts(anon_client) -> list[object]:
+    posts: list[object] = []
+    anon_client.event_hooks["request"].append(
+        lambda r: posts.append(r) if r.url.path == "/api/ops" else None)
+    return posts
+
+
+def test_require_expect_refuses_a_guarded_write_without_one(
+        tools, pkm_client, anon_client, monkeypatch):
+    monkeypatch.setattr(mcp_tools, "_require_expect", True)
+    uid = uid_of("uid_b4")
+    before = pkm_client.get_block(uid).block.text
+    posts = _ops_posts(anon_client)
+    with pytest.raises(ValueError, match="update_block: no expect argument"):
+        tools.update_block(uid, text="Replaced.")
+    with pytest.raises(ValueError, match="batch: no expect argument"):
+        tools.batch([{"command": "update",
+                      "params": {"uid": uid, "text": "Replaced."}}])
+    with pytest.raises(ValueError, match="batch: no expect argument"):
+        tools.batch([{"command": "create",
+                      "params": {"page": "AI", "text": "Never."}}])
+    assert posts == []
+    assert pkm_client.get_block(uid).block.text == before
+    assert "Never." not in tools.get_page("AI")
+
+
+def test_require_expect_takes_an_empty_expect_for_a_batch_of_creates(
+        tools, monkeypatch):
+    # the card gives a batch that names no stored block `expect: []`
+    monkeypatch.setattr(mcp_tools, "_require_expect", True)
+    tools.batch([{"command": "create",
+                  "params": {"page": "AI", "text": "Created."}}], expect=[])
+    assert "Created." in tools.get_page("AI")
+
+
+def test_without_require_expect_a_write_needs_no_expect(tools, pkm_client):
+    # external pkm-mcp callers have no approval card
+    assert mcp_tools._require_expect is False
+    uid = uid_of("uid_b4")
+    tools.update_block(uid, text="Replaced.")
+    assert pkm_client.get_block(uid).block.text == "Replaced."
+    tools.batch([{"command": "update",
+                  "params": {"uid": uid, "text": "Again."}}])
+    assert pkm_client.get_block(uid).block.text == "Again."

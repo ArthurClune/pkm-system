@@ -15,20 +15,21 @@ from pkm.assistant import write_preview as wp_module
 from pkm.assistant.policy import (GATE_FIELDS, GUARDED_TOOLS,
                                   WRITE_PREVIEW_FIELDS, WRITE_TOOLS)
 from pkm.assistant.write_preview import (CONTENT_LIMIT_CHARS,
+                                         CURRENT_EXCERPT_CHARS,
                                          TARGET_LIMIT_CHARS,
                                          CreatedInBatch, FoundBlock,
                                          MissingBlock, PreviewOp, Refusal,
                                          StoredBlock, WritePreview,
-                                         ancestor_uids,
+                                         ancestor_uids, approved_input,
                                          build_write_preview,
-                                         delete_target_uids,
+                                         delete_target_uids, shown_blocks,
                                          write_target_uids)
-from pkm.contracts.ops import BlockUid
+from pkm.contracts.ops import BlockUid, ExpectedBlock, text_hash
 from pkm.contracts.titles import RawTitle
 from pkm.mcp import server as mcp_server
 from pkm.mcp import tools as mcp_tools
 from pkm.test_data.ids import (canonical_title_of, malformed_uid,
-                               raw_title_of, uid_of)
+                               raw_title_of, sha_of, uid_of)
 
 
 def _preview(short: str, raw: Mapping[str, object],
@@ -1138,3 +1139,85 @@ def test_ancestor_uids_are_none_without_a_move_before_a_delete(commands):
 def test_ancestor_uids_never_raise():
     assert ancestor_uids("batch", {"commands": "nope"}) == []
     assert ancestor_uids("update_block", {"uid": _A, "text": "t"}) == []
+
+
+# -- what Allow checks the write against ---------------------------------
+
+_C = uid_of("CCCCCCCC")
+_SUB = sha_of("5" * 64)
+
+
+def _cmd(command: str, **params: object) -> dict[str, object]:
+    return {"command": command, "params": params}
+
+
+def test_shown_blocks_hash_the_full_text_not_the_excerpt():
+    # the card shows CURRENT_EXCERPT_CHARS of it; an edit past that must
+    # still refuse
+    long = "y" * 1000
+    raw = {"uid": _A, "text": "t"}
+    got = shown_blocks("update_block", raw, {_A: StoredBlock(_INBOX, long)})
+    assert got == [ExpectedBlock(uid=_A, kind="text",
+                                 shown_hash=text_hash(long))]
+    assert got[0].shown_hash != text_hash("y" * CURRENT_EXCERPT_CHARS)
+
+
+def test_a_missing_block_is_expected_absent():
+    raw = {"commands": [_cmd("update", uid=_A, text="t")]}
+    assert shown_blocks("batch", raw, {}) == [
+        ExpectedBlock(uid=_A, kind="absent")]
+
+
+def test_a_malformed_uid_and_an_alias_expect_nothing():
+    raw = {"commands": [
+        _cmd("create", page="P", text="x", **{"as": "x"}),
+        _cmd("update", uid="{{x}}", text="t"),
+        _cmd("move", uid="((AAAAAAAA))", page="P"),
+        _cmd("delete", uid=" AAAAAAAA")]}
+    assert shown_blocks("batch", raw, {_A: StoredBlock(_INBOX, "a")}) == []
+
+
+def test_one_uid_updated_moved_and_deleted_expects_its_subtree():
+    raw = {"commands": [_cmd("update", uid=_A, text="t"),
+                        _cmd("move", uid=_A, page="P"),
+                        _cmd("delete", uid=_A)]}
+    blocks = {_A: StoredBlock(_INBOX, "a", 2, subtree_hash=_SUB)}
+    assert shown_blocks("batch", raw, blocks) == [
+        ExpectedBlock(uid=_A, kind="subtree", shown_hash=_SUB)]
+
+
+def test_shown_blocks_keep_first_seen_order():
+    raw = {"commands": [_cmd("update", uid=_A, text="t"),
+                        _cmd("move", uid=_B, page="P"),
+                        _cmd("delete", uid=_C)]}
+    blocks = {_A: StoredBlock(_INBOX, "a"), _B: StoredBlock(_INBOX, "b"),
+              _C: StoredBlock(_INBOX, "c", 0, subtree_hash=_SUB)}
+    assert shown_blocks("batch", raw, blocks) == [
+        ExpectedBlock(uid=_A, kind="text", shown_hash=text_hash("a")),
+        ExpectedBlock(uid=_B, kind="text", shown_hash=text_hash("b")),
+        ExpectedBlock(uid=_C, kind="subtree", shown_hash=_SUB)]
+
+
+def test_a_delete_target_without_a_subtree_hash_raises():
+    raw = {"commands": [_cmd("delete", uid=_A)]}
+    with pytest.raises(ValueError):
+        shown_blocks("batch", raw, {_A: StoredBlock(_INBOX, "a", 0)})
+
+
+def test_shown_blocks_of_input_the_card_refuses_raise():
+    # never an empty guard for input the card did not show
+    with pytest.raises(ValueError):
+        shown_blocks("batch", {"commands": "nope"}, {})
+
+
+def test_approved_input():
+    note = {"text": "t", "page": "P"}
+    assert approved_input("save_note", note, {}) == note
+    assert "expect" not in approved_input("save_note", note, {})
+    creates = {"commands": [_cmd("create", page="P", text="x")]}
+    assert approved_input("batch", creates, {}) == {**creates, "expect": []}
+    update = {"uid": _A, "text": "new"}
+    assert approved_input(
+        "update_block", update, {_A: StoredBlock(_INBOX, "old")}) == {
+        **update, "expect": [{"uid": _A, "kind": "text",
+                              "shown_hash": text_hash("old")}]}

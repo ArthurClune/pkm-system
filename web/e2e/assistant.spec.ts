@@ -274,7 +274,6 @@ async function openBesideBlock(page: Page, title: string, uid: string): Promise<
 // FakeEngine's "please update <uid>" runs the real update_block tool on
 // Allow, against this server, so the write lands as the assistant's would
 test("Allow refuses an update to a block edited after the card showed it", async ({ page }) => {
-  test.fail();
   const stamp = Date.now();
   const title = `ApprovalGuard${stamp}`;
   const panel = await openBesideBlock(page, title, `ag${stamp}`);

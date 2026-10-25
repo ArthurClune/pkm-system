@@ -255,7 +255,11 @@ def test_please_update_runs_the_tool_on_allow():
         return f"updated ^{_VICTIM}"
 
     events = _update_turn_running(f"please update {_VICTIM}", recording)
-    assert calls == [("update_block", {"uid": _VICTIM, "text": "Replaced."})]
+    # Allow runs the input the card was built from, with the expectation
+    # the card recorded: no database here, so the block is absent
+    assert calls == [("update_block", {
+        "uid": _VICTIM, "text": "Replaced.",
+        "expect": [{"uid": _VICTIM, "kind": "absent", "shown_hash": None}]})]
     assert ToolFinished(name="update_block") in events
     assert [e.text for e in events if isinstance(e, TextDelta)] == ["Updated."]
 

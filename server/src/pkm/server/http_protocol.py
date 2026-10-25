@@ -14,7 +14,9 @@ the first head and after each response. So the remains of a body the app
 answered without reading (a refused one, or a public `GET` that declared
 one) count against the next head's deadline too. A request whose head is
 in and whose response has not finished is never cut: an authenticated
-upload may stream for minutes.
+upload may stream for minutes. A WebSocket upgrade disarms it for good: the
+transport then belongs to the WebSocket protocol, which uvicorn hands it
+to without starting a request.
 
 It leans on uvicorn internals (`self.conn`, `self.cycle`,
 `on_response_complete`); the real-socket tests in `test_http_protocol.py`
@@ -24,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 
+import h11
 from uvicorn.protocols.http.h11_impl import H11Protocol
 
 # Ten seconds for a request head of a few hundred bytes: far beyond any
@@ -42,6 +45,10 @@ class DeadlineH11Protocol(H11Protocol):
         super().data_received(data)
         if self._request_in_progress():
             self._disarm_head_deadline()
+
+    def handle_websocket_upgrade(self, event: h11.Request) -> None:
+        self._disarm_head_deadline()
+        super().handle_websocket_upgrade(event)
 
     def on_response_complete(self) -> None:
         super().on_response_complete()
@@ -67,5 +74,7 @@ class DeadlineH11Protocol(H11Protocol):
 
     def _head_deadline_passed(self) -> None:
         self._head_deadline = None
-        if not self._request_in_progress() and not self.transport.is_closing():
+        if (self.transport.get_protocol() is self
+                and not self._request_in_progress()
+                and not self.transport.is_closing()):
             self.transport.close()

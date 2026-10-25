@@ -987,8 +987,9 @@ Nothing enforces these rules:
   must keep starting through `python -m pkm.server.run` (the launchd job
   does). Another launcher, or uvicorn's `httptools` protocol, has no head
   deadline. The protocol reads uvicorn internals (`conn`, `cycle`,
-  `on_response_complete`); `test_http_protocol.py` catches an upgrade that
-  moves them.
+  `on_response_complete`, `handle_websocket_upgrade`);
+  `test_http_protocol.py` catches an upgrade that moves them. A deadline
+  left armed across a WebSocket upgrade would close the socket 10 s in.
 - The gate reads the config from `scope["app"].state.config` on every
   request, never once at startup: the proptest sync server replaces
   `app.state.config` after `create_app`.

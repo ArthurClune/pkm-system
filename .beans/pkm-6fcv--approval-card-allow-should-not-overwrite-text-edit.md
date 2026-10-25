@@ -1,11 +1,11 @@
 ---
 # pkm-6fcv
 title: 'Approval card: Allow should not overwrite text edited after the card showed it'
-status: draft
+status: todo
 type: feature
 priority: normal
 created_at: 2026-10-24T23:30:51Z
-updated_at: 2026-10-24T23:30:51Z
+updated_at: 2026-10-25T15:07:35Z
 parent: pkm-mfd0
 ---
 
@@ -13,5 +13,5 @@ From the pkm-g2w9 plan (2026-10-25). The approval card now shows each update/mov
 
 Needs Arthur's call: pass the shown text's hash into the tool so Allow applies only if the block still matches what was shown (else refuse or re-show the card).
 
-- [ ] Decide: guard Allow on the shown text, or accept
+- [x] Decide: guard Allow on the shown text, or accept — Arthur 2026-10-25: guard. Allow refuses when a shown block was edited after the card showed it (decisions spec row, on security/batch-server until it merges)
 - [ ] If guarded: hash carried from preview to apply for update_block and batch update/move/delete

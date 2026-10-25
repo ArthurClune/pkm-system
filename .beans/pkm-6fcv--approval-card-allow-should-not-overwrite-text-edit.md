@@ -1,11 +1,11 @@
 ---
 # pkm-6fcv
 title: 'Approval card: Allow should not overwrite text edited after the card showed it'
-status: todo
+status: in-progress
 type: feature
 priority: normal
 created_at: 2026-10-24T23:30:51Z
-updated_at: 2026-10-25T15:07:35Z
+updated_at: 2026-10-25T15:08:18Z
 parent: pkm-mfd0
 ---
 

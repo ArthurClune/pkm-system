@@ -134,7 +134,8 @@ def test_a_header_or_note_for_a_deeply_nested_title_fits(builder):
 def test_a_huge_hint_naming_no_page_falls_back():
     text = orphan_header_text(raw_title_of("h" * 3_000_000), None)
     assert text_limit_violation(text) is None
-    assert LONG_TITLE_LABEL in text
+    # only the name falls back: the header still says no page had it
+    assert text.startswith(f"[[conflict]] {LONG_TITLE_LABEL} (page not found)")
 
 
 @pytest.mark.parametrize("builder", _BUILDERS)

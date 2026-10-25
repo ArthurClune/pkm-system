@@ -107,9 +107,16 @@ def orphan_header_text(page_title: RawTitle | None,
     longer has); hint_page, the page it names, is resolved by the shell.
     Also heads every other entry grouped under a missing block's uid (see
     `ops_core.classify_skip`), so whichever lands first, they share it."""
-    return _fitted(conflict_label(page_title, hint_page),
-                   lambda label: f"[[conflict]] {label}"
-                                 " — edit to a block the server no longer has")
+    def build(label: str) -> str:
+        return (f"[[conflict]] {label}"
+                " — edit to a block the server no longer has")
+
+    span = missing_page_code_span(page_title)
+    if hint_page is None and span is not None:
+        # only the name falls back, so the header still says the hint
+        # named no page
+        return _fitted(span, lambda name: build(f"{name} (page not found)"))
+    return _fitted(conflict_label(page_title, hint_page), build)
 
 
 def live_block_header_text(page_title: CanonicalTitle, uid: BlockUid) -> str:

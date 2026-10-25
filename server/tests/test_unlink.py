@@ -2,7 +2,9 @@ import tracemalloc
 from collections.abc import Callable
 
 import pytest
+from scaling import loop_steps
 
+from pkm import unlink
 from pkm.contracts.ops import BlockUid
 from pkm.refs import canonicalize_title, extract, normalize_title
 from pkm.unlink import (
@@ -303,3 +305,24 @@ def test_a_source_past_the_cap_stops_building_copies_once_it_is_known():
     assert [b.reason for b in plan.blockers] == ["limit"]
     # the copies it refers to come to 24M characters; two pass the cap
     assert peak < 10 * 300_000
+
+
+def test_copies_that_blank_to_nothing_still_count_toward_the_stop():
+    # Each page block's copy splices in a block of 76,000 refs, which the
+    # blank pass then empties: the copies cost the cap's worth of work
+    # each and come out "". The source must stop fetching them once that
+    # work passes the cap, however many it refers to.
+    long = uid_of("pgblkCCCC")  # 13 characters a ref: 988,000 in all
+
+    def steps(count: int) -> int:
+        page: dict[BlockUid, str] = {long: "c",
+                                     PAGE_B: f"(({long}))" * 76_000}
+        for i in range(count):
+            page[uid_of(f"page_blk_{i:04d}")] = f"(({PAGE_B}))"
+        refs = "".join(f"(({uid}))" for uid in page if uid not in (long, PAGE_B))
+        source = SourceBlock(SRC, OTHER, refs)
+        return loop_steps(unlink, lambda: plan_page_delete(is_t, page, [source]))
+
+    small, large = steps(4), steps(16)
+    # Bounded work stays level from 4 to 16 refs; a copy each grows 4x.
+    assert large < 1.5 * small, (small, large)

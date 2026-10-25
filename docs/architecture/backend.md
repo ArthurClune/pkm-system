@@ -684,17 +684,19 @@ length cap and longer than `before`, or nested past the cap and deeper than
 worse,** so the page it links stays renamable and deletable. Client writes
 keep the strict rule ([Planning](#planning)).
 
-A page delete judges the length before it builds anything, so a small page
-cannot force minutes of work under the write lock. It builds a page block's
-copy only when a source refers to it (`unlink._Copies`). Each copy is
-projected with `spans.spliced_length` before it is built: one whose splice
-of the refs it holds would pass the cap is never built, and every block
-referring to it is refused as `limit`. A source fetches its copies one at a
-time and is refused once their lengths carry its inlined text past the cap.
-Both judgements come before the passes that shorten: a copy is judged
-before its deeper refs are blanked and its links unlinked, a source before
-unlinking. Those passes can remove any amount of text, so a delete whose
-final text would fit can still be refused.
+A page delete judges the length before it builds anything, so the work it
+does under the write lock is bounded per referring block. It builds a page
+block's copy only when a source refers to it (`unlink._Copies`). Each copy
+is projected with `spans.spliced_length` before it is built: one whose
+splice of the refs it holds would pass the cap is never built, and every
+block referring to it is refused as `limit`. A source fetches its copies one
+at a time, each counted at that projected length, and is refused once they
+carry its inlined text past the cap. A copy that blanks down to `""` still
+costs its projected length to build, so counting the final length would
+leave that work unbounded. Both judgements come before the passes that
+shorten: a copy before its deeper refs are blanked and its links unlinked, a
+source before unlinking. Those passes can remove any amount of text, so a
+delete whose final text would fit can still be refused.
 The source's `limit` comes ahead of `attribute` and `residual`, so the
 delete dialog names the length first.
 

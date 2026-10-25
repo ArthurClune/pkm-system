@@ -1,7 +1,12 @@
 """A page delete's plan builds copies only for the page blocks a source
 refers to, and stops once a source is known to pass the length cap. The
-plan must be the one building every copy up front gave: the oracle below
-is that eager planner, kept verbatim, and both run on random pages and
+oracle below is the planner that built every copy up front, kept as it
+was, with one switch: whether a source's inlined length counts each copy
+at its final length (the rule before copies were built lazily) or at its
+projected length before deeper refs are blanked (the rule now, which
+bounds the work a copy that blanks to "" costs). The plan must equal the
+eager planner under the new rule, and differ from it under the old rule
+only by refusing more sources as `limit`. Both run on random pages and
 sources under a small cap so the limit paths are reached."""
 from __future__ import annotations
 
@@ -29,20 +34,22 @@ PAGE_UIDS = [uid_of("pgblkAAA1"), uid_of("pgblkBBB2"), uid_of("pgblkCCC3")]
 
 def _eager_copies(
     is_target: TitleMatch, page_blocks: Mapping[BlockUid, str]
-) -> tuple[dict[BlockUid, str], frozenset[BlockUid]]:
+) -> tuple[dict[BlockUid, str], frozenset[BlockUid], dict[BlockUid, int]]:
     plain = {uid: plain_copy(text) for uid, text in page_blocks.items()}
     blanks = {uid: "" for uid in page_blocks}
     copies: dict[BlockUid, str] = {}
     oversized: set[BlockUid] = set()
+    projected: dict[BlockUid, int] = {}
     for uid in page_blocks:
         spans = block_ref_spans(plain[uid], plain)
-        if spliced_length(plain[uid], spans) > unlink.MAX_BLOCK_TEXT_CHARS:
+        projected[uid] = spliced_length(plain[uid], spans)
+        if projected[uid] > unlink.MAX_BLOCK_TEXT_CHARS:
             oversized.add(uid)
             continue
         text = splice(plain[uid], spans)
         text = inline_block_refs(text, blanks)
         copies[uid] = unlink_title_refs(text, is_target)
-    return copies, frozenset(oversized)
+    return copies, frozenset(oversized), projected
 
 
 def _inlined_over_limit(text: str, spans: Sequence[Span]) -> bool:
@@ -55,8 +62,9 @@ def _eager_plan(
     is_target: TitleMatch,
     page_blocks: Mapping[BlockUid, str],
     sources: Sequence[SourceBlock],
+    count_projected: bool,
 ) -> DeletePlan:
-    copies, oversized = _eager_copies(is_target, page_blocks)
+    copies, oversized, projected = _eager_copies(is_target, page_blocks)
     rewrites: dict[BlockUid, str] = {}
     unlinked: set[BlockUid] = set()
     inlined: dict[BlockUid, Mapping[BlockUid, str]] = {}
@@ -83,7 +91,11 @@ def _eager_plan(
             else:
                 applied = {u: copies[u] for u in referenced}
                 spans = block_ref_spans(source.text, applied)
-                if _inlined_over_limit(source.text, spans):
+                # stand-ins as long as each copy before it was blanked
+                judged = block_ref_spans(source.text, {
+                    u: " " * projected[u] for u in referenced}) \
+                    if count_projected else spans
+                if _inlined_over_limit(source.text, judged):
                     reason = "limit"
         if reason is not None:
             blockers.append(
@@ -155,8 +167,25 @@ def test_the_lazy_plan_equals_the_eager_one(monkeypatch):
     @given(graphs())
     def prop(graph):
         page, sources = graph
-        expected = _eager_plan(is_t, page, sources)
-        assert plan_page_delete(is_t, page, sources) == expected
+        expected = _eager_plan(is_t, page, sources, count_projected=True)
+        plan = plan_page_delete(is_t, page, sources)
+        assert plan == expected
+        # against the rule before: only more `limit` refusals
+        before = _eager_plan(is_t, page, sources, count_projected=False)
+        assert (plan.links, plan.link_pages, plan.block_refs,
+                plan.block_ref_pages) == (
+            before.links, before.link_pages, before.block_refs,
+            before.block_ref_pages)
+        now = {b.uid: b.reason for b in plan.blockers}
+        was = {b.uid: b.reason for b in before.blockers}
+        for source in sources:
+            if source.uid not in now:
+                assert source.uid not in was
+                assert plan.rewrites.get(source.uid) == \
+                    before.rewrites.get(source.uid)
+            elif now[source.uid] != was.get(source.uid):
+                assert now[source.uid] == "limit"
+                seen["stricter"] += 1
         seen["cases"] += 1
         reasons = {b.reason for b in expected.blockers}
         seen["limit"] += "limit" in reasons
@@ -168,5 +197,6 @@ def test_the_lazy_plan_equals_the_eager_one(monkeypatch):
     prop()
     # About half the lowest rate seen over unseeded runs: a shape never
     # drawn would let the two planners differ there unseen.
-    for shape, share in {"limit": 0.24, "inlined": 0.12, "unblocked": 0.3}.items():
+    for shape, share in {"limit": 0.24, "inlined": 0.11, "unblocked": 0.3,
+                         "stricter": 0.02}.items():
         assert seen[shape] > seen["cases"] * share, (shape, seen[shape], seen["cases"])

@@ -248,21 +248,23 @@ class _Copies:
         self._plain = {uid: plain_copy(text)
                        for uid, text in page_blocks.items()}
         self._blanks = {uid: "" for uid in page_blocks}
-        self._built: dict[BlockUid, str | None] = {}
+        self._built: dict[BlockUid, tuple[str | None, int]] = {}
 
-    def get(self, uid: BlockUid) -> str | None:
-        """The copy of page block `uid`, or None when it would be over the
-        length cap. That is judged on the splice of the refs it holds,
-        projected before it is built and before deeper refs are blanked
-        and links unlinked, which only shorten it."""
+    def get(self, uid: BlockUid) -> tuple[str | None, int]:
+        """The copy of page block `uid` and its projected length: the
+        splice of the refs it holds, before deeper refs are blanked and
+        links unlinked, which only shorten it. That length is the work
+        building the copy costs, and the copy is None, never built, when
+        it is over the cap."""
         if uid not in self._built:
             plain = self._plain[uid]
             spans = block_ref_spans(plain, self._plain)
+            projected = spliced_length(plain, spans)
             copy = None
-            if spliced_length(plain, spans) <= MAX_BLOCK_TEXT_CHARS:
+            if projected <= MAX_BLOCK_TEXT_CHARS:
                 text = inline_block_refs(splice(plain, spans), self._blanks)
                 copy = unlink_title_refs(text, self._is_target)
-            self._built[uid] = copy
+            self._built[uid] = (copy, projected)
         return self._built[uid]
 
 
@@ -316,14 +318,17 @@ def _inline_copies(
     source: SourceBlock, referenced: Sequence[BlockUid], copies: _Copies,
 ) -> dict[BlockUid, str] | None:
     """The copies `source` inlines, or None when inlining them would carry
-    it over the length cap, or further past it. Judged on the inlined
-    text before unlinking, from lengths, so no text that size is built.
-    Unlinking can take out any amount of link syntax, so this refuses some
-    texts that unlinking would bring back under the cap.
+    it over the length cap, or further past it. Each copy counts at its
+    projected length (`_Copies.get`), before the passes that shorten it,
+    and the source is judged before unlinking; no text that size is
+    built. Those passes can take out any amount of text, so this refuses
+    some texts that would come back under the cap.
 
-    Copies are fetched one at a time, and fetching stops once the ones
-    fetched already put the inlined length past the cap: the rest could
-    only add to it. A copy over the cap refuses the source outright."""
+    Copies are fetched one at a time, and fetching stops once the length
+    so far is past the cap: the rest could only add to it. Counting each
+    copy before it shortens bounds the work, since a copy that blanks
+    down to "" still costs its projected length to build. A copy over the
+    cap refuses the source outright."""
     places = Counter(uid for _start, _end, uid in
                      block_ref_spans(source.text, {u: u for u in referenced}))
     # the source without its refs, then each copy once per place it lands
@@ -331,11 +336,11 @@ def _inline_copies(
         source.text, {u: "" for u in referenced}))
     applied: dict[BlockUid, str] = {}
     for uid in referenced:
-        copy = copies.get(uid)
+        copy, projected = copies.get(uid)
         if copy is None:
             return None
         applied[uid] = copy
-        length += places[uid] * len(copy)
+        length += places[uid] * projected
         if _over_length(source.text, length):
             return None
     return applied

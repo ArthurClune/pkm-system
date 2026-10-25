@@ -32,12 +32,10 @@ one client, which is what actually matters at this scale.
 from __future__ import annotations
 
 import asyncio
-import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from pkm.server.auth import COOKIE_NAME
-from pkm.server.auth_core import verify_session
+from pkm.server.auth import NOT_AUTHENTICATED_WS_CODE, session_is_valid
 from pkm.server.notify import Frame
 
 router = APIRouter()
@@ -166,12 +164,8 @@ async def _safe_close(ws: WebSocket) -> None:
 
 @router.websocket("/api/ws")
 async def ws_endpoint(websocket: WebSocket) -> None:
-    config = websocket.app.state.config
-    token = websocket.cookies.get(COOKIE_NAME)
-    if not token or not verify_session(
-            bytes.fromhex(config.session_secret), token,
-            now_ms=int(time.time() * 1000)):
-        await websocket.close(code=4401)
+    if not session_is_valid(websocket, websocket.app.state.config):
+        await websocket.close(code=NOT_AUTHENTICATED_WS_CODE)
         return
     hub: Hub = websocket.app.state.hub
     await hub.connect(websocket)

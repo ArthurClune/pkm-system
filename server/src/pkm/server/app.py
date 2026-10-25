@@ -22,6 +22,7 @@ from pkm.describe.openai_client import OpenAIDescriber
 from pkm.describe.routes import router as describe_router
 from pkm.describe.service import DescribeService
 from pkm.server.auth import LoginThrottle, require_auth, router as auth_router
+from pkm.server.auth_gate import AuthGateMiddleware
 from pkm.server.config import Config
 from pkm.server.db import init_db
 from pkm.server.goodlinks_gateway import GoodlinksGateway
@@ -154,7 +155,11 @@ def create_app(
                           else _default_describe_service(config))
     app.state.goodlinks = (goodlinks_gateway if goodlinks_gateway is not None
                            else _default_goodlinks(config))
-    # Added first, so innermost: its 403 is logged and carries the headers.
+    # The auth gate and the Origin guard are added first, so they are
+    # innermost: their refusals are logged and carry the security headers.
+    # Each added middleware wraps the ones before it, so the Origin guard
+    # runs before the gate and a foreign handshake sees 4403, not 4401.
+    app.add_middleware(AuthGateMiddleware)
     app.add_middleware(OriginGuardMiddleware, allowed=allowed_origins(
         config.serve_origins, config.bind_hosts, api_port))
     app.add_middleware(SecurityHeadersMiddleware)

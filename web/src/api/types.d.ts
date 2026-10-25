@@ -76,9 +76,11 @@ export interface paths {
          *
          *     The text-limit and title judges (`judge_batch`) run first, in the
          *     threadpool: off the write lock, so one large batch's refusal never
-         *     holds every other write, and off the event loop. They run before the
-         *     dedupe read too, so a retry of a stored batch meets the current
-         *     limits.
+         *     holds every other write, and off the event loop. A refused batch is
+         *     looked up before its 400, without the write lock (a committed row is
+         *     visible to a plain read). One already applied, whose ack was lost and
+         *     which a deploy has since put over a limit, replays its stored ack: a
+         *     400 would make the client discard edits the server holds.
          */
         post: operations["post_ops_api_ops_post"];
         delete?: never;

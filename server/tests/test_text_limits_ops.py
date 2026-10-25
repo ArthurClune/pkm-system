@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+from pkm import text_limits
 from pkm.contracts.ops import MAX_BLOCK_TEXT_CHARS, BlockUid, OrderIdx
 from pkm.server import db as db_module
 from pkm.server.db import open_db
@@ -208,6 +209,46 @@ def test_a_judged_batch_still_waits_for_the_lock(client, write_lock_held):
     r = _post(client, _create(FINE_BLK_01, "fine"))
     assert r.status_code == 503, r.text[:500]
     assert r.headers["retry-after"] == "1"
+
+
+# -- a stored batch replays its ack whatever the judges say now ------------
+
+def test_a_stored_batch_replays_its_ack_after_a_limit_tightens(
+        client, monkeypatch):
+    _page(client)
+    body = {"client_id": client_id_of("limits"),
+            "batch_id": batch_id_of("limits_replay_01"),
+            "ops": [_create(FINE_BLK_01, "fine text")]}
+    first = client.post("/api/ops", json=body)
+    assert first.status_code == 200, first.text
+    # a deploy lowers the cap below the stored text
+    monkeypatch.setattr(text_limits, "MAX_BLOCK_TEXT_CHARS", 3)
+    retry = client.post("/api/ops", json=body)
+    assert retry.status_code == 200, retry.text
+    assert retry.json() == first.json()
+
+
+def test_a_reused_batch_id_is_409_even_when_the_judges_refuse(
+        client, monkeypatch):
+    _page(client)
+    batch_id = batch_id_of("limits_replay_02")
+    first = client.post("/api/ops", json={
+        "client_id": client_id_of("limits"), "batch_id": batch_id,
+        "ops": [_create(FINE_BLK_01, "fine text")]})
+    assert first.status_code == 200, first.text
+    r = client.post("/api/ops", json={
+        "client_id": client_id_of("limits"), "batch_id": batch_id,
+        "ops": [_create(OVER_LEN_01, "x" * 1_000_001)]})
+    assert r.status_code == 409, r.text[:500]
+    assert r.json()["detail"] == {
+        "index": None,
+        "reason": "batch_id was already used with different ops"}
+
+
+def test_a_refused_batch_never_stored_is_still_400(client, monkeypatch):
+    monkeypatch.setattr(text_limits, "MAX_BLOCK_TEXT_CHARS", 3)
+    r = _post(client, _create(FINE_BLK_01, "fine text"))
+    assert r.status_code == 400, r.text[:500]
 
 
 def test_a_huge_page_title_hint_lands_a_header_within_the_cap(

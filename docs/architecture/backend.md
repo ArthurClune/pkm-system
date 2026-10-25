@@ -428,10 +428,12 @@ server bug.
   runs it in the threadpool before `BEGIN IMMEDIATE`: judging a large batch
   takes seconds, which must hold neither the single writer nor the event
   loop. `apply_batch` takes only a `JudgedBatch`, so no caller applies an
-  unjudged batch. The judge also runs before the dedupe read, so a retry of
-  a stored batch meets the current limits: a limit a deploy tightened
-  refuses it rather than replaying its ack. Length is judged before nesting,
-  so the nesting measure never reads past the cap. Only the text an op sends
+  unjudged batch. A refused batch is looked up in `applied_batches`
+  without the lock before its 400, and one already applied replays its
+  stored ack. A deploy that tightens a limit can therefore never turn the
+  retry of a batch whose ack was lost into a 400, which the client treats
+  as terminal and discards. Length is judged before nesting, so the nesting
+  measure never reads past the cap. Only the text an op sends
   is judged: a move, `set_*` op or delete of a row stored over a limit goes
   through, and an edit that brings it under is accepted. The links a
   [stale batch](#stale-batches) unlinks are not judged: an unlink only

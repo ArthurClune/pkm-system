@@ -103,6 +103,9 @@ _CLI_WRAPPER = re.compile(r"<tool_use_error>(.*)</tool_use_error>", re.DOTALL)
 _CLI_PREFIX = re.compile(r"^Error(?: calling tool \([^)]*\))?: ")
 # FastMCP wraps a raising tool's message in this, at the start only.
 _FASTMCP_PREFIX = re.compile(r"^Error executing tool \w+: ")
+# pkm's ApiError puts the HTTP status first ("412: block ..."); the panel
+# shows the sentence alone.
+_HTTP_STATUS = re.compile(r"^\d{3}: ")
 
 
 def tool_error_reason(content: str | list[dict[str, Any]] | None) -> str:
@@ -118,7 +121,8 @@ def tool_error_reason(content: str | list[dict[str, Any]] | None) -> str:
     if wrapped := _CLI_WRAPPER.fullmatch(text):
         text = wrapped.group(1).strip()
     text = _CLI_PREFIX.sub("", text, count=1)
-    text = _FASTMCP_PREFIX.sub("", text, count=1).strip()
+    text = _FASTMCP_PREFIX.sub("", text, count=1)
+    text = _HTTP_STATUS.sub("", text, count=1).strip()
     if not text:
         return "no reason given"
     if len(text) > TOOL_ERROR_LIMIT_CHARS:

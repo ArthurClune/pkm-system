@@ -132,8 +132,21 @@ def test_tool_error_reason_of_a_refused_allow_from_the_real_harness():
                "((lr1792953900)) changed after the approval card showed it, "
                "so nothing was written")
     assert tool_error_reason(content) == (
-        "412: block ((lr1792953900)) changed after the approval card "
+        "block ((lr1792953900)) changed after the approval card "
         "showed it, so nothing was written")
+
+
+def test_tool_error_reason_drops_a_leading_http_status():
+    assert tool_error_reason(f"412: {_REFUSAL}") == _REFUSAL
+    assert tool_error_reason(_REFUSAL) == _REFUSAL
+    assert tool_error_reason(
+        f"<tool_use_error>Error executing tool batch: 400: "
+        f"{_REFUSAL}</tool_use_error>") == _REFUSAL
+    # only three digits then a colon and a space, once, at the start
+    for kept in ("2024: the year", "12: items", "412 block gone",
+                 "412:block gone", "4125: x", "a 412: b"):
+        assert tool_error_reason(kept) == kept
+    assert tool_error_reason("404: 404: Not Found") == "404: Not Found"
 
 
 def test_tool_error_reason_drops_the_cli_wrapper_then_the_fastmcp_prefix():

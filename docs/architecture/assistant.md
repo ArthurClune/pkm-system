@@ -169,8 +169,9 @@ reply, which can report a refused write as done.
   conversation owns (`_tool_names`, which the mapper calls `_tools`, and
   `_declined`). A stopped turn's write can report during the next turn, so
   the maps must outlive a mapper.
-- `tool_error_reason` drops the CLI's `<tool_use_error>` wrapper and
-  FastMCP's `Error executing tool <name>:` prefix. The reason can echo
+- `tool_error_reason` drops the CLI's `<tool_use_error>` wrapper,
+  FastMCP's `Error executing tool <name>:` prefix and the HTTP status pkm's
+  `ApiError` leads with (`412: `). The reason can echo
   model-chosen input, so it is clipped server-side and the panel renders it
   as text.
 

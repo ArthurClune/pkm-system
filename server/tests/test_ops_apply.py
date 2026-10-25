@@ -345,7 +345,7 @@ def test_parent_chain_and_subtree_terminate_on_preexisting_cycle(db):
     assert len(subtree) == len(expected)
 
 
-def testsubtree_rows_is_deepest_first_with_columns(db):
+def test_subtree_rows_is_deepest_first_with_columns(db):
     # One query reads what both the hash and the conflict copies need:
     # every block of the subtree with its parent, position and text,
     # children before parents like _subtree_deepest_first.
@@ -370,7 +370,7 @@ def testsubtree_rows_is_deepest_first_with_columns(db):
     assert subtree_rows(db, uid_of("no_such_uid")) == ()
 
 
-def testsubtree_rows_terminates_on_preexisting_cycle(db):
+def test_subtree_rows_terminates_on_preexisting_cycle(db):
     apply_batch(db, _batch(*_linear_chain("Machine Learning", 5, prefix="cycrow")),
                 NOW)
     db.commit()

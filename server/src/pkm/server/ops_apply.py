@@ -175,7 +175,7 @@ def _subtree_deepest_first(db: Db,
 
 
 def subtree_rows(db: Db,
-                  uid: BlockUid) -> tuple[SubtreeRow, ...]:
+                 uid: BlockUid) -> tuple[SubtreeRow, ...]:
     """uid and every descendant with its parent, position and text, deepest
     first -- what a guarded delete hashes and, on a divergence, copies. The
     same recursive CTE and visited-path guard as _subtree_deepest_first, so

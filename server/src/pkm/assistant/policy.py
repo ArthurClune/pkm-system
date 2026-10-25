@@ -52,6 +52,10 @@ WRITE_PREVIEW_FIELDS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = 
 CURRENT_TEXT_ENTRIES: frozenset[str] = frozenset(
     {"update_block", "batch:update", "batch:move", "batch:delete"})
 
+# The writes among those that remove the named block with every block under
+# it, so the card also says how many go with it.
+SUBTREE_DELETE_ENTRIES: frozenset[str] = frozenset({"batch:delete"})
+
 # The Claude models also exist as the web picker's fetch-failure fallback
 # (useAssistant.ts); a rename or addition there must stay in sync.
 MODELS: tuple[AssistantModel, ...] = ("sonnet", "opus", "haiku", "fable", "glm")

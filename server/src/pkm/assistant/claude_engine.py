@@ -50,7 +50,8 @@ from pkm.assistant.policy import (
     short_tool_name,
     tool_summary,
 )
-from pkm.assistant.write_preview import Refusal, build_write_preview
+from pkm.assistant.target_reader import BlockReader, preview_write
+from pkm.assistant.write_preview import Refusal
 from pkm.contracts.responses import ConfirmId
 from pkm.server.auth_core import sign_session
 
@@ -139,8 +140,9 @@ class TurnMapper:
 
 
 class ClaudeConversation:
-    def __init__(self, config_path: Path) -> None:
+    def __init__(self, config_path: Path, read_blocks: BlockReader) -> None:
         self._config_path = config_path
+        self._read_blocks = read_blocks
         self._client: ClaudeSDKClient | None = None
         self._queue: asyncio.Queue[AssistantEvent] = asyncio.Queue()
         self._pending: dict[ConfirmId, asyncio.Future[bool]] = {}
@@ -170,7 +172,8 @@ class ClaudeConversation:
             logger.warning("assistant requested unexpected tool %s", tool_name)
             return PermissionResultDeny(message="Tool not permitted.")
         short = short_tool_name(tool_name)
-        preview = build_write_preview(short, tool_input or {}, blocks={})
+        preview = await preview_write(short, tool_input or {},
+                                      self._read_blocks)
         if isinstance(preview, Refusal):
             # Input the tool's schema rejects is never shown as a card:
             # the user cannot approve what the tool would not run as shown.
@@ -392,8 +395,10 @@ class ClaudeEngine:
         client_factory: Callable[[ClaudeAgentOptions], Any] | None = None,
         config_dir: Path | None = None,
         zai_token: str | None = None,
+        read_blocks: BlockReader,
     ) -> None:
         self._base_url = base_url
+        self._read_blocks = read_blocks
         self._secret = session_secret_hex
         self._client_factory = client_factory or (lambda opts: ClaudeSDKClient(options=opts))
         self._config_dir = config_dir
@@ -412,7 +417,7 @@ class ClaudeEngine:
         # rejected before the credential file or any subprocess exists.
         harness = resolve_harness_env(model, self._zai_token)
         config_path = self._write_cli_config()
-        conversation = ClaudeConversation(config_path)
+        conversation = ClaudeConversation(config_path, self._read_blocks)
         try:
             options = ClaudeAgentOptions(
                 model=harness.sdk_model,

@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import stat
+from collections.abc import Collection, Sequence
 from pathlib import Path
 
 import pytest
@@ -36,7 +37,9 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from pkm.assistant.policy import READ_TOOLS, SYSTEM_PROMPT, WRITE_TOOLS
-from pkm.test_data.ids import confirm_id_of
+from pkm.assistant.write_preview import FoundBlock, StoredBlock
+from pkm.contracts.ops import BlockUid
+from pkm.test_data.ids import canonical_title_of, confirm_id_of, uid_of
 
 
 class BrokenInterruptClient(FakeSDKClient):
@@ -1078,3 +1081,51 @@ def test_confirm_request_carries_structured_preview(tmp_path):
     card = asyncio.run(scenario())
     assert card.preview.ops[0].targets[0] == ("uid", "VICTIMUID01")
     assert card.ops_preview == card.preview.summary
+
+
+def test_confirm_card_shows_the_blocks_current_text(tmp_path):
+    victim = uid_of("VICTIMUID01")
+    inbox = canonical_title_of("Inbox")
+    reads: list[list[str]] = []
+
+    def read_blocks(uids: Sequence[BlockUid], count_under: Collection[BlockUid]):
+        reads.append(list(uids))
+        return {victim: StoredBlock(inbox, "old")}
+
+    engine = make_engine(tmp_path, read_blocks=read_blocks)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        task = asyncio.create_task(conv.can_use_tool(
+            "mcp__pkm__update_block", {"text": "new", "uid": victim}, None))
+        card = await _next_card(conv)
+        conv.resolve_confirm(card.confirm_id, False)
+        await asyncio.wait_for(task, timeout=5)
+        await conv.close()
+        return card
+
+    card = asyncio.run(scenario())
+    assert card.preview.ops[0].current == FoundBlock(inbox, "old", 3)
+    assert reads == [[victim]]
+
+
+def test_an_unreadable_target_is_refused_not_shown(tmp_path):
+    def read_blocks(uids: Sequence[BlockUid], count_under: Collection[BlockUid]):
+        raise OSError("disk gone")
+
+    engine = make_engine(tmp_path, read_blocks=read_blocks)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        decision = await asyncio.wait_for(conv.can_use_tool(
+            "mcp__pkm__update_block",
+            {"text": "new", "uid": "VICTIMUID01"}, None), timeout=5)
+        queued = conv._queue.qsize()
+        await conv.close()
+        return decision, queued
+
+    decision, queued = asyncio.run(scenario())
+    assert isinstance(decision, PermissionResultDeny)
+    assert decision.message == (
+        "update_block: the blocks this write changes could not be read")
+    assert queued == 0

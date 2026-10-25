@@ -8,6 +8,7 @@ import pytest
 from fake_engine import FakeEngine
 from fastapi.testclient import TestClient
 
+from pkm.assistant.target_reader import db_block_reader
 from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
@@ -139,8 +140,8 @@ def seed_backlinks(seeded_config):
 
 
 @pytest.fixture()
-def fake_engine() -> FakeEngine:
-    return FakeEngine()
+def fake_engine(seeded_config) -> FakeEngine:
+    return FakeEngine(read_blocks=db_block_reader(seeded_config.db_path))
 
 
 @pytest.fixture()

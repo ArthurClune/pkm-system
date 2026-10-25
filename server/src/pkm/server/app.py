@@ -138,11 +138,13 @@ def create_app(
     zai_token = _resolve_key(config.zai_api_key_file, "ZAI_API_KEY")
     if assistant_engine is None:
         from pkm.assistant.claude_engine import ClaudeEngine
+        from pkm.assistant.target_reader import db_block_reader
 
         assistant_engine = ClaudeEngine(
             base_url=f"http://127.0.0.1:{api_port}",
             session_secret_hex=config.session_secret,
             zai_token=zai_token,
+            read_blocks=db_block_reader(config.db_path),
         )
     app.state.assistant = AssistantService(
         assistant_engine,

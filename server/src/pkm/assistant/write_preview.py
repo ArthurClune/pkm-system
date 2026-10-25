@@ -14,7 +14,9 @@ could only be a decoy beside the real target.
 A write that replaces, moves or deletes an existing block also shows that
 block's current text and page, which the shell reads for the uids
 `write_target_uids` names and passes in: a uid alone does not tell the
-user what they are approving away.
+user what they are approving away. A delete removes the block's subtree
+too, so for the uids `delete_target_uids` names the shell also counts the
+blocks under it.
 
 The tool functions come from `pkm.mcp.tools`, never `pkm.mcp.server`:
 constructing the server's `FastMCP` configures the root logger and reads
@@ -31,8 +33,9 @@ from mcp.server.fastmcp.utilities.func_metadata import (FuncMetadata,
                                                         func_metadata)
 from pydantic import ValidationError
 
-from pkm.assistant.policy import (CURRENT_TEXT_ENTRIES, WRITE_PREVIEW_FIELDS,
-                                  WRITE_TOOLS)
+from pkm.assistant.policy import (CURRENT_TEXT_ENTRIES,
+                                  SUBTREE_DELETE_ENTRIES,
+                                  WRITE_PREVIEW_FIELDS, WRITE_TOOLS)
 from pkm.batch import (BatchItemError, NestedItem, alias_name, batch_aliases,
                        nested_items, validate_batch)
 from pkm.contracts.ops import MAX_OPS_PER_BATCH, BlockUid
@@ -70,6 +73,9 @@ class StoredBlock:
     """What the shell read for one uid."""
     page_title: CanonicalTitle
     text: str
+    # How many blocks sit under it: counted only for a uid
+    # `delete_target_uids` names, else None.
+    descendants: int | None = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +85,9 @@ class FoundBlock:
     excerpt: str
     # The whole text's length in code points.
     text_length: int
+    # The blocks under it that a delete removes with it; None for a write
+    # that leaves them where they are.
+    descendants: int | None = None
     state: Literal["found"] = "found"
 
 
@@ -243,7 +252,10 @@ def _current(entry: str, validated: Mapping[str, Any],
         return MissingBlock()
     return FoundBlock(page_title=stored.page_title,
                       excerpt=stored.text[:CURRENT_EXCERPT_CHARS],
-                      text_length=len(stored.text))
+                      text_length=len(stored.text),
+                      descendants=(stored.descendants
+                                   if entry in SUBTREE_DELETE_ENTRIES
+                                   else None))
 
 
 def _op(entry: str, validated: Mapping[str, Any],
@@ -291,13 +303,16 @@ def _limit_problem(op: PreviewOp) -> str | None:
 
 def _card_size(op: PreviewOp) -> int:
     """The characters `op` puts on the card: every string target, every
-    content text, every warning and the current block's text and names."""
+    content text, every warning and the current block's text, names and
+    count."""
     size = sum(len(v) for _, v in op.targets if isinstance(v, str))
     size += sum(total for _, _, total in op.content)
     size += sum(len(w) for w in op.warnings)
     current = op.current
     if isinstance(current, FoundBlock):
         size += len(current.page_title) + len(current.excerpt)
+        if current.descendants is not None:
+            size += len(str(current.descendants))
     elif isinstance(current, CreatedInBatch):
         size += len(current.alias)
     return size
@@ -326,6 +341,20 @@ def write_target_uids(short: str, tool_input: Mapping[str, object]
     order, for the shell to read before `build_write_preview`. Input the
     preview refuses names none, and so does input it cannot handle: like
     `build_write_preview`, this never raises."""
+    return _targets(short, tool_input, CURRENT_TEXT_ENTRIES)
+
+
+def delete_target_uids(short: str, tool_input: Mapping[str, object]
+                       ) -> list[BlockUid]:
+    """Those of `write_target_uids` this call deletes, each with the blocks
+    under it, for the shell to count them. Never raises."""
+    return _targets(short, tool_input, SUBTREE_DELETE_ENTRIES)
+
+
+def _targets(short: str, tool_input: Mapping[str, object],
+             entries: frozenset[str]) -> list[BlockUid]:
+    """The uids the ops in `entries` name, first-seen and deduped; none for
+    input the preview refuses or cannot handle."""
     try:
         checked = _validate(short, tool_input)
     except Exception as exc:
@@ -334,7 +363,8 @@ def write_target_uids(short: str, tool_input: Mapping[str, object]
         return []
     if isinstance(checked, Refusal):
         return []
-    uids = (_target_uid(entry, validated) for entry, validated in checked.ops)
+    uids = (_target_uid(entry, validated) for entry, validated in checked.ops
+            if entry in entries)
     return list(dict.fromkeys(uid for uid in uids if uid is not None))
 
 

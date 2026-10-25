@@ -19,6 +19,7 @@ from pkm.assistant.write_preview import (CONTENT_LIMIT_CHARS,
                                          MissingBlock, PreviewOp, Refusal,
                                          StoredBlock, WritePreview,
                                          build_write_preview,
+                                         delete_target_uids,
                                          write_target_uids)
 from pkm.contracts.ops import BlockUid
 from pkm.contracts.titles import RawTitle
@@ -681,6 +682,51 @@ def test_write_target_uids_skips_parents_and_creates():
     assert write_target_uids("batch", raw) == [_A, _B]
 
 
+def test_delete_target_uids_names_only_deletes():
+    raw = {"commands": [
+        {"command": "update", "params": {"uid": _A, "text": "t"}},
+        {"command": "move", "params": {"uid": _A, "page": "P"}},
+        {"command": "delete", "params": {"uid": _B}},
+        {"command": "delete", "params": {"uid": _B}},
+        {"command": "delete", "params": {"uid": "((abc))"}},
+        {"command": "create", "params": {"page": "P", "text": "t",
+                                         "as": "n"}},
+        {"command": "delete", "params": {"uid": "{{n}}"}}]}
+    assert delete_target_uids("batch", raw) == [_B]
+    assert set(delete_target_uids("batch", raw)) <= set(
+        write_target_uids("batch", raw))
+    assert delete_target_uids("update_block", {"uid": _A, "text": "t"}) == []
+    assert delete_target_uids("batch", {"commands": "nope"}) == []
+
+
+def test_delete_target_uids_never_raises(monkeypatch):
+    from pkm.assistant import write_preview
+
+    def boom(*_args):
+        raise KeyError("x")
+    monkeypatch.setattr(write_preview, "_validate", boom)
+    raw = {"commands": [{"command": "delete", "params": {"uid": _A}}]}
+    assert delete_target_uids("batch", raw) == []
+
+
+def test_a_delete_shows_how_many_blocks_go_with_it():
+    raw = {"commands": [
+        {"command": "update", "params": {"uid": _A, "text": "t"}},
+        {"command": "move", "params": {"uid": _A, "page": "P"}},
+        {"command": "delete", "params": {"uid": _A}}]}
+    p = _preview("batch", raw, {_A: StoredBlock(_INBOX, "old", 5)})
+    # only the delete removes the blocks under it
+    assert [op.current for op in p.ops] == [
+        FoundBlock(_INBOX, "old", 3), FoundBlock(_INBOX, "old", 3),
+        FoundBlock(_INBOX, "old", 3, 5)]
+
+
+def test_update_block_never_shows_a_count():
+    p = _preview("update_block", {"uid": _A, "text": "t"},
+                 {_A: StoredBlock(_INBOX, "old", 5)})
+    assert p.ops[0].current == FoundBlock(_INBOX, "old", 3)
+
+
 def test_write_target_uids_of_update_block():
     assert write_target_uids("update_block",
                              {"uid": _VICTIM, "text": "t"}) == [_VICTIM]
@@ -802,6 +848,15 @@ def test_current_text_counts_toward_the_card_size(monkeypatch):
     r = _refusal("update_block", {"uid": _VICTIM, "text": "t" * 60},
                  {_VICTIM: StoredBlock(_INBOX, "y" * 400)})
     assert "the card would hold" in r.message
+
+
+def test_a_deletes_count_counts_toward_the_card_size(monkeypatch):
+    # uid 8 + title 5 + excerpt 3 + the count's 5 digits
+    monkeypatch.setattr(wp_module, "PREVIEW_LIMIT_CHARS", 20)
+    raw = {"commands": [{"command": "delete", "params": {"uid": _A}}]}
+    r = _refusal("batch", raw, {_A: StoredBlock(_INBOX, "old", 12345)})
+    assert "the card would hold 21 characters" in r.message
+    assert _preview("batch", raw, {_A: StoredBlock(_INBOX, "old", 1234)})
 
 
 def test_current_page_titles_and_excerpts_count_toward_the_card_size():

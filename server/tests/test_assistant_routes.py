@@ -235,6 +235,40 @@ def test_confirm_roundtrip_over_http(assistant_client):
     assert ("text_delta", {"text": "Saved."}) in events
 
 
+def test_confirm_request_carries_current_text(assistant_client):
+    cid = assistant_client.post("/api/assistant/conversations", json={}).json()["id"]
+
+    def consume() -> list[tuple[str, dict]]:
+        with assistant_client.stream(
+            "POST", f"/api/assistant/conversations/{cid}/messages",
+            json={"text": "please update uid_b4 now"}
+        ) as r:
+            return parse_sse("".join(r.iter_text()))
+
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        fut = ex.submit(consume)
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            resp = assistant_client.post(
+                f"/api/assistant/conversations/{cid}/confirm",
+                json={"confirm_id": "fake-confirm-1", "allow": False},
+            )
+            assert resp.status_code == 200
+            if fut.done():
+                break
+            time.sleep(0.05)
+        events = fut.result(timeout=5)
+
+    (card,) = [data for name, data in events if name == "confirm_request"]
+    (op,) = card["preview"]["ops"]
+    assert op["targets"][0] == ["uid", "uid_b4"]
+    assert op["current"] == {
+        "page_title": "July 7th, 2026",
+        "excerpt": "Studying [[Machine Learning]] today",
+        "text_length": 35, "descendants": None, "state": "found"}
+    assert ("text_delta", {"text": "Not updating."}) in events
+
+
 def test_confirm_unknown_conversation_404(assistant_client):
     r = assistant_client.post(
         "/api/assistant/conversations/nope/confirm", json={"confirm_id": "x", "allow": True}

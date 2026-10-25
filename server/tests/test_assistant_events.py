@@ -75,7 +75,8 @@ def test_confirm_request_sse_shape():
                      "content": [["text", "hi", 2]],
                      "warnings": ["careful"],
                      "current": {"page_title": "Inbox", "excerpt": "old",
-                                 "text_length": 3, "state": "found"}}],
+                                 "text_length": 3, "descendants": None,
+                                 "state": "found"}}],
             "summary": 'update_block: uid="U1"',
         },
     }
@@ -95,5 +96,9 @@ def test_current_block_sse_shapes():
     assert _sse_current(MissingBlock()) == {"state": "missing"}
     assert _sse_current(CreatedInBatch(write=2, alias="m")) == {
         "write": 2, "alias": "m", "state": "created"}
+    assert _sse_current(FoundBlock(canonical_title_of("Inbox"), "old", 3,
+                                   2)) == {
+        "page_title": "Inbox", "excerpt": "old", "text_length": 3,
+        "descendants": 2, "state": "found"}
     # a create touches no existing block
     assert _sse_current(None) is None

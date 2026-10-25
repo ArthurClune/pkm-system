@@ -427,19 +427,28 @@ describe("ConfirmCard", () => {
 
   // an RTL value in an LTR card would otherwise draw right to left, and an
   // override at its start must not reach the card's own text
-  test("every value is left-to-right", () => {
-    showConfirm(previewOf(op({ targets: [["uid", "ד 2"]],
-      current: { state: "found", page_title: canonicalTitleOf("שלום"),
-        excerpt: "\u202Eevil", text_length: 5, descendants: null } })));
+  test("every value and warning is left-to-right", () => {
+    showConfirm(previewOf(
+      op({ targets: [["uid", "ד 2"]],
+        current: { state: "found", page_title: canonicalTitleOf("שלום"),
+          excerpt: "\u202Eevil", text_length: 5, descendants: null },
+        warnings: ['if no block has uid "ד 2", nothing is updated'] }),
+      op({ targets: [["uid", "{{אב}}"]],
+        current: { state: "created", write: 1, alias: "אב" } })));
     render(<AssistantPanel open onClose={() => {}} />);
     const values = [...card().querySelectorAll(".assistant-confirm-value")];
-    expect(values).toHaveLength(4);
+    expect(values).toHaveLength(7);
     for (const value of values) {
       expect(value.tagName).toBe("BDI");
       expect(value.getAttribute("dir")).toBe("ltr");
     }
     expect(values.map((v) => v.textContent)).toEqual(
-      ['"ד 2"', '"שלום"', '"\\u202Eevil"', '"Tidied wording."']);
+      ['"ד 2"', '"שלום"', '"\\u202Eevil"', '"Tidied wording."',
+        '"{{אב}}"', '"אב"', '"Tidied wording."']);
+    // a warning quotes values too, so it reads left to right as a whole
+    const warnings = [...card().querySelectorAll(".assistant-confirm-warning")];
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].getAttribute("dir")).toBe("ltr");
   });
 
   const currentRows = () => [...card().querySelectorAll(

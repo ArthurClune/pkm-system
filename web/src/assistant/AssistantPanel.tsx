@@ -151,8 +151,10 @@ function PreviewOps({ preview, endRef }: {
             {op.current && (
               <CurrentRows current={op.current} moving={op.action === "move block"} />
             )}
+            {/* a warning quotes values, so it reads left to right as a whole
+              * however its quoted values are written */}
             {op.warnings.map((warning, j) => (
-              <div key={j} className="assistant-confirm-warning">⚠ {warning}</div>
+              <div key={j} className="assistant-confirm-warning" dir="ltr">⚠ {warning}</div>
             ))}
             {op.content.map(([key, text, total], j) => (
               <ContentValue key={j} name={key} text={text} total={total} />

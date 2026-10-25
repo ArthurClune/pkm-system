@@ -14,7 +14,7 @@ symptom in [troubleshooting.md](../troubleshooting.md).
 
 | File | Pattern | Role |
 |---|---|---|
-| `events.py` | Core | The event union routes and the web UI speak, plus `encode_sse()`. Nothing engine-specific leaks upward |
+| `events.py` | Core | The event union routes and the web UI speak, plus `encode_sse()`, and `tool_error_reason()` (a failed result's text, clipped at `TOOL_ERROR_LIMIT_CHARS`). Nothing engine-specific leaks upward |
 | `policy.py` | Core | The tool gate (`READ_TOOLS` auto-allowed, `WRITE_TOOLS` confirm-gated, `MCP_ONLY_TOOLS` never offered), `MODELS`, `available_models()`, `default_model()`, `WRITE_PREVIEW_FIELDS` (which arguments of each write are targets and which are content), the system prompt |
 | `write_preview.py` | Core | `build_write_preview()`: the approval card's content for a write, or a `Refusal`; `write_target_uids()` and `delete_target_uids()`: the blocks the shell reads for it; `approved_input()`: the input Allow runs |
 | `target_reader.py` | Shell | `preview_write()`: reads those blocks through a `BlockReader` (`db_block_reader()` in production) and builds the card and the input Allow runs (an `Approval`) |
@@ -141,10 +141,32 @@ then stamped, and the Allow that released the write is counted. The stamp
 errs towards the marker: a write still counts as running until the pump has
 read its result.
 Edits from outside the turn, such as the editor beside the panel, get no
-marker. Allow refuses them instead: 412, and nothing is written. The model
-relays the tool's error, and a retry builds a fresh card. An `update_block`
+marker. Allow refuses them instead: 412, and nothing is written. The panel
+marks the call failed with the tool's reason, the model relays it too, and a
+retry builds a fresh card. An `update_block`
 on a block deleted meanwhile fails on `edit_block`'s own 404 before the
 check runs.
+
+### A write's result
+
+The panel's tool line is decided by `ToolFinished`, never by the model's
+reply, which can report a refused write as done.
+
+| Result of a write | `ToolFinished` | Panel line |
+|---|---|---|
+| succeeded | neither field set | `✓` |
+| the user declined the card | `declined=True` | `Declined`, no glyph |
+| allowed, or run without a card, then `is_error` | `error=<reason>` | `✗` and `Failed: <reason>` |
+| a read tool's error | neither field set | unmarked: reads fail while the model probes |
+
+- The truth is `ToolResultBlock.is_error`, observed by `TurnMapper` as the
+  SDK stream passes. The decline is known from the answer given to the card,
+  because the CLI also marks it `is_error`.
+- `TurnMapper` pairs a result with its call by `tool_use_id`, through maps the
+  conversation owns (`_tools`, `_declined`). A stopped turn's write can report
+  during the next turn, so the maps must outlive a mapper.
+- The reason can echo model-chosen input, so it is clipped server-side
+  (`tool_error_reason`) and the panel renders it as text.
 
 ## Conversation registry
 

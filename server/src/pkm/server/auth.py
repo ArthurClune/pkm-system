@@ -128,6 +128,10 @@ def login_page() -> str:
 def login(body: LoginBody, request: Request, response: Response,
           config: Config = Depends(get_config)) -> OkAck:
     throttle: LoginThrottle = request.app.state.login_throttle
+    # The source is the client's tailnet address on both listeners: the TCP
+    # peer on the Tailscale-IP one, and the X-Forwarded-For that Tailscale
+    # Serve sets on loopback. That holds only while run.py's
+    # FORWARDED_ALLOW_IPS trusts the header from 127.0.0.1 alone.
     source = request.client.host if request.client else "unknown"
     mono_ms = int(time.monotonic() * 1000)
     # Throttled sources are rejected with the *same* 401 a wrong password

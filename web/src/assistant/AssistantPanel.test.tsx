@@ -139,7 +139,7 @@ describe("AssistantPanel", () => {
     expect(lines[1].textContent).toMatch(/^✓ update_block/);
   });
 
-  test("a declined write's line shows a neutral Declined, no ✗", () => {
+  test("a declined write's line shows a neutral Declined, no ✗ or ✓", () => {
     state.current.items = [
       { kind: "tool", toolUseId: "t1", name: "update_block",
         summary: "update_block", done: true, error: null, declined: true },
@@ -147,9 +147,10 @@ describe("AssistantPanel", () => {
     const { container } = render(<AssistantPanel open onClose={() => {}} />);
     expect(container.querySelector(".assistant-tool-failed")).toBeNull();
     const line = container.querySelector(".assistant-tool-line");
-    expect(line?.textContent).toMatch(/^✓ update_block/);
+    expect(line?.textContent).toMatch(/^update_block/);
     expect(line?.textContent).toContain("Declined");
     expect(line?.textContent).not.toContain("✗");
+    expect(line?.textContent).not.toContain("✓");
   });
 
   test("Enter sends, Shift+Enter does not", () => {

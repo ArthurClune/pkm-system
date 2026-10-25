@@ -933,6 +933,23 @@ describe("useAssistant", () => {
         done: true, error: "nope", declined: false });
   });
 
+  test("a tool_finished with an unknown id changes no line", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    feed([
+      { type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" },
+      { type: "tool_finished", tool_use_id: "tX", name: "update_block",
+        error: "nope", declined: false },
+      { type: "turn_done", usage: null },
+    ]);
+    render(<Harness />);
+    await act(() => latest.send("edit"));
+    expect(latest.items).toEqual([
+      { kind: "user", text: "edit" },
+      { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
+        done: false, error: null, declined: false },
+    ]);
+  });
+
   test("newChat aborts the live turn; its late events never reach the new chat", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     mocks.deleteConversation.mockResolvedValue(undefined);

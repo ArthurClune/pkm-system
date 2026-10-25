@@ -875,7 +875,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | DELETE | `/api/assets/{sha256}` | Delete, stripping its tokens; `if_unreferenced=true` 409s instead while referenced |
 | POST | `/api/assets/export.zip` | Zip the selected assets |
 | **Local documents** ([files-and-assets.md](files-and-assets.md#local-documents)) | | |
-| GET | `/api/local/check` | Classify every `/api/local/` href in block text |
+| GET | `/api/local-check` | Classify every `/api/local/` href in block text |
 | GET | `/api/local-index` | Every visible file under `local_docs_root`; 503 when the listing fails |
 | GET | `/api/local/{path}` | Serve one file; 404 outside the root, 503 when evicted or unopenable |
 | **GoodLinks copies** ([files-and-assets.md](files-and-assets.md#goodlinks-copies)) | | |

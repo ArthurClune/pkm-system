@@ -1569,7 +1569,7 @@
         }
       }
     },
-    "/api/local/check": {
+    "/api/local-check": {
       "get": {
         "summary": "Check Local Links",
         "operationId": "check_local_links_api_local_check_get",
@@ -3706,7 +3706,7 @@
           "problems"
         ],
         "title": "LocalCheckPayload",
-        "description": "GET /api/local/check: every /api/local/ href found in block text,\nclassified against the disk. `enabled` is False when no\nlocal_docs_root is configured."
+        "description": "GET /api/local-check: every /api/local/ href found in block text,\nclassified against the disk. `enabled` is False when no\nlocal_docs_root is configured."
       },
       "LocalCheckProblem": {
         "properties": {

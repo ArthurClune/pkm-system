@@ -682,7 +682,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/local/check": {
+    "/api/local-check": {
         parameters: {
             query?: never;
             header?: never;
@@ -1589,7 +1589,7 @@ export interface components {
         };
         /**
          * LocalCheckPayload
-         * @description GET /api/local/check: every /api/local/ href found in block text,
+         * @description GET /api/local-check: every /api/local/ href found in block text,
          *     classified against the disk. `enabled` is False when no
          *     local_docs_root is configured.
          */

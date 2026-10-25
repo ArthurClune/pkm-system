@@ -36,7 +36,7 @@ from pkm.contracts.titles import RawTitle
 from pkm.refs import (attribute_title_span, extract, is_blank_title,
                       strip_code, title_syntax_reason)
 from pkm.test_data.ids import order_idx_of, raw_title_of, uid_of
-from pkm.text_limits import text_limit_violation
+from props.limit_texts import PAST_LIMIT_TEXTS, TEXT_CAP
 
 # What a whitespace-only page_title resolves to: the ops path never rejects
 # a batch over a blank title (code: ops_apply.UNTITLED_PAGE_TITLE).
@@ -110,13 +110,13 @@ def _title_violation(ops: Sequence[Op]) -> bool:
 
 def _limit_violation(ops: Sequence[Op]) -> bool:
     """backend.md § Planning (text limits): a create's or edit's text
-    longer than `MAX_BLOCK_TEXT_CHARS` code points, or with `[[` runs
-    nested deeper than `MAX_LINK_NESTING` outside code, is a 400 for the
-    whole batch. Judged over the whole batch before titles, an op the
-    server would skip included; no other op's text is judged."""
+    longer than 1,000,000 code points, or with `[[` runs nested deeper
+    than 32 outside code, is a 400 for the whole batch. Judged over the
+    whole batch before titles, an op the server would skip included; no
+    other op's text is judged. Of the texts the strategies draw, exactly
+    `PAST_LIMIT_TEXTS` are past a limit (props/limit_texts.py)."""
     return any(op["op"] in ("create", "update_text")
-               and text_limit_violation(op["text"]) is not None
-               for op in ops)
+               and op["text"] in PAST_LIMIT_TEXTS for op in ops)
 
 
 def _page_name(title: RawTitle) -> str:
@@ -174,12 +174,16 @@ def inline_refs(text: str, copies: Mapping[BlockUid, str]) -> str:
     return _BLOCK_REF.sub(copy_of, text)
 
 
+_NEWLINES = re.compile(r"\s*\n\s*")
+
+
 def _plain_copy(text: str) -> str:
     """backend.md § Page mutations and the sidebar: a block's copy drops
-    its leading attribute (generated texts carry no task marker or
-    newline)."""
+    its leading attribute, and its newlines are folded to one space each
+    run (generated texts carry no task marker)."""
     span = attribute_title_span(strip_code(text), text)
-    return text if span is None else text[span.end:].lstrip()
+    text = text if span is None else text[span.end:].lstrip()
+    return _NEWLINES.sub(" ", text)
 
 
 def page_copies(title: RawTitle, page_texts: Mapping[BlockUid, str]) -> dict[BlockUid, str]:
@@ -254,6 +258,12 @@ class PageDelete:
         if (any(r.title == self.title for r in parsed.refs)
                 or any(u in self.copies for u in parsed.block_refs)):
             return "residual"
+        # backend.md § Page mutations: the copies inlined may not carry a
+        # text past the length cap, nor further past it. A copy lands
+        # where `((uid))` stood, never inside a `[[` run, so inlining
+        # never deepens a drawn text's nesting.
+        if len(new) > TEXT_CAP and len(new) > len(text):
+            return "limit"
         return None
 
 

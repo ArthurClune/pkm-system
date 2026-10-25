@@ -11,7 +11,8 @@ import { orderIdxOf, rawTitleOf } from "../../test-helpers";
 import { treeProblems } from "../outline/reading";
 import type { NormalBlock, NormalGraph } from "../sync/normalise";
 import {
-  OPS_PAGES, OVER_LIMIT_TEXTS, TITLE_POOL, UID_POOL, exampleArb, rawBatchArb, rawUidMinter, resolveRaw, seedOps,
+  AT_CAP_TEXT, OPS_PAGES, OVER_LIMIT_TEXTS, TITLE_POOL, UID_POOL, exampleArb, rawBatchArb,
+  rawUidMinter, resolveRaw, seedOps,
   startStateArb, type MovePage, type RawDraft, type RawParent, type RawSlot, type StartState,
 } from "./arbitraries";
 
@@ -286,7 +287,11 @@ describe("raw batches", () => {
   });
 
   it("carry a forbidden title about one time in sixty, as a page title or a text ref", () => {
-    const violations = batches.map((b) => findOpTitleViolation(resolve(b)));
+    // The texts at and past the length cap hold no title, and scanning
+    // megabytes for one is slow under coverage.
+    const huge = new Set<string>([...OVER_LIMIT_TEXTS, AT_CAP_TEXT]);
+    const violations = batches.map((b) => findOpTitleViolation(
+      resolve(b).filter((op) => !("text" in op) || !huge.has(op.text))));
     const s = violations.filter((v) => v !== null).length / batches.length;
     expect(s).toBeGreaterThanOrEqual(0.005);
     expect(s).toBeLessThanOrEqual(0.035);
@@ -305,6 +310,19 @@ describe("raw batches", () => {
     expect(new Set(over.map((d) => d.kind))).toEqual(new Set(["create", "update_text"]));
     const kinds = new Set(violations.map((v) => v?.violation.kind).filter((x) => x !== undefined));
     expect([...kinds].sort()).toEqual(["length", "nesting"]);
+  });
+
+  it("carry the text at the length cap about one time in 300, which both sides store", () => {
+    const atCap = batches.filter((b) => b.some((d) =>
+      (d.kind === "create" || d.kind === "update_text") && d.text === AT_CAP_TEXT));
+    expect(atCap.length / batches.length).toBeGreaterThanOrEqual(0.001);
+    expect(atCap.length / batches.length).toBeLessThanOrEqual(0.008);
+    expect([...AT_CAP_TEXT].length).toBe(1_000_000);
+    expect(AT_CAP_TEXT.length).toBe(2_000_000);
+    for (const b of atCap) {
+      const ops = resolve(b).filter((op) => "text" in op && op.text === AT_CAP_TEXT);
+      expect(findOpTextLimitViolation(ops)).toBeNull();
+    }
   });
 
   it("title about half of parented moves, with the parent's page or another", () => {

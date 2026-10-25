@@ -15,6 +15,7 @@ from typing import Any, TypeVar
 from hypothesis import strategies as st
 
 from pkm.contracts.ops import BlockUid, subtree_hash, SyncSeq, text_hash
+from props.limit_texts import LIMIT_TEXTS
 from props.model import MBlock, Model
 from pkm.test_data.ids import order_idx_of, uid_of
 
@@ -35,21 +36,6 @@ _HEADINGS = st.sampled_from((None, None, None, 1, 2, 3))
 _VIEW_TYPES = st.sampled_from((None, None, "numbered", "document"))
 
 
-def _nest(depth: int) -> str:
-    """`[[` runs nested `depth` deep. `a//` has an unreachable segment, so
-    no run is a ref and title syntax never refuses one."""
-    return "[[a//" * depth + "x" + "]]" * depth
-
-
-# Texts at and past the write-time limits (backend.md § Planning (text
-# limits)): the two a write refuses, the deepest nest it stores, and a nest
-# past the limit inside a closed fence, which the measure does not count.
-PAST_LIMIT_TEXTS = (_nest(33), "x" * 1_000_001)
-AT_NESTING_LIMIT = _nest(32)
-NEST_IN_CODE = f"```\n{_nest(40)}\n```"
-_LIMIT_TEXTS = (*PAST_LIMIT_TEXTS, AT_NESTING_LIMIT, NEST_IN_CODE)
-
-
 def uid_pool(n: int) -> list[BlockUid]:
     """n distinct UID_RE-valid uids. Deterministic, so `texts()` can name
     pool blocks in `((uid))` refs; the `pool` prefix keeps them clear of the
@@ -67,11 +53,11 @@ def texts(draw: st.DrawFn, uids: Sequence[BlockUid] | None = None,
     `Gamma:: ` or `[[Gamma]]:: `, which a stale batch fences and a page
     delete refuses or rewrites.
 
-    With `limits`, about 1 in 40 is instead one of `_LIMIT_TEXTS`, which
+    With `limits`, about 1 in 40 is instead one of `LIMIT_TEXTS`, which
     hold no ref, so no rewrite reaches inside one. Only an op's text asks
     for them: a seed row past a limit would refuse the seed batch."""
     if limits and draw(st.integers(0, 39)) == 39:
-        return draw(st.sampled_from(_LIMIT_TEXTS))
+        return draw(st.sampled_from(LIMIT_TEXTS))
     pool = list(uids) if uids else uid_pool(8)
     extra = [f"[[{t}]]" for t in linked] + [f"#{t}" for t in linked]
     token = st.one_of(st.sampled_from(_WORDS), st.just("[[Alpha]]"),

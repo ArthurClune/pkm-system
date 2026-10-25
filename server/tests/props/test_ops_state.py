@@ -20,6 +20,7 @@ from httpx2 import Response
 from hypothesis import event, settings, strategies as st
 from hypothesis.stateful import (RuleBasedStateMachine, initialize, invariant,
                                  precondition, rule)
+from hypothesis.vendor.pretty import RepresentationPrinter
 
 from conftest import SEED_BLOCKS
 from pkm.contracts.ops import BlockUid, SyncSeq, subtree_hash, text_hash
@@ -29,9 +30,9 @@ from props.harness import (DAILY_TITLE, FROZEN_NOW, FreshApp,
                            assert_unique_keys, assert_well_formed, examples,
                            fresh_app, read_db, seed_ops, template_db_path)
 from props.model import MBlock, Model
-from props.strategies import (AT_NESTING_LIMIT, NEST_IN_CODE, PAGES,
-                              PAST_LIMIT_TEXTS, batch_for, seed_tree, texts,
-                              uid_pool)
+from props.limit_texts import (AT_NESTING_LIMIT, EMOJI_AT_CAP, NEST_IN_CODE,
+                               PAST_LIMIT_TEXTS)
+from props.strategies import PAGES, batch_for, seed_tree, texts, uid_pool
 from pkm.test_data.ids import raw_title_of, seq_of
 
 pytestmark = pytest.mark.proptest
@@ -77,7 +78,8 @@ def _hash_events(model: Model, ops: list[dict],
 def _limit_events(ops: list[dict]) -> set[str]:
     """Which of the strategies' texts at or past the write-time limits a
     batch's creates and edits carry: one the server must refuse, the
-    deepest nest it stores, or a deeper one hidden in a fence."""
+    deepest nest it stores, a deeper one hidden in a fence, or the longest
+    text it stores, in two-unit code points."""
     sent = {op["text"] for op in ops if op["op"] in ("create", "update_text")}
     labels: set[str] = set()
     if sent.intersection(PAST_LIMIT_TEXTS):
@@ -86,7 +88,25 @@ def _limit_events(ops: list[dict]) -> set[str]:
         labels.add("text: at the nesting limit")
     if NEST_IN_CODE in sent:
         labels.add("text: nest hidden in code")
+    if EMOJI_AT_CAP in sent:
+        labels.add("text: astral at the length cap")
     return labels
+
+
+CLIP_OVER = 200
+CLIP_TO = 40
+
+
+class ClippedOps(list):
+    """A batch's ops, shown in a falsifying example with each text past
+    200 characters cut to its first 40 and its length: a text at the
+    length cap would otherwise print a megabyte."""
+
+    def _repr_pretty_(self, p: RepresentationPrinter, cycle: bool) -> None:
+        p.pretty([{**op, "text": f"{op['text'][:CLIP_TO]}…"
+                   f" ({len(op['text'])} characters)"}
+                  if len(op.get("text", "")) > CLIP_OVER else op
+                  for op in self])
 
 
 def _snapshot(app: FreshApp) -> tuple[Any, ...]:
@@ -251,7 +271,8 @@ class OpsMachine(RuleBasedStateMachine):
                    seq_of(self.before_deletes[0]))
 
     def _submit(self, data: st.DataObject, seen_seq: SyncSeq | None) -> None:
-        ops = data.draw(batch_for(self.model, UIDS, seen_seq), label="ops")
+        ops = data.draw(batch_for(self.model, UIDS, seen_seq).map(ClippedOps),
+                        label="ops")
         self._send(ops, seen_seq)
 
     def _send(self, ops: list[dict], seen_seq: SyncSeq | None) -> None:

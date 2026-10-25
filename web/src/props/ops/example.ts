@@ -19,10 +19,12 @@
 //              tolerates carries into a later step;
 //   rejection  enqueueBatch refuses a batch for its title syntax or a text
 //              past a limit (a guarded refusal) exactly when the server
-//              does, and for the same guard; a command batch both
-//              refuse for the same guard is tallied and ends the example
-//              (the editor's run() refuses it before enqueue), and any other
-//              refusal of one is a failure.
+//              does, and for the same guard (a text limit with the same
+//              reason, word for word); a command batch both refuse for the
+//              same guard is tallied and ends the example (the editor's
+//              run() refuses it before enqueue), and any other refusal of
+//              one is a failure. A seed the server refuses for a text limit
+//              that enqueueBatch's judge takes is a rejection too.
 // The only exclusions are the spec's: rows the server minted (1, 3 and R),
 // a page whose echo the session would reload instead of applying (1), and
 // timestamps. Checks 3 and R compare every other key exactly: replay is a
@@ -47,11 +49,12 @@ import { LocalOpError } from "../../replica/localOps";
 import { getMeta } from "../../replica/meta";
 import { allBatches, deleteBatch, enqueueBatch } from "../../replica/queue";
 import { openTestDb } from "../../replica/testDb";
+import { findOpTextLimitViolation } from "../../grammar/textLimits";
 import { findOpTitleViolation } from "../../replica/titles";
 import { runSequence } from "../outline/run";
 import { diffGraphs, fromReplica, fromSnapshot, type NormalGraph } from "../sync/normalise";
 import type { ServerControl } from "../sync/serverControl";
-import { type Example, OPS_PAGES, type RawDraft, rawUidMinter, resolveRaw, seedOps,
+import { AT_CAP_TEXT, type Example, OPS_PAGES, type RawDraft, rawUidMinter, resolveRaw, seedOps,
          TITLE_POOL } from "./arbitraries";
 import { diffTrees, pruneGraph, pruneTree, treesFromSnapshot } from "./compare";
 import { batchIdOf, clientIdOf, rawTitleOf, seqOf } from "../../test-helpers";
@@ -108,7 +111,7 @@ const bump = (r: Record<string, number>, key: string, n = 1): void => {
 
 const VARIATIONS = ["cycle", "missing parent", "cross-page create", "cross-page move",
                     "stale text hash", "stale subtree hash", "block named twice",
-                    "forbidden title"] as const;
+                    "forbidden title", "text past a limit", "text at the length cap"] as const;
 
 export function showTally(t: Tally): string {
   const row = (r: Record<string, number>): string =>
@@ -145,6 +148,16 @@ const TEXT_LIMIT = /(?:characters|levels deep) is over the limit of \d+$/;
 const causeOf = (reason: string): RejectionCause =>
   TEXT_LIMIT.test(reason) ? "text limit"
     : reason.includes("title syntax") ? "title syntax" : "other";
+
+/** Did enqueueBatch refuse for the guard the server's 400 names? Title
+ * syntax is worded differently on the two sides, so the cause decides; a
+ * text limit is `block <uid>: <limit>` on both, so the words must match,
+ * which also catches the two refusing different ops of one batch. */
+const sameGuard = (refused: LocalOpError, reason: string): boolean => {
+  const cause = causeOf(reason);
+  if (cause === "text limit") return refused.message === reason;
+  return cause !== "other" && causeOf(refused.message) === cause;
+};
 
 const CLIP_OVER = 200;
 const CLIP_TO = 40;
@@ -223,12 +236,16 @@ function tallyRaw(t: Tally, drafts: readonly RawDraft[], ops: readonly BlockOp[]
   }
   if ([...named.values()].some((n) => n > 1)) seen.add("block named twice");
   if (findOpTitleViolation(ops) !== null) seen.add("forbidden title");
+  if (findOpTextLimitViolation(ops) !== null) seen.add("text past a limit");
+  if (ops.some((op) => "text" in op && op.text === AT_CAP_TEXT)) seen.add("text at the length cap");
   for (const v of seen) bump(t.variations, v);
 }
 
 export interface RunOptions {
   seam?: OpsSeam;
   tally?: Tally;
+  /** Runs once the server is reset, before the seed is posted. */
+  beforeSeed?: () => Promise<void>;
   /** Runs once the seed's echo is cleared, before the first step. */
   afterSeed?: () => Promise<void>;
   /** The batch id for the n-th POST of this example (n = 0: the seed). A
@@ -262,7 +279,18 @@ export async function runExample(server: ServerControl, ex: Example,
   try {
     // Seed.
     await server.reset();
-    const seeded = await post(server, nextBatchId(), clientIdOf("ops-seed"), seedOps(ex.start));
+    await opts.beforeSeed?.();
+    const seed = seedOps(ex.start);
+    const seeded = await post(server, nextBatchId(), clientIdOf("ops-seed"), seed);
+    // Every start text is one both sides store, so a text limit refusing
+    // the seed is the server's judge disagreeing with the replica's.
+    if (seeded.status === 400 && causeOf(seeded.reason) === "text limit" &&
+        findOpTextLimitViolation(seed) === null) {
+      tally.rejections["text limit"] += 1;
+      return ["at the seed",
+              `rejection: the server refused the seed for its text limit (${seeded.reason})` +
+              " but enqueueBatch's judge takes it"];
+    }
     if (seeded.status !== 200 || (seeded.ack.skipped ?? []).length > 0) {
       throw harness(`seed batch: ${showAck(seeded)}`);
     }
@@ -400,7 +428,7 @@ export async function runExample(server: ServerControl, ex: Example,
           // Both sides refusing for one guard is the designed refusal (a
           // split can cut a fence off a nest it hid): tallied, and the
           // editor's tree has nowhere further to go.
-          if (guarded && refused !== null && causeOf(refused.message) === cause) {
+          if (refused !== null && sameGuard(refused, posted.reason)) {
             tally.commandGuardRefused += 1;
             return [];
           }
@@ -520,7 +548,7 @@ export async function runExample(server: ServerControl, ex: Example,
             problems.push(`rejection: the server refused B for its ${cause} (${posted.reason})` +
                           " but enqueueBatch took it");
           }
-        } else if (!guarded || causeOf(refused.message) !== cause) {
+        } else if (!sameGuard(refused, posted.reason)) {
           problems.push(`rejection: enqueueBatch refused B (${refused.message}) but the server` +
                         ` answered 400 ${posted.reason}`);
         }

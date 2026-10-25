@@ -77,6 +77,10 @@ export interface ServerControl {
    * corruption for the ops suite's teeth. A reset turns the limits back
    * on. */
   setLimitTeeth(off: boolean): Promise<void>;
+  /** While on, POST /api/ops refuses a text at a limit too (each limit one
+   * lower), so it refuses a text enqueueBatch stores: a deliberate
+   * corruption for the ops suite's teeth. A reset turns it off. */
+  setStrictLimitTeeth(on: boolean): Promise<void>;
   /** GET /api/sync/changes?since=. */
   changes(since: SyncSeq): Promise<Changes>;
   /** The journal's latest seq. */
@@ -148,6 +152,7 @@ function control(cookie: string, signal?: AbortSignal): ServerControl {
       await post("/__proptest/rewrites/teeth", { drop_replayed: on });
     },
     setLimitTeeth: async (off) => { await post("/__proptest/limits/teeth", { off }); },
+    setStrictLimitTeeth: async (on) => { await post("/__proptest/limits/strict", { on }); },
     changes: async (since) =>
       parseChanges(await (await call(`/api/sync/changes?since=${since}`)).json()),
     latestSeq: async () => {

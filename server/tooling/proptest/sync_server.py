@@ -38,11 +38,12 @@ import uvicorn
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import PlainTextResponse
 
-from pkm.contracts.ops import BatchId, BlockOp, BlockUid, ClientId, CreateOp, OpBatch, OrderIdx, SyncSeq
+from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING, BatchId, BlockOp, BlockUid, ClientId,
+                               CreateOp, OpBatch, OrderIdx, SyncSeq, UpdateTextOp)
 from pkm.contracts.strict import StrictModel
 from pkm.database import Db
 from pkm.contracts.titles import RawTitle
-from pkm.refs import CanonicalTitle
+from pkm.refs import CanonicalTitle, link_nesting_depth
 from pkm.server import ops_apply, sync_meta
 from pkm.server.app import create_app
 from pkm.server.auth import require_auth
@@ -54,6 +55,7 @@ from pkm.server.ops_apply import apply_batch
 from pkm.server.ops_core import (Effect, OpTextLimitViolation, RewriteStep,
                                  find_op_text_limit_violation, rewrite_effects)
 from pkm.server.store import stale_titles
+from pkm.text_limits import TextLimitViolation
 
 PORT = int(os.environ.get("PROPTEST_PORT", "8978"))
 PASSWORD = "proptest-pw"
@@ -239,18 +241,39 @@ def _rewrite_effects_with_teeth(original: BlockOp, planned: tuple[Effect, ...],
     return rewrite_effects(original, planned, stale, canonical, replayed, settled)
 
 
-# Harness-only teeth for the ops property's "rejection" check: while armed,
+# Harness-only teeth for the ops property's "rejection" check. With "off",
 # /api/ops judges no text against the length and nesting limits, as before
 # the limits existed, so the server stores a text the replica's enqueue
-# refuses. ops_apply reads find_op_text_limit_violation through its module
-# global, which build_app points here; disarmed, it is the real function.
-# Reset disarms it, as it does _stale_teeth.
-_limit_teeth = {"off": False}
+# refuses. With "at_limit", it refuses a text at a limit too (each limit one
+# lower), so it refuses a text the replica stores. ops_apply reads
+# find_op_text_limit_violation through its module global, which build_app
+# points here; disarmed, it is the real function. Reset disarms both, as it
+# does _stale_teeth.
+_limit_teeth = {"off": False, "at_limit": False}
+
+
+def _at_a_limit(text: str) -> TextLimitViolation | None:
+    """`text` judged against limits one lower than the real ones."""
+    if len(text) >= MAX_BLOCK_TEXT_CHARS:
+        return TextLimitViolation("length", len(text), MAX_BLOCK_TEXT_CHARS - 1)
+    if text.count("[[") >= MAX_LINK_NESTING:
+        depth = link_nesting_depth(text)
+        if depth >= MAX_LINK_NESTING:
+            return TextLimitViolation("nesting", depth, MAX_LINK_NESTING - 1)
+    return None
 
 
 def _find_op_text_limit_violation_with_teeth(
         ops: Sequence[BlockOp]) -> OpTextLimitViolation | None:
-    return None if _limit_teeth["off"] else find_op_text_limit_violation(ops)
+    if _limit_teeth["off"]:
+        return None
+    if _limit_teeth["at_limit"]:
+        for index, op in enumerate(ops):
+            if isinstance(op, (CreateOp, UpdateTextOp)) and \
+                    (violation := _at_a_limit(op.text)) is not None:
+                return OpTextLimitViolation(index, op.uid, violation)
+        return None
+    return find_op_text_limit_violation(ops)
 
 
 class _ClockBody(StrictModel):
@@ -271,6 +294,10 @@ class _RewriteTeethBody(StrictModel):
 
 class _LimitTeethBody(StrictModel):
     off: bool
+
+
+class _StrictLimitTeethBody(StrictModel):
+    on: bool
 
 
 def _batch_lookup(con: Db) -> list[tuple[int, BatchId]]:
@@ -338,7 +365,7 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     ops_apply.rewrite_effects = _rewrite_effects_with_teeth
     _rewrite_teeth["drop_replayed"] = False
     ops_apply.find_op_text_limit_violation = _find_op_text_limit_violation_with_teeth
-    _limit_teeth["off"] = False
+    _limit_teeth["off"] = _limit_teeth["at_limit"] = False
 
     @app.post("/__proptest/reset", dependencies=[Depends(require_auth)])
     def reset(request: Request) -> dict:
@@ -356,7 +383,7 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
         echo["drop_cross_page_title"] = False
         _stale_teeth["empty"] = False
         _rewrite_teeth["drop_replayed"] = False
-        _limit_teeth["off"] = False
+        _limit_teeth["off"] = _limit_teeth["at_limit"] = False
         return {"db_path": str(db_path)}
 
     @app.post("/__proptest/clock", dependencies=[Depends(require_auth)])
@@ -467,6 +494,11 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     def limit_teeth(body: _LimitTeethBody) -> dict:
         _limit_teeth["off"] = body.off
         return {"off": body.off}
+
+    @app.post("/__proptest/limits/strict", dependencies=[Depends(require_auth)])
+    def strict_limit_teeth(body: _StrictLimitTeethBody) -> dict:
+        _limit_teeth["at_limit"] = body.on
+        return {"on": body.on}
 
     return app
 

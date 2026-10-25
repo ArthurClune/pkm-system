@@ -17,10 +17,10 @@ import { applyLocalOps } from "../../replica/localOps";
 import { allBatches, enqueueBatch } from "../../replica/queue";
 import { SEED } from "../sync/env";
 import { connectServer } from "../sync/serverControl";
-import { exampleArb } from "./arbitraries";
+import { type Example, exampleArb } from "./arbitraries";
 import { REAL_OPS, type OpsSeam, runExample } from "./example";
 import { captureFaultWarnings } from "../warningsCapture";
-import { orderIdxOf } from "../../test-helpers";
+import { orderIdxOf, uidOf } from "../../test-helpers";
 
 captureFaultWarnings("ops teeth");
 
@@ -162,6 +162,41 @@ test("the ops property catches: the server takes text past the limits", async ()
     await server.setLimitTeeth(false);
   }
 }, TIME_LIMIT_MS + 30_000);
+
+test("the ops property catches: the server refuses text at the limits", async () => {
+  try {
+    await expectCaught("the server refuses text at the limits", "rejection:", REAL_OPS,
+                       () => server.setStrictLimitTeeth(true));
+  } finally {
+    await server.setStrictLimitTeeth(false);
+  }
+}, TIME_LIMIT_MS + 30_000);
+
+test("a seed the server refuses at a limit is a rejection, not a harness fault", async () => {
+  const at = (n: number, text: string): BlockNode => ({
+    uid: uidOf(`opsb${String(n).padStart(2, "0")}`), text, heading: null, view_type: null,
+    collapsed: false, order_idx: orderIdxOf(n), created_at: null, updated_at: null,
+    children: [],
+  });
+  const ex: Example = {
+    start: { pages: { "Outline Props": [at(0, "a"), at(1, `${"[[a//".repeat(32)}x${"]]".repeat(32)}`)],
+                      "Ops Two": [], "Ops Three": [] } },
+    kind: "raw",
+    steps: [{ batch: [{ kind: "set_collapsed", target: { of: "live", n: 0 }, collapsed: true }],
+              other: null }],
+  };
+  try {
+    const problems = await runExample(server, ex, {
+      beforeSeed: () => server.setStrictLimitTeeth(true) });
+    expect(problems).toEqual([
+      "at the seed",
+      "rejection: the server refused the seed for its text limit (block opsb01: [[ nested 32" +
+        " levels deep is over the limit of 31) but enqueueBatch's judge takes it",
+    ]);
+  } finally {
+    await server.setStrictLimitTeeth(false);
+  }
+});
 
 test("the real operations pass the same run", async () => {
   const details = await fc.check(property(REAL_OPS), {

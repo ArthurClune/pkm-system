@@ -5,12 +5,15 @@ import ast
 import copy
 from pathlib import Path
 
+import pytest
 from hypothesis import given, settings, strategies as st
 from pydantic import TypeAdapter
 
 from pkm.batch import validate_batch
 from pkm.contracts.ops import BlockOp, BlockUid, OpBatch, subtree_hash, SyncSeq, text_hash, UID_RE
 from props.harness import DAILY_TITLE
+from props.limit_texts import (AT_NESTING_LIMIT, EMOJI_AT_CAP, NEST_IN_CODE,
+                               PAST_LIMIT_TEXTS)
 from props.model import (MBlock, Model, Outcome, Rewrite, positions_after,
                          replay_chain, unlink_stale)
 from props.strategies import (PAGES, batch_for, cli_batch, op_for, seed_tree,
@@ -339,6 +342,51 @@ def test_delete_page_removes_its_blocks_and_rewrites_references():
         text_hash(f"see [[Alpha]] (({P})) #Beta"),
         text_hash("see Alpha copy Alpha inner  #Beta"),
         frozenset({"Alpha"}), ((P, "copy Alpha inner "),))]}
+
+
+def test_delete_page_folds_a_copy_s_newlines():
+    m = model(blk(P, page="Alpha", text=NEST_IN_CODE),
+              blk(B, page="Beta", text=f"see (({P}))"))
+    out = m.delete_page(raw_title_of("Alpha"), {}, seq_of(9))
+    assert out.status == 200
+    assert m.blocks[B].text == "see " + NEST_IN_CODE.replace("\n", " ")
+
+
+def test_delete_page_refused_when_a_copy_carries_a_text_past_the_length_cap():
+    m = model(blk(P, page="Alpha", text=EMOJI_AT_CAP),
+              blk(A, page="Beta", text=f"(({P}))"),
+              blk(B, page="Beta", text=f"x (({P}))"))
+    # the lone ref becomes the copy, exactly at the cap; one more code
+    # point carries it over
+    assert m.delete_page(raw_title_of("Alpha"), {}, seq_of(9)).blockers == {B: "limit"}
+
+
+# --- backend.md § Planning (text limits) --------------------------------------
+
+@pytest.mark.parametrize("text", PAST_LIMIT_TEXTS)
+def test_a_text_past_a_limit_refuses_the_batch(text):
+    m = model(blk(A))
+    before = m.snapshot()
+    # judged though the create is skipped (its parent is missing)
+    assert m.apply([create(X, 1), create(Y, 0, parent=C, text=text)]).status == 400
+    assert m.apply([{"op": "update_text", "uid": A, "text": text}]).status == 400
+    assert m.snapshot() == before
+
+
+@pytest.mark.parametrize("text", (AT_NESTING_LIMIT, NEST_IN_CODE, EMOJI_AT_CAP))
+def test_a_text_at_a_limit_is_stored(text):
+    m = model(blk(A))
+    assert m.apply([{"op": "update_text", "uid": A, "text": text}]).status == 200
+    assert m.blocks[A].text == text
+
+
+def test_limit_texts_are_what_they_claim():
+    """The constants measured without the server's judge: code points
+    by `len`, nesting by construction."""
+    assert [len(t) for t in PAST_LIMIT_TEXTS[1:]] == [1_000_001, 1_000_001]
+    assert len(EMOJI_AT_CAP) == 1_000_000 and len(EMOJI_AT_CAP.encode("utf-16-le")) == 4_000_000
+    assert PAST_LIMIT_TEXTS[0].count("[[") == 33 and AT_NESTING_LIMIT.count("[[") == 32
+    assert NEST_IN_CODE.startswith("```\n") and NEST_IN_CODE.endswith("\n```")
 
 
 # --- backend.md § Stale batches -----------------------------------------------

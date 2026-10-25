@@ -27,6 +27,7 @@ function fakeServer(calls: string[]): ServerControl {
     setStaleTeeth: () => note("setStaleTeeth"),
     setRewriteTeeth: () => note("setRewriteTeeth"),
     setLimitTeeth: () => note("setLimitTeeth"),
+    setStrictLimitTeeth: () => note("setStrictLimitTeeth"),
     changes: async () => { await note("changes"); return {
       reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
       next_since: seqOf(0), latest_seq: seqOf(0), pages: [], blocks: [], sidebar: [],
@@ -45,6 +46,7 @@ const everyCall = (s: ServerControl): Promise<unknown>[] => [
   s.latestSeq(), s.postRaw("{}"), s.renames(), s.postRename("Second", "Third"),
   s.deletes(), s.postDelete(rawTitleOf("Second")), s.setStaleTeeth(true),
   s.conflicts(), s.setRewriteTeeth(true), s.setLimitTeeth(true),
+  s.setStrictLimitTeeth(true),
 ];
 
 describe("cancellable", () => {
@@ -54,7 +56,7 @@ describe("cancellable", () => {
     expect(guard.server.cookie).toBe("session=x");
     await Promise.all(everyCall(guard.server));
     expect(await guard.server.latestSeq()).toBe(7);
-    expect(calls).toHaveLength(16);
+    expect(calls).toHaveLength(17);
     expect(guard.cancelled()).toBe(false);
   });
 

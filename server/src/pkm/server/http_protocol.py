@@ -14,9 +14,15 @@ the first head and after each response. So the remains of a body the app
 answered without reading (a refused one, or a public `GET` that declared
 one) count against the next head's deadline too. A request whose head is
 in and whose response has not finished is never cut: an authenticated
-upload may stream for minutes. A WebSocket upgrade disarms it for good: the
-transport then belongs to the WebSocket protocol, which uvicorn hands it
-to without starting a request.
+upload may stream for minutes. A WebSocket upgrade hands the transport to
+the WebSocket protocol, which uvicorn does without starting a request.
+
+The timer is armed at the connection's open and after each response and
+is not disarmed when a head arrives. What keeps it off a request and off
+a WebSocket are the checks at fire time: no request in progress, and the
+transport still ours. On a pipelined connection the deadline is re-armed
+after the next request has started, or after an upgrade behind it has
+taken the transport, so those checks are the guard, not any disarm.
 
 It leans on uvicorn internals (`self.conn`, `self.cycle`,
 `on_response_complete`); the real-socket tests in `test_http_protocol.py`
@@ -41,12 +47,9 @@ class DeadlineH11Protocol(H11Protocol):
         super().connection_made(transport)
         self._arm_head_deadline()
 
-    def data_received(self, data: bytes) -> None:
-        super().data_received(data)
-        if self._request_in_progress():
-            self._disarm_head_deadline()
-
     def handle_websocket_upgrade(self, event: h11.Request) -> None:
+        # Tidiness only: a pipelined upgrade is re-armed after this by the
+        # response before it, and the owner check at fire time spares it.
         self._disarm_head_deadline()
         super().handle_websocket_upgrade(event)
 

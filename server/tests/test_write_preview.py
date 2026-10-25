@@ -11,6 +11,7 @@ import pytest
 from pydantic.fields import FieldInfo
 
 from pkm import batch as batch_module
+from pkm.assistant import write_preview as wp_module
 from pkm.assistant.policy import WRITE_PREVIEW_FIELDS, WRITE_TOOLS
 from pkm.assistant.write_preview import (CONTENT_LIMIT_CHARS,
                                          TARGET_LIMIT_CHARS,
@@ -114,7 +115,7 @@ def test_string_encoded_commands_preview_like_the_list():
 @pytest.mark.parametrize(("commands", "needle"), [
     ("nope", "commands"),
     ([], "no commands"),
-    ([{"command": "drop", "params": {}}], "unknown command: 'drop'"),
+    ([{"command": "drop", "params": {}}], 'unknown command: "drop"'),
     ([{"command": "delete"}], "params"),
 ])
 def test_non_list_or_malformed_batch_is_refused(commands, needle):
@@ -750,3 +751,71 @@ def test_a_uid_outside_the_current_text_entries_is_not_read(monkeypatch):
     assert write_target_uids("stub", {"uid": _A}) == []
     p = _preview("stub", {"uid": _A}, {_A: StoredBlock(_INBOX, "old")})
     assert p.ops[0].current is None
+
+
+def test_unknown_key_refusal_is_bounded():
+    r = _refusal("save_note", {"text": "t", "k" * 2_000_000: 1})
+    assert len(r.message) < 200
+    assert r.message.endswith("… (2,000,000 characters)")
+
+
+def test_an_unknown_command_is_echoed_bounded():
+    r = _refusal("batch", {"commands": [
+        {"command": "z" * 1_000_000, "params": {}}]})
+    assert len(r.message) < 200
+    assert "… (1,000,000 characters)" in r.message
+
+
+def test_an_extra_param_key_is_echoed_bounded():
+    r = _refusal("batch", {"commands": [
+        {"command": "delete", "params": {"uid": "A", "k" * 1_000_000: 1}}]})
+    assert len(r.message) < 200
+    assert "… (1,000,000 characters)" in r.message
+
+
+def _deletes(n: int) -> dict[str, object]:
+    return {"commands": [{"command": "delete", "params": {"uid": "A"}}
+                         for _ in range(n)]}
+
+
+def test_a_batch_over_the_op_limit_is_refused():
+    r = _refusal("batch", _deletes(501))
+    assert "501 commands" in r.message
+    assert len(_preview("batch", _deletes(500)).ops) == 500
+
+
+def _updates(n: int) -> dict[str, object]:
+    return {"commands": [
+        {"command": "update", "params": {"uid": f"UPD{i:08d}",
+                                         "text": "t" * 50_000}}
+        for i in range(n)]}
+
+
+def test_a_card_over_the_size_limit_is_refused():
+    r = _refusal("batch", _updates(6))
+    assert "the card would hold 300," in r.message
+    assert len(_preview("batch", _updates(4)).ops) == 4
+
+
+def test_current_text_counts_toward_the_card_size(monkeypatch):
+    monkeypatch.setattr(wp_module, "PREVIEW_LIMIT_CHARS", 250)
+    r = _refusal("update_block", {"uid": _VICTIM, "text": "t" * 60},
+                 {_VICTIM: StoredBlock(_INBOX, "y" * 400)})
+    assert "the card would hold" in r.message
+
+
+def test_current_page_titles_and_excerpts_count_toward_the_card_size():
+    uids = [uid_of(f"TITLE{i:06d}") for i in range(500)]
+    title = canonical_title_of("t" * 900)
+    blocks = {u: StoredBlock(title, "y" * 200) for u in uids}
+    raw = {"commands": [{"command": "delete", "params": {"uid": u}}
+                        for u in uids]}
+    r = _refusal("batch", raw, blocks)
+    assert "the card would hold" in r.message
+
+
+def test_every_refusal_is_bounded(monkeypatch):
+    monkeypatch.setattr(wp_module, "_build",
+                        lambda *a: Refusal("x" * 10_000))
+    r = _refusal("save_note", {"text": "t"})
+    assert r.message == "x" * 500 + "… (10,000 characters)"

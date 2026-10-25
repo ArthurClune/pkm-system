@@ -25,7 +25,7 @@ from pkm.contracts.ops import (BlockOp, BlockUid, CreateOp, DeleteOp, MoveOp,
                                Sha256Hex, UpdateTextOp, subtree_hash)
 from pkm.contracts.responses import BlockNode, walk_blocks
 from pkm.contracts.titles import UNTITLED_PAGE_TITLE, RawTitle
-from pkm.echo import echo
+from pkm.echo import echo, loc_text
 from pkm.refs import canonicalize_title, is_blank_title, normalize_title
 from pkm.planning import (BuildError, Planner, parse_uid_spec, plan_update,
                           resolve_parent)
@@ -214,8 +214,8 @@ def _command_problem(exc: ValidationError) -> str:
     if kind == "union_tag_not_found":
         return "missing 'command'"
     if kind == "union_tag_invalid":
-        return f"unknown command: {first['ctx']['tag']!r}"
-    path = ".".join(str(p) for p in first["loc"][1:])
+        return f"unknown command: {echo(str(first['ctx']['tag']))}"
+    path = loc_text(first["loc"][1:])
     return f"{path}: {first['msg']}" if path else first["msg"]
 
 

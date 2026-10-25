@@ -795,7 +795,8 @@ def test_validate_batch_rejects_missing_command():
 
 
 def test_validate_batch_rejects_unknown_command():
-    with pytest.raises(BuildError, match=r"batch\[0\]: unknown command: 'zap'"):
+    with pytest.raises(BuildError,
+                       match=r'batch\[0\]: unknown command: "zap"'):
         validate_batch([{"command": "zap", "params": {}}])
 
 
@@ -1149,3 +1150,11 @@ def test_an_overlong_alias_is_echoed_bounded():
         validate_batch([_create("a", parent="{{" + name + "}}")])
     assert len(str(exc.value)) < 200
     assert str(exc.value).endswith("\u2026 (10,000 characters)")
+
+
+def test_validate_batch_echoes_an_extra_param_key_bounded():
+    with pytest.raises(BuildError) as info:
+        validate_batch([{"command": "delete",
+                         "params": {"uid": "A", "k" * 1_000_000: 1}}])
+    assert len(str(info.value)) < 200
+    assert "… (1,000,000 characters)" in str(info.value)

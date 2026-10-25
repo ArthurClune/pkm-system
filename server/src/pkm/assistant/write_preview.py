@@ -35,8 +35,9 @@ from pkm.assistant.policy import (CURRENT_TEXT_ENTRIES, WRITE_PREVIEW_FIELDS,
                                   WRITE_TOOLS)
 from pkm.batch import (BatchItemError, NestedItem, alias_name, batch_aliases,
                        nested_items, validate_batch)
-from pkm.contracts.ops import BlockUid
+from pkm.contracts.ops import MAX_OPS_PER_BATCH, BlockUid
 from pkm.contracts.titles import CanonicalTitle
+from pkm.echo import echo, loc_text
 from pkm.mcp import tools as mcp_tools
 from pkm.planning import parse_uid_spec
 from pkm.refs import parse_block_uid
@@ -51,6 +52,15 @@ TARGET_LIMIT_CHARS = 1000
 # The current text is context for the target, not something the write
 # sends, so the card shows its start and says how long the whole is.
 CURRENT_EXCERPT_CHARS = 200
+# Everything the card holds at once: a batch of many content-sized writes
+# would otherwise be a card the tab cannot render for the user to approve.
+PREVIEW_LIMIT_CHARS = 250_000
+# A batch with more commands than one batch can carry is refused before any
+# row is built.
+MAX_PREVIEW_OPS = MAX_OPS_PER_BATCH
+# A refusal quotes the model's input, so the message the model reads back
+# (and the log line) is cut, saying how long it was.
+REFUSAL_LIMIT_CHARS = 500
 
 logger = logging.getLogger(__name__)
 
@@ -279,9 +289,23 @@ def _limit_problem(op: PreviewOp) -> str | None:
     return None
 
 
+def _card_size(op: PreviewOp) -> int:
+    """The characters `op` puts on the card: every string target, every
+    content text, every warning and the current block's text and names."""
+    size = sum(len(v) for _, v in op.targets if isinstance(v, str))
+    size += sum(total for _, _, total in op.content)
+    size += sum(len(w) for w in op.warnings)
+    current = op.current
+    if isinstance(current, FoundBlock):
+        size += len(current.page_title) + len(current.excerpt)
+    elif isinstance(current, CreatedInBatch):
+        size += len(current.alias)
+    return size
+
+
 def _first_error(exc: ValidationError) -> str:
     first = exc.errors()[0]
-    path = ".".join(str(p) for p in first["loc"])
+    path = loc_text(first["loc"])
     return f"{path}: {first['msg']}" if path else first["msg"]
 
 
@@ -324,12 +348,16 @@ def build_write_preview(short: str, tool_input: Mapping[str, object],
     `can_use_tool`, it would reach the SDK as a control error instead of a
     reason the model can act on."""
     try:
-        return _build(short, tool_input, blocks)
+        out = _build(short, tool_input, blocks)
     except Exception as exc:
         # The type only: the message can quote the attacker's input.
         logger.warning("write preview of %s failed: %s", short,
                        type(exc).__name__)
         return Refusal(f"{short}: input could not be previewed")
+    if isinstance(out, Refusal) and len(out.message) > REFUSAL_LIMIT_CHARS:
+        return Refusal(out.message[:REFUSAL_LIMIT_CHARS]
+                       + f"… ({len(out.message):,} characters)")
+    return out
 
 
 def _validate(short: str, tool_input: Mapping[str, object]
@@ -342,7 +370,7 @@ def _validate(short: str, tool_input: Mapping[str, object]
         return Refusal(f"{short} is not a write tool")
     unknown = _unknown_key(meta, tool_input)
     if unknown is not None:
-        return Refusal(f"{short}: unknown argument {json.dumps(unknown)}")
+        return Refusal(f"{short}: unknown argument {echo(unknown)}")
     try:
         model = meta.arg_model.model_validate(
             meta.pre_parse_json(dict(tool_input)))
@@ -354,6 +382,9 @@ def _validate(short: str, tool_input: Mapping[str, object]
     commands = validated["commands"]
     if not commands:
         return Refusal("batch: no commands to apply")
+    if len(commands) > MAX_PREVIEW_OPS:
+        return Refusal(f"batch: {len(commands)} commands; at most "
+                       f"{MAX_PREVIEW_OPS} fit one batch, so split it")
     try:
         parsed = validate_batch(commands)
         aliases = batch_aliases(parsed)
@@ -378,6 +409,11 @@ def _build(short: str, tool_input: Mapping[str, object],
         if problem is not None:
             where = f"batch item {i}" if short == "batch" else short
             return Refusal(f"{where}: {problem}")
+    size = sum(_card_size(op) for op in ops)
+    if size > PREVIEW_LIMIT_CHARS:
+        return Refusal(f"{short}: the card would hold {size:,} characters; "
+                       "split the write into parts under "
+                       f"{PREVIEW_LIMIT_CHARS:,}")
     if short == "batch":
         names = ", ".join(entry.removeprefix("batch:")
                           for entry, _ in checked.ops)

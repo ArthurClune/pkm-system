@@ -4,7 +4,7 @@ from collections.abc import Callable
 import pytest
 from scaling import loop_steps
 
-from pkm import unlink
+from pkm import spans, unlink
 from pkm.contracts.ops import BlockUid
 from pkm.refs import canonicalize_title, extract, normalize_title
 from pkm.unlink import (
@@ -363,3 +363,31 @@ def test_a_delete_s_copies_share_one_budget_across_its_referrers():
     within = MAX_DELETE_COPY_CHARS // 988_000
     assert [b.reason for b in plan.blockers] == ["limit"] * (32 - within)
     assert len(plan.rewrites) == within
+
+
+@pytest.mark.parametrize("fill", ["", "c"])
+def test_many_referrers_to_one_ref_heavy_block_cost_one_projection(fill):
+    # A page block holding 76,000 refs, and N tiny blocks elsewhere that
+    # each refer to it. Its projected length is found once, however many
+    # blocks refer to it: summed again per referrer, the work grew with N
+    # while the budget counted nothing (an empty fill projects to 0).
+    long = uid_of("pgblkCCCC")
+
+    def steps(count: int) -> int:
+        page: dict[BlockUid, str] = {long: fill,
+                                     PAGE_B: f"(({long}))" * 76_000}
+        sources = [SourceBlock(uid_of(f"src_blk_{i:04d}"), OTHER,
+                               f"(({PAGE_B}))") for i in range(count)]
+        plan = None
+
+        def go():
+            nonlocal plan
+            plan = plan_page_delete(is_t, page, sources)
+        work = loop_steps((unlink, spans), go)
+        assert plan is not None and plan.blockers == ()
+        assert set(plan.rewrites.values()) == {fill * 76_000}
+        return work
+
+    small, large = steps(8), steps(32)
+    # the span sum lives in pkm.spans, so both modules are counted
+    assert large < 1.5 * small, (small, large)

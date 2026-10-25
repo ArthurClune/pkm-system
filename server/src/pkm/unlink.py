@@ -44,8 +44,9 @@ TitleMatch = Callable[[str], bool]
 
 # Most copy text one page delete may count over all its referring blocks,
 # each copy at its projected length once per place it lands. It bounds the
-# work a delete does under the write lock however many blocks refer to the
-# page, and sits far above what a page written by hand needs; a referrer
+# copy work a delete does under the write lock however many blocks refer to
+# the page, leaving the rest linear in the page's and the referrers' own
+# text. It sits far above what a page written by hand needs; a referrer
 # past it is refused as `limit`.
 MAX_DELETE_COPY_CHARS: Final = 4 * MAX_BLOCK_TEXT_CHARS
 
@@ -257,16 +258,22 @@ class _Copies:
                        for uid, text in page_blocks.items()}
         self._blanks = {uid: "" for uid in page_blocks}
         self._spans: dict[BlockUid, list[Span]] = {}
+        self._projected: dict[BlockUid, int] = {}
         self._built: dict[BlockUid, str] = {}
 
     def projected(self, uid: BlockUid) -> int:
         """The length of page block `uid`'s copy as the splice of the refs
         it holds, before deeper refs are blanked and links unlinked, which
         only shorten it: the work building the copy costs. Found without
-        building it."""
+        building it, and once per block: summing a block of many refs again
+        for every block that refers to it is work that grows with the
+        referrers, which the budget does not count (a block of refs to an
+        empty block projects to 0)."""
         if uid not in self._spans:
             self._spans[uid] = block_ref_spans(self._plain[uid], self._plain)
-        return spliced_length(self._plain[uid], self._spans[uid])
+            self._projected[uid] = spliced_length(self._plain[uid],
+                                                  self._spans[uid])
+        return self._projected[uid]
 
     def get(self, uid: BlockUid) -> str:
         """The copy of page block `uid`. Callers judge `projected` first."""

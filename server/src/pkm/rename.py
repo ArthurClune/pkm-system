@@ -169,15 +169,22 @@ def title_ref_spans(
         return forms[key]
 
     spans: list[Span] = []
+    # A replaced attribute wins over the `#tag`s in its name (`#a b::` is
+    # the attribute `#a b` and the tag `a`), as an outer bracket run wins:
+    # the scan resumes past it. A name holds no `[`, so no run starts
+    # inside it.
+    scan_from = 0
 
     if (attribute := attribute_title_span(clean, text)) is not None:
         new_title = lookup(attribute.raw_title)
         if new_title is not None:
             spans.append((attribute.start, attribute.end,
                           form("attribute", new_title)))
+            scan_from = attribute.end
 
     _rewrite_range(
-        clean, lookup, form, 0, len(clean), bracket_spans(clean, text), spans
+        clean, lookup, form, scan_from, len(clean),
+        bracket_spans(clean, text), spans
     )
     return spans
 

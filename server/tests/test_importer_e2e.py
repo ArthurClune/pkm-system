@@ -271,6 +271,46 @@ def test_orphan_classes_survive_the_full_pipeline_without_integrity_error(tmp_pa
     assert f"recovered to '{RECOVERY_PAGE_TITLE}'): 3" in report
 
 
+TAG_IN_ATTRIBUTE_EXPORT = """\
+#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "]]Aaa" 1]
+  [1 :block/children 100 1]
+  [1 :block/children 101 1]
+  [1 :block/children 102 1]
+  [100 :block/uid "000000" 1]
+  [100 :block/string "" 1]
+  [100 :block/order 0 1]
+  [100 :block/heading false 1]
+  [101 :block/uid "0000000" 1]
+  [101 :block/string "" 1]
+  [101 :block/order 0 1]
+  [101 :block/heading false 1]
+  [102 :block/uid "00000000" 1]
+  [102 :block/string "#Machine Learning::" 1]
+  [102 :block/order 0 1]
+  [102 :block/heading false 1]
+ ]}"""
+
+
+def test_an_attribute_whose_name_holds_a_tag_imports(tmp_path):
+    # Shrunk from test_no_500_stored_props: the refused page title is
+    # skipped, but sanitizing "#Machine Learning::" spliced the attribute
+    # and the tag inside its name over each other, leaving the attribute
+    # "#MachineLearning" for the title migration to refuse.
+    export_file = tmp_path / "tag-in-attribute.edn"
+    export_file.write_text(TAG_IN_ATTRIBUTE_EXPORT, encoding="utf-8")
+    out = tmp_path / "data"
+
+    assert main([str(export_file), "--out", str(out)]) == 0
+
+    con = connect(out / "pkm.sqlite3")
+    text = con.select("SELECT text FROM blocks WHERE uid = '00000000'")
+    assert [r["text"] for r in text] == ["Machine Learning::"]
+    titles = [r["title"] for r in con.select("SELECT title FROM pages")]
+    assert all(title_syntax_reason(t) is None for t in titles), titles
+
+
 def test_rerun_replaces_database(tmp_path):
     files = _setup_files(tmp_path)
     out = tmp_path / "data"

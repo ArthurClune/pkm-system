@@ -1,5 +1,6 @@
 import { type Locator, type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { waitForServerText } from "./server-state";
 
 const PASSWORD = "e2e-pw";
 
@@ -236,4 +237,78 @@ test("the card shows the current text of the block an update targets", async ({ 
     .toHaveText("current text: no block has this uid");
   await panel.getByRole("button", { name: "Deny" }).click();
   await expect(card).toHaveCount(0);
+});
+
+type ServerBlock = { text: string; children: ServerBlock[] };
+
+const serverTexts = (blocks: ServerBlock[]): string[] =>
+  blocks.flatMap((b) => [b.text, ...serverTexts(b.children)]);
+
+/** Every block text the server holds for page `title`. */
+async function serverPageTexts(page: Page, title: string): Promise<string[]> {
+  const res = await page.request.get(`/api/page/${encodeURIComponent(title)}`);
+  if (!res.ok()) return [];
+  return serverTexts(((await res.json()) as { blocks: ServerBlock[] }).blocks);
+}
+
+/** Logs in, makes a page holding one block `uid` with "Shown text.", opens
+ * it, and opens the assistant over it. */
+async function openBesideBlock(page: Page, title: string, uid: string): Promise<Locator> {
+  await login(page);
+  createdPages.push(title);
+  expect((await page.request.post("/api/pages", { data: { title } })).ok()).toBeTruthy();
+  const ops = await page.request.post("/api/ops", { data: {
+    client_id: "e2e-approval-guard", batch_id: `e2e-approval-guard-${uid}`,
+    ops: [{ op: "create", uid, page_title: title, parent_uid: null,
+      order_idx: 0, text: "Shown text." }],
+  } });
+  expect(ops.ok()).toBeTruthy();
+  await page.goto(`/page/${encodeURIComponent(title)}`);
+  await expect(page.locator(".block-text", { hasText: "Shown text." })).toBeVisible();
+  await page.keyboard.press("Control+j");
+  const panel = page.getByRole("region", { name: "Assistant" });
+  await expect(panel).toBeVisible();
+  return panel;
+}
+
+// FakeEngine's "please update <uid>" runs the real update_block tool on
+// Allow, against this server, so the write lands as the assistant's would
+test("Allow refuses an update to a block edited after the card showed it", async ({ page }) => {
+  test.fail();
+  const stamp = Date.now();
+  const title = `ApprovalGuard${stamp}`;
+  const panel = await openBesideBlock(page, title, `ag${stamp}`);
+
+  await askInput(panel).fill(`please update ag${stamp}`);
+  await askInput(panel).press("Enter");
+  await expect(confirmCard(panel).locator(".assistant-confirm-action"))
+    .toHaveText("update block");
+
+  // the user edits the block with real keypresses while the card waits
+  await page.locator(".block-text", { hasText: "Shown text." }).click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" Edited.");
+  await page.keyboard.press("Escape");
+  await waitForServerText(page, title, "Shown text. Edited.");
+
+  await panel.getByRole("button", { name: "Allow" }).click();
+  await expect(panel.getByText(/changed after the approval card showed it/)).toBeVisible();
+  await expect(page.locator(".block-text", { hasText: "Shown text." }))
+    .toHaveText("Shown text. Edited.");
+  await expect.poll(() => serverPageTexts(page, title)).toContain("Shown text. Edited.");
+  await expect.poll(() => serverPageTexts(page, title)).not.toContain("Replaced.");
+});
+
+test("Allow applies an update to an unchanged block", async ({ page }) => {
+  const stamp = Date.now();
+  const title = `ApprovalGuard${stamp}`;
+  const panel = await openBesideBlock(page, title, `ag${stamp}`);
+
+  await askInput(panel).fill(`please update ag${stamp}`);
+  await askInput(panel).press("Enter");
+  await expect(confirmCard(panel).locator(".assistant-confirm-action"))
+    .toHaveText("update block");
+  await panel.getByRole("button", { name: "Allow" }).click();
+  await expect(panel.getByText("Updated.")).toBeVisible();
+  await waitForServerText(page, title, "Replaced.");
 });

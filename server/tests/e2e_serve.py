@@ -44,14 +44,18 @@ from fastapi.responses import PlainTextResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 import fake_goodlinks_server
+import pkm.mcp.tools
 from fake_engine import FakeEngine
 from pkm.assistant.target_reader import db_block_reader
+from pkm.client.api import PkmClient
+from pkm.client.core import CliConfig
 from pkm.database import connect
 from pkm.schema import DDL
 from pkm.server.app import create_app
-from pkm.server.auth_core import hash_password
+from pkm.server.auth_core import hash_password, sign_session
 from pkm.server.config import Config
 from pkm.server.db import init_db
+from tool_runner import run_tool
 
 PORT = int(os.environ.get("E2E_PORT", "8975"))
 PASSWORD = "e2e-pw"
@@ -183,7 +187,17 @@ def main() -> int:
         goodlinks_api_key_file=data / "goodlinks_key",
         goodlinks_api_url=f"http://127.0.0.1:{goodlinks_port}/api/v1",
     )
-    engine = FakeEngine(read_blocks=db_block_reader(db_path))
+    # An allowed write runs the real MCP tool against this server, signed
+    # in as the assistant's own subprocess would be.
+    def _client() -> PkmClient:
+        token = sign_session(bytes.fromhex(config.session_secret),
+                             int(time.time() * 1000))
+        return PkmClient(CliConfig(url=f"http://127.0.0.1:{PORT}",
+                                   token=token))
+
+    pkm.mcp.tools._client_factory = _client
+    engine = FakeEngine(read_blocks=db_block_reader(db_path),
+                        run_tool=run_tool)
     app = create_app(config, assistant_engine=engine, api_port=PORT)
 
     @app.exception_handler(Exception)

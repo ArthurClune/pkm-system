@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import replace
 
 from fake_engine import FakeEngine
@@ -231,3 +231,42 @@ def test_update_trigger_unreadable_target_is_refused():
     assert TextDelta(text="update_block: the blocks this write changes "
                           "could not be read") in events
     assert isinstance(events[-1], TurnDone)
+
+
+def _update_turn_running(text: str, run_tool):
+    async def scenario():
+        engine = FakeEngine(run_tool=run_tool)
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        events = []
+        async for ev in conv.send(text):
+            events.append(ev)
+            if isinstance(ev, ConfirmRequest):
+                conv.resolve_confirm(ev.confirm_id, True)
+        return events
+
+    return asyncio.run(asyncio.wait_for(scenario(), timeout=5))
+
+
+def test_please_update_runs_the_tool_on_allow():
+    calls = []
+
+    def recording(short: str, tool_input: Mapping[str, object]) -> str:
+        calls.append((short, dict(tool_input)))
+        return f"updated ^{_VICTIM}"
+
+    events = _update_turn_running(f"please update {_VICTIM}", recording)
+    assert calls == [("update_block", {"uid": _VICTIM, "text": "Replaced."})]
+    assert ToolFinished(name="update_block") in events
+    assert [e.text for e in events if isinstance(e, TextDelta)] == ["Updated."]
+
+    def raising(short: str, tool_input: Mapping[str, object]) -> str:
+        raise RuntimeError("boom")
+
+    events = _update_turn_running(f"please update {_VICTIM}", raising)
+    assert ToolFinished(name="update_block") in events
+    assert [e.text for e in events
+            if isinstance(e, TextDelta)] == ["Not updated: boom"]
+
+    # without a runner the double only says the write happened
+    events = _update_turn(f"please update {_VICTIM}", True)
+    assert [e.text for e in events if isinstance(e, TextDelta)] == ["Updated."]

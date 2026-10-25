@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import itertools
 import json
 import subprocess
 import sys
@@ -1162,6 +1163,13 @@ def test_shown_blocks_hash_the_full_text_not_the_excerpt():
     assert got[0].shown_hash != text_hash("y" * CURRENT_EXCERPT_CHARS)
 
 
+def test_shown_blocks_hash_a_lone_surrogate_as_the_store_holds_it():
+    # the contract stores it as U+FFFD, the text the server check hashes
+    (shown,) = shown_blocks("update_block", {"uid": _A, "text": "t"},
+                            {_A: StoredBlock(_INBOX, "a\ud800b")})
+    assert shown.shown_hash == text_hash("a\ufffdb")
+
+
 def test_a_missing_block_is_expected_absent():
     raw = {"commands": [_cmd("update", uid=_A, text="t")]}
     assert shown_blocks("batch", raw, {}) == [
@@ -1177,10 +1185,13 @@ def test_a_malformed_uid_and_an_alias_expect_nothing():
     assert shown_blocks("batch", raw, {_A: StoredBlock(_INBOX, "a")}) == []
 
 
-def test_one_uid_updated_moved_and_deleted_expects_its_subtree():
-    raw = {"commands": [_cmd("update", uid=_A, text="t"),
-                        _cmd("move", uid=_A, page="P"),
-                        _cmd("delete", uid=_A)]}
+@pytest.mark.parametrize("order", list(itertools.permutations(
+    ["update", "move", "delete"])), ids="-".join)
+def test_one_uid_updated_moved_and_deleted_expects_its_subtree(order):
+    # whichever comes first, the delete's subtree guard wins: a text guard
+    # alone would let a child added meanwhile be destroyed
+    params = {"update": {"text": "t"}, "move": {"page": "P"}, "delete": {}}
+    raw = {"commands": [_cmd(c, uid=_A, **params[c]) for c in order]}
     blocks = {_A: StoredBlock(_INBOX, "a", 2, subtree_hash=_SUB)}
     assert shown_blocks("batch", raw, blocks) == [
         ExpectedBlock(uid=_A, kind="subtree", shown_hash=_SUB)]

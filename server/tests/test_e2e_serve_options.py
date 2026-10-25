@@ -3,12 +3,16 @@ import os
 import signal
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import e2e_serve
+import pkm.mcp.tools
 from rawread import read
+from tool_runner import run_tool
 from pkm.database import connect
+from pkm.server.config import Config
 
 
 def test_prepare_db_empty(tmp_path):
@@ -64,3 +68,20 @@ def test_instance_header_only_on_healthz():
     client = TestClient(e2e_serve.with_instance_header(app, "tok123"))
     assert client.get("/healthz").headers["x-e2e-instance"] == "tok123"
     assert "x-e2e-instance" not in client.get("/api/x").headers
+
+
+def test_the_e2e_assistant_runs_its_tools_in_require_expect_mode(
+        tmp_path, monkeypatch):
+    # as the assistant's `pkm-mcp --require-expect` does: an allowed write
+    # whose input lost the card's `expect` is refused before any request
+    monkeypatch.setattr(pkm.mcp.tools, "_require_expect", False)
+    monkeypatch.setattr(pkm.mcp.tools, "_client_factory",
+                        pkm.mcp.tools._client_factory)
+    monkeypatch.setattr(pkm.mcp.tools, "_cached_client", None)
+    config = Config(db_path=e2e_serve.prepare_db(tmp_path, None),
+                    assets_dir=tmp_path / "assets", password_salt="11",
+                    password_hash="22", session_secret="ee" * 32)
+
+    e2e_serve.assistant_engine(config, 1)
+    with pytest.raises(ValueError, match="no expect argument"):
+        run_tool("update_block", {"uid": "AAAAAAAAA", "text": "x"})

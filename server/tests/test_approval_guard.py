@@ -17,6 +17,7 @@ from tool_runner import run_tool, sdk_tool_input
 
 from pkm.assistant.events import ConfirmRequest
 from pkm.assistant.policy import SYSTEM_PROMPT
+from pkm.assistant.write_preview import CURRENT_EXCERPT_CHARS
 from pkm.assistant.target_reader import db_block_reader
 from pkm.client.core import ApiError
 from pkm.contracts.ops import BlockUid, text_hash
@@ -153,8 +154,15 @@ def test_allow_refuses_a_move_of_a_block_whose_text_changed(
     assert after.block.text == _EDITED
 
 
+@pytest.mark.parametrize("then", [
+    (),
+    (("update", {"uid": _B2, "text": "Replaced."}),),
+    (("move", {"uid": _B2, "page": "AI"}),),
+], ids=["delete", "delete-then-update", "delete-then-move"])
 def test_allow_refuses_a_delete_after_a_child_was_added(
-        tmp_path, seeded_config, pkm_client, tools):
+        tmp_path, seeded_config, pkm_client, tools, then):
+    # a later update or move of the deleted block must not narrow its
+    # subtree guard to its own text
     child = uid_of("addedUnderB2")
 
     def add_child() -> None:
@@ -164,7 +172,7 @@ def test_allow_refuses_a_delete_after_a_child_was_added(
         ], batch_id=batch_id_of("editor-add-child"))
 
     sent = _allow(tmp_path, seeded_config.db_path, "batch",
-                  _batch(("delete", {"uid": _B2})), add_child)
+                  _batch(("delete", {"uid": _B2}), *then), add_child)
 
     with pytest.raises(ApiError) as caught:
         run_tool("batch", sent)
@@ -220,6 +228,53 @@ def test_allow_applies_when_nothing_changed(
 
     run_tool("update_block", sent)
     assert pkm_client.get_block(_B4).block.text == "Replaced."
+
+
+_LONG_UID = uid_of("longBlock001")
+# Longer than the excerpt the card displays; the lone surrogate is stored
+# as U+FFFD, and both the card and the check must hash what is stored.
+_LONG_TEXTS = ["x" * (CURRENT_EXCERPT_CHARS + 100),
+               "\ud800" + "x" * (CURRENT_EXCERPT_CHARS + 100)]
+
+
+def _create_long(pkm_client, text: str) -> str:
+    """Create the long block on AI; its text as stored."""
+    pkm_client.post_ops([
+        {"op": "create", "uid": _LONG_UID, "page_title": "AI",
+         "parent_uid": None, "order_idx": 1, "text": text},
+    ], batch_id=batch_id_of("create-long-block"))
+    stored = pkm_client.get_block(_LONG_UID).block.text
+    assert len(stored) > CURRENT_EXCERPT_CHARS
+    return stored
+
+
+@pytest.mark.parametrize("text", _LONG_TEXTS, ids=["long", "lone-surrogate"])
+def test_allow_applies_to_an_unchanged_long_block(
+        tmp_path, seeded_config, pkm_client, tools, text):
+    # the card's hash of what it read equals the check's of the store
+    _create_long(pkm_client, text)
+    sent = _allow(tmp_path, seeded_config.db_path, "update_block",
+                  {"uid": _LONG_UID, "text": "Replaced."})
+
+    run_tool("update_block", sent)
+    assert pkm_client.get_block(_LONG_UID).block.text == "Replaced."
+
+
+@pytest.mark.parametrize("text", _LONG_TEXTS, ids=["long", "lone-surrogate"])
+def test_allow_refuses_an_edit_past_the_excerpt(
+        tmp_path, seeded_config, pkm_client, tools, text):
+    # the excerpt the card displays is unchanged, but the block is not
+    stored = _create_long(pkm_client, text)
+    cut = CURRENT_EXCERPT_CHARS + 50
+    edited = stored[:cut] + "EDIT" + stored[cut:]
+    sent = _allow(tmp_path, seeded_config.db_path, "update_block",
+                  {"uid": _LONG_UID, "text": "Replaced."},
+                  lambda: _edit(pkm_client, _LONG_UID, stored, edited))
+
+    with pytest.raises(ApiError) as caught:
+        run_tool("update_block", sent)
+    assert caught.value.status == 412
+    assert pkm_client.get_block(_LONG_UID).block.text == edited
 
 
 def test_an_alias_target_needs_no_expectation(

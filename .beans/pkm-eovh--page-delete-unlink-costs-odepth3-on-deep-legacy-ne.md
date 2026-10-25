@@ -1,11 +1,11 @@
 ---
 # pkm-eovh
 title: Page delete unlink costs O(depth^3) on deep legacy nesting and holds the write lock
-status: todo
+status: scrapped
 type: bug
 priority: low
 created_at: 2026-10-23T19:16:36Z
-updated_at: 2026-10-23T19:16:36Z
+updated_at: 2026-10-25T03:41:50Z
 parent: pkm-mfd0
 ---
 
@@ -18,3 +18,7 @@ Related (authenticated CPU): rewrite_effects runs unlink_stale_refs once per sta
 - [ ] Compute the peel fixpoint in one pass, innermost first (equivalence test against the current loop)
 - [ ] Bound time spent under begin_immediate() for a page delete
 - [ ] troubleshooting.md row
+
+## Reasons for Scrapping
+
+Re-judged after pkm-gc3n/pkm-bppf (2026-10-25). Every write path now refuses [[ nested past 32 (MAX_LINK_NESTING), and server-made rewrites may never make a row deeper, so the O(depth^3) unlink is bounded by depth 32 for any row written from now on (microseconds). Its remaining reach is rows stored before the limit; prod's deepest nesting is 2 (2026-10-23/24 surveys), so nothing at risk. Page delete's other unbounded allocation (inline copies before the limit judge) is tracked separately as pkm-49rh.

@@ -1,11 +1,11 @@
 ---
 # pkm-u48q
 title: GoodLinks reader loads article images from the GoodLinks copy, not the source
-status: todo
+status: draft
 type: task
-priority: normal
+priority: deferred
 created_at: 2026-10-23T15:00:12Z
-updated_at: 2026-10-25T05:05:28Z
+updated_at: 2026-10-25T08:18:38Z
 parent: pkm-mfd0
 ---
 
@@ -37,3 +37,7 @@ GoodLinks' local API has no image endpoint; article HTML/markdown carry only the
 Options for Arthur: A) grant the server's launcher access to GoodLinks' data and map its undocumented layout (fragile across GoodLinks updates; needs read timeouts); B) PKM fetches and keeps its own copy of each article's images once (the Mac contacts source sites, not GoodLinks' copy); C) no images — drop <img>, keep alt text; D) ask GoodLinks' developer for an image endpoint, C or today's behaviour meanwhile. Any option: give the reader iframe a CSP allowing images only from the app (or none for C).
 
 Side findings: files-and-assets.md says GoodLinks 'archives text but not images' (wrong with image download on); GoodLinks listens on *:9428, not loopback only; GoodlinksGateway.content never disables GoodLinks' download-if-uncached, so opening the reader on an uncached link may make GoodLinks fetch the page.
+
+## Paused (Arthur, 2026-10-25)
+
+Paused: Arthur will file a feature request with GoodLinks' developer for an image endpoint in the local API (option D). Resume when GoodLinks exposes one; until then the reader keeps today's behaviour.

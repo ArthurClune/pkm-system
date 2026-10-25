@@ -52,6 +52,7 @@ from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
 from pkm.server.db import init_db
+from pkm.server.run import serve as serve_as_production
 
 PORT = int(os.environ.get("E2E_PORT", "8975"))
 PASSWORD = "e2e-pw"
@@ -62,11 +63,11 @@ server_logger = logging.getLogger(SERVER_LOGGER_NAME)
 
 
 def _log_config(log_path: Path) -> dict:
-    # uvicorn.run() calls logging.config.dictConfig(), which unconditionally
-    # closes any handler that existed before the call (regardless of
-    # disable_existing_loggers) -- so a FileHandler attached ahead of time
-    # would silently stop writing. Folding it into uvicorn's own config
-    # keeps it alive.
+    # uvicorn's Config calls logging.config.dictConfig(), which
+    # unconditionally closes any handler that existed before the call
+    # (regardless of disable_existing_loggers) -- so a FileHandler attached
+    # ahead of time would silently stop writing. Folding it into uvicorn's
+    # own config keeps it alive.
     config = copy.deepcopy(uvicorn.config.LOGGING_CONFIG)
     config["handlers"]["e2e_file"] = {
         "class": "logging.FileHandler",
@@ -78,6 +79,10 @@ def _log_config(log_path: Path) -> dict:
         "handlers": ["e2e_file"], "level": "ERROR", "propagate": False,
     }
     return config
+
+
+def serve(app: ASGIApp, log_path: Path) -> None:
+    serve_as_production(app, port=PORT, log_config=_log_config(log_path))
 
 
 def server_log_path(root: Path, env: Mapping[str, str]) -> Path:
@@ -196,16 +201,13 @@ def main() -> int:
     instance = os.environ.get("E2E_INSTANCE")
     served: ASGIApp = with_instance_header(app, instance) if instance else app
 
-    def run() -> None:
-        uvicorn.run(served, host="127.0.0.1", port=PORT, log_config=_log_config(log_path))
-
     frozen = os.environ.get("E2E_FROZEN_NOW")
     if frozen:
         import time_machine
         with time_machine.travel(datetime.fromisoformat(frozen), tick=True):
-            run()
+            serve(served, log_path)
     else:
-        run()
+        serve(served, log_path)
     return 0
 
 

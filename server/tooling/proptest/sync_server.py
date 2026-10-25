@@ -37,6 +37,7 @@ import time_machine
 import uvicorn
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import PlainTextResponse
+from starlette.types import ASGIApp
 
 from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING, BatchId, BlockOp, BlockUid, ClientId,
                                CreateOp, OpBatch, OrderIdx, SyncSeq, UpdateTextOp)
@@ -55,6 +56,7 @@ from pkm.server.ops_apply import apply_batch
 from pkm.server.ops_core import (Effect, OpTextLimitViolation, RewriteStep,
                                  find_op_text_limit_violation, judge_batch,
                                  rewrite_effects)
+from pkm.server.run import serve as serve_as_production
 from pkm.server.store import stale_titles
 from pkm.text_limits import TextLimitViolation
 
@@ -519,6 +521,10 @@ def _log_config(path: Path) -> dict:
     return config
 
 
+def serve(app: ASGIApp, log_file: Path) -> None:
+    serve_as_production(app, port=PORT, log_config=_log_config(log_file))
+
+
 def _watch_parent(initial_ppid: int, poll_s: float = 2.0) -> None:
     while os.getppid() == initial_ppid:
         time.sleep(poll_s)
@@ -552,7 +558,7 @@ def main() -> int:  # pragma: no cover - process entry point, exercised by the s
         logger.error("unhandled exception for %s %s", request.method, request.url, exc_info=exc)
         return PlainTextResponse("internal server error", status_code=500)
 
-    uvicorn.run(app, host="127.0.0.1", port=PORT, log_config=_log_config(log_path(os.environ, data)))
+    serve(app, log_path(os.environ, data))
     return 0
 
 

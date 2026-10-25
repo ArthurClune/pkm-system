@@ -65,3 +65,41 @@ def test_uvicorn_config_uses_the_deadline_protocol():
 
     config = run.uvicorn_config(app, port=0, log_config=None)
     assert config.http is DeadlineH11Protocol
+
+
+class _CapturedServer:
+    """Stands in for uvicorn.Server: keeps the config it is built with."""
+    configs: list = []
+
+    def __init__(self, config) -> None:
+        self.configs.append(config)
+
+    def run(self, sockets=None) -> None:
+        return None
+
+
+@pytest.fixture()
+def captured(monkeypatch) -> list:
+    monkeypatch.setattr(_CapturedServer, "configs", [])
+    monkeypatch.setattr(run.uvicorn, "Server", _CapturedServer)
+    return _CapturedServer.configs
+
+
+async def _app(scope, receive, send) -> None:
+    pass
+
+
+def test_the_e2e_and_proptest_servers_serve_as_production_does(
+        captured, tmp_path):
+    # A launcher that built its own config ran without the deadline
+    # protocol, and a protocol that closed every WebSocket passed E2E.
+    import e2e_serve
+    from proptest import sync_server
+
+    from pkm.server.http_protocol import DeadlineH11Protocol
+
+    e2e_serve.serve(_app, tmp_path / "e2e.log")
+    sync_server.serve(_app, tmp_path / "proptest.log")
+    assert [(c.http, c.port, c.host) for c in captured] == [
+        (DeadlineH11Protocol, e2e_serve.PORT, "127.0.0.1"),
+        (DeadlineH11Protocol, sync_server.PORT, "127.0.0.1")]

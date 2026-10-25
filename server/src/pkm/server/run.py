@@ -63,6 +63,15 @@ def uvicorn_config(app: ASGIApp, port: int,
                           http=DeadlineH11Protocol)
 
 
+def serve(app: ASGIApp, port: int, log_config: dict[str, Any] | None,
+          sockets: list[socket.socket] | None = None) -> None:
+    """Serve `app` through `uvicorn_config` until shut down. Without
+    `sockets` it binds 127.0.0.1:`port`, as the E2E and proptest servers
+    do: they serve through here so that they run what production runs."""
+    uvicorn.Server(uvicorn_config(app, port=port,
+                                  log_config=log_config)).run(sockets=sockets)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Run the PKM server.")
     ap.add_argument("--data-dir", default="data")
@@ -84,13 +93,12 @@ def main(argv: list[str] | None = None) -> int:
         log_config = uvicorn_log_config(Path(args.log_dir))
     else:
         log_config = uvicorn_log_config()
-    server = uvicorn.Server(uvicorn_config(
+    serve(
         # The bound hosts, not the config's, are the listeners whose
         # origins the guard allows.
         create_app(dataclasses.replace(config, bind_hosts=tuple(hosts)),
                    api_port=args.port),
-        port=args.port, log_config=log_config))
-    server.run(sockets=sockets)
+        port=args.port, log_config=log_config, sockets=sockets)
     return 0
 
 

@@ -292,6 +292,8 @@ test("Allow refuses an update to a block edited after the card showed it", async
 
   await panel.getByRole("button", { name: "Allow" }).click();
   // the panel's own failure line, whatever the model's reply says
+  await expect(panel.locator(".assistant-msg-assistant")).toContainText(
+    /changed after the approval card showed it/);
   await expect(panel.locator(".assistant-tool-failed")).toContainText(
     /changed after the approval card showed it/);
   await expect(page.locator(".block-text", { hasText: "Shown text." }))
@@ -312,4 +314,34 @@ test("Allow applies an update to an unchanged block", async ({ page }) => {
   await panel.getByRole("button", { name: "Allow" }).click();
   await expect(panel.getByText("Updated.")).toBeVisible();
   await waitForServerText(page, title, "Replaced.");
+  const line = panel.locator(".assistant-tool-line", { hasText: "updating a block" });
+  await expect(line).toContainText("✓");
+  await expect(panel.locator(".assistant-tool-failed")).toHaveCount(0);
+});
+
+test("the panel shows a refused Allow whatever the reply says", async ({ page }) => {
+  const stamp = Date.now();
+  const title = `ApprovalShown${stamp}`;
+  const panel = await openBesideBlock(page, title, `as${stamp}`);
+
+  await askInput(panel).fill(`please misreport update as${stamp}`);
+  await askInput(panel).press("Enter");
+  await expect(confirmCard(panel).locator(".assistant-confirm-action"))
+    .toHaveText("update block");
+
+  await page.locator(".block-text", { hasText: "Shown text." }).click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" Edited.");
+  await page.keyboard.press("Escape");
+  await waitForServerText(page, title, "Shown text. Edited.");
+
+  await panel.getByRole("button", { name: "Allow" }).click();
+  // the fake engine's reply claims success; the panel must not
+  await expect(panel.locator(".assistant-msg-assistant")).toHaveText("Updated.");
+  const line = panel.locator(".assistant-tool-line", { hasText: "updating a block" });
+  await expect(line).toContainText("✗");
+  await expect(line.locator(".assistant-tool-failed")).toContainText("Failed: ");
+  await expect(line.locator(".assistant-tool-failed")).toContainText(
+    /changed after the approval card showed it/);
+  await expect.poll(() => serverPageTexts(page, title)).not.toContain("Replaced.");
 });

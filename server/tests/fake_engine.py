@@ -104,9 +104,8 @@ class FakeConversation:
                 yield card
             decisions = [await fut for fut in futs]
             for tool_use_id, allowed in zip(ids, decisions):
-                if allowed:
-                    yield ToolFinished(tool_use_id=tool_use_id,
-                                       name="save_note")
+                yield ToolFinished(tool_use_id=tool_use_id,
+                                   name="save_note", declined=not allowed)
             if all(decisions):
                 yield TextDelta(text="Saved 2.")
             else:
@@ -136,6 +135,8 @@ class FakeConversation:
                 yield ToolFinished(tool_use_id=tool_use_id, name="save_note")
                 yield TextDelta(text="Saved.")
             else:
+                yield ToolFinished(tool_use_id=tool_use_id, name="save_note",
+                                   declined=True)
                 yield TextDelta(text="Okay, not saving.")
             yield TurnDone(usage={"input_tokens": 1})
             return

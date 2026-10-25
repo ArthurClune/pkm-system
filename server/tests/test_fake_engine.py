@@ -73,6 +73,8 @@ def test_confirm_flow_deny():
     events = asyncio.run(scenario())
     assert TextDelta(text="Okay, not saving.") in events
     assert ToolFinished(tool_use_id="fake-tool-1", name="save_note") not in events
+    assert ToolFinished(tool_use_id="fake-tool-1", name="save_note",
+                        declined=True) in events
 
 
 def test_hang_scenario_parks_until_cancelled():
@@ -151,6 +153,10 @@ def test_write_twice_queues_both_confirms_before_either_answer():
     assert second.preview.writes_in_flight is True
     texts = [e.text for e in rest if isinstance(e, TextDelta)]
     assert texts == ["Saved 1.", "Not saving 2."]
+    assert [e for e in rest if isinstance(e, ToolFinished)] == [
+        ToolFinished(tool_use_id="fake-tool-1", name="save_note"),
+        ToolFinished(tool_use_id="fake-tool-2", name="save_note",
+                     declined=True)]
     assert isinstance(rest[-1], TurnDone)
 
 

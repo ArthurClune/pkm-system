@@ -56,15 +56,17 @@ describe("createSseParser", () => {
   test("parses confirm_request with its structured preview", () => {
     const p = createSseParser();
     const preview = {
-      ops: [{ action: "save_note", targets: [["page", null]],
-        content: [["text", "hi", 2]], warnings: [] }],
-      summary: "save_note(text='hi')",
+      ops: [{ action: "update block", targets: [["uid", "VICTIMUID01"]],
+        content: [["text", "hi", 2]], warnings: [],
+        current: { state: "found", page_title: "Inbox", excerpt: "old",
+          text_length: 3, descendants: null } }],
+      summary: "update_block(uid='VICTIMUID01')",
     };
     const data = JSON.stringify({
-      confirm_id: "c1", ops_preview: "save_note(text='hi')", preview });
+      confirm_id: "c1", ops_preview: preview.summary, preview });
     expect(p.push(`event: confirm_request\ndata: ${data}\n\n`)).toEqual([
       { type: "confirm_request", confirm_id: "c1",
-        ops_preview: "save_note(text='hi')", preview },
+        ops_preview: preview.summary, preview },
     ]);
   });
 

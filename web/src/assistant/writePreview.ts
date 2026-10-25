@@ -2,13 +2,31 @@
 // The structured write preview a confirm_request carries, shape-checked, and
 // the quoting the approval card renders its values with. Keys, warnings and
 // the action are labels the card shows unquoted, so the parser escapes them;
-// target values and content are escaped when the card quotes them.
+// target values, content and the current block's page, excerpt and alias are
+// escaped when the card quotes them.
+//
+// Each action may carry only the keys, and the current block, that the
+// server's table gives it (PREVIEW_KEYS): anything else could only be a decoy
+// row beside the real target, so the whole preview is refused.
+import type { CanonicalTitle } from "../api/brands";
+import { PREVIEW_KEYS, type PreviewKeys } from "./previewKeys.gen";
+
+/** The existing block a write replaces, moves or deletes, as it stands when
+ * the card is built. `descendants` counts the blocks a delete removes with
+ * it, and is null for any other write. */
+export type CurrentBlock =
+  | { state: "found"; page_title: CanonicalTitle; excerpt: string;
+      text_length: number; descendants: number | null }
+  | { state: "missing" }
+  | { state: "created"; write: number; alias: string };
 
 export type PreviewOp = {
   action: string;
   targets: [string, unknown][];
   content: [string, string, number][];
   warnings: string[];
+  // null: the write touches no existing block
+  current: CurrentBlock | null;
 };
 export type WritePreview = { ops: PreviewOp[]; summary: string };
 
@@ -16,19 +34,24 @@ function isRecord(raw: unknown): raw is Record<string, unknown> {
   return typeof raw === "object" && raw !== null && !Array.isArray(raw);
 }
 
-function parseTarget(raw: unknown): [string, unknown] | null {
-  if (!Array.isArray(raw) || raw.length !== 2) return null;
-  const [key, value] = raw as unknown[];
-  return typeof key === "string" ? [escapeLabel(key), value] : null;
+function isCount(raw: unknown): raw is number {
+  return typeof raw === "number" && Number.isSafeInteger(raw) && raw >= 0;
 }
 
-function parseContent(raw: unknown): [string, string, number] | null {
+function parseTarget(raw: unknown, allowed: readonly string[]
+): [string, unknown] | null {
+  if (!Array.isArray(raw) || raw.length !== 2) return null;
+  const [key, value] = raw as unknown[];
+  if (typeof key !== "string" || !allowed.includes(key)) return null;
+  return [escapeLabel(key), value];
+}
+
+function parseContent(raw: unknown, allowed: readonly string[]
+): [string, string, number] | null {
   if (!Array.isArray(raw) || raw.length !== 3) return null;
   const [key, value, total] = raw as unknown[];
   if (typeof key !== "string" || typeof value !== "string") return null;
-  if (typeof total !== "number" || !Number.isSafeInteger(total) || total < 0) {
-    return null;
-  }
+  if (!allowed.includes(key) || !isCount(total)) return null;
   // total is the server's len of the value, in code points. The server
   // sends content whole, so any other length would make the card misstate
   // what it shows, or have the user approve a tail never sent
@@ -36,30 +59,76 @@ function parseContent(raw: unknown): [string, string, number] | null {
   return [escapeLabel(key), value, total];
 }
 
-function parseAll<T>(raw: unknown, parse: (item: unknown) => T | null): T[] | null {
+function parseAll<T>(raw: unknown, parse: (item: unknown, index: number) => T | null
+): T[] | null {
   if (!Array.isArray(raw)) return null;
   const out: T[] = [];
-  for (const item of raw as unknown[]) {
-    const parsed = parse(item);
+  for (const [index, item] of (raw as unknown[]).entries()) {
+    const parsed = parse(item, index);
     if (parsed === null) return null;
     out.push(parsed);
   }
   return out;
 }
 
-function parseOp(raw: unknown): PreviewOp | null {
+// The excerpt is the start of the text, so the whole is at least as long.
+// The page title is the one the server's title reader read the block's page
+// by, so it is canonical as sent.
+function parseFound(raw: Record<string, unknown>, counted: boolean
+): CurrentBlock | null {
+  const { excerpt, text_length, descendants } = raw;
+  if (typeof raw.page_title !== "string" || typeof excerpt !== "string") {
+    return null;
+  }
+  const page_title = raw.page_title as CanonicalTitle;
+  if (!isCount(text_length) || text_length < [...excerpt].length) return null;
+  if (counted) {
+    return isCount(descendants)
+      ? { state: "found", page_title, excerpt, text_length, descendants }
+      : null;
+  }
+  return descendants === null
+    ? { state: "found", page_title, excerpt, text_length, descendants }
+    : null;
+}
+
+// `index` is the op's 0-based place, so the 1-based writes before it are
+// 1..index: only an earlier write of the batch can create the block.
+function parseCurrent(raw: unknown, index: number, keys: PreviewKeys
+): CurrentBlock | null {
+  if (!isRecord(raw)) return null;
+  if (raw.state === "found") return parseFound(raw, keys.descendants);
+  if (raw.state === "missing") return { state: "missing" };
+  if (raw.state !== "created") return null;
+  const { write, alias } = raw;
+  if (!isCount(write) || write < 1 || write > index) return null;
+  return typeof alias === "string" ? { state: "created", write, alias } : null;
+}
+
+function parseOp(raw: unknown, index: number): PreviewOp | null {
   if (!isRecord(raw) || typeof raw.action !== "string") return null;
-  const targets = parseAll(raw.targets, parseTarget);
-  const content = parseAll(raw.content, parseContent);
+  const keys = PREVIEW_KEYS.get(raw.action);
+  if (keys === undefined) return null;
+  let current: CurrentBlock | null = null;
+  if (keys.current) {
+    current = parseCurrent(raw.current, index, keys);
+    if (current === null) return null;
+  } else if (raw.current !== null) {
+    return null;
+  }
+  const targets = parseAll(raw.targets, (t) => parseTarget(t, keys.targets));
+  const content = parseAll(raw.content, (c) => parseContent(c, keys.content));
   const warnings = parseAll(raw.warnings,
     (w) => (typeof w === "string" ? escapeWarning(w) : null));
   if (targets === null || content === null || warnings === null) return null;
-  return { action: escapeLabel(raw.action), targets, content, warnings };
+  return { action: escapeLabel(raw.action), targets, content, warnings,
+    current };
 }
 
 /** The preview rebuilt from `raw` field by field, or null when any field has
- * the wrong type. No ops is also null: a card listing nothing must not offer
- * Allow. */
+ * the wrong type, or an op carries an action, key or current block its table
+ * entry does not give it. No ops is also null: a card listing nothing must
+ * not offer Allow. */
 export function parseWritePreview(raw: unknown): WritePreview | null {
   if (!isRecord(raw) || typeof raw.summary !== "string") return null;
   const ops = parseAll(raw.ops, parseOp);

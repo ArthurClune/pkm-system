@@ -1,12 +1,22 @@
 import { describe, expect, test } from "vitest";
 import { formatTarget, parseWritePreview, quoteValue } from "./writePreview";
 
+const found = { state: "found", page_title: "Inbox", excerpt: "Old wording.",
+  text_length: 12, descendants: null };
+
 const validOp = {
-  action: "update_block",
+  action: "update block",
   targets: [["uid", "VICTIMUID01"], ["mark", null]],
   content: [["text", "Tidied wording.", 15]],
   warnings: [],
+  current: found,
 };
+
+const deleteOp = (current: unknown) => ({ action: "delete block",
+  targets: [["uid", "VICTIMUID01"]], content: [], warnings: [], current });
+
+const saveOp = { action: "save note", targets: [["page", null]],
+  content: [["text", "hi", 2]], warnings: [], current: null };
 
 describe("quoteValue", () => {
   test("wraps in quotes and escapes quote and backslash", () => {
@@ -126,6 +136,8 @@ describe("formatTarget", () => {
 
 describe("parseWritePreview", () => {
   const parsed = (op: unknown) => parseWritePreview({ ops: [op], summary: "s" });
+  const parsedOps = (...ops: unknown[]) =>
+    parseWritePreview({ ops, summary: "s" });
 
   test("accepts a well-formed preview", () => {
     const raw = { ops: [validOp], summary: "update_block(uid='VICTIMUID01')" };
@@ -134,37 +146,17 @@ describe("parseWritePreview", () => {
 
   test("keeps target values of any JSON type", () => {
     const op = { ...validOp,
-      targets: [["a", 1], ["b", false], ["c", null], ["d", { x: [1] }]] };
+      targets: [["uid", 1], ["mark", false], ["uid", null], ["mark", { x: [1] }]] };
     expect(parseWritePreview({ ops: [op], summary: "" })?.ops[0].targets)
       .toEqual(op.targets);
   });
 
-  // Extra target keys and warning text come from the model's arguments; the
-  // card renders them unquoted, so they arrive already escaped.
-  test("escapes target keys and warnings, unquoted", () => {
-    const op = { ...validOp,
-      targets: [["page\u202E", "x"], ["\u0338k\ney", 1]],
-      warnings: ["merges into \"a\u202Eb\u3164\""] };
-    const parsed = parseWritePreview({ ops: [op], summary: "s" });
-    expect(parsed?.ops[0].targets).toEqual(
-      [["page\\u202E", "x"], ["\\u0338k\\u000Aey", 1]]);
-    expect(parsed?.ops[0].warnings).toEqual(['merges into "a\\u202Eb\\u3164"']);
-  });
-
-  // A key reading `uid"` must not pass for an escaped quote, so a
-  // backslash in a name doubles; content keys are names too.
-  test("doubles backslashes in keys and the action", () => {
-    const op = { ...validOp, action: "save\\u0020note",
-      targets: [["uid\\u0022", "x"]], content: [["te\\xt", "b", 1]] };
-    const parsed = parseWritePreview({ ops: [op], summary: "s" });
-    expect(parsed?.ops[0].action).toBe("save\\\\u0020note");
-    expect(parsed?.ops[0].targets).toEqual([["uid\\\\u0022", "x"]]);
-    expect(parsed?.ops[0].content).toEqual([["te\\\\xt", "b", 1]]);
-  });
-
-  test("escapes non-printables in content keys", () => {
-    const op = { ...validOp, content: [["te‮xt", "b", 1]] };
-    expect(parsed(op)?.ops[0].content).toEqual([["te\\u202Ext", "b", 1]]);
+  // The server JSON-quotes values inside a warning, but the rest of it can
+  // still carry what the card renders unquoted, so it arrives escaped.
+  test("escapes warnings, unquoted", () => {
+    const op = { ...validOp, warnings: ["merges into \"a‮bㅤ\"\nx"] };
+    expect(parsed(op)?.ops[0].warnings)
+      .toEqual(['merges into "a\\u202Eb\\u3164"\\u000Ax']);
   });
 
   // The server JSON-quotes every value inside a warning, so its backslashes
@@ -177,11 +169,11 @@ describe("parseWritePreview", () => {
   });
 
   test("leaves target values and content to the card's own quoting", () => {
-    const op = { ...validOp, targets: [["uid", "a\u202E"]],
-      content: [["text", "b\u202E", 2]] };
-    const parsed = parseWritePreview({ ops: [op], summary: "s" });
-    expect(parsed?.ops[0].targets).toEqual([["uid", "a\u202E"]]);
-    expect(parsed?.ops[0].content).toEqual([["text", "b\u202E", 2]]);
+    const op = { ...validOp, targets: [["uid", "a‮"]],
+      content: [["text", "b‮", 2]] };
+    const out = parsed(op);
+    expect(out?.ops[0].targets).toEqual([["uid", "a‮"]]);
+    expect(out?.ops[0].content).toEqual([["text", "b‮", 2]]);
   });
 
   // total_len is Python's len, which counts code points: an emoji is one.
@@ -191,9 +183,54 @@ describe("parseWritePreview", () => {
   });
 
   test("drops keys outside the shape", () => {
-    const raw = { ops: [{ ...validOp, extra: 1 }], summary: "s", extra: 2 };
+    const raw = { ops: [{ ...validOp, extra: 1,
+      current: { ...found, extra: 3 } }], summary: "s", extra: 2 };
     expect(parseWritePreview(raw)).toEqual({ ops: [validOp], summary: "s" });
   });
+
+  test("an op that touches no existing block carries current null", () => {
+    expect(parsed(saveOp)?.ops[0].current).toBeNull();
+  });
+
+  // the card quotes the page title, excerpt and alias itself
+  test("keeps the current block's page, excerpt and alias raw", () => {
+    const current = { ...found, page_title: "a‮", excerpt: "b\nㅤ",
+      text_length: 3 };
+    expect(parsed({ ...validOp, current })?.ops[0].current).toEqual(current);
+    const created = { state: "created", write: 1, alias: "x‮" };
+    expect(parsedOps(saveOp, { ...validOp, current: created })?.ops[1].current)
+      .toEqual(created);
+  });
+
+  test("accepts a block that is missing", () => {
+    expect(parsed({ ...validOp, current: { state: "missing" } })?.ops[0].current)
+      .toEqual({ state: "missing" });
+  });
+
+  test("accepts text_length equal to the excerpt's code points", () => {
+    const current = { ...found, excerpt: "😀😀", text_length: 2 };
+    expect(parsed({ ...validOp, current })?.ops[0].current).toEqual(current);
+  });
+
+  test("accepts text_length above the excerpt's code points", () => {
+    const current = { ...found, excerpt: "abc", text_length: 5000 };
+    expect(parsed({ ...validOp, current })?.ops[0].current).toEqual(current);
+  });
+
+  // only an earlier write of the batch can create the block
+  test("accepts a block created by the write just before", () => {
+    const created = { state: "created", write: 2, alias: "a" };
+    expect(parsedOps(saveOp, saveOp, { ...validOp, current: created })
+      ?.ops[2].current).toEqual(created);
+  });
+
+  test.each([0, 4])("a delete carries the blocks under it (%s)", (n) => {
+    const current = { ...found, descendants: n };
+    expect(parsed(deleteOp(current))?.ops[0].current).toEqual(current);
+  });
+
+  const created = (write: unknown, alias: unknown = "a") =>
+    ({ state: "created", write, alias });
 
   test.each([
     ["not an object", 42],
@@ -227,5 +264,78 @@ describe("parseWritePreview", () => {
     ["a warning that is not a string", { ops: [{ ...validOp, warnings: [1] }], summary: "s" }],
   ])("rejects %s", (_label, raw) => {
     expect(parseWritePreview(raw)).toBeNull();
+  });
+
+  // The card shows only what each action's table entry names: a key or an
+  // action outside it could only be a decoy, so the card offers just Deny.
+  test.each([
+    ["the tool's name instead of its label", { ...validOp, action: "update_block" }],
+    ["an action named constructor", { ...validOp, action: "constructor" }],
+    ["an action named __proto__", { ...validOp, action: "__proto__" }],
+    ["an action spelling an escape", { ...saveOp, action: "save\\u0020note" }],
+    ["a save note carrying a uid target",
+      { ...saveOp, targets: [["page", null], ["uid", "VICTIMUID01"]] }],
+    ["a target key with a bidi override", { ...validOp, targets: [["uid‮", "x"]] }],
+    ["a target key spelling an escape", { ...validOp, targets: [["uid\\u0022", "x"]] }],
+    ["a target key named constructor", { ...validOp, targets: [["constructor", "x"]] }],
+    ["a content key the action does not declare",
+      { ...validOp, content: [["items", "b", 1]] }],
+    ["a content key with a bidi override", { ...validOp, content: [["te‮xt", "b", 1]] }],
+    ["content on an action without any",
+      { ...deleteOp({ ...found, descendants: 0 }), content: [["text", "b", 1]] }],
+  ])("rejects %s", (_label, op) => {
+    expect(parsed(op)).toBeNull();
+  });
+
+  test.each([
+    ["no current on an update", { ...validOp, current: null }],
+    ["an update without a current key",
+      { action: validOp.action, targets: validOp.targets,
+        content: validOp.content, warnings: [] }],
+    ["a current block on a save note", { ...saveOp, current: found }],
+    ["a missing block on a save note", { ...saveOp, current: { state: "missing" } }],
+    ["a current that is not an object", { ...validOp, current: "found" }],
+    ["a current in an unknown state", { ...validOp, current: { state: "gone" } }],
+    ["a current with no state", { ...validOp, current: {} }],
+    ["a found page title that is not a string",
+      { ...validOp, current: { ...found, page_title: null } }],
+    ["a found excerpt that is not a string",
+      { ...validOp, current: { ...found, excerpt: 5 } }],
+    ["a found text_length that is not a number",
+      { ...validOp, current: { ...found, text_length: "12" } }],
+    ["a found text_length that is not an integer",
+      { ...validOp, current: { ...found, text_length: 12.5 } }],
+    ["a found text_length past the safe integers",
+      { ...validOp, current: { ...found, text_length: 2 ** 53 } }],
+    ["a found text_length below the excerpt's code points",
+      { ...validOp, current: { ...found, excerpt: "😀😀", text_length: 1 } }],
+    ["a block created by the first write itself",
+      { ...validOp, current: created(1) }],
+    ["a created block with no write", { ...validOp, current: created(undefined) }],
+    ["a created block whose alias is not a string",
+      { ...validOp, current: created(1, 7) }],
+    ["a count of blocks under an update",
+      { ...validOp, current: { ...found, descendants: 3 } }],
+    ["an update's found block without a descendants key",
+      { ...validOp, current: { state: "found", page_title: "Inbox",
+        excerpt: "Old wording.", text_length: 12 } }],
+    ["a delete without its count", deleteOp(found)],
+    ["a delete with a negative count", deleteOp({ ...found, descendants: -1 })],
+    ["a delete with a fractional count", deleteOp({ ...found, descendants: 1.5 })],
+    ["a delete with a count that is not a number",
+      deleteOp({ ...found, descendants: "4" })],
+  ])("rejects %s", (_label, op) => {
+    expect(parsed(op)).toBeNull();
+  });
+
+  test.each([
+    ["write 0", 0],
+    ["its own write", 2],
+    ["a later write", 3],
+    ["a fractional write", 1.5],
+    ["a write that is not a number", "1"],
+  ])("rejects a block created by %s", (_label, write) => {
+    expect(parsedOps(saveOp, { ...validOp, current: created(write) }))
+      .toBeNull();
   });
 });

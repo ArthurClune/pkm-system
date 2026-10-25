@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { stubFetch, confirmIdOf } from "../test-helpers";
+import { canonicalTitleOf, stubFetch, confirmIdOf } from "../test-helpers";
 import type { ChatItem, PendingConfirm, PhaseInfo } from "./useAssistant";
 import { parseWritePreview, type PreviewOp, type WritePreview } from "./writePreview";
 
@@ -49,7 +49,10 @@ afterEach(() => {
 
 function op(overrides: Partial<PreviewOp> = {}): PreviewOp {
   return { action: "update block", targets: [["uid", "VICTIMUID01"]],
-    content: [["text", "Tidied wording.", 15]], warnings: [], ...overrides };
+    content: [["text", "Tidied wording.", 15]], warnings: [],
+    current: { state: "found", page_title: canonicalTitleOf("Inbox"),
+      excerpt: "Old wording.", text_length: 12, descendants: null },
+    ...overrides };
 }
 
 function previewOf(...ops: PreviewOp[]): WritePreview {
@@ -299,7 +302,7 @@ describe("ConfirmCard", () => {
   });
 
   test("the heading counts the writes", () => {
-    showConfirm(previewOf(op(), op({ action: "rename page" })));
+    showConfirm(previewOf(op(), op({ action: "rename page", current: null })));
     render(<AssistantPanel open onClose={() => {}} />);
     expect(card().querySelector(".assistant-confirm-title"))
       .toHaveTextContent(/^The assistant wants to make 2 writes:$/);
@@ -388,7 +391,7 @@ describe("ConfirmCard", () => {
   test("targets show in order with their values formatted", () => {
     showConfirm(previewOf(op({ action: "save note",
       targets: [["page", null], ["parent", "P1"], ["todo", false]],
-      content: [] })));
+      content: [], current: null })));
     render(<AssistantPanel open onClose={() => {}} />);
     const rows = [...card().querySelectorAll(".assistant-confirm-target")]
       .map((el) => el.textContent);
@@ -429,26 +432,29 @@ describe("ConfirmCard", () => {
   test("a warning shows a quoted title exactly as the server escaped it", () => {
     const warning = `allow_merge is on: if ${JSON.stringify('a"b, c')} exists`;
     showConfirm(parsedPreview({ action: "rename page",
-      targets: [["allow_merge", true]], content: [], warnings: [warning] }));
+      targets: [["allow_merge", true]], content: [], warnings: [warning],
+      current: null }));
     render(<AssistantPanel open onClose={() => {}} />);
     expect(card().querySelector(".assistant-confirm-warning")!.textContent)
       .toBe('⚠ allow_merge is on: if "a\\"b, c" exists');
   });
 
-  // a key spelling out an escape must not pass for one the card made
-  test("a key with a literal backslash-u shows the backslash doubled", () => {
+  // a key the action does not declare could only be a decoy row, such as
+  // one spelling out an escape the card would seem to have made
+  test("a key the action does not declare offers only Deny", () => {
     showConfirm(parsedPreview({ action: "save note",
-      targets: [["x\\u202E", 1], ["y‮", 2]], content: [], warnings: [] }));
-    render(<AssistantPanel open onClose={() => {}} />);
-    const keys = [...card().querySelectorAll(".assistant-confirm-key")]
-      .map((el) => el.textContent);
-    expect(keys).toEqual(["x\\\\u202E", "y\\u202E"]);
+      targets: [["x\\u202E", 1]], content: [], warnings: [],
+      current: null }));
+    renderArmed();
+    expect(card()).toHaveTextContent("The write preview could not be read.");
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
   });
 
   test("warnings show after the targets, marked", () => {
     showConfirm(previewOf(op({ action: "rename page",
       targets: [["title", "Inbox"], ["allow_merge", true]], content: [],
-      warnings: ['allow_merge is on: "Inbox" is merged into it'] })));
+      warnings: ['allow_merge is on: "Inbox" is merged into it'],
+      current: null })));
     render(<AssistantPanel open onClose={() => {}} />);
     const warning = card().querySelector(".assistant-confirm-warning")!;
     expect(warning)
@@ -702,7 +708,7 @@ describe("ConfirmCard: Allow waits until the whole card has been in view", () =>
 
   test("the observer watches the viewport for markers around every op", () => {
     const made = mockIntersectionObserver();
-    showConfirm(previewOf(op(), op({ action: "rename page" })));
+    showConfirm(previewOf(op(), op({ action: "rename page", current: null })));
     render(<AssistantPanel open onClose={() => {}} />);
     expect(made).toHaveLength(1);
     // no root: the viewport, clipped by every scrolling ancestor

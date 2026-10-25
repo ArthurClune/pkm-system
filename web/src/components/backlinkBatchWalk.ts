@@ -1,12 +1,12 @@
 // pattern: Functional Core
 import type { BacklinkGroup, BlockRefText } from "../api/payloads";
-import { mergeGroups } from "./groups";
+import { mergeGroups, showBacklinkGroups, type ShownBacklinkGroup } from "./groups";
 
 /** groups, total page count, and extra reference texts change in lockstep --
  * one value so a partial update (e.g. groups without a matching totalPages)
  * can't happen. */
 export type BacklinkBatchState = {
-  groups: BacklinkGroup[];
+  groups: ShownBacklinkGroup[];
   totalPages: number;
   refTexts: Record<string, BlockRefText>;
 };
@@ -59,7 +59,8 @@ export async function walkBacklinkBatches(
     if (payload.backlinks.groups.length === 0) {
       return { ...current, totalPages, refTexts };
     }
-    const groups = mergeGroups(current.groups, payload.backlinks.groups);
+    const groups = mergeGroups(current.groups,
+                               showBacklinkGroups(payload.backlinks.groups));
     if (groups.length === current.groups.length) {
       return { groups, totalPages, refTexts };
     }

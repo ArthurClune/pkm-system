@@ -1,5 +1,10 @@
 # pattern: Imperative Shell
-"""Login routes and the auth gate every other router depends on."""
+"""Login routes, the session check, and `require_auth`, the guard every
+other router declares.
+
+`session_is_valid` is the one session check: `AuthGateMiddleware` runs it
+before routing (so before a body is read), `require_auth` runs it again as
+each route's own guard, and the WebSocket endpoint runs it inline."""
 from __future__ import annotations
 
 import asyncio
@@ -14,6 +19,7 @@ import anyio
 import anyio.to_thread
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
+from starlette.requests import HTTPConnection
 
 from pkm.contracts.responses import OkAck
 from pkm.contracts.text import WellFormedModel
@@ -25,6 +31,9 @@ from pkm.server.throttle_core import (AttemptState, after_failure,
 
 COOKIE_NAME = "pkm_session"
 COOKIE_MAX_AGE = 365 * 24 * 3600
+NOT_AUTHENTICATED_DETAIL = "not authenticated"
+# Sent before accept, so uvicorn answers the handshake with HTTP 403.
+NOT_AUTHENTICATED_WS_CODE = 4401
 
 # Scrypt (n=2**14, r=8) costs real CPU/memory per call and `login()` runs
 # it on the worker-thread pool (default capacity far above this), so
@@ -201,11 +210,16 @@ class LoginBody(WellFormedModel):
     password: str
 
 
+def session_is_valid(conn: HTTPConnection, config: Config) -> bool:
+    token = conn.cookies.get(COOKIE_NAME)
+    return token is not None and verify_session(
+        bytes.fromhex(config.session_secret), token,
+        now_ms=int(time.time() * 1000))
+
+
 def require_auth(request: Request, config: Config = Depends(get_config)) -> None:
-    token = request.cookies.get(COOKIE_NAME)
-    if not token or not verify_session(bytes.fromhex(config.session_secret),
-                                       token, now_ms=int(time.time() * 1000)):
-        raise HTTPException(status_code=401, detail="not authenticated")
+    if not session_is_valid(request, config):
+        raise HTTPException(status_code=401, detail=NOT_AUTHENTICATED_DETAIL)
 
 
 @router.get("/login", response_class=HTMLResponse)

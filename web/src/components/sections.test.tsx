@@ -44,7 +44,8 @@ const initial: Backlinks = {
     page_id: pageIdOf(3),
     page_title: canonicalTitleOf("July 7th, 2026"),
     items: [{ uid: uidOf("uid_b4"), text: "Studying [[Machine Learning]] today",
-              breadcrumbs: ["Morning", "Reading"] }],
+              breadcrumbs: ["…"], ancestors: [0, 1] }],
+    ancestor_texts: ["Morning", "Reading"],
   }],
   total_pages: 2,
   offset: 0,
@@ -69,7 +70,9 @@ it("renders backlink groups with breadcrumbs and loads more on demand", async ()
   const more = pagePayload(canonicalTitleOf("Machine Learning"), [], {
     backlinks: {
       groups: [{ page_id: pageIdOf(9), page_title: canonicalTitleOf("AI"), items: [
-        { uid: uidOf("uid_b9"), text: "more [[Machine Learning]]", breadcrumbs: [] }] }],
+        { uid: uidOf("uid_b9"), text: "more [[Machine Learning]]", breadcrumbs: ["…"],
+          ancestors: [0] }],
+        ancestor_texts: ["Evening notes"] }],
       total_pages: 2, offset: 1, limit: 20,
     },
   });
@@ -84,6 +87,9 @@ it("renders backlink groups with breadcrumbs and loads more on demand", async ()
   expect(screen.getByRole("link", { name: "July 7th, 2026" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /show more/i }));
   expect(await screen.findByRole("link", { name: "AI" })).toBeInTheDocument();
+  // the later batch's crumbs read that batch's own ancestor texts
+  expect(screen.getByText("Evening notes")).toBeInTheDocument();
+  expect(screen.getByText("Morning › Reading")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith(
     "/api/page/Machine%20Learning?bl_offset=1&bl_limit=20", READ_INIT);
   // 2 groups loaded of total_pages 2 -> button gone
@@ -456,8 +462,9 @@ it("prevents opening the filter panel during refresh so stale load-all cannot st
       return Promise.resolve(jsonResponse(pagePayload(canonicalTitleOf("Claude"), [], {
         backlinks: {
           groups: [{ page_id: pageIdOf(2), page_title: canonicalTitleOf("Daily B"), items: [
-            { uid: uidOf("stale-load-all"), text: "gamma [[Claude]]", breadcrumbs: ["reading #Paper"] },
-          ] }],
+            { uid: uidOf("stale-load-all"), text: "gamma [[Claude]]", breadcrumbs: ["…"],
+              ancestors: [0] },
+          ], ancestor_texts: ["reading #Paper"] }],
           total_pages: 2, offset: 1, limit: 100,
         },
       })));
@@ -866,7 +873,8 @@ const filterInitial: Backlinks = {
       { uid: uidOf("tuid-f1"), text: "alpha [[Claude]] #Paper", breadcrumbs: [] },
       { uid: uidOf("tuid-f2"), text: "beta [[Claude]] #Idea", breadcrumbs: [] }] },
     { page_id: pageIdOf(2), page_title: canonicalTitleOf("Daily B"), items: [
-      { uid: uidOf("tuid-f3"), text: "gamma [[Claude]]", breadcrumbs: ["reading #Paper"] }] },
+      { uid: uidOf("tuid-f3"), text: "gamma [[Claude]]", breadcrumbs: ["…"], ancestors: [0] }],
+      ancestor_texts: ["reading #Paper"] },
   ],
   total_pages: 2, offset: 0, limit: 20,
 };

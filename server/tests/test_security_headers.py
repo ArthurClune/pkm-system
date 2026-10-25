@@ -2,7 +2,7 @@ from conftest import asgi_request
 from fastapi.testclient import TestClient
 
 from pkm.server.app import create_app
-from test_spa import _config, _dist
+from test_spa import _config, _dist, minted_session
 
 HEADER = "x-dns-prefetch-control"
 
@@ -17,7 +17,8 @@ def test_every_response_turns_dns_prefetch_off(tmp_path):
         "SPA index": client.get("/"),
         "static asset": client.get("/app-assets/main.js"),
         "asset 404": client.get("/app-assets/missing.js"),
-        "API 404": client.get("/api/nonexistent"),
+        "API 404": TestClient(app, cookies={
+            "pkm_session": minted_session()}).get("/api/nonexistent"),
     }
     assert answers["anonymous 401"].status_code == 401
     assert answers["static asset"].status_code == 200

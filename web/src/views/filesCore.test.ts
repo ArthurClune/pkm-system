@@ -141,11 +141,11 @@ describe("refGroups", () => {
     };
     expect(refGroups(refs, texts)).toEqual([
       { page_title: "Alpha", items: [
-        { uid: "tuid-a1", text: "first", breadcrumbs: [] },
-        { uid: "tuid-a2", text: "third", breadcrumbs: [] },
+        { uid: "tuid-a1", text: "first", crumbs: [] },
+        { uid: "tuid-a2", text: "third", crumbs: [] },
       ] },
       { page_title: "Beta", items: [
-        { uid: "tuid-b1", text: "second", breadcrumbs: [] },
+        { uid: "tuid-b1", text: "second", crumbs: [] },
       ] },
     ]);
   });

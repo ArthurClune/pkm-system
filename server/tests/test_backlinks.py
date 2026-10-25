@@ -20,7 +20,8 @@ def test_backlink_breadcrumbs(client):
     assert group["page_title"] == "Machine Learning"
     [item] = group["items"]
     assert item["uid"] == "uid_b3"
-    assert item["breadcrumbs"] == ["Papers"]
+    assert group["ancestor_texts"] == ["Papers"]
+    assert item["ancestors"] == [0]
 
 
 def test_backlink_pagination_params(client):
@@ -51,3 +52,55 @@ def test_backlinks_exclude_the_pages_own_blocks(client, seeded_config):
     assert bl["total_pages"] == 1
     assert [g["page_title"] for g in bl["groups"]] == ["July 7th, 2026"]
     assert all(i["uid"] != "uid_self" for g in bl["groups"] for i in g["items"])
+
+
+def test_deep_chain_backlinks_send_each_ancestor_once(client):
+    """A chain as deep as the outline allows, every block linking one page
+    and carrying a long text: each backlink's trail is the whole chain
+    above it. Sending the trail's texts on every item made the response
+    about depth²/2 copies of the stored text (96 MiB from 1.9 MiB); each
+    ancestor's text now travels once, in its group's `ancestor_texts`."""
+    from pkm.contracts.ops import MAX_OUTLINE_DEPTH
+    filler = "x" * 20_000
+    uids = [f"amp{i:07d}" for i in range(MAX_OUTLINE_DEPTH)]
+    texts = [f"[[Amp Target]] {i} {filler}" for i in range(len(uids))]
+    ops = [{"op": "create", "uid": uid, "page_title": "Amp Chain",
+            "parent_uid": uids[i - 1] if i else None, "order_idx": 0,
+            "text": texts[i]} for i, uid in enumerate(uids)]
+    for n, start in enumerate(range(0, len(ops), 10)):
+        r = client.post("/api/ops", json={
+            "client_id": "amp", "batch_id": f"batch_amp{n:05d}",
+            "ops": ops[start:start + 10]})
+        assert r.status_code == 200, r.text
+    stored = sum(len(t) for t in texts)
+
+    r = client.get("/api/page/Amp Target", params={"bl_limit": 100})
+
+    assert r.status_code == 200
+    assert len(r.content) < 3 * stored
+    [group] = r.json()["backlinks"]["groups"]
+    deepest = next(i for i in group["items"] if i["uid"] == uids[-1])
+    assert [group["ancestor_texts"][a] for a in deepest["ancestors"]] \
+        == texts[:-1]
+
+
+def test_a_bundle_from_before_ancestors_reads_breadcrumbs_it_can_render(
+        client):
+    """A tab still running a bundle built before `ancestors` existed reads
+    `breadcrumbs` off every item and throws on a missing one, to the root
+    error screen. Every item keeps the field: an elision mark where the
+    trail is, empty where there is none, never the texts themselves."""
+    [group] = client.get("/api/page/Paper").json()["backlinks"]["groups"]
+    assert group["items"][0]["breadcrumbs"] == ["…"]
+    [group] = client.get(
+        "/api/page/Machine Learning").json()["backlinks"]["groups"]
+    assert group["items"][0]["breadcrumbs"] == []
+
+
+def test_a_trailless_backlink_is_sent_as_before_ancestors(client):
+    """No ancestors, no new keys: such an item and its group cost the bytes
+    they did before the trails moved into `ancestor_texts`."""
+    [group] = client.get(
+        "/api/page/Machine Learning").json()["backlinks"]["groups"]
+    assert "ancestor_texts" not in group
+    assert set(group["items"][0]) == {"uid", "text", "breadcrumbs"}

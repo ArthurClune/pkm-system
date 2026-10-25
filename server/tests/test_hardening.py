@@ -119,5 +119,5 @@ def test_ancestor_reads_stop_on_exact_cycle(client, seeded_config):
     [item] = group["items"]
 
     assert item["uid"] == "uid_b3"
-    assert item["breadcrumbs"] == ["Papers"]
-    assert item["text"] not in item["breadcrumbs"]
+    assert [group["ancestor_texts"][a] for a in item["ancestors"]] \
+        == ["Papers"]

@@ -8,8 +8,8 @@ import type { ReplicaDb } from "../db";
 import { openTestDb, type TestDb } from "../testDb";
 import { pagePayload } from "./pages";
 import {
-  ancestorTexts, blockRefCounts, buildTree, fetchAncestors, resolveRefUids,
-  type BlockRow,
+  ancestorTrails, type Ancestors, blockRefCounts, buildTree, fetchAncestors,
+  resolveRefUids, type BlockRow,
 } from "./tree";
 
 function blockRow(over: Partial<BlockRow> = {}): BlockRow {
@@ -78,13 +78,18 @@ function seedFiveNodeCycle(prefix: string): BlockUid {
   return uidOf(uids[0]);
 }
 
+/** Each trail read through the texts map, as a breadcrumb renders it. */
+const asTexts = (a: Ancestors): Map<BlockUid, string[]> =>
+  new Map([...a.trails].map(([start, trail]) =>
+    [start, trail.map((uid) => a.texts[uid])]));
+
 describe("fetchAncestors", () => {
   test.each([100, 101, 102, 150])(
     "returns %i ancestors root-first without truncation",
     async (ancestors) => {
       t = await openTestDb();
       const startUid = seedLinearChain(`chain-${ancestors}`, ancestors);
-      expect(fetchAncestors(t.db, [startUid])).toEqual(new Map([
+      expect(asTexts(fetchAncestors(t.db, [startUid]))).toEqual(new Map([
         [startUid, Array.from({ length: ancestors }, (_, i) =>
           `chain-${ancestors} text ${i}`)],
       ]));
@@ -94,7 +99,7 @@ describe("fetchAncestors", () => {
   test("returns a five-node cycle as four unique ancestors, excluding the start uid", async () => {
     t = await openTestDb();
     const startUid = seedFiveNodeCycle("cycle");
-    const result = fetchAncestors(t.db, [startUid]);
+    const result = asTexts(fetchAncestors(t.db, [startUid]));
     expect(result.size).toBe(1);
     expect(result.get(startUid)).toEqual([
       "cycle text 4",
@@ -163,30 +168,48 @@ async function openGraphDb() {
 const chainOf = (n: number) => new Map(Array.from({ length: n }, (_, i) =>
   [`chain-${i}`, i ? `chain-${i - 1}` : null] as const));
 
-describe("ancestorTexts", () => {
+describe("ancestorTrails", () => {
   const u = (name: string) => uidOf(`tuid-${name}`);
+  const us = (names: string) => [...names].map(u);
   const rows = (parents: Record<string, string | null>) =>
     new Map(Object.entries(parents).map(([k, p]) =>
       [u(k), [p === null ? null : u(p), k.toUpperCase()] as const]));
 
   test("runs root first and skips a start with no ancestors", () => {
-    expect(ancestorTexts([u("c"), u("a")], rows({ a: null, b: "a", c: "b" })))
-      .toEqual(new Map([[u("c"), ["A", "B"]]]));
+    expect(ancestorTrails([u("c"), u("a")], rows({ a: null, b: "a", c: "b" })))
+      .toEqual(new Map([[u("c"), us("ab")]]));
   });
 
   test("stops at the first uid already on the trail", () => {
     const graph = rows({ a: "c", b: "a", c: "b", x: "a" });
-    expect(ancestorTexts([u("a"), u("x")], graph)).toEqual(new Map([
-      [u("a"), ["B", "C"]], [u("x"), ["B", "C", "A"]]]));
+    expect(ancestorTrails([u("a"), u("x")], graph)).toEqual(new Map([
+      [u("a"), us("bc")], [u("x"), us("bca")]]));
   });
 
   test("gives a self-parent no trail", () => {
-    expect(ancestorTexts([u("a")], rows({ a: "a" }))).toEqual(new Map());
+    expect(ancestorTrails([u("a")], rows({ a: "a" }))).toEqual(new Map());
   });
 
   test("ends at a missing parent and leaves out an unknown start", () => {
-    expect(ancestorTexts([u("c"), u("nope")], rows({ b: "gone", c: "b" })))
-      .toEqual(new Map([[u("c"), ["B"]]]));
+    expect(ancestorTrails([u("c"), u("nope")], rows({ b: "gone", c: "b" })))
+      .toEqual(new Map([[u("c"), us("b")]]));
+  });
+});
+
+describe("fetchAncestors texts", () => {
+  // Every block of a chain is a start, as when each links the page whose
+  // backlinks are read: each ancestor's text is held once, not once per
+  // trail through it, and a start is no ancestor of its own.
+  test("hold each ancestor on a trail once", async () => {
+    await openGraphDb();
+    const chain = chainOf(MAX_OUTLINE_DEPTH);
+    storeBlocks(chain);
+    const starts = [...chain.keys()].map(uidOf);
+    const got = fetchAncestors(t.db, starts);
+    const ancestors = starts.slice(0, -1);
+    expect(got.texts).toEqual(Object.fromEntries(
+      ancestors.map((uid) => [uid, `text of ${uid}`])));
+    expect(got.trails.get(starts[starts.length - 1])).toEqual(ancestors);
   });
 });
 
@@ -222,7 +245,7 @@ describe("fetchAncestors against the path-string walk", () => {
         if (cur !== null && trail.has(cur)) seen.cycle += 1;
         if (cur === MISSING) seen.missing += 1;
       }
-      expect(sorted(fetchAncestors(t.db, starts)))
+      expect(sorted(asTexts(fetchAncestors(t.db, starts))))
         .toEqual(sorted(referenceFetchAncestors(t.db, starts)));
     }), { numRuns: 300 });
     // Both corrupt shapes must actually be drawn.
@@ -235,13 +258,13 @@ describe("fetchAncestors against the path-string walk", () => {
     const chain = chainOf(MAX_OUTLINE_DEPTH + 1);
     const starts = [...chain.keys()].map(uidOf);
     storeBlocks(chain);
-    const got = fetchAncestors(t.db, starts);
+    const got = asTexts(fetchAncestors(t.db, starts));
     expect(sorted(got)).toEqual(sorted(referenceFetchAncestors(t.db, starts)));
     expect(got.get(starts[MAX_OUTLINE_DEPTH])).toHaveLength(MAX_OUTLINE_DEPTH);
 
     chain.set("chain-0", `chain-${MAX_OUTLINE_DEPTH}`);
     storeBlocks(chain);
-    const looped = fetchAncestors(t.db, starts);
+    const looped = asTexts(fetchAncestors(t.db, starts));
     expect(sorted(looped))
       .toEqual(sorted(referenceFetchAncestors(t.db, starts)));
     expect([...looped.values()].every((trail) =>
@@ -295,7 +318,7 @@ describe("id sets past SQLite's variable limit", () => {
   test("fetchAncestors trails a start among 40,000 uids", async () => {
     t = await openTestDb();
     const deep = seedLinearChain("chain-big", 3);
-    const trails = fetchAncestors(t.db, [...absent(40_000), deep]);
+    const trails = asTexts(fetchAncestors(t.db, [...absent(40_000), deep]));
     expect(trails.get(deep)).toEqual(
       ["chain-big text 0", "chain-big text 1", "chain-big text 2"]);
     expect(trails.size).toBe(1);

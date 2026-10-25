@@ -14,8 +14,9 @@ from pkm.server import notify
 from pkm.server.notify import OpsFrame
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
-from pkm.server.ops_apply import apply_batch
+from pkm.server.ops_apply import apply_batch, expected_now
 from pkm.server.ops_core import OpError
+from pkm.server.ops_expect import unmet_expectation
 from pkm.server.ops_hash import batch_replay_hash, batch_request_hash
 from pkm.server.sync_meta import latest_seq
 
@@ -31,7 +32,9 @@ async def post_ops(request: Request,
     (their own connections, on the threadpool) can no longer land between
     the dedupe read and this batch's writes. A write lock the busy timeout
     could not take (a concurrent writer already holds it) returns 503 with
-    Retry-After rather than surfacing the raw sqlite3.OperationalError."""
+    Retry-After rather than surfacing the raw sqlite3.OperationalError. The
+    batch applies only if every `expect` entry still holds, checked in the
+    same transaction, else 412 and nothing is written."""
     now = int(time.time() * 1000)
     try:
         db.begin_immediate()
@@ -67,6 +70,13 @@ async def post_ops(request: Request,
         # replay: the stored ack, passed through OpsAck like a fresh one, so
         # a row stored before seq/skipped existed gains seq: null / [] here
         return OpsAck.model_validate_json(row["response"])
+    if batch.expect:
+        reason = unmet_expectation(batch.expect,
+                                   expected_now(db, batch.expect))
+        if reason is not None:
+            db.rollback()
+            raise HTTPException(status_code=412,
+                                detail={"index": None, "reason": reason})
     try:
         result = apply_batch(db, batch, now)
     except OpError as e:

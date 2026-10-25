@@ -80,7 +80,7 @@
     "/api/ops": {
       "post": {
         "summary": "Post Ops",
-        "description": "One SQLite transaction covers the batch_id dedupe check through the\ncommit, so a concurrent delete_page/rename_page/cleanup_journal commit\n(their own connections, on the threadpool) can no longer land between\nthe dedupe read and this batch's writes. A write lock the busy timeout\ncould not take (a concurrent writer already holds it) returns 503 with\nRetry-After rather than surfacing the raw sqlite3.OperationalError.",
+        "description": "One SQLite transaction covers the batch_id dedupe check through the\ncommit, so a concurrent delete_page/rename_page/cleanup_journal commit\n(their own connections, on the threadpool) can no longer land between\nthe dedupe read and this batch's writes. A write lock the busy timeout\ncould not take (a concurrent writer already holds it) returns 503 with\nRetry-After rather than surfacing the raw sqlite3.OperationalError. The\nbatch applies only if every `expect` entry still holds, checked in the\nsame transaction, else 412 and nothing is written.",
         "operationId": "post_ops_api_ops_post",
         "requestBody": {
           "content": {
@@ -3394,6 +3394,44 @@
         ],
         "title": "DescribeStatusPayload"
       },
+      "ExpectedBlock": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "title": "Uid",
+            "x-brand": "BlockUid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "text",
+              "subtree",
+              "absent"
+            ],
+            "title": "Kind"
+          },
+          "shown_hash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 64,
+                "x-brand": "Sha256Hex"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shown Hash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "kind"
+        ],
+        "title": "ExpectedBlock"
+      },
       "GoodlinksArticle": {
         "properties": {
           "id": {
@@ -3958,6 +3996,14 @@
               }
             ],
             "title": "Seen Seq"
+          },
+          "expect": {
+            "items": {
+              "$ref": "#/components/schemas/ExpectedBlock"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Expect"
           }
         },
         "type": "object",

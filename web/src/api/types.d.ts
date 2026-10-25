@@ -72,7 +72,9 @@ export interface paths {
          *     (their own connections, on the threadpool) can no longer land between
          *     the dedupe read and this batch's writes. A write lock the busy timeout
          *     could not take (a concurrent writer already holds it) returns 503 with
-         *     Retry-After rather than surfacing the raw sqlite3.OperationalError.
+         *     Retry-After rather than surfacing the raw sqlite3.OperationalError. The
+         *     batch applies only if every `expect` entry still holds, checked in the
+         *     same transaction, else 412 and nothing is written.
          */
         post: operations["post_ops_api_ops_post"];
         delete?: never;
@@ -1485,6 +1487,18 @@ export interface components {
             /** Reason */
             reason: string | null;
         };
+        /** ExpectedBlock */
+        ExpectedBlock: {
+            /** Uid */
+            uid: Brands.BlockUid;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "text" | "subtree" | "absent";
+            /** Shown Hash */
+            shown_hash?: Brands.Sha256Hex | null;
+        };
         /**
          * GoodlinksArticle
          * @description GET /api/goodlinks/{link_id}: metadata plus the sanitised reader HTML
@@ -1711,6 +1725,8 @@ export interface components {
             ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"] | components["schemas"]["SetViewTypeOp"] | components["schemas"]["CreatePageOp"])[];
             /** Seen Seq */
             seen_seq?: Brands.SyncSeq | null;
+            /** Expect */
+            expect?: components["schemas"]["ExpectedBlock"][];
         };
         /**
          * OpsAck

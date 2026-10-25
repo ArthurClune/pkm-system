@@ -383,3 +383,15 @@ def test_seen_seq_is_not_part_of_the_batch_hashes(client):
     r2 = client.post("/api/ops", json=dict(BATCH, seen_seq=7))
     assert r2.status_code == 200
     assert r2.json() == r1.json()
+
+
+def test_a_replayed_batch_is_not_rechecked(client):
+    body = {"client_id": "c1", "batch_id": "batch-expect-replay",
+            "ops": [{"op": "update_text", "uid": "uid_b4", "text": "new"}],
+            "expect": [{"uid": "uid_b4", "kind": "text",
+                        "shown_hash": text_hash(
+                            "Studying [[Machine Learning]] today")}]}
+    r1 = client.post("/api/ops", json=body)
+    assert r1.status_code == 200
+    r2 = client.post("/api/ops", json=body)
+    assert r2.status_code == 200 and r2.json() == r1.json()

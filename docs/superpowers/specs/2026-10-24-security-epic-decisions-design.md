@@ -25,6 +25,7 @@ that keeps an unbounded input working.
 | pkm-iw03 stale-unlink at the cap | (Arthur, 2026-10-25) Allow the defuse's two backticks to land a block 2 characters over the 1,000,000 cap, and document it. Reachable only by an at-cap offline edit plus a page deleted meanwhile; the block can only shrink afterwards |
 | pkm-0l8g request size | (Arthur, 2026-10-25) Cap every authenticated request body except uploads at 64 MiB, refused before parsing. The web refuses a single command over 500 ops or the cap with the notice "This change is too large to save in one step." A paste of more than 500 lines no longer gets lost |
 | Page title length | (Arthur, 2026-10-25) Page titles are limited to 1,000 characters, refused on create, rename and import like the other title rules; check prod first |
+| pkm-6fcv approval card guard | (Arthur, 2026-10-25) Allow refuses when a block the card shows was edited after the card showed it. The text the card showed is what Allow is checked against, for `update_block` and for a batch's updates, moves and deletes |
 
 ## Running unattended (Arthur, 2026-10-24)
 

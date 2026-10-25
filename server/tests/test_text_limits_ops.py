@@ -9,8 +9,8 @@ import pytest
 
 from pkm import text_limits
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, BlockUid, OrderIdx,
-                               text_hash)
+from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING,
+                               BlockUid, OrderIdx, text_hash)
 from pkm.server import db as db_module
 from pkm.server.db import open_db
 from pkm.server.store import reindex_refs_for_text
@@ -347,6 +347,36 @@ def test_an_over_limit_replay_unlinks_titles_past_the_step_it_stopped_at(
     assert client.get("/api/page/Old").status_code == 404
     [(_, [landed])] = _today_conflicts(client)
     assert landed == "RpX " + "Old " * 1000
+
+
+def test_an_over_limit_replay_judges_the_nesting_its_copies_join(client):
+    # The delete inlined two copies that each hold half the nesting cap:
+    # one opens its runs, the other closes them. The stale edit refers to
+    # each twice, so its replay would nest past the cap before the unlink
+    # peels it: judged there, it lands as sent with the title unlinked.
+    _page(client)
+    half = MAX_LINK_NESTING // 2
+    opens, closes = uid_of("rp_open_001"), uid_of("rp_close_01")
+    referrer = uid_of("rp_ref_0004")
+    original = f"(({opens})) [[RpNest]] (({closes}))"
+    r = _post(client,
+              *({"op": "create", "uid": uid, "page_title": "RpNest",
+                 "parent_uid": None, "order_idx": order_idx_of(i),
+                 "text": text}
+                for i, (uid, text) in enumerate(
+                    [(opens, "[[" * half), (closes, "]]" * half)])),
+              _create(referrer, original))
+    assert r.status_code == 200, r.text[:500]
+    assert client.delete("/api/page/RpNest").status_code == 200
+    stored = _block_text(client, referrer)
+
+    stale = f"(({opens}))" * 2 + "[[RpNest]]" + f"(({closes}))" * 2
+    _replay_skipped_over_limit(client, referrer, original, stale)
+
+    assert client.get("/api/page/RpNest").status_code == 404
+    assert _block_text(client, referrer) == stored
+    [(_, [landed])] = _today_conflicts(client)
+    assert landed == f"(({opens}))" * 2 + "RpNest" + f"(({closes}))" * 2
 
 
 def _plain_space_titles(config) -> None:

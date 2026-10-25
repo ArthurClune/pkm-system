@@ -75,6 +75,20 @@ def rewrite_text_limit_violation(
     """
     if len(after) > MAX_BLOCK_TEXT_CHARS and len(after) > len(before):
         return TextLimitViolation("length", len(after), MAX_BLOCK_TEXT_CHARS)
+    return rewrite_nesting_violation(before, after)
+
+
+def rewrite_nesting_violation(
+        before: str, after: str) -> TextLimitViolation | None:
+    """The nesting half of `rewrite_text_limit_violation`: `after` nested
+    past the cap and deeper than `before`. Linear in both texts.
+
+    A page delete and a delete's replay ask it of a text with copies
+    spliced in, before unlinking: copies that each nest within the cap
+    can join into one deep link (one opens runs, another closes them),
+    and the unlink peels one layer of a nested link per pass over the
+    whole text, so the depth bounds its work.
+    """
     # The fast path `text_limit_violation` takes, whatever the length.
     if after.count("[[") <= MAX_LINK_NESTING:
         return None

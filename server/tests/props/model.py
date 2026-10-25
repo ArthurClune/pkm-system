@@ -269,9 +269,10 @@ class PageDelete:
         # text past the length cap, nor further past it, judged on the
         # inlined text before unlinking and ahead of the rewrite's own
         # blockers. Unlinking only shortens, so the unlinked text needs no
-        # second length judgement. A copy lands where `((uid))` stood,
-        # never inside a `[[` run, so inlining never deepens a drawn
-        # text's nesting.
+        # second length judgement. The code judges the nesting there too,
+        # since copies that open runs and copies that close them join into
+        # one deep link; every drawn text closes the runs it opens, so
+        # inlining never deepens a drawn text's nesting.
         inlined = inline_refs(text, applied)
         if len(inlined) > TEXT_CAP and len(inlined) > len(text):
             return "limit"
@@ -638,10 +639,11 @@ class Model:
         steps = self.rewrites.get(block.uid, ())
         if replay_peak(steps, unreplayed, base) > TEXT_CAP:
             # backend.md § Conflicts: a replay may not store text past a
-            # limit. The edit lands, the block keeps its text. A copy
-            # lands where `((uid))` stood, never inside a `[[` run, so
-            # only the length cap can be reached (code:
-            # ops_core._replay_step judges each step's splice).
+            # limit. The edit lands, the block keeps its text. Every
+            # drawn text closes the runs it opens, so its copies cannot
+            # join into a deeper link and only the length cap can be
+            # reached (code: ops_core._replay_step judges each step's
+            # splice on both).
             # § Planning, "Replayed text": the landing has every title
             # the chain deleted or renamed away made plain, the steps past
             # the one over the cap included (code:

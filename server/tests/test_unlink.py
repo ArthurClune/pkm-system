@@ -4,8 +4,8 @@ from collections.abc import Callable
 import pytest
 from scaling import loop_steps
 
-from pkm import spans, unlink
-from pkm.contracts.ops import BlockUid
+from pkm import refs, spans, unlink
+from pkm.contracts.ops import MAX_LINK_NESTING, BlockUid
 from pkm.refs import canonicalize_title, extract, normalize_title
 from pkm.unlink import (
     MAX_DELETE_COPY_CHARS,
@@ -391,3 +391,74 @@ def test_many_referrers_to_one_ref_heavy_block_cost_one_projection(fill):
     small, large = steps(8), steps(32)
     # the span sum lives in pkm.spans, so both modules are counted
     assert large < 1.5 * small, (small, large)
+
+
+# -- link nesting, judged on the inlined text before unlinking -----------
+
+OPEN_BLK = uid_of("open_blk01")
+CLOSE_BLK = uid_of("close_blk1")
+JOIN_BLK = uid_of("join_blk01")
+PLAIN_BLK = uid_of("plain_blk1")
+
+
+def _joining_refs(m: int) -> str:
+    # each ref to OPEN_BLK opens 32 runs that only CLOSE_BLK's copies close
+    return f"(({OPEN_BLK}))" * m + "[[T]]" + f"(({CLOSE_BLK}))" * m
+
+
+def _joining_page() -> dict[BlockUid, str]:
+    # each block alone is within the nesting cap; copies join them
+    return {OPEN_BLK: "[[" * MAX_LINK_NESTING, CLOSE_BLK: "]]" * MAX_LINK_NESTING}
+
+
+@pytest.mark.parametrize("where", ["source", "page_copy"])
+def test_copies_joined_into_one_deep_link_are_refused_before_unlinking(where):
+    # Inlined, m refs a side make `[[` x 32m around `[[T]]`, which the
+    # unlink peels one layer per pass, each pass reading the whole text:
+    # work that grew with the cube of m. The depth is judged first, on the
+    # source with its copies inlined or on a page block's copy.
+    def run(m: int) -> tuple[int, list[str]]:
+        page = _joining_page()
+        if where == "source":
+            source = SourceBlock(SRC, OTHER, _joining_refs(m))
+        else:
+            page[JOIN_BLK] = _joining_refs(m)
+            source = SourceBlock(SRC, OTHER, f"see (({JOIN_BLK}))")
+        plan = None
+
+        def go():
+            nonlocal plan
+            plan = plan_page_delete(is_t, page, [source])
+        work = loop_steps((unlink, refs, spans), go)
+        assert plan is not None
+        return work, [b.reason for b in plan.blockers]
+
+    (small, _), (large, reasons) = run(5), run(20)
+    # four times the text: linear work grows about 4x
+    assert large < 6 * small, (small, large)
+    assert reasons == ["limit"]
+
+
+def test_a_legacy_source_nested_past_the_cap_stays_deletable_when_level():
+    # level is allowed: the copy adds no depth to a source already past it
+    deep = "[[" * 40 + "[[T]]" + "]]" * 40
+    page = {PLAIN_BLK: "plain"}
+    source = SourceBlock(SRC, OTHER, f"{deep} (({PLAIN_BLK}))")
+    plan = plan_page_delete(is_t, page, [source])
+    assert plan.blockers == ()
+    assert plan.rewrites[SRC] == "T plain"
+
+
+@pytest.mark.parametrize("link,refused", [("[[T]]", False),
+                                          ("[[[[T]]]]", True)])
+def test_copies_may_nest_a_source_to_the_cap_and_no_further(link, refused):
+    # Judged before unlinking: one level past the cap is refused although
+    # the unlink would peel every layer, as the length is judged.
+    page = {OPEN_BLK: "[[" * (MAX_LINK_NESTING - 1),
+            CLOSE_BLK: "]]" * (MAX_LINK_NESTING - 1)}
+    source = SourceBlock(SRC, OTHER, f"(({OPEN_BLK})){link}(({CLOSE_BLK}))")
+    plan = plan_page_delete(is_t, page, [source])
+    if refused:
+        assert [b.reason for b in plan.blockers] == ["limit"]
+    else:
+        assert plan.blockers == () and plan.rewrites[SRC] == "T"

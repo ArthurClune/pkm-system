@@ -9,7 +9,7 @@ from rawread import read
 
 from pkm import unlink
 from pkm.assets_core import strip_asset_tokens
-from pkm.contracts.ops import BlockUid
+from pkm.contracts.ops import MAX_LINK_NESTING, BlockUid
 from pkm.contracts.responses import BLOCKER_EXCERPT_CHARS
 from pkm.server.db import open_db
 from pkm.server.store import reindex_refs_for_text
@@ -244,6 +244,18 @@ def test_delete_inlining_past_the_nesting_limit_is_blocked(
         client, seeded_config):
     source = "[[a//" * 20 + f"(({DEL_TARGET1}))" + "]]" * 20
     _seed(seeded_config, [(DEL_TARGET1, "P", nest(20)),
+                          (DEL_SOURCE1, "Src", source)])
+    _assert_delete_blocked(client, seeded_config, source)
+
+
+def test_delete_whose_copies_join_one_deep_link_is_blocked(
+        client, seeded_config):
+    # Each block is within the nesting cap; inlined, the copies join into
+    # 2 x 32 runs around `[[P]]`, judged before the unlink peels them.
+    closes = uid_of("del_close01")
+    source = (f"(({DEL_TARGET1}))" * 2 + "[[P]]" + f"(({closes}))" * 2)
+    _seed(seeded_config, [(DEL_TARGET1, "P", "[[" * MAX_LINK_NESTING),
+                          (closes, "P", "]]" * MAX_LINK_NESTING),
                           (DEL_SOURCE1, "Src", source)])
     _assert_delete_blocked(client, seeded_config, source)
 

@@ -5,12 +5,14 @@ was, with one switch. Off, a source's inlined length counts each copy at
 its final length, and nothing else is judged (the rule before copies were
 built lazily). On, each copy counts at its projected length before deeper
 refs are blanked, and the copy text counted over all referring blocks may
-not pass the delete's budget (the rules now, which bound the work a copy
-that blanks to "" costs, and the work over many referrers). The plan must
-equal the eager planner with the switch on, and differ from it with the
-switch off only by refusing more sources as `limit`. Both run on random
-pages and sources under a small cap and budget so the limit paths are
-reached."""
+not pass the delete's budget, and a copy or a source with its copies in
+may not nest past the cap, deeper than it was, before it is unlinked (the
+rules now, which bound the work a copy that blanks to "" costs, the work
+over many referrers, and the unlink's passes, which grow with the depth).
+The plan must equal the eager planner with the switch on, and differ from
+it with the switch off only by refusing more sources as `limit`. Both run
+on random pages and sources under a small cap, budget and nesting cap so
+the limit paths are reached."""
 from __future__ import annotations
 
 from collections import Counter
@@ -24,7 +26,8 @@ from pkm.contracts.ops import BlockUid
 from pkm.refs import extract, normalize_title
 from pkm.spans import splice, spliced_length
 from pkm.test_data.ids import canonical_title_of, uid_of
-from pkm.text_limits import rewrite_text_limit_violation
+from pkm.text_limits import (rewrite_nesting_violation,
+                              rewrite_text_limit_violation)
 from pkm.spans import Span
 from pkm.unlink import (DeleteBlocker, DeletePlan, SourceBlock, TitleMatch,
                         _rewrite_blocker_reason, _source_blocker_reason,
@@ -33,19 +36,28 @@ from pkm.unlink import (DeleteBlocker, DeletePlan, SourceBlock, TitleMatch,
 
 SMALL_CAP = 80
 SMALL_BUDGET = 60
+SMALL_NESTING = 1
 # sources the eager planner refused for the budget alone, for the reach
-# count below
+# count below; those it refused for the nesting before unlinking; and of
+# those, the ones refused for a page block's own copy
 BUDGET_REFUSALS: list[BlockUid] = []
+NESTING_REFUSALS: list[BlockUid] = []
+COPY_NESTING_REFUSALS: list[BlockUid] = []
 PAGE_UIDS = [uid_of("pgblkAAA1"), uid_of("pgblkBBB2"), uid_of("pgblkCCC3")]
 
 
 def _eager_copies(
     is_target: TitleMatch, page_blocks: Mapping[BlockUid, str]
-) -> tuple[dict[BlockUid, str], frozenset[BlockUid], dict[BlockUid, int]]:
+) -> tuple[dict[BlockUid, str], frozenset[BlockUid], dict[BlockUid, int],
+           frozenset[BlockUid]]:
+    """The copies, the uids over the length cap (never built), each copy's
+    projected length, and the uids whose spliced copy nests past the cap
+    deeper than the block (built and unlinked here all the same)."""
     plain = {uid: plain_copy(text) for uid, text in page_blocks.items()}
     blanks = {uid: "" for uid in page_blocks}
     copies: dict[BlockUid, str] = {}
     oversized: set[BlockUid] = set()
+    deep: set[BlockUid] = set()
     projected: dict[BlockUid, int] = {}
     for uid in page_blocks:
         spans = block_ref_spans(plain[uid], plain)
@@ -55,8 +67,10 @@ def _eager_copies(
             continue
         text = splice(plain[uid], spans)
         text = inline_block_refs(text, blanks)
+        if rewrite_nesting_violation(plain[uid], text) is not None:
+            deep.add(uid)
         copies[uid] = unlink_title_refs(text, is_target)
-    return copies, frozenset(oversized), projected
+    return copies, frozenset(oversized), projected, frozenset(deep)
 
 
 def _inlined_over_limit(text: str, spans: Sequence[Span]) -> bool:
@@ -71,7 +85,8 @@ def _eager_plan(
     sources: Sequence[SourceBlock],
     count_projected: bool,
 ) -> DeletePlan:
-    copies, oversized, projected = _eager_copies(is_target, page_blocks)
+    copies, oversized, projected, deep = _eager_copies(is_target,
+                                                       page_blocks)
     counted = 0
     rewrites: dict[BlockUid, str] = {}
     unlinked: set[BlockUid] = set()
@@ -120,6 +135,16 @@ def _eager_plan(
             )
             continue
         pre = splice(source.text, spans)
+        if count_projected and (
+                any(u in deep for u in referenced)
+                or rewrite_nesting_violation(source.text, pre) is not None):
+            NESTING_REFUSALS.append(source.uid)
+            if any(u in deep for u in referenced):
+                COPY_NESTING_REFUSALS.append(source.uid)
+            blockers.append(
+                DeleteBlocker(source.uid, source.page_title, source.text,
+                              "limit"))
+            continue
         new = unlink_title_refs(pre, is_target)
         reason = _rewrite_blocker_reason(is_target, page_blocks, source, new)
         if reason is None and \
@@ -160,14 +185,39 @@ def _tokens(uids: list[BlockUid]) -> st.SearchStrategy[str]:
         st.integers(1, 40).map(lambda n: "x" * n))
 
 
+# Page blocks of bare brackets, and texts of refs to them: copies that
+# open runs another copy closes, which nest once inlined.
+_BRACKETS = st.lists(st.sampled_from(["[[", "]]"]), min_size=1,
+                     max_size=3).map("".join)
+
+
+def _bracket_refs(uids: list[BlockUid]) -> st.SearchStrategy[str]:
+    ref = st.sampled_from(uids).map(lambda u: f"(({u}))")
+    return st.lists(st.one_of(ref, ref, st.sampled_from(["[[T]]", "x"])),
+                    min_size=2, max_size=5).map("".join)
+
+
 @st.composite
 def graphs(draw):
-    count = draw(st.integers(1, 3))
+    mode = draw(st.integers(0, 7))
+    joins_in_copy = mode < 2
+    count = 3 if joins_in_copy else draw(st.integers(1, 3))
     uids = PAGE_UIDS[:count]
-    text = st.lists(_tokens(uids), max_size=8).map("".join)
-    page = {u: draw(text) for u in uids}
+    if joins_in_copy:
+        # the third block's own copy joins the first two
+        page = {uids[0]: "[[" * draw(st.integers(1, 3)),
+                uids[1]: "]]" * draw(st.integers(1, 3)),
+                uids[2]: draw(_bracket_refs(uids[:2]))}
+        source_text = _bracket_refs(uids[2:])
+    else:
+        if mode < 4:
+            page_text, source_text = _BRACKETS, _bracket_refs(uids)
+        else:
+            page_text = st.lists(_tokens(uids), max_size=8).map("".join)
+            source_text = st.lists(_tokens(uids), max_size=10).map("".join)
+        page = {u: draw(page_text) for u in uids}
     sources = [SourceBlock(uid_of(f"srcblk{i:03d}"), canonical_title_of("Other"),
-                           draw(st.lists(_tokens(uids), max_size=10).map("".join)))
+                           draw(source_text))
                for i in range(draw(st.integers(1, 5)))]
     return page, sources
 
@@ -185,8 +235,12 @@ def test_the_lazy_plan_equals_the_eager_one(monkeypatch):
     def prop(graph):
         page, sources = graph
         BUDGET_REFUSALS.clear()
+        NESTING_REFUSALS.clear()
+        COPY_NESTING_REFUSALS.clear()
         expected = _eager_plan(is_t, page, sources, count_projected=True)
         seen["budget"] += bool(BUDGET_REFUSALS)
+        seen["nesting"] += bool(NESTING_REFUSALS)
+        seen["copy_nesting"] += bool(COPY_NESTING_REFUSALS)
         plan = plan_page_delete(is_t, page, sources)
         assert plan == expected
         # against the rule before: only more `limit` refusals
@@ -214,9 +268,11 @@ def test_the_lazy_plan_equals_the_eager_one(monkeypatch):
     monkeypatch.setattr(unlink, "MAX_BLOCK_TEXT_CHARS", SMALL_CAP)
     monkeypatch.setattr(text_limits, "MAX_BLOCK_TEXT_CHARS", SMALL_CAP)
     monkeypatch.setattr(unlink, "MAX_DELETE_COPY_CHARS", SMALL_BUDGET)
+    monkeypatch.setattr(text_limits, "MAX_LINK_NESTING", SMALL_NESTING)
     prop()
     # About half the lowest rate seen over unseeded runs: a shape never
     # drawn would let the two planners differ there unseen.
     for shape, share in {"limit": 0.24, "inlined": 0.11, "unblocked": 0.3,
-                         "stricter": 0.02, "budget": 0.025}.items():
+                         "stricter": 0.02, "budget": 0.025, "nesting": 0.02,
+                         "copy_nesting": 0.006}.items():
         assert seen[shape] > seen["cases"] * share, (shape, seen[shape], seen["cases"])

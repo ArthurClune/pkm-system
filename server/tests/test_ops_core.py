@@ -5,8 +5,11 @@ from pathlib import Path
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
+from scaling import loop_steps
 
 from rawread import read
+from pkm import refs, spans, unlink
+from pkm.server import ops_core
 from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING,
                                MAX_OUTLINE_DEPTH, BlockOp, BlockUid, CreateOp, CreatePageOp,
                                DeleteOp, MoveOp, OpBatch, PageId, SetCollapsedOp,
@@ -823,6 +826,33 @@ def test_replay_refuses_the_worst_amplification_without_building_it(kind):
     # linear in the edit (the scan and its span list, one tuple per link
     # sharing one title), where the spliced text would be ~10^11
     assert peak < 200 * len(edit)
+
+
+def test_replay_judges_the_nesting_copies_join_before_unlinking():
+    # A delete's copies, each within the nesting cap: one opens 32 runs,
+    # the other closes them. A stale edit with m refs to each a side
+    # replays into `[[` x 32m around `[[T]]`, which the unlink would peel
+    # one layer per pass over the whole text. The depth is judged first.
+    opens, closes = uid_of("rr_open_01"), uid_of("rr_close_1")
+
+    def run(m: int) -> tuple[int, TextEditOutcome]:
+        before = f"(({opens}))" * m + "[[T]]" + f"(({closes}))" * m
+        base, after = text_hash(before), text_hash("T")
+        rows = (BlockRewrite(base, after, "T", "", "unlink"),
+                BlockRewrite(base, after, opens, "[[" * MAX_LINK_NESTING,
+                             "inline"),
+                BlockRewrite(base, after, closes, "]]" * MAX_LINK_NESTING,
+                             "inline"))
+        edit = before + " offline"
+        outcome: list[TextEditOutcome] = []
+        work = loop_steps((ops_core, unlink, refs, spans), lambda: outcome.append(
+            classify_text_edit(edit, base, "T", rows)))
+        return work, outcome[0]
+
+    (small, _), (large, outcome) = run(5), run(20)
+    # four times the text: linear work grows about 4x
+    assert large < 6 * small, (small, large)
+    assert outcome.kind == "over_limit"
 
 
 def test_plan_replay_over_limit_lands_the_edit_and_keeps_the_block():

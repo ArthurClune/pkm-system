@@ -462,3 +462,10 @@ def test_mcp_title_arguments_keep_their_names(tools):
         props = by_name[tool].parameters["properties"]
         for name in names:
             assert props[name]["x-brand"] == "RawTitle", (tool, name)
+
+
+def test_batch_reused_alias_raises(tools):
+    cmd = {"command": "create",
+           "params": {"page": "AI", "text": "x", "as": "n"}}
+    with pytest.raises(BuildError, match="already names"):
+        tools.batch([cmd, cmd])

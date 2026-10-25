@@ -45,6 +45,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 import fake_goodlinks_server
 from fake_engine import FakeEngine
+from pkm.assistant.target_reader import db_block_reader
 from pkm.database import connect
 from pkm.schema import DDL
 from pkm.server.app import create_app
@@ -182,7 +183,8 @@ def main() -> int:
         goodlinks_api_key_file=data / "goodlinks_key",
         goodlinks_api_url=f"http://127.0.0.1:{goodlinks_port}/api/v1",
     )
-    app = create_app(config, assistant_engine=FakeEngine(), api_port=PORT)
+    engine = FakeEngine(read_blocks=db_block_reader(db_path))
+    app = create_app(config, assistant_engine=engine, api_port=PORT)
 
     @app.exception_handler(Exception)
     async def _log_unhandled(request: Request, exc: Exception) -> PlainTextResponse:

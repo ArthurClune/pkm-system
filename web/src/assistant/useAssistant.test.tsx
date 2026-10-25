@@ -148,7 +148,7 @@ describe("useAssistant", () => {
     expect(latest.status).toBe("confirm");
     expect(latest.pendingConfirm).toEqual(
       { confirmId: "t1", opsPreview: "save_note(...)", preview: null,
-        sentDecision: null });
+        sentDecision: null, allowedAhead: 0 });
     await act(async () => {
       await latest.respondConfirm(true);
       release();
@@ -175,11 +175,11 @@ describe("useAssistant", () => {
     });
     expect(latest.pendingConfirm).toEqual(
       { confirmId: "t1", opsPreview: "save_note(...)", preview: null,
-        sentDecision: null });
+        sentDecision: null, allowedAhead: 0 });
     await act(() => latest.respondConfirm(true));
     expect(latest.pendingConfirm).toEqual(
       { confirmId: "t1", opsPreview: "save_note(...)", preview: null,
-        sentDecision: true });
+        sentDecision: true, allowedAhead: 0 });
     expect(latest.status).toBe("confirm");
     expect(latest.error).toBe("network down");
   });
@@ -243,6 +243,105 @@ describe("useAssistant", () => {
     expect(mocks.confirmTool.mock.calls).toEqual([["conv1", "c1", false], ["conv1", "c2", true]]);
     expect(latest.pendingConfirm).toBeNull();
     expect(latest.status).toBe("busy");
+  });
+
+  // The server reads each card's current text when it builds the card, so
+  // a card waiting behind one the user allows was read before that write
+  test("a card queued behind an allowed one counts it; a denied one does not",
+    async () => {
+      mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
+      let emit!: (ev: AssistantEvent) => void;
+      mocks.streamMessage.mockImplementation(
+        async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+          emit = onEvent;
+          onEvent(confirmEvent("c1"));
+          onEvent(confirmEvent("c2"));
+          onEvent(confirmEvent("c3"));
+          onEvent(confirmEvent("c4"));
+          await new Promise<void>(() => {});
+        },
+      );
+      mocks.confirmTool.mockResolvedValue(undefined);
+      render(<Harness />);
+      await act(async () => {
+        void latest.send("please write");
+        await Promise.resolve();
+      });
+      expect(latest.pendingConfirm?.allowedAhead).toBe(0);
+      await act(() => latest.respondConfirm(true));
+      expect(latest.pendingConfirm?.confirmId).toBe("c2");
+      expect(latest.pendingConfirm?.allowedAhead).toBe(1);
+      await act(() => latest.respondConfirm(false));
+      expect(latest.pendingConfirm?.confirmId).toBe("c3");
+      expect(latest.pendingConfirm?.allowedAhead).toBe(1);
+      await act(() => latest.respondConfirm(true));
+      expect(latest.pendingConfirm?.allowedAhead).toBe(2);
+      // built after those Allows: the server's stamp says whether their
+      // writes could still land after its read, so it counts them too
+      act(() => emit(confirmEvent("c5")));
+      await act(() => latest.respondConfirm(false));
+      expect(latest.pendingConfirm?.confirmId).toBe("c5");
+      expect(latest.pendingConfirm?.allowedAhead).toBe(2);
+    });
+
+  test("a new turn counts no Allow from the last", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
+    const turnOne = deferredValue<void>();
+    let calls = 0;
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+        calls += 1;
+        if (calls === 1) {
+          onEvent(confirmEvent("c1"));
+          await turnOne.promise;
+          return;
+        }
+        onEvent(confirmEvent("c2"));
+        await new Promise<void>(() => {});
+      },
+    );
+    mocks.confirmTool.mockResolvedValue(undefined);
+    render(<Harness />);
+    let first!: Promise<void>;
+    await act(async () => {
+      first = latest.send("one");
+      await Promise.resolve();
+    });
+    await act(() => latest.respondConfirm(true));
+    await act(async () => {
+      turnOne.resolve();
+      await first;
+    });
+    await act(async () => {
+      void latest.send("two");
+      await Promise.resolve();
+    });
+    expect(latest.pendingConfirm?.confirmId).toBe("c2");
+    expect(latest.pendingConfirm?.allowedAhead).toBe(0);
+  });
+
+  test("an Allow that fails to post counts for no card behind it", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+        onEvent(confirmEvent("c1"));
+        onEvent(confirmEvent("c2"));
+        await new Promise<void>(() => {});
+      },
+    );
+    mocks.confirmTool.mockRejectedValueOnce(new Error("network down"));
+    mocks.confirmTool.mockResolvedValue(undefined);
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("please write");
+      await Promise.resolve();
+    });
+    await act(() => latest.respondConfirm(true));
+    expect(latest.pendingConfirm?.confirmId).toBe("c1");
+    // only the retry that posted counts, not the failed post before it
+    await act(() => latest.respondConfirm(true));
+    expect(latest.pendingConfirm?.confirmId).toBe("c2");
+    expect(latest.pendingConfirm?.allowedAhead).toBe(1);
   });
 
   function parkTwoConfirms() {

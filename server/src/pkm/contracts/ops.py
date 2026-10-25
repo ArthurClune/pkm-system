@@ -269,13 +269,18 @@ BlockOp = Annotated[Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
                     Field(discriminator="op")]
 
 
+# The most ops one batch carries; the assistant's approval card refuses a
+# longer batch before it builds a row for each.
+MAX_OPS_PER_BATCH = 500
+
+
 class OpBatch(WellFormedModel):
     client_id: ClientId = Field(min_length=1, max_length=64)
     # Required: id-less batches cannot be
     # deduplicated, so any retry or replay re-applies. Pre-offline clients
     # now fail loudly (422) instead of corrupting silently.
     batch_id: BatchId = Field(min_length=8, max_length=64)
-    ops: list[BlockOp] = Field(min_length=1, max_length=500)
+    ops: list[BlockOp] = Field(min_length=1, max_length=MAX_OPS_PER_BATCH)
     # The client's sync cursor when the batch's ops were built; absent means
     # built against current server state.
     seen_seq: SyncSeq | None = Field(default=None, ge=SyncSeq(0))

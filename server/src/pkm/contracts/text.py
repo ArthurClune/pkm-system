@@ -21,6 +21,7 @@ from pydantic import model_validator
 
 from pkm.contracts.int64 import INT64_MAX, INT64_MIN
 from pkm.contracts.strict import StrictModel
+from pkm.echo import echo
 
 _ANY_SURROGATE = re.compile("[\ud800-\udfff]")
 # A high/low pair first, so the alternation never splits one: Python holds
@@ -95,7 +96,10 @@ def _refuse_wide_ints(value: object) -> None:
         elif isinstance(item, list):
             stack.extend(item)
         elif isinstance(item, int) and not INT64_MIN <= item <= INT64_MAX:
-            raise ValueError(f"{item} is outside the 64-bit integer range")
+            # echoed bounded: the CLI and MCP print this refusal whole,
+            # and Python parses an int of up to 4,300 digits
+            raise ValueError(
+                f"{echo(str(item))} is outside the 64-bit integer range")
 
 
 class WellFormedModel(StrictModel):

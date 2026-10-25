@@ -35,7 +35,7 @@ def test_heading_parent_spec_with_trailing_newline_is_unrecognized():
 
 def test_alias_spec_with_trailing_newline_is_not_an_alias():
     assert _resolve_alias("{{a}}\n", {}) == "{{a}}\n"
-    with pytest.raises(BuildError, match="unknown alias: a"):
+    with pytest.raises(BuildError, match='unknown alias: "a"'):
         _resolve_alias("{{a}}", {})
 
 

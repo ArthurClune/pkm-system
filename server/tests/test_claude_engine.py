@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import stat
+from collections.abc import Collection, Sequence
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from claude_agent_sdk import (
     PermissionResultAllow,
     PermissionResultDeny,
     TextBlock,
+    ToolPermissionContext,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
@@ -36,7 +38,9 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from pkm.assistant.policy import READ_TOOLS, SYSTEM_PROMPT, WRITE_TOOLS
-from pkm.test_data.ids import confirm_id_of
+from pkm.assistant.write_preview import FoundBlock, StoredBlock
+from pkm.contracts.ops import BlockUid
+from pkm.test_data.ids import canonical_title_of, confirm_id_of, uid_of
 
 
 class BrokenInterruptClient(FakeSDKClient):
@@ -1078,3 +1082,282 @@ def test_confirm_request_carries_structured_preview(tmp_path):
     card = asyncio.run(scenario())
     assert card.preview.ops[0].targets[0] == ("uid", "VICTIMUID01")
     assert card.ops_preview == card.preview.summary
+
+
+def test_confirm_card_shows_the_blocks_current_text(tmp_path):
+    victim = uid_of("VICTIMUID01")
+    inbox = canonical_title_of("Inbox")
+    reads: list[list[str]] = []
+
+    def read_blocks(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+            ancestors_of: Collection[BlockUid]):
+        reads.append(list(uids))
+        return {victim: StoredBlock(inbox, "old")}
+
+    engine = make_engine(tmp_path, read_blocks=read_blocks)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        task = asyncio.create_task(conv.can_use_tool(
+            "mcp__pkm__update_block", {"text": "new", "uid": victim}, None))
+        card = await _next_card(conv)
+        conv.resolve_confirm(card.confirm_id, False)
+        await asyncio.wait_for(task, timeout=5)
+        await conv.close()
+        return card
+
+    card = asyncio.run(scenario())
+    assert card.preview.ops[0].current == FoundBlock(inbox, "old", 3)
+    assert reads == [[victim]]
+
+
+def test_an_unreadable_target_is_refused_not_shown(tmp_path):
+    def read_blocks(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+            ancestors_of: Collection[BlockUid]):
+        raise OSError("disk gone")
+
+    engine = make_engine(tmp_path, read_blocks=read_blocks)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        decision = await asyncio.wait_for(conv.can_use_tool(
+            "mcp__pkm__update_block",
+            {"text": "new", "uid": "VICTIMUID01"}, None), timeout=5)
+        queued = conv._queue.qsize()
+        await conv.close()
+        return decision, queued
+
+    decision, queued = asyncio.run(scenario())
+    assert isinstance(decision, PermissionResultDeny)
+    assert decision.message == (
+        "update_block: the blocks this write changes could not be read")
+    assert queued == 0
+
+
+# -- whether another write of the turn could land after a card's read -----
+
+_UPDATE = "mcp__pkm__update_block"
+
+
+def _ctx(tool_use_id: str) -> ToolPermissionContext:
+    return ToolPermissionContext(tool_use_id=tool_use_id)
+
+
+def test_a_lone_card_has_no_write_in_flight(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        task = asyncio.create_task(conv.can_use_tool(
+            _UPDATE, {"uid": "AAAAAAAA", "text": "t"}, _ctx("t1")))
+        card = await _next_card(conv)
+        conv.resolve_confirm(card.confirm_id, False)
+        await asyncio.wait_for(task, timeout=5)
+        await conv.close()
+        return card
+
+    assert asyncio.run(scenario()).preview.writes_in_flight is False
+
+
+def test_a_card_read_while_another_waits_on_the_user_is_stamped(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        ta = asyncio.create_task(conv.can_use_tool(
+            _UPDATE, {"uid": "AAAAAAAA", "text": "t"}, _ctx("t1")))
+        card_a = await _next_card(conv)
+        tb = asyncio.create_task(conv.can_use_tool(
+            _UPDATE, {"uid": "BBBBBBBB", "text": "t"}, _ctx("t2")))
+        card_b = await _next_card(conv)
+        for card in (card_a, card_b):
+            conv.resolve_confirm(card.confirm_id, False)
+        await asyncio.wait_for(asyncio.gather(ta, tb), timeout=5)
+        await conv.close()
+        return card_a, card_b
+
+    card_a, card_b = asyncio.run(scenario())
+    assert card_a.preview.writes_in_flight is False
+    assert card_b.preview.writes_in_flight is True
+
+
+async def _drain_into(stream, seen: asyncio.Queue) -> None:
+    async for ev in stream:
+        await seen.put(ev)
+
+
+async def _next_of(seen: asyncio.Queue, kind: type):
+    while True:
+        ev = await asyncio.wait_for(seen.get(), timeout=5)
+        if isinstance(ev, kind):
+            return ev
+
+
+def test_a_card_read_while_an_allowed_write_runs_is_stamped(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        seen: asyncio.Queue = asyncio.Queue()
+        consumer = asyncio.create_task(_drain_into(conv.send("go"), seen))
+
+        async def card_for(target: str, tool_use_id: str, allow: bool):
+            task = asyncio.create_task(conv.can_use_tool(
+                _UPDATE, {"uid": target, "text": "t"}, _ctx(tool_use_id)))
+            card = await _next_of(seen, ConfirmRequest)
+            conv.resolve_confirm(card.confirm_id, allow)
+            await asyncio.wait_for(task, timeout=5)
+            return card
+
+        first = await card_for("AAAAAAAA", "t1", True)
+        # t1 is allowed and has not finished: it may land after this read
+        running = await card_for("BBBBBBBB", "t2", False)
+        client.feed(UserMessage(content=[
+            ToolResultBlock(tool_use_id="t1", content="ok")]))
+        await _next_of(seen, ToolFinished)
+        # t1 has finished and t2 was denied: nothing else can land
+        after = await card_for("CCCCCCCC", "t3", False)
+        client.feed(make_result())
+        await asyncio.wait_for(consumer, timeout=5)
+        await conv.close()
+        return first, running, after
+
+    first, running, after = asyncio.run(scenario())
+    assert first.preview.writes_in_flight is False
+    assert running.preview.writes_in_flight is True
+    assert after.preview.writes_in_flight is False
+
+
+def test_an_allowed_write_without_a_tool_use_id_runs_until_the_turn_ends(
+        tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        cards = []
+        for uid in ("AAAAAAAA", "BBBBBBBB"):
+            task = asyncio.create_task(conv.can_use_tool(
+                _UPDATE, {"uid": uid, "text": "t"}, None))
+            card = await _next_card(conv)
+            conv.resolve_confirm(card.confirm_id, True)
+            await asyncio.wait_for(task, timeout=5)
+            cards.append(card)
+        await conv.close()
+        return cards
+
+    first, second = asyncio.run(scenario())
+    assert first.preview.writes_in_flight is False
+    assert second.preview.writes_in_flight is True
+
+
+def test_a_write_that_lands_during_a_read_stamps_the_card(tmp_path):
+    import threading
+    gate = threading.Event()
+
+    def reader(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+               ancestors_of: Collection[BlockUid]):
+        if uid_of("BBBBBBBB") in uids:
+            gate.wait(5)
+        return {}
+
+    engine = make_engine(tmp_path, read_blocks=reader)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        seen: asyncio.Queue = asyncio.Queue()
+        consumer = asyncio.create_task(_drain_into(conv.send("go"), seen))
+        # B starts reading first and is held there
+        tb = asyncio.create_task(conv.can_use_tool(
+            _UPDATE, {"uid": "BBBBBBBB", "text": "t"}, _ctx("t2")))
+        await asyncio.sleep(0.05)
+        ta = asyncio.create_task(conv.can_use_tool(
+            _UPDATE, {"uid": "AAAAAAAA", "text": "t"}, _ctx("t1")))
+        card_a = await _next_of(seen, ConfirmRequest)
+        conv.resolve_confirm(card_a.confirm_id, True)
+        await asyncio.wait_for(ta, timeout=5)
+        client.feed(UserMessage(content=[
+            ToolResultBlock(tool_use_id="t1", content="ok")]))
+        await _next_of(seen, ToolFinished)
+        # A was allowed and finished while B was reading
+        gate.set()
+        card_b = await _next_of(seen, ConfirmRequest)
+        conv.resolve_confirm(card_b.confirm_id, False)
+        await asyncio.wait_for(tb, timeout=5)
+        client.feed(make_result())
+        await asyncio.wait_for(consumer, timeout=5)
+        await conv.close()
+        return card_a, card_b
+
+    card_a, card_b = asyncio.run(scenario())
+    assert card_a.preview.writes_in_flight is False
+    assert card_b.preview.writes_in_flight is True
+
+
+def test_a_write_running_when_a_read_starts_stamps_the_card(tmp_path):
+    import threading
+    gate = threading.Event()
+
+    def reader(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+               ancestors_of: Collection[BlockUid]):
+        if uid_of("BBBBBBBB") in uids:
+            gate.wait(5)
+        return {}
+
+    engine = make_engine(tmp_path, read_blocks=reader)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        seen: asyncio.Queue = asyncio.Queue()
+        consumer = asyncio.create_task(_drain_into(conv.send("go"), seen))
+        ta = asyncio.create_task(conv.can_use_tool(
+            _UPDATE, {"uid": "AAAAAAAA", "text": "t"}, _ctx("t1")))
+        card_a = await _next_of(seen, ConfirmRequest)
+        conv.resolve_confirm(card_a.confirm_id, True)
+        await asyncio.wait_for(ta, timeout=5)
+        # B starts reading while t1 runs; t1 finishes before B's read ends
+        tb = asyncio.create_task(conv.can_use_tool(
+            _UPDATE, {"uid": "BBBBBBBB", "text": "t"}, _ctx("t2")))
+        await asyncio.sleep(0.05)
+        client.feed(UserMessage(content=[
+            ToolResultBlock(tool_use_id="t1", content="ok")]))
+        await _next_of(seen, ToolFinished)
+        gate.set()
+        card_b = await _next_of(seen, ConfirmRequest)
+        conv.resolve_confirm(card_b.confirm_id, False)
+        await asyncio.wait_for(tb, timeout=5)
+        client.feed(make_result())
+        await asyncio.wait_for(consumer, timeout=5)
+        await conv.close()
+        return card_b
+
+    assert asyncio.run(scenario()).preview.writes_in_flight is True
+
+
+def test_the_last_turns_writes_are_not_in_flight(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        cards = []
+        for turn, uid in (("one", "AAAAAAAA"), ("two", "BBBBBBBB")):
+            seen: asyncio.Queue = asyncio.Queue()
+            consumer = asyncio.create_task(_drain_into(conv.send(turn), seen))
+            # no tool_use_id: the write counts as running until the turn ends
+            task = asyncio.create_task(conv.can_use_tool(
+                _UPDATE, {"uid": uid, "text": "t"}, None))
+            card = await _next_of(seen, ConfirmRequest)
+            conv.resolve_confirm(card.confirm_id, True)
+            await asyncio.wait_for(task, timeout=5)
+            client.feed(make_result())
+            await asyncio.wait_for(consumer, timeout=5)
+            cards.append(card)
+        await conv.close()
+        return cards
+
+    first, second = asyncio.run(scenario())
+    assert first.preview.writes_in_flight is False
+    assert second.preview.writes_in_flight is False

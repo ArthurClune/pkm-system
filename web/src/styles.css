@@ -1127,6 +1127,9 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .assistant-confirm-action { font-weight: 600; overflow-wrap: anywhere; }
 .assistant-confirm-target { overflow-wrap: anywhere; }
 .assistant-confirm-content { overflow-wrap: anywhere; }
+.assistant-confirm-current { overflow-wrap: anywhere; }
+.assistant-confirm-subtree { color: var(--color-error); }
+.assistant-confirm-stale { color: var(--color-error); font-size: 0.85em; margin-bottom: 6px; }
 .assistant-confirm-key { color: var(--color-text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .assistant-confirm-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

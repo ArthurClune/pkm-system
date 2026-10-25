@@ -114,8 +114,11 @@ source between pages (`_fetch_backlinks_once`), it restarts, up to
 
 `validate_batch` checks the envelope against strict (`extra="forbid"`) params
 models before anything else, so a malformed batch fetches and creates nothing.
-Checks a schema cannot express (an unknown `{{alias}}`, a missing move-target
-heading) stay in the planner.
+It also runs `batch_aliases`, which refuses an `{{alias}}` used before (or by)
+the command that makes it and an `as` name given twice; `plan_batch` runs it
+too, so a caller that skips `validate_batch` gets the same error. Checks that
+need the fetched pages, such as a missing move-target heading, stay in the
+planner.
 
 Two spellings of one page share one fetch and one sibling model (`page_keys`),
 or each would append from the same blocks and collide. Only the server's

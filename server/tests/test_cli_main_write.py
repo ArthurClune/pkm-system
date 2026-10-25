@@ -537,6 +537,14 @@ def test_batch_unknown_alias_exits_1(run):
     assert "unknown alias" in err
 
 
+def test_batch_reused_alias_exits_1(run):
+    cmd = {"command": "create",
+           "params": {"page": "AI", "text": "x", "as": "n"}}
+    code, _, err = run("batch", stdin=json.dumps([cmd, cmd]))
+    assert code == 1
+    assert "already names" in err
+
+
 def test_batch_nested_but_empty_outline_items_exits_1(run):
     # items=[[]] flattens to zero leaf strings -- must fail loudly, not
     # silently apply a zero-op batch.

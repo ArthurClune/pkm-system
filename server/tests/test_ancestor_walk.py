@@ -138,7 +138,7 @@ def _label(parents: dict[str, str | None], starts: list[BlockUid],
     count("case")
     reached: dict[str, int] = {}
     for start in dict.fromkeys(starts):
-        seen = {start}
+        seen: set[str] = {start}
         cur = parents.get(start)
         while cur is not None and cur in parents and cur not in seen:
             seen.add(cur)

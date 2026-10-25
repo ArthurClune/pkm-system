@@ -17,6 +17,7 @@ from starlette.types import ASGIApp
 
 from pkm.server.app import create_app
 from pkm.server.config import load_config
+from pkm.server.http_protocol import DeadlineH11Protocol
 from pkm.server.logfmt import uvicorn_log_config
 
 # The only peer whose X-Forwarded-For uvicorn believes: Tailscale Serve's
@@ -53,10 +54,13 @@ def uvicorn_config(app: ASGIApp, port: int,
                    log_config: dict[str, Any] | None) -> uvicorn.Config:
     """How every listener serves `app`. access_log=False: the
     RequestLogMiddleware in create_app() emits the access lines instead
-    (stdout, or access.log under --log-dir, plus durations)."""
+    (stdout, or access.log under --log-dir, plus durations).
+    DeadlineH11Protocol closes a connection whose request head is late,
+    which uvicorn's own protocols never do."""
     return uvicorn.Config(app, port=port, log_config=log_config,
                           access_log=False, proxy_headers=True,
-                          forwarded_allow_ips=FORWARDED_ALLOW_IPS)
+                          forwarded_allow_ips=FORWARDED_ALLOW_IPS,
+                          http=DeadlineH11Protocol)
 
 
 def main(argv: list[str] | None = None) -> int:

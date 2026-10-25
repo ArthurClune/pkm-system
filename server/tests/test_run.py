@@ -55,3 +55,13 @@ def test_main_hands_create_app_the_hosts_it_binds(tmp_path, monkeypatch):
                      "--host", "127.0.0.1", "--host", "100.64.0.9"]) == 0
     assert captured["config"].bind_hosts == ("127.0.0.1", "100.64.0.9")
     assert captured["api_port"] == 8975
+
+
+def test_uvicorn_config_uses_the_deadline_protocol():
+    from pkm.server.http_protocol import DeadlineH11Protocol
+
+    async def app(scope, receive, send) -> None:
+        pass
+
+    config = run.uvicorn_config(app, port=0, log_config=None)
+    assert config.http is DeadlineH11Protocol

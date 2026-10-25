@@ -53,7 +53,8 @@ server/
 ├── db.py                Shell  init_db() at startup, open_db() per request, migrations
 ├── wholepath.py         Shell  the {name:wholepath} DOTALL route convertor
 ├── auth.py, auth_core.py, throttle_core.py   login, require_auth, LoginThrottle; scrypt and tokens; backoff policy
-├── auth_gate_core.py, auth_gate.py  Core / Shell  which requests are public, the body cap; AuthGateMiddleware
+├── auth_gate_core.py, auth_gate.py  Core / Shell  which requests are public, the body caps; AuthGateMiddleware
+├── http_protocol.py     Shell  DeadlineH11Protocol: closes a connection whose request head is late
 ├── origin_core.py, origin_guard.py  Core / Shell  allowed origins; OriginGuardMiddleware
 ├── routes_*.py          Shell  the HTTP surface
 ├── ops_core.py          Core   plan_op(), classify_skip, classify_text_edit
@@ -858,9 +859,7 @@ refuses an anonymous request before routing, without calling `receive`.
 guard that is only a dependency takes in an anonymous upload whole before
 its 401. The refusals are 401 `{"detail": "not authenticated"}` and a 4401
 handshake close before accepting. `session_is_valid` (`auth.py`) is the
-one session check. The app never reads a refused body, but uvicorn still
-reads and discards the rest of it, so a slow client can hold the
-connection past the keep-alive timeout.
+one session check.
 
 | Request (`is_public`) | At the gate |
 |---|---|
@@ -884,6 +883,22 @@ refuse it. Uploads (`UNCAPPED_PRIVATE_ROUTES`) are exempt, because
 to it. `declared_content_length` ignores a length sent beside
 `Transfer-Encoding`, because h11 then frames by the chunks, so such a body
 is counted like any chunked one.
+
+uvicorn has no read timeout of its own, so slow clients are bounded in two
+places:
+
+| What is late | Bound | Answer |
+|---|---|---|
+| the request head, from the connection's open or its last response | `HEADER_READ_TIMEOUT_S` (`DeadlineH11Protocol`) | the connection is closed |
+| the rest of a body answered without reading it (a 401, 403 or 413) | the same deadline, which the leftover body counts against | the connection is closed |
+| a public body | `PUBLIC_BODY_READ_TIMEOUT_S` for the whole read | 408 with `Connection: close` |
+| an authenticated body | none | — |
+
+A 401 or 413 does not close the connection at once. uvicorn drops the rest
+of the refused body, and a client that sends it promptly can reuse the
+connection. Closing with that body unread resets the connection, and a
+client still sending could lose the answer. An authenticated body has no
+deadline because an upload over a slow link may take minutes.
 
 `require_auth` stays on every router
 (`dependencies=[Depends(require_auth)]`) as the route's own check, and
@@ -942,6 +957,12 @@ Nothing enforces these rules:
   public `GET` route must not read a body.
 - A new upload route joins `UNCAPPED_PRIVATE_ROUTES`, or its bodies are
   cut at `PRIVATE_BODY_MAX_BYTES`.
+- Only `run.uvicorn_config` installs `DeadlineH11Protocol`, so the server
+  must keep starting through `python -m pkm.server.run` (the launchd job
+  does). Another launcher, or uvicorn's `httptools` protocol, has no head
+  deadline. The protocol reads uvicorn internals (`conn`, `cycle`,
+  `on_response_complete`); `test_http_protocol.py` catches an upgrade that
+  moves them.
 - The gate reads the config from `scope["app"].state.config` on every
   request, never once at startup: the proptest sync server replaces
   `app.state.config` after `create_app`.

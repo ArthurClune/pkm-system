@@ -8,7 +8,8 @@ else, every WebSocket handshake included, needs a session. The path is
 the one the router matches (`starlette.routing.get_route_path`).
 
 A public request may still carry a body (`POST /api/login`), and no
-session bounds it, so the gate caps it at `PUBLIC_BODY_MAX_BYTES`.
+session bounds it, so the gate caps it at `PUBLIC_BODY_MAX_BYTES` and
+reads it within `PUBLIC_BODY_READ_TIMEOUT_S`.
 
 An authenticated body is capped too, at `PRIVATE_BODY_MAX_BYTES`, because
 FastAPI reads and parses a whole body before the route's own limits run:
@@ -23,6 +24,10 @@ from collections.abc import Iterable
 from pkm.server.origin_core import SAFE_METHODS
 
 PUBLIC_BODY_MAX_BYTES = 8192
+# A whole public body (a login) is a few hundred bytes, so ten seconds is
+# far beyond any honest client and bounds how long a drip holds a
+# connection.
+PUBLIC_BODY_READ_TIMEOUT_S = 10.0
 # 64 MiB: 500 ops of the largest text a block holds today fit many times
 # over, and a batch near it still parses in about a second.
 PRIVATE_BODY_MAX_BYTES = 64 << 20

@@ -24,6 +24,7 @@ import time
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import TypeAdapter
 
@@ -31,10 +32,13 @@ import pkm
 from pkm.contracts.ops import BatchId, BlockOp, ClientId, OpBatch
 from pkm.schema import DDL
 from pkm.server.db import init_db, open_db
+from pkm.server import ops_core
 from pkm.server.ops_apply import apply_batch
-from pkm.server.ops_core import judge_batch
 from pkm.server.store import fetch_page, rename_page_rows
 from pkm.server.sync_meta import title_reader
+
+if TYPE_CHECKING:
+    from pkm.server.ops_core import JudgedBatch
 
 from perfcheck import fixture as _fixture_mod
 from perfcheck.fixture import (RENAME_APPLIED_AT_MS, RENAME_SOURCE_TITLE,
@@ -85,6 +89,15 @@ def cache_lock(name: str, holder: str) -> Generator[None, None, None]:
             fcntl.flock(fh, fcntl.LOCK_UN)
 
 
+def _judged(batch: OpBatch) -> JudgedBatch:
+    """`batch` as this tree's `apply_batch` takes it. The merge-base run
+    imports this harness with the base's `pkm`, and a base from before the
+    judges left `apply_batch` has no `judge_batch`: its `apply_batch`
+    takes the batch itself and judges it there."""
+    judge = getattr(ops_core, "judge_batch", lambda unjudged: unjudged)
+    return judge(batch)
+
+
 def fixture_hash() -> str:
     return hashlib.sha256(_FIXTURE_SRC).hexdigest()[:16]
 
@@ -124,7 +137,7 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
                          batch_id=BatchId(f"fixture-{i:06d}"),
                          ops=[_BLOCK_OP.validate_python(op)
                               for op in batch.ops])
-            apply_batch(con, judge_batch(ob), batch.now_ms)
+            apply_batch(con, _judged(ob), batch.now_ms)
             con.commit()
         # Seeded once, directly through the store function a real rename
         # uses (rename is a route, not an op batch): leaves a block_rewrites

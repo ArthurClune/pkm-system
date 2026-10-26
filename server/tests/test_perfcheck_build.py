@@ -154,3 +154,26 @@ def test_failed_build_leaves_no_cache_file(cache, monkeypatch):
     with pytest.raises(RuntimeError):
         b.cached_fixture(1, 0.02)
     assert not list(cache.glob("*.sqlite3"))
+
+
+def _batch():
+    from pkm.contracts.ops import CreatePageOp, OpBatch
+    from pkm.test_data.ids import batch_id_of, client_id_of, raw_title_of
+    return OpBatch(client_id=client_id_of("perf-test"),
+                   batch_id=batch_id_of("perf-test-1"),
+                   ops=[CreatePageOp(op="create_page",
+                                     page_title=raw_title_of("Perf"))])
+
+
+def test_build_judges_a_batch_where_this_tree_has_the_judge():
+    from pkm.server.ops_core import JudgedBatch
+    assert isinstance(b._judged(_batch()), JudgedBatch)
+
+
+def test_build_passes_the_batch_through_on_a_base_without_the_judge(
+        monkeypatch):
+    # The merge-base run imports this harness with an older `pkm`, whose
+    # apply_batch takes the batch itself and judges it there.
+    monkeypatch.delattr(b.ops_core, "judge_batch")
+    batch = _batch()
+    assert b._judged(batch) is batch

@@ -34,7 +34,7 @@ from pkm.server.ops_core import (MAX_BATCH_REPLAY_WORK, SKIPPED_CONTEXTS,
                                  SetCollapsed, SetHeading, SetPageId,
                                  SetParent, SetViewType, ShiftSiblings, Skip,
                                  SkipContext, SkippedContext,
-                                 StepKey, StepResult, StuckMoveContext,
+                                 StepKey, StuckMoveContext,
                                  SubtreeRow,
                                  ReplayOverLimitContext,
                                  TextConflictContext,
@@ -691,7 +691,7 @@ def apply_batch(db: Db, judged: JudgedBatch,
         effects = plan_op(index, op, ctx)
         replayed: tuple[RewriteStep, ...] = ()
         replay_canonical = normalize_title
-        known: Mapping[StepKey, StepResult] = {}
+        known: Mapping[StepKey, str] = {}
         if isinstance(ctx, TextEditContext):
             replayed = ctx.outcome.replayed
             replay_canonical = ctx.outcome.canonical

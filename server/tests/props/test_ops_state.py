@@ -234,10 +234,11 @@ class OpsMachine(RuleBasedStateMachine):
           or `D:: w` against `` `D`:: w ``). Its unlink makes it identical
           to the block, and it still records that unlink, so the device's
           next edit replays onto the block's text.
-        - "narrowed": a stale edit links two deleted titles, which records
-          one unlink of both; the device's next edit, hashed on what it
-          sent, links only one of them. Its replay records a row for that
-          one alone.
+        - "queue": a stale edit links two deleted titles, which records one
+          unlink of both. The device's next edit, hashed on what it sent,
+          links only one, and the one after, hashed on that, both again,
+          in a batch with no `seen_seq`: the replayed rows still unlink
+          both, so neither page comes back.
 
         With none possible it does nothing."""
         assert self.app is not None
@@ -249,12 +250,12 @@ class OpsMachine(RuleBasedStateMachine):
         kinds = ([*(["conflict"] if rewritten else []),
                   *(["stale identical"] if live and self.before_deletes
                     else []),
-                  *(["narrowed"] if live and len(deleted) > 1 else [])])
+                  *(["queue"] if live and len(deleted) > 1 else [])])
         if not kinds:
             return
         word = data.draw(st.sampled_from(("apple", "river")), label="word")
         kind = data.draw(st.sampled_from(kinds), label="offline")
-        if kind == "narrowed":
+        if kind == "queue":
             uid = data.draw(st.sampled_from(live), label="block")
             first, second = data.draw(st.lists(
                 st.sampled_from(deleted), min_size=2, max_size=2,
@@ -262,9 +263,12 @@ class OpsMachine(RuleBasedStateMachine):
             sent = f"[[{first}]] [[{second}]] {word}"
             self._send([{"op": "update_text", "uid": uid, "text": sent}],
                        seq_of(self.before_deletes[0]))
-            self._send([{"op": "update_text", "uid": uid,
-                         "text": f"[[{first}]] {second} {word}",
-                         "base_text_hash": text_hash(sent)}], None)
+            dropped = f"[[{first}]] {word}"
+            self._send([{"op": "update_text", "uid": uid, "text": dropped,
+                         "base_text_hash": text_hash(sent)},
+                        {"op": "update_text", "uid": uid, "text": sent,
+                         "base_text_hash": text_hash(dropped)}], None)
+            event("offline: a queued edit links a dropped title again")
             return
         if kind == "conflict":
             uid, step = data.draw(st.sampled_from(rewritten), label="rewrite")

@@ -298,11 +298,10 @@ def linked_titles(text: str) -> set[str]:
     return asked
 
 
-def block_ref_spans(text: str, copies: Mapping[BlockUid, str],
-                    found: set[BlockUid] | None = None) -> list[Span]:
+def block_ref_spans(text: str, copies: Mapping[BlockUid, str]) -> list[Span]:
     """The spans `inline_block_refs` splices: each `((uid))` or whole embed
     macro for a uid in `copies`, replaced by that copy (one string shared by
-    every ref to it). Each uid a span copies is added to `found`."""
+    every ref to it)."""
     if not copies:
         return []
     spans: list[Span] = []
@@ -310,8 +309,6 @@ def block_ref_spans(text: str, copies: Mapping[BlockUid, str],
         uid = parse_block_uid(match.group(1) or match.group(2))
         if uid is not None and uid in copies:
             spans.append((match.start(), match.end(), copies[uid]))
-            if found is not None:
-                found.add(uid)
     return spans
 
 

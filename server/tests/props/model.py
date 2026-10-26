@@ -231,20 +231,6 @@ class Rewrite:
                              self.unlinked)
         return fence_attribute(text, self.unlinked)
 
-    def moved(self, text: str) -> Rewrite:
-        """The rewrite narrowed to what it moves in `text`: the copies of
-        the uids `text` refs, and the titles whose own unlink changes
-        `text` with those copies in. backend.md § Conflicts: an op that
-        records a replayed step names only these, so a step of many titles
-        is not written again for each edit it changes."""
-        referenced = {uid_of(m.group(1)) for m in _BLOCK_REF.finditer(text)
-                      if UID_RE.fullmatch(m.group(1))}
-        inlines = tuple((u, c) for u, c in self.inlines if u in referenced)
-        inlined = inline_refs(text, dict(inlines))
-        return replace(self, inlines=inlines, unlinked=frozenset(
-            t for t in self.unlinked
-            if unlink_stale(inlined, {t}) != inlined))
-
     def rows(self, uid: BlockUid) -> set[RewriteRow]:
         """As `(uid, base_hash, after_hash, kind, old_title, new_title)`."""
         return ({(uid, self.base_hash, self.after_hash, "unlink", t, "")
@@ -465,8 +451,7 @@ class Model:
         replay, records how the one became the other, so the client's next
         hashed edit replays onto the written text. One rewrite per pass
         that changed the text, chained by hash: the unlink of the stale
-        titles that changed it, then each replayed step, narrowed to what
-        it moved in the text it met (`Rewrite.moved`). A chain that does
+        titles that changed it, then each replayed step. A chain that does
         not reproduce the written text is not recorded (code:
         ops_core._rewrite_chain)."""
         titles = frozenset(t for t in stale if unlink_stale(sent, {t}) != sent)
@@ -475,18 +460,13 @@ class Model:
         chain: list[Rewrite] = []
         text = sent
         placeholder = text_hash("")   # both hashes are replaced below
-        passes: list[tuple[Callable[[str], str], Callable[[str], Rewrite]]]
         passes = [(lambda t: unlink_stale(t, titles),
-                   lambda _: Rewrite(placeholder, placeholder, titles))
+                   Rewrite(placeholder, placeholder, titles))
                   ] if titles else []
-        passes += [(step.replay, step.moved) for step in replayed]
-        narrowed = False
-        for rewrite, moved in passes:
-            step = moved(text)
+        passes += [(step.replay, step) for step in replayed]
+        for rewrite, step in passes:
             after = rewrite(text)
-            whole = getattr(moved, "__self__", step)
             if after != text:
-                narrowed = narrowed or step.rows(uid) != whole.rows(uid)
                 base = chain[-1].after_hash if chain else text_hash(sent)
                 chain.append(replace(step, base_hash=base,
                                      after_hash=text_hash(after),
@@ -497,8 +477,6 @@ class Model:
             return
         for step in chain:
             self._record(uid, step)
-        if narrowed:
-            self._paths.append("rewrite rows: a replayed step narrowed")
 
     # --- tree helpers -------------------------------------------------------
 

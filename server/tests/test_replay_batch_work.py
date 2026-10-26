@@ -91,7 +91,9 @@ def test_an_edit_pays_for_its_replay_once(client, seeded_config):
     original = _history(seeded_config, "[[a]] " * 30_000, 1)
     con = open_db(seeded_config.db_path)
     try:
-        rows = ops_apply._block_rewrites(con, SRC)
+        rows = ops_apply._rewrites_of(con.select(
+            f"{ops_apply._REWRITE_COLUMNS} WHERE uid = ? ORDER BY rowid DESC",
+            (SRC,)))
     finally:
         con.close()
     once = loop_steps(MODULES, lambda: ops_core.classify_text_edit(

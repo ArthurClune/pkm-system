@@ -133,14 +133,6 @@ def _rewrites_of(rows: Sequence[Row]) -> tuple[BlockRewrite, ...]:
                  for row in rows)
 
 
-def _block_rewrites(db: Db,
-                    uid: BlockUid) -> tuple[BlockRewrite, ...]:
-    """Every recorded rename/merge/delete rewrite of this block, newest
-    first. Only an op planned outside a batch reads them all."""
-    return _rewrites_of(db.select(
-        f"{_REWRITE_COLUMNS} WHERE uid = ? ORDER BY rowid DESC", (uid,)))
-
-
 def _rewrites_from(db: Db, uid: BlockUid,
                    base_hash: Sha256Hex) -> tuple[BlockRewrite, ...]:
     """The rows of this block's rewrites from `base_hash`, newest first."""
@@ -157,7 +149,8 @@ def _rewrites_cost(db: Db, uid: BlockUid, base_hash: Sha256Hex,
     index and without loading their titles, so a hash holding millions of
     rows costs what the budget does."""
     sizes = db.select(
-        "SELECT octet_length(old_title) + octet_length(new_title) AS n"
+        "SELECT length(CAST(old_title AS BLOB))"
+        " + length(CAST(new_title AS BLOB)) AS n"
         " FROM block_rewrites WHERE uid = ? AND base_hash = ?"
         " ORDER BY rowid DESC LIMIT ?",
         (uid, base_hash, allowance // ROW_CHARS + 1))
@@ -484,13 +477,12 @@ class BatchReplay:
 
 def _context_for(db: Db, op: BlockOp, now_ms: int,
                  is_stale: TitleMatch | None = None, *,
-                 replay: BatchReplay | None = None) -> OpContext:
+                 replay: BatchReplay) -> OpContext:
     """Read what `op` needs, classify it once (classify_skip, then
     classify_text_edit for a hashed edit), and return the context type
     that classification calls for. `is_stale` matches the titles of pages
     deleted after the batch's `seen_seq`; None when there are none.
-    `replay` is what the batch's hashed edits share (`BatchReplay`); None
-    replays with no budget, from rows read for this op alone."""
+    `replay` is what the batch's hashed edits share (`BatchReplay`)."""
     if isinstance(op, CreatePageOp):
         page = _resolve_page(db, op.page_title, now_ms)
         return PageContext(page["page_id"])
@@ -562,8 +554,7 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
             (op.uid,))
         assert row is not None  # classify_skip covered the block's absence
         base = op.base_text_hash
-        history = (RewriteHistory(_block_rewrites(db, op.uid))
-                   if replay is None else replay.walk(db, op.uid, base))
+        history = replay.walk(db, op.uid, base)
         # a replay matches titles the way the rename or delete did: under
         # plain-space titles `[[ Old ]]` is the page Old, and left linked
         # it re-creates the page. The flag is read only for an edit with a
@@ -571,13 +562,11 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
         if not (history.is_unread(base)
                 or history.newest(base, frozenset()) is not None):
             canonical: Callable[[str], str] = normalize_title
-        elif replay is None:
-            canonical = title_reader(db)
         else:
             canonical = replay.canonical(db)
         outcome = classify_text_edit(
             op.text, op.base_text_hash, row["text"], history, canonical,
-            None if replay is None else replay.allowance)
+            replay.allowance)
         if outcome.kind == "over_limit":
             return ReplayOverLimitContext(
                 block, row["title"], _conflict_landing(db, op.uid, now_ms),

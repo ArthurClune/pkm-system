@@ -21,6 +21,10 @@ NOW = 1_800_000_000_000
 NOW_DAY = title_for_date(datetime.fromtimestamp(NOW / 1000).date())
 
 
+def _replay():
+    return ops_apply.BatchReplay(ops_core.MAX_BATCH_REPLAY_WORK)
+
+
 @pytest.fixture()
 def db(seeded_config):
     con = open_db(seeded_config.db_path)
@@ -416,7 +420,7 @@ def test_diverged_delete_mints_header_then_root_then_descendants(
                         lambda n: next(minted))
     op = DeleteOp(op="delete", uid=uid_of("uid_b2"),
                   base_subtree_hash=sha_of("0" * 64))
-    ctx = ops_apply._context_for(db, op, NOW)
+    ctx = ops_apply._context_for(db, op, NOW, replay=_replay())
     assert isinstance(ctx, ops_core.DeleteConflictContext)
     assert isinstance(ctx.landing.header, ops_core.FreshHeader)
     assert ctx.landing.header.uid == "hdrmint00001"
@@ -974,7 +978,7 @@ def test_context_for_picks_the_context_its_classification_calls_for(
     # it for every way an op can plan. `detail` is the skip kind, the text
     # edit outcome, or whether a create's uid is taken.
     parsed = _batch(op).ops[0]
-    ctx = ops_apply._context_for(db, parsed, NOW)
+    ctx = ops_apply._context_for(db, parsed, NOW, replay=_replay())
     assert type(ctx).__name__ == context
     if isinstance(ctx, ops_core.SKIPPED_CONTEXTS):
         assert ctx.skip.kind == detail

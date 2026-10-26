@@ -49,17 +49,23 @@ from pkm.unlink import (PASSES_PAST_DEPTH, TitleMatch, block_ref_spans,
 # falls back to the ordinary conflict path.
 MAX_REPLAYED_REWRITES = 10
 
-# Most characters one batch's replays may read, summed over the steps of
-# every stale edit in it: what the unlink reads (`unlink.unlink_reads`) and
-# what a rename scans and splices (`_replay_step`). The copies and titles a
+# Most characters one batch's replays may spend, summed over the steps of
+# every stale edit in it: what the unlink reads (`unlink.unlink_reads`),
+# what a rename scans and splices (`_replay_step`), and the rows a step
+# that changes the text leaves (`_charged`). The copies and titles a
 # replay splices come from the server's history, not the request, so a
 # batch of tiny edits could ask for a megabyte's unlink or rename per step,
 # ten steps an edit, for each of its ops. Past this the batch's remaining
 # stale edits land as sent (`over_limit`). One step is at most about
 # 5,000,000 reads (a megabyte nested two deep, at `MAX_UNLINK_WORK`), so
-# this is about three such steps. Spent in full it holds the write lock
-# about 4 s for text nested to the cap, the slowest to read, and 2 s for
-# a megabyte dense with links; a step on prod's largest copy reads about
+# this is about three such steps. Spent in full, the unlinks take about
+# 4 s for text nested to the cap, the slowest to read; a whole batch of
+# 500 such edits, one block each, holds the write lock about 5.5 s. A
+# step whose copy links 80,000 of its own titles spends it in one edit,
+# about 2 s with the rows it leaves. What is not charged is paid once
+# per batch, not per edit: reading each touched block's rows and
+# deriving each step's titles (`RewriteHistory`, `_derive`), about 0.5 s
+# for a step of 90,000 titles. A step on prod's largest copy reads about
 # 140,000, so ordinary batches stay far below it.
 MAX_BATCH_REPLAY_WORK: Final = 8 * MAX_UNLINK_WORK
 
@@ -156,8 +162,9 @@ def find_op_text_limit_violation(
 @dataclass(frozen=True)
 class JudgedBatch:
     """A batch whose every op passed the text-limit and title judges, so
-    it may be applied. `apply_batch` takes only this, so no caller can
-    apply a batch the judges have not seen."""
+    it may be applied. `apply_batch` takes only this, and only
+    `judge_batch` makes one: a convention, since nothing stops a caller
+    constructing it."""
     batch: OpBatch
 
 

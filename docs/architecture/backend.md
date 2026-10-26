@@ -417,6 +417,11 @@ route whose decision rests on what it reads joins them.
 | `POST /api/sidebar` | the uniqueness check and `max(order_idx) + 1`, so a same-title race is a 409 | uncaught: 500 |
 | `POST /api/migrations/title-canonicalization` | the re-inventory | uncaught: 500 |
 
+`apply_batch` itself runs on the event loop and holds the lock until the
+commit. Its work is linear in the request and in the rows of the blocks the
+batch touches ([Planning](#planning), Replay budget), and the request is
+bounded by `PRIVATE_BODY_MAX_BYTES` ([Auth](#auth)).
+
 ### Planning
 
 `ops_apply._context_for` classifies each op once (`classify_skip`, and
@@ -459,9 +464,10 @@ server bug.
   `ops_core.judge_batch` judges every op, a skipped one included, before
   the title check, so `extract` never scans an over-long text. The route
   runs it in the threadpool before `BEGIN IMMEDIATE`: judging a large batch
-  takes seconds, which must hold neither the single writer nor the event
-  loop. `apply_batch` takes only a `JudgedBatch`, so no caller applies an
-  unjudged batch. A refused batch is looked up in `applied_batches`
+  takes seconds, and the judges must hold neither the single writer nor the
+  event loop. `apply_batch` takes a `JudgedBatch`, and only `judge_batch`
+  makes one. That is a convention, not a check: the dataclass is public.
+  A refused batch is looked up in `applied_batches`
   without the lock before its 400, and one already applied replays its
   stored ack. A deploy that tightens a limit can therefore never turn the
   retry of a batch whose ack was lost into a 400, which the client treats
@@ -502,21 +508,35 @@ server bug.
   they replay did: under plain-space canonicalisation a `[[ Old ]]` the
   client added offline is the page `Old`, and left linked it re-creates it.
 - **Replay budget.** A batch's replays share one budget,
-  `ops_core.MAX_BATCH_REPLAY_WORK`, counted in characters read. The copies
-  and titles a replay splices come from the server's history, not the
-  request, so a batch of tiny edits could otherwise hold the write lock for
-  minutes. An unlink is charged what the capped unlink can read
+  `ops_core.MAX_BATCH_REPLAY_WORK`, counted in characters. The copies and
+  titles a replay splices come from the server's history, not the request,
+  so a batch of tiny edits could otherwise hold the write lock for minutes.
+  An unlink is charged what the capped unlink can read
   (`unlink.unlink_reads`). A rename is charged the text it scans plus the
-  text it splices, because a longer title grows every link. When a step
-  would read past what is left, the edit lands as sent, as for
-  `over_limit`, and that step spends the rest, so every later step stops
-  before splicing. A step a cap stops (the length cap, or an unlink refused
-  for its depth) pays for what it scanned or built (`ops_core._spent`). A
-  stopped step is not kept, so a step that paid nothing would be done again
-  by every op of the batch. A replay runs each step once: the rewrite rows
-  and their check look up the classification's steps by what
-  `_replay_step` depends on (`ops_core._step_key`) instead of replaying
-  them again.
+  text it splices, because a longer title grows every link. A step that
+  changes the text is also charged the [rows](#conflicts) an op records for
+  it, each its titles and `ops_core.ROW_CHARS` (`ops_core._charged`): a
+  step can name a title per link of a megabyte, and writing a row costs
+  more than reading the link. When a step would pass what is left, the
+  edit lands as sent, as for `over_limit`, and that step spends the rest,
+  so every later step stops before splicing. A step a cap stops (the
+  length cap, or an unlink refused for its depth) pays for what it scanned
+  or built (`ops_core._spent`). A stopped step is not kept, so a step that
+  paid nothing would be done again by every op of the batch. A replay runs
+  each step once: the rewrite rows and their check look up the
+  classification's steps by what `_replay_step` depends on
+  (`ops_core._step_key`) instead of replaying them again.
+
+  What an op's replay costs beyond its charge must not grow with the
+  block's rows or a step's titles, or one stale edit linking many deleted
+  titles makes every later edit of the block pay for all of them. That
+  work is paid once per batch. `ops_apply.BatchReplay` reads each block's
+  rows once and keeps the rows the batch records
+  (`ops_core.RewriteHistory`), which finds a step by the hash it starts
+  from. Each step derives its key and its title sets once
+  (`ops_core._derive`), under the one canonicalisation the batch uses.
+  So a batch holds the lock for a constant plus work linear in the
+  request and in the touched blocks' rows.
 
 Conflicts, missing targets, stale batches and concurrent structure edits are
 what a batch meets when the tree changed after it was planned. None rejects
@@ -578,6 +598,16 @@ its own unlink cost one pass per title deleted since `seen_seq`, and the
 client picks that number. Recording what the full-set unlink matched would
 instead name a title that only another's unlink exposes (`[[z [[y]]]]` with
 `y` and `z y` deleted), which the rows must not.
+
+A replayed step's rows name only what it moved in the text it met
+(`ops_core._moved`): each rename it found, each copy it inlined, and every
+spelling it holds of each title its unlink matched. One stale edit can
+leave a step with a row per title it linked, which every later edit made
+before that step replays. Rows naming the whole step would write all of
+it again for each edit it changed. The narrowed step asks that
+text every question the whole step does and gets the same answers, so its
+rows replay onto it as the whole step does. Here a title another's unlink
+exposes is named, since the step held it.
 
 `delete` may carry `base_subtree_hash` over the uid and text of the block
 and every descendant ([canonical form](sync-and-offline.md#conflicts-at-push-time)).
@@ -682,7 +712,8 @@ nesting below the cap:
 | Root copy at the cap, under a reused header | its copied descendants follow it under the header, in document order |
 
 Nor is server-made text ever past a [text limit](#planning), bar the two
-backticks a defused attribute adds. A `page_title` hint is never
+backticks a defused attribute adds and the two a fence adds to each link
+a legacy title ending in `[` leaves ([Stale batches](#stale-batches)). A `page_title` hint is never
 length-judged, and a title stored before `MAX_PAGE_TITLE_CHARS` may be
 longer than the cap. So every header and note that names a page is
 judged, and names it `LONG_TITLE_LABEL` when the name would not fit
@@ -1269,7 +1300,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | GET | `/{path}` *(public)* | SPA fallback; hashed bundles under `/app-assets/` |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |
-| POST | `/api/ops` | Apply an `OpBatch` ([The write path](#the-write-path)); `applied` counts skipped ops too; 400 for the whole batch past a [text limit](#planning) or naming a [refused title](#refused-titles); 412 when an `expect` entry no longer holds; 413 for a body past `PRIVATE_BODY_MAX_BYTES` ([Auth](#auth)) |
+| POST | `/api/ops` | Apply an `OpBatch` ([The write path](#the-write-path)); `applied` counts skipped ops too; 400 for the whole batch past a [text limit](#planning) or naming a [refused title](#refused-titles); 412 when an `expect` entry no longer holds, unless the judges refuse the batch: they run first, before the lock, so that is a 400; 413 for a body past `PRIVATE_BODY_MAX_BYTES` ([Auth](#auth)) |
 | **Pages & blocks** | | |
 | GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree, paginated backlinks (not from the page itself) with [`ancestor_texts`](#breadcrumbs-and-recursive-traversal) per group, `block_ref_counts`; daily pages auto-created |
 | GET | `/api/block/{uid}` | One block subtree with its page and [breadcrumbs](#breadcrumbs-and-recursive-traversal) |

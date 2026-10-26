@@ -25,7 +25,8 @@ from hypothesis import event, given, settings, strategies as st
 from pkm.client.api import PkmClient
 from pkm.client.core import CliConfig
 from pkm.client.workflows import apply_batch
-from pkm.contracts.ops import BatchId, BlockOp, BlockUid, CreateOp, CreatePageOp, DeleteOp, MoveOp
+from pkm.contracts.ops import (BatchId, BlockOp, BlockUid, CreateOp, CreatePageOp,
+                               DeleteOp, ExpectedBlock, MoveOp)
 from pkm.contracts.responses import BlockNode, OpsAck, walk_blocks
 from pkm.planning import BuildError
 from props.harness import (FROZEN_NOW, FreshApp, assert_unique_keys,
@@ -55,13 +56,14 @@ class Racing(PkmClient):
         self.concurrent = concurrent
         self.posted: list[AnyOp] = []
 
-    def post_ops(self, ops: Sequence[AnyOp], batch_id: BatchId) -> OpsAck:
+    def post_ops(self, ops: Sequence[AnyOp], batch_id: BatchId,
+                 expect: Sequence[ExpectedBlock] = ()) -> OpsAck:
         if self.concurrent is not None:
             ack = super().post_ops([{"op": "delete", "uid": self.concurrent}],
                                    batch_id=batch_id_of("concurrent-delete"))
             assert ack.skipped == []
         self.posted = list(ops)
-        return super().post_ops(ops, batch_id)
+        return super().post_ops(ops, batch_id, expect)
 
 
 def _groups(pairs: Iterable[tuple[BlockUid | None, BlockUid, int]]) -> Groups:

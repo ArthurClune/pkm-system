@@ -6,7 +6,11 @@ import { MAX_OUTLINE_DEPTH } from "../../outline/depthCap";
 import { orderIdxOf, uidOf } from "../../test-helpers";
 import type { ReplicaDb } from "../db";
 import { openTestDb, type TestDb } from "../testDb";
-import { ancestorTexts, buildTree, fetchAncestors, type BlockRow } from "./tree";
+import { pagePayload } from "./pages";
+import {
+  ancestorTrails, type Ancestors, blockRefCounts, buildTree, fetchAncestors,
+  resolveRefUids, type BlockRow,
+} from "./tree";
 
 function blockRow(over: Partial<BlockRow> = {}): BlockRow {
   return {
@@ -74,13 +78,18 @@ function seedFiveNodeCycle(prefix: string): BlockUid {
   return uidOf(uids[0]);
 }
 
+/** Each trail read through the texts map, as a breadcrumb renders it. */
+const asTexts = (a: Ancestors): Map<BlockUid, string[]> =>
+  new Map([...a.trails].map(([start, trail]) =>
+    [start, trail.map((uid) => a.texts[uid])]));
+
 describe("fetchAncestors", () => {
   test.each([100, 101, 102, 150])(
     "returns %i ancestors root-first without truncation",
     async (ancestors) => {
       t = await openTestDb();
       const startUid = seedLinearChain(`chain-${ancestors}`, ancestors);
-      expect(fetchAncestors(t.db, [startUid])).toEqual(new Map([
+      expect(asTexts(fetchAncestors(t.db, [startUid]))).toEqual(new Map([
         [startUid, Array.from({ length: ancestors }, (_, i) =>
           `chain-${ancestors} text ${i}`)],
       ]));
@@ -90,7 +99,7 @@ describe("fetchAncestors", () => {
   test("returns a five-node cycle as four unique ancestors, excluding the start uid", async () => {
     t = await openTestDb();
     const startUid = seedFiveNodeCycle("cycle");
-    const result = fetchAncestors(t.db, [startUid]);
+    const result = asTexts(fetchAncestors(t.db, [startUid]));
     expect(result.size).toBe(1);
     expect(result.get(startUid)).toEqual([
       "cycle text 4",
@@ -159,30 +168,48 @@ async function openGraphDb() {
 const chainOf = (n: number) => new Map(Array.from({ length: n }, (_, i) =>
   [`chain-${i}`, i ? `chain-${i - 1}` : null] as const));
 
-describe("ancestorTexts", () => {
+describe("ancestorTrails", () => {
   const u = (name: string) => uidOf(`tuid-${name}`);
+  const us = (names: string) => [...names].map(u);
   const rows = (parents: Record<string, string | null>) =>
     new Map(Object.entries(parents).map(([k, p]) =>
       [u(k), [p === null ? null : u(p), k.toUpperCase()] as const]));
 
   test("runs root first and skips a start with no ancestors", () => {
-    expect(ancestorTexts([u("c"), u("a")], rows({ a: null, b: "a", c: "b" })))
-      .toEqual(new Map([[u("c"), ["A", "B"]]]));
+    expect(ancestorTrails([u("c"), u("a")], rows({ a: null, b: "a", c: "b" })))
+      .toEqual(new Map([[u("c"), us("ab")]]));
   });
 
   test("stops at the first uid already on the trail", () => {
     const graph = rows({ a: "c", b: "a", c: "b", x: "a" });
-    expect(ancestorTexts([u("a"), u("x")], graph)).toEqual(new Map([
-      [u("a"), ["B", "C"]], [u("x"), ["B", "C", "A"]]]));
+    expect(ancestorTrails([u("a"), u("x")], graph)).toEqual(new Map([
+      [u("a"), us("bc")], [u("x"), us("bca")]]));
   });
 
   test("gives a self-parent no trail", () => {
-    expect(ancestorTexts([u("a")], rows({ a: "a" }))).toEqual(new Map());
+    expect(ancestorTrails([u("a")], rows({ a: "a" }))).toEqual(new Map());
   });
 
   test("ends at a missing parent and leaves out an unknown start", () => {
-    expect(ancestorTexts([u("c"), u("nope")], rows({ b: "gone", c: "b" })))
-      .toEqual(new Map([[u("c"), ["B"]]]));
+    expect(ancestorTrails([u("c"), u("nope")], rows({ b: "gone", c: "b" })))
+      .toEqual(new Map([[u("c"), us("b")]]));
+  });
+});
+
+describe("fetchAncestors texts", () => {
+  // Every block of a chain is a start, as when each links the page whose
+  // backlinks are read: each ancestor's text is held once, not once per
+  // trail through it, and a start is no ancestor of its own.
+  test("hold each ancestor on a trail once", async () => {
+    await openGraphDb();
+    const chain = chainOf(MAX_OUTLINE_DEPTH);
+    storeBlocks(chain);
+    const starts = [...chain.keys()].map(uidOf);
+    const got = fetchAncestors(t.db, starts);
+    const ancestors = starts.slice(0, -1);
+    expect(got.texts).toEqual(Object.fromEntries(
+      ancestors.map((uid) => [uid, `text of ${uid}`])));
+    expect(got.trails.get(starts[starts.length - 1])).toEqual(ancestors);
   });
 });
 
@@ -218,7 +245,7 @@ describe("fetchAncestors against the path-string walk", () => {
         if (cur !== null && trail.has(cur)) seen.cycle += 1;
         if (cur === MISSING) seen.missing += 1;
       }
-      expect(sorted(fetchAncestors(t.db, starts)))
+      expect(sorted(asTexts(fetchAncestors(t.db, starts))))
         .toEqual(sorted(referenceFetchAncestors(t.db, starts)));
     }), { numRuns: 300 });
     // Both corrupt shapes must actually be drawn.
@@ -231,13 +258,13 @@ describe("fetchAncestors against the path-string walk", () => {
     const chain = chainOf(MAX_OUTLINE_DEPTH + 1);
     const starts = [...chain.keys()].map(uidOf);
     storeBlocks(chain);
-    const got = fetchAncestors(t.db, starts);
+    const got = asTexts(fetchAncestors(t.db, starts));
     expect(sorted(got)).toEqual(sorted(referenceFetchAncestors(t.db, starts)));
     expect(got.get(starts[MAX_OUTLINE_DEPTH])).toHaveLength(MAX_OUTLINE_DEPTH);
 
     chain.set("chain-0", `chain-${MAX_OUTLINE_DEPTH}`);
     storeBlocks(chain);
-    const looped = fetchAncestors(t.db, starts);
+    const looped = asTexts(fetchAncestors(t.db, starts));
     expect(sorted(looped))
       .toEqual(sorted(referenceFetchAncestors(t.db, starts)));
     expect([...looped.values()].every((trail) =>
@@ -259,5 +286,64 @@ describe("fetchAncestors against the path-string walk", () => {
     const shallow = steps(200);
     const deep = steps(400);
     expect(deep).toBeLessThan(3 * shallow);
+  });
+});
+
+describe("id sets past SQLite's variable limit", () => {
+  // The wasm build refuses a statement binding more than 32,766 variables.
+  const absent = (n: number) =>
+    Array.from({ length: n }, (_, i) => uidOf(`tuid-none${i}`));
+
+  function insertBlock(rawUid: string, rawPageId: number, text: string) {
+    t.db.exec(
+      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+      + " heading, collapsed, created_at, updated_at)"
+      + " VALUES (?,?,?,?,?,?,?,?,?)",
+      [rawUid, rawPageId, null, 0, text, null, 0, 0, 0],
+    );
+  }
+
+  test("blockRefCounts counts a target among 40,000 uids", async () => {
+    t = await openTestDb();
+    insertPage(1, "P");
+    insertBlock("tuid-src", 1, "src");
+    insertBlock("tuid-tgt", 1, "tgt");
+    t.db.exec(
+      "INSERT INTO block_refs(src_block_uid, target_block_uid) VALUES (?, ?)",
+      ["tuid-src", "tuid-tgt"]);
+    const uids = [...absent(40_000), uidOf("tuid-tgt"), uidOf("tuid-tgt")];
+    expect(blockRefCounts(t.db, uids)).toEqual({ "tuid-tgt": 1 });
+  });
+
+  test("fetchAncestors trails a start among 40,000 uids", async () => {
+    t = await openTestDb();
+    const deep = seedLinearChain("chain-big", 3);
+    const trails = asTexts(fetchAncestors(t.db, [...absent(40_000), deep]));
+    expect(trails.get(deep)).toEqual(
+      ["chain-big text 0", "chain-big text 1", "chain-big text 2"]);
+    expect(trails.size).toBe(1);
+  });
+
+  test("resolveRefUids resolves a uid among 40,000", async () => {
+    t = await openTestDb();
+    insertPage(1, "P");
+    insertBlock("tuid-r", 1, "r");
+    expect(resolveRefUids(t.db, [...absent(40_000), uidOf("tuid-r")]))
+      .toEqual({ "tuid-r": { text: "r", page_title: "P" } });
+  });
+
+  test("pagePayload serves a page of 33,000 blocks", async () => {
+    t = await openTestDb();
+    insertPage(1, "Big");
+    t.db.exec(
+      `INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,
+                          heading, collapsed, created_at, updated_at)
+       WITH RECURSIVE n(i) AS (
+         SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 32999)
+       SELECT printf('tuid-b%05d', i), 1, NULL, i, 'b' || i,
+              NULL, 0, 0, 0 FROM n`);
+    const payload = pagePayload(t.db, "Big", 0, 10, Date.now())!;
+    expect(payload.blocks).toHaveLength(33_000);
+    expect(payload.block_ref_counts).toEqual({});
   });
 });

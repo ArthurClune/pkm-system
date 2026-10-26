@@ -41,6 +41,7 @@ from pkm.assistant.events import (
     ToolFinished,
     ToolStarted,
     TurnDone,
+    tool_error_reason,
 )
 from pkm.assistant.harness_env import resolve_harness_env
 from pkm.assistant.policy import (
@@ -95,9 +96,14 @@ class TurnMapper:
     deltas were seen (older CLI versions).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, tools: dict[str, str] | None = None,
+                 declined: set[str] | None = None) -> None:
         self._saw_delta = False
-        self._tool_names: dict[str, str] = {}
+        # tool_use_id -> full SDK tool name and the ids whose card the user
+        # declined; both shared with the conversation, so a result landing
+        # in a later turn than its call still finds them.
+        self._tools = tools if tools is not None else {}
+        self._declined = declined if declined is not None else set()
 
     def map(self, msg: object) -> list[AssistantEvent]:
         if isinstance(msg, StreamEvent):
@@ -128,8 +134,10 @@ class TurnMapper:
                     out.append(TextDelta(text=block.text))
                 elif isinstance(block, ToolUseBlock):
                     short = short_tool_name(block.name)
-                    self._tool_names[block.id] = short
-                    out.append(ToolStarted(name=short, summary=tool_summary(short, block.input or {})))
+                    self._tools[block.id] = block.name
+                    out.append(ToolStarted(
+                        tool_use_id=block.id, name=short,
+                        summary=tool_summary(short, block.input or {})))
             return out
         if isinstance(msg, UserMessage):
             content = msg.content
@@ -138,14 +146,30 @@ class TurnMapper:
             out = []
             for block in content:
                 if isinstance(block, ToolResultBlock):
-                    name = self._tool_names.get(block.tool_use_id, "tool")
-                    out.append(ToolFinished(name=name))
+                    out.append(self._finished(block))
             return out
         if isinstance(msg, ResultMessage):
             if msg.is_error:
                 return [ErrorEvent(message=f"assistant error: {msg.subtype}")]
             return [TurnDone(usage=msg.usage)]
         return []
+
+    def _finished(self, block: ToolResultBlock) -> ToolFinished:
+        tool_use_id = block.tool_use_id
+        full_name = self._tools.pop(tool_use_id, None)
+        declined = tool_use_id in self._declined
+        self._declined.discard(tool_use_id)
+        name = short_tool_name(full_name) if full_name else "tool"
+        # Only a write's error is shown: reads fail routinely while the
+        # model probes, and its reply reports them.
+        if (block.is_error is not True or full_name is None
+                or classify_tool(full_name) != "write"):
+            return ToolFinished(tool_use_id=tool_use_id, name=name)
+        if declined:
+            return ToolFinished(tool_use_id=tool_use_id, name=name,
+                                declined=True)
+        return ToolFinished(tool_use_id=tool_use_id, name=name,
+                            error=tool_error_reason(block.content))
 
 
 class ClaudeConversation:
@@ -156,13 +180,19 @@ class ClaudeConversation:
         self._queue: asyncio.Queue[AssistantEvent] = asyncio.Queue()
         self._pending: dict[ConfirmId, asyncio.Future[bool]] = {}
         self._confirm_seq = 0
-        # The turn's allowed writes whose results have not arrived, by
-        # tool_use_id (the confirm id when the SDK gives none, which then
-        # counts as running until the turn ends).
+        # The allowed writes whose results have not arrived, by tool_use_id
+        # (the confirm id when the SDK gives none, which then counts as
+        # running until a turn finishes). A stopped turn's writes carry
+        # over into the next turn.
         self._running_writes: set[str] = set()
         # Bumped when a confirm parks or a write is allowed, so a read that
         # spans one is known to have.
         self._write_events = 0
+        # Per tool_use_id, shared with each turn's TurnMapper: the full tool
+        # name of calls without a result yet, and the calls whose card the
+        # user declined. A stopped turn's call can report in the next turn.
+        self._tool_names: dict[str, str] = {}
+        self._declined: set[str] = set()
         self._pump_task: asyncio.Task[None] | None = None
         # Flips to False the moment an interrupt on this harness goes
         # unacknowledged (timed out or raised) -- see send()'s cleanup
@@ -188,20 +218,20 @@ class ClaudeConversation:
             logger.warning("assistant requested unexpected tool %s", tool_name)
             return PermissionResultDeny(message="Tool not permitted.")
         short = short_tool_name(tool_name)
-        # Whether another write of this turn could land after the read:
-        # one waits on the user or runs as the read starts, or one parks
-        # or is allowed during it.
+        # Whether another write could land after the read: one waits on
+        # the user or runs as the read starts (a stopped turn's included),
+        # or one parks or is allowed during it.
         in_flight = self._writes_in_flight()
         events = self._write_events
-        preview = await preview_write(short, tool_input or {},
-                                      self._read_blocks)
-        if isinstance(preview, Refusal):
+        approval = await preview_write(short, tool_input or {},
+                                       self._read_blocks)
+        if isinstance(approval, Refusal):
             # Input the tool's schema rejects is never shown as a card:
             # the user cannot approve what the tool would not run as shown.
             logger.warning("assistant write %s refused: %s", short,
-                           preview.message)
-            return PermissionResultDeny(message=preview.message)
-        preview = replace(preview, writes_in_flight=(
+                           approval.message)
+            return PermissionResultDeny(message=approval.message)
+        preview = replace(approval.preview, writes_in_flight=(
             in_flight or events != self._write_events))
         self._confirm_seq += 1
         # A local counter, not the SDK's own tool_use id (that id lives on
@@ -224,7 +254,14 @@ class ClaudeConversation:
             tool_use_id = context.tool_use_id if context is not None else None
             self._running_writes.add(tool_use_id or confirm_id)
             self._write_events += 1
-            return PermissionResultAllow()
+            # The SDK hands the tool `updated_input` in place of the
+            # model's input, falling back to it only when this is None:
+            # so the tool runs the call the card showed, carrying the
+            # blocks it showed as `expect`, whatever the dict passed in
+            # holds by now.
+            return PermissionResultAllow(updated_input=approval.tool_input)
+        if context is not None and context.tool_use_id:
+            self._declined.add(context.tool_use_id)
         return PermissionResultDeny(message="The user declined this action.")
 
     def _writes_in_flight(self) -> bool:
@@ -240,16 +277,19 @@ class ClaudeConversation:
         # not leak into the next turn
         while not self._queue.empty():
             self._queue.get_nowait()
-        # the last turn's writes have all finished by its result
-        self._running_writes.clear()
         await self._live_client().query(text)
-        mapper = TurnMapper()
+        mapper = TurnMapper(self._tool_names, self._declined)
         pump = asyncio.create_task(self._pump(mapper))
         self._pump_task = pump
         finished = False
         try:
             while True:
                 event = await self._queue.get()
+                if isinstance(event, TurnDone):
+                    # Every write of a finished turn has its result. A
+                    # stopped or failed turn's stay running until theirs
+                    # arrives in a later turn, or that turn finishes.
+                    self._running_writes.clear()
                 yield event
                 if isinstance(event, (TurnDone, ErrorEvent)):
                     finished = True
@@ -463,8 +503,11 @@ class ClaudeEngine:
                     "pkm": {
                         "type": "stdio",
                         "command": sys.executable,
+                        # --require-expect: a guarded write without the
+                        # card's `expect` is refused, never run unguarded
                         "args": ["-m", "pkm.mcp.server", "--tools",
-                                 ",".join(READ_TOOLS + WRITE_TOOLS)],
+                                 ",".join(READ_TOOLS + WRITE_TOOLS),
+                                 "--require-expect"],
                         "env": {"PKM_CLI_CONFIG": str(config_path)},
                     }
                 },

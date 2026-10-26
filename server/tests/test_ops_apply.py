@@ -13,7 +13,7 @@ from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockUid, CreateOp, CreatePage
 from pkm.server import ops_apply, ops_core
 from pkm.server.db import open_db
 from pkm.server.ops_apply import (_parent_chain, _subtree_deepest_first,
-                                  _subtree_rows, apply_batch)
+                                  subtree_rows, apply_batch)
 from pkm.server.ops_core import OpError, SubtreeRow, judge_batch
 from pkm.test_data.ids import batch_id_of, client_id_of, order_idx_of, raw_title_of, sha_of, uid_of
 
@@ -356,7 +356,7 @@ def test_subtree_rows_is_deepest_first_with_columns(db):
          "parent_uid": "uid_b3", "order_idx": 0, "text": "grandchild"},
     )), NOW)
     db.commit()
-    rows = _subtree_rows(db, uid_of("uid_b2"))
+    rows = subtree_rows(db, uid_of("uid_b2"))
     assert rows[0] == SubtreeRow(uid_of("rows_g1"), uid_of("uid_b3"), order_idx_of(0),
                                  "grandchild")
     assert set(rows[1:3]) == {
@@ -367,7 +367,7 @@ def test_subtree_rows_is_deepest_first_with_columns(db):
     assert rows[3] == SubtreeRow(uid_of("uid_b2"), None, order_idx_of(1), "Papers")
     assert (sorted(r.uid for r in rows)
             == sorted(_subtree_deepest_first(db, uid_of("uid_b2"))))
-    assert _subtree_rows(db, uid_of("no_such_uid")) == ()
+    assert subtree_rows(db, uid_of("no_such_uid")) == ()
 
 
 def test_subtree_rows_terminates_on_preexisting_cycle(db):
@@ -376,7 +376,7 @@ def test_subtree_rows_terminates_on_preexisting_cycle(db):
     db.commit()
     db.execute("UPDATE blocks SET parent_uid = 'cycrow4' WHERE uid = 'cycrow0'")
     db.commit()
-    rows = _subtree_rows(db, uid_of("cycrow0"))
+    rows = subtree_rows(db, uid_of("cycrow0"))
     assert sorted(r.uid for r in rows) == [f"cycrow{i}" for i in range(5)]
 
 

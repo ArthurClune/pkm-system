@@ -108,13 +108,49 @@ describe("AssistantPanel", () => {
   test("renders messages and tool lines", () => {
     state.current.items = [
       { kind: "user", text: "find x" },
-      { kind: "tool", name: "search", summary: 'searching "x"', done: true },
+      { kind: "tool", toolUseId: "t1", name: "search", summary: 'searching "x"',
+        done: true, error: null, declined: false },
       { kind: "assistant", text: "Found **it**" },
     ];
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByText("find x")).toBeInTheDocument();
     expect(screen.getByText(/searching "x"/)).toBeInTheDocument();
     expect(screen.getByText("it")).toBeInTheDocument(); // bold rendered via InlineSegments
+  });
+
+  test("a failed write's line shows ✗ and its reason as text", () => {
+    state.current.items = [
+      { kind: "tool", toolUseId: "t1", name: "update_block",
+        summary: "update_block", done: true, declined: false,
+        error: 'block ((AbCdEfGh)) changed <img src=x onerror="alert(1)">' },
+      { kind: "tool", toolUseId: "t2", name: "update_block",
+        summary: "update_block", done: true, error: null, declined: false },
+    ];
+    const { container } = render(<AssistantPanel open onClose={() => {}} />);
+    const failed = container.querySelectorAll(".assistant-tool-failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0].textContent).toBe(
+      'Failed: block ((AbCdEfGh)) changed <img src=x onerror="alert(1)">');
+    expect(failed[0].querySelector("bdi")?.getAttribute("dir")).toBe("ltr");
+    expect(container.querySelector(".assistant-messages img")).toBeNull();
+    expect(container.querySelector(".assistant-messages a")).toBeNull();
+    const lines = container.querySelectorAll(".assistant-tool-line");
+    expect(lines[0].textContent).toMatch(/^✗ update_block/);
+    expect(lines[1].textContent).toMatch(/^✓ update_block/);
+  });
+
+  test("a declined write's line shows a neutral Declined, no ✗ or ✓", () => {
+    state.current.items = [
+      { kind: "tool", toolUseId: "t1", name: "update_block",
+        summary: "update_block", done: true, error: null, declined: true },
+    ];
+    const { container } = render(<AssistantPanel open onClose={() => {}} />);
+    expect(container.querySelector(".assistant-tool-failed")).toBeNull();
+    const line = container.querySelector(".assistant-tool-line");
+    expect(line?.textContent).toMatch(/^update_block/);
+    expect(line?.textContent).toContain("Declined");
+    expect(line?.textContent).not.toContain("✗");
+    expect(line?.textContent).not.toContain("✓");
   });
 
   test("Enter sends, Shift+Enter does not", () => {
@@ -551,13 +587,13 @@ describe("ConfirmCard", () => {
       ['currently on page: "Src"', 'current text: "Old wording."']);
   });
 
-  // the server read the card while an earlier write of the turn could
-  // still land, and the user allowed one
+  // the server read the card while an earlier allowed write could still
+  // land, this turn's or a stopped one's, and the user allowed one
   test.each([
-    [1, "You allowed 1 earlier card in this turn, and its write may have "
+    [1, "You allowed 1 earlier card, and its write may have "
       + "landed after this card was read; the current text it shows may "
       + "have changed."],
-    [2, "You allowed 2 earlier cards in this turn, and their writes may have "
+    [2, "You allowed 2 earlier cards, and their writes may have "
       + "landed after this card was read; the current text it shows may "
       + "have changed."],
   ])("a stamped card after %i allowed cards says so", (allowed, copy) => {

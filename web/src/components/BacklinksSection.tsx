@@ -11,6 +11,7 @@ import { mergeBacklinkResult, walkBacklinkBatches } from "./backlinkBatchWalk";
 import { applyFilter, chipCounts, EMPTY_FILTER, isFiltering, toggleChip,
          type FilterState } from "./backlinkFilter";
 import { BacklinkGroupList } from "./BacklinkGroupList";
+import { showBacklinkGroups } from "./groups";
 
 export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
     { title: CanonicalTitle; initial: Backlinks; refreshGeneration?: number }) {
@@ -22,7 +23,8 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   // tracked here (not frozen from the initial prop) so completion is
   // derived from the latest known value.
   const [backlinks, setBacklinks] = useState<BacklinkBatchState>({
-    groups: initial.groups, totalPages: initial.total_pages, refTexts: {},
+    groups: showBacklinkGroups(initial.groups), totalPages: initial.total_pages,
+    refTexts: {},
   });
   // Shared by loadMore and loadAll, not per-caller: if both are ever in
   // flight together the first to settle re-enables both buttons early. Both

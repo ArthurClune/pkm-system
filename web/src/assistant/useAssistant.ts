@@ -64,7 +64,10 @@ async function streamWithBusyRetry(
 export type ChatItem =
   | { kind: "user"; text: string }
   | { kind: "assistant"; text: string }
-  | { kind: "tool"; name: string; summary: string; done: boolean };
+  // `error` is a write's failure reason, `declined` a write the user denied
+  // on its card; both come from the server and are untrusted text/flags.
+  | { kind: "tool"; toolUseId: string; name: string; summary: string;
+      done: boolean; error: string | null; declined: boolean };
 
 export type PendingConfirm = {
   confirmId: ConfirmId;
@@ -131,7 +134,9 @@ export function useAssistant() {
     setAnsweringState(next);
   }, []);
   const status = confirmQueue.length > 0 ? "confirm" : runStatus;
-  // the Allows posted in the running turn, which a card arriving now counts
+  // The Allows posted since the last turn that finished, which a card
+  // arriving now counts. A stopped turn's allowed write may still be
+  // running, so its Allows carry over into the next turn.
   const allowedInTurn = useRef(0);
   const conversationId = useRef<ConversationId | null>(null);
   const abortController = useRef<AbortController | null>(null);
@@ -191,7 +196,10 @@ export function useAssistant() {
         });
         break;
       case "tool_started":
-        setItems((prev) => [...prev, { kind: "tool", name: ev.name, summary: ev.summary, done: false }]);
+        setItems((prev) => [...prev, {
+          kind: "tool", toolUseId: ev.tool_use_id, name: ev.name,
+          summary: ev.summary, done: false, error: null, declined: false,
+        }]);
         // the tool's own line takes over from a stale "preparing …" label
         setPhase({ label: null, since: Date.now() });
         break;
@@ -201,12 +209,16 @@ export function useAssistant() {
       case "tool_finished":
         setItems((prev) => {
           const idx = prev.findIndex(
-            (item) => item.kind === "tool" && item.name === ev.name && !item.done,
+            (item) => item.kind === "tool" && item.toolUseId === ev.tool_use_id
+              && !item.done,
           );
           if (idx === -1) return prev;
           const item = prev[idx];
           if (item.kind !== "tool") return prev;
-          return [...prev.slice(0, idx), { ...item, done: true }, ...prev.slice(idx + 1)];
+          return [...prev.slice(0, idx), {
+            ...item, done: true, error: ev.error ?? null,
+            declined: ev.declined === true,
+          }, ...prev.slice(idx + 1)];
         });
         break;
       case "confirm_request":
@@ -216,6 +228,7 @@ export function useAssistant() {
         }]);
         break;
       case "turn_done":
+        allowedInTurn.current = 0;
         break;
       case "error":
         setError(ev.message);
@@ -244,6 +257,8 @@ export function useAssistant() {
           return;
         }
         conversationId.current = created.id;
+        // a new conversation runs none of the old one's writes
+        allowedInTurn.current = 0;
       }
       setModelLocked(true);
       const controller = new AbortController();
@@ -282,7 +297,6 @@ export function useAssistant() {
       setStatus("busy");
       setPhase({ label: null, since: Date.now() });
       setItems((prev) => [...prev, { kind: "user", text }]);
-      allowedInTurn.current = 0;
       stopRequested.current = false;
       const run = (async () => {
         try {

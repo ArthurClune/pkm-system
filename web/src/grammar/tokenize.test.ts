@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MAX_BLOCK_TEXT_CHARS } from "./textLimits";
 import { TOKENIZE_CACHE_LIMIT, tokenizeBlock } from "./tokenize";
 
 describe("tokenizeBlock", () => {
@@ -505,6 +506,31 @@ describe("tokenizeBlock on long runs of math and macro openers", () => {
     const segs = tokenizeBlock(text);
     expect(performance.now() - started).toBeLessThan(3000);
     expect(segs).toEqual([{ kind: "text", text }]);
+  }, 300_000);
+
+  it("renders a block of unclosed `{` at the length cap in linear time", () => {
+    const text = "{".repeat(MAX_BLOCK_TEXT_CHARS);
+    const started = performance.now();
+    const segs = tokenizeBlock(text);
+    expect(performance.now() - started).toBeLessThan(3000);
+    expect(segs).toEqual([{ kind: "text", text }]);
+  }, 60_000);
+
+  it("renders unclosed `{{[[query]]: ` ×76,923 in linear time", () => {
+    const text = "{{[[query]]: ".repeat(76_923);
+    const started = performance.now();
+    const segs = tokenizeBlock(text);
+    expect(performance.now() - started).toBeLessThan(3000);
+    // No macro closes, so each `[[query]]` renders as the page ref it is,
+    // between runs of text.
+    const ref = { kind: "page-ref", title: "query", tag: false };
+    const between = { kind: "text", text: ": {{" };
+    expect(segs).toEqual([
+      { kind: "text", text: "{{" },
+      ...Array.from({ length: 76_922 }, () => [ref, between]).flat(),
+      ref,
+      { kind: "text", text: ": " },
+    ]);
   }, 300_000);
 
   it("skips a $$ inside inline code when closing math", () => {

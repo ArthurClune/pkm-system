@@ -4,21 +4,21 @@
 // precedent as JournalDayReferences reusing BacklinksSection rather than
 // growing a second renderer.
 import type { BlockUid, CanonicalTitle } from "../api/brands";
-import type { BacklinkGroup } from "../api/payloads";
 import { tokenizeBlock } from "../grammar/tokenize";
 import type { AssetRefGroup } from "../views/filesCore";
+import type { ShownBacklinkGroup } from "./groups";
 import { InlineSegments } from "./InlineSegments";
 import { PageLink } from "./PageLink";
 
 // page_id only exists on real backlink groups; asset ref groups have none
 // (see AssetRefGroup), so page_title -- unique within either list -- is the
 // one key both shapes can supply.
-function groupKey(g: BacklinkGroup | AssetRefGroup): string | number {
+function groupKey(g: ShownBacklinkGroup | AssetRefGroup): string | number {
   return "page_id" in g ? g.page_id : g.page_title;
 }
 
 export function BacklinkGroupList({ groups, onNavigate }: {
-  groups: (BacklinkGroup | AssetRefGroup)[];
+  groups: (ShownBacklinkGroup | AssetRefGroup)[];
   /** When set, each item becomes a navigation target (the popover);
    * without it, items render inertly (the backlinks section, where
    * navigation lives on the inline links themselves). */
@@ -45,8 +45,8 @@ export function BacklinkGroupList({ groups, onNavigate }: {
                      onNavigate(g.page_title, item.uid);
                    }
                  } : undefined}>
-              {item.breadcrumbs.length > 0 && (
-                <div className="breadcrumbs">{item.breadcrumbs.join(" › ")}</div>
+              {item.crumbs.length > 0 && (
+                <div className="breadcrumbs">{item.crumbs.join(" › ")}</div>
               )}
               <div className="backlink-text">
                 <InlineSegments segments={tokenizeBlock(item.text)} />

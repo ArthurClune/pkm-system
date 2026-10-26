@@ -15,8 +15,8 @@ import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
 import { canonicalTitle } from "../meta";
 import { phraseQuery } from "./fts";
-import { BLOCK_COLS, blockRefCounts, blockRefTexts, buildTree,
-         fetchAncestors } from "./tree";
+import { type Ancestors, BLOCK_COLS, blockRefCounts, blockRefTexts,
+         buildTree, fetchAncestors } from "./tree";
 
 // db.select names `Columns` keys, so a row's types are the vocabulary's and
 // the row check verifies them. Every query that feeds a response still maps
@@ -36,6 +36,10 @@ const fetchPage = (db: ReplicaDb, requested: string): PageMeta | null => {
 
 type BacklinkRow = Pick<Columns, "uid" | "text" | "src_page_id"
   | "src_page_title">;
+
+/** responses.STALE_BUNDLE_CRUMB, pinned by shim_parity.json: what a bundle
+ * built before `ancestors` shows as an item's whole trail. */
+const STALE_BUNDLE_CRUMB = "…";
 
 const HOUR_MS = 60 * 60 * 1000;
 const CURRENT_WORK_SECTIONS = [
@@ -66,35 +70,57 @@ export function backlinks(db: ReplicaDb, pageId: PageId, offset: number,
      ORDER BY p.updated_at DESC NULLS LAST, p.title
      LIMIT ? OFFSET ?`, ["page_id"], [pageId, pageId, limit, offset]).map((r) => r.page_id);
   if (pageIds.length === 0) return { groups: [], total, texts: [] };
-  const marks = pageIds.map(() => "?").join(",");
   const rows = db.select(
     `SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
        FROM refs r
        JOIN blocks b ON b.uid = r.src_block_uid
        JOIN pages p ON p.id = b.page_id
-      WHERE r.target_page_id = ? AND b.page_id IN (${marks})
+      WHERE r.target_page_id = ?
+        AND b.page_id IN (SELECT value FROM json_each(?))
       ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid`, ["uid", "text", "src_page_id", "src_page_title"],
-    [pageId, ...pageIds]);
+    [pageId, JSON.stringify(pageIds)]);
   const groups = groupBacklinkRows(
     rows, fetchAncestors(db, rows.map((r) => r.uid)));
   return { groups, total, texts: rows.map((r) => r.text) };
 }
 
-/** Rows arrive already ordered; grouping preserves first-seen page order. */
+/** Rows arrive already ordered; grouping preserves first-seen page order.
+ * Each group lists its items' ancestor texts once and items name them by
+ * position, numbered as server grouping.group_backlinks numbers them: items
+ * in row order, each trail root first. Like the server, an empty trail or
+ * list is left out, and `breadcrumbs` is the stale-bundle field. */
 function groupBacklinkRows(rows: BacklinkRow[],
-                           ancestors: Map<BlockUid, string[]>): BacklinkGroup[] {
+                           ancestors: Ancestors): BacklinkGroup[] {
   const groups: BacklinkGroup[] = [];
-  const index = new Map<PageId, BacklinkGroup>();
+  const index = new Map<PageId,
+    { group: BacklinkGroup; seen: Map<BlockUid, number> }>();
   for (const r of rows) {
-    let group = index.get(r.src_page_id);
-    if (!group) {
-      group = { page_id: r.src_page_id, page_title: r.src_page_title,
-                items: [] };
-      index.set(r.src_page_id, group);
-      groups.push(group);
+    let entry = index.get(r.src_page_id);
+    if (!entry) {
+      entry = { group: { page_id: r.src_page_id, page_title: r.src_page_title,
+                         items: [] }, seen: new Map() };
+      index.set(r.src_page_id, entry);
+      groups.push(entry.group);
     }
-    group.items.push({ uid: r.uid, text: r.text,
-                       breadcrumbs: ancestors.get(r.uid) ?? [] });
+    const { group, seen } = entry;
+    const trail = (ancestors.trails.get(r.uid) ?? []).map((uid) => {
+      let at = seen.get(uid);
+      if (at === undefined) {
+        at = seen.size;
+        seen.set(uid, at);
+      }
+      return at;
+    });
+    group.items.push(trail.length > 0
+      ? { uid: r.uid, text: r.text, breadcrumbs: [STALE_BUNDLE_CRUMB],
+          ancestors: trail }
+      : { uid: r.uid, text: r.text, breadcrumbs: [] });
+  }
+  for (const { group, seen } of index.values()) {
+    if (seen.size > 0) {
+      group.ancestor_texts = [...seen.keys()].map((uid) =>
+        ancestors.texts[uid]);
+    }
   }
   return groups;
 }

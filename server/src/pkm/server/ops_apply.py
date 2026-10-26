@@ -4,16 +4,17 @@ Runs inside the caller's transaction; never commits or rolls back."""
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
 from typing import Union
 
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockOp, BlockUid,
                                CreateOp, CreatePageOp,
-                               DeleteOp, MoveOp, PageId,
-                               SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
-                               UpdateTextOp, new_uid)
+                               DeleteOp, ExpectedBlock, MoveOp,
+                               PageId, SetCollapsedOp, SetHeadingOp,
+                               SetViewTypeOp, Sha256Hex, UpdateTextOp,
+                               new_uid, subtree_hash, text_hash)
 from pkm.contracts.responses import SkippedOp
 from pkm.database import Db
 from pkm.contracts.titles import UNTITLED_PAGE_TITLE, RawTitle
@@ -171,8 +172,8 @@ def _subtree_deepest_first(db: Db,
     return _subtree_with_height(db, uid)[0]
 
 
-def _subtree_rows(db: Db,
-                  uid: BlockUid) -> tuple[SubtreeRow, ...]:
+def subtree_rows(db: Db,
+                 uid: BlockUid) -> tuple[SubtreeRow, ...]:
     """uid and every descendant with its parent, position and text, deepest
     first -- what a guarded delete hashes and, on a divergence, copies. The
     same recursive CTE and visited-path guard as _subtree_deepest_first, so
@@ -435,7 +436,7 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
     if isinstance(op, DeleteOp):
         if op.base_subtree_hash is None:
             return DeleteContext(block, _subtree_deepest_first(db, op.uid))
-        rows = _subtree_rows(db, op.uid)
+        rows = subtree_rows(db, op.uid)
         if not delete_diverged(op.base_subtree_hash, rows):
             return DeleteContext(block, tuple(r.uid for r in rows))
         # only a divergence pays for today's daily page: the landing mints
@@ -610,6 +611,24 @@ class AppliedBatch:
     feed."""
     broadcast_ops: list[dict[str, object]]
     skipped: list[SkippedOp]
+
+
+def expected_now(db: Db, expect: Sequence[ExpectedBlock]
+                 ) -> dict[BlockUid, Sha256Hex | None]:
+    """The hash of each expectation's own kind as stored now, None when no
+    block has the uid: the text hash for text and absent, the subtree hash
+    (through subtree_rows, the walk the card's reader shares) for subtree."""
+    now: dict[BlockUid, Sha256Hex | None] = {}
+    for e in expect:
+        if e.kind == "subtree":
+            rows = subtree_rows(db, e.uid)
+            now[e.uid] = (subtree_hash((r.uid, r.text) for r in rows)
+                          if rows else None)
+        else:
+            row = db.select_one("SELECT text FROM blocks WHERE uid = ?",
+                                (e.uid,))
+            now[e.uid] = None if row is None else text_hash(row["text"])
+    return now
 
 
 def apply_batch(db: Db, judged: JudgedBatch,

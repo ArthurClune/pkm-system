@@ -3,7 +3,7 @@
 // still does, and the outline raises the depth notice.
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
@@ -285,8 +285,84 @@ it("a refused drop sets no scroll target", async () => {
     order_idx: orderIdxOf(k + 5), text: "late" }));
   const handle = peekOutlineSession(canonicalTitleOf(PAGE))!;
   act(() => handle.applyLocal(sync.enqueue(late, ["page", PAGE]), late));
+  // a peeked handle holds the session: an unreleased one carries this
+  // test's page into the next test's outline
+  handle.release();
 
   expect(outline().blocks.length).toBeGreaterThan(1);
   expect(scrollIntoView).not.toHaveBeenCalled();
   restore();
+});
+
+// A page imported before the cap may already hold rows past it. Each
+// command is judged by the blocks it places, so those rows leave the rest
+// of the page, and their own text, editable.
+describe("a page holding rows past the cap", () => {
+  /** A legacy chain L1 > ... > L120, then shallow roots s1 and s2. */
+  function legacyTree(): BlockNode[] {
+    let node = block("tuid-L120", "L120");
+    for (let level = 119; level >= 1; level--) {
+      node = block(`tuid-L${level}`, `L${level}`, { children: [node] });
+    }
+    return [
+      node,
+      block("tuid-s1", "s1", { order_idx: orderIdxOf(1) }),
+      block("tuid-s2", "s2", { order_idx: orderIdxOf(2) }),
+    ];
+  }
+
+  it("an indent at a shallow level applies", () => {
+    const sync = makeSync();
+    const outline = setup(sync, legacyTree());
+    console.log("PRE", outline().blocks.map(b=>b.uid).slice(0,5), outline().blocks.length, outline().editNotice);
+    act(() => outline().handlers.onIndent(uidOf("tuid-s2")));
+    console.log("DBG", outline().editNotice, outline().blocks.map(b=>b.uid));
+    expect(sync.sent).toHaveLength(1);
+    expect(parentOf(outline(), "tuid-s2")).toBe("tuid-s1");
+    expect(outline().editNotice).toBeNull();
+    // the undo is judged by the blocks it places, too
+    act(() => { performUndo(sync); });
+    expect(sync.sent).toHaveLength(2);
+    expect(parentOf(outline(), "tuid-s2")).toBeNull();
+    expect(outline().editNotice).toBeNull();
+  });
+
+  it("a subtree move at a shallow level applies", () => {
+    const sync = makeSync();
+    const outline = setup(sync, legacyTree());
+    act(() => outline().handlers.onMoveSubtreeUp(uidOf("tuid-s2")));
+    expect(sync.sent).toHaveLength(1);
+    expect(sync.sent[0].map((op) => op.op)).toEqual(["move"]);
+    expect(outline().blocks.map((b) => b.uid))
+      .toEqual(["tuid-L1", "tuid-s2", "tuid-s1"]);
+    expect(outline().editNotice).toBeNull();
+  });
+
+  it("a paste at a shallow level applies", () => {
+    const sync = makeSync();
+    const outline = setup(sync, legacyTree());
+    act(() => outline().handlers.onPasteOutline(
+      uidOf("tuid-s1"), 2, 2, "a\n\tb"));
+    expect(sync.sent).toHaveLength(1);
+    expect(sync.sent[0].map((op) => op.op))
+      .toEqual(["update_text", "create"]);
+    expect(findNode(outline().blocks, uidOf("tuid-s1"))?.text).toBe("s1a");
+    expect(outline().editNotice).toBeNull();
+  });
+
+  it("the deep rows' text stays editable", () => {
+    const sync = makeSync();
+    const outline = setup(sync, legacyTree());
+    const deep = uidOf("tuid-L120");
+    act(() => outline().handlers.onFocusBlock(deep, 4));
+    act(() => outline().handlers.onDraftStart(deep, "L120"));
+    act(() => outline().handlers.onDraftChange(deep, "deep edit"));
+    act(() => outline().handlers.onFlushDraft());
+    expect(sync.sent).toEqual([[
+      { op: "update_text", uid: "tuid-L120", text: "deep edit",
+        base_text_hash: sha256Hex("L120"), page_title: PAGE },
+    ]]);
+    expect(findNode(outline().blocks, deep)?.text).toBe("deep edit");
+    expect(outline().editNotice).toBeNull();
+  });
 });

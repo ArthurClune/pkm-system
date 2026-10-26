@@ -1178,3 +1178,39 @@ def test_validate_batch_echoes_an_extra_param_key_bounded():
                          "params": {"uid": "A", "k" * 1_000_000: 1}}])
     assert len(str(info.value)) < 200
     assert "… (1,000,000 characters)" in str(info.value)
+
+
+@pytest.mark.parametrize("spec", ["uid_b4", "((uid_b4))", " uid_b4",
+                                  "uid_b4 ", "{{x}}"])
+@pytest.mark.parametrize("command", ["update", "move", "delete"])
+def test_uid_specs_the_card_reads_are_the_uids_planned(command, spec):
+    """The approval card guards the uid `_target_uid` reads from a spec, and
+    the write lands on the uid `plan_batch` puts on the op. Every planned
+    op that names an existing block either names the guarded uid, or names
+    a block this batch creates (nothing stored to guard), or carries a uid
+    no block can have, which `ops_core.impossible_uid_reason` refuses with
+    400 before anything is written."""
+    from pkm.assistant.write_preview import Refusal, _target_uid, _validate
+    from pkm.contracts.ops import UID_RE
+
+    params: dict[str, object] = {"uid": spec}
+    if command == "update":
+        params["text"] = "t"
+    if command == "move":
+        params["page"] = "Machine Learning"
+    commands = [
+        {"command": "create", "params": {"page": "Machine Learning",
+                                         "text": "x", "as": "x"}},
+        {"command": command, "params": params}]
+    checked = _validate("batch", {"commands": commands})
+    assert not isinstance(checked, Refusal), checked
+    guarded = {_target_uid(entry, validated)
+               for entry, validated in checked.ops} - {None}
+    ops = plan_batch(commands, {"Machine Learning": BLOCKS}, uid_gen())
+    created = {o.uid for o in ops if isinstance(o, CreateOp)}
+    named = [o.uid for o in ops if not isinstance(o, (CreateOp,
+                                                       CreatePageOp))]
+    assert named
+    for uid in named:
+        assert (uid in guarded or uid in created
+                or UID_RE.fullmatch(uid) is None), uid

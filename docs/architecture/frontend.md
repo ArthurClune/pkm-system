@@ -272,6 +272,12 @@ fallback in `useAssistant.ts`.
   turn's events and finalizers are dropped.
 - The busy clock (`elapsed.ts::elapsedLabel`) restarts on each phase label,
   tool start and confirm resume, so a parked approval does not inflate it.
+- A tool line pairs with its `tool_finished` by `tool_use_id`, across turns,
+  so a stopped turn's write still resolves in the next. Only a line not yet
+  done pairs, so a reused id cannot turn a finished line's `✗` into `✓`.
+  A failed write's
+  `.assistant-tool-failed` is a text node, never `tokenizeBlock`: the reason
+  can echo model-chosen input.
 - `stripCaretBlockRefs` (`assistant/normalizeRefs.ts`) runs before
   `tokenizeBlock`, because some models copy the `^uid` marker into citations
   and the grammar rejects `((^uid))`.

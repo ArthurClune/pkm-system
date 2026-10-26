@@ -97,10 +97,11 @@ export function resolveRefUids(db: ReplicaDb, uids: BlockUid[]): BlockRefTexts {
     const fresh = pending.filter((u) => !seen.has(u));
     if (fresh.length === 0) return out;
     fresh.forEach((u) => seen.add(u));
-    const marks = fresh.map(() => "?").join(",");
     const rows = db.select(
       `SELECT b.uid, b.text, p.title AS page_title FROM blocks b
-        JOIN pages p ON p.id = b.page_id WHERE b.uid IN (${marks})`, ["uid", "text", "page_title"], fresh);
+        JOIN pages p ON p.id = b.page_id
+       WHERE b.uid IN (SELECT value FROM json_each(?))`,
+      ["uid", "text", "page_title"], [JSON.stringify(fresh)]);
     for (const r of rows) {
       out[r.uid] = { text: r.text, page_title: r.page_title };
     }
@@ -114,42 +115,44 @@ export function blockRefTexts(db: ReplicaDb, texts: string[]): BlockRefTexts {
 
 /** Incoming ((ref)) count per uid, nonzero entries only: one
  * GROUP BY against idx_block_refs_target. Source rows CASCADE with their
- * block, so every counted row has a live source. */
+ * block, so every counted row has a live source. The uids are bound whole
+ * as one JSON array, as every id set in this file is: SQLite refuses a
+ * statement past its variable limit, and a page's uids are unbounded. */
 export function blockRefCounts(db: ReplicaDb,
                                uids: BlockUid[]): Record<string, number> {
   if (uids.length === 0) return {};
-  const marks = uids.map(() => "?").join(",");
   const out: Record<string, number> = {};
   for (const r of db.select(
     `SELECT target_block_uid, count(*) AS n FROM block_refs
-      WHERE target_block_uid IN (${marks})
-      GROUP BY target_block_uid`, ["n", "target_block_uid"], uids)) {
+      WHERE target_block_uid IN (SELECT value FROM json_each(?))
+      GROUP BY target_block_uid`, ["n", "target_block_uid"],
+    [JSON.stringify(uids)])) {
     out[r.target_block_uid] = Number(r.n);
   }
   return out;
 }
 
-/** Each start's breadcrumb trail, root first, from `uid -> [parent_uid,
- * text]`: the parent links followed up to a uid missing from `blocks` or
- * one already on the trail (the start counts), so a corrupt parent cycle
- * ends rather than repeating. Starts with no ancestor in `blocks` are
- * absent. Mirrors server tree.ancestor_texts. */
-export function ancestorTexts(
+/** Each start's breadcrumb trail of ancestor uids, root first, from
+ * `uid -> [parent_uid, text]`: the parent links followed up to a uid missing
+ * from `blocks` or one already on the trail (the start counts), so a corrupt
+ * parent cycle ends rather than repeating. Starts with no ancestor in
+ * `blocks` are absent. Mirrors server tree.ancestor_trails. */
+export function ancestorTrails(
   starts: readonly BlockUid[],
   blocks: ReadonlyMap<BlockUid, readonly [BlockUid | null, string]>,
-): Map<BlockUid, string[]> {
-  const out = new Map<BlockUid, string[]>();
+): Map<BlockUid, BlockUid[]> {
+  const out = new Map<BlockUid, BlockUid[]>();
   for (const start of new Set(starts)) {
     const first = blocks.get(start);
     if (!first) continue;
     const seen = new Set<BlockUid>([start]);
-    const trail: string[] = [];
+    const trail: BlockUid[] = [];
     let parent = first[0];
     while (parent !== null && !seen.has(parent)) {
       const row = blocks.get(parent);
       if (!row) break;
       seen.add(parent);
-      trail.push(row[1]);
+      trail.push(parent);
       parent = row[0];
     }
     if (trail.length > 0) out.set(start, trail.reverse());
@@ -157,28 +160,44 @@ export function ancestorTexts(
   return out;
 }
 
-/** Breadcrumb trails: root-first ancestor texts per start uid. Mirrors
- * routes_pages._fetch_ancestors: the CTE holds `uid` alone and joins with
- * UNION, which queues a row only once, so each distinct ancestor is read
- * once and a corrupt parent cycle ends the walk. It must never carry a
- * per-row path string: one row per (start, ancestor), each copying an
- * O(depth) string, made breadcrumbs cost O(depth^3). */
-export function fetchAncestors(db: ReplicaDb,
-                               uids: BlockUid[]): Map<BlockUid, string[]> {
-  if (uids.length === 0) return new Map();
-  const marks = uids.map(() => "?").join(",");
+/** Breadcrumb trails as uids, and the text of every uid on a trail, once.
+ * `pages.ts::groupBacklinkRows` turns them into the wire shape: per group,
+ * an `ancestor_texts` list, and per item, `ancestors` as positions in it.
+ * Mirrors server tree.Ancestors. */
+export interface Ancestors {
+  trails: Map<BlockUid, BlockUid[]>;
+  texts: Record<BlockUid, string>;
+}
+
+/** Breadcrumb trails: root-first ancestor uids per start uid, with each
+ * ancestor's text once. Mirrors routes_pages._fetch_ancestors: the CTE holds
+ * `uid` alone and joins with UNION, which queues a row only once, so each
+ * distinct ancestor is read once and a corrupt parent cycle ends the walk.
+ * It must never carry a per-row path string: one row per (start, ancestor),
+ * each copying an O(depth) string, made breadcrumbs cost O(depth^3). */
+export function fetchAncestors(db: ReplicaDb, uids: BlockUid[]): Ancestors {
+  if (uids.length === 0) return { trails: new Map(), texts: {} };
   const blocks = new Map<BlockUid, readonly [BlockUid | null, string]>();
   for (const r of db.select(
     `WITH RECURSIVE anc(uid) AS (
-       SELECT uid FROM blocks WHERE uid IN (${marks})
+       SELECT uid FROM blocks
+        WHERE uid IN (SELECT value FROM json_each(?))
        UNION
        SELECT b.parent_uid FROM anc a JOIN blocks b ON b.uid = a.uid
         WHERE b.parent_uid IS NOT NULL
      )
      SELECT b.uid, b.parent_uid, b.text
        FROM anc JOIN blocks b ON b.uid = anc.uid`,
-    ["uid", "parent_uid", "text"], uids)) {
+    ["uid", "parent_uid", "text"], [JSON.stringify(uids)])) {
     blocks.set(r.uid, [r.parent_uid, r.text]);
   }
-  return ancestorTexts(uids, blocks);
+  const trails = ancestorTrails(uids, blocks);
+  const texts: Record<BlockUid, string> = {};
+  for (const trail of trails.values()) {
+    for (const uid of trail) {
+      const row = blocks.get(uid);
+      if (row) texts[uid] = row[1]; // every trail uid has a row
+    }
+  }
+  return { trails, texts };
 }

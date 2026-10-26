@@ -16,7 +16,7 @@ import secrets
 from collections.abc import Iterable
 from typing import Annotated, Final, Literal, NewType, Union
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pkm.contracts.text import WellFormedModel, well_formed
 
 from pkm.contracts.brands import brand
@@ -274,6 +274,26 @@ BlockOp = Annotated[Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
 MAX_OPS_PER_BATCH = 500
 
 
+ExpectKind = Literal["text", "subtree", "absent"]
+
+
+class ExpectedBlock(WellFormedModel):
+    uid: BlockUid
+    kind: ExpectKind
+    # text_hash of the text ("text") or subtree_hash of the subtree
+    # ("subtree") as the approval card showed it; None for "absent".
+    shown_hash: Sha256Hex | None = Field(default=None, min_length=64,
+                                         max_length=64)
+
+    @model_validator(mode="after")
+    def _hash_iff_not_absent(self) -> "ExpectedBlock":
+        if (self.shown_hash is None) != (self.kind == "absent"):
+            raise ValueError(
+                "shown_hash is required unless kind is absent, and must be"
+                " null then")
+        return self
+
+
 class OpBatch(WellFormedModel):
     client_id: ClientId = Field(min_length=1, max_length=64)
     # Required: id-less batches cannot be
@@ -284,6 +304,18 @@ class OpBatch(WellFormedModel):
     # The client's sync cursor when the batch's ops were built; absent means
     # built against current server state.
     seen_seq: SyncSeq | None = Field(default=None, ge=SyncSeq(0))
+    # Blocks that must still be as an approval card showed them for the
+    # batch to apply; checked before any op runs. Not part of the
+    # idempotency hashes, which cover ops only.
+    expect: list[ExpectedBlock] = Field(default_factory=list,
+                                        max_length=MAX_OPS_PER_BATCH)
+
+    @model_validator(mode="after")
+    def _expect_uids_unique(self) -> "OpBatch":
+        uids = [e.uid for e in self.expect]
+        if len(set(uids)) != len(uids):
+            raise ValueError("expect names a uid more than once")
+        return self
 
 
 def text_hash(text: str) -> Sha256Hex:

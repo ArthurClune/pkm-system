@@ -72,7 +72,9 @@ export interface paths {
          *     (their own connections, on the threadpool) can no longer land between
          *     the dedupe read and this batch's writes. A write lock the busy timeout
          *     could not take (a concurrent writer already holds it) returns 503 with
-         *     Retry-After rather than surfacing the raw sqlite3.OperationalError.
+         *     Retry-After rather than surfacing the raw sqlite3.OperationalError. The
+         *     batch applies only if every `expect` entry still holds, checked in the
+         *     same transaction after the dedupe, else 412 and nothing is written.
          *
          *     The text-limit and title judges (`judge_batch`) run first, in the
          *     threadpool: off the write lock, so one large batch's refusal never
@@ -1128,7 +1130,14 @@ export interface components {
              */
             default: "sonnet" | "opus" | "haiku" | "fable" | "glm";
         };
-        /** BacklinkGroup */
+        /**
+         * BacklinkGroup
+         * @description One source page's backlinks. `ancestor_texts` holds the text of each
+         *     ancestor its items' trails name, once, in first-appearance order; left
+         *     out when no item has a trail. A trail of texts on every item repeated
+         *     a deep chain's shared ancestors about depth²/2 times. An ancestor is
+         *     on its item's page, so no two groups share one.
+         */
         BacklinkGroup: {
             /** Page Id */
             page_id: Brands.PageId;
@@ -1136,8 +1145,19 @@ export interface components {
             page_title: Brands.CanonicalTitle;
             /** Items */
             items: components["schemas"]["BacklinkItem"][];
+            /** Ancestor Texts */
+            ancestor_texts?: string[];
         };
-        /** BacklinkItem */
+        /**
+         * BacklinkItem
+         * @description A block linking the page (or block). `ancestors` is its breadcrumb
+         *     trail, root first, as positions in its group's `ancestor_texts`; left
+         *     out when the block has no parent.
+         *
+         *     `breadcrumbs` is for bundles built before `ancestors`, which read it
+         *     off every item and throw on a missing one: `[STALE_BUNDLE_CRUMB]` where
+         *     the item has a trail, else empty. Nothing current reads it.
+         */
         BacklinkItem: {
             /** Uid */
             uid: Brands.BlockUid;
@@ -1145,6 +1165,8 @@ export interface components {
             text: string;
             /** Breadcrumbs */
             breadcrumbs: string[];
+            /** Ancestors */
+            ancestors?: number[];
         };
         /** Backlinks */
         Backlinks: {
@@ -1475,6 +1497,18 @@ export interface components {
             /** Reason */
             reason: string | null;
         };
+        /** ExpectedBlock */
+        ExpectedBlock: {
+            /** Uid */
+            uid: Brands.BlockUid;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "text" | "subtree" | "absent";
+            /** Shown Hash */
+            shown_hash?: Brands.Sha256Hex | null;
+        };
         /**
          * GoodlinksArticle
          * @description GET /api/goodlinks/{link_id}: metadata plus the sanitised reader HTML
@@ -1701,6 +1735,8 @@ export interface components {
             ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"] | components["schemas"]["SetViewTypeOp"] | components["schemas"]["CreatePageOp"])[];
             /** Seen Seq */
             seen_seq?: Brands.SyncSeq | null;
+            /** Expect */
+            expect?: components["schemas"]["ExpectedBlock"][];
         };
         /**
          * OpsAck

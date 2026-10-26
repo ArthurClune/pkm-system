@@ -113,8 +113,8 @@ describe("useAssistant", () => {
   test("tool events render as tool items", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     feed([
-      { type: "tool_started", name: "search", summary: 'searching "x"' },
-      { type: "tool_finished", name: "search" },
+      { type: "tool_started", tool_use_id: "t1", name: "search", summary: 'searching "x"' },
+      { type: "tool_finished", tool_use_id: "t1", name: "search", error: null, declined: false },
       { type: "text_delta", text: "found" },
       { type: "turn_done", usage: null },
     ]);
@@ -122,7 +122,8 @@ describe("useAssistant", () => {
     await act(() => latest.send("find x"));
     expect(latest.items).toEqual([
       { kind: "user", text: "find x" },
-      { kind: "tool", name: "search", summary: 'searching "x"', done: true },
+      { kind: "tool", toolUseId: "t1", name: "search", summary: 'searching "x"',
+        done: true, error: null, declined: false },
       { kind: "assistant", text: "found" },
     ]);
   });
@@ -294,6 +295,7 @@ describe("useAssistant", () => {
         if (calls === 1) {
           onEvent(confirmEvent("c1"));
           await turnOne.promise;
+          onEvent({ type: "turn_done", usage: null });
           return;
         }
         onEvent(confirmEvent("c2"));
@@ -312,6 +314,72 @@ describe("useAssistant", () => {
       turnOne.resolve();
       await first;
     });
+    await act(async () => {
+      void latest.send("two");
+      await Promise.resolve();
+    });
+    expect(latest.pendingConfirm?.confirmId).toBe("c2");
+    expect(latest.pendingConfirm?.allowedAhead).toBe(0);
+  });
+
+  // Turn one shows c1 and runs until aborted; turn two shows c2.
+  function stoppedThenNext() {
+    let calls = 0;
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void,
+             signal?: AbortSignal) => {
+        calls += 1;
+        if (calls === 1) {
+          onEvent(confirmEvent("c1"));
+          await new Promise((_resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          });
+          return;
+        }
+        onEvent(confirmEvent("c2"));
+        await new Promise<void>(() => {});
+      },
+    );
+    mocks.confirmTool.mockResolvedValue(undefined);
+  }
+
+  test("a stopped turn's Allows count for the next turn's cards", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
+    stoppedThenNext();
+    render(<Harness />);
+    let first!: Promise<void>;
+    await act(async () => {
+      first = latest.send("one");
+      await Promise.resolve();
+    });
+    await act(() => latest.respondConfirm(true));
+    await act(async () => {
+      latest.stop();
+      await first;
+    });
+    await act(async () => {
+      void latest.send("two");
+      await Promise.resolve();
+    });
+    expect(latest.pendingConfirm?.confirmId).toBe("c2");
+    expect(latest.pendingConfirm?.allowedAhead).toBe(1);
+  });
+
+  test("a new conversation counts no Allow from the old one", async () => {
+    mocks.createConversation
+      .mockResolvedValueOnce({ id: "conv1", model: "sonnet" })
+      .mockResolvedValueOnce({ id: "conv2", model: "sonnet" });
+    mocks.deleteConversation.mockResolvedValue(undefined);
+    stoppedThenNext();
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("one");
+      await Promise.resolve();
+    });
+    await act(() => latest.respondConfirm(true));
+    await act(() => latest.newChat());
     await act(async () => {
       void latest.send("two");
       await Promise.resolve();
@@ -592,7 +660,8 @@ describe("useAssistant", () => {
         await gate();
         onEvent({ type: "phase", label: "preparing search" });
         await gate();
-        onEvent({ type: "tool_started", name: "search", summary: 'searching "x"' });
+        onEvent({ type: "tool_started", tool_use_id: "t1", name: "search",
+          summary: 'searching "x"' });
         await gate();
         onEvent({ type: "turn_done", usage: null });
       },
@@ -810,20 +879,95 @@ describe("useAssistant", () => {
     expect(mocks.closeConversationBeacon).toHaveBeenCalledWith("c1");
   });
 
-  test("tool_finished marks only the first pending tool item with that name", async () => {
+  test("tool_finished marks the line with its own id, carrying its error", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     feed([
-      { type: "tool_started", name: "search", summary: 'searching "foo"' },
-      { type: "tool_started", name: "search", summary: 'searching "bar"' },
-      { type: "tool_finished", name: "search" },
+      { type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" },
+      { type: "tool_started", tool_use_id: "t2", name: "update_block", summary: "update_block" },
+      { type: "tool_finished", tool_use_id: "t2", name: "update_block",
+        error: "nope", declined: false },
       { type: "turn_done", usage: null },
     ]);
     render(<Harness />);
-    await act(() => latest.send("search"));
+    await act(() => latest.send("edit"));
     expect(latest.items).toEqual([
-      { kind: "user", text: "search" },
-      { kind: "tool", name: "search", summary: 'searching "foo"', done: true },
-      { kind: "tool", name: "search", summary: 'searching "bar"', done: false },
+      { kind: "user", text: "edit" },
+      { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
+        done: false, error: null, declined: false },
+      { kind: "tool", toolUseId: "t2", name: "update_block", summary: "update_block",
+        done: true, error: "nope", declined: false },
+    ]);
+  });
+
+  test("a declined write's line is done, with no error", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    feed([
+      { type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" },
+      { type: "tool_finished", tool_use_id: "t1", name: "update_block",
+        error: null, declined: true },
+      { type: "turn_done", usage: null },
+    ]);
+    render(<Harness />);
+    await act(() => latest.send("edit"));
+    expect(latest.items[1]).toEqual(
+      { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
+        done: true, error: null, declined: true });
+  });
+
+  test("a later turn's tool_finished marks an earlier turn's line", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    feed([
+      { type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" },
+      { type: "turn_done", usage: null },
+    ]);
+    render(<Harness />);
+    await act(() => latest.send("one"));
+    feed([
+      { type: "tool_finished", tool_use_id: "t1", name: "update_block",
+        error: "nope", declined: false },
+      { type: "turn_done", usage: null },
+    ]);
+    await act(() => latest.send("two"));
+    expect(latest.items[1]).toEqual(
+      { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
+        done: true, error: "nope", declined: false });
+  });
+
+  test("a reused id marks the line not yet done, never a finished one", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    feed([
+      { type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" },
+      { type: "tool_finished", tool_use_id: "t1", name: "update_block",
+        error: "nope", declined: false },
+      { type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" },
+      { type: "tool_finished", tool_use_id: "t1", name: "update_block",
+        error: null, declined: false },
+      { type: "turn_done", usage: null },
+    ]);
+    render(<Harness />);
+    await act(() => latest.send("edit"));
+    expect(latest.items.slice(1)).toEqual([
+      { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
+        done: true, error: "nope", declined: false },
+      { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
+        done: true, error: null, declined: false },
+    ]);
+  });
+
+  test("a tool_finished with an unknown id changes no line", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    feed([
+      { type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" },
+      { type: "tool_finished", tool_use_id: "tX", name: "update_block",
+        error: "nope", declined: false },
+      { type: "turn_done", usage: null },
+    ]);
+    render(<Harness />);
+    await act(() => latest.send("edit"));
+    expect(latest.items).toEqual([
+      { kind: "user", text: "edit" },
+      { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
+        done: false, error: null, declined: false },
     ]);
   });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BacklinkGroup } from "../api/payloads";
+import type { ShownBacklinkGroup } from "./groups";
 import { applyFilter, chipCounts, EMPTY_FILTER, isFiltering, itemRefTitles,
          toggleChip } from "./backlinkFilter";
 import { pageIdOf, canonicalTitleOf, uidOf } from "../test-helpers";
@@ -9,10 +9,10 @@ const off = titleReaderFor(false);
 const on = titleReaderFor(true);
 const T = canonicalTitleOf;
 
-const item = (tag: string, text: string, breadcrumbs: string[] = []) =>
-  ({ uid: uidOf(`tuid-${tag}`), text, breadcrumbs });
+const item = (tag: string, text: string, crumbs: string[] = []) =>
+  ({ uid: uidOf(`tuid-${tag}`), text, crumbs });
 
-const groups: BacklinkGroup[] = [
+const groups: ShownBacklinkGroup[] = [
   { page_id: pageIdOf(1), page_title: canonicalTitleOf("Daily A"), items: [
     item("u1", "alpha [[Claude]] #Paper"),
     item("u2", "beta [[Claude]] #Idea")] },
@@ -61,7 +61,7 @@ describe("chipCounts", () => {
   });
 
   it("ties break alphabetically", () => {
-    const g: BacklinkGroup[] = [{ page_id: pageIdOf(1), page_title: canonicalTitleOf("X"), items: [
+    const g: ShownBacklinkGroup[] = [{ page_id: pageIdOf(1), page_title: canonicalTitleOf("X"), items: [
       item("u1", "#zebra #apple")] }];
     expect(chipCounts(g, [], off)).toEqual([
       { title: "apple", count: 1 }, { title: "zebra", count: 1 }]);
@@ -83,7 +83,7 @@ describe("toggleChip", () => {
 // every ML spelling is one page. With the flag off a padded title is a
 // distinct page and stays distinct.
 describe("padded ref titles", () => {
-  const padded: BacklinkGroup[] = [
+  const padded: ShownBacklinkGroup[] = [
     { page_id: pageIdOf(1), page_title: canonicalTitleOf("Daily A"), items: [
       item("p1", "about [[AI]] and [[ML]]"),
       item("p2", "padded [[ AI ]] and [[ML ]]")] },

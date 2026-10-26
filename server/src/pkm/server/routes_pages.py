@@ -16,7 +16,7 @@ from pkm.contracts.daily import date_for_title
 from pkm.contracts.ops import BlockUid, PageId
 from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
-    BacklinkGroup, Backlinks, BlockBacklinksPayload, BlockPayload, BlockRefsPayload, BlockRefText, CurrentWorkPayload,
+    Backlinks, BlockBacklinksPayload, BlockPayload, BlockRefsPayload, BlockRefText, CurrentWorkPayload,
     CurrentWorkPage, CurrentWorkSection, DeleteBlockerModel, DeletePreview,
     GroupsPayload, JournalCleanupResponse, JournalDay, JournalPayload, OkAck, PageMeta, PagePayload, RenamePageResponse)
 from pkm.contracts.titles import RawTitle
@@ -41,7 +41,7 @@ from pkm.server.store import (BlankTitleError, DeleteBlockedError,
                               RewriteTextLimitError)
 from pkm.server.sync_core import chunk_ids
 from pkm.server.sync_meta import read_title, title_reader
-from pkm.server.tree import (ancestor_texts, build_tree,
+from pkm.server.tree import (Ancestors, ancestors_of, build_tree,
                              collect_block_ref_uids, find_node)
 from pkm.server import wholepath  # noqa: F401 -- registers {title:wholepath}
 from pkm.unlink import DeleteBlocker
@@ -117,16 +117,16 @@ def _page_meta(page: Row) -> PageMeta:
                     updated_at=page["updated_at"])
 
 
-def _fetch_ancestors(db: Db, uids: list[BlockUid]
-                     ) -> dict[BlockUid, list[str]]:
-    """Breadcrumb trails (ancestor texts, root first) for each uid that has
-    ancestors. The CTE holds `uid` alone and joins with UNION, which queues
-    a row only once, so each distinct ancestor is read once however many
-    starts share it, and a corrupt parent cycle ends the walk without a
-    depth bound that would cut real deep chains short. It must never carry
-    a per-row path string: one row per (start, ancestor), each building
-    and searching an O(depth) string, made breadcrumbs cost O(depth^3).
-    `ancestor_texts` rebuilds the trails and stops on a repeated uid."""
+def _fetch_ancestors(db: Db, uids: list[BlockUid]) -> Ancestors:
+    """Breadcrumb trails (ancestor uids, root first) for each uid that has
+    ancestors, and each ancestor's text once. The CTE holds `uid` alone
+    and joins with UNION, which queues a row only once, so each distinct
+    ancestor is read once however many starts share it, and a corrupt
+    parent cycle ends the walk without a depth bound that would cut real
+    deep chains short. It must never carry a per-row path string: one row
+    per (start, ancestor), each building and searching an O(depth) string,
+    made breadcrumbs cost O(depth^3).
+    `ancestor_trails` rebuilds the trails and stops on a repeated uid."""
     starts = list(dict.fromkeys(uids))
     blocks: dict[BlockUid, tuple[BlockUid | None, str]] = {}
     for chunk in chunk_ids(starts):
@@ -142,12 +142,19 @@ def _fetch_ancestors(db: Db, uids: list[BlockUid]
                     SELECT b.uid, b.parent_uid, b.text
                       FROM anc JOIN blocks b ON b.uid = anc.uid""", chunk):
             blocks[r["uid"]] = (r["parent_uid"], r["text"])
-    return ancestor_texts(starts, blocks)
+    return ancestors_of(starts, blocks)
+
+
+def _breadcrumb_texts(ancestors: Ancestors, uid: BlockUid) -> list[str]:
+    """One block's trail as texts: a single trail is `O(depth)`, so
+    `GET /api/block/{uid}` sends it whole rather than as uids and a map."""
+    return [ancestors.texts[a] for a in ancestors.trails.get(uid, [])]
 
 
 def _backlinks(db: Db, page_id: PageId,
-               offset: int, limit: int) -> tuple[list[BacklinkGroup], int, list[str]]:
-    """A page's own blocks are never its linked references, even when they
+               offset: int, limit: int) -> tuple[Backlinks, list[str]]:
+    """One page of a page's backlinks, and the texts of their blocks.
+    A page's own blocks are never its linked references, even when they
     reference it (Roam-style `{{[[TODO]]}}` markers on the TODO page do)
     -- the same `b.page_id != ?` rule unlinked references apply.
     The shim's `backlinks()` mirrors these three queries."""
@@ -166,7 +173,8 @@ def _backlinks(db: Db, page_id: PageId,
            ORDER BY p.updated_at DESC NULLS LAST, p.title
            LIMIT ? OFFSET ?""", (page_id, page_id, limit, offset))]
     if not page_ids:
-        return [], total, []
+        return (Backlinks(groups=[], total_pages=total, offset=offset,
+                          limit=limit), [])
     marks = ",".join("?" * len(page_ids))
     rows = db.select(
         f"""SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
@@ -177,7 +185,8 @@ def _backlinks(db: Db, page_id: PageId,
              ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid""",
         [page_id, *page_ids])
     ancestors = _fetch_ancestors(db, [r["uid"] for r in rows])
-    return (group_backlinks(rows, ancestors), total,
+    return (Backlinks(groups=group_backlinks(rows, ancestors),
+                      total_pages=total, offset=offset, limit=limit),
             [r["text"] for r in rows])
 
 
@@ -245,7 +254,7 @@ def get_block(uid: BlockUid, db: Db = Depends(get_db)) -> BlockPayload:
     return BlockPayload(
         page=_page_meta(row),
         block=node,
-        breadcrumbs=_fetch_ancestors(db, [uid]).get(uid, []),
+        breadcrumbs=_breadcrumb_texts(_fetch_ancestors(db, [uid]), uid),
         block_ref_texts=_block_ref_texts(db, texts),
     )
 
@@ -267,12 +276,11 @@ def get_page(request: Request, title: RawTitle, bl_offset: Int64 = 0, bl_limit: 
     blocks = db.select(
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
         (page["page_id"],))
-    groups, total, bl_texts = _backlinks(db, page["page_id"], bl_offset, bl_limit)
+    backlinks, bl_texts = _backlinks(db, page["page_id"], bl_offset, bl_limit)
     return PagePayload(
         page=_page_meta(page),
         blocks=build_tree(blocks),
-        backlinks=Backlinks(groups=groups, total_pages=total,
-                            offset=bl_offset, limit=bl_limit),
+        backlinks=backlinks,
         block_ref_texts=_block_ref_texts(
             db, [r["text"] for r in blocks] + bl_texts),
         block_ref_counts=_block_ref_counts(
@@ -590,7 +598,7 @@ def get_journal(request: Request, before: str | None = None, days: Int64 = 7,
         blocks = db.select(
             f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
             (page["page_id"],))
-        groups, total, bl_texts = _backlinks(
+        backlinks, bl_texts = _backlinks(
             db, page["page_id"], 0, JOURNAL_BACKLINK_PREVIEW)
         texts.extend(r["text"] for r in blocks)
         texts.extend(bl_texts)
@@ -598,8 +606,7 @@ def get_journal(request: Request, before: str | None = None, days: Int64 = 7,
         out.append(JournalDay(
             date=d.isoformat(), title=page["title"], exists=True,
             blocks=build_tree(blocks),
-            backlinks=Backlinks(groups=groups, total_pages=total, offset=0,
-                                limit=JOURNAL_BACKLINK_PREVIEW)))
+            backlinks=backlinks))
     return JournalPayload(
         days=out, block_ref_texts=_block_ref_texts(db, texts),
         block_ref_counts=_block_ref_counts(db, uids))

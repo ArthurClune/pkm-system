@@ -39,7 +39,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from pkm.assistant.policy import READ_TOOLS, SYSTEM_PROMPT, WRITE_TOOLS
 from pkm.assistant.write_preview import FoundBlock, StoredBlock
-from pkm.contracts.ops import BlockUid
+from pkm.contracts.ops import BlockUid, text_hash
 from pkm.test_data.ids import canonical_title_of, confirm_id_of, uid_of
 
 
@@ -110,7 +110,8 @@ def test_create_conversation_options_and_config_file(tmp_path):
     }
     server_cfg = opts.mcp_servers["pkm"]
     assert server_cfg["args"] == ["-m", "pkm.mcp.server", "--tools",
-                                  ",".join(READ_TOOLS + WRITE_TOOLS)]
+                                  ",".join(READ_TOOLS + WRITE_TOOLS),
+                                  "--require-expect"]
     cfg_path = Path(server_cfg["env"]["PKM_CLI_CONFIG"])
     assert cfg_path.parent == tmp_path
     assert stat.S_IMODE(cfg_path.stat().st_mode) == 0o600
@@ -332,6 +333,38 @@ def test_assistant_mcp_server_offers_exactly_the_policy_tools(tmp_path):
         asyncio.run(conv.close())
     assert names == set(READ_TOOLS) | set(WRITE_TOOLS)
     assert "upload_asset" not in names
+
+
+def test_assistant_mcp_server_refuses_a_guarded_write_without_expect(
+        tmp_path):
+    """The subprocess the harness starts refuses an update_block or batch
+    that arrives without `expect`, before any request: the card always sets
+    it, so its absence means the card's input never reached the tool."""
+    engine = make_engine(tmp_path)
+    conv = asyncio.run(engine.create_conversation(SYSTEM_PROMPT, "sonnet"))
+    cfg = FakeSDKClient.instances[0].options.mcp_servers["pkm"]
+
+    async def called():
+        params = StdioServerParameters(
+            command=cfg["command"], args=cfg["args"],
+            env={**os.environ, **cfg["env"]})
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                return [await session.call_tool(name, args) for name, args in (
+                    ("update_block", {"uid": "AAAAAAAA", "text": "t"}),
+                    ("batch", {"commands": [{"command": "delete",
+                                             "params": {"uid": "AAAAAAAA"}}]}),
+                )]
+
+    try:
+        results = asyncio.run(asyncio.wait_for(called(), 30))
+    finally:
+        asyncio.run(conv.close())
+    for name, result in zip(("update_block", "batch"), results):
+        assert result.isError
+        text = " ".join(getattr(c, "text", "") for c in result.content)
+        assert f"{name}: no expect argument" in text
 
 
 def test_write_tool_emits_confirm_and_blocks(tmp_path):
@@ -715,7 +748,8 @@ def test_send_streams_mapped_events(tmp_path):
     assert queries == ["find alpha"]
     # no partial deltas were seen, so the full TextBlock is emitted as one delta
     assert TextDelta(text="Found it.") in events
-    assert ToolStarted(name="search", summary='searching "alpha"') in events
+    assert ToolStarted(tool_use_id="t1", name="search",
+                       summary='searching "alpha"') in events
     assert isinstance(events[-1], TurnDone)
     assert events[-1].usage == {"input_tokens": 5}
 
@@ -916,15 +950,19 @@ def test_turn_mapper_emits_tool_finished_from_tool_result():
         content=[ToolUseBlock(id="t1", name="mcp__pkm__search", input={"q": "alpha"})],
         model="sonnet",
     )
-    assert mapper.map(assistant_msg) == [ToolStarted(name="search", summary='searching "alpha"')]
+    assert mapper.map(assistant_msg) == [
+        ToolStarted(tool_use_id="t1", name="search",
+                    summary='searching "alpha"')]
 
     user_msg = UserMessage(content=[ToolResultBlock(tool_use_id="t1", content="ok")])
-    assert mapper.map(user_msg) == [ToolFinished(name="search")]
+    assert mapper.map(user_msg) == [
+        ToolFinished(tool_use_id="t1", name="search")]
 
     # an unrecognised tool_use_id (e.g. mapper created fresh mid-turn) falls
     # back to "tool"
     unknown_msg = UserMessage(content=[ToolResultBlock(tool_use_id="unknown", content="ok")])
-    assert mapper.map(unknown_msg) == [ToolFinished(name="tool")]
+    assert mapper.map(unknown_msg) == [
+        ToolFinished(tool_use_id="unknown", name="tool")]
 
     # a plain string UserMessage (no tool results) maps to nothing
     assert mapper.map(UserMessage(content="hi")) == []
@@ -1134,6 +1172,105 @@ def test_an_unreadable_target_is_refused_not_shown(tmp_path):
     assert queued == 0
 
 
+# -- what Allow hands the tool ---------------------------------------------
+
+def _no_blocks(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+               ancestors_of: Collection[BlockUid]):
+    return {}
+
+
+def _allowed(tmp_path, short: str, tool_input: dict[str, object],
+             read_blocks=_no_blocks, before_allow=lambda: None
+             ) -> PermissionResultAllow:
+    """Park the card for write `short`, run `before_allow`, then Allow it:
+    the decision the SDK receives."""
+    engine = make_engine(tmp_path, read_blocks=read_blocks)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        task = asyncio.create_task(conv.can_use_tool(
+            f"mcp__pkm__{short}", tool_input, None))
+        card = await _next_card(conv)
+        before_allow()
+        conv.resolve_confirm(card.confirm_id, True)
+        decision = await asyncio.wait_for(task, timeout=5)
+        await conv.close()
+        return decision
+
+    decision = asyncio.run(scenario())
+    assert isinstance(decision, PermissionResultAllow)
+    return decision
+
+
+def _inbox_old(uids: Sequence[BlockUid], count_under: Collection[BlockUid],
+               ancestors_of: Collection[BlockUid]):
+    return {uid_of("AAAAAAAA"): StoredBlock(canonical_title_of("Inbox"),
+                                            "old")}
+
+
+def test_allow_hands_the_tool_the_carded_input_with_expect(tmp_path):
+    a = uid_of("AAAAAAAA")
+    decision = _allowed(tmp_path, "update_block", {"uid": a, "text": "new"},
+                        _inbox_old)
+    assert decision.updated_input == {
+        "uid": a, "text": "new",
+        "expect": [{"uid": a, "kind": "text",
+                    "shown_hash": text_hash("old")}]}
+
+
+@pytest.mark.parametrize("short,tool_input", [
+    ("save_note", {"text": "Demo", "page": "Demo"}),
+    ("rename_page", {"title": "Old", "new_title": "New"}),
+])
+def test_allow_carries_updated_input_for_every_write_tool(
+        tmp_path, short, tool_input):
+    # never None: the SDK would then send the model's own input
+    decision = _allowed(tmp_path, short, dict(tool_input))
+    assert decision.updated_input == tool_input
+
+
+def test_allow_input_ignores_a_change_to_the_dict_after_the_card(tmp_path):
+    a = uid_of("AAAAAAAA")
+    tool_input: dict[str, object] = {"uid": a, "text": "new"}
+
+    def tamper() -> None:
+        tool_input["text"] = "swapped"
+        tool_input["uid"] = uid_of("BBBBBBBB")
+        tool_input["expect"] = []
+
+    decision = _allowed(tmp_path, "update_block", tool_input, _inbox_old,
+                        tamper)
+    assert decision.updated_input == {
+        "uid": a, "text": "new",
+        "expect": [{"uid": a, "kind": "text",
+                    "shown_hash": text_hash("old")}]}
+
+
+@pytest.mark.parametrize("short,tool_input", [
+    ("update_block", {"uid": "AAAAAAAA", "text": "t", "expect": []}),
+    ("batch", {"commands": [{"command": "delete",
+                             "params": {"uid": "AAAAAAAA"}}],
+               "expect": None}),
+])
+def test_a_model_expect_is_denied_without_a_card(tmp_path, short,
+                                                  tool_input):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        decision = await asyncio.wait_for(conv.can_use_tool(
+            f"mcp__pkm__{short}", tool_input, None), timeout=5)
+        queued = conv._queue.qsize()
+        await conv.close()
+        return decision, queued
+
+    decision, queued = asyncio.run(scenario())
+    assert isinstance(decision, PermissionResultDeny)
+    assert decision.message == (
+        f"{short}: expect is set by the approval card, never by the caller")
+    assert queued == 0
+
+
 # -- whether another write of the turn could land after a card's read -----
 
 _UPDATE = "mcp__pkm__update_block"
@@ -1336,6 +1473,110 @@ def test_a_write_running_when_a_read_starts_stamps_the_card(tmp_path):
     assert asyncio.run(scenario()).preview.writes_in_flight is True
 
 
+async def _stop_with_an_allowed_write(conv) -> None:
+    """Turn one: allow t1's write, then Stop before its result arrives."""
+    one = conv.send("one")
+    task = asyncio.create_task(conv.can_use_tool(
+        _UPDATE, {"uid": "AAAAAAAA", "text": "t"}, _ctx("t1")))
+    card = await asyncio.wait_for(anext(one), timeout=5)
+    assert isinstance(card, ConfirmRequest)
+    conv.resolve_confirm(card.confirm_id, True)
+    await asyncio.wait_for(task, timeout=5)
+    await one.aclose()  # Stop: t1 allowed, no result yet
+
+
+async def _declined_card(conv, seen: asyncio.Queue, target: str,
+                         tool_use_id: str) -> ConfirmRequest:
+    t = asyncio.create_task(conv.can_use_tool(
+        _UPDATE, {"uid": target, "text": "t"}, _ctx(tool_use_id)))
+    c = await _next_of(seen, ConfirmRequest)
+    conv.resolve_confirm(c.confirm_id, False)
+    await asyncio.wait_for(t, timeout=5)
+    return c
+
+
+def test_a_stopped_turns_running_write_stamps_the_next_turns_cards(
+        tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        await _stop_with_an_allowed_write(conv)
+
+        seen: asyncio.Queue = asyncio.Queue()
+        consumer = asyncio.create_task(_drain_into(conv.send("two"), seen))
+        stamped = await _declined_card(conv, seen, "BBBBBBBB", "t2")
+        client.feed(UserMessage(content=[
+            ToolResultBlock(tool_use_id="t1", content="ok")]))
+        await _next_of(seen, ToolFinished)
+        clear = await _declined_card(conv, seen, "CCCCCCCC", "t3")
+        client.feed(make_result())
+        await asyncio.wait_for(consumer, timeout=5)
+        await conv.close()
+        return stamped, clear
+
+    stamped, clear = asyncio.run(scenario())
+    assert stamped.preview.writes_in_flight is True
+    assert clear.preview.writes_in_flight is False
+
+
+def test_a_stopped_turns_write_with_no_result_ends_with_the_next_turn(
+        tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        await _stop_with_an_allowed_write(conv)
+        cards = []
+        for turn, target, tool_use_id in (("two", "BBBBBBBB", "t2"),
+                                          ("three", "CCCCCCCC", "t3")):
+            seen: asyncio.Queue = asyncio.Queue()
+            consumer = asyncio.create_task(_drain_into(conv.send(turn), seen))
+            cards.append(
+                await _declined_card(conv, seen, target, tool_use_id))
+            client.feed(make_result())
+            await asyncio.wait_for(consumer, timeout=5)
+        await conv.close()
+        return cards
+
+    second, third = asyncio.run(scenario())
+    assert second.preview.writes_in_flight is True
+    assert third.preview.writes_in_flight is False
+
+
+def test_an_errored_turns_running_write_stamps_the_next_turns_card(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(claude_engine, "STALL_TIMEOUT_S", 0.05)
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        seen: asyncio.Queue = asyncio.Queue()
+        consumer = asyncio.create_task(_drain_into(conv.send("one"), seen))
+        task = asyncio.create_task(conv.can_use_tool(
+            _UPDATE, {"uid": "AAAAAAAA", "text": "t"}, _ctx("t1")))
+        card = await _next_of(seen, ConfirmRequest)
+        conv.resolve_confirm(card.confirm_id, True)
+        await asyncio.wait_for(task, timeout=5)
+        # no result for t1, then silence: the turn ends in an error
+        await _next_of(seen, ErrorEvent)
+        await asyncio.wait_for(consumer, timeout=5)
+        monkeypatch.setattr(claude_engine, "STALL_TIMEOUT_S", 30)
+
+        seen = asyncio.Queue()
+        consumer = asyncio.create_task(_drain_into(conv.send("two"), seen))
+        stamped = await _declined_card(conv, seen, "BBBBBBBB", "t2")
+        client.feed(make_result())
+        await asyncio.wait_for(consumer, timeout=5)
+        await conv.close()
+        return stamped
+
+    assert asyncio.run(scenario()).preview.writes_in_flight is True
+
+
 def test_the_last_turns_writes_are_not_in_flight(tmp_path):
     engine = make_engine(tmp_path)
 
@@ -1361,3 +1602,109 @@ def test_the_last_turns_writes_are_not_in_flight(tmp_path):
     first, second = asyncio.run(scenario())
     assert first.preview.writes_in_flight is False
     assert second.preview.writes_in_flight is False
+
+
+# -- a write's error and decline reach the tool event ---------------------
+
+_REFUSED = ("Error executing tool update_block: block ((AAAAAAAA)) changed "
+            "after the approval card showed it, so nothing was written")
+_REASON = _REFUSED.removeprefix("Error executing tool update_block: ")
+
+
+def _use(tool_id: str, name: str = _UPDATE) -> AssistantMessage:
+    return AssistantMessage(content=[ToolUseBlock(
+        id=tool_id, name=name, input={"uid": "AAAAAAAA", "text": "t"})],
+        model="sonnet")
+
+
+def _result(tool_id: str, is_error: bool | None,
+            text: str = _REFUSED) -> UserMessage:
+    return UserMessage(content=[ToolResultBlock(
+        tool_use_id=tool_id, content=[{"type": "text", "text": text}],
+        is_error=is_error)])
+
+
+def test_turn_mapper_carries_a_write_tools_error():
+    mapper = TurnMapper()
+    mapper.map(_use("t1"))
+    assert mapper.map(_result("t1", True)) == [ToolFinished(
+        tool_use_id="t1", name="update_block", error=_REASON)]
+
+
+def test_turn_mapper_ignores_read_errors_and_write_successes():
+    mapper = TurnMapper()
+    mapper.map(_use("r1", "mcp__pkm__search"))
+    assert mapper.map(_result("r1", True)) == [
+        ToolFinished(tool_use_id="r1", name="search")]
+    for tool_id, flag in (("w1", None), ("w2", False)):
+        mapper.map(_use(tool_id))
+        assert mapper.map(_result(tool_id, flag)) == [
+            ToolFinished(tool_use_id=tool_id, name="update_block")]
+
+
+def test_turn_mappers_sharing_a_map_carry_a_write_across_turns():
+    tools: dict[str, str] = {}
+    TurnMapper(tools).map(_use("t1"))
+    assert TurnMapper(tools).map(_result("t1", True)) == [ToolFinished(
+        tool_use_id="t1", name="update_block", error=_REASON)]
+    assert tools == {}  # the result popped its id
+
+
+def test_turn_mapper_marks_a_declined_write_not_failed():
+    tools: dict[str, str] = {}
+    mapper = TurnMapper(tools, declined={"t1"})
+    mapper.map(_use("t1"))
+    assert mapper.map(_result("t1", True, "The user declined this action.")
+                      ) == [ToolFinished(tool_use_id="t1",
+                                         name="update_block",
+                                         declined=True)]
+
+
+def test_a_decline_is_recorded_per_call_by_the_conversation(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        seen: asyncio.Queue = asyncio.Queue()
+        consumer = asyncio.create_task(_drain_into(conv.send("one"), seen))
+        await _declined_card(conv, seen, "AAAAAAAA", "t1")
+        client.feed(_use("t1"), _use("t2"),
+                    _result("t1", True, "The user declined this action."),
+                    _result("t2", True), make_result())
+        await asyncio.wait_for(consumer, timeout=5)
+        await conv.close()
+        out = []
+        while not seen.empty():
+            out.append(seen.get_nowait())
+        return out
+
+    finished = [e for e in asyncio.run(scenario())
+                if isinstance(e, ToolFinished)]
+    assert finished == [
+        ToolFinished(tool_use_id="t1", name="update_block", declined=True),
+        ToolFinished(tool_use_id="t2", name="update_block", error=_REASON)]
+
+
+def test_a_stopped_turns_refused_write_shows_its_error_next_turn(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        one = conv.send("one")
+        task = asyncio.create_task(anext(one))
+        client.feed(_use("t1"))
+        started = await asyncio.wait_for(task, timeout=5)
+        assert isinstance(started, ToolStarted)
+        await one.aclose()  # Stop
+        seen: asyncio.Queue = asyncio.Queue()
+        consumer = asyncio.create_task(_drain_into(conv.send("two"), seen))
+        client.feed(_result("t1", True), make_result())
+        finished = await _next_of(seen, ToolFinished)
+        await asyncio.wait_for(consumer, timeout=5)
+        await conv.close()
+        return finished
+
+    assert asyncio.run(scenario()) == ToolFinished(
+        tool_use_id="t1", name="update_block", error=_REASON)

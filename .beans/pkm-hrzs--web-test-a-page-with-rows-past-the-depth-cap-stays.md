@@ -1,15 +1,19 @@
 ---
 # pkm-hrzs
 title: 'Web test: a page with rows past the depth cap stays editable elsewhere'
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-10-24T14:58:27Z
-updated_at: 2026-10-24T14:58:27Z
+updated_at: 2026-10-25T13:48:39Z
 parent: pkm-mfd0
 ---
 
 The depth-cap spec promises legacy rows past level 100 stay readable and their text editable, and that only where an op places blocks is judged. Server tests cover it; no web test does (a mutant judging the whole page's deepest row was caught only by chance).
 
-- [ ] useOutline test: a page holding a 120-level legacy chain; indent/move/paste elsewhere at shallow levels applies, and editing the deep rows' text applies
-- [ ] Show it goes red against a mutant that judges the whole page's depth
+- [x] useOutline test: a page holding a 120-level legacy chain; indent/move/paste elsewhere at shallow levels applies, and editing the deep rows' text applies
+- [x] Show it goes red against a mutant that judges the whole page's depth
+
+## Summary of Changes
+
+84eb696a adds a useOutline test on a page holding a 120-level legacy chain beside shallow roots. Indent, subtree move, paste and undo at shallow levels all apply, and a text edit on the deep row applies. A mutant that judges the whole page's deepest row in `findDepthViolation` turns the placement tests red. This is test-only, so it has no troubleshooting row.

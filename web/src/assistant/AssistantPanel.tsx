@@ -250,7 +250,7 @@ function ConfirmCard({
   const stale = readsStore && (preview?.writes_in_flight ?? false)
     && allowedAhead > 0;
   const cards = allowedAhead === 1
-    ? "card in this turn, and its write" : "cards in this turn, and their writes";
+    ? "card, and its write" : "cards, and their writes";
   return (
     <div className="assistant-confirm-card" ref={cardRef}>
       <div className="assistant-confirm-start" ref={startRef} aria-hidden="true" />
@@ -389,7 +389,16 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
             {assistant.items.map((item, i) =>
               item.kind === "tool" ? (
                 <div key={i} className="assistant-tool-line">
-                  {item.done ? "✓" : "…"} {item.summary}
+                  {item.error !== null ? "✗" : item.declined ? "" : item.done ? "✓" : "…"}
+                  {item.declined ? "" : " "}{item.summary}
+                  {item.declined && (
+                    <span className="assistant-tool-declined"> Declined</span>
+                  )}
+                  {item.error !== null && (
+                    <div className="assistant-tool-failed">
+                      Failed: <bdi dir="ltr">{item.error}</bdi>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div key={i} className={`assistant-msg assistant-msg-${item.kind}`}>

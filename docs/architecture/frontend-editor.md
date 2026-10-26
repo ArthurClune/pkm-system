@@ -192,7 +192,12 @@ that applies, or Dismiss, clears it. A refused keystroke leaves the textarea
 as it was, with the caret where the refused insertion began
 (`refusedEditCaret`). A refused paste is prevented, so its caret and
 selection are untouched. The draft's own text still ships, and a refused undo or
-redo keeps its entry for a retry.
+redo keeps its entry for a retry. The entry goes back as though refused at the
+keypress (`restoreEntry`), because an unmounted page's read can take long
+enough for a new edit to be recorded meanwhile. A refused undo goes back below
+every edit recorded during its read, so the next undo still takes the newest
+edit first. A refused redo whose take a newer edit followed is dropped, since
+that edit cleared redo.
 Code can hide a nest: a split inside a fence can cut off its closing
 backticks, so the first half exposes the nest and is refused, here and by the
 server.

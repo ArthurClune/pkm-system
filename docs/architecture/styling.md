@@ -67,6 +67,11 @@ Buttons and fields are styled by named class, and there is no bare
 clicked, `ClickToLoad` wraps the media in `.click-to-load-revealed`, a block
 that takes focus from the unmounted button and draws no ring.
 
+The assistant panel's tool line marks a failed write with
+`.assistant-tool-failed`, in `--color-error` text and not italic like the
+line around it. `.assistant-tool-declined` has no rule: it is a hook for
+tests and future styling, and a declined write is deliberately not red.
+
 Supporting copy in Files and Settings uses `p.settings-note`, whose `p`
 qualifier lets it override Settings' `.settings-section p` reset.
 

@@ -82,7 +82,10 @@ Each request gets a fresh `Db` from `open_db()`, with `foreign_keys=ON`,
 An `IN (...)` list built from a set the data can grow without bound (a page's
 block uids, a block's referrers, a `((ref))` set) goes through
 `sync_core.chunk_ids`, because SQLite refuses a statement that binds more
-variables than its limit and the route would answer 500.
+variables than its limit and the route would answer 500. The offline shim
+(`replica/localApi/`) meets the same limit in the wasm build. It binds such a
+set whole as one JSON array, `IN (SELECT value FROM json_each(?))`, which
+needs one variable at any size and keeps one statement per read.
 
 ### Schema
 
@@ -188,11 +191,29 @@ rebootstrap on a schema-hash change. Startup never runs the
 `GET /api/block/{uid}` and every backlink group. Its recursive CTE holds
 `uid` alone and joins with `UNION`, which queues a row only once. So each
 distinct ancestor is read once, however many starts share it, and a parent
-cycle in a hand-edited database ends the walk. `tree.ancestor_texts` then
+cycle in a hand-edited database ends the walk. `tree.ancestor_trails` then
 rebuilds each trail root first, stopping at the first uid already on it.
 **The ancestor walk must not carry a per-row path string.** One row per
 start and ancestor, each copying an `O(depth)` string, makes the backlinks
 of a deep chain cost `O(depth³)`.
+
+A backlinks payload sends each ancestor's text once. Each `BacklinkGroup`
+lists its ancestors' texts in `ancestor_texts`, and each item names its
+trail, root first, as positions in that list (`ancestors`). Texts on every
+item would repeat a deep chain's shared ancestors about `depth²/2` times,
+so a few MB stored became hundreds of MB per read. An ancestor is always
+on its item's page, so a per-group list holds each once. Both fields are
+left out when empty. The web shows each ancestor's full text and the
+linked-references filter reads its refs, so an excerpt is no substitute.
+`groups.showBacklinkGroups` resolves a batch to texts on arrival, since
+positions mean nothing outside their group. `GET /api/block/{uid}` has one
+trail and keeps it as texts in `breadcrumbs`.
+
+Every `BacklinkItem` still carries `breadcrumbs`, for tabs running a bundle
+built before `ancestors`. Such a bundle reads it off every item and throws
+to the root error screen when it is missing. It holds
+`STALE_BUNDLE_CRUMB` (`…`) where the item has a trail and nothing
+otherwise, never the texts.
 
 The single-chain walks carry `path` as `,uid,uid,…,` and keep a row only
 while `instr(c.path, ',' || b.uid || ',') = 0`, so a cycle stops at the
@@ -302,13 +323,19 @@ raw SQL.
 | An indented `Title::` is an attribute, its span anchored on the title | `attribute_title_span` | `scanGrammar` | `scan.test.ts` (`"  Key:: v"` at offset 2) |
 | The `((uid))` shape, which `UID_RE` and the `BlockUid` brand shape are built from | `BLOCK_REF_TOKEN` | `UID_TOKEN` | `scan.test.ts`, `test_rows_vocabulary.py` |
 | How deep `[[` runs nest: the height of the run tree over the code-stripped text | `link_nesting_depth` | `linkNestingDepth` | `text_limits_parity.json` |
+| A `#tag` name is a run of `_`, `/`, `.`, `-` and the word characters in `TAG_WORD_RANGES` | `_TAG_NAME` | `TAG_CHARS_RE` | `ref_grammar.json`, `test_tag_chars_artifact.py` |
 
 The backtick check reads the original text, because `strip_code()` has
 blanked code to spaces. Both scanners stay linear: a failed fence-closer
 search retires the fence rule for the rest of the text. The fence-closer word
 test is ASCII on both sides. A Unicode class follows each runtime's Unicode
 table, and Python's lags a browser's, so the two would hide different text as
-code and disagree on a block's refs and nesting depth.
+code and disagree on a block's refs and nesting depth. A tag name cannot be
+ASCII, or `#café` would stop being a tag. Its word class is instead one frozen
+table, `contracts/tag_chars.py` (CPython 3.12's `\w`, Unicode
+`TAG_CHARS_UNICODE_VERSION`), which both sides compile. A Python or browser
+upgrade therefore changes no tag. Moving the table to a newer Unicode is a
+deliberate regeneration.
 
 `rename.py` and `unlink.py` keep no copy of the grammar. They locate refs
 through `strip_code`, `bracket_spans`, `tag_spans` and `attribute_title_span`,
@@ -345,6 +372,11 @@ renamed or deleted.
 
 `POST /api/ops` applies an `OpBatch` of 1–500 ops. `batch_id` is required (a
 422 without it), because an id-less batch cannot be deduplicated.
+`OpBatch.expect`, which only the assistant's approval card sets
+([assistant.md](assistant.md#the-write-approval-card)), is checked after the
+dedupe read and before any op runs: an entry that no longer holds refuses the
+whole batch with 412. Checking after dedupe lets a retried batch that already
+applied replay its ack instead of being refused by its own effect.
 
 | Op | Does |
 |---|---|
@@ -360,7 +392,8 @@ flowchart LR
     C[Client batch] --> JB["ops_core.judge_batch (Core, threadpool)<br/>text limits, then titles → 400"]
     JB --> R
     subgraph TX["one transaction: BEGIN IMMEDIATE before the dedupe read"]
-        R["routes_ops.py (Shell)<br/>idempotency check"] --> CTX["ops_apply._context_for (Shell)<br/>read SQLite, classify once → per-kind context"]
+        R["routes_ops.py (Shell)<br/>idempotency check"] --> E["ops_expect.unmet_expectation (Core)<br/>expect check → 412, nothing written"]
+        E --> CTX["ops_apply._context_for (Shell)<br/>read SQLite, classify once → per-kind context"]
         CTX --> P["ops_core.plan_op (Core)<br/>pure: op + context → effect tuples"]
         P --> X["ops_apply._execute (Shell)<br/>effects → SQL"]
     end
@@ -1149,11 +1182,11 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | GET | `/{path}` *(public)* | SPA fallback; hashed bundles under `/app-assets/` |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |
-| POST | `/api/ops` | Apply an `OpBatch` ([The write path](#the-write-path)); `applied` counts skipped ops too; 400 for the whole batch past a [text limit](#planning); 413 for a body past `PRIVATE_BODY_MAX_BYTES` ([Auth](#auth)) |
+| POST | `/api/ops` | Apply an `OpBatch` ([The write path](#the-write-path)); `applied` counts skipped ops too; 400 for the whole batch past a [text limit](#planning); 412 when an `expect` entry no longer holds, and nothing is written; 413 for a body past `PRIVATE_BODY_MAX_BYTES` ([Auth](#auth)) |
 | **Pages & blocks** | | |
-| GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree, paginated backlinks (not from the page itself), `block_ref_counts`; daily pages auto-created |
+| GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree, paginated backlinks (not from the page itself) with [`ancestor_texts`](#breadcrumbs-and-recursive-traversal) per group, `block_ref_counts`; daily pages auto-created |
 | GET | `/api/block/{uid}` | One block subtree with its page and [breadcrumbs](#breadcrumbs-and-recursive-traversal) |
-| GET | `/api/block/{uid}/backlinks` | Blocks referencing `((uid))`, unpaginated |
+| GET | `/api/block/{uid}/backlinks` | Blocks referencing `((uid))`, unpaginated, with [`ancestor_texts`](#breadcrumbs-and-recursive-traversal) per group |
 | GET | `/api/block-refs?uids=` | Resolve `((uid))` references |
 | POST | `/api/pages` | Idempotent page create |
 | DELETE | `/api/page/{title}` | Delete a page, unlinking inbound refs; 409 with `blockers`, each an `excerpt` and `text_length` ([Page mutations](#page-mutations-and-the-sidebar)) |
@@ -1247,6 +1280,8 @@ Python commands run from `server/`, `pnpm` ones from `web/`.
 | `web/src/replica/baseSchema.gen.ts` | `uv run python -m pkm.schema_dump > ../web/src/replica/baseSchema.gen.ts` | `test_schema_artifact.py` | the replica schema to `BASE_DDL` |
 | `web/src/replica/columns.gen.ts`, `web/tooling/brandRegistry.gen.json` | `uv run python -m pkm.rows_dump` | `test_rows_artifact.py`, `columns.test.ts` | `Columns`, `COLUMN_META` and the web lint's registry to `rows.Row` and `brand_registry` |
 | `web/src/assistant/previewKeys.gen.ts` | `uv run python -m pkm.assistant.preview_keys_dump > ../web/src/assistant/previewKeys.gen.ts` | `test_preview_keys_artifact.py` | the approval card's allow-list (`PREVIEW_KEYS`) to `WRITE_PREVIEW_FIELDS`, `CURRENT_TEXT_ENTRIES` and `SUBTREE_DELETE_ENTRIES`, `CURRENT_EXCERPT_CHARS`, and `PREVIEW_FIELDS` to `WritePreview`'s fields |
+| `server/src/pkm/contracts/tag_chars.py` | `uv run python -m pkm.tag_chars_dump --table > src/pkm/contracts/tag_chars.py`, only to move the tag table to a new Unicode version | `test_tag_chars_artifact.py`, which compares it only under the Unicode version it froze | `TAG_WORD_RANGES` to the running CPython's `\w` |
+| `web/src/grammar/tagChars.gen.ts` | `uv run python -m pkm.tag_chars_dump > ../web/src/grammar/tagChars.gen.ts` | `test_tag_chars_artifact.py` | the web's tag class (`TAG_WORD_CLASS`) to `TAG_WORD_RANGES` |
 | `web/src/grammar/titleWhitespace.gen.ts` | `uv run python -m pkm.title_whitespace_dump > ../web/src/grammar/titleWhitespace.gen.ts` | `test_title_whitespace_artifact.py`, the `TITLE_WHITESPACE` case in `replica/titles.test.ts` | the web's fold set to `TITLE_WHITESPACE` |
 | `shared/fixtures/refs_parity.json` | `uv run python -m pkm.refs_parity_dump > ../shared/fixtures/refs_parity.json` | `test_refs_parity_fixture.py` | `refs.extract` |
 | `shared/fixtures/title_parity.json` | `uv run python -m pkm.title_parity_dump > ../shared/fixtures/title_parity.json` | `test_title_parity_fixture.py`, `titleParity.test.ts` | `normalize_title`, `target_canonical_title`, `title_syntax_reason`, `is_blank_title`, `extract` |
@@ -1264,9 +1299,11 @@ Python commands run from `server/`, `pnpm` ones from `web/`.
 | `draft_flush.json` | hand-edited | `test_ops_endpoint.py`, `EditablePage.draftFlush.test.tsx` | the op an editor draft flushes |
 
 Hand-edited fixtures live in `shared/fixtures/`. `rows_dump` fails for a
-brand `brands.ts` lacks. The seeded corpora in `refs_parity.json`,
-`title_parity.json` and `text_limits_parity.json` are tallied by shape, so
-they cannot go vacuous. The [ops property](checks.md#property-gate)
+brand `brands.ts` lacks. The `--table` redirect empties `tag_chars.py` before
+the dump runs. So `tag_chars_dump` imports the table only for the plain run,
+which writes the TS file, and must keep no top-level import of it. The seeded
+corpora in `refs_parity.json`, `title_parity.json` and
+`text_limits_parity.json` are tallied by shape, so they cannot go vacuous. The [ops property](checks.md#property-gate)
 checks the server, replica and in-memory implementations against each other
 on random batches.
 

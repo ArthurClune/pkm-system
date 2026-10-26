@@ -659,6 +659,103 @@ it("a refused undo deletes none of its upload's files; the retry does", async ()
   }
 });
 
+const OTHER = canonicalTitleOf("Other Page");
+
+it("a refused undo goes back below an edit recorded during its read",
+   async () => {
+  const sync = makeSync();
+  recordMove(indented(), outdentOps());
+  const gate = defer<BlockNode[]>();
+  setHistoryPageLoader(() => gate.promise);
+  performUndo(sync);
+  recordHistory({ ...entry(), pageTitle: OTHER });
+  gate.resolve(deepen(outdented()));
+  await historyIdle();
+  expect(sync.sent).toEqual([]);
+  setHistoryPageLoader(async () => outdented());
+  performUndo(sync);
+  await historyIdle();
+  performUndo(sync);
+  await historyIdle();
+  expect(sync.tickets.map((t) => t.scope))
+    .toEqual([["page", OTHER], ["page", PAGE]]);
+});
+
+it("a refused redo is dropped when an edit was recorded during its read",
+   async () => {
+  const sync = makeSync();
+  recordMove(outdented(), indentOps());
+  setHistoryPageLoader(async () => indented());
+  performUndo(sync);
+  await historyIdle();
+  const gate = defer<BlockNode[]>();
+  setHistoryPageLoader(() => gate.promise);
+  performRedo(sync);
+  recordHistory({ ...entry(), pageTitle: OTHER });
+  gate.resolve(deepen(outdented()));
+  await historyIdle();
+  expect(sync.sent).toHaveLength(1);
+  expect(performRedo(sync)).toBe(false);
+  setHistoryPageLoader(async () => []);
+  expect(performUndo(sync)).toBe(true);
+  await historyIdle();
+  expect(sync.tickets.at(-1)!.scope).toEqual(["page", OTHER]);
+  expect(performUndo(sync)).toBe(false);
+});
+
+it.each([
+  ["refused", () => deepen(outdented())],
+  ["applicable", () => outdented()],
+])("a reset during a pending read of a %s undo leaves no trace",
+   async (_name, tree) => {
+  const sync = makeSync();
+  recordMove(indented(), outdentOps());
+  const gate = defer<BlockNode[]>();
+  const reading = defer<void>();
+  setHistoryPageLoader(() => {
+    reading.resolve();
+    return gate.promise;
+  });
+  const paths: string[] = [];
+  const clear = setHistoryNavigator((p) => paths.push(p));
+  performUndo(sync);
+  await reading.promise; // the reset lands while the read is pending
+  resetHistory();
+  gate.resolve(tree());
+  await new Promise((r) => setTimeout(r, 0));
+  expect(sync.sent).toEqual([]);
+  expect(paths).toEqual([]);
+  const h = hooksFor();
+  expect(h.notices).toEqual([]);
+  h.unregister();
+  expect(performUndo(sync)).toBe(false);
+  clear();
+});
+
+it("a reset during a page read that fails ships nothing", async () => {
+  const sync = makeSync();
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  recordMove(indented(), outdentOps());
+  const gate = defer<BlockNode[]>();
+  const reading = defer<void>();
+  setHistoryPageLoader(() => {
+    reading.resolve();
+    return gate.promise;
+  });
+  const paths: string[] = [];
+  const clear = setHistoryNavigator((p) => paths.push(p));
+  performUndo(sync);
+  await reading.promise;
+  resetHistory();
+  gate.reject(new Error("offline"));
+  await new Promise((r) => setTimeout(r, 0));
+  expect(sync.sent).toEqual([]);
+  expect(paths).toEqual([]);
+  expect(warn).not.toHaveBeenCalled();
+  warn.mockRestore();
+  clear();
+});
+
 // A replay judged by the text limits as well as the depth cap: an entry can
 // carry a text past a limit (a block stored before the limits existed, then
 // edited), and the server would refuse the batch whole.

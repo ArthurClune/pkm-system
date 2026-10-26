@@ -160,14 +160,14 @@ def test_a_batch_reads_a_hashs_rows_once_however_many_ops_record(
     # cache, so the next op read every row again.
     uid = _titled_step(seeded_config, 50)
     read = [0]
-    real = ops_apply._rewrites_from
+    real = ops_apply._rewrites_within
 
-    def counted(db, block: BlockUid, base: Sha256Hex):
-        rows = real(db, block, base)
-        read[0] += len(rows)
-        return rows
+    def counted(db, block: BlockUid, base: Sha256Hex, allowance: int):
+        got = real(db, block, base, allowance)
+        read[0] += 0 if got is None else len(got[0])
+        return got
 
-    monkeypatch.setattr(ops_apply, "_rewrites_from", counted)
+    monkeypatch.setattr(ops_apply, "_rewrites_within", counted)
     _post(client, _edits(uid, [f"[[t0]] y{i}" for i in range(10)]))
     assert read[0] == 50
     assert _rows_of(seeded_config, uid) == 50 + 10 * 50
@@ -242,6 +242,51 @@ def test_rows_past_the_budget_cost_what_the_budget_does(
     (small, skipped), (large, _) = work(5_000), work(50_000)
     assert skipped == ["text_limit"]
     assert large < 1.5 * small, (small, large)
+
+
+def test_one_statement_charges_a_hashs_rows_and_reads_only_what_fits(
+        seeded_config):
+    # The charge and the read are one statement. Its sum is each row's
+    # titles in bytes and ROW_CHARS; past the allowance it joins no row,
+    # so no title the batch cannot pay for is loaded, and the read
+    # returns None.
+    uid = _fresh_uid()
+    base = text_hash(ORIGINAL)
+    _insert_rows(seeded_config, uid, [
+        (base, text_hash("after"), "unlink", f"é{i}", "") for i in range(5)]
+        + [(text_hash("other"), text_hash("after"), "unlink", "o", "")])
+    each = ops_core.ROW_CHARS + len("é0".encode())
+    con = open_db(seeded_config.db_path)
+    try:
+        def read(allowance: int):
+            return ops_apply._rewrites_within(con, uid, base, allowance)
+
+        def raw(allowance: int):
+            return con.select(ops_apply._CHARGED_REWRITES, {
+                "uid": uid, "base_hash": base, "allowance": allowance,
+                "row_chars": ops_core.ROW_CHARS,
+                "rows": allowance // ops_core.ROW_CHARS + 1})
+
+        got = read(5 * each)
+        assert got is not None
+        rows, cost = got
+        assert cost == 5 * each
+        assert [r.old_text for r in rows] == [f"é{i}" for i in range(4, -1, -1)]
+        assert read(5 * each - 1) is None
+        assert [(r["rewrite_old_text"], r["n"]) for r in raw(5 * each - 1)] \
+            == [("", 5 * each)]
+        # past the rows the allowance could pay for, none are measured
+        assert [r["n"] for r in raw(2 * each)] == [3 * each]
+        assert read(0) is None
+        assert ops_apply._rewrites_within(
+            con, uid, text_hash("nothing"), 0) == ((), 0)
+        assert ops_apply._rewrites_within(
+            con, uid, text_hash("other"), each) == (
+                (ops_core.BlockRewrite(text_hash("other"), text_hash("after"),
+                                       "o", "", "unlink"),),
+                ops_core.ROW_CHARS + 1)
+    finally:
+        con.close()
 
 
 def test_an_edit_whose_rows_cost_past_the_budget_lands_every_link_plain(

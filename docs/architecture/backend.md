@@ -541,9 +541,10 @@ server bug.
   makes every later edit of the block pay for all of them.
   `ops_apply.BatchReplay` reads a block's rows one base hash at a time,
   only when an edit's walk reaches that hash (`RewriteHistory.lazy`,
-  `next_unread`), through `idx_block_rewrites_uid` in rowid order. Before
-  reading, it measures the rows' sizes, at most as many as the allowance
-  could pay for and without loading their text (`_rewrites_cost`). A hash
+  `next_unread`), through `idx_block_rewrites_uid` in rowid order. One
+  statement charges and reads a hash (`_rewrites_within`). It sums the
+  rows' sizes, at most as many as the allowance could pay for, and loads
+  their text only when the sum fits. A hash
   too costly to read stops the walk blind: the edit lands as sent, with
   every link made plain, since any could name a page the unread chain
   deleted. The batch keeps what it read and what it records, so no hash

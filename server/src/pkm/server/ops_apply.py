@@ -115,17 +115,6 @@ def _block_with_depth(db: Db,
     return BlockInfo(row["uid"], row["page_id"], row["parent_uid"]), row["n"]
 
 
-# The rows a replay reads, newest first: the order
-# `ops_core.replay_title_rewrites` walks the chain in. By rowid, which
-# the index `idx_block_rewrites_uid` orders a hash's rows by, so no read
-# sorts; and a row a batch writes is always newest, as its history keeps
-# it (`RewriteHistory.record`), even after the clock steps back.
-_REWRITE_COLUMNS = (
-    "SELECT base_hash, after_hash, old_title AS rewrite_old_text,"
-    " new_title AS rewrite_new_text, kind AS rewrite_kind"
-    " FROM block_rewrites")
-
-
 def _rewrites_of(rows: Sequence[Row]) -> tuple[BlockRewrite, ...]:
     return tuple(BlockRewrite(row["base_hash"], row["after_hash"],
                               row["rewrite_old_text"], row["rewrite_new_text"],
@@ -133,29 +122,51 @@ def _rewrites_of(rows: Sequence[Row]) -> tuple[BlockRewrite, ...]:
                  for row in rows)
 
 
-def _rewrites_from(db: Db, uid: BlockUid,
-                   base_hash: Sha256Hex) -> tuple[BlockRewrite, ...]:
-    """The rows of this block's rewrites from `base_hash`, newest first."""
-    return _rewrites_of(db.select(
-        f"{_REWRITE_COLUMNS} WHERE uid = ? AND base_hash = ?"
-        " ORDER BY rowid DESC", (uid, base_hash)))
+# One statement both charges and reads a base hash's rows. `spent` is
+# what reading them costs: each row's titles in bytes and `ROW_CHARS`, as
+# writing it is, summed over at most the rows `allowance` could pay for,
+# by rowid through `idx_block_rewrites_uid`, so a hash holding millions of
+# rows costs what the budget does. Only when that fits does the join seek
+# the rows: past it the seek's key is NULL and finds none, so no title the
+# batch cannot pay for is loaded. With no rows joined, one row of
+# placeholders carries `n` alone. Newest first, by rowid: the order
+# `ops_core.replay_title_rewrites` walks the chain in, and a row a batch
+# writes is always newest, as its history keeps it
+# (`RewriteHistory.record`), even after the clock steps back.
+_CHARGED_REWRITES = """
+    SELECT COALESCE(r.base_hash, :base_hash) AS base_hash,
+           COALESCE(r.after_hash, :base_hash) AS after_hash,
+           COALESCE(r.kind, 'retitle') AS rewrite_kind,
+           COALESCE(r.old_title, '') AS rewrite_old_text,
+           COALESCE(r.new_title, '') AS rewrite_new_text,
+           spent.n
+      FROM (SELECT COALESCE(SUM(size), 0) AS n
+              FROM (SELECT :row_chars + length(CAST(old_title AS BLOB))
+                             + length(CAST(new_title AS BLOB)) AS size
+                      FROM block_rewrites
+                     WHERE uid = :uid AND base_hash = :base_hash
+                     ORDER BY rowid DESC LIMIT :rows)) AS spent
+      LEFT JOIN block_rewrites AS r
+        ON r.uid = :uid
+       AND r.base_hash = CASE WHEN spent.n <= :allowance
+                              THEN :base_hash END
+     ORDER BY r.rowid DESC"""
 
 
-def _rewrites_cost(db: Db, uid: BlockUid, base_hash: Sha256Hex,
-                   allowance: int) -> int | None:
-    """What reading the rows from `base_hash` is charged: each row's titles
-    in bytes and `ROW_CHARS`, as writing it is; None past `allowance`. It
-    measures at most the rows the allowance could pay for, through the
-    index and without loading their titles, so a hash holding millions of
-    rows costs what the budget does."""
-    sizes = db.select(
-        "SELECT length(CAST(old_title AS BLOB))"
-        " + length(CAST(new_title AS BLOB)) AS n"
-        " FROM block_rewrites WHERE uid = ? AND base_hash = ?"
-        " ORDER BY rowid DESC LIMIT ?",
-        (uid, base_hash, allowance // ROW_CHARS + 1))
-    cost = sum(ROW_CHARS + row["n"] for row in sizes)
-    return None if cost > allowance else cost
+def _rewrites_within(
+        db: Db, uid: BlockUid, base_hash: Sha256Hex,
+        allowance: int) -> tuple[tuple[BlockRewrite, ...], int] | None:
+    """The rows of this block's rewrites from `base_hash`, newest first,
+    and what reading them is charged (`_CHARGED_REWRITES`); None when
+    that is past `allowance`. A row costs more than nothing, so a charge
+    of 0 is a hash with no rows."""
+    rows = db.select(_CHARGED_REWRITES, {
+        "uid": uid, "base_hash": base_hash, "allowance": allowance,
+        "row_chars": ROW_CHARS, "rows": allowance // ROW_CHARS + 1})
+    cost = rows[0]["n"]
+    if cost > allowance:
+        return None
+    return (_rewrites_of(rows) if cost else ()), cost
 
 
 def _parent_chain(db: Db, uid: BlockUid) -> tuple[BlockUid, ...]:
@@ -440,16 +451,17 @@ class BatchReplay:
 
     def _read(self, db: Db, uid: BlockUid, history: RewriteHistory,
               base_hash: Sha256Hex) -> None:
-        """Read the rows from `base_hash`, charged (`_rewrites_cost`). Past
-        what is left the hash is marked unread and the read spends the
+        """Read the rows from `base_hash`, charged (`_rewrites_within`).
+        Past what is left the hash is marked unread and the read spends the
         rest, as a replay step past the budget does."""
-        cost = _rewrites_cost(db, uid, base_hash, self.allowance)
-        if cost is None:
+        read = _rewrites_within(db, uid, base_hash, self.allowance)
+        if read is None:
             self.allowance = 0
             history.add_unread(base_hash)
             return
+        rows, cost = read
         self.allowance -= cost
-        history.add_read(base_hash, _rewrites_from(db, uid, base_hash))
+        history.add_read(base_hash, rows)
 
     def recorded(self, db: Db, uid: BlockUid,
                  rows: Sequence[BlockRewrite]) -> tuple[BlockRewrite, ...]:

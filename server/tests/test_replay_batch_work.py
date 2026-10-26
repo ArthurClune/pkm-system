@@ -92,7 +92,9 @@ def test_an_edit_pays_for_its_replay_once(client, seeded_config):
     con = open_db(seeded_config.db_path)
     try:
         rows = ops_apply._rewrites_of(con.select(
-            f"{ops_apply._REWRITE_COLUMNS} WHERE uid = ? ORDER BY rowid DESC",
+            "SELECT base_hash, after_hash, old_title AS rewrite_old_text,"
+            " new_title AS rewrite_new_text, kind AS rewrite_kind"
+            " FROM block_rewrites WHERE uid = ? ORDER BY rowid DESC",
             (SRC,)))
     finally:
         con.close()

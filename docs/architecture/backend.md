@@ -418,9 +418,10 @@ route whose decision rests on what it reads joins them.
 | `POST /api/migrations/title-canonicalization` | the re-inventory | uncaught: 500 |
 
 `apply_batch` itself runs on the event loop and holds the lock until the
-commit. Its work is linear in the request and in the rows of the blocks the
-batch touches ([Planning](#planning), Replay budget), and the request is
-bounded by `PRIVATE_BODY_MAX_BYTES` ([Auth](#auth)).
+commit. Its work is a constant plus work linear in the request, which is
+bounded by `PRIVATE_BODY_MAX_BYTES` ([Auth](#auth)): what it reads of the
+server's history is charged to the batch's replay budget
+([Planning](#planning), Replay budget).
 
 ### Planning
 
@@ -508,35 +509,43 @@ server bug.
   they replay did: under plain-space canonicalisation a `[[ Old ]]` the
   client added offline is the page `Old`, and left linked it re-creates it.
 - **Replay budget.** A batch's replays share one budget,
-  `ops_core.MAX_BATCH_REPLAY_WORK`, counted in characters. The copies and
-  titles a replay splices come from the server's history, not the request,
-  so a batch of tiny edits could otherwise hold the write lock for minutes.
-  An unlink is charged what the capped unlink can read
-  (`unlink.unlink_reads`). A rename is charged the text it scans plus the
-  text it splices, because a longer title grows every link. A step that
-  changes the text is also charged the [rows](#conflicts) an op records for
-  it, each its titles and `ops_core.ROW_CHARS` (`ops_core._charged`): a
-  step can name a title per link of a megabyte, and writing a row costs
-  more than reading the link. When a step would pass what is left, the
-  edit lands as sent, as for `over_limit`, and that step spends the rest,
-  so every later step stops before splicing. A step a cap stops (the
-  length cap, or an unlink refused for its depth) pays for what it scanned
-  or built (`ops_core._spent`). A stopped step is not kept, so a step that
-  paid nothing would be done again by every op of the batch. A replay runs
+  `ops_core.MAX_BATCH_REPLAY_WORK`, counted in characters. The rows a
+  replay reads, and the copies and titles it splices, come from the
+  server's history, not the request, and a block can hold millions of
+  rows. Without the budget a batch of tiny edits could hold the write lock
+  for minutes. It is charged:
+
+  | Work | Charge |
+  |---|---|
+  | reading the rows from one base hash (`ops_apply.BatchReplay`) | each row's old and new text in bytes, plus `ops_core.ROW_CHARS` |
+  | an unlink | what the capped unlink can read (`unlink.unlink_reads`) |
+  | a rename | the text it scans plus the text it splices, since a longer title grows every link |
+  | the [rows](#conflicts) an op records for a step that changed its text (`ops_core._charged`) | each row's old and new text, plus `ROW_CHARS`; an inline row's new text is its copy |
+
+  When a step would pass what is left, the edit lands as sent, as for
+  `over_limit`, and that step spends the rest, so every later step stops
+  before splicing. A step a cap stops (the length cap, or an unlink
+  refused for its depth) pays for what it scanned or built
+  (`ops_core._spent`). A stopped step is not kept, so a step that paid
+  nothing would be done again by every op of the batch. A replay runs
   each step once: the rewrite rows and their check look up the
   classification's steps by what `_replay_step` depends on
   (`ops_core._step_key`) instead of replaying them again.
 
-  What an op's replay costs beyond its charge must not grow with the
-  block's rows or a step's titles, or one stale edit linking many deleted
-  titles makes every later edit of the block pay for all of them. That
-  work is paid once per batch. `ops_apply.BatchReplay` reads each block's
-  rows once and keeps the rows the batch records
-  (`ops_core.RewriteHistory`), which finds a step by the hash it starts
-  from. Each step derives its key and its title sets once
-  (`ops_core._derive`), under the one canonicalisation the batch uses.
-  So a batch holds the lock for a constant plus work linear in the
-  request and in the touched blocks' rows.
+  Nothing an op does beyond its charge may grow with the block's rows or
+  a step's titles. Otherwise one stale edit linking many deleted titles
+  makes every later edit of the block pay for all of them.
+  `ops_apply.BatchReplay` reads a block's rows one base hash at a time,
+  only when an edit's walk reaches that hash (`RewriteHistory.lazy`,
+  `next_unread`), through `idx_block_rewrites_uid` in rowid order. Before
+  reading, it measures the rows' sizes, at most as many as the allowance
+  could pay for and without loading their text (`_rewrites_cost`). A hash
+  too costly to read stops the walk blind: the edit lands as sent, with
+  every link made plain, since any could name a page the unread chain
+  deleted. The batch keeps what it read and what it records, so no hash
+  is read twice. Each step's key parts are built once (`_step_key`), and
+  its canonical title sets once under the batch's one canonicalisation
+  (`ops_core._derive`).
 
 Conflicts, missing targets, stale batches and concurrent structure edits are
 what a batch meets when the tree changed after it was planned. None rejects
@@ -599,15 +608,18 @@ client picks that number. Recording what the full-set unlink matched would
 instead name a title that only another's unlink exposes (`[[z [[y]]]]` with
 `y` and `z y` deleted), which the rows must not.
 
-A replayed step's rows name only what it moved in the text it met
-(`ops_core._moved`): each rename it found, each copy it inlined, and every
-spelling it holds of each title its unlink matched. One stale edit can
-leave a step with a row per title it linked, which every later edit made
-before that step replays. Rows naming the whole step would write all of
-it again for each edit it changed. The narrowed step asks that
-text every question the whole step does and gets the same answers, so its
-rows replay onto it as the whole step does. Here a title another's unlink
-exposes is named, since the step held it.
+A replayed step is recorded whole (`ops_core._step_records`): every
+title, rename and copy it holds, not only what the sent text moved. The
+client's next queued edit is hashed on the sent text and replays these
+rows. A ref it adds back must still get its copy, and a link it adds back
+must still be unlinked even in a batch without `seen_seq`, where no stale
+unlink catches it. That makes recording a step of many titles cost each
+edit it changes, so the rows are [charged](#planning) (Replay budget). A
+row identical to one already stored under its base hash is not written
+again (`ops_apply.BatchReplay.recorded`): one stale edit posted again
+would otherwise multiply its rows. Under a hash too costly to read for
+that comparison every row is written, since a row a later edit needs must
+never be dropped.
 
 `delete` may carry `base_subtree_hash` over the uid and text of the block
 and every descendant ([canonical form](sync-and-offline.md#conflicts-at-push-time)).

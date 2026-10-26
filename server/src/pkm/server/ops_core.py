@@ -49,29 +49,26 @@ from pkm.unlink import (PASSES_PAST_DEPTH, TitleMatch, block_ref_spans,
 # falls back to the ordinary conflict path.
 MAX_REPLAYED_REWRITES = 10
 
-# Most characters one batch's replays may spend, summed over the steps of
-# every stale edit in it: what the unlink reads (`unlink.unlink_reads`),
-# what a rename scans and splices (`_replay_step`), and the rows a step
-# that changes the text leaves (`_charged`). The copies and titles a
-# replay splices come from the server's history, not the request, so a
-# batch of tiny edits could ask for a megabyte's unlink or rename per step,
-# ten steps an edit, for each of its ops. Past this the batch's remaining
-# stale edits land as sent (`over_limit`). One step is at most about
-# 5,000,000 reads (a megabyte nested two deep, at `MAX_UNLINK_WORK`), so
-# this is about three such steps. Spent in full, the unlinks take about
-# 4 s for text nested to the cap, the slowest to read; a whole batch of
-# 500 such edits, one block each, holds the write lock about 5.5 s. A
-# step whose copy links 80,000 of its own titles spends it in one edit,
-# about 2 s with the rows it leaves. What is not charged is paid once
-# per batch, not per edit: reading each touched block's rows and
-# deriving each step's titles (`RewriteHistory`, `_derive`), about 0.5 s
-# for a step of 90,000 titles. A step on prod's largest copy reads about
-# 140,000, so ordinary batches stay far below it.
+# Most characters one batch's replays may spend, summed over every stale
+# edit in it: the rows they read (`ops_apply.BatchReplay`), what the unlink
+# reads (`unlink.unlink_reads`), what a rename scans and splices
+# (`_replay_step`), and the rows a step that changes the text leaves
+# (`_charged`). The rows, copies and titles come from the server's
+# history, not the request, so a batch of tiny edits could ask for a
+# megabyte's unlink or rename per step, ten steps an edit, for each of
+# its ops, or for a block's millions of rows. Past this the batch's
+# remaining stale edits land as sent (`over_limit`). One step is at most
+# about 5,000,000 reads (a megabyte nested two deep, at
+# `MAX_UNLINK_WORK`), so this is about three such steps. Spent in full,
+# the unlinks take about 4 s for text nested to the cap, the slowest to
+# read; a batch of 500 such edits, one block each, holds the write lock
+# about 5.5 s. Spent on reading rows it takes under 1 s, and a step of
+# 90,000 titles is about three quarters of it. A step on prod's largest
+# copy reads about 140,000, so ordinary batches stay far below it.
 MAX_BATCH_REPLAY_WORK: Final = 8 * MAX_UNLINK_WORK
 
 # What a `block_rewrites` row stores beside its titles: two sha256 hashes
-# in hex. A replay step is charged the rows an op records for what it
-# moved (`_charged`).
+# in hex. Reading or writing a row is charged this and its titles.
 ROW_CHARS: Final = 2 * 64
 
 # A step already replayed, keyed by the title canonicalisation, what the

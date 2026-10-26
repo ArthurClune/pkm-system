@@ -231,14 +231,16 @@ def test_a_batch_of_renamed_edits_stops_at_its_work_budget(
 
 
 def test_a_rename_step_is_charged_what_it_scans_and_splices():
-    # The text it scans and the text it builds; past what is left it stops
-    # and spends all of it, as an unlink does. A step that renames and
-    # unlinks leaves its unlink only what the rename did not spend.
+    # The text it scans and the text it builds, and the row it leaves;
+    # past what is left it stops and spends all of it, as an unlink does.
+    # A step that renames and unlinks leaves its unlink only what the
+    # rename did not spend.
     text = "[[A]] " * 10
     renamed = "[[Bbbbbbbbbb]] " * 10
     step = ops_core.RewriteStep(text_hash("a"), text_hash("b"),
                                 {"A": as_raw_title("Bbbbbbbbbb")}, set(), {})
-    cost = len(text) + len(renamed)
+    retitle_row = ops_core.ROW_CHARS + len("A") + len("Bbbbbbbbbb")
+    cost = len(text) + len(renamed) + retitle_row
     assert ops_core._replay_step(text, step, normalize_title) == \
         (renamed, cost)
     assert ops_core._replay_step(text, step, normalize_title, cost) == \
@@ -250,7 +252,8 @@ def test_a_rename_step_is_charged_what_it_scans_and_splices():
                                 {"Bbbbbbbbbb"}, {})
     plain, reads = ops_core._replay_step(text, both, normalize_title)
     assert plain == "Bbbbbbbbbb " * 10
-    assert reads == cost + unlink.unlink_reads(renamed)
+    assert reads == cost + unlink.unlink_reads(renamed) + \
+        ops_core.ROW_CHARS + len("Bbbbbbbbbb")
     assert ops_core._replay_step(text, both, normalize_title, reads) == \
         (plain, reads)
     assert ops_core._replay_step(text, both, normalize_title, reads - 1) == \

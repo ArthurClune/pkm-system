@@ -63,6 +63,11 @@ MAX_REPLAYED_REWRITES = 10
 # 140,000, so ordinary batches stay far below it.
 MAX_BATCH_REPLAY_WORK: Final = 8 * MAX_UNLINK_WORK
 
+# What a `block_rewrites` row stores beside its titles: two sha256 hashes
+# in hex. A replay step is charged the rows an op records for what it
+# moved (`_charged`).
+ROW_CHARS: Final = 2 * 64
+
 # A step already replayed, keyed by the title canonicalisation, what the
 # step does and the text it started from: what `_cached_step` returns
 # instead of replaying it again.
@@ -192,12 +197,70 @@ class BlockRewrite:
 
 @dataclass
 class RewriteStep:
-    """One pass over a block: what `replay_title_rewrites` consumes."""
+    """One pass over a block: what `replay_title_rewrites` consumes. A step
+    is not changed once built, so what a replay derives from its titles is
+    kept on it (`key_parts`, `derived`): a batch keeps a block's steps for
+    all its ops (`RewriteHistory`), so it derives each once."""
     base_hash: Sha256Hex
     after_hash: Sha256Hex
     retitles: dict[str, RawTitle]
     unlinked: set[str]
     inlines: dict[str, str]
+    key_parts: tuple[frozenset[object], ...] | None = field(
+        default=None, init=False, repr=False, compare=False)
+    derived: dict[Callable[[str], str], StepTitles] = field(
+        default_factory=dict, init=False, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class StepTitles:
+    """What a replay reads from a step's titles under one canonicalisation.
+    A step can hold a title per link of a megabyte, so this is built once
+    per step (`_derive`), never per op that replays it:
+    - `unlinked`, its deleted titles canonical, and `spellings`, the
+      titles it holds for each;
+    - `gone`, those and its renamed-away titles canonical, which an
+      `over_limit` landing makes plain;
+    - `copies`, its inlined copy per uid, and `copy_keys`, the keys its
+      rows give each uid."""
+    unlinked: frozenset[str]
+    spellings: Mapping[str, tuple[str, ...]]
+    gone: frozenset[str]
+    copies: Mapping[BlockUid, str]
+    copy_keys: Mapping[BlockUid, tuple[str, ...]]
+
+
+def _derive(step: RewriteStep, canonical: Callable[[str], str]) -> StepTitles:
+    """`StepTitles` for `step`: work in the step's size."""
+    spellings: dict[str, list[str]] = {}
+    for title in step.unlinked:
+        spellings.setdefault(canonical(title), []).append(title)
+    # An inline record keeps the block-ref's uid in old_text. The copy map
+    # is keyed by uid; a key that is no uid never matches a `((ref))`.
+    copies: dict[BlockUid, str] = {}
+    copy_keys: dict[BlockUid, list[str]] = {}
+    for key, copy in step.inlines.items():
+        uid = parse_block_uid(key)
+        if uid is not None:
+            copies[uid] = copy
+            copy_keys.setdefault(uid, []).append(key)
+    unlinked = frozenset(spellings)
+    return StepTitles(
+        unlinked=unlinked,
+        spellings={title: tuple(sorted(spelled))
+                   for title, spelled in spellings.items()},
+        gone=unlinked | {canonical(title) for title in step.retitles},
+        copies=copies,
+        copy_keys={uid: tuple(keys) for uid, keys in copy_keys.items()})
+
+
+def _derived(step: RewriteStep,
+             canonical: Callable[[str], str]) -> StepTitles:
+    """`_derive`, once per step and canonicalisation."""
+    titles = step.derived.get(canonical)
+    if titles is None:
+        titles = step.derived[canonical] = _derive(step, canonical)
+    return titles
 
 
 def _rewrite_steps(rewrites: Sequence[BlockRewrite]) -> list[RewriteStep]:
@@ -221,6 +284,66 @@ def _rewrite_steps(rewrites: Sequence[BlockRewrite]) -> list[RewriteStep]:
         elif record.kind == "retitle":
             step.retitles[record.old_text] = as_raw_title(record.new_text)
     return steps
+
+
+class RewriteHistory:
+    """A block's rewrite steps, found by the hash they start from: what a
+    replay walks. `ops_apply` builds one from the block's rows once per
+    batch and keeps it as the batch records more (`record`), so no op
+    reads the rows again, nor walks the steps it does not replay: an op
+    costs what its own steps do, however many rows the block holds."""
+
+    def __init__(self, rows: Sequence[BlockRewrite] = ()) -> None:
+        # Each base hash's steps by hash pair, oldest first, so a newer
+        # step, or one a newer row joins, goes at the end.
+        self._by_base: dict[
+            Sha256Hex, dict[tuple[Sha256Hex, Sha256Hex], RewriteStep]] = {}
+        self._add(_rewrite_steps(rows))
+
+    def __bool__(self) -> bool:
+        return bool(self._by_base)
+
+    def newest(self, base_hash: Sha256Hex,
+               taken: AbstractSet[int]) -> RewriteStep | None:
+        """The newest step from `base_hash` whose id is not in `taken`."""
+        for step in reversed(self._by_base.get(base_hash, {}).values()):
+            if id(step) not in taken:
+                return step
+        return None
+
+    def record(self, rows: Sequence[BlockRewrite]) -> None:
+        """Keep rows just written, as a read of every row would find them.
+        They are newer than every row read, and are read back newest first,
+        in reverse of the order written. A row sharing its hash pair with
+        an older step joins it, after the newer rows' titles, and the older
+        row's copy of a key wins (`_rewrite_steps`)."""
+        self._add(_rewrite_steps(tuple(reversed(rows))))
+
+    def _add(self, steps: Sequence[RewriteStep]) -> None:
+        for step in reversed(steps):
+            group = self._by_base.setdefault(step.base_hash, {})
+            pair = (step.base_hash, step.after_hash)
+            older = group.pop(pair, None)
+            if older is not None:
+                step = RewriteStep(step.base_hash, step.after_hash,
+                                   {**step.retitles, **older.retitles},
+                                   step.unlinked | older.unlinked,
+                                   {**step.inlines, **older.inlines})
+            group[pair] = step
+
+
+@dataclass(frozen=True)
+class StepResult:
+    """What replaying one step made of a text, and what in that text it
+    moved: the rename keys it found (`retitled`), the canonical titles its
+    unlink, fence and attribute defuse matched (`unlinked`) and the uids
+    it inlined. The step narrowed to those asks that text every question
+    the whole step does and gets the same answers, so rows naming only
+    them replay onto it as the whole step does (`_rewrite_chain`)."""
+    text: str
+    retitled: frozenset[str] = frozenset()
+    unlinked: frozenset[str] = frozenset()
+    inlined: frozenset[BlockUid] = frozenset()
 
 
 def replay_title_rewrites(
@@ -271,9 +394,19 @@ def replay_title_rewrites(
 def _replay_step(text: str, step: RewriteStep,
                  canonical: Callable[[str], str],
                  allowance: int | None = None) -> tuple[str | None, int]:
-    """`text` with one recorded rewrite replayed onto it, and the reads it
-    was charged: its rename's scan and splice, and its unlink's
-    `unlink.unlink_reads`. The text is None when a splice that can grow
+    """`_step_replay`'s text, and the reads it was charged."""
+    done, reads = _step_replay(text, step, canonical, allowance)
+    return (None if done is None else done.text), reads
+
+
+def _step_replay(text: str, step: RewriteStep,
+                 canonical: Callable[[str], str],
+                 allowance: int | None = None
+                 ) -> tuple[StepResult | None, int]:
+    """`text` with one recorded rewrite replayed onto it, as a
+    `StepResult` naming what the step moved in it, and the reads it was
+    charged: its rename's scan and splice, and its unlink's
+    `unlink.unlink_reads`. The result is None when a splice that can grow
     the text (a longer title, an inlined copy) would carry it past
     `MAX_BLOCK_TEXT_CHARS`. That is judged from the spans
     before splicing: each link grows by up to the title's growth, and a
@@ -301,14 +434,24 @@ def _replay_step(text: str, step: RewriteStep,
     batch's later steps stop before splicing: what each costs is then its
     own sent text, not the copies or titles from history. A step a cap
     stops pays for what it scanned or built (`_spent`), since a stopped
-    step is not kept and the next op would do it all again."""
+    step is not kept and the next op would do it all again. A step that
+    changes the text is charged the rows it would leave too (`_charged`),
+    and stops past the budget the same way."""
     entering = text
+    titles = _derived(step, canonical)
     # what the rename charged, which the unlink's budget leaves out
     renamed = 0
+    retitled: set[str] = set()
     if step.retitles:
-        spans = title_ref_spans(
-            text, step.retitles,
-            normalize=spelled_or_canonical(canonical, step.retitles))
+        spelled = spelled_or_canonical(canonical, step.retitles)
+
+        def found(raw: str) -> str:
+            key = spelled(raw)
+            if key in step.retitles:
+                retitled.add(key)
+            return key
+
+        spans = title_ref_spans(text, step.retitles, normalize=found)
         projected = spliced_length(text, spans)
         if projected > MAX_BLOCK_TEXT_CHARS:
             return None, _spent(len(text), allowance)
@@ -317,16 +460,17 @@ def _replay_step(text: str, step: RewriteStep,
             return None, allowance
         text = splice(text, spans)
     if step.unlinked or step.inlines:
-        unlinked = {canonical(title) for title in step.unlinked}
+        matched: set[str] = set()
 
         def is_deleted(raw: str) -> bool:
-            return canonical(normalize_title(raw)) in unlinked
+            title = canonical(normalize_title(raw))
+            if title in titles.unlinked:
+                matched.add(title)
+                return True
+            return False
 
-        # An inline record keeps the block-ref's uid in old_text. The copy
-        # map is keyed by uid; a key that is no uid never matches a `((ref))`.
-        copies = {uid: copy for key, copy in step.inlines.items()
-                  if (uid := parse_block_uid(key)) is not None}
-        spans = block_ref_spans(text, copies)
+        inlined: set[BlockUid] = set()
+        spans = block_ref_spans(text, titles.copies, inlined)
         projected = spliced_length(text, spans)
         if projected > MAX_BLOCK_TEXT_CHARS:
             return None, _spent(renamed + len(text), allowance)
@@ -341,8 +485,32 @@ def _replay_step(text: str, step: RewriteStep,
             return None, allowance
         if unlink_refused(entering, spliced):
             return None, renamed + reads
-        return unlink_stale_refs(spliced, is_deleted), renamed + reads
-    return text, renamed
+        return _charged(
+            step, entering,
+            StepResult(unlink_stale_refs(spliced, is_deleted),
+                       frozenset(retitled), frozenset(matched),
+                       frozenset(inlined)),
+            canonical, renamed + reads, allowance)
+    return _charged(step, entering, StepResult(text, frozenset(retitled)),
+                    canonical, renamed, allowance)
+
+
+def _charged(step: RewriteStep, entering: str, done: StepResult,
+             canonical: Callable[[str], str], work: int,
+             allowance: int | None) -> tuple[StepResult | None, int]:
+    """`done` and its charge: the `work` its replay did, plus, when it
+    changed `entering`, the rows an op records for what it moved
+    (`_moved`), each its titles and `ROW_CHARS`. A step can name a title
+    per link of a megabyte, and writing a row costs more than reading the
+    link. Past `allowance` the step stops and spends the rest, as when
+    its splice would read past it."""
+    cost = work
+    if done.text != entering:
+        cost += sum(ROW_CHARS + len(old) + len(new)
+                    for _, old, new in _moved(step, done, canonical))
+    if allowance is not None and cost > allowance:
+        return None, allowance
+    return done, cost
 
 
 def _spent(work: int, allowance: int | None) -> int:
@@ -357,29 +525,31 @@ def _step_key(text: str, step: RewriteStep,
               canonical: Callable[[str], str]) -> StepKey:
     """Everything `_replay_step`'s result depends on, bar the allowance,
     which only decides whether it runs. A step rebuilt from the rows that
-    recorded it (`_rewrite_chain`) has the same key: the rows carry its
-    retitles, unlinked titles and copies verbatim."""
-    return (canonical,
-            (tuple(sorted(step.retitles.items())), tuple(sorted(step.unlinked)),
-             tuple(sorted(step.inlines.items()))),
-            text)
+    recorded it has the same key: the rows carry what it holds verbatim.
+    The step's part is frozensets kept on it, whose hashes are kept too,
+    so a lookup costs nothing in the step's size."""
+    if step.key_parts is None:
+        step.key_parts = (frozenset(step.retitles.items()),
+                          frozenset(step.unlinked),
+                          frozenset(step.inlines.items()))
+    return (canonical, step.key_parts, text)
 
 
 def _cached_step(
     text: str, step: RewriteStep, canonical: Callable[[str], str],
-    known: dict[StepKey, str], allowance: int | None,
-) -> tuple[str | None, int]:
-    """`_replay_step`, or the text an equal step from the same text already
-    made, which costs no reads: `_replay_step` is a pure function of the
+    known: dict[StepKey, StepResult], allowance: int | None,
+) -> tuple[StepResult | None, int]:
+    """`_step_replay`, or what an equal step from the same text already
+    made, which costs no reads: `_step_replay` is a pure function of the
     key. A step that stopped (None) is not kept, since an allowance may
     have stopped it."""
     key = _step_key(text, step, canonical)
     if key in known:
         return known[key], 0
-    replayed, reads = _replay_step(text, step, canonical, allowance)
-    if replayed is not None:
-        known[key] = replayed
-    return replayed, reads
+    done, reads = _step_replay(text, step, canonical, allowance)
+    if done is not None:
+        known[key] = done
+    return done, reads
 
 
 @dataclass(frozen=True)
@@ -391,14 +561,15 @@ class _Replayed:
     text: str | None
     base_hash: Sha256Hex
     steps: tuple[RewriteStep, ...]
-    known: dict[StepKey, str]
+    known: dict[StepKey, StepResult]
     reads: int
 
 
 def _replay(
-    text: str, base_hash: Sha256Hex, rewrites: Sequence[BlockRewrite],
+    text: str, base_hash: Sha256Hex,
+    rewrites: Sequence[BlockRewrite] | RewriteHistory,
     canonical: Callable[[str], str],
-    known: Mapping[StepKey, str] | None = None,
+    known: Mapping[StepKey, StepResult] | None = None,
     allowance: int | None = None,
 ) -> _Replayed:
     """`replay_title_rewrites`, with what else a caller needs (`_Replayed`).
@@ -407,23 +578,26 @@ def _replay(
     of that step. The walk still follows the chain past it, so the steps
     name every title the chain deleted or renamed away
     (`over_limit_landing_text`). A step in `known` is not replayed again."""
-    steps = _rewrite_steps(rewrites)
+    history = (rewrites if isinstance(rewrites, RewriteHistory)
+               else RewriteHistory(rewrites))
     consumed: list[RewriteStep] = []
+    taken: set[int] = set()
     memo = dict(known or {})
     spent = 0
     replayed: str | None = text
     stopped_at: Sha256Hex | None = None
     for _ in range(MAX_REPLAYED_REWRITES):
-        match = next((s for s in steps if s.base_hash == base_hash), None)
+        match = history.newest(base_hash, taken)
         if match is None:
             break
-        steps = [s for s in steps if s is not match]
+        taken.add(id(match))
         consumed.append(match)
         if replayed is not None:
             left = None if allowance is None else allowance - spent
-            replayed, reads = _cached_step(replayed, match, canonical, memo,
-                                           left)
+            done, reads = _cached_step(replayed, match, canonical, memo,
+                                       left)
             spent += reads
+            replayed = None if done is None else done.text
             if replayed is None:
                 stopped_at = base_hash
         base_hash = match.after_hash
@@ -442,13 +616,19 @@ def over_limit_landing_text(text: str, replayed: Sequence[RewriteStep],
     deleted block is legal and only renders broken. The text can grow only
     by `defuse_attribute`'s two backticks, and two more per link the
     unlink's passes leave (`unlink.unlink_stale_refs`), which only a title
-    stored before it was refused can re-form."""
-    gone = {canonical(title) for step in replayed
-            for title in (*step.unlinked, *step.retitles)}
+    stored before it was refused can re-form. Each step's titles are
+    looked up in the set kept on it (`StepTitles.gone`), not gathered
+    again per op."""
+    gone = [titles.gone for step in replayed
+            if (titles := _derived(step, canonical)).gone]
     if not gone:
         return text
-    return unlink_stale_refs(
-        text, lambda raw: canonical(normalize_title(raw)) in gone)
+
+    def is_gone(raw: str) -> bool:
+        title = canonical(normalize_title(raw))
+        return any(title in titles for titles in gone)
+
+    return unlink_stale_refs(text, is_gone)
 
 
 @dataclass(frozen=True)
@@ -479,18 +659,21 @@ class TextEditOutcome:
     replayed: tuple[RewriteStep, ...] = field(default=(), compare=False)
     canonical: Callable[[str], str] = field(default=normalize_title,
                                             compare=False)
-    known: Mapping[StepKey, str] = field(default_factory=dict, compare=False)
+    known: Mapping[StepKey, StepResult] = field(default_factory=dict,
+                                                compare=False)
     reads: int = field(default=0, compare=False)
 
 
 def classify_text_edit(
     text: str, base_hash: Sha256Hex, current_text: str,
-    rewrites: Sequence[BlockRewrite],
+    rewrites: Sequence[BlockRewrite] | RewriteHistory,
     canonical: Callable[[str], str] = normalize_title,
     allowance: int | None = None,
 ) -> TextEditOutcome:
-    """Where the edit lands (`TextEditOutcome`). `allowance` is what is
-    left of the batch's replay budget; None for no budget."""
+    """Where the edit lands (`TextEditOutcome`). `rewrites` is the block's
+    rows, or the steps the batch keeps for it (`RewriteHistory`);
+    `allowance` is what is left of the batch's replay budget, None for no
+    budget."""
     replay = _replay(text, base_hash, rewrites, canonical,
                      allowance=allowance)
     steps, known, reads = replay.steps, replay.known, replay.reads
@@ -805,7 +988,8 @@ class TextConflictContext:
     landing: ConflictLanding
     replayed: tuple[RewriteStep, ...] = ()
     canonical: Callable[[str], str] = normalize_title
-    known: Mapping[StepKey, str] = field(default_factory=dict, compare=False)
+    known: Mapping[StepKey, StepResult] = field(default_factory=dict,
+                                                compare=False)
     reads: int = 0
 
 
@@ -1167,7 +1351,7 @@ def unlink_stale_text(op: BlockOp, is_stale: TitleMatch) -> BlockOp:
 def _rewrite_chain(
     sent: str, written: str, stale_titles: Collection[CanonicalTitle],
     replayed: Sequence[RewriteStep], canonical: Callable[[str], str],
-    known: Mapping[StepKey, str] | None = None,
+    known: Mapping[StepKey, StepResult] | None = None,
 ) -> tuple[BlockRewrite, ...]:
     """Rows taking `sent` to `written` one pass at a time: the stale unlink
     first, then each replayed step, every pass hashed from the text before it
@@ -1176,48 +1360,63 @@ def _rewrite_chain(
     (a rename to a title with spaces adds brackets a folded map would not).
     Nothing when the passes do not reproduce `written`.
 
+    A replayed step's rows name only what it moved in the text it met
+    (`StepResult`): each rename found, each copy inlined, and every
+    spelling the step holds of each title its unlink matched. One stale
+    edit can leave a step with a title per link of a megabyte, which
+    every later edit made before it replays, so rows naming the whole
+    step wrote it again for each edit it changed. The narrowed rows
+    replay onto that text as the whole step does, but rebuild a step
+    with another key, so the step's result is also kept under that key.
+
     `known` is the steps the classification replayed. The chain starts
     from the text the classification did (the stale unlink is the one
     `unlink_stale_text` made), so its steps are those, from the same texts,
     and are looked up rather than replayed; the check that the rows replay
-    to `written` looks them up too, and the stale unlink by the key its
-    rows rebuild. Given `known`, a step that is not found leaves no rows,
-    since its work was never counted against the batch's budget (bar a
-    step over empty text, which costs nothing). Without it, every step is
-    replayed."""
+    to `written` looks them up too, by the keys their rows rebuild. Given
+    `known`, a step that is not found leaves no rows, since its work was
+    never counted against the batch's budget (bar a step over empty text,
+    which costs nothing). Without it, every step is replayed."""
     memo = dict(known or {})
     allowance = None if known is None else 0
     rows: list[BlockRewrite] = []
     text = sent
     base = text_hash(sent)
 
-    def record(after_text: str, records: Sequence[tuple[RewriteKind, str, str]]) -> None:
+    def record(done: StepResult,
+               records: Sequence[tuple[RewriteKind, str, str]]) -> bool:
+        """Chain a pass from `text` to `done.text`, if it changed it;
+        False for a change no record names, which no rows could replay."""
         nonlocal text, base
-        after = text_hash(after_text)
-        if after_text != text:
-            rows.extend(BlockRewrite(base, after, old, new, kind)
-                        for kind, old, new in records)
+        if done.text != text:
+            if not records:
+                return False
+            after = text_hash(done.text)
+            passed = [BlockRewrite(base, after, old, new, kind)
+                      for kind, old, new in records]
+            rows.extend(passed)
+            [narrowed] = _rewrite_steps(passed)
+            memo[_step_key(text, narrowed, canonical)] = done
             base = after
-        text = after_text
+        text = done.text
+        return True
 
     if stale_titles:
         titles = set(stale_titles)
-        unlinked = unlink_stale_refs(
-            sent, lambda raw: canonical(normalize_title(raw)) in titles)
-        # the step these rows rebuild replays the same unlink
-        # (`_replay_step` on titles already canonical)
-        stale_step = RewriteStep(base, text_hash(unlinked), {},
-                                 {normalize_title(t) for t in titles}, {})
-        memo[_step_key(sent, stale_step, canonical)] = unlinked
-        record(unlinked, [("unlink", t, "") for t in sorted(titles)])
-    for step in replayed:
-        after_text, _ = _cached_step(text, step, canonical, memo, allowance)
-        if after_text is None:
+
+        def is_stale(raw: str) -> bool:
+            return canonical(normalize_title(raw)) in titles
+
+        stale = StepResult(
+            unlink_stale_refs(sent, is_stale),
+            unlinked=frozenset(canonical(normalize_title(t))
+                               for t in titles))
+        if not record(stale, [("unlink", t, "") for t in sorted(titles)]):
             return ()
-        record(after_text,
-               [*(("retitle", o, n) for o, n in step.retitles.items()),
-                *(("unlink", t, "") for t in sorted(step.unlinked)),
-                *(("inline", u, t) for u, t in step.inlines.items())])
+    for step in replayed:
+        done, _ = _cached_step(text, step, canonical, memo, allowance)
+        if done is None or not record(done, _moved(step, done, canonical)):
+            return ()
     if text != written or not rows:
         return ()
     # what a later edit will actually do: replay the recorded rows
@@ -1225,6 +1424,23 @@ def _rewrite_chain(
                allowance).text != written:
         return ()
     return tuple(rows)
+
+
+def _moved(step: RewriteStep, done: StepResult,
+           canonical: Callable[[str], str]
+           ) -> list[tuple[RewriteKind, str, str]]:
+    """The records naming what `done` says `step` moved: each rename key
+    found, every spelling the step holds of each title its unlink matched,
+    and the keys of each uid it inlined. As many as the replay asked about,
+    which it was charged for, however many the step holds."""
+    titles = _derived(step, canonical)
+    return [*(("retitle", key, step.retitles[key])
+              for key in sorted(done.retitled)),
+            *(("unlink", spelling, "") for title in sorted(done.unlinked)
+              for spelling in titles.spellings[title]),
+            *(("inline", key, step.inlines[key])
+              for uid in sorted(done.inlined)
+              for key in titles.copy_keys[uid])]
 
 
 def stale_titles_linked(
@@ -1249,7 +1465,7 @@ def rewrite_effects(
     canonical: Callable[[str], str],
     replayed: Sequence[RewriteStep] = (),
     settled: str | None = None,
-    known: Mapping[StepKey, str] | None = None,
+    known: Mapping[StepKey, StepResult] | None = None,
 ) -> tuple[Effect, ...]:
     """The rewrite rows for a create / update_text whose written text differs
     from the text the client sent, because of a stale unlink and / or a

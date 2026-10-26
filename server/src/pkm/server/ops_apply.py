@@ -29,12 +29,13 @@ from pkm.server.ops_core import (MAX_BATCH_REPLAY_WORK, SKIPPED_CONTEXTS,
                                  ExistingHeader, FreshHeader, InsertBlock,
                                  JournalBlock, LandedSkipContext, MoveContext,
                                  JudgedBatch, OpContext, PageContext,
-                                 RecordConflictHeader, RecordRewrite, RewriteStep,
-                                 ReindexRefs,
+                                 RecordConflictHeader, RecordRewrite,
+                                 RewriteHistory, RewriteStep, ReindexRefs,
                                  SetCollapsed, SetHeading, SetPageId,
                                  SetParent, SetViewType, ShiftSiblings, Skip,
                                  SkipContext, SkippedContext,
-                                 StepKey, StuckMoveContext, SubtreeRow,
+                                 StepKey, StepResult, StuckMoveContext,
+                                 SubtreeRow,
                                  ReplayOverLimitContext,
                                  TextConflictContext,
                                  TextEditContext, TouchPage, UpdateText,
@@ -371,21 +372,52 @@ def _skip_context(db: Db, op: _AddressedOp, skip: Skip,
         ghost_page)
 
 
+@dataclasses.dataclass
+class BatchReplay:
+    """What one batch's hashed edits share as it applies:
+    - `allowance`, what its replays may still spend
+      (`ops_core.MAX_BATCH_REPLAY_WORK`);
+    - `reader`, its one title canonicalisation, the stale titles' when it
+      has them, else read on first use. One function for the whole batch,
+      so what a step derives under it (`ops_core.StepTitles`) is reused
+      by every op;
+    - `histories`, each block's rewrite steps, read once and kept as the
+      batch records more (`recorded`). A copy in them can be a megabyte, a
+      step can hold a title per link of one, and many ops can edit one
+      block."""
+    allowance: int
+    reader: Callable[[str], str] | None = None
+    histories: dict[BlockUid, RewriteHistory] = dataclasses.field(
+        default_factory=dict)
+
+    def canonical(self, db: Db) -> Callable[[str], str]:
+        if self.reader is None:
+            self.reader = title_reader(db)
+        return self.reader
+
+    def history(self, db: Db, uid: BlockUid) -> RewriteHistory:
+        if uid not in self.histories:
+            self.histories[uid] = RewriteHistory(_block_rewrites(db, uid))
+        return self.histories[uid]
+
+    def recorded(self, uid: BlockUid,
+                 rows: Sequence[BlockRewrite]) -> None:
+        """Rows the batch wrote for `uid`. A block it has not read yet
+        reads them with the rest."""
+        history = self.histories.get(uid)
+        if history is not None:
+            history.record(rows)
+
+
 def _context_for(db: Db, op: BlockOp, now_ms: int,
                  is_stale: TitleMatch | None = None, *,
-                 reader: Callable[[str], str] | None = None,
-                 allowance: int | None = None,
-                 read_rewrites: dict[BlockUid, tuple[BlockRewrite, ...]]
-                 | None = None) -> OpContext:
+                 replay: BatchReplay | None = None) -> OpContext:
     """Read what `op` needs, classify it once (classify_skip, then
     classify_text_edit for a hashed edit), and return the context type
     that classification calls for. `is_stale` matches the titles of pages
     deleted after the batch's `seen_seq`; None when there are none.
-    `reader` is the batch's `title_reader` when it has one, so the rewrite
-    rows can find the replay's steps under the same canonicalisation;
-    `allowance` is what is left of the batch's replay budget, and
-    `read_rewrites` the rewrite rows of blocks the batch has read already
-    (`apply_batch` drops a block's once it records more)."""
+    `replay` is what the batch's hashed edits share (`BatchReplay`); None
+    replays with no budget, from rows read for this op alone."""
     if isinstance(op, CreatePageOp):
         page = _resolve_page(db, op.page_title, now_ms)
         return PageContext(page["page_id"])
@@ -456,21 +488,21 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
             " JOIN pages p ON p.id = b.page_id WHERE b.uid = ?",
             (op.uid,))
         assert row is not None  # classify_skip covered the block's absence
-        if read_rewrites is None:
-            rewrites = _block_rewrites(db, op.uid)
-        else:
-            if op.uid not in read_rewrites:
-                read_rewrites[op.uid] = _block_rewrites(db, op.uid)
-            rewrites = read_rewrites[op.uid]
+        history = (RewriteHistory(_block_rewrites(db, op.uid))
+                   if replay is None else replay.history(db, op.uid))
         # a replay matches titles the way the rename or delete did: under
         # plain-space titles `[[ Old ]]` is the page Old, and left linked
         # it re-creates the page. The flag is read only for an edit with a
         # rewrite row to replay.
-        canonical = ((reader or title_reader(db)) if rewrites
-                     else normalize_title)
-        outcome = classify_text_edit(op.text, op.base_text_hash,
-                                     row["text"], rewrites, canonical,
-                                     allowance)
+        if not history:
+            canonical: Callable[[str], str] = normalize_title
+        elif replay is None:
+            canonical = title_reader(db)
+        else:
+            canonical = replay.canonical(db)
+        outcome = classify_text_edit(
+            op.text, op.base_text_hash, row["text"], history, canonical,
+            None if replay is None else replay.allowance)
         if outcome.kind == "over_limit":
             return ReplayOverLimitContext(
                 block, row["title"], _conflict_landing(db, op.uid, now_ms),
@@ -647,11 +679,7 @@ def apply_batch(db: Db, judged: JudgedBatch,
 
         def is_stale(raw: str) -> bool:
             return stale_canonical(normalize_title(raw)) in stale
-    # the reads the batch's replays may still spend
-    allowance = MAX_BATCH_REPLAY_WORK
-    # each block's rewrite rows, read once while the batch adds none: a
-    # copy in them can be a megabyte, and many ops can edit one block
-    read_rewrites: dict[BlockUid, tuple[BlockRewrite, ...]] = {}
+    replay = BatchReplay(MAX_BATCH_REPLAY_WORK, stale_canonical)
     for index, op in enumerate(batch.ops):
         sent = op
         if is_stale is not None:
@@ -659,24 +687,23 @@ def apply_batch(db: Db, judged: JudgedBatch,
                 # the replica's local page goes through dropStrandedLocalPages
                 continue
             op = unlink_stale_text(op, is_stale)
-        ctx = _context_for(db, op, now_ms, is_stale, reader=stale_canonical,
-                           allowance=allowance, read_rewrites=read_rewrites)
+        ctx = _context_for(db, op, now_ms, is_stale, replay=replay)
         effects = plan_op(index, op, ctx)
         replayed: tuple[RewriteStep, ...] = ()
         replay_canonical = normalize_title
-        known: Mapping[StepKey, str] = {}
+        known: Mapping[StepKey, StepResult] = {}
         if isinstance(ctx, TextEditContext):
             replayed = ctx.outcome.replayed
             replay_canonical = ctx.outcome.canonical
             known = ctx.outcome.known
-            allowance -= ctx.outcome.reads
+            replay.allowance -= ctx.outcome.reads
         elif isinstance(ctx, TextConflictContext):
             replayed = ctx.replayed
             replay_canonical = ctx.canonical
             known = ctx.known
-            allowance -= ctx.reads
+            replay.allowance -= ctx.reads
         elif isinstance(ctx, ReplayOverLimitContext):
-            allowance -= ctx.reads
+            replay.allowance -= ctx.reads
         if replayed or (is_stale is not None and op is not sent):
             effects += rewrite_effects(
                 sent, effects, stale, stale_canonical or replay_canonical,
@@ -686,7 +713,7 @@ def apply_batch(db: Db, judged: JudgedBatch,
         for eff in effects:
             _execute(db, eff, now_ms)
             if isinstance(eff, RecordRewrite):
-                read_rewrites.pop(eff.uid, None)
+                replay.recorded(eff.uid, eff.rewrites)
         if isinstance(ctx, (*SKIPPED_CONTEXTS, ReplayOverLimitContext)):
             skipped.append(skip_report(index, op, ctx))
         else:

@@ -1504,7 +1504,8 @@ def test_rewrite_effects_skip_parked_and_unchanged_text():
 _U1 = uid_of("uid_u0000001")
 
 
-def _replay_effects(sent_text, base_text, rewrites, current, stale=()):
+def _replay_effects(sent_text, base_text, rewrites, current,
+                    stale=frozenset()):
     sent = UpdateTextOp(op="update_text", uid=_U1, text=sent_text,
                         base_text_hash=text_hash(base_text))
     unlinked = unlink_stale_refs(
@@ -1579,7 +1580,8 @@ def test_rewrite_effects_record_nothing_when_the_chain_misses_written():
     outcome = classify_text_edit("[[A]] x", text_hash(t0), "[[B]] x", rewrites)
     sent = UpdateTextOp(op="update_text", uid=_U1, text="[[A]] x",
                         base_text_hash=text_hash(t0))
-    assert rewrite_effects(sent, (), (), normalize_title, outcome.replayed,
+    assert rewrite_effects(sent, (), frozenset(), normalize_title,
+                           outcome.replayed,
                            "[[B]] elsewhere") == ()
 
 

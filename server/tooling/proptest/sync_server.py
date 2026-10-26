@@ -27,7 +27,8 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from datetime import datetime
 from pathlib import Path
 from types import FrameType
@@ -236,7 +237,7 @@ _rewrite_teeth = {"drop_replayed": False}
 
 
 def _rewrite_effects_with_teeth(original: BlockOp, planned: tuple[Effect, ...],
-                                stale: Collection[CanonicalTitle],
+                                stale: AbstractSet[CanonicalTitle],
                                 canonical: Callable[[str], str],
                                 replayed: Sequence[RewriteStep] = (),
                                 settled: str | None = None,

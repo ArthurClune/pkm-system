@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import (Callable, Collection, Iterator, Mapping,
                              Sequence)
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from typing import Final, Literal, Union
 
@@ -294,10 +295,12 @@ def _replay_step(text: str, step: RewriteStep,
     scans and the text it splices, since a longer title grows each link
     and ten renames of a small edit can each build a megabyte; the unlink
     is charged from the splice's projected length, which it reads at least
-    three times, before splicing, then its reads. A step that stops spends
-    all that is left, so once one edit has run the budget out, the batch's
-    later steps stop before splicing: what each costs is then its own sent
-    text, not the copies or titles from history."""
+    three times, before splicing, then its reads. A step the budget stops
+    spends all that is left, so once one edit has run the budget out, the
+    batch's later steps stop before splicing: what each costs is then its
+    own sent text, not the copies or titles from history. A step a cap
+    stops pays for what it scanned or built (`_spent`), since a stopped
+    step is not kept and the next op would do it all again."""
     entering = text
     # what the rename charged, which the unlink's budget leaves out
     renamed = 0
@@ -307,7 +310,7 @@ def _replay_step(text: str, step: RewriteStep,
             normalize=spelled_or_canonical(canonical, step.retitles))
         projected = spliced_length(text, spans)
         if projected > MAX_BLOCK_TEXT_CHARS:
-            return None, 0
+            return None, _spent(len(text), allowance)
         renamed = len(text) + projected
         if allowance is not None and renamed > allowance:
             return None, allowance
@@ -325,7 +328,7 @@ def _replay_step(text: str, step: RewriteStep,
         spans = block_ref_spans(text, copies)
         projected = spliced_length(text, spans)
         if projected > MAX_BLOCK_TEXT_CHARS:
-            return None, 0
+            return None, _spent(renamed + len(text), allowance)
         # Past the budget the step takes what is left of it, so every later
         # step in the batch stops here before splicing anything.
         if allowance is not None and \
@@ -336,9 +339,17 @@ def _replay_step(text: str, step: RewriteStep,
         if allowance is not None and reads > allowance - renamed:
             return None, allowance
         if unlink_refused(entering, spliced):
-            return None, 0
+            return None, renamed + reads
         return unlink_stale_refs(spliced, is_deleted), renamed + reads
     return text, renamed
+
+
+def _spent(work: int, allowance: int | None) -> int:
+    """What a step that stops pays: the `work` it scanned or built, or all
+    that is left of `allowance` when that is less. A stopped step is not
+    kept (`_cached_step`), so a step that paid nothing would be done again
+    by every op of the batch."""
+    return work if allowance is None else min(work, allowance)
 
 
 def _step_key(text: str, step: RewriteStep,
@@ -1216,7 +1227,7 @@ def _rewrite_chain(
 
 
 def stale_titles_linked(
-    text: str, stale: Collection[CanonicalTitle],
+    text: str, stale: AbstractSet[CanonicalTitle],
     canonical: Callable[[str], str],
 ) -> tuple[CanonicalTitle, ...]:
     """The titles in `stale` whose unlink alone would change `text`, in
@@ -1226,12 +1237,14 @@ def stale_titles_linked(
     if not stale:
         return ()
     linked = {canonical(normalize_title(raw)) for raw in linked_titles(text)}
-    return tuple(sorted(title for title in stale if title in linked))
+    # A set intersection walks the smaller set, here the text's titles:
+    # walking `stale` would cost every deleted title per op.
+    return tuple(sorted(stale & linked))
 
 
 def rewrite_effects(
     original: BlockOp, planned: tuple[Effect, ...],
-    stale: Collection[CanonicalTitle],
+    stale: AbstractSet[CanonicalTitle],
     canonical: Callable[[str], str],
     replayed: Sequence[RewriteStep] = (),
     settled: str | None = None,

@@ -328,6 +328,156 @@ def test_the_stale_titles_cost_one_pass_however_many_were_deleted(
                    " WHERE old_title = 'gone0'") == 2
     assert large < 1.5 * small, (small, large)
 
+def test_a_stale_edit_costs_its_own_links_however_many_were_deleted(
+        client, seeded_config):
+    # The titles a stale unlink's rows name were found by walking every
+    # title deleted since the batch's `seen_seq` for each op the unlink
+    # changed: a tiny edit cost the deletion count. Now each op looks up
+    # the titles its own text links.
+    _seed(seeded_config, [], pages=("Src",))
+
+    def delete(titles: range) -> None:
+        con = open_db(seeded_config.db_path)
+        try:
+            con.executemany(
+                "INSERT INTO page_deletions(title, seq, deleted_at)"
+                " VALUES (?, ?, 0)", ((f"gone{i}", i + 1) for i in titles))
+            con.commit()
+        finally:
+            con.close()
+
+    def run(k: int) -> int:
+        got = []
+        work = loop_steps(MODULES, lambda: got.append(client.post(
+            "/api/ops", json={
+                "client_id": client_id_of("replaywork"),
+                "batch_id": batch_id_of(f"rbw_many_{k:04d}"),
+                "seen_seq": seq_of(0),
+                "ops": [{"op": "create",
+                         "uid": uid_of(f"rbw_mny_{k:03d}_{i:02d}"),
+                         "page_title": "Src", "parent_uid": None,
+                         "order_idx": order_idx_of(i),
+                         "text": "[[gone0]] y"} for i in range(20)]})))
+        assert got[0].status_code == 200, got[0].text[:300]
+        return work
+
+    delete(range(1))
+    small = run(1)
+    delete(range(1, 20_000))
+    large = run(2)
+    assert _scalar(seeded_config, "SELECT count(*) AS n FROM block_rewrites"
+                   " WHERE old_title = 'gone0'") == 40
+    assert large < 1.5 * small, (small, large)
+
+
+def test_naming_the_stale_titles_walks_the_text_not_the_deletions():
+    # The intersection runs in C, which loop steps do not see, so this is
+    # wall clock, and generous: walking a million deleted titles per call
+    # takes seconds over these calls, the text's two titles microseconds.
+    stale = frozenset(canonical_title_of(f"gone{i}")
+                      for i in range(1_000_000))
+    started = time.perf_counter()
+    for _ in range(200):
+        assert ops_core.stale_titles_linked(
+            "[[gone0]] y [[kept]]", stale, normalize_title) == ("gone0",)
+    elapsed = time.perf_counter() - started
+    assert elapsed < 0.5, elapsed
+
+_COPY_UID = uid_of("rbw_copy_02")
+
+
+def _over_limit_batch(text: str, rows: tuple[ops_core.BlockRewrite, ...],
+                      ops: int) -> int:
+    """Loop steps of `ops` copies of one stale edit, the batch's budget
+    threaded through them as `apply_batch` threads it. Each lands
+    `over_limit`, and the budget never goes below 0."""
+    def run() -> None:
+        allowance = ops_core.MAX_BATCH_REPLAY_WORK
+        for _ in range(ops):
+            outcome = ops_core.classify_text_edit(
+                text, text_hash(text), "current", rows, allowance=allowance)
+            assert outcome.kind == "over_limit"
+            allowance -= outcome.reads
+            assert allowance >= 0
+    return loop_steps(MODULES, run)
+
+
+def test_a_step_refused_its_unlink_pays_for_the_splice_it_measured():
+    # The copy nests the sent link one level deeper, past the unlink's
+    # work limit, so the step is refused after splicing the copy in and
+    # measuring its depth. That work was charged nothing and a refused
+    # step is not kept, so every op in a batch did it again.
+    copy = "[[[[a]]]] " * 70_000
+    text = f"[[x (({_COPY_UID}))]]"
+    rows = (ops_core.BlockRewrite(text_hash(text), text_hash("after"),
+                                  _COPY_UID, copy, "inline"),)
+    small, large = _over_limit_batch(text, rows, 8), \
+        _over_limit_batch(text, rows, 32)
+    assert large < 2 * small, (small, large)
+
+
+def test_a_rename_then_a_copy_too_long_pays_for_the_rename(monkeypatch):
+    # One step renames the text's links to a long title, then finds the
+    # copy it inlines would carry the text past the cap. The rename was
+    # charged and then dropped, so every op rebuilt the megabyte again.
+    # Loop steps see the scan of each op's own links alike either way;
+    # the megabyte is built in C, so the count is the characters spliced.
+    text = "[[A]] " * 1_000 + f"(({_COPY_UID}))"
+    hashes = (text_hash(text), text_hash("after"))
+    rows = (ops_core.BlockRewrite(*hashes, "A", "t" * 990, "retitle"),
+            ops_core.BlockRewrite(*hashes, _COPY_UID, "c" * 10_000,
+                                  "inline"))
+    built = [0]
+
+    def counted(text: str, found: list[spans.Span]) -> str:
+        out = spans.splice(text, found)
+        built[0] += len(out)
+        return out
+
+    monkeypatch.setattr(ops_core, "splice", counted)
+
+    def chars(ops: int) -> int:
+        built[0] = 0
+        _over_limit_batch(text, rows, ops)
+        return built[0]
+
+    small, large = chars(8), chars(32)
+    assert small > 0
+    assert large < 2 * small, (small, large)
+
+
+def test_every_exit_of_a_step_charges_what_it_scanned_or_built():
+    # A rename over the cap scanned the text; a copy over the cap after a
+    # rename scanned the renamed text too; a refused unlink spliced and
+    # measured. None charges more than the batch has left.
+    renaming = ops_core.RewriteStep(
+        text_hash("a"), text_hash("b"), {"A": as_raw_title("t" * 990)},
+        set(), {})
+    long_text = "[[A]] " * 2_000
+    assert ops_core._replay_step(long_text, renaming, normalize_title) == \
+        (None, len(long_text))
+    assert ops_core._replay_step(long_text, renaming, normalize_title,
+                                 5) == (None, 5)
+    text = "[[A]] " * 1_000 + f"(({_COPY_UID}))"
+    both = ops_core.RewriteStep(
+        text_hash("a"), text_hash("b"), {"A": as_raw_title("t" * 990)},
+        set(), {_COPY_UID: "c" * 10_000})
+    renamed = "[[" + "t" * 990 + "]] "
+    built = len(renamed) * 1_000 + len(f"(({_COPY_UID}))")
+    rename_cost = len(text) + built
+    assert ops_core._replay_step(text, both, normalize_title) == \
+        (None, rename_cost + built)
+    assert ops_core._replay_step(text, both, normalize_title,
+                                 rename_cost + 7) == (None, rename_cost + 7)
+    copy = "[[[[a]]]] " * 70_000
+    refused_text = f"[[x (({_COPY_UID}))]]"
+    refusing = ops_core.RewriteStep(text_hash("a"), text_hash("b"), {},
+                                    set(), {_COPY_UID: copy})
+    spliced = f"[[x {copy}]]"
+    assert text_limits.unlink_refused(refused_text, spliced)
+    assert ops_core._replay_step(refused_text, refusing, normalize_title) \
+        == (None, unlink.unlink_reads(spliced))
+
 _UID = "uid_u0000002"
 _STEPS = [("retitle", "A", "B"), ("retitle", "B", "C d"), ("unlink", "A", ""),
           ("unlink", "B", ""), ("inline", _UID, "copied [[A]] text"),

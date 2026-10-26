@@ -51,6 +51,7 @@ server/
 ├── app.py               Shell  create_app(config): init_db(), routers, 422 handler, SPA
 ├── config.py, setup.py  Shell  Config from config.json; setup writes it
 ├── db.py                Shell  init_db() at startup, open_db() per request, migrations
+├── db_core.py           Core   sqlite_too_old: the SQLite version the server needs
 ├── wholepath.py         Shell  the {name:wholepath} DOTALL route convertor
 ├── auth.py, auth_core.py, throttle_core.py   login, require_auth, LoginThrottle; scrypt and tokens; backoff policy
 ├── auth_gate_core.py, auth_gate.py  Core / Shell  which requests are public, the body caps; AuthGateMiddleware
@@ -78,6 +79,11 @@ mode and applies the schema once at startup, never per request, because both
 take locks that conflict with another connection's open write transaction.
 Each request gets a fresh `Db` from `open_db()`, with `foreign_keys=ON`,
 `recursive_triggers=ON` and `BUSY_TIMEOUT_MS`.
+
+The server requires SQLite 3.43 or newer (`db_core.MIN_SQLITE_VERSION`), and
+`init_db()` refuses to start on an older library, naming both versions. The
+replay charge sizes rewrite rows with `octet_length`, which 3.43 added and
+which reads a value's size from the record header without loading its text.
 
 An `IN (...)` list built from a set the data can grow without bound (a page's
 block uids, a block's referrers, a `((ref))` set) goes through
@@ -543,11 +549,12 @@ server bug.
   only when an edit's walk reaches that hash (`RewriteHistory.lazy`,
   `next_unread`), through `idx_block_rewrites_uid` in rowid order. One
   statement charges and reads a hash (`_rewrites_within`). It sums the
-  rows' sizes, at most as many as the allowance could pay for, and loads
-  their text only when the sum fits. A hash
-  too costly to read stops the walk blind: the edit lands as sent, with
-  every link made plain, since any could name a page the unread chain
-  deleted. The batch keeps what it read and what it records, so no hash
+  sizes of at most as many rows as the allowance could pay for. The
+  measure uses `octet_length`, so it reads each measured row's record
+  header and none of its text, overflow pages included. The text loads
+  only when the sum fits. A hash too costly to read stops the walk
+  blind: the edit lands as sent, with every link made plain, since any
+  could name a page the unread chain deleted. The batch keeps what it read and what it records, so no hash
   is read twice. Each step's key parts are built once (`_step_key`), and
   its canonical title sets once under the batch's one canonicalisation
   (`ops_core._derive`).

@@ -480,10 +480,13 @@ class Model:
                    lambda _: Rewrite(placeholder, placeholder, titles))
                   ] if titles else []
         passes += [(step.replay, step.moved) for step in replayed]
+        narrowed = False
         for rewrite, moved in passes:
             step = moved(text)
             after = rewrite(text)
+            whole = getattr(moved, "__self__", step)
             if after != text:
+                narrowed = narrowed or step.rows(uid) != whole.rows(uid)
                 base = chain[-1].after_hash if chain else text_hash(sent)
                 chain.append(replace(step, base_hash=base,
                                      after_hash=text_hash(after),
@@ -494,6 +497,8 @@ class Model:
             return
         for step in chain:
             self._record(uid, step)
+        if narrowed:
+            self._paths.append("rewrite rows: a replayed step narrowed")
 
     # --- tree helpers -------------------------------------------------------
 

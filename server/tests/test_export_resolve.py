@@ -4,12 +4,11 @@ executed to their matching results. Unlike pkm.export.markdown.render_page
 (the backup renderer, untested here -- see test_export_markdown.py), which
 keeps the raw query command and one-level, parens-wrapped ref resolution."""
 import re
-import sys
 import tracemalloc
-from collections.abc import Callable
 
 import pytest
 from conftest import tree_node as node
+from scaling import loop_steps
 from hypothesis import event, given, settings
 from hypothesis import strategies as st
 from pkm.export import resolve
@@ -122,7 +121,7 @@ def test_find_query_macros_holds_a_few_bytes_per_prefix():
 def test_find_query_macros_costs_near_linear_work_on_unclosed_prefixes():
     # Every prefix is unclosed, so a direct scan walks to the end from each.
     def steps(n: int) -> int:
-        return _loop_steps(lambda: find_query_macros("{{query:" * n))
+        return loop_steps(resolve, lambda: find_query_macros("{{query:" * n))
 
     small, large = steps(500), steps(2_000)
     # Linear work grows about 4x from N to 4N; quadratic about 16x.
@@ -254,40 +253,13 @@ def test_resolve_text_query_item_text_is_itself_resolved():
     assert "((uid_x1))" not in out
 
 
-def _loop_steps(run: Callable[[], object]) -> int:
-    # Loop iterations (jumps) in resolve.py during `run()`: a count
-    # of the work done that, unlike a timing, does not move on a busy
-    # machine, and that sees a generator expression's iterations, which
-    # raise no line events. sys.monitoring rather than sys.settrace, so
-    # coverage's tracer stays in place.
-    mon = sys.monitoring
-    tool = next(i for i in range(6) if mon.get_tool(i) is None)
-    count = 0
-
-    def on_jump(code, offset, target):
-        nonlocal count
-        if code.co_filename == resolve.__file__:
-            count += 1
-
-    mon.use_tool_id(tool, "export-scaling-test")
-    mon.register_callback(tool, mon.events.JUMP, on_jump)
-    mon.set_events(tool, mon.events.JUMP)
-    try:
-        run()
-    finally:
-        mon.set_events(tool, 0)
-        mon.register_callback(tool, mon.events.JUMP, None)
-        mon.free_tool_id(tool)
-    return count
-
-
 def test_refs_inside_many_query_macros_cost_linear_work():
     # N unresolvable macros, each holding a ref: deciding whether each ref
     # sits inside a macro must not compare it against every macro.
     def text(n: int) -> str:
         return "".join(f"{{{{query: ((qref{i:06d}))}}}}" for i in range(n))
 
-    small, large = (_loop_steps(lambda n=n: resolve_text(text(n), {}, {}))
+    small, large = (loop_steps(resolve, lambda n=n: resolve_text(text(n), {}, {}))
                     for n in (250, 1_000))
     # Linear work grows about 4x from N to 4N; quadratic about 16x.
     assert large < 6 * small, (small, large)

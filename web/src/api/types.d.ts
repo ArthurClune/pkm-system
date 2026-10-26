@@ -74,7 +74,15 @@ export interface paths {
          *     could not take (a concurrent writer already holds it) returns 503 with
          *     Retry-After rather than surfacing the raw sqlite3.OperationalError. The
          *     batch applies only if every `expect` entry still holds, checked in the
-         *     same transaction, else 412 and nothing is written.
+         *     same transaction after the dedupe, else 412 and nothing is written.
+         *
+         *     The text-limit and title judges (`judge_batch`) run first, in the
+         *     threadpool: off the write lock, so one large batch's refusal never
+         *     holds every other write, and off the event loop. A refused batch is
+         *     looked up before its 400, without the write lock (a committed row is
+         *     visible to a plain read). One already applied, whose ack was lost and
+         *     which a deploy has since put over a limit, replays its stored ack: a
+         *     400 would make the client discard edits the server holds.
          */
         post: operations["post_ops_api_ops_post"];
         delete?: never;
@@ -188,6 +196,8 @@ export interface paths {
         /**
          * Create Page
          * @description Idempotent: creating an existing page returns its row, not an error.
+         *     A title longer than 1,000 characters (`MAX_PAGE_TITLE_CHARS`) is a 422,
+         *     even for a page stored before the cap.
          */
         post: operations["create_page_api_pages_post"];
         delete?: never;
@@ -240,7 +250,8 @@ export interface paths {
          *     top-level blocks appended after the target's, referencing text
          *     rewritten to the target, source page row dropped) -- a confirm-gated
          *     merge, not a silent overwrite. Case-sensitive throughout, like
-         *     pages.title itself. 422 when the rewrite would carry a block over the
+         *     pages.title itself. 422 when the new title is blank, refused or longer
+         *     than 1,000 characters, or when the rewrite would carry a block over the
          *     text length cap or nest its `[[` past the cap (a longer title lengthens
          *     every link to it); the detail names the block, and nothing changes.
          */
@@ -599,16 +610,15 @@ export interface paths {
          *     deletion must never cascade away real content, so emptied parents
          *     are kept), drop the assets row, commit, then best-effort unlink the
          *     file. Commit-before-unlink: a crash leaves at worst an unreferenced
-         *     file on disk, never a row pointing at a missing file. Asset URLs
-         *     never contribute refs rows ([[link]]/#tag/attr:: only), so no refs
-         *     reindex is needed; refs rows of deleted blocks go via FK cascade
-         *     (the refs table has no FTS trigger — unlike blocks, where explicit
-         *     per-uid DELETE is required to keep the FTS delete trigger firing).
-         *     `block_refs` needs no reindex either, for the same reason:
-         *     `strip_asset_tokens` removes only asset-embed tokens, a syntax disjoint
-         *     from `((uid))`. 409 with the offending blocks, as a page delete's
-         *     blockers, when a stripped block would be over the text length cap or
-         *     nest `[[` past the cap; nothing is changed.
+         *     file on disk, never a row pointing at a missing file. Every rewritten
+         *     block has its refs derived again from its new text: asset URLs index
+         *     nothing themselves, but removing a token can join what it kept apart,
+         *     `[` and `[Foo]]` into `[[Foo]]`, which links (and creates) Foo. Refs
+         *     rows of deleted blocks go via FK cascade (the refs table has no FTS
+         *     trigger — unlike blocks, where explicit per-uid DELETE is required to
+         *     keep the FTS delete trigger firing). 409 with the offending blocks, as
+         *     a page delete's blockers, when a stripped block would be over the text
+         *     length cap or nest `[[` past the cap; nothing is changed.
          *
          *     `if_unreferenced=true` changes the mode: nothing is stripped, and the
          *     asset is deleted only while no block references it (409 otherwise).

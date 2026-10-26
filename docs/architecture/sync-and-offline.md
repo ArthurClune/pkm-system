@@ -309,7 +309,9 @@ the queue.
 `enqueueBatch` first refuses, whole and before anything is stored, a batch
 the server would always refuse. That is a text past a
 [text limit](backend.md#planning) (`findOpTextLimitViolation`), judged before
-titles as the server judges it, or a [forbidden title](#title-activation-across-online-and-offline-paths).
+titles as the server judges it, or a [forbidden title](#title-activation-across-online-and-offline-paths)
+or one past the [length cap](backend.md#refused-titles)
+(`findOpTitleViolation`, which judges length first).
 It throws `LocalOpError`, whose `rejected` flag makes `opQueue` treat it as
 the server's refusal rather than retain the op
 ([sync-recovery.md § A local write fails](sync-recovery.md#a-local-write-fails)).

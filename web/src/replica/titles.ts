@@ -7,6 +7,7 @@
 import type { CanonicalTitle, NormalizedTitle, RawTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { hasUnreachableSegment, normalizeRefTitle, trimSpaces } from "../grammar/scan";
+import { describeTitleLength, titleLengthOver } from "../grammar/titleLength";
 
 export { isBlankRefTitle as isBlankTitle } from "../grammar/scan";
 import { extractRefs } from "./refs";
@@ -19,23 +20,49 @@ export function asRawTitle(text: string): RawTitle {
 export type TitleSyntaxReason = "forbidden_syntax";
 
 /** Mirrors refs.py title_syntax_reason: every rule judges the title
- * edge-stripped of U+0020, whatever the plain-space flag. */
+ * edge-stripped of U+0020, whatever the plain-space flag. A trailing `[`
+ * is refused because unlinking `[[a[]]` leaves `a[`, which joins a
+ * following `[a[]]` into a fresh link. */
 export function titleSyntaxReason(text: string): TitleSyntaxReason | null {
   const canonical = canonicalizeTitle(text, true);
   return canonical.includes("#") || canonical.includes("[[")
     || canonical.includes("]]") || canonical.endsWith("]")
+    || canonical.endsWith("[")
     || canonical.includes("`") || hasUnreachableSegment(canonical)
     ? "forbidden_syntax"
     : null;
+}
+
+export type TitleRefusal = TitleSyntaxReason | "too_long";
+
+/** Mirrors refs.py title_refusal: length first, so a refusal never names a
+ * title millions of characters long and the syntax rules never read one. */
+export function titleRefusal(text: string): TitleRefusal | null {
+  return titleLengthOver(text) !== null ? "too_long" : titleSyntaxReason(text);
 }
 
 export interface OpTitleViolation {
   opIndex: number;
   source: "page_title" | "reference";
   title: RawTitle;
-  reason: TitleSyntaxReason;
+  reason: TitleRefusal;
 }
 
+/** The refusal's wording. A title over the cap is named by its length, in
+ * the server's words (ops_core.describe_op_title_violation). */
+export function describeOpTitleViolation(violation: OpTitleViolation): string {
+  const measured = violation.reason === "too_long"
+    ? titleLengthOver(violation.title) : null;
+  if (measured !== null) {
+    return `${violation.source} ${describeTitleLength(measured)}`;
+  }
+  return `unsupported ${violation.source} title syntax: `
+    + JSON.stringify(violation.title);
+}
+
+/** The first title an op names that may not be a page title, in the
+ * server's order (ops_core.find_op_title_violation). update_text's
+ * page_title is a conflict-header hint and is never judged. */
 export function findOpTitleViolation(
   ops: readonly BlockOp[],
 ): OpTitleViolation | null {
@@ -44,14 +71,14 @@ export function findOpTitleViolation(
       ? op.page_title
       : op.op === "move" ? op.page_title : null;
     if (pageTitle != null) {
-      const reason = titleSyntaxReason(pageTitle);
+      const reason = titleRefusal(pageTitle);
       if (reason !== null) {
         return { opIndex, source: "page_title", title: pageTitle, reason };
       }
     }
     if (op.op === "create" || op.op === "update_text") {
       for (const ref of extractRefs(op.text).refs) {
-        const reason = titleSyntaxReason(ref.title);
+        const reason = titleRefusal(ref.title);
         if (reason !== null) {
           return { opIndex, source: "reference", title: ref.title, reason };
         }

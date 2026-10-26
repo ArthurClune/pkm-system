@@ -3,12 +3,32 @@
 headers, and the notes that say why an op was skipped. A header never
 holds a `[[link]]` to a page that does not exist, or the ref indexer would
 create it; notes name uids as plain text, since a `((ref))` to a block that
-does not exist renders broken."""
+does not exist renders broken.
+
+Every header and note that names a page is judged by the text limits, and
+names it `LONG_TITLE_LABEL` instead when the title would put it past one:
+a client's `page_title` hint is never length-judged, and a title stored
+before `MAX_PAGE_TITLE_CHARS` may be longer than the cap, so the server
+would otherwise store text it refuses from any client."""
 from __future__ import annotations
+
+from collections.abc import Callable
 
 from pkm.contracts.ops import BlockUid, MoveOp, SetHeadingOp, SetViewTypeOp
 from pkm.contracts.titles import CanonicalTitle, RawTitle
 from pkm.refs import extract, normalize_title, title_syntax_reason
+from pkm.text_limits import text_limit_violation
+
+LONG_TITLE_LABEL = "(page title too long)"
+
+
+def _fitted(label: str, build: Callable[[str], str]) -> str:
+    """`build(label)`, or `build(LONG_TITLE_LABEL)` when the label puts that
+    past a text limit."""
+    text = build(label)
+    if text_limit_violation(text) is None:
+        return text
+    return build(LONG_TITLE_LABEL)
 
 
 def _links_back(title: RawTitle) -> bool:
@@ -65,8 +85,9 @@ def missing_page_code_span(page_title: RawTitle | None) -> str | None:
 def overwritten_header_text(page_title: CanonicalTitle, uid: BlockUid) -> str:
     """Header for check 5: the live block's own page, read straight from
     its row -- always a real title, never a client-supplied hint."""
-    return (f"[[conflict]] {existing_page_label(page_title)}"
-            f" — overwritten by (({uid}))")
+    return _fitted(existing_page_label(page_title),
+                   lambda label: f"[[conflict]] {label}"
+                                 f" — overwritten by (({uid}))")
 
 
 def deleted_header_text(page_title: CanonicalTitle) -> str:
@@ -75,8 +96,9 @@ def deleted_header_text(page_title: CanonicalTitle) -> str:
     cannot embed `((uid))` like `live_block_header_text` -- by the time this
     lands the block is gone, so there is nothing left for the ref to point
     at."""
-    return (f"[[conflict]] {existing_page_label(page_title)}"
-            " — deleted while edited elsewhere")
+    return _fitted(existing_page_label(page_title),
+                   lambda label: f"[[conflict]] {label}"
+                                 " — deleted while edited elsewhere")
 
 
 def orphan_header_text(page_title: RawTitle | None,
@@ -86,15 +108,24 @@ def orphan_header_text(page_title: RawTitle | None,
     longer has); hint_page, the page it names, is resolved by the shell.
     Also heads every other entry grouped under a missing block's uid (see
     `ops_core.classify_skip`), so whichever lands first, they share it."""
-    return (f"[[conflict]] {conflict_label(page_title, hint_page)}"
-           " — edit to a block the server no longer has")
+    def build(label: str) -> str:
+        return (f"[[conflict]] {label}"
+                " — edit to a block the server no longer has")
+
+    span = missing_page_code_span(page_title)
+    if hint_page is None and span is not None:
+        # only the name falls back, so the header still says the hint
+        # named no page
+        return _fitted(span, lambda name: build(f"{name} (page not found)"))
+    return _fitted(conflict_label(page_title, hint_page), build)
 
 
 def live_block_header_text(page_title: CanonicalTitle, uid: BlockUid) -> str:
     """Header for a change to a live block that could not be applied (a
     move whose target parent is gone): names the block's own page, read
     from its row like check 5's, and embeds the block itself."""
-    return f"[[conflict]] {existing_page_label(page_title)} — (({uid}))"
+    return _fitted(existing_page_label(page_title),
+                   lambda label: f"[[conflict]] {label} — (({uid}))")
 
 
 # What a move / set_heading / set_view_type of a missing block was, for its
@@ -121,4 +152,4 @@ def stale_page_move_note(page_title: RawTitle) -> str:
     """Note for a move whose destination page was deleted before the
     device that sent it saw the delete: the block stays put."""
     span = missing_page_code_span(page_title) or "(page unknown)"
-    return f"move skipped: page {span} was deleted"
+    return _fitted(span, lambda label: f"move skipped: page {label} was deleted")

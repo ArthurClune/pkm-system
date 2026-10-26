@@ -15,16 +15,17 @@
 // conditional server delete, refused while any block still references the
 // file). An undo whose delivery fails leaves the files.
 //
-// A replay that would put a block past the outline depth cap, or store a
-// block text past a text limit (grammar/textLimits.ts), applies and sends
-// nothing (the server refuses such a batch whole, and the offline queue
-// would discard it), shows the refusal's notice, and puts its entry back,
-// so it can be retried once the user has made room. The entry goes back as
-// though it had been refused at the keypress (restoreEntry, history.ts), so
-// an edit recorded while the page was being read keeps its place. Its
-// delivery resolves "failed", so a refused upload undo keeps the files. A
-// page this tab cannot read is judged by the text limits only, which need
-// no tree: its depth is left to the server.
+// A replay that would put a block past the outline depth cap, store a
+// block text past a text limit (grammar/textLimits.ts) or link a title past
+// the title cap (grammar/titleLength.ts), applies and sends nothing (the
+// server refuses such a batch whole, and the offline queue would discard
+// it), shows the refusal's notice, and puts its entry back, so it can be
+// retried once the user has made room. The entry goes back as though it had
+// been refused at the keypress (restoreEntry, history.ts), so an edit
+// recorded while the page was being read keeps its place. Its delivery
+// resolves "failed", so a refused upload undo keeps the files. A page this
+// tab cannot read is judged by the text limits and the title cap only,
+// which need no tree: its depth is left to the server.
 import type { Sha256Hex, CanonicalTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
@@ -34,6 +35,8 @@ import { pagePath } from "../paths";
 import { stampBaseTextHashes } from "./baseTextHash";
 import { findOpTextLimitViolation,
          textLimitNotice } from "../grammar/textLimits";
+import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
+import { findOpTitleViolation } from "../replica/titles";
 import { DEPTH_NOTICE, findDepthViolation } from "./depthCap";
 import type { FocusTarget } from "./edits";
 import { emptyHistory, recordEntry, resolveAnchors, restoreEntry, takeRedo,
@@ -123,6 +126,11 @@ export function setAssetReleaser(r: AssetReleaser): () => void {
   return () => {
     if (releaser === r) releaser = defaultReleaser;
   };
+}
+
+/** Release files a refused command uploaded, which no history entry owns. */
+export function releaseUnusedAssets(shas: readonly Sha256Hex[]): void {
+  void releaser.release(shas, []);
 }
 
 /** Test seam: resolves when no queued dispatch remains. */
@@ -322,9 +330,13 @@ function refusalNotice(live: BlockNode[], ops: BlockOp[],
   return textLimitRefusal(ops);
 }
 
+// The refusals that need no tree: the text limits, then a title past the
+// title cap (an undo can restore a link a block held before the cap).
 function textLimitRefusal(ops: BlockOp[]): string | null {
   const overLimit = findOpTextLimitViolation(ops);
-  return overLimit === null ? null : textLimitNotice(overLimit.violation);
+  if (overLimit !== null) return textLimitNotice(overLimit.violation);
+  return findOpTitleViolation(ops)?.reason === "too_long"
+    ? TITLE_LENGTH_NOTICE : null;
 }
 
 // Nothing applied or sent; the notice goes to the page's outlines, or waits

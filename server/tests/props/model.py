@@ -203,7 +203,7 @@ def page_copies(title: RawTitle, page_texts: Mapping[BlockUid, str]) -> dict[Blo
     """The text a page delete copies in place of a `((ref))` to each of the
     page's blocks: the block's plain copy, with refs to the page's other
     blocks resolved one level deep (deeper ones and cycles dropped, code:
-    unlink._build_copies) and links to the page unlinked."""
+    unlink._Copies) and links to the page unlinked."""
     plain = {u: _plain_copy(t) for u, t in page_texts.items()}
     blanks = {u: "" for u in page_texts}
     return {u: unlink_titles(inline_refs(inline_refs(t, plain), blanks),
@@ -264,19 +264,25 @@ class PageDelete:
         if any(r.kind == "attribute" and r.title == self.title
                for r in extract(text).refs):
             return "used_as_attribute"
-        new = self.rewrite(text)[0]
+        new, _, applied = self.rewrite(text)
+        # backend.md § Page mutations: the copies inlined may not carry a
+        # text past the length cap, nor further past it, judged on the
+        # inlined text before unlinking and ahead of the rewrite's own
+        # blockers. Unlinking only shortens, so the unlinked text needs no
+        # second length judgement. The code judges the nesting there too,
+        # since copies that open runs and copies that close them join into
+        # one deep link, and the depth times the length; every drawn text
+        # closes the runs it opens, so inlining never deepens a drawn
+        # text's nesting, and no drawn text with a ref is long.
+        inlined = inline_refs(text, applied)
+        if len(inlined) > TEXT_CAP and len(inlined) > len(text):
+            return "limit"
         if attribute_name(text) != attribute_name(new):
             return "attribute"
         parsed = extract(new)
         if (any(r.title == self.title for r in parsed.refs)
                 or any(u in self.copies for u in parsed.block_refs)):
             return "residual"
-        # backend.md § Page mutations: the copies inlined may not carry a
-        # text past the length cap, nor further past it. A copy lands
-        # where `((uid))` stood, never inside a `[[` run, so inlining
-        # never deepens a drawn text's nesting.
-        if len(new) > TEXT_CAP and len(new) > len(text):
-            return "limit"
         return None
 
 
@@ -634,13 +640,26 @@ class Model:
         steps = self.rewrites.get(block.uid, ())
         if replay_peak(steps, unreplayed, base) > TEXT_CAP:
             # backend.md § Conflicts: a replay may not store text past a
-            # limit. The edit as sent lands, the block keeps its text. A
-            # copy lands where `((uid))` stood, never inside a `[[` run,
-            # so only the length cap can be reached (code:
-            # ops_core._replay_step judges each step's splice).
-            self._paths.append("update_text replay: over the length cap")
+            # limit. The edit lands, the block keeps its text. Every
+            # drawn text closes the runs it opens, so its copies cannot
+            # join into a deeper link and only the length cap can be
+            # reached (code: ops_core._replay_step judges each step's
+            # splice on both, and on the depth times the length).
+            # § Planning, "Replayed text": the landing has every title
+            # the chain deleted or renamed away made plain, the steps past
+            # the one over the cap included (code:
+            # ops_core.over_limit_landing_text). The machine draws no
+            # rename, so a `Rewrite` carries no retitles and `gone` is the
+            # deleted titles alone; a rename rule must add the old titles.
+            gone = frozenset().union(
+                *(step.unlinked
+                  for step in replay_chain(steps, unreplayed, base)[2]))
+            landed = unlink_stale(unreplayed, gone)
+            self._paths.append(
+                "update_text replay: over the length cap"
+                + (", gone titles unlinked" if landed != unreplayed else ""))
             skip("text_limit")
-            kept.append(unreplayed)
+            kept.append(landed)
             return
         text, base, replayed = self._replay(block.uid, text, base)
         kind = ("identical" if text == block.text else

@@ -33,7 +33,7 @@ _PIECES = [
     "　", "[[", "]]", "[[]]", "[[   ]]", "((", "))", "#", "#[[", "::",
     "{{", "}}", "`", "```", '"', "'", "\\", "/", "%", "%00", "%ED%A0%80",
     "..", "?", "&", "=", "+", "*", "-", "^", "NEAR(", " OR ", "x", "2026-07-07",
-    "X] ", " X ]", " /x ", ".", "..",
+    "X] ", " X ]", "X[ ", " /x ", ".", "..",
     *REAL_TITLES, *REAL_UIDS,
 ]
 _BLANKS = [" ", "\t", "\n", " ", "　", " "]
@@ -120,9 +120,9 @@ json_value = st.recursive(
 # A blank title is the one every title-taking route must refuse or
 # replace, so it is drawn as often as a hostile one.
 # Spellings the title rules judge once their boundary spaces are stripped:
-# a trailing `]` or a path segment that only shows after the strip.
-SPACED_TITLES = ["X] ", " X ]", "a] ", " /x", "/x ", " /x ", "x/", ".", "..",
-                 " . ", " .. ", " [[x]] "]
+# a trailing `]` or `[`, or a path segment that only shows after the strip.
+SPACED_TITLES = ["X] ", " X ]", "a] ", "X[ ", " X [", " /x", "/x ", " /x ",
+                 "x/", ".", "..", " . ", " .. ", " [[x]] "]
 _padded_real = st.tuples(st.sampled_from(REAL_TITLES), st.integers(1, 2),
                          st.integers(0, 2)).map(
     lambda t: " " * t[1] + t[0] + " " * t[2])

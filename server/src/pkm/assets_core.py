@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from array import array
 from pathlib import PurePosixPath
 from urllib.parse import quote
 from typing import Literal
@@ -76,66 +77,79 @@ def asset_label(filename: str) -> str:
     return filename.replace("[", "(").replace("]", ")")
 
 
-def _markdown_destination_close(text: str, start: int) -> int:
-    """Index of the ')' closing a link destination that starts at `start`.
-    Parens inside it nest, so "Programme (Public).pdf" stays whole. When
-    they do not balance before the end of the line, the first ')' closes.
-    The same rule as the web's scanDestinationClose
+def _closes_of(text: str) -> array[int]:
+    """Where each "[" and "(" in `text` closes: one slot per character,
+    the index of the "]" or ")" that closes it, else -1. Brackets and
+    parens nest and pair only within a line, so "Programme (Public).pdf"
+    stays whole. A "(" left unpaired on its line closes at the first ")"
+    after it on that line. The same pairing as the web's closesOf
     (web/src/grammar/markdown.ts), so a delete strips exactly the link the
-    web rendered."""
-    depth = 0
-    i = start
-    while i < len(text) and text[i] != "\n":
-        if text[i] == "(":
-            depth += 1
-        elif text[i] == ")":
-            if depth == 0:
-                return i
-            depth -= 1
-        i += 1
-    return text.find(")", start)
+    web rendered, and one pass serves every probe, where scanning from
+    each opener would rescan the line from every one."""
+    closes = array("q", [-1]) * len(text)
+    brackets: list[int] = []
+    parens: list[int] = []
+    for i, ch in enumerate(text):
+        if ch == "\n":
+            brackets.clear()
+            parens.clear()
+        elif ch == "[":
+            brackets.append(i)
+        elif ch == "(":
+            parens.append(i)
+        elif ch == "]" and brackets:
+            closes[brackets.pop()] = i
+        elif ch == ")" and parens:
+            closes[parens.pop()] = i
+    next_close = -1  # the first ")" after i on i's line
+    for i in range(len(text) - 1, -1, -1):
+        ch = text[i]
+        if ch == "\n":
+            next_close = -1
+        elif ch == ")":
+            next_close = i
+        elif ch == "(" and closes[i] == -1:
+            closes[i] = next_close
+    return closes
 
 
-def _markdown_link_span_at(text: str, start: int) -> tuple[int, int, str] | None:
+def _markdown_link_span_at(text: str, start: int,
+                           closes: array[int]) -> tuple[int, int, str] | None:
     """(span_start, span_end, destination) of the markdown link or image
-    opening at `start`, or None. Brackets in the label nest, and a newline
-    in the label or destination means no link, as in the web's
-    scanMarkdownLinkAt."""
-    image = text[start] == "!"
-    open_ = start + 1 if image else start
+    opening at `start`, or None, given where each opener closes
+    (_closes_of). A label or destination that does not close on its line
+    means no link, as in the web's scanMarkdownLinkAt."""
+    open_ = start + 1 if text[start] == "!" else start
     if (open_ >= len(text) or text[open_] != "["
             or text.startswith("[[", open_)):
         return None
-    depth = 1
-    cursor = open_ + 1
-    while cursor < len(text) and depth > 0:
-        if text[cursor] == "\n":
-            return None
-        if text[cursor] == "[":
-            depth += 1
-        elif text[cursor] == "]":
-            depth -= 1
-        cursor += 1
-    if depth != 0 or cursor >= len(text) or text[cursor] != "(":
+    label_close = closes[open_]
+    if label_close == -1 or text[label_close + 1:label_close + 2] != "(":
         return None
-    close = _markdown_destination_close(text, cursor + 1)
-    if close == -1 or "\n" in text[cursor + 1:close]:
+    close = closes[label_close + 1]
+    if close == -1:
         return None
-    return start, close + 1, text[cursor + 1:close]
+    return start, close + 1, text[label_close + 2:close]
 
 
 def _markdown_asset_spans(text: str, prefix: str) -> list[tuple[int, int]]:
     """(start, end) of every "[label](url)" / "![alt](url)" span whose
     destination starts with `prefix`, scanning left to right as the web's
-    scanMarkdownLinks does. "[[page]]" never opens a span."""
+    scanMarkdownLinks does. "[[page]]" never opens a span. The pairing is
+    built once, on the first probe that reaches a "["."""
     spans: list[tuple[int, int]] = []
+    closes: array[int] | None = None
     cursor = 0
     n = len(text)
     while cursor < n:
         looks_like_link = (
             (text[cursor] == "!" and text[cursor + 1:cursor + 2] == "[")
             or (text[cursor] == "[" and not text.startswith("[[", cursor)))
-        span = _markdown_link_span_at(text, cursor) if looks_like_link else None
+        span = None
+        if looks_like_link:
+            if closes is None:
+                closes = _closes_of(text)
+            span = _markdown_link_span_at(text, cursor, closes)
         if span is not None:
             span_start, span_end, destination = span
             if destination.startswith(prefix):
@@ -143,6 +157,31 @@ def _markdown_asset_spans(text: str, prefix: str) -> list[tuple[int, int]]:
             cursor = span_end
         else:
             cursor += 1
+    return spans
+
+
+def _macro_spans(text: str, prefix: str) -> list[tuple[int, int]]:
+    """(start, end) of every {{[[pdf]]: url}} and {{pdf: url}} macro whose
+    url starts with `prefix`. A macro closes at the first "}}" after its
+    head, if that comes before the next newline; a head inside an earlier
+    macro opens none. As a lazy regex would match, but the "}}" and the
+    newline are found from a cursor that only moves forward, so unclosed
+    heads on one line cost one pass over it, not one each."""
+    head = re.compile(r"\{\{(?:\[\[pdf\]\]|pdf):\s*" + re.escape(prefix))
+    spans: list[tuple[int, int]] = []
+    end_of_last = 0
+    close = newline = -2  # -2: not looked for yet; -1: none to the end
+    for m in head.finditer(text):
+        if m.start() < end_of_last:
+            continue
+        after = m.end()
+        if close != -1 and close < after:
+            close = text.find("}}", after)
+        if newline != -1 and newline < after:
+            newline = text.find("\n", after)
+        if close != -1 and (newline == -1 or close < newline):
+            end_of_last = close + 2
+            spans.append((m.start(), end_of_last))
     return spans
 
 
@@ -179,9 +218,7 @@ def strip_asset_tokens(text: str, sha256: Sha256Hex) -> str:
     falsy check."""
     prefix = f"/assets/{sha256}/"
     spans = _markdown_asset_spans(text, prefix)
-    macro = (r"\{\{(?:\[\[pdf\]\]|pdf):\s*" + re.escape(prefix)
-             + r"[^\n]*?\}\}")
-    spans += [m.span() for m in re.finditer(macro, text)]
+    spans += _macro_spans(text, prefix)
     bare_url = re.escape(prefix) + r"[^\s)}]*"
     spans += [m.span() for m in re.finditer(bare_url, text)]
     if not spans:

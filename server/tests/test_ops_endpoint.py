@@ -1344,6 +1344,25 @@ def test_stale_edit_of_a_padded_link_stays_unlinked_under_plain_space(
     assert client.get("/api/page/conflict").status_code == 404
 
 
+def test_stale_edit_replays_a_rename_over_a_padded_link_under_plain_space(
+        client, seeded_config):
+    # The rename matched `[[ AI ]]` as the page AI; its replay must too.
+    con = connect(seeded_config.db_path)
+    con.execute("UPDATE sync_meta SET value = '1'"
+                " WHERE key = 'plain_space_title_canonicalization'")
+    con.commit()
+    con.close()
+    _rename(client, "AI", "Artificial Intelligence")
+
+    _stale_push(client, STALE_BASE, text="Tags:: #AI and [[ AI ]]")
+
+    assert _ml_texts(client)[0] == (
+        "Tags:: #[[Artificial Intelligence]]"
+        " and [[Artificial Intelligence]]")
+    assert client.get("/api/page/AI").status_code == 404
+    assert client.get("/api/page/conflict").status_code == 404
+
+
 def test_rewrite_records_are_pruned_past_the_retention_window(
         client, seeded_config):
     from pkm.server.db import open_db
@@ -1380,14 +1399,14 @@ def test_stale_edit_replays_a_delete_unlink_instead_of_resurrecting_the_title(
 #
 # The edit was judged when it arrived; the rename replayed over it was not
 # sent by anyone. Stored, it could be far past the cap (each link grows by
-# the title's growth). It lands as a conflict entry instead, as sent, and the
-# block keeps its text: a 400 would poison the queue over text the client
-# never wrote.
+# the title's growth). It lands as a conflict entry instead, with the
+# renamed-away title made plain, and the block keeps its text: a 400 would
+# poison the queue over text the client never wrote.
 
 REPLAY_HEADER = "[[conflict]] [[Machine Learning]] — ((uid_b1))"
 
 
-def _replay_over_limit(client, stale: str):
+def _replay_over_limit(client, stale: str, landed: str):
     r = _post(client, {"op": "update_text", "uid": "uid_b1", "text": stale,
                        "base_text_hash": text_hash(STALE_BASE)})
     assert r.status_code == 200, r.text
@@ -1395,7 +1414,8 @@ def _replay_over_limit(client, stale: str):
     assert (skip["op"], skip["uid"], skip["reason"]) == (
         "update_text", "uid_b1", "text_limit")
     assert skip["note_page"] == title_for_date(date.today())
-    assert _conflicts(client) == [(REPLAY_HEADER, [stale])]
+    assert _conflicts(client) == [(REPLAY_HEADER, [landed])]
+    assert client.get("/api/page/AI").status_code == 404
 
 
 def test_stale_edit_whose_rename_replay_passes_the_length_cap_is_not_stored(
@@ -1403,7 +1423,7 @@ def test_stale_edit_whose_rename_replay_passes_the_length_cap_is_not_stored(
     _rename(client, "AI", "Z" * 1000)
     renamed = _ml_texts(client)[0]
     seq = _latest_seq(client)
-    _replay_over_limit(client, "[[AI]] " * 2000)
+    _replay_over_limit(client, "[[AI]] " * 2000, "AI " * 2000)
 
     assert _ml_texts(client)[0] == renamed
     # the block is journalled, so a replica that applied the edit drops it
@@ -1415,7 +1435,7 @@ def test_stale_edit_whose_rename_replay_nests_past_the_cap_is_not_stored(
         client):
     _rename(client, "AI", "Artificial Intelligence")
     stale = "[[a//" * 32 + " #AI" + "]]" * 32
-    _replay_over_limit(client, stale)
+    _replay_over_limit(client, stale, stale.replace("#AI", "AI"))
 
     assert _ml_texts(client)[0] == "Tags:: #[[Artificial Intelligence]]"
 

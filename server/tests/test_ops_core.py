@@ -5,8 +5,11 @@ from pathlib import Path
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
+from scaling import loop_steps
 
 from rawread import read
+from pkm import refs, spans, unlink
+from pkm.server import ops_core
 from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING,
                                MAX_OUTLINE_DEPTH, BlockOp, BlockUid, CreateOp, CreatePageOp,
                                DeleteOp, MoveOp, OpBatch, PageId, SetCollapsedOp,
@@ -21,6 +24,7 @@ from pkm.server.conflict_notes import (deleted_header_text,
                                        stale_page_move_note)
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
+from pkm.server.ops_core import judge_batch
 from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
                                  ConflictLanding, CreateContext, DeleteBlocks,
                                  DeleteConflictContext, DeleteContext,
@@ -824,6 +828,33 @@ def test_replay_refuses_the_worst_amplification_without_building_it(kind):
     assert peak < 200 * len(edit)
 
 
+def test_replay_judges_the_nesting_copies_join_before_unlinking():
+    # A delete's copies, each within the nesting cap: one opens 32 runs,
+    # the other closes them. A stale edit with m refs to each a side
+    # replays into `[[` x 32m around `[[T]]`, which the unlink would peel
+    # one layer per pass over the whole text. The depth is judged first.
+    opens, closes = uid_of("rr_open_01"), uid_of("rr_close_1")
+
+    def run(m: int) -> tuple[int, TextEditOutcome]:
+        before = f"(({opens}))" * m + "[[T]]" + f"(({closes}))" * m
+        base, after = text_hash(before), text_hash("T")
+        rows = (BlockRewrite(base, after, "T", "", "unlink"),
+                BlockRewrite(base, after, opens, "[[" * MAX_LINK_NESTING,
+                             "inline"),
+                BlockRewrite(base, after, closes, "]]" * MAX_LINK_NESTING,
+                             "inline"))
+        edit = before + " offline"
+        outcome: list[TextEditOutcome] = []
+        work = loop_steps((ops_core, unlink, refs, spans), lambda: outcome.append(
+            classify_text_edit(edit, base, "T", rows)))
+        return work, outcome[0]
+
+    (small, _), (large, outcome) = run(5), run(20)
+    # four times the text: linear work grows about 4x
+    assert large < 6 * small, (small, large)
+    assert outcome.kind == "over_limit"
+
+
 def test_plan_replay_over_limit_lands_the_edit_and_keeps_the_block():
     op = UpdateTextOp(op="update_text", uid=uid_of("uid_b3"),
                       text="[[a]] " * 2000, base_text_hash=text_hash("[[a]]"))
@@ -959,7 +990,7 @@ def test_placement_matches_shared_fixture(case, tmp_path):
         batch = OpBatch(client_id=client_id_of("fixture"),
                         batch_id=batch_id_of(f"placement_{case['name']}"[:64]),
                         ops=ops)
-        apply_batch(db, batch, 1_800_000_000_000)
+        apply_batch(db, judge_batch(batch), 1_800_000_000_000)
         db.commit()
         placed = {r["uid"]: {"uid": r["uid"], "page": r["title"],
                              "parent_uid": r["parent_uid"],
@@ -1473,7 +1504,8 @@ def test_rewrite_effects_skip_parked_and_unchanged_text():
 _U1 = uid_of("uid_u0000001")
 
 
-def _replay_effects(sent_text, base_text, rewrites, current, stale=()):
+def _replay_effects(sent_text, base_text, rewrites, current,
+                    stale=frozenset()):
     sent = UpdateTextOp(op="update_text", uid=_U1, text=sent_text,
                         base_text_hash=text_hash(base_text))
     unlinked = unlink_stale_refs(
@@ -1483,7 +1515,7 @@ def _replay_effects(sent_text, base_text, rewrites, current, stale=()):
     planned = (() if outcome.kind == "identical"
                else (UpdateText(_U1, outcome.text),))
     return rewrite_effects(sent, planned, stale, normalize_title,
-                           outcome.replayed, outcome.text)
+                           outcome.replayed, outcome.text, outcome.known)
 
 
 def test_rewrite_effects_chain_each_replayed_step_from_the_sent_text():
@@ -1548,7 +1580,8 @@ def test_rewrite_effects_record_nothing_when_the_chain_misses_written():
     outcome = classify_text_edit("[[A]] x", text_hash(t0), "[[B]] x", rewrites)
     sent = UpdateTextOp(op="update_text", uid=_U1, text="[[A]] x",
                         base_text_hash=text_hash(t0))
-    assert rewrite_effects(sent, (), (), normalize_title, outcome.replayed,
+    assert rewrite_effects(sent, (), frozenset(), normalize_title,
+                           outcome.replayed,
                            "[[B]] elsewhere") == ()
 
 

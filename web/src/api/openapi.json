@@ -80,7 +80,7 @@
     "/api/ops": {
       "post": {
         "summary": "Post Ops",
-        "description": "One SQLite transaction covers the batch_id dedupe check through the\ncommit, so a concurrent delete_page/rename_page/cleanup_journal commit\n(their own connections, on the threadpool) can no longer land between\nthe dedupe read and this batch's writes. A write lock the busy timeout\ncould not take (a concurrent writer already holds it) returns 503 with\nRetry-After rather than surfacing the raw sqlite3.OperationalError. The\nbatch applies only if every `expect` entry still holds, checked in the\nsame transaction, else 412 and nothing is written.",
+        "description": "One SQLite transaction covers the batch_id dedupe check through the\ncommit, so a concurrent delete_page/rename_page/cleanup_journal commit\n(their own connections, on the threadpool) can no longer land between\nthe dedupe read and this batch's writes. A write lock the busy timeout\ncould not take (a concurrent writer already holds it) returns 503 with\nRetry-After rather than surfacing the raw sqlite3.OperationalError. The\nbatch applies only if every `expect` entry still holds, checked in the\nsame transaction after the dedupe, else 412 and nothing is written.\n\nThe text-limit and title judges (`judge_batch`) run first, in the\nthreadpool: off the write lock, so one large batch's refusal never\nholds every other write, and off the event loop. A refused batch is\nlooked up before its 400, without the write lock (a committed row is\nvisible to a plain read). One already applied, whose ack was lost and\nwhich a deploy has since put over a limit, replays its stored ack: a\n400 would make the client discard edits the server holds.",
         "operationId": "post_ops_api_ops_post",
         "requestBody": {
           "content": {
@@ -344,7 +344,7 @@
     "/api/pages": {
       "post": {
         "summary": "Create Page",
-        "description": "Idempotent: creating an existing page returns its row, not an error.",
+        "description": "Idempotent: creating an existing page returns its row, not an error.\nA title longer than 1,000 characters (`MAX_PAGE_TITLE_CHARS`) is a 422,\neven for a page stored before the cap.",
         "operationId": "create_page_api_pages_post",
         "requestBody": {
           "content": {
@@ -424,7 +424,7 @@
     "/api/page/{title}/rename": {
       "post": {
         "summary": "Rename Page",
-        "description": "Rename a page, rewriting every [[link]]/#tag/attr:: in block text.\nWhen the new title is taken: 409 unless allow_merge is true, in which\ncase the source page is concatenated onto the target (source's\ntop-level blocks appended after the target's, referencing text\nrewritten to the target, source page row dropped) -- a confirm-gated\nmerge, not a silent overwrite. Case-sensitive throughout, like\npages.title itself. 422 when the rewrite would carry a block over the\ntext length cap or nest its `[[` past the cap (a longer title lengthens\nevery link to it); the detail names the block, and nothing changes.",
+        "description": "Rename a page, rewriting every [[link]]/#tag/attr:: in block text.\nWhen the new title is taken: 409 unless allow_merge is true, in which\ncase the source page is concatenated onto the target (source's\ntop-level blocks appended after the target's, referencing text\nrewritten to the target, source page row dropped) -- a confirm-gated\nmerge, not a silent overwrite. Case-sensitive throughout, like\npages.title itself. 422 when the new title is blank, refused or longer\nthan 1,000 characters, or when the rewrite would carry a block over the\ntext length cap or nest its `[[` past the cap (a longer title lengthens\nevery link to it); the detail names the block, and nothing changes.",
         "operationId": "rename_page_api_page__title__rename_post",
         "parameters": [
           {
@@ -1400,7 +1400,7 @@
     "/api/assets/{sha256}": {
       "delete": {
         "summary": "Delete Asset",
-        "description": "Delete an asset: strip every reference token from block text\n(blocks left empty with no children are deleted outright \u2014 asset\ndeletion must never cascade away real content, so emptied parents\nare kept), drop the assets row, commit, then best-effort unlink the\nfile. Commit-before-unlink: a crash leaves at worst an unreferenced\nfile on disk, never a row pointing at a missing file. Asset URLs\nnever contribute refs rows ([[link]]/#tag/attr:: only), so no refs\nreindex is needed; refs rows of deleted blocks go via FK cascade\n(the refs table has no FTS trigger \u2014 unlike blocks, where explicit\nper-uid DELETE is required to keep the FTS delete trigger firing).\n`block_refs` needs no reindex either, for the same reason:\n`strip_asset_tokens` removes only asset-embed tokens, a syntax disjoint\nfrom `((uid))`. 409 with the offending blocks, as a page delete's\nblockers, when a stripped block would be over the text length cap or\nnest `[[` past the cap; nothing is changed.\n\n`if_unreferenced=true` changes the mode: nothing is stripped, and the\nasset is deleted only while no block references it (409 otherwise).\nThe reference check and the delete share one write transaction, so a\nblock that starts referencing the asset cannot slip in between. Undo\nhistory is its caller, releasing an upload once redo is gone.",
+        "description": "Delete an asset: strip every reference token from block text\n(blocks left empty with no children are deleted outright \u2014 asset\ndeletion must never cascade away real content, so emptied parents\nare kept), drop the assets row, commit, then best-effort unlink the\nfile. Commit-before-unlink: a crash leaves at worst an unreferenced\nfile on disk, never a row pointing at a missing file. Every rewritten\nblock has its refs derived again from its new text: asset URLs index\nnothing themselves, but removing a token can join what it kept apart,\n`[` and `[Foo]]` into `[[Foo]]`, which links (and creates) Foo. Refs\nrows of deleted blocks go via FK cascade (the refs table has no FTS\ntrigger \u2014 unlike blocks, where explicit per-uid DELETE is required to\nkeep the FTS delete trigger firing). 409 with the offending blocks, as\na page delete's blockers, when a stripped block would be over the text\nlength cap or nest `[[` past the cap; nothing is changed.\n\n`if_unreferenced=true` changes the mode: nothing is stripped, and the\nasset is deleted only while no block references it (409 otherwise).\nThe reference check and the delete share one write transaction, so a\nblock that starts referencing the asset cannot slip in between. Undo\nhistory is its caller, releasing an upload once redo is gone.",
         "operationId": "delete_asset_api_assets__sha256__delete",
         "parameters": [
           {

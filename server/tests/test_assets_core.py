@@ -1,9 +1,12 @@
 """Pure asset-browser helpers."""
 import hashlib
+import time
 
 import pytest
 
 from rawread import read
+from scaling import loop_steps
+from pkm import assets_core
 from pkm.assets_core import (
     asset_needs_repair, export_limit_violation, mime_category, sha256_hex,
     strip_asset_tokens, type_where, zip_arcnames)
@@ -123,6 +126,27 @@ def test_keeps_trailing_text_after_balanced_paren_link():
 
 
 # --- mime_category ---
+
+@pytest.mark.parametrize("unit", ["[ ", "![ ", "[a](", "[a]( ("],
+                         ids=["lone-bracket", "lone-image", "open-dest", "nested-dest"])
+def test_strip_costs_linear_work_on_unclosed_openers(unit):
+    # The newline keeps the first opener from pairing with the link's
+    # close and swallowing the line: each opener is then probed in turn.
+    def steps(n: int) -> int:
+        text = unit * n + f"\n![x]({URL})"
+        return loop_steps(assets_core, lambda: strip_asset_tokens(text, SHA))
+    small, large = steps(500), steps(2_000)
+    # Linear work grows about 4x from N to 4N; quadratic about 16x.
+    assert large < 6 * small, (small, large)
+
+
+def test_unclosed_pdf_macros_on_one_line_strip_in_bounded_time():
+    text = " ".join([f"{{{{pdf: {URL}"] * 10_000)
+    start = time.perf_counter()
+    strip_asset_tokens(text, SHA)
+    # Quadratic today: about 19 s. Linear: well under a second.
+    assert time.perf_counter() - start < 2.0
+
 
 @pytest.mark.parametrize("mime,cat", [
     ("image/png", "image"),

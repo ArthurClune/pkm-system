@@ -13,12 +13,13 @@ from pkm.refs import (
     extract,
     is_blank_title,
     normalize_title,
+    title_length_over,
     title_syntax_reason,
 )
 from pkm.rename import rewrite_title_refs_map
 from pkm.unlink import defuse_attribute, unlink_stale_refs, unlink_title_refs
 
-ImportTitleErrorReason = Literal["malformed_syntax", "blank"]
+ImportTitleErrorReason = Literal["malformed_syntax", "blank", "too_long"]
 
 
 @dataclass(frozen=True)
@@ -77,7 +78,12 @@ class ImportTitleError(ValueError):
         self.original_title = original_title
         self.location = location
         self.reason = reason
-        super().__init__(f'{reason}: {original_title!r}')
+        # A title over the cap may be millions of characters long: the
+        # message carries its length, never the title.
+        if reason == "too_long":
+            super().__init__(f"too_long: {len(original_title)} characters")
+        else:
+            super().__init__(f'{reason}: {original_title!r}')
 
 
 def _strip_brackets(
@@ -122,7 +128,9 @@ def _strip_brackets(
 
 def sanitize_import_title(text: str, *,
                           location: str) -> NormalizedTitle:
-    """Remove balanced Roam title markers or refuse an unsafe result."""
+    """Remove balanced Roam title markers or refuse an unsafe result: a
+    blank one, one over MAX_PAGE_TITLE_CHARS, or one the syntax rules
+    refuse."""
     without_brackets, _ = _strip_brackets(
         text,
         original_title=text,
@@ -131,6 +139,8 @@ def sanitize_import_title(text: str, *,
     result = normalize_title(without_brackets.replace("#", ""))
     if is_blank_title(result):
         raise ImportTitleError(text, location=location, reason="blank")
+    if title_length_over(result) is not None:
+        raise ImportTitleError(text, location=location, reason="too_long")
     if title_syntax_reason(result) is not None:
         raise ImportTitleError(
             text,

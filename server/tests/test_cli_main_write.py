@@ -80,6 +80,19 @@ def test_save_propagates_the_nesting_refusal(run, pkm_client):
     assert missing.value.status == 404
 
 
+def test_save_propagates_the_title_length_refusal(run, pkm_client):
+    long_title = "t" * 1001
+    code, out, err = run("save", "-p", long_title, "x")
+
+    assert code == 1
+    assert out == ""
+    assert ("400: op 0: page_title title of 1001 characters is over the"
+            " limit of 1000") in err
+    with pytest.raises(ApiError) as missing:
+        pkm_client.get_page(raw_title_of(long_title))
+    assert missing.value.status == 404
+
+
 def test_save_stdin_outline_nests(run, pkm_client):
     code, out, _ = run("save", "-p", "AI", "-",
                        stdin="- [[Henderson]]\n  detail line\n")

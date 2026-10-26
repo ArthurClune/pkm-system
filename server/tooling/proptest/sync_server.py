@@ -27,7 +27,8 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from datetime import datetime
 from pathlib import Path
 from types import FrameType
@@ -37,6 +38,7 @@ import time_machine
 import uvicorn
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import PlainTextResponse
+from starlette.types import ASGIApp
 
 from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING, BatchId, BlockOp, BlockUid, ClientId,
                                CreateOp, OpBatch, OrderIdx, SyncSeq, UpdateTextOp)
@@ -44,7 +46,7 @@ from pkm.contracts.strict import StrictModel
 from pkm.database import Db
 from pkm.contracts.titles import RawTitle
 from pkm.refs import CanonicalTitle, link_nesting_depth
-from pkm.server import ops_apply, sync_meta
+from pkm.server import ops_apply, ops_core, sync_meta
 from pkm.server.app import create_app
 from pkm.server.auth import require_auth
 from pkm.server.auth_core import hash_password
@@ -53,7 +55,10 @@ from pkm.server.db import init_db, open_db
 from pkm.server.notify import Frame, OpsFrame
 from pkm.server.ops_apply import apply_batch
 from pkm.server.ops_core import (Effect, OpTextLimitViolation, RewriteStep,
-                                 find_op_text_limit_violation, rewrite_effects)
+                                 StepKey,
+                                 find_op_text_limit_violation, judge_batch,
+                                 rewrite_effects)
+from pkm.server.run import serve as serve_as_production
 from pkm.server.store import stale_titles
 from pkm.text_limits import TextLimitViolation
 
@@ -199,7 +204,7 @@ def build_template(path: Path) -> None:
                         batch_id=BatchId("proptest-seed-batch"),
                         ops=ops)
         con.execute("BEGIN IMMEDIATE")
-        apply_batch(con, batch, START_MS)
+        apply_batch(con, judge_batch(batch), START_MS)
         con.commit()
         con.executescript(RENAME_LOG_DDL + DELETE_LOG_DDL + CONFLICT_LOG_DDL)
     finally:
@@ -232,23 +237,26 @@ _rewrite_teeth = {"drop_replayed": False}
 
 
 def _rewrite_effects_with_teeth(original: BlockOp, planned: tuple[Effect, ...],
-                                stale: Collection[CanonicalTitle],
+                                stale: AbstractSet[CanonicalTitle],
                                 canonical: Callable[[str], str],
                                 replayed: Sequence[RewriteStep] = (),
-                                settled: str | None = None) -> tuple[Effect, ...]:
+                                settled: str | None = None,
+                                known: Mapping[StepKey, str] | None = None,
+                                ) -> tuple[Effect, ...]:
     if _rewrite_teeth["drop_replayed"]:
         replayed = ()
-    return rewrite_effects(original, planned, stale, canonical, replayed, settled)
+    return rewrite_effects(original, planned, stale, canonical, replayed,
+                           settled, known)
 
 
 # Harness-only teeth for the ops property's "rejection" check. With "off",
 # /api/ops judges no text against the length and nesting limits, as before
 # the limits existed, so the server stores a text the replica's enqueue
 # refuses. With "at_limit", it refuses a text at a limit too (each limit one
-# lower), so it refuses a text the replica stores. ops_apply reads
-# find_op_text_limit_violation through its module global, which build_app
-# points here; disarmed, it is the real function. Reset disarms both, as it
-# does _stale_teeth.
+# lower), so it refuses a text the replica stores. judge_batch reads
+# find_op_text_limit_violation through ops_core's module global, which
+# build_app points here; disarmed, it is the real function. Reset disarms
+# both, as it does _stale_teeth.
 _limit_teeth = {"off": False, "at_limit": False}
 
 
@@ -364,7 +372,7 @@ def build_app(data: Path, clock: Clock, config: Config | None = None) -> FastAPI
     _stale_teeth["empty"] = False
     ops_apply.rewrite_effects = _rewrite_effects_with_teeth
     _rewrite_teeth["drop_replayed"] = False
-    ops_apply.find_op_text_limit_violation = _find_op_text_limit_violation_with_teeth
+    ops_core.find_op_text_limit_violation = _find_op_text_limit_violation_with_teeth
     _limit_teeth["off"] = _limit_teeth["at_limit"] = False
 
     @app.post("/__proptest/reset", dependencies=[Depends(require_auth)])
@@ -518,6 +526,10 @@ def _log_config(path: Path) -> dict:
     return config
 
 
+def serve(app: ASGIApp, log_file: Path) -> None:
+    serve_as_production(app, port=PORT, log_config=_log_config(log_file))
+
+
 def _watch_parent(initial_ppid: int, poll_s: float = 2.0) -> None:
     while os.getppid() == initial_ppid:
         time.sleep(poll_s)
@@ -551,7 +563,7 @@ def main() -> int:  # pragma: no cover - process entry point, exercised by the s
         logger.error("unhandled exception for %s %s", request.method, request.url, exc_info=exc)
         return PlainTextResponse("internal server error", status_code=500)
 
-    uvicorn.run(app, host="127.0.0.1", port=PORT, log_config=_log_config(log_path(os.environ, data)))
+    serve(app, log_path(os.environ, data))
     return 0
 
 

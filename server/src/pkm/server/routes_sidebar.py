@@ -15,7 +15,8 @@ from pkm.contracts.titles import RawTitle
 from pkm.contracts.int64 import INT64_RANGE
 from pkm.database import Db
 from pkm.importer.sidebar_rows import next_order_idx, reorder_is_valid
-from pkm.refs import is_blank_title, title_syntax_reason
+from pkm.refs import (describe_title_length, is_blank_title,
+                      title_length_over, title_syntax_reason)
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
@@ -49,6 +50,11 @@ def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
     canonical_title = read_title(db, body.title)
     if is_blank_title(canonical_title):
         raise HTTPException(status_code=422, detail="title must not be blank")
+    # Before the syntax check, whose detail echoes the title.
+    measured = title_length_over(body.title)
+    if measured is not None:
+        raise HTTPException(status_code=422,
+                            detail=describe_title_length(measured))
     if title_syntax_reason(canonical_title) is not None:
         raise HTTPException(
             status_code=422,

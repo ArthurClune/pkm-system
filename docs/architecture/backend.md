@@ -51,9 +51,11 @@ server/
 ├── app.py               Shell  create_app(config): init_db(), routers, 422 handler, SPA
 ├── config.py, setup.py  Shell  Config from config.json; setup writes it
 ├── db.py                Shell  init_db() at startup, open_db() per request, migrations
+├── db_core.py           Core   sqlite_too_old: the SQLite version the server needs
 ├── wholepath.py         Shell  the {name:wholepath} DOTALL route convertor
 ├── auth.py, auth_core.py, throttle_core.py   login, require_auth, LoginThrottle; scrypt and tokens; backoff policy
-├── auth_gate_core.py, auth_gate.py  Core / Shell  which requests are public, the body cap; AuthGateMiddleware
+├── auth_gate_core.py, auth_gate.py  Core / Shell  which requests are public, the body caps; AuthGateMiddleware
+├── http_protocol.py     Shell  DeadlineH11Protocol: closes a connection whose request head is late or whose client stops reading
 ├── origin_core.py, origin_guard.py  Core / Shell  allowed origins; OriginGuardMiddleware
 ├── routes_*.py          Shell  the HTTP surface
 ├── ops_core.py          Core   plan_op(), classify_skip, classify_text_edit
@@ -77,6 +79,11 @@ mode and applies the schema once at startup, never per request, because both
 take locks that conflict with another connection's open write transaction.
 Each request gets a fresh `Db` from `open_db()`, with `foreign_keys=ON`,
 `recursive_triggers=ON` and `BUSY_TIMEOUT_MS`.
+
+The server requires SQLite 3.43 or newer (`db_core.MIN_SQLITE_VERSION`), and
+`init_db()` refuses to start on an older library, naming both versions. The
+replay charge sizes rewrite rows with `octet_length`, which 3.43 added and
+which reads a value's size from the record header without loading its text.
 
 An `IN (...)` list built from a set the data can grow without bound (a page's
 block uids, a block's referrers, a `((ref))` set) goes through
@@ -388,7 +395,8 @@ applied replay its ack instead of being refused by its own effect.
 
 ```mermaid
 flowchart LR
-    C[Client batch] --> R
+    C[Client batch] --> JB["ops_core.judge_batch (Core, threadpool)<br/>text limits, then titles → 400"]
+    JB --> R
     subgraph TX["one transaction: BEGIN IMMEDIATE before the dedupe read"]
         R["routes_ops.py (Shell)<br/>idempotency check"] --> E["ops_expect.unmet_expectation (Core)<br/>expect check → 412, nothing written"]
         E --> CTX["ops_apply._context_for (Shell)<br/>read SQLite, classify once → per-kind context"]
@@ -407,13 +415,23 @@ route whose decision rests on what it reads joins them.
 
 | Route | Lock taken before | Busy lock |
 |---|---|---|
-| `POST /api/ops` | the dedupe read and every op's context read | 503 + `Retry-After` |
+| `POST /api/ops` | the dedupe read and every op's context read; the text and title judges run before it, in the threadpool | 503 + `Retry-After` |
 | `POST /api/page/{title}/rename` | the snapshot of referencing blocks, so no batch commits an unrewritten `[[Old]]`; a title race cannot reach the `UPDATE` | 503 + `Retry-After` |
 | `DELETE /api/page/{title}` | the snapshot of referencing blocks | 503 + `Retry-After` |
 | `DELETE /api/assets/{sha256}` | the strip's read of each referencing block, or with `if_unreferenced=true` the reference check | 503 + `Retry-After` |
 | `POST /api/journal/cleanup` | the emptiness and link checks, so a block created on the day cannot go with the page | 503 + `Retry-After` |
 | `POST /api/sidebar` | the uniqueness check and `max(order_idx) + 1`, so a same-title race is a 409 | uncaught: 500 |
 | `POST /api/migrations/title-canonicalization` | the re-inventory | uncaught: 500 |
+
+`apply_batch` itself runs on the event loop and holds the lock until the
+commit. Its work is a constant, plus work linear in the request, which
+`PRIVATE_BODY_MAX_BYTES` ([Auth](#auth)) bounds, plus work linear in the rows
+and subtrees of the blocks the batch touches. What it reads of the server's
+rewrite history is charged to the batch's replay budget
+([Planning](#planning), Replay budget). Two costs are not charged: a move or
+delete of a large subtree, which rewrites or hashes every descendant, and the
+stale-title load (`stale_titles`), which runs once per batch and is linear in
+the pages deleted since the batch's `seen_seq`.
 
 ### Planning
 
@@ -431,9 +449,9 @@ server bug.
   leaves. A move onto its own slot still bumps every later sibling, because
   `ShiftSiblings` cannot tell staying put from moving there.
 - **Refs.** Every text change emits `ReindexRefs`, whose only implementation
-  is `store.reindex_refs_for_text`; the rename rewrite calls it too. It never
-  commits. The asset-token strip skips it, since asset tokens and `((uid))`
-  are disjoint, and so does `importer/migrate_mermaid_blocks.py`. The schema's
+  is `store.reindex_refs_for_text`; the rename rewrite and the asset-token
+  strip call it too. It never commits. `importer/migrate_mermaid_blocks.py`
+  skips it. The schema's
   triggers keep `blocks_fts` and `changes` current but never `refs`, so a
   direct SQL `UPDATE blocks SET text` that adds or changes a link leaves
   backlinks stale. Edit linking text through the ops path (`pkm batch`).
@@ -453,25 +471,93 @@ server bug.
   `MAX_BLOCK_TEXT_CHARS` code points, or nests `[[` past `MAX_LINK_NESTING`,
   makes the whole batch a 400 (`ops_core.find_op_text_limit_violation`,
   over `text_limits.text_limit_violation`). Export holds a whole block in
-  memory, and the web tokenizer recurses once per nested run. `apply_batch`
-  judges every op first, a skipped one included, before the title check, so
-  `extract` never scans an over-long text. Length is judged before nesting,
-  so the nesting measure never reads past the cap. Only the text an op sends
+  memory, and the web tokenizer recurses once per nested run.
+  `ops_core.judge_batch` judges every op, a skipped one included, before
+  the title check, so `extract` never scans an over-long text. The route
+  runs it in the threadpool before `BEGIN IMMEDIATE`: judging a large batch
+  takes seconds, and the judges must hold neither the single writer nor the
+  event loop. `apply_batch` takes a `JudgedBatch`, and only `judge_batch`
+  makes one. That is a convention, not a check: the dataclass is public.
+  A refused batch is looked up in `applied_batches`
+  without the lock before its 400, and one already applied replays its
+  stored ack. A deploy that tightens a limit can therefore never turn the
+  retry of a batch whose ack was lost into a 400, which the client treats
+  as terminal and discards. Length is judged before nesting, so the nesting
+  measure never reads past the cap. Only the text an op sends
   is judged: a move, `set_*` op or delete of a row stored over a limit goes
   through, and an edit that brings it under is accepted. The links a
-  [stale batch](#stale-batches) unlinks are not judged: an unlink only
-  shortens the text, bar the two backticks a fenced attribute adds.
+  [stale batch](#stale-batches) or an over-limit landing unlinks are not
+  judged: an unlink only shortens the text, bar the two backticks a fenced
+  attribute adds. So a text at the cap whose leading attribute names a
+  deleted page is stored at `MAX_BLOCK_TEXT_CHARS` + 2. Every spelling that
+  stops it indexing and keeps the user's text adds characters; the fence
+  adds two. Refusing would discard the offline batch for text
+  the client sent within the limit
+  (`test_a_stale_defuse_at_the_cap_stores_at_most_two_more`).
 - **Replayed text.** A stale edit replayed over a rename or page delete
   ([Conflicts](#conflicts)) is never stored past a limit, though nobody sent
-  the text the replay makes. Each link grows by the title's growth, and
-  titles have no length cap, so the replayed text could be orders of
-  magnitude past the cap. `ops_core._replay_step` projects each splice's
-  length from its spans (`spans.spliced_length`) and stops before building
-  one past `MAX_BLOCK_TEXT_CHARS`. `classify_text_edit` then judges the
+  the text the replay makes. Each link grows by up to the title's growth
+  (a title may be `MAX_PAGE_TITLE_CHARS` long, a legacy one longer), so the
+  replayed text could be orders of magnitude past the cap.
+  `ops_core._replay_step` projects each splice's length from its spans
+  (`spans.spliced_length`) and stops before building one past
+  `MAX_BLOCK_TEXT_CHARS`. It also stops, before the step's unlink, when the
+  spliced copies nest past `MAX_LINK_NESTING` deeper than the step found
+  the text, or when their depth times length passes `MAX_UNLINK_WORK` and
+  the text's own (`text_limits.unlink_refused`). A link the step's unlink
+  leaves when its passes run out is fenced, as on the
+  [stale path](#stale-batches). `classify_text_edit` then judges the
   result with `text_limit_violation`. Either refusal is the `over_limit`
-  outcome: the block keeps its text, and the edit as sent lands as a
-  conflict entry. A 400 would poison the client's queue over text it never
-  sent.
+  outcome: the block keeps its text, and the edit lands as a conflict
+  entry. A 400 would poison the client's queue over text it never sent.
+  The entry is the edit as sent with every title the replay's chain deleted
+  or renamed away made plain (`ops_core.over_limit_landing_text`), or its
+  links would re-create those pages. The chain is walked past the step
+  that stopped the replay, so a later step's titles count too. The replay
+  and the landing match titles through `title_reader` whenever the block
+  has a rewrite row (`ops_apply._context_for`), as the rename or delete
+  they replay did: under plain-space canonicalisation a `[[ Old ]]` the
+  client added offline is the page `Old`, and left linked it re-creates it.
+- **Replay budget.** A batch's replays share one budget,
+  `ops_core.MAX_BATCH_REPLAY_WORK`, counted in characters. The rows a
+  replay reads, and the copies and titles it splices, come from the
+  server's history, not the request, and a block can hold millions of
+  rows. Without the budget a batch of tiny edits could hold the write lock
+  for minutes. It is charged:
+
+  | Work | Charge |
+  |---|---|
+  | reading the rows from one base hash (`ops_apply.BatchReplay`) | each row's old and new text in bytes, plus `ops_core.ROW_CHARS` |
+  | an unlink | what the capped unlink can read (`unlink.unlink_reads`) |
+  | a rename | the text it scans plus the text it splices, since a longer title grows every link |
+  | the [rows](#conflicts) an op records for a step that changed its text (`ops_core._charged`) | each row's old and new text, plus `ROW_CHARS`; an inline row's new text is its copy |
+
+  When a step would pass what is left, the edit lands as sent, as for
+  `over_limit`, and that step spends the rest, so every later step stops
+  before splicing. A step a cap stops (the length cap, or an unlink
+  refused for its depth) pays for what it scanned or built
+  (`ops_core._spent`). A stopped step is not kept, so a step that paid
+  nothing would be done again by every op of the batch. A replay runs
+  each step once: the rewrite rows and their check look up the
+  classification's steps by what `_replay_step` depends on
+  (`ops_core._step_key`) instead of replaying them again.
+
+  Nothing an op does beyond its charge may grow with the block's rows or
+  a step's titles. Otherwise one stale edit linking many deleted titles
+  makes every later edit of the block pay for all of them.
+  `ops_apply.BatchReplay` reads a block's rows one base hash at a time,
+  only when an edit's walk reaches that hash (`RewriteHistory.lazy`,
+  `next_unread`), through `idx_block_rewrites_uid` in rowid order. One
+  statement charges and reads a hash (`_rewrites_within`). It sums the
+  sizes of at most as many rows as the allowance could pay for. The
+  measure uses `octet_length`, so it reads each measured row's record
+  header and none of its text, overflow pages included. The text loads
+  only when the sum fits. A hash too costly to read stops the walk
+  blind: the edit lands as sent, with every link made plain, since any
+  could name a page the unread chain deleted. The batch keeps what it read and what it records, so no hash
+  is read twice. Each step's key parts are built once (`_step_key`), and
+  its canonical title sets once under the batch's one canonicalisation
+  (`ops_core._derive`).
 
 Conflicts, missing targets, stale batches and concurrent structure edits are
 what a batch meets when the tree changed after it was planned. None rejects
@@ -495,6 +581,7 @@ same header.
 | Block gone, hint missing, blank or [refused](#refused-titles) | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
 | Block exists, move target gone or inside it, or a replayed edit over a text limit | `` [[conflict]] [[Page]] — ((uid)) `` |
 | Guarded `delete` whose subtree changed | `` [[conflict]] [[Page]] — deleted while edited elsewhere `` |
+| Any of these, when the page's name would put the header past a [text limit](#planning) | the name replaced by `(page title too long)` (`LONG_TITLE_LABEL`) |
 
 The `page_title` hint never changes whether or where an op applies, and
 `find_op_title_violation` never reads it. A hint naming no current page is
@@ -522,6 +609,29 @@ is last-write-wins. A replay or stale unlink makes the written text differ
 from the sent text, and the client hashes its next edit from what it sent.
 So `ops_core.rewrite_effects` records a `block_rewrites` chain
 (`RecordRewrite`) from the sent text's hash to the written one.
+
+The chain's stale-unlink rows name each stale title whose own unlink would
+change the sent text. `ops_core.stale_titles_linked` finds them in one pass
+that matches nothing and records every title the unlink asks about
+(`unlink.linked_titles`). It then intersects those with the stale set,
+which walks the text's titles, not the deletions. Probing each title with
+its own unlink cost one pass per title deleted since `seen_seq`, and the
+client picks that number. Recording what the full-set unlink matched would
+instead name a title that only another's unlink exposes (`[[z [[y]]]]` with
+`y` and `z y` deleted), which the rows must not.
+
+A replayed step is recorded whole (`ops_core._step_records`): every
+title, rename and copy it holds, not only what the sent text moved. The
+client's next queued edit is hashed on the sent text and replays these
+rows. A ref it adds back must still get its copy, and a link it adds back
+must still be unlinked even in a batch without `seen_seq`, where no stale
+unlink catches it. That makes recording a step of many titles cost each
+edit it changes, so the rows are [charged](#planning) (Replay budget). A
+row identical to one already stored under its base hash is not written
+again (`ops_apply.BatchReplay.recorded`): one stale edit posted again
+would otherwise multiply its rows. Under a hash too costly to read for
+that comparison every row is written, since a row a later edit needs must
+never be dropped.
 
 `delete` may carry `base_subtree_hash` over the uid and text of the block
 and every descendant ([canonical form](sync-and-offline.md#conflicts-at-push-time)).
@@ -625,6 +735,18 @@ nesting below the cap:
 | A diverged delete's copies | `descendant_copy_effects` keeps their shape down to the cap. A copy one level above the cap takes the rest of its copied subtree as children at the cap, in document order |
 | Root copy at the cap, under a reused header | its copied descendants follow it under the header, in document order |
 
+Nor is server-made text ever past a [text limit](#planning), bar the two
+backticks a defused attribute adds and the two a fence adds to each link
+a legacy title ending in `[` leaves ([Stale batches](#stale-batches)). A `page_title` hint is never
+length-judged, and a title stored before `MAX_PAGE_TITLE_CHARS` may be
+longer than the cap. So every header and note that names a page is
+judged, and names it `LONG_TITLE_LABEL` when the name would not fit
+(`conflict_notes._fitted`). Only the name is replaced, so a header for a
+hint naming no page still says `(page not found)`. Text the planner copies
+from a stored row, such as an overwritten edit or a diverged delete's
+copies, is level with that row, so it is within the limits whenever its
+source is.
+
 ### Stale batches
 
 An offline device that never pulled a page delete still holds edits against
@@ -638,7 +760,13 @@ deletion as newer.
 | `create_page` for a stale title | dropped, not reported; the replica removes its page (`dropStrandedLocalPages`) |
 | top-level `create` / `move` with a stale `page_title` | skipped as `stale_page` (a `SkipKind`), reported `page_deleted` (a `SkipReason`) ([above](#missing-targets)) |
 | text linking a stale title | the links become plain text (`ops_core.unlink_stale_text`) |
-| a leading `Title::` naming a stale title | fenced in place, `` `X`:: v `` (`unlink.defuse_attribute`), so it indexes no ref; the unlink replay defuses too |
+| a leading `Title::` naming a stale title | fenced in place, `` `X`:: v `` (`unlink.defuse_attribute`), so it indexes no ref; the unlink replay defuses too. A text at the cap is stored two characters past it ([Planning](#planning)) |
+
+`unlink_stale_refs` fences what the unlink's passes leave: the title goes
+in backticks inside its brackets (``[[`a[`]]``, `` #`T` ``). A run whose
+title holds a backtick is no run, so the link is gone whatever the
+backticks pair with, and nothing the user wrote is removed. Only a legacy
+title ending in `[`, or a code span that moves as links go, leaves one.
 
 A page re-created after its delete still matches until its row is pruned.
 
@@ -670,12 +798,19 @@ before any write:
 | `((uid))` to a block of the page | replaced by a copy of that block's text, without its task marker or leading attribute, newlines folded |
 | a query macro naming the page | refused: 409 with `blockers`, `reason` `query`; nothing changes |
 | a leading `Title:: v` | refused, `used_as_attribute`: the block's next edit would recreate the page |
+| the inlined copies would carry the block past a text limit | refused, `limit` |
 | unlinking would change the leading attribute name (`[[Title]]:: v`) | refused, `attribute` |
 | rewritten text still references the page | refused, `residual` |
-| the inlined copies would carry the block past a text limit | refused, `limit` |
 
 `unlink_title_refs` repeats until the text is stable, because a nested legacy
-link loses one layer per pass. Rewritten blocks get `unlink` and `inline`
+link loses one layer per pass. It stops after the text's `[[` depth plus
+two passes that change it (`unlink.unlink_settled`): the depth peels nested
+links, and the two cover a tag an unlink exposes (`##[[T]]`,
+`[[\n#T\n]]#T`). A title ending in `[` (legacy only), or a code span that
+moves as links go, can need more. A delete then finds the link the passes
+left and reports the source `residual`. A link's alias label is found by
+looking back to the last `[` only (`unlink._alias_label`); a search from
+the text's start per link made the unlink quadratic in its links. Rewritten blocks get `unlink` and `inline`
 rows and a reindex, and the title goes into `page_deletions`. The replay of
 an `unlink` row matches titles through the same `title_reader`, or a stale
 padded `[[ Title ]]` would survive and recreate the page.
@@ -689,6 +824,48 @@ length cap and longer than `before`, or nested past the cap and deeper than
 `before`. **A row stored over a limit may stay level or improve, never get
 worse,** so the page it links stays renamable and deletable. Client writes
 keep the strict rule ([Planning](#planning)).
+
+A page delete judges length before it builds anything. The copy work it
+does under the write lock is bounded per delete. The rest grows with the
+page's text, the referrers' own text and the copy text counted, times the
+unlink's passes: at most the depth plus three per text, each text held to
+`text_limits.MAX_UNLINK_WORK` in depth times length. It builds a page block's copy
+only when a source refers to it (`unlink._Copies`). Every judgement counts a
+copy at its projected length (`spans.spliced_length` of the refs it holds),
+before deeper refs are blanked and links unlinked. A copy that blanks down
+to `""` still costs that length to build. `_Copies.projected` sums a block's
+spans once and keeps the length. Summed again per referrer, the work would
+grow with the referrers while the budget counted nothing, since refs to an
+empty block project to 0.
+
+| Counted | Past the bound | Refused as `limit` |
+|---|---|---|
+| one copy | `MAX_BLOCK_TEXT_CHARS` | every source referring to it |
+| one source's inlined text | `MAX_BLOCK_TEXT_CHARS`, and longer than the source | that source |
+| copy text over all sources, in order | `MAX_DELETE_COPY_CHARS` | each source that would carry the total past it |
+| one copy, spliced, before unlinking | nested past `MAX_LINK_NESTING` deeper than the block, or depth times length past `MAX_UNLINK_WORK` and the block's | every source referring to it |
+| one source with its copies in, before unlinking | the same, against the source | that source |
+
+Copies that each nest within the cap can join into one deep link: one block
+opens 32 runs and another closes them, so a referrer citing each m times
+inlines to `[[` × 32m around the title. The unlink peels one layer per pass
+over the whole text, so the spliced text is judged before unlinking
+(`text_limits.unlink_refused`), on each copy in `unlink._Copies.get` and on
+each source in `plan_page_delete`. Within the nesting cap the same splice
+can still wrap thousands of links 32 deep, each layer a pass over the whole
+text, so `unlink_refused` also judges depth times length against
+`MAX_UNLINK_WORK`. That is twice the length cap: any text within the length
+cap nested twice passes. Level is allowed on both rules, so a legacy row
+whose delete splices nothing in stays deletable. A source refused for its
+depth keeps its copy text counted against `MAX_DELETE_COPY_CHARS`, since its
+copies were built.
+
+No copy is built for a source refused on its projected length. A source is
+judged before unlinking, and the shortening passes can remove any amount of
+text, so a delete whose final text would fit can still be refused.
+`MAX_DELETE_COPY_CHARS` sits far above what a page written by hand needs;
+it trades such a delete for a bound on the work. The source's `limit` comes ahead of `attribute` and
+`residual`, so the delete dialog names the length first.
 
 | Rewrite | Judged in | A refusal |
 |---|---|---|
@@ -831,6 +1008,7 @@ Two reported rows have no migration remedy, and
 |---|---|
 | `#`, `[[`, `]]` | ref syntax |
 | a trailing `]` | `[[a]]]` reads back as `a` |
+| a trailing `[` | unlinking `[[a[]]` leaves `a[`, which joins a following `[a[]]` into a fresh link, so a page delete's unlink re-forms one link per pass |
 | a backtick | it pairs with another on the line into a code span that hides the ref |
 | a `.`, `..` or empty `/` segment (`/x`, `a//b`, `a/../b`) | no URL: clients drop dot segments and the router collapses `//` |
 
@@ -838,9 +1016,31 @@ Every rule judges the title edge-stripped of U+0020
 (`target_canonical_title`) whatever the flag, because the pure ops check
 never knows the flag and must not pass ` a] `. A title is refused at
 creation, rename, move, sidebar pin, import, and in the migration audit. In
-block text a ref with `#`, `[[`, `]]` or a trailing `]` fails the batch with
-a 400; a backtick or no URL makes it [no ref](#ref-grammar). `...` and `a.b`
-are ordinary titles.
+block text a ref with `#`, `[[`, `]]` or a trailing `]` or `[` fails the
+batch with a 400; a backtick or no URL makes it [no ref](#ref-grammar). `...`
+and `a.b` are ordinary titles. A row stored with a title ending in `[`
+stays readable and deletable; [Page mutations](#page-mutations-and-the-sidebar)
+bounds its unlink.
+
+A title whose fold (`normalize_title`) is longer than
+`MAX_PAGE_TITLE_CHARS` code points is refused too (`refs.title_length_over`).
+That holds at creation, rename, move, sidebar pin and import, but not in the
+migration audit, which only shortens a title. In block text a link, tag or
+attribute to such a title fails the batch with a 400. The fold is measured
+on the title as sent, before the flag's edge strip: it is the longest a
+stored title can be under either flag, and the pure ops check never knows
+the flag. So ` t…t ` with single-space edges is refused at 1,002. Length is
+judged before syntax (`refs.title_refusal`), so a refusal names the length
+and never echoes the title.
+
+`get_or_create_page` refuses only creating such a page (`TitleTooLongError`,
+raised after `fetch_page` misses). A row stored before the cap stays
+readable, renamable to a shorter title and deletable, and a reindex keeps its
+backlinks; `index_ref` skips a long title as it skips a forbidden one. An op
+naming a stored long title as a `page_title` or a link is refused until the
+page is renamed. `update_text`'s `page_title` hint is never judged: refusing
+it would refuse an edit to a block on such a page and discard the offline
+batch.
 
 ### Blank titles
 
@@ -875,9 +1075,7 @@ refuses an anonymous request before routing, without calling `receive`.
 guard that is only a dependency takes in an anonymous upload whole before
 its 401. The refusals are 401 `{"detail": "not authenticated"}` and a 4401
 handshake close before accepting. `session_is_valid` (`auth.py`) is the
-one session check. The app never reads a refused body, but uvicorn still
-reads and discards the rest of it, so a slow client can hold the
-connection past the keep-alive timeout.
+one session check.
 
 | Request (`is_public`) | At the gate |
 |---|---|
@@ -891,6 +1089,60 @@ matches, so the two cannot disagree on decoding. A public body (a method outside
 route as one message. The gate keeps at most `PUBLIC_BODY_MAX_BYTES` and
 answers 413 `{"detail": "request body too large"}` past it, before the
 app reads any of it when `Content-Length` declares it. This runs before the login throttle.
+
+An authenticated body outside `SAFE_METHODS` is capped too, at the size
+`private_body_cap` gives. FastAPI would otherwise parse a body of any size
+before the route's own limits refuse it.
+
+| Authenticated request | Cap |
+|---|---|
+| an upload (`UPLOAD_ROUTES`) | the config's `max_upload_bytes` plus `UPLOAD_ENVELOPE_BYTES` |
+| any other method outside `SAFE_METHODS` | `PRIVATE_BODY_MAX_BYTES` |
+
+An upload needs the cap as much as a batch does. FastAPI parses the whole
+multipart form before `upload_asset` runs: it spools the file to disk and
+holds other fields in memory, and the route checks `max_upload_bytes` only
+afterwards. `UPLOAD_ENVELOPE_BYTES` is slack for the multipart framing, so
+a file just past its limit still gets the route's own 413
+`upload too large`.
+
+A declared `Content-Length` past the cap gets 413 unread. One within it
+passes untouched, since h11 frames the body to it.
+`declared_content_length` ignores a length sent beside
+`Transfer-Encoding`, because h11 then frames by the chunks. A body with no
+length the gate trusts is counted as the route reads it, never buffered
+by the gate. The message that passes the cap raises `_BodyOverCap`, an
+`HTTPException`, out of `receive`, and FastAPI answers it 413.
+
+uvicorn has no read or write timeout of its own. `DeadlineH11Protocol` and
+the gate bound a slow client:
+
+| What is late | Bound | Answer |
+|---|---|---|
+| the request head, from the connection's open or its last response | `HEADER_READ_TIMEOUT_S` (`DeadlineH11Protocol`) | the connection is closed |
+| the rest of a body answered without reading it (a 401, 403 or 413) | the same deadline, which the leftover body counts against | the connection is closed |
+| a public body | `PUBLIC_BODY_READ_TIMEOUT_S` for the whole read | 408 with `Connection: close` |
+| the client taking a response, while writing is paused or the response is finished with bytes unsent | the transport's buffer must shrink within `WRITE_STALL_TIMEOUT_S` | the connection is aborted |
+| an authenticated body | none | — |
+| a request every few seconds on one connection | none: uvicorn's 5 s keep-alive restarts with each one | — |
+
+The write deadline measures progress, not paused time: one large JSON
+message keeps writing paused until nearly all of it has left. The kernel
+takes bytes from the transport in steps of its socket buffer (a few
+hundred KiB), so the rule is in effect a minimum read rate of one step
+per window, about 1 KiB/s at 300 s: far below any usable link, and the
+accepted cost of a bound that needs no kernel queries. The kernel may also
+take a few KiB just after the client stops reading, so a client that stops
+is cut one or two windows later.
+
+A 401 or 413 does not close the connection at once. uvicorn drops the rest
+of the refused body, and a client that sends it promptly can reuse the
+connection. Closing with that body unread resets the connection, and a
+client still sending could lose the answer. An authenticated body has no
+deadline because an upload over a slow link may take minutes. An upload
+past its limit plus the multipart envelope gets the gate's 413 at once
+and the sender is cut at the head deadline, so a browser may show a reset
+instead of the 413; the upload fails either way.
 
 `require_auth` stays on every router
 (`dependencies=[Depends(require_auth)]`) as the route's own check, and
@@ -947,6 +1199,24 @@ Nothing enforces these rules:
   `PUBLIC_UNSAFE_ROUTES` must accept a body within
   `PUBLIC_BODY_MAX_BYTES`. The cap applies only outside `SAFE_METHODS`, so a
   public `GET` route must not read a body.
+- A new upload route joins `UPLOAD_ROUTES`, or its bodies are cut at
+  `PRIVATE_BODY_MAX_BYTES`. A route that reads a body itself must let an
+  `HTTPException` from `receive` through, as FastAPI's body parsing does
+  (it turns any other exception into a 400), or a streamed body past the
+  cap is not answered 413.
+- Only `run.uvicorn_config` installs `DeadlineH11Protocol`, and `run.serve`
+  is the one way to start a server through it: `run.main`,
+  `tests/e2e_serve.py` and `tooling/proptest/sync_server.py` all call it,
+  so E2E runs the production protocol. The server must keep starting
+  through `python -m pkm.server.run` (the launchd job does). The `uvicorn`
+  CLI, or its `httptools` protocol, has neither deadline.
+- The protocol reads uvicorn internals (`cycle`, `flow`,
+  `on_response_complete`, `pause_writing`, `handle_websocket_upgrade`);
+  `test_http_protocol.py` catches an upgrade that moves them. Its timers
+  are re-armed after a pipelined request has started, or after an upgrade
+  behind a response has taken the transport. So the checks at fire time
+  (a request in progress; the transport still the protocol's) are what
+  spare a request and a WebSocket, not any disarm.
 - The gate reads the config from `scope["app"].state.config` on every
   request, never once at startup: the proptest sync server replaces
   `app.state.config` after `create_app`.
@@ -1005,9 +1275,9 @@ Nothing enforces the conditions this keying needs:
 - `run.uvicorn_config` passes `proxy_headers` and `forwarded_allow_ips`
   explicitly. Left unset, uvicorn reads the `FORWARDED_ALLOW_IPS`
   environment variable, and `*` there would key on the left-most entry,
-  which the client chooses. Only `run.main` builds that config, so launchd
-  must start the server through `python -m pkm.server.run`, not the
-  `uvicorn` CLI.
+  which the client chooses. Only `run.serve` builds that config, so
+  launchd must start the server through `python -m pkm.server.run`, not
+  the `uvicorn` CLI.
 - Serve's upstream must stay `http://127.0.0.1:<port>` (`install.sh`'s
   `serve` line). Pointed at the Tailscale IP, Serve becomes an untrusted
   peer, and every Serve client shares the host's backoff bucket unless
@@ -1054,16 +1324,16 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | GET | `/{path}` *(public)* | SPA fallback; hashed bundles under `/app-assets/` |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |
-| POST | `/api/ops` | Apply an `OpBatch` ([The write path](#the-write-path)); `applied` counts skipped ops too; 400 for the whole batch past a [text limit](#planning); 412 when an `expect` entry no longer holds, and nothing is written |
+| POST | `/api/ops` | Apply an `OpBatch` ([The write path](#the-write-path)); `applied` counts skipped ops too; 400 for the whole batch past a [text limit](#planning) or naming a [refused title](#refused-titles); 412 when an `expect` entry no longer holds, unless the judges refuse the batch: they run first, before the lock, so that is a 400; 413 for a body past `PRIVATE_BODY_MAX_BYTES` ([Auth](#auth)) |
 | **Pages & blocks** | | |
 | GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree, paginated backlinks (not from the page itself) with [`ancestor_texts`](#breadcrumbs-and-recursive-traversal) per group, `block_ref_counts`; daily pages auto-created |
 | GET | `/api/block/{uid}` | One block subtree with its page and [breadcrumbs](#breadcrumbs-and-recursive-traversal) |
 | GET | `/api/block/{uid}/backlinks` | Blocks referencing `((uid))`, unpaginated, with [`ancestor_texts`](#breadcrumbs-and-recursive-traversal) per group |
 | GET | `/api/block-refs?uids=` | Resolve `((uid))` references |
-| POST | `/api/pages` | Idempotent page create |
+| POST | `/api/pages` | Idempotent page create; 422 for a blank, refused or over-long title |
 | DELETE | `/api/page/{title}` | Delete a page, unlinking inbound refs; 409 with `blockers`, each an `excerpt` and `text_length` ([Page mutations](#page-mutations-and-the-sidebar)) |
 | GET | `/api/delete-preview?title=` | What a delete would rewrite or be refused for, a `limit` blocker included |
-| POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge`; 422 when the rewrite would carry a block past a text limit |
+| POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge`; 422 when the new title is [refused](#refused-titles) or longer than `MAX_PAGE_TITLE_CHARS`, or the rewrite would carry a block past a text limit |
 | GET | `/api/unlinked?title` | Unlinked mentions, not from the page itself |
 | GET | `/api/journal?before&days` | Daily-notes feed |
 | POST | `/api/journal/cleanup` | Prune empty, unreferenced daily pages from the week before today |
@@ -1078,7 +1348,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | GET | `/api/todos?page` | `{{TODO}}` blocks grouped by page |
 | GET | `/api/changed?since&until&page&limit` | Blocks changed in `[since, until)`, each `new` or `edited`; 400 on an empty window |
 | **Sidebar** | | |
-| GET / POST / PUT / DELETE | `/api/sidebar`… | List, pin, reorder (a permutation), unpin |
+| GET / POST / PUT / DELETE | `/api/sidebar`… | List, pin, reorder (a permutation), unpin; a pin of a refused or over-long title is a 422 |
 | **Sync** ([sync-and-offline.md](sync-and-offline.md)) | | |
 | GET | `/api/sync/snapshot?pending` | Full bootstrap with `seq`, `generation`, the title flag and `applied_batches` |
 | GET | `/api/sync/changes?since&limit&pending` | Windowed incremental feed with the same metadata |
@@ -1092,7 +1362,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | POST | `/api/assistant/conversations/{id}/confirm` | Answer a write confirmation |
 | DELETE | `/api/assistant/conversations/{id}` | Close the conversation |
 | **Assets** ([files-and-assets.md](files-and-assets.md)) | | |
-| POST | `/api/assets` | Multipart upload |
+| POST | `/api/assets` | Multipart upload; 413 `upload too large` past `max_upload_bytes`, and 413 `request body too large` for a body past that plus `UPLOAD_ENVELOPE_BYTES` ([Auth](#auth)) |
 | GET | `/assets/{sha256}/{filename}` | Serve by digest; the name segment is ignored |
 | GET | `/api/assets/describe-status` | Whether image descriptions are on, and why not |
 | POST | `/api/assets/scan?force` | Enqueue undescribed images |
@@ -1123,7 +1393,7 @@ route.
 | An int past 64 bits | Int parameters are `Int64` or carry `INT64_RANGE`; `WellFormedModel` refuses one in a body | `test_every_int_parameter_is_bounded_to_sqlite_range` |
 | A 422 echoing a surrogate, NaN or deep nesting | `validation_echo.echo_errors`, cut at `MAX_ECHO_DEPTH` | `test_validation_echo.py` |
 | A NUL, an over-long component or a link loop in an SPA path | The catch-all treats a path `resolve()` or `is_file()` rejects as naming no file, and serves the shell | `test_spa.py` |
-| An anonymous body of any size | `AuthGateMiddleware` refuses before the app reads it; a public body is capped at `PUBLIC_BODY_MAX_BYTES`; rule in [Auth](#auth) | `test_auth_gate.py` |
+| A request body of any size | `AuthGateMiddleware` refuses an anonymous one before the app reads it, caps a public one at `PUBLIC_BODY_MAX_BYTES`, an upload at `max_upload_bytes` plus `UPLOAD_ENVELOPE_BYTES` and any other authenticated one at `PRIVATE_BODY_MAX_BYTES`; rule in [Auth](#auth) | `test_auth_gate.py` |
 | A session cookie signature that is not ASCII | `verify_session` refuses it before `hmac.compare_digest`, which raises on non-ASCII | `test_hostile_requests.py` |
 | A NUL in a search term | `fts.py` makes it a space: FTS5 reads a C string | `test_hostile_requests.py` |
 | A GoodLinks or OpenAI body that is not JSON, nests too deep, or holds a surrogate | An unusable answer (503, `DescribeError`); decoded strings made well-formed | `test_no_500_upstream_props.py` |
@@ -1134,6 +1404,7 @@ route.
 | An outline nested past the readers' 255-level limit | `/api/ops` refuses a client's block placed past `MAX_OUTLINE_DEPTH` and lands its own conflict copies no deeper; the importer refuses an export holding one (`validate_export_depth`); rule in [Missing targets](#missing-targets) | `test_outline_depth.py`, `test_hostile_requests.py` |
 | A page whose `((refs))` or queries fan out past `EXPORT_MAX_CHARS`, or into more expansions than it allows | `export/resolve.py` counts characters and calls as it expands, the route's gather charges the same limits (`GatherBudget`), and the route answers 422; rule in [Single-page export](import-export-and-backup.md#single-page-export) | `test_export_resolve.py`, `test_export_routes.py` |
 | Block text longer than `MAX_BLOCK_TEXT_CHARS` or nesting `[[` past `MAX_LINK_NESTING` | `ops_core.find_op_text_limit_violation` refuses the batch; `store.rewrite_snapshotted_blocks`, `unlink.plan_page_delete` and `routes_assets._strip_references` refuse a rewrite that makes a block worse; `preflight.validate_row_text_limits` refuses the import; rule in [Planning](#planning) | `test_text_limits_ops.py`, `test_text_limits_rewrites.py`, `test_import_preflight.py` |
+| A page title millions of characters long | Refused past `MAX_PAGE_TITLE_CHARS` at every entry point; rule in [Refused titles](#refused-titles) | `test_title_length.py` |
 | `[[` nested past Python's recursion limit, which only a row stored before the nesting limit reaches | Rename and unlink walk iteratively (`_rewrite_range`, `_unlink_range`); rule in [Ref grammar](#ref-grammar) | `test_legacy_deep_brackets.py` |
 
 Path and query values cannot carry a lone surrogate, because the server
@@ -1164,9 +1435,11 @@ Python commands run from `server/`, `pnpm` ones from `web/`.
 | `shared/fixtures/upload_links_parity.json` | `UPDATE_UPLOAD_LINKS_FIXTURE=1 pnpm vitest run src/sync/assetsParity.test.ts` | that test, `test_upload_links_parity.py` | `assets_core.strip_asset_tokens` |
 | `ref_grammar.json` | hand-edited | `test_refs.py`, `grammar/refs.test.ts` | the [ref grammar](#ref-grammar) |
 | `title_syntax.json` | hand-edited | `test_refs.py`, `replica/titles.test.ts` | `title_syntax_reason` |
+| `title_length.json` | hand-edited | `test_title_length_fixture.py`, `grammar/titleLength.test.ts`, `replica/titles.test.ts` | `MAX_PAGE_TITLE_CHARS`, `title_length_over`, and which linked titles `find_op_title_violation` refuses, with its wording |
 | `missing_targets.json` | hand-edited | `test_ops_core.py`, `missingTarget.test.ts` | `classify_skip`; `placement_cases` pin where a create or move lands |
 | `subtree_hash.json` | hand-edited | `test_subtree_hash.py`, `subtreeHash.test.ts` | `subtree_hash` |
 | `ops_acks.json` | hand-edited | `test_ops_idempotency.py`, `opsAck.test.ts` | the stored-ack-to-wire mapping and `SkipReason` |
+| `batch_limits.json` | hand-edited | `test_batch_limits_fixture.py` | `MAX_OPS_PER_BATCH`, `PRIVATE_BODY_MAX_BYTES` |
 | `draft_flush.json` | hand-edited | `test_ops_endpoint.py`, `EditablePage.draftFlush.test.tsx` | the op an editor draft flushes |
 
 Hand-edited fixtures live in `shared/fixtures/`. `rows_dump` fails for a

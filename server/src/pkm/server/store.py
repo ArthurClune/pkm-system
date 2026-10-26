@@ -11,8 +11,9 @@ from pkm.contracts.ops import (BlockUid, PageId, SidebarEntryId,
                                SidebarOrderIdx, SyncSeq, text_hash)
 from pkm.database import Db
 from pkm.contracts.titles import RawTitle
-from pkm.refs import (CanonicalTitle, NormalizedTitle, extract,
-                      is_blank_title, normalize_title, title_syntax_reason)
+from pkm.refs import (CanonicalTitle, NormalizedTitle, describe_title_length,
+                      extract, is_blank_title, normalize_title,
+                      title_length_over, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map, spelled_or_canonical
 from pkm.rows import Row
 from pkm.server.sync_meta import read_title, title_reader
@@ -30,6 +31,17 @@ class ForbiddenTitleError(ValueError):
     def __init__(self, title: CanonicalTitle) -> None:
         super().__init__(f"unsupported page-title syntax: {title!r}")
         self.title = title
+
+
+class TitleTooLongError(ValueError):
+    """get_or_create_page was asked to create a page whose title is over
+    MAX_PAGE_TITLE_CHARS. Only creating one is refused: a page stored
+    before the cap is still found by its title."""
+
+    def __init__(self, title: CanonicalTitle, measured: int) -> None:
+        super().__init__(describe_title_length(measured))
+        self.title = title
+        self.measured = measured
 
 
 class RewriteTextLimitError(ValueError):
@@ -86,6 +98,11 @@ def get_or_create_page(db: Db, title: RawTitle,
     page = fetch_page(db, canonical_title)
     if page is not None:
         return page
+    # Judged on a miss only, so a page stored before the cap stays
+    # reachable: a reindex keeps its backlinks, a rename finds it.
+    measured = title_length_over(canonical_title)
+    if measured is not None:
+        raise TitleTooLongError(canonical_title, measured)
     try:
         db.execute(
             "INSERT INTO pages(title, created_at, updated_at) VALUES (?,?,?)",
@@ -108,11 +125,14 @@ def index_ref(db: Db, src_uid: BlockUid,
     inventing a fallback page for a non-reference. A title the syntax rules
     now forbid (a backtick, a trailing `]`) is skipped the same way: a block
     written before the rule and a rename or reindex that touches it degrade
-    to "no backlink" instead of failing the whole request.
+    to "no backlink" instead of failing the whole request. A title over
+    MAX_PAGE_TITLE_CHARS is skipped too, so a server-made text never
+    creates a page past the cap and never fails for one; a page stored
+    before the cap is found, not created, so it keeps its backlink.
     """
     try:
         page = get_or_create_page(db, ref_title, now_ms)
-    except (BlankTitleError, ForbiddenTitleError):
+    except (BlankTitleError, ForbiddenTitleError, TitleTooLongError):
         return
     db.execute("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
               (src_uid, page["page_id"], ref_kind))

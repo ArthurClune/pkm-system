@@ -98,6 +98,7 @@ FORBIDDEN_TITLES = (
     "Project Acme]]",
     "Project [[Acme]]",
     "Acme]",
+    "Acme[",
     "Acme`s",
 )
 

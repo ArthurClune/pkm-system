@@ -115,6 +115,18 @@ describe("getOrCreateLocalPage", () => {
       .toEqual([{ page_id: created, title: "Active Page" }]);
   });
 
+  test("getOrCreateLocalPage refuses minting a title past the cap but returns a stored one", () => {
+    const long = "t".repeat(1001);
+    expect(() => getOrCreateLocalPage(t.db, rawTitleOf(long), 5)).toThrow(
+      new LocalOpError("title of 1001 characters is over the limit of 1000"));
+    expect(t.db.select("SELECT id AS page_id FROM pages WHERE title = ?",
+                       ["page_id"], [long])).toEqual([]);
+    // A page the server stored before the cap, synced into the replica.
+    const legacy = "Legacy " + "l".repeat(1493);
+    t.db.exec("INSERT INTO pages(id, title) VALUES (7, ?)", [legacy]);
+    expect(getOrCreateLocalPage(t.db, rawTitleOf(legacy), 5)).toBe(7);
+  });
+
   test("returns existing pages and mints distinct negative ids for new ones", () => {
     expect(getOrCreateLocalPage(t.db, rawTitleOf("AI"), 5)).toBe(1);
     const p1 = getOrCreateLocalPage(t.db, rawTitleOf("Offline One"), 5);

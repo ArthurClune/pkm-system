@@ -493,6 +493,19 @@ describe("enqueueBatch refuses text past the limits, as the server does", () => 
       message: "block uid_deep: [[ nested 33 levels deep is over the limit of 32" });
   });
 
+  test("enqueueBatch refuses a create_page past the title cap and stores nothing", () => {
+    const before = durableAndOptimisticState();
+    const thrown = refusal([
+      { op: "create_page", page_title: rawTitleOf("t".repeat(1001)) },
+    ]);
+    expect(thrown).toBeInstanceOf(LocalOpError);
+    expect(thrown).toMatchObject({
+      rejected: true, opIndex: 0, source: "page_title",
+      message: "page_title title of 1001 characters is over the limit of 1000" });
+    expect(durableAndOptimisticState()).toEqual(before);
+    expect(pendingCount(t.db)).toBe(0);
+  });
+
   test("text at the limits enqueues and applies", () => {
     enqueueBatch(t.db, [
       createOf(uidOf("uid_long"), "x".repeat(1_000_000)),

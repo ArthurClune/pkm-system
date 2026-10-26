@@ -20,6 +20,7 @@ import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
 import { DEPTH_NOTICE } from "../outline/depthCap";
 import { LINK_NESTING_NOTICE } from "../grammar/textLimits";
+import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
 import { resetHistory } from "../outline/undoManager";
 import { EditablePage } from "./EditablePage";
 
@@ -1143,6 +1144,20 @@ test("Tab past the depth cap shows the depth notice, which dismisses", () => {
 
   fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   expect(screen.queryByText(DEPTH_NOTICE)).toBeNull();
+});
+
+test("typing a link to a title past the cap shows the notice, saves nothing",
+     () => {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: `[[${"t".repeat(1001)}]]` } });
+
+  expect(ta.value).toBe("first");
+  const notice = screen.getByText(TITLE_LENGTH_NOTICE);
+  expect(notice).toHaveAttribute("role", "status");
+  fireEvent.blur(ta);
+  expect(sync.sent).toEqual([]);
 });
 
 test("typing that nests links past the cap shows the notice, saves nothing",

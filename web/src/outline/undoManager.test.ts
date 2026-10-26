@@ -14,6 +14,7 @@ import { historyIdle, performRedo, performUndo,
 import { DEPTH_NOTICE, MAX_OUTLINE_DEPTH } from "./depthCap";
 import { LINK_NESTING_NOTICE,
          TEXT_LENGTH_NOTICE } from "../grammar/textLimits";
+import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
 import { historyAnchors, invertOps, type HistoryEntry } from "./history";
 import { applyOps, locate } from "./tree";
 
@@ -782,6 +783,32 @@ it("a redo whose text is past a limit is refused, noticed and kept", () => {
   expect(performRedo(sync)).toBe(true);
   expect(h.notices).toEqual([LINK_NESTING_NOTICE, LINK_NESTING_NOTICE]);
   expect(sync.sent).toHaveLength(1);
+  h.unregister();
+  handle.release();
+});
+
+it("an undo that would restore a link to a title past the cap is refused",
+   () => {
+  const sync = makeSync();
+  // A block stored before the title cap, which the user then edited.
+  const legacy = `[[${"t".repeat(1001)}]]`;
+  recordHistory({
+    ...entry(),
+    ops: [{ op: "update_text", uid: uidOf("tuid-a"), text: "x" }],
+    inverse: [{ op: "update_text", uid: uidOf("tuid-a"), text: legacy }],
+  });
+  const handle = acquireOutlineSession(PAGE, [
+    block("tuid-a", "x", { order_idx: orderIdxOf(0) })]);
+  const h = hooksFor();
+
+  expect(performUndo(sync)).toBe(true);
+  expect(sync.sent).toEqual([]);
+  expect(handle.getSnapshot().blocks[0].text).toBe("x");
+  expect(h.notices).toEqual([TITLE_LENGTH_NOTICE]);
+  // the entry stays on the undo stack: the next undo meets it again
+  expect(performUndo(sync)).toBe(true);
+  expect(h.notices).toEqual([TITLE_LENGTH_NOTICE, TITLE_LENGTH_NOTICE]);
+  expect(sync.sent).toEqual([]);
   h.unregister();
   handle.release();
 });

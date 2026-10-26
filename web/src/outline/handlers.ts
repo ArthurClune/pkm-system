@@ -56,7 +56,8 @@ export interface OutlineHandlers {
   onToggleTodo(uid: BlockUid): void;
   /** Resolves once the uploads have finished: true when something landed
    * (each upload as its own block after `uid`, or in `uid` when it was
-   * empty), false when nothing did (every upload failed). `cursor` is unused
+   * empty), false when nothing did (every upload failed, or the command was
+   * refused). `cursor` is unused
    * by the planner. */
   onFiles(uid: BlockUid, cursor: number, files: File[]): Promise<boolean>;
   /** /goodlinks (see outline/goodlinks.ts): resolve the nearest URL against

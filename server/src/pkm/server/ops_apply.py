@@ -4,14 +4,14 @@ Runs inside the caller's transaction; never commits or rolls back."""
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
 from typing import Union
 
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockOp, BlockUid,
                                CreateOp, CreatePageOp,
-                               DeleteOp, ExpectedBlock, MoveOp, OpBatch,
+                               DeleteOp, ExpectedBlock, MoveOp,
                                PageId, SetCollapsedOp, SetHeadingOp,
                                SetViewTypeOp, Sha256Hex, UpdateTextOp,
                                new_uid, subtree_hash, text_hash)
@@ -21,33 +21,33 @@ from pkm.contracts.titles import UNTITLED_PAGE_TITLE, RawTitle
 from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
                       normalize_title)
 from pkm.rows import Row
-from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
+from pkm.server.ops_core import (MAX_BATCH_REPLAY_WORK, ROW_CHARS,
+                                 SKIPPED_CONTEXTS,
+                                 BlockContext, BlockInfo,
                                  BlockRewrite, ConflictLanding, CreateContext,
                                  DeleteBlocks, DeleteConflictContext,
                                  DeleteContext, Effect,
                                  ExistingHeader, FreshHeader, InsertBlock,
                                  JournalBlock, LandedSkipContext, MoveContext,
-                                 OpContext, OpError, PageContext,
-                                 RecordConflictHeader, RecordRewrite, RewriteStep,
-                                 ReindexRefs,
+                                 JudgedBatch, OpContext, PageContext,
+                                 RecordConflictHeader, RecordRewrite,
+                                 RewriteHistory, RewriteStep, ReindexRefs,
                                  SetCollapsed, SetHeading, SetPageId,
                                  SetParent, SetViewType, ShiftSiblings, Skip,
                                  SkipContext, SkippedContext,
-                                 StuckMoveContext, SubtreeRow,
+                                 StepKey, StuckMoveContext,
+                                 SubtreeRow,
                                  ReplayOverLimitContext,
                                  TextConflictContext,
                                  TextEditContext, TouchPage, UpdateText,
                                  classify_skip, classify_text_edit,
-                                 delete_diverged,
-                                 find_op_text_limit_violation,
-                                 find_op_title_violation, plan_op,
+                                 delete_diverged, plan_op,
                                  skip_report, rewrite_effects,
                                  unlink_stale_text)
 from pkm.server.store import (BlankTitleError, fetch_page,
                               get_or_create_page, reindex_refs_for_text,
                               stale_titles)
 from pkm.server.sync_meta import read_title, title_reader
-from pkm.text_limits import describe_text_limit
 from pkm.unlink import TitleMatch
 
 # Every op that addresses a block by uid: BlockOp minus create_page.
@@ -115,18 +115,69 @@ def _block_with_depth(db: Db,
     return BlockInfo(row["uid"], row["page_id"], row["parent_uid"]), row["n"]
 
 
-def _block_rewrites(db: Db,
-                    uid: BlockUid) -> tuple[BlockRewrite, ...]:
-    """Every recorded rename/merge/delete rewrite of this block, newest
-    first -- the order `ops_core.replay_title_rewrites` walks the chain in."""
-    rows = db.select(
-        "SELECT base_hash, after_hash, old_title AS rewrite_old_text,"
-        " new_title AS rewrite_new_text, kind AS rewrite_kind FROM block_rewrites WHERE uid = ?"
-        " ORDER BY created_at DESC, rowid DESC", (uid,))
+def _rewrites_of(rows: Sequence[Row]) -> tuple[BlockRewrite, ...]:
     return tuple(BlockRewrite(row["base_hash"], row["after_hash"],
                               row["rewrite_old_text"], row["rewrite_new_text"],
                               row["rewrite_kind"])
                  for row in rows)
+
+
+# One statement both charges and reads a base hash's rows. `spent` is
+# what reading them costs: each row's titles in bytes and `ROW_CHARS`, as
+# writing it is, summed over at most the rows `allowance` could pay for,
+# by rowid through `idx_block_rewrites_uid`, so a hash holding millions of
+# rows costs what the budget does. `octet_length` takes a title's size
+# from the row's record header and reads none of its text, overflow pages
+# included; `length(CAST(.. AS BLOB))` would load every measured title.
+# The titles load only when the sum fits: past it the join's seek key is
+# NULL and finds none. With no rows joined, one row of placeholders
+# carries `n` alone. Newest first, by rowid: the order
+# `ops_core.replay_title_rewrites` walks the chain in, and a row a batch
+# writes is always newest, as its history keeps it
+# (`RewriteHistory.record`), even after the clock steps back.
+_CHARGED_REWRITES = """
+    SELECT COALESCE(r.base_hash, :base_hash) AS base_hash,
+           COALESCE(r.after_hash, :base_hash) AS after_hash,
+           COALESCE(r.kind, 'retitle') AS rewrite_kind,
+           COALESCE(r.old_title, '') AS rewrite_old_text,
+           COALESCE(r.new_title, '') AS rewrite_new_text,
+           spent.n
+      FROM (SELECT COALESCE(SUM(size), 0) AS n
+              FROM (SELECT :row_chars + octet_length(old_title)
+                             + octet_length(new_title) AS size
+                      FROM block_rewrites
+                     WHERE uid = :uid AND base_hash = :base_hash
+                     ORDER BY rowid DESC LIMIT :rows)) AS spent
+      LEFT JOIN block_rewrites AS r
+        ON r.uid = :uid
+       AND r.base_hash = CASE WHEN spent.n <= :allowance
+                              THEN :base_hash END
+     ORDER BY r.rowid DESC"""
+
+
+def _charge_params(uid: BlockUid, base_hash: Sha256Hex,
+                   allowance: int) -> dict[str, object]:
+    """`_CHARGED_REWRITES`' parameters: `rows` is how many rows the
+    allowance could pay for, and one more, to see past it. Never below
+    one, since SQLite reads a negative LIMIT as no limit."""
+    return {"uid": uid, "base_hash": base_hash, "allowance": allowance,
+            "row_chars": ROW_CHARS,
+            "rows": max(0, allowance) // ROW_CHARS + 1}
+
+
+def _rewrites_within(
+        db: Db, uid: BlockUid, base_hash: Sha256Hex,
+        allowance: int) -> tuple[tuple[BlockRewrite, ...], int] | None:
+    """The rows of this block's rewrites from `base_hash`, newest first,
+    and what reading them is charged (`_CHARGED_REWRITES`); None when
+    that is past `allowance`. A row costs more than nothing, so a charge
+    of 0 is a hash with no rows."""
+    rows = db.select(_CHARGED_REWRITES,
+                     _charge_params(uid, base_hash, allowance))
+    cost = rows[0]["n"]
+    if cost > allowance:
+        return None
+    return (_rewrites_of(rows) if cost else ()), cost
 
 
 def _parent_chain(db: Db, uid: BlockUid) -> tuple[BlockUid, ...]:
@@ -373,12 +424,88 @@ def _skip_context(db: Db, op: _AddressedOp, skip: Skip,
         ghost_page)
 
 
+@dataclasses.dataclass
+class BatchReplay:
+    """What one batch's hashed edits share as it applies:
+    - `allowance`, what its replays may still spend
+      (`ops_core.MAX_BATCH_REPLAY_WORK`), the rows they read included;
+    - `reader`, its one title canonicalisation, the stale titles' when it
+      has them, else read on first use. One function for the whole batch,
+      so what a step derives under it (`ops_core.StepTitles`) is reused
+      by every op;
+    - `histories`, each block's rewrite steps, read one base hash at a
+      time as a walk reaches it (`walk`) and kept as the batch records
+      more (`recorded`). A block can hold millions of rows, and many ops
+      can edit one block, so each op reads only the hashes its walk
+      reaches, and pays for them."""
+    allowance: int
+    reader: Callable[[str], str] | None = None
+    histories: dict[BlockUid, RewriteHistory] = dataclasses.field(
+        default_factory=dict)
+
+    def canonical(self, db: Db) -> Callable[[str], str]:
+        if self.reader is None:
+            self.reader = title_reader(db)
+        return self.reader
+
+    def history(self, uid: BlockUid) -> RewriteHistory:
+        return self.histories.setdefault(uid, RewriteHistory.lazy())
+
+    def walk(self, db: Db, uid: BlockUid,
+             base_hash: Sha256Hex) -> RewriteHistory:
+        """The block's history, with every hash a walk from `base_hash`
+        reaches read, or marked too costly to read."""
+        history = self.history(uid)
+        while (unread := history.next_unread(base_hash)) is not None:
+            self._read(db, uid, history, unread)
+        return history
+
+    def _read(self, db: Db, uid: BlockUid, history: RewriteHistory,
+              base_hash: Sha256Hex) -> None:
+        """Read the rows from `base_hash`, charged (`_rewrites_within`).
+        Past what is left the hash is marked unread and the read spends the
+        rest, as a replay step past the budget does."""
+        read = _rewrites_within(db, uid, base_hash, self.allowance)
+        if read is None:
+            self.allowance = 0
+            history.add_unread(base_hash)
+            return
+        rows, cost = read
+        self.allowance -= cost
+        history.add_read(base_hash, rows)
+
+    def recorded(self, db: Db, uid: BlockUid,
+                 rows: Sequence[BlockRewrite]) -> tuple[BlockRewrite, ...]:
+        """Of rows the batch would write for `uid`, those not stored
+        already, kept in the block's history as written. The same stale
+        edit posted again records the same rows, which would otherwise
+        multiply a hash's rows without bound. Each hash's stored rows are
+        read to compare, charged; one too costly to read is not compared,
+        and its rows are all written, since a row the client's next edit
+        needs must never be dropped."""
+        history = self.history(uid)
+        fresh: list[BlockRewrite] = []
+        for row in rows:
+            base = row.base_hash
+            if not history.is_read(base) and not history.is_unread(base):
+                self._read(db, uid, history, base)
+            if (history.is_read(base) and (row.after_hash, row.kind,
+                                           row.old_text, row.new_text)
+                    in history.stored(base)):
+                continue
+            fresh.append(row)
+        history.record(fresh)
+        return tuple(fresh)
+
+
 def _context_for(db: Db, op: BlockOp, now_ms: int,
-                 is_stale: TitleMatch | None = None) -> OpContext:
+                 is_stale: TitleMatch | None = None, *,
+                 replay: BatchReplay) -> OpContext:
     """Read what `op` needs, classify it once (classify_skip, then
     classify_text_edit for a hashed edit), and return the context type
     that classification calls for. `is_stale` matches the titles of pages
-    deleted after the batch's `seen_seq`; None when there are none."""
+    deleted after the batch's `seen_seq`; None when there are none.
+    `replay` is what the batch's hashed edits share (`BatchReplay`)."""
     if isinstance(op, CreatePageOp):
         page = _resolve_page(db, op.page_title, now_ms)
         return PageContext(page["page_id"])
@@ -449,17 +576,24 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
             " JOIN pages p ON p.id = b.page_id WHERE b.uid = ?",
             (op.uid,))
         assert row is not None  # classify_skip covered the block's absence
-        rewrites = _block_rewrites(db, op.uid)
-        # only an unlink replay matches titles the way the delete did; the
-        # flag read is skipped for edits with no unlink row to replay
-        canonical = (title_reader(db)
-                     if any(r.kind == "unlink" for r in rewrites)
-                     else normalize_title)
-        outcome = classify_text_edit(op.text, op.base_text_hash,
-                                     row["text"], rewrites, canonical)
+        base = op.base_text_hash
+        history = replay.walk(db, op.uid, base)
+        # a replay matches titles the way the rename or delete did: under
+        # plain-space titles `[[ Old ]]` is the page Old, and left linked
+        # it re-creates the page. The flag is read only for an edit with a
+        # rewrite row to replay.
+        if not (history.is_unread(base)
+                or history.newest(base, frozenset()) is not None):
+            canonical: Callable[[str], str] = normalize_title
+        else:
+            canonical = replay.canonical(db)
+        outcome = classify_text_edit(
+            op.text, op.base_text_hash, row["text"], history, canonical,
+            replay.allowance)
         if outcome.kind == "over_limit":
             return ReplayOverLimitContext(
-                block, row["title"], _conflict_landing(db, op.uid, now_ms))
+                block, row["title"], _conflict_landing(db, op.uid, now_ms),
+                outcome.replayed, canonical, outcome.reads, outcome.blind)
         if outcome.kind != "conflict":
             return TextEditContext(block, outcome)
         # only a real conflict pays for today's daily page and its extra
@@ -467,7 +601,7 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
         return TextConflictContext(
             block, outcome.text, row["text"], row["title"],
             _conflict_landing(db, op.uid, now_ms), outcome.replayed,
-            canonical)
+            canonical, outcome.known, outcome.reads)
     return BlockContext(block)
 
 
@@ -616,23 +750,13 @@ def expected_now(db: Db, expect: Sequence[ExpectedBlock]
     return now
 
 
-def apply_batch(db: Db, batch: OpBatch,
+def apply_batch(db: Db, judged: JudgedBatch,
                 now_ms: int) -> AppliedBatch:
-    """Apply a batch inside the caller's transaction."""
-    # Limits first, over the whole batch: the title pass below runs
-    # `extract` over every text, which must never read one past the caps.
-    limit = find_op_text_limit_violation(batch.ops)
-    if limit is not None:
-        raise OpError(
-            limit.op_index,
-            f"block {limit.uid}: {describe_text_limit(limit.violation)}",
-        )
-    violation = find_op_title_violation(batch.ops)
-    if violation is not None:
-        raise OpError(
-            violation.op_index,
-            f"unsupported {violation.source} title syntax: {violation.title!r}",
-        )
+    """Apply a batch inside the caller's transaction. The text and title
+    judges have run already (`ops_core.judge_batch`), before the caller
+    took the write lock; nothing here judges them again. Planning can
+    still raise `OpError` (a depth cap, a move cycle)."""
+    batch = judged.batch
     broadcast_ops: list[dict[str, object]] = []
     skipped: list[SkippedOp] = []
     stale = stale_titles(db, batch.seen_seq)
@@ -642,6 +766,7 @@ def apply_batch(db: Db, batch: OpBatch,
 
         def is_stale(raw: str) -> bool:
             return stale_canonical(normalize_title(raw)) in stale
+    replay = BatchReplay(MAX_BATCH_REPLAY_WORK, stale_canonical)
     for index, op in enumerate(batch.ops):
         sent = op
         if is_stale is not None:
@@ -649,22 +774,33 @@ def apply_batch(db: Db, batch: OpBatch,
                 # the replica's local page goes through dropStrandedLocalPages
                 continue
             op = unlink_stale_text(op, is_stale)
-        ctx = _context_for(db, op, now_ms, is_stale)
+        ctx = _context_for(db, op, now_ms, is_stale, replay=replay)
         effects = plan_op(index, op, ctx)
         replayed: tuple[RewriteStep, ...] = ()
         replay_canonical = normalize_title
+        known: Mapping[StepKey, str] = {}
         if isinstance(ctx, TextEditContext):
             replayed = ctx.outcome.replayed
             replay_canonical = ctx.outcome.canonical
+            known = ctx.outcome.known
+            replay.allowance -= ctx.outcome.reads
         elif isinstance(ctx, TextConflictContext):
             replayed = ctx.replayed
             replay_canonical = ctx.canonical
+            known = ctx.known
+            replay.allowance -= ctx.reads
+        elif isinstance(ctx, ReplayOverLimitContext):
+            replay.allowance -= ctx.reads
         if replayed or (is_stale is not None and op is not sent):
             effects += rewrite_effects(
                 sent, effects, stale, stale_canonical or replay_canonical,
                 replayed,
-                ctx.outcome.text if isinstance(ctx, TextEditContext) else None)
+                ctx.outcome.text if isinstance(ctx, TextEditContext) else None,
+                known)
         for eff in effects:
+            if isinstance(eff, RecordRewrite):
+                eff = RecordRewrite(eff.uid,
+                                    replay.recorded(db, eff.uid, eff.rewrites))
             _execute(db, eff, now_ms)
         if isinstance(ctx, (*SKIPPED_CONTEXTS, ReplayOverLimitContext)):
             skipped.append(skip_report(index, op, ctx))

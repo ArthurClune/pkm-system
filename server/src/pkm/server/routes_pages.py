@@ -22,8 +22,9 @@ from pkm.contracts.responses import (
 from pkm.contracts.titles import RawTitle
 from pkm.contracts.int64 import INT64_MIN, Int64
 from pkm.database import Db
-from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
-                      parse_block_uid, title_syntax_reason)
+from pkm.refs import (CanonicalTitle, canonical_daily_title,
+                      describe_title_length, is_blank_title, parse_block_uid,
+                      title_length_over, title_syntax_reason)
 from pkm.rows import Row
 from pkm.server import notify
 from pkm.server.auth import require_auth
@@ -290,7 +291,15 @@ def get_page(request: Request, title: RawTitle, bl_offset: Int64 = 0, bl_limit: 
 @router.post("/api/pages", response_model=PageMeta)
 def create_page(request: Request, body: CreatePageRequest,
                 db: Db = Depends(get_db)) -> PageMeta:
-    """Idempotent: creating an existing page returns its row, not an error."""
+    """Idempotent: creating an existing page returns its row, not an error.
+    A title longer than 1,000 characters (`MAX_PAGE_TITLE_CHARS`) is a 422,
+    even for a page stored before the cap."""
+    # Judged on the title as sent, before the store looks it up: the store
+    # refuses only creating a long page, and this route refuses the title.
+    measured = title_length_over(body.title)
+    if measured is not None:
+        raise HTTPException(status_code=422,
+                            detail=describe_title_length(measured))
     # get_or_create_page is the shared boundary that defines "blank" (a
     # whitespace-only title normalizes to "" there); this route is
     # interactive, so it turns that into an explicit 422 rather than the
@@ -383,7 +392,8 @@ def rename_page(request: Request, title: RawTitle, body: RenamePageRequest,
     top-level blocks appended after the target's, referencing text
     rewritten to the target, source page row dropped) -- a confirm-gated
     merge, not a silent overwrite. Case-sensitive throughout, like
-    pages.title itself. 422 when the rewrite would carry a block over the
+    pages.title itself. 422 when the new title is blank, refused or longer
+    than 1,000 characters, or when the rewrite would carry a block over the
     text length cap or nest its `[[` past the cap (a longer title lengthens
     every link to it); the detail names the block, and nothing changes."""
     # The write lock is taken before the first read the decision rests on
@@ -408,6 +418,11 @@ def rename_page(request: Request, title: RawTitle, body: RenamePageRequest,
         if is_blank_title(new_title):
             raise HTTPException(status_code=422,
                                 detail="title must not be blank")
+        # Before the syntax check, whose detail echoes the title.
+        measured = title_length_over(body.new_title)
+        if measured is not None:
+            raise HTTPException(status_code=422,
+                                detail=describe_title_length(measured))
         if title_syntax_reason(new_title) is not None:
             raise HTTPException(
                 status_code=422,

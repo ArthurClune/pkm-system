@@ -12,7 +12,7 @@ level are listed in pkm.brand_registry.MINT_SITES.
 """
 from __future__ import annotations
 
-from typing import NewType
+from typing import Final, NewType
 
 from pkm.contracts.brands import brand
 
@@ -33,6 +33,11 @@ def as_raw_title(text: str) -> RawTitle:
 
 # The page a blank page title in an op is filed under.
 UNTITLED_PAGE_TITLE = as_raw_title("Untitled")
+
+# The longest a page title may be, in code points of its fold
+# (refs.normalize_title) as sent. shared/fixtures/title_length.json pins
+# the web's copy (grammar/titleLength.ts) to this value.
+MAX_PAGE_TITLE_CHARS: Final = 1_000
 
 
 # The whitespace a title's runs fold by: Unicode's White_Space property, in

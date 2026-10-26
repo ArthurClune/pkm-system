@@ -17,7 +17,8 @@ from pkm.contracts.ops import BLOCK_REF_TOKEN, UID_RE, BlockUid
 from pkm.contracts.tag_chars import TAG_WORD_RANGES
 from pkm.contracts.titles import CanonicalTitle as CanonicalTitle
 from pkm.contracts.titles import NormalizedTitle as NormalizedTitle
-from pkm.contracts.titles import TITLE_WHITESPACE, RawTitle
+from pkm.contracts.titles import (MAX_PAGE_TITLE_CHARS, TITLE_WHITESPACE,
+                                  RawTitle)
 
 # A ``` run followed by a word character is a fence *opener* with an info
 # string (```css, ```mermaid), never a closer -- without the lookahead, an
@@ -132,6 +133,7 @@ def target_canonical_title(text: str) -> CanonicalTitle:
 
 
 TitleSyntaxReason = Literal["forbidden_syntax"]
+TitleRefusal = Literal["forbidden_syntax", "too_long"]
 
 # Matches the refs table's CHECK(kind IN (...)) in schema.py.
 RefKind = Literal["link", "tag", "attribute"]
@@ -158,7 +160,9 @@ def title_syntax_reason(text: str) -> TitleSyntaxReason | None:
     `[[` and `]]` are ref syntax, a trailing `]` merges with the closing
     `]]` (`[[a]]]` is the title `a`), and a backtick pairs with another one
     on the line into a code span that hides the ref. It is also refused
-    when it has no URL (`has_unreachable_segment`).
+    when it has no URL (`has_unreachable_segment`), and when it ends in
+    `[`: unlinking `[[a[]]` leaves `a[`, which joins a following `[a[]]`
+    into a fresh link, so a page delete's unlink re-forms a link per pass.
 
     Every rule judges the edge-stripped title (`target_canonical_title`),
     whatever this database's plain-space flag: the pure ops check never
@@ -166,10 +170,38 @@ def title_syntax_reason(text: str) -> TitleSyntaxReason | None:
     flag, then sees `a]`."""
     canonical = target_canonical_title(text)
     if ("#" in canonical or "[[" in canonical or "]]" in canonical
-            or canonical.endswith("]") or "`" in canonical
+            or canonical.endswith(("]", "[")) or "`" in canonical
             or has_unreachable_segment(canonical)):
         return "forbidden_syntax"
     return None
+
+
+def title_length_over(text: str) -> int | None:
+    """The length of `text`'s fold when that is over MAX_PAGE_TITLE_CHARS,
+    else None. Code points of the fold, not of the raw text: a whitespace
+    run stores as one space. Not of the flag's canonical form either: the
+    fold is the longest a stored title can be under either plain-space
+    setting, and the pure ops check never knows the flag. The fold never
+    lengthens, so a short text skips it."""
+    if len(text) <= MAX_PAGE_TITLE_CHARS:
+        return None
+    measured = len(normalize_title(text))
+    return measured if measured > MAX_PAGE_TITLE_CHARS else None
+
+
+def describe_title_length(measured: int) -> str:
+    """The refusal for a title `title_length_over` measured."""
+    return (f"title of {measured} characters is over the limit of"
+            f" {MAX_PAGE_TITLE_CHARS}")
+
+
+def title_refusal(text: str) -> TitleRefusal | None:
+    """Why `text` cannot be a page title, or None. Length is judged
+    first, so a refusal never has to name a title millions of characters
+    long, and the syntax scan never reads one."""
+    if title_length_over(text) is not None:
+        return "too_long"
+    return title_syntax_reason(text)
 
 
 def is_blank_title(text: str) -> bool:

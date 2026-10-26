@@ -95,6 +95,7 @@ SHAPES = {
     "forbidden": lambda t: title_syntax_reason(t) is not None,
     "allowed": lambda t: title_syntax_reason(t) is None and not is_blank_title(t),
     "trailing_bracket": lambda t: normalize_title(t).endswith("]"),
+    "trailing_open_bracket": lambda t: normalize_title(t).endswith("["),
     "backtick": lambda t: "`" in t,
     "astral": lambda t: any(ord(c) > 0xFFFF for c in t),
     "unreachable_segment": has_unreachable_segment,

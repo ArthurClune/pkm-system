@@ -381,6 +381,32 @@ describe("create page", () => {
     },
   );
 
+  test("offline POST /api/pages past the title cap is a 422", () => {
+    const body = expectStatus(
+      call("POST", "/api/pages", { title: "t".repeat(1001) },
+           { newBatchId: () => batchIdOf("batch-long") }), 422);
+    expect(body).toEqual(
+      { detail: "title of 1001 characters is over the limit of 1000" });
+    expect(t.db.select("SELECT id AS page_id FROM pages", ["page_id"]))
+      .toEqual([]);
+    expect(t.db.select("SELECT batch_id FROM pending_ops", ["batch_id"]))
+      .toEqual([]);
+  });
+
+  test("offline POST /api/pages judges a title's length before its syntax", () => {
+    // too long and of unsupported syntax: the syntax detail echoes the
+    // title, so the length is judged first and the 422 names only it
+    const title = "#" + "t".repeat(2_000_000);
+    const body = expectStatus(
+      call("POST", "/api/pages", { title },
+           { newBatchId: () => batchIdOf("batch-long-syntax") }), 422);
+    expect(body).toEqual(
+      { detail: "title of 2000001 characters is over the limit of 1000" });
+    expect(JSON.stringify(body).length).toBeLessThan(500);
+    expect(t.db.select("SELECT batch_id FROM pending_ops", ["batch_id"]))
+      .toEqual([]);
+  });
+
   test("preserves exact boundary U+0020 while inactive", () => {
     const body = expectStatus(
       call("POST", "/api/pages", { title: " Fresh Page " },

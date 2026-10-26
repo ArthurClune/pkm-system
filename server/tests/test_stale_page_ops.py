@@ -6,7 +6,8 @@ from datetime import date
 
 from rawread import read
 from pkm.contracts.daily import title_for_date
-from pkm.contracts.ops import BlockUid, SyncSeq, text_hash
+from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, BlockUid, SyncSeq,
+                               text_hash)
 from pkm.test_data.ids import seq_of, uid_of
 from pkm.database import connect
 
@@ -288,3 +289,26 @@ def test_stale_top_level_create_with_attribute_parks_the_fenced_text(
     [(_, children)] = _conflicts(client)
     assert children == [f"`{TITLE}`:: v"]
     assert client.get(f"/api/page/{TITLE}").status_code == 404
+
+
+def test_a_stale_defuse_at_the_cap_stores_at_most_two_more(
+        client, seeded_config):
+    # The fenced name keeps its text and reads no ref, and no spelling that
+    # does both is shorter. Refusing would discard the offline batch, so a
+    # block may store MAX_BLOCK_TEXT_CHARS + 2 this way.
+    assert client.post("/api/pages", json={"title": "Gone"}).status_code < 300
+    seen = _seq(seeded_config)
+    assert client.delete("/api/page/Gone").status_code == 200
+    text = "Gone:: " + "x" * (MAX_BLOCK_TEXT_CHARS - 7)
+    assert len(text) == MAX_BLOCK_TEXT_CHARS
+    r = _post(client,
+              _create(uid_of("stale001"), "", parent="uid_b4",
+                      title_text="July 7th, 2026"),
+              _update(uid_of("stale001"), text, ""),
+              seen_seq=seq_of(seen))
+    assert r.status_code == 200, r.text[:500]
+    stored = _text(seeded_config, uid_of("stale001"))
+    assert stored is not None
+    assert stored.startswith("`Gone`:: ")
+    assert len(stored) == MAX_BLOCK_TEXT_CHARS + 2
+    assert client.get("/api/page/Gone").status_code == 404

@@ -2,6 +2,7 @@
 """SQLite connection helper and FastAPI dependencies."""
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from pkm.database import Db, connect
 from pkm.refs import extract
 from pkm.schema import BLOCKS_CHG_AD_TRIGGER, DDL
 from pkm.server.config import Config
+from pkm.server.db_core import sqlite_too_old
 
 
 # Genuine writer contention (two connections' write transactions racing)
@@ -119,7 +121,13 @@ def init_db(path: Path) -> None:
     NULL blocks.created_at left by old Roam imports; like the
     migrations above it is guarded to be a no-op past the first run.
     _backfill_block_refs() catches up the `((uid))` index once,
-    guarded by a sync_meta marker."""
+    guarded by a sync_meta marker.
+
+    It first refuses a SQLite older than the SQL the server runs needs
+    (`db_core.sqlite_too_old`), before the file is opened or made."""
+    problem = sqlite_too_old(sqlite3.sqlite_version)
+    if problem is not None:
+        raise RuntimeError(problem)
     con = connect(path)
     try:
         con.execute("PRAGMA journal_mode=WAL")

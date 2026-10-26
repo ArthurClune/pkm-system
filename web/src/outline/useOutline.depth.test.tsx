@@ -3,17 +3,18 @@
 // still does, and the outline raises the depth notice.
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, canonicalTitleOf, makeSync, orderIdxOf, type SyncFake,
-         uidOf } from "../test-helpers";
+import { block, canonicalTitleOf, jsonResponse, makeSync, malformedUid,
+         orderIdxOf, type SyncFake, uidOf } from "../test-helpers";
+import type { DropTarget } from "./dnd";
 import { DEPTH_NOTICE } from "./depthCap";
 import type { BlockOp } from "../api/ops";
 import { peekOutlineSession } from "./outlineSessions";
 import { findNode, locate } from "./tree";
-import { performUndo, resetHistory } from "./undoManager";
+import { performUndo, resetHistory, setAssetReleaser } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
 
 vi.mock("../uid", () => {
@@ -32,7 +33,8 @@ function Harness({ initial, onReady }: {
 }) {
   const outline = useOutline(canonicalTitleOf(PAGE), initial);
   useEffect(() => onReady(outline));
-  return null;
+  // top-level blocks only: enough DOM for the scroll-to-new-block effect
+  return <>{outline.blocks.map((b) => <div key={b.uid} data-uid={b.uid} />)}</>;
 }
 
 function setup(sync: SyncFake, initial: BlockNode[] = deepTree()) {
@@ -197,6 +199,101 @@ it("an undo the cap refuses raises the notice and applies nothing", () => {
   expect(outline().editNotice).toBe(DEPTH_NOTICE);
 });
 
+// Uploads finish before run() judges the command, so a refusal leaves the
+// stored files unlinked unless the refusal releases them.
+const digestOf = (name: string) =>
+  name.charCodeAt(0).toString(16).padStart(2, "0").repeat(32);
+const png = (name: string) => new File(["x"], name, { type: "image/png" });
+
+function spyReleaser() {
+  const release = vi.fn(async () => {});
+  const restore = setAssetReleaser({ release });
+  return { release, restore };
+}
+
+beforeEach(() => {
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+    const f = (init.body as FormData).get("file") as File;
+    const sha = digestOf(f.name);
+    const filename = f.name === "long.png" ? "x".repeat(1_000_001) : f.name;
+    return jsonResponse({ sha256: sha, filename, mime: "image/png", size: 1, url: `/assets/${sha}/${f.name}`,
+                          existing: false });
+  }));
+});
+afterEach(() => { vi.unstubAllGlobals(); });
+
+it("a file drop past the depth cap releases the files it uploaded", async () => {
+  const { release, restore } = spyReleaser();
+  const sync = makeSync();
+  const outline = setup(sync);
+  const target: DropTarget = { parent_uid: uidOf("tuid-d100a"), order_idx: orderIdxOf(0),
+                               page_title: canonicalTitleOf(PAGE) };
+
+  await act(async () => { await outline().onDropFiles([png("one.png")], target); });
+
+  expect(outline().editNotice).toBe(DEPTH_NOTICE);
+  expect(sync.sent).toEqual([]);
+  expect(release).toHaveBeenCalledTimes(1);
+  expect(release).toHaveBeenCalledWith([digestOf("one.png")], []);
+  restore();
+});
+
+it("an /upload past the depth cap releases the files, reports no insert",
+   async () => {
+  const { release, restore } = spyReleaser();
+  const sync = makeSync();
+  // a legacy block already at level 101: its next sibling would be too
+  const legacy = deepTree();
+  let d100a = legacy[0];
+  while (d100a.uid !== uidOf("tuid-d99")) d100a = d100a.children[0];
+  d100a.children[0].children = [
+    block("tuid-d101", "d101", { order_idx: orderIdxOf(0) })];
+  const outline = setup(sync, legacy);
+  let inserted: boolean | void = undefined;
+
+  await act(async () => {
+    inserted = await outline().handlers.onFiles(
+      uidOf("tuid-d101"), 0, [png("one.png")]);
+  });
+
+  expect(inserted).toBe(false);
+  expect(outline().editNotice).toBe(DEPTH_NOTICE);
+  expect(sync.sent).toEqual([]);
+  expect(release).toHaveBeenCalledWith([digestOf("one.png")], []);
+  restore();
+});
+
+it("a refused drop sets no scroll target", async () => {
+  const scrollIntoView = vi.fn();
+  Element.prototype.scrollIntoView = scrollIntoView;
+  const { restore } = spyReleaser();
+  const sync = makeSync();
+  const outline = setup(sync);
+  // a parent that has gone makes the plan fall back to the page end; the
+  // file's stored name is too long for a block, so the command is refused
+  const target: DropTarget = { parent_uid: uidOf("tuid-gone"), order_idx: orderIdxOf(0),
+                               page_title: canonicalTitleOf(PAGE) };
+  await act(async () => { await outline().onDropFiles([png("long.png")], target); });
+  expect(sync.sent).toEqual([]);
+  expect(outline().editNotice).not.toBeNull();
+
+  // a later render adds a block under the uid the refused plan chose: the
+  // mocked newUid counts up, so cover the uids it could have handed out
+  const late: BlockOp[] = Array.from({ length: 40 }, (_, k) => ({
+    op: "create" as const, uid: malformedUid(`n${k}`),
+    page_title: canonicalTitleOf(PAGE), parent_uid: null,
+    order_idx: orderIdxOf(k + 5), text: "late" }));
+  const handle = peekOutlineSession(canonicalTitleOf(PAGE))!;
+  act(() => handle.applyLocal(sync.enqueue(late, ["page", PAGE]), late));
+  // a peeked handle holds the session: an unreleased one carries this
+  // test's page into the next test's outline
+  handle.release();
+
+  expect(outline().blocks.length).toBeGreaterThan(1);
+  expect(scrollIntoView).not.toHaveBeenCalled();
+  restore();
+});
+
 // A page imported before the cap may already hold rows past it. Each
 // command is judged by the blocks it places, so those rows leave the rest
 // of the page, and their own text, editable.
@@ -217,7 +314,9 @@ describe("a page holding rows past the cap", () => {
   it("an indent at a shallow level applies", () => {
     const sync = makeSync();
     const outline = setup(sync, legacyTree());
+    console.log("PRE", outline().blocks.map(b=>b.uid).slice(0,5), outline().blocks.length, outline().editNotice);
     act(() => outline().handlers.onIndent(uidOf("tuid-s2")));
+    console.log("DBG", outline().editNotice, outline().blocks.map(b=>b.uid));
     expect(sync.sent).toHaveLength(1);
     expect(parentOf(outline(), "tuid-s2")).toBe("tuid-s1");
     expect(outline().editNotice).toBeNull();

@@ -13,8 +13,12 @@ import { useConfirm } from "../components/ConfirmDialog";
 import type { OutlineDndApi } from "../dnd/DndContext";
 import { findOpTextLimitViolation,
          textLimitNotice } from "../grammar/textLimits";
+import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
 import { toggleTodo } from "../grammar/todo";
+import { findOpTitleViolation } from "../replica/titles";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
+import { BATCH_TOO_LARGE_NOTICE,
+         findBatchSizeViolation } from "../sync/batchLimits";
 import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { stampBaseTextHashes, withoutStamps } from "./baseTextHash";
@@ -45,7 +49,7 @@ import { captureDraft, pendingTextOps, spliceUploadedMarkdown,
          validateOutlineFocus, type PendingDraft,
          type ShownText } from "./outlineState";
 import { performRedo, performUndo, recordHistory,
-         registerOutlineHistory } from "./undoManager";
+         registerOutlineHistory, releaseUnusedAssets } from "./undoManager";
 
 const TEXT_DEBOUNCE_MS = 500;
 
@@ -85,13 +89,21 @@ export interface Outline {
 }
 
 /** Why `result` must not apply, or null when it may: the depth cap first,
- * then the text limits of the texts its ops would store. */
-function commandRefusal(result: EditResult): string | null {
+ * then the text limits of the texts its ops would store, then the size of
+ * the whole batch (the draft's `textOps` ship with it), then a title past
+ * the title cap, which the server refuses the whole batch for. A
+ * forbidden-syntax title is left to the queue's refusal. */
+function commandRefusal(result: EditResult,
+                        textOps: readonly BlockOp[]): string | null {
   if (findDepthViolation(result.blocks, result.ops) !== null) {
     return DEPTH_NOTICE;
   }
   const overLimit = findOpTextLimitViolation(result.ops);
-  return overLimit === null ? null : textLimitNotice(overLimit.violation);
+  if (overLimit !== null) return textLimitNotice(overLimit.violation);
+  const batch = [...textOps, ...result.ops];
+  if (findBatchSizeViolation(batch) !== null) return BATCH_TOO_LARGE_NOTICE;
+  return findOpTitleViolation(batch)?.reason === "too_long"
+    ? TITLE_LENGTH_NOTICE : null;
 }
 
 export function useOutline(
@@ -201,7 +213,8 @@ export function useOutline(
   /** Flush any pending text op, run the command against the flushed tree,
    * apply + enqueue everything in order, then move focus. */
   const run = useCallback((fn: (b: BlockNode[]) => EditResult,
-                           opts?: { freshAssets?: readonly Sha256Hex[] }) => {
+                           opts?: { freshAssets?: readonly Sha256Hex[] },
+  ): boolean => {
     const textOps = takePendingTextOps();
     const pre = blocksRef.current; // history inverts the FULL batch from here
     // A draft whose block has left this tree still ships, but it cannot be
@@ -219,12 +232,20 @@ export function useOutline(
     // whole. Queued, that refusal would also drop the batch's other ops
     // (sync/rejection.ts), so the web never queues one.
     if (result.ops.length > 0) {
-      const refusal = commandRefusal(result);
+      const refusal = commandRefusal(result, textOps);
       setEditNotice(refusal);
-      if (refusal !== null) result = { blocks: base, ops: [], focus: null };
+      if (refusal !== null) {
+        result = { blocks: base, ops: [], focus: null };
+        // the uploads that made this command already stored their files,
+        // and no history entry will ever own them
+        if (opts?.freshAssets && opts.freshAssets.length > 0) {
+          releaseUnusedAssets(opts.freshAssets);
+        }
+      }
     }
+    const applied = result.ops.length > 0;
     const ops = [...textOps, ...result.ops];
-    if (ops.length === 0) return;
+    if (ops.length === 0) return applied;
     const next = result.ops.length > 0 ? result.blocks : base;
     // Conflict protection must not depend on the ops reaching the database:
     // the guards (base_text_hash on update_text, base_subtree_hash on
@@ -265,6 +286,7 @@ export function useOutline(
       });
     }
     if (result.focus) setFocus(result.focus);
+    return applied;
   }, [takePendingTextOps, pageTitle, sync]);
 
   const flushNow = useCallback(() => {
@@ -470,15 +492,17 @@ export function useOutline(
         }
         if (texts.length === 0) return false;
         const uids = texts.map(() => newUid());
-        run((b) => {
+        let fallbackUid: BlockUid | null = null;
+        const applied = run((b) => {
           // planned against the tree as it is now: the block may have gone
           // while the uploads ran. Focus follows planUploadBlocks' rule.
           const plan = planUploadBlocks(b, pageTitle, uid, texts, uids,
                                         focusRef.current?.uid ?? null);
-          if (plan.fellBack) scrollToUidRef.current = plan.firstUid;
+          fallbackUid = plan.fellBack ? plan.firstUid : null;
           return plan.result;
         }, { freshAssets: fresh });
-        return true;
+        if (applied && fallbackUid !== null) scrollToUidRef.current = fallbackUid;
+        return applied;
       })();
     },
     onGoodlinks: (uid, cursor) => {
@@ -644,13 +668,15 @@ export function useOutline(
     if (notice !== null) setUploadError(notice);
     if (texts.length === 0) return;
     const uids = texts.map(() => newUid());
-    run((b) => {
+    let fallbackUid: BlockUid | null = null;
+    const applied = run((b) => {
       // planned against the tree as it is now: the target's parent may have
       // gone while the uploads ran
       const plan = planFileDropBlocks(b, pageTitle, target, texts, uids);
-      if (plan.fellBack) scrollToUidRef.current = plan.firstUid;
+      fallbackUid = plan.fellBack ? plan.firstUid : null;
       return plan.result;
     }, { freshAssets: fresh });
+    if (applied && fallbackUid !== null) scrollToUidRef.current = fallbackUid;
   }, [run, pageTitle]);
 
   const createFirstBlock = useCallback(() => {

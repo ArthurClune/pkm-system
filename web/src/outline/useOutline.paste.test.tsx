@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
+import { BATCH_TOO_LARGE_NOTICE } from "../sync/batchLimits";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, makeSync, orderIdxOf, type SyncFake, canonicalTitleOf, uidOf } from "../test-helpers";
 import { resetHistory } from "./undoManager";
@@ -89,4 +90,20 @@ it("a paste that plans nothing enqueues nothing", () => {
   ]);
   act(() => getOutline().handlers.onPasteOutline(uidOf("tuid-gone"), 0, 0, "x\ny"));
   expect(sync.sent).toEqual([]);
+});
+
+it("a paste past the server's op count per batch is refused", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", [
+    block("tuid-a", "seed", { order_idx: orderIdxOf(0) }),
+  ]);
+  const lines = Array.from({ length: 501 }, (_, i) => `line ${i}`);
+
+  act(() => getOutline().handlers.onPasteOutline(
+    uidOf("tuid-a"), 4, 4, `!\n${lines.join("\n")}`));
+
+  expect(getOutline().editNotice).toBe(BATCH_TOO_LARGE_NOTICE);
+  // the paste's own text splice is part of the refused command
+  expect(sync.sent).toEqual([]);
+  expect(getOutline().blocks.map((b) => b.text)).toEqual(["seed"]);
 });

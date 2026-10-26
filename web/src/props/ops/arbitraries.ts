@@ -33,15 +33,19 @@ export const UID_POOL: readonly string[] =
 export type OpsPage = (typeof OPS_PAGES)[number];
 export type PoolTitle = (typeof TITLE_POOL)[number];
 
-/** Refused by both the server and enqueueBatch (`titleSyntaxReason`), as a
- * page title or as a ref in block text. A title with no URL (a `.`, `..` or
- * empty `/` segment) is refused as a page title only: in block text it is
- * no ref at all. */
+/** Refused by both the server and enqueueBatch (`titleRefusal`), as a
+ * page title or as a ref in block text: for its syntax, or for its length
+ * past the title cap. A title with no URL (a `.`, `..` or empty `/`
+ * segment) is refused as a page title only: in block text it is no ref at
+ * all. The cap is judged on the fold, which keeps single-space edges, so
+ * ` t…t ` is refused at 1,002 though either flag stores it shorter. */
 export const FORBIDDEN_TITLES = [
-  "Bad #title", "x [[y", "x]", "x`y", "x/", ".", "a/../b",
+  "Bad #title", "x [[y", "x]", "x[", "x`y", "x/", ".", "a/../b",
+  "t".repeat(1_001), ` ${"t".repeat(1_000)} `,
 ] as const;
 export const FORBIDDEN_REF_TEXTS = [
-  "see [[Ops #Bad]]", "#[[x #y]]", "see [[Ops Bad#]]",
+  "see [[Ops #Bad]]", "#[[x #y]]", "see [[Ops Bad#]]", "see [[x[]][x[]]",
+  `see [[${"t".repeat(1_001)}]]`, `#${"t".repeat(1_001)}`,
 ] as const;
 
 /** `[[` runs nested `depth` deep. `a//` has an unreachable segment, so no

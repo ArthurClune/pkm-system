@@ -1,25 +1,28 @@
 import asyncio
+import dataclasses
 import json
 import logging
 import socket
-import threading
 import time
-from collections.abc import Generator, Sequence
-from contextlib import contextmanager
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 import pytest
-import uvicorn
 from conftest import TEST_PASSWORD
 from fastapi.testclient import TestClient
 from test_auth import _walk_app
+from uvicorn_harness import (closed_within, read_response, serve,
+                             uvicorn_warning)
 
-from pkm.server import run as run_module
+from pkm.server import auth_gate, auth_gate_core, http_protocol
 from pkm.server.app import create_app
 from pkm.server.auth_core import sign_session
 from pkm.server.auth_gate import AuthGateMiddleware
-from pkm.server.auth_gate_core import (PUBLIC_BODY_MAX_BYTES,
-                                       declared_over_cap, is_public)
+from pkm.server.auth_gate_core import (PRIVATE_BODY_MAX_BYTES,
+                                       PUBLIC_BODY_MAX_BYTES,
+                                       UPLOAD_ENVELOPE_BYTES,
+                                       declared_content_length, is_public,
+                                       private_body_cap)
 
 MiB64 = 64 << 20
 TWO_YEARS_MS = 2 * 365 * 24 * 3600 * 1000
@@ -137,6 +140,146 @@ def test_an_authenticated_body_reaches_the_route(seeded_config,
     s = run(_stream(app, "POST", "/api/client/diagnostics",
                     "application/json", 0, prefix=body, cookie=client_cookie))
     assert s.status == 200
+
+
+OVER_PRIVATE_CAP = str(PRIVATE_BODY_MAX_BYTES + 1).encode()
+
+
+def test_an_authenticated_body_declared_past_the_cap_is_refused_unread(
+        seeded_config, client_cookie):
+    app = create_app(seeded_config)
+    s = run(_stream(app, "POST", "/api/ops", "application/json", MiB64,
+                    prefix=b'{"x":"', suffix=b'"}', cookie=client_cookie,
+                    headers=[(b"content-length", OVER_PRIVATE_CAP)]))
+    assert (s.status, s.consumed) == (413, 0)
+    assert json.loads(s.body) == {"detail": "request body too large"}
+
+
+def test_an_authenticated_body_without_a_length_stops_at_the_cap(
+        seeded_config, client_cookie, monkeypatch):
+    monkeypatch.setattr(auth_gate_core, "PRIVATE_BODY_MAX_BYTES", 4 << 20)
+    app = create_app(seeded_config)
+    s = run(_stream(app, "POST", "/api/ops", "application/json", 16 << 20,
+                    prefix=b'{"x":"', suffix=b'"}', cookie=client_cookie))
+    assert s.status == 413
+    assert s.consumed <= (4 << 20) + (1 << 20) + len(b'{"x":"')
+    assert json.loads(s.body) == {"detail": "request body too large"}
+
+
+def test_a_length_beside_chunked_framing_is_not_trusted(
+        seeded_config, client_cookie, monkeypatch):
+    # h11 frames by Transfer-Encoding when both are sent, so the declared
+    # length says nothing about how much will arrive.
+    monkeypatch.setattr(auth_gate_core, "PRIVATE_BODY_MAX_BYTES", 4 << 20)
+    s = run(_stream(create_app(seeded_config), "POST", "/api/ops",
+                    "application/json", 16 << 20, prefix=b'{"x":"',
+                    suffix=b'"}', cookie=client_cookie,
+                    headers=[(b"content-length", b"10"),
+                             (b"transfer-encoding", b"chunked")]))
+    assert s.status == 413
+    assert s.consumed <= (4 << 20) + (1 << 20) + len(b'{"x":"')
+
+
+def test_an_authenticated_body_within_the_cap_reaches_the_route(
+        seeded_config, client_cookie):
+    body = json.dumps({"client_id": "cap", "batch_id": "cap_within_1",
+                       "ops": [{"op": "delete", "uid": "uid_b1"}]}).encode()
+    s = run(_stream(create_app(seeded_config), "POST", "/api/ops",
+                    "application/json", 0, prefix=body, cookie=client_cookie,
+                    headers=[(b"content-length", str(len(body)).encode())]))
+    assert s.status == 200
+
+
+UPLOAD_HEAD = (b"--BND\r\ncontent-disposition: form-data; name=\"file\"; "
+               b"filename=\"a.txt\"\r\ncontent-type: text/plain\r\n\r\n")
+UPLOAD_TAIL = b"\r\n--BND--\r\n"
+UPLOAD_LIMIT = 1 << 20
+
+
+@pytest.fixture()
+def upload_config(seeded_config):
+    return dataclasses.replace(seeded_config, max_upload_bytes=UPLOAD_LIMIT)
+
+
+def _upload(config, cookie: str, file_bytes: int, *,
+            declared: bool) -> Sent:
+    """Uploads a file of `file_bytes`, its length declared or streamed."""
+    parts = [UPLOAD_HEAD, *[b"a" * (1 << 20)] * (file_bytes >> 20),
+             b"a" * (file_bytes % (1 << 20)), UPLOAD_TAIL]
+    length = sum(map(len, parts))
+    headers = [(b"content-length", str(length).encode())] if declared else []
+    return run(_stream(create_app(config), "POST", "/api/assets",
+                       "multipart/form-data; boundary=BND", 0, parts=parts,
+                       cookie=cookie, headers=headers))
+
+
+def test_an_upload_declared_past_the_private_cap_reaches_its_route(
+        seeded_config, client_cookie):
+    s = run(_stream(create_app(seeded_config), "POST", "/api/assets",
+                    "multipart/form-data; boundary=BND", 1 << 20,
+                    prefix=UPLOAD_HEAD, suffix=UPLOAD_TAIL,
+                    cookie=client_cookie,
+                    headers=[(b"content-length", OVER_PRIVATE_CAP)]))
+    assert s.consumed > 0  # the route read it; the gate did not refuse it
+    assert json.loads(s.body) != {"detail": "request body too large"}
+
+
+@pytest.mark.parametrize("declared", [True, False])
+def test_an_upload_at_its_limit_is_stored(upload_config, client_cookie,
+                                         declared):
+    s = _upload(upload_config, client_cookie, UPLOAD_LIMIT,
+                declared=declared)
+    assert s.status == 200, s.body
+    assert json.loads(s.body)["size"] == UPLOAD_LIMIT
+
+
+@pytest.mark.parametrize("declared", [True, False])
+def test_an_upload_just_past_its_limit_gets_the_routes_answer(
+        upload_config, client_cookie, declared):
+    s = _upload(upload_config, client_cookie, UPLOAD_LIMIT + 1,
+                declared=declared)
+    assert s.status == 413
+    assert json.loads(s.body) == {"detail": "upload too large"}
+
+
+def test_an_upload_declared_past_its_cap_is_refused_unread(
+        upload_config, client_cookie):
+    over = UPLOAD_LIMIT + UPLOAD_ENVELOPE_BYTES + 1
+    s = run(_stream(create_app(upload_config), "POST", "/api/assets",
+                    "multipart/form-data; boundary=BND", 1 << 20,
+                    prefix=UPLOAD_HEAD, suffix=UPLOAD_TAIL,
+                    cookie=client_cookie,
+                    headers=[(b"content-length", str(over).encode())]))
+    assert (s.status, s.consumed) == (413, 0)
+    assert json.loads(s.body) == {"detail": "request body too large"}
+
+
+def test_a_streamed_upload_stops_at_its_cap(upload_config, client_cookie,
+                                            tmp_path):
+    # Read as it arrives, never buffered whole: the spool and the route's
+    # temp file see at most the cap and one message past it.
+    s = run(_stream(create_app(upload_config), "POST", "/api/assets",
+                    "multipart/form-data; boundary=BND", 16 << 20,
+                    prefix=UPLOAD_HEAD, suffix=UPLOAD_TAIL,
+                    cookie=client_cookie))
+    assert s.status == 413
+    assert s.consumed <= (UPLOAD_LIMIT + UPLOAD_ENVELOPE_BYTES + (1 << 20)
+                          + len(UPLOAD_HEAD))
+    assert json.loads(s.body) == {"detail": "request body too large"}
+    assert list(upload_config.assets_dir.glob(".upload-*")) == []
+
+
+@pytest.mark.parametrize("method,path,cap", [
+    ("POST", "/api/ops", PRIVATE_BODY_MAX_BYTES),
+    ("GET", "/api/page/x", None), ("HEAD", "/api/page/x", None),
+    ("OPTIONS", "/api/ops", None),
+    ("POST", "/api/assets", (150 << 20) + UPLOAD_ENVELOPE_BYTES),
+    ("DELETE", "/api/assets/abc", PRIVATE_BODY_MAX_BYTES),
+    ("PUT", "/api/sidebar", PRIVATE_BODY_MAX_BYTES),
+    ("POST", "/api/assets/export.zip", PRIVATE_BODY_MAX_BYTES),
+])
+def test_private_body_cap(method, path, cap):
+    assert private_body_cap(method, path, 150 << 20) == cap
 
 
 def test_the_gate_401_is_logged_and_carries_the_security_header(
@@ -310,26 +453,23 @@ def test_after_the_replay_the_route_reads_the_clients_own_messages():
     ]
 
 
-@pytest.mark.parametrize("headers,over", [
-    ([], False), ([(b"content-length", b"8192")], False),
-    ([(b"content-length", b"8193")], True),
-    ([(b"content-length", b"abc")], False),
-    ([(b"content-length", b"1"), (b"content-length", b"99999")], True),
-    ([(b"content-length", b"9" * 5000)], False),
+@pytest.mark.parametrize("headers,length", [
+    ([], None), ([(b"content-length", b"8192")], 8192),
+    ([(b"Content-Length", b" 8193 ")], 8193),
+    ([(b"content-length", b"abc")], None),
+    ([(b"content-length", b"1"), (b"content-length", b"99999")], 99999),
+    ([(b"content-length", b"9" * 5000)], None),
+    ([(b"content-length", b"10"), (b"transfer-encoding", b"chunked")], None),
+    ([(b"Transfer-Encoding", b"chunked"), (b"content-length", b"10")], None),
 ])
-def test_declared_over_cap(headers, over):
-    assert declared_over_cap(headers, 8192) is over
+def test_declared_content_length(headers, length):
+    assert declared_content_length(headers) == length
 
 
 # A real uvicorn socket, loaded as `run.uvicorn_config` loads production's.
 # The client declares a large body and sends only the start of it, or none.
 # An answer can come back only if the server answered without the rest:
 # a server that read the whole body would still be waiting for it.
-
-# cfg.load() imports uvicorn's websockets protocol, which warns on import.
-_uvicorn_warning = pytest.mark.filterwarnings(
-    "ignore:websockets.*is deprecated:DeprecationWarning")
-
 
 class _Pulled:
     """ASGI wrapper counting the body bytes the app takes from `receive`."""
@@ -347,28 +487,6 @@ class _Pulled:
         await self.app(scope, counting, send)
 
 
-@contextmanager
-def _serving(app) -> Generator[int, None, None]:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    server = uvicorn.Server(run_module.uvicorn_config(app, port=port,
-                                                      log_config=None))
-    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]},
-                              daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 10
-    while not server.started:
-        assert thread.is_alive() and time.monotonic() < deadline
-        time.sleep(0.01)
-    try:
-        yield port
-    finally:
-        server.should_exit = True
-        thread.join(10)
-        sock.close()
-
-
 def _status_before_the_body_ends(port: int, head: bytes, sent: bytes) -> bytes:
     """The status line the server sends while the body is unfinished."""
     with socket.create_connection(("127.0.0.1", port), timeout=5) as conn:
@@ -376,20 +494,20 @@ def _status_before_the_body_ends(port: int, head: bytes, sent: bytes) -> bytes:
         return conn.recv(65536).split(b"\r\n", 1)[0]
 
 
-@_uvicorn_warning
+@uvicorn_warning
 def test_over_a_real_socket_an_anonymous_body_is_refused_unread(
         seeded_config):
     app = _Pulled(create_app(seeded_config))
     head = (b"POST /api/ops HTTP/1.1\r\nHost: x\r\n"
             b"Content-Type: application/json\r\n"
             b"Content-Length: 67108864\r\n\r\n")
-    with _serving(app) as port:
+    with serve(app) as port:
         status = _status_before_the_body_ends(port, head, b"a" * (1 << 20))
     assert status == b"HTTP/1.1 401 Unauthorized"
     assert app.bytes == 0
 
 
-@_uvicorn_warning
+@uvicorn_warning
 def test_over_a_real_socket_a_login_past_the_cap_is_refused(seeded_config):
     app = _Pulled(create_app(seeded_config))
     declared = (b"POST /api/login HTTP/1.1\r\nHost: x\r\n"
@@ -400,9 +518,98 @@ def test_over_a_real_socket_a_login_past_the_cap_is_refused(seeded_config):
                b"Transfer-Encoding: chunked\r\n\r\n")
     # Eight times the cap, never terminated: only a capped read answers.
     chunks = b"".join(b"400\r\n" + b"a" * 1024 + b"\r\n" for _ in range(64))
-    with _serving(app) as port:
+    with serve(app) as port:
         assert _status_before_the_body_ends(port, declared, b"") == (
             b"HTTP/1.1 413 Request Entity Too Large")
         assert app.bytes == 0
         assert _status_before_the_body_ends(port, chunked, chunks) == (
             b"HTTP/1.1 413 Request Entity Too Large")
+
+
+@uvicorn_warning
+def test_over_a_real_socket_an_authenticated_body_is_capped(
+        seeded_config, client_cookie, monkeypatch):
+    monkeypatch.setattr(auth_gate_core, "PRIVATE_BODY_MAX_BYTES", 64 << 10)
+    app = _Pulled(create_app(seeded_config))
+    head = (b"POST /api/ops HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Cookie: pkm_session=" + client_cookie.encode() + b"\r\n")
+    declared = head + b"Content-Length: 65537\r\n\r\n"
+    # A short length beside chunked framing: the server reads the chunks.
+    framed = head + (b"Content-Length: 10\r\n"
+                     b"Transfer-Encoding: chunked\r\n\r\n")
+    chunks = b"".join(b"400\r\n" + b"a" * 1024 + b"\r\n" for _ in range(128))
+    with serve(app) as port:
+        assert _status_before_the_body_ends(port, declared, b"") == (
+            b"HTTP/1.1 413 Request Entity Too Large")
+        assert app.bytes == 0
+        assert _status_before_the_body_ends(port, framed, chunks) == (
+            b"HTTP/1.1 413 Request Entity Too Large")
+
+
+REFUSED_HEAD = (b"POST /api/ops HTTP/1.1\r\nHost: x\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Length: 1000\r\n\r\n")
+
+
+@uvicorn_warning
+def test_a_refused_private_body_cannot_hold_the_connection(
+        seeded_config, monkeypatch):
+    monkeypatch.setattr(http_protocol, "HEADER_READ_TIMEOUT_S", 0.5)
+    with serve(create_app(seeded_config)) as port, \
+            socket.create_connection(("127.0.0.1", port), timeout=5) as conn:
+        conn.sendall(REFUSED_HEAD + b"{")
+        r = read_response(conn)
+        assert r.status_line == b"HTTP/1.1 401 Unauthorized"
+        assert closed_within(conn, 3, drip=b"a" * 100)
+
+
+@uvicorn_warning
+def test_a_refused_body_sent_whole_leaves_the_connection_usable(
+        seeded_config):
+    # Closing on the refusal would reset a connection whose body is still
+    # arriving, and the client could lose the 401.
+    with serve(create_app(seeded_config)) as port, \
+            socket.create_connection(("127.0.0.1", port), timeout=5) as conn:
+        conn.sendall(REFUSED_HEAD + b"a" * 1000)
+        assert read_response(conn).status_line == (
+            b"HTTP/1.1 401 Unauthorized")
+        conn.sendall(b"GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n")
+        assert read_response(conn).status_line == b"HTTP/1.1 200 OK"
+
+
+@uvicorn_warning
+def test_a_login_body_dripped_past_the_deadline_gets_408(
+        seeded_config, monkeypatch):
+    monkeypatch.setattr(auth_gate, "PUBLIC_BODY_READ_TIMEOUT_S", 0.5)
+    body = json.dumps({"password": "x" * 100}).encode()
+    head = (b"POST /api/login HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n")
+    with serve(create_app(seeded_config)) as port, \
+            socket.create_connection(("127.0.0.1", port), timeout=5) as conn:
+        conn.sendall(head + body[:1])
+        # A byte every tenth of a second: never idle, never finished.
+        assert not closed_within(conn, 0.3, drip=body[1:4])
+        conn.sendall(body[4:6])
+        r = read_response(conn)
+        assert r.status_line == b"HTTP/1.1 408 Request Timeout"
+        assert json.loads(r.body) == {"detail": "request body timed out"}
+        assert r.headers[b"connection"] == b"close"
+        assert closed_within(conn, 3)
+
+
+@uvicorn_warning
+def test_a_login_body_sent_promptly_still_logs_in(seeded_config,
+                                                  monkeypatch):
+    monkeypatch.setattr(auth_gate, "PUBLIC_BODY_READ_TIMEOUT_S", 0.5)
+    body = json.dumps({"password": TEST_PASSWORD}).encode()
+    head = (b"POST /api/login HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n")
+    with serve(create_app(seeded_config)) as port, \
+            socket.create_connection(("127.0.0.1", port), timeout=5) as conn:
+        conn.sendall(head + body)
+        r = read_response(conn)
+    assert r.status_line == b"HTTP/1.1 200 OK"
+    assert r.headers[b"set-cookie"].startswith(b"pkm_session=")

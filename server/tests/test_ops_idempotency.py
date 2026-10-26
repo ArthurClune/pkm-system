@@ -134,7 +134,8 @@ def test_batch_id_insert_race_blocks_on_the_batchs_transaction(client,
 
     real = routes_ops.apply_batch
 
-    def racing(db, batch, now):
+    def racing(db, judged, now):
+        batch = judged.batch
         con = open_db(client.app.state.config.db_path)
         con.execute("PRAGMA busy_timeout=50")
         with pytest.raises(sqlite3.OperationalError, match="locked"):
@@ -143,7 +144,7 @@ def test_batch_id_insert_race_blocks_on_the_batchs_transaction(client,
                 (batch.batch_id, batch_request_hash(batch),
                  json.dumps({"ok": True, "ts": 1, "applied": 99}), 1))
         con.close()
-        return real(db, batch, now)
+        return real(db, judged, now)
 
     monkeypatch.setattr(routes_ops, "apply_batch", racing)
     r = client.post("/api/ops", json=BATCH)

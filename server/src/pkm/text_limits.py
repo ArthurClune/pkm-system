@@ -11,12 +11,23 @@ shared/fixtures/text_limits_parity.json."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Final, Literal
 
 from pkm.contracts.ops import MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING
 from pkm.refs import link_nesting_depth
 
 TextLimitKind = Literal["length", "nesting"]
+
+# Most unlink work a server rewrite may ask for, measured as the text's
+# `[[` depth times its length: `unlink.unlink_title_refs` makes up to
+# depth + 3 passes, each reading the whole text. Judged where a page
+# delete or a delete's replay splices copies in, since copies that each
+# nest within the cap can wrap thousands of links 32 deep. At twice the
+# length cap, any text within the length cap nested twice passes, and no
+# unlink judged here costs much more than the passes over one such text.
+# Prod's largest, measured with every block's copies spliced in, was
+# 34,863 characters one level deep: far below it.
+MAX_UNLINK_WORK: Final = 2 * MAX_BLOCK_TEXT_CHARS
 
 
 @dataclass(frozen=True)
@@ -75,6 +86,19 @@ def rewrite_text_limit_violation(
     """
     if len(after) > MAX_BLOCK_TEXT_CHARS and len(after) > len(before):
         return TextLimitViolation("length", len(after), MAX_BLOCK_TEXT_CHARS)
+    return rewrite_nesting_violation(before, after)
+
+
+def rewrite_nesting_violation(
+        before: str, after: str) -> TextLimitViolation | None:
+    """The nesting half of `rewrite_text_limit_violation`: `after` nested
+    past the cap and deeper than `before`. Linear in both texts.
+
+    Copies that each nest within the cap can join into one deep link (one
+    opens runs, another closes them), so a page delete and a delete's
+    replay ask it of the text with copies spliced in, before unlinking,
+    through `unlink_refused`.
+    """
     # The fast path `text_limit_violation` takes, whatever the length.
     if after.count("[[") <= MAX_LINK_NESTING:
         return None
@@ -82,3 +106,27 @@ def rewrite_text_limit_violation(
     if depth > MAX_LINK_NESTING and depth > link_nesting_depth(before):
         return TextLimitViolation("nesting", depth, MAX_LINK_NESTING)
     return None
+
+
+def unlink_refused(before: str, after: str) -> bool:
+    """Must a server rewrite refuse to unlink `after`, the text `before`
+    became with copies spliced in? Yes when it nests past the cap deeper
+    than `before` (`rewrite_nesting_violation`), or when its depth times
+    its length passes `MAX_UNLINK_WORK` and `before`'s: the unlink peels
+    a nested link one layer per pass over the whole text, so a text
+    within the nesting cap still costs its depth in passes. Level is
+    allowed on each, as `rewrite_text_limit_violation` allows it, so a row
+    stored before the limits whose delete splices nothing in stays
+    deletable; its unlink costs only what it cost when it was stored.
+    Linear in both texts; the depth is measured only when the count of
+    `[[`, which bounds it, does not settle the answer."""
+    count = after.count("[[")
+    if count <= MAX_LINK_NESTING and count * len(after) <= MAX_UNLINK_WORK:
+        return False
+    depth = link_nesting_depth(after)
+    work = depth * len(after)
+    if depth <= MAX_LINK_NESTING and work <= MAX_UNLINK_WORK:
+        return False
+    was = link_nesting_depth(before)
+    return (depth > MAX_LINK_NESTING and depth > was) or \
+        (work > MAX_UNLINK_WORK and work > was * len(before))

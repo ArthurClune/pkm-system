@@ -117,7 +117,7 @@ def test_rename_blank_title_422(client):
     assert _rename(client, "AI", "   ").status_code == 422
 
 
-@pytest.mark.parametrize("title_text", ["a]", "a`b", "`", "x #y"])
+@pytest.mark.parametrize("title_text", ["a]", "a[", "a`b", "`", "x #y"])
 def test_rename_to_unspellable_title_422(client, title_text):
     r = _rename(client, "AI", title_text)
     assert r.status_code == 422

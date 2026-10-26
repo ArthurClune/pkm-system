@@ -361,6 +361,12 @@ def test_delete_page_refused_when_a_copy_carries_a_text_past_the_length_cap():
     assert m.delete_page(raw_title_of("Alpha"), {}, seq_of(9)).blockers == {B: "limit"}
 
 
+def test_delete_page_judges_the_length_before_the_rewrite_s_own_blockers():
+    m = model(blk(P, page="Alpha", text=EMOJI_AT_CAP),
+              blk(B, page="Beta", text=f"(({P}))y:: v"))
+    assert m.delete_page(raw_title_of("Alpha"), {}, seq_of(9)).blockers == {B: "limit"}
+
+
 # --- backend.md § Planning (text limits) --------------------------------------
 
 @pytest.mark.parametrize("text", PAST_LIMIT_TEXTS)
@@ -516,6 +522,21 @@ def test_edit_whose_replayed_inline_passes_the_cap_lands_as_sent():
     assert out.kept_texts == (sent,)
     assert out.paths == ("update_text replay: over the length cap",)
     assert m.blocks[B].text == EMOJI_AT_CAP
+
+
+def test_edit_whose_replay_passes_the_cap_lands_with_deleted_titles_plain():
+    # Landed as sent, `[[Alpha]]` would re-create the deleted page.
+    m = model(blk(P, page="Alpha", text="e" * 600_000),
+              blk(B, page="Beta", text=f"[[Alpha]] (({P}))"))
+    m.delete_page(raw_title_of("Alpha"), {}, seq_of(9))
+    sent = f"[[Alpha]] (({P})) (({P}))"
+    out = m.apply([{"op": "update_text", "uid": B, "text": sent,
+                    "base_text_hash": text_hash(f"[[Alpha]] (({P}))")}])
+    assert out.skipped == ((0, "update_text", B, "text_limit"),)
+    assert out.kept_texts == (f"Alpha (({P})) (({P}))",)
+    assert out.paths == ("update_text replay: over the length cap,"
+                         " gone titles unlinked",)
+    assert "Alpha" not in m.pages
 
 
 def test_recorded_rewrites_remember_the_text_they_rewrote():

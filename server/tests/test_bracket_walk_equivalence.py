@@ -29,10 +29,11 @@ from pkm.test_data.ids import raw_title_of
 def _reference_unlink_range(
     text: str, clean: str, is_target: Callable[[str], bool], start: int,
     stop: int, brackets: Sequence[BracketSpan],
-    spans: list[tuple[int, int, str]],
+    spans: list[tuple[int, int, str]], fence: bool = False,
 ) -> None:
     """`unlink._unlink_range` as it was before the walk kept its own
-    stack."""
+    stack, for the unlink only: the fence came later."""
+    assert not fence
     index = start
     for bracket in brackets:
         unlink._unlink_tags(text, clean, is_target, index, bracket.start, spans)
@@ -231,7 +232,7 @@ def test_unlink_walk_matches_the_recursive_walk(case):
     matched = _tally(text, is_target)
     clean = strip_code(text)
     if any(clean[s.end:s.end + 1] == ")"
-           and unlink._ALIAS_LABEL.search(clean, 0, s.start)
+           and unlink._alias_label(clean, s.start) is not None
            for s in matched):
         event("matched an aliased run")
     runs = bracket_spans(clean, text)

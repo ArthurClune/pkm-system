@@ -477,6 +477,13 @@ def test_every_exit_of_a_step_charges_what_it_scanned_or_built():
     assert text_limits.unlink_refused(refused_text, spliced)
     assert ops_core._replay_step(refused_text, refusing, normalize_title) \
         == (None, unlink.unlink_reads(spliced))
+    renaming_too = ops_core.RewriteStep(
+        text_hash("a"), text_hash("b"), {"A": as_raw_title("Bb")}, set(),
+        {_COPY_UID: copy})
+    assert ops_core._replay_step(f"[[A]] {refused_text}", renaming_too,
+                                 normalize_title) == \
+        (None, len(f"[[A]] {refused_text}") + len(f"[[Bb]] {refused_text}")
+         + unlink.unlink_reads(f"[[Bb]] {spliced}"))
 
 _UID = "uid_u0000002"
 _STEPS = [("retitle", "A", "B"), ("retitle", "B", "C d"), ("unlink", "A", ""),

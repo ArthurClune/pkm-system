@@ -40,7 +40,7 @@ from pkm.text_limits import (MAX_UNLINK_WORK, TextLimitViolation,
                               describe_text_limit, text_limit_violation,
                               unlink_refused)
 from pkm.unlink import (PASSES_PAST_DEPTH, TitleMatch, block_ref_spans,
-                        unlink_reads, unlink_stale_refs)
+                        linked_titles, unlink_reads, unlink_stale_refs)
 
 # Most renames a stale edit can be behind. Each step is one recorded
 # rewrite of the same block, so the bound only matters for a block renamed
@@ -48,12 +48,13 @@ from pkm.unlink import (PASSES_PAST_DEPTH, TitleMatch, block_ref_spans,
 # falls back to the ordinary conflict path.
 MAX_REPLAYED_REWRITES = 10
 
-# Most characters one batch's replays may have the unlink read, summed over
-# the steps of every stale edit in it (`unlink.unlink_reads`). The copies a
+# Most characters one batch's replays may read, summed over the steps of
+# every stale edit in it: what the unlink reads (`unlink.unlink_reads`) and
+# what a rename scans and splices (`_replay_step`). The copies and titles a
 # replay splices come from the server's history, not the request, so a
-# batch of tiny edits could ask for a megabyte's unlink per step, ten steps
-# an edit, for each of its ops. Past this the batch's remaining edits that
-# would unlink land as sent (`over_limit`). One step is at most about
+# batch of tiny edits could ask for a megabyte's unlink or rename per step,
+# ten steps an edit, for each of its ops. Past this the batch's remaining
+# stale edits land as sent (`over_limit`). One step is at most about
 # 5,000,000 reads (a megabyte nested two deep, at `MAX_UNLINK_WORK`), so
 # this is about three such steps. Spent in full it holds the write lock
 # about 4 s for text nested to the cap, the slowest to read, and 2 s for
@@ -269,10 +270,10 @@ def replay_title_rewrites(
 def _replay_step(text: str, step: RewriteStep,
                  canonical: Callable[[str], str],
                  allowance: int | None = None) -> tuple[str | None, int]:
-    """`text` with one recorded rewrite replayed onto it, and the reads its
-    unlink was allowed (`unlink.unlink_reads`, 0 for a step that unlinks
-    nothing). The text is None when a splice that can grow the text (a
-    longer title, an inlined copy) would carry it past
+    """`text` with one recorded rewrite replayed onto it, and the reads it
+    was charged: its rename's scan and splice, and its unlink's
+    `unlink.unlink_reads`. The text is None when a splice that can grow
+    the text (a longer title, an inlined copy) would carry it past
     `MAX_BLOCK_TEXT_CHARS`. That is judged from the spans
     before splicing: each link grows by the title's growth, and titles have
     no length cap, so the text itself could be far too long to build. The
@@ -288,19 +289,28 @@ def _replay_step(text: str, step: RewriteStep,
     depth (`unlink.unlink_title_refs`). A link the passes leave is fenced
     (`unlink.unlink_stale_refs`).
 
-    And None when the unlink would read past `allowance`, what is left of
-    the batch's `MAX_BATCH_REPLAY_WORK`, judged first from the splice's
-    projected length, which the unlink reads at least three times. That
-    step spends all that is left, so once one edit has run the budget out,
-    the batch's later steps that would unlink stop before splicing: what
-    each costs is then its own sent text, not the copies from history."""
+    And None when the step would read past `allowance`, what is left of
+    the batch's `MAX_BATCH_REPLAY_WORK`. A rename is charged the text it
+    scans and the text it splices, since a longer title grows each link
+    and ten renames of a small edit can each build a megabyte; the unlink
+    is charged from the splice's projected length, which it reads at least
+    three times, before splicing, then its reads. A step that stops spends
+    all that is left, so once one edit has run the budget out, the batch's
+    later steps stop before splicing: what each costs is then its own sent
+    text, not the copies or titles from history."""
     entering = text
+    # what the rename charged, which the unlink's budget leaves out
+    renamed = 0
     if step.retitles:
         spans = title_ref_spans(
             text, step.retitles,
             normalize=spelled_or_canonical(canonical, step.retitles))
-        if spliced_length(text, spans) > MAX_BLOCK_TEXT_CHARS:
+        projected = spliced_length(text, spans)
+        if projected > MAX_BLOCK_TEXT_CHARS:
             return None, 0
+        renamed = len(text) + projected
+        if allowance is not None and renamed > allowance:
+            return None, allowance
         text = splice(text, spans)
     if step.unlinked or step.inlines:
         unlinked = {canonical(title) for title in step.unlinked}
@@ -319,16 +329,16 @@ def _replay_step(text: str, step: RewriteStep,
         # Past the budget the step takes what is left of it, so every later
         # step in the batch stops here before splicing anything.
         if allowance is not None and \
-                PASSES_PAST_DEPTH * projected > allowance:
+                PASSES_PAST_DEPTH * projected > allowance - renamed:
             return None, allowance
         spliced = splice(text, spans)
         reads = unlink_reads(spliced)
-        if allowance is not None and reads > allowance:
+        if allowance is not None and reads > allowance - renamed:
             return None, allowance
         if unlink_refused(entering, spliced):
             return None, 0
-        return unlink_stale_refs(spliced, is_deleted), reads
-    return text, 0
+        return unlink_stale_refs(spliced, is_deleted), renamed + reads
+    return text, renamed
 
 
 def _step_key(text: str, step: RewriteStep,
@@ -365,7 +375,7 @@ class _Replayed:
     """What `_replay` made: the text (None when a step stopped it), the
     hash it ends at (that step's base when it stopped), the steps it
     consumed in the order it walked them, every step it replayed by key,
-    and the unlink reads it spent."""
+    and the reads it spent (`_replay_step`)."""
     text: str | None
     base_hash: Sha256Hex
     steps: tuple[RewriteStep, ...]
@@ -450,7 +460,7 @@ class TextEditOutcome:
     carrying the landing only a conflict pays for (ReplayOverLimitContext
     for `over_limit`). `known` is every step the replay made, which the
     rewrite rows reuse (`rewrite_effects`) rather than replay again;
-    `reads` is the unlink reads it spent from the batch's
+    `reads` is what its steps spent from the batch's
     `MAX_BATCH_REPLAY_WORK`, which an `over_limit` may also have run out."""
     kind: Literal["identical", "clean", "conflict", "over_limit"]
     text: str
@@ -1159,10 +1169,10 @@ def _rewrite_chain(
     `unlink_stale_text` made), so its steps are those, from the same texts,
     and are looked up rather than replayed; the check that the rows replay
     to `written` looks them up too, and the stale unlink by the key its
-    rows rebuild. Given `known`, a step that is not found is replayed only
-    when it unlinks nothing; one that would unlink leaves no rows, since
-    that work was never counted against the batch's budget. Without it,
-    every step is replayed."""
+    rows rebuild. Given `known`, a step that is not found leaves no rows,
+    since its work was never counted against the batch's budget (bar a
+    step over empty text, which costs nothing). Without it, every step is
+    replayed."""
     memo = dict(known or {})
     allowance = None if known is None else 0
     rows: list[BlockRewrite] = []
@@ -1205,6 +1215,20 @@ def _rewrite_chain(
     return tuple(rows)
 
 
+def stale_titles_linked(
+    text: str, stale: Collection[CanonicalTitle],
+    canonical: Callable[[str], str],
+) -> tuple[CanonicalTitle, ...]:
+    """The titles in `stale` whose unlink alone would change `text`, in
+    order: the ones the rows of a stale unlink name. Found in one pass over
+    the text (`unlink.linked_titles`), however many titles were deleted
+    since the batch's `seen_seq`, which the client picks."""
+    if not stale:
+        return ()
+    linked = {canonical(normalize_title(raw)) for raw in linked_titles(text)}
+    return tuple(sorted(title for title in stale if title in linked))
+
+
 def rewrite_effects(
     original: BlockOp, planned: tuple[Effect, ...],
     stale: Collection[CanonicalTitle],
@@ -1229,12 +1253,7 @@ def rewrite_effects(
                     and e.uid == original.uid), settled)
     if written is None:
         return ()
-    titles = tuple(sorted(
-        title for title in stale
-        if unlink_stale_refs(
-            original.text,
-            lambda raw, t=title: canonical(normalize_title(raw)) == t)
-        != original.text))
+    titles = stale_titles_linked(original.text, stale, canonical)
     if not (titles or replayed) or written == original.text:
         return ()
     rows = _rewrite_chain(original.text, written, titles, replayed,

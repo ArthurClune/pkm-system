@@ -628,7 +628,7 @@ def apply_batch(db: Db, judged: JudgedBatch,
 
         def is_stale(raw: str) -> bool:
             return stale_canonical(normalize_title(raw)) in stale
-    # the unlink reads the batch's replays may still spend
+    # the reads the batch's replays may still spend
     allowance = MAX_BATCH_REPLAY_WORK
     # each block's rewrite rows, read once while the batch adds none: a
     # copy in them can be a megabyte, and many ops can edit one block

@@ -275,6 +275,29 @@ def unlink_stale_refs(text: str, is_target: TitleMatch) -> str:
     return defuse_attribute(text, is_target)
 
 
+def linked_titles(text: str) -> set[str]:
+    """Every title, as written, that an unlink of `text` asks its predicate
+    about when the predicate matches nothing: each link and tag at every
+    depth, and the leading attribute. So `unlink_stale_refs` changes the
+    text for a predicate iff the predicate matches one of these. With no
+    match the passes splice nothing and the attribute is left; a first
+    pass that matches drops a link's brackets or a tag's `#` (an outer
+    match hides an inner one, but is itself a change), and a match on the
+    attribute fences it. One pass finds which of many titles the text
+    links, where asking per title unlinked the whole text once each."""
+    asked: set[str] = set()
+
+    def ask(raw: str) -> bool:
+        asked.add(raw)
+        return False
+
+    _unlink_pass(text, ask)
+    attribute = _attribute_raw(text)
+    if attribute is not None:
+        asked.add(attribute)
+    return asked
+
+
 def block_ref_spans(text: str, copies: Mapping[BlockUid, str]) -> list[Span]:
     """The spans `inline_block_refs` splices: each `((uid))` or whole embed
     macro for a uid in `copies`, replaced by that copy (one string shared by

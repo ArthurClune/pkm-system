@@ -9,25 +9,31 @@ server's history, not by the request: about 0.55 s per step, three
 times over (the classification, the rewrite rows, their check), for
 thousands of seconds. Each op's steps now run once, and a batch whose
 replays would read past `MAX_BATCH_REPLAY_WORK` lands its remaining
-edits as sent, as `over_limit` does."""
+edits as sent, as `over_limit` does. A rename step is charged too: a
+longer title grows every link, so ten renames of a small edit rebuilt a
+megabyte each. And the rows of a stale unlink find the deleted titles a
+text links in one pass, not one unlink per title the client calls
+stale."""
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 
 import pytest
 from hypothesis import event, given, settings
 from hypothesis import strategies as st
 from scaling import loop_steps
-from test_text_limits_rewrites import _seed, _text
+from test_text_limits_rewrites import _scalar, _seed, _text
 
 from pkm import refs, spans, text_limits, unlink
 from pkm.contracts.ops import BlockUid, UpdateTextOp, text_hash
-from pkm.refs import normalize_title
+from pkm.contracts.titles import as_raw_title
+from pkm.refs import CanonicalTitle, normalize_title
 from pkm.server import ops_apply, ops_core
 from pkm.server.ops_core import MAX_REPLAYED_REWRITES
 from pkm.server.db import open_db
 from pkm.test_data.ids import (batch_id_of, canonical_title_of, client_id_of,
-                               uid_of)
+                               order_idx_of, seq_of, uid_of)
 from pkm.unlink import unlink_stale_refs
 
 MODULES = (unlink, refs, spans, ops_core, text_limits)
@@ -174,6 +180,154 @@ def test_the_reviewed_batch_lands_every_op_in_bounded_time(
 
 
 
+def _retitle_history(config, uid: BlockUid) -> str:
+    """`uid` on page Src, and the rows of `MAX_REPLAYED_REWRITES` renames
+    of its 1,000 links, each to a distinct title of 990 characters: the
+    text a replay builds reaches 995,000 characters at the first step and
+    stays there, under the cap, from a 6,000-character edit. Returns the
+    text the first rename started from."""
+    original = "[[A]] " * 1_000
+    titles = ["A", *(f"r{i:02d}" + "t" * 987
+                     for i in range(MAX_REPLAYED_REWRITES))]
+    _seed(config, [(uid, "Src", "current")])
+    hashes = [text_hash(original)] + [
+        text_hash(f"renamed {i}") for i in range(MAX_REPLAYED_REWRITES)]
+    con = open_db(config.db_path)
+    try:
+        for i in range(MAX_REPLAYED_REWRITES):
+            con.execute(
+                "INSERT INTO block_rewrites(uid, base_hash, after_hash,"
+                " old_title, new_title, created_at, kind)"
+                " VALUES (?,?,?,?,?,?,'retitle')",
+                (uid, hashes[i], hashes[i + 1], titles[i], titles[i + 1], i))
+        con.commit()
+    finally:
+        con.close()
+    return original
+
+
+def test_a_batch_of_renamed_edits_stops_at_its_work_budget(
+        client, seeded_config):
+    # A rename step splices no copies, but a longer title grows each link,
+    # so ten of them rebuild and rescan a megabyte each from a small edit.
+    # They are charged to the batch's budget like an unlink: four times
+    # the ops cost about the same work, and the edits past it land as
+    # sent.
+    uids = [uid_of(f"rbw_ren_{i:03d}") for i in range(20)]
+    originals = {uid: _retitle_history(seeded_config, uid) for uid in uids}
+
+    def run(first: int, ops: int) -> tuple[int, list[str]]:
+        got = []
+        work = loop_steps(MODULES, lambda: got.append(_post(client, [
+            {"op": "update_text", "uid": uid, "text": originals[uid],
+             "base_text_hash": text_hash(originals[uid])}
+            for uid in uids[first:first + ops]])))
+        assert got[0].status_code == 200, got[0].text[:300]
+        return work, [s["reason"] for s in got[0].json()["skipped"]]
+
+    (small, _), (large, skipped) = run(0, 4), run(4, 16)
+    assert large < 2 * small, (small, large)
+    assert skipped.count("text_limit") > 8
+
+
+def test_a_rename_step_is_charged_what_it_scans_and_splices():
+    # The text it scans and the text it builds; past what is left it stops
+    # and spends all of it, as an unlink does. A step that renames and
+    # unlinks leaves its unlink only what the rename did not spend.
+    text = "[[A]] " * 10
+    renamed = "[[Bbbbbbbbbb]] " * 10
+    step = ops_core.RewriteStep(text_hash("a"), text_hash("b"),
+                                {"A": as_raw_title("Bbbbbbbbbb")}, set(), {})
+    cost = len(text) + len(renamed)
+    assert ops_core._replay_step(text, step, normalize_title) == \
+        (renamed, cost)
+    assert ops_core._replay_step(text, step, normalize_title, cost) == \
+        (renamed, cost)
+    assert ops_core._replay_step(text, step, normalize_title, cost - 1) == \
+        (None, cost - 1)
+    both = ops_core.RewriteStep(text_hash("a"), text_hash("b"),
+                                {"A": as_raw_title("Bbbbbbbbbb")},
+                                {"Bbbbbbbbbb"}, {})
+    plain, reads = ops_core._replay_step(text, both, normalize_title)
+    assert plain == "Bbbbbbbbbb " * 10
+    assert reads == cost + unlink.unlink_reads(renamed)
+    assert ops_core._replay_step(text, both, normalize_title, reads) == \
+        (plain, reads)
+    assert ops_core._replay_step(text, both, normalize_title, reads - 1) == \
+        (None, reads - 1)
+
+
+def test_once_renames_run_the_budget_out_later_renames_land_as_sent(
+        client, seeded_config):
+    # The first edit's ten renames stop with part of the budget left; that
+    # step spends it, so the small renames after it, each of which would
+    # fit in what was left, land as sent rather than replaying.
+    big = uid_of("rbw_ren_big")
+    original = _retitle_history(seeded_config, big)
+    small = [uid_of(f"rbw_ren_s{i:02d}") for i in range(10)]
+    _seed(seeded_config, [(uid, "Src", "current") for uid in small])
+    con = open_db(seeded_config.db_path)
+    try:
+        for uid in small:
+            con.execute(
+                "INSERT INTO block_rewrites(uid, base_hash, after_hash,"
+                " old_title, new_title, created_at, kind)"
+                " VALUES (?,?,?,?,?,0,'retitle')",
+                (uid, text_hash("[[A]] " * 20), text_hash("renamed"), "A",
+                 "s" * 990))
+        con.commit()
+    finally:
+        con.close()
+    r = _post(client, [
+        {"op": "update_text", "uid": big, "text": original,
+         "base_text_hash": text_hash(original)},
+        *({"op": "update_text", "uid": uid, "text": "[[A]] " * 20,
+           "base_text_hash": text_hash("[[A]] " * 20)} for uid in small)])
+    assert r.status_code == 200, r.text[:300]
+    skipped = {s["index"]: s["reason"] for s in r.json()["skipped"]}
+    assert skipped == {i: "text_limit" for i in range(11)}
+
+def test_the_stale_titles_cost_one_pass_however_many_were_deleted(
+        client, seeded_config):
+    # The rows of a stale unlink name each deleted title the sent text
+    # links. Finding them took one unlink of the text per title deleted
+    # since the batch's `seen_seq`, which the client picks: twenty titles
+    # cost twenty unlinks of a megabyte. One pass now finds them all.
+    text = "[[gone0]] " + "[[x]] " * 30_000
+    _seed(seeded_config, [], pages=("Src",))
+
+    def delete(titles: range) -> None:
+        con = open_db(seeded_config.db_path)
+        try:
+            for i in titles:
+                con.execute("INSERT INTO page_deletions(title, seq,"
+                            " deleted_at) VALUES (?, ?, 0)",
+                            (f"gone{i}", i + 1))
+            con.commit()
+        finally:
+            con.close()
+
+    def run(k: int) -> int:
+        got = []
+        work = loop_steps(MODULES, lambda: got.append(client.post(
+            "/api/ops", json={
+                "client_id": client_id_of("replaywork"),
+                "batch_id": batch_id_of(f"rbw_stale_{k:04d}"),
+                "seen_seq": seq_of(0),
+                "ops": [{"op": "create", "uid": uid_of(f"rbw_stl_{k:03d}"),
+                         "page_title": "Src", "parent_uid": None,
+                         "order_idx": order_idx_of(k), "text": text}]})))
+        assert got[0].status_code == 200, got[0].text[:300]
+        return work
+
+    delete(range(1))
+    small = run(1)
+    delete(range(1, 20))
+    large = run(20)
+    assert _scalar(seeded_config, "SELECT count(*) AS n FROM block_rewrites"
+                   " WHERE old_title = 'gone0'") == 2
+    assert large < 1.5 * small, (small, large)
+
 _UID = "uid_u0000002"
 _STEPS = [("retitle", "A", "B"), ("retitle", "B", "C d"), ("unlink", "A", ""),
           ("unlink", "B", ""), ("inline", _UID, "copied [[A]] text"),
@@ -182,17 +336,21 @@ _STEPS = [("retitle", "A", "B"), ("retitle", "B", "C d"), ("unlink", "A", ""),
 
 @settings(max_examples=1500, deadline=None)
 @given(st.lists(st.sampled_from(["[[A]]", "[[B]]", f"(({_UID}))", "#A", " ",
-                                 "x", "[[Z]]", "A::", "[[ A ]]"]),
+                                 "x", "[[Z]]", "A::", "[[ A ]]", "[[Y]]",
+                                 "[[Z [[Y]]]]", "#Y", "[[", "]]"]),
                 max_size=8).map("".join),
        st.lists(st.lists(st.sampled_from(_STEPS), min_size=1, max_size=2),
                 min_size=1, max_size=3),
-       st.booleans(), st.booleans())
+       st.sets(st.sampled_from(["Z", "Y", "Z Y", "A"]), max_size=3),
+       st.booleans())
 def test_the_rows_reuse_the_replay_and_record_the_same(
-        sent_text, chain, stale_z, conflicting):
+        sent_text, chain, stale_titles, conflicting):
     # The classification's steps, looked up, give the rows a full replay
     # of every step gives: `_replay_step` is a pure function of what the
-    # key holds. Unbudgeted, so neither side stops for work.
-    stale = {canonical_title_of("Z")} if stale_z else set()
+    # key holds. Unbudgeted, so neither side stops for work. Several stale
+    # titles, one nested in another's link, reach the case where the
+    # titles the rows name unlink less than all of them did.
+    stale = {canonical_title_of(t) for t in stale_titles}
     hashes = [text_hash(f"t{i}") for i in range(len(chain) + 1)]
     rewrites = tuple(
         ops_core.BlockRewrite(hashes[i], hashes[i + 1], old, new, kind)
@@ -224,3 +382,65 @@ def test_the_rows_reuse_the_replay_and_record_the_same(
                                         outcome.text)
     assert reused == replayed
     event("rows" if reused else "no rows")
+    if len(stale) > 1:
+        event("several stale titles, rows" if reused
+              else "several stale titles, no rows")
+    named = ops_core.stale_titles_linked(sent_text, stale, normalize_title)
+    if unlink_stale_refs(
+            sent_text, lambda raw: normalize_title(raw) in named) != unlinked:
+        event("the titles named unlink less than all")
+
+
+def _probed_titles(
+        text: str, stale: set[CanonicalTitle],
+        canonical: Callable[[str], CanonicalTitle],
+) -> tuple[CanonicalTitle, ...]:
+    """The titles the rows named before one pass found them: each stale
+    title whose unlink alone changes the text."""
+    return tuple(sorted(
+        title for title in stale
+        if unlink_stale_refs(
+            text, lambda raw, t=title: canonical(normalize_title(raw)) == t)
+        != text))
+
+
+_TOKENS = ["[[z]]", "[[y]]", "[[y z]]", "[[ z ]]", "[[z [[y]]]]", "#z", "#y",
+           "#[[y z]]", "[[", "]]", "[", "]", "(", ")", "`", " ", "\n", "x",
+           "z::", "y z::", "[#z](", "[lbl](", "[[a[]]", "[a[]]", "zy", "#",
+           "{{embed [[z]]}}"]
+
+
+@settings(max_examples=2000, deadline=None)
+@given(st.lists(st.sampled_from(_TOKENS), max_size=10).map("".join),
+       st.sets(st.sampled_from(["z", "y", "y z", "z y", "zy", "a[", " z"]),
+               min_size=1, max_size=3),
+       st.booleans())
+def test_one_pass_finds_the_stale_titles_probing_each_found(
+        text, titles, plain_space):
+    # One pass names the stale titles a text links; probing each title
+    # with its own unlink did. Same titles, so the same rows.
+    def canonical(raw: str) -> CanonicalTitle:
+        return canonical_title_of(
+            refs.canonicalize_title(raw, plain_space=plain_space))
+
+    stale = {canonical(t) for t in titles}
+    probed = _probed_titles(text, stale, canonical)
+    assert ops_core.stale_titles_linked(text, stale, canonical) == probed
+    written = unlink_stale_refs(
+        text, lambda raw: canonical(normalize_title(raw)) in stale)
+    sent = UpdateTextOp(op="update_text", uid=uid_of("uid_u0000001"),
+                        text=text, base_text_hash=text_hash("base"))
+    planned = (ops_core.UpdateText(sent.uid, written),)
+    rows = ops_core.rewrite_effects(sent, planned, stale, canonical)
+    expected = ops_core._rewrite_chain(text, written, probed, (), canonical) \
+        if probed and written != text else ()
+    assert rows == ((ops_core.RecordRewrite(sent.uid, expected),)
+                    if expected else ())
+    event(f"{len(probed)} of {len(stale)} titles linked")
+    if unlink_stale_refs(
+            text, lambda raw: canonical(normalize_title(raw)) in probed) \
+            != written:
+        # a title only another's unlink exposes, which no row names
+        event("the titles named unlink less than all")
+    if expected and len(probed) > 1:
+        event("rows naming several titles")

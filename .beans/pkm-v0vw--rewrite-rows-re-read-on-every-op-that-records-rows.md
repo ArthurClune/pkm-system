@@ -1,11 +1,11 @@
 ---
 # pkm-v0vw
 title: Rewrite rows re-read on every op that records rows
-status: todo
+status: completed
 type: bug
 priority: low
 created_at: 2026-10-26T13:57:15Z
-updated_at: 2026-10-26T13:57:15Z
+updated_at: 2026-10-26T20:23:11Z
 parent: pkm-mfd0
 ---
 
@@ -13,6 +13,11 @@ Found in the security/batch-server Task 13 re-review (concern 1). The per-batch 
 
 Fix: prepend the recorded rows to the cached tuple instead of dropping it, so rows are read once per block per batch.
 
-- [ ] Failing test counting row reads across a batch of recording ops
-- [ ] Keep the cache across RecordRewrite
-- [ ] troubleshooting.md row
+- [x] Failing test counting row reads across a batch of recording ops
+- [x] Keep the cache across RecordRewrite
+- [x] troubleshooting.md row
+
+## Summary of Changes
+
+- Folded into pkm-6jyz's final fix: the per-batch cache of a block's rewrite rows is kept across RecordRewrite, and the final round (42b037b3) replaced whole-block reads with lazy reads per (uid, base_hash) via idx_block_rewrites_uid, charged to the batch budget, with identical duplicate rows skipped (900k-row tiny edit 2.58 s -> 0.00 s; duplicate post stays at 1,000 rows). The whole-block row-count test became the budget and dedupe tests. The failing-test and cache items map to those commits; the troubleshooting row is the one on a stale edit linking many deleted pages (every later small edit holding the lock).
+- Commits: eba1f8f2, 793d45f9, 42b037b3, 6763fe3c. Ruling: orchestrator folded this bean into C1's fix; Arthur 2026-10-26 ruled the cache stays and rows are read lazily and charged. Status left for the orchestrator (the bean is a duplicate of pkm-6jyz's last item).

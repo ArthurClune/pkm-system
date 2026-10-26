@@ -276,8 +276,9 @@ def _replay_step(text: str, step: RewriteStep,
     `unlink.unlink_reads`. The text is None when a splice that can grow
     the text (a longer title, an inlined copy) would carry it past
     `MAX_BLOCK_TEXT_CHARS`. That is judged from the spans
-    before splicing: each link grows by the title's growth, and titles have
-    no length cap, so the text itself could be far too long to build. The
+    before splicing: each link grows by up to the title's growth, and a
+    title stored before `MAX_PAGE_TITLE_CHARS` may be longer still, so the
+    text itself could be far too long to build. The
     unlink that follows an inline only shortens, bar the backticks
     `defuse_attribute` and a fence add (`unlink.unlink_stale_refs`); the
     caller judges what comes out.

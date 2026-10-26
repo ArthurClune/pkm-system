@@ -473,17 +473,23 @@ server bug.
   judged: an unlink only shortens the text, bar the two backticks a fenced
   attribute adds. So a text at the cap whose leading attribute names a
   deleted page is stored at `MAX_BLOCK_TEXT_CHARS` + 2. Every spelling that
-  stops the name indexing adds characters; the fence adds two and leaves
-  the user's text intact. Refusing would discard the offline batch for text
+  stops it indexing and keeps the user's text adds characters; the fence
+  adds two. Refusing would discard the offline batch for text
   the client sent within the limit
   (`test_a_stale_defuse_at_the_cap_stores_at_most_two_more`).
 - **Replayed text.** A stale edit replayed over a rename or page delete
   ([Conflicts](#conflicts)) is never stored past a limit, though nobody sent
-  the text the replay makes. Each link grows by the title's growth, and
-  titles have no length cap, so the replayed text could be orders of
-  magnitude past the cap. `ops_core._replay_step` projects each splice's
-  length from its spans (`spans.spliced_length`) and stops before building
-  one past `MAX_BLOCK_TEXT_CHARS`. `classify_text_edit` then judges the
+  the text the replay makes. Each link grows by up to the title's growth
+  (a title may be `MAX_PAGE_TITLE_CHARS` long, a legacy one longer), so the
+  replayed text could be orders of magnitude past the cap.
+  `ops_core._replay_step` projects each splice's length from its spans
+  (`spans.spliced_length`) and stops before building one past
+  `MAX_BLOCK_TEXT_CHARS`. It also stops, before the step's unlink, when the
+  spliced copies nest past `MAX_LINK_NESTING` deeper than the step found
+  the text, or when their depth times length passes `MAX_UNLINK_WORK` and
+  the text's own (`text_limits.unlink_refused`). A link the step's unlink
+  leaves when its passes run out is fenced, as on the
+  [stale path](#stale-batches). `classify_text_edit` then judges the
   result with `text_limit_violation`. Either refusal is the `over_limit`
   outcome: the block keeps its text, and the edit lands as a conflict
   entry. A 400 would poison the client's queue over text it never sent.
@@ -495,6 +501,22 @@ server bug.
   has a rewrite row (`ops_apply._context_for`), as the rename or delete
   they replay did: under plain-space canonicalisation a `[[ Old ]]` the
   client added offline is the page `Old`, and left linked it re-creates it.
+- **Replay budget.** A batch's replays share one budget,
+  `ops_core.MAX_BATCH_REPLAY_WORK`, counted in characters read. The copies
+  and titles a replay splices come from the server's history, not the
+  request, so a batch of tiny edits could otherwise hold the write lock for
+  minutes. An unlink is charged what the capped unlink can read
+  (`unlink.unlink_reads`). A rename is charged the text it scans plus the
+  text it splices, because a longer title grows every link. When a step
+  would read past what is left, the edit lands as sent, as for
+  `over_limit`, and that step spends the rest, so every later step stops
+  before splicing. A step a cap stops (the length cap, or an unlink refused
+  for its depth) pays for what it scanned or built (`ops_core._spent`). A
+  stopped step is not kept, so a step that paid nothing would be done again
+  by every op of the batch. A replay runs each step once: the rewrite rows
+  and their check look up the classification's steps by what
+  `_replay_step` depends on (`ops_core._step_key`) instead of replaying
+  them again.
 
 Conflicts, missing targets, stale batches and concurrent structure edits are
 what a batch meets when the tree changed after it was planned. None rejects
@@ -546,6 +568,16 @@ is last-write-wins. A replay or stale unlink makes the written text differ
 from the sent text, and the client hashes its next edit from what it sent.
 So `ops_core.rewrite_effects` records a `block_rewrites` chain
 (`RecordRewrite`) from the sent text's hash to the written one.
+
+The chain's stale-unlink rows name each stale title whose own unlink would
+change the sent text. `ops_core.stale_titles_linked` finds them in one pass
+that matches nothing and records every title the unlink asks about
+(`unlink.linked_titles`). It then intersects those with the stale set,
+which walks the text's titles, not the deletions. Probing each title with
+its own unlink cost one pass per title deleted since `seen_seq`, and the
+client picks that number. Recording what the full-set unlink matched would
+instead name a title that only another's unlink exposes (`[[z [[y]]]]` with
+`y` and `z y` deleted), which the rows must not.
 
 `delete` may carry `base_subtree_hash` over the uid and text of the block
 and every descendant ([canonical form](sync-and-offline.md#conflicts-at-push-time)).
@@ -650,8 +682,9 @@ nesting below the cap:
 | Root copy at the cap, under a reused header | its copied descendants follow it under the header, in document order |
 
 Nor is server-made text ever past a [text limit](#planning), bar the two
-backticks a defused attribute adds. Neither a page title nor a `page_title`
-hint is length-capped, so every header and note that names a page is
+backticks a defused attribute adds. A `page_title` hint is never
+length-judged, and a title stored before `MAX_PAGE_TITLE_CHARS` may be
+longer than the cap. So every header and note that names a page is
 judged, and names it `LONG_TITLE_LABEL` when the name would not fit
 (`conflict_notes._fitted`). Only the name is replaced, so a header for a
 hint naming no page still says `(page not found)`. Text the planner copies
@@ -673,6 +706,12 @@ deletion as newer.
 | top-level `create` / `move` with a stale `page_title` | skipped as `stale_page` (a `SkipKind`), reported `page_deleted` (a `SkipReason`) ([above](#missing-targets)) |
 | text linking a stale title | the links become plain text (`ops_core.unlink_stale_text`) |
 | a leading `Title::` naming a stale title | fenced in place, `` `X`:: v `` (`unlink.defuse_attribute`), so it indexes no ref; the unlink replay defuses too. A text at the cap is stored two characters past it ([Planning](#planning)) |
+
+`unlink_stale_refs` fences what the unlink's passes leave: the title goes
+in backticks inside its brackets (``[[`a[`]]``, `` #`T` ``). A run whose
+title holds a backtick is no run, so the link is gone whatever the
+backticks pair with, and nothing the user wrote is removed. Only a legacy
+title ending in `[`, or a code span that moves as links go, leaves one.
 
 A page re-created after its delete still matches until its row is pruned.
 
@@ -709,7 +748,14 @@ before any write:
 | rewritten text still references the page | refused, `residual` |
 
 `unlink_title_refs` repeats until the text is stable, because a nested legacy
-link loses one layer per pass. Rewritten blocks get `unlink` and `inline`
+link loses one layer per pass. It stops after the text's `[[` depth plus
+two passes that change it (`unlink.unlink_settled`): the depth peels nested
+links, and the two cover a tag an unlink exposes (`##[[T]]`,
+`[[\n#T\n]]#T`). A title ending in `[` (legacy only), or a code span that
+moves as links go, can need more. A delete then finds the link the passes
+left and reports the source `residual`. A link's alias label is found by
+looking back to the last `[` only (`unlink._alias_label`); a search from
+the text's start per link made the unlink quadratic in its links. Rewritten blocks get `unlink` and `inline`
 rows and a reindex, and the title goes into `page_deletions`. The replay of
 an `unlink` row matches titles through the same `title_reader`, or a stale
 padded `[[ Title ]]` would survive and recreate the page.
@@ -725,8 +771,10 @@ worse,** so the page it links stays renamable and deletable. Client writes
 keep the strict rule ([Planning](#planning)).
 
 A page delete judges length before it builds anything. The copy work it
-does under the write lock is bounded per delete, and the rest is linear in
-the page's text and its referrers' own text. It builds a page block's copy
+does under the write lock is bounded per delete. The rest grows with the
+page's text, the referrers' own text and the copy text counted, times the
+unlink's passes: at most the depth plus three per text, each text held to
+`text_limits.MAX_UNLINK_WORK` in depth times length. It builds a page block's copy
 only when a source refers to it (`unlink._Copies`). Every judgement counts a
 copy at its projected length (`spans.spliced_length` of the refs it holds),
 before deeper refs are blanked and links unlinked. A copy that blanks down
@@ -740,6 +788,22 @@ empty block project to 0.
 | one copy | `MAX_BLOCK_TEXT_CHARS` | every source referring to it |
 | one source's inlined text | `MAX_BLOCK_TEXT_CHARS`, and longer than the source | that source |
 | copy text over all sources, in order | `MAX_DELETE_COPY_CHARS` | each source that would carry the total past it |
+| one copy, spliced, before unlinking | nested past `MAX_LINK_NESTING` deeper than the block, or depth times length past `MAX_UNLINK_WORK` and the block's | every source referring to it |
+| one source with its copies in, before unlinking | the same, against the source | that source |
+
+Copies that each nest within the cap can join into one deep link: one block
+opens 32 runs and another closes them, so a referrer citing each m times
+inlines to `[[` × 32m around the title. The unlink peels one layer per pass
+over the whole text, so the spliced text is judged before unlinking
+(`text_limits.unlink_refused`), on each copy in `unlink._Copies.get` and on
+each source in `plan_page_delete`. Within the nesting cap the same splice
+can still wrap thousands of links 32 deep, each layer a pass over the whole
+text, so `unlink_refused` also judges depth times length against
+`MAX_UNLINK_WORK`. That is twice the length cap: any text within the length
+cap nested twice passes. Level is allowed on both rules, so a legacy row
+whose delete splices nothing in stays deletable. A source refused for its
+depth keeps its copy text counted against `MAX_DELETE_COPY_CHARS`, since its
+copies were built.
 
 No copy is built for a source refused on its projected length. A source is
 judged before unlinking, and the shortening passes can remove any amount of
@@ -889,6 +953,7 @@ Two reported rows have no migration remedy, and
 |---|---|
 | `#`, `[[`, `]]` | ref syntax |
 | a trailing `]` | `[[a]]]` reads back as `a` |
+| a trailing `[` | unlinking `[[a[]]` leaves `a[`, which joins a following `[a[]]` into a fresh link, so a page delete's unlink re-forms one link per pass |
 | a backtick | it pairs with another on the line into a code span that hides the ref |
 | a `.`, `..` or empty `/` segment (`/x`, `a//b`, `a/../b`) | no URL: clients drop dot segments and the router collapses `//` |
 
@@ -896,9 +961,31 @@ Every rule judges the title edge-stripped of U+0020
 (`target_canonical_title`) whatever the flag, because the pure ops check
 never knows the flag and must not pass ` a] `. A title is refused at
 creation, rename, move, sidebar pin, import, and in the migration audit. In
-block text a ref with `#`, `[[`, `]]` or a trailing `]` fails the batch with
-a 400; a backtick or no URL makes it [no ref](#ref-grammar). `...` and `a.b`
-are ordinary titles.
+block text a ref with `#`, `[[`, `]]` or a trailing `]` or `[` fails the
+batch with a 400; a backtick or no URL makes it [no ref](#ref-grammar). `...`
+and `a.b` are ordinary titles. A row stored with a title ending in `[`
+stays readable and deletable; [Page mutations](#page-mutations-and-the-sidebar)
+bounds its unlink.
+
+A title whose fold (`normalize_title`) is longer than
+`MAX_PAGE_TITLE_CHARS` code points is refused too (`refs.title_length_over`).
+That holds at creation, rename, move, sidebar pin and import, but not in the
+migration audit, which only shortens a title. In block text a link, tag or
+attribute to such a title fails the batch with a 400. The fold is measured
+on the title as sent, before the flag's edge strip: it is the longest a
+stored title can be under either flag, and the pure ops check never knows
+the flag. So ` t…t ` with single-space edges is refused at 1,002. Length is
+judged before syntax (`refs.title_refusal`), so a refusal names the length
+and never echoes the title.
+
+`get_or_create_page` refuses only creating such a page (`TitleTooLongError`,
+raised after `fetch_page` misses). A row stored before the cap stays
+readable, renamable to a shorter title and deletable, and a reindex keeps its
+backlinks; `index_ref` skips a long title as it skips a forbidden one. An op
+naming a stored long title as a `page_title` or a link is refused until the
+page is renamed. `update_text`'s `page_title` hint is never judged: refusing
+it would refuse an edit to a block on such a page and discard the offline
+batch.
 
 ### Blank titles
 
@@ -1182,16 +1269,16 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | GET | `/{path}` *(public)* | SPA fallback; hashed bundles under `/app-assets/` |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |
-| POST | `/api/ops` | Apply an `OpBatch` ([The write path](#the-write-path)); `applied` counts skipped ops too; 400 for the whole batch past a [text limit](#planning); 412 when an `expect` entry no longer holds, and nothing is written; 413 for a body past `PRIVATE_BODY_MAX_BYTES` ([Auth](#auth)) |
+| POST | `/api/ops` | Apply an `OpBatch` ([The write path](#the-write-path)); `applied` counts skipped ops too; 400 for the whole batch past a [text limit](#planning) or naming a [refused title](#refused-titles); 412 when an `expect` entry no longer holds; 413 for a body past `PRIVATE_BODY_MAX_BYTES` ([Auth](#auth)) |
 | **Pages & blocks** | | |
 | GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree, paginated backlinks (not from the page itself) with [`ancestor_texts`](#breadcrumbs-and-recursive-traversal) per group, `block_ref_counts`; daily pages auto-created |
 | GET | `/api/block/{uid}` | One block subtree with its page and [breadcrumbs](#breadcrumbs-and-recursive-traversal) |
 | GET | `/api/block/{uid}/backlinks` | Blocks referencing `((uid))`, unpaginated, with [`ancestor_texts`](#breadcrumbs-and-recursive-traversal) per group |
 | GET | `/api/block-refs?uids=` | Resolve `((uid))` references |
-| POST | `/api/pages` | Idempotent page create |
+| POST | `/api/pages` | Idempotent page create; 422 for a blank, refused or over-long title |
 | DELETE | `/api/page/{title}` | Delete a page, unlinking inbound refs; 409 with `blockers`, each an `excerpt` and `text_length` ([Page mutations](#page-mutations-and-the-sidebar)) |
 | GET | `/api/delete-preview?title=` | What a delete would rewrite or be refused for, a `limit` blocker included |
-| POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge`; 422 when the rewrite would carry a block past a text limit |
+| POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge`; 422 when the new title is [refused](#refused-titles) or longer than `MAX_PAGE_TITLE_CHARS`, or the rewrite would carry a block past a text limit |
 | GET | `/api/unlinked?title` | Unlinked mentions, not from the page itself |
 | GET | `/api/journal?before&days` | Daily-notes feed |
 | POST | `/api/journal/cleanup` | Prune empty, unreferenced daily pages from the week before today |
@@ -1206,7 +1293,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | GET | `/api/todos?page` | `{{TODO}}` blocks grouped by page |
 | GET | `/api/changed?since&until&page&limit` | Blocks changed in `[since, until)`, each `new` or `edited`; 400 on an empty window |
 | **Sidebar** | | |
-| GET / POST / PUT / DELETE | `/api/sidebar`… | List, pin, reorder (a permutation), unpin |
+| GET / POST / PUT / DELETE | `/api/sidebar`… | List, pin, reorder (a permutation), unpin; a pin of a refused or over-long title is a 422 |
 | **Sync** ([sync-and-offline.md](sync-and-offline.md)) | | |
 | GET | `/api/sync/snapshot?pending` | Full bootstrap with `seq`, `generation`, the title flag and `applied_batches` |
 | GET | `/api/sync/changes?since&limit&pending` | Windowed incremental feed with the same metadata |
@@ -1262,6 +1349,7 @@ route.
 | An outline nested past the readers' 255-level limit | `/api/ops` refuses a client's block placed past `MAX_OUTLINE_DEPTH` and lands its own conflict copies no deeper; the importer refuses an export holding one (`validate_export_depth`); rule in [Missing targets](#missing-targets) | `test_outline_depth.py`, `test_hostile_requests.py` |
 | A page whose `((refs))` or queries fan out past `EXPORT_MAX_CHARS`, or into more expansions than it allows | `export/resolve.py` counts characters and calls as it expands, the route's gather charges the same limits (`GatherBudget`), and the route answers 422; rule in [Single-page export](import-export-and-backup.md#single-page-export) | `test_export_resolve.py`, `test_export_routes.py` |
 | Block text longer than `MAX_BLOCK_TEXT_CHARS` or nesting `[[` past `MAX_LINK_NESTING` | `ops_core.find_op_text_limit_violation` refuses the batch; `store.rewrite_snapshotted_blocks`, `unlink.plan_page_delete` and `routes_assets._strip_references` refuse a rewrite that makes a block worse; `preflight.validate_row_text_limits` refuses the import; rule in [Planning](#planning) | `test_text_limits_ops.py`, `test_text_limits_rewrites.py`, `test_import_preflight.py` |
+| A page title millions of characters long | Refused past `MAX_PAGE_TITLE_CHARS` at every entry point; rule in [Refused titles](#refused-titles) | `test_title_length.py` |
 | `[[` nested past Python's recursion limit, which only a row stored before the nesting limit reaches | Rename and unlink walk iteratively (`_rewrite_range`, `_unlink_range`); rule in [Ref grammar](#ref-grammar) | `test_legacy_deep_brackets.py` |
 
 Path and query values cannot carry a lone surrogate, because the server
@@ -1292,6 +1380,7 @@ Python commands run from `server/`, `pnpm` ones from `web/`.
 | `shared/fixtures/upload_links_parity.json` | `UPDATE_UPLOAD_LINKS_FIXTURE=1 pnpm vitest run src/sync/assetsParity.test.ts` | that test, `test_upload_links_parity.py` | `assets_core.strip_asset_tokens` |
 | `ref_grammar.json` | hand-edited | `test_refs.py`, `grammar/refs.test.ts` | the [ref grammar](#ref-grammar) |
 | `title_syntax.json` | hand-edited | `test_refs.py`, `replica/titles.test.ts` | `title_syntax_reason` |
+| `title_length.json` | hand-edited | `test_title_length_fixture.py`, `grammar/titleLength.test.ts`, `replica/titles.test.ts` | `MAX_PAGE_TITLE_CHARS`, `title_length_over`, and which linked titles `find_op_title_violation` refuses, with its wording |
 | `missing_targets.json` | hand-edited | `test_ops_core.py`, `missingTarget.test.ts` | `classify_skip`; `placement_cases` pin where a create or move lands |
 | `subtree_hash.json` | hand-edited | `test_subtree_hash.py`, `subtreeHash.test.ts` | `subtree_hash` |
 | `ops_acks.json` | hand-edited | `test_ops_idempotency.py`, `opsAck.test.ts` | the stored-ack-to-wire mapping and `SkipReason` |

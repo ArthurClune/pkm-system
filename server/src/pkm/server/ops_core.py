@@ -300,22 +300,74 @@ def _rewrite_steps(rewrites: Sequence[BlockRewrite]) -> list[RewriteStep]:
     return steps
 
 
+# A stored row as the batch compares it with one it would write: its after
+# hash, kind and titles, under the base hash it is filed by.
+StoredRow = tuple[Sha256Hex, RewriteKind, str, str]
+
+
 class RewriteHistory:
     """A block's rewrite steps, found by the hash they start from: what a
-    replay walks. `ops_apply` builds one from the block's rows once per
-    batch and keeps it as the batch records more (`record`), so no op
-    reads the rows again, nor walks the steps it does not replay: an op
-    costs what its own steps do, however many rows the block holds."""
+    replay walks. Built from rows, it holds every hash those rows start
+    from. `lazy()` holds none: the shell reads one base hash's rows when a
+    walk reaches it (`next_unread`, `add_read`), and marks one too costly
+    to read (`add_unread`), where a walk stops blind. The batch keeps it as
+    it records more (`record`), so no op reads a hash's rows twice, nor
+    rows its walk never reaches: an op costs what its own steps do,
+    however many rows the block holds."""
 
     def __init__(self, rows: Sequence[BlockRewrite] = ()) -> None:
         # Each base hash's steps by hash pair, oldest first, so a newer
         # step, or one a newer row joins, goes at the end.
         self._by_base: dict[
             Sha256Hex, dict[tuple[Sha256Hex, Sha256Hex], RewriteStep]] = {}
+        # the hashes whose rows are read; None for every hash
+        self._read: set[Sha256Hex] | None = None
+        self._unread: set[Sha256Hex] = set()
+        self._stored: dict[Sha256Hex, set[StoredRow]] = {}
         self._add(rows)
 
-    def __bool__(self) -> bool:
-        return bool(self._by_base)
+    @classmethod
+    def lazy(cls) -> RewriteHistory:
+        history = cls()
+        history._read = set()
+        return history
+
+    def is_read(self, base_hash: Sha256Hex) -> bool:
+        return self._read is None or base_hash in self._read
+
+    def is_unread(self, base_hash: Sha256Hex) -> bool:
+        """Whether the hash's rows were too costly to read."""
+        return base_hash in self._unread
+
+    def next_unread(self, base_hash: Sha256Hex) -> Sha256Hex | None:
+        """The first hash a walk from `base_hash` (`_replay`) reaches whose
+        rows are not read yet, or None when the walk needs no more."""
+        taken: set[int] = set()
+        for _ in range(MAX_REPLAYED_REWRITES):
+            if self.is_unread(base_hash):
+                return None
+            if not self.is_read(base_hash):
+                return base_hash
+            step = self.newest(base_hash, taken)
+            if step is None:
+                return None
+            taken.add(id(step))
+            base_hash = step.after_hash
+        return None
+
+    def add_read(self, base_hash: Sha256Hex,
+                 rows: Sequence[BlockRewrite]) -> None:
+        """The rows stored from `base_hash`, newest first."""
+        assert self._read is not None
+        self._read.add(base_hash)
+        self._add(rows)
+
+    def add_unread(self, base_hash: Sha256Hex) -> None:
+        self._unread.add(base_hash)
+
+    def stored(self, base_hash: Sha256Hex) -> AbstractSet[StoredRow]:
+        """The rows stored from a read hash, as `StoredRow`s."""
+        return self._stored.get(base_hash, set())
 
     def newest(self, base_hash: Sha256Hex,
                taken: AbstractSet[int]) -> RewriteStep | None:
@@ -334,6 +386,9 @@ class RewriteHistory:
         self._add(tuple(reversed(rows)))
 
     def _add(self, rows: Sequence[BlockRewrite]) -> None:
+        for row in rows:
+            self._stored.setdefault(row.base_hash, set()).add(
+                (row.after_hash, row.kind, row.old_text, row.new_text))
         for step in reversed(_rewrite_steps(rows)):
             group = self._by_base.setdefault(step.base_hash, {})
             pair = (step.base_hash, step.after_hash)
@@ -527,12 +582,14 @@ class _Replayed:
     """What `_replay` made: the text (None when a step stopped it), the
     hash it ends at (that step's base when it stopped), the steps it
     consumed in the order it walked them, every step it replayed by key,
-    and the reads it spent (`_replay_step`)."""
+    the reads it spent (`_replay_step`), and whether the walk stopped
+    blind, at a hash whose rows were too costly to read."""
     text: str | None
     base_hash: Sha256Hex
     steps: tuple[RewriteStep, ...]
     known: dict[StepKey, str]
     reads: int
+    blind: bool = False
 
 
 def _replay(
@@ -547,7 +604,9 @@ def _replay(
     unlink past `allowance` (`_replay_step`), and the hash is then the base
     of that step. The walk still follows the chain past it, so the steps
     name every title the chain deleted or renamed away
-    (`over_limit_landing_text`). A step in `known` is not replayed again."""
+    (`over_limit_landing_text`). A step in `known` is not replayed again.
+    A walk that reaches a hash whose rows `history` has not read stops
+    there, blind: the text is None and the landing knows no titles."""
     history = (rewrites if isinstance(rewrites, RewriteHistory)
                else RewriteHistory(rewrites))
     consumed: list[RewriteStep] = []
@@ -557,6 +616,9 @@ def _replay(
     replayed: str | None = text
     stopped_at: Sha256Hex | None = None
     for _ in range(MAX_REPLAYED_REWRITES):
+        if history.is_unread(base_hash) or not history.is_read(base_hash):
+            return _Replayed(None, stopped_at or base_hash, tuple(consumed),
+                             memo, spent, blind=True)
         match = history.newest(base_hash, taken)
         if match is None:
             break
@@ -576,7 +638,8 @@ def _replay(
 
 
 def over_limit_landing_text(text: str, replayed: Sequence[RewriteStep],
-                            canonical: Callable[[str], str]) -> str:
+                            canonical: Callable[[str], str],
+                            blind: bool = False) -> str:
     """An `over_limit` edit as it lands: as sent, with every title a step of
     its replay deleted (`unlinked`) or renamed away (`retitles`' keys) made
     plain, as a stale unlink does. Landed with those links, the entry would
@@ -587,7 +650,11 @@ def over_limit_landing_text(text: str, replayed: Sequence[RewriteStep],
     unlink's passes leave (`unlink.unlink_stale_refs`), which only a title
     stored before it was refused can re-form. Each step's titles are
     looked up in the set kept on it (`StepTitles.gone`), not gathered
-    again per op."""
+    again per op. A `blind` replay, whose walk met rows too costly to
+    read, knows none of the titles its chain deleted, so every link is
+    made plain: any of them could name a deleted page."""
+    if blind:
+        return unlink_stale_refs(text, lambda _raw: True)
     gone = [titles.gone for step in replayed
             if (titles := _derived(step, canonical)).gone]
     if not gone:
@@ -622,7 +689,9 @@ class TextEditOutcome:
     for `over_limit`). `known` is every step the replay made, which the
     rewrite rows reuse (`rewrite_effects`) rather than replay again;
     `reads` is what its steps spent from the batch's
-    `MAX_BATCH_REPLAY_WORK`, which an `over_limit` may also have run out."""
+    `MAX_BATCH_REPLAY_WORK`, which an `over_limit` may also have run out;
+    `blind` an `over_limit` whose walk met rows too costly to read
+    (`over_limit_landing_text`)."""
     kind: Literal["identical", "clean", "conflict", "over_limit"]
     text: str
     replayed: tuple[RewriteStep, ...] = field(default=(), compare=False)
@@ -630,6 +699,7 @@ class TextEditOutcome:
                                             compare=False)
     known: Mapping[StepKey, str] = field(default_factory=dict, compare=False)
     reads: int = field(default=0, compare=False)
+    blind: bool = field(default=False, compare=False)
 
 
 def classify_text_edit(
@@ -648,7 +718,8 @@ def classify_text_edit(
 
     def outcome(kind: Literal["identical", "clean", "conflict",
                               "over_limit"], landed: str) -> TextEditOutcome:
-        return TextEditOutcome(kind, landed, steps, canonical, known, reads)
+        return TextEditOutcome(kind, landed, steps, canonical, known, reads,
+                               replay.blind)
 
     if replay.text is None:
         return outcome("over_limit", text)
@@ -965,14 +1036,15 @@ class ReplayOverLimitContext:
     """A hashed update_text on a live block that `classify_text_edit` found
     `over_limit`: the block keeps its text, and the edit lands under a
     header naming `page_title`, the block's own page, as
-    `over_limit_landing_text` makes it. `replayed`, `canonical` and
-    `reads` are as on the outcome."""
+    `over_limit_landing_text` makes it. `replayed`, `canonical`, `reads`
+    and `blind` are as on the outcome."""
     block: BlockInfo
     page_title: CanonicalTitle
     landing: ConflictLanding
     replayed: tuple[RewriteStep, ...] = ()
     canonical: Callable[[str], str] = normalize_title
     reads: int = 0
+    blind: bool = False
 
 
 @dataclass(frozen=True)
@@ -1514,7 +1586,8 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
         # applied the edit gets its row back
         assert isinstance(op, UpdateTextOp) and op.base_text_hash is not None
         header_text = live_block_header_text(ctx.page_title, op.uid)
-        landed = over_limit_landing_text(op.text, ctx.replayed, ctx.canonical)
+        landed = over_limit_landing_text(op.text, ctx.replayed, ctx.canonical,
+                                         ctx.blind)
         return (*conflict_entry_effects(op.uid, landed, header_text,
                                         ctx.landing),
                 JournalBlock(op.uid, False))

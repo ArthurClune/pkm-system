@@ -21,7 +21,8 @@ from pkm.contracts.titles import UNTITLED_PAGE_TITLE, RawTitle
 from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
                       normalize_title)
 from pkm.rows import Row
-from pkm.server.ops_core import (MAX_BATCH_REPLAY_WORK, SKIPPED_CONTEXTS,
+from pkm.server.ops_core import (MAX_BATCH_REPLAY_WORK, ROW_CHARS,
+                                 SKIPPED_CONTEXTS,
                                  BlockContext, BlockInfo,
                                  BlockRewrite, ConflictLanding, CreateContext,
                                  DeleteBlocks, DeleteConflictContext,
@@ -114,18 +115,54 @@ def _block_with_depth(db: Db,
     return BlockInfo(row["uid"], row["page_id"], row["parent_uid"]), row["n"]
 
 
-def _block_rewrites(db: Db,
-                    uid: BlockUid) -> tuple[BlockRewrite, ...]:
-    """Every recorded rename/merge/delete rewrite of this block, newest
-    first -- the order `ops_core.replay_title_rewrites` walks the chain in."""
-    rows = db.select(
-        "SELECT base_hash, after_hash, old_title AS rewrite_old_text,"
-        " new_title AS rewrite_new_text, kind AS rewrite_kind FROM block_rewrites WHERE uid = ?"
-        " ORDER BY created_at DESC, rowid DESC", (uid,))
+# The rows a replay reads, newest first: the order
+# `ops_core.replay_title_rewrites` walks the chain in. By rowid, which
+# the index `idx_block_rewrites_uid` orders a hash's rows by, so no read
+# sorts; and a row a batch writes is always newest, as its history keeps
+# it (`RewriteHistory.record`), even after the clock steps back.
+_REWRITE_COLUMNS = (
+    "SELECT base_hash, after_hash, old_title AS rewrite_old_text,"
+    " new_title AS rewrite_new_text, kind AS rewrite_kind"
+    " FROM block_rewrites")
+
+
+def _rewrites_of(rows: Sequence[Row]) -> tuple[BlockRewrite, ...]:
     return tuple(BlockRewrite(row["base_hash"], row["after_hash"],
                               row["rewrite_old_text"], row["rewrite_new_text"],
                               row["rewrite_kind"])
                  for row in rows)
+
+
+def _block_rewrites(db: Db,
+                    uid: BlockUid) -> tuple[BlockRewrite, ...]:
+    """Every recorded rename/merge/delete rewrite of this block, newest
+    first. Only an op planned outside a batch reads them all."""
+    return _rewrites_of(db.select(
+        f"{_REWRITE_COLUMNS} WHERE uid = ? ORDER BY rowid DESC", (uid,)))
+
+
+def _rewrites_from(db: Db, uid: BlockUid,
+                   base_hash: Sha256Hex) -> tuple[BlockRewrite, ...]:
+    """The rows of this block's rewrites from `base_hash`, newest first."""
+    return _rewrites_of(db.select(
+        f"{_REWRITE_COLUMNS} WHERE uid = ? AND base_hash = ?"
+        " ORDER BY rowid DESC", (uid, base_hash)))
+
+
+def _rewrites_cost(db: Db, uid: BlockUid, base_hash: Sha256Hex,
+                   allowance: int) -> int | None:
+    """What reading the rows from `base_hash` is charged: each row's titles
+    in bytes and `ROW_CHARS`, as writing it is; None past `allowance`. It
+    measures at most the rows the allowance could pay for, through the
+    index and without loading their titles, so a hash holding millions of
+    rows costs what the budget does."""
+    sizes = db.select(
+        "SELECT octet_length(old_title) + octet_length(new_title) AS n"
+        " FROM block_rewrites WHERE uid = ? AND base_hash = ?"
+        " ORDER BY rowid DESC LIMIT ?",
+        (uid, base_hash, allowance // ROW_CHARS + 1))
+    cost = sum(ROW_CHARS + row["n"] for row in sizes)
+    return None if cost > allowance else cost
 
 
 def _parent_chain(db: Db, uid: BlockUid) -> tuple[BlockUid, ...]:
@@ -376,15 +413,16 @@ def _skip_context(db: Db, op: _AddressedOp, skip: Skip,
 class BatchReplay:
     """What one batch's hashed edits share as it applies:
     - `allowance`, what its replays may still spend
-      (`ops_core.MAX_BATCH_REPLAY_WORK`);
+      (`ops_core.MAX_BATCH_REPLAY_WORK`), the rows they read included;
     - `reader`, its one title canonicalisation, the stale titles' when it
       has them, else read on first use. One function for the whole batch,
       so what a step derives under it (`ops_core.StepTitles`) is reused
       by every op;
-    - `histories`, each block's rewrite steps, read once and kept as the
-      batch records more (`recorded`). A copy in them can be a megabyte, a
-      step can hold a title per link of one, and many ops can edit one
-      block."""
+    - `histories`, each block's rewrite steps, read one base hash at a
+      time as a walk reaches it (`walk`) and kept as the batch records
+      more (`recorded`). A block can hold millions of rows, and many ops
+      can edit one block, so each op reads only the hashes its walk
+      reaches, and pays for them."""
     allowance: int
     reader: Callable[[str], str] | None = None
     histories: dict[BlockUid, RewriteHistory] = dataclasses.field(
@@ -395,18 +433,53 @@ class BatchReplay:
             self.reader = title_reader(db)
         return self.reader
 
-    def history(self, db: Db, uid: BlockUid) -> RewriteHistory:
-        if uid not in self.histories:
-            self.histories[uid] = RewriteHistory(_block_rewrites(db, uid))
-        return self.histories[uid]
+    def history(self, uid: BlockUid) -> RewriteHistory:
+        return self.histories.setdefault(uid, RewriteHistory.lazy())
 
-    def recorded(self, uid: BlockUid,
-                 rows: Sequence[BlockRewrite]) -> None:
-        """Rows the batch wrote for `uid`. A block it has not read yet
-        reads them with the rest."""
-        history = self.histories.get(uid)
-        if history is not None:
-            history.record(rows)
+    def walk(self, db: Db, uid: BlockUid,
+             base_hash: Sha256Hex) -> RewriteHistory:
+        """The block's history, with every hash a walk from `base_hash`
+        reaches read, or marked too costly to read."""
+        history = self.history(uid)
+        while (unread := history.next_unread(base_hash)) is not None:
+            self._read(db, uid, history, unread)
+        return history
+
+    def _read(self, db: Db, uid: BlockUid, history: RewriteHistory,
+              base_hash: Sha256Hex) -> None:
+        """Read the rows from `base_hash`, charged (`_rewrites_cost`). Past
+        what is left the hash is marked unread and the read spends the
+        rest, as a replay step past the budget does."""
+        cost = _rewrites_cost(db, uid, base_hash, self.allowance)
+        if cost is None:
+            self.allowance = 0
+            history.add_unread(base_hash)
+            return
+        self.allowance -= cost
+        history.add_read(base_hash, _rewrites_from(db, uid, base_hash))
+
+    def recorded(self, db: Db, uid: BlockUid,
+                 rows: Sequence[BlockRewrite]) -> tuple[BlockRewrite, ...]:
+        """Of rows the batch would write for `uid`, those not stored
+        already, kept in the block's history as written. The same stale
+        edit posted again records the same rows, which would otherwise
+        multiply a hash's rows without bound. Each hash's stored rows are
+        read to compare, charged; one too costly to read is not compared,
+        and its rows are all written, since a row the client's next edit
+        needs must never be dropped."""
+        history = self.history(uid)
+        fresh: list[BlockRewrite] = []
+        for row in rows:
+            base = row.base_hash
+            if not history.is_read(base) and not history.is_unread(base):
+                self._read(db, uid, history, base)
+            if (history.is_read(base) and (row.after_hash, row.kind,
+                                           row.old_text, row.new_text)
+                    in history.stored(base)):
+                continue
+            fresh.append(row)
+        history.record(fresh)
+        return tuple(fresh)
 
 
 def _context_for(db: Db, op: BlockOp, now_ms: int,
@@ -488,13 +561,15 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
             " JOIN pages p ON p.id = b.page_id WHERE b.uid = ?",
             (op.uid,))
         assert row is not None  # classify_skip covered the block's absence
+        base = op.base_text_hash
         history = (RewriteHistory(_block_rewrites(db, op.uid))
-                   if replay is None else replay.history(db, op.uid))
+                   if replay is None else replay.walk(db, op.uid, base))
         # a replay matches titles the way the rename or delete did: under
         # plain-space titles `[[ Old ]]` is the page Old, and left linked
         # it re-creates the page. The flag is read only for an edit with a
         # rewrite row to replay.
-        if not history:
+        if not (history.is_unread(base)
+                or history.newest(base, frozenset()) is not None):
             canonical: Callable[[str], str] = normalize_title
         elif replay is None:
             canonical = title_reader(db)
@@ -506,7 +581,7 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
         if outcome.kind == "over_limit":
             return ReplayOverLimitContext(
                 block, row["title"], _conflict_landing(db, op.uid, now_ms),
-                outcome.replayed, canonical, outcome.reads)
+                outcome.replayed, canonical, outcome.reads, outcome.blind)
         if outcome.kind != "conflict":
             return TextEditContext(block, outcome)
         # only a real conflict pays for today's daily page and its extra
@@ -711,9 +786,10 @@ def apply_batch(db: Db, judged: JudgedBatch,
                 ctx.outcome.text if isinstance(ctx, TextEditContext) else None,
                 known)
         for eff in effects:
-            _execute(db, eff, now_ms)
             if isinstance(eff, RecordRewrite):
-                replay.recorded(eff.uid, eff.rewrites)
+                eff = RecordRewrite(eff.uid,
+                                    replay.recorded(db, eff.uid, eff.rewrites))
+            _execute(db, eff, now_ms)
         if isinstance(ctx, (*SKIPPED_CONTEXTS, ReplayOverLimitContext)):
             skipped.append(skip_report(index, op, ctx))
         else:

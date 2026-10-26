@@ -6,10 +6,11 @@ batch, for the rows' retention. Each such op read every row of the block,
 canonicalised and sorted the step's titles, and, when the step changed
 its text, recorded the whole step again as new rows, which the next op
 then read back: work set by the server's history, not the request, and
-quadratic in the ops of a batch. A batch now reads a block's rows once
-and keeps them as it records more, derives each step once, and charges
-the rows it records to its replay budget. Past the budget an edit lands
-as sent."""
+quadratic in the ops of a batch. A batch now reads only the base hashes
+an edit's walk reaches, charged to its replay budget, keeps them as it
+records more, derives each step once, and charges the rows it records;
+an identical row is never stored twice. Past the budget an edit lands as
+sent."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -153,20 +154,20 @@ def test_an_op_a_step_changes_records_the_whole_step(client, seeded_config):
     assert _text(seeded_config, uid) == "t0 y2"
 
 
-def test_a_batch_reads_a_blocks_rows_once_however_many_ops_record(
+def test_a_batch_reads_a_hashs_rows_once_however_many_ops_record(
         client, seeded_config, monkeypatch):
     # Each op that recorded rows dropped the block's rows from the batch's
     # cache, so the next op read every row again.
     uid = _titled_step(seeded_config, 50)
     read = [0]
-    real = ops_apply._block_rewrites
+    real = ops_apply._rewrites_from
 
-    def counted(db, block: BlockUid):
-        rows = real(db, block)
+    def counted(db, block: BlockUid, base: Sha256Hex):
+        rows = real(db, block, base)
         read[0] += len(rows)
         return rows
 
-    monkeypatch.setattr(ops_apply, "_block_rewrites", counted)
+    monkeypatch.setattr(ops_apply, "_rewrites_from", counted)
     _post(client, _edits(uid, [f"[[t0]] y{i}" for i in range(10)]))
     assert read[0] == 50
     assert _rows_of(seeded_config, uid) == 50 + 10 * 50
@@ -176,8 +177,8 @@ def test_an_edit_replays_the_rows_its_own_batch_recorded(
         client, seeded_config):
     # The batch keeps the rows it records in what it read: the same
     # device's next edit, hashed against the text it sent, replays them
-    # onto the text the server wrote, and applies cleanly. Each records
-    # the whole step again.
+    # onto the text the server wrote, and applies cleanly. The second
+    # edit's rows are the first's, stored once; the third records its own.
     uid = _titled_step(seeded_config, 3)
     sent = "[[t0]] [[t1]] y"
     _post(client, [
@@ -185,7 +186,7 @@ def test_an_edit_replays_the_rows_its_own_batch_recorded(
         {"op": "update_text", "uid": uid, "text": f"{sent} more",
          "base_text_hash": text_hash(sent)}])
     assert _text(seeded_config, uid) == "t0 t1 y more"
-    assert _rows_of(seeded_config, uid) == 3 + 3 + 3 + 3
+    assert _rows_of(seeded_config, uid) == 3 + 3 + 3
 
 
 def test_tiny_edits_cost_the_same_per_op_however_many_steps_the_block_has(
@@ -205,6 +206,119 @@ def test_tiny_edits_cost_the_same_per_op_however_many_steps_the_block_has(
     small = _per_op(work, 20, 10, 40)
     large = _per_op(work, 2_000, 10, 40)
     assert large < 1.5 * small, (small, large)
+
+
+def test_an_edit_reads_only_the_rows_its_walk_reaches(client, seeded_config):
+    # An ordinary edit, hashed on the text the block holds, has no step
+    # to replay; it read every row the block held all the same.
+    def work(rows: int) -> int:
+        uid = _fresh_uid()
+        _seed(seeded_config, [(uid, "Src", "current")])
+        _insert_rows(seeded_config, uid, [
+            (text_hash(ORIGINAL), text_hash("after"), "unlink", f"t{i}", "")
+            for i in range(rows)])
+        return loop_steps(MODULES, lambda: _post(client, [
+            {"op": "update_text", "uid": uid, "text": "edited",
+             "base_text_hash": text_hash("current")}]))
+
+    assert work(100_000) < 1.5 * work(1_000)
+
+
+def test_rows_past_the_budget_cost_what_the_budget_does(
+        client, seeded_config, monkeypatch):
+    # The edit's base hash holds more rows than the batch may read. They
+    # were read whole; now the read measures what the budget could pay
+    # for, stops, and the edit lands as sent.
+    monkeypatch.setattr(ops_apply, "MAX_BATCH_REPLAY_WORK",
+                        1_000 * ops_core.ROW_CHARS)
+
+    def work(k: int) -> tuple[int, list[str]]:
+        uid = _titled_step(seeded_config, k)
+        got: list[list[str]] = []
+        steps = loop_steps(MODULES, lambda: got.append(
+            _skipped(client, _edits(uid, ["x"]))))
+        return steps, got[0]
+
+    (small, skipped), (large, _) = work(5_000), work(50_000)
+    assert skipped == ["text_limit"]
+    assert large < 1.5 * small, (small, large)
+
+
+def test_an_edit_whose_rows_cost_past_the_budget_lands_every_link_plain(
+        client, seeded_config, monkeypatch):
+    # Rows too costly to read leave the titles the chain deleted unknown,
+    # so the landing makes every link plain: any could name a deleted page,
+    # and left linked it would re-create it. The block keeps its text.
+    monkeypatch.setattr(ops_apply, "MAX_BATCH_REPLAY_WORK",
+                        10 * ops_core.ROW_CHARS)
+    uid = _titled_step(seeded_config, 100)
+    assert _skipped(client, _edits(uid, ["[[t0]] [[AI]] #t1 x"])) == \
+        ["text_limit"]
+    assert _text(seeded_config, uid) == "current"
+    assert _scalar(seeded_config, "SELECT count(*) AS n FROM blocks"
+                   " WHERE text = 't0 AI t1 x'") == 1
+    assert _scalar(seeded_config, "SELECT count(*) AS n FROM pages"
+                   " WHERE title IN ('t0', 't1')") == 0
+
+
+def test_the_same_stale_edit_posted_again_adds_no_rows(
+        client, seeded_config):
+    # Each post of one stale edit recorded its unlink's rows again, so
+    # posting it repeatedly multiplied the block's rows without bound.
+    k = 1_000
+    con = open_db(seeded_config.db_path)
+    try:
+        con.executemany("INSERT INTO page_deletions(title, seq, deleted_at)"
+                        " VALUES (?, 1, 0)", [(f"t{i}",) for i in range(k)])
+        con.commit()
+    finally:
+        con.close()
+    text = " ".join(f"[[t{i}]]" for i in range(k))
+    for _ in range(3):
+        _post(client, [{"op": "update_text", "uid": "uid_b4", "text": text}],
+              seen_seq=seq_of(0))
+    assert _rows_of(seeded_config, uid_of("uid_b4")) == k
+
+
+def test_a_batch_touching_many_blocks_reads_what_its_budget_pays_for(
+        client, seeded_config, monkeypatch):
+    # One tiny edit each on blocks whose step holds many titles: the batch
+    # read every block's rows, however many blocks it touched. The reads
+    # are charged now, so past the budget the edits land as sent.
+    monkeypatch.setattr(ops_apply, "MAX_BATCH_REPLAY_WORK",
+                        5 * 2_000 * (ops_core.ROW_CHARS + 5))
+
+    def work(blocks: int) -> int:
+        uids = [_titled_step(seeded_config, 2_000) for _ in range(blocks)]
+        return loop_steps(MODULES, lambda: _post(
+            client, [op for uid in uids for op in _edits(uid, ["x"])]))
+
+    assert work(40) < 1.5 * work(10)
+
+
+def test_a_row_is_stored_again_under_another_step_of_the_same_text(
+        client, seeded_config):
+    # The same stale text sent with two `seen_seq`s unlinks two sets of
+    # titles from it: two steps from one hash, both naming t0. The second
+    # step's t0 row is no copy of the first's, and without it the client's
+    # next edit, which replays the newest step, would leave t0 linked.
+    con = open_db(seeded_config.db_path)
+    try:
+        con.executemany("INSERT INTO page_deletions(title, seq, deleted_at)"
+                        " VALUES (?, ?, 0)", [("t1", 5), ("t0", 10)])
+        con.commit()
+    finally:
+        con.close()
+    x = _fresh_uid()
+    _seed(seeded_config, [(x, "Src", "current")])
+    sent = "[[t0]] [[t1]] w"
+    _post(client, [{"op": "update_text", "uid": x, "text": sent}], seen_seq=seq_of(7))
+    _post(client, [{"op": "update_text", "uid": x, "text": sent}], seen_seq=seq_of(0))
+    # t0 from the first step; t0 and t1 from the second
+    assert _rows_of(seeded_config, x) == 3
+    _post(client, [{"op": "update_text", "uid": x, "text": "[[t0]] [[t1]] z",
+                    "base_text_hash": text_hash(sent)}])
+    assert _text(seeded_config, x) == "t0 t1 z"
 
 
 def test_edits_past_the_budget_cost_the_same_per_op_however_many_titles(
@@ -358,20 +472,57 @@ def _walks(history: ops_core.RewriteHistory
 
 @settings(max_examples=1000, deadline=None)
 @given(st.lists(_ROW, max_size=8),
-       st.lists(st.lists(_ROW, min_size=1, max_size=4), max_size=3))
-def test_a_batch_keeps_the_rows_it_records_as_a_read_of_them_would(
-        stored, recorded):
-    # The rows an op records are newer than every row the batch read, and
-    # read back newest first they come in reverse of the order they were
-    # written. Kept in the history the batch read, they make the steps a
-    # fresh read of every row makes, in the same order.
+       st.lists(st.lists(_ROW, min_size=1, max_size=4), max_size=3),
+       st.lists(st.sampled_from(_HASHES), max_size=4))
+def test_a_batch_keeps_the_rows_it_reads_and_records_as_a_read_of_all(
+        stored, recorded, reached):
+    # The batch reads one base hash's rows at a time, in the order its
+    # walks reach them, then keeps what it records. The rows it records
+    # are newer than every stored row, and read back newest first they
+    # come in reverse of the order they were written. For each hash it
+    # has read, its steps are the ones a read of every row makes, in the
+    # same order.
     newest_first = list(reversed(_rows(stored)))
-    history = ops_core.RewriteHistory(newest_first)
+    history = ops_core.RewriteHistory.lazy()
+    for base in reached:
+        if not history.is_read(base):
+            history.add_read(base, [r for r in newest_first
+                                    if r.base_hash == base])
     for rows in recorded:
+        for base in {b for b, *_ in rows}:
+            if not history.is_read(base):
+                history.add_read(base, [r for r in newest_first
+                                        if r.base_hash == base])
         history.record(_rows(rows))
         newest_first = [*reversed(_rows(rows)), *newest_first]
-    assert _walks(history) == _walks(ops_core.RewriteHistory(newest_first))
+    whole = ops_core.RewriteHistory(newest_first)
+    read = {b for b in _HASHES if history.is_read(b)}
+    assert {b: w for b, w in _walks(history).items() if b in read} == \
+        {b: w for b, w in _walks(whole).items() if b in read}
+    for base in read:
+        assert history.stored(base) == whole.stored(base)
     stored_pairs = {(b, a) for b, a, *_ in stored}
     if any((b, a) in stored_pairs for rows in recorded
            for b, a, *_ in rows):
         event("a recorded row joins a step the batch read")
+    if read and len(read) < len({b for b, *_ in stored}):
+        event("some hashes never read")
+
+
+def test_a_walk_stops_blind_at_a_hash_too_costly_to_read():
+    # The shell reads each hash the walk reaches; one too costly is marked
+    # unread, and the replay stops there, an over_limit edit whose landing
+    # knows no titles.
+    history = ops_core.RewriteHistory.lazy()
+    first, second = text_hash("a"), text_hash("b")
+    assert history.next_unread(first) == first
+    history.add_read(first, [ops_core.BlockRewrite(first, second, "z", "",
+                                                   "unlink")])
+    assert history.next_unread(first) == second
+    history.add_unread(second)
+    assert history.next_unread(first) is None
+    outcome = ops_core.classify_text_edit("[[z]] [[y]]", first, "current",
+                                          history)
+    assert outcome.kind == "over_limit" and outcome.blind
+    assert ops_core.over_limit_landing_text(
+        "[[z]] [[y]] #w", outcome.replayed, normalize_title, True) == "z y w"

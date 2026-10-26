@@ -418,10 +418,14 @@ route whose decision rests on what it reads joins them.
 | `POST /api/migrations/title-canonicalization` | the re-inventory | uncaught: 500 |
 
 `apply_batch` itself runs on the event loop and holds the lock until the
-commit. Its work is a constant plus work linear in the request, which is
-bounded by `PRIVATE_BODY_MAX_BYTES` ([Auth](#auth)): what it reads of the
-server's history is charged to the batch's replay budget
-([Planning](#planning), Replay budget).
+commit. Its work is a constant, plus work linear in the request, which
+`PRIVATE_BODY_MAX_BYTES` ([Auth](#auth)) bounds, plus work linear in the rows
+and subtrees of the blocks the batch touches. What it reads of the server's
+rewrite history is charged to the batch's replay budget
+([Planning](#planning), Replay budget). Two costs are not charged: a move or
+delete of a large subtree, which rewrites or hashes every descendant, and the
+stale-title load (`stale_titles`), which runs once per batch and is linear in
+the pages deleted since the batch's `seen_seq`.
 
 ### Planning
 

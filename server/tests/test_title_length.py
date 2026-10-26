@@ -192,6 +192,29 @@ def test_a_sidebar_pin_over_the_cap_is_422(client, seeded_config):
     assert _rows(seeded_config, "SELECT title FROM sidebar_entries") == []
 
 
+# A title both too long and of unsupported syntax: the length is judged
+# first, since the syntax detail echoes the title.
+LONG_AND_UNSUPPORTED = "#" + "t" * 2_000_000
+
+
+@pytest.mark.parametrize("path, body", [
+    ("/api/pages", {"title": LONG_AND_UNSUPPORTED}),
+    ("/api/page/Machine Learning/rename",
+     {"new_title": LONG_AND_UNSUPPORTED, "allow_merge": True}),
+    ("/api/sidebar", {"title": LONG_AND_UNSUPPORTED}),
+], ids=["create", "rename", "sidebar"])
+def test_a_title_route_judges_length_before_syntax_and_never_echoes(
+        client, seeded_config, path, body):
+    before = _state(seeded_config)
+    r = client.post(path, json=body)
+    assert r.status_code == 422, r.text[:500]
+    assert r.json()["detail"] == ("title of 2000001 characters is over the"
+                                  " limit of 1000")
+    assert len(r.text) < 500
+    assert _state(seeded_config) == before
+    assert _rows(seeded_config, "SELECT title FROM sidebar_entries") == []
+
+
 # --- a page stored before the cap -----------------------------------------
 
 

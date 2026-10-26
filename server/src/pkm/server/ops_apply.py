@@ -126,10 +126,12 @@ def _rewrites_of(rows: Sequence[Row]) -> tuple[BlockRewrite, ...]:
 # what reading them costs: each row's titles in bytes and `ROW_CHARS`, as
 # writing it is, summed over at most the rows `allowance` could pay for,
 # by rowid through `idx_block_rewrites_uid`, so a hash holding millions of
-# rows costs what the budget does. Only when that fits does the join seek
-# the rows: past it the seek's key is NULL and finds none, so no title the
-# batch cannot pay for is loaded. With no rows joined, one row of
-# placeholders carries `n` alone. Newest first, by rowid: the order
+# rows costs what the budget does. `octet_length` takes a title's size
+# from the row's record header and reads none of its text, overflow pages
+# included; `length(CAST(.. AS BLOB))` would load every measured title.
+# The titles load only when the sum fits: past it the join's seek key is
+# NULL and finds none. With no rows joined, one row of placeholders
+# carries `n` alone. Newest first, by rowid: the order
 # `ops_core.replay_title_rewrites` walks the chain in, and a row a batch
 # writes is always newest, as its history keeps it
 # (`RewriteHistory.record`), even after the clock steps back.
@@ -141,8 +143,8 @@ _CHARGED_REWRITES = """
            COALESCE(r.new_title, '') AS rewrite_new_text,
            spent.n
       FROM (SELECT COALESCE(SUM(size), 0) AS n
-              FROM (SELECT :row_chars + length(CAST(old_title AS BLOB))
-                             + length(CAST(new_title AS BLOB)) AS size
+              FROM (SELECT :row_chars + octet_length(old_title)
+                             + octet_length(new_title) AS size
                       FROM block_rewrites
                      WHERE uid = :uid AND base_hash = :base_hash
                      ORDER BY rowid DESC LIMIT :rows)) AS spent
@@ -153,6 +155,16 @@ _CHARGED_REWRITES = """
      ORDER BY r.rowid DESC"""
 
 
+def _charge_params(uid: BlockUid, base_hash: Sha256Hex,
+                   allowance: int) -> dict[str, object]:
+    """`_CHARGED_REWRITES`' parameters: `rows` is how many rows the
+    allowance could pay for, and one more, to see past it. Never below
+    one, since SQLite reads a negative LIMIT as no limit."""
+    return {"uid": uid, "base_hash": base_hash, "allowance": allowance,
+            "row_chars": ROW_CHARS,
+            "rows": max(0, allowance) // ROW_CHARS + 1}
+
+
 def _rewrites_within(
         db: Db, uid: BlockUid, base_hash: Sha256Hex,
         allowance: int) -> tuple[tuple[BlockRewrite, ...], int] | None:
@@ -160,9 +172,8 @@ def _rewrites_within(
     and what reading them is charged (`_CHARGED_REWRITES`); None when
     that is past `allowance`. A row costs more than nothing, so a charge
     of 0 is a hash with no rows."""
-    rows = db.select(_CHARGED_REWRITES, {
-        "uid": uid, "base_hash": base_hash, "allowance": allowance,
-        "row_chars": ROW_CHARS, "rows": allowance // ROW_CHARS + 1})
+    rows = db.select(_CHARGED_REWRITES,
+                     _charge_params(uid, base_hash, allowance))
     cost = rows[0]["n"]
     if cost > allowance:
         return None

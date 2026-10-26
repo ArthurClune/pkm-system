@@ -13,7 +13,10 @@ an identical row is never stored twice. Past the budget an edit lands as
 sent."""
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Callable
+
+import pytest
 
 from hypothesis import event, given, settings
 from hypothesis import strategies as st
@@ -21,6 +24,7 @@ from scaling import loop_steps
 from test_text_limits_rewrites import _scalar, _seed, _text
 
 from pkm import refs, spans, text_limits, unlink
+from pkm.database import connect
 from pkm.contracts.ops import BlockUid, Sha256Hex, SyncSeq, text_hash
 from pkm.refs import normalize_title
 from pkm.server import ops_apply, ops_core
@@ -262,10 +266,8 @@ def test_one_statement_charges_a_hashs_rows_and_reads_only_what_fits(
             return ops_apply._rewrites_within(con, uid, base, allowance)
 
         def raw(allowance: int):
-            return con.select(ops_apply._CHARGED_REWRITES, {
-                "uid": uid, "base_hash": base, "allowance": allowance,
-                "row_chars": ops_core.ROW_CHARS,
-                "rows": allowance // ops_core.ROW_CHARS + 1})
+            return con.select(ops_apply._CHARGED_REWRITES,
+                              ops_apply._charge_params(uid, base, allowance))
 
         got = read(5 * each)
         assert got is not None
@@ -285,6 +287,74 @@ def test_one_statement_charges_a_hashs_rows_and_reads_only_what_fits(
                 (ops_core.BlockRewrite(text_hash("other"), text_hash("after"),
                                        "o", "", "unlink"),),
                 ops_core.ROW_CHARS + 1)
+    finally:
+        con.close()
+
+
+def _break_overflow_chains(path, table: str) -> int:
+    """Point every overflow page of `table` that links on at a page past
+    the file's end, so reading any long value of the table through its
+    chain fails as a malformed database. The number of pages broken."""
+    con = connect(path)
+    try:
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        con.execute("PRAGMA journal_mode=DELETE")
+        size = con.select("SELECT page_size AS n FROM pragma_page_size()")[0]["n"]
+        pages = [row["n"] for row in con.select(
+            "SELECT pageno AS n FROM dbstat WHERE name = ?"
+            " AND pagetype = 'overflow'", (table,))]
+    finally:
+        con.close()
+    broken = 0
+    with open(path, "r+b") as f:
+        for page in pages:
+            f.seek((page - 1) * size)
+            if f.read(4) != bytes(4):
+                f.seek((page - 1) * size)
+                f.write((2**31 - 1).to_bytes(4, "big"))
+                broken += 1
+    return broken
+
+
+def test_the_charge_sizes_rows_without_reading_their_text(seeded_config):
+    # Sizing a row must cost its record header, not its text: a hash of
+    # long rows would otherwise be read whole under the write lock before
+    # it is refused. The rows' overflow chains are broken, so any read of
+    # their text fails; the refused measure must not reach them.
+    uid = _fresh_uid()
+    base = text_hash(ORIGINAL)
+    long = "x" * 50_000
+    _insert_rows(seeded_config, uid, [
+        (base, text_hash("after"), "inline", long, long) for _ in range(3)])
+    assert _break_overflow_chains(seeded_config.db_path, "block_rewrites")
+    each = ops_core.ROW_CHARS + 2 * len(long)
+    con = open_db(seeded_config.db_path)
+    try:
+        assert ops_apply._rewrites_within(con, uid, base, 3 * each - 1) \
+            is None
+        # the broken chains do fail a read of the text
+        with pytest.raises(sqlite3.DatabaseError, match="malformed"):
+            ops_apply._rewrites_within(con, uid, base, 3 * each)
+    finally:
+        con.close()
+
+
+def test_a_negative_allowance_still_measures_at_most_one_row(seeded_config):
+    # SQLite reads a negative LIMIT as none, so an allowance below zero
+    # must still cap the measure, at the one row that shows it is past.
+    uid = _fresh_uid()
+    base = text_hash(ORIGINAL)
+    _insert_rows(seeded_config, uid, [
+        (base, text_hash("after"), "unlink", "t", "") for _ in range(20)])
+    each = ops_core.ROW_CHARS + 1
+    con = open_db(seeded_config.db_path)
+    try:
+        for allowance in (-ops_core.ROW_CHARS - 1, -100 * each, -1):
+            assert [r["n"] for r in con.select(
+                ops_apply._CHARGED_REWRITES,
+                ops_apply._charge_params(uid, base, allowance))] == [each]
+            assert ops_apply._rewrites_within(con, uid, base, allowance) \
+                is None
     finally:
         con.close()
 

@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:27Z
-updated_at: 2026-10-25T09:39:58Z
+updated_at: 2026-10-26T20:28:57Z
 parent: pkm-mfd0
 blocked_by:
     - pkm-tk9i
@@ -52,3 +52,6 @@ SECURITY.md is the high-level model; update it once the fixes we take on have sh
 - [ ] Login backoff row (pkm-lamg, pkm-v3t1) — replace with: | Login backoff is per source (`LoginThrottle`, `throttle_core.py`: `BASE_BACKOFF_MS` doubling to `MAX_BACKOFF_MS`), one password check in flight per source, with no lockout | The source is the device's tailnet address: on the loopback listener the `X-Forwarded-For` Tailscale Serve sets (trusted from `127.0.0.1` only, `run.FORWARDED_ALLOW_IPS`), on the Tailscale-IP listener the TCP peer. Each device has its own bucket, so a guessing device does not put the others in backoff; a local process can choose its key. Concurrent guesses from one source wait their turn, so a burst costs one scrypt check per backoff window. Every refusal is the same 401. Scrypt makes each guess expensive, but a weak password is open to patient guessing; use a strong one |
 
 - [ ] Auth before body (pkm-zav2): in § Authentication replace the paragraph beginning 'Every /api and /assets route but /api/login requires a session' with: Every /api and /assets route except POST /api/login requires a session, including /api/openapi.json; FastAPI's documentation routes are disabled. AuthGateMiddleware refuses an anonymous request before the app reads its body (uvicorn still reads and discards the rest of a refused body): any /api or /assets request other than POST /api/login, any method other than GET or HEAD, and every WebSocket handshake — HTTP gets 401, /api/ws refuses the handshake. The public routes are GET /login, POST /api/login, GET /healthz (returns only {"ok": true}) and the SPA shell with its static files. A public request body larger than PUBLIC_BODY_MAX_BYTES (8 KiB) is refused with 413, with or without a session (mechanism: architecture/backend.md#auth).
+
+
+- [ ] Server batch (merged 53c06d4a, 2026-10-26), described as shipped — read docs/architecture/backend.md § Auth, § The write lock, § Planning, § Conflicts and § Refused titles against the code: authenticated bodies capped at PRIVATE_BODY_MAX_BYTES (64 MiB; uploads at max_upload_bytes plus a multipart envelope), counted when chunked; head deadline, public body 408 deadline and a stalled-write cut (~1 KiB/s floor) — authenticated slow bodies stay unbounded (known limitation); /api/ops judges off the lock and the event loop, apply still on both (pkm-8w77); per-batch replay work budget (MAX_BATCH_REPLAY_WORK) with over_limit landings, rewrite rows read per (uid, base_hash) and charged; page-delete copy budget; page titles ≤ 1,000 characters; server needs SQLite ≥ 3.43. Known limitation: subtree-sized moves/deletes are uncharged (pkm-hlom).

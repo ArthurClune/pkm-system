@@ -63,9 +63,10 @@ from pkm.refs import parse_block_uid
 # The card sends every content value whole, so [show] can reveal all of
 # it; a longer one is refused rather than approved partly unseen.
 CONTENT_LIMIT_CHARS = 50_000
-# A target is a uid, title, path or parent spec. The server bounds none of
-# them (a page title has no length limit), so the card does: a multi-MB
-# value would freeze the tab the user must approve from.
+# A target is a uid, title, path or parent spec. The card shows it before
+# the server judges it, and a page stored before MAX_PAGE_TITLE_CHARS may
+# carry a longer title, so the card bounds every target itself: a
+# multi-MB value would freeze the tab the user must approve from.
 TARGET_LIMIT_CHARS = 1000
 # The current text is context for the target, not something the write
 # sends, so the card shows its start and says how long the whole is.

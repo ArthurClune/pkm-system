@@ -1,7 +1,7 @@
 # pattern: Imperative Shell
-"""Proxy the GoodLinks local API for the web app and CLI. GoodLinks only
-listens on the host's loopback, so the iPad reaches it through here,
-the way /api/local/ fronts the iCloud folder. Every route is behind the
+"""Proxy the GoodLinks local API for the web app and CLI. The iPad
+reaches it through here, the way /api/local/ fronts the iCloud folder,
+so only the server holds GoodLinks' bearer token. Every route is behind the
 normal session/CLI-token auth. `app.state.goodlinks` is None when no API
 key is configured, and then everything here is a 404 except `check`,
 which reports `enabled: false`.

@@ -131,8 +131,10 @@ A fixed route under it would shadow the file of the same name, which the index
 lists and stored notes link.
 `test_nothing_but_the_file_route_sits_in_a_file_namespace` fails on one.
 
-**Every rejection is a 404, never a 403, so a response never confirms what
-exists.** `local_docs.clean_relative` rejects an absolute path, a `.` or `..`
+**A path that escapes the root gets the same 404 as a missing file, never a
+403.** So a response never confirms what exists outside it. Inside the root
+the index, the check and the file route's 503s do report what is there.
+`local_docs.clean_relative` rejects an absolute path, a `.` or `..`
 segment, a control character or a backslash. `is_within` then re-checks the
 resolved path against the resolved root, so a symlink out is a 404 too. The
 file route's parameter arrives decoded once through the
@@ -211,10 +213,11 @@ flowchart LR
 
 ### Two barriers for third-party HTML
 
-`GET /api/goodlinks/{link_id}` is the only route that returns HTML the app did
-not write: GoodLinks' reader-view extraction of a page. Two independent
-barriers stand between it and the browser, and neither may be widened for
-convenience.
+`GET /api/goodlinks/{link_id}` is the only route that returns third-party HTML
+for the app to render in its own frame: GoodLinks' reader-view extraction of a
+page. (`/api/local/{path}` serves a host `.html` file only as a download.) Two
+independent barriers stand between it and the browser, and neither may be
+widened for convenience.
 
 1. The server reduces it with `sanitize_article` (`nh3`) to a tag and
    attribute allowlist. A `"*": set()` entry removes `nh3`'s default generic
@@ -230,14 +233,17 @@ convenience.
    `dangerouslySetInnerHTML` uses (Mermaid, KaTeX, highlighted code) render
    markup the app generated.
 
-Article images still load from their original hosts, since GoodLinks archives
-text but not images. Opening a copy reveals the reader's IP to those hosts.
+Article images still load from their original hosts, because GoodLinks' API
+returns the article with their original URLs even when it keeps its own copy
+of them. Opening a copy reveals the reader's IP to those hosts.
 
 ### Why a proxy
 
-GoodLinks' API listens only on the host's loopback (`localhost:9428`). The
-server holds the bearer token and forwards through `GoodlinksGateway`, so the
-GoodLinks app must be running on the host. An unreachable app and a refused token are 503s. A GoodLinks 404 passes
+The browser never holds GoodLinks' bearer token. The server holds it and
+forwards through `GoodlinksGateway` to `goodlinks_api_url`, loopback by
+default, so the GoodLinks app must be running on the host. GoodLinks itself
+listens on every interface ([SECURITY.md](../SECURITY.md#known-limitations)),
+so the proxy keeps the token, not the port, off other devices. An unreachable app and a refused token are 503s. A GoodLinks 404 passes
 through, and a refused save is a 422 carrying its text.
 `GoodlinksUnavailable` covers a closed app and any 2xx that is not a usable
 link ([hostile input](backend.md#hostile-input)). A 401 or 403

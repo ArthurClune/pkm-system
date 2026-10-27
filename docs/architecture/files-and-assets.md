@@ -213,11 +213,11 @@ flowchart LR
 
 ### Two barriers for third-party HTML
 
-`GET /api/goodlinks/{link_id}` is the only route that returns HTML the app did
-not write for the app to render: GoodLinks' reader-view extraction of a page.
-(`/api/local/{path}` serves a host `.html` file only as a download.) Two independent
-barriers stand between it and the browser, and neither may be widened for
-convenience.
+`GET /api/goodlinks/{link_id}` is the only route that returns third-party HTML
+for the app to render in its own frame: GoodLinks' reader-view extraction of a
+page. (`/api/local/{path}` serves a host `.html` file only as a download.) Two
+independent barriers stand between it and the browser, and neither may be
+widened for convenience.
 
 1. The server reduces it with `sanitize_article` (`nh3`) to a tag and
    attribute allowlist. A `"*": set()` entry removes `nh3`'s default generic

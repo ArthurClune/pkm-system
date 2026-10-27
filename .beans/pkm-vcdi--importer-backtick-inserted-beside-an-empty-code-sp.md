@@ -1,11 +1,11 @@
 ---
 # pkm-vcdi
 title: 'Importer: backtick inserted beside an empty code span can swallow a later link'
-status: todo
+status: scrapped
 type: bug
 priority: low
 created_at: 2026-10-25T09:31:02Z
-updated_at: 2026-10-25T09:31:02Z
+updated_at: 2026-10-27T10:29:47Z
 parent: pkm-mfd0
 ---
 
@@ -13,3 +13,8 @@ From the pkm-dhsp re-review (2026-10-25). When a block's leading empty code span
 
 - [ ] Red test from the shape
 - [ ] Insert the defusing backticks so they can't pair with neighbouring ones (or use a different defuse)
+
+
+## Reasons for Scrapping
+
+Arthur's ruling, 2026-10-27: contrived input (a leading empty code span beside an attribute the export sanitiser defuses); no import is refused and nothing real produces the shape.

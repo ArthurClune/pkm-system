@@ -1,11 +1,11 @@
 ---
 # pkm-e95y
 title: Update SECURITY.md after the review fixes land
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:27Z
-updated_at: 2026-10-26T20:28:57Z
+updated_at: 2026-10-27T10:16:19Z
 parent: pkm-mfd0
 blocked_by:
     - pkm-tk9i

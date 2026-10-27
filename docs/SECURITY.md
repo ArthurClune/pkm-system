@@ -5,8 +5,9 @@ network security boundary. The application's own authentication protects
 against casual attackers on a local network or other reachable devices. It
 does not make the server safe to expose to the public Internet.
 
-The last security review was on 2026-07-14. The host-file and third-party
-HTML routes below arrived after it.
+The last security review was on 2026-10-23
+([findings](security-review-2026-10-23.md)). This document describes the
+system after the fixes that review led to.
 
 ## Deployment assumptions
 
@@ -15,11 +16,22 @@ Serve, and, when direct tailnet API access is needed, the machine's literal
 Tailscale IP. `bind_hosts` in `config.json` defaults to loopback. Never
 configure `0.0.0.0`, an ordinary LAN address or public port forwarding.
 Tailscale Serve provides HTTPS; keep `cookie_secure` enabled in production.
+`serve_origins` must name the Serve hostname's origin, or browsers on it are
+refused (see [Authentication](#authentication)).
+
+Start the server through `python -m pkm.server.run`, as the launchd job
+does. Only that entry point installs the slow-client deadlines and pins
+the proxy-header trust the login throttle keys on
+([mechanism](architecture/backend.md#auth)). The server refuses to
+start on SQLite older than `MIN_SQLITE_VERSION` (`db_core.py`).
 
 Anyone who can read the data directory can read the database and assets.
 Other local operating-system users are outside the network threat model.
 `pkm.server.setup` writes `config.json` with mode `0600`; keep the data
 directory, backups and `local_docs_root` private to the service account.
+Keep API keys in their key files (`openai_api_key_file`, `zai_api_key_file`,
+`goodlinks_api_key_file`) rather than the service environment, which the
+assistant's subprocesses inherit (see [Known limitations](#known-limitations)).
 
 ## Authentication
 
@@ -29,33 +41,73 @@ scrypt hash, and signatures and hashes are compared in constant time
 ([mechanism](architecture/backend.md#auth)).
 
 The cookie is `HttpOnly`, `Secure` by default, `SameSite=Lax`, scoped to `/`
-and valid for `COOKIE_MAX_AGE` (a year; `auth.py`).
+and valid for `COOKIE_MAX_AGE` (a year; `auth.py`). `ts.net` is a public
+suffix, so the cookie's site is the whole tailnet: a page on any tailnet
+host is same-site with the app, and its requests to PKM carry the cookie.
 
-Every `/api` and `/assets` route but `/api/login` requires a session,
-including `/api/openapi.json`; FastAPI's own documentation routes are disabled.
-`/api/ws` runs the same check and refuses an anonymous handshake with `403`.
-The public routes are `GET /login`, `POST /api/login`, `GET /healthz` (which
-returns only `{"ok": true}`) and the SPA shell with its static files.
+Every `/api` and `/assets` route except `POST /api/login` requires a session,
+including `/api/openapi.json`; FastAPI's documentation routes are disabled.
+`AuthGateMiddleware` refuses an anonymous request before the app reads its
+body: any `/api` or `/assets` request other than `POST /api/login`, any
+method other than `GET` or `HEAD`, and every WebSocket handshake. HTTP gets
+`401`; `/api/ws` refuses the handshake. The public routes are `GET /login`,
+`POST /api/login`, `GET /healthz` (which returns only `{"ok": true}`) and the
+SPA shell with its static files. A public body larger than
+`PUBLIC_BODY_MAX_BYTES` is refused with `413`.
+`test_the_gate_admits_exactly_the_public_routes` walks the route table and
+fails when the gate admits any other route.
 
-There is no CORS. Browser API requests are same-origin, and `SameSite=Lax` is
-the only CSRF protection. Non-browser clients can always send requests and get
-`401` without a valid cookie.
+CSRF protection is `SameSite=Lax` plus `OriginGuardMiddleware`. Every
+`/api/ws` handshake and every request whose method is not `GET`, `HEAD` or
+`OPTIONS` must, if it carries an `Origin`, name one of PKM's own origins:
+`serve_origins`, each `bind_hosts` listener on the served port, and
+loopback on that port. `Origin: null` is refused. A request with no
+`Origin` comes from a non-browser client (the CLI, `pkm-mcp`, Shortcuts),
+and still needs the cookie. There is no CORS, so a sibling page cannot read
+a response. Safe methods are not checked, and two have side effects a
+sibling page could trigger blind: `GET /api/journal` creates today's daily
+page, and `GET /api/local/...` can start an iCloud download of an evicted
+file. Never set `Referrer-Policy: no-referrer`: it makes the app's own
+no-cors form posts send `Origin: null`, which the guard refuses
+([why](architecture/backend.md#auth)).
 
 ## What a session can reach beyond the graph
 
 | Surface | What it reaches | Confinement | Owner |
 |---|---|---|---|
-| `/api/local/{path}`, `/api/local-check`, `/api/local-index` | files under `local_docs_root` on the host, read-only | `clean_relative` rejects `..` and absolute paths, and `is_within` refuses a symlink out. Every rejection is a 404, so a response never confirms what exists. Only PDFs and images serve inline | [files-and-assets.md § Local documents](architecture/files-and-assets.md#local-documents) |
-| `GET /api/goodlinks/{link_id}` | HTML GoodLinks extracted from a web page: the only HTML the app did not write | an `nh3` allowlist (`sanitize_article`), then a sandboxed `srcdoc` iframe with no script or origin access. Neither barrier may be loosened; article images load from their original hosts, which see the reader's IP | [files-and-assets.md § GoodLinks copies](architecture/files-and-assets.md#goodlinks-copies) |
-| uploaded assets | images, PDFs and documents under `assets_dir` | `max_upload_bytes`; a type allowlist (`ALLOWED_UPLOAD_MIME`, else `415`); lookup by digest, never by the requested filename; SVG and other active types download rather than render in the app's origin | [files-and-assets.md § Assets](architecture/files-and-assets.md#assets-and-the-file-browser) |
-| image descriptions | sends each eligible uploaded image to OpenAI | on whenever an OpenAI key is present; `image_descriptions=false` in `config.json` turns it off, and `GET /api/assets/describe-status` says why it is off | [files-and-assets.md § Image descriptions](architecture/files-and-assets.md#image-descriptions) |
+| `/api/local/{path}`, `/api/local-check`, `/api/local-index` | files under `local_docs_root` on the host, read-only | `clean_relative` rejects `..` and absolute paths, and `is_within` refuses a symlink out. Every rejection is a 404, so a response never confirms what exists. Only PDFs and raster images (`_INLINE_EXT`, `local_docs.py`) serve inline; everything else, HTML and SVG included, downloads with `nosniff`. Dotfiles are hidden from the picker but readable by path | [files-and-assets.md § Local documents](architecture/files-and-assets.md#local-documents) |
+| `GET /api/goodlinks/{link_id}` | HTML GoodLinks extracted from a web page: the only HTML the app did not write | an `nh3` allowlist (`sanitize_article`), then a sandboxed `srcdoc` iframe with no script or origin access. Neither barrier may be loosened. Article images load from their original hosts, which see the reader's IP. `GoodlinksGateway.content` asks for the article without turning off GoodLinks' download of an uncached page, so opening the reader on such a link makes GoodLinks fetch the page from the host. `POST /api/goodlinks/resolve` with `save: true` has GoodLinks fetch and save a URL | [files-and-assets.md § GoodLinks copies](architecture/files-and-assets.md#goodlinks-copies) |
+| uploaded assets | images, PDFs and documents under `assets_dir` | `max_upload_bytes`; a type allowlist (`ALLOWED_UPLOAD_MIME`, else `415`); lookup by digest, never by the requested filename; only `INLINE_MIME` types render inline, and SVG and other active types download with `nosniff` | [files-and-assets.md § Assets](architecture/files-and-assets.md#assets-and-the-file-browser) |
+| image descriptions | sends each eligible uploaded image to OpenAI | the complete stored image goes, EXIF, GPS and any other embedded metadata included, but no note text or filename. On whenever an OpenAI key is present; `image_descriptions=false` in `config.json` turns it off, and `GET /api/assets/describe-status` says why it is off | [files-and-assets.md § Image descriptions](architecture/files-and-assets.md#image-descriptions) |
 | `/api/assistant/*` | an LLM harness over the `pkm-mcp` tools; notes go to Anthropic or z.ai | see [Embedded assistant](#embedded-assistant) | [assistant.md](architecture/assistant.md) |
-| `POST /api/client/diagnostics` | the server log | writes the posted body to the log and nothing else | [backend.md](architecture/backend.md#http-api-reference) |
+| `POST /api/client/diagnostics` | the server log | writes the posted body to the log and nothing else, cut at `_MAX_DIAGNOSTICS_LOG_CHARS` (`routes_sync.py`); control characters in it are escaped, so it cannot forge a log line | [backend.md § Logging](architecture/backend.md#logging-and-observability) |
 
 In the browser, rendered links reject `javascript:` and protocol-relative
-URLs. Diagrams render through beautiful-mermaid, which escapes label text, and
-its stock-mermaid fallback runs with `securityLevel: "strict"`. Other text
-relies on React escaping.
+URLs. Only uploaded assets load on render. Any other image, and in an
+assistant reply a Bluesky embed or a stock-mermaid diagram, waits for a
+click (`ClickToLoad`), because a URL the browser fetches unprompted is an
+outbound channel for whoever wrote the markdown, the assistant included.
+Diagrams make no fetch: beautiful-mermaid escapes label text, and the
+stock-mermaid fallback runs hardened beyond `securityLevel: "strict"`
+([mechanism](architecture/frontend-rendering.md#link-safety-and-external-media)).
+Every response the app builds carries `X-DNS-Prefetch-Control: off`, so a
+link's host is not resolved before a click; an unhandled `500` carries
+none. Other text relies on React escaping.
+
+## Bounds on a session
+
+A session is trusted with the notes, not with the server's availability.
+These bounds hold for every authenticated client; the gaps are under
+[Known limitations](#known-limitations).
+
+| Bound | Holds | Owner |
+|---|---|---|
+| Request bodies: `PRIVATE_BODY_MAX_BYTES`, an upload `max_upload_bytes` plus `UPLOAD_ENVELOPE_BYTES` | at the gate, before the app parses a byte; a chunked body is counted as it is read | [backend.md § Auth](architecture/backend.md#auth) |
+| Slow clients: a deadline for the request head, a deadline for a public body, a minimum rate for taking a response | in `DeadlineH11Protocol` and the gate | [backend.md § Auth](architecture/backend.md#auth) |
+| Block text: at most `MAX_BLOCK_TEXT_CHARS` code points and `MAX_LINK_NESTING` levels of `[[` | on every write path: ops, server-made rewrites and the importer. A stale edit whose replay would pass a limit lands as a conflict entry instead | [backend.md § Planning](architecture/backend.md#planning) |
+| Page titles: at most `MAX_PAGE_TITLE_CHARS` | at creation, rename, move, sidebar pin and import | [backend.md § Refused titles](architecture/backend.md#refused-titles) |
+| Server history one batch replays: `MAX_BATCH_REPLAY_WORK`; a page delete's inlined copies: `MAX_DELETE_COPY_CHARS` | under the write lock; an edit past the budget lands as sent, a delete past it is refused | [backend.md § Planning](architecture/backend.md#planning) |
+| No input makes a route answer `500` | every route | [backend.md § Hostile input](architecture/backend.md#hostile-input) |
 
 ## Embedded assistant
 
@@ -66,17 +118,43 @@ user's Claude login, and `glm` reads its key from `zai_api_key_file` or
 
 - **Prompt injection.** Note content is untrusted input to the model. A fully
   injected model can reach only the
-  [`pkm-mcp` tools](architecture/cli-and-mcp.md#the-mcp-tool-surface). The
-  harness has every built-in tool disabled (no shell, filesystem or web) and
-  `setting_sources=[]`, so filesystem settings and `CLAUDE.md` are ignored.
-- **Write gating.** Every call to a tool in `WRITE_TOOLS` (`policy.py`) waits
-  for confirmation in the UI, and a denial reaches the model as a declined
-  action. The card shows each argument up to `_MAX_PREVIEW_VALUE_CHARS` and
-  clips only beyond it. The preview must never render empty, because an
-  approval card that understates a write is worse than a verbose one. Any
-  payload `ops_preview` does not recognise falls through to a dump of every
-  argument. After renaming a tool's parameters, check `ops_preview` against a
-  live payload: a unit test that asserts an invented shape still passes.
+  [`pkm-mcp` tools](architecture/cli-and-mcp.md#the-mcp-tool-surface) named
+  in `READ_TOOLS` and `WRITE_TOOLS` (`policy.py`). The harness starts
+  `pkm-mcp` with only those, so `upload_asset`, which reads a host path as
+  the service account, is not registered (`MCP_ONLY_TOOLS`); the
+  standalone `pkm-mcp` keeps it, running as whoever starts it. Every
+  built-in tool is disabled (no shell, filesystem or web),
+  `setting_sources=[]` ignores filesystem settings and `CLAUDE.md`, and
+  `--strict-mcp-config` keeps the account's claude.ai connectors out. A
+  reply can send note text out only through a link or media the user
+  clicks (see the rendering rules above).
+- **Write gating.** Every call to a tool in `WRITE_TOOLS` waits for the user
+  to allow or deny a card, and a denial reaches the model as a declined
+  action. The card is the only barrier between an injected model and the
+  notes ([assistant.md](architecture/assistant.md#the-write-approval-card)):
+  - the server builds it from the arguments the tool will receive, as the
+    tool's own argument model coerces them; input it cannot show is
+    refused without a card;
+  - every target and content value is shown whole: content past
+    `CONTENT_LIMIT_CHARS`, or a target past `TARGET_LIMIT_CHARS`, is
+    refused, never clipped;
+  - each block an update, move or delete names shows its current page and
+    a text excerpt with the full length, read just before the card; a
+    delete adds how many blocks go with it. A batch that deletes a subtree
+    an earlier write moves a block into, or reuses an `as` alias, is
+    refused;
+  - Allow arms after a delay, once both ends of the list have been in view;
+  - the browser renders only the keys each action may carry, with values
+    quoted, isolated left-to-right and their control characters escaped.
+
+  Allow applies only while every block the card shows stands as shown. The
+  card's hashes go server to server, out of reach of the browser and the
+  model. `/api/ops` refuses the write with `412` if a block was edited, a
+  subtree to delete changed, or a block appeared under a uid the card
+  showed as missing. A card built while another of the assistant's writes could
+  still land is marked stale. A new note, a create and a page rename have
+  no stored block to check, so they apply under the server's ordinary
+  rules.
 - **Subprocess auth.** Each conversation mints an ordinary session token into
   a `0600` config file passed as `PKM_CLI_CONFIG`. Deleting the file on close
   does not revoke the token.
@@ -91,26 +169,30 @@ broadening exposure.
 
 | Limitation | Consequence |
 |---|---|
-| Login backoff is per source (`LoginThrottle`, `throttle_core.py`: `BASE_BACKOFF_MS` doubling to `MAX_BACKOFF_MS`), with no lockout | behind Tailscale Serve every tailnet client shares the proxy's bucket. Scrypt makes each guess expensive, but a weak password is open to patient guessing; use a strong one |
+| Login backoff is per source (`LoginThrottle`, `throttle_core.py`: `BASE_BACKOFF_MS` doubling to `MAX_BACKOFF_MS`), one password check in flight per source, with no lockout | The source is the device's tailnet address: on the loopback listener the `X-Forwarded-For` Tailscale Serve sets (trusted from `127.0.0.1` only, `run.FORWARDED_ALLOW_IPS`), on the Tailscale-IP listener the TCP peer. Each device has its own bucket, so a guessing device does not put the others in backoff; a local process can choose its key. Concurrent guesses from one source wait their turn, so a burst costs one scrypt check per backoff window. Every refusal is the same `401`. Scrypt makes each guess expensive, but a weak password is open to patient guessing; use a strong one |
 | No logout and no per-session revocation | a copied cookie works until it expires or `session_secret` is rotated, which ends every session |
-| Each router adds `Depends(require_auth)` itself, and the WebSocket checks by hand | a new router could omit it. No test enumerates the route table anonymously; `test_auth.py` checks routes one by one |
-| No `Origin` checks on writes or WebSocket upgrades; no CSP, `frame-ancestors` or other anti-framing headers | `SameSite=Lax`, same-origin requests, React escaping and the narrow boundary limit the risk; these would limit a future browser-side mistake |
+| Each device keeps the full replica, its unsent outbox and recently viewed uploads (the service worker's `pkm-assets` cache, served without an auth check); nothing clears them on a `401` or a `session_secret` rotation | rotation ends sessions, not the copies on devices: a lost device still holds the notes it synced. Clear the site's data on the device |
+| No CSP, `frame-ancestors` or other anti-framing headers | `SameSite=Lax`, the origin guard, React escaping and the narrow boundary limit the risk; these would limit a future browser-side mistake |
 | The direct Tailscale-IP listener is plain HTTP | Tailscale encrypts the hop, but login sends the password over it. Browsers should use the Serve HTTPS URL; never expose the listener on an untrusted network |
+| An authenticated request body has no read deadline | a client with a session can hold a connection open by sending its body slowly. An upload over a slow link needs the time |
+| `apply_batch` runs on the event loop and holds the write lock until it commits | a large authenticated batch stalls every request, login and WebSockets included, while it applies; one near `PRIVATE_BODY_MAX_BYTES` takes tens of seconds |
+| A move or delete of a large subtree rewrites or hashes every descendant, and no batch budget charges it | a small batch of such moves or deletes holds the write lock, and with it the server, for as long as that takes, and can repeat it with each batch |
+| The assistant's harness and its `pkm-mcp` inherit the server's whole environment | any credential the service gets as an environment variable (`OPENAI_API_KEY`, `GOODLINKS_API_KEY`, `ZAI_API_KEY`) reaches them. No tool reads it, but `pkm-mcp` reads `PKM_URL` over its config file's URL, so a `PKM_URL` in the service environment would send the conversation's session token there |
+| GoodLinks' local API listens on every interface (`*:9428`), not loopback only; this is GoodLinks' behaviour, outside PKM's control | anything that reaches the host on that port can call the API over plain HTTP, guarded only by its bearer token. PKM reaches it at `goodlinks_api_url`, loopback by default. Keep the host off untrusted networks or block the port at the host firewall |
+| The dependency advisories the 2026-10-23 review listed are not yet upgraded | none was judged reachable ([review](security-review-2026-10-23.md#dependency-advisories)) |
 
 ## Hardening priorities
 
 If the threat model expands, make changes in this order:
 
 1. Add a temporary lockout on top of the per-source backoff.
-2. Mount every private route under one authenticated parent router, and add a
-   test that walks the route table anonymously and expects `401` everywhere
-   but the public routes.
-3. Add logout, shorten the default session lifetime, and write down a
-   session-secret rotation procedure.
-4. Validate origins for state-changing requests and WebSocket upgrades.
-5. Add CSP, anti-framing, referrer-policy and related response headers.
-6. Review password-hashing parameters and dependency vulnerabilities against
-   current guidance.
+2. Add logout, shorten the default session lifetime, write down a
+   session-secret rotation procedure, and clear on-device data on logout.
+3. Give the assistant's harness an explicit minimal environment, and
+   upgrade the dependencies with open advisories.
+4. Add CSP, anti-framing and related response headers. The referrer policy
+   must not be `no-referrer` (see [Authentication](#authentication)).
+5. Review password-hashing parameters against current guidance.
 
 Application hardening is not a substitute for Tailscale or another
 authenticated, encrypted network boundary.

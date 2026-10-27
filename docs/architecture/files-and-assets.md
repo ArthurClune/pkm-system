@@ -230,13 +230,15 @@ convenience.
    `dangerouslySetInnerHTML` uses (Mermaid, KaTeX, highlighted code) render
    markup the app generated.
 
-Article images still load from their original hosts, since GoodLinks archives
-text but not images. Opening a copy reveals the reader's IP to those hosts.
+Article images still load from their original hosts, because GoodLinks' API
+returns the article with their original URLs even when it keeps its own copy
+of them. Opening a copy reveals the reader's IP to those hosts.
 
 ### Why a proxy
 
-GoodLinks' API listens only on the host's loopback (`localhost:9428`). The
-server holds the bearer token and forwards through `GoodlinksGateway`, so the
+The server reaches GoodLinks' API at `goodlinks_api_url`, loopback by default,
+though GoodLinks listens on every interface ([SECURITY.md](../SECURITY.md#known-limitations)).
+The server holds the bearer token and forwards through `GoodlinksGateway`, so the
 GoodLinks app must be running on the host. An unreachable app and a refused token are 503s. A GoodLinks 404 passes
 through, and a refused save is a 422 carrying its text.
 `GoodlinksUnavailable` covers a closed app and any 2xx that is not a usable

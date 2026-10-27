@@ -30,12 +30,8 @@ Anyone who can read the data directory can read the database and assets.
 Other local operating-system users are outside the network threat model.
 `pkm.server.setup` writes `config.json` with mode `0600`; keep the data
 directory, backups and `local_docs_root` private to the service account.
-The nightly iCloud mirror (`deploy/icloud_backup.py`) copies the database
-snapshots and the data directory, `config.json` included, to iCloud Drive
-([deploy/README.md](../deploy/README.md#off-machine-copy-icloud-drive)).
-`config.json` holds `session_secret` and the password's scrypt hash, so
-whoever can read that iCloud folder can read the notes and mint a session.
-Rotate `session_secret` if it is exposed.
+The nightly iCloud mirror copies the data directory off the host, secrets
+included (see [Known limitations](#known-limitations)).
 Keep API keys in their key files (`openai_api_key_file`, `zai_api_key_file`,
 `goodlinks_api_key_file`) rather than the service environment, which the
 assistant's subprocesses inherit (see [Known limitations](#known-limitations)).
@@ -102,9 +98,8 @@ A URL the browser fetches unprompted is an outbound channel for whoever wrote
 the markdown, the assistant's approved writes included. In an assistant reply
 only uploaded assets load on render: any other image, a Bluesky embed and a
 stock-mermaid diagram wait for a click (`ClickToLoad`). In a note other images
-wait for a click too, but a Bluesky post URL embeds on render. Its handle
-lookup makes Bluesky's servers resolve a domain the URL's writer chose, and
-the embed loads from Bluesky. Diagrams make no fetch: beautiful-mermaid
+wait for a click too, but a Bluesky post URL embeds on render (see [Known
+limitations](#known-limitations)). Diagrams make no fetch: beautiful-mermaid
 escapes label text, and the stock-mermaid fallback runs hardened beyond
 `securityLevel: "strict"`
 ([mechanism](architecture/frontend-rendering.md#link-safety-and-external-media)).
@@ -146,8 +141,8 @@ user's Claude login, and `glm` reads its key from `zai_api_key_file` or
   `--strict-mcp-config` keeps the account's claude.ai connectors out. A
   reply can send note text out only through a link or media the user
   clicks (see the rendering rules above). A write the user approves can do
-  more: a Bluesky post URL it puts in a note embeds whenever the page is
-  viewed.
+  more: a Bluesky post URL it puts in a note fetches whenever the page is
+  viewed (see [Known limitations](#known-limitations)).
 - **Write gating.** Every call to a tool in `WRITE_TOOLS` waits for the user
   to allow or deny a card, and a denial reaches the model as a declined
   action. The card is the only barrier between an injected model and the
@@ -197,6 +192,8 @@ broadening exposure.
 | Login backoff is per source (`LoginThrottle`, `throttle_core.py`: `BASE_BACKOFF_MS` doubling to `MAX_BACKOFF_MS`), one password check in flight per source, with no lockout | The source is the device's tailnet address: on the loopback listener the `X-Forwarded-For` Tailscale Serve sets (trusted from `127.0.0.1` only, `run.FORWARDED_ALLOW_IPS`), on the Tailscale-IP listener the TCP peer. Each device has its own bucket, so a guessing device does not put the others in backoff; a local process can choose its key. Concurrent guesses from one source wait their turn, so a burst costs one scrypt check per backoff window. Every refusal is the same `401`. Scrypt makes each guess expensive, but a weak password is open to patient guessing; use a strong one |
 | No logout and no per-session revocation | a copied cookie works until it expires or `session_secret` is rotated, which ends every session |
 | Each device keeps the full replica, its unsent outbox and recently viewed uploads (the service worker's `pkm-assets` cache, served without an auth check); nothing clears them on a `401` or a `session_secret` rotation | rotation ends sessions, not the copies on devices: a lost device still holds the notes it synced. Clear the site's data on the device |
+| The nightly iCloud mirror (`deploy/icloud_backup.py`) copies the database snapshots and the data directory, `config.json` included, to iCloud Drive ([deploy/README.md](../deploy/README.md#off-machine-copy-icloud-drive)) | `config.json` holds `session_secret` and the password's scrypt hash, so whoever can read that iCloud folder can read the notes and mint a session. Rotate `session_secret` if the folder is exposed |
+| A Bluesky post URL in a note embeds on render, with no click (`BlueskyEmbed` gates it only inside an assistant reply) | viewing the page sends a handle lookup to Bluesky, whose servers resolve the handle's domain, and loads the embed from Bluesky. Whoever wrote the URL chose that domain, so an assistant write the user approved can carry note text out in the handle to a domain an attacker controls |
 | No CSP, `frame-ancestors` or other anti-framing headers | `SameSite=Lax`, the origin guard, React escaping and the narrow boundary limit the risk; these would limit a future browser-side mistake |
 | The direct Tailscale-IP listener is plain HTTP | Tailscale encrypts the hop, but login sends the password over it. Browsers should use the Serve HTTPS URL; never expose the listener on an untrusted network |
 | An authenticated request body has no read deadline | a client with a session can hold a connection open by sending its body slowly. An upload over a slow link needs the time |

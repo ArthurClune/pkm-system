@@ -91,6 +91,7 @@ When creating or updating skills, invoke `/superpowers:writing-skills` first.
 - Durable guidance (skills, these rules, review criteria) states the aim and the symptom that shows it is missed, never a numeric threshold such as a line budget, a share or a count. A threshold flags healthy cases, passes sick ones, and becomes the goal. A check that helps reports facts for judgement rather than pass/fail on a bound.
 - Never write "load-bearing", in docs, specs, comments or memories. Say what the thing does.
 - `docs/keyboard.md` is for users: it lists shortcuts and carries no design rationale.
+- After  every code comment you write, ask yourself, "Is this information the next Claude would spend multiple tool calls trying to understand?". If the answer isn't clearly yes, the code comment is noise - delete it.
 
 ## FCIS
 

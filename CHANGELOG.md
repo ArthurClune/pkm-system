@@ -446,3 +446,8 @@ No product change.
 - Property testing for areas with a history of bugs: title routes, renames, ref parsing on server and web, uploads, local and GoodLinks links, and hostile input.
 - Fixed bugs in title handling, multi-character Unicode, and odd input or stored data that gave server errors.
 - A lint requires validation regexes to match the whole string.
+
+## 2026-10-28 — Code-font editing and a browser SQLite update
+
+- A block that is wholly one code fence or one display-math block edits in the code font, so typed columns line up as they render.
+- The browser's SQLite updated to 3.54.1, which ships the crash-recovery fix the app had patched in locally.

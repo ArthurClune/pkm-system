@@ -17,9 +17,8 @@ rule in the `Where` section.
 
 ## Sync and offline
 
-Owners: [sync-and-offline.md](architecture/sync-and-offline.md),
-[sync-recovery.md](architecture/sync-recovery.md) and
-[sqlite-wasm-patch.md](architecture/sqlite-wasm-patch.md)
+Owners: [sync-and-offline.md](architecture/sync-and-offline.md) and
+[sync-recovery.md](architecture/sync-recovery.md)
 
 ### "Server rejected a change" and its repair
 
@@ -51,7 +50,7 @@ Owners: [sync-and-offline.md](architecture/sync-and-offline.md),
 | Startup wedges: edits accepted, nothing delivered, socket up | The recovery barrier waited on an RPC that could never answer, and the lane never drained | [sync-recovery.md § Availability: two values, one owner](architecture/sync-recovery.md#availability-two-values-one-owner) | pkm-bjae |
 | Every replica write fails with a bare `disk I/O error`, and nothing says the disk is full | The opfs-sahpool VFS turns `SyncAccessHandle.write()`'s `QuotaExceededError` into `SQLITE_IOERR` | [sync-recovery.md § A local write fails](architecture/sync-recovery.md#a-local-write-fails) | pkm-avag |
 | A replica that fails every write looks like healthy offline queueing, with no warning that edits live only in memory | A plain `ReplicaError` has no availability verdict, so no problem banner mounts (`memoryOnlySentence`) | [sync-recovery.md § What the UI shows](architecture/sync-recovery.md#what-the-ui-shows) | pkm-l3cr |
-| After a worker is killed mid-write, the reopened replica holds uncommitted rows or reads as `SQLITE_CORRUPT`; `/pkm-replica.sqlite3-journal` lingers in the pool | The pool VFS answered `xCheckReservedLock` with 1, so SQLite never played the leftover journal back | [sqlite-wasm-patch.md § What it changes](architecture/sqlite-wasm-patch.md#what-it-changes) | pkm-87cf |
+| After a worker is killed mid-write, the reopened replica holds uncommitted rows or reads as `SQLITE_CORRUPT`; `/pkm-replica.sqlite3-journal` lingers in the pool | sqlite-wasm's pool VFS before 3.54.1 answered `xCheckReservedLock` with 1, so SQLite never played the leftover journal back | [sync-and-offline.md § The replica](architecture/sync-and-offline.md#the-replica) | pkm-87cf |
 
 ### Edits that never arrive, or are lost
 

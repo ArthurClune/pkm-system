@@ -17,7 +17,6 @@ designs and their rejected alternatives are in the specs under
 | [backend.md](backend.md) | change a route, the schema, an op, the ref grammar, titles or config |
 | [sync-and-offline.md](sync-and-offline.md) | change how an edit travels from the editor to the server and back |
 | [sync-recovery.md](sync-recovery.md) | change what happens when a sync hop fails: banners, repairs, resets |
-| [sqlite-wasm-patch.md](sqlite-wasm-patch.md) | upgrade `@sqlite.org/sqlite-wasm` |
 | [frontend.md](frontend.md) | add a view, route or module to the SPA, or touch the API layer or assistant panel |
 | [frontend-editor.md](frontend-editor.md) | change editing, keyboard handling, drag and drop or the outline sessions |
 | [frontend-rendering.md](frontend-rendering.md) | change how block text becomes DOM |

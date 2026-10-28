@@ -1,6 +1,6 @@
 // Spec-side driver for sahpool-tool.worker.mjs: a test-only worker, started
 // in a same-origin page, that opens the replica's OPFS SAH pool with the
-// installed sqlite-wasm build (patches included) and the app's own install
+// installed sqlite-wasm build and the app's own install
 // options. It lets a spec leave a pool file exactly as a killed replica
 // worker would, and read back what the app made of it.
 //
@@ -15,7 +15,7 @@ import { SAH_POOL_INSTALL_OPTIONS } from "../src/replica/openRetry";
 
 export interface SqliteWasmSource { indexMjs: string; wasmBase64: string }
 
-/** dist/index.mjs and dist/sqlite3.wasm of the installed (patched) package. */
+/** dist/index.mjs and dist/sqlite3.wasm of the installed package. */
 export function readSqliteWasmSource(): SqliteWasmSource {
   const wasmPath = createRequire(import.meta.url).resolve("@sqlite.org/sqlite-wasm/sqlite3.wasm");
   return {

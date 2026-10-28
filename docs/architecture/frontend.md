@@ -332,8 +332,7 @@ fails on, and `AGENTS.md` § Testing says how to run them.
   origin goes upstream unchanged and is refused there. Rewriting every origin
   would let any page on `localhost` write to the backend through the proxy.
 - `@sqlite.org/sqlite-wasm` stays in `optimizeDeps.exclude`, because its wasm
-  URL resolution breaks under dep optimization. Its pnpm patch is keyed to its
-  exact version ([sqlite-wasm-patch.md](sqlite-wasm-patch.md#upgrading-sqlite-wasm)).
+  URL resolution breaks under dep optimization.
 - Hashed bundles go under `app-assets/`. The server sends `index.html` with
   `Cache-Control: no-cache`, so a reload after a deploy fetches the new shell
   and its chunk names.

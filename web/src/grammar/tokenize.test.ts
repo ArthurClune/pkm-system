@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_BLOCK_TEXT_CHARS } from "./textLimits";
-import { TOKENIZE_CACHE_LIMIT, tokenizeBlock } from "./tokenize";
+import { editsAsCode, TOKENIZE_CACHE_LIMIT, tokenizeBlock } from "./tokenize";
 
 describe("tokenizeBlock", () => {
   it("parses page refs, tags and block refs around plain text", () => {
@@ -569,5 +569,37 @@ describe("tokenizeBlock on a long run of punctuation in a URL", () => {
       { kind: "link", text: "https://x.org/a", href: "https://x.org/a" },
       { kind: "text", text: ")." },
     ]);
+  });
+});
+
+describe("editsAsCode", () => {
+  it("is true for a block that is wholly one code fence", () => {
+    expect(editsAsCode("```\nx  = 1\nyy = 2\n```")).toBe(true);
+    expect(editsAsCode("```python\nx = 1\n```")).toBe(true);
+  });
+
+  it("is true for a block that is wholly display math", () => {
+    expect(editsAsCode("$$\na &= b \\\\\nc &= d\n$$")).toBe(true);
+  });
+
+  it("ignores whitespace around the fence, as the renderer does", () => {
+    expect(editsAsCode("\n```\nx\n```\n")).toBe(true);
+  });
+
+  it("is false for a mermaid fence, which renders as a diagram", () => {
+    expect(editsAsCode("```mermaid\ngraph TD\n  A --> B\n```")).toBe(false);
+  });
+
+  it("is false when prose or a TODO shares the block with the fence", () => {
+    expect(editsAsCode("see this:\n```\nx\n```")).toBe(false);
+    expect(editsAsCode("```\nx\n```\nand after")).toBe(false);
+    expect(editsAsCode("{{[[TODO]]}} ```\nx\n```")).toBe(false);
+    expect(editsAsCode("```\na\n```\n```\nb\n```")).toBe(false);
+  });
+
+  it("is false for plain text and an unclosed fence", () => {
+    expect(editsAsCode("plain text")).toBe(false);
+    expect(editsAsCode("```\nstill typing")).toBe(false);
+    expect(editsAsCode("")).toBe(false);
   });
 });

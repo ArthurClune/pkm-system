@@ -1,10 +1,11 @@
 ---
 # pkm-v93i
 title: Edit fenced code blocks in a monospace font
-status: todo
+status: completed
 type: feature
+priority: normal
 created_at: 2026-10-26T14:19:32Z
-updated_at: 2026-10-26T14:19:32Z
+updated_at: 2026-10-28T09:20:55Z
 ---
 
 When a block holding a fenced code block (``` ... ```) is opened for editing, the
@@ -40,9 +41,24 @@ A block that mixes ordinary text with a fence stays in the body font.
 
 ## Checklist
 
-- [ ] Unit tests: a whole-block code fence and a whole-block `$$` math block get
+- [x] Unit tests: a whole-block code fence and a whole-block `$$` math block get
   the code class; a mermaid fence, a mixed prose-and-fence block and a plain
   block do not
-- [ ] Textarea uses the code-block font family and size while editing a fence
-- [ ] E2E or real-keypress check that typed alignment matches the rendered output
-- [ ] styling.md updated if a token or editor class is added
+- [x] Textarea uses the code-block font family and size while editing a fence
+- [x] E2E or real-keypress check that typed alignment matches the rendered output
+- [x] styling.md updated if a token or editor class is added
+
+## Summary of Changes
+
+- `editsAsCode` in `web/src/grammar/tokenize.ts` decides from `tokenizeBlock`
+  whether a block is wholly one non-mermaid code fence or one display-math
+  block; a prefix test keeps ordinary blocks from tokenizing per keystroke.
+- `BlockInput` adds `code-input` to the textarea from the live draft, so the
+  font switches as the closing fence is typed.
+- New tokens `--font-mono` and `--font-size-code` replace the repeated
+  monospace stack and 13px; `.block-input.code-input` uses them.
+- Tests: unit cases in `tokenize.test.ts` and `BlockInput.test.tsx`;
+  `e2e/code-edit-font.spec.ts` types a fence with real keys and compares the
+  editor font to the rendered `.code-block code` (red-checked against the
+  rule removed).
+- `styling.md` names the tokens and the editor class.

@@ -14,6 +14,7 @@ import { apiPost } from "../api/typedClient";
 import type { BlockUid, NormalizedTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { SidebarContext } from "../contexts";
+import { editsAsCode } from "../grammar/tokenize";
 import { applyCompletion, holdsDraftFlush } from "../outline/autocomplete";
 import { measureCaretDisplayLine } from "../outline/caretDisplayLine";
 import type { OutlineHandlers } from "../outline/handlers";
@@ -74,6 +75,9 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     onUnmount: (selStart, selEnd) =>
       handlers.onInputUnmount(node.uid, selStart, selEnd),
   });
+  // From the draft, not node.text: the font changes as the closing fence
+  // is typed, before the edit is saved.
+  const codeClass = editsAsCode(draft.text) ? " code-input" : "";
   // The completion context and the caret a pick splices at are re-derived
   // from the live textarea selection, so a click or a selection-only caret
   // move (neither fires an input event) can't leave a completion pointing at
@@ -455,7 +459,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
 
   return (
     <div className="block-input-wrap">
-      <textarea ref={draft.ref} className={`block-input${headingClass}`} rows={1}
+      <textarea ref={draft.ref} className={`block-input${headingClass}${codeClass}`} rows={1}
                 value={draft.text} readOnly={readOnly}
                 onChange={onChange} onKeyDown={onKeyDown}
                 onClick={(e) => ac.resolve(e.currentTarget)}

@@ -7,8 +7,8 @@ failures are indexed by symptom in [troubleshooting.md](../troubleshooting.md).
 ## Tokens and theming
 
 Design tokens are custom properties on `:root`: a color system
-(`--color-bg/-surface/-text*/-accent/-link/-tag/…`), a radius scale and
-`--hljs-*` code tokens.
+(`--color-bg/-surface/-text*/-accent/-link/-tag/…`), a radius scale,
+`--hljs-*` code tokens, and the code font (`--font-mono`, `--font-size-code`).
 
 Theming is three-way: light by default, OS dark via
 `@media (prefers-color-scheme: dark)`, and an explicit `data-theme` override
@@ -40,6 +40,7 @@ Radius steps are assigned by role:
 | `.block-stamp` | the row's last flex child, beside the textarea, so focus cannot shift it. Its band tokens (`--color-stamp-week`, `-month`, `-year`) are solid, so a band survives hover and focus; `stampBand`'s `"older"` rows have none. Hidden under 600px |
 | `.block-ref-badge` | must not join `.block-stamp`'s under-600px `display: none`: on touch it is the only route to the references popover |
 | `.block-input` | borderless and transparent. While `field-sizing: content` applies, no code sets an inline `height`; `useBlockDraft.ts`'s `CSS.supports("field-sizing", "content")` tests the same declaration as the `@supports` rule |
+| `.block-input.code-input` | set while the draft is one code fence (mermaid excepted) or one display-math block, as `editsAsCode` in `grammar/tokenize.ts` decides. It takes `.code-block`'s font tokens, so a typed column is the column that renders |
 
 The stamp flag reaches the tree as a prop from `PageView`. `EditableBlockTree`
 never reads `BlockStampsContext`, or the journal and sidebar panels would grow

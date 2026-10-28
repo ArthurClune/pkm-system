@@ -84,6 +84,10 @@
   --radius-card: 6px;    /* embedded content: code blocks, images, cards */
   --radius-panel: 8px;   /* floating menus, dropdowns, the main pane */
 
+  /* the monospace font, and the size code renders at */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-size-code: 13px;
+
   /* highlight.js token colors, ported from highlight.js/styles/github.css
    * (see components/CodeBlock.tsx for why these live here instead of that
    * package's CSS files). */
@@ -595,12 +599,12 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
 .attribute a.page-link[data-ns] { color: var(--color-text-muted); }
 .inline-code { background: var(--color-bg-subtle); border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  padding: 0 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px; }
+  padding: 0 4px; font-family: var(--font-mono);
+  font-size: var(--font-size-code); }
 .code-block { background: var(--color-bg-subtle); border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
-  padding: 10px 12px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.code-block code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  padding: 10px 12px; font-size: var(--font-size-code); white-space: pre-wrap; overflow-wrap: anywhere; }
+.code-block code { font-family: var(--font-mono); }
 .roam-table-scroll { display: block; width: 100%; overflow-x: auto; margin: 4px 0; }
 .roam-table { width: 100%; min-width: max-content; border-collapse: collapse; }
 .roam-table th, .roam-table td { border: 1px solid var(--color-border);
@@ -976,6 +980,10 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 @supports (field-sizing: content) {
   .block-input { field-sizing: content; }
 }
+/* A block that renders as one code fence or display-math block (editsAsCode)
+ * edits in .code-block's font, so a column typed here is the column shown. */
+.block-input.code-input { font-family: var(--font-mono);
+  font-size: var(--font-size-code); overflow-wrap: anywhere; }
 .block-row.focused { background: var(--color-focus-bg); }
 /* Multi-block selection (Shift+Arrow) highlight. The tree container takes focus
  * to own the keyboard while selecting, but shouldn't show its own outline. */
@@ -1134,8 +1142,8 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .assistant-confirm-subtree { color: var(--color-error); }
 .assistant-confirm-stale { color: var(--color-error); font-size: 0.85em; margin-bottom: 6px; }
 .assistant-confirm-key { color: var(--color-text-secondary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.assistant-confirm-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono); }
+.assistant-confirm-value { font-family: var(--font-mono);
   white-space: pre-wrap; unicode-bidi: isolate; }
 .assistant-confirm-text { display: block; border: 1px solid var(--color-border);
   border-radius: var(--radius-control); padding: 4px 6px; margin-top: 2px; }

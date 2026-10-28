@@ -332,6 +332,23 @@ export function tokenizeBlock(text: string): BlockSegment[] {
   return result;
 }
 
+/** Whether the editor shows `text` in the code font: the block renders as
+ * nothing but one code fence (mermaid excepted, which renders a diagram) or
+ * one display-math block, so a column typed in the textarea is the column
+ * that renders. Asks tokenizeBlock, so editor and renderer agree on what a
+ * fence is; the prefix test keeps ordinary blocks from tokenizing on every
+ * keystroke. */
+export function editsAsCode(text: string): boolean {
+  const head = text.trimStart();
+  if (!head.startsWith("```") && !head.startsWith("$$")) return false;
+  const segs = tokenizeBlock(text).filter((s) =>
+    s.kind !== "linebreak" && !(s.kind === "text" && s.text.trim() === ""));
+  if (segs.length !== 1) return false;
+  const [seg] = segs;
+  return (seg.kind === "code-block" && seg.lang !== "mermaid")
+    || (seg.kind === "math" && seg.display);
+}
+
 function tokenizeBlockUncached(text: string): BlockSegment[] {
   const blockMath = BLOCK_MATH_RE.exec(text.trim());
   if (blockMath && !blockMath[1].includes("$$") && blockMath[1].trim() !== "") {

@@ -96,6 +96,21 @@ test("a focused plain-text block keeps block-input and omits heading classes", (
   expect(ta).not.toHaveClass("heading-3");
 });
 
+test("a block that is wholly a code fence edits in the code font", () => {
+  mount(handlers(), 0, false, block("tuid-code", "```\nx  = 1\nyy = 2\n```"));
+  expect(focusedTextarea()).toHaveClass("block-input", "code-input");
+});
+
+test("the code font follows the draft as the fence closes and opens", () => {
+  mount(handlers(), 0, false, block("tuid-code", "```\nx"));
+  const ta = focusedTextarea();
+  expect(ta).not.toHaveClass("code-input");
+  fireEvent.change(ta, { target: { value: "```\nx\n```" } });
+  expect(ta).toHaveClass("code-input");
+  fireEvent.change(ta, { target: { value: "see\n```\nx\n```" } });
+  expect(ta).not.toHaveClass("code-input");
+});
+
 test("typing reports the draft", () => {
   const h = handlers();
   mount(h, 0);

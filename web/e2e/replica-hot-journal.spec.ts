@@ -2,8 +2,8 @@
 // in the OPFS SAH pool. The next open of that file must play the journal
 // back, so the database holds only what was committed. The pool VFS reports
 // a RESERVED lock only when a file it has open on that path holds one,
-// which is what lets SQLite recognise a killed worker's journal as hot
-// (web/patches/@sqlite.org__sqlite-wasm@*.patch).
+// which is what lets SQLite recognise a killed worker's journal as hot.
+// sqlite-wasm before 3.54 answered RESERVED always and failed these tests.
 //
 // The tool worker (sahpool-tool.ts) stands in for a replica worker: it opens
 // the app's pool, writes, and is terminated mid-transaction. It runs on
@@ -68,6 +68,8 @@ test("the app rolls back a replica transaction a killed worker left, on its next
 
 // A read on a second connection must not take a live writer's journal for a
 // killed worker's: playing it back would undo pages underneath the writer.
+// The spill left the writer holding EXCLUSIVE, so the pool's per-path locks
+// turn the reader away before it ever looks at the journal.
 test("a second connection in the same worker leaves a live writer's journal alone", async ({ page }) => {
   const file = "/e2e-two-connections.sqlite3";
   await page.goto("/healthz");
@@ -76,7 +78,7 @@ test("a second connection in the same worker leaves a live writer's journal alon
   for (const sql of [CREATE_PROBE, SEED_PROBE, ...TEAR]) await tool.exec("a", sql);
 
   await tool.open("b", file);
-  expect(await tool.exec("b", "SELECT count(*) AS n FROM e2e_probe")).toEqual([{ n: 200 }]);
+  await expect(tool.exec("b", "SELECT count(*) AS n FROM e2e_probe")).rejects.toThrow(/SQLITE_BUSY/);
   expect(await tool.files()).toContain(journalOf(file));
 
   await tool.exec("a", "COMMIT");

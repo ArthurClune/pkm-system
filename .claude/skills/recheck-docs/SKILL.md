@@ -69,7 +69,7 @@ outside git, indexed by its `MEMORY.md`.
    | Reviewer | Scope |
    |---|---|
    | backend | `backend.md` |
-   | sync | the `sync-*` docs and `sqlite-wasm-patch.md` |
+   | sync | the `sync-*` docs |
    | frontend | `frontend*.md` and `styling.md` |
    | rest | every other doc in `docs/architecture/`, `overview.md` first |
    | troubleshooting | `docs/troubleshooting.md` |

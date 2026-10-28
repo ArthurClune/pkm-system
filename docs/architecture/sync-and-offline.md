@@ -58,9 +58,10 @@ A second file, `/pkm-replica-carry.sqlite3`, holds the queue during a
 [file replacement](sync-recovery.md#reset-rebase-and-file-replacement).
 
 A commit is atomic across the worker's death, because the next read plays back
-the hot `-journal` a killed worker left. Upstream's pool VFS does not do this
-yet, so the replica runs a patched build
-([sqlite-wasm-patch.md](sqlite-wasm-patch.md)).
+the hot `-journal` a killed worker left. The opfs-sahpool VFS does this only
+from `@sqlite.org/sqlite-wasm` 3.54.1: earlier builds reported a RESERVED lock
+on every file, so SQLite never saw a journal as hot.
+`web/e2e/replica-hot-journal.spec.ts` fails on a build without it.
 
 `ReplicaRpc` (`replica/client.ts`) types every worker RPC with the branded
 ids. `rpc.ts`'s `serveRpc` is the one place that takes wire data on trust,

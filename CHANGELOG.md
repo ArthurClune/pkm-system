@@ -447,6 +447,50 @@ No product change.
 - Fixed bugs in title handling, multi-character Unicode, and odd input or stored data that gave server errors.
 - A lint requires validation regexes to match the whole string.
 
+## 2026-10-22 — Leaner architecture docs, and import, link and caret fixes
+
+- The architecture docs cut to what the code cannot say, with past incidents filed by symptom in the troubleshooting doc.
+- Fixed bugs importing the original Roam export, links containing a backtick, and caret placement beside emoji.
+
+## 2026-10-23 — A security review, external media on click, and one bullet per upload
+
+- A security review of the routes added since July, and regression tests guarding the defences already in place.
+- External images, PDFs, and Bluesky embeds in assistant replies and notes load only when clicked; diagrams fetch nothing.
+- The assistant's approval card shows every write's target with its values quoted, and Allow arms only once the whole list has been seen.
+- Each file uploaded into a block goes on its own bullet.
+- Escaped server log lines, bounded query expressions, and DNS prefetching turned off.
+- Fixed bugs in reading pages whose titles hold slashes or dots, very large id lists, malformed session cookies, exported files overwriting each other on macOS, and asset deletes racing other writes.
+- General agent lessons moved from Claude's session memory into AGENTS.md and the architecture docs.
+
+## 2026-10-24 — Outline depth and text limits, allowed origins, and title whitespace
+
+- Outlines stop at 100 levels, enforced by the server, the editor, drag and drop, undo, and the importer.
+- Block text has length and link-nesting caps, enforced in the editor, the offline copy, and the server; renames and merges refuse rewrites that would pass them.
+- Very large single-page exports are refused with a reason.
+- The server refuses WebSocket connections and writes from other origins.
+- Runs of whitespace in page titles fold to one space, on the server and offline.
+- Rendering stays fast on very long blocks.
+- The assistant can no longer upload files, and loads only the pkm tools.
+
+## 2026-10-25 — Request bounds, a guarded Allow, and leaner backlinks
+
+- The server refuses anonymous requests before reading their body, caps request bodies, cuts off stalled clients, and runs one login check at a time per source.
+- Allow refuses a write to a block edited since its approval card showed it, and the card shows each target's current text and page.
+- The assistant panel shows why a write was refused or failed.
+- Page titles have a length cap and may not end in `[`.
+- Backlinks send each breadcrumb ancestor's text once, so long backlink lists load faster.
+- Page deletes and replays of offline edits stay bounded on very large pages.
+- Fixed bugs in local file links, renaming attributes that hold tags, imports, undo after a refused edit, and assistant writes from a stopped turn.
+
+## 2026-10-26 — Bounded replay of offline edits across renames
+
+- Replaying offline edits across renames stays bounded in the work it does.
+- The server requires SQLite 3.43 or later.
+
+## 2026-10-27 — The security model rewritten
+
+- SECURITY.md describes the system after the October security fixes, and lists the Bluesky embed and iCloud mirror as known limitations.
+
 ## 2026-10-28 — Code-font editing and a browser SQLite update
 
 - A block that is wholly one code fence or one display-math block edits in the code font, so typed columns line up as they render.

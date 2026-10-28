@@ -1,13 +1,15 @@
 ---
-description: Use when asked to update CHANGELOG.md with today's work
+description: Use when asked to update CHANGELOG.md with recent work
 model: claude-opus-5-5
 ---
 
-Update `CHANGELOG.md` at the repository root with today's work. Sources: beans and git commits on `main`.
+Update `CHANGELOG.md` at the repository root with the work since its last entry. Sources: beans and git commits on `main`.
 
 The changelog records what changed, for a reader skimming months later. Beans and git hold the evidence; the entry says what a user or future maintainer would notice. Deploys, test and verification output, commit hashes, bean ids and titles, route names, internal thresholds and timeouts, how long something took, and how the work was done (worktrees, merges, test-first, subagents, which agent) are inputs you check the entry against. The entry records only the outcome.
 
-Append a day entry at the end of the file:
+The entries cover every day from the day after the file's last `## YYYY-MM-DD` heading through today that has commits on `main`, one entry per day, oldest first, appended at the end of the file. List those days with `TZ=Europe/London git log main --since=<day after the last heading>T00:00 --date=format-local:%Y-%m-%d --pretty=%ad | sort -u`. A day with no commits on `main` gets no entry.
+
+Each day entry has this shape:
 
 - `## YYYY-MM-DD — theme`, where the theme is a flat noun phrase naming what shipped ("Date shortcuts, the file browser, and control styling"). Dates are in Europe/London time: `TZ=Europe/London git log main --date=format-local:%Y-%m-%d --pretty=%ad`.
 - A single plain line when there was no product change ("No product change.").
@@ -28,4 +30,4 @@ Before saving, reread what you wrote and rewrite any sentence that:
 - leans on intensifiers or hedges: "deliberately", "actually", "merely", "genuinely", "by design", "load-bearing";
 - uses an em-dash aside where a full stop or comma would do.
 
-Then commit the entry on `main`. Parallel sessions share the main checkout, so run `git status -sb` first and confirm it is on `main`, then stage `CHANGELOG.md` alone (`git add CHANGELOG.md`, never `-A`) and commit it as `changelog: YYYY-MM-DD`. Do not push.
+Then commit the entries on `main`. Parallel sessions share the main checkout, so run `git status -sb` first and confirm it is on `main`, then stage `CHANGELOG.md` alone (`git add CHANGELOG.md`, never `-A`) and commit it as `changelog: YYYY-MM-DD`, or `changelog: YYYY-MM-DD to YYYY-MM-DD` when it covers several days. Do not push.

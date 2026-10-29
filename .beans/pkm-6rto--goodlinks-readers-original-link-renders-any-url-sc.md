@@ -1,11 +1,11 @@
 ---
 # pkm-6rto
 title: GoodLinks reader's original link renders any URL scheme
-status: todo
+status: in-progress
 type: bug
 priority: low
 created_at: 2026-10-27T10:53:09Z
-updated_at: 2026-10-27T10:53:09Z
+updated_at: 2026-10-29T16:06:50Z
 parent: pkm-mfd0
 ---
 

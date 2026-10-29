@@ -1,11 +1,11 @@
 ---
 # pkm-5sot
 title: Importer report prints a refused over-long title in full
-status: todo
+status: in-progress
 type: bug
 priority: low
 created_at: 2026-10-26T16:13:08Z
-updated_at: 2026-10-26T16:13:08Z
+updated_at: 2026-10-29T16:06:50Z
 parent: pkm-mfd0
 ---
 

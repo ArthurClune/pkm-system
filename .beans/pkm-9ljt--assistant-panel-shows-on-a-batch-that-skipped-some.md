@@ -1,11 +1,11 @@
 ---
 # pkm-9ljt
 title: Assistant panel shows ✓ on a batch that skipped some ops
-status: todo
+status: in-progress
 type: feature
 priority: low
 created_at: 2026-10-25T18:39:40Z
-updated_at: 2026-10-25T18:39:40Z
+updated_at: 2026-10-29T16:06:49Z
 parent: pkm-mfd0
 ---
 

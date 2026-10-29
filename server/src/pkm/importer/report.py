@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from pkm.contracts.titles import MAX_PAGE_TITLE_CHARS
 from pkm.importer.parse_export import CONSUMED_ATTRS
 from pkm.importer.titles import ImportTitleChange, SkippedPage
 
@@ -47,6 +48,17 @@ class ImportReport:
     unlinked_block_uids: tuple[str, ...] = ()
 
 
+_CLIPPED_TITLE_PREFIX = 80
+
+
+def _clip(text: str) -> str:
+    """A title as the report prints it: any title can come from the import
+    file, and one past the cap would otherwise print whole."""
+    if len(text) <= MAX_PAGE_TITLE_CHARS:
+        return text
+    return f"{text[:_CLIPPED_TITLE_PREFIX]}… ({len(text)} characters)"
+
+
 def render(r: ImportReport) -> str:
     """Render an import report as stable human-readable text."""
     ignored = {a: n for a, n in sorted(r.attr_counts.items())
@@ -63,8 +75,8 @@ def render(r: ImportReport) -> str:
             merge_prefix = "merged; " if change.merged else ""
             locations = ", ".join(change.locations)
             lines.append(
-                f"  {json.dumps(change.original_title, ensure_ascii=False)} -> "
-                f"{json.dumps(change.sanitized_title, ensure_ascii=False)} "
+                f"  {json.dumps(_clip(change.original_title), ensure_ascii=False)} -> "
+                f"{json.dumps(_clip(change.sanitized_title), ensure_ascii=False)} "
                 f"({merge_prefix}{locations})"
             )
     else:
@@ -72,10 +84,10 @@ def render(r: ImportReport) -> str:
     if r.skipped_pages:
         lines.append(f"pages skipped (title refused): {len(r.skipped_pages)}")
         for page in r.skipped_pages:
-            moved = (f", blocks recovered to '{r.recovery_page_title}'"
+            moved = (f", blocks recovered to '{_clip(r.recovery_page_title)}'"
                      if page.block_count and r.recovery_page_title else "")
             lines.append(
-                f"  {json.dumps(page.original_title, ensure_ascii=False)} "
+                f"  {json.dumps(_clip(page.original_title), ensure_ascii=False)} "
                 f"({page.reason}; {page.location}; "
                 f"{page.block_count} blocks{moved})"
             )
@@ -89,7 +101,7 @@ def render(r: ImportReport) -> str:
         lines.append("blocks with refs to a refused title made plain text: none")
     lines += [
         (f"orphan blocks (unreachable from any page, recovered to "
-         f"'{r.recovery_page_title}'): {r.orphan_blocks}"
+         f"'{_clip(r.recovery_page_title)}'): {r.orphan_blocks}"
          if r.orphan_blocks and r.recovery_page_title
          else f"orphan blocks (unreachable, not imported): {r.orphan_blocks}"),
     ]

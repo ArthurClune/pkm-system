@@ -42,6 +42,19 @@ describe("createSseParser", () => {
     ]);
   });
 
+  test("tool_finished keeps a warning", () => {
+    const p = createSseParser();
+    expect(p.push(
+      'event: tool_finished\ndata: {"tool_use_id": "t1", "name": "batch", '
+        + '"error": null, "declined": false, '
+        + '"warning": "warning: skipped 1 of 3 ops"}\n\n',
+    )).toEqual([
+      { type: "tool_finished", tool_use_id: "t1", name: "batch",
+        error: null, declined: false,
+        warning: "warning: skipped 1 of 3 ops" },
+    ]);
+  });
+
   test("ignores malformed frames", () => {
     const p = createSseParser();
     expect(p.push("event: text_delta\ndata: {not json}\n\n")).toEqual([]);

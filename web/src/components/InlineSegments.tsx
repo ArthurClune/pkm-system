@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 // Dispatches each tokenized segment to its renderer. isPdfHref,
-// isDeferredPdfHref, isSafeHref and pdfLabelFromHref below are pure, and
+// isDeferredPdfHref and pdfLabelFromHref below are pure, and
 // goodlinksIdFromHref lives in goodlinks.ts, but the module as a whole composes
 // several Imperative Shell components (AssetImage, BlockRef, PageLink,
 // TodoCheckbox, BlueskyEmbed, MermaidDiagram, QueryBlock, GoodlinksLink) that
@@ -13,7 +13,7 @@ import { BlockRef } from "./BlockRef";
 import { isBlueskyPostUrl } from "./bluesky";
 import { BlueskyEmbed } from "./BlueskyEmbed";
 import { CodeBlock } from "./CodeBlock";
-import { isPathUnder, isUploadedAsset } from "./externalMedia";
+import { isPathUnder, isSafeHref, isUploadedAsset } from "./externalMedia";
 import { goodlinksIdFromHref } from "./goodlinks";
 import { GoodlinksLink } from "./GoodlinksLink";
 import { MathSpan } from "./MathSpan";
@@ -49,17 +49,6 @@ function pdfLabelFromHref(href: string): string {
   } catch {
     return name;
   }
-}
-
-/** [x](javascript:…) in block text must not become a
- * clickable anchor. http(s), mailto, and site-relative (single-slash) only.
- * Control chars are rejected outright (browsers strip tab/CR/LF before URL
- * parsing, defeating prefix checks) and the second char after a leading /
- * may not be / or \ (protocol-relative escapes). */
-function isSafeHref(href: string): boolean {
-  if (/[\u0000-\u001f]/.test(href)) return false;
-  if (/^(https?:|mailto:)/i.test(href)) return true;
-  return href.startsWith("/") && !/^\/[/\\]/.test(href);
 }
 
 export function InlineSegments({ segments, depth = 0 }:

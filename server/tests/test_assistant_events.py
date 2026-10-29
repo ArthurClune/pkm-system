@@ -196,3 +196,8 @@ def test_tool_finished_encodes_its_error_and_decline():
     declined = encode_sse(ToolFinished(tool_use_id="t1", name="update_block",
                                        declined=True))
     assert '"declined": true' in declined and '"error": null' in declined
+    assert '"warning": null' in bare
+    warned = encode_sse(ToolFinished(
+        tool_use_id="t1", name="batch",
+        warning="warning: skipped 1 of 3 ops"))
+    assert '"warning": "warning: skipped 1 of 3 ops"' in warned

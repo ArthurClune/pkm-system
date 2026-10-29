@@ -275,9 +275,9 @@ fallback in `useAssistant.ts`.
 - A tool line pairs with its `tool_finished` by `tool_use_id`, across turns,
   so a stopped turn's write still resolves in the next. Only a line not yet
   done pairs, so a reused id cannot turn a finished line's `✗` into `✓`.
-  A failed write's
-  `.assistant-tool-failed` is a text node, never `tokenizeBlock`: the reason
-  can echo model-chosen input.
+  `.assistant-tool-failed` and `.assistant-tool-warning` are text nodes, never
+  `tokenizeBlock`: a tool result is untrusted text, and a failure reason can
+  echo model-chosen input.
 - `stripCaretBlockRefs` (`assistant/normalizeRefs.ts`) runs before
   `tokenizeBlock`, because some models copy the `^uid` marker into citations
   and the grammar rejects `((^uid))`.

@@ -1,7 +1,8 @@
 // pattern: Functional Core
-// Which media the app may fetch on render, and how a placeholder names the
-// rest. Only uploaded assets (same-origin /assets/ paths) load unprompted;
-// any other src, data: and blob: included, is external.
+// Which links the app renders live, which media it may fetch on render, and
+// how a placeholder names the rest. Only uploaded assets (same-origin
+// /assets/ paths) load unprompted; any other src, data: and blob: included,
+// is external.
 
 // A path that climbs out of its prefix names another same-origin route:
 // /assets/../api/export.zip would run an export on render. The URL parser
@@ -40,4 +41,15 @@ export function externalImageLabel(src: string, alt: string): string {
   const host = hostOf(src);
   const source = host ? `image from ${host}` : "external image";
   return alt ? `${source}: ${alt}` : source;
+}
+
+/** [x](javascript:…) in block text must not become a
+ * clickable anchor. http(s), mailto, and site-relative (single-slash) only.
+ * Control chars are rejected outright (browsers strip tab/CR/LF before URL
+ * parsing, defeating prefix checks) and the second char after a leading /
+ * may not be / or \ (protocol-relative escapes). */
+export function isSafeHref(href: string): boolean {
+  if (/[\u0000-\u001f]/.test(href)) return false;
+  if (/^(https?:|mailto:)/i.test(href)) return true;
+  return href.startsWith("/") && !/^\/[/\\]/.test(href);
 }

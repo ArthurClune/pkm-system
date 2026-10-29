@@ -1650,6 +1650,49 @@ def test_turn_mappers_sharing_a_map_carry_a_write_across_turns():
     assert tools == {}  # the result popped its id
 
 
+_SKIPPED = ("warning: skipped 1 of 3 ops; the rest were applied\n"
+            "- op 2: block ((AAAAAAAA)) not found")
+
+
+def test_turn_mapper_carries_a_skipped_batch_warning_first_line():
+    mapper = TurnMapper()
+    mapper.map(_use("t1"))
+    assert mapper.map(_result("t1", False, _SKIPPED)) == [ToolFinished(
+        tool_use_id="t1", name="update_block",
+        warning="warning: skipped 1 of 3 ops; the rest were applied")]
+
+
+def test_turn_mapper_shows_no_warning_on_an_error_or_declined_result():
+    mapper = TurnMapper(declined={"t2"})
+    mapper.map(_use("t1"))
+    mapper.map(_use("t2"))
+    [failed] = mapper.map(_result("t1", True, _SKIPPED))
+    [declined] = mapper.map(_result("t2", True, _SKIPPED))
+    assert isinstance(failed, ToolFinished)
+    assert failed.error is not None and failed.warning is None
+    assert isinstance(declined, ToolFinished)
+    assert declined.declined is True and declined.warning is None
+
+
+def test_turn_mapper_clips_a_long_warning_like_an_error_reason():
+    mapper = TurnMapper()
+    mapper.map(_use("t1"))
+    text = "warning: " + "x" * 400
+    clipped = text[:300] + f"… ({len(text):,} characters)"
+    assert mapper.map(_result("t1", None, text)) == [ToolFinished(
+        tool_use_id="t1", name="update_block", warning=clipped)]
+
+
+def test_turn_mapper_leaves_warning_unset_without_the_prefix_or_on_reads():
+    mapper = TurnMapper()
+    mapper.map(_use("w1"))
+    assert mapper.map(_result("w1", False, "ok: applied 3 ops")) == [
+        ToolFinished(tool_use_id="w1", name="update_block")]
+    mapper.map(_use("r1", "mcp__pkm__search"))
+    assert mapper.map(_result("r1", False, _SKIPPED)) == [
+        ToolFinished(tool_use_id="r1", name="search")]
+
+
 def test_turn_mapper_marks_a_declined_write_not_failed():
     tools: dict[str, str] = {}
     mapper = TurnMapper(tools, declined={"t1"})

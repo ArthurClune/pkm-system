@@ -162,3 +162,35 @@ def test_render_says_none_when_nothing_was_skipped_or_unlinked():
     text = render(REPORT)
     assert "pages skipped (title refused): none\n" in text
     assert "blocks with refs to a refused title made plain text: none\n" in text
+
+
+def test_render_clips_an_over_long_refused_title():
+    from pkm.importer.titles import SkippedPage
+    title = "Needle" + "x" * 1_999_994
+    r = ImportReport(
+        pages=0, implicit_pages=0, blocks=0, refs=0, orphan_blocks=1,
+        skipped_entities=0, block_ref_count=0, embed_count=0,
+        assets_total=0, assets_used=0, missing_asset_urls=(),
+        attr_counts={}, title_changes=(ImportTitleChange(
+            title, title, ("page[0]",), False),),
+        recovery_page_title=title,
+        skipped_pages=(SkippedPage(title, "too_long", "page[0]", 3),),
+    )
+    text = render(r)
+    assert len(text) < 5_000
+    assert '"Needle' in text
+    assert "… (2000000 characters)" in text
+
+
+def test_render_leaves_a_title_at_the_cap_unchanged():
+    from pkm.contracts.titles import MAX_PAGE_TITLE_CHARS
+    from pkm.importer.titles import SkippedPage
+    title = "y" * MAX_PAGE_TITLE_CHARS
+    r = ImportReport(
+        pages=0, implicit_pages=0, blocks=0, refs=0, orphan_blocks=0,
+        skipped_entities=0, block_ref_count=0, embed_count=0,
+        assets_total=0, assets_used=0, missing_asset_urls=(),
+        attr_counts={}, title_changes=(),
+        skipped_pages=(SkippedPage(title, "blank", "page[0]", 0),),
+    )
+    assert f'"{title}"' in render(r)

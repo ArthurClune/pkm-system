@@ -92,3 +92,19 @@ it("locks body scroll while mounted", async () => {
   view.unmount();
   expect(document.body.style.overflow).toBe("");
 });
+
+it.each([
+  "javascript:alert(1)",
+  "JavaScript:alert(1)",
+  " javascript:alert(1)",
+  "//evil.example/x",
+])("an unsafe original url %j is shown as text, never as a link", async (url) => {
+  stub(async () => jsonResponse({ ...ARTICLE, url }));
+  render(<GoodlinksReader linkId={ID} onClose={vi.fn()} />);
+  await waitFor(() => expect(screen.getByTitle("UML My Part")).toBeInTheDocument());
+  expect(screen.queryByRole("link", { name: "original" })).not.toBeInTheDocument();
+  expect(screen.getByRole("dialog").querySelector("a[href]")).toBeNull();
+  expect(screen.getByRole("dialog")).toHaveTextContent(url.trim());
+  expect(screen.getByRole("dialog").querySelector(".goodlinks-reader-url"))
+    .toHaveTextContent(url.trim());
+});

@@ -389,10 +389,15 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
             {assistant.items.map((item, i) =>
               item.kind === "tool" ? (
                 <div key={i} className="assistant-tool-line">
-                  {item.error !== null ? "✗" : item.declined ? "" : item.done ? "✓" : "…"}
+                  {item.error !== null ? "✗" : item.declined ? "" : item.warning ? "⚠" : item.done ? "✓" : "…"}
                   {item.declined ? "" : " "}{item.summary}
                   {item.declined && (
                     <span className="assistant-tool-declined"> Declined</span>
+                  )}
+                  {item.warning && (
+                    <div className="assistant-tool-warning">
+                      <bdi dir="ltr">{item.warning}</bdi>
+                    </div>
                   )}
                   {item.error !== null && (
                     <div className="assistant-tool-failed">

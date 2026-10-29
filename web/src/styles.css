@@ -689,6 +689,7 @@ mark.highlight { background: var(--color-highlight-bg); }
   flex-wrap: wrap; font-size: 14px; color: var(--color-text-muted); }
 .goodlinks-reader-title { color: var(--color-text); font-weight: 600; font-size: 15px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60vw; }
+.goodlinks-reader-url { min-width: 0; overflow-wrap: anywhere; }
 .goodlinks-reader-frame { flex: 1; min-height: 0; width: 100%; border: 0;
   background: var(--color-bg-surface); }
 .goodlinks-reader-note { margin: 32px auto; color: var(--color-text-muted); }
@@ -1122,6 +1123,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 /* A failed write's reason is the server's text, shown in full width; no
    white-space override, so a newline in it cannot draw a second line. */
 .assistant-tool-failed { color: var(--color-error); font-style: normal; overflow-wrap: anywhere; }
+.assistant-tool-warning { font-style: normal; overflow-wrap: anywhere; }
 .assistant-confirm-card { border: 1px solid var(--color-border-input); border-radius: var(--radius-card);
   padding: 10px; }
 .assistant-confirm-title { font-weight: 600; margin-bottom: 6px; }

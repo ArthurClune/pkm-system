@@ -65,9 +65,11 @@ export type ChatItem =
   | { kind: "user"; text: string }
   | { kind: "assistant"; text: string }
   // `error` is a write's failure reason, `declined` a write the user denied
-  // on its card; both come from the server and are untrusted text/flags.
+  // on its card, `warning` a batch's skipped-ops line; all come from the
+  // server and are untrusted text/flags.
   | { kind: "tool"; toolUseId: string; name: string; summary: string;
-      done: boolean; error: string | null; declined: boolean };
+      done: boolean; error: string | null; declined: boolean;
+      warning?: string };
 
 export type PendingConfirm = {
   confirmId: ConfirmId;
@@ -218,6 +220,7 @@ export function useAssistant() {
           return [...prev.slice(0, idx), {
             ...item, done: true, error: ev.error ?? null,
             declined: ev.declined === true,
+            warning: ev.warning ?? undefined,
           }, ...prev.slice(idx + 1)];
         });
         break;

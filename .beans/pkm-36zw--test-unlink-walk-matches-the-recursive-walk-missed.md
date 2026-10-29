@@ -1,11 +1,11 @@
 ---
 # pkm-36zw
 title: test_unlink_walk_matches_the_recursive_walk missed its 'alias dropped a span' floor once
-status: todo
+status: in-progress
 type: bug
 priority: low
 created_at: 2026-10-24T21:48:15Z
-updated_at: 2026-10-24T21:48:15Z
+updated_at: 2026-10-29T11:30:42Z
 parent: pkm-mfd0
 ---
 

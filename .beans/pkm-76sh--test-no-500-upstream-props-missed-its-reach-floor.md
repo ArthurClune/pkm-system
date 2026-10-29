@@ -1,11 +1,11 @@
 ---
 # pkm-76sh
 title: test_no_500_upstream_props missed its reach floor once in a full run
-status: todo
+status: in-progress
 type: bug
 priority: low
 created_at: 2026-10-26T17:44:43Z
-updated_at: 2026-10-26T17:44:43Z
+updated_at: 2026-10-29T11:30:42Z
 parent: pkm-mfd0
 ---
 

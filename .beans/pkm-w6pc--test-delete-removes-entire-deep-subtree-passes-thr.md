@@ -1,11 +1,11 @@
 ---
 # pkm-w6pc
 title: test_delete_removes_entire_deep_subtree passes through ON DELETE CASCADE
-status: todo
+status: in-progress
 type: bug
 priority: low
 created_at: 2026-10-24T14:58:27Z
-updated_at: 2026-10-24T14:58:27Z
+updated_at: 2026-10-29T11:30:42Z
 parent: pkm-mfd0
 ---
 

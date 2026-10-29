@@ -1,11 +1,11 @@
 ---
 # pkm-7981
 title: Ops property never reaches the over-limit landing's unlink rule
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-10-25T15:21:22Z
-updated_at: 2026-10-25T15:21:22Z
+updated_at: 2026-10-29T11:30:42Z
 parent: pkm-mfd0
 ---
 

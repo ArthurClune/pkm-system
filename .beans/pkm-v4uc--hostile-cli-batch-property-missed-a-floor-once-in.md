@@ -1,11 +1,11 @@
 ---
 # pkm-v4uc
 title: Hostile CLI batch property missed a floor once in a full run
-status: todo
+status: in-progress
 type: bug
 priority: low
 created_at: 2026-10-23T19:51:50Z
-updated_at: 2026-10-23T21:25:40Z
+updated_at: 2026-10-29T11:30:42Z
 parent: pkm-mfd0
 ---
 

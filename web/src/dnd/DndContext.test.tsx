@@ -23,7 +23,8 @@ function setup(over: Partial<Sync> = {}) {
 }
 
 function fakeOutline(over: Partial<OutlineDndApi> = {}): OutlineDndApi {
-  return { moveTo: vi.fn(), removeSubtreeLocal: vi.fn(() => null),
+  return { moveTo: vi.fn(), flushDraft: vi.fn(() => true),
+           removeSubtreeLocal: vi.fn(() => null),
            insertSubtreeLocal: vi.fn(), ...over };
 }
 
@@ -95,6 +96,20 @@ it("cross-page drop does two-outline surgery and one op with page_title", () => 
       type: "insert-subtree", node: moved, parentUid: null, orderIdx: 1,
     }],
   );
+});
+
+it("a cross-page drop from an outline keeping an unsaved draft moves "
+   + "nothing", () => {
+  const { sync, dnd } = setup();
+  const src = fakeOutline({ flushDraft: vi.fn(() => false) });
+  const dst = fakeOutline();
+  dnd().registerOutline(canonicalTitleOf("A"), src);
+  dnd().registerOutline(canonicalTitleOf("B"), dst);
+  dnd().drop({ kind: "blocks", height: 0, uid: uidOf("tuid-u1"), pageTitle: canonicalTitleOf("A") },
+             { parent_uid: null, order_idx: orderIdxOf(1), page_title: canonicalTitleOf("B") });
+  expect(src.removeSubtreeLocal).not.toHaveBeenCalled();
+  expect(dst.insertSubtreeLocal).not.toHaveBeenCalled();
+  expect(sync.sent).toEqual([]);
 });
 
 it("unmounted cross-page target skips insertion but retains subtree replay", () => {

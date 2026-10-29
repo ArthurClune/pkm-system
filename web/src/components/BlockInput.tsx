@@ -15,7 +15,8 @@ import type { BlockUid, NormalizedTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { SidebarContext } from "../contexts";
 import { editsAsCode } from "../grammar/tokenize";
-import { applyCompletion, holdsDraftFlush } from "../outline/autocomplete";
+import { applyCompletion, detectAutocomplete,
+         holdsDraftFlush } from "../outline/autocomplete";
 import { measureCaretDisplayLine } from "../outline/caretDisplayLine";
 import type { OutlineHandlers } from "../outline/handlers";
 import { type CaretOffset, type TextSelection } from "../outline/keyEdits";
@@ -40,6 +41,11 @@ import { KeyboardBar } from "./KeyboardBar";
 type KeyPress = Pick<EditorKeyInput, "key" | "code" | "metaKey" | "ctrlKey"
   | "altKey" | "shiftKey" | "caretOnFirstDisplayLine"
   | "caretOnLastDisplayLine">;
+
+/** `caret` when typing there holds the draft's flush, else null. */
+function heldCaret(text: string, caret: number): number | null {
+  return holdsDraftFlush(detectAutocomplete(text, caret)) ? caret : null;
+}
 
 export function BlockInput({ node, cursor, handlers, readOnly,
                              onRequestUpload, onRequestLocalFile }: {
@@ -234,8 +240,8 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     const value = e.target.value;
     // A text past a limit never becomes the draft: React puts the old value
     // back once this returns.
-    if (!draft.admit(value)) return;
     const pos = e.target.selectionStart ?? value.length;
+    if (!draft.admit(value, heldCaret(value, pos))) return;
     const ctx = ac.onEdit(value, pos);
     draft.typed(value, holdsDraftFlush(ctx));
   };
@@ -379,14 +385,13 @@ export function BlockInput({ node, cursor, handlers, readOnly,
         return;
       case "undo":
         e.preventDefault(); // kill native textarea undo
-        // The undo flushed the draft first, so settling loses nothing.
-        handlers.onUndo();
-        draft.settle();
+        // The undo flushed the draft first, so settling loses nothing; a
+        // draft that may not be saved stops it, and stays.
+        if (handlers.onUndo()) draft.settle();
         return;
       case "redo":
         e.preventDefault();
-        handlers.onRedo();
-        draft.settle();
+        if (handlers.onRedo()) draft.settle();
         return;
       default: {
         const exhaustive: never = decision;
@@ -442,7 +447,8 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       const el = e.currentTarget;
       const next = draft.text.slice(0, el.selectionStart) + text
         + draft.text.slice(el.selectionEnd);
-      if (!draft.admit(next)) e.preventDefault();
+      const caret = el.selectionStart + text.length;
+      if (!draft.admit(next, heldCaret(next, caret))) e.preventDefault();
       return;
     }
     e.preventDefault();

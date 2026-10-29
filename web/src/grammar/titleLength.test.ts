@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_PAGE_TITLE_CHARS, TITLE_LENGTH_NOTICE, describeTitleLength,
-  linkedTitleLengthOver, titleLengthOver,
+  titleLengthOver,
 } from "./titleLength";
 
 // Imported, not read with node:fs, as depthCap.test.ts does. Hand-edited;
@@ -28,10 +28,5 @@ describe("the title length cap agrees with the server's", () => {
       if (measured !== null) {
         expect(describeTitleLength(measured)).toBe(c.describe);
       }
-    });
-
-  it.each(fixture.texts.map((c) => [c.name, c] as const))(
-    "text %s", (_, c) => {
-      expect(linkedTitleLengthOver(textOf(c.parts))).toBe(c.violation);
     });
 });

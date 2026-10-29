@@ -50,7 +50,7 @@ it("undo applies to a mounted session and restores focusBefore", () => {
   const handle = acquireOutlineSession(PAGE, [block("tuid-a", "after", { order_idx: orderIdxOf(0) })]);
   const focused: (unknown)[] = [];
   const unregister = registerOutlineHistory(PAGE, {
-    flushPending: () => undefined,
+    flushPending: () => true,
     applyFocus: (f) => focused.push(f),
     showNotice: () => undefined,
   });
@@ -71,6 +71,23 @@ it("redo replays the forward batch and restores focusAfter", async () => {
   expect(sync.sent[1]).toEqual([{ op: "update_text", uid: "tuid-a", text: "after" }]);
 });
 
+it("an outline keeping a draft it may not save stops undo and redo",
+   async () => {
+  const sync = makeSync();
+  recordHistory(entry());
+  const unregister = registerOutlineHistory(PAGE, {
+    flushPending: () => false,
+    applyFocus: () => undefined,
+    showNotice: () => undefined,
+  });
+  expect(performUndo(sync)).toBe(false);
+  expect(performRedo(sync)).toBe(false);
+  await historyIdle();
+  expect(sync.sent).toEqual([]);
+  unregister();
+  expect(performUndo(sync)).toBe(true); // the entry is still there
+});
+
 it("flushes registered drafts before undoing (pending draft becomes the undone entry)", async () => {
   const sync = makeSync();
   const calls: string[] = [];
@@ -78,6 +95,7 @@ it("flushes registered drafts before undoing (pending draft becomes the undone e
     flushPending: () => {
       calls.push("flush");
       recordHistory(entry());
+      return true;
     },
     applyFocus: () => undefined,
     showNotice: () => undefined,
@@ -478,7 +496,7 @@ function hooksFor(title = PAGE) {
   const notices: string[] = [];
   const focused: unknown[] = [];
   const unregister = registerOutlineHistory(title, {
-    flushPending: () => undefined,
+    flushPending: () => true,
     applyFocus: (f) => focused.push(f),
     showNotice: (text) => notices.push(text),
   });

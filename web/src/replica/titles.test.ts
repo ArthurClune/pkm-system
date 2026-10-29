@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
+import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
 import { TITLE_WHITESPACE } from "../grammar/titleWhitespace.gen";
 import { asRawTitle, canonicalizeTitle, describeOpTitleViolation,
          findOpTitleViolation, linkedTitleRefusal, titleRefusalNotice,
@@ -127,6 +128,8 @@ describe("findOpTitleViolation and the title length cap", () => {
         page_title: rawTitleOf("Fixture"), parent_uid: null,
         order_idx: orderIdxOf(0), text: partsText(c.parts) },
     ]);
+    expect(linkedTitleRefusal(partsText(c.parts)))
+      .toBe(c.violation === null ? null : "too_long");
     if (c.violation === null) {
       expect(violation).toBeNull();
       return;
@@ -255,23 +258,52 @@ describe("canonicalizeTitle on a long title", () => {
   }, 300_000);
 });
 
-// ops_core.find_op_title_violation judges every ref an update_text or create
-// holds, not only the refs the op adds, so an edit to a block already holding
-// a forbidden link is refused by the server and must be refused here too.
-describe("linkedTitleRefusal", () => {
-  test("judges every ref a text holds, as the server does", () => {
-    expect(linkedTitleRefusal("plain text and #tag")).toBeNull();
-    expect(linkedTitleRefusal("see [[C plus]]")).toBeNull();
-    expect(linkedTitleRefusal("ok [[fine]] then [[C#]]"))
-      .toBe("forbidden_syntax");
-    expect(findOpTitleViolation([
-      { op: "update_text", uid: uidOf("legacy_ab01"),
-        text: "ok [[fine]] then [[C#]] edited" },
-    ])?.reason).toBe("forbidden_syntax");
+// The keystroke judge and the op judge must refuse the same texts for the
+// same reason, which is the server's (ops_core.find_op_title_violation over
+// refs.extract): attributes and bare tags too, not only [[links]].
+describe("linkedTitleRefusal agrees with findOpTitleViolation", () => {
+  const long = "t".repeat(1001);
+  const texts = [
+    ...titleLength.texts.map((c) => partsText(c.parts)),
+    "C#:: v", "C# notes:: v", "#a:: b", "#[[C#]]", "[[a [[b]] c]]",
+    "[[Outer [[New #Old]]]]", "see `[[C#]]`", "```\n[[C#]]\n```",
+    "x [[a`b]]", "[[a/../b]]", "[[ C# ]]", "[[a[b]]", "[[a]]]",
+    "[[a []]]", "[[a [b] c]]", `#${long}`, `${long}:: v`,
+    "ok [[fine]] then [[C#]]", "plain text and #tag", "see [[C plus]]",
+  ];
+  test.each(texts)("%#: %s", (text) => {
+    expect(linkedTitleRefusal(text)).toBe(findOpTitleViolation([
+      { op: "update_text", uid: uidOf("parity_0001"), text },
+    ])?.reason ?? null);
   });
 
+  test("the cases above cover both refusals and an attribute", () => {
+    expect(linkedTitleRefusal("C#:: v")).toBe("forbidden_syntax");
+    expect(linkedTitleRefusal(`${long}:: v`)).toBe("too_long");
+    expect(linkedTitleRefusal(`#${long}`)).toBe("too_long");
+    expect(linkedTitleRefusal("[[a [b] c]]")).toBeNull();
+  });
+});
+
+describe("linkedTitleRefusal with the draft's flush held", () => {
+  test("leaves out the title the caret is inside", () => {
+    expect(linkedTitleRefusal("[[a []]]", 5)).toBeNull();
+    expect(linkedTitleRefusal("see [[a#b]]", 9)).toBeNull();
+    expect(linkedTitleRefusal("[[x [[a#]] y]]", 8)).toBeNull();
+    expect(linkedTitleRefusal("#" + "t".repeat(1001), 1002)).toBeNull();
+  });
+
+  test("still judges every other ref", () => {
+    expect(linkedTitleRefusal("[[C#]] [[a]]", 9)).toBe("forbidden_syntax");
+    expect(linkedTitleRefusal("C#:: [[a]]", 7)).toBe("forbidden_syntax");
+    expect(linkedTitleRefusal("see [[a#b]] x", 13)).toBe("forbidden_syntax");
+  });
+});
+
+describe("titleRefusalNotice", () => {
   test("names the notice for each refusal", () => {
     expect(titleRefusalNotice(null)).toBeNull();
+    expect(titleRefusalNotice("too_long")).toBe(TITLE_LENGTH_NOTICE);
     expect(titleRefusalNotice("forbidden_syntax")).toBe(TITLE_SYNTAX_NOTICE);
   });
 });

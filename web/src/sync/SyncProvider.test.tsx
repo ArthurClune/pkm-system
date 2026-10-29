@@ -444,6 +444,7 @@ describe("legacy repair of a rejected batch", () => {
     );
     const sourceDnd = {
       moveTo: vi.fn(),
+      flushDraft: vi.fn(() => true),
       removeSubtreeLocal: vi.fn(() => moved),
       insertSubtreeLocal: vi.fn(),
     };

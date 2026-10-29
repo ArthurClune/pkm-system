@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   block,
   makeSync,
@@ -23,7 +23,11 @@ import { LINK_NESTING_NOTICE } from "../grammar/textLimits";
 import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
 import { TITLE_SYNTAX_NOTICE } from "../replica/titles";
 import { resetHistory } from "../outline/undoManager";
+import { forgetKeptDrafts } from "../outline/useOutline";
 import { EditablePage } from "./EditablePage";
+
+// A draft the outline kept at the last test's unmount would resume here.
+beforeEach(forgetKeptDrafts);
 
 afterEach(() => {
   vi.useRealTimers();
@@ -1161,13 +1165,13 @@ test("typing a link to a title past the cap shows the notice, saves nothing",
   expect(sync.sent).toEqual([]);
 });
 
-test.each(["a#b", "C#", "C# lang"])(
-  "typing a link to the forbidden title %s shows the notice, saves nothing",
-  (linked) => {
+test.each(["[[a#b]]", "[[C#]]", "[[C# lang]]", "C#:: v"])(
+  "typing a ref to a forbidden title, %s, shows the notice, saves nothing",
+  (typed) => {
     stubFetch([["/api/titles", { titles: [] }]]);
     const sync = mount();
     const ta = focusBlock("first");
-    fireEvent.change(ta, { target: { value: `[[${linked}]]` } });
+    fireEvent.change(ta, { target: { value: typed } });
 
     expect(ta.value).toBe("first");
     const notice = screen.getByText(TITLE_SYNTAX_NOTICE);
@@ -1204,6 +1208,160 @@ test("a block already holding a link the server refuses is refused the "
   expect(ta.value).toBe("old [[C]]");
   fireEvent.blur(ta);
   expect(sync.sent).toHaveLength(1);
+});
+
+/** Type `keys` at the caret as a user would: a bracket goes through the
+ * keydown (auto-pair and step-over), anything else is a change event. */
+function typeKeys(keys: string) {
+  for (const key of keys) {
+    const ta = textbox();
+    if (key === "[" || key === "]") {
+      fireEvent.keyDown(ta, { key });
+      continue;
+    }
+    const at = ta.selectionStart;
+    fireEvent.change(ta, { target: {
+      value: ta.value.slice(0, at) + key + ta.value.slice(ta.selectionEnd),
+      selectionStart: at + 1, selectionEnd: at + 1,
+    } });
+  }
+}
+
+const caretAt = (at: number) => textbox().setSelectionRange(at, at);
+
+test("typing a link whose title holds [ key by key is admitted and saved",
+     () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  focusBlock("first");
+  caretAt(5);
+  typeKeys("[[Meeting [draft] notes]]");
+
+  expect(textbox().value).toBe("first[[Meeting [draft] notes]]");
+  expect(screen.queryByRole("status")).toBeNull();
+  fireEvent.blur(textbox());
+  expect(sync.sent.flat()).toEqual([{ op: "update_text", uid: "tuid-u1",
+    text: "first[[Meeting [draft] notes]]",
+    base_text_hash: sha256Hex("first"), page_title: "Page" }]);
+});
+
+/** "first[[a#b]]" typed key by key: admitted while the caret is in the
+ * link, then refused by the save the step out of it arms. */
+function refusedAtSave(sync: SyncFake) {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  mount(sync);
+  focusBlock("first");
+  caretAt(5);
+  typeKeys("[[a#b");
+  expect(textbox().value).toBe("first[[a#b]]");
+  expect(screen.queryByRole("status")).toBeNull();
+  typeKeys("]]");
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toEqual([]);
+  expect(textbox().value).toBe("first[[a#b]]");
+  expect(screen.getByText(TITLE_SYNTAX_NOTICE))
+    .toHaveAttribute("role", "status");
+}
+
+test("a link typed with # is refused when saved, and the draft is kept "
+     + "until fixed", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  refusedAtSave(sync);
+
+  fireEvent.blur(textbox());
+  expect(sync.sent).toEqual([]);
+  expect(textbox().value).toBe("first[[a#b]]");
+
+  // deleting the # inside the link is admitted, and then saves
+  fireEvent.change(textbox(), { target: {
+    value: "first[[ab]]", selectionStart: 9, selectionEnd: 9,
+  } });
+  fireEvent.blur(textbox());
+  expect(sync.sent.flat()).toEqual([{ op: "update_text", uid: "tuid-u1",
+    text: "first[[ab]]", base_text_hash: sha256Hex("first"),
+    page_title: "Page" }]);
+  expect(screen.queryByText(TITLE_SYNTAX_NOTICE)).toBeNull();
+});
+
+test("a draft refused at save keeps the editor on its block", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  refusedAtSave(sync);
+
+  fireEvent.blur(textbox());
+  fireEvent.click(screen.getByText("second"));
+  fireEvent.keyDown(textbox(), { key: "ArrowDown" });
+  fireEvent.keyDown(textbox(), { key: "Enter" });
+  undoKey();
+  fireEvent.keyDown(textbox(), { key: "z", metaKey: true, shiftKey: true });
+  caretAt(textbox().value.length);
+  fireEvent.keyDown(textbox(), { key: "ArrowDown", shiftKey: true });
+
+  expect(document.querySelectorAll(".block-row.selected")).toHaveLength(0);
+  expect(screen.getAllByRole("textbox")).toHaveLength(1);
+  expect(textbox().value).toBe("first[[a#b]]");
+  expect(sync.sent).toEqual([]);
+  expect(screen.getByText("second")).toBeInTheDocument();
+});
+
+function NavBack() {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate("/")}>back</button>;
+}
+
+test("a draft refused at save survives navigating away, and is back on "
+     + "return", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = makeSync();
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+      <SyncContext.Provider value={sync}>
+        <Routes>
+          <Route path="/" element={<>
+            <EditablePage title={canonicalTitleOf("Page")}
+                          initial={[block("tuid-u1", "first",
+                                          { order_idx: orderIdxOf(0) })]} />
+            <NavAway />
+          </>} />
+          <Route path="/elsewhere" element={<NavBack />} />
+        </Routes>
+      </SyncContext.Provider>
+    </MemoryRouter>);
+  focusBlock("first");
+  caretAt(5);
+  typeKeys("[[a#b");
+
+  fireEvent.click(screen.getByText("go"));
+  expect(sync.sent).toEqual([]);
+  fireEvent.click(screen.getByText("back"));
+
+  expect(textbox().value).toBe("first[[a#b]]");
+  expect(screen.getByText(TITLE_SYNTAX_NOTICE)).toBeInTheDocument();
+  fireEvent.change(textbox(), { target: {
+    value: "first[[ab]]", selectionStart: 9, selectionEnd: 9,
+  } });
+  fireEvent.blur(textbox());
+  expect(sync.sent.flat()).toEqual([{ op: "update_text", uid: "tuid-u1",
+    text: "first[[ab]]", base_text_hash: sha256Hex("first"),
+    page_title: "Page" }]);
+});
+
+test("stepping over a closer in a block holding a refused link is no edit",
+     () => {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount(makeSync(), [
+    block("tuid-legacy", "old [[C#]]", { order_idx: orderIdxOf(0) })]);
+  fireEvent.click(screen.getByText(/^old/));
+  caretAt(9);
+  fireEvent.keyDown(textbox(), { key: "]" });
+
+  expect(textbox().selectionStart).toBe(10);
+  expect(screen.queryByText(TITLE_SYNTAX_NOTICE)).toBeNull();
+  fireEvent.blur(textbox());
+  expect(sync.sent).toEqual([]);
 });
 
 test("typing that nests links past the cap shows the notice, saves nothing",

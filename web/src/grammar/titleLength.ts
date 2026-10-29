@@ -5,7 +5,6 @@
 // a ref in block text; the editor asks first, so the user sees a notice
 // instead of a refused batch. shared/fixtures/title_length.json pins the
 // cap, the measure and the refusal wording equal to the server's.
-import { extractRefs } from "./refs";
 import { normalizeRefTitle } from "./scan";
 import { codePointLength } from "./textLimits";
 
@@ -27,16 +26,4 @@ export function titleLengthOver(text: string): number | null {
 export function describeTitleLength(measured: number): string {
   return `title of ${measured} characters is over the limit of `
     + `${MAX_PAGE_TITLE_CHARS}`;
-}
-
-/** The measure of the first ref in `text`, in extractRefs order, whose
- * title is over the cap, else null. A ref's title is part of the text, so
- * a text no longer than the cap holds none and is not scanned. */
-export function linkedTitleLengthOver(text: string): number | null {
-  if (text.length <= MAX_PAGE_TITLE_CHARS) return null;
-  for (const ref of extractRefs(text).refs) {
-    const measured = titleLengthOver(ref.title);
-    if (measured !== null) return measured;
-  }
-  return null;
 }

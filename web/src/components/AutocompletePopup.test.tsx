@@ -29,7 +29,7 @@ function handlers(): OutlineHandlers {
     onIndentSelection: vi.fn(), onOutdentSelection: vi.fn(),
     onMoveSelectionUp: vi.fn(), onMoveSelectionDown: vi.fn(),
     onDeleteBlockSelection: vi.fn(), onRefusedEdit: vi.fn(),
-    onUndo: vi.fn(), onRedo: vi.fn(),
+    onUndo: vi.fn(() => true), onRedo: vi.fn(() => true),
   };
 }
 

@@ -61,11 +61,11 @@ it("undo reverses a structural edit and redo replays it", () => {
   act(() => outline().handlers.onIndent(uidOf("tuid-b")));
   expect(outline().blocks[0].children.map((n) => n.uid)).toEqual(["tuid-b"]);
 
-  act(() => outline().handlers.onUndo());
+  act(() => { outline().handlers.onUndo(); });
   expect(outline().blocks.map((n) => n.uid)).toEqual(["tuid-a", "tuid-b"]);
   expect(sync.sent).toHaveLength(2); // forward move + inverse move
 
-  act(() => outline().handlers.onRedo());
+  act(() => { outline().handlers.onRedo(); });
   expect(outline().blocks[0].children.map((n) => n.uid)).toEqual(["tuid-b"]);
 });
 
@@ -81,7 +81,7 @@ it("undo reverses a whole selection indent in one step", () => {
   expect(outline().blocks[0].children.map((n) => n.uid))
     .toEqual(["tuid-b", "tuid-c"]);
 
-  act(() => outline().handlers.onUndo());
+  act(() => { outline().handlers.onUndo(); });
 
   expect(outline().blocks.map((n) => n.uid)).toEqual(["tuid-a", "tuid-b", "tuid-c"]);
   expect(sync.sent).toHaveLength(2);
@@ -112,7 +112,7 @@ it("undo reverses a whole cross-parent selection move in one step", () => {
   expect(outline().blocks[0].children.map((n) => n.uid))
     .toEqual(["tuid-a0", "tuid-b0", "tuid-b1"]);
 
-  act(() => outline().handlers.onUndo());
+  act(() => { outline().handlers.onUndo(); });
 
   expect(outline().blocks[0].children.map((n) => n.uid)).toEqual(["tuid-a0"]);
   expect(outline().blocks[1].children.map((n) => n.uid))
@@ -136,13 +136,13 @@ it("undoes two moves up in a row and redoes them, though each replay shifted key
   act(() => outline().handlers.onMoveSubtreeUp(uidOf("tuid-c")));
   expect(order()).toEqual(["tuid-b", "tuid-c", "tuid-a"]);
 
-  act(() => outline().handlers.onUndo());
+  act(() => { outline().handlers.onUndo(); });
   expect(order()).toEqual(["tuid-b", "tuid-a", "tuid-c"]);
-  act(() => outline().handlers.onUndo());
+  act(() => { outline().handlers.onUndo(); });
   expect(order()).toEqual(["tuid-a", "tuid-b", "tuid-c"]);
-  act(() => outline().handlers.onRedo());
+  act(() => { outline().handlers.onRedo(); });
   expect(order()).toEqual(["tuid-b", "tuid-a", "tuid-c"]);
-  act(() => outline().handlers.onRedo());
+  act(() => { outline().handlers.onRedo(); });
   expect(order()).toEqual(["tuid-b", "tuid-c", "tuid-a"]);
 });
 
@@ -155,7 +155,7 @@ it("undo restores a deleted block's text via subtree recreate", () => {
     outline().handlers.onBackspaceAtStart(uidOf("tuid-b"));
   });
   expect(outline().blocks).toHaveLength(1);
-  act(() => outline().handlers.onUndo());
+  act(() => { outline().handlers.onUndo(); });
   expect(outline().blocks.map((n) => n.text)).toEqual(["alpha", "beta"]);
 });
 
@@ -189,7 +189,7 @@ it("run() records UNSTAMPED ops, so a redo hashes the current text", () => {
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-a"), 5));
   act(() => outline().handlers.onDraftChange(uidOf("tuid-a"), "one"));
   act(() => outline().handlers.onBlurBlock(uidOf("tuid-a"))); // flush: records the entry
-  act(() => outline().handlers.onUndo());         // back to "alpha"
+  act(() => { outline().handlers.onUndo(); });         // back to "alpha"
 
   // Another tab edits the same block between the undo and the redo. A local
   // edit would not do: recording one clears the redo stack.
@@ -198,7 +198,7 @@ it("run() records UNSTAMPED ops, so a redo hashes the current text", () => {
   ] }));
   expect(outline().blocks[0].text).toBe("two");
 
-  act(() => outline().handlers.onRedo());
+  act(() => { outline().handlers.onRedo(); });
 
   expect(sync.sent[sync.sent.length - 1][0]).toMatchObject({
     op: "update_text", uid: "tuid-a", text: "one",
@@ -222,7 +222,7 @@ it("undo stamps page_title on the enqueued op, though the recorded entry carries
     freshAssets: [], focusBefore: null,
     focusAfter: null,
   });
-  act(() => outline().handlers.onUndo());
+  act(() => { outline().handlers.onUndo(); });
   expect(sync.sent[sync.sent.length - 1][0]).toMatchObject({
     op: "update_text", uid: "tuid-a", text: "alpha", page_title: PAGE,
   });
@@ -233,7 +233,7 @@ it("a pending draft flushes and becomes the first undo step", () => {
   const outline = setup(sync, PAGE, ab());
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-a"), 5));
   act(() => outline().handlers.onDraftChange(uidOf("tuid-a"), "alpha edited"));
-  act(() => outline().handlers.onUndo()); // flush-then-undo
+  act(() => { outline().handlers.onUndo(); }); // flush-then-undo
   expect(outline().blocks[0].text).toBe("alpha");
 });
 
@@ -242,7 +242,7 @@ it("undo restores focus to where it was before the edit", () => {
   const outline = setup(sync, PAGE, ab());
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-a"), 5));
   act(() => outline().handlers.onSplit(uidOf("tuid-a"), 5));
-  act(() => outline().handlers.onUndo());
+  act(() => { outline().handlers.onUndo(); });
   expect(outline().focus).toEqual({ uid: "tuid-a", cursor: 5 });
 });
 
@@ -255,7 +255,7 @@ it("undo restoring focus to a block hidden by a later collapse focuses the colla
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-c"), 5));
   act(() => outline().handlers.onSplit(uidOf("tuid-c"), 5));
   act(() => outline().handlers.onToggleCollapsed(uidOf("tuid-p"), true));
-  act(() => outline().handlers.onUndo());
+  act(() => { outline().handlers.onUndo(); });
   expect(outline().focus).toEqual({ uid: "tuid-p", cursor: 6 });
 });
 
@@ -266,7 +266,7 @@ it("undo clamps the restored caret to the restored text", () => {
   act(() => outline().handlers.onDraftChange(uidOf("tuid-a"), "x y"));
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-a"), 3));
   act(() => outline().handlers.onSplit(uidOf("tuid-a"), 3));
-  act(() => outline().handlers.onUndo());
+  act(() => { outline().handlers.onUndo(); });
   expect(outline().blocks[0].text).toBe("ab");
   expect(outline().focus).toEqual({ uid: "tuid-a", cursor: 2 });
 });
@@ -326,7 +326,7 @@ it("undo inside a cell of a collapsed table keeps focus in the cell", () => {
   const outline = setup(sync, PAGE, collapsedTable());
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-r1b"), 1));
   act(() => outline().handlers.onSetHeading(uidOf("tuid-r1b"), 2));
-  act(() => outline().handlers.onUndo());
+  act(() => { outline().handlers.onUndo(); });
   expect(outline().focus).toEqual({ uid: "tuid-r1b", cursor: 1 });
 });
 
@@ -340,7 +340,7 @@ it("collapse toggles are not undo steps", () => {
   // and records nothing; onSetHeading to a new level produces an op.
   act(() => outline().handlers.onSetHeading(uidOf("tuid-b"), 2)); // recorded entry
   act(() => outline().handlers.onToggleCollapsed(uidOf("tuid-a"), true)); // not recorded
-  act(() => outline().handlers.onUndo());
+  act(() => { outline().handlers.onUndo(); });
   // undo skipped the collapse and reverted the heading; collapse persists
   expect(outline().blocks[1].heading).toBeNull();
   expect(outline().blocks[0].collapsed).toBe(true);
@@ -355,7 +355,7 @@ it("a field setter that changes nothing sends no op and records no undo step", (
   act(() => outline().handlers.onSetViewType(uidOf("tuid-b"), "document"));
   act(() => outline().handlers.onToggleCollapsed(uidOf("tuid-b"), false));
   expect(sync.sent).toHaveLength(sent);
-  act(() => outline().handlers.onUndo()); // reaches the first heading change
+  act(() => { outline().handlers.onUndo(); }); // reaches the first heading change
   expect(outline().blocks[0].heading).toBeNull();
 });
 
@@ -363,10 +363,10 @@ it("a fresh edit after undo clears redo", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());
   act(() => outline().handlers.onSetHeading(uidOf("tuid-a"), 2));
-  act(() => outline().handlers.onUndo());
+  act(() => { outline().handlers.onUndo(); });
   act(() => outline().handlers.onSetHeading(uidOf("tuid-b"), 2));
   const sent = sync.sent.length;
-  act(() => outline().handlers.onRedo()); // nothing to redo
+  act(() => { outline().handlers.onRedo(); }); // nothing to redo
   expect(sync.sent).toHaveLength(sent);
 });
 
@@ -387,7 +387,7 @@ it("a batch carrying a draft for a remotely deleted block stays undoable", () =>
   expect(sync.sent[0].map((op) => op.op)).toEqual(["update_text", "move"]);
   expect(outline().blocks[0].children.map((n) => n.uid)).toEqual(["tuid-c"]);
 
-  act(() => outline().handlers.onUndo());
+  act(() => { outline().handlers.onUndo(); });
   expect(outline().blocks.map((n) => n.uid)).toEqual(["tuid-b", "tuid-c"]);
   // The undo reverses only the indent: nothing re-sends the orphaned text.
   expect(sync.sent[1]).toEqual([

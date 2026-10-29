@@ -77,7 +77,7 @@ it("a paste is one undo entry: undo restores the pre-paste tree", () => {
   act(() => getOutline().handlers.onPasteOutline(uidOf("tuid-a"), 4, 4, "!\nnext\n\tkid"));
   expect(getOutline().blocks.map((b) => b.text)).toEqual(["seed!", "next"]);
 
-  act(() => getOutline().handlers.onUndo());
+  act(() => { getOutline().handlers.onUndo(); });
 
   expect(getOutline().blocks.map((b) => b.text)).toEqual(["seed"]);
   expect(getOutline().blocks[0].children).toEqual([]);

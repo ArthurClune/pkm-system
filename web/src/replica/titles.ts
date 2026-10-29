@@ -6,7 +6,8 @@
 
 import type { CanonicalTitle, NormalizedTitle, RawTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
-import { hasUnreachableSegment, normalizeRefTitle, trimSpaces } from "../grammar/scan";
+import { hasUnreachableSegment, normalizeRefTitle, scanGrammar,
+         trimSpaces } from "../grammar/scan";
 import { describeTitleLength, TITLE_LENGTH_NOTICE,
          titleLengthOver } from "../grammar/titleLength";
 
@@ -70,17 +71,46 @@ export function titleRefusalNotice(reason: TitleRefusal | null): string | null {
   return reason === "too_long" ? TITLE_LENGTH_NOTICE : TITLE_SYNTAX_NOTICE;
 }
 
-/** The refusal of the first ref in `text`, in extractRefs order, else null.
- * The server judges every ref a text holds, one the block already held
- * before a rule included, so this does too. Callers pass text already
- * inside the text limits, which keep the scan bounded. */
-export function linkedTitleRefusal(text: string): TitleRefusal | null {
-  if (!text.includes("[[")) return null;
+/** The first ref in `text` whose title the server refuses, with why, in
+ * the server's order (the text loop of ops_core.find_op_title_violation),
+ * else null. Refs titled in `skip` are left out. */
+function findRefRefusal(
+  text: string, skip: ReadonlySet<string> | null = null,
+): { title: NormalizedTitle; reason: TitleRefusal } | null {
   for (const ref of extractRefs(text).refs) {
+    if (skip?.has(ref.title)) continue;
     const reason = titleRefusal(ref.title);
-    if (reason !== null) return reason;
+    if (reason !== null) return { title: ref.title, reason };
   }
   return null;
+}
+
+/** The titles the caret is inside: a [[link]]'s, an enclosing link's, or a
+ * #tag's it ends. */
+function titlesAtCaret(text: string, caret: number): Set<string> {
+  const titles = new Set<string>();
+  for (const t of scanGrammar(text).tokens) {
+    if (t.kind === "page-ref"
+        && t.content.start <= caret && caret <= t.content.end) {
+      titles.add(t.title);
+    } else if (t.kind === "hashtag" && t.start < caret && caret <= t.end) {
+      titles.add(t.title);
+    }
+  }
+  return titles;
+}
+
+/** Why the server would refuse a ref `text` holds (a link, tag or
+ * attribute), else null; the same judgement findOpTitleViolation makes of
+ * an op's text. `heldCaret`, the caret while the draft's flush is held,
+ * leaves out the refs whose title it is inside: the user is still typing
+ * that title, and the server judges it only once the draft is saved. Callers
+ * pass text already inside the text limits, which keep the scan bounded. */
+export function linkedTitleRefusal(
+  text: string, heldCaret: number | null = null,
+): TitleRefusal | null {
+  const skip = heldCaret === null ? null : titlesAtCaret(text, heldCaret);
+  return findRefRefusal(text, skip)?.reason ?? null;
 }
 
 /** The first title an op names that may not be a page title, in the
@@ -100,11 +130,9 @@ export function findOpTitleViolation(
       }
     }
     if (op.op === "create" || op.op === "update_text") {
-      for (const ref of extractRefs(op.text).refs) {
-        const reason = titleRefusal(ref.title);
-        if (reason !== null) {
-          return { opIndex, source: "reference", title: ref.title, reason };
-        }
+      const refused = findRefRefusal(op.text);
+      if (refused !== null) {
+        return { opIndex, source: "reference", ...refused };
       }
     }
   }

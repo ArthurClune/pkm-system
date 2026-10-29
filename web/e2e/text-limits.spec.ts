@@ -1,7 +1,8 @@
 // The block text limits: the editor refuses an edit that would store a text
-// the server refuses (past 1,000,000 code points, or [[ nested past 32
-// levels), says why in the page's notice slot, keeps the textarea's text
-// and sends nothing. An edit up to the limit is saved.
+// the server refuses (past 1,000,000 code points, [[ nested past 32 levels,
+// or a ref to a page title it refuses), says why in the page's notice slot,
+// keeps the textarea's text and sends nothing. An edit up to the limit is
+// saved.
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
@@ -142,25 +143,49 @@ test("a real [ keypress that would nest links past 32 is refused",
   expect(sent.some((t) => t.includes("x[[]]"))).toBe(false);
 });
 
-test("typing a link to a title with # is refused with the notice, "
-     + "keeping the draft", async ({ page }) => {
-  // Real keys: auto-pair turns [[ into [[]] and the # lands inside a link.
+test("a link typed with # is refused when the draft is saved, and kept",
+     async ({ page }) => {
+  // Real keys: auto-pair turns [[ into [[]], and the title the caret is in
+  // is judged only once the draft is saved.
   const { title, seed, sent } = await openSeeded(page, "Title Syntax");
+  const notice = page.getByRole("status").filter({ hasText: SYNTAX });
 
-  await page.keyboard.type("[[a");
-  await page.keyboard.press("#");
+  await page.keyboard.type("[[a#b");
+  await expect(input(page)).toHaveValue(`${seed}[[a#b]]`);
+  await expect(notice).toHaveCount(0);
 
-  await expect(page.getByRole("status").filter({ hasText: SYNTAX }))
-    .toBeVisible();
-  await expect(input(page)).toHaveValue(`${seed}[[a]]`);
+  // stepping over the closers leaves the link and arms the save
+  await page.keyboard.type("]]");
+  await expect(notice).toBeVisible();
+  await expect(input(page)).toHaveValue(`${seed}[[a#b]]`);
   await expect(input(page)).toBeFocused();
 
-  // the draft survives: blurring saves it, and the server holds it
+  // a keystroke keeping the link is refused, and the caret stays at the end
+  await page.keyboard.press("!");
+  await expect(input(page)).toHaveValue(`${seed}[[a#b]]`);
+  for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Backspace");
+  await expect(input(page)).toHaveValue(`${seed}[[ab]]`);
+
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   await expect(input(page)).toHaveCount(0);
-  await waitForServerText(page, title, `${seed}[[a]]`);
-  expect(sent.some((t) => t.includes("#"))).toBe(false);
+  await waitForServerText(page, title, `${seed}[[ab]]`);
+  await expect(notice).toHaveCount(0);
+  expect(sent.some((t) => t.includes("#") || t.includes("!"))).toBe(false);
+});
+
+test("a link whose title holds [ typed with real keys is saved",
+     async ({ page }) => {
+  const { title, seed } = await openSeeded(page, "Title Bracket");
+
+  await page.keyboard.type("[[Meeting [draft] notes]]");
+  await expect(input(page)).toHaveValue(`${seed}[[Meeting [draft] notes]]`);
+  await expect(page.getByRole("status")).toHaveCount(0);
+
+  await page.keyboard.press("Escape");
+  await expect(input(page)).toHaveCount(0);
+  await waitForServerText(page, title, `${seed}[[Meeting [draft] notes]]`);
 });
 
 test("a pasted link to a title with # is refused, nothing is sent",

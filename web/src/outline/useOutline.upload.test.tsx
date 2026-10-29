@@ -225,7 +225,7 @@ it("several uploads become sibling blocks in upload order, one undo entry",
   expect(rootTexts(getOutline())).toEqual(["hello", md(INFO), md(DOG)]);
   expect(sync.sent).toHaveLength(1);
 
-  act(() => getOutline().handlers.onUndo());
+  act(() => { getOutline().handlers.onUndo(); });
   expect(rootTexts(getOutline())).toEqual(["hello"]);
 });
 
@@ -245,7 +245,7 @@ it("undo after filling an empty block restores it and removes the sibling",
 
   expect(rootTexts(getOutline())).toEqual([md(INFO), md(DOG)]);
 
-  act(() => getOutline().handlers.onUndo());
+  act(() => { getOutline().handlers.onUndo(); });
   expect(rootTexts(getOutline())).toEqual([""]);
 });
 

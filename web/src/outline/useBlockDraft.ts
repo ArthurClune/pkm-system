@@ -6,9 +6,11 @@
 // programmatic value change, because those two are the same concern — a value
 // swap that doesn't restore the caret sends it to the end of the text.
 //
-// It is where an edit past the text limits (grammar/textLimits.ts) is
-// refused: the draft never takes a text the server would refuse, so the
-// textarea keeps its old text and the caller is told why.
+// It is where an edit past the text limits (grammar/textLimits.ts), or
+// holding a ref whose title the server refuses, is refused: the textarea
+// keeps its old text and the caller is told why. The one exception is the
+// title the caret is in while the flush is held, which the outline judges
+// when it saves the draft (useOutline's run).
 //
 // It does NOT know about autocomplete, slash commands, uploads or the /date
 // picker: callers decide what the new text is and whether its flush is held,
@@ -61,8 +63,8 @@ export interface BlockDraftOptions {
   /** Called when committed text is adopted over the draft: the replacement
    * text invalidates any offset into the old text the caller remembered. */
   onAdopt(): void;
-  /** An edit was refused for a text limit or for a link to a title past
-   * the title cap; `notice` says which. */
+  /** An edit was refused for a text limit or for a ref to a title the
+   * server refuses; `notice` says which. */
   onRefused(notice: string): void;
 }
 
@@ -75,14 +77,16 @@ export interface BlockDraft {
    * browser has already put the caret where it belongs. */
   typed(text: string, holdFlush: boolean): void;
   /** May the draft become `next`? False when `next` is past a text limit
-   * or links a title past the title cap: the refusal is reported
-   * (onRefused) and the draft is unchanged. When the textarea already shows
-   * `next` (a typed change), the caret goes back to where the refused text
-   * first differs from the draft's. */
-  admit(next: string): boolean;
+   * or holds a ref to a title the server refuses (linkedTitleRefusal, which
+   * leaves out the title `heldCaret` is inside when the flush is held): the
+   * refusal is reported (onRefused) and the draft is unchanged. When the
+   * textarea already shows `next` (a typed change), the caret goes back to
+   * where the refused text first differs from the draft's. */
+  admit(next: string, heldCaret: number | null): boolean;
   /** Replace the draft programmatically (key edit, completion, /date
    * insertion) and restore `selStart..selEnd` once React has committed the
-   * new value. Judged by admit first; returns its answer. */
+   * new value. A changed text is judged by admit first; returns its
+   * answer. */
   replace(text: string, selStart: number, selEnd: number,
           holdFlush: boolean): boolean;
   onCompositionStart(): void;
@@ -226,11 +230,11 @@ export function useBlockDraft(
     dirtyRef.current = true;
   };
 
-  const admit = (next: string): boolean => {
+  const admit = (next: string, heldCaret: number | null): boolean => {
     // The text limits first: the ref scan must never read past them.
     const violation = textLimitViolation(next);
     const notice = violation !== null ? textLimitNotice(violation)
-      : titleRefusalNotice(linkedTitleRefusal(next));
+      : titleRefusalNotice(linkedTitleRefusal(next, heldCaret));
     if (notice === null) return true;
     onRefused(notice);
     const el = ref.current;
@@ -255,7 +259,10 @@ export function useBlockDraft(
       onEdit(next, holdFlush);
     },
     replace: (next, selStart, selEnd, holdFlush) => {
-      if (!admit(next)) return false;
+      if (next !== draftRef.current
+          && !admit(next, holdFlush ? selEnd : null)) {
+        return false;
+      }
       markDirty();
       const el = ref.current;
       if (el && el.value === next) {

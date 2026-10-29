@@ -182,16 +182,18 @@ flowchart LR
 | An offset transform, and a caret the editor places, snaps with `snapCaret` (`keyEdits.ts`); `outline/surrogatePairs.props.test.ts` covers each | a slice between surrogate halves stores two U+FFFD |
 | `set_collapsed` does not stamp (`opBumpsUpdatedAt`, which `replica/localOps.test.ts` pins for the replica) | collapsing re-dates the block |
 | No create or move lands a block past `MAX_OUTLINE_DEPTH`. `run()` and `undoManager`'s dispatch judge each by its subtree in the tree the ops leave (`depthCap.ts`), and refuse the whole command | the server refuses the batch whole, and the offline queue's [rebase](sync-recovery.md#a-batch-the-server-rejects) drops its other ops with it |
-| No edit queues a text past a [text limit](backend.md#planning), or a link to a title the server refuses, past `MAX_PAGE_TITLE_CHARS` or of forbidden syntax such as `#` ([Refused titles](backend.md#refused-titles)). `useBlockDraft.admit` judges typing and a plain paste (titles with `linkedTitleRefusal`); `run()` and `undoManager`'s dispatch judge a command's ops (titles with `findOpTitleViolation`). Like the server, both judge every ref a text holds, so a block that already holds a forbidden link refuses edits that keep it, and accepts the edit that removes it. `UnlinkedSection` judges a Link's text limits only | the same: the server's 400 poisons the batch, and the repair drops its other ops with it |
+| No edit queues a text past a [text limit](backend.md#planning), or a ref (link, tag or attribute) to a [refused title](backend.md#refused-titles): past `MAX_PAGE_TITLE_CHARS`, or holding `#` or other forbidden syntax. `useBlockDraft.admit` judges typing and a plain paste, `run()` a draft it saves ([below](#drafts-and-commit-points)) and a command's ops, and `undoManager`'s dispatch a replay. As on the server, every ref a text holds is judged (`linkedTitleRefusal` shares `findOpTitleViolation`'s loop), so a block holding a refused one refuses edits that keep it. `UnlinkedSection` judges a Link's text limits only | the same: the server's 400 poisons the batch, and the repair drops its other ops with it |
 | No command queues a batch past `MAX_OPS_PER_BATCH` or the private body cap (`findBatchSizeViolation`, `batchLimits.ts`). `run()` judges the draft's text ops together with the command's, for the reason it judges depth | the server refuses the batch whole, and a queued refusal discards it |
 
 A depth refusal (`DEPTH_NOTICE`), a text-limit one (`textLimitNotice`), a
 title one (`TITLE_LENGTH_NOTICE`, `TITLE_SYNTAX_NOTICE`) or a size one
 (`BATCH_TOO_LARGE_NOTICE`) shows in the one `editNotice` slot `EditablePage` renders. The next command
-that applies, or Dismiss, clears it. A refused keystroke leaves the textarea
+that applies, or Dismiss, clears it, and a refused draft's notice also
+clears once the draft saves. A refused keystroke leaves the textarea
 as it was, with the caret where the refused insertion began
 (`refusedEditCaret`). A refused paste is prevented, so its caret and
-selection are untouched. The draft's own text still ships, and a refused undo or
+selection are untouched. The draft's own text still ships, unless its own
+titles are refused ([below](#drafts-and-commit-points)), and a refused undo or
 redo keeps its entry for a retry. The entry goes back as though refused at the
 keypress (`restoreEntry`), because an unmounted page's read can take long
 enough for a new edit to be recorded meanwhile. A refused undo goes back below
@@ -204,7 +206,7 @@ server.
 
 Where the web cannot see the tree, it sends and the server decides. An undo
 for an unmounted page whose read fails is judged for the text limits and
-the title cap only, and a cross-page drop meets only `allowedDepths`
+the titles only, and a cross-page drop meets only `allowedDepths`
 ([below](#drag-and-drop)).
 Refusing there would block an edit the web cannot check, for a case that
 needs an outline near the cap. A cross-page drop meets no title judge
@@ -228,7 +230,7 @@ both texts when another device edited from the same base.
 | When | Rule |
 |---|---|
 | A clean draft's first edit | `onDraftStart` reports the shown text, which `captureDraft` keeps as `base` |
-| Undo, redo, or an upload that fills the focused (empty) block | `BlockInput` calls `settle()`, so the draft adopts the tree's text |
+| Undo, redo, or an upload that fills the focused (empty) block | `BlockInput` calls `settle()`, so the draft adopts the tree's text. An undo or redo that a refused draft stopped (`onUndo` returns false) does not settle |
 | Focus or a new draft moves to another block | the old draft flushes first. A block a remote batch removes unmounts with no blur, so nothing else would flush it |
 | A remote batch reparents the block or an ancestor | the textarea remounts with no blur. `BlockInput` reads `handlers.pendingDraft(uid)` at mount and resumes it dirty with its base, and restores the selection the old textarea reported (`onInputUnmount`) |
 | A parent passes a new `initial` | the draft flushes first, so the parent tree waits for that write |
@@ -248,6 +250,24 @@ sees (the `Ctrl-Shift-D` chord, back/forward); its callback sits in a ref so
 the effect runs only then. `ensureRefPageThenOpen` (`Ctrl-O` over a `[[ref]]`)
 flushes before `POST /api/pages`. Tab hide and reload are covered by the
 `visibilitychange` flush.
+
+Typing leaves out the title the caret is in while the draft is held
+(`linkedTitleRefusal`'s `heldCaret`). The user is still typing that title,
+and one the server accepts can pass through one it refuses: `[[a [b] c]]`
+passes through `[[a []]]`, whose title ends in `[`. `run()` judges the whole draft when it saves it, so no
+path ships an unjudged text. A draft it refuses is never sent and never
+dropped:
+
+| With a refused draft | What happens |
+|---|---|
+| A flush (debounce, blur, tab hide, `onFlushDraft`) | nothing is sent; the draft stays pending, its textarea dirty, and the notice shows |
+| A command, undo or redo, or a cross-page drop (`OutlineDndApi.flushDraft`) | refused whole |
+| Focus leaving the block (click, arrow, blur, block selection) | refused, so the textarea stays mounted and shows the draft |
+| The outline unmounting (navigation) | `keptDrafts` keeps it by page title; the next outline that edits the page resumes it, focused, with the notice |
+
+Two cases still lose it. `keptDrafts` is memory, so a reload or a killed tab
+drops a refused draft. A remote batch that removes its block unmounts the
+textarea, and a draft started on another block then replaces it.
 
 ### Keyboard policy
 

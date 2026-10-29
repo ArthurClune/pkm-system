@@ -150,7 +150,7 @@ specs: [server](../superpowers/specs/2026-10-02-property-checks-server-design.md
 
 | Suite | Holds |
 |---|---|
-| `test_ops_state.py` | blocks, pages, rewrite rows and acks match `props/model.py`, title and text-limit refusals included; replay is inert |
+| `test_ops_state.py` | blocks, pages, rewrite rows and acks match `props/model.py`, title and text-limit refusals included, and an over-limit replay's landing, with its deleted titles plain; replay is inert |
 | `test_planner_props.py` | sibling order matches `positions_after` |
 | `test_unlink_props.py` | no rewritten source references the page; a second pass is inert |
 | `sync/` | the invariants in the header of `sync/oracle.ts` |

@@ -24,14 +24,15 @@ from hypothesis.vendor.pretty import RepresentationPrinter
 
 from conftest import SEED_BLOCKS
 from pkm.contracts.ops import BlockUid, SyncSeq, subtree_hash, text_hash
+from pkm.contracts.titles import RawTitle
 from pkm.refs import canonicalize_title, extract, is_blank_title
 from pkm.server.sync_meta import plain_space_title_canonicalization_active
 from props.harness import (DAILY_TITLE, FROZEN_NOW, FreshApp,
                            assert_unique_keys, assert_well_formed, examples,
                            fresh_app, read_db, seed_ops, template_db_path)
 from props.model import MBlock, Model
-from props.limit_texts import (AT_NESTING_LIMIT, EMOJI_AT_CAP, NEST_IN_CODE,
-                               PAST_LIMIT_TEXTS)
+from props.limit_texts import (AT_NESTING_LIMIT, COPIES_PAST_CAP, EMOJI_AT_CAP,
+                               LONG_WITHIN_CAP, NEST_IN_CODE, PAST_LIMIT_TEXTS)
 from props.strategies import PAGES, batch_for, seed_tree, texts, uid_pool
 from pkm.test_data.ids import raw_title_of, seq_of
 
@@ -239,6 +240,11 @@ class OpsMachine(RuleBasedStateMachine):
           links only one, and the one after, hashed on that, both again,
           in a batch with no `seen_seq`: the replayed rows still unlink
           both, so neither page comes back.
+        - "over the cap": a page delete inlines a long block into one that
+          linked the page, and a device that missed it sends the old text
+          with more refs to that block, so replaying the delete's rewrite
+          passes the length cap. The edit lands as a conflict entry, and
+          must land with the deleted titles plain, or it re-creates them.
 
         With none possible it does nothing."""
         assert self.app is not None
@@ -247,14 +253,22 @@ class OpsMachine(RuleBasedStateMachine):
                      in sorted(self.model.rewrites.items())
                      if uid in self.model.blocks for step in steps]
         deleted = sorted({t for t, _ in self.model.deletions})
+        # Behind a coin: offered whenever possible, its page deletes removed
+        # enough pool blocks to halve other paths' shares (`skip: cycle`).
+        over = (bool(live) and len(live) < len(UIDS)
+                and data.draw(st.booleans(), label="over the cap offered"))
         kinds = ([*(["conflict"] if rewritten else []),
                   *(["stale identical"] if live and self.before_deletes
                     else []),
-                  *(["queue"] if live and len(deleted) > 1 else [])])
+                  *(["queue"] if live and len(deleted) > 1 else []),
+                  *(["over the cap"] if over else [])])
         if not kinds:
             return
         word = data.draw(st.sampled_from(("apple", "river")), label="word")
         kind = data.draw(st.sampled_from(kinds), label="offline")
+        if kind == "over the cap":
+            self._over_the_cap(data, word)
+            return
         if kind == "queue":
             uid = data.draw(st.sampled_from(live), label="block")
             first, second = data.draw(st.lists(
@@ -292,6 +306,40 @@ class OpsMachine(RuleBasedStateMachine):
         self._send([{"op": "update_text", "uid": uid, "text": offline,
                      "base_text_hash": text_hash(offline)}],
                    seq_of(self.before_deletes[0]))
+
+    def _over_the_cap(self, data: st.DataObject, word: str) -> None:
+        """The "over the cap" kind of `offline_edit`. With `past`, the
+        block also links a page deleted after the first, so the chain has a
+        step beyond the one over the cap, whose title the landing must make
+        plain too."""
+        uid = data.draw(st.sampled_from(sorted(self.model.blocks)),
+                        label="block")
+        home = self.model.blocks[uid].page
+        title = data.draw(st.sampled_from([p for p in PAGES if p != home]),
+                          label="page")
+        copied = data.draw(st.sampled_from(
+            [u for u in UIDS if u not in self.model.blocks]), label="copied")
+        past = data.draw(st.booleans(), label="past")
+        form = data.draw(st.sampled_from(("[[{}]]", "#{}")), label="form")
+        (later,) = (p for p in PAGES if p not in (home, title))
+        before = (form.format(title) + (f" [[{later}]]" if past else "")
+                  + f" (({copied}))")
+        self._send([{"op": "create", "uid": copied, "page_title": title,
+                     "parent_uid": None, "order_idx": 0,
+                     "text": LONG_WITHIN_CAP}], None)
+        self._send([{"op": "update_text", "uid": uid, "text": before}], None)
+        if self._delete_page(raw_title_of(title)) != 200:
+            event("offline over the cap: first delete refused")
+            return
+        if past and self._delete_page(raw_title_of(later)) != 200:
+            event("offline over the cap: second delete refused")
+            return
+        sent = before + f" (({copied}))" * (COPIES_PAST_CAP - 1)
+        if data.draw(st.booleans(), label="extend"):
+            sent += " " + word
+        event(f"offline over the cap: {'two steps' if past else 'one step'}")
+        self._send([{"op": "update_text", "uid": uid, "text": sent,
+                     "base_text_hash": text_hash(before)}], None)
 
     def _submit(self, data: st.DataObject, seen_seq: SyncSeq | None) -> None:
         ops = data.draw(batch_for(self.model, UIDS, seen_seq).map(ClippedOps),
@@ -350,12 +398,16 @@ class OpsMachine(RuleBasedStateMachine):
         pool = (live if live and data.draw(st.integers(0, 3)) < 3
                 else list(PAGES))
         title = data.draw(st.sampled_from(pool), label="title")
+        self._delete_page(raw_title_of(title))
+
+    def _delete_page(self, title: RawTitle) -> int:
+        assert self.app is not None
         others = _untracked_texts(self.app, title)
         head = _head(self.app)
         before = _snapshot(self.app)
         self.clock.shift(timedelta(seconds=1))
         r = self.app.client.delete(f"/api/page/{title}")
-        outcome = self.model.delete_page(raw_title_of(title), others, seq_of(_head(self.app)))
+        outcome = self.model.delete_page(title, others, seq_of(_head(self.app)))
         assert r.status_code == outcome.status, r.text
         event(f"delete page: {r.status_code}")
         if r.status_code != 200:
@@ -366,13 +418,14 @@ class OpsMachine(RuleBasedStateMachine):
                     outcome.blockers
                 for reason in {b["reason"] for b in blockers}:
                     event(f"delete page blocker: {reason}")
-            return
+            return r.status_code
         self.before_deletes.append(head)
         # the blocks the model does not track are rewritten as the pool's
         # are: conflict entries and the kept texts among them included
         assert _untracked_texts(self.app, title) == {
             u: outcome.rewrite(t)[0] for u, t in others.items()}
         self.kept = {outcome.rewrite(t)[0] for t in self.kept}
+        return r.status_code
 
     @precondition(lambda self: self.sent)
     @rule(data=st.data())

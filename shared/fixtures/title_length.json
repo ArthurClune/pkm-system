@@ -16,6 +16,21 @@
      "describe": "title of 1002 characters is over the limit of 1000"},
     {"name": "a_run_counts_once",
      "parts": [["t", 999], ["   ", 1], ["t", 1]], "violation": 1001,
+     "describe": "title of 1001 characters is over the limit of 1000"},
+    {"name": "nbsp_edges_strip",
+     "parts": [["\u00a0", 1], ["t", 1000], ["\u00a0", 1]], "violation": null},
+    {"name": "an_nbsp_run_counts_once",
+     "parts": [["t", 999], ["\u00a0\u00a0", 1], ["t", 1]], "violation": 1001,
+     "describe": "title of 1001 characters is over the limit of 1000"},
+    {"name": "combining_marks_at_the_cap",
+     "parts": [["e\u0301", 500]], "violation": null},
+    {"name": "combining_marks_count_apart",
+     "parts": [["e\u0301", 500], ["t", 1]], "violation": 1001,
+     "describe": "title of 1001 characters is over the limit of 1000"},
+    {"name": "lone_surrogates_at_the_cap",
+     "parts": [["\ud800", 1000]], "violation": null},
+    {"name": "lone_surrogates_over_the_cap",
+     "parts": [["\udc00", 1001]], "violation": 1001,
      "describe": "title of 1001 characters is over the limit of 1000"}
   ],
   "texts": [
@@ -39,6 +54,12 @@
      "parts": [["`[[", 1], ["t", 1001], ["]]`", 1]], "violation": null},
     {"name": "a_fold_brings_a_link_to_the_cap",
      "parts": [["[[", 1], ["t", 600], ["\n\n", 1], ["t", 399], ["]]", 1]],
-     "violation": null}
+     "violation": null},
+    {"name": "a_lone_surrogate_link_over_the_cap",
+     "parts": [["[[", 1], ["\ud800", 1001], ["]]", 1]], "violation": 1001,
+     "op_describe": "reference title of 1001 characters is over the limit of 1000"},
+    {"name": "an_nbsp_fold_brings_a_link_to_the_cap",
+     "parts": [["[[", 1], ["t", 500], ["\u00a0\u00a0", 1], ["t", 499],
+               ["]]", 1]], "violation": null}
   ]
 }

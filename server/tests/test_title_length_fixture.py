@@ -50,3 +50,11 @@ def test_the_ops_judge_refuses_linked_titles_as_the_fixture_says(case):
     assert violation is not None
     assert violation.reason == "too_long"
     assert describe_op_title_violation(violation) == case["op_describe"]
+
+
+def test_the_lone_surrogate_cases_load_as_lone_surrogates():
+    cases = [c for c in FIXTURE["titles"] + FIXTURE["texts"]
+             if "lone_surrogate" in c["name"]]
+    assert cases
+    for case in cases:
+        assert any("\ud800" <= ch <= "\udfff" for ch in _text(case)), case

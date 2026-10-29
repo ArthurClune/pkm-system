@@ -7,24 +7,23 @@ replaced by an environment dump, and exits so `create_conversation` fails
 and cleans up.
 """
 
+import ast
 import asyncio
 import json
 import sys
+from dataclasses import replace
+from pathlib import Path
 
 import pytest
-from claude_agent_sdk import ClaudeAgentOptions
 from claude_agent_sdk._internal.transport import subprocess_cli
 from claude_agent_sdk._internal.transport.subprocess_cli import (
     SubprocessCLITransport,
 )
 from fake_sdk_client import SECRET, _no_rows
 
+from pkm.assistant import claude_engine
 from pkm.assistant.claude_engine import ClaudeEngine
-from pkm.assistant.harness_env import (
-    ZAI_BASE_URL,
-    harness_env_names,
-    resolve_harness_env,
-)
+from pkm.assistant.harness_env import ZAI_BASE_URL
 from pkm.assistant.policy import SYSTEM_PROMPT
 
 # The real client warns that allowed_tools approves the read tools without
@@ -114,8 +113,31 @@ class _Spawned(Exception):
     pass
 
 
-def test_every_variable_the_sdk_sets_is_kept(monkeypatch):
-    harness = resolve_harness_env("glm", "zk")
+def _launcher_names(launcher: Path) -> tuple[str, ...]:
+    line = next(line for line in launcher.read_text().splitlines()
+                if line.startswith("NAMES = "))
+    return ast.literal_eval(line.removeprefix("NAMES = "))
+
+
+@pytest.mark.parametrize("model", ["sonnet", "glm"])
+def test_every_variable_the_sdk_sets_is_kept(model, tmp_path, monkeypatch):
+    """The engine's own options, connected up to the spawn: a variable the
+    SDK adds that the engine's launcher would drop fails here by name."""
+    captured = {}
+
+    def capture(options):
+        captured["options"] = options
+        captured["names"] = _launcher_names(Path(options.cli_path))
+        raise _Spawned
+
+    monkeypatch.setattr(claude_engine, "harness_cli", lambda: "/no/claude")
+    engine = ClaudeEngine(
+        base_url="http://127.0.0.1:8999", session_secret_hex=SECRET,
+        client_factory=capture, config_dir=tmp_path, zai_token="zk-test",
+        read_blocks=_no_rows)
+    with pytest.raises(_Spawned):
+        asyncio.run(engine.create_conversation(SYSTEM_PROMPT, model))
+
     monkeypatch.setattr(subprocess_cli.os, "environ",
                         {"CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK": "1"})
     recorded: dict[str, str] = {}
@@ -125,10 +147,10 @@ def test_every_variable_the_sdk_sets_is_kept(monkeypatch):
         raise _Spawned
 
     monkeypatch.setattr(subprocess_cli.anyio, "open_process", open_process)
-    transport = SubprocessCLITransport(prompt="", options=ClaudeAgentOptions(
-        env=harness.env, cli_path="/x"))
+    transport = SubprocessCLITransport(
+        prompt="", options=replace(captured["options"], cli_path="/x"))
     with pytest.raises(Exception) as raised:
         asyncio.run(transport.connect())
     assert isinstance(raised.value.__cause__, _Spawned)
     added = set(recorded) - {"CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"}
-    assert added - set(harness_env_names(harness)) == set()
+    assert added - set(captured["names"]) == set()

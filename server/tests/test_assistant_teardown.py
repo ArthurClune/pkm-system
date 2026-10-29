@@ -22,6 +22,12 @@ from pkm.assistant.events import SSE_COMMENT, TextDelta
 from pkm.assistant.service import AssistantService
 
 
+@pytest.fixture(autouse=True)
+def _no_cli_discovery(monkeypatch):
+    # test_assistant_harness_spawn.py is the one place real discovery runs
+    monkeypatch.setattr(claude_engine, "harness_cli", lambda: "/no/claude")
+
+
 class ParkedTurn:
     """One turn parked in `can_use_tool`, streaming through the whole stack.
 

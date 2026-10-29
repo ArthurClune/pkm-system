@@ -1,11 +1,11 @@
 ---
 # pkm-oirq
 title: Dependency upgrades and minimal harness environment
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-23T10:56:19Z
+updated_at: 2026-10-29T16:06:48Z
 parent: pkm-mfd0
 ---
 

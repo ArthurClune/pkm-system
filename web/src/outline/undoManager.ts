@@ -16,15 +16,15 @@
 // file). An undo whose delivery fails leaves the files.
 //
 // A replay that would put a block past the outline depth cap, store a
-// block text past a text limit (grammar/textLimits.ts) or link a title past
-// the title cap (grammar/titleLength.ts), applies and sends nothing (the
+// block text past a text limit (grammar/textLimits.ts) or hold a ref to a
+// title the server refuses (replica/titles.ts), applies and sends nothing (the
 // server refuses such a batch whole, and the offline queue would discard
 // it), shows the refusal's notice, and puts its entry back, so it can be
 // retried once the user has made room. The entry goes back as though it had
 // been refused at the keypress (restoreEntry, history.ts), so an edit
 // recorded while the page was being read keeps its place. Its delivery
 // resolves "failed", so a refused upload undo keeps the files. A page this
-// tab cannot read is judged by the text limits and the title cap only,
+// tab cannot read is judged by the text limits and the titles only,
 // which need no tree: its depth is left to the server.
 import type { Sha256Hex, CanonicalTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
@@ -35,8 +35,7 @@ import { pagePath } from "../paths";
 import { stampBaseTextHashes } from "./baseTextHash";
 import { findOpTextLimitViolation,
          textLimitNotice } from "../grammar/textLimits";
-import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
-import { findOpTitleViolation } from "../replica/titles";
+import { findOpTitleViolation, titleRefusalNotice } from "../replica/titles";
 import { DEPTH_NOTICE, findDepthViolation } from "./depthCap";
 import type { FocusTarget } from "./edits";
 import { emptyHistory, recordEntry, resolveAnchors, restoreEntry, takeRedo,
@@ -52,8 +51,9 @@ export interface HistoryDispatch {
 }
 
 export interface OutlineHistoryHooks {
-  /** Flush any pending debounced draft NOW (records its entry first). */
-  flushPending(): void;
+  /** Flush any pending debounced draft NOW (records its entry first).
+   * False when the draft may not be saved and stays pending. */
+  flushPending(): boolean;
   /** Adopt a focus target after a history batch applied. */
   applyFocus(focus: FocusTarget | null): void;
   /** Say why a history batch for this page was refused. */
@@ -142,8 +142,19 @@ export function recordHistory(entry: HistoryEntry): void {
   state = recordEntry(state, entry);
 }
 
-export function performUndo(sync: HistoryDispatch): boolean {
-  flushAll(); // a pending draft becomes the newest entry, then gets undone
+/** Told to the outline that asked, when another outline's draft stops an
+ * undo or redo: that outline's own notice may be out of view. */
+export const HISTORY_BLOCKED_NOTICE =
+  "Undo and redo wait until a block whose text can't be saved is fixed.";
+
+export function performUndo(sync: HistoryDispatch,
+                            onBlocked?: (notice: string) => void): boolean {
+  // a pending draft becomes the newest entry, then gets undone; one that
+  // may not be saved stops the undo, which would move focus off it
+  if (!flushAll()) {
+    onBlocked?.(HISTORY_BLOCKED_NOTICE);
+    return false;
+  }
   const { state: next, entry } = takeUndo(state);
   state = next;
   if (!entry) return false;
@@ -157,8 +168,13 @@ export function performUndo(sync: HistoryDispatch): boolean {
   return true;
 }
 
-export function performRedo(sync: HistoryDispatch): boolean {
-  flushAll(); // a pending draft is a NEW op: recording it clears redo (AC)
+export function performRedo(sync: HistoryDispatch,
+                            onBlocked?: (notice: string) => void): boolean {
+  // a pending draft is a NEW op: recording it clears redo (AC)
+  if (!flushAll()) {
+    onBlocked?.(HISTORY_BLOCKED_NOTICE);
+    return false;
+  }
   const { state: next, entry } = takeRedo(state);
   state = next;
   if (!entry) return false;
@@ -180,12 +196,15 @@ export function resetHistory(): void {
   queued = 0;
 }
 
-function flushAll(): void {
+/** False when an outline kept a draft it may not save. */
+function flushAll(): boolean {
   // Only the focused outline can hold a pending draft; flushing the rest is
   // a no-op (pendingTextOps returns [] for unchanged text).
+  let flushed = true;
   for (const set of [...hooks.values()]) {
-    for (const h of [...set]) h.flushPending();
+    for (const h of [...set]) flushed = h.flushPending() && flushed;
   }
+  return flushed;
 }
 
 const failed = (error: unknown): Promise<DeliveryOutcome> =>
@@ -330,13 +349,12 @@ function refusalNotice(live: BlockNode[], ops: BlockOp[],
   return textLimitRefusal(ops);
 }
 
-// The refusals that need no tree: the text limits, then a title past the
-// title cap (an undo can restore a link a block held before the cap).
+// The refusals that need no tree: the text limits, then a refused title
+// (an undo can restore a ref a block held before a title rule).
 function textLimitRefusal(ops: BlockOp[]): string | null {
   const overLimit = findOpTextLimitViolation(ops);
   if (overLimit !== null) return textLimitNotice(overLimit.violation);
-  return findOpTitleViolation(ops)?.reason === "too_long"
-    ? TITLE_LENGTH_NOTICE : null;
+  return titleRefusalNotice(findOpTitleViolation(ops)?.reason ?? null);
 }
 
 // Nothing applied or sent; the notice goes to the page's outlines, or waits

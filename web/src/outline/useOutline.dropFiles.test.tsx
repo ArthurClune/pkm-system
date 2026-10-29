@@ -84,7 +84,7 @@ it("one undo removes every new block", async () => {
   const sync = makeSync();
   const o = setup(sync, AB());
   await drop(o, [png("c.png"), pdf("d.pdf")], at(null, 1));
-  act(() => o().handlers.onUndo());
+  act(() => { o().handlers.onUndo(); });
   expect(o().blocks.map((b) => b.uid)).toEqual(["tuid-a", "tuid-b"]);
   const released = () => vi.mocked(fetch).mock.calls
     .filter(([, init]) => init?.method === "DELETE").map(([url]) => url);

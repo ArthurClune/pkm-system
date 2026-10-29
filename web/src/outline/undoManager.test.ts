@@ -7,7 +7,7 @@ import { subtreeHash } from "../replica/subtreeHash";
 import type { DeliveryOutcome, WriteTicket } from "../sync/opQueue";
 import { block, defer, makeSync, orderIdxOf, uidOf, shaOf, ticketIdOf, canonicalTitleOf } from "../test-helpers";
 import { acquireOutlineSession } from "./outlineSessions";
-import { historyIdle, performRedo, performUndo,
+import { HISTORY_BLOCKED_NOTICE, historyIdle, performRedo, performUndo,
          recordHistory, registerOutlineHistory, resetHistory,
          setAssetReleaser, setHistoryNavigator,
          setHistoryPageLoader } from "./undoManager";
@@ -15,6 +15,7 @@ import { DEPTH_NOTICE, MAX_OUTLINE_DEPTH } from "./depthCap";
 import { LINK_NESTING_NOTICE,
          TEXT_LENGTH_NOTICE } from "../grammar/textLimits";
 import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
+import { TITLE_SYNTAX_NOTICE } from "../replica/titles";
 import { historyAnchors, invertOps, type HistoryEntry } from "./history";
 import { applyOps, locate } from "./tree";
 
@@ -49,7 +50,7 @@ it("undo applies to a mounted session and restores focusBefore", () => {
   const handle = acquireOutlineSession(PAGE, [block("tuid-a", "after", { order_idx: orderIdxOf(0) })]);
   const focused: (unknown)[] = [];
   const unregister = registerOutlineHistory(PAGE, {
-    flushPending: () => undefined,
+    flushPending: () => true,
     applyFocus: (f) => focused.push(f),
     showNotice: () => undefined,
   });
@@ -70,6 +71,25 @@ it("redo replays the forward batch and restores focusAfter", async () => {
   expect(sync.sent[1]).toEqual([{ op: "update_text", uid: "tuid-a", text: "after" }]);
 });
 
+it("an outline keeping a draft it may not save stops undo and redo",
+   async () => {
+  const sync = makeSync();
+  recordHistory(entry());
+  const unregister = registerOutlineHistory(PAGE, {
+    flushPending: () => false,
+    applyFocus: () => undefined,
+    showNotice: () => undefined,
+  });
+  const told: string[] = [];
+  expect(performUndo(sync, (n) => told.push(n))).toBe(false);
+  expect(performRedo(sync, (n) => told.push(n))).toBe(false);
+  await historyIdle();
+  expect(sync.sent).toEqual([]);
+  expect(told).toEqual([HISTORY_BLOCKED_NOTICE, HISTORY_BLOCKED_NOTICE]);
+  unregister();
+  expect(performUndo(sync)).toBe(true); // the entry is still there
+});
+
 it("flushes registered drafts before undoing (pending draft becomes the undone entry)", async () => {
   const sync = makeSync();
   const calls: string[] = [];
@@ -77,6 +97,7 @@ it("flushes registered drafts before undoing (pending draft becomes the undone e
     flushPending: () => {
       calls.push("flush");
       recordHistory(entry());
+      return true;
     },
     applyFocus: () => undefined,
     showNotice: () => undefined,
@@ -477,7 +498,7 @@ function hooksFor(title = PAGE) {
   const notices: string[] = [];
   const focused: unknown[] = [];
   const unregister = registerOutlineHistory(title, {
-    flushPending: () => undefined,
+    flushPending: () => true,
     applyFocus: (f) => focused.push(f),
     showNotice: (text) => notices.push(text),
   });
@@ -809,6 +830,26 @@ it("an undo that would restore a link to a title past the cap is refused",
   expect(performUndo(sync)).toBe(true);
   expect(h.notices).toEqual([TITLE_LENGTH_NOTICE, TITLE_LENGTH_NOTICE]);
   expect(sync.sent).toEqual([]);
+  h.unregister();
+  handle.release();
+});
+
+it("an undo that would restore a link to a forbidden title is refused",
+   () => {
+  const sync = makeSync();
+  recordHistory({
+    ...entry(),
+    ops: [{ op: "update_text", uid: uidOf("tuid-a"), text: "x" }],
+    inverse: [{ op: "update_text", uid: uidOf("tuid-a"), text: "[[C#]]" }],
+  });
+  const handle = acquireOutlineSession(PAGE, [
+    block("tuid-a", "x", { order_idx: orderIdxOf(0) })]);
+  const h = hooksFor();
+
+  expect(performUndo(sync)).toBe(true);
+  expect(sync.sent).toEqual([]);
+  expect(handle.getSnapshot().blocks[0].text).toBe("x");
+  expect(h.notices).toEqual([TITLE_SYNTAX_NOTICE]);
   h.unregister();
   handle.release();
 });

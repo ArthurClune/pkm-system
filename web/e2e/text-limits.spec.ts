@@ -1,13 +1,16 @@
 // The block text limits: the editor refuses an edit that would store a text
-// the server refuses (past 1,000,000 code points, or [[ nested past 32
-// levels), says why in the page's notice slot, keeps the textarea's text
-// and sends nothing. An edit up to the limit is saved.
+// the server refuses (past 1,000,000 code points, [[ nested past 32 levels,
+// or a ref to a page title it refuses), says why in the page's notice slot,
+// keeps the textarea's text and sends nothing. An edit up to the limit is
+// saved.
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
 
 const PASSWORD = "e2e-pw";
 const NESTING = "Links can't nest more than 32 levels deep.";
+const SYNTAX =
+  "A page title can't contain #, [[, ]], a backtick, or end in [ or ].";
 const LENGTH = "A block can't be longer than 1,000,000 characters.";
 
 const nest = (n: number) => "[[a//".repeat(n) + "x" + "]]".repeat(n);
@@ -138,6 +141,88 @@ test("a real [ keypress that would nest links past 32 is refused",
   await expect(input(page)).toHaveCount(0);
   await waitForServerText(page, title, typed);
   expect(sent.some((t) => t.includes("x[[]]"))).toBe(false);
+});
+
+test("a link typed with # is refused when the draft is saved, and kept",
+     async ({ page }) => {
+  // Real keys: auto-pair turns [[ into [[]], and the title the caret is in
+  // is judged only once the draft is saved.
+  const { title, seed, sent } = await openSeeded(page, "Title Syntax");
+  const notice = page.getByRole("status").filter({ hasText: SYNTAX });
+
+  await page.keyboard.type("[[a#b");
+  await expect(input(page)).toHaveValue(`${seed}[[a#b]]`);
+  await expect(notice).toHaveCount(0);
+
+  // stepping over the closers leaves the link and arms the save
+  await page.keyboard.type("]]");
+  await expect(notice).toBeVisible();
+  await expect(input(page)).toHaveValue(`${seed}[[a#b]]`);
+  await expect(input(page)).toBeFocused();
+
+  // a keystroke keeping the link is refused, and the caret stays at the end
+  await page.keyboard.press("!");
+  await expect(input(page)).toHaveValue(`${seed}[[a#b]]`);
+  for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Backspace");
+  await expect(input(page)).toHaveValue(`${seed}[[ab]]`);
+
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expect(input(page)).toHaveCount(0);
+  await waitForServerText(page, title, `${seed}[[ab]]`);
+  await expect(notice).toHaveCount(0);
+  expect(sent.some((t) => t.includes("#") || t.includes("!"))).toBe(false);
+});
+
+test("leaving the page with a refused draft shows its text in the app "
+     + "notice, and sends nothing", async ({ page }) => {
+  const { seed, sent } = await openSeeded(page, "Title Dropped");
+
+  await page.keyboard.type("[[a#b");
+  await page.keyboard.press("Control+Shift+D");
+  await page.waitForURL((url) => url.pathname === "/");
+
+  const banner = page.locator(".dropped-draft");
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText(`${seed}[[a#b]]`);
+  await expect(banner).toContainText(SYNTAX);
+  expect(sent.some((t) => t.includes("#"))).toBe(false);
+  await banner.getByRole("button", { name: "Dismiss" }).click();
+  await expect(banner).toHaveCount(0);
+});
+
+test("a link whose title holds [ typed with real keys is saved",
+     async ({ page }) => {
+  const { title, seed } = await openSeeded(page, "Title Bracket");
+
+  await page.keyboard.type("[[Meeting [draft] notes]]");
+  await expect(input(page)).toHaveValue(`${seed}[[Meeting [draft] notes]]`);
+  await expect(page.getByRole("status")).toHaveCount(0);
+
+  await page.keyboard.press("Escape");
+  await expect(input(page)).toHaveCount(0);
+  await waitForServerText(page, title, `${seed}[[Meeting [draft] notes]]`);
+});
+
+test("a pasted link to a title with # is refused, nothing is sent",
+     async ({ page }) => {
+  const { seed, sent } = await openSeeded(page, "Title Paste");
+
+  const intercepted = await input(page).evaluate(
+    (el: HTMLTextAreaElement) => {
+      const dt = new DataTransfer();
+      dt.setData("text/plain", "see [[C#]]");
+      return !el.dispatchEvent(new ClipboardEvent("paste", {
+        clipboardData: dt, bubbles: true, cancelable: true,
+      }));
+    });
+
+  expect(intercepted).toBe(true);
+  await expect(page.getByRole("status").filter({ hasText: SYNTAX }))
+    .toBeVisible();
+  await expect(input(page)).toHaveValue(seed);
+  expect(sent).toEqual([]);
 });
 
 test("a paste past the length cap shows the notice and does not paste",

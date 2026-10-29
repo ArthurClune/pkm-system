@@ -357,7 +357,7 @@ describe("a page holding rows past the cap", () => {
     act(() => outline().handlers.onFocusBlock(deep, 4));
     act(() => outline().handlers.onDraftStart(deep, "L120"));
     act(() => outline().handlers.onDraftChange(deep, "deep edit"));
-    act(() => outline().handlers.onFlushDraft());
+    act(() => { outline().handlers.onFlushDraft(); });
     expect(sync.sent).toEqual([[
       { op: "update_text", uid: "tuid-L120", text: "deep edit",
         base_text_hash: sha256Hex("L120"), page_title: PAGE },

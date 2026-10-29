@@ -13,9 +13,9 @@ import { useConfirm } from "../components/ConfirmDialog";
 import type { OutlineDndApi } from "../dnd/DndContext";
 import { findOpTextLimitViolation,
          textLimitNotice } from "../grammar/textLimits";
-import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
 import { toggleTodo } from "../grammar/todo";
-import { findOpTitleViolation } from "../replica/titles";
+import { findOpTitleViolation, linkedTitleRefusal,
+         titleRefusalNotice } from "../replica/titles";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { BATCH_TOO_LARGE_NOTICE,
          findBatchSizeViolation } from "../sync/batchLimits";
@@ -45,6 +45,7 @@ import { extendSelection, needsDeleteConfirmation, selectedUids,
          startSelection, type BlockSelection } from "./blockSelection";
 import { acquireOutlineSession,
          type OutlineSessionHandle } from "./outlineSessions";
+import { dropDraft, setRefusedDraftPending } from "./droppedDrafts";
 import { captureDraft, pendingTextOps, spliceUploadedMarkdown,
          validateOutlineFocus, type PendingDraft,
          type ShownText } from "./outlineState";
@@ -90,9 +91,10 @@ export interface Outline {
 
 /** Why `result` must not apply, or null when it may: the depth cap first,
  * then the text limits of the texts its ops would store, then the size of
- * the whole batch (the draft's `textOps` ship with it), then a title past
- * the title cap, which the server refuses the whole batch for. A
- * forbidden-syntax title is left to the queue's refusal. */
+ * the whole batch (the draft's `textOps` ship with it), then a refused
+ * title (over the title cap or forbidden syntax), which the
+ * server refuses the whole batch for. The queue judges the same rule but
+ * throws, so a batch it refuses would reset the outline and lose the draft. */
 function commandRefusal(result: EditResult,
                         textOps: readonly BlockOp[]): string | null {
   if (findDepthViolation(result.blocks, result.ops) !== null) {
@@ -102,8 +104,7 @@ function commandRefusal(result: EditResult,
   if (overLimit !== null) return textLimitNotice(overLimit.violation);
   const batch = [...textOps, ...result.ops];
   if (findBatchSizeViolation(batch) !== null) return BATCH_TOO_LARGE_NOTICE;
-  return findOpTitleViolation(batch)?.reason === "too_long"
-    ? TITLE_LENGTH_NOTICE : null;
+  return titleRefusalNotice(findOpTitleViolation(batch)?.reason ?? null);
 }
 
 export function useOutline(
@@ -156,6 +157,21 @@ export function useOutline(
   const draftSelectionRef =
     useRef<{ uid: BlockUid; start: number; end: number } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The notice a refused draft showed, cleared once a flush gets past it.
+  const draftNoticeRef = useRef<string | null>(null);
+  // Set each render to releaseUnshownDraft below, for the session
+  // subscription, which is wired once per page.
+  const releaseUnshownRef = useRef(() => {});
+  // This outline's key in droppedDrafts.ts's unload guard.
+  const [unloadOwner] = useState(() => Symbol("outline"));
+  /** Tell the unload guard whether the pending draft holds a refused title:
+   * a reload would lose it, since run() will not save it. */
+  const markRefusedPending = useCallback(() => {
+    const pending = pendingRef.current;
+    setRefusedDraftPending(unloadOwner, pending !== null
+      && pending.text !== pending.base
+      && linkedTitleRefusal(pending.text) !== null);
+  }, [unloadOwner]);
 
   useLayoutEffect(() => {
     const handle = acquireOutlineSession(pageTitle, bootstrapRef.current);
@@ -163,6 +179,7 @@ export function useOutline(
     const adoptShared = () => {
       const shared = handle.getSnapshot().blocks;
       blocksRef.current = shared;
+      releaseUnshownRef.current();
       setBlocks(shared);
       setFocus((current) => validateOutlineFocus(current, shared));
     };
@@ -210,12 +227,80 @@ export function useOutline(
     return pendingTextOps(pending, blocksRef.current, pageTitle);
   }, [pageTitle]);
 
+  /** The notice when the pending draft holds a ref whose title the server
+   * refuses, else null. Typing judges every ref but the one whose title the
+   * caret is in while the flush is held (useBlockDraft.admit), so a draft can
+   * hold one by the time it is saved. */
+  const draftRefusal = useCallback((): string | null => {
+    const pending = pendingRef.current;
+    if (!pending) return null;
+    const ops = pendingTextOps(pending, blocksRef.current, pageTitle);
+    return titleRefusalNotice(findOpTitleViolation(ops)?.reason ?? null);
+  }, [pageTitle]);
+
+  /** Hand a draft run() refuses to the app-level notice (droppedDrafts.ts)
+   * and forget it. Called when it can no longer stay on screen to be fixed,
+   * so it neither pins the outline nor is replaced unseen. */
+  const dropRefusedDraft = useCallback((notice: string) => {
+    const pending = pendingRef.current;
+    if (!pending) return;
+    pendingRef.current = null;
+    draftSelectionRef.current = null;
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    draftNoticeRef.current = null;
+    setEditNotice((n) => (n === notice ? null : n));
+    // listed first, so the unload guard is not detached and attached again
+    dropDraft({ pageTitle, text: pending.text, notice });
+    markRefusedPending();
+  }, [pageTitle, markRefusedPending]);
+
+  /** Drop a refused draft whose block has left the tree or is hidden under
+   * a collapsed ancestor: no textarea can show it there. */
+  const releaseUnshownDraft = useCallback(() => {
+    const pending = pendingRef.current;
+    if (!pending) return;
+    const blocks = blocksRef.current;
+    if (findNode(blocks, pending.uid)
+        && hidingAncestors(blocks, pending.uid).length === 0) return;
+    const notice = draftRefusal();
+    if (notice !== null) dropRefusedDraft(notice);
+  }, [draftRefusal, dropRefusedDraft]);
+  releaseUnshownRef.current = releaseUnshownDraft;
+
   /** Flush any pending text op, run the command against the flushed tree,
-   * apply + enqueue everything in order, then move focus. */
+   * apply + enqueue everything in order, then move focus. A draft the
+   * server would refuse is never sent. While its block is on screen it
+   * stays pending, its textarea dirty, and the command, planned against the
+   * tree without it, applies nothing; otherwise it is dropped to the notice
+   * and the command goes ahead. */
   const run = useCallback((fn: (b: BlockNode[]) => EditResult,
                            opts?: { freshAssets?: readonly Sha256Hex[] },
   ): boolean => {
+    releaseUnshownDraft();
+    const draftNotice = draftRefusal();
+    if (draftNotice !== null) {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      draftNoticeRef.current = draftNotice;
+      markRefusedPending();
+      setEditNotice(draftNotice);
+      if (opts?.freshAssets && opts.freshAssets.length > 0) {
+        releaseUnusedAssets(opts.freshAssets);
+      }
+      return false;
+    }
+    const cleared = draftNoticeRef.current;
+    if (cleared !== null) {
+      draftNoticeRef.current = null;
+      setEditNotice((n) => (n === cleared ? null : n));
+    }
     const textOps = takePendingTextOps();
+    markRefusedPending();
     const pre = blocksRef.current; // history inverts the FULL batch from here
     // A draft whose block has left this tree still ships, but it cannot be
     // inverted here; leaving it out of the history entry keeps the rest of
@@ -287,10 +372,14 @@ export function useOutline(
     }
     if (result.focus) setFocus(result.focus);
     return applied;
-  }, [takePendingTextOps, pageTitle, sync]);
+  }, [releaseUnshownDraft, draftRefusal, takePendingTextOps,
+      markRefusedPending, pageTitle, sync]);
 
-  const flushNow = useCallback(() => {
+  /** Save the pending draft now. False when run() kept it unsaved, and the
+   * caller must then leave the editor on its block. */
+  const flushNow = useCallback((): boolean => {
     run((b) => ({ blocks: b, ops: [], focus: null }));
+    return pendingRef.current === null;
   }, [run]);
 
   // Parent fetches normally pair their payload with a read token before this
@@ -348,9 +437,19 @@ export function useOutline(
   // — durability is the queue's job, and nothing is left to render into.
   // Deliberately unmount-only: a ref, not a dep, so a changing flushNow
   // identity can't turn this into a mid-edit flush.
-  const flushOnUnmount = useRef(flushNow);
-  flushOnUnmount.current = flushNow;
-  useEffect(() => () => flushOnUnmount.current(), []);
+  // A draft run() refuses has nowhere left to show, so it goes to the
+  // app-level notice.
+  const flushOnUnmount = useRef(() => {});
+  flushOnUnmount.current = () => {
+    if (flushNow()) return;
+    const notice = draftRefusal();
+    if (notice !== null) dropRefusedDraft(notice);
+  };
+  useEffect(() => () => {
+    flushOnUnmount.current();
+    setRefusedDraftPending(unloadOwner, false);
+  }, [unloadOwner]);
+
 
   // Unknown target content needs an authoritative tree. The session allocates
   // the read token before the loader dispatches and coalesces same-title reads.
@@ -382,19 +481,25 @@ export function useOutline(
   // A draft on another block is flushed before this block's focus or draft
   // takes over. Its textarea may have unmounted with no blur (a remote batch
   // removed the block), and replacing the draft would drop its text.
-  const flushOtherDraft = useCallback((uid: BlockUid) => {
-    if (pendingRef.current && pendingRef.current.uid !== uid) flushNow();
+  const flushOtherDraft = useCallback((uid: BlockUid): boolean => {
+    if (pendingRef.current && pendingRef.current.uid !== uid) {
+      return flushNow();
+    }
+    return true;
   }, [flushNow]);
 
   const scrollToUidRef = useRef<BlockUid | null>(null);
   const handlers = useMemo<OutlineHandlers>(() => ({
+    // A draft run() would not save keeps the editor on its block: focus
+    // does not move off it (here, onBlurBlock, onArrow, block selection),
+    // so the textarea goes on showing it beside the notice.
     onFocusBlock: (uid, cursor) => {
-      flushOtherDraft(uid);
+      if (!flushOtherDraft(uid)) return;
       setSelection(null); // focusing a block to edit ends any block selection
       setFocus({ uid, cursor });
     },
     onBlurBlock: (uid) => {
-      flushNow();
+      if (!flushNow()) return;
       // The textarea goes away; a later one reports its own shown text.
       if (shownRef.current?.uid === uid) shownRef.current = null;
       // Only clear if this block still owns focus — a structural op may
@@ -409,6 +514,7 @@ export function useOutline(
       flushOtherDraft(uid);
       pendingRef.current = captureDraft(
         pendingRef.current, uid, text, blocksRef.current, shownRef.current);
+      markRefusedPending();
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
@@ -447,8 +553,7 @@ export function useOutline(
     onArrow: (uid, dir) => {
       const to = visibleNeighbor(blocksRef.current, uid,
         dir === "up" || dir === "left" ? "up" : "down");
-      if (!to) return;
-      flushNow();
+      if (!to || !flushNow()) return;
       const node = findNode(blocksRef.current, to);
       setFocus({
         uid: to,
@@ -555,7 +660,7 @@ export function useOutline(
     // draft and blurs the textarea (focus → null) so the whole run renders
     // read-only while selected.
     onStartBlockSelection: (uid, dir) => {
-      flushNow();
+      if (!flushNow()) return;
       const next = startSelection(blocksRef.current, uid, dir);
       setFocus(null);
       setSelection(next);
@@ -564,7 +669,7 @@ export function useOutline(
     // on that block — the "select the whole block" step that further presses
     // then extend. Same flush/blur contract as onStartBlockSelection.
     onSelectBlock: (uid) => {
-      flushNow();
+      if (!flushNow()) return;
       setFocus(null);
       setSelection(startSelection(blocksRef.current, uid, null));
     },
@@ -610,15 +715,26 @@ export function useOutline(
         run((b) => deleteSelection(b, pageTitle, selectedUids(b, selection)));
       })();
     },
-    // App-level undo/redo: global history, not per-outline. No
-    // explicit flush here — performUndo/performRedo call every registered
-    // flushPending, including this outline's.
-    onUndo: () => { performUndo(sync); },
-    onRedo: () => { performRedo(sync); },
+    // App-level undo/redo: global history, not per-outline. This outline's
+    // draft is flushed first, so a refused one returns false and BlockInput
+    // keeps it. performUndo/performRedo flush every other outline's, and when
+    // one keeps a refused draft they do nothing and say so here.
+    onUndo: () => {
+      if (!flushNow()) return false;
+      performUndo(sync, (notice) => setEditNotice(notice));
+      return true;
+    },
+    onRedo: () => {
+      if (!flushNow()) return false;
+      performRedo(sync, (notice) => setEditNotice(notice));
+      return true;
+    },
     onRefusedEdit: (notice) => setEditNotice(notice),
-  }), [run, flushNow, flushOtherDraft, pageTitle, selection, sync, confirm]);
+  }), [run, flushNow, flushOtherDraft, markRefusedPending, pageTitle,
+      selection, sync, confirm]);
 
   const dnd = useMemo<OutlineDndApi>(() => ({
+    flushDraft: flushNow,
     moveTo: (uids, target) => run((b) =>
       moveBlocksTo(b, pageTitle, uids, target.parent_uid, target.order_idx)),
     removeSubtreeLocal: (uid) => {

@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   block,
   makeSync,
@@ -21,8 +21,14 @@ import { subtreeHash } from "../replica/subtreeHash";
 import { DEPTH_NOTICE } from "../outline/depthCap";
 import { LINK_NESTING_NOTICE } from "../grammar/textLimits";
 import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
+import { TITLE_SYNTAX_NOTICE } from "../replica/titles";
 import { resetHistory } from "../outline/undoManager";
+import { droppedDrafts, resetDroppedDrafts } from "../outline/droppedDrafts";
+import { DroppedDraftNotice } from "../components/DroppedDraftNotice";
 import { EditablePage } from "./EditablePage";
+
+// The last test's unmount drops a refused draft into module state.
+beforeEach(resetDroppedDrafts);
 
 afterEach(() => {
   vi.useRealTimers();
@@ -1157,6 +1163,329 @@ test("typing a link to a title past the cap shows the notice, saves nothing",
   const notice = screen.getByText(TITLE_LENGTH_NOTICE);
   expect(notice).toHaveAttribute("role", "status");
   fireEvent.blur(ta);
+  expect(sync.sent).toEqual([]);
+});
+
+test.each(["[[a#b]]", "[[C#]]", "[[C# lang]]", "C#:: v"])(
+  "typing a ref to a forbidden title, %s, shows the notice, saves nothing",
+  (typed) => {
+    stubFetch([["/api/titles", { titles: [] }]]);
+    const sync = mount();
+    const ta = focusBlock("first");
+    fireEvent.change(ta, { target: { value: typed } });
+
+    expect(ta.value).toBe("first");
+    const notice = screen.getByText(TITLE_SYNTAX_NOTICE);
+    expect(notice).toHaveAttribute("role", "status");
+    fireEvent.blur(ta);
+    expect(sync.sent).toEqual([]);
+  });
+
+test("typing a link to an allowed title is admitted and saved", () => {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "see [[C plus]] and #tag" } });
+
+  expect(ta.value).toBe("see [[C plus]] and #tag");
+  expect(screen.queryByText(TITLE_SYNTAX_NOTICE)).toBeNull();
+  fireEvent.blur(ta);
+  expect(sync.sent).toHaveLength(1);
+});
+
+test("a block already holding a link the server refuses is refused the "
+     + "same edit, as the server judges every ref a text holds", () => {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount(makeSync(), [
+    block("tuid-legacy", "old [[C#]]", { order_idx: orderIdxOf(0) })]);
+  fireEvent.click(screen.getByText(/^old/));
+  const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+  fireEvent.change(ta, { target: { value: "old [[C#]] more" } });
+  expect(ta.value).toBe("old [[C#]]");
+  expect(screen.getByText(TITLE_SYNTAX_NOTICE)).toBeInTheDocument();
+
+  // editing the bad ref away is admitted
+  fireEvent.change(ta, { target: { value: "old [[C]]" } });
+  expect(ta.value).toBe("old [[C]]");
+  fireEvent.blur(ta);
+  expect(sync.sent).toHaveLength(1);
+});
+
+/** Type `keys` at the caret as a user would: a bracket goes through the
+ * keydown (auto-pair and step-over), anything else is a change event. */
+function typeKeys(keys: string) {
+  for (const key of keys) {
+    const ta = textbox();
+    if (key === "[" || key === "]") {
+      fireEvent.keyDown(ta, { key });
+      continue;
+    }
+    const at = ta.selectionStart;
+    fireEvent.change(ta, { target: {
+      value: ta.value.slice(0, at) + key + ta.value.slice(ta.selectionEnd),
+      selectionStart: at + 1, selectionEnd: at + 1,
+    } });
+  }
+}
+
+const caretAt = (at: number) => textbox().setSelectionRange(at, at);
+
+test("typing a link whose title holds [ key by key is admitted and saved",
+     () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  focusBlock("first");
+  caretAt(5);
+  typeKeys("[[Meeting [draft] notes]]");
+
+  expect(textbox().value).toBe("first[[Meeting [draft] notes]]");
+  expect(screen.queryByRole("status")).toBeNull();
+  fireEvent.blur(textbox());
+  expect(sync.sent.flat()).toEqual([{ op: "update_text", uid: "tuid-u1",
+    text: "first[[Meeting [draft] notes]]",
+    base_text_hash: sha256Hex("first"), page_title: "Page" }]);
+});
+
+/** "first[[a#b]]" typed key by key: admitted while the caret is in the
+ * link, then refused by the save the step out of it arms. */
+function refusedAtSave(sync: SyncFake) {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  mount(sync);
+  focusBlock("first");
+  caretAt(5);
+  typeKeys("[[a#b");
+  expect(textbox().value).toBe("first[[a#b]]");
+  expect(screen.queryByRole("status")).toBeNull();
+  typeKeys("]]");
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toEqual([]);
+  expect(textbox().value).toBe("first[[a#b]]");
+  expect(screen.getByText(TITLE_SYNTAX_NOTICE))
+    .toHaveAttribute("role", "status");
+}
+
+test("a link typed with # is refused when saved, and the draft is kept "
+     + "until fixed", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  refusedAtSave(sync);
+
+  fireEvent.blur(textbox());
+  expect(sync.sent).toEqual([]);
+  expect(textbox().value).toBe("first[[a#b]]");
+
+  // deleting the # inside the link is admitted, and then saves
+  fireEvent.change(textbox(), { target: {
+    value: "first[[ab]]", selectionStart: 9, selectionEnd: 9,
+  } });
+  fireEvent.blur(textbox());
+  expect(sync.sent.flat()).toEqual([{ op: "update_text", uid: "tuid-u1",
+    text: "first[[ab]]", base_text_hash: sha256Hex("first"),
+    page_title: "Page" }]);
+  expect(screen.queryByText(TITLE_SYNTAX_NOTICE)).toBeNull();
+});
+
+test("a draft refused at save keeps the editor on its block", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  refusedAtSave(sync);
+
+  fireEvent.blur(textbox());
+  fireEvent.click(screen.getByText("second"));
+  fireEvent.keyDown(textbox(), { key: "ArrowDown" });
+  fireEvent.keyDown(textbox(), { key: "Enter" });
+  undoKey();
+  fireEvent.keyDown(textbox(), { key: "z", metaKey: true, shiftKey: true });
+  caretAt(textbox().value.length);
+  fireEvent.keyDown(textbox(), { key: "ArrowDown", shiftKey: true });
+
+  expect(document.querySelectorAll(".block-row.selected")).toHaveLength(0);
+  expect(screen.getAllByRole("textbox")).toHaveLength(1);
+  expect(textbox().value).toBe("first[[a#b]]");
+  expect(sync.sent).toEqual([]);
+  expect(screen.getByText("second")).toBeInTheDocument();
+});
+
+function NavBack() {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate("/")}>back</button>;
+}
+
+/** The page at "/" (blocks first, second), a "go" button to "/elsewhere"
+ * and back, and the app-level dropped-draft notice. */
+function mountRouted(sync: SyncFake) {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+      <SyncContext.Provider value={sync}>
+        <DroppedDraftNotice />
+        <Routes>
+          <Route path="/" element={<>
+            <EditablePage title={canonicalTitleOf("Page")} initial={[
+              block("tuid-u1", "first", { order_idx: orderIdxOf(0) }),
+              block("tuid-u2", "second", { order_idx: orderIdxOf(1) }),
+            ]} />
+            <NavAway />
+          </>} />
+          <Route path="/elsewhere" element={<NavBack />} />
+          <Route path="*" element={<p>elsewhere</p>} />
+        </Routes>
+      </SyncContext.Provider>
+    </MemoryRouter>);
+}
+
+const DROPPED = { pageTitle: "Page", text: "first[[a#b]]",
+                  notice: TITLE_SYNTAX_NOTICE };
+
+/** The outline is not pinned: another block takes focus and saves. */
+function expectUnlocked(sync: SyncFake) {
+  fireEvent.click(screen.getByText("second"));
+  fireEvent.change(textbox(), { target: { value: "second!" } });
+  fireEvent.blur(textbox());
+  expect(sync.sent.flat()).toEqual([{ op: "update_text", uid: "tuid-u2",
+    text: "second!", base_text_hash: sha256Hex("second"),
+    page_title: "Page" }]);
+}
+
+test("navigating away with a refused draft shows its text to copy, and the "
+     + "page is editable on return", async () => {
+  const writeText = vi.fn(async () => undefined);
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  const sync = makeSync();
+  mountRouted(sync);
+  focusBlock("first");
+  caretAt(5);
+  typeKeys("[[a#b");
+
+  fireEvent.click(screen.getByText("go"));
+  expect(sync.sent).toEqual([]);
+  expect(droppedDrafts()).toMatchObject([DROPPED]);
+  const banner = screen.getByRole("alert");
+  expect(banner).toHaveTextContent("first[[a#b]]");
+  await act(async () => { fireEvent.click(screen.getByText("Copy")); });
+  expect(writeText).toHaveBeenCalledWith("first[[a#b]]");
+
+  fireEvent.click(screen.getByText("back"));
+  expect(screen.getByText("first")).toBeInTheDocument();
+  expectUnlocked(sync);
+});
+
+test("a remote delete of a refused draft's block drops it to the notice, "
+     + "and the outline stays usable", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  refusedAtSave(sync);
+  act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
+    { op: "delete", uid: uidOf("tuid-u1") },
+  ] }));
+
+  expect(droppedDrafts()).toMatchObject([DROPPED]);
+  expect(screen.queryByText(TITLE_SYNTAX_NOTICE)).toBeNull();
+  expectUnlocked(sync);
+});
+
+test("a remote collapse hiding a refused draft drops it to the notice, "
+     + "and typing in the parent saves only the parent", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount(makeSync(), [
+    block("tuid-p", "parent", { order_idx: orderIdxOf(0), children: [
+      block("tuid-u1", "first", { order_idx: orderIdxOf(0) })] }),
+  ]);
+  focusBlock("first");
+  caretAt(5);
+  typeKeys("[[a#b]]");
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(screen.getByText(TITLE_SYNTAX_NOTICE)).toBeInTheDocument();
+
+  act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
+    { op: "set_collapsed", uid: uidOf("tuid-p"), collapsed: true },
+  ] }));
+  expect(droppedDrafts()).toMatchObject([DROPPED]);
+  fireEvent.change(textbox(), { target: { value: "parent!" } });
+  fireEvent.blur(textbox());
+  expect(sync.sent.flat()).toEqual([{ op: "update_text", uid: "tuid-p",
+    text: "parent!", base_text_hash: sha256Hex("parent"),
+    page_title: "Page" }]);
+});
+
+test("Ctrl-O over a link while the draft is refused stays on the page",
+     async () => {
+  const sync = makeSync();
+  mountRouted(sync);
+  focusBlock("first");
+  caretAt(5);
+  typeKeys("[[a#b");
+
+  await act(async () => {
+    fireEvent.keyDown(textbox(), { key: "o", ctrlKey: true });
+  });
+  expect(screen.queryByText("elsewhere")).toBeNull();
+  expect(textbox().value).toBe("first[[a#b]]");
+  expect(screen.getByText(TITLE_SYNTAX_NOTICE)).toBeInTheDocument();
+  expect(sync.sent).toEqual([]);
+});
+
+/** Whether the page would ask before unloading. */
+function unloadAsks(): boolean {
+  const e = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(e);
+  return e.defaultPrevented;
+}
+
+test("a refused draft asks before the page unloads", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  const unload = unloadAsks;
+  refusedAtSave(sync);
+  expect(unload()).toBe(true);
+
+  fireEvent.change(textbox(), { target: {
+    value: "first[[ab]]", selectionStart: 9, selectionEnd: 9,
+  } });
+  fireEvent.blur(textbox());
+  expect(unload()).toBe(false);
+});
+
+test("the unload prompt covers a held refused draft and a dropped one, and "
+     + "is attached only while needed", () => {
+  const added = vi.spyOn(window, "addEventListener");
+  const removed = vi.spyOn(window, "removeEventListener");
+  const unloadCalls = (spy: typeof added) =>
+    spy.mock.calls.filter(([type]) => String(type) === "beforeunload").length;
+  const sync = makeSync();
+  mountRouted(sync);
+  focusBlock("first");
+  caretAt(5);
+  typeKeys("[[a");
+  expect(unloadCalls(added)).toBe(0);
+  expect(unloadAsks()).toBe(false);
+
+  typeKeys("#b"); // held: admitted, not yet saved
+  expect(unloadAsks()).toBe(true);
+  fireEvent.click(screen.getByText("go"));
+  expect(screen.getByRole("alert")).toHaveTextContent("first[[a#b]]");
+  expect(unloadAsks()).toBe(true);
+
+  fireEvent.click(screen.getByText("Dismiss"));
+  expect(unloadAsks()).toBe(false);
+  expect(unloadCalls(added)).toBe(1);
+  expect(unloadCalls(removed)).toBe(1);
+});
+
+test("stepping over a closer in a block holding a refused link is no edit",
+     () => {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount(makeSync(), [
+    block("tuid-legacy", "old [[C#]]", { order_idx: orderIdxOf(0) })]);
+  fireEvent.click(screen.getByText(/^old/));
+  caretAt(9);
+  fireEvent.keyDown(textbox(), { key: "]" });
+
+  expect(textbox().selectionStart).toBe(10);
+  expect(screen.queryByText(TITLE_SYNTAX_NOTICE)).toBeNull();
+  fireEvent.blur(textbox());
   expect(sync.sent).toEqual([]);
 });
 

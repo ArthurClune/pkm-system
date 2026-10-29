@@ -39,8 +39,9 @@ export interface OutlineHandlers {
   onInputUnmount(uid: BlockUid, selStart: number, selEnd: number): void;
   /** Commit the pending draft NOW, without touching focus. The
    * tree calls this before it navigates away under its own steam: unmounting
-   * delivers no blur, so a flush-held draft would otherwise be dropped. */
-  onFlushDraft(): void;
+   * delivers no blur, so a flush-held draft would otherwise be dropped.
+   * False when the draft may not be saved; the tree then stays. */
+  onFlushDraft(): boolean;
   onSplit(uid: BlockUid, cursor: number): void;
   onIndent(uid: BlockUid): void;
   onOutdent(uid: BlockUid): void;
@@ -98,11 +99,13 @@ export interface OutlineHandlers {
    * spreading useOutline's handlers and adding this key — optionality means
    * that spread no longer needs a satisfy-the-interface stub to override. */
   onDragStartBlock?(uid: BlockUid): void;
-  /** App-level undo/redo: global history, not per-outline. */
-  onUndo(): void;
-  onRedo(): void;
-  /** The editor refused an edit past a text limit (grammar/textLimits.ts);
-   * `notice` says which, for the outline's notice slot. */
+  /** App-level undo/redo: global history, not per-outline. False when
+   * nothing was done because the pending draft may not be saved. */
+  onUndo(): boolean;
+  onRedo(): boolean;
+  /** The editor refused an edit past a text limit (grammar/textLimits.ts)
+   * or holding a refused title; `notice` says which, for the outline's
+   * notice slot. */
   onRefusedEdit(notice: string): void;
 }
 

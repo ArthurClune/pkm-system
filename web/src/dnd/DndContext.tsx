@@ -18,6 +18,9 @@ export interface OutlineDndApi {
   /** Move a group of blocks (a multi-block selection's roots, document
    * order; a plain drag passes one uid) to the target as a contiguous run. */
   moveTo(uids: BlockUid[], target: DropTarget): void;
+  /** Save the outline's pending draft; false when it may not be saved,
+   * and the drop must then move nothing out of that outline. */
+  flushDraft(): boolean;
   removeSubtreeLocal(uid: BlockUid): BlockNode | null;
   insertSubtreeLocal(node: BlockNode, target: DropTarget): void;
 }
@@ -148,6 +151,10 @@ export function DndProvider({ children }: { children: ReactNode }) {
             ["page", d.pageTitle]);
         }
       } else {
+        if (src && !src.flushDraft()) {
+          setDrag(null);
+          return;
+        }
         const dst = outlinesRef.current.get(target.page_title)?.api;
         // Per-uid surgery + ops at consecutive slots: block k inserts before
         // whatever now sits at order_idx + k, keeping the run's order.

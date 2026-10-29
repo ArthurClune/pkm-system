@@ -95,6 +95,9 @@ def launcher_script(cli: str, names: Sequence[str]) -> str:
     nothing, and a set one reaches `env` as a single argument whatever its
     value holds. `exec` keeps the pid the SDK signals the CLI's own.
     """
+    if "=" in cli:
+        # env would take the CLI for another variable assignment
+        raise ValueError(f"CLI path contains '=': {cli!r}")
     for name in names:
         if not _ENV_NAME.fullmatch(name):
             raise ValueError(f"not an environment variable name: {name!r}")

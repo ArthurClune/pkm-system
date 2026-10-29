@@ -133,6 +133,11 @@ def test_launcher_refuses_a_name_the_shell_would_interpret():
         launcher_script("/x", ["A;rm"])
 
 
+def test_launcher_refuses_a_cli_path_env_would_parse_as_an_assignment():
+    with pytest.raises(ValueError):
+        launcher_script("/a=b/claude", ["HOME"])
+
+
 def test_mcp_server_config_runs_pkm_mcp_under_an_empty_environment():
     assert mcp_server_config(
         "/py", "/c.json", ["--tools", "a,b", "--require-expect"]) == {

@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-10-27T10:46:59Z
-updated_at: 2026-10-27T10:55:45Z
+updated_at: 2026-10-29T11:28:45Z
 parent: pkm-mfd0
 ---
 
@@ -14,6 +14,6 @@ From the SECURITY.md review (2026-10-27, finding I6). deploy/icloud_backup.py mi
 - [ ] Decide the cut: exclude config.json, or mirror a copy without session_secret (the password hash and other settings are needed to restore)
 - [ ] Restore path: a restored config without a secret mints a new one (every device logs in again once); deploy/README.md § restore says so
 - [ ] Test in the icloud_backup tests: the mirror never holds session_secret
-- [ ] Remove the existing config.json from the iCloud copy (and from any iCloud version history), then rotate session_secret AND change the password: the mirrored scrypt hash allows offline guessing (prod change: ask Arthur first; rotation logs every device out)
+- [x] (Moved to pkm-tkgs by Arthur's ruling 2026-10-29: leave the rotation for now) Remove the existing config.json from the iCloud copy (and from any iCloud version history), then rotate session_secret AND change the password: the mirrored scrypt hash allows offline guessing (prod change: ask Arthur first; rotation logs every device out)
 - [ ] SECURITY.md: drop or rewrite the iCloud row
 - [ ] troubleshooting.md row

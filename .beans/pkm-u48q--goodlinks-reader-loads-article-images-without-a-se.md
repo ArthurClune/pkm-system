@@ -5,8 +5,7 @@ status: draft
 type: task
 priority: deferred
 created_at: 2026-10-23T15:00:12Z
-updated_at: 2026-10-25T08:18:38Z
-parent: pkm-mfd0
+updated_at: 2026-10-29T11:28:40Z
 ---
 
 Adversarial review of pkm-tk9i (M3). Opening the GoodLinks reader
@@ -41,3 +40,8 @@ Side findings: files-and-assets.md says GoodLinks 'archives text but not images'
 ## Paused (Arthur, 2026-10-25)
 
 Paused: Arthur will file a feature request with GoodLinks' developer for an image endpoint in the local API (option D). Resume when GoodLinks exposes one; until then the reader keeps today's behaviour.
+
+
+## Ruling (2026-10-29)
+
+Arthur: moved out of the security epic (pkm-mfd0). Still paused until his GoodLinks feature request.

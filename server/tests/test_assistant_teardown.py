@@ -82,7 +82,7 @@ class ParkedTurn:
         assert self.conversation.healthy is False  # ...and never acknowledged it
         assert self.cid not in self.service._entries  # so the conversation is retired
         # close() ran too: the 0600 session-token file is gone
-        assert list(self.tmp_path.glob("pkm-assistant-*.json")) == []
+        assert list(self.tmp_path.glob("pkm-assistant-*")) == []
 
     async def assert_confirm_was_declined(self) -> None:
         # The decline landed during teardown, so the parked hook is already

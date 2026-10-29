@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import stat
+import sys
 from collections.abc import Collection, Sequence
 from pathlib import Path
 
@@ -109,17 +110,26 @@ def test_create_conversation_options_and_config_file(tmp_path):
                                     "changed_blocks", "search_assets")
     }
     server_cfg = opts.mcp_servers["pkm"]
-    assert server_cfg["args"] == ["-m", "pkm.mcp.server", "--tools",
-                                  ",".join(READ_TOOLS + WRITE_TOOLS),
-                                  "--require-expect"]
-    cfg_path = Path(server_cfg["env"]["PKM_CLI_CONFIG"])
+    assert server_cfg["command"] == "/usr/bin/env"
+    assert "env" not in server_cfg
+    args = server_cfg["args"]
+    at = next(i for i, arg in enumerate(args)
+              if arg.startswith("PKM_CLI_CONFIG="))
+    assert args[at + 1:] == [sys.executable, "-m", "pkm.mcp.server", "--tools",
+                             ",".join(READ_TOOLS + WRITE_TOOLS),
+                             "--require-expect"]
+    cfg_path = Path(args[at].removeprefix("PKM_CLI_CONFIG="))
     assert cfg_path.parent == tmp_path
     assert stat.S_IMODE(cfg_path.stat().st_mode) == 0o600
     cfg = json.loads(cfg_path.read_text())
     assert cfg["url"] == "http://127.0.0.1:8999"
     assert cfg["token"].startswith("v1.")
+    launcher = Path(opts.cli_path)
+    assert launcher.parent == tmp_path
+    assert stat.S_IMODE(launcher.stat().st_mode) == 0o700
     asyncio.run(conv.close())
     assert not cfg_path.exists()  # config file removed on close
+    assert not launcher.exists()
     # pyrefly's narrowing from the earlier assert survives the close() that
     # clears it
     assert client.connected is False  # pyrefly: ignore[unnecessary-comparison]
@@ -212,7 +222,21 @@ def test_create_conversation_factory_failure_unlinks_config(tmp_path):
             await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
 
     asyncio.run(scenario())
-    assert list(tmp_path.glob("pkm-assistant-*.json")) == []
+    assert list(tmp_path.glob("pkm-assistant-*")) == []
+
+
+def test_a_failed_launcher_write_leaves_no_credential_file(tmp_path,
+                                                          monkeypatch):
+    def refuse(cli, names):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(claude_engine, "launcher_script", refuse)
+    engine = make_engine(tmp_path)
+
+    with pytest.raises(OSError, match="disk full"):
+        asyncio.run(engine.create_conversation(SYSTEM_PROMPT, "sonnet"))
+    assert FakeSDKClient.instances == []
+    assert list(tmp_path.glob("pkm-assistant-*")) == []
 
 
 def test_create_conversation_connect_failure_unlinks_and_disconnects(tmp_path):
@@ -227,7 +251,7 @@ def test_create_conversation_connect_failure_unlinks_and_disconnects(tmp_path):
 
     client = asyncio.run(scenario())
     assert client.disconnect_calls == 1
-    assert list(tmp_path.glob("pkm-assistant-*.json")) == []
+    assert list(tmp_path.glob("pkm-assistant-*")) == []
 
 
 def test_create_conversation_cancelled_during_connect_cleans_up(tmp_path):
@@ -246,7 +270,7 @@ def test_create_conversation_cancelled_during_connect_cleans_up(tmp_path):
 
     client = asyncio.run(scenario())
     assert client.disconnect_calls == 1
-    assert list(tmp_path.glob("pkm-assistant-*.json")) == []
+    assert list(tmp_path.glob("pkm-assistant-*")) == []
 
 
 def test_close_cleanup_survives_a_second_cancellation_during_disconnect(tmp_path):
@@ -272,7 +296,7 @@ def test_close_cleanup_survives_a_second_cancellation_during_disconnect(tmp_path
             await asyncio.wait_for(task, timeout=2)
 
     asyncio.run(scenario())
-    assert list(tmp_path.glob("pkm-assistant-*.json")) == []
+    assert list(tmp_path.glob("pkm-assistant-*")) == []
 
 
 def test_can_use_tool_allows_reads_denies_unknown(tmp_path):
@@ -320,8 +344,7 @@ def test_assistant_mcp_server_offers_exactly_the_policy_tools(tmp_path):
 
     async def listed():
         params = StdioServerParameters(
-            command=cfg["command"], args=cfg["args"],
-            env={**os.environ, **cfg["env"]})
+            command=cfg["command"], args=cfg["args"], env=dict(os.environ))
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
@@ -346,8 +369,7 @@ def test_assistant_mcp_server_refuses_a_guarded_write_without_expect(
 
     async def called():
         params = StdioServerParameters(
-            command=cfg["command"], args=cfg["args"],
-            env={**os.environ, **cfg["env"]})
+            command=cfg["command"], args=cfg["args"], env=dict(os.environ))
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()

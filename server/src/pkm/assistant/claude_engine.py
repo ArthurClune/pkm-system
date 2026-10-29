@@ -505,8 +505,12 @@ class ClaudeEngine:
         token = sign_session(bytes.fromhex(self._secret), int(time.time() * 1000))
         fd, raw_path = tempfile.mkstemp(prefix="pkm-assistant-", suffix=".json", dir=self._config_dir)
         path = Path(raw_path)
-        with os.fdopen(fd, "w") as fh:  # mkstemp is already 0600
-            json.dump({"url": self._base_url, "token": token}, fh)
+        try:
+            with os.fdopen(fd, "w") as fh:  # mkstemp is already 0600
+                json.dump({"url": self._base_url, "token": token}, fh)
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
         return path
 
     def _write_launcher(self, names: Sequence[str]) -> Path:

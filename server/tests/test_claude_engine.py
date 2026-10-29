@@ -44,6 +44,12 @@ from pkm.contracts.ops import BlockUid, text_hash
 from pkm.test_data.ids import canonical_title_of, confirm_id_of, uid_of
 
 
+@pytest.fixture(autouse=True)
+def _no_cli_discovery(monkeypatch):
+    # test_assistant_harness_spawn.py is the one place real discovery runs
+    monkeypatch.setattr(claude_engine, "harness_cli", lambda: "/no/claude")
+
+
 class BrokenInterruptClient(FakeSDKClient):
     """interrupt() raises -- e.g. the subprocess is already gone."""
 
@@ -222,6 +228,18 @@ def test_create_conversation_factory_failure_unlinks_config(tmp_path):
             await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
 
     asyncio.run(scenario())
+    assert list(tmp_path.glob("pkm-assistant-*")) == []
+
+
+def test_a_failed_credential_write_leaves_no_credential_file(tmp_path,
+                                                            monkeypatch):
+    # json.dump fails part-way through the 0600 file
+    monkeypatch.setattr(claude_engine, "sign_session", lambda *args: object())
+    engine = make_engine(tmp_path)
+
+    with pytest.raises(TypeError):
+        asyncio.run(engine.create_conversation(SYSTEM_PROMPT, "sonnet"))
+    assert FakeSDKClient.instances == []
     assert list(tmp_path.glob("pkm-assistant-*")) == []
 
 

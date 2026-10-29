@@ -19,7 +19,7 @@ the defaults:
 
 - `PKM_CLI_CONFIG`: use a different config file
 - `PKM_URL`: talk to a different server for this call, with the config
-  file's token
+  file's token. `pkm-mcp` ignores it when `PKM_CLI_CONFIG` is set
 
 `pkm login --password-stdin` reads the password from stdin, for scripts.
 

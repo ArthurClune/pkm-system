@@ -27,7 +27,7 @@ from pkm.render import (render_assets, render_backlinks, render_block,
                         render_page,
                         render_search)
 
-_client_factory = lambda: PkmClient(client_api.load_config())  # noqa: E731
+_client_factory = lambda: PkmClient(client_api.load_mcp_config())  # noqa: E731
 _cached_client: PkmClient | None = None
 # Set by `pkm-mcp --require-expect`, as the in-app assistant starts it.
 # There every update_block and batch has passed the approval card, which

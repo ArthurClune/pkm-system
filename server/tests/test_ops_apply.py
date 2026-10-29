@@ -14,7 +14,7 @@ from pkm.server import ops_apply, ops_core
 from pkm.server.db import open_db
 from pkm.server.ops_apply import (_parent_chain, _subtree_deepest_first,
                                   subtree_rows, apply_batch)
-from pkm.server.ops_core import OpError, SubtreeRow, judge_batch
+from pkm.server.ops_core import DeleteBlocks, OpError, SubtreeRow, judge_batch
 from pkm.test_data.ids import batch_id_of, client_id_of, order_idx_of, raw_title_of, sha_of, uid_of
 
 NOW = 1_800_000_000_000
@@ -312,12 +312,30 @@ def test_cross_page_move_updates_every_descendant(db, depth):
 
 
 @pytest.mark.parametrize("depth", [100, 101, 102, 150])
-def test_delete_removes_entire_deep_subtree(db, depth):
-    # Subtree enumeration for delete must not silently truncate: anything
-    # left behind past the old cap is an orphaned block nobody can reach.
+@pytest.mark.parametrize("hashed", [False, True])
+def test_delete_removes_entire_deep_subtree(db, depth, hashed, monkeypatch):
+    # The cascade on blocks.parent_uid removes whatever the walk misses, and
+    # the changes trigger fires for those rows too, so only the effect's uid
+    # list shows whether the walk reached full depth.
     _seed_chain(db, "Machine Learning", depth)
-    apply_batch(db, judge_batch(_batch({"op": "delete", "uid": "level0"})), NOW)
+    deletes = []
+    execute = ops_apply._execute
+
+    def recording_execute(db, eff, now_ms):
+        if isinstance(eff, DeleteBlocks):
+            deletes.append(eff.uids)
+        return execute(db, eff, now_ms)
+
+    monkeypatch.setattr(ops_apply, "_execute", recording_execute)
+    op = {"op": "delete", "uid": "level0"}
+    if hashed:
+        op["base_subtree_hash"] = subtree_hash(
+            (o["uid"], o["text"]) for o in _linear_chain("Machine Learning", depth))
+    result = apply_batch(db, judge_batch(_batch(op)), NOW)
     db.commit()
+    assert len(deletes) == 1
+    assert sorted(deletes[0]) == sorted(f"level{i}" for i in range(depth))
+    assert result.skipped == []
     remaining = read(db,
         "SELECT count(*) FROM blocks WHERE uid LIKE 'level%'").fetchone()[0]
     assert remaining == 0

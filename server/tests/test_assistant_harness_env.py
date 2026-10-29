@@ -1,3 +1,5 @@
+import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -116,7 +118,7 @@ def test_launcher_passes_kept_values_byte_identical(tmp_path):
 def test_launcher_leaves_a_missing_name_unset(tmp_path):
     received = _received(tmp_path, list(HOST_ENV), {"USER": "u"})
     # The launcher's Python sets LC_CTYPE=C.UTF-8 when it finds no locale
-    # (PEP 538 coercion, which -I does not stop), and LC_CTYPE is kept.
+    # (PEP 538 coercion, which -IS does not stop), and LC_CTYPE is kept.
     assert received.pop("LC_CTYPE", "C.UTF-8") == "C.UTF-8"
     assert received == {"USER": "u"}
 
@@ -124,6 +126,43 @@ def test_launcher_leaves_a_missing_name_unset(tmp_path):
 def test_launcher_leaves_an_unset_path_unset(tmp_path):
     received = _received(tmp_path, ["PATH", "HOME"], {"HOME": "/h"})
     assert received == {"HOME": "/h"}
+
+
+def test_launcher_ignores_python_home(tmp_path):
+    received = _received(tmp_path, ["HOME"],
+                         {"HOME": "/h", "PYTHONHOME": "/nonexistent"})
+    assert received == {"HOME": "/h"}
+
+
+@pytest.mark.skipif(sys.platform != "darwin",
+                    reason="PYTHONEXECUTABLE adopts a venv only on macOS")
+def test_launcher_runs_no_pth_file(tmp_path):
+    real = Path(os.path.realpath(sys.executable))
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text(f"home = {real.parent}\n")
+    (venv / "bin" / "python").symlink_to(real)
+    site = (venv / "lib" / f"python{sys.version_info.major}."
+            f"{sys.version_info.minor}" / "site-packages")
+    site.mkdir(parents=True)
+    marker = tmp_path / "pth-ran"
+    (site / "x.pth").write_text(
+        f"import pathlib; pathlib.Path({str(marker)!r}).write_text('x')\n")
+    received = _received(tmp_path, ["HOME"], {
+        "HOME": "/h", "PYTHONEXECUTABLE": str(venv / "bin" / "python")})
+    assert not marker.exists()
+    assert received == {"HOME": "/h"}
+
+
+@pytest.mark.parametrize("sig", ["PIPE", "XFSZ"])
+def test_launcher_restores_default_signals(tmp_path, sig):
+    launcher = tmp_path / "launcher"
+    launcher.write_text(launcher_script("/bin/sh", ["HOME"], sys.executable))
+    launcher.chmod(0o700)
+    ran = subprocess.run([launcher, "-c", f"kill -{sig} $$; echo survived"],
+                         env={"HOME": "/h"}, capture_output=True, text=True)
+    assert ran.returncode == -getattr(signal, f"SIG{sig}")
+    assert "survived" not in ran.stdout
 
 
 def test_launcher_runs_a_cli_path_holding_quotes_and_shell_syntax(tmp_path):

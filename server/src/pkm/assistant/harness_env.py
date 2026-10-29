@@ -32,7 +32,7 @@ ZAI_SDK_MODEL = "sonnet"
 # `security`, found on PATH, for the account named by USER; the two
 # CLAUDE_*_DIR variables pick which Keychain service holds it. When the
 # server has no locale set, the launcher's Python sets LC_CTYPE=C.UTF-8
-# (PEP 538 coercion, which -I does not stop) and the CLI receives it: the
+# (PEP 538 coercion, which -IS does not stop) and the CLI receives it: the
 # server's own Python coerces the same way, so the CLI got it before too.
 HOST_ENV: tuple[str, ...] = (
     "PATH", "HOME", "USER", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE",
@@ -94,9 +94,13 @@ def launcher_script(cli: str, names: Sequence[str], python: str) -> str:
     environment.
 
     Values never reach an argv and pass no shell, so a set name arrives
-    byte-identical and an unset one, PATH included, stays unset. `-I` keeps
-    the script's directory and PYTHON* variables out of its imports, and the
-    exec keeps the pid the SDK signals the CLI's own.
+    byte-identical and an unset one, PATH included, stays unset. `-I`
+    ignores PYTHON* variables, the script's directory and the user site;
+    `-S` skips `site`, so no `.pth` file runs, not even one from a venv
+    adopted through macOS's `PYTHONEXECUTABLE`/`__PYVENV_LAUNCHER__`. Python
+    ignores SIGPIPE and SIGXFSZ at startup and exec keeps an ignored
+    disposition, so the script restores both before it execs. The exec
+    keeps the pid the SDK signals the CLI's own.
     """
     if any(char.isspace() for char in python):
         raise ValueError(f"a shebang line cannot carry {python!r}")
@@ -104,11 +108,14 @@ def launcher_script(cli: str, names: Sequence[str], python: str) -> str:
         if not _ENV_NAME.fullmatch(name):
             raise ValueError(f"not an environment variable name: {name!r}")
     return (
-        f"#!{python} -I\n"
+        f"#!{python} -IS\n"
         "import os\n"
+        "import signal\n"
         "import sys\n"
         f"CLI = {cli!r}\n"
         f"NAMES = {tuple(names)!r}\n"
+        "for sig in (signal.SIGPIPE, signal.SIGXFSZ):\n"
+        "    signal.signal(sig, signal.SIG_DFL)\n"
         "os.execve(CLI, [CLI, *sys.argv[1:]],\n"
         "          {name: os.environ[name] for name in NAMES"
         " if name in os.environ})\n"

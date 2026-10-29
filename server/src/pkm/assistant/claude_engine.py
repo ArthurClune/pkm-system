@@ -517,7 +517,7 @@ class ClaudeEngine:
         fd, raw_path = tempfile.mkstemp(prefix="pkm-assistant-", suffix=".py", dir=self._config_dir)
         path = Path(raw_path)
         try:
-            with os.fdopen(fd, "w") as fh:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(launcher_script(harness_cli(), names, sys.executable))
             os.chmod(path, 0o700)
         except BaseException:

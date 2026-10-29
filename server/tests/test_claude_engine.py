@@ -231,6 +231,23 @@ def test_create_conversation_factory_failure_unlinks_config(tmp_path):
     assert list(tmp_path.glob("pkm-assistant-*")) == []
 
 
+def test_the_launcher_is_written_as_utf8(tmp_path, monkeypatch):
+    # a Latin-1 locale's default encoding
+    real = os.fdopen
+    monkeypatch.setattr(os, "fdopen", lambda fd, mode="r", **kw: real(
+        fd, mode, **{"encoding": "latin-1", **kw}))
+    monkeypatch.setattr(claude_engine, "harness_cli",
+                        lambda: str(tmp_path / "café" / "cli"))
+    engine = make_engine(tmp_path)
+
+    conv = asyncio.run(engine.create_conversation(SYSTEM_PROMPT, "sonnet"))
+    launcher = Path(FakeSDKClient.instances[0].options.cli_path)
+    try:
+        compile(launcher.read_bytes(), "launcher", "exec")
+    finally:
+        asyncio.run(conv.close())
+
+
 def test_a_failed_credential_write_leaves_no_credential_file(tmp_path,
                                                             monkeypatch):
     # json.dump fails part-way through the 0600 file

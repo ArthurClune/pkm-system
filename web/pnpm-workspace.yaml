@@ -1,10 +1,10 @@
 allowBuilds:
   esbuild: true
-# Force a single katex install: mermaid@11.16.0 pins its own transitive
-# katex@0.16.47, which otherwise ships as a second ~260KB lazy chunk
-# alongside our direct katex@0.17.0 dependency (pkm-zotb).
+# Force a single katex install: mermaid@11.16.1 asks for katex ^0.16.45,
+# which otherwise ships as a second ~260KB lazy chunk alongside our direct
+# katex@0.18.10 dependency.
 overrides:
-  katex: ^0.17.0
+  katex: ^0.18.10
 # pdfjs-dist is react-pdf's pinned dependency (deliberately NOT a direct
 # dependency, so react-pdf's pin stays the single source of version truth).
 # PdfViewer.tsx references its worker by bare specifier

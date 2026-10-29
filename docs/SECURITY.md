@@ -180,7 +180,7 @@ user's Claude login, and `glm` reads its key from `zai_api_key_file` or
   per-conversation launcher that `execve`s it with only the names
   `harness_env_names` lists (`harness_env.py`: the host names the Claude
   login needs, the variables the SDK sets, and the model's own, such as the
-  z.ai route for `glm`). No value appears in any process's arguments.
+  z.ai route for `glm`). No secret appears in any process's arguments.
   `pkm-mcp` runs under `env -i` with only `PKM_CLI_CONFIG`, and ignores
   `PKM_URL` while that is set (`load_mcp_config`), so the session token
   goes only to the URL in its config file.
@@ -211,7 +211,7 @@ broadening exposure.
 | `apply_batch` runs on the event loop and holds the write lock until it commits | a large authenticated batch stalls every request, login and WebSockets included, while it applies; one near `PRIVATE_BODY_MAX_BYTES` takes tens of seconds. `post_ops` also takes the write lock on the event loop, so while a threadpool route (a rename, a page delete) holds it, the loop waits up to `BUSY_TIMEOUT_MS` before answering `503` |
 | A move or delete of a large subtree rewrites or hashes every descendant, and no batch budget charges it | a small batch of such moves or deletes holds the write lock, and with it the server, for as long as that takes, and can repeat it with each batch. The stale-title load (`stale_titles`) is uncharged too: it is linear in the pages deleted since the batch's `seen_seq`, which the client sends |
 | GoodLinks' local API listens on every interface (`*:9428`), not loopback only; this is GoodLinks' behaviour, outside PKM's control | anything that reaches the host on that port can call the API over plain HTTP, guarded only by its bearer token. PKM reaches it at `goodlinks_api_url`, loopback by default. Keep the host off untrusted networks or block the port at the host firewall |
-| Two react-router advisories (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg) stay open: they are fixed only in react-router 7 | judged unreachable: the app mounts `BrowserRouter`, with no data router and no server-side hydration, and builds page links with `pagePath`, which starts every target with `/page/` and percent-encodes each segment, so a backslash never reaches a link. Every other advisory the 2026-10-23 review listed is upgraded away ([review](security-review-2026-10-23.md#dependency-advisories)) |
+| Two react-router advisories (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg) stay open: they are fixed only in react-router 7 | judged unreachable: the app mounts `BrowserRouter`, with no data router and no server-side hydration, and builds page links, and the redirect that folds a title's spelling, with `pagePath`, which starts every target with `/page/` and percent-encodes each segment, so a backslash never reaches a router target. Every other production advisory the 2026-10-23 review listed is upgraded away; the dev and build tools (`pnpm audit` without `--prod`) still carry advisories, which touch building, testing and the dev server, not the shipped bundle ([review](security-review-2026-10-23.md#dependency-advisories)) |
 | `mermaidSafety.ts` restates mermaid internals (its secure keys, entity handling, CSS paths) | a mermaid upgrade can change what those rules must cover. mermaid is pinned to a patch range (`~`) in `web/package.json` so a minor release arrives only through a deliberate upgrade that re-checks them |
 
 ## Hardening priorities

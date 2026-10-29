@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: low
 created_at: 2026-10-26T16:13:08Z
-updated_at: 2026-10-29T17:00:01Z
+updated_at: 2026-10-29T17:00:21Z
 parent: pkm-mfd0
 ---
 
@@ -18,4 +18,4 @@ From the security/batch-server final review (M4, T12 Minor 5). importer/report.p
 
 ## Summary of Changes
 
-`importer/report.py` clips any over-long title (past the page-title cap) to a short prefix plus the character count, for title changes, skipped pages and recovery titles, mirroring the server long-title label rule. Pinned by `test_report.py`: a 2M-char title stays bounded, a cap-boundary case, and the orphan line is covered. Docs: a troubleshooting row. Rulings: the T2 minors (orphan-line coverage, in-body imports) were carried into the final fix wave and addressed.
+`importer/report.py` clips any over-long title (past the page-title cap) to a short prefix plus the character count, for title changes, skipped pages and recovery titles, mirroring the server long-title label rule. Pinned by `test_report.py`: a 2M-char title stays bounded, a cap-boundary case, and the orphan line is covered. Docs: a troubleshooting row. The final fix wave added the orphan-line coverage; in-body test imports were left, matching the file's neighbours.

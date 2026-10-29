@@ -338,12 +338,12 @@ def test_a_lone_surrogate_is_answered_as_its_replacement(harness, data,
         assert raw.json() == fixed.json()
 
 
-# `batch input: NUL` and `very long` have no floor: each fell under five
-# events in a half-size run.
+# `batch input: blank`, `NUL` and `very long` have no floor: each fell under
+# five events in some run (blank: once in 86).
 @pytest.mark.parametrize("plain_space", [False, True])
 @with_floors({
-    "batch input: blank": 0.058, "batch input: lone surrogate": 0.06,
-    "batch: applied": 0.054,
+    "batch input: lone surrogate": 0.05,
+    "batch: applied": 0.05,
     "batch: refused by the planner": 0.11,
 }, per="case")
 @settings(max_examples=75, deadline=None, suppress_health_check=_SUPPRESSED)

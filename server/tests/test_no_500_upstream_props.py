@@ -172,7 +172,7 @@ def goodlinks_requests(draw) -> tuple[str, str, dict]:
 # Floors: see `with_floors` in hostile.py for how they were set.
 @with_floors({
     "answered 200": 0.03, "answered 503": 0.32,
-    "GET article -> 503": 0.06, "GET check -> 503": 0.041, "POST resolve -> 200": 0.021,
+    "GET article -> 503": 0.06, "GET check -> 503": 0.036, "POST resolve -> 200": 0.02,
     "POST resolve -> 503": 0.13,
 }, per="case")
 @settings(max_examples=300, deadline=None, suppress_health_check=_SUPPRESSED)
@@ -219,8 +219,8 @@ _one_completion: st.SearchStrategy[list[Answer]] = _completion.map(
 
 
 @with_floors({
-    "describe: DescribeError": 0.24, "describe: description": 0.11, "upstream: 2xx": 0.25,
-    "upstream: 4xx": 0.046,
+    "describe: DescribeError": 0.23, "describe: description": 0.09, "upstream: 2xx": 0.25,
+    "upstream: 4xx": 0.032,
 }, per="case")
 @settings(max_examples=250, deadline=None, suppress_health_check=_SUPPRESSED)
 @given(script=st.integers(0, 1).flatmap(

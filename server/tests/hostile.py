@@ -66,9 +66,11 @@ def with_floors(floors: dict[str, float], per: str):
     case would otherwise stay green on the cases it still draws.
 
     A floor is half the lowest share the label reached over at least 30
-    unseeded runs, rounded down to three decimals; `PKM_FLOOR_LOG` collects
-    the runs. Shares are heavy-tailed because a run's examples are
-    correlated: a label fell to a twentieth of its median in one run of
+    unseeded runs, as the gate makes them (a seeded run repeats its draws,
+    so its spread says nothing), rounded down to three decimals;
+    `PKM_FLOOR_LOG` collects the runs. Shares are heavy-tailed because a
+    run's examples are correlated: a label fell under a twentieth of its
+    median in one run of
     sixty, so a floor near the typical share, or set from a few runs, fails
     with nothing wrong. A label whose lowest count was under about five
     events has no floor, since half of so few is noise. A category the

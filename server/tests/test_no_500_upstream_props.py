@@ -219,7 +219,7 @@ _one_completion: st.SearchStrategy[list[Answer]] = _completion.map(
 
 
 @with_floors({
-    "describe: DescribeError": 0.23, "describe: description": 0.09, "upstream: 2xx": 0.25,
+    "describe: DescribeError": 0.232, "describe: description": 0.09, "upstream: 2xx": 0.25,
     "upstream: 4xx": 0.032,
 }, per="case")
 @settings(max_examples=250, deadline=None, suppress_health_check=_SUPPRESSED)

@@ -342,8 +342,8 @@ def test_a_lone_surrogate_is_answered_as_its_replacement(harness, data,
 # five events in some run (blank: once in 86).
 @pytest.mark.parametrize("plain_space", [False, True])
 @with_floors({
-    "batch input: lone surrogate": 0.05,
-    "batch: applied": 0.05,
+    "batch input: lone surrogate": 0.057,
+    "batch: applied": 0.053,
     "batch: refused by the planner": 0.11,
 }, per="case")
 @settings(max_examples=75, deadline=None, suppress_health_check=_SUPPRESSED)

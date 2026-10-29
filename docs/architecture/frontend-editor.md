@@ -262,10 +262,10 @@ screen to be fixed while its block can show it:
 |---|---|
 | A flush (debounce, blur, tab hide) | nothing is sent; the draft stays pending, its textarea dirty, and the notice shows |
 | A command, or a cross-page drop (`OutlineDndApi.flushDraft`) | refused whole |
-| Undo or redo | refused in the textarea. From another outline, `performUndo` does nothing and that outline shows `HISTORY_BLOCKED_NOTICE`, since the draft's own notice may be out of view |
+| Undo or redo | refused in the textarea. From another outline's textarea, `performUndo` does nothing and that outline shows `HISTORY_BLOCKED_NOTICE`, since the draft's own notice may be out of view. With no textarea focused (`UndoRedoKeys`), only the draft's own notice shows |
 | Focus leaving the block (click, arrow, blur, block selection) | refused, so the textarea stays mounted and shows the draft |
 | `Ctrl-O` / `Ctrl-Shift-O` (`onFlushDraft` returns false) | no page is created and nothing opens |
-| A reload or closing the tab | the `beforeunload` handler asks first, where the browser shows that prompt |
+| A reload or closing the tab | `droppedDrafts.ts`'s `beforeunload` listener asks first, where the browser shows that prompt. It is attached only while a pending draft holds a refused title (`setRefusedDraftPending`) or a dropped draft is listed |
 
 When the draft can no longer be shown, `releaseUnshownDraft` and the unmount
 flush drop it from the outline into `droppedDrafts.ts`. That happens when
@@ -274,8 +274,9 @@ collapsed ancestor (a remote batch, a cross-page move, a parent `initial`).
 `DroppedDraftNotice`, in the app shell's banner stack, outlives the outline.
 It shows the text and copies the whole of it; a clipped preview says so. The
 command or focus change that met the draft then goes ahead, so the outline
-never stays pinned to a block nobody can see. Only a killed tab, or a reload
-the user confirms, loses a refused draft.
+never stays pinned to a block nobody can see. A refused draft, pending or
+in the notice, is lost only to a killed tab or a reload: one the user
+confirms on desktop, any reload on iPad Safari, which does not ask.
 
 ### Keyboard policy
 

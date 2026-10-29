@@ -14,7 +14,8 @@ import type { OutlineDndApi } from "../dnd/DndContext";
 import { findOpTextLimitViolation,
          textLimitNotice } from "../grammar/textLimits";
 import { toggleTodo } from "../grammar/todo";
-import { findOpTitleViolation, titleRefusalNotice } from "../replica/titles";
+import { findOpTitleViolation, linkedTitleRefusal,
+         titleRefusalNotice } from "../replica/titles";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { BATCH_TOO_LARGE_NOTICE,
          findBatchSizeViolation } from "../sync/batchLimits";
@@ -44,7 +45,7 @@ import { extendSelection, needsDeleteConfirmation, selectedUids,
          startSelection, type BlockSelection } from "./blockSelection";
 import { acquireOutlineSession,
          type OutlineSessionHandle } from "./outlineSessions";
-import { dropDraft } from "./droppedDrafts";
+import { dropDraft, setRefusedDraftPending } from "./droppedDrafts";
 import { captureDraft, pendingTextOps, spliceUploadedMarkdown,
          validateOutlineFocus, type PendingDraft,
          type ShownText } from "./outlineState";
@@ -161,6 +162,16 @@ export function useOutline(
   // Set each render to releaseUnshownDraft below, for the session
   // subscription, which is wired once per page.
   const releaseUnshownRef = useRef(() => {});
+  // This outline's key in droppedDrafts.ts's unload guard.
+  const [unloadOwner] = useState(() => Symbol("outline"));
+  /** Tell the unload guard whether the pending draft holds a refused title:
+   * a reload would lose it, since run() will not save it. */
+  const markRefusedPending = useCallback(() => {
+    const pending = pendingRef.current;
+    setRefusedDraftPending(unloadOwner, pending !== null
+      && pending.text !== pending.base
+      && linkedTitleRefusal(pending.text) !== null);
+  }, [unloadOwner]);
 
   useLayoutEffect(() => {
     const handle = acquireOutlineSession(pageTitle, bootstrapRef.current);
@@ -241,8 +252,10 @@ export function useOutline(
     }
     draftNoticeRef.current = null;
     setEditNotice((n) => (n === notice ? null : n));
+    // listed first, so the unload guard is not detached and attached again
     dropDraft({ pageTitle, text: pending.text, notice });
-  }, [pageTitle]);
+    markRefusedPending();
+  }, [pageTitle, markRefusedPending]);
 
   /** Drop a refused draft whose block has left the tree or is hidden under
    * a collapsed ancestor: no textarea can show it there. */
@@ -274,6 +287,7 @@ export function useOutline(
         timerRef.current = null;
       }
       draftNoticeRef.current = draftNotice;
+      markRefusedPending();
       setEditNotice(draftNotice);
       if (opts?.freshAssets && opts.freshAssets.length > 0) {
         releaseUnusedAssets(opts.freshAssets);
@@ -286,6 +300,7 @@ export function useOutline(
       setEditNotice((n) => (n === cleared ? null : n));
     }
     const textOps = takePendingTextOps();
+    markRefusedPending();
     const pre = blocksRef.current; // history inverts the FULL batch from here
     // A draft whose block has left this tree still ships, but it cannot be
     // inverted here; leaving it out of the history entry keeps the rest of
@@ -357,8 +372,8 @@ export function useOutline(
     }
     if (result.focus) setFocus(result.focus);
     return applied;
-  }, [releaseUnshownDraft, draftRefusal, takePendingTextOps, pageTitle,
-      sync]);
+  }, [releaseUnshownDraft, draftRefusal, takePendingTextOps,
+      markRefusedPending, pageTitle, sync]);
 
   /** Save the pending draft now. False when run() kept it unsaved, and the
    * caller must then leave the editor on its block. */
@@ -430,17 +445,11 @@ export function useOutline(
     const notice = draftRefusal();
     if (notice !== null) dropRefusedDraft(notice);
   };
-  useEffect(() => () => flushOnUnmount.current(), []);
+  useEffect(() => () => {
+    flushOnUnmount.current();
+    setRefusedDraftPending(unloadOwner, false);
+  }, [unloadOwner]);
 
-  // A reload or a closed tab would lose a draft run() refuses: ask first,
-  // where the browser offers the prompt.
-  useEffect(() => {
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (draftRefusal() !== null) e.preventDefault();
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [draftRefusal]);
 
   // Unknown target content needs an authoritative tree. The session allocates
   // the read token before the loader dispatches and coalesces same-title reads.
@@ -505,6 +514,7 @@ export function useOutline(
       flushOtherDraft(uid);
       pendingRef.current = captureDraft(
         pendingRef.current, uid, text, blocksRef.current, shownRef.current);
+      markRefusedPending();
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
@@ -720,7 +730,8 @@ export function useOutline(
       return true;
     },
     onRefusedEdit: (notice) => setEditNotice(notice),
-  }), [run, flushNow, flushOtherDraft, pageTitle, selection, sync, confirm]);
+  }), [run, flushNow, flushOtherDraft, markRefusedPending, pageTitle,
+      selection, sync, confirm]);
 
   const dnd = useMemo<OutlineDndApi>(() => ({
     flushDraft: flushNow,

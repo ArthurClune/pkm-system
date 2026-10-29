@@ -1427,14 +1427,17 @@ test("Ctrl-O over a link while the draft is refused stays on the page",
   expect(sync.sent).toEqual([]);
 });
 
+/** Whether the page would ask before unloading. */
+function unloadAsks(): boolean {
+  const e = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(e);
+  return e.defaultPrevented;
+}
+
 test("a refused draft asks before the page unloads", () => {
   vi.useFakeTimers();
   const sync = makeSync();
-  const unload = () => {
-    const e = new Event("beforeunload", { cancelable: true });
-    window.dispatchEvent(e);
-    return e.defaultPrevented;
-  };
+  const unload = unloadAsks;
   refusedAtSave(sync);
   expect(unload()).toBe(true);
 
@@ -1443,6 +1446,32 @@ test("a refused draft asks before the page unloads", () => {
   } });
   fireEvent.blur(textbox());
   expect(unload()).toBe(false);
+});
+
+test("the unload prompt covers a held refused draft and a dropped one, and "
+     + "is attached only while needed", () => {
+  const added = vi.spyOn(window, "addEventListener");
+  const removed = vi.spyOn(window, "removeEventListener");
+  const unloadCalls = (spy: typeof added) =>
+    spy.mock.calls.filter(([type]) => String(type) === "beforeunload").length;
+  const sync = makeSync();
+  mountRouted(sync);
+  focusBlock("first");
+  caretAt(5);
+  typeKeys("[[a");
+  expect(unloadCalls(added)).toBe(0);
+  expect(unloadAsks()).toBe(false);
+
+  typeKeys("#b"); // held: admitted, not yet saved
+  expect(unloadAsks()).toBe(true);
+  fireEvent.click(screen.getByText("go"));
+  expect(screen.getByRole("alert")).toHaveTextContent("first[[a#b]]");
+  expect(unloadAsks()).toBe(true);
+
+  fireEvent.click(screen.getByText("Dismiss"));
+  expect(unloadAsks()).toBe(false);
+  expect(unloadCalls(added)).toBe(1);
+  expect(unloadCalls(removed)).toBe(1);
 });
 
 test("stepping over a closer in a block holding a refused link is no edit",

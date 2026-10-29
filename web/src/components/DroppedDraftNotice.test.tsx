@@ -52,6 +52,16 @@ test("a failed copy shows the full text to select", async () => {
   expect(screen.getByLabelText("Unsaved text")).toHaveValue(LONG);
 });
 
+test("Copy with no Clipboard API shows the full text to select",
+     async () => {
+  vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
+  render(<DroppedDraftNotice />);
+  act(() => dropDraft({ pageTitle: canonicalTitleOf("Page"), text: LONG,
+                        notice: "Bad title." }));
+  await act(async () => { fireEvent.click(screen.getByText("Copy")); });
+  expect(screen.getByLabelText("Unsaved text")).toHaveValue(LONG);
+});
+
 test("Dismiss removes the draft", () => {
   render(<DroppedDraftNotice />);
   act(() => dropDraft({ pageTitle: canonicalTitleOf("Page"),

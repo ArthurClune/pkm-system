@@ -270,6 +270,10 @@ because the frame runs no script and its keydown never reaches the app's
 The original URL arrives only with the article, so on failure the bar has no
 link, and only a note and Close are guaranteed.
 
+The bar's "original" link goes through `isSafeHref` (`externalMedia.ts`), like a
+markdown link, and an unsafe URL shows as plain text, because GoodLinks' answer
+is untrusted.
+
 `/goodlinks` follows `/upload`'s shape. `BlockInput.pick` records the cursor
 offset and blurs the block before any network work. `useOutline.onGoodlinks`
 takes the first URL `goodlinksCandidates` finds in the block's own text, then

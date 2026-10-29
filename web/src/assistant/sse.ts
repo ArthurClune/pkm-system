@@ -8,7 +8,8 @@ export type AssistantEvent =
   | { type: "tool_started"; tool_use_id: string; name: string;
       summary: string }
   | { type: "tool_finished"; tool_use_id: string; name: string;
-      error: string | null; declined: boolean }
+      error: string | null; declined: boolean;
+      warning?: string | null }
   | { type: "phase"; label: string }
   | { type: "confirm_request"; confirm_id: ConfirmId; ops_preview: string;
       preview: WritePreview | null }

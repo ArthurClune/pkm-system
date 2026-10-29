@@ -899,6 +899,21 @@ describe("useAssistant", () => {
     ]);
   });
 
+  test("a skipped batch's warning lands on its tool line", async () => {
+    feed([
+      { type: "tool_started", tool_use_id: "t1", name: "batch", summary: "batch" },
+      { type: "tool_finished", tool_use_id: "t1", name: "batch",
+        error: null, declined: false, warning: "warning: skipped 1 of 3 ops" },
+      { type: "turn_done", usage: null },
+    ]);
+    render(<Harness />);
+    await act(() => latest.send("edit"));
+    expect(latest.items[1]).toEqual({
+      kind: "tool", toolUseId: "t1", name: "batch", summary: "batch",
+      done: true, error: null, declined: false,
+      warning: "warning: skipped 1 of 3 ops" });
+  });
+
   test("a declined write's line is done, with no error", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     feed([

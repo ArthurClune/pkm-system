@@ -139,6 +139,22 @@ describe("AssistantPanel", () => {
     expect(lines[1].textContent).toMatch(/^✓ update_block/);
   });
 
+  test("a skipped batch's line shows ⚠ and the warning as text", () => {
+    state.current.items = [
+      { kind: "tool", toolUseId: "t1", name: "batch", summary: "batch",
+        done: true, error: null, declined: false,
+        warning: 'warning: skipped 1 of 3 ops <img src=x onerror="alert(1)">' },
+    ];
+    const { container } = render(<AssistantPanel open onClose={() => {}} />);
+    const line = container.querySelector(".assistant-tool-line");
+    expect(line?.textContent).toMatch(/^⚠ batch/);
+    expect(line?.textContent).not.toMatch(/[✓✗]/);
+    expect(line?.textContent).toContain(
+      'warning: skipped 1 of 3 ops <img src=x onerror="alert(1)">');
+    expect(container.querySelector(".assistant-tool-warning")).not.toBeNull();
+    expect(container.querySelector(".assistant-messages img")).toBeNull();
+  });
+
   test("a declined write's line shows a neutral Declined, no ✗ or ✓", () => {
     state.current.items = [
       { kind: "tool", toolUseId: "t1", name: "update_block",

@@ -70,7 +70,8 @@ that takes focus from the unmounted button and draws no ring.
 
 The assistant panel's tool line marks a failed write with
 `.assistant-tool-failed`, in `--color-error` text and not italic like the
-line around it. `.assistant-tool-declined` has no rule: it is a hook for
+line around it. `.assistant-tool-warning` (a batch's skipped-ops line)
+keeps the line's colour and is not italic. `.assistant-tool-declined` has no rule: it is a hook for
 tests and future styling, and a declined write is deliberately not red.
 
 Supporting copy in Files and Settings uses `p.settings-note`, whose `p`

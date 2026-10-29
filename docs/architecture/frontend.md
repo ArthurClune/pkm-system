@@ -277,7 +277,7 @@ fallback in `useAssistant.ts`.
   done pairs, so a reused id cannot turn a finished line's `✗` into `✓`.
   A failed write's
   `.assistant-tool-failed` is a text node, never `tokenizeBlock`: the reason
-  can echo model-chosen input.
+  can echo model-chosen input; so is `.assistant-tool-warning`.
 - `stripCaretBlockRefs` (`assistant/normalizeRefs.ts`) runs before
   `tokenizeBlock`, because some models copy the `^uid` marker into citations
   and the grammar rejects `((^uid))`.

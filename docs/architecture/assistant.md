@@ -155,7 +155,7 @@ reply, which can report a refused write as done.
 | Result of a write | `ToolFinished` | Panel line |
 |---|---|---|
 | succeeded | neither field set | `✓` |
-| a `batch` that skipped some ops (its result starts `warning:`) | neither field set: a skip is a successful result | `✓` |
+| a `batch` that skipped some ops (its result starts `warning:`) | `warning=<first line>`: a skip is a successful result, so neither `error` nor `declined` is set | `⚠` and the warning |
 | the user declined the card | `declined=True` | `Declined`, no glyph |
 | Stop while the card is parked | `declined=True`: Stop answers the card with a decline (`_decline_pending`) | `Declined`, no glyph |
 | allowed then errored, or refused before a card (a `Refusal`) | `error=<reason>` | `✗` and `Failed: <reason>` |
@@ -173,7 +173,7 @@ reply, which can report a refused write as done.
   FastMCP's `Error executing tool <name>:` prefix and the HTTP status pkm's
   `ApiError` leads with (`412: `). The reason can echo
   model-chosen input, so it is clipped server-side and the panel renders it
-  as text.
+  as text. `warning` is clipped the same way and rendered the same way.
 
 ## Conversation registry
 

@@ -36,12 +36,15 @@ class ToolFinished:
     marked the result an error and the user did not decline the card).
     `declined` is True when the user answered the card with a decline, so
     the panel can show that as neither a success nor a failure.
+    `warning` is the first line of a successful write result that starts
+    `warning:` (a batch that skipped some ops).
     """
 
     tool_use_id: str
     name: str
     error: str | None = None
     declined: bool = False
+    warning: str | None = None
 
 
 @dataclass(frozen=True)
@@ -108,16 +111,32 @@ _FASTMCP_PREFIX = re.compile(r"^Error executing tool \w+: ")
 _HTTP_STATUS = re.compile(r"^\d{3}: ")
 
 
+def _result_text(content: str | list[dict[str, Any]] | None) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if content:
+        return "\n".join(str(item.get("text", "")) for item in content
+                         if item.get("type") == "text").strip()
+    return ""
+
+
+def _clip(text: str) -> str:
+    if len(text) > TOOL_ERROR_LIMIT_CHARS:
+        return text[:TOOL_ERROR_LIMIT_CHARS] + f"… ({len(text):,} characters)"
+    return text
+
+
+def tool_warning(content: str | list[dict[str, Any]] | None) -> str | None:
+    """The first line of a result that starts `warning:`, else None."""
+    text = _result_text(content)
+    if not text.startswith("warning:"):
+        return None
+    return _clip(text.splitlines()[0])
+
+
 def tool_error_reason(content: str | list[dict[str, Any]] | None) -> str:
     """The text a failed tool result carries, short enough for a panel line."""
-    if isinstance(content, str):
-        text = content
-    elif content:
-        text = "\n".join(str(item.get("text", "")) for item in content
-                         if item.get("type") == "text")
-    else:
-        text = ""
-    text = text.strip()
+    text = _result_text(content)
     if wrapped := _CLI_WRAPPER.fullmatch(text):
         text = wrapped.group(1).strip()
     text = _CLI_PREFIX.sub("", text, count=1)
@@ -125,9 +144,7 @@ def tool_error_reason(content: str | list[dict[str, Any]] | None) -> str:
     text = _HTTP_STATUS.sub("", text, count=1).strip()
     if not text:
         return "no reason given"
-    if len(text) > TOOL_ERROR_LIMIT_CHARS:
-        return text[:TOOL_ERROR_LIMIT_CHARS] + f"… ({len(text):,} characters)"
-    return text
+    return _clip(text)
 
 
 def event_name(event: AssistantEvent) -> str:

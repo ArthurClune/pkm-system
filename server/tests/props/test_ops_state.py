@@ -253,7 +253,7 @@ class OpsMachine(RuleBasedStateMachine):
                      in sorted(self.model.rewrites.items())
                      if uid in self.model.blocks for step in steps]
         deleted = sorted({t for t, _ in self.model.deletions})
-        # Behind a coin: offered whenever possible, its page deletes removed
+        # Behind a coin: offered whenever possible, its page deletes drop
         # enough pool blocks to halve other paths' shares (`skip: cycle`).
         over = (bool(live) and len(live) < len(UIDS)
                 and data.draw(st.booleans(), label="over the cap offered"))

@@ -39,5 +39,5 @@ LIMIT_TEXTS = (*PAST_LIMIT_TEXTS, AT_NESTING_LIMIT, NEST_IN_CODE,
 # times is over the cap. Kept small because the invariants re-read every
 # stored text after every step. Not in LIMIT_TEXTS: nothing about it is at a
 # limit.
-COPIES_PAST_CAP = 10
+COPIES_PAST_CAP = 100
 LONG_WITHIN_CAP = "x" * (TEXT_CAP // COPIES_PAST_CAP + 1)

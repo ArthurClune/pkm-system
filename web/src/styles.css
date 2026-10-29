@@ -689,6 +689,7 @@ mark.highlight { background: var(--color-highlight-bg); }
   flex-wrap: wrap; font-size: 14px; color: var(--color-text-muted); }
 .goodlinks-reader-title { color: var(--color-text); font-weight: 600; font-size: 15px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60vw; }
+.goodlinks-reader-url { min-width: 0; overflow-wrap: anywhere; }
 .goodlinks-reader-frame { flex: 1; min-height: 0; width: 100%; border: 0;
   background: var(--color-bg-surface); }
 .goodlinks-reader-note { margin: 32px auto; color: var(--color-text-muted); }

@@ -105,4 +105,6 @@ it.each([
   expect(screen.queryByRole("link", { name: "original" })).not.toBeInTheDocument();
   expect(screen.getByRole("dialog").querySelector("a[href]")).toBeNull();
   expect(screen.getByRole("dialog")).toHaveTextContent(url.trim());
+  expect(screen.getByRole("dialog").querySelector(".goodlinks-reader-url"))
+    .toHaveTextContent(url.trim());
 });

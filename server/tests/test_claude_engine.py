@@ -1662,6 +1662,18 @@ def test_turn_mapper_carries_a_skipped_batch_warning_first_line():
         warning="warning: skipped 1 of 3 ops; the rest were applied")]
 
 
+def test_turn_mapper_shows_no_warning_on_an_error_or_declined_result():
+    mapper = TurnMapper(declined={"t2"})
+    mapper.map(_use("t1"))
+    mapper.map(_use("t2"))
+    [failed] = mapper.map(_result("t1", True, _SKIPPED))
+    [declined] = mapper.map(_result("t2", True, _SKIPPED))
+    assert isinstance(failed, ToolFinished)
+    assert failed.error is not None and failed.warning is None
+    assert isinstance(declined, ToolFinished)
+    assert declined.declined is True and declined.warning is None
+
+
 def test_turn_mapper_clips_a_long_warning_like_an_error_reason():
     mapper = TurnMapper()
     mapper.map(_use("t1"))

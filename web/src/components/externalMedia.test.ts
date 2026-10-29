@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { externalImageLabel, isPathUnder, isUploadedAsset } from "./externalMedia";
+import { externalImageLabel, isPathUnder, isSafeHref, isUploadedAsset } from "./externalMedia";
 
 it("treats only /assets/ paths as uploaded", () => {
   expect(isUploadedAsset("/assets/a/b.png")).toBe(true);
@@ -52,4 +52,19 @@ it("labels an external image by host and alt", () => {
 it("falls back to 'external image' without a parsable host", () => {
   expect(externalImageLabel("not a url", "a")).toBe("external image: a");
   expect(externalImageLabel("data:image/png;base64,AAAA", "")).toBe("external image");
+});
+
+it.each(["https://example.com/a", "mailto:a@b.c", "/page"])("isSafeHref accepts %j", (href) => {
+  expect(isSafeHref(href)).toBe(true);
+});
+
+it.each([
+  "javascript:alert(1)",
+  "JavaScript:alert(1)",
+  " javascript:alert(1)",
+  "//evil",
+  "/\\evil",
+  "https://a.b/\u0001",
+])("isSafeHref rejects %j", (href) => {
+  expect(isSafeHref(href)).toBe(false);
 });

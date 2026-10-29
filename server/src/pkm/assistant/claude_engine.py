@@ -161,8 +161,8 @@ class TurnMapper:
         declined = tool_use_id in self._declined
         self._declined.discard(tool_use_id)
         name = short_tool_name(full_name) if full_name else "tool"
-        # Only a write's error is shown: reads fail routinely while the
-        # model probes, and its reply reports them.
+        # Only a write's error or warning is shown: reads fail routinely while
+        # the model probes, and its reply reports them.
         if full_name is None or classify_tool(full_name) != "write":
             return ToolFinished(tool_use_id=tool_use_id, name=name)
         if block.is_error is not True:

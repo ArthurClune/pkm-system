@@ -1,11 +1,11 @@
 ---
 # pkm-e95y
 title: Update SECURITY.md after the review fixes land
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:27Z
-updated_at: 2026-10-27T10:56:52Z
+updated_at: 2026-10-29T18:06:16Z
 parent: pkm-mfd0
 blocked_by:
     - pkm-tk9i
@@ -44,7 +44,7 @@ SECURITY.md is the high-level model; update it once the fixes we take on have sh
 - [x] Origin guard (pkm-u1jk): § Authentication 'There is no CORS…' paragraph — CSRF protection is SameSite=Lax plus the origin guard (/api/ws and every non-GET/HEAD/OPTIONS request carrying an Origin must name one of PKM's own origins: serve_origins, the bind_hosts listeners, loopback on the served port; Origin: null refused); requests with no Origin are non-browser clients and still need the cookie. Known limitations: drop 'No Origin checks on writes or WebSocket upgrades'. Hardening priorities: item 4 done; item 5 must exclude Referrer-Policy: no-referrer (it makes no-cors POSTs — the Files export form, and the assistant close beacon in WebKit — send Origin: null, which the guard refuses). Safe methods stay unchecked: GET /api/journal creates today's page, GET /api/local/... can trigger an iCloud download
 - [x] Known limitations / hardening priority 2: the anonymous route-walk test now exists (pkm-t74a)
 
-- [ ] Delete docs/superpowers/handoffs/security-review-2026-10-23-probes once the last fix bean has turned its probe into a red test (pkm-t74a handed this on)
+- [x] Delete docs/superpowers/handoffs/security-review-2026-10-23-probes once the last fix bean has turned its probe into a red test (pkm-t74a handed this on)
 
 - [x] Write-time limits (pkm-gc3n, pkm-bppf): block text ≤ 1,000,000 code points and [[ nesting ≤ 32, refused on every write path (ops, replica/op-queue backstops, server-made rewrites judged per axis, stale-edit replay lands a conflict entry, importer); the web grammar is linear and never throws at the cap. Open follow-ups: request size (pkm-0l8g), delete inline copies (pkm-49rh), conflict headers / title length (pkm-iruc).
 
@@ -60,5 +60,15 @@ SECURITY.md is the high-level model; update it once the fixes we take on have sh
 SECURITY.md rewritten on `security/e95y-security-md` (5865190b), then three review rounds (f585f07e, 6dbcd9c6, e1ad7d2f): 24 findings, then 6, all fixed. Corrected against the code: the approval card's "not guaranteed" items (pkm-6fcv, pkm-qotb shipped, so they are guarantees); the write-limit follow-ups are all done; `PKM_URL` overriding the config file is today's behaviour, not the fix. Added from the review: Bluesky embeds on render in notes (Arthur accepted it as a known limitation), the iCloud mirror carrying config.json (fix filed as pkm-y8hl), GoodLinks save taking any URL, the reader's unchecked original link (pkm-6rto).
 
 Closing pass, after the beans below ship:
-- [ ] After pkm-oirq: rewrite the environment-inheritance, `PKM_URL` and dependency-advisories rows to match what shipped
-- [ ] After pkm-y8hl and pkm-6rto: their SECURITY.md items (each bean carries its own)
+- [x] After pkm-oirq: rewrite the environment-inheritance, `PKM_URL` and dependency-advisories rows to match what shipped
+- [x] After pkm-y8hl and pkm-6rto: their SECURITY.md items (each bean carries its own)
+
+## Summary of Changes
+
+SECURITY.md now describes the system as shipped after the 2026-10-23 review's fixes. The first pass (2026-10-27, three review rounds) covered authentication, the origin guard, login backoff, auth before body, local files, image descriptions, the assistant's tool subset and approval card, write-time limits and the server batch. The closing pass (2026-10-29):
+
+- The assistant's harness and pkm-mcp no longer inherit the service environment. A Subprocess environment bullet describes the launcher's allow-list and pkm-mcp's `env -i` plus `load_mcp_config`. The Known-limitations row is removed, and the deployment note is reworded.
+- The advisory row names only the two react-router advisories left open, with why they are unreachable (pkm-ov19 tracks the v7 move). Dev and build-tool advisories are said to be open (pkm-vrnh). A new row explains the mermaid patch-range pin.
+- Every rendered link rejects `javascript:` and protocol-relative URLs, GoodLinks' original link included (from pkm-6rto). The iCloud mirror item (pkm-y8hl) was already in place.
+- Hardening priority 3 (minimal harness environment, dependency upgrades) is done and dropped.
+- The review probes folder is deleted: every red probe is now a repo test.

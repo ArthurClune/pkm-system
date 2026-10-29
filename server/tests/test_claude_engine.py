@@ -7,6 +7,7 @@ import stat
 import sys
 from collections.abc import Collection, Sequence
 from pathlib import Path
+from typing import Literal, TextIO
 
 import pytest
 
@@ -232,10 +233,13 @@ def test_create_conversation_factory_failure_unlinks_config(tmp_path):
 
 
 def test_the_launcher_is_written_as_utf8(tmp_path, monkeypatch):
-    # a Latin-1 locale's default encoding
     real = os.fdopen
-    monkeypatch.setattr(os, "fdopen", lambda fd, mode="r", **kw: real(
-        fd, mode, **{"encoding": "latin-1", **kw}))
+
+    def latin1_by_default(fd: int, mode: Literal["w"],
+                          encoding: str = "latin-1") -> TextIO:
+        return real(fd, mode, encoding=encoding)
+
+    monkeypatch.setattr(os, "fdopen", latin1_by_default)
     monkeypatch.setattr(claude_engine, "harness_cli",
                         lambda: str(tmp_path / "café" / "cli"))
     engine = make_engine(tmp_path)

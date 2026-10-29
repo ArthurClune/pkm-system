@@ -9,7 +9,7 @@ dependencies = [
     "uvicorn>=0.30",
     "websockets>=13",
     "httpx2>=2.5.0",
-    "mcp>=1.28",
+    "mcp>=1.30,<2",
     "claude-agent-sdk>=0.2.168",
     "nh3>=0.3.7",
 ]

@@ -12,7 +12,7 @@ import os
 import sys
 import tempfile
 import time
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -31,6 +31,9 @@ from claude_agent_sdk import (
     ToolUseBlock,
     UserMessage,
 )
+from claude_agent_sdk._internal.transport.subprocess_cli import (
+    SubprocessCLITransport,
+)
 
 from pkm.assistant.events import (
     AssistantEvent,
@@ -44,7 +47,12 @@ from pkm.assistant.events import (
     tool_error_reason,
     tool_warning,
 )
-from pkm.assistant.harness_env import resolve_harness_env
+from pkm.assistant.harness_env import (
+    harness_env_names,
+    launcher_script,
+    mcp_server_config,
+    resolve_harness_env,
+)
 from pkm.assistant.policy import (
     READ_TOOLS,
     WRITE_TOOLS,
@@ -75,6 +83,15 @@ INTERRUPT_TIMEOUT_S = 5.0
 # -- EXCEPT while a confirm is parked on the user, whose silence is
 # never a stall (see _pump).
 STALL_TIMEOUT_S = 300.0
+
+
+def harness_cli() -> str:
+    """The Claude Code CLI the SDK would run itself, bundled binary first.
+
+    `_find_cli` is private to the SDK; test_assistant_harness_spawn.py
+    patches the `_find_bundled_cli` beneath it.
+    """
+    return SubprocessCLITransport(prompt="", options=ClaudeAgentOptions())._find_cli()
 
 
 def finished_tool_ids(msg: object) -> list[str]:
@@ -176,8 +193,10 @@ class TurnMapper:
 
 
 class ClaudeConversation:
-    def __init__(self, config_path: Path, read_blocks: BlockReader) -> None:
+    def __init__(self, config_path: Path, read_blocks: BlockReader,
+                 launcher_path: Path) -> None:
         self._config_path = config_path
+        self._launcher_path = launcher_path
         self._read_blocks = read_blocks
         self._client: ClaudeSDKClient | None = None
         self._queue: asyncio.Queue[AssistantEvent] = asyncio.Queue()
@@ -461,6 +480,7 @@ class ClaudeConversation:
             # unlink lives in this `finally` rather than as a trailing
             # statement a second cancellation could skip.
             self._config_path.unlink(missing_ok=True)
+            self._launcher_path.unlink(missing_ok=True)
 
 
 class ClaudeEngine:
@@ -485,8 +505,24 @@ class ClaudeEngine:
         token = sign_session(bytes.fromhex(self._secret), int(time.time() * 1000))
         fd, raw_path = tempfile.mkstemp(prefix="pkm-assistant-", suffix=".json", dir=self._config_dir)
         path = Path(raw_path)
-        with os.fdopen(fd, "w") as fh:  # mkstemp is already 0600
-            json.dump({"url": self._base_url, "token": token}, fh)
+        try:
+            with os.fdopen(fd, "w") as fh:  # mkstemp is already 0600
+                json.dump({"url": self._base_url, "token": token}, fh)
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
+        return path
+
+    def _write_launcher(self, names: Sequence[str]) -> Path:
+        fd, raw_path = tempfile.mkstemp(prefix="pkm-assistant-", suffix=".py", dir=self._config_dir)
+        path = Path(raw_path)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(launcher_script(harness_cli(), names, sys.executable))
+            os.chmod(path, 0o700)
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
         return path
 
     async def create_conversation(self, system_prompt: str, model: str) -> ClaudeConversation:
@@ -494,7 +530,13 @@ class ClaudeEngine:
         # rejected before the credential file or any subprocess exists.
         harness = resolve_harness_env(model, self._zai_token)
         config_path = self._write_cli_config()
-        conversation = ClaudeConversation(config_path, self._read_blocks)
+        try:
+            launcher_path = self._write_launcher(harness_env_names(harness))
+        except BaseException:
+            config_path.unlink(missing_ok=True)
+            raise
+        conversation = ClaudeConversation(config_path, self._read_blocks,
+                                          launcher_path)
         try:
             options = ClaudeAgentOptions(
                 model=harness.sdk_model,
@@ -502,17 +544,14 @@ class ClaudeEngine:
                 tools=[],
                 allowed_tools=read_tool_names(),
                 can_use_tool=conversation.can_use_tool,
+                cli_path=launcher_path,
                 mcp_servers={
-                    "pkm": {
-                        "type": "stdio",
-                        "command": sys.executable,
+                    "pkm": mcp_server_config(
+                        sys.executable, str(config_path),
                         # --require-expect: a guarded write without the
                         # card's `expect` is refused, never run unguarded
-                        "args": ["-m", "pkm.mcp.server", "--tools",
-                                 ",".join(READ_TOOLS + WRITE_TOOLS),
-                                 "--require-expect"],
-                        "env": {"PKM_CLI_CONFIG": str(config_path)},
-                    }
+                        ["--tools", ",".join(READ_TOOLS + WRITE_TOOLS),
+                         "--require-expect"]),
                 },
                 setting_sources=[],
                 # setting_sources=[] does not stop the account's claude.ai

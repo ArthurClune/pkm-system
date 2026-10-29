@@ -83,6 +83,30 @@ def test_load_config_pkm_url_override(monkeypatch, tmp_path):
     assert client_api.load_config().url == "http://other:2"
 
 
+def test_mcp_config_ignores_pkm_url_when_a_config_file_is_named(monkeypatch, tmp_path):
+    monkeypatch.setenv("PKM_CLI_CONFIG", str(tmp_path / "c.json"))
+    client_api.save_config(CliConfig(url="http://127.0.0.1:1", token="t"))
+    monkeypatch.setenv("PKM_URL", "http://evil.invalid")
+    assert client_api.load_mcp_config().url == "http://127.0.0.1:1"
+
+
+def test_mcp_config_honours_pkm_url_with_the_default_config_path(monkeypatch, tmp_path):
+    monkeypatch.delenv("PKM_CLI_CONFIG", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    client_api.save_config(CliConfig(url="http://x:1", token="t"))
+    monkeypatch.setenv("PKM_URL", "http://other:2/")
+    assert client_api.load_mcp_config().url == "http://other:2"
+
+
+def test_the_mcp_client_factory_uses_the_mcp_config(monkeypatch, tmp_path):
+    from pkm.mcp import tools as mcp_tools
+
+    monkeypatch.setenv("PKM_CLI_CONFIG", str(tmp_path / "c.json"))
+    client_api.save_config(CliConfig(url="http://127.0.0.1:1", token="t"))
+    monkeypatch.setenv("PKM_URL", "http://evil.invalid")
+    assert mcp_tools._client_factory()._config.url == "http://127.0.0.1:1"
+
+
 def test_login_returns_token(anon_client):
     token = login("http://testserver", "test-pw", http=anon_client)
     assert token.startswith("v1.")

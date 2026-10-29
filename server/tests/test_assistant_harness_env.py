@@ -1,7 +1,21 @@
+import os
+import signal
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from pkm.assistant import harness_env
-from pkm.assistant.harness_env import ZAI_BASE_URL, resolve_harness_env
+from pkm.assistant.harness_env import (
+    HOST_ENV,
+    SDK_ENV,
+    ZAI_BASE_URL,
+    harness_env_names,
+    launcher_script,
+    mcp_server_config,
+    resolve_harness_env,
+)
 from pkm.assistant.policy import MODELS, ZAI_MODELS
 
 
@@ -54,3 +68,129 @@ def test_every_advertised_model_resolves_when_its_provider_is_configured():
         assert resolved.sdk_model
         expected = "ANTHROPIC_BASE_URL" in resolved.env
         assert expected is (model in ZAI_MODELS)
+
+
+def test_harness_env_names_keeps_host_sdk_and_harness_names():
+    names = harness_env_names(resolve_harness_env("glm", "zk"))
+    assert names[:len(HOST_ENV + SDK_ENV)] == HOST_ENV + SDK_ENV
+    assert {"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+            "ENABLE_TOOL_SEARCH"} <= set(names)
+    assert len(names) == len(set(names))
+    sonnet = harness_env_names(resolve_harness_env("sonnet", None))
+    assert "ANTHROPIC_BASE_URL" not in sonnet
+
+
+def test_no_secret_or_routing_name_is_kept():
+    refused = {"OPENAI_API_KEY", "GOODLINKS_API_KEY", "ZAI_API_KEY",
+               "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "PKM_URL",
+               "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+               "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE"}
+    refused |= {name.lower() for name in refused}
+    for model in MODELS:
+        names = harness_env_names(resolve_harness_env(model, "zk"))
+        assert refused.isdisjoint(names), model
+
+
+def _received(tmp_path: Path, names: list[str], env: dict[str, str],
+              cli_name: str = "cli") -> dict[str, str]:
+    """The environment a CLI started through the launcher receives.
+
+    The CLI is `/usr/bin/env -0` under `cli_name`: unlike a Python dumper it
+    adds no variable of its own.
+    """
+    cli = tmp_path / cli_name
+    cli.symlink_to("/usr/bin/env")
+    launcher = tmp_path / "launcher"
+    launcher.write_text(launcher_script(str(cli), names, sys.executable))
+    launcher.chmod(0o700)
+    out = subprocess.run([launcher, "-0"], env=env, check=True,
+                         capture_output=True).stdout.decode()
+    return dict(entry.split("=", 1) for entry in out.split("\0") if entry)
+
+
+def test_launcher_passes_kept_values_byte_identical(tmp_path):
+    odd = "x \"y\" $z '\n' w"
+    received = _received(tmp_path, ["HOME", "ODD"],
+                         {"HOME": "/Users/a b", "ODD": odd, "SECRET": "s"})
+    assert received == {"HOME": "/Users/a b", "ODD": odd}
+
+
+def test_launcher_leaves_a_missing_name_unset(tmp_path):
+    received = _received(tmp_path, list(HOST_ENV), {"USER": "u"})
+    # The launcher's Python sets LC_CTYPE=C.UTF-8 when it finds no locale
+    # (PEP 538 coercion, which -IS does not stop), and LC_CTYPE is kept.
+    assert received.pop("LC_CTYPE", "C.UTF-8") == "C.UTF-8"
+    assert received == {"USER": "u"}
+
+
+def test_launcher_leaves_an_unset_path_unset(tmp_path):
+    received = _received(tmp_path, ["PATH", "HOME"], {"HOME": "/h"})
+    assert received == {"HOME": "/h"}
+
+
+def test_launcher_ignores_python_home(tmp_path):
+    received = _received(tmp_path, ["HOME"],
+                         {"HOME": "/h", "PYTHONHOME": "/nonexistent"})
+    assert received == {"HOME": "/h"}
+
+
+@pytest.mark.skipif(sys.platform != "darwin",
+                    reason="PYTHONEXECUTABLE adopts a venv only on macOS")
+def test_launcher_runs_no_pth_file(tmp_path):
+    real = Path(os.path.realpath(sys.executable))
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text(f"home = {real.parent}\n")
+    (venv / "bin" / "python").symlink_to(real)
+    site = (venv / "lib" / f"python{sys.version_info.major}."
+            f"{sys.version_info.minor}" / "site-packages")
+    site.mkdir(parents=True)
+    marker = tmp_path / "pth-ran"
+    (site / "x.pth").write_text(
+        f"import pathlib; pathlib.Path({str(marker)!r}).write_text('x')\n")
+    received = _received(tmp_path, ["HOME"], {
+        "HOME": "/h", "PYTHONEXECUTABLE": str(venv / "bin" / "python")})
+    assert not marker.exists()
+    assert received == {"HOME": "/h"}
+
+
+@pytest.mark.parametrize("sig", ["PIPE", "XFSZ"])
+def test_launcher_restores_default_signals(tmp_path, sig):
+    launcher = tmp_path / "launcher"
+    launcher.write_text(launcher_script("/bin/sh", ["HOME"], sys.executable))
+    launcher.chmod(0o700)
+    ran = subprocess.run([launcher, "-c", f"kill -{sig} $$; echo survived"],
+                         env={"HOME": "/h"}, capture_output=True, text=True)
+    assert ran.returncode == -getattr(signal, f"SIG{sig}")
+    assert "survived" not in ran.stdout
+
+
+def test_launcher_runs_a_cli_path_holding_quotes_and_shell_syntax(tmp_path):
+    received = _received(tmp_path, ["HOME"], {"HOME": "/h"},
+                         cli_name="it's a \"cli\" =$(id) `id`")
+    assert received == {"HOME": "/h"}
+
+
+def test_launcher_refuses_a_name_that_is_not_an_environment_name():
+    with pytest.raises(ValueError):
+        launcher_script("/x", ["A;rm"], "/py")
+
+
+@pytest.mark.parametrize("python", ["/a b/python", "/a\nb/python",
+                                    "/a\tb/python"])
+def test_launcher_refuses_an_interpreter_a_shebang_cannot_carry(python):
+    with pytest.raises(ValueError):
+        launcher_script("/x", ["HOME"], python)
+
+
+def test_mcp_server_config_runs_pkm_mcp_under_an_empty_environment():
+    assert mcp_server_config(
+        "/py", "/c.json", ["--tools", "a,b", "--require-expect"]) == {
+        "type": "stdio", "command": "/usr/bin/env",
+        "args": ["-i", "PKM_CLI_CONFIG=/c.json", "/py", "-m",
+                 "pkm.mcp.server", "--tools", "a,b", "--require-expect"]}
+
+
+def test_mcp_server_config_refuses_an_interpreter_env_would_parse_as_an_assignment():
+    with pytest.raises(ValueError):
+        mcp_server_config("/a=b/python", "/c.json", [])

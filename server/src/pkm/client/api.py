@@ -63,15 +63,25 @@ def config_path() -> Path:
     return Path.home() / ".config" / "pkm-cli" / "config.json"
 
 
-def load_config() -> CliConfig:
+def load_config(*, honour_pkm_url: bool = True) -> CliConfig:
     path = config_path()
     if not path.is_file():
         raise ConfigError(f"no config at {path} — run `pkm login` first")
     cfg = parse_config(path.read_text())
-    url = os.environ.get("PKM_URL")
+    url = os.environ.get("PKM_URL") if honour_pkm_url else None
     if url:
         cfg = CliConfig(url=url.rstrip("/"), token=cfg.token)
     return cfg
+
+
+def load_mcp_config() -> CliConfig:
+    """Config for `pkm-mcp`: PKM_URL applies only without PKM_CLI_CONFIG.
+
+    Started with an explicit config, as the in-app assistant starts it, the
+    file's URL is the only URL, so the server's environment cannot redirect
+    the session token.
+    """
+    return load_config(honour_pkm_url=not os.environ.get("PKM_CLI_CONFIG"))
 
 
 def save_config(cfg: CliConfig) -> None:

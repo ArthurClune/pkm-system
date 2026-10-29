@@ -172,3 +172,29 @@ def test_script_runs_under_system_python(env, tmp_path):
     assert run.returncode == 0, run.stderr
     assert "session_secret" in json.loads((out / "config.json").read_text())
     assert tree_has(dest, SECRET) == []
+
+
+@pytest.mark.parametrize("name", ["config.json.bak-2026-10-01-x", "config.json~",
+                                  ".config.json.abc.tmp", "config.json.swp"])
+def test_config_lookalike_files_are_not_mirrored(env, name):
+    (env[0] / name).write_text(json.dumps(_config()))
+    backup(env, "2026-10-01")
+    (env[0] / (name + "2")).write_text(json.dumps(_config()))
+    backup(env, "2026-10-02")
+    assert tree_has(env[2], SECRET) == []
+    assert (env[2] / "data/main/config.json").exists()
+
+
+def test_config_new_to_the_mirror_arrives_in_an_incremental(env, tmp_path):
+    data = env[0]
+    live = (data / "config.json").read_bytes()
+    (data / "config.json").unlink()
+    backup(env, "2026-10-01")
+    backup(env, "2026-10-02")
+    (data / "config.json").write_bytes(live)
+    assert backup(env, "2026-10-03") == 0
+    assert tree_has(env[2], SECRET) == []
+    assert (env[2] / "data/incr/2026-10-03/files/config.json").exists()
+    out = tmp_path / "r"
+    assert restore(env, "2026-10-03", out) == 0
+    assert "session_secret" in json.loads((out / "config.json").read_text())

@@ -32,7 +32,8 @@ config.json is mirrored without its `session_secret` (it would let anyone who
 reads the iCloud folder mint a login cookie); every other key is kept, since
 a restore needs the password hash. The redacted bytes are built in memory and
 written straight to their place under --dest, so the secret never lands in
-iCloud, not even in a temp file. If config.json does not parse as a JSON
+iCloud, not even in a temp file. Other files named like config.json (backups,
+swaps, temps) are not mirrored at all. If config.json does not parse as a JSON
 object it is left out of the mirror and the run exits 1, after the rest of
 the backup has still been taken. `restore` gives the restored config a fresh
 secret, so every device has to log in again.
@@ -54,7 +55,10 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 DATE_FMT = "%Y-%m-%d"
-DEFAULT_EXCLUDES = ["pkm.sqlite3", "pkm.sqlite3-wal", "pkm.sqlite3-shm", ".DS_Store"]
+# Copies of config.json (backups, editor swaps, atomic-write temps) carry the
+# same secret but are not parsed, so they are left out rather than redacted.
+DEFAULT_EXCLUDES = ["pkm.sqlite3", "pkm.sqlite3-wal", "pkm.sqlite3-shm", ".DS_Store",
+                    "config.json?*", ".config.json*"]
 Manifest = Dict[str, Tuple[int, int]]  # relpath -> (size, mtime_ns)
 CONFIG_NAME = "config.json"
 SECRET_KEY = "session_secret"

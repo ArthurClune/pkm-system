@@ -182,11 +182,11 @@ flowchart LR
 | An offset transform, and a caret the editor places, snaps with `snapCaret` (`keyEdits.ts`); `outline/surrogatePairs.props.test.ts` covers each | a slice between surrogate halves stores two U+FFFD |
 | `set_collapsed` does not stamp (`opBumpsUpdatedAt`, which `replica/localOps.test.ts` pins for the replica) | collapsing re-dates the block |
 | No create or move lands a block past `MAX_OUTLINE_DEPTH`. `run()` and `undoManager`'s dispatch judge each by its subtree in the tree the ops leave (`depthCap.ts`), and refuse the whole command | the server refuses the batch whole, and the offline queue's [rebase](sync-recovery.md#a-batch-the-server-rejects) drops its other ops with it |
-| No edit queues a text past a [text limit](backend.md#planning), or a link to a title past `MAX_PAGE_TITLE_CHARS` ([Refused titles](backend.md#refused-titles)). `useBlockDraft.admit` judges typing and a plain paste (titles with `linkedTitleLengthOver`); `run()` and `undoManager`'s dispatch judge a command's ops (titles with `findOpTitleViolation`). `UnlinkedSection` judges a Link's text limits only | the same: the server's 400 poisons the batch, and the repair drops its other ops with it |
+| No edit queues a text past a [text limit](backend.md#planning), or a link to a title the server refuses, past `MAX_PAGE_TITLE_CHARS` or of forbidden syntax such as `#` ([Refused titles](backend.md#refused-titles)). `useBlockDraft.admit` judges typing and a plain paste (titles with `linkedTitleRefusal`); `run()` and `undoManager`'s dispatch judge a command's ops (titles with `findOpTitleViolation`). Like the server, both judge every ref a text holds, so a block that already holds a forbidden link refuses edits that keep it, and accepts the edit that removes it. `UnlinkedSection` judges a Link's text limits only | the same: the server's 400 poisons the batch, and the repair drops its other ops with it |
 | No command queues a batch past `MAX_OPS_PER_BATCH` or the private body cap (`findBatchSizeViolation`, `batchLimits.ts`). `run()` judges the draft's text ops together with the command's, for the reason it judges depth | the server refuses the batch whole, and a queued refusal discards it |
 
 A depth refusal (`DEPTH_NOTICE`), a text-limit one (`textLimitNotice`), a
-title-length one (`TITLE_LENGTH_NOTICE`) or a size one
+title one (`TITLE_LENGTH_NOTICE`, `TITLE_SYNTAX_NOTICE`) or a size one
 (`BATCH_TOO_LARGE_NOTICE`) shows in the one `editNotice` slot `EditablePage` renders. The next command
 that applies, or Dismiss, clears it. A refused keystroke leaves the textarea
 as it was, with the caret where the refused insertion began

@@ -4,7 +4,8 @@ import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { TITLE_WHITESPACE } from "../grammar/titleWhitespace.gen";
 import { asRawTitle, canonicalizeTitle, describeOpTitleViolation,
-         findOpTitleViolation, titleSyntaxReason } from "./titles";
+         findOpTitleViolation, linkedTitleRefusal, titleRefusalNotice,
+         TITLE_SYNTAX_NOTICE, titleSyntaxReason } from "./titles";
 import type { CanonicalTitle, NormalizedTitle, RawTitle } from "../api/brands";
 import type { components } from "../api/types";
 import {
@@ -252,4 +253,25 @@ describe("canonicalizeTitle on a long title", () => {
     expect(canonicalizeTitle(`  a${inner}a  `, true)).toBe("a a");
     expect(performance.now() - started).toBeLessThan(3000);
   }, 300_000);
+});
+
+// ops_core.find_op_title_violation judges every ref an update_text or create
+// holds, not only the refs the op adds, so an edit to a block already holding
+// a forbidden link is refused by the server and must be refused here too.
+describe("linkedTitleRefusal", () => {
+  test("judges every ref a text holds, as the server does", () => {
+    expect(linkedTitleRefusal("plain text and #tag")).toBeNull();
+    expect(linkedTitleRefusal("see [[C plus]]")).toBeNull();
+    expect(linkedTitleRefusal("ok [[fine]] then [[C#]]"))
+      .toBe("forbidden_syntax");
+    expect(findOpTitleViolation([
+      { op: "update_text", uid: uidOf("legacy_ab01"),
+        text: "ok [[fine]] then [[C#]] edited" },
+    ])?.reason).toBe("forbidden_syntax");
+  });
+
+  test("names the notice for each refusal", () => {
+    expect(titleRefusalNotice(null)).toBeNull();
+    expect(titleRefusalNotice("forbidden_syntax")).toBe(TITLE_SYNTAX_NOTICE);
+  });
 });

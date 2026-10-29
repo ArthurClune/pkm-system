@@ -7,7 +7,8 @@
 import type { CanonicalTitle, NormalizedTitle, RawTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import { hasUnreachableSegment, normalizeRefTitle, trimSpaces } from "../grammar/scan";
-import { describeTitleLength, titleLengthOver } from "../grammar/titleLength";
+import { describeTitleLength, TITLE_LENGTH_NOTICE,
+         titleLengthOver } from "../grammar/titleLength";
 
 export { isBlankRefTitle as isBlankTitle } from "../grammar/scan";
 import { extractRefs } from "./refs";
@@ -58,6 +59,28 @@ export function describeOpTitleViolation(violation: OpTitleViolation): string {
   }
   return `unsupported ${violation.source} title syntax: `
     + JSON.stringify(violation.title);
+}
+
+export const TITLE_SYNTAX_NOTICE =
+  "A page title can't contain #, [[, ]], a backtick, or end in [ or ].";
+
+/** The edit notice for a refused title, or null when nothing is refused. */
+export function titleRefusalNotice(reason: TitleRefusal | null): string | null {
+  if (reason === null) return null;
+  return reason === "too_long" ? TITLE_LENGTH_NOTICE : TITLE_SYNTAX_NOTICE;
+}
+
+/** The refusal of the first ref in `text`, in extractRefs order, else null.
+ * The server judges every ref a text holds, one the block already held
+ * before a rule included, so this does too. Callers pass text already
+ * inside the text limits, which keep the scan bounded. */
+export function linkedTitleRefusal(text: string): TitleRefusal | null {
+  if (!text.includes("[[")) return null;
+  for (const ref of extractRefs(text).refs) {
+    const reason = titleRefusal(ref.title);
+    if (reason !== null) return reason;
+  }
+  return null;
 }
 
 /** The first title an op names that may not be a page title, in the

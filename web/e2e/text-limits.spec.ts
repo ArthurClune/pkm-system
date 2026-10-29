@@ -8,6 +8,8 @@ import { waitForServerText } from "./server-state";
 
 const PASSWORD = "e2e-pw";
 const NESTING = "Links can't nest more than 32 levels deep.";
+const SYNTAX =
+  "A page title can't contain #, [[, ]], a backtick, or end in [ or ].";
 const LENGTH = "A block can't be longer than 1,000,000 characters.";
 
 const nest = (n: number) => "[[a//".repeat(n) + "x" + "]]".repeat(n);
@@ -138,6 +140,47 @@ test("a real [ keypress that would nest links past 32 is refused",
   await expect(input(page)).toHaveCount(0);
   await waitForServerText(page, title, typed);
   expect(sent.some((t) => t.includes("x[[]]"))).toBe(false);
+});
+
+test("typing a link to a title with # is refused with the notice, "
+     + "keeping the draft", async ({ page }) => {
+  // Real keys: auto-pair turns [[ into [[]] and the # lands inside a link.
+  const { title, seed, sent } = await openSeeded(page, "Title Syntax");
+
+  await page.keyboard.type("[[a");
+  await page.keyboard.press("#");
+
+  await expect(page.getByRole("status").filter({ hasText: SYNTAX }))
+    .toBeVisible();
+  await expect(input(page)).toHaveValue(`${seed}[[a]]`);
+  await expect(input(page)).toBeFocused();
+
+  // the draft survives: blurring saves it, and the server holds it
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expect(input(page)).toHaveCount(0);
+  await waitForServerText(page, title, `${seed}[[a]]`);
+  expect(sent.some((t) => t.includes("#"))).toBe(false);
+});
+
+test("a pasted link to a title with # is refused, nothing is sent",
+     async ({ page }) => {
+  const { seed, sent } = await openSeeded(page, "Title Paste");
+
+  const intercepted = await input(page).evaluate(
+    (el: HTMLTextAreaElement) => {
+      const dt = new DataTransfer();
+      dt.setData("text/plain", "see [[C#]]");
+      return !el.dispatchEvent(new ClipboardEvent("paste", {
+        clipboardData: dt, bubbles: true, cancelable: true,
+      }));
+    });
+
+  expect(intercepted).toBe(true);
+  await expect(page.getByRole("status").filter({ hasText: SYNTAX }))
+    .toBeVisible();
+  await expect(input(page)).toHaveValue(seed);
+  expect(sent).toEqual([]);
 });
 
 test("a paste past the length cap shows the notice and does not paste",

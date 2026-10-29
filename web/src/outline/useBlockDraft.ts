@@ -16,8 +16,7 @@
 import { useEffect, useLayoutEffect, useRef, useState,
          type MutableRefObject } from "react";
 import { textLimitNotice, textLimitViolation } from "../grammar/textLimits";
-import { linkedTitleLengthOver,
-         TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
+import { linkedTitleRefusal, titleRefusalNotice } from "../replica/titles";
 import { clampCaret, refusedEditCaret } from "./edits";
 import type { ResumedDraft } from "./handlers";
 import { heightChanged, mayHaveShrunk } from "./textareaHeight";
@@ -231,7 +230,7 @@ export function useBlockDraft(
     // The text limits first: the ref scan must never read past them.
     const violation = textLimitViolation(next);
     const notice = violation !== null ? textLimitNotice(violation)
-      : linkedTitleLengthOver(next) !== null ? TITLE_LENGTH_NOTICE : null;
+      : titleRefusalNotice(linkedTitleRefusal(next));
     if (notice === null) return true;
     onRefused(notice);
     const el = ref.current;

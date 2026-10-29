@@ -15,6 +15,7 @@ import { DEPTH_NOTICE, MAX_OUTLINE_DEPTH } from "./depthCap";
 import { LINK_NESTING_NOTICE,
          TEXT_LENGTH_NOTICE } from "../grammar/textLimits";
 import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
+import { TITLE_SYNTAX_NOTICE } from "../replica/titles";
 import { historyAnchors, invertOps, type HistoryEntry } from "./history";
 import { applyOps, locate } from "./tree";
 
@@ -809,6 +810,26 @@ it("an undo that would restore a link to a title past the cap is refused",
   expect(performUndo(sync)).toBe(true);
   expect(h.notices).toEqual([TITLE_LENGTH_NOTICE, TITLE_LENGTH_NOTICE]);
   expect(sync.sent).toEqual([]);
+  h.unregister();
+  handle.release();
+});
+
+it("an undo that would restore a link to a forbidden title is refused",
+   () => {
+  const sync = makeSync();
+  recordHistory({
+    ...entry(),
+    ops: [{ op: "update_text", uid: uidOf("tuid-a"), text: "x" }],
+    inverse: [{ op: "update_text", uid: uidOf("tuid-a"), text: "[[C#]]" }],
+  });
+  const handle = acquireOutlineSession(PAGE, [
+    block("tuid-a", "x", { order_idx: orderIdxOf(0) })]);
+  const h = hooksFor();
+
+  expect(performUndo(sync)).toBe(true);
+  expect(sync.sent).toEqual([]);
+  expect(handle.getSnapshot().blocks[0].text).toBe("x");
+  expect(h.notices).toEqual([TITLE_SYNTAX_NOTICE]);
   h.unregister();
   handle.release();
 });

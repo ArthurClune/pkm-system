@@ -35,8 +35,7 @@ import { pagePath } from "../paths";
 import { stampBaseTextHashes } from "./baseTextHash";
 import { findOpTextLimitViolation,
          textLimitNotice } from "../grammar/textLimits";
-import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
-import { findOpTitleViolation } from "../replica/titles";
+import { findOpTitleViolation, titleRefusalNotice } from "../replica/titles";
 import { DEPTH_NOTICE, findDepthViolation } from "./depthCap";
 import type { FocusTarget } from "./edits";
 import { emptyHistory, recordEntry, resolveAnchors, restoreEntry, takeRedo,
@@ -335,8 +334,7 @@ function refusalNotice(live: BlockNode[], ops: BlockOp[],
 function textLimitRefusal(ops: BlockOp[]): string | null {
   const overLimit = findOpTextLimitViolation(ops);
   if (overLimit !== null) return textLimitNotice(overLimit.violation);
-  return findOpTitleViolation(ops)?.reason === "too_long"
-    ? TITLE_LENGTH_NOTICE : null;
+  return titleRefusalNotice(findOpTitleViolation(ops)?.reason ?? null);
 }
 
 // Nothing applied or sent; the notice goes to the page's outlines, or waits

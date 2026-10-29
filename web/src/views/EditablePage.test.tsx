@@ -21,6 +21,7 @@ import { subtreeHash } from "../replica/subtreeHash";
 import { DEPTH_NOTICE } from "../outline/depthCap";
 import { LINK_NESTING_NOTICE } from "../grammar/textLimits";
 import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
+import { TITLE_SYNTAX_NOTICE } from "../replica/titles";
 import { resetHistory } from "../outline/undoManager";
 import { EditablePage } from "./EditablePage";
 
@@ -1158,6 +1159,51 @@ test("typing a link to a title past the cap shows the notice, saves nothing",
   expect(notice).toHaveAttribute("role", "status");
   fireEvent.blur(ta);
   expect(sync.sent).toEqual([]);
+});
+
+test.each(["a#b", "C#", "C# lang"])(
+  "typing a link to the forbidden title %s shows the notice, saves nothing",
+  (linked) => {
+    stubFetch([["/api/titles", { titles: [] }]]);
+    const sync = mount();
+    const ta = focusBlock("first");
+    fireEvent.change(ta, { target: { value: `[[${linked}]]` } });
+
+    expect(ta.value).toBe("first");
+    const notice = screen.getByText(TITLE_SYNTAX_NOTICE);
+    expect(notice).toHaveAttribute("role", "status");
+    fireEvent.blur(ta);
+    expect(sync.sent).toEqual([]);
+  });
+
+test("typing a link to an allowed title is admitted and saved", () => {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "see [[C plus]] and #tag" } });
+
+  expect(ta.value).toBe("see [[C plus]] and #tag");
+  expect(screen.queryByText(TITLE_SYNTAX_NOTICE)).toBeNull();
+  fireEvent.blur(ta);
+  expect(sync.sent).toHaveLength(1);
+});
+
+test("a block already holding a link the server refuses is refused the "
+     + "same edit, as the server judges every ref a text holds", () => {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount(makeSync(), [
+    block("tuid-legacy", "old [[C#]]", { order_idx: orderIdxOf(0) })]);
+  fireEvent.click(screen.getByText(/^old/));
+  const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+  fireEvent.change(ta, { target: { value: "old [[C#]] more" } });
+  expect(ta.value).toBe("old [[C#]]");
+  expect(screen.getByText(TITLE_SYNTAX_NOTICE)).toBeInTheDocument();
+
+  // editing the bad ref away is admitted
+  fireEvent.change(ta, { target: { value: "old [[C]]" } });
+  expect(ta.value).toBe("old [[C]]");
+  fireEvent.blur(ta);
+  expect(sync.sent).toHaveLength(1);
 });
 
 test("typing that nests links past the cap shows the notice, saves nothing",

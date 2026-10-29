@@ -33,3 +33,11 @@ NEST_IN_CODE = f"```\n{nest(40)}\n```"
 EMOJI_AT_CAP = EMOJI * TEXT_CAP
 LIMIT_TEXTS = (*PAST_LIMIT_TEXTS, AT_NESTING_LIMIT, NEST_IN_CODE,
                EMOJI_AT_CAP)
+
+# A stored text one copy of which fits the cap and COPIES_PAST_CAP copies do
+# not, so a page delete can inline it and a replay that inlines it that many
+# times is over the cap. Kept small because the invariants re-read every
+# stored text after every step. Not in LIMIT_TEXTS: nothing about it is at a
+# limit.
+COPIES_PAST_CAP = 100
+LONG_WITHIN_CAP = "x" * (TEXT_CAP // COPIES_PAST_CAP + 1)

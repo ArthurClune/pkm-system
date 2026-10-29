@@ -87,6 +87,8 @@ def _reference_rewrite_range(
 # end in `]`, which the pairing reads as part of the closer.
 _KEYS = ["AI", "ai", "Old", "a]", "x y", "é", "[[AI]]", "x [[AI]] y",
          "[[Old]] [[AI]]", "[[]]", "", " AI ", "#AI", "[x]([[AI]])"]
+# The keys a `#key` tag spells whole.
+_TAG_KEYS = ("AI", "ai", "Old", "é")
 _NEW_TITLES = ["New", "B]", "x y", "Z", "AI", "😀"]
 
 _PIECES = [
@@ -216,15 +218,24 @@ def _unlink_cases(draw) -> tuple[str, Callable[[str], bool]]:
     def is_target(raw: str) -> bool:
         return (normalize_title(raw) if normalized else raw) in targets
 
-    return draw(_texts(keys)), is_target
+    text = draw(_texts(keys))
+    tag_keys = [key for key in keys if key in _TAG_KEYS]
+    # An alias whose label holds a tag of a target drops the tag span
+    # collected before it. That is the only path on which the walk's span
+    # order shows in the output (`_noting_drops`). Unsteered, it was drawn
+    # in 2.4% of cases at worst over 60 runs, and in 1.4% in one full run.
+    if tag_keys and draw(st.integers(0, 3)) == 0:
+        key = draw(st.sampled_from(tag_keys))
+        text = f"[x #{key}]([[{key}]]) {text}"
+    return text, is_target
 
 
-@with_floors({"matched a run holding runs": 0.09,
-              "matched a nested run": 0.15,
-              "matched a tag in an opened run": 0.017,
-              "matched an aliased run": 0.08,
-              "alias dropped a span": 0.016,
-              "nested 20 or deeper": 0.09}, per="case")
+@with_floors({"matched a run holding runs": 0.107,
+              "matched a nested run": 0.201,
+              "matched a tag in an opened run": 0.038,
+              "matched an aliased run": 0.199,
+              "alias dropped a span": 0.1,
+              "nested 20 or deeper": 0.118}, per="case")
 @settings(max_examples=500, deadline=None)
 @given(_unlink_cases())
 def test_unlink_walk_matches_the_recursive_walk(case):

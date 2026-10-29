@@ -12,8 +12,9 @@ from pydantic import TypeAdapter
 from pkm.batch import validate_batch
 from pkm.contracts.ops import BlockOp, BlockUid, OpBatch, subtree_hash, SyncSeq, text_hash, UID_RE
 from props.harness import DAILY_TITLE
-from props.limit_texts import (AT_NESTING_LIMIT, EMOJI_AT_CAP, NEST_IN_CODE,
-                               PAST_LIMIT_TEXTS)
+from props.limit_texts import (AT_NESTING_LIMIT, COPIES_PAST_CAP, EMOJI_AT_CAP,
+                               LONG_WITHIN_CAP, NEST_IN_CODE, PAST_LIMIT_TEXTS,
+                               TEXT_CAP)
 from props.model import (MBlock, Model, Outcome, Rewrite, positions_after,
                          replay_chain, unlink_stale)
 from props.strategies import (PAGES, batch_for, cli_batch, op_for, seed_tree,
@@ -393,6 +394,7 @@ def test_limit_texts_are_what_they_claim():
     assert len(EMOJI_AT_CAP) == 1_000_000 and len(EMOJI_AT_CAP.encode("utf-16-le")) == 4_000_000
     assert PAST_LIMIT_TEXTS[0].count("[[") == 33 and AT_NESTING_LIMIT.count("[[") == 32
     assert NEST_IN_CODE.startswith("```\n") and NEST_IN_CODE.endswith("\n```")
+    assert len(LONG_WITHIN_CAP) * COPIES_PAST_CAP > TEXT_CAP > len(LONG_WITHIN_CAP) + 1000
 
 
 # --- backend.md § Stale batches -----------------------------------------------
@@ -537,6 +539,22 @@ def test_edit_whose_replay_passes_the_cap_lands_with_deleted_titles_plain():
     assert out.paths == ("update_text replay: over the length cap,"
                          " gone titles unlinked",)
     assert "Alpha" not in m.pages
+
+
+def test_an_over_cap_replay_unlinks_the_titles_of_steps_past_it():
+    # The Alpha step goes over the cap; Gamma's, after it, must be plain too.
+    m = model(blk(P, page="Alpha", text="e" * 600_000),
+              blk(B, page="Beta", text=f"[[Alpha]] [[Gamma]] (({P}))"))
+    m.delete_page(raw_title_of("Alpha"), {}, seq_of(9))
+    m.delete_page(raw_title_of("Gamma"), {}, seq_of(10))
+    out = m.apply([{"op": "update_text", "uid": B,
+                    "text": f"[[Alpha]] [[Gamma]] (({P})) (({P}))",
+                    "base_text_hash": text_hash(f"[[Alpha]] [[Gamma]] (({P}))")}])
+    assert out.kept_texts == (f"Alpha Gamma (({P})) (({P}))",)
+    assert out.skipped == ((0, "update_text", B, "text_limit"),)
+    assert out.paths == ("update_text replay: over the length cap,"
+                         " gone titles unlinked",)
+    assert "Alpha" not in m.pages and "Gamma" not in m.pages
 
 
 def test_recorded_rewrites_remember_the_text_they_rewrote():

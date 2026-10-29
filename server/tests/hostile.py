@@ -5,7 +5,9 @@ a strategy for any value a pydantic annotation names.
 
 Strategies here never filter, so none can reject every draw."""
 import functools
+import json
 import math
+import os
 import types
 import typing
 from collections import Counter
@@ -63,24 +65,40 @@ def with_floors(floors: dict[str, float], per: str):
     `floors[label]` of the `per` count. A property that stopped drawing a
     case would otherwise stay green on the cases it still draws.
 
-    A floor is about half the lowest share the label reached over 30
-    unseeded runs: seeded runs vary far less than the plain ones the gate
-    makes, and a floor near the typical share fails on an unlucky draw with
-    nothing wrong. A label whose lowest count was under about five events
-    has no floor, since half of so few is noise. A category the generator
-    chooses (a flag state, a mode) is a pytest parameter instead, so it is
-    reached by construction; otherwise the generator is changed to draw the
-    label more often, or it stays an `event`."""
+    A floor is half the lowest share the label reached over at least 30
+    unseeded runs, as the gate makes them (a seeded run repeats its draws,
+    so its spread says nothing), rounded down to three decimals;
+    `PKM_FLOOR_LOG` collects the runs. Shares are heavy-tailed because a
+    run's examples are correlated: a label fell under a twentieth of its
+    median in one run of
+    sixty, so a floor near the typical share, or set from a few runs, fails
+    with nothing wrong. A label whose lowest count was under about five
+    events has no floor, since half of so few is noise. A category the
+    generator chooses (a flag state, a mode) is a pytest parameter instead,
+    so it is reached by construction; otherwise the generator is changed to
+    draw the label more often, or it stays an `event`."""
     def decorate(test):
         @functools.wraps(test)
         def run(*args, **kwargs):
             TALLY.clear()
             test(*args, **kwargs)
             total = TALLY[per]
+            log = os.environ.get("PKM_FLOOR_LOG")
+            if log:
+                with open(log, "a") as out:
+                    out.write(json.dumps({
+                        "test": test.__name__,
+                        "params": {k: v for k, v in kwargs.items()
+                                   if isinstance(v, (bool, int, str))},
+                        "per": total,
+                        "floors": floors,
+                        "tally": {label: TALLY[label] for label in floors},
+                    }) + "\n")
             assert total, per
             for label, share in floors.items():
                 assert TALLY[label] > total * share, (
-                    label, TALLY[label], total)
+                    f"{label}: {TALLY[label]} of {total} {per}s, "
+                    f"under the floor {share}")
         return run
     return decorate
 

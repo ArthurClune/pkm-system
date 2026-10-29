@@ -651,6 +651,9 @@ class Model:
             # ops_core.over_limit_landing_text). The machine draws no
             # rename, so a `Rewrite` carries no retitles and `gone` is the
             # deleted titles alone; a rename rule must add the old titles.
+            # The retitle half is pinned in test_text_limits_ops.py by
+            # test_an_over_limit_replay_after_a_rename_does_not_recreate_the_old_title  # noqa: E501
+            # and test_an_over_limit_replay_unlinks_a_padded_renamed_away_title.
             gone = frozenset().union(
                 *(step.unlinked
                   for step in replay_chain(steps, unreplayed, base)[2]))

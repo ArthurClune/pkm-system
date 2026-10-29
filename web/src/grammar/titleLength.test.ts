@@ -29,4 +29,15 @@ describe("the title length cap agrees with the server's", () => {
         expect(describeTitleLength(measured)).toBe(c.describe);
       }
     });
+
+  // A JSON loader that replaced a lone surrogate with U+FFFD would leave
+  // these cases passing while no longer testing a lone surrogate.
+  it("the lone surrogate cases load unreplaced", () => {
+    const cases = [...fixture.titles, ...fixture.texts]
+      .filter((c) => c.name.includes("lone_surrogate"));
+    expect(cases.length).toBeGreaterThan(0);
+    for (const c of cases) {
+      expect(textOf(c.parts)).toMatch(/[\ud800-\udfff]/);
+    }
+  });
 });

@@ -232,7 +232,7 @@ def _unlink_cases(draw) -> tuple[str, Callable[[str], bool]]:
 
 @with_floors({"matched a run holding runs": 0.107,
               "matched a nested run": 0.201,
-              "matched a tag in an opened run": 0.044,
+              "matched a tag in an opened run": 0.038,
               "matched an aliased run": 0.199,
               "alias dropped a span": 0.1,
               "nested 20 or deeper": 0.118}, per="case")

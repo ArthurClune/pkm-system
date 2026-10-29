@@ -8,17 +8,20 @@
 //
 // Stock mermaid's "strict" level is not enough. Its DOMPurify pass on label
 // HTML keeps <img src>, media attributes and SVG url() references, its
-// frontmatter and %%{init}%% config reach CSS with only a brace-balance
-// check, and d3 creates some <image> elements outside DOMPurify (image
-// shapes, sequence actor icons). mermaid.render also lays the diagram out
-// in the live document, so a fetch starts before the SVG is returned:
-// cleaning the output is too late. Hence three layers, all applied before
-// render: secured config keys, a stricter DOMPurify config, and
-// refusesStockRender for source whose effect the first two cannot reach.
+// frontmatter and %%{init}%% config reach CSS (fontFamily, altFontFamily
+// and themeCSS with only a brace-balance check, themeVariables with a
+// character allow-list that still admits url( ), and d3 creates some
+// <image> elements outside DOMPurify (image shapes, sequence actor icons).
+// mermaid.render also lays the diagram out in the live document, so a
+// fetch starts before the SVG is returned: cleaning the output is too
+// late. Hence three layers, all applied before render: secured config
+// keys, a stricter DOMPurify config, and refusesStockRender for source
+// whose effect the first two cannot reach.
 
-// Mermaid 11's own default list restated, because initialize replaces the
-// list rather than adding to it; mermaidSafety.test.ts checks it still
-// covers the installed mermaid's default.
+// Mermaid 11's own default list, restated so the list set here does not
+// depend on whether initialize merges arrays or replaces them (11.16
+// merges them); mermaidSafety.test.ts checks it still covers the installed
+// mermaid's default.
 const MERMAID_DEFAULT_SECURE = [
   "secure", "securityLevel", "startOnLoad", "maxTextSize",
   "suppressErrorRendering", "maxEdges",
@@ -27,7 +30,8 @@ const MERMAID_DEFAULT_SECURE = [
 /** Config keys a diagram's own frontmatter or %%{init}%% may not set. */
 export const STOCK_MERMAID_SECURE = [
   ...MERMAID_DEFAULT_SECURE,
-  // each becomes CSS; mermaid checks only that its braces balance
+  // each becomes CSS; mermaid checks the font keys and themeCSS only for
+  // balanced braces, and themeVariables against characters that admit url(
   "themeCSS", "themeVariables", "fontFamily", "altFontFamily",
   // not settable today (not a known key), secured in case it becomes one
   "dompurifyConfig",

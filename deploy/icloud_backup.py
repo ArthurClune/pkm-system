@@ -59,10 +59,8 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 DATE_FMT = "%Y-%m-%d"
-# Cheap first line against copies of config.json; the content guard in
-# copy_source is what actually keeps the secret out.
-DEFAULT_EXCLUDES = ["pkm.sqlite3", "pkm.sqlite3-wal", "pkm.sqlite3-shm", ".DS_Store",
-                    "config.json?*", ".config.json*"]
+DEFAULT_EXCLUDES = ["pkm.sqlite3", "pkm.sqlite3-wal", "pkm.sqlite3-shm", ".DS_Store"]
+SECRET_SHAPE = re.compile(r"[0-9a-fA-F]{64}")  # what pkm.server.setup writes
 Manifest = Dict[str, Tuple[int, int]]  # relpath -> (size, mtime_ns)
 CONFIG_NAME = "config.json"
 SECRET_KEY = "session_secret"
@@ -95,8 +93,11 @@ def scan_tree(root: Path, excludes: List[str]) -> Manifest:
             if any(fnmatch.fnmatch(fn, pat) or fnmatch.fnmatch(rel, pat) for pat in excludes):
                 continue
             st = os.lstat(os.path.join(dirpath, fn))
+            if stat.S_ISLNK(st.st_mode):
+                print("icloud backup: skipping symlink %s" % rel, file=sys.stderr)
+                continue
             if not stat.S_ISREG(st.st_mode):
-                continue  # symlinks, sockets, etc. are not backed up
+                continue  # sockets, etc. are not backed up
             out[rel] = (st.st_size, st.st_mtime_ns)
     return out
 
@@ -109,6 +110,16 @@ class Guard:
         self.secret: Optional[bytes] = None  # lower-case hex bytes
         self.config_error: Optional[str] = None
         self.leaks: List[str] = []
+
+    def use_secret(self, value: str) -> None:
+        """Guard on ``value`` only if it has the shape the server writes; a
+        short or odd hand-edited secret would match ordinary file content, so
+        the content guard is skipped for the run."""
+        if SECRET_SHAPE.fullmatch(value):
+            self.secret = value.encode("ascii").lower()
+        else:
+            print("icloud backup: session_secret is not 64 hex characters; "
+                  "other files are not checked for it", file=sys.stderr)
 
     @property
     def problems(self) -> bool:
@@ -163,14 +174,14 @@ def redact_live_config(live: Path, current: Manifest, prev: Manifest) -> Guard:
             current[rel] = prev[rel]
         else:
             del current[rel]
-        match = re.search(rb'"%s"\s*:\s*"([0-9A-Za-z]+)"' % SECRET_KEY.encode(), raw)
+        match = re.search(rb'"%s"\s*:\s*"([^"\\]*)"' % SECRET_KEY.encode(), raw)
         if match:
-            guard.secret = match.group(1).lower()
+            guard.use_secret(match.group(1).decode("latin-1"))
         return guard
     current[rel] = (len(redacted), current[rel][1])
     guard.overrides[rel] = redacted
-    if secret and len(secret) >= 8:
-        guard.secret = secret.encode("utf-8").lower()
+    if secret is not None:
+        guard.use_secret(secret)
     return guard
 
 

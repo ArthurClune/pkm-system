@@ -281,3 +281,35 @@ def test_failing_config_keeps_last_good_copy_in_that_days_snapshot(env, tmp_path
         got = json.loads((out / "config.json").read_text())
         assert got.get("extra_setting") == extra
     assert tree_has(env[2], SECRET) == []
+
+
+@pytest.mark.parametrize("name", ["config.jsonl", "assets/config.json5", "config.json.md"])
+def test_config_named_files_without_the_secret_are_mirrored(env, tmp_path, name):
+    (env[0] / name).write_text("harmless")
+    assert backup(env, "2026-10-01") == 0
+    out = tmp_path / "r"
+    assert restore(env, "2026-10-01", out) == 0
+    assert (out / name).read_text() == "harmless"
+
+
+@pytest.mark.parametrize("odd", ["e", "password"])
+def test_odd_secret_is_still_redacted_and_does_not_block_other_files(env, capsys, odd):
+    (env[0] / "config.json").write_text(json.dumps(_config(secret=odd)))
+    (env[0] / "assets/note.txt").write_text("the password is here, e e e")
+    assert backup(env, "2026-10-01") == 0
+    cap = capsys.readouterr()
+    assert "not 64 hex" in cap.err
+    assert "session_secret" not in json.loads((env[2] / "data/main/config.json").read_text())
+    assert (env[2] / "data/main/assets/note.txt").exists()
+
+
+def test_odd_secret_in_an_unparsable_config_warns_too(env, capsys):
+    (env[0] / "config.json").write_text('{"session_secret": "e", broken')
+    assert backup(env, "2026-10-01") == 1
+    assert "not 64 hex" in capsys.readouterr().err
+
+
+def test_skipped_symlink_is_reported(env, capsys):
+    (env[0] / "assets/ln").symlink_to(env[0] / "assets/a.txt")
+    assert backup(env, "2026-10-01") == 0
+    assert "skipping symlink assets/ln" in capsys.readouterr().err

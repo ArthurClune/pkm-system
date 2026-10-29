@@ -167,7 +167,9 @@ file whose bytes contain the secret (a copy, a hard link, either hex case) is
 skipped. If `config.json` cannot be read or parsed as a JSON object it is not
 mirrored (the previous mirrored copy stays in the snapshot). Any of these
 makes the run print `PARTIAL`, say why on stderr and exit 1; the rest of the
-backup is still taken. Mirrors made by an earlier version hold the secret in
+backup is still taken. A data file that contains the session secret is left out of the mirror, and
+the run exits 1 each day until that file is deleted or the secret is rotated.
+Mirrors made by an earlier version hold the secret in
 their config copies: delete those copies and set a new `session_secret`.
 
 Restore the data dir as of a date into an empty folder, then pair it with

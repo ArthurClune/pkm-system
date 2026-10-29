@@ -44,6 +44,7 @@ import { extendSelection, needsDeleteConfirmation, selectedUids,
          startSelection, type BlockSelection } from "./blockSelection";
 import { acquireOutlineSession,
          type OutlineSessionHandle } from "./outlineSessions";
+import { dropDraft } from "./droppedDrafts";
 import { captureDraft, pendingTextOps, spliceUploadedMarkdown,
          validateOutlineFocus, type PendingDraft,
          type ShownText } from "./outlineState";
@@ -51,20 +52,6 @@ import { performRedo, performUndo, recordHistory,
          registerOutlineHistory, releaseUnusedAssets } from "./undoManager";
 
 const TEXT_DEBOUNCE_MS = 500;
-
-// A draft run() would not save, pending when its outline unmounted
-// (navigation, which gives no blur): the next outline that edits the page
-// takes it back, focused and with its notice, rather than it being lost.
-const keptDrafts = new Map<CanonicalTitle, {
-  pending: PendingDraft;
-  selection: { start: number; end: number } | null;
-  notice: string;
-}>();
-
-/** Test seam: kept drafts are module state. */
-export function forgetKeptDrafts(): void {
-  keptDrafts.clear();
-}
 
 export interface Outline {
   blocks: BlockNode[];
@@ -171,6 +158,9 @@ export function useOutline(
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The notice a refused draft showed, cleared once a flush gets past it.
   const draftNoticeRef = useRef<string | null>(null);
+  // Set each render to releaseUnshownDraft below, for the session
+  // subscription, which is wired once per page.
+  const releaseUnshownRef = useRef(() => {});
 
   useLayoutEffect(() => {
     const handle = acquireOutlineSession(pageTitle, bootstrapRef.current);
@@ -178,6 +168,7 @@ export function useOutline(
     const adoptShared = () => {
       const shared = handle.getSnapshot().blocks;
       blocksRef.current = shared;
+      releaseUnshownRef.current();
       setBlocks(shared);
       setFocus((current) => validateOutlineFocus(current, shared));
     };
@@ -195,20 +186,6 @@ export function useOutline(
     adoptShared();
     setSession(handle);
     updateLease();
-    const kept = pendingRef.current === null
-      && (lease === null || lease.granted)
-      ? keptDrafts.get(pageTitle) : undefined;
-    if (kept) {
-      keptDrafts.delete(pageTitle);
-      pendingRef.current = kept.pending;
-      if (kept.selection) {
-        draftSelectionRef.current = { uid: kept.pending.uid,
-                                      ...kept.selection };
-      }
-      setFocus({ uid: kept.pending.uid, cursor: kept.pending.text.length });
-      draftNoticeRef.current = kept.notice;
-      setEditNotice(kept.notice);
-    }
     return () => {
       unsubscribeLease?.();
       lease?.release();
@@ -250,14 +227,46 @@ export function useOutline(
     return titleRefusalNotice(findOpTitleViolation(ops)?.reason ?? null);
   }, [pageTitle]);
 
+  /** Hand a draft run() refuses to the app-level notice (droppedDrafts.ts)
+   * and forget it. Called when it can no longer stay on screen to be fixed,
+   * so it neither pins the outline nor is replaced unseen. */
+  const dropRefusedDraft = useCallback((notice: string) => {
+    const pending = pendingRef.current;
+    if (!pending) return;
+    pendingRef.current = null;
+    draftSelectionRef.current = null;
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    draftNoticeRef.current = null;
+    setEditNotice((n) => (n === notice ? null : n));
+    dropDraft({ pageTitle, text: pending.text, notice });
+  }, [pageTitle]);
+
+  /** Drop a refused draft whose block has left the tree or is hidden under
+   * a collapsed ancestor: no textarea can show it there. */
+  const releaseUnshownDraft = useCallback(() => {
+    const pending = pendingRef.current;
+    if (!pending) return;
+    const blocks = blocksRef.current;
+    if (findNode(blocks, pending.uid)
+        && hidingAncestors(blocks, pending.uid).length === 0) return;
+    const notice = draftRefusal();
+    if (notice !== null) dropRefusedDraft(notice);
+  }, [draftRefusal, dropRefusedDraft]);
+  releaseUnshownRef.current = releaseUnshownDraft;
+
   /** Flush any pending text op, run the command against the flushed tree,
    * apply + enqueue everything in order, then move focus. A draft the
-   * server would refuse is neither sent nor dropped: it stays pending, its
-   * textarea dirty, and the command, planned against the tree without it,
-   * applies nothing. */
+   * server would refuse is never sent. While its block is on screen it
+   * stays pending, its textarea dirty, and the command, planned against the
+   * tree without it, applies nothing; otherwise it is dropped to the notice
+   * and the command goes ahead. */
   const run = useCallback((fn: (b: BlockNode[]) => EditResult,
                            opts?: { freshAssets?: readonly Sha256Hex[] },
   ): boolean => {
+    releaseUnshownDraft();
     const draftNotice = draftRefusal();
     if (draftNotice !== null) {
       if (timerRef.current) {
@@ -348,7 +357,8 @@ export function useOutline(
     }
     if (result.focus) setFocus(result.focus);
     return applied;
-  }, [draftRefusal, takePendingTextOps, pageTitle, sync]);
+  }, [releaseUnshownDraft, draftRefusal, takePendingTextOps, pageTitle,
+      sync]);
 
   /** Save the pending draft now. False when run() kept it unsaved, and the
    * caller must then leave the editor on its block. */
@@ -412,21 +422,25 @@ export function useOutline(
   // — durability is the queue's job, and nothing is left to render into.
   // Deliberately unmount-only: a ref, not a dep, so a changing flushNow
   // identity can't turn this into a mid-edit flush.
+  // A draft run() refuses has nowhere left to show, so it goes to the
+  // app-level notice.
   const flushOnUnmount = useRef(() => {});
   flushOnUnmount.current = () => {
     if (flushNow()) return;
-    const pending = pendingRef.current;
     const notice = draftRefusal();
-    if (pending && notice !== null) {
-      const sel = draftSelectionRef.current;
-      keptDrafts.set(pageTitle, {
-        pending, notice,
-        selection: sel?.uid === pending.uid
-          ? { start: sel.start, end: sel.end } : null,
-      });
-    }
+    if (notice !== null) dropRefusedDraft(notice);
   };
   useEffect(() => () => flushOnUnmount.current(), []);
+
+  // A reload or a closed tab would lose a draft run() refuses: ask first,
+  // where the browser offers the prompt.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (draftRefusal() !== null) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [draftRefusal]);
 
   // Unknown target content needs an authoritative tree. The session allocates
   // the read token before the loader dispatches and coalesces same-title reads.
@@ -691,18 +705,18 @@ export function useOutline(
         run((b) => deleteSelection(b, pageTitle, selectedUids(b, selection)));
       })();
     },
-    // App-level undo/redo: global history, not per-outline. No
-    // explicit flush here — performUndo/performRedo call every registered
-    // flushPending, including this outline's, and do nothing when one
-    // keeps its draft.
+    // App-level undo/redo: global history, not per-outline. This outline's
+    // draft is flushed first, so a refused one returns false and BlockInput
+    // keeps it. performUndo/performRedo flush every other outline's, and when
+    // one keeps a refused draft they do nothing and say so here.
     onUndo: () => {
       if (!flushNow()) return false;
-      performUndo(sync);
+      performUndo(sync, (notice) => setEditNotice(notice));
       return true;
     },
     onRedo: () => {
       if (!flushNow()) return false;
-      performRedo(sync);
+      performRedo(sync, (notice) => setEditNotice(notice));
       return true;
     },
     onRefusedEdit: (notice) => setEditNotice(notice),

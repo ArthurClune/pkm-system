@@ -175,6 +175,23 @@ test("a link typed with # is refused when the draft is saved, and kept",
   expect(sent.some((t) => t.includes("#") || t.includes("!"))).toBe(false);
 });
 
+test("leaving the page with a refused draft shows its text in the app "
+     + "notice, and sends nothing", async ({ page }) => {
+  const { seed, sent } = await openSeeded(page, "Title Dropped");
+
+  await page.keyboard.type("[[a#b");
+  await page.keyboard.press("Control+Shift+D");
+  await page.waitForURL((url) => url.pathname === "/");
+
+  const banner = page.locator(".dropped-draft");
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText(`${seed}[[a#b]]`);
+  await expect(banner).toContainText(SYNTAX);
+  expect(sent.some((t) => t.includes("#"))).toBe(false);
+  await banner.getByRole("button", { name: "Dismiss" }).click();
+  await expect(banner).toHaveCount(0);
+});
+
 test("a link whose title holds [ typed with real keys is saved",
      async ({ page }) => {
   const { title, seed } = await openSeeded(page, "Title Bracket");

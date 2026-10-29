@@ -39,8 +39,9 @@ export interface OutlineHandlers {
   onInputUnmount(uid: BlockUid, selStart: number, selEnd: number): void;
   /** Commit the pending draft NOW, without touching focus. The
    * tree calls this before it navigates away under its own steam: unmounting
-   * delivers no blur, so a flush-held draft would otherwise be dropped. */
-  onFlushDraft(): void;
+   * delivers no blur, so a flush-held draft would otherwise be dropped.
+   * False when the draft may not be saved; the tree then stays. */
+  onFlushDraft(): boolean;
   onSplit(uid: BlockUid, cursor: number): void;
   onIndent(uid: BlockUid): void;
   onOutdent(uid: BlockUid): void;

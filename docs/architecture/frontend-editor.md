@@ -231,7 +231,7 @@ both texts when another device edited from the same base.
 |---|---|
 | A clean draft's first edit | `onDraftStart` reports the shown text, which `captureDraft` keeps as `base` |
 | Undo, redo, or an upload that fills the focused (empty) block | `BlockInput` calls `settle()`, so the draft adopts the tree's text. An undo or redo that a refused draft stopped (`onUndo` returns false) does not settle |
-| Focus or a new draft moves to another block | the old draft flushes first. A block a remote batch removes unmounts with no blur, so nothing else would flush it |
+| Focus or a new draft moves to another block | the old draft flushes first. A block a remote batch removes unmounts with no blur, so nothing else would flush it. A refused draft is the exception (below) |
 | A remote batch reparents the block or an ancestor | the textarea remounts with no blur. `BlockInput` reads `handlers.pendingDraft(uid)` at mount and resumes it dirty with its base, and restores the selection the old textarea reported (`onInputUnmount`) |
 | A parent passes a new `initial` | the draft flushes first, so the parent tree waits for that write |
 
@@ -249,25 +249,33 @@ removes. So `useOutline` flushes on unmount, for navigation the editor never
 sees (the `Ctrl-Shift-D` chord, back/forward); its callback sits in a ref so
 the effect runs only then. `ensureRefPageThenOpen` (`Ctrl-O` over a `[[ref]]`)
 flushes before `POST /api/pages`. Tab hide and reload are covered by the
-`visibilitychange` flush.
+`visibilitychange` flush, a refused draft excepted (below).
 
 Typing leaves out the title the caret is in while the draft is held
 (`linkedTitleRefusal`'s `heldCaret`). The user is still typing that title,
 and one the server accepts can pass through one it refuses: `[[a [b] c]]`
 passes through `[[a []]]`, whose title ends in `[`. `run()` judges the whole draft when it saves it, so no
-path ships an unjudged text. A draft it refuses is never sent and never
-dropped:
+path ships an unjudged text. A draft it refuses is never sent. It stays on
+screen to be fixed while its block can show it:
 
-| With a refused draft | What happens |
+| With a refused draft on a shown block | What happens |
 |---|---|
-| A flush (debounce, blur, tab hide, `onFlushDraft`) | nothing is sent; the draft stays pending, its textarea dirty, and the notice shows |
-| A command, undo or redo, or a cross-page drop (`OutlineDndApi.flushDraft`) | refused whole |
+| A flush (debounce, blur, tab hide) | nothing is sent; the draft stays pending, its textarea dirty, and the notice shows |
+| A command, or a cross-page drop (`OutlineDndApi.flushDraft`) | refused whole |
+| Undo or redo | refused in the textarea. From another outline, `performUndo` does nothing and that outline shows `HISTORY_BLOCKED_NOTICE`, since the draft's own notice may be out of view |
 | Focus leaving the block (click, arrow, blur, block selection) | refused, so the textarea stays mounted and shows the draft |
-| The outline unmounting (navigation) | `keptDrafts` keeps it by page title; the next outline that edits the page resumes it, focused, with the notice |
+| `Ctrl-O` / `Ctrl-Shift-O` (`onFlushDraft` returns false) | no page is created and nothing opens |
+| A reload or closing the tab | the `beforeunload` handler asks first, where the browser shows that prompt |
 
-Two cases still lose it. `keptDrafts` is memory, so a reload or a killed tab
-drops a refused draft. A remote batch that removes its block unmounts the
-textarea, and a draft started on another block then replaces it.
+When the draft can no longer be shown, `releaseUnshownDraft` and the unmount
+flush drop it from the outline into `droppedDrafts.ts`. That happens when
+the outline unmounts, or when its block leaves the tree or goes under a
+collapsed ancestor (a remote batch, a cross-page move, a parent `initial`).
+`DroppedDraftNotice`, in the app shell's banner stack, outlives the outline.
+It shows the text and copies the whole of it; a clipped preview says so. The
+command or focus change that met the draft then goes ahead, so the outline
+never stays pinned to a block nobody can see. Only a killed tab, or a reload
+the user confirms, loses a refused draft.
 
 ### Keyboard policy
 

@@ -258,9 +258,10 @@ describe("canonicalizeTitle on a long title", () => {
   }, 300_000);
 });
 
-// The keystroke judge and the op judge must refuse the same texts for the
-// same reason, which is the server's (ops_core.find_op_title_violation over
-// refs.extract): attributes and bare tags too, not only [[links]].
+// The keystroke judge and the op judge share one loop; this pins that they
+// stay one, over attributes and bare tags too. Agreement with the server
+// rests on the ref grammar and title fixtures (the title_length.json loop
+// above).
 describe("linkedTitleRefusal agrees with findOpTitleViolation", () => {
   const long = "t".repeat(1001);
   const texts = [

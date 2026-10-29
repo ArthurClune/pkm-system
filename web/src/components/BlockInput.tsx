@@ -148,7 +148,8 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   // /api/pages also keeps the ref row a product of the normal ops path
   // instead of racing it.
   const ensureRefPageThenOpen = async (title: NormalizedTitle, sidebar: boolean) => {
-    handlers.onFlushDraft();
+    // A draft that may not be saved stays on screen with its notice.
+    if (!handlers.onFlushDraft()) return;
     try {
       await apiPost("/api/pages", { body: { title } });
     } catch {

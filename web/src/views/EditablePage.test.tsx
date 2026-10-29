@@ -23,11 +23,12 @@ import { LINK_NESTING_NOTICE } from "../grammar/textLimits";
 import { TITLE_LENGTH_NOTICE } from "../grammar/titleLength";
 import { TITLE_SYNTAX_NOTICE } from "../replica/titles";
 import { resetHistory } from "../outline/undoManager";
-import { forgetKeptDrafts } from "../outline/useOutline";
+import { droppedDrafts, resetDroppedDrafts } from "../outline/droppedDrafts";
+import { DroppedDraftNotice } from "../components/DroppedDraftNotice";
 import { EditablePage } from "./EditablePage";
 
-// A draft the outline kept at the last test's unmount would resume here.
-beforeEach(forgetKeptDrafts);
+// The last test's unmount drops a refused draft into module state.
+beforeEach(resetDroppedDrafts);
 
 afterEach(() => {
   vi.useRealTimers();
@@ -1311,42 +1312,137 @@ function NavBack() {
   return <button onClick={() => navigate("/")}>back</button>;
 }
 
-test("a draft refused at save survives navigating away, and is back on "
-     + "return", () => {
-  vi.useFakeTimers();
+/** The page at "/" (blocks first, second), a "go" button to "/elsewhere"
+ * and back, and the app-level dropped-draft notice. */
+function mountRouted(sync: SyncFake) {
   stubFetch([["/api/titles", { titles: [] }]]);
-  const sync = makeSync();
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
       <SyncContext.Provider value={sync}>
+        <DroppedDraftNotice />
         <Routes>
           <Route path="/" element={<>
-            <EditablePage title={canonicalTitleOf("Page")}
-                          initial={[block("tuid-u1", "first",
-                                          { order_idx: orderIdxOf(0) })]} />
+            <EditablePage title={canonicalTitleOf("Page")} initial={[
+              block("tuid-u1", "first", { order_idx: orderIdxOf(0) }),
+              block("tuid-u2", "second", { order_idx: orderIdxOf(1) }),
+            ]} />
             <NavAway />
           </>} />
           <Route path="/elsewhere" element={<NavBack />} />
+          <Route path="*" element={<p>elsewhere</p>} />
         </Routes>
       </SyncContext.Provider>
     </MemoryRouter>);
+}
+
+const DROPPED = { pageTitle: "Page", text: "first[[a#b]]",
+                  notice: TITLE_SYNTAX_NOTICE };
+
+/** The outline is not pinned: another block takes focus and saves. */
+function expectUnlocked(sync: SyncFake) {
+  fireEvent.click(screen.getByText("second"));
+  fireEvent.change(textbox(), { target: { value: "second!" } });
+  fireEvent.blur(textbox());
+  expect(sync.sent.flat()).toEqual([{ op: "update_text", uid: "tuid-u2",
+    text: "second!", base_text_hash: sha256Hex("second"),
+    page_title: "Page" }]);
+}
+
+test("navigating away with a refused draft shows its text to copy, and the "
+     + "page is editable on return", async () => {
+  const writeText = vi.fn(async () => undefined);
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  const sync = makeSync();
+  mountRouted(sync);
   focusBlock("first");
   caretAt(5);
   typeKeys("[[a#b");
 
   fireEvent.click(screen.getByText("go"));
   expect(sync.sent).toEqual([]);
-  fireEvent.click(screen.getByText("back"));
+  expect(droppedDrafts()).toMatchObject([DROPPED]);
+  const banner = screen.getByRole("alert");
+  expect(banner).toHaveTextContent("first[[a#b]]");
+  await act(async () => { fireEvent.click(screen.getByText("Copy")); });
+  expect(writeText).toHaveBeenCalledWith("first[[a#b]]");
 
+  fireEvent.click(screen.getByText("back"));
+  expect(screen.getByText("first")).toBeInTheDocument();
+  expectUnlocked(sync);
+});
+
+test("a remote delete of a refused draft's block drops it to the notice, "
+     + "and the outline stays usable", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  refusedAtSave(sync);
+  act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
+    { op: "delete", uid: uidOf("tuid-u1") },
+  ] }));
+
+  expect(droppedDrafts()).toMatchObject([DROPPED]);
+  expect(screen.queryByText(TITLE_SYNTAX_NOTICE)).toBeNull();
+  expectUnlocked(sync);
+});
+
+test("a remote collapse hiding a refused draft drops it to the notice, "
+     + "and typing in the parent saves only the parent", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount(makeSync(), [
+    block("tuid-p", "parent", { order_idx: orderIdxOf(0), children: [
+      block("tuid-u1", "first", { order_idx: orderIdxOf(0) })] }),
+  ]);
+  focusBlock("first");
+  caretAt(5);
+  typeKeys("[[a#b]]");
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(screen.getByText(TITLE_SYNTAX_NOTICE)).toBeInTheDocument();
+
+  act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
+    { op: "set_collapsed", uid: uidOf("tuid-p"), collapsed: true },
+  ] }));
+  expect(droppedDrafts()).toMatchObject([DROPPED]);
+  fireEvent.change(textbox(), { target: { value: "parent!" } });
+  fireEvent.blur(textbox());
+  expect(sync.sent.flat()).toEqual([{ op: "update_text", uid: "tuid-p",
+    text: "parent!", base_text_hash: sha256Hex("parent"),
+    page_title: "Page" }]);
+});
+
+test("Ctrl-O over a link while the draft is refused stays on the page",
+     async () => {
+  const sync = makeSync();
+  mountRouted(sync);
+  focusBlock("first");
+  caretAt(5);
+  typeKeys("[[a#b");
+
+  await act(async () => {
+    fireEvent.keyDown(textbox(), { key: "o", ctrlKey: true });
+  });
+  expect(screen.queryByText("elsewhere")).toBeNull();
   expect(textbox().value).toBe("first[[a#b]]");
   expect(screen.getByText(TITLE_SYNTAX_NOTICE)).toBeInTheDocument();
+  expect(sync.sent).toEqual([]);
+});
+
+test("a refused draft asks before the page unloads", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  const unload = () => {
+    const e = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(e);
+    return e.defaultPrevented;
+  };
+  refusedAtSave(sync);
+  expect(unload()).toBe(true);
+
   fireEvent.change(textbox(), { target: {
     value: "first[[ab]]", selectionStart: 9, selectionEnd: 9,
   } });
   fireEvent.blur(textbox());
-  expect(sync.sent.flat()).toEqual([{ op: "update_text", uid: "tuid-u1",
-    text: "first[[ab]]", base_text_hash: sha256Hex("first"),
-    page_title: "Page" }]);
+  expect(unload()).toBe(false);
 });
 
 test("stepping over a closer in a block holding a refused link is no edit",

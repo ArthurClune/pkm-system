@@ -7,7 +7,7 @@ import { subtreeHash } from "../replica/subtreeHash";
 import type { DeliveryOutcome, WriteTicket } from "../sync/opQueue";
 import { block, defer, makeSync, orderIdxOf, uidOf, shaOf, ticketIdOf, canonicalTitleOf } from "../test-helpers";
 import { acquireOutlineSession } from "./outlineSessions";
-import { historyIdle, performRedo, performUndo,
+import { HISTORY_BLOCKED_NOTICE, historyIdle, performRedo, performUndo,
          recordHistory, registerOutlineHistory, resetHistory,
          setAssetReleaser, setHistoryNavigator,
          setHistoryPageLoader } from "./undoManager";
@@ -80,10 +80,12 @@ it("an outline keeping a draft it may not save stops undo and redo",
     applyFocus: () => undefined,
     showNotice: () => undefined,
   });
-  expect(performUndo(sync)).toBe(false);
-  expect(performRedo(sync)).toBe(false);
+  const told: string[] = [];
+  expect(performUndo(sync, (n) => told.push(n))).toBe(false);
+  expect(performRedo(sync, (n) => told.push(n))).toBe(false);
   await historyIdle();
   expect(sync.sent).toEqual([]);
+  expect(told).toEqual([HISTORY_BLOCKED_NOTICE, HISTORY_BLOCKED_NOTICE]);
   unregister();
   expect(performUndo(sync)).toBe(true); // the entry is still there
 });

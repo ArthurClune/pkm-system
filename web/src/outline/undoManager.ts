@@ -142,10 +142,19 @@ export function recordHistory(entry: HistoryEntry): void {
   state = recordEntry(state, entry);
 }
 
-export function performUndo(sync: HistoryDispatch): boolean {
+/** Told to the outline that asked, when another outline's draft stops an
+ * undo or redo: that outline's own notice may be out of view. */
+export const HISTORY_BLOCKED_NOTICE =
+  "Undo and redo wait until a block whose text can't be saved is fixed.";
+
+export function performUndo(sync: HistoryDispatch,
+                            onBlocked?: (notice: string) => void): boolean {
   // a pending draft becomes the newest entry, then gets undone; one that
   // may not be saved stops the undo, which would move focus off it
-  if (!flushAll()) return false;
+  if (!flushAll()) {
+    onBlocked?.(HISTORY_BLOCKED_NOTICE);
+    return false;
+  }
   const { state: next, entry } = takeUndo(state);
   state = next;
   if (!entry) return false;
@@ -159,9 +168,13 @@ export function performUndo(sync: HistoryDispatch): boolean {
   return true;
 }
 
-export function performRedo(sync: HistoryDispatch): boolean {
+export function performRedo(sync: HistoryDispatch,
+                            onBlocked?: (notice: string) => void): boolean {
   // a pending draft is a NEW op: recording it clears redo (AC)
-  if (!flushAll()) return false;
+  if (!flushAll()) {
+    onBlocked?.(HISTORY_BLOCKED_NOTICE);
+    return false;
+  }
   const { state: next, entry } = takeRedo(state);
   state = next;
   if (!entry) return false;

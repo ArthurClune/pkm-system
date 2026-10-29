@@ -92,7 +92,7 @@ it("an explicit draft flush commits a held draft (navigation)", () => {
   const outline = setup(sync, PAGE, one());
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-a"), 0));
   act(() => outline().handlers.onDraftChange(uidOf("tuid-a"), "[[How LLM]]", true));
-  act(() => outline().handlers.onFlushDraft());
+  act(() => { outline().handlers.onFlushDraft(); });
   expect(sync.sent).toEqual([
     [{ op: "update_text", uid: "tuid-a", text: "[[How LLM]]",
       base_text_hash: sha256Hex(""), page_title: PAGE }],

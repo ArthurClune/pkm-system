@@ -8,6 +8,7 @@ import { ExternalLinkInterceptor } from "./components/ExternalLinkInterceptor";
 import { MenuIcon } from "./components/icons";
 import { NavPageLink } from "./components/NavPageLink";
 import { NavRouteLink } from "./components/NavRouteLink";
+import { DroppedDraftNotice } from "./components/DroppedDraftNotice";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import { UndoRedoKeys } from "./components/UndoRedoKeys";
 import { SidebarNav } from "./components/SidebarNav";
@@ -182,6 +183,7 @@ export function App() {
           <div className="app-shell" ref={appShellRef}>
             <div className="app-banner-stack" ref={bannerStackRef}>
               <OfflineIndicator />
+              <DroppedDraftNotice />
             </div>
             <div className={"app"
               + (sidebarCollapsed ? " nav-collapsed" : "")

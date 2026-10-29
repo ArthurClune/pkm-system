@@ -27,6 +27,15 @@ The live sqlite database (and its -wal/-shm) is excluded from the data
 mirror: copying a WAL-mode database file out from under the server is not a
 consistent snapshot, and the nightly snapshots under db/ already cover it.
 Restore day T = `restore --date T` for assets/config plus db/pkm-T.sqlite3.
+
+config.json is mirrored without its `session_secret` (it would let anyone who
+reads the iCloud folder mint a login cookie); every other key is kept, since
+a restore needs the password hash. The redacted bytes are built in memory and
+written straight to their place under --dest, so the secret never lands in
+iCloud, not even in a temp file. If config.json does not parse as a JSON
+object it is left out of the mirror and the run exits 1, after the rest of
+the backup has still been taken. `restore` gives the restored config a fresh
+secret, so every device has to log in again.
 """
 from __future__ import annotations
 
@@ -35,6 +44,7 @@ import datetime as dt
 import fnmatch
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import sys
@@ -46,6 +56,8 @@ from typing import Dict, Iterable, List, Optional, Tuple
 DATE_FMT = "%Y-%m-%d"
 DEFAULT_EXCLUDES = ["pkm.sqlite3", "pkm.sqlite3-wal", "pkm.sqlite3-shm", ".DS_Store"]
 Manifest = Dict[str, Tuple[int, int]]  # relpath -> (size, mtime_ns)
+CONFIG_NAME = "config.json"
+SECRET_KEY = "session_secret"
 
 
 # ---------------------------------------------------------------- helpers ---
@@ -80,6 +92,38 @@ def scan_tree(root: Path, excludes: List[str]) -> Manifest:
     return out
 
 
+def redact_config(raw: bytes) -> bytes:
+    """``raw`` config.json without its session secret; ValueError if it is
+    not a JSON object."""
+    try:
+        obj = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as e:
+        raise ValueError("config.json is not valid JSON: %s" % e)
+    if not isinstance(obj, dict):
+        raise ValueError("config.json is not a JSON object")
+    obj.pop(SECRET_KEY, None)
+    return json.dumps(obj, indent=2).encode("utf-8")
+
+
+def redact_live_config(live: Path, current: Manifest) -> Tuple[Dict[str, bytes], Optional[str]]:
+    """Swap config.json's manifest entry for the redacted copy's.
+
+    The size becomes the redacted size (restore checks sizes against the
+    manifest); the mtime stays the live file's, so editing the live file
+    still registers as a change. On a parse failure the file is dropped from
+    ``current`` and the reason returned.
+    """
+    if CONFIG_NAME not in current:
+        return {}, None
+    try:
+        redacted = redact_config((live / CONFIG_NAME).read_bytes())
+    except ValueError as e:
+        del current[CONFIG_NAME]
+        return {}, str(e)
+    current[CONFIG_NAME] = (len(redacted), current[CONFIG_NAME][1])
+    return {CONFIG_NAME: redacted}, None
+
+
 def write_json_atomic(path: Path, obj: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
@@ -104,6 +148,23 @@ def copy_file(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_name(dst.name + ".part")
     shutil.copy2(src, tmp)
+    os.replace(tmp, dst)
+
+
+def copy_source(live: Path, rel: str, dst: Path, overrides: Dict[str, bytes]) -> None:
+    """Copy live/rel to dst, or write its override bytes with live's mtime
+    and mode."""
+    if rel not in overrides:
+        copy_file(live / rel, dst)
+        return
+    st = os.stat(live / rel)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_name(dst.name + ".part")
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(overrides[rel])
+    os.chmod(tmp, st.st_mode & 0o7777)
+    os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
     os.replace(tmp, dst)
 
 
@@ -208,12 +269,13 @@ class DataMirror:
     def incr_dir(self, d: dt.date) -> Path:
         return self.incr_root / d.strftime(DATE_FMT)
 
-    def create_main(self, live: Path, manifest: Manifest, today: dt.date) -> None:
+    def create_main(self, live: Path, manifest: Manifest, today: dt.date,
+                    overrides: Dict[str, bytes]) -> None:
         tmp = self.root / "main.tmp"
         if tmp.exists():
             shutil.rmtree(tmp)
         for rel in manifest:
-            copy_file(live / rel, tmp / rel)
+            copy_source(live, rel, tmp / rel, overrides)
         if self.main.exists():
             shutil.rmtree(self.main)
         os.replace(tmp, self.main)
@@ -227,7 +289,8 @@ class DataMirror:
             return read_manifest(self.incr_dir(earlier[-1]) / "manifest.json")
         return read_manifest(self.main_manifest)
 
-    def write_incr(self, live: Path, current: Manifest, today: dt.date) -> Tuple[int, int]:
+    def write_incr(self, live: Path, current: Manifest, today: dt.date,
+                   overrides: Dict[str, bytes]) -> Tuple[int, int]:
         prev_date, prev = self.previous_manifest(today)
         if prev_date >= today:
             raise SystemExit("main snapshot (%s) is not older than today (%s); clock went backwards?"
@@ -245,7 +308,7 @@ class DataMirror:
             shutil.rmtree(tmp)
         (tmp / "files").mkdir(parents=True)
         for rel in changed:
-            copy_file(live / rel, tmp / "files" / rel)
+            copy_source(live, rel, tmp / "files" / rel, overrides)
         (tmp / "deleted.txt").write_text("".join(r + "\n" for r in deleted))
         write_json_atomic(tmp / "manifest.json", manifest_obj(today, current))
         if final.exists():
@@ -308,6 +371,29 @@ class DataMirror:
                              % (expected_date, len(mismatch), sorted(mismatch)[:3]))
         return copied, applied
 
+    def ensure_secret(self, out: Path) -> bool:
+        """Give a restored config.json a fresh session secret if it has none.
+
+        Run after the manifest check, which compares against the redacted
+        size. True when a secret was written.
+        """
+        path = out / CONFIG_NAME
+        if not path.exists():
+            return False
+        try:
+            obj = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError:
+            return False
+        if not isinstance(obj, dict) or SECRET_KEY in obj:
+            return False
+        obj[SECRET_KEY] = secrets.token_bytes(32).hex()
+        tmp = path.with_name(path.name + ".part")
+        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(obj, f, indent=2)
+        os.replace(tmp, path)
+        return True
+
 
 # -------------------------------------------------------------------- main ---
 
@@ -326,24 +412,29 @@ def cmd_backup(args: argparse.Namespace) -> int:
     mirror = DataMirror(dest / "data")
     excludes = DEFAULT_EXCLUDES + list(args.exclude or [])
     current = scan_tree(live, excludes)
+    overrides, config_error = redact_live_config(live, current)
+    if config_error:
+        print("icloud backup: config.json NOT mirrored: %s" % config_error, file=sys.stderr)
     if not mirror.main_manifest.exists():
-        mirror.create_main(live, current, today)
+        mirror.create_main(live, current, today, overrides)
         data_note = "main created (%d files)" % len(current)
         folded: List[dt.date] = []
     else:
-        changed, deleted = mirror.write_incr(live, current, today)
+        changed, deleted = mirror.write_incr(live, current, today, overrides)
         folded = mirror.fold(today, args.keep_days)
         data_note = "incr %s (+%d files, -%d)" % (today, changed, deleted)
     fold_note = (" folded=" + ",".join(d.strftime(DATE_FMT) for d in folded)) if folded else ""
     print("icloud backup ok: db copied=%d pruned=%d data: %s%s"
           % (db_copied, db_pruned, data_note, fold_note))
-    return 0
+    return 1 if config_error else 0
 
 
 def cmd_restore(args: argparse.Namespace) -> int:
     mirror = DataMirror(Path(args.dest) / "data")
     date = parse_date(args.date)
     copied, applied = mirror.restore(date, Path(args.out))
+    if mirror.ensure_secret(Path(args.out)):
+        print("config.json has a new session_secret: every device must log in again")
     db = Path(args.dest) / "db" / ("pkm-%s.sqlite3" % args.date)
     print("restored data dir as of %s to %s (%d files from main, %d incrementals applied)"
           % (args.date, args.out, copied, applied))

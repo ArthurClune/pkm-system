@@ -162,6 +162,11 @@ plus 30 days of changes. The data mirror excludes the live `pkm.sqlite3` and
 its `-wal`/`-shm` files, since a copy taken while the server runs is not a
 consistent snapshot; `db/` covers the database.
 
+The mirrored `config.json` has its `session_secret` removed; every other key
+stays, because a restore needs the password hash. If `config.json` does not
+parse as a JSON object it is left out of the mirror and the run exits 1
+(stderr says why); the rest of the backup is still taken.
+
 Restore the data dir as of a date into an empty folder, then pair it with
 the matching `db/` snapshot:
 
@@ -175,6 +180,9 @@ The restore checks the result against that day's manifest and fails on any
 mismatch. If iCloud has evicted files ("Optimize Mac Storage"), the restore
 and the nightly fold ask `brctl` to download them and wait. A file that never
 arrives aborts the run, and the next night retries.
+
+The restored `config.json` gets a fresh `session_secret` (mode `0600`), so
+every device logs in once more.
 
 ## Restore
 

@@ -260,6 +260,14 @@ The launchd service user needs:
 If the login is missing, the assistant returns an error in the chat and the
 rest of the app is unaffected.
 
+The harness receives only an allow-list of the service's environment
+([assistant.md § Harness confinement](../docs/architecture/assistant.md#harness-confinement)).
+`HOME`, `USER` and `CLAUDE_CONFIG_DIR` reach it. Proxy variables, CA-certificate
+variables (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`), `ANTHROPIC_BASE_URL`,
+`CLAUDE_CODE_OAUTH_TOKEN` and operator `CLAUDE_CODE_*` switches such as
+telemetry opt-outs do not. A variable the CLI needs must be added to
+`HOST_ENV` in `server/src/pkm/assistant/harness_env.py`.
+
 The optional `glm` model (z.ai GLM Coding Plan) is enabled by a key file at
 `$PKM_HOME/zai_key` (mode 600). Set a different path with `zai_api_key_file`
 in `config.json`; the `ZAI_API_KEY` env var is the fallback, and the file

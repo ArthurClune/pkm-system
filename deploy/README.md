@@ -162,10 +162,13 @@ plus 30 days of changes. The data mirror excludes the live `pkm.sqlite3` and
 its `-wal`/`-shm` files, since a copy taken while the server runs is not a
 consistent snapshot; `db/` covers the database.
 
-The mirrored `config.json` has its `session_secret` removed. Other files
-named like `config.json` (backups, editor swaps, temp files) are not
-mirrored. If `config.json` does not parse as a JSON object it is left out and
-the run exits 1 (stderr says why); the rest of the backup is still taken.
+The mirrored `config.json` has its `session_secret` removed, and any other
+file whose bytes contain the secret (a copy, a hard link, either hex case) is
+skipped. If `config.json` cannot be read or parsed as a JSON object it is not
+mirrored (the previous mirrored copy stays in the snapshot). Any of these
+makes the run print `PARTIAL`, say why on stderr and exit 1; the rest of the
+backup is still taken. Mirrors made by an earlier version hold the secret in
+their config copies: delete those copies and set a new `session_secret`.
 
 Restore the data dir as of a date into an empty folder, then pair it with
 the matching `db/` snapshot:

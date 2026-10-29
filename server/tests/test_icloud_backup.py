@@ -126,14 +126,14 @@ def test_restore_of_main_passes_manifest_check(env, tmp_path):
 def test_restore_keeps_a_secret_already_present(env, tmp_path):
     backup(env, "2026-10-01")
     mirrored = env[2] / "data/main/config.json"
-    cfg = json.loads(mirrored.read_text())
-    cfg["session_secret"] = NEW_SECRET
-    mirrored.write_text(json.dumps(cfg, indent=2))
+    old_style = json.dumps(_config(secret=NEW_SECRET), indent=2).encode()
+    mirrored.write_bytes(old_style)
+    manifest = env[2] / "data/main.manifest.json"
+    obj = json.loads(manifest.read_text())
+    obj["files"]["config.json"][0] = len(old_style)
+    manifest.write_text(json.dumps(obj))
     out = tmp_path / "r"
-    mirror = ib.DataMirror(env[2] / "data")
-    out.mkdir()
-    (out / "config.json").write_text(json.dumps(cfg))
-    assert mirror.ensure_secret(out) is False
+    assert restore(env, "2026-10-01", out) == 0
     assert json.loads((out / "config.json").read_text())["session_secret"] == NEW_SECRET
 
 
@@ -145,14 +145,6 @@ def test_unparsable_config_is_not_mirrored(env, capsys, raw):
     assert tree_has(env[2], SECRET) == []
     assert not (env[2] / "data/main/config.json").exists()
     assert (env[2] / "data/main/assets/a.txt").read_text() == "note"
-
-
-def test_config_turning_unparsable_later_drops_the_mirrored_copy(env):
-    backup(env, "2026-10-01")
-    (env[0] / "config.json").write_text("{broken " + SECRET)
-    assert backup(env, "2026-10-02") == 1
-    assert tree_has(env[2], SECRET) == []
-    assert "config.json\n" in (env[2] / "data/incr/2026-10-02/deleted.txt").read_text()
 
 
 def test_script_runs_under_system_python(env, tmp_path):
@@ -174,17 +166,6 @@ def test_script_runs_under_system_python(env, tmp_path):
     assert tree_has(dest, SECRET) == []
 
 
-@pytest.mark.parametrize("name", ["config.json.bak-2026-10-01-x", "config.json~",
-                                  ".config.json.abc.tmp", "config.json.swp"])
-def test_config_lookalike_files_are_not_mirrored(env, name):
-    (env[0] / name).write_text(json.dumps(_config()))
-    backup(env, "2026-10-01")
-    (env[0] / (name + "2")).write_text(json.dumps(_config()))
-    backup(env, "2026-10-02")
-    assert tree_has(env[2], SECRET) == []
-    assert (env[2] / "data/main/config.json").exists()
-
-
 def test_config_new_to_the_mirror_arrives_in_an_incremental(env, tmp_path):
     data = env[0]
     live = (data / "config.json").read_bytes()
@@ -198,3 +179,105 @@ def test_config_new_to_the_mirror_arrives_in_an_incremental(env, tmp_path):
     out = tmp_path / "r"
     assert restore(env, "2026-10-03", out) == 0
     assert "session_secret" in json.loads((out / "config.json").read_text())
+
+
+def _plant_copy(data, name):
+    path = data / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_config()))
+
+
+def _plant_hardlink(data, name):
+    path = data / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    os.link(data / "config.json", path)
+
+
+def _plant_symlink(data, name):
+    (data / name).symlink_to(data / "config.json")
+
+
+def _plant_straddle(data, name):
+    # CHUNK is monkeypatched to 100; the secret spans bytes 70..134
+    (data / name).write_bytes(b"x" * 70 + SECRET.encode() + b"y" * 70)
+
+
+def _plant_upper(data, name):
+    (data / name).write_text(SECRET.upper())
+
+
+LEAKY = [
+    ("config copy.json", _plant_copy), ("config 2.json", _plant_copy),
+    ("config.bak", _plant_copy), ("#config.json#", _plant_copy),
+    ("CONFIG.JSON.bak", _plant_copy), ("assets/config.json", _plant_copy),
+    ("assets/cfg.bin", _plant_hardlink), ("assets/link.json", _plant_symlink),
+    ("assets/big.bin", _plant_straddle), ("assets/up.txt", _plant_upper),
+    ("config.json.bak-x", _plant_copy), (".config.json.abc.tmp", _plant_copy),
+]
+
+
+@pytest.mark.parametrize("name,plant", LEAKY, ids=[n for n, _ in LEAKY])
+def test_no_file_holding_the_secret_is_mirrored(env, monkeypatch, name, plant):
+    monkeypatch.setattr(ib, "CHUNK", 100)
+    plant(env[0], name)
+    assert backup(env, "2026-10-01") in (0, 1)
+    backup(env, "2026-10-02")
+    plant(env[0], name + ".later" if "/" not in name else name.replace(".", "-l.", 1))
+    backup(env, "2026-10-03")
+    assert tree_has(env[2], SECRET) == []
+    assert tree_has(env[2], SECRET.upper()) == []
+    assert (env[2] / "data/main/config.json").exists()
+
+
+def test_a_leaking_file_exits_1_and_says_partial(env, capsys):
+    _plant_copy(env[0], "assets/c copy.json")
+    assert backup(env, "2026-10-01") == 1
+    cap = capsys.readouterr()
+    assert "NOT mirrored" in cap.err and "PARTIAL" in cap.out
+    assert not (env[2] / "data/main/assets/c copy.json").exists()
+    assert (env[2] / "data/main/assets/a.txt").exists()
+
+
+def test_leak_manifest_stays_restorable(env, tmp_path):
+    _plant_copy(env[0], "assets/c copy.json")
+    backup(env, "2026-10-01")
+    assert restore(env, "2026-10-01", tmp_path / "r") == 0
+
+
+def test_uppercase_config_name_is_redacted(env):
+    (env[0] / "config.json").rename(env[0] / "Config.json")
+    assert backup(env, "2026-10-01") == 0
+    assert tree_has(env[2], SECRET) == []
+    assert (env[2] / "data/main/Config.json").exists()
+
+
+@pytest.mark.parametrize("breaker", ["chmod", "deep"])
+def test_unreadable_or_pathological_config_is_not_mirrored(env, capsys, breaker):
+    cfg = env[0] / "config.json"
+    if breaker == "chmod":
+        cfg.chmod(0)
+        if os.access(cfg, os.R_OK):
+            pytest.skip("running as a user that ignores modes")
+    else:
+        cfg.write_text("[" * 100000)
+    try:
+        assert backup(env, "2026-10-01") == 1
+    finally:
+        cfg.chmod(0o600)
+    assert "NOT mirrored" in capsys.readouterr().err
+    assert (env[2] / "data/main/assets/a.txt").exists()
+    assert not (env[2] / "data/main/config.json").exists()
+
+
+def test_failing_config_keeps_last_good_copy_in_that_days_snapshot(env, tmp_path):
+    backup(env, "2026-10-01")
+    (env[0] / "config.json").write_text("{trunc " + SECRET)
+    assert backup(env, "2026-10-02") == 1
+    set_config(env, extra_setting=2)
+    assert backup(env, "2026-10-03") == 0
+    for day, extra in (("2026-10-01", None), ("2026-10-02", None), ("2026-10-03", 2)):
+        out = tmp_path / day
+        assert restore(env, day, out) == 0
+        got = json.loads((out / "config.json").read_text())
+        assert got.get("extra_setting") == extra
+    assert tree_has(env[2], SECRET) == []

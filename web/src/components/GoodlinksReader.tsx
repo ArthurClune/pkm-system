@@ -17,6 +17,7 @@ import type { GoodlinksArticle } from "../api/payloads";
 import { apiGet } from "../api/typedClient";
 import { useEffectiveTheme } from "../useEffectiveTheme";
 import { failureNote, formatSaved, READER_SANDBOX, readerDocument, type ReaderPalette } from "./goodlinksReaderDoc";
+import { isSafeHref } from "./InlineSegments";
 import { useOverlayDismiss } from "./useOverlayDismiss";
 
 type ReaderState =
@@ -74,9 +75,9 @@ export function GoodlinksReader({ linkId, onClose, triggerRef }: {
       <div className="goodlinks-reader-bar">
         <div className="goodlinks-reader-meta">
           <span className="goodlinks-reader-title">{title}</span>
-          {article && (
-            <a href={article.url} target="_blank" rel="noreferrer">original</a>
-          )}
+          {article && (isSafeHref(article.url)
+            ? <a href={article.url} target="_blank" rel="noreferrer">original</a>
+            : <span>{article.url}</span>)}
           {saved && <span>{saved}</span>}
         </div>
         <button type="button" className="btn-secondary" ref={closeRef} onClick={onClose}>

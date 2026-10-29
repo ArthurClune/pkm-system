@@ -90,9 +90,9 @@ app's own no-cors form posts send `Origin: null`, which the guard refuses
 | `/api/assistant/*` | an LLM harness over the `pkm-mcp` tools; notes go to Anthropic or z.ai | see [Embedded assistant](#embedded-assistant) | [assistant.md](architecture/assistant.md) |
 | `POST /api/client/diagnostics` | the server log | writes the posted body to the log and nothing else, cut at `_MAX_DIAGNOSTICS_LOG_CHARS` (`routes_sync.py`); control characters in it are escaped, so it cannot forge a log line | [backend.md § Logging](architecture/backend.md#logging-and-observability) |
 
-In the browser, links rendered from markdown reject `javascript:` and
-protocol-relative URLs (`isSafeHref`). The GoodLinks reader's "original"
-link is rendered from GoodLinks' answer with no such check.
+In the browser, every link the app renders, from markdown or from GoodLinks'
+answer (the reader's "original" link), rejects `javascript:` and
+protocol-relative URLs (`isSafeHref`); an unsafe URL shows as plain text.
 
 A URL the browser fetches unprompted is an outbound channel for whoever wrote
 the markdown, the assistant's approved writes included. In an assistant reply

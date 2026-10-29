@@ -15,7 +15,6 @@ nothing but its credential file's path.
 from __future__ import annotations
 
 import re
-import shlex
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -31,7 +30,10 @@ ZAI_SDK_MODEL = "sonnet"
 
 # The CLI reads its subscription login from the macOS Keychain by running
 # `security`, found on PATH, for the account named by USER; the two
-# CLAUDE_*_DIR variables pick which Keychain service holds it.
+# CLAUDE_*_DIR variables pick which Keychain service holds it. When the
+# server has no locale set, the launcher's Python sets LC_CTYPE=C.UTF-8
+# (PEP 538 coercion, which -I does not stop) and the CLI receives it: the
+# server's own Python coerces the same way, so the CLI got it before too.
 HOST_ENV: tuple[str, ...] = (
     "PATH", "HOME", "USER", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE",
     "CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR",
@@ -87,22 +89,30 @@ def harness_env_names(harness: HarnessEnv) -> tuple[str, ...]:
     return tuple(dict.fromkeys((*HOST_ENV, *SDK_ENV, *sorted(harness.env))))
 
 
-def launcher_script(cli: str, names: Sequence[str]) -> str:
-    """A shell script that runs `cli` with only `names` from its own
+def launcher_script(cli: str, names: Sequence[str], python: str) -> str:
+    """A Python script that execs `cli` with only `names` from its own
     environment.
 
-    Each name becomes one `${NAME+"NAME=$NAME"}` word: an unset name adds
-    nothing, and a set one reaches `env` as a single argument whatever its
-    value holds. `exec` keeps the pid the SDK signals the CLI's own.
+    Values never reach an argv and pass no shell, so a set name arrives
+    byte-identical and an unset one, PATH included, stays unset. `-I` keeps
+    the script's directory and PYTHON* variables out of its imports, and the
+    exec keeps the pid the SDK signals the CLI's own.
     """
-    if "=" in cli:
-        # env would take the CLI for another variable assignment
-        raise ValueError(f"CLI path contains '=': {cli!r}")
+    if any(char.isspace() for char in python):
+        raise ValueError(f"a shebang line cannot carry {python!r}")
     for name in names:
         if not _ENV_NAME.fullmatch(name):
             raise ValueError(f"not an environment variable name: {name!r}")
-    kept = "".join(f' ${{{name}+"{name}=${name}"}}' for name in names)
-    return f'#!/bin/sh\nexec {ENV_BIN} -i{kept} {shlex.quote(cli)} "$@"\n'
+    return (
+        f"#!{python} -I\n"
+        "import os\n"
+        "import sys\n"
+        f"CLI = {cli!r}\n"
+        f"NAMES = {tuple(names)!r}\n"
+        "os.execve(CLI, [CLI, *sys.argv[1:]],\n"
+        "          {name: os.environ[name] for name in NAMES"
+        " if name in os.environ})\n"
+    )
 
 
 def mcp_server_config(python: str, config_path: str,

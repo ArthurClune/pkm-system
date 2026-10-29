@@ -510,11 +510,11 @@ class ClaudeEngine:
         return path
 
     def _write_launcher(self, names: Sequence[str]) -> Path:
-        fd, raw_path = tempfile.mkstemp(prefix="pkm-assistant-", suffix=".sh", dir=self._config_dir)
+        fd, raw_path = tempfile.mkstemp(prefix="pkm-assistant-", suffix=".py", dir=self._config_dir)
         path = Path(raw_path)
         try:
             with os.fdopen(fd, "w") as fh:
-                fh.write(launcher_script(harness_cli(), names))
+                fh.write(launcher_script(harness_cli(), names, sys.executable))
             os.chmod(path, 0o700)
         except BaseException:
             path.unlink(missing_ok=True)

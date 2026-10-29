@@ -227,7 +227,7 @@ def test_create_conversation_factory_failure_unlinks_config(tmp_path):
 
 def test_a_failed_launcher_write_leaves_no_credential_file(tmp_path,
                                                           monkeypatch):
-    def refuse(cli, names):
+    def refuse(*args):
         raise OSError("disk full")
 
     monkeypatch.setattr(claude_engine, "launcher_script", refuse)

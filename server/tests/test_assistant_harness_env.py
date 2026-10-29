@@ -90,52 +90,59 @@ def test_no_secret_or_routing_name_is_kept():
         assert refused.isdisjoint(names), model
 
 
-def _launcher(tmp_path: Path, names: list[str],
-              cli_name: str = "dumper") -> tuple[Path, Path]:
-    """A launcher for a CLI that dumps its environment to `env.json`."""
-    dump = tmp_path / "env.json"
+def _received(tmp_path: Path, names: list[str], env: dict[str, str],
+              cli_name: str = "cli") -> dict[str, str]:
+    """The environment a CLI started through the launcher receives.
+
+    The CLI is `/usr/bin/env -0` under `cli_name`: unlike a Python dumper it
+    adds no variable of its own.
+    """
     cli = tmp_path / cli_name
-    cli.write_text(f"#!{sys.executable}\n"
-                   "import json, os\n"
-                   f"json.dump(dict(os.environ), open({str(dump)!r}, 'w'))\n")
-    cli.chmod(0o700)
-    launcher = tmp_path / "launcher.sh"
-    launcher.write_text(launcher_script(str(cli), names))
+    cli.symlink_to("/usr/bin/env")
+    launcher = tmp_path / "launcher"
+    launcher.write_text(launcher_script(str(cli), names, sys.executable))
     launcher.chmod(0o700)
-    return launcher, dump
+    out = subprocess.run([launcher, "-0"], env=env, check=True,
+                         capture_output=True).stdout.decode()
+    return dict(entry.split("=", 1) for entry in out.split("\0") if entry)
 
 
 def test_launcher_passes_kept_values_byte_identical(tmp_path):
-    launcher, dump = _launcher(tmp_path, ["HOME", "ODD"])
     odd = "x \"y\" $z '\n' w"
-    subprocess.run([launcher], check=True,
-                   env={"HOME": "/Users/a b", "ODD": odd, "SECRET": "s"})
-    env = json.loads(dump.read_text())
-    assert env["HOME"] == "/Users/a b"
-    assert env["ODD"] == odd
-    assert "SECRET" not in env
+    received = _received(tmp_path, ["HOME", "ODD"],
+                         {"HOME": "/Users/a b", "ODD": odd, "SECRET": "s"})
+    assert received == {"HOME": "/Users/a b", "ODD": odd}
 
 
 def test_launcher_leaves_a_missing_name_unset(tmp_path):
-    launcher, dump = _launcher(tmp_path, ["HOME", "ODD"])
-    subprocess.run([launcher], check=True, env={"ODD": "1"})
-    assert "HOME" not in json.loads(dump.read_text())
+    received = _received(tmp_path, list(HOST_ENV), {"USER": "u"})
+    # The launcher's Python sets LC_CTYPE=C.UTF-8 when it finds no locale
+    # (PEP 538 coercion, which -I does not stop), and LC_CTYPE is kept.
+    assert received.pop("LC_CTYPE", "C.UTF-8") == "C.UTF-8"
+    assert received == {"USER": "u"}
 
 
-def test_launcher_quotes_the_cli_path(tmp_path):
-    launcher, dump = _launcher(tmp_path, ["HOME"], cli_name="it's a cli")
-    subprocess.run([launcher], check=True, env={"HOME": "/h"})
-    assert json.loads(dump.read_text())["HOME"] == "/h"
+def test_launcher_leaves_an_unset_path_unset(tmp_path):
+    received = _received(tmp_path, ["PATH", "HOME"], {"HOME": "/h"})
+    assert received == {"HOME": "/h"}
 
 
-def test_launcher_refuses_a_name_the_shell_would_interpret():
+def test_launcher_runs_a_cli_path_holding_quotes_and_shell_syntax(tmp_path):
+    received = _received(tmp_path, ["HOME"], {"HOME": "/h"},
+                         cli_name="it's a \"cli\" =$(id) `id`")
+    assert received == {"HOME": "/h"}
+
+
+def test_launcher_refuses_a_name_that_is_not_an_environment_name():
     with pytest.raises(ValueError):
-        launcher_script("/x", ["A;rm"])
+        launcher_script("/x", ["A;rm"], "/py")
 
 
-def test_launcher_refuses_a_cli_path_env_would_parse_as_an_assignment():
+@pytest.mark.parametrize("python", ["/a b/python", "/a\nb/python",
+                                    "/a\tb/python"])
+def test_launcher_refuses_an_interpreter_a_shebang_cannot_carry(python):
     with pytest.raises(ValueError):
-        launcher_script("/a=b/claude", ["HOME"])
+        launcher_script("/x", ["HOME"], python)
 
 
 def test_mcp_server_config_runs_pkm_mcp_under_an_empty_environment():

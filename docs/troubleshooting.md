@@ -329,6 +329,14 @@ Owner: [assistant.md](architecture/assistant.md)
 | The assistant's allowed write overwrote an edit made in the editor while its approval card was open; a batch update had no guard at all | The only guard was `base_text_hash`, computed when the tool ran rather than from the text the card showed, and batch updates sent none. Allow now carries the card's `expect` to the server | [assistant.md § The write approval card](architecture/assistant.md#the-write-approval-card) | pkm-6fcv |
 | An allowed assistant write was refused ("…changed after the approval card showed it, so nothing was written") yet its tool line showed `✓`, and only the model's reply said so; a declined write also showed `✓` | `TurnMapper` dropped the result's `is_error`. A write's `ToolFinished` now carries the reason, or `declined`, and the line shows `.assistant-tool-failed` or `Declined` | [assistant.md § A write's result](architecture/assistant.md#a-writes-result) | pkm-0214 |
 
+## Property checks
+
+Owner: [checks.md § Property gate](architecture/checks.md#property-gate)
+
+| Symptom | Cause | Where | Ref |
+|---|---|---|---|
+| A full server `pytest` run fails a `with_floors` share, e.g. `('batch input: blank', 4, 92)`, and passes when rerun | A run's draws are correlated, so a label's share is heavy-tailed (blank fell to 1 of 86 in one run of 60), and floors sat above half the lowest share. Floors are now half the lowest of 60 runs, or the generator draws the case more often | [checks.md § Property gate](architecture/checks.md#property-gate) | pkm-v4uc, pkm-36zw, pkm-76sh |
+
 ## Performance checks
 
 Owner: [checks.md § Performance gate](architecture/checks.md#performance-gate)

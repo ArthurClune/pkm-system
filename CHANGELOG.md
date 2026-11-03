@@ -495,3 +495,14 @@ No product change.
 
 - A block that is wholly one code fence or one display-math block edits in the code font, so typed columns line up as they render.
 - The browser's SQLite updated to 3.54.1, which ships the crash-recovery fix the app had patched in locally.
+
+## 2026-10-29 — The last security fixes, dependency upgrades, and drafts kept on refused links
+
+- A link to a title with a character page titles forbid is refused on save with a notice, and the draft is kept.
+- The iCloud backup mirror leaves out the session secret; a restore writes a new one, so each device logs in again once.
+- The assistant's subprocesses start with only the environment they need.
+- Server and web dependencies upgraded past published advisories.
+- The assistant panel marks a batch that skipped some of its writes with a warning.
+- Tests reach further into page unlinking, deep deletes, and over-long text in replayed offline edits.
+- Fixed bugs in the GoodLinks reader's original link and the importer's report of over-long titles.
+- SECURITY.md updated for the fixes, closing the security epic `pkm-mfd0`.

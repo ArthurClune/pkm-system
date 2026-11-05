@@ -9,9 +9,8 @@ from collections.abc import Sequence
 
 from mcp.server.fastmcp import FastMCP
 
-from pkm.mcp.tools import (DEFAULT_MAX_CHARS, MAX_RESULT_CHARS, TOOLS,
-                           get_block, get_page, require_expect,
-                           set_max_chars)
+from pkm.mcp.tools import (DEFAULT_MAX_CHARS, MAX_RESULT_CHARS, READ_TOOL_NAMES,
+                           TOOLS, require_expect, set_max_chars)
 
 _RESULT_META = {"anthropic/maxResultSizeChars": MAX_RESULT_CHARS}
 
@@ -31,7 +30,7 @@ def build_server(names: Sequence[str] | None = None) -> FastMCP:
             # Plain text, not FastMCP's default `{"result": ...}`: Claude
             # Code measures and hands on that JSON, whose escaping makes it
             # longer than the budget pkm-mcp held the text to.
-            bounded = fn in (get_page, get_block)
+            bounded = fn.__name__ in READ_TOOL_NAMES
             server.tool(structured_output=False if bounded else None,
                         meta=_RESULT_META if bounded else None)(fn)
     return server

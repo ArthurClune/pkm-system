@@ -58,7 +58,8 @@ def require_expect() -> None:
 
 
 def set_max_chars(n: int) -> None:
-    """From now on, get_page and get_block outline past `n` characters."""
+    """From now on, get_page and get_block outline, and the list tools cut
+    to a partial list, past `n` characters."""
     global _max_chars
     _max_chars = n
 

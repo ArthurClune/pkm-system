@@ -22,10 +22,9 @@ from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
 from pkm.contracts.ops import BlockUid, ExpectedBlock
 from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.todo import TaskMark
-from pkm.render import (render_assets, render_backlinks, render_block,
-                        render_changed, render_groups, render_ops_ack,
-                        render_page,
-                        render_search)
+from pkm.render import (render_assets, render_backlinks,
+                        render_block_bounded, render_changed, render_groups,
+                        render_ops_ack, render_page_bounded, render_search)
 
 _client_factory = lambda: PkmClient(client_api.load_mcp_config())  # noqa: E731
 _cached_client: PkmClient | None = None
@@ -35,6 +34,13 @@ _cached_client: PkmClient | None = None
 # refuses one from the model; a call without it means the card's input
 # never reached this tool, so it is refused rather than run unguarded.
 _require_expect = False
+DEFAULT_MAX_CHARS = 45_000
+# The result size get_page and get_block declare to Claude Code through
+# their `anthropic/maxResultSizeChars` meta. Claude Code saves a longer
+# result to a file instead of passing it on (50,000 characters for a tool
+# that declares nothing), so --max-chars stays at or under it.
+MAX_RESULT_CHARS = 100_000
+_max_chars = DEFAULT_MAX_CHARS
 
 
 def _client() -> PkmClient:
@@ -48,6 +54,12 @@ def require_expect() -> None:
     """From now on, update_block and batch refuse a call without `expect`."""
     global _require_expect
     _require_expect = True
+
+
+def set_max_chars(n: int) -> None:
+    """From now on, get_page and get_block outline past `n` characters."""
+    global _max_chars
+    _max_chars = n
 
 
 def _card_expect(tool: str, expect: Sequence[ExpectedBlock] | None
@@ -66,17 +78,23 @@ def get_page(title: RawTitle, resolve_refs: bool = False) -> str:
     """Fetch a page as a markdown outline. Blocks are annotated with
     trailing ^uid markers usable with update_block/batch. `title` may be
     a daily-note title like 'July 19th, 2026'. resolve_refs=True inlines
-    ((uid)) block refs as '"referenced text" ((uid))'."""
-    return render_page(_client().get_page(title), include_uids=True,
-                       resolve_refs=resolve_refs)
+    ((uid)) block refs as '"referenced text" ((uid))'. A page past a size
+    limit comes back as an outline headed "(Outline only: ...)" instead;
+    its ^uids fetch the parts with get_block. Pick the part that answers
+    the question rather than fetching them all."""
+    return render_page_bounded(_client().get_page(title), _max_chars,
+                               resolve_refs=resolve_refs)
 
 
 def get_block(uid: BlockUid, resolve_refs: bool = False) -> str:
     """Fetch one block's subtree (with its page and breadcrumb context)
     as markdown with ^uid markers. resolve_refs=True inlines ((uid)) block
-    refs as '"referenced text" ((uid))'."""
-    return render_block(_client().get_block(uid), include_uids=True,
-                        resolve_refs=resolve_refs)
+    refs as '"referenced text" ((uid))'. A subtree past a size limit comes
+    back as an outline headed "(Outline only: ...)" instead; its ^uids
+    fetch the parts with get_block. Pick the part that answers the
+    question rather than fetching them all."""
+    return render_block_bounded(_client().get_block(uid), _max_chars,
+                                resolve_refs=resolve_refs)
 
 
 def search(q: str, limit: int = 20, exact: bool = False) -> str:

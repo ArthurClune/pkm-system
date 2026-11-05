@@ -62,13 +62,17 @@ def _line(text: str, heading: int | None, depth: int, uid: BlockUid,
     return f"{'  ' * depth}{bullet}{suffix}"
 
 
+def _resolved(n: BlockNode, ref_map: RefMap | None) -> str:
+    return resolve_ref_texts(n.text, ref_map) if ref_map is not None \
+        else n.text
+
+
 def _bullets(nodes: Sequence[BlockNode], depth: int, include_uids: bool,
             ref_map: RefMap | None) -> list[str]:
     out: list[str] = []
     for n in nodes:
-        text = resolve_ref_texts(n.text, ref_map) if ref_map is not None \
-            else n.text
-        out.append(_line(text, n.heading, depth, n.uid, include_uids))
+        out.append(_line(_resolved(n, ref_map), n.heading, depth, n.uid,
+                         include_uids))
         out.extend(_bullets(n.children, depth + 1, include_uids, ref_map))
     return out
 
@@ -88,6 +92,100 @@ def render_block(payload: BlockPayload, include_uids: bool = False,
     lines = [f"(in: {crumbs})", ""]
     lines.extend(_bullets([payload.block], 0, include_uids, ref_map))
     return "\n".join(lines) + "\n"
+
+
+OUTLINE_TEXT_CHARS = 200
+_CLIPPED = " \u2026[clipped]"
+
+
+def _subtree_chars(n: BlockNode, depth: int, ref_map: RefMap | None) -> int:
+    """Characters `_bullets` emits for `n` and its descendants, newlines
+    included, so root sizes sum to the body of the full render."""
+    own = len(_line(_resolved(n, ref_map), n.heading, depth, n.uid, True)) + 1
+    return own + sum(_subtree_chars(c, depth + 1, ref_map)
+                     for c in n.children)
+
+
+def _tree_depth(nodes: Sequence[BlockNode]) -> int:
+    return 1 + max((_tree_depth(n.children) for n in nodes), default=0) \
+        if nodes else 0
+
+
+def _outline_lines(nodes: Sequence[BlockNode], depth: int, levels: int,
+                   ref_map: RefMap | None) -> list[str]:
+    out: list[str] = []
+    for n in nodes:
+        text = _resolved(n, ref_map)
+        first = text.split("\n", 1)[0]
+        clipped = len(first) > OUTLINE_TEXT_CHARS or first != text
+        shown = first[:OUTLINE_TEXT_CHARS] + (_CLIPPED if clipped else "")
+        cut = clipped or (bool(n.children) and depth + 1 >= levels)
+        size = f"  ({_subtree_chars(n, depth, ref_map):,} chars)" if cut \
+            else ""
+        mark = f"{'#' * n.heading} " if n.heading else ""
+        out.append(f"{'  ' * depth}- {mark}{shown}  ^{n.uid}{size}")
+        if depth + 1 < levels:
+            out.extend(_outline_lines(n.children, depth + 1, levels,
+                                      ref_map))
+    return out
+
+
+def _outline(head: str, noun: str, what: str, lead: Sequence[str],
+             roots: Sequence[BlockNode], depth: int, ref_map: RefMap | None,
+             full_len: int, max_chars: int) -> str:
+    """The deepest outline of `roots`, starting at `depth` after the `lead`
+    lines, that fits `max_chars` under `head`."""
+    for levels in range(depth + _tree_depth(roots), depth, -1):
+        unit = "level" if levels == 1 else "levels"
+        note = (f"(Outline only: the full {noun} is {full_len:,} characters,"
+                f" over this tool's {max_chars:,}-character limit. Shown"
+                f' {levels} {unit} deep; "(N chars)" marks a block not shown'
+                " in full. Fetch one with get_block(uid).)")
+        body = "\n".join([*lead, *_outline_lines(roots, depth, levels,
+                                                  ref_map)])
+        out = f"{head}\n\n{note}\n\n{body}\n"
+        if len(out) <= max_chars:
+            return out
+    raise RenderError(
+        f"{what} is {full_len:,} characters and even its top-level outline"
+        f" is over the {max_chars:,}-character limit; use search instead")
+
+
+def render_page_bounded(payload: PagePayload, max_chars: int,
+                        resolve_refs: bool = False) -> str:
+    """The full uid-annotated render when it fits `max_chars`, else the
+    deepest outline that does. Raises RenderError when not even the
+    top-level outline fits."""
+    full = render_page(payload, include_uids=True, resolve_refs=resolve_refs)
+    if len(full) <= max_chars:
+        return full
+    ref_map = payload.block_ref_texts if resolve_refs else None
+    return _outline(f"# {payload.page.title}", "page", "the page", [],
+                    payload.blocks, 0, ref_map, len(full), max_chars)
+
+
+def render_block_bounded(payload: BlockPayload, max_chars: int,
+                         resolve_refs: bool = False) -> str:
+    """`render_page_bounded` for one block's subtree. The block's own text
+    is always shown whole, since no other tool returns it; only its
+    children are outlined. Raises RenderError when that text alone is over
+    `max_chars`."""
+    full = render_block(payload, include_uids=True,
+                        resolve_refs=resolve_refs)
+    if len(full) <= max_chars:
+        return full
+    block = payload.block
+    ref_map = payload.block_ref_texts if resolve_refs else None
+    crumbs = " > ".join([payload.page.title, *payload.breadcrumbs])
+    head = f"(in: {crumbs})"
+    own = _line(_resolved(block, ref_map), block.heading, 0, block.uid, True)
+    if len(f"{head}\n\n{own}\n") > max_chars:
+        raise RenderError(
+            f"block {block.uid} alone is {len(own):,} characters, over the"
+            f" {max_chars:,}-character limit, and cannot be split; use"
+            " search to find the passage")
+    return _outline(head, "block", f"block {block.uid}", [own],
+                    block.children, 1, ref_map, len(full), max_chars)
 
 
 def render_search(payload: SearchPayload, compact: bool = False) -> str:

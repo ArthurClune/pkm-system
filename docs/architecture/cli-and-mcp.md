@@ -30,8 +30,8 @@ otherwise).
 
 | Tool | Kind | Does |
 |---|---|---|
-| `get_page` | read | a page as a `^uid`-annotated markdown outline |
-| `get_block` | read | one block's subtree with page + breadcrumb context |
+| `get_page` | read | a page as a `^uid`-annotated markdown outline; past the character budget, a shallower outline instead |
+| `get_block` | read | one block's subtree with page + breadcrumb context; outlined past the budget as `get_page` is |
 | `search` | read | full-text over page titles and block text |
 | `query` | read | structured block query (`{and: [[A]] [[B]]}`, Roam syntax) |
 | `backlinks` | read | everything referencing `[[title]]`, grouped by source page |
@@ -43,6 +43,20 @@ otherwise).
 | `batch` | write | several commands in one atomic transaction; skipped ops are flagged with `warning:`; `expect` as for `update_block` |
 | `upload_asset` | write, `pkm-mcp` only | upload a local file and link it from a page |
 | `rename_page` | write | retitle a page, rewriting every reference to it; 409 unless `allow_merge`; 422 when a rewritten block would be past a [text limit](backend.md#page-mutations-and-the-sidebar) |
+
+`get_page` and `get_block` stay within `--max-chars` (`DEFAULT_MAX_CHARS`,
+set through `set_max_chars`) by rendering through `render_page_bounded` and
+`render_block_bounded`: the full render when it fits, else the deepest outline
+that does, and a `RenderError` when even the top level, or a block's own text,
+is over. A `get_block` outline keeps the block's own text whole and outlines
+only its children, because no other tool returns that text. Both tools return plain text rather than FastMCP's `{"result": ...}`
+structured content, whose JSON escaping would make the result Claude Code
+measures longer than the budget. Claude Code saves a result over 50,000
+characters to a file, so both tools declare `MAX_RESULT_CHARS` in their
+`anthropic/maxResultSizeChars` meta and `--max-chars` refuses anything above
+it. `DEFAULT_MAX_CHARS` also passes Claude Code's default token cap on its
+`chars / 4` estimate. The assistant raises both the budget and its token cap
+([assistant.md § Harness confinement](assistant.md#harness-confinement)).
 
 The operator checks `pkm local check` and `pkm goodlinks check` have no MCP
 counterpart ([docs/cli.md](../cli.md#reading)).

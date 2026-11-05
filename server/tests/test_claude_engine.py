@@ -111,7 +111,8 @@ def test_create_conversation_options_and_config_file(tmp_path):
     assert opts.strict_mcp_config is True
     assert opts.include_partial_messages is True
     assert opts.max_turns == 40
-    assert opts.env == {"ENABLE_TOOL_SEARCH": "false"}
+    assert opts.env == {"ENABLE_TOOL_SEARCH": "false",
+                        "MAX_MCP_OUTPUT_TOKENS": "40000"}
     assert set(opts.allowed_tools) == {
         f"mcp__pkm__{t}" for t in ("get_page", "get_block", "search", "query", "backlinks", "todos",
                                     "changed_blocks", "search_assets")
@@ -124,7 +125,7 @@ def test_create_conversation_options_and_config_file(tmp_path):
               if arg.startswith("PKM_CLI_CONFIG="))
     assert args[at + 1:] == [sys.executable, "-m", "pkm.mcp.server", "--tools",
                              ",".join(READ_TOOLS + WRITE_TOOLS),
-                             "--require-expect"]
+                             "--require-expect", "--max-chars", "75000"]
     cfg_path = Path(args[at].removeprefix("PKM_CLI_CONFIG="))
     assert cfg_path.parent == tmp_path
     assert stat.S_IMODE(cfg_path.stat().st_mode) == 0o600

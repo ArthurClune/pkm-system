@@ -4,7 +4,9 @@ import pytest
 
 from pkm.render import (clip_depth, render_assets, render_backlinks,
                         render_block, render_changed, render_groups,
-                        render_page, render_search,
+                        render_block_bounded, render_page,
+                        render_page_bounded, render_search,
+                        RenderError,
                         render_title_migration_apply,
                         render_title_migration_audit)
 from pkm.contracts.responses import (AssetRef, AssetSearchItem,
@@ -637,3 +639,109 @@ def test_render_ops_ack_names_a_cycle_skip():
                           ).splitlines()[1] == (
         "  move ^uid_b2: target is the block itself or one of its"
         " descendants; noted on [[September 28th, 2026]]")
+
+
+def _page(blocks, refs=None) -> PagePayload:
+    return PagePayload(page=_meta(canonical_title_of("T")), blocks=blocks,
+                       backlinks=NO_BACKLINKS, block_ref_texts=refs or {},
+                       block_ref_counts={})
+
+
+def _three_levels():
+    leaf = _node(uid_of("tuid-leaf"), "L" * 5000)
+    mid = _node(uid_of("tuid-mid"), "middle", [leaf])
+    top = _node(uid_of("tuid-top"), "top", [mid])
+    return _page([top]), top, mid
+
+
+def test_bounded_page_that_fits_is_the_full_render():
+    full = render_page(PAGE, include_uids=True)
+    assert render_page_bounded(PAGE, len(full)) == full
+
+
+def test_bounded_page_over_budget_outlines_to_the_deepest_fitting_level():
+    page, top, mid = _three_levels()
+    full = render_page(page, include_uids=True)
+    depth3 = render_page_bounded(page, len(full) - 1)
+    assert "Shown 3 levels deep" in depth3
+    out = render_page_bounded(page, len(depth3) - 100)
+    assert out.startswith("# T\n\n(Outline only: the full page is ")
+    assert "Shown 2 levels deep" in out
+    assert "^tuid-top" in out and "^tuid-mid" in out
+    shallow = render_page_bounded(page, len(out) - 1)
+    assert "Shown 1 level deep;" in shallow
+    assert "^tuid-leaf" not in out
+    size = len(full[full.index("  - middle"):])
+    assert f"({size:,} chars)" in out
+
+
+def test_outline_clips_long_and_multiline_text_and_keeps_heading():
+    uid = uid_of("tuid-big")
+    big = _node(uid, "A" * 300 + "\nsecond", heading=2)
+    page = _page([big, _node(uid_of("tuid-o"), "x" * 2000)])
+    out = render_page_bounded(page, 800)
+    line = next(ln for ln in out.splitlines() if "^tuid-big" in ln)
+    assert line.startswith("- ## " + "A" * 200 + " \u2026[clipped]  ^tuid-big"
+                           "  (")
+    assert line.endswith(" chars)")
+    assert "second" not in out
+
+
+def test_outline_measures_after_resolve_refs():
+    target = uid_of("tuid-tgt")
+    refs = {target: BlockRefText(text="R" * 3000, page_title=canonical_title_of("P"))}
+    kids = [_node(uid_of("tuid-k"), f"(({target}))")]
+    page = _page([_node(uid_of("tuid-p"), "parent " * 200, kids)], refs)
+    plain = len(render_page(page, include_uids=True))
+    assert render_page_bounded(page, plain) == render_page(
+        page, include_uids=True)
+    out = render_page_bounded(page, plain, True)
+    assert "Outline only" in out
+    assert len(out) <= plain
+    assert f'- "{"R" * 100}' in out
+
+
+def test_outline_refuses_when_top_level_alone_is_over_budget():
+    page = _page([_node(uid_of(f"tuid-n{i}"), "short") for i in range(50)])
+    with pytest.raises(RenderError, match="use search"):
+        render_page_bounded(page, 500)
+
+
+def test_bounded_block_refuses_a_leaf_too_big_by_itself():
+    payload = BlockPayload(page=PAGE.page,
+                           block=_node(uid_of("tuid-u3"), "x" * 1000),
+                           breadcrumbs=[], block_ref_texts={})
+    with pytest.raises(RenderError, match="alone is .* cannot be split"):
+        render_block_bounded(payload, 300)
+
+
+def test_bounded_block_refuses_own_text_over_budget_even_with_children():
+    kid = _node(uid_of("tuid-k1"), "small")
+    payload = BlockPayload(page=PAGE.page,
+                           block=_node(uid_of("tuid-u3"), "x" * 1000, [kid]),
+                           breadcrumbs=[], block_ref_texts={})
+    with pytest.raises(RenderError, match="alone is .* cannot be split"):
+        render_block_bounded(payload, 600)
+
+
+def test_bounded_block_shows_its_own_long_text_in_full():
+    own = "R" * 3000 + "\nsecond line"
+    kids = [_node(uid_of(f"tuid-c{i}"), "c" * 3000) for i in range(5)]
+    payload = BlockPayload(page=PAGE.page,
+                           block=_node(uid_of("tuid-u3"), own, kids),
+                           breadcrumbs=[], block_ref_texts={})
+    out = render_block_bounded(payload, 6000)
+    assert "(Outline only:" in out
+    assert f"\n- {own}  ^tuid-u3\n" in out
+    assert all(f"^tuid-c{i}" in out for i in range(5))
+    assert len(out) <= 6000
+
+
+def test_bounded_block_outlines_with_breadcrumbs():
+    kids = [_node(uid_of(f"tuid-c{i}"), "c" * 300) for i in range(10)]
+    payload = BlockPayload(page=PAGE.page,
+                           block=_node(uid_of("tuid-u3"), "root", kids),
+                           breadcrumbs=["Papers"], block_ref_texts={})
+    out = render_block_bounded(payload, 3000)
+    assert out.startswith("(in: Machine Learning > Papers)\n\n"
+                          "(Outline only: the full block is ")

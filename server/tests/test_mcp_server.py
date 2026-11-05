@@ -2,14 +2,17 @@ import asyncio
 import json
 
 import pytest
+from mcp import types
 from mcp.server.fastmcp import FastMCP
 
 from pkm.planning import BuildError
 from pkm.client.core import ApiError
 from pkm.mcp import server as mcp_server
 from pkm.mcp import tools as mcp_tools
-from pkm.contracts.ops import BatchId, text_hash
-from pkm.test_data.ids import batch_id_of, uid_of
+from pkm.contracts.ops import BatchId, BlockUid, text_hash
+from pkm.contracts.titles import RawTitle
+from pkm.render import RenderError
+from pkm.test_data.ids import batch_id_of, raw_title_of, uid_of
 
 
 @pytest.fixture()
@@ -72,6 +75,106 @@ def test_get_page_normalizes_control_whitespace_title(tools, pkm_client):
 
     assert out.startswith("# Ctrl Title\n")
     assert "mcp body" in out
+
+
+def _seed_big_page(pkm_client, title: RawTitle, parent_uid: BlockUid):
+    ops = [{"op": "create_page", "page_title": title},
+           {"op": "create", "uid": parent_uid, "page_title": title,
+            "parent_uid": None, "order_idx": 0, "text": "outline parent"}]
+    for i in range(3):
+        ops.append({"op": "create", "uid": f"{parent_uid[:9]}c{i}",
+                    "page_title": title, "parent_uid": parent_uid,
+                    "order_idx": i, "text": f"child {i} " + "word " * 400})
+    pkm_client.post_ops(ops, batch_id=f"{parent_uid}-batch-0001")
+
+
+def test_get_page_outlines_over_the_budget(tools, pkm_client, monkeypatch):
+    _seed_big_page(pkm_client, raw_title_of("Outline Big Page"), uid_of("mcpoutpg001"))
+    monkeypatch.setattr(tools, "_max_chars", 3000)
+    out = tools.get_page("Outline Big Page")
+    assert "(Outline only:" in out
+    assert "^mcpoutpg001" in out
+    assert len(out) <= 3000
+
+
+def test_get_block_outlines_over_the_budget(tools, pkm_client, monkeypatch):
+    _seed_big_page(pkm_client, raw_title_of("Outline Big Block"), uid_of("mcpoutbk001"))
+    monkeypatch.setattr(tools, "_max_chars", 3000)
+    out = tools.get_block("mcpoutbk001")
+    assert "(Outline only:" in out
+    assert "^mcpoutbk001" in out
+    assert len(out) <= 3000
+
+
+def test_get_page_raises_when_even_the_outline_is_over_budget(
+        tools, pkm_client, monkeypatch):
+    _seed_big_page(pkm_client, raw_title_of("Outline Tiny Budget"), uid_of("mcpouttb001"))
+    monkeypatch.setattr(tools, "_max_chars", 60)
+    with pytest.raises(RenderError, match="use search"):
+        tools.get_page("Outline Tiny Budget")
+
+
+def test_get_block_refuses_a_block_whose_own_text_is_over_budget(
+        tools, pkm_client, monkeypatch):
+    _seed_big_page(pkm_client, raw_title_of("Outline Own Text"),
+                   uid_of("mcpoutot001"))
+    monkeypatch.setattr(tools, "_max_chars", 30)
+    with pytest.raises(RenderError, match="cannot be split"):
+        tools.get_block("mcpoutot001")
+
+
+def test_bounded_tools_are_plain_text_under_a_raised_result_limit():
+    listed = {t.name: t
+              for t in asyncio.run(mcp_server.build_server().list_tools())}
+    for name in ("get_page", "get_block"):
+        assert listed[name].outputSchema is None, name
+        assert listed[name].meta == {
+            "anthropic/maxResultSizeChars": mcp_tools.MAX_RESULT_CHARS}
+    assert listed["search"].meta is None
+
+
+def test_get_page_through_fastmcp_has_no_structured_wrapper(tools):
+    server = mcp_server.build_server(["get_page"])
+    request = types.CallToolRequest(params=types.CallToolRequestParams(
+        name="get_page", arguments={"title": "Machine Learning"}))
+    handler = server._mcp_server.request_handlers[types.CallToolRequest]
+
+    async def call() -> types.ServerResult:
+        return await handler(request)
+
+    result = asyncio.run(call()).root
+    assert isinstance(result, types.CallToolResult)
+    assert result.structuredContent is None
+    [content] = result.content
+    assert isinstance(content, types.TextContent)
+    assert content.text == tools.get_page("Machine Learning")
+
+
+def test_get_page_under_default_budget_is_unchanged(tools, pkm_client):
+    from pkm.render import render_page
+    assert tools.get_page("Machine Learning") == render_page(
+        pkm_client.get_page("Machine Learning"), include_uids=True)
+
+
+def test_main_passes_max_chars_through(monkeypatch):
+    monkeypatch.setattr(FastMCP, "run", lambda self, *a, **k: None)
+    monkeypatch.setattr(mcp_tools, "_max_chars", mcp_tools._max_chars)
+    mcp_server.main(["--max-chars", "1234"])
+    assert mcp_tools._max_chars == 1234
+
+
+def test_main_rejects_a_non_positive_max_chars():
+    with pytest.raises(SystemExit):
+        mcp_server.main(["--max-chars", "0"])
+
+
+def test_main_rejects_max_chars_over_the_declared_result_limit(monkeypatch):
+    monkeypatch.setattr(FastMCP, "run", lambda self, *a, **k: None)
+    monkeypatch.setattr(mcp_tools, "_max_chars", mcp_tools._max_chars)
+    limit = mcp_tools.MAX_RESULT_CHARS
+    mcp_server.main(["--max-chars", str(limit)])
+    with pytest.raises(SystemExit):
+        mcp_server.main(["--max-chars", str(limit + 1)])
 
 
 def test_get_block(tools):

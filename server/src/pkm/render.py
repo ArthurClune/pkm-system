@@ -229,20 +229,28 @@ def render_groups(payload: GroupsPayload, include_uids: bool = True) -> str:
 def _bounded_list(head: Sequence[str],
                   groups: Sequence[tuple[str, Sequence[tuple[str, str, BlockUid]]]],
                   total: int, pages_total: int, full_len: int, max_chars: int,
-                  hint: str, what: str) -> str:
+                  hint: str, pages_floor: bool = False) -> str:
     """The longest prefix of `groups` (title, [(prefix, text, uid)]) that
     fits `max_chars` after `head` and a partial-list note, whole items in
     order. The note's counts describe what is shown, so each candidate is
-    measured with the note it would carry."""
+    measured with the note it would carry. `pages_floor` marks
+    `pages_total` as a lower bound (the route cut its own list)."""
+    plus = "+" if pages_floor else ""
     def build(shown: int, body: list[list[str]]) -> str:
         note = (f"(Partial list: showing {shown} of {total} blocks from"
-                f" {len(body)} of {pages_total} pages; the full result is"
+                f" {len(body)} of {pages_total}{plus} pages; the full result is"
                 f" {full_len:,} characters, over this tool's"
-                f" {max_chars:,}-character limit. {hint})")
+                f" {max_chars:,}-character limit. {hint}"
+                " A \u2026[clipped] line's full text is get_block(uid).)")
         parts = [*head, *([""] if head else []), note]
         for lines in body:
             parts += ["", *lines]
         return "\n".join(parts) + "\n"
+
+    def refuse() -> RenderError:
+        return RenderError(
+            f"the result is {full_len:,} characters and not even its first"
+            f" block fits the {max_chars:,}-character limit. {hint}")
 
     body: list[list[str]] = []
     shown = 0
@@ -253,12 +261,11 @@ def _bounded_list(head: Sequence[str],
                 else [*body[:-1], [*body[-1], line]]
             if len(build(shown + 1, trial)) > max_chars:
                 if not shown:
-                    raise RenderError(
-                        f"{what} is {full_len:,} characters and not even its"
-                        f" first block fits the {max_chars:,}-character"
-                        " limit; use search instead")
+                    raise refuse()
                 return build(shown, body)
             body, shown = trial, shown + 1
+    if not shown:
+        raise refuse()
     return build(shown, body)
 
 
@@ -274,7 +281,7 @@ def render_groups_bounded(payload: GroupsPayload, max_chars: int,
     groups = [(g.page_title, [("", i.text, i.uid) for i in g.items])
               for g in payload.groups]
     return _bounded_list([], groups, payload.total, len(groups), len(full),
-                         max_chars, hint, "the result")
+                         max_chars, hint)
 
 
 def _local(ms: int, tz: tzinfo) -> datetime:
@@ -322,8 +329,9 @@ def render_changed_bounded(payload: ChangedPayload, tz: tzinfo,
                [(f"[{_local(i.updated_at, tz).strftime(fmt) if i.updated_at is not None else '?'}]"
                  f" {i.status}: ", i.text, i.uid) for i in g.items])
               for g in payload.groups]
+    returned = sum(len(g.items) for g in payload.groups)
     return _bounded_list([], groups, payload.total, len(groups), len(full),
-                         max_chars, hint, "the result")
+                         max_chars, hint, payload.total > returned)
 
 
 def render_backlinks(title: RawTitle, backlinks: Backlinks) -> str:
@@ -348,8 +356,7 @@ def render_backlinks_bounded(title: RawTitle, backlinks: Backlinks,
     hint = f"Narrow it with query, e.g. {{and: [[{title}]] [[Other]]}}."
     return _bounded_list(
         [f"# Backlinks: {title} ({backlinks.total_pages} pages)"], groups,
-        total, backlinks.total_pages, len(full), max_chars, hint,
-        "the result")
+        total, backlinks.total_pages, len(full), max_chars, hint)
 
 
 def render_assets(payload: AssetSearchPayload) -> str:

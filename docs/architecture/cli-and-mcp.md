@@ -57,8 +57,9 @@ only its children, because no other tool returns that text.
 longer one keeps whole items in payload order, clips each item's text at
 `OUTLINE_TEXT_CHARS` and ends every line `  ^{uid}`. It opens with a
 `(Partial list: ...)` note giving the shown and total counts, the full size and
-a hint on narrowing the call, so the assistant knows the result is cut and how
-to ask again. The CLI keeps the unbounded renderers.
+a hint on narrowing the call, and how to read a clipped line (its full text is
+`get_block(uid)`), so the assistant knows the result is cut and how to ask
+again. The CLI keeps the unbounded renderers.
 
 Every tool in `READ_TOOL_NAMES` returns plain text rather than FastMCP's
 `{"result": ...}` structured content (`structured_output=False`), whose JSON

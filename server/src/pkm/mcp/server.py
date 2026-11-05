@@ -49,8 +49,8 @@ def main(argv: Sequence[str] | None = None) -> None:
              "assistant's approval card sets it)")
     parser.add_argument(
         "--max-chars", type=int, default=DEFAULT_MAX_CHARS,
-        help="size past which get_page and get_block return an outline "
-             f"(default: {DEFAULT_MAX_CHARS})")
+        help="size past which get_page/get_block return an outline and "
+             f"the list tools a partial list (default: {DEFAULT_MAX_CHARS})")
     args = parser.parse_args(argv)
     if not 0 < args.max_chars <= MAX_RESULT_CHARS:
         parser.error(

@@ -1,5 +1,7 @@
 from datetime import timedelta, timezone
 
+import re
+
 import pytest
 
 from pkm.render import (clip_depth, render_assets, render_backlinks,
@@ -793,7 +795,7 @@ def test_partial_list_clips_multiline_text():
         page_id=page_id_of(1), page_title=canonical_title_of("AI"),
         items=[GroupItem(uid=uid_of("tuid-m1"),
                          text="x" * 500 + "\nsecond")])], total=2)
-    out = render_groups_bounded(p, 400, HINT)
+    out = render_groups_bounded(p, 500, HINT)
     assert f"- {'x' * 200} \u2026[clipped]  ^tuid-m1" in out
     assert "second" not in out
 
@@ -836,15 +838,45 @@ def test_bounded_backlinks_note_and_uids():
 
 def test_bounded_list_refuses_when_first_item_cannot_fit():
     p = _big_groups(1, 2)
-    with pytest.raises(RenderError):
+    with pytest.raises(RenderError, match=r"Narrow it with page=\.$"):
         render_groups_bounded(p, 50, HINT)
     bl = Backlinks(groups=[BacklinkGroup(
         page_id=page_id_of(3), page_title=canonical_title_of("Src"),
         items=[BacklinkItem(uid=uid_of("tuid-k1"), text="b" * 300,
                             breadcrumbs=[])])], total_pages=1, offset=0,
         limit=100)
-    with pytest.raises(RenderError):
+    with pytest.raises(RenderError, match=r"Narrow it with query"):
         render_backlinks_bounded(raw_title_of("T"), bl, 60)
+
+
+def test_bounded_list_with_no_items_over_budget_raises():
+    empty = GroupsPayload(groups=[BlockGroup(
+        page_id=page_id_of(1), page_title=canonical_title_of("T" * 300),
+        items=[])], total=0)
+    with pytest.raises(RenderError, match=r"Narrow it with page=\.$"):
+        render_groups_bounded(empty, 50, HINT)
+
+
+def test_partial_list_note_says_how_to_read_a_clipped_line():
+    out = render_groups_bounded(_big_groups(3, 4), 1450, HINT)
+    assert (f"{HINT} A \u2026[clipped] line's full text is get_block(uid).)"
+            in out)
+
+
+def test_bounded_changed_page_total_is_a_floor_when_route_limit_hit():
+    from datetime import datetime
+    when = _ms(datetime(2026, 9, 24, 9, 5, tzinfo=TZ))
+    groups = [ChangedGroup(
+        page_id=page_id_of(n), page_title=canonical_title_of(f"P{n}"),
+        items=[ChangedItem(uid=uid_of(f"tuid-d{n}{i}"), text="c" * 300,
+                           created_at=when, updated_at=when, status="new")
+               for i in range(3)]) for n in range(1, 4)]
+    p = ChangedPayload(
+        groups=groups, total=900,
+        since=_ms(datetime(2026, 9, 24, 0, 0, tzinfo=TZ)),
+        until=_ms(datetime(2026, 9, 25, 0, 0, tzinfo=TZ)))
+    out = render_changed_bounded(p, TZ, 1500, HINT)
+    assert re.search(r"of 900 blocks from \d+ of 3\+ pages", out)
 
 
 def _sized_groups(sizes: list[int]) -> GroupsPayload:
@@ -871,7 +903,7 @@ def test_bounded_list_stops_at_first_item_that_does_not_fit():
 
 
 def test_bounded_list_budget_is_tight_across_digit_growth():
-    p = _sized_groups([40] * 14)
+    p = _sized_groups([40] * 30)
     full = len(render_groups(p))
     prev_len = None
     prev_shown = 0

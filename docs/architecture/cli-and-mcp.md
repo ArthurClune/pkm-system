@@ -47,10 +47,16 @@ otherwise).
 `get_page` and `get_block` stay within `--max-chars` (`DEFAULT_MAX_CHARS`,
 set through `set_max_chars`) by rendering through `render_page_bounded` and
 `render_block_bounded`: the full render when it fits, else the deepest outline
-that does, and a `RenderError` when even the top level, or one childless block,
-is over. The default sits under Claude Code's default MCP output cap, so a
-result is never diverted to an overflow file the model cannot read; the
-assistant passes its own value ([assistant.md](assistant.md)).
+that does, and a `RenderError` when even the top level, or a block's own text,
+is over. A `get_block` outline keeps the block's own text whole and outlines
+only its children, because no other tool returns that text. Both tools return plain text rather than FastMCP's `{"result": ...}`
+structured content, whose JSON escaping would make the result Claude Code
+measures longer than the budget. Claude Code saves a result over 50,000
+characters to a file, so both tools declare `MAX_RESULT_CHARS` in their
+`anthropic/maxResultSizeChars` meta and `--max-chars` refuses anything above
+it. `DEFAULT_MAX_CHARS` also passes Claude Code's default token cap on its
+`chars / 4` estimate. The assistant raises both the budget and its token cap
+([assistant.md § Harness confinement](assistant.md#harness-confinement)).
 
 The operator checks `pkm local check` and `pkm goodlinks check` have no MCP
 counterpart ([docs/cli.md](../cli.md#reading)).

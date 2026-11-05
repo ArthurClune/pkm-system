@@ -94,7 +94,13 @@ holds the rationale.
 |---|---|---|
 | `exact` | the count rises | ratchets down |
 | `band` | the count exceeds the recorded `max` | lowers `min` only |
-| `timing` | the value passes `TIMING_FACTOR` times the baseline | reported as `faster`, never recorded |
+| `timing` | the value is clearly slower than the baseline | reported as `faster`, never recorded |
+
+A timing is clearly slower (`_clearly_slower`) when it passes
+`TIMING_FACTOR` times the other value and also by more than
+`TIMING_FLOOR_MS`. The floor exists because scheduling noise alone doubles a
+median of a few milliseconds. A real slowdown on such a small path is more
+work, which its `exact` and `band` counts catch.
 
 The check that measures a metric declares its class, so a reclassification is
 a reviewed change. A worse value is a candidate until `confirm()` has re-run
@@ -105,9 +111,9 @@ it on the branch and run it at the merge base:
 | any | the baseline accepts it | not run | `unstable` |
 | `exact`, `band` | still worse | also worse than the baseline | `stale-baseline` |
 | `exact`, `band` | still worse | not worse | `regression` |
-| `timing` | still worse | missing, or the re-run is past `TIMING_FACTOR` times it | `regression` |
-| `timing` | still worse | within `TIMING_FACTOR` times it, and also worse than the baseline | `stale-baseline` |
-| `timing` | still worse | within `TIMING_FACTOR` times it, and not worse than the baseline | `unstable` |
+| `timing` | still worse | missing, or the re-run is clearly slower than it | `regression` |
+| `timing` | still worse | the re-run is not clearly slower than it, and also worse than the baseline | `stale-baseline` |
+| `timing` | still worse | the re-run is not clearly slower than it, and not worse than the baseline | `unstable` |
 
 A reproduced timing is judged against that merge-base run, not the baseline,
 because the two runs share the machine's load.

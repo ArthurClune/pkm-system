@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from perfcheck import run, run_core
-from perfcheck.compare import TIMING_FACTOR, Comparison, Finding
+from perfcheck.compare import TIMING_FACTOR, TIMING_FLOOR_MS, Comparison, Finding
 
 
 def test_sides_for():
@@ -68,7 +68,7 @@ def test_next_steps_one_line_per_verdict_present():
     assert run_core.next_steps("backend", ["improvement", "new"]) == []
     faster = run_core.next_steps("backend", ["faster"])[0]
     assert faster.startswith("faster:") and "perf/check.sh backend --bootstrap" in faster
-    assert "{" not in faster and f"{TIMING_FACTOR:g}" in faster
+    assert "{" not in faster and f"{TIMING_FACTOR:g}" in faster and f"{TIMING_FLOOR_MS:g} ms" in faster
     assert run_core.next_steps("backend", ["faster", "regression"])[0].startswith("regression:")
 
 

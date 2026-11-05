@@ -68,6 +68,23 @@ def test_timing_flags_past_factor_and_never_lowers_the_baseline():
     assert c.candidates == () and c.blocking == ()
 
 
+def test_small_timing_must_also_move_past_the_floor():
+    # at a few ms, scheduling noise alone doubles a median; real slowdowns on
+    # such paths show in their exact and band counts instead
+    base = doc({"s": {"median_ms": tm(3.0)}})
+    assert compare(base, doc({"s": {"median_ms": tm(7.0)}})).findings == ()
+    assert kinds(compare(base, doc({"s": {"median_ms": tm(9.0)}}))) == {
+        ("s", "median_ms"): "candidate"}
+    assert compare(base, doc({"s": {"median_ms": tm(1.0)}})).findings == ()
+
+
+def test_large_timing_is_still_governed_by_the_factor():
+    base = doc({"s": {"median_ms": tm(100.0)}})
+    assert kinds(compare(base, doc({"s": {"median_ms": tm(210.0)}}))) == {
+        ("s", "median_ms"): "candidate"}
+    assert compare(base, doc({"s": {"median_ms": tm(190.0)}})).findings == ()
+
+
 def test_faster_timing_does_not_stop_other_improvements_being_recorded():
     base = doc({"s": {"median_ms": tm(10.0), "statements": ex(4)}})
     c = compare(base, doc({"s": {"median_ms": tm(1.0), "statements": ex(3)}}))
@@ -159,3 +176,14 @@ def test_render_table_names_outcome():
     out = render_table([Finding("backlinks/hub", "statements", "candidate", "4", "204")],
                        {("backlinks/hub", "statements"): "regression"})
     assert "| backlinks/hub | statements | 4 | 204 | regression |" in out
+
+
+def test_confirm_applies_the_floor_against_the_merge_base_run():
+    base = doc({"s": {"ms": tm(3.0)}})
+    cand = [Finding("s", "ms", "candidate", "3.0", "9.0")]
+    rerun = doc({"s": {"ms": tm(9.0)}})
+
+    def verdict(mb_ms):
+        return confirm(base, cand, rerun, doc({"s": {"ms": tm(mb_ms)}}))[("s", "ms")]
+    assert verdict(3.0) == "regression"   # 3x and 6 ms slower than base now
+    assert verdict(4.2) == "unstable"     # past 2x but only 4.8 ms: noise

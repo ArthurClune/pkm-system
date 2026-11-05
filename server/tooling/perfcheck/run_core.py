@@ -8,7 +8,7 @@ import re
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 
-from perfcheck.compare import TIMING_FACTOR, Comparison, Outcome
+from perfcheck.compare import TIMING_FACTOR, TIMING_FLOOR_MS, Comparison, Outcome
 
 # e2e specs and docs under web/ don't change what the browser runs
 _SIDES = (("backend", lambda p: p.startswith("server/")),
@@ -35,7 +35,8 @@ _NEXT = {
             "and give the reason in the commit message",
     "reclassified": "reclassified: a metric changed class; re-record with "
                     "`perf/check.sh {side} --bootstrap` and give the reason in the commit message",
-    "faster": f"faster: a timing beat its baseline by more than {TIMING_FACTOR:g}x, which machine "
+    "faster": f"faster: a timing beat its baseline by more than {TIMING_FACTOR:g}x and "
+              f"{TIMING_FLOOR_MS:g} ms, which machine "
               "load can also cause; one run never lowers a timing baseline — if the gain is "
               "real, record it with `perf/check.sh {side} --bootstrap` on a quiet machine",
 }

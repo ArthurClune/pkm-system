@@ -3,7 +3,8 @@
 
 Every metric carries a class declared by the check that produced it:
 `exact` counts must not rise, `band` counts must stay under the max seen at
-bootstrap, `timing` values must not clearly worsen. Exact and band
+bootstrap, `timing` values must not clearly worsen (past `TIMING_FACTOR`
+times the baseline and by more than `TIMING_FLOOR_MS`). Exact and band
 improvements are folded into `Comparison.new_baseline` so they cannot
 silently erode later; a timing never is (machine load moves timings both
 ways, so one fast run is only reported as `faster`). A worsened value is
@@ -19,6 +20,9 @@ from dataclasses import dataclass
 from typing import Literal
 
 TIMING_FACTOR = 2.0
+# Scheduling noise alone can double a median of a few ms. The counts still
+# catch more SQL work on such a path; slower Python under the floor goes unseen.
+TIMING_FLOOR_MS = 5.0
 
 Kind = Literal["candidate", "improvement", "faster", "new", "lost", "reclassified"]
 Outcome = Literal["regression", "unstable", "stale-baseline"]
@@ -68,6 +72,10 @@ def _as_baseline(m: dict) -> dict:
     return {"class": m["class"], "value": m["value"]}
 
 
+def _clearly_slower(now: float, then: float) -> bool:
+    return now > then * TIMING_FACTOR and now - then > TIMING_FLOOR_MS
+
+
 def _judge(base: dict, now: dict) -> tuple[Judgement, dict]:
     """Verdict for one metric plus the baseline metric to keep."""
     v = now["value"]
@@ -86,9 +94,9 @@ def _judge(base: dict, now: dict) -> tuple[Judgement, dict]:
             # lowers max
             return "improvement", {"class": "band", "min": v, "max": base["max"]}
         return "pass", base
-    if v > base["value"] * TIMING_FACTOR:
+    if _clearly_slower(v, base["value"]):
         return "candidate", base
-    if v * TIMING_FACTOR < base["value"]:
+    if _clearly_slower(base["value"], v):
         # reported only: load can make a run fast as easily as slow
         return "faster", base
     return "pass", base
@@ -163,7 +171,7 @@ def _confirm_timing(baseline: dict, f: Finding, rerun: dict, merge_base: dict | 
     first run shares; so the branch is judged against the merge base measured
     in the same confirmation, not against the stored baseline."""
     now, mb = _metric(rerun, f), _metric(merge_base, f)
-    if mb is None or now is None or now["value"] > mb["value"] * TIMING_FACTOR:
+    if mb is None or now is None or _clearly_slower(now["value"], mb["value"]):
         return "regression"
     if _still_worse(baseline, f, merge_base):
         return "stale-baseline"

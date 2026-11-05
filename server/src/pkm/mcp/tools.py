@@ -35,6 +35,11 @@ _cached_client: PkmClient | None = None
 # never reached this tool, so it is refused rather than run unguarded.
 _require_expect = False
 DEFAULT_MAX_CHARS = 45_000
+# The result size get_page and get_block declare to Claude Code through
+# their `anthropic/maxResultSizeChars` meta. Claude Code saves a longer
+# result to a file instead of passing it on (50,000 characters for a tool
+# that declares nothing), so --max-chars stays at or under it.
+MAX_RESULT_CHARS = 100_000
 _max_chars = DEFAULT_MAX_CHARS
 
 

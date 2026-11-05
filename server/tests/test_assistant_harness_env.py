@@ -19,6 +19,7 @@ from pkm.assistant.harness_env import (
     resolve_harness_env,
 )
 from pkm.assistant.policy import MODELS, ZAI_MODELS
+from pkm.mcp.tools import MAX_RESULT_CHARS
 
 
 def test_claude_models_get_the_tool_loading_env_and_nothing_else():
@@ -28,8 +29,12 @@ def test_claude_models_get_the_tool_loading_env_and_nothing_else():
                             "MAX_MCP_OUTPUT_TOKENS": "40000"}
 
 
-def test_mcp_max_chars_stays_under_the_always_pass_bound():
-    assert MCP_MAX_CHARS < 2 * MCP_OUTPUT_TOKENS
+def test_mcp_max_chars_fits_the_result_size_pkm_mcp_declares():
+    assert MCP_MAX_CHARS <= MAX_RESULT_CHARS
+
+
+def test_mcp_max_chars_passes_the_token_cap_on_its_estimate():
+    assert MCP_MAX_CHARS <= 2 * MCP_OUTPUT_TOKENS
 
 
 def test_a_configured_zai_key_never_leaks_into_a_claude_run():

@@ -9,8 +9,11 @@ from collections.abc import Sequence
 
 from mcp.server.fastmcp import FastMCP
 
-from pkm.mcp.tools import (DEFAULT_MAX_CHARS, TOOLS, require_expect,
+from pkm.mcp.tools import (DEFAULT_MAX_CHARS, MAX_RESULT_CHARS, TOOLS,
+                           get_block, get_page, require_expect,
                            set_max_chars)
+
+_RESULT_META = {"anthropic/maxResultSizeChars": MAX_RESULT_CHARS}
 
 
 def build_server(names: Sequence[str] | None = None) -> FastMCP:
@@ -25,7 +28,12 @@ def build_server(names: Sequence[str] | None = None) -> FastMCP:
     server = FastMCP("pkm")
     for fn in TOOLS:
         if names is None or fn.__name__ in names:
-            server.tool()(fn)
+            # Plain text, not FastMCP's default `{"result": ...}`: Claude
+            # Code measures and hands on that JSON, whose escaping makes it
+            # longer than the budget pkm-mcp held the text to.
+            bounded = fn in (get_page, get_block)
+            server.tool(structured_output=False if bounded else None,
+                        meta=_RESULT_META if bounded else None)(fn)
     return server
 
 
@@ -45,8 +53,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="size past which get_page and get_block return an outline "
              f"(default: {DEFAULT_MAX_CHARS})")
     args = parser.parse_args(argv)
-    if args.max_chars <= 0:
-        parser.error("--max-chars must be greater than 0")
+    if not 0 < args.max_chars <= MAX_RESULT_CHARS:
+        parser.error(
+            f"--max-chars must be between 1 and {MAX_RESULT_CHARS}")
     set_max_chars(args.max_chars)
     names = args.tools.split(",") if args.tools is not None else None
     if args.require_expect:

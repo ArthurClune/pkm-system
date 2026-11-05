@@ -46,11 +46,16 @@ SDK_ENV: tuple[str, ...] = (
 )
 ENV_BIN = "/usr/bin/env"
 
-# Claude Code passes an MCP result straight through when its `chars / 4`
-# estimate is at most half the token cap, and otherwise counts tokens and may
-# write the result to an overflow file the assistant cannot read. So the
-# pkm-mcp budget must stay under 2 * MCP_OUTPUT_TOKENS, or a result it
-# bounded can still be lost to the harness.
+# Claude Code has two gates on an MCP result, and failing either one saves
+# the result to a file the assistant, with tools=[], cannot open:
+# - the token cap, MAX_MCP_OUTPUT_TOKENS: a result whose `chars / 4`
+#   estimate is at most half the cap passes uncounted, so the budget stays
+#   at or under 2 * MCP_OUTPUT_TOKENS;
+# - a size limit on the returned text: 50,000 characters, or the tool's
+#   `anthropic/maxResultSizeChars` meta when it declares one. pkm-mcp
+#   declares MAX_RESULT_CHARS for get_page and get_block and returns them as
+#   plain text, so the budget stays at or under MAX_RESULT_CHARS.
+# At 75,000 all but a few pages load whole; the rest come back outlined.
 MCP_OUTPUT_TOKENS = 40_000
 MCP_MAX_CHARS = 75_000
 

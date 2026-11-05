@@ -668,6 +668,8 @@ def test_bounded_page_over_budget_outlines_to_the_deepest_fitting_level():
     assert out.startswith("# T\n\n(Outline only: the full page is ")
     assert "Shown 2 levels deep" in out
     assert "^tuid-top" in out and "^tuid-mid" in out
+    shallow = render_page_bounded(page, len(out) - 1)
+    assert "Shown 1 level deep;" in shallow
     assert "^tuid-leaf" not in out
     size = len(full[full.index("  - middle"):])
     assert f"({size:,} chars)" in out
@@ -713,11 +715,33 @@ def test_bounded_block_refuses_a_leaf_too_big_by_itself():
         render_block_bounded(payload, 300)
 
 
+def test_bounded_block_refuses_own_text_over_budget_even_with_children():
+    kid = _node(uid_of("tuid-k1"), "small")
+    payload = BlockPayload(page=PAGE.page,
+                           block=_node(uid_of("tuid-u3"), "x" * 1000, [kid]),
+                           breadcrumbs=[], block_ref_texts={})
+    with pytest.raises(RenderError, match="alone is .* cannot be split"):
+        render_block_bounded(payload, 600)
+
+
+def test_bounded_block_shows_its_own_long_text_in_full():
+    own = "R" * 3000 + "\nsecond line"
+    kids = [_node(uid_of(f"tuid-c{i}"), "c" * 3000) for i in range(5)]
+    payload = BlockPayload(page=PAGE.page,
+                           block=_node(uid_of("tuid-u3"), own, kids),
+                           breadcrumbs=[], block_ref_texts={})
+    out = render_block_bounded(payload, 6000)
+    assert "(Outline only:" in out
+    assert f"\n- {own}  ^tuid-u3\n" in out
+    assert all(f"^tuid-c{i}" in out for i in range(5))
+    assert len(out) <= 6000
+
+
 def test_bounded_block_outlines_with_breadcrumbs():
     kids = [_node(uid_of(f"tuid-c{i}"), "c" * 300) for i in range(10)]
     payload = BlockPayload(page=PAGE.page,
                            block=_node(uid_of("tuid-u3"), "root", kids),
                            breadcrumbs=["Papers"], block_ref_texts={})
-    out = render_block_bounded(payload, 1500)
+    out = render_block_bounded(payload, 3000)
     assert out.startswith("(in: Machine Learning > Papers)\n\n"
                           "(Outline only: the full block is ")

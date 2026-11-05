@@ -69,8 +69,6 @@ def test_timing_flags_past_factor_and_never_lowers_the_baseline():
 
 
 def test_small_timing_must_also_move_past_the_floor():
-    # at a few ms, scheduling noise alone doubles a median; real slowdowns on
-    # such paths show in their exact and band counts instead
     base = doc({"s": {"median_ms": tm(3.0)}})
     assert compare(base, doc({"s": {"median_ms": tm(7.0)}})).findings == ()
     assert kinds(compare(base, doc({"s": {"median_ms": tm(9.0)}}))) == {

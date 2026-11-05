@@ -97,10 +97,11 @@ holds the rationale.
 | `timing` | the value is clearly slower than the baseline | reported as `faster`, never recorded |
 
 A timing is clearly slower (`_clearly_slower`) when it passes
-`TIMING_FACTOR` times the other value and also by more than
+`TIMING_FACTOR` times the other value and exceeds it by more than
 `TIMING_FLOOR_MS`. The floor exists because scheduling noise alone doubles a
-median of a few milliseconds. A real slowdown on such a small path is more
-work, which its `exact` and `band` counts catch.
+median of a few milliseconds. The counts still catch more SQL work or
+bytes on such a small path. A Python-side slowdown that stays under the floor
+goes unseen.
 
 The check that measures a metric declares its class, so a reclassification is
 a reviewed change. A worse value is a candidate until `confirm()` has re-run

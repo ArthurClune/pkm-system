@@ -20,8 +20,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 TIMING_FACTOR = 2.0
-# Scheduling noise alone can double a median of a few ms; a real slowdown on
-# such a small path shows in its exact and band counts instead.
+# Scheduling noise alone can double a median of a few ms. The counts still
+# catch more SQL work on such a path; slower Python under the floor goes unseen.
 TIMING_FLOOR_MS = 5.0
 
 Kind = Literal["candidate", "improvement", "faster", "new", "lost", "reclassified"]

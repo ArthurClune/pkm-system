@@ -845,3 +845,92 @@ def test_bounded_list_refuses_when_first_item_cannot_fit():
         limit=100)
     with pytest.raises(RenderError):
         render_backlinks_bounded(raw_title_of("T"), bl, 60)
+
+
+def _sized_groups(sizes: list[int]) -> GroupsPayload:
+    items = [GroupItem(uid=uid_of(f"tuid-s{i:02d}"), text="s" * n)
+             for i, n in enumerate(sizes)]
+    return GroupsPayload(groups=[BlockGroup(
+        page_id=page_id_of(1), page_title=canonical_title_of("AI"),
+        items=items)], total=len(sizes))
+
+
+def test_bounded_list_stops_at_first_item_that_does_not_fit():
+    p = _sized_groups([50, 300, 10])
+    full = len(render_groups(p))
+    gap = 0
+    for budget in range(full - 1, 0, -1):
+        try:
+            out = render_groups_bounded(p, budget, HINT)
+        except RenderError:
+            break
+        if "^tuid-s00" in out and "^tuid-s01" not in out:
+            gap += 1
+            assert "^tuid-s02" not in out
+    assert gap > 20
+
+
+def test_bounded_list_budget_is_tight_across_digit_growth():
+    p = _sized_groups([40] * 14)
+    full = len(render_groups(p))
+    prev_len = None
+    prev_shown = 0
+    grew = 0
+    for budget in range(full - 1, 0, -1):
+        try:
+            out = render_groups_bounded(p, budget, HINT)
+        except RenderError:
+            break
+        assert len(out) <= budget
+        shown = out.count("  ^tuid-s")
+        if prev_len is not None and shown < prev_shown:
+            # the larger budget just added an item, so it was exactly full
+            assert prev_len == budget + 1
+            grew += 1
+        prev_len, prev_shown = len(out), shown
+    assert grew >= 10
+
+
+def test_bounded_changed_multi_day_window_keeps_date():
+    from datetime import datetime
+    when = _ms(datetime(2026, 9, 24, 9, 5, tzinfo=TZ))
+    items = [ChangedItem(uid=uid_of(f"tuid-c{i:02d}"), text="c" * 300,
+                         created_at=when, updated_at=when, status="edited")
+             for i in range(5)]
+    p = ChangedPayload(
+        groups=[ChangedGroup(page_id=page_id_of(1),
+                             page_title=canonical_title_of("AI"),
+                             items=items)],
+        total=5, since=_ms(datetime(2026, 9, 20, 0, 0, tzinfo=TZ)),
+        until=_ms(datetime(2026, 9, 25, 0, 0, tzinfo=TZ)))
+    out = render_changed_bounded(p, TZ, 900, HINT)
+    assert "- [2026-09-24 09:05] edited: " in out
+
+
+def test_bounded_changed_that_fits_is_unchanged():
+    from datetime import datetime
+    when = _ms(datetime(2026, 9, 24, 9, 5, tzinfo=TZ))
+    p = _changed(_ms(datetime(2026, 9, 24, 0, 0, tzinfo=TZ)),
+                 _ms(datetime(2026, 9, 25, 0, 0, tzinfo=TZ)), total=1,
+                 created_at=when, updated_at=when, status="new")
+    full = render_changed(p, TZ)
+    assert render_changed_bounded(p, TZ, len(full), HINT) == full
+
+
+def test_bounded_backlinks_that_fit_are_unchanged():
+    bl = Backlinks(groups=[BacklinkGroup(
+        page_id=page_id_of(3), page_title=canonical_title_of("Src"),
+        items=[BacklinkItem(uid=uid_of("tuid-k1"), text="hi",
+                            breadcrumbs=[])])], total_pages=1, offset=0,
+        limit=100)
+    title = raw_title_of("T")
+    full = render_backlinks(title, bl)
+    assert render_backlinks_bounded(title, bl, len(full)) == full
+
+
+def test_bounded_query_empty_result_keeps_ref_counts():
+    p = QueryPayload(groups=[], total=0,
+                     ref_counts={canonical_title_of("A"): 3})
+    full = render_groups(p)
+    assert "per-ref block counts" in full
+    assert render_groups_bounded(p, len(full), HINT) == full

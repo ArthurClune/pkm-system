@@ -123,14 +123,72 @@ def test_get_block_refuses_a_block_whose_own_text_is_over_budget(
         tools.get_block("mcpoutot001")
 
 
-def test_bounded_tools_are_plain_text_under_a_raised_result_limit():
+def test_read_tool_names_match_the_assistant_read_tools():
+    from pkm.assistant import policy
+    assert set(mcp_tools.READ_TOOL_NAMES) == set(policy.READ_TOOLS)
+
+
+def test_every_read_tool_is_plain_text_with_the_declared_size():
     listed = {t.name: t
               for t in asyncio.run(mcp_server.build_server().list_tools())}
-    for name in ("get_page", "get_block"):
+    for name in mcp_tools.READ_TOOL_NAMES:
         assert listed[name].outputSchema is None, name
         assert listed[name].meta == {
-            "anthropic/maxResultSizeChars": mcp_tools.MAX_RESULT_CHARS}
-    assert listed["search"].meta is None
+            "anthropic/maxResultSizeChars": mcp_tools.MAX_RESULT_CHARS}, name
+    for name in set(listed) - set(mcp_tools.READ_TOOL_NAMES):
+        assert listed[name].meta is None, name
+
+
+def _seed_many_referencing_blocks(pkm_client, title: RawTitle, stem: str):
+    ops: list[dict[str, object]] = [{"op": "create_page", "page_title": title}]
+    for i in range(12):
+        ops.append({"op": "create", "uid": f"{stem}{i:02d}",
+                    "page_title": title, "parent_uid": None, "order_idx": i,
+                    "text": f"{{{{TODO}}}} [[{stem} Target]] "
+                            + "word " * 200})
+    pkm_client.post_ops(ops, batch_id=f"{stem}-batch-0001")
+
+
+def _list_tool_outputs(tools, stem: str) -> dict[str, str]:
+    return {
+        "query": tools.query(f"{{and: [[{stem} Target]]}}"),
+        "backlinks": tools.backlinks(raw_title_of(f"{stem} Target")),
+        "todos": tools.todos(f"{stem} Source"),
+        "changed_blocks": tools.changed_blocks(
+            since="2000-01-01", page=f"{stem} Source"),
+    }
+
+
+def test_query_backlinks_todos_changed_cut_at_the_budget(
+        tools, pkm_client, monkeypatch):
+    _seed_many_referencing_blocks(
+        pkm_client, raw_title_of("mcpcut Source"), "mcpcut")
+    monkeypatch.setattr(tools, "_max_chars", 6000)
+    for name, out in _list_tool_outputs(tools, "mcpcut").items():
+        assert len(out) <= 6000, name
+        assert "(Partial list:" in out, name
+
+
+def test_list_tools_under_default_budget_are_unchanged(
+        tools, pkm_client, monkeypatch):
+    from datetime import datetime
+    from pkm import render
+    from pkm.changed import local_tz
+    _seed_many_referencing_blocks(
+        pkm_client, raw_title_of("mcpfit Source"), "mcpfit")
+    target = raw_title_of("mcpfit Target")
+    out = _list_tool_outputs(tools, "mcpfit")
+    assert out["query"] == render.render_groups(
+        pkm_client.run_query("{and: [[mcpfit Target]]}", expand=False))
+    assert out["backlinks"] == render.render_backlinks(
+        target, pkm_client.get_backlinks(target))
+    assert out["todos"] == render.render_groups(
+        pkm_client.todos(page="mcpfit Source"))
+    assert out["changed_blocks"] == render.render_changed(
+        pkm_client.changed("2000-01-01", until=None, page="mcpfit Source",
+                           limit=500),
+        local_tz(datetime.now().astimezone()))
+    assert all("(Partial list:" not in o for o in out.values())
 
 
 def test_get_page_through_fastmcp_has_no_structured_wrapper(tools):

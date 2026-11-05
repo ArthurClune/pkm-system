@@ -53,8 +53,8 @@ ENV_BIN = "/usr/bin/env"
 #   at or under 2 * MCP_OUTPUT_TOKENS;
 # - a size limit on the returned text: 50,000 characters, or the tool's
 #   `anthropic/maxResultSizeChars` meta when it declares one. pkm-mcp
-#   declares MAX_RESULT_CHARS for get_page and get_block and returns them as
-#   plain text, so the budget stays at or under MAX_RESULT_CHARS.
+#   declares MAX_RESULT_CHARS for every read tool and returns them as plain
+#   text, so the budget stays at or under MAX_RESULT_CHARS.
 # At 75,000 all but a few pages load whole; the rest come back outlined.
 MCP_OUTPUT_TOKENS = 40_000
 MCP_MAX_CHARS = 75_000

@@ -33,10 +33,10 @@ otherwise).
 | `get_page` | read | a page as a `^uid`-annotated markdown outline; past the character budget, a shallower outline instead |
 | `get_block` | read | one block's subtree with page + breadcrumb context; outlined past the budget as `get_page` is |
 | `search` | read | full-text over page titles and block text |
-| `query` | read | structured block query (`{and: [[A]] [[B]]}`, Roam syntax) |
-| `backlinks` | read | everything referencing `[[title]]`, grouped by source page |
-| `todos` | read | open `{{TODO}}` blocks, grouped by page |
-| `changed_blocks` | read | blocks edited/created in a `since`/`until` window, grouped by page, tagged new/edited |
+| `query` | read | structured block query (`{and: [[A]] [[B]]}`, Roam syntax); a partial list past the budget |
+| `backlinks` | read | everything referencing `[[title]]`, grouped by source page; a partial list past the budget |
+| `todos` | read | open `{{TODO}}` blocks, grouped by page; a partial list past the budget |
+| `changed_blocks` | read | blocks edited/created in a `since`/`until` window, grouped by page, tagged new/edited; a partial list past the budget |
 | `search_assets` | read | uploads by image description or filename |
 | `save_note` | write | create block(s); multi-line text becomes an outline, default page is today's daily note |
 | `update_block` | write | replace a block's text or set its task marker; `expect` is set by the assistant's [approval card](assistant.md#the-write-approval-card) |
@@ -49,13 +49,26 @@ set through `set_max_chars`) by rendering through `render_page_bounded` and
 `render_block_bounded`: the full render when it fits, else the deepest outline
 that does, and a `RenderError` when even the top level, or a block's own text,
 is over. A `get_block` outline keeps the block's own text whole and outlines
-only its children, because no other tool returns that text. Both tools return plain text rather than FastMCP's `{"result": ...}`
-structured content, whose JSON escaping would make the result Claude Code
-measures longer than the budget. Claude Code saves a result over 50,000
-characters to a file, so both tools declare `MAX_RESULT_CHARS` in their
-`anthropic/maxResultSizeChars` meta and `--max-chars` refuses anything above
-it. `DEFAULT_MAX_CHARS` also passes Claude Code's default token cap on its
-`chars / 4` estimate. The assistant raises both the budget and its token cap
+only its children, because no other tool returns that text.
+
+`query`, `backlinks`, `todos` and `changed_blocks` render through
+`render_groups_bounded`, `render_backlinks_bounded` and
+`render_changed_bounded`. A list that fits is the CLI's output unchanged. A
+longer one keeps whole items in payload order, clips each item's text at
+`OUTLINE_TEXT_CHARS` and ends every line `  ^{uid}`. It opens with a
+`(Partial list: ...)` note giving the shown and total counts, the full size and
+a hint on narrowing the call, and how to read a clipped line (its full text is
+`get_block(uid)`), so the assistant knows the result is cut and how to ask
+again. The CLI keeps the unbounded renderers.
+
+Every tool in `READ_TOOL_NAMES` returns plain text rather than FastMCP's
+`{"result": ...}` structured content (`structured_output=False`), whose JSON
+escaping would make the result Claude Code measures longer than the budget.
+Claude Code saves a result over 50,000 characters to a file, so each of them
+declares `MAX_RESULT_CHARS` in its `anthropic/maxResultSizeChars` meta and
+`--max-chars` refuses anything above it. `DEFAULT_MAX_CHARS` also passes Claude
+Code's default token cap on its `chars / 4` estimate. The assistant raises both
+the budget and its token cap
 ([assistant.md § Harness confinement](assistant.md#harness-confinement)).
 
 The operator checks `pkm local check` and `pkm goodlinks check` have no MCP

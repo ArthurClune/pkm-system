@@ -22,9 +22,10 @@ from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
 from pkm.contracts.ops import BlockUid, ExpectedBlock
 from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.todo import TaskMark
-from pkm.render import (render_assets, render_backlinks,
-                        render_block_bounded, render_changed, render_groups,
-                        render_ops_ack, render_page_bounded, render_search)
+from pkm.render import (render_assets, render_backlinks_bounded,
+                        render_block_bounded, render_changed_bounded,
+                        render_groups_bounded, render_ops_ack,
+                        render_page_bounded, render_search)
 
 _client_factory = lambda: PkmClient(client_api.load_mcp_config())  # noqa: E731
 _cached_client: PkmClient | None = None
@@ -35,8 +36,8 @@ _cached_client: PkmClient | None = None
 # never reached this tool, so it is refused rather than run unguarded.
 _require_expect = False
 DEFAULT_MAX_CHARS = 45_000
-# The result size get_page and get_block declare to Claude Code through
-# their `anthropic/maxResultSizeChars` meta. Claude Code saves a longer
+# The result size every read tool (`READ_TOOL_NAMES`) declares to Claude Code
+# through its `anthropic/maxResultSizeChars` meta. Claude Code saves a longer
 # result to a file instead of passing it on (50,000 characters for a tool
 # that declares nothing), so --max-chars stays at or under it.
 MAX_RESULT_CHARS = 100_000
@@ -57,7 +58,8 @@ def require_expect() -> None:
 
 
 def set_max_chars(n: int) -> None:
-    """From now on, get_page and get_block outline past `n` characters."""
+    """From now on, get_page and get_block outline, and the list tools cut
+    to a partial list, past `n` characters."""
     global _max_chars
     _max_chars = n
 
@@ -108,18 +110,25 @@ def query(expr: str, expand: bool = False) -> str:
     {or: ...}, {not: ...} (not only inside and). Operands are [[Page
     Title]] references. expand=True also matches blocks referencing a
     page that itself references the operand (one hop). An empty result
-    includes per-operand match counts to steer the next query."""
-    return render_groups(_client().run_query(expr, expand=expand))
+    includes per-operand match counts to steer the next query. Past a size
+    limit the list is cut, says so, and says how to narrow it."""
+    return render_groups_bounded(
+        _client().run_query(expr, expand=expand), _max_chars,
+        "Narrow it with another operand, e.g. {and: [[A]] [[B]]}.")
 
 
 def backlinks(title: RawTitle) -> str:
-    """Pages and blocks that reference [[title]], grouped by source page."""
-    return render_backlinks(title, _client().get_backlinks(title))
+    """Pages and blocks that reference [[title]], grouped by source page.
+    Past a size limit the list is cut, says so, and says how to narrow it."""
+    return render_backlinks_bounded(
+        title, _client().get_backlinks(title), _max_chars)
 
 
 def todos(page: str | None = None) -> str:
-    """List open {{TODO}} blocks, grouped by page; optionally one page."""
-    return render_groups(_client().todos(page=page))
+    """List open {{TODO}} blocks, grouped by page; optionally one page.
+    Past a size limit the list is cut, says so, and says how to narrow it."""
+    return render_groups_bounded(
+        _client().todos(page=page), _max_chars, "Narrow it with page=.")
 
 
 def changed_blocks(since: str, until: str | None = None,
@@ -133,9 +142,13 @@ def changed_blocks(since: str, until: str | None = None,
     Limits: only the LATEST edit time is stored per block, so one edited
     yesterday and again today shows up only under today, never both.
     Deleted blocks are invisible. Moving, indenting, or a page-rename
-    rewrite counts as an edit, same as a text change."""
+    rewrite counts as an edit, same as a text change.
+
+    Past a size limit the list is cut, says so, and says how to narrow it."""
     payload = _client().changed(since, until=until, page=page, limit=limit)
-    return render_changed(payload, local_tz(datetime.now().astimezone()))
+    return render_changed_bounded(
+        payload, local_tz(datetime.now().astimezone()), _max_chars,
+        "Narrow it with a shorter window or page=.")
 
 
 def _raw_page(page: str | None) -> RawTitle | None:
@@ -248,3 +261,6 @@ def search_assets(q: str, limit: int = 20) -> str:
 TOOLS = (get_page, get_block, search, query, backlinks, todos,
          changed_blocks, save_note, update_block, batch, upload_asset,
          search_assets, rename_page)
+
+READ_TOOL_NAMES = ("get_page", "get_block", "search", "query", "backlinks",
+                   "todos", "changed_blocks", "search_assets")

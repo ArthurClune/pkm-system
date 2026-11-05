@@ -693,7 +693,10 @@ def test_outline_measures_after_resolve_refs():
     plain = len(render_page(page, include_uids=True))
     assert render_page_bounded(page, plain) == render_page(
         page, include_uids=True)
-    assert "Outline only" in render_page_bounded(page, plain, True)
+    out = render_page_bounded(page, plain, True)
+    assert "Outline only" in out
+    assert len(out) <= plain
+    assert f'- "{"R" * 100}' in out
 
 
 def test_outline_refuses_when_top_level_alone_is_over_budget():

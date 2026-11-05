@@ -4,7 +4,9 @@ import pytest
 
 from pkm.render import (clip_depth, render_assets, render_backlinks,
                         render_block, render_changed, render_groups,
-                        render_block_bounded, render_page,
+                        render_backlinks_bounded, render_block_bounded,
+                        render_changed_bounded, render_groups_bounded,
+                        render_page,
                         render_page_bounded, render_search,
                         RenderError,
                         render_title_migration_apply,
@@ -745,3 +747,101 @@ def test_bounded_block_outlines_with_breadcrumbs():
     out = render_block_bounded(payload, 3000)
     assert out.startswith("(in: Machine Learning > Papers)\n\n"
                           "(Outline only: the full block is ")
+
+
+HINT = "Narrow it with page=."
+
+
+def _big_groups(pages: int, per_page: int, size: int = 300) -> GroupsPayload:
+    groups = []
+    n = 0
+    for p in range(pages):
+        items = []
+        for _ in range(per_page):
+            n += 1
+            items.append(GroupItem(uid=uid_of(f"tuid-g{n:02d}"),
+                                   text=f"{n:02d}" + "a" * (size - 2)))
+        groups.append(BlockGroup(page_id=page_id_of(p + 1),
+                                 page_title=canonical_title_of(f"P{p + 1}"),
+                                 items=items))
+    return GroupsPayload(groups=groups, total=pages * per_page)
+
+
+def test_bounded_groups_that_fit_are_unchanged():
+    p = GroupsPayload(groups=[_group("tuid-t1", "{{TODO}} x")], total=1)
+    full = render_groups(p)
+    assert render_groups_bounded(p, len(full), HINT) == full
+    empty = GroupsPayload(groups=[], total=0)
+    assert render_groups_bounded(empty, 100, HINT) == render_groups(empty)
+
+
+def test_bounded_groups_cut_whole_items_in_order_with_note():
+    p = _big_groups(3, 4)
+    budget = 1450
+    out = render_groups_bounded(p, budget, HINT)
+    assert "showing 5 of 12 blocks from 2 of 3 pages" in out
+    assert HINT in out
+    assert len(out) <= budget
+    assert out.count("## P1") == 1
+    positions = [out.index(f"^tuid-g{i:02d}") for i in range(1, 6)]
+    assert positions == sorted(positions)
+    assert "^tuid-g06" not in out
+
+
+def test_partial_list_clips_multiline_text():
+    p = GroupsPayload(groups=[BlockGroup(
+        page_id=page_id_of(1), page_title=canonical_title_of("AI"),
+        items=[GroupItem(uid=uid_of("tuid-m1"),
+                         text="x" * 500 + "\nsecond")])], total=2)
+    out = render_groups_bounded(p, 400, HINT)
+    assert f"- {'x' * 200} \u2026[clipped]  ^tuid-m1" in out
+    assert "second" not in out
+
+
+def test_bounded_changed_uses_payload_total():
+    from datetime import datetime
+    when = _ms(datetime(2026, 9, 24, 9, 5, tzinfo=TZ))
+    items = [ChangedItem(uid=uid_of(f"tuid-c{i:02d}"), text="c" * 300,
+                         created_at=when, updated_at=when, status="new")
+             for i in range(20)]
+    p = ChangedPayload(
+        groups=[ChangedGroup(page_id=page_id_of(1),
+                             page_title=canonical_title_of("AI"),
+                             items=items)],
+        total=900, since=_ms(datetime(2026, 9, 24, 0, 0, tzinfo=TZ)),
+        until=_ms(datetime(2026, 9, 25, 0, 0, tzinfo=TZ)))
+    out = render_changed_bounded(p, TZ, 1500, HINT)
+    assert len(out) <= 1500
+    assert "of 900 blocks" in out
+    assert "- [09:05] new: " + "c" * 200 + " \u2026[clipped]  ^tuid-c00" in out
+
+
+def test_bounded_backlinks_note_and_uids():
+    title = raw_title_of('Say "hi" (now)')
+    items = [BacklinkItem(uid=uid_of(f"tuid-k{i:02d}"), text="b" * 300,
+                          breadcrumbs=[]) for i in range(10)]
+    bl = Backlinks(groups=[BacklinkGroup(
+        page_id=page_id_of(3), page_title=canonical_title_of("Src"),
+        items=items)], total_pages=1, offset=0, limit=100)
+    out = render_backlinks_bounded(title, bl, 1500)
+    lines = out.splitlines()
+    assert lines[0] == '# Backlinks: Say "hi" (now) (1 pages)'
+    assert "(Partial list:" in "\n".join(lines[1:3])
+    assert 'Narrow it with query, e.g. {and: [[Say "hi" (now)]]' \
+        " [[Other]]}." in out
+    assert len(out) <= 1500
+    item_lines = [ln for ln in lines if ln.startswith("- ")]
+    assert item_lines and all("  ^tuid-k" in ln for ln in item_lines)
+
+
+def test_bounded_list_refuses_when_first_item_cannot_fit():
+    p = _big_groups(1, 2)
+    with pytest.raises(RenderError):
+        render_groups_bounded(p, 50, HINT)
+    bl = Backlinks(groups=[BacklinkGroup(
+        page_id=page_id_of(3), page_title=canonical_title_of("Src"),
+        items=[BacklinkItem(uid=uid_of("tuid-k1"), text="b" * 300,
+                            breadcrumbs=[])])], total_pages=1, offset=0,
+        limit=100)
+    with pytest.raises(RenderError):
+        render_backlinks_bounded(raw_title_of("T"), bl, 60)

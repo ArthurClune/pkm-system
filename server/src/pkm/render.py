@@ -111,14 +111,20 @@ def _tree_depth(nodes: Sequence[BlockNode]) -> int:
         if nodes else 0
 
 
+def _clip_first_line(text: str) -> tuple[str, bool]:
+    """`text`'s first line cut to OUTLINE_TEXT_CHARS, with the clipped
+    marker when anything was dropped, and whether anything was."""
+    first = text.split("\n", 1)[0]
+    clipped = len(first) > OUTLINE_TEXT_CHARS or first != text
+    return first[:OUTLINE_TEXT_CHARS] + (_CLIPPED if clipped else ""), clipped
+
+
 def _outline_lines(nodes: Sequence[BlockNode], depth: int, levels: int,
                    ref_map: RefMap | None) -> list[str]:
     out: list[str] = []
     for n in nodes:
         text = _resolved(n, ref_map)
-        first = text.split("\n", 1)[0]
-        clipped = len(first) > OUTLINE_TEXT_CHARS or first != text
-        shown = first[:OUTLINE_TEXT_CHARS] + (_CLIPPED if clipped else "")
+        shown, clipped = _clip_first_line(text)
         cut = clipped or (bool(n.children) and depth + 1 >= levels)
         size = f"  ({_subtree_chars(n, depth, ref_map):,} chars)" if cut \
             else ""
@@ -220,6 +226,57 @@ def render_groups(payload: GroupsPayload, include_uids: bool = True) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _bounded_list(head: Sequence[str],
+                  groups: Sequence[tuple[str, Sequence[tuple[str, str, BlockUid]]]],
+                  total: int, pages_total: int, full_len: int, max_chars: int,
+                  hint: str, what: str) -> str:
+    """The longest prefix of `groups` (title, [(prefix, text, uid)]) that
+    fits `max_chars` after `head` and a partial-list note, whole items in
+    order. The note's counts describe what is shown, so each candidate is
+    measured with the note it would carry."""
+    def build(shown: int, body: list[list[str]]) -> str:
+        note = (f"(Partial list: showing {shown} of {total} blocks from"
+                f" {len(body)} of {pages_total} pages; the full result is"
+                f" {full_len:,} characters, over this tool's"
+                f" {max_chars:,}-character limit. {hint})")
+        parts = [*head, *([""] if head else []), note]
+        for lines in body:
+            parts += ["", *lines]
+        return "\n".join(parts) + "\n"
+
+    body: list[list[str]] = []
+    shown = 0
+    for title, items in groups:
+        for i, (prefix, text, uid) in enumerate(items):
+            line = f"- {prefix}{_clip_first_line(text)[0]}  ^{uid}"
+            trial = [*body, [f"## {title}", line]] if i == 0 \
+                else [*body[:-1], [*body[-1], line]]
+            if len(build(shown + 1, trial)) > max_chars:
+                if not shown:
+                    raise RenderError(
+                        f"{what} is {full_len:,} characters and not even its"
+                        f" first block fits the {max_chars:,}-character"
+                        " limit; use search instead")
+                return build(shown, body)
+            body, shown = trial, shown + 1
+    return build(shown, body)
+
+
+def render_groups_bounded(payload: GroupsPayload, max_chars: int,
+                          hint: str) -> str:
+    """`render_groups` with uids when it fits `max_chars`, else the leading
+    whole blocks, each clipped to its first line, under a partial-list
+    note ending in `hint`. Raises RenderError when not even the first
+    block fits."""
+    full = render_groups(payload)
+    if len(full) <= max_chars:
+        return full
+    groups = [(g.page_title, [("", i.text, i.uid) for i in g.items])
+              for g in payload.groups]
+    return _bounded_list([], groups, payload.total, len(groups), len(full),
+                         max_chars, hint, "the result")
+
+
 def _local(ms: int, tz: tzinfo) -> datetime:
     return datetime.fromtimestamp(ms / 1000, tz=tz)
 
@@ -251,6 +308,24 @@ def render_changed(payload: ChangedPayload, tz: tzinfo) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_changed_bounded(payload: ChangedPayload, tz: tzinfo,
+                           max_chars: int, hint: str) -> str:
+    """`render_groups_bounded` for `render_changed`; lines keep their
+    time and status prefix, and the note counts against `payload.total`."""
+    full = render_changed(payload, tz)
+    if len(full) <= max_chars:
+        return full
+    multi_day = (_local(payload.since, tz).date()
+                != _local(max(payload.until - 1, payload.since), tz).date())
+    fmt = "%Y-%m-%d %H:%M" if multi_day else "%H:%M"
+    groups = [(g.page_title,
+               [(f"[{_local(i.updated_at, tz).strftime(fmt) if i.updated_at is not None else '?'}]"
+                 f" {i.status}: ", i.text, i.uid) for i in g.items])
+              for g in payload.groups]
+    return _bounded_list([], groups, payload.total, len(groups), len(full),
+                         max_chars, hint, "the result")
+
+
 def render_backlinks(title: RawTitle, backlinks: Backlinks) -> str:
     lines = [f"# Backlinks: {title} ({backlinks.total_pages} pages)"]
     for g in backlinks.groups:
@@ -258,6 +333,23 @@ def render_backlinks(title: RawTitle, backlinks: Backlinks) -> str:
         lines.append(f"## {g.page_title}")
         lines.extend(f"- {i.text}" for i in g.items)
     return "\n".join(lines) + "\n"
+
+
+def render_backlinks_bounded(title: RawTitle, backlinks: Backlinks,
+                             max_chars: int) -> str:
+    """`render_backlinks` when it fits `max_chars`, else the leading whole
+    blocks with uids under the unchanged header and a partial-list note."""
+    full = render_backlinks(title, backlinks)
+    if len(full) <= max_chars:
+        return full
+    groups = [(g.page_title, [("", i.text, i.uid) for i in g.items])
+              for g in backlinks.groups]
+    total = sum(len(items) for _, items in groups)
+    hint = f"Narrow it with query, e.g. {{and: [[{title}]] [[Other]]}}."
+    return _bounded_list(
+        [f"# Backlinks: {title} ({backlinks.total_pages} pages)"], groups,
+        total, backlinks.total_pages, len(full), max_chars, hint,
+        "the result")
 
 
 def render_assets(payload: AssetSearchPayload) -> str:

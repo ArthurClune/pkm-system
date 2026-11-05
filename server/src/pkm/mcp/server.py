@@ -9,7 +9,8 @@ from collections.abc import Sequence
 
 from mcp.server.fastmcp import FastMCP
 
-from pkm.mcp.tools import TOOLS, require_expect
+from pkm.mcp.tools import (DEFAULT_MAX_CHARS, TOOLS, require_expect,
+                           set_max_chars)
 
 
 def build_server(names: Sequence[str] | None = None) -> FastMCP:
@@ -39,7 +40,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--require-expect", action="store_true",
         help="refuse update_block and batch without expect (the PKM "
              "assistant's approval card sets it)")
+    parser.add_argument(
+        "--max-chars", type=int, default=DEFAULT_MAX_CHARS,
+        help="size past which get_page and get_block return an outline "
+             f"(default: {DEFAULT_MAX_CHARS})")
     args = parser.parse_args(argv)
+    if args.max_chars <= 0:
+        parser.error("--max-chars must be greater than 0")
+    set_max_chars(args.max_chars)
     names = args.tools.split(",") if args.tools is not None else None
     if args.require_expect:
         require_expect()

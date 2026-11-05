@@ -1,14 +1,18 @@
 ---
 # pkm-tsb2
 title: 'perf: ops/edit-rename-replay median_ms reads unstable under load'
-status: todo
+status: scrapped
 type: bug
 priority: low
 created_at: 2026-10-29T17:03:19Z
-updated_at: 2026-10-29T17:03:19Z
+updated_at: 2026-11-05T17:46:22Z
 ---
 
 perf/check.sh backend on security/small-fixes (2026-10-29) read ops/edit-rename-replay median_ms 3.02 -> 6.2 as unstable, with 1-min load 4.5 -> 3.8 on 10 cores while another worktree ran pytest. The branch did not touch the ops or rename path (importer report and assistant events only). Same shape as pkm-6jge. Look at whether the scenario's timing needs more samples or a load-aware retry before the verdict.
 
 - [ ] Reproduce under load and quiet
 - [ ] Fix the harness so this scenario does not read unstable from concurrent load
+
+
+## Reasons for Scrapping
+Folded into pkm-uubh, which treats this and its two siblings as one harness problem (a purely relative timing gate on ~3 ms scenarios) and fixes it with an absolute timing floor. The evidence from this bean is carried in pkm-uubh's table.

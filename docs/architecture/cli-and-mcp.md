@@ -30,8 +30,8 @@ otherwise).
 
 | Tool | Kind | Does |
 |---|---|---|
-| `get_page` | read | a page as a `^uid`-annotated markdown outline |
-| `get_block` | read | one block's subtree with page + breadcrumb context |
+| `get_page` | read | a page as a `^uid`-annotated markdown outline; past the character budget, a shallower outline instead |
+| `get_block` | read | one block's subtree with page + breadcrumb context; outlined past the budget as `get_page` is |
 | `search` | read | full-text over page titles and block text |
 | `query` | read | structured block query (`{and: [[A]] [[B]]}`, Roam syntax) |
 | `backlinks` | read | everything referencing `[[title]]`, grouped by source page |
@@ -43,6 +43,14 @@ otherwise).
 | `batch` | write | several commands in one atomic transaction; skipped ops are flagged with `warning:`; `expect` as for `update_block` |
 | `upload_asset` | write, `pkm-mcp` only | upload a local file and link it from a page |
 | `rename_page` | write | retitle a page, rewriting every reference to it; 409 unless `allow_merge`; 422 when a rewritten block would be past a [text limit](backend.md#page-mutations-and-the-sidebar) |
+
+`get_page` and `get_block` stay within `--max-chars` (`DEFAULT_MAX_CHARS`,
+set through `set_max_chars`) by rendering through `render_page_bounded` and
+`render_block_bounded`: the full render when it fits, else the deepest outline
+that does, and a `RenderError` when even the top level, or one childless block,
+is over. The default sits under Claude Code's default MCP output cap, so a
+result is never diverted to an overflow file the model cannot read; the
+assistant passes its own value ([assistant.md](assistant.md)).
 
 The operator checks `pkm local check` and `pkm goodlinks check` have no MCP
 counterpart ([docs/cli.md](../cli.md#reading)).

@@ -46,6 +46,14 @@ SDK_ENV: tuple[str, ...] = (
 )
 ENV_BIN = "/usr/bin/env"
 
+# Claude Code passes an MCP result straight through when its `chars / 4`
+# estimate is at most half the token cap, and otherwise counts tokens and may
+# write the result to an overflow file the assistant cannot read. So the
+# pkm-mcp budget must stay under 2 * MCP_OUTPUT_TOKENS, or a result it
+# bounded can still be lost to the harness.
+MCP_OUTPUT_TOKENS = 40_000
+MCP_MAX_CHARS = 75_000
+
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
@@ -71,7 +79,8 @@ def resolve_harness_env(model: str, zai_token: str | None) -> HarnessEnv:
     # the CLI defers MCP tools behind ToolSearch by default, which tools=[]
     # would make unreachable -- disabling tool search loads the pkm tools
     # eagerly; verified live 2026-07-27
-    env = {"ENABLE_TOOL_SEARCH": "false"}
+    env = {"ENABLE_TOOL_SEARCH": "false",
+           "MAX_MCP_OUTPUT_TOKENS": str(MCP_OUTPUT_TOKENS)}
     # Keyed on ZAI_MODELS membership, never on a "glm" literal: a second
     # z.ai-hosted model added to policy must not silently run on the Claude
     # subscription instead.

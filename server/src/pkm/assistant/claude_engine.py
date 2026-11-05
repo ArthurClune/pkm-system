@@ -48,6 +48,7 @@ from pkm.assistant.events import (
     tool_warning,
 )
 from pkm.assistant.harness_env import (
+    MCP_MAX_CHARS,
     harness_env_names,
     launcher_script,
     mcp_server_config,
@@ -551,7 +552,8 @@ class ClaudeEngine:
                         # --require-expect: a guarded write without the
                         # card's `expect` is refused, never run unguarded
                         ["--tools", ",".join(READ_TOOLS + WRITE_TOOLS),
-                         "--require-expect"]),
+                         "--require-expect",
+                         "--max-chars", str(MCP_MAX_CHARS)]),
                 },
                 setting_sources=[],
                 # setting_sources=[] does not stop the account's claude.ai

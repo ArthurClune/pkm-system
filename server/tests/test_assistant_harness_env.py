@@ -10,6 +10,8 @@ from pkm.assistant import harness_env
 from pkm.assistant.harness_env import (
     HOST_ENV,
     SDK_ENV,
+    MCP_MAX_CHARS,
+    MCP_OUTPUT_TOKENS,
     ZAI_BASE_URL,
     harness_env_names,
     launcher_script,
@@ -22,12 +24,18 @@ from pkm.assistant.policy import MODELS, ZAI_MODELS
 def test_claude_models_get_the_tool_loading_env_and_nothing_else():
     resolved = resolve_harness_env("opus", zai_token=None)
     assert resolved.sdk_model == "opus"
-    assert resolved.env == {"ENABLE_TOOL_SEARCH": "false"}
+    assert resolved.env == {"ENABLE_TOOL_SEARCH": "false",
+                            "MAX_MCP_OUTPUT_TOKENS": "40000"}
+
+
+def test_mcp_max_chars_stays_under_the_always_pass_bound():
+    assert MCP_MAX_CHARS < 2 * MCP_OUTPUT_TOKENS
 
 
 def test_a_configured_zai_key_never_leaks_into_a_claude_run():
     resolved = resolve_harness_env("haiku", zai_token="zk-test")
-    assert resolved.env == {"ENABLE_TOOL_SEARCH": "false"}
+    assert resolved.env == {"ENABLE_TOOL_SEARCH": "false",
+                            "MAX_MCP_OUTPUT_TOKENS": "40000"}
 
 
 def test_fable_is_a_claude_model_on_the_subscription_not_zai():
@@ -35,7 +43,8 @@ def test_fable_is_a_claude_model_on_the_subscription_not_zai():
     assert "fable" not in ZAI_MODELS
     resolved = resolve_harness_env("fable", zai_token="zk-test")
     assert resolved.sdk_model == "fable"
-    assert resolved.env == {"ENABLE_TOOL_SEARCH": "false"}
+    assert resolved.env == {"ENABLE_TOOL_SEARCH": "false",
+                            "MAX_MCP_OUTPUT_TOKENS": "40000"}
     assert "ANTHROPIC_BASE_URL" not in resolved.env
 
 
@@ -48,6 +57,7 @@ def test_zai_models_route_to_zai_under_the_sonnet_alias():
     assert resolved.env["ANTHROPIC_AUTH_TOKEN"] == "zk-test"
     # the MCP-tool eager-load setting must survive the provider override
     assert resolved.env["ENABLE_TOOL_SEARCH"] == "false"
+    assert resolved.env["MAX_MCP_OUTPUT_TOKENS"] == "40000"
 
 
 def test_routing_is_keyed_on_the_model_set_not_a_glm_literal(monkeypatch):

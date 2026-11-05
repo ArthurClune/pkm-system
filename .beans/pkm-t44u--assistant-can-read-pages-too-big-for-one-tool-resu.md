@@ -12,11 +12,11 @@ The in-app assistant's get_page on a large page (Rugit, 58k chars) hits Claude C
 
 
 ## Checklist
-- [ ] Bounded renderers in pkm/render.py (outline over budget)
-- [ ] MCP get_page/get_block use the budget; pkm-mcp --max-chars
-- [ ] Assistant: MAX_MCP_OUTPUT_TOKENS=40000, --max-chars 75000
-- [ ] Docs: cli-and-mcp.md, assistant.md
-- [ ] Live read-only check against production pages
+- [x] Bounded renderers in pkm/render.py (outline over budget)
+- [x] MCP get_page/get_block use the budget; pkm-mcp --max-chars
+- [x] Assistant: MAX_MCP_OUTPUT_TOKENS=40000, --max-chars 75000
+- [x] Docs: cli-and-mcp.md, assistant.md
+- [x] Live read-only check against production pages
 - [ ] perf/check.sh backend
 
 Plan: docs/superpowers/plans/2026-11-05-mcp-page-outline.md

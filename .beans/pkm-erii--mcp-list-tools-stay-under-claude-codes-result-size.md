@@ -12,11 +12,11 @@ backlinks, query and changed_blocks (and todos as it grows) can return more than
 
 
 ## Checklist
-- [ ] Bounded list renderers (render.py)
-- [ ] Read set registered plain text with declared size; list tools use the budget
-- [ ] Docs (cli-and-mcp.md, troubleshooting row)
-- [ ] Harness check through the bundled CLI
-- [ ] perf/check.sh backend
+- [x] Bounded list renderers (render.py)
+- [x] Read set registered plain text with declared size; list tools use the budget
+- [x] Docs (cli-and-mcp.md, troubleshooting row)
+- [x] Harness check through the bundled CLI
+- [x] perf/check.sh backend
 
 Spec: docs/superpowers/specs/2026-11-05-mcp-list-budget-design.md
 Plan: docs/superpowers/plans/2026-11-05-mcp-list-budget.md

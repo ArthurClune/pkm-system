@@ -235,6 +235,9 @@ class ClaudeConversation:
         # True from a turn's end until the next send(): a confirm then has
         # no consumer to show its card, so it is declined, never parked.
         self._consumer_gone = False
+        # True once this turn's pump has begun a stall's interrupt: it then
+        # owns the interrupt and the drain, and a Stop only waits for it.
+        self._stalling = False
 
     @property
     def phase(self) -> TurnPhase:
@@ -351,6 +354,7 @@ class ClaudeConversation:
             return
         self._move("query")
         self._consumer_gone = False
+        self._stalling = False
         mapper = TurnMapper(self._tool_names, self._declined)
         pump = asyncio.create_task(self._pump(mapper))
         self._pump_task = pump
@@ -413,6 +417,10 @@ class ClaudeConversation:
         ResultMessage is read here and not by the next turn.
         """
         self._decline_pending()
+        if self._stalling and not pump.done():
+            # a second interrupt's ack would find the phase draining
+            await self._await_pump(pump, INTERRUPT_TIMEOUT_S + DRAIN_TIMEOUT_S)
+            return
         if self._phase != "streaming":
             return  # the harness already ended the turn, or is gone
         if not await self._interrupt("the turn was abandoned"):
@@ -421,13 +429,21 @@ class ClaudeConversation:
         if self._phase != "draining":
             return
         self._drain_deadline = _now() + DRAIN_TIMEOUT_S
-        try:
-            await asyncio.wait({pump}, timeout=DRAIN_TIMEOUT_S)
-        except asyncio.CancelledError:
-            self._lose("the drain was abandoned by a cancellation")
-            raise
+        await self._await_pump(pump, DRAIN_TIMEOUT_S)
         if self._phase == "draining":
             self._lose(f"no result for the interrupted turn in {DRAIN_TIMEOUT_S}s")
+
+    async def _await_pump(self, pump: asyncio.Task[None], bound: float) -> None:
+        """Let the pump read the turn to its end; dead if it cannot in
+        `bound`, or if the wait is abandoned."""
+        try:
+            await asyncio.wait({pump}, timeout=bound)
+        except asyncio.CancelledError:
+            self._lose("the wait for the interrupted turn was abandoned "
+                       "by a cancellation")
+            raise
+        if not pump.done():
+            self._lose(f"the interrupted turn did not end in {bound}s")
 
     async def _interrupt(self, why: str) -> bool:
         """Interrupt the harness, bounded; False (and dead) unless it acks.
@@ -487,7 +503,7 @@ class ClaudeConversation:
                         # silence is the user's, not the model's. Fresh
                         # window each pass; never a stall.
                         continue
-                    stalled = True
+                    stalled = self._stalling = True
                     logger.warning("assistant turn stalled: no SDK message "
                                    "for %ss; interrupting", STALL_TIMEOUT_S)
                     if not await self._interrupt("stalled"):

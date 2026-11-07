@@ -235,6 +235,7 @@ keeps reading after the ack until that result, bounded by
 | Rule | Reason |
 |---|---|
 | A Stop that finds the phase `idle` sends no interrupt | The harness already ended the turn. An idle CLI acknowledges an interrupt with no result, so a drain would wait out its bound |
+| A Stop during a stall's interrupt or drain sends no interrupt of its own. It waits for the pump, bounded by `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S` | The pump owns that interrupt and its drain. A second ack would arrive while the phase is `draining`, and cancelling the pump would leave the aborted result unread |
 | An interrupt that times out (`INTERRUPT_TIMEOUT_S`), raises or is cancelled makes the phase `dead`. So do a drain that times out and a stream that raises or ends before its result | The subprocess may still be running the turn, or is gone. A stream that ended gets an in-band `error`, or the consumer would wait forever |
 | `AssistantService._stream()` retires a handle whose `healthy` is false (phase `dead`) when the turn ends | The next `send()` for that id raises `UnknownConversationError`. `send()` itself refuses a `dead` harness without querying it |
 | A confirm that arrives after its turn's consumer has gone is declined without a card. `send()` declines any confirm still parked before it clears the queue | A dropped `ConfirmRequest` would leave its future parked, which also suspends the stall watchdog |

@@ -371,6 +371,7 @@ def test_stop_while_a_stall_interrupts_sends_no_second_interrupt(
     async def scenario():
         conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
         client = FakeSDKClient.instances[0]
+        assert isinstance(client, HeldInterruptClient)
         task = asyncio.create_task(_collect(conv.send("one")))
         await asyncio.sleep(0.1)  # the stall fires; its interrupt waits
         task.cancel()  # Stop while the stall's interrupt is in flight

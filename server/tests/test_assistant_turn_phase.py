@@ -306,3 +306,86 @@ def test_a_drain_abandoned_by_a_second_cancellation_retires(tmp_path, monkeypatc
         return healthy
 
     assert asyncio.run(scenario()) is False
+
+
+class ManualAbortClient(FakeSDKClient):
+    """Acknowledges an interrupt; the test writes the aborted result."""
+
+    async def interrupt(self):
+        self.interrupts += 1
+        self.turn_open = False
+
+
+class HeldInterruptClient(FakeSDKClient):
+    """An interrupt is answered only once the test sets `release`."""
+
+    def __init__(self, options):
+        super().__init__(options)
+        self.release = asyncio.Event()
+
+    async def interrupt(self):
+        await self.release.wait()
+        await super().interrupt()
+
+
+async def _until(condition, timeout: float = 2.0) -> None:
+    async def poll():
+        while not condition():
+            await asyncio.sleep(0.005)
+    await asyncio.wait_for(poll(), timeout)
+
+
+def test_stop_while_a_stall_drains_keeps_the_conversation(tmp_path, monkeypatch):
+    monkeypatch.setattr(claude_engine, "STALL_TIMEOUT_S", 0.05)
+    engine = make_engine(tmp_path, factory=ManualAbortClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        task = asyncio.create_task(_collect(conv.send("one")))
+        await _until(lambda: conv.phase == "draining")
+        task.cancel()  # Stop while the stall's drain is open
+        for _ in range(5):
+            await asyncio.sleep(0)
+        client.feed(make_result(subtype="error_during_execution",
+                                is_error=True))
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, 2)
+        healthy = conv.healthy
+        await user_types_next_message()
+        events = await turn(conv, "two", client)
+        await conv.close()
+        return client, healthy, events
+
+    client, healthy, events = asyncio.run(scenario())
+    assert client.interrupts == 1
+    assert healthy is True
+    assert events == [TextDelta(text="re two"), TurnDone(usage={"tag": "two"})]
+
+
+def test_stop_while_a_stall_interrupts_sends_no_second_interrupt(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(claude_engine, "STALL_TIMEOUT_S", 0.05)
+    engine = make_engine(tmp_path, factory=HeldInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        task = asyncio.create_task(_collect(conv.send("one")))
+        await asyncio.sleep(0.1)  # the stall fires; its interrupt waits
+        task.cancel()  # Stop while the stall's interrupt is in flight
+        for _ in range(5):
+            await asyncio.sleep(0)
+        client.release.set()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, 2)
+        healthy = conv.healthy
+        await user_types_next_message()
+        events = await turn(conv, "two", client)
+        await conv.close()
+        return client, healthy, events
+
+    client, healthy, events = asyncio.run(scenario())
+    assert client.interrupts == 1
+    assert healthy is True
+    assert events == [TextDelta(text="re two"), TurnDone(usage={"tag": "two"})]

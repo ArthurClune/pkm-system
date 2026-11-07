@@ -72,6 +72,10 @@ class ScriptedCLI(FakeSDKClient):
         # ending: whatever the harness does next is unknown
         self.untrusted = False
         self.queried_untrusted = False
+        # held: an interrupt waits for release() before the CLI answers it,
+        # so a step can land while it is in flight
+        self.held = False
+        self.release = asyncio.Event()
 
     def next_id(self) -> int:
         self.seq += 1
@@ -87,6 +91,8 @@ class ScriptedCLI(FakeSDKClient):
         self.interrupts += 1
         if self.dead:
             raise CLIConnectionError("harness exited")
+        if self.held:
+            await self.release.wait()
         order = self.next_interrupt
         if order == "unacked":
             self.untrusted = True
@@ -186,6 +192,10 @@ class TurnMachine(RuleBasedStateMachine):
         self.turn: Turn | None = None
         self.turns = 0
         self.last_end = "none"
+        # a stall split into steps: its interrupt "pending" or its drain
+        # "draining", under the drawn interrupt order
+        self.stall_state: str | None = None
+        self.stall_order = "after_ack"
 
     def run(self, coro):
         return self.loop.run_until_complete(coro)
@@ -251,7 +261,8 @@ class TurnMachine(RuleBasedStateMachine):
 
     def open_unparked(self) -> bool:
         return (self.turn is not None and self.cli is not None
-                and self.cli.prompt is not None and not self.cli.parked)
+                and self.cli.prompt is not None and not self.cli.parked
+                and self.stall_state is None)
 
     def _end_turn(self, how: str) -> Turn:
         turn = self.turn
@@ -260,6 +271,9 @@ class TurnMachine(RuleBasedStateMachine):
         assert_of(turn.prompt, turn.events)
         self.turn = None
         self.last_end = how
+        self.stall_state = None
+        if self.cli is not None:
+            self.cli.held = False
         return turn
 
     # -- the user ---------------------------------------------------------
@@ -324,6 +338,11 @@ class TurnMachine(RuleBasedStateMachine):
     def stop(self, order: str, race: bool) -> None:
         assert self.turn is not None and self.cli is not None
         cli = self.cli
+        stalling = self.stall_state
+        if stalling:
+            # the stall's own interrupt is the only one the harness needs
+            order = self.stall_order
+            event(f"stop with the stall's interrupt {stalling} ({order})")
         race = race and self.open_unparked() and not cli.running
         if race and order not in ACKED:
             race = False
@@ -333,14 +352,17 @@ class TurnMachine(RuleBasedStateMachine):
             event("stop with a parked confirm")
         if cli.running:
             event("stop with an allowed write running")
-        turn_open = cli.turn_open and not race
-        event(f"stop {order}" + ("" if turn_open else " (turn closed)"))
+        turn_open = (cli.turn_open and not race) or stalling is not None
+        if not stalling:
+            event(f"stop {order}" + ("" if turn_open else " (turn closed)"))
         cli.next_interrupt = order
 
         async def go():
             if race:
                 cli.finish()  # the turn ends as Stop lands
             self.t().task.cancel()
+            await self.settle()
+            cli.release.set()  # the CLI answers interrupts in flight
             with contextlib.suppress(asyncio.CancelledError):
                 await self.t().task
 
@@ -378,7 +400,8 @@ class TurnMachine(RuleBasedStateMachine):
         assert turn.events[-1] == TurnDone(usage={"tag": prompt})
         event("turn finished")
 
-    @precondition(lambda self: self.live() and self.c().prompt is not None)
+    @precondition(lambda self: self.live() and self.c().prompt is not None
+                  and self.stall_state is None)
     @rule(order=st.sampled_from(ORDERS))
     def stall(self, order: str) -> None:
         cli = self.c()
@@ -398,7 +421,59 @@ class TurnMachine(RuleBasedStateMachine):
             self.alive = False
         assert (self.cid in self.service._entries) == self.alive
 
-    @precondition(lambda self: self.alive and not self.c().dead)
+    @precondition(lambda self: self.open_unparked())
+    @rule(order=st.sampled_from(ORDERS))
+    def stall_begins(self, order: str) -> None:
+        """The watchdog fires and its interrupt is in flight."""
+        cli = self.c()
+        cli.next_interrupt = order
+        cli.held = True
+        cli.release = asyncio.Event()
+        self.run(asyncio.sleep(claude_engine.STALL_TIMEOUT_S + 0.5))
+        self.run(self.settle())
+        assert cli.interrupts and not self.t().task.done()
+        self.stall_state, self.stall_order = "pending", order
+        event("stall interrupt pending")
+
+    @precondition(lambda self: self.stall_state == "pending")
+    @rule()
+    def stall_acked(self) -> None:
+        """The CLI answers the stall's interrupt; the clock stays put, so an
+        after-ack result or a drain timeout has not come yet."""
+        cli = self.c()
+        order = self.stall_order
+        cli.held = False
+        self.act(cli.release.set)
+        if order == "unacked":
+            assert not self.t().task.done()
+            return
+        if order in ("after_ack", "never"):
+            assert not self.t().task.done()
+            self.stall_state = "draining"
+            event("stall drain open")
+            return
+        self._stall_ended(order)
+
+    @precondition(lambda self: self.stall_state is not None)
+    @rule()
+    def stall_runs_out(self) -> None:
+        self.c().release.set()
+        self.run(asyncio.sleep(claude_engine.INTERRUPT_TIMEOUT_S
+                               + claude_engine.DRAIN_TIMEOUT_S + 1))
+        self.run(self.settle())
+        self._stall_ended(self.stall_order)
+
+    def _stall_ended(self, order: str) -> None:
+        event(f"split stall {order}")
+        turn = self._end_turn(f"stall {order}")
+        assert turn.events[-1] == ErrorEvent(
+            message=claude_engine.stall_message(claude_engine.STALL_TIMEOUT_S))
+        if order not in ("after_ack", "before_ack"):
+            self.alive = False
+        assert (self.cid in self.service._entries) == self.alive
+
+    @precondition(lambda self: self.alive and not self.c().dead
+                  and self.stall_state is None)
     @rule(how=st.sampled_from(["dies", "eof"]), odds=st.integers(0, 3))
     def harness_lost(self, how: str, odds: int) -> None:
         if odds:

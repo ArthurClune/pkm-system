@@ -1,13 +1,13 @@
 ---
 # pkm-74vc
 title: 'Assistant: after Stop or a stall the conversation answers one turn behind for its whole life'
-status: todo
+status: in-progress
 type: bug
 priority: high
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-07T18:42:45Z
+updated_at: 2026-11-07T21:03:09Z
 parent: pkm-zk8b
 ---
 

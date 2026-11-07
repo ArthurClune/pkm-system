@@ -429,9 +429,20 @@ class TurnMachine(RuleBasedStateMachine):
         cli.next_interrupt = order
         cli.held = True
         cli.release = asyncio.Event()
-        self.run(asyncio.sleep(claude_engine.STALL_TIMEOUT_S + 0.5))
-        self.run(self.settle())
-        assert cli.interrupts and not self.t().task.done()
+        before = cli.interrupts
+
+        async def until_the_watchdog_fires():
+            # The pump's silence window may have opened before this step,
+            # e.g. while a confirm was parked, so step the clock in seconds
+            # rather than sleep a fixed span past INTERRUPT_TIMEOUT_S.
+            for _ in range(int(claude_engine.STALL_TIMEOUT_S) + 2):
+                if cli.interrupts > before:
+                    break
+                await asyncio.sleep(1.0)
+            await self.settle()
+
+        self.run(until_the_watchdog_fires())
+        assert cli.interrupts > before and not self.t().task.done()
         self.stall_state, self.stall_order = "pending", order
         event("stall interrupt pending")
 

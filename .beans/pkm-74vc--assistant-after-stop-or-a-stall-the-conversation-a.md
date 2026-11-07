@@ -44,12 +44,13 @@ aborted result, so every Stop test passes.
 Add a small explicit phase on `ClaudeConversation`: idle / streaming /
 draining / dead (replacing the loose `healthy` flag). Not the five-state
 enum first proposed: abandoning and retired are already handled.
-- [ ] Fake SDK client emits the aborted ResultMessage after the interrupt ack (and variants: before ack, never)
-- [ ] Red tests for Stop→send, stall→send, process death, clean EOF
-- [ ] After an acknowledged interrupt, drain to the ResultMessage under a bound (feeding results through the shared TurnMapper); drain timeout → dead
-- [ ] `send()` never drops a ConfirmRequest whose future is pending: decline it explicitly
-- [ ] `_pump` marks the phase dead on transport/process errors and on StopAsyncIteration before a result; the service retires dead handles
-- [ ] Live-smoke Stop→send against the real harness (both Claude and GLM routing)
+- [x] Fake SDK client emits the aborted ResultMessage after the interrupt ack (and variants: before ack, never)
+- [x] Red tests for Stop→send, stall→send, process death, clean EOF
+- [x] After an acknowledged interrupt, drain to the ResultMessage under a bound (feeding results through the shared TurnMapper); drain timeout → dead
+- [x] `send()` never drops a ConfirmRequest whose future is pending: decline it explicitly
+- [x] `_pump` marks the phase dead on transport/process errors and on StopAsyncIteration before a result; the service retires dead handles
+- [x] Live-smoke Stop→send against the real harness, Claude routing (sonnet, `ANTHROPIC_BASE_URL` unset in the CLI's env): fixed code answers the new message; pre-fix code answers one behind
+- [ ] Live-smoke Stop→send with GLM routing: not run, no z.ai key available outside the production config
 
 ## Property testing (required)
 
@@ -83,3 +84,25 @@ Sketch (Hypothesis `RuleBasedStateMachine`, `proptest` marker, one loop):
   consumer's stream or is declined; a dead process, unacknowledged interrupt
   or drain timeout is never reused; `_running_writes` ⊇ allowed writes whose
   result has not been emitted.
+
+## Summary of Changes
+
+- Verified the cause live against CLI 2.1.301: the CLI acknowledges the
+  interrupt, then writes assistant/user messages and the aborted
+  `ResultMessage` (`terminal_reason=aborted_streaming`) ~6 ms later; an
+  interrupt to an idle CLI is acknowledged with no result.
+- `pkm.assistant.turn_phase`: pure `next_phase` table over idle / streaming /
+  draining / dead; any move outside the table is dead.
+- `ClaudeConversation`: `healthy` is now a property (phase not dead). After an
+  acknowledged interrupt (Stop or stall) the pump keeps reading to the aborted
+  result, bounded by `DRAIN_TIMEOUT_S`; a Stop that finds the phase idle sends
+  no interrupt; stream errors and EOF before a result mark it dead and end the
+  turn with an in-band error; `send()` refuses a dead harness, turns a failed
+  query into an error, and declines any parked confirm; a confirm with no
+  consumer is declined without a card. Timeouts read the loop clock.
+- Tests: `FakeSDKClient` interrupt orders, death and EOF;
+  `test_assistant_turn_phase.py`, `test_turn_phase.py`; property
+  `tests/props/test_assistant_turn_props.py` on `props/virtual_loop.py`.
+- Docs: assistant.md § The turn phase, checks.md property-gate row, two
+  troubleshooting rows.
+

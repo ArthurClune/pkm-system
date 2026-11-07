@@ -167,8 +167,8 @@ reply, which can report a refused write as done.
   server tells them apart by the card answer it gave (`_declined`).
 - `TurnMapper` pairs a result with its call by `tool_use_id`, through maps the
   conversation owns (`_tool_names`, which the mapper calls `_tools`, and
-  `_declined`). A stopped turn's write can report during the next turn, so
-  the maps must outlive a mapper.
+  `_declined`). A stopped turn's write reports during the drain, after its
+  mapper's turn has ended, so the maps must outlive a mapper.
 - `tool_error_reason` drops the CLI's `<tool_use_error>` wrapper,
   FastMCP's `Error executing tool <name>:` prefix and the HTTP status pkm's
   `ApiError` leads with (`412: `). The reason can echo
@@ -205,11 +205,40 @@ The teardown rules:
 - `_abandon_turn` declines every parked confirm before it awaits
   `interrupt()`: a harness parked in `can_use_tool` cannot acknowledge an
   interrupt until it has its decision.
-- **An unacknowledged interrupt retires the conversation.** If `interrupt()`
-  times out (`INTERRUPT_TIMEOUT_S`), raises or is cancelled,
-  `ClaudeConversation.healthy` goes `False`, because the subprocess may still
-  be running the abandoned turn. `AssistantService._stream()` then drops the
-  entry, and the next `send()` for that id raises `UnknownConversationError`.
+
+### The turn phase
+
+`ClaudeConversation` keeps one `TurnPhase` (`turn_phase.py`, a pure
+`next_phase` table) for where its harness is in a turn:
+
+```mermaid
+stateDiagram-v2
+    [*] --> idle
+    idle --> streaming: query sent
+    streaming --> idle: ResultMessage read
+    streaming --> draining: Stop or stall, interrupt acknowledged
+    draining --> idle: aborted ResultMessage read
+    streaming --> dead: interrupt unacknowledged, stream raised or ended
+    draining --> dead: no result in DRAIN_TIMEOUT_S
+    idle --> dead: close, or a query that fails
+```
+
+**The aborted turn's result is drained before the conversation takes
+another turn.** The CLI acknowledges an interrupt and only then writes the
+aborted turn's `ResultMessage` (`terminal_reason` `aborted_*`). The SDK
+buffers every message, so a result nobody reads becomes the next turn's
+first message, and every later reply lands one turn behind. So the pump
+keeps reading after the ack until that result, bounded by
+`DRAIN_TIMEOUT_S`. The drained messages still update the tool maps and
+`_running_writes`, but their events reach no consumer.
+
+| Rule | Reason |
+|---|---|
+| A Stop that finds the phase `idle` sends no interrupt | The harness already ended the turn. An idle CLI acknowledges an interrupt with no result, so a drain would wait out its bound |
+| A Stop during a stall's interrupt or drain sends no interrupt of its own. It waits for the pump, bounded by `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S` | The pump owns that interrupt and its drain. A second ack would arrive while the phase is `draining`, and cancelling the pump would leave the aborted result unread |
+| An interrupt that times out (`INTERRUPT_TIMEOUT_S`), raises or is cancelled makes the phase `dead`. So do a drain that times out and a stream that raises or ends before its result | The subprocess may still be running the turn, or is gone. A stream that ended gets an in-band `error`, or the consumer would wait forever |
+| `AssistantService._stream()` retires a handle whose `healthy` is false (phase `dead`) when the turn ends | The next `send()` for that id raises `UnknownConversationError`. `send()` itself refuses a `dead` harness without querying it |
+| A confirm that arrives after its turn's consumer has gone is declined without a card. `send()` declines any confirm still parked before it clears the queue | A dropped `ConfirmRequest` would leave its future parked, which also suspends the stall watchdog |
 
 ## Harness confinement
 
@@ -243,10 +272,10 @@ client that vanished without a clean close. Thinking content is not streamed;
 
 The stall watchdog treats total SDK silence as a dead network, since real
 reasoning emits a steady stream of events. After `STALL_TIMEOUT_S` with no
-SDK message, the pump interrupts the harness, with the same bounded wait and
-`healthy` verdict as `_abandon_turn`, then reports an in-band `error`. The
-interrupt goes first because the error ends the consumer's loop and would
-cancel it. The deadline is suspended while a confirm is parked, because that
+SDK message, the pump interrupts the harness and drains the aborted result
+as Stop does ([the turn phase](#the-turn-phase)), then reports an in-band
+`error`. The interrupt and drain go first because the error ends the
+consumer's loop, which cancels the pump. The deadline is suspended while a confirm is parked, because that
 silence is the user's. The client's own guard is in
 [frontend.md](frontend.md#the-assistant-panel).
 
@@ -255,3 +284,7 @@ silence is the user's. The client's own guard is in
 No real LLM runs in CI. `tests/fake_engine.py`, a scripted `AgentEngine`,
 drives the service and route tests and the Playwright e2e
 (`tests/e2e_serve.py` always wires it in).
+`tests/fake_sdk_client.py` stands in for `ClaudeSDKClient` under the real
+`ClaudeEngine`. Its `interrupt()` ends an open turn as the bundled CLI does,
+writing the aborted `ResultMessage` after the ack, so a test that stops a
+turn and sends again sees what production sees.

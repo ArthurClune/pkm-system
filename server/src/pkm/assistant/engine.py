@@ -11,12 +11,13 @@ from pkm.contracts.responses import ConfirmId
 
 
 class ConversationHandle(Protocol):
-    # False once an interrupt on this handle went unacknowledged (timed out
-    # or raised): the underlying harness may still be running the abandoned
-    # turn, so its state is uncertain and it must not be handed a later turn.
-    # The owner is expected to retire (close and discard) a
-    # handle that goes unhealthy rather than reuse it.
-    healthy: bool
+    @property
+    def healthy(self) -> bool:
+        """False once the harness cannot be trusted with another turn: an
+        interrupt went unacknowledged, the aborted turn's result never
+        came, or the process died or ended its output. The owner retires
+        (closes and discards) such a handle rather than reuse it."""
+        ...
 
     def send(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
         """Send one user turn; yields events until TurnDone or ErrorEvent.

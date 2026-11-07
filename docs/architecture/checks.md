@@ -160,6 +160,7 @@ specs: [server](../superpowers/specs/2026-10-02-property-checks-server-design.md
 | `test_ops_state.py` | blocks, pages, rewrite rows and acks match `props/model.py`, title and text-limit refusals included, and an over-limit replay's landing, with its deleted titles plain; replay is inert |
 | `test_planner_props.py` | sibling order matches `positions_after` |
 | `test_unlink_props.py` | no rewritten source references the page; a second pass is inert |
+| `test_assistant_turn_props.py` | each turn shows only its own events, and retirement matches [the turn phase](assistant.md#the-turn-phase), through every interrupt order. It runs on a virtual clock (`props/virtual_loop.py`) |
 | `sync/` | the invariants in the header of `sync/oracle.ts` |
 | `outline/` | `checks.ts`: rows match a reading-view model; history undoes to the start |
 | `ops/` | the replica and the in-memory trees store what the server stores; `enqueueBatch` refuses a batch for title syntax or a text limit exactly when the server does |

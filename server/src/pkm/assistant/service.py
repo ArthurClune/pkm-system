@@ -207,15 +207,14 @@ class AssistantService:
         finally:
             entry.busy = False
             if not entry.handle.healthy:
-                # An interrupt on this handle went unacknowledged: the
-                # harness may still be running the abandoned turn, so its
-                # state is uncertain. Popping happens synchronously here (no
-                # `await` between the busy-flag reset above and this pop),
-                # so no concurrent create()/reap/evict can observe this cid
-                # as idle-and-reusable in between -- the next send() for it
-                # raises UnknownConversationError instead of resuming a
-                # possibly-still-running subprocess. Only close if
-                # this pop is the one that actually removed the entry: an
+                # The harness may still be running an abandoned turn, or is
+                # gone, so its state is uncertain. Popping happens
+                # synchronously here (no `await` between the busy-flag reset
+                # above and this pop), so no concurrent create()/reap/evict
+                # can observe this cid as idle-and-reusable in between: the
+                # next send() for it raises UnknownConversationError instead
+                # of resuming a possibly-still-running subprocess. Only close
+                # if this pop is the one that actually removed the entry: an
                 # explicit delete() (e.g. the pagehide beacon) racing this
                 # same cid may already have popped and closed it, and close()
                 # is not free to call twice just because it happens to
@@ -223,14 +222,13 @@ class AssistantService:
                 removed = self._entries.pop(cid, None) is not None
                 if removed:
                     logger.warning(
-                        "assistant conversation %s retired after an unacknowledged interrupt", cid
+                        "assistant conversation %s retired: its harness is not usable", cid
                     )
                     await entry.handle.close()
                 else:
                     logger.debug(
                         "assistant conversation %s already removed by a concurrent "
-                        "delete() before the unacknowledged-interrupt retirement "
-                        "could run", cid
+                        "delete() before the retirement could run", cid
                     )
 
     def confirm(self, conversation_id: ConversationId, confirm_id: ConfirmId, allow: bool) -> None:

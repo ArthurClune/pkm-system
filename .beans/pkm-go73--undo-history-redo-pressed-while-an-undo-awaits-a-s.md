@@ -18,3 +18,13 @@ From the pkm-pgod review (2026-10-25). Pre-existing. If an undo waits on a slow 
 ## Deferred (2026-10-27)
 
 Arthur's ruling: pre-existing, needs a slow page read plus a redo mid-undo plus a refused undo, and loses no data. Revisit if it is ever seen. Removed from the security epic.
+
+## Related path (state-machine review, 2026-11-07)
+
+Same chain, same slow-read window: `undoManager.ts` `dispatch` peeks for a
+session once, then awaits `dispatchUnmounted`; after `await loadPage` it
+checks only `stale()`. If the first step's `settle()` navigates to the page,
+React mounts its session after step 2's peek, so the replay is enqueued
+without `applyLocal`, and the newly mounted tree shows stale text until
+delivery (offline: until reconnect). Fix with this bean: re-peek the session
+after the await.

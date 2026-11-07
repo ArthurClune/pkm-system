@@ -15,6 +15,7 @@ from pkm.assets_core import sha256_hex
 from pkm.assets_disk import asset_on_disk_needs_repair
 from pkm.contracts.ops import Sha256Hex
 from pkm.database import Db, connect
+from pkm.db_sidecars import live_sidecar_refusal, sidecar_paths
 from pkm.edn import EdnError, parse_edn
 from pkm.filenames import safe_filename
 from pkm.importer.assets import UID_PREFIX_LEN, Asset, rewrite_asset_urls
@@ -97,6 +98,11 @@ def insert_rows(con: Db, rows: Rows) -> None:
                     rows.block_refs)
 
 
+def _live_sidecar_refusal(db_path: Path) -> str | None:
+    return live_sidecar_refusal(
+        db_path, [p for p in sidecar_paths(db_path) if p.exists()])
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Import a Roam EDN export.")
     parser.add_argument("export", help="path to the .edn export file")
@@ -107,6 +113,11 @@ def main(argv: list[str] | None = None) -> int:
     export_path = Path(args.export)
     if not export_path.is_file():
         print(f"error: export file not found: {export_path}", file=sys.stderr)
+        return 2
+    out = Path(args.out)
+    refusal = _live_sidecar_refusal(out / "pkm.sqlite3")
+    if refusal is not None:
+        print(f"error: import refused: {refusal}", file=sys.stderr)
         return 2
 
     sys.setrecursionlimit(20000)  # deep outlines recurse in tree assembly
@@ -166,7 +177,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: import refused: {exc}", file=sys.stderr)
         return 2
 
-    out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     tmp = out / "pkm.sqlite3.tmp"
     tmp.unlink(missing_ok=True)
@@ -235,6 +245,14 @@ def main(argv: list[str] | None = None) -> int:
         text = render(report)
         report_tmp.write_text(text, encoding="utf-8")
 
+        # Checked again here: a server started during the run is the same
+        # hazard as one that was running before it.
+        refusal = _live_sidecar_refusal(out / "pkm.sqlite3")
+        if refusal is not None:
+            tmp.unlink(missing_ok=True)
+            report_tmp.unlink(missing_ok=True)
+            print(f"error: import refused: {refusal}", file=sys.stderr)
+            return 2
         os.replace(tmp, out / "pkm.sqlite3")
         os.replace(report_tmp, out / "import-report.txt")
     except Exception:

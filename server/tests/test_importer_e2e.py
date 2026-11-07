@@ -342,6 +342,43 @@ def test_rerun_replaces_database(tmp_path):
                        ).fetchone()[0] == 0
 
 
+@pytest.mark.parametrize("sidecar", ["pkm.sqlite3-wal", "pkm.sqlite3-shm"])
+def test_a_live_sidecar_beside_the_target_refuses_the_import(
+        tmp_path, capsys, sidecar):
+    # SQLite would replay a leftover WAL over the swapped-in file on the next
+    # open, so a fresh connection would read the old database, not the import.
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    database, report = _seed_published_sentinels(out)
+    (out / sidecar).write_bytes(b"live")
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 2
+    assert "stop the server first" in capsys.readouterr().err
+    assert (out / "pkm.sqlite3").read_bytes() == database
+    assert (out / "import-report.txt").read_text(encoding="utf-8") == report
+    assert not (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "assets").exists()
+
+
+def test_a_server_started_during_the_import_refuses_the_swap(
+        tmp_path, capsys, monkeypatch):
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    database, report = _seed_published_sentinels(out)
+    real_copy = run_module._copy_assets
+
+    def copy_then_server_starts(*args):
+        real_copy(*args)
+        (out / "pkm.sqlite3-wal").write_bytes(b"live")
+
+    monkeypatch.setattr(run_module, "_copy_assets", copy_then_server_starts)
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 2
+    assert "stop the server first" in capsys.readouterr().err
+    assert (out / "pkm.sqlite3").read_bytes() == database
+    assert (out / "import-report.txt").read_text(encoding="utf-8") == report
+    assert not (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
+
+
 def _seed_published_sentinels(out: Path) -> tuple[bytes, str]:
     out.mkdir()
     database = b"published-database-sentinel"

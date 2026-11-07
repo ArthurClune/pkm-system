@@ -136,7 +136,8 @@ cookie settings.
 ### 2. Importing your Roam graph (optional)
 
 To replace the synthetic data with your Roam graph, export it as **EDN** (a
-markdown export loses uids and structure) and download the linked files, then:
+markdown export loses uids and structure) and download the linked files. Stop
+the server, then:
 
 ```bash
 cd server
@@ -145,8 +146,11 @@ uv run python -m pkm.importer.run /path/to/export.edn \
 ```
 
 Each run builds a fresh database and atomically swaps it in, so re-running is
-safe. The run ends with a report of everything imported and anything
-unrecognised.
+safe once the server is stopped. A server mid-write, or one that crashed,
+leaves `pkm.sqlite3-wal` beside the database, and SQLite would replay it over
+the new file. So the importer refuses while that file or `pkm.sqlite3-shm` is
+there. An idle server leaves neither, so stopping it is still your step. The run ends
+with a report of everything imported and anything unrecognised.
 
 The importer cleans up titles. It removes balanced `[[`/`]]` and `#` markers
 from page and ref-derived titles and merges any resulting collisions; the

@@ -8,7 +8,7 @@ import pytest
 from claude_agent_sdk import PermissionResultDeny, StreamEvent
 from fake_sdk_client import FakeSDKClient, make_engine, make_result
 
-from pkm.assistant import claude_engine
+from pkm.assistant import claude_engine, harness_env
 from pkm.assistant.events import ErrorEvent, TextDelta, TurnDone
 from pkm.assistant.policy import SYSTEM_PROMPT
 from pkm.assistant.service import AssistantService, UnknownConversationError
@@ -54,14 +54,18 @@ async def user_types_next_message():
     await asyncio.sleep(0.05)
 
 
+@pytest.mark.parametrize("model", ["sonnet", "glm"])
 @pytest.mark.parametrize("order", ["after_ack", "before_ack"])
-def test_stop_then_send_answers_the_new_message(tmp_path, monkeypatch, order):
+def test_stop_then_send_answers_the_new_message(tmp_path, monkeypatch, order,
+                                                model):
     monkeypatch.setattr(FakeSDKClient, "interrupt_result", order)
-    engine = make_engine(tmp_path)
+    engine = make_engine(tmp_path, zai_token="zk-test")
 
     async def scenario():
-        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        conv = await engine.create_conversation(SYSTEM_PROMPT, model)
         client = FakeSDKClient.instances[0]
+        routed = client.options.env.get("ANTHROPIC_BASE_URL")
+        assert (routed == harness_env.ZAI_BASE_URL) is (model == "glm")
         await stop_mid_turn(conv, client)
         await user_types_next_message()
         events = await turn(conv, "two", client)

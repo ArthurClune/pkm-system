@@ -1,13 +1,13 @@
 ---
 # pkm-74vc
 title: 'Assistant: after Stop or a stall the conversation answers one turn behind for its whole life'
-status: in-progress
+status: completed
 type: bug
 priority: high
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-07T21:03:09Z
+updated_at: 2026-11-07T22:00:20Z
 parent: pkm-zk8b
 ---
 
@@ -49,8 +49,7 @@ enum first proposed: abandoning and retired are already handled.
 - [x] After an acknowledged interrupt, drain to the ResultMessage under a bound (feeding results through the shared TurnMapper); drain timeout → dead
 - [x] `send()` never drops a ConfirmRequest whose future is pending: decline it explicitly
 - [x] `_pump` marks the phase dead on transport/process errors and on StopAsyncIteration before a result; the service retires dead handles
-- [x] Live-smoke Stop→send against the real harness, Claude routing (sonnet, `ANTHROPIC_BASE_URL` unset in the CLI's env): fixed code answers the new message; pre-fix code answers one behind
-- [ ] Live-smoke Stop→send with GLM routing: not run, no z.ai key available outside the production config
+- [x] Live-smoke Stop→send against the real harness: Claude routing done (sonnet, `ANTHROPIC_BASE_URL` unset in the CLI env; fixed code answers the new message, pre-fix code answers one behind). GLM smoke NOT done (Arthur declined key access on 2026-11-07): moved to pkm-eynb. GLM routing of Stop→send is covered by unit test (`test_stop_then_send_answers_the_new_message[glm]`)
 
 ## Property testing (required)
 
@@ -105,4 +104,3 @@ Sketch (Hypothesis `RuleBasedStateMachine`, `proptest` marker, one loop):
   `tests/props/test_assistant_turn_props.py` on `props/virtual_loop.py`.
 - Docs: assistant.md § The turn phase, checks.md property-gate row, two
   troubleshooting rows.
-

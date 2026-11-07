@@ -111,6 +111,11 @@ def finished_tool_ids(msg: object) -> list[str]:
             if isinstance(block, ToolResultBlock)]
 
 
+def _now() -> float:
+    """The loop's clock, which every asyncio timeout here is measured on."""
+    return asyncio.get_running_loop().time()
+
+
 def stall_message(seconds: float) -> str:
     window = f"{int(seconds // 60)} minutes" if seconds >= 120 and seconds % 60 == 0 else f"{seconds:g} seconds"
     return f"No response from the model for {window} — network problem? The turn was stopped."
@@ -415,7 +420,7 @@ class ClaudeConversation:
         self._move("interrupt_acked")
         if self._phase != "draining":
             return
-        self._drain_deadline = time.monotonic() + DRAIN_TIMEOUT_S
+        self._drain_deadline = _now() + DRAIN_TIMEOUT_S
         try:
             await asyncio.wait({pump}, timeout=DRAIN_TIMEOUT_S)
         except asyncio.CancelledError:
@@ -453,7 +458,7 @@ class ClaudeConversation:
 
     def _read_timeout(self) -> float:
         if self._phase == "draining":
-            return max(0.0, self._drain_deadline - time.monotonic())
+            return max(0.0, self._drain_deadline - _now())
         return STALL_TIMEOUT_S
 
     async def _pump(self, mapper: TurnMapper) -> None:
@@ -471,7 +476,7 @@ class ClaudeConversation:
                                              timeout=self._read_timeout())
                 if not done:
                     if self._phase == "draining":
-                        if time.monotonic() >= self._drain_deadline:
+                        if _now() >= self._drain_deadline:
                             self._lose("no result for the interrupted turn "
                                        f"in {DRAIN_TIMEOUT_S}s")
                             break
@@ -488,7 +493,7 @@ class ClaudeConversation:
                     if not await self._interrupt("stalled"):
                         break
                     self._move("interrupt_acked")
-                    self._drain_deadline = time.monotonic() + DRAIN_TIMEOUT_S
+                    self._drain_deadline = _now() + DRAIN_TIMEOUT_S
                     continue
                 settled, pending = pending, None
                 try:

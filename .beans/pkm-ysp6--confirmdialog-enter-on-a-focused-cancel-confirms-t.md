@@ -38,7 +38,11 @@ resolving the first promise.
   is a button inside the dialog, so a focused Cancel cancels and a focused
   confirm button confirms through its own click.
 - `confirm()` resolves a still-pending confirmation `false` before replacing
-  it.
+  it. The pending resolver lives in a ref, settled outside any state updater
+  (React may run an updater twice).
+- Playwright: `e2e/delete-page.spec.ts` "Enter on a focused Cancel cancels the
+  delete" drives Shift+Tab then Enter in real Chromium; it fails against the
+  unfixed dialog (the page is deleted).
 - Tests in `ConfirmDialog.test.tsx`: "Enter on a focused Cancel button cancels
   instead of confirming", "Enter on the focused confirm button confirms once",
   "a second confirm() settles the pending one as false".

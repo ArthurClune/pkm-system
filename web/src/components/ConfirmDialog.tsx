@@ -22,7 +22,6 @@ export interface ConfirmOptions {
 
 interface ConfirmState extends ConfirmOptions {
   message: string;
-  resolve: (value: boolean) => void;
 }
 
 /** Renders (at most) one confirmation dialog for its owning component.
@@ -41,23 +40,26 @@ export function useConfirm(): {
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
+  // The pending promise's resolver, kept out of state so that settling it
+  // never happens inside a state updater, which React may run twice.
+  const pendingResolve = useRef<((value: boolean) => void) | null>(null);
+
+  const settle = useCallback((value: boolean) => {
+    const resolve = pendingResolve.current;
+    pendingResolve.current = null;
+    resolve?.(value);
+    setState(null);
+  }, []);
+
   const confirm = useCallback(
     (message: string, options: ConfirmOptions = {}) =>
       new Promise<boolean>((resolve) => {
-        setState((pending) => {
-          pending?.resolve(false);
-          return { message, resolve, ...options };
-        });
+        pendingResolve.current?.(false);
+        pendingResolve.current = resolve;
+        setState({ message, ...options });
       }),
     [],
   );
-
-  const settle = useCallback((value: boolean) => {
-    setState((current) => {
-      current?.resolve(value);
-      return null;
-    });
-  }, []);
 
   useEffect(() => {
     if (!state) return undefined;

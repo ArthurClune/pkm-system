@@ -1,13 +1,13 @@
 ---
 # pkm-iq2r
 title: 'Files: Select all during a filter reload selects the old filter''s files, and Delete removes them'
-status: todo
+status: completed
 type: bug
 priority: high
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:46Z
-updated_at: 2026-11-07T18:42:46Z
+updated_at: 2026-11-07T21:07:14Z
 parent: pkm-zk8b
 ---
 
@@ -31,6 +31,20 @@ starts from the old `items`/`total` with the new `filters` and the reload's
 own generation.
 
 ## Fix
-- [ ] Red tests (Select all and Load more started after the filter change)
-- [ ] Bump the generation and clear `selected` when filters change
-- [ ] Select all / Load more only when `state === "ready"` for the current generation; clear the selection on reload error
+- [x] Red tests (Select all and Load more started after the filter change)
+- [x] Bump the generation and clear `selected` when filters change
+- [x] Select all / Load more only when `state === "ready"` for the current generation; clear the selection on reload error
+
+## Summary of Changes
+
+- `Files.tsx`: a filter change bumps the generation, sets "loading" and
+  clears the selection at once. Every reload clears the selection when it
+  starts, so a failed reload leaves none live.
+- Select all and Load more start only when the list is "ready" and was loaded
+  under the current generation (`itemsGeneration`, set with `items`); Select
+  all is disabled while loading.
+- Tests in `Files.test.tsx`: "Select all clicked while a filter reload shows
+  Loading selects nothing", "Select all clicked in the filter debounce window
+  selects nothing", "Load more clicked in the filter debounce window appends
+  nothing", "a failed reload clears the selection".
+- `frontend.md` § The `/files` browser states the rule; troubleshooting row.

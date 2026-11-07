@@ -22,12 +22,14 @@ import {
 import type { FileFilters } from "./filesCore";
 
 // Stale-response guard: any Files list operation (reload, loadMore,
-// selectAll) may take time to resolve. reload() bumps the generation on
-// every filter change or explicit refresh; loadMore/selectAll capture the
-// generation before they start and check it before committing a result, so
-// a response that lands after a newer generation started is discarded
-// instead of mixing result sets, overwriting totals, or selecting files
-// outside the now-visible filter.
+// selectAll) may take time to resolve. The generation is bumped by every
+// filter change (at the keystroke, not when the debounced reload fires) and
+// by every reload; loadMore/selectAll capture it before they start and check
+// it before committing a result, so a response that lands after a newer
+// generation started is discarded instead of mixing result sets,
+// overwriting totals, or selecting files outside the now-visible filter.
+// loadMore/selectAll start only from a "ready" list: between a filter
+// change and its reload landing, items and total belong to the old filter.
 //
 // Deliberately NOT the shared useStaleGuard: that guard's
 // contract is "one live request at a time", where begin() invalidates its
@@ -193,6 +195,9 @@ export function Files() {
   const [loadingMore, setLoadingMore] = useState(false);
   // Stale-response guard: only the latest reload may set state.
   const generation = useRef(0);
+  // The generation `items` and `total` were loaded under, set in the same
+  // render as them, so a handler's closure sees a matching pair.
+  const [itemsGeneration, setItemsGeneration] = useState(-1);
 
   const fetchPage = useCallback(
     (f: FileFilters, offset: number) =>
@@ -202,12 +207,13 @@ export function Files() {
   const reload = useCallback((f: FileFilters) => {
     const gen = bumpGeneration(generation);
     setState("loading");
+    setSelected(new Set());
     fetchPage(f, 0)
       .then((p) => {
         if (isStale(generation, gen)) return;
         setItems(p.assets);
         setTotal(p.total);
-        setSelected(new Set());
+        setItemsGeneration(gen);
         setState("ready");
       })
       .catch(() => {
@@ -221,11 +227,18 @@ export function Files() {
     return () => clearTimeout(t);
   }, [filters, offline, reload]);
 
-  const update = (patch: Partial<FileFilters>) =>
+  const update = (patch: Partial<FileFilters>) => {
+    bumpGeneration(generation);
+    setState("loading");
+    setSelected(new Set());
     setFilters((f) => ({ ...f, ...patch }));
+  };
+
+  const listIsCurrent = () =>
+    state === "ready" && itemsGeneration === generation.current;
 
   const loadMore = async () => {
-    if (loadMoreInFlight.current) return;
+    if (!listIsCurrent() || loadMoreInFlight.current) return;
     loadMoreInFlight.current = true;
     setLoadingMore(true);
     const gen = generation.current;
@@ -243,6 +256,7 @@ export function Files() {
   };
 
   const selectAll = async () => {
+    if (!listIsCurrent()) return;
     const gen = generation.current;
     setBusy(true);
     try {
@@ -387,7 +401,8 @@ export function Files() {
         <span className="files-count">
           {items.length} of {total} files
         </span>
-        <button type="button" className="btn-secondary" disabled={busy}
+        <button type="button" className="btn-secondary"
+                disabled={busy || state !== "ready"}
                 onClick={() => void selectAll()}>
           Select all
         </button>

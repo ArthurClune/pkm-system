@@ -234,7 +234,11 @@ through `BacklinkGroupList`, whose rows render media inert
 (`InertMediaContext`) so the whole row is a click target. `AssetRefGroup` has
 no `page_id`, which keeps asset refs out of `mergeGroups`. Pagination has a
 synchronous single-flight lock against a double click, and a generation guard
-that discards responses a filter change has made stale.
+that discards responses a filter change has made stale. A filter change bumps
+the generation and clears the selection at the keystroke, not when the
+debounced reload fires. Select all and Load more start only from a list loaded
+under the current generation, since until then `items` and `total` belong to
+the old filter and a Delete would remove files outside the new one.
 
 ## iOS and phone behaviour
 

@@ -178,6 +178,7 @@ flowchart LR
 | `setHeading`, `setViewType` and `setCollapsed` emit nothing for the current value | a no-op gesture sends ops; a repeated heading or view type re-dates the block and adds an empty undo step |
 | A restored focus lands on a visible block with a clamped caret (`validateOutlineFocus`). `hidesChildren` decides what hides, for `visibleUids` too; a collapsed Roam table still shows its cells | focus on a block the user cannot see; arrows skip visible cell rows |
 | A block selection treats a valid Roam table as one row (`selectableUids`, `startSelection`, `selectionText`) | Shift+Arrow spends presses on table cells, and a copied table loses them |
+| A selection and an editing focus never coexist: every focus set clears the selection, and each adopted tree drops a selection whose end is gone or hidden (`pruneSelection`) | the tree keeps owning the keyboard for a selection that selects nothing |
 | An edit never places a block under a collapsed row; indent, outdent and cross-parent moves expand it first, and `allowedDepths` offers no depth under one | the block vanishes into a closed subtree |
 | An offset transform, and a caret the editor places, snaps with `snapCaret` (`keyEdits.ts`); `outline/surrogatePairs.props.test.ts` covers each | a slice between surrogate halves stores two U+FFFD |
 | `set_collapsed` does not stamp (`opBumpsUpdatedAt`, which `replica/localOps.test.ts` pins for the replica) | collapsing re-dates the block |
@@ -283,7 +284,11 @@ confirms on desktop, any reload on iPad Safari, which does not ask.
 Two pure functions decide; the shell (`EditableBlockTree.onKeyDown`,
 `BlockInput`) executes and owns every DOM effect. `decideEditorKey` handles a
 focused textarea. `decideSelectionKey` handles a multi-block selection, keyed by
-the tree container. New shortcuts go into one of them, and Cmd-letter wraps
+the tree container. It sees only keydowns whose target is inside the tree's
+own DOM. The block menu, ref popover and local-file picker are portalled out
+of the tree's DOM but not its React tree, so their keys bubble to its
+handler. There, Tab or Backspace in the menu would indent or delete the
+selection. New shortcuts go into one of them, and Cmd-letter wraps
 into `META_WRAP_EDITS`, never into ad-hoc handlers. [keyboard.md](../keyboard.md)
 owns the list, and a new key must not collide with an app-global chord.
 

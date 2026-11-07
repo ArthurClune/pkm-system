@@ -253,3 +253,78 @@ it("deleting more than 20 selected blocks proceeds once confirmed in the dialog"
   expect(getOutline().blocks).toEqual([]);
   expect(getOutline().selection).toBeNull();
 });
+
+it("drops a selection whose head block a newer tree no longer holds", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", abc());
+  act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-a"), "down"));
+  expect(getOutline().selection).toEqual({ anchor: "tuid-a", head: "tuid-b" });
+
+  const session = getOutline().session!;
+  act(() => {
+    session.receiveAuthoritative(session.beginAuthoritativeRead("parent"), [
+      block("tuid-a", "alpha", { order_idx: orderIdxOf(0) }),
+      block("tuid-c", "gamma", { order_idx: orderIdxOf(2) }),
+    ]);
+  });
+
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["tuid-a", "tuid-c"]);
+  expect(getOutline().selection).toBeNull();
+});
+
+it("drops a selection whose anchor a newer tree hides under a collapse", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", crossParentTree());
+  act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-b1"), "down"));
+  expect(getOutline().selection).toEqual({ anchor: "tuid-b1", head: "tuid-c" });
+
+  const session = getOutline().session!;
+  const collapsed = crossParentTree();
+  collapsed[1] = { ...collapsed[1], collapsed: true };
+  act(() => {
+    session.receiveAuthoritative(
+      session.beginAuthoritativeRead("parent"), collapsed);
+  });
+
+  expect(getOutline().selection).toBeNull();
+});
+
+it("keeps the same selection when a newer tree still holds both ends", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", abc());
+  act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-a"), "down"));
+  const before = getOutline().selection;
+
+  const session = getOutline().session!;
+  act(() => {
+    session.receiveAuthoritative(session.beginAuthoritativeRead("parent"), [
+      ...abc(), block("tuid-d", "delta", { order_idx: orderIdxOf(3) }),
+    ]);
+  });
+
+  expect(getOutline().blocks).toHaveLength(4);
+  expect(getOutline().selection).toBe(before);
+});
+
+it("a command that moves focus ends the block selection", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", abc());
+  act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-a"), "down"));
+  expect(getOutline().selection).not.toBeNull();
+
+  act(() => getOutline().handlers.onSplit(uidOf("tuid-c"), 2));
+
+  expect(getOutline().focus).not.toBeNull();
+  expect(getOutline().selection).toBeNull();
+});
+
+it("an arrow that moves focus ends the block selection", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", abc());
+  act(() => getOutline().handlers.onStartBlockSelection(uidOf("tuid-a"), "down"));
+
+  act(() => getOutline().handlers.onArrow(uidOf("tuid-a"), "down"));
+
+  expect(getOutline().focus).toMatchObject({ uid: "tuid-b" });
+  expect(getOutline().selection).toBeNull();
+});

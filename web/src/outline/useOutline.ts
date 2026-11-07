@@ -41,8 +41,9 @@ import { substituteMissingDaily } from "./missingPage";
 import { planOutlinePaste } from "./paste";
 import { applyOps, findNode, hidingAncestors, insertSubtree, removeSubtree,
          visibleNeighbor } from "./tree";
-import { extendSelection, needsDeleteConfirmation, selectedUids,
-         startSelection, type BlockSelection } from "./blockSelection";
+import { extendSelection, needsDeleteConfirmation, pruneSelection,
+         selectedUids, startSelection,
+         type BlockSelection } from "./blockSelection";
 import { acquireOutlineSession,
          type OutlineSessionHandle } from "./outlineSessions";
 import { dropDraft, setRefusedDraftPending } from "./droppedDrafts";
@@ -182,6 +183,7 @@ export function useOutline(
       releaseUnshownRef.current();
       setBlocks(shared);
       setFocus((current) => validateOutlineFocus(current, shared));
+      setSelection((current) => pruneSelection(shared, current));
     };
     const unsubscribe = handle.subscribe(adoptShared);
     // Registered as the "editable" kind: the session prefers a page-load or
@@ -370,7 +372,10 @@ export function useOutline(
         focusAfter: result.focus ?? focusRef.current,
       });
     }
-    if (result.focus) setFocus(result.focus);
+    if (result.focus) {
+      setSelection(null);
+      setFocus(result.focus);
+    }
     return applied;
   }, [releaseUnshownDraft, draftRefusal, takePendingTextOps,
       markRefusedPending, pageTitle, sync]);
@@ -555,6 +560,7 @@ export function useOutline(
         dir === "up" || dir === "left" ? "up" : "down");
       if (!to || !flushNow()) return;
       const node = findNode(blocksRef.current, to);
+      setSelection(null);
       setFocus({
         uid: to,
         cursor: dir === "right" ? 0 : (node?.text.length ?? 0),

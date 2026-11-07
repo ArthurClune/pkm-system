@@ -113,3 +113,34 @@ test("Escape cancels the delete confirm dialog (keyboard accessibility)", async 
   const res = await page.request.get(`/api/page/${encodeURIComponent(title)}`);
   expect(res.ok()).toBeTruthy();
 });
+
+test.describe("keyboard on the delete confirm dialog", () => {
+  let title: string | null = null;
+  test.afterEach(async ({ page }) => {
+    if (title) {
+      await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
+    }
+    title = null;
+  });
+
+  // Real Chromium, because the bug lived in how a window keydown listener
+  // and a focused button's native Enter activation interact.
+  test("Enter on a focused Cancel cancels the delete", async ({ page }) => {
+    title = `DeletePageEnterCancel${Date.now()}`;
+    await login(page);
+    await createAndVisitPage(page, title);
+
+    await openPageMenu(page);
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog.getByRole("button", { name: "Delete" })).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(dialog).toHaveCount(0);
+
+    await expect(page.locator("h1.page-title")).toHaveText(title);
+    const res = await page.request.get(
+      `/api/page/${encodeURIComponent(title)}`);
+    expect(res.ok()).toBeTruthy();
+  });
+});

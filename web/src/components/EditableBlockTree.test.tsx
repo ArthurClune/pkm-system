@@ -978,3 +978,40 @@ test("a fallback tree renders the toc read-only", () => {
   fireEvent.click(container.querySelector("nav.toc")!);
   expect(h.onFocusBlock).not.toHaveBeenCalled();
 });
+
+// --- the block menu over a live selection ---
+
+// BlockMenu is portalled out of the tree's DOM but not its React tree, so its
+// keydowns bubble through the tree's onKeyDown.
+test.each([
+  ["Tab", {}], ["Tab", { shiftKey: true }], ["Backspace", {}], ["Delete", {}],
+  ["ArrowDown", {}], ["ArrowUp", {}], ["Escape", {}],
+])("%s in the block menu is not a selection command (%o)", (key, mods) => {
+  const h = handlers();
+  const { container } = mountSelected(
+    h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") });
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
+  const item = screen.getByRole("menuitem", { name: "Copy block reference" });
+  expect(item).toHaveFocus();
+
+  fireEvent.keyDown(item, { key, ...mods });
+
+  expect(h.onIndentSelection).not.toHaveBeenCalled();
+  expect(h.onOutdentSelection).not.toHaveBeenCalled();
+  expect(h.onDeleteBlockSelection).not.toHaveBeenCalled();
+  expect(h.onFocusBlock).not.toHaveBeenCalled();
+  expect(h.onClearBlockSelection).not.toHaveBeenCalled();
+  expect(h.onExtendBlockSelection).not.toHaveBeenCalled();
+});
+
+test("ArrowDown in the block menu over a selection moves through the menu",
+     () => {
+  const { container } = mountSelected(
+    handlers(), { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") });
+  fireEvent.click(bullet(container, uidOf("tuid-u1")));
+  const copy = screen.getByRole("menuitem", { name: "Copy block reference" });
+  fireEvent.keyDown(copy, { key: "ArrowDown" });
+  expect(screen.getByRole("menuitemradio", { name: "Plain text" }))
+    .toHaveFocus();
+  expect(screen.getByRole("menu")).toBeInTheDocument();
+});

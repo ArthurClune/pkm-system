@@ -206,7 +206,7 @@ node, not the React node, so a portalled surface stops its own clicks.
 | `BlockRefBacklinksPopover`, `FileCardPopovers` | `Popover`'s own `useDismiss` (outside `mousedown` or Escape) |
 | `BlockMenu` | `useDismiss`; roving focus and Tab stay in the component |
 | `TopBar`'s page menu, `SearchBar` | `useDismiss` with `enabled` |
-| `ConfirmDialog` | hand-rolled: `window` listener, Escape/Enter |
+| `ConfirmDialog` | hand-rolled: `window` listener, Escape/Enter; Enter on a focused dialog button is left to that button |
 | `ImageOverlay`, `GoodlinksReader`, `LocalFilePicker` | `useOverlayDismiss`: capture-phase `window` listener, scroll lock, focus restore |
 | `AutocompletePopup`, `DatePickerPopup` | none: `BlockInput` owns their keys |
 
@@ -234,7 +234,11 @@ through `BacklinkGroupList`, whose rows render media inert
 (`InertMediaContext`) so the whole row is a click target. `AssetRefGroup` has
 no `page_id`, which keeps asset refs out of `mergeGroups`. Pagination has a
 synchronous single-flight lock against a double click, and a generation guard
-that discards responses a filter change has made stale.
+that discards responses a filter change has made stale. A filter change bumps
+the generation and clears the selection at the keystroke, not when the
+debounced reload fires. Select all and Load more start only from a list loaded
+under the current generation, since until then `items` and `total` belong to
+the old filter and a Delete would remove files outside the new one.
 
 ## iOS and phone behaviour
 

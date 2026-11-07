@@ -218,9 +218,13 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   // Like BlockInput's, this keydown only executes: what the key MEANS while a
   // selection is active — including which branches are read-only-gated — is
   // decideSelectionKey's, in the policy core. Anything it doesn't claim is
-  // left uncancelled for the platform.
+  // left uncancelled for the platform. Portalled surfaces (BlockMenu, the
+  // ref popover, the local-file picker) sit outside the tree's DOM but
+  // inside its React tree, so their keys bubble here and are not selection
+  // commands.
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (fallback || !selection) return;
+    if (!e.currentTarget.contains(e.target as Node)) return;
     const decision = decideSelectionKey({
       key: e.key,
       metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey,

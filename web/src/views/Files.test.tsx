@@ -242,6 +242,105 @@ describe("Files", () => {
       .not.toBeDisabled();
   });
 
+  const fiftyOf = (total: number) => payload(
+    Array.from({ length: 50 }, (_, i) =>
+      item({ sha256: sha(String(i).padStart(64, "0")),
+             filename: `f${i}.png` })),
+    total);
+  const pdfPage = (hex: string, total: number) => payload(
+    [item({ sha256: sha(hex.repeat(32)), filename: `${hex}.pdf`,
+            mime: "application/pdf" })], total);
+  // Filter A is every type; filter B is PDFs. Routing on the query instead
+  // of queueing once-values leaves nothing behind for the next test.
+  const routeAB = (aTotal: number,
+                   b: (offset: string) => Promise<AssetSearchPayload>) => {
+    mockFetch.mockImplementation((url) => {
+      const query = new URL(String(url), "http://x").searchParams;
+      if (query.get("type") !== "pdf") {
+        return Promise.resolve(fiftyOf(aTotal));
+      }
+      return b(query.get("offset") ?? "0");
+    });
+  };
+
+  it("Select all clicked while a filter reload shows Loading selects nothing",
+     async () => {
+    const reloadB = deferred<AssetSearchPayload>();
+    const pageB = deferred<AssetSearchPayload>();
+    routeAB(51, (offset) =>
+      offset === "0" ? reloadB.promise : pageB.promise);
+    renderFiles();
+    expect(await screen.findByText("50 of 51 files")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Type"),
+                     { target: { value: "pdf" } });
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+
+    await act(async () => {
+      reloadB.resolve(pdfPage("b0", 2));
+      await reloadB.promise;
+    });
+    await act(async () => {
+      pageB.resolve(pdfPage("b1", 2));
+      await pageB.promise;
+    });
+    expect(screen.getByText("1 of 2 files")).toBeInTheDocument();
+    expect(screen.queryByText(/selected/)).not.toBeInTheDocument();
+    expect(screen.queryByText("f0.png")).not.toBeInTheDocument();
+  });
+
+  it("Select all clicked in the filter debounce window selects nothing",
+     async () => {
+    routeAB(51, (offset) =>
+      Promise.resolve(pdfPage(offset === "0" ? "b0" : "b1", 2)));
+    renderFiles();
+    expect(await screen.findByText("50 of 51 files")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Type"),
+                     { target: { value: "pdf" } });
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByText(/selected/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" }))
+      .not.toBeInTheDocument();
+    expect(await screen.findByText("1 of 2 files")).toBeInTheDocument();
+    expect(screen.queryByText(/selected/)).not.toBeInTheDocument();
+  });
+
+  it("Load more clicked in the filter debounce window appends nothing",
+     async () => {
+    routeAB(60, (offset) =>
+      Promise.resolve(pdfPage(offset === "0" ? "b0" : "b1", 2)));
+    renderFiles();
+    const more = await screen.findByRole("button", { name: "Load more" });
+
+    fireEvent.change(screen.getByLabelText("Type"),
+                     { target: { value: "pdf" } });
+    act(() => { more.click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByText("b1.pdf")).not.toBeInTheDocument();
+    expect(await screen.findByText("1 of 2 files")).toBeInTheDocument();
+    expect(screen.queryByText("b1.pdf")).not.toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("offset=50"), { method: "GET" });
+  });
+
+  it("a failed reload clears the selection", async () => {
+    mockFetch.mockResolvedValueOnce(payload([item({})]));
+    renderFiles();
+    fireEvent.click(await screen.findByLabelText("Select pic.png"));
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    mockFetch.mockRejectedValueOnce(new Error("boom"));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText(/could not load files/i))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/selected/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" }))
+      .not.toBeInTheDocument();
+  });
+
   it("deletes selected files after a calm confirm and reports", async () => {
     mockFetch.mockResolvedValueOnce(payload([item({})]));
     renderFiles();

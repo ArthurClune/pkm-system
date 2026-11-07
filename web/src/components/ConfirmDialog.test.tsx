@@ -89,3 +89,57 @@ it("applies a danger styling class when danger is set", () => {
   fireEvent.click(screen.getByText("open"));
   expect(screen.getByRole("button", { name: "Delete" })).toHaveClass("btn-danger");
 });
+
+/** jsdom has no native button activation, so emulate the browser: Enter on
+ * a focused button clicks it unless a keydown listener prevented the
+ * default. */
+function pressEnterOn(element: HTMLElement) {
+  element.focus();
+  const notPrevented = fireEvent.keyDown(element, { key: "Enter" });
+  if (notPrevented) fireEvent.click(element);
+}
+
+it("Enter on a focused Cancel button cancels instead of confirming", async () => {
+  const onSettle = vi.fn();
+  render(<Harness onSettle={onSettle} />);
+  fireEvent.click(screen.getByText("open"));
+  pressEnterOn(screen.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(onSettle).toHaveBeenCalledWith(false));
+  expect(onSettle).not.toHaveBeenCalledWith(true);
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
+it("Enter on the focused confirm button confirms once", async () => {
+  const onSettle = vi.fn();
+  render(<Harness onSettle={onSettle} />);
+  fireEvent.click(screen.getByText("open"));
+  pressEnterOn(screen.getByRole("button", { name: "Delete" }));
+  await waitFor(() => expect(onSettle).toHaveBeenCalledWith(true));
+  expect(onSettle).toHaveBeenCalledTimes(1);
+});
+
+it("a second confirm() settles the pending one as false", async () => {
+  const answers: string[] = [];
+  function Twice() {
+    const { confirm, dialog } = useConfirm();
+    return (
+      <>
+        <button type="button" onClick={() => {
+          void confirm("First?").then((a) => answers.push(`first:${a}`));
+        }}>first</button>
+        <button type="button" onClick={() => {
+          void confirm("Second?").then((a) => answers.push(`second:${a}`));
+        }}>second</button>
+        {dialog}
+      </>
+    );
+  }
+  render(<Twice />);
+  fireEvent.click(screen.getByText("first"));
+  fireEvent.click(screen.getByText("second"));
+  await waitFor(() => expect(answers).toEqual(["first:false"]));
+  expect(screen.getByText("Second?")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "OK" }));
+  await waitFor(() =>
+    expect(answers).toEqual(["first:false", "second:true"]));
+});

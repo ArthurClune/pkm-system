@@ -44,6 +44,17 @@ export function selectedUids(blocks: BlockNode[], sel: BlockSelection): BlockUid
   return order.slice(lo, hi + 1);
 }
 
+/** The selection itself while both its ends are still selectable in
+ * `blocks`, else null. A selection whose end is gone or hidden selects
+ * nothing, yet would keep the tree owning the keyboard. */
+export function pruneSelection(
+  blocks: BlockNode[], sel: BlockSelection | null,
+): BlockSelection | null {
+  if (!sel) return null;
+  const order = selectableUids(blocks);
+  return order.includes(sel.anchor) && order.includes(sel.head) ? sel : null;
+}
+
 /** Move the head one visible block up/down, keeping the anchor fixed. Returns
  * the selection unchanged when the head is already at the top/bottom edge. */
 export function extendSelection(

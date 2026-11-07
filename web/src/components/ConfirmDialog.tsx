@@ -22,13 +22,14 @@ export interface ConfirmOptions {
 
 interface ConfirmState extends ConfirmOptions {
   message: string;
-  resolve: (value: boolean) => void;
 }
 
 /** Renders (at most) one confirmation dialog for its owning component.
  * `confirm(message)` returns a promise that resolves `true`/`false` once
  * the user picks an option -- Escape and the Cancel button resolve
- * `false`; Enter and the confirm button resolve `true`. Render `dialog`
+ * `false`; Enter and the confirm button resolve `true`, except that Enter
+ * on a focused dialog button activates that button. A second `confirm()`
+ * while one is pending resolves the pending one `false`. Render `dialog`
  * anywhere in the owning component's tree (it portals to `document.body`
  * and renders nothing when no confirmation is pending). */
 export function useConfirm(): {
@@ -37,21 +38,28 @@ export function useConfirm(): {
 } {
   const [state, setState] = useState<ConfirmState | null>(null);
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  // The pending promise's resolver, kept out of state so that settling it
+  // never happens inside a state updater, which React may run twice.
+  const pendingResolve = useRef<((value: boolean) => void) | null>(null);
+
+  const settle = useCallback((value: boolean) => {
+    const resolve = pendingResolve.current;
+    pendingResolve.current = null;
+    resolve?.(value);
+    setState(null);
+  }, []);
 
   const confirm = useCallback(
     (message: string, options: ConfirmOptions = {}) =>
       new Promise<boolean>((resolve) => {
-        setState({ message, resolve, ...options });
+        pendingResolve.current?.(false);
+        pendingResolve.current = resolve;
+        setState({ message, ...options });
       }),
     [],
   );
-
-  const settle = useCallback((value: boolean) => {
-    setState((current) => {
-      current?.resolve(value);
-      return null;
-    });
-  }, []);
 
   useEffect(() => {
     if (!state) return undefined;
@@ -61,6 +69,10 @@ export function useConfirm(): {
         event.preventDefault();
         settle(false);
       } else if (event.key === "Enter") {
+        // A focused dialog button activates itself on Enter; settling here
+        // would confirm when the focus is on Cancel.
+        if (event.target instanceof HTMLButtonElement
+            && dialogRef.current?.contains(event.target)) return;
         event.preventDefault();
         settle(true);
       }
@@ -72,6 +84,7 @@ export function useConfirm(): {
   const dialog = state && createPortal(
     <div className="confirm-dialog-overlay" onClick={() => settle(false)}>
       <div className="confirm-dialog" role="alertdialog" aria-modal="true"
+           ref={dialogRef}
            aria-label={state.heading ?? state.message}
            onClick={(event) => event.stopPropagation()}>
         {state.heading !== undefined

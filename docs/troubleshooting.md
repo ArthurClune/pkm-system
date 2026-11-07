@@ -252,6 +252,7 @@ Owner: [frontend.md](architecture/frontend.md)
 | On an iPhone, focusing a block shifts the page sideways and cuts off the keyboard bar's → key | Safari zooms into a focused field under 16px, and `.block-input` is 15px (`phoneViewportContent`) | [frontend.md § iOS and phone behaviour](architecture/frontend.md#ios-and-phone-behaviour) | pkm-il3t |
 | A unit test fails with jsdom's `Not implemented: navigation` although it clicks nothing | An earlier test's anchor click navigates on a timer, and `src/test-setup.ts` fails whichever test runs then; read the message, not the test name | [frontend.md § Testing and quality gates](architecture/frontend.md#testing-and-quality-gates) | pkm-apr7 |
 | A heading's accessible name passes its unit test but is wrong in the browser | jsdom differs from Chromium: a descendant button's `aria-label` renames an `<h1>` only in a real browser | [frontend.md § Testing and quality gates](architecture/frontend.md#testing-and-quality-gates) | pkm-6phf |
+| Tab to Cancel in a confirm dialog and press Enter: the delete or discard goes ahead | `useConfirm`'s `window` listener settled every Enter as `true` and its `preventDefault` stopped the focused button's own activation | [frontend.md § Popovers and menus](architecture/frontend.md#popovers-and-menus) | pkm-ysp6 |
 
 ## Rendering
 

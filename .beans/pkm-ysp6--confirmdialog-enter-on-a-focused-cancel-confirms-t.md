@@ -1,13 +1,13 @@
 ---
 # pkm-ysp6
 title: 'ConfirmDialog: Enter on a focused Cancel confirms the destructive action'
-status: todo
+status: completed
 type: bug
 priority: high
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-07T18:42:45Z
+updated_at: 2026-11-07T21:03:39Z
 parent: pkm-zk8b
 ---
 
@@ -28,6 +28,18 @@ Enter to `settle(true)` regardless of focus; its bubble-phase
 resolving the first promise.
 
 ## Fix
-- [ ] Red test with focus on Cancel (existing tests fire Enter on window without focus)
-- [ ] Let a focused button handle Enter (ignore Enter when the target is a button)
-- [ ] Settle a pending confirm as false before replacing it
+- [x] Red test with focus on Cancel (existing tests fire Enter on window without focus)
+- [x] Let a focused button handle Enter (ignore Enter when the target is a button)
+- [x] Settle a pending confirm as false before replacing it
+
+## Summary of Changes
+
+- `useConfirm`'s `window` keydown listener leaves Enter alone when its target
+  is a button inside the dialog, so a focused Cancel cancels and a focused
+  confirm button confirms through its own click.
+- `confirm()` resolves a still-pending confirmation `false` before replacing
+  it.
+- Tests in `ConfirmDialog.test.tsx`: "Enter on a focused Cancel button cancels
+  instead of confirming", "Enter on the focused confirm button confirms once",
+  "a second confirm() settles the pending one as false".
+- `frontend.md` § Popovers and menus row and a troubleshooting row.

@@ -206,7 +206,7 @@ node, not the React node, so a portalled surface stops its own clicks.
 | `BlockRefBacklinksPopover`, `FileCardPopovers` | `Popover`'s own `useDismiss` (outside `mousedown` or Escape) |
 | `BlockMenu` | `useDismiss`; roving focus and Tab stay in the component |
 | `TopBar`'s page menu, `SearchBar` | `useDismiss` with `enabled` |
-| `ConfirmDialog` | hand-rolled: `window` listener, Escape/Enter |
+| `ConfirmDialog` | hand-rolled: `window` listener, Escape/Enter; Enter on a focused dialog button is left to that button |
 | `ImageOverlay`, `GoodlinksReader`, `LocalFilePicker` | `useOverlayDismiss`: capture-phase `window` listener, scroll lock, focus restore |
 | `AutocompletePopup`, `DatePickerPopup` | none: `BlockInput` owns their keys |
 

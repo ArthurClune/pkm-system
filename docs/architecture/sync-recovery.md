@@ -233,7 +233,7 @@ window failing identically rebases before the banner can show.
 | Trigger | Detected by | Kind |
 |---|---|---|
 | A deploy changed the client schema | `SCHEMA_VERSION` (sha256 of base and client DDL) differs from the stored value | `reset` |
-| The server DB was rebuilt or activation rotated the generation | `generation` mismatch in any payload | `rebase` |
+| The server DB was rebuilt (import) or restored (`pkm.backup.restore`), or activation rotated the generation | `generation` mismatch in any payload | `rebase` |
 | Cursor ahead of the journal | `reset: true` from the feed | `rebase` |
 | The deferred FK check fails at COMMIT | `applyChanges` returns `needs-bootstrap` | `rebase` |
 | A title stays parked after the upserts | `assertNoParkedTitles` throws `StaleTitleHolderError`, then `needs-bootstrap` | `rebase` |

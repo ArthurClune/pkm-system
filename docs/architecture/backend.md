@@ -32,6 +32,7 @@ pkm/
 │   ├── int64.py                Int64, the bound on int path and query parameters
 │   └── daily.py                date <-> "July 8th, 2026" titles
 ├── database.py          Shell  Db, the typed connection
+├── db_sidecars.py, db_swap.py   Core / Shell  fold, then refuse, a database swap beside a held -wal/-shm
 ├── rows.py              Core   Row: one typed key per name a query may return
 ├── brand_registry.py    Core   brand NAMES, MINT_SITES, COLUMN_KEYS, SHAPES
 ├── schema.py            Core   BASE_DDL (replicated to clients) + SERVER_DDL
@@ -45,7 +46,7 @@ pkm/
 ├── server/                     the FastAPI app (below)
 ├── client/, cli/, mcp/         PkmClient, `pkm` and `pkm-mcp`
 ├── assistant/, describe/       embedded assistant; image-description queue
-└── importer/, export/, backup/ Roam import, markdown export, nightly backup
+└── importer/, export/, backup/ Roam import, markdown export, nightly backup and restore
 
 server/
 ├── app.py               Shell  create_app(config): init_db(), routers, 422 handler, SPA
@@ -159,7 +160,7 @@ tables kept in step by triggers. `blocks_fts` is keyed by implicit rowid, so
 | `block_rewrites` | What a rename, merge, title migration or page delete did to one block's text, replayed over a stale edit ([Conflicts](#conflicts)). Pruned after `BLOCK_REWRITE_RETENTION_MS` | `store.rewrite_snapshotted_blocks`, `ops_core.rewrite_effects` |
 | `page_deletions` | Each user-deleted page's title and the journal head after it ([Stale batches](#stale-batches)). Pruned on the same window | `store.delete_page_unlinking` only |
 | `conflict_headers` | Today's conflict header per block; a new header deletes other days' rows | `ops_apply._execute` |
-| `sync_meta` | `db_generation` (a rebuilt database gets a new one and clients rebootstrap) and the `plain_space_title_canonicalization` flag | startup, title migration apply |
+| `sync_meta` | `db_generation` (a rebuilt or restored database gets a new one and clients rebootstrap) and the `plain_space_title_canonicalization` flag | startup, title migration apply, `pkm.backup.restore` |
 
 Cascade deletes are journalled only because `recursive_triggers=ON`.
 `changes.page_id` is set only on a block tombstone: by `blocks_chg_ad`, the

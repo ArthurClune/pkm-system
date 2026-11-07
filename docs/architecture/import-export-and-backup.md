@@ -16,6 +16,42 @@ writing. `rotation.py` prunes the snapshots. The job then runs the markdown
 export from that same snapshot and git-commits it. Its success line prints the
 whole export-count dictionary, and any failure exits non-zero.
 
+## Restore
+
+`python -m pkm.backup.restore --data-dir DATA SNAPSHOT` is the one way a
+snapshot goes back in place; `deploy/icloud_backup.py restore` calls it, and
+[deploy/README.md § Restore](../../deploy/README.md#restore) has the steps.
+**It always rotates `db_generation`.** The restored journal restarts from the
+snapshot's `sqlite_sequence`, so it reuses seqs a device may already have
+pulled past. The `since > latest` guard in `sync_changes` misses every cursor
+the new timeline has overtaken, and only a new generation makes that device
+rebootstrap ([sync-recovery.md § Rebootstrap
+triggers](sync-recovery.md#rebootstrap-triggers)).
+
+The snapshot is copied as bytes, then `init_db` and the rotation run on the
+copy before it is renamed over the target. Opening the snapshot instead would
+leave `-wal` and `-shm` beside it, since a read-only connection to a WAL-mode
+file cannot remove them on close.
+
+Both tools that swap a whole database file in, the restore and the importer,
+run `db_swap.swap_refusal` on the target. SQLite replays a leftover WAL over
+whatever file holds the name on the next open, so a file swapped in beside
+one reads as the old database, or a mix of both.
+
+| Sidecars beside the target | `swap_refusal` |
+|---|---|
+| none | passes |
+| left by a crash or a closed read-only reader, such as the nightly backup | folds them by opening and closing the target read-write, then passes |
+| held by an open connection | the fold's close leaves them, so it refuses: "Stop the server first" |
+
+**It never unlinks a sidecar.** A live writer's WAL holds commits the file
+does not, and only SQLite's last-connection close may remove it. Folding a
+stale WAL into the old file loses nothing, because that file is about to be
+replaced. Each tool checks immediately before its `os.replace`, and the
+importer also checks before it starts. The check is not a running-server
+probe: the server opens a connection per request, so an idle one holds none
+and passes. Stopping it is the operator's step.
+
 ## Markdown export
 
 `export/writer.py::export_graph` renders pages to `export/pages/<title>.md` and
@@ -137,7 +173,8 @@ edits](backend.md#concurrent-structure-edits)).
 ## Importer (Roam EDN → fresh database)
 
 `python -m pkm.importer.run export.edn --files <dir> --out <data-dir>` builds a
-complete new database and swaps it in, so re-running is always safe.
+complete new database and swaps it in, so re-running is safe once the server
+is stopped ([Restore](#restore) has the WAL refusal it shares).
 
 ```mermaid
 flowchart TD
@@ -191,5 +228,5 @@ unlinks any other formed ref.
 
 | Failure at | Leaves | Healed by |
 |---|---|---|
-| any stage before the first `os.replace` | the published database and report untouched | — (the next run deletes `pkm.sqlite3.tmp` first) |
+| any stage before the first `os.replace`, or a WAL another connection holds | the published database and report untouched | — (the next run deletes `pkm.sqlite3.tmp` first) |
 | between the database and report replaces | the new database beside the old report | the next successful run |

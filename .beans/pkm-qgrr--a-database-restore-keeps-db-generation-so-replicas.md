@@ -1,13 +1,13 @@
 ---
 # pkm-qgrr
 title: A database restore keeps db_generation, so replicas that pulled past the backup diverge silently
-status: todo
+status: completed
 type: bug
 priority: high
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-07T18:42:45Z
+updated_at: 2026-11-07T21:20:13Z
 parent: pkm-zk8b
 ---
 
@@ -33,7 +33,41 @@ cursor guard is `since > latest`. `changes.seq` restarts from the restored
 generation change.
 
 ## Fix
-- [ ] Red test: restoring through the new path changes `/api/sync/changes`' `generation`
-- [ ] One restore helper (`pkm` subcommand or `python -m`) that copies the snapshot and rotates `db_generation`; `icloud_backup.py restore` uses it
-- [ ] README § Restore uses the helper (and says why)
-- [ ] Row in docs/troubleshooting.md
+- [x] Red test: restoring through the new path changes `/api/sync/changes`' `generation`
+- [x] One restore helper (`pkm` subcommand or `python -m`) that copies the snapshot and rotates `db_generation`; `icloud_backup.py restore` uses it
+- [x] README § Restore uses the helper (and says why)
+- [x] Row in docs/troubleshooting.md
+
+## Summary of Changes
+
+- New `python -m pkm.backup.restore --data-dir DATA SNAPSHOT`
+  (`server/src/pkm/backup/restore.py`, Shell): copies the snapshot as bytes
+  to `pkm.sqlite3.restore-tmp`, runs `init_db` and
+  `rotate_database_generation` on the copy, then `os.replace`s it over the
+  db named by `config.json`. It refuses with exit 2 when the snapshot is
+  missing, when the snapshot has its own `-wal`/`-shm`, and when
+  `-wal`/`-shm` sit beside the target. The target check runs just before the
+  swap and shares `pkm.db_sidecars` (Core) with the importer (pkm-5mp0).
+- The snapshot is copied rather than opened because a read-only connection
+  to a WAL-mode file leaves `-wal`/`-shm` beside it on close. That was
+  confirmed empirically, and it would litter `backups/sqlite/` and iCloud.
+- `deploy/icloud_backup.py restore` now puts `db/pkm-T.sqlite3` into `--out`
+  through that module, run on the checkout's `server/.venv/bin/python`
+  (`--pkm-python` overrides). It exits 1 when that python is missing or the
+  step fails.
+- deploy/README.md § Restore uses the helper and says why (seq reuse; a
+  `rebase` keeps queued edits). It also covers the sidecar refusal and its
+  remedy, and the iCloud restore paragraph is updated.
+- Docs: import-export-and-backup.md § Restore (new), backend.md `sync_meta`
+  writers and module tree, sync-recovery.md trigger row, and a
+  troubleshooting.md row.
+- Tests: `test_backup_restore.py` (red first: generation unchanged after a
+  copy-only restore) and three new restore tests in `test_icloud_backup.py`.
+
+Follow-up (review): the nightly backup leaves `-wal`/`-shm` beside a stopped
+prod db, so `db_swap.swap_refusal` now folds them first. It opens and closes
+the target read-write, never unlinks, and refuses only if they persist
+because another connection holds the database. A snapshot with its own
+sidecars gets its own message, pointing at `sqlite3 SNAP '.backup COPY'`.
+New tests: `test_restore_folds_the_sidecars_a_closed_reader_left` and
+`test_restore_refuses_while_a_connection_holds_the_target`.

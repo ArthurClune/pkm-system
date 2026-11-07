@@ -172,14 +172,21 @@ the run exits 1 each day until that file is deleted or the secret is rotated.
 Mirrors made by an earlier version hold the secret in
 their config copies: delete those copies and set a new `session_secret`.
 
-Restore the data dir as of a date into an empty folder, then pair it with
-the matching `db/` snapshot:
+Restore the data dir as of a date into an empty folder. The matching
+`db/pkm-YYYY-MM-DD.sqlite3` goes into it through `pkm.backup.restore`, run
+on `$PKM_HOME/app/server/.venv/bin/python` (`--pkm-python` picks another),
+so it gets a new `db_generation` like any [restore](#restore):
 
 ```bash
 "$PKM_HOME/app/deploy/icloud_backup.py" restore \
   --dest "$HOME/Library/Mobile Documents/com~apple~CloudDocs/pkm backups" \
   --date 2026-09-01 --out /tmp/pkm-restore
 ```
+
+With no snapshot for that date, it says so and leaves the database out:
+restore the nearest one into the folder as in [Restore](#restore), with
+`--data-dir /tmp/pkm-restore`. To make the folder live, stop the server,
+move it into place as `$PKM_HOME/data`, and start the server.
 
 The restore checks the result against that day's manifest and fails on any
 mismatch. If iCloud has evicted files ("Optimize Mac Storage"), the restore
@@ -192,14 +199,34 @@ every device logs in once more.
 ## Restore
 
 1. Stop the server: `launchctl bootout "gui/$UID/com.$USER.pkm.server"`.
-2. Copy the dated snapshot over the live database:
-   `cp "$PKM_HOME/backups/sqlite/pkm-YYYY-MM-DD.sqlite3" "$PKM_HOME/data/pkm.sqlite3"`.
+2. Put the dated snapshot in place:
+   ```bash
+   cd "$PKM_HOME/app/server" && uv run python -m pkm.backup.restore \
+     --data-dir "$PKM_HOME/data" \
+     "$PKM_HOME/backups/sqlite/pkm-YYYY-MM-DD.sqlite3"
+   ```
 3. Start it again:
    ```bash
    launchctl bootstrap "gui/$UID" \
      "$HOME/Library/LaunchAgents/com.$USER.pkm.server.plist"
    ```
 4. Verify with `deploy/smoke.sh` or a manual login.
+
+Never restore with a plain `cp`. The helper also gives the database a new
+`db_generation`. The restored journal reuses seqs that a device may already
+have pulled past, such as an iPad closed while the Mac kept writing. Without
+the new generation that device pulls from its old cursor: it never receives
+the restored rows in between, and it keeps rows the server no longer has.
+With it, every device rebuilds its local copy from the server on its next
+sync and keeps its unsent edits
+([sync-recovery.md § Rebootstrap triggers](../docs/architecture/sync-recovery.md#rebootstrap-triggers)).
+
+`pkm.sqlite3-wal` and `-shm` beside a stopped database are normal: the
+nightly backup's read-only connection leaves them. The helper folds them in
+itself before the swap. If they stay, another connection still has the
+database open, and the helper refuses, since SQLite would replay that WAL
+over the restored file. The refusal is not a running-server check: an idle
+server holds no connection and passes, so step 1 is still needed.
 
 ## Troubleshooting
 

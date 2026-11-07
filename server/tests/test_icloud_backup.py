@@ -2,9 +2,13 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+
+from pkm.database import connect
+from pkm.schema import DDL
 
 SCRIPT = Path(__file__).resolve().parents[2] / "deploy" / "icloud_backup.py"
 SECRET = "ab12" * 16
@@ -52,8 +56,9 @@ def backup(env, today, extra=()):
                     "--sqlite-backups", str(snaps), "--today", today, *extra])
 
 
-def restore(env, date, out):
-    return ib.main(["restore", "--dest", str(env[2]), "--date", date, "--out", str(out)])
+def restore(env, date, out, extra=()):
+    return ib.main(["restore", "--dest", str(env[2]), "--date", date,
+                    "--out", str(out), *extra])
 
 
 def tree_has(dest, needle):
@@ -116,6 +121,52 @@ def test_restore_round_trips_and_issues_new_secret(env, tmp_path, capsys):
     assert (out / "config.json").stat().st_mode & 0o777 == 0o600
     assert (out / "assets/a.txt").read_text() == "note"
     assert "log in again" in capsys.readouterr().out
+
+
+def _snapshot_db(env, day):
+    path = env[1] / ("pkm-%s.sqlite3" % day)
+    con = connect(path)
+    con.executescript(DDL)
+    con.commit()
+    con.close()
+    return path
+
+
+def _generation(db):
+    con = connect(db)
+    try:
+        row = con.select_one("SELECT value AS sync_meta_value FROM sync_meta"
+                             " WHERE key = 'db_generation'")
+        assert row is not None
+        return row["sync_meta_value"]
+    finally:
+        con.close()
+
+
+def test_restore_puts_the_snapshot_in_place_with_a_new_generation(
+        env, tmp_path):
+    set_config(env, assets_dir="assets")
+    snap = _snapshot_db(env, "2026-10-01")
+    backup(env, "2026-10-01")
+    out = tmp_path / "restored"
+    assert restore(env, "2026-10-01", out,
+                   ["--pkm-python", sys.executable]) == 0
+    assert _generation(out / "pkm.sqlite3") != _generation(snap)
+
+
+@pytest.mark.parametrize("python, why", [
+    ("/nonexistent/python", "no pkm python"),
+    ("/usr/bin/false", "database step failed"),
+])
+def test_restore_fails_when_the_database_step_cannot_run(
+        env, tmp_path, capsys, python, why):
+    set_config(env, assets_dir="assets")
+    _snapshot_db(env, "2026-10-01")
+    backup(env, "2026-10-01")
+    out = tmp_path / "restored"
+    assert restore(env, "2026-10-01", out, ["--pkm-python", python]) == 1
+    assert why in capsys.readouterr().err
+    assert not (out / "pkm.sqlite3").exists()
 
 
 def test_restore_of_main_passes_manifest_check(env, tmp_path):

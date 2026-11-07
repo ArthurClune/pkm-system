@@ -15,6 +15,7 @@ from pkm.assets_core import sha256_hex
 from pkm.assets_disk import asset_on_disk_needs_repair
 from pkm.contracts.ops import Sha256Hex
 from pkm.database import Db, connect
+from pkm.db_swap import swap_refusal
 from pkm.edn import EdnError, parse_edn
 from pkm.filenames import safe_filename
 from pkm.importer.assets import UID_PREFIX_LEN, Asset, rewrite_asset_urls
@@ -108,6 +109,11 @@ def main(argv: list[str] | None = None) -> int:
     if not export_path.is_file():
         print(f"error: export file not found: {export_path}", file=sys.stderr)
         return 2
+    out = Path(args.out)
+    refusal = swap_refusal(out / "pkm.sqlite3")
+    if refusal is not None:
+        print(f"error: import refused: {refusal}", file=sys.stderr)
+        return 2
 
     sys.setrecursionlimit(20000)  # deep outlines recurse in tree assembly
     export_text = export_path.read_text(encoding="utf-8")
@@ -166,7 +172,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: import refused: {exc}", file=sys.stderr)
         return 2
 
-    out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     tmp = out / "pkm.sqlite3.tmp"
     tmp.unlink(missing_ok=True)
@@ -235,6 +240,14 @@ def main(argv: list[str] | None = None) -> int:
         text = render(report)
         report_tmp.write_text(text, encoding="utf-8")
 
+        # Checked again here: a server started during the run is the same
+        # hazard as one that was running before it.
+        refusal = swap_refusal(out / "pkm.sqlite3")
+        if refusal is not None:
+            tmp.unlink(missing_ok=True)
+            report_tmp.unlink(missing_ok=True)
+            print(f"error: import refused: {refusal}", file=sys.stderr)
+            return 2
         os.replace(tmp, out / "pkm.sqlite3")
         os.replace(report_tmp, out / "import-report.txt")
     except Exception:

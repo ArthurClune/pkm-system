@@ -26,7 +26,8 @@ one tree plus --keep-days of churn.
 The live sqlite database (and its -wal/-shm) is excluded from the data
 mirror: copying a WAL-mode database file out from under the server is not a
 consistent snapshot, and the nightly snapshots under db/ already cover it.
-Restore day T = `restore --date T` for assets/config plus db/pkm-T.sqlite3.
+`restore --date T` rebuilds the data dir as of T and puts db/pkm-T.sqlite3
+in it through `pkm.backup.restore`, which gives it a new db_generation.
 
 config.json is mirrored without its `session_secret` (it would let anyone who
 reads the iCloud folder mint a login cookie); every other key is kept, for
@@ -65,6 +66,7 @@ Manifest = Dict[str, Tuple[int, int]]  # relpath -> (size, mtime_ns)
 CONFIG_NAME = "config.json"
 SECRET_KEY = "session_secret"
 CHUNK = 1 << 20
+DEFAULT_PKM_PYTHON = Path(__file__).resolve().parents[1] / "server" / ".venv" / "bin" / "python"
 
 
 # ---------------------------------------------------------------- helpers ---
@@ -523,6 +525,25 @@ def cmd_backup(args: argparse.Namespace) -> int:
     return 1 if guard.problems else 0
 
 
+def restore_db(python: str, snapshot: Path, out: Path) -> int:
+    """Put ``snapshot`` into ``out`` through ``pkm.backup.restore``, which
+    also gives it a new db_generation. That module, not a copy here, is the
+    one restore path: without the new generation a device whose cursor is
+    past the snapshot's journal head never rebootstraps. Runs it on the
+    server's venv python, since this script runs on the system python."""
+    if not Path(python).is_file():
+        print("icloud restore: no pkm python at %s (pass --pkm-python); restore %s"
+              " with `python -m pkm.backup.restore`" % (python, snapshot), file=sys.stderr)
+        return 1
+    done = subprocess.run([python, "-m", "pkm.backup.restore", str(snapshot),
+                           "--data-dir", str(out)], check=False)
+    if done.returncode != 0:
+        print("icloud restore: the database step failed (exit %d); %s has no database"
+              % (done.returncode, out), file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_restore(args: argparse.Namespace) -> int:
     mirror = DataMirror(Path(args.dest) / "data")
     date = parse_date(args.date)
@@ -532,11 +553,13 @@ def cmd_restore(args: argparse.Namespace) -> int:
     db = Path(args.dest) / "db" / ("pkm-%s.sqlite3" % args.date)
     print("restored data dir as of %s to %s (%d files from main, %d incrementals applied)"
           % (args.date, args.out, copied, applied))
-    if db.exists():
-        print("matching database: %s" % db)
-    else:
-        print("no db/pkm-%s.sqlite3 snapshot; pick the nearest date under db/" % args.date)
-    return 0
+    try:
+        ensure_materialised(db)
+    except FileNotFoundError:
+        print("no db/pkm-%s.sqlite3 snapshot; restore the nearest date under db/ into %s"
+              " with `python -m pkm.backup.restore`" % (args.date, args.out))
+        return 0
+    return restore_db(args.pkm_python, db, Path(args.out))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -560,6 +583,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(r)
     r.add_argument("--date", required=True)
     r.add_argument("--out", required=True, help="empty directory to restore into")
+    r.add_argument("--pkm-python", default=str(DEFAULT_PKM_PYTHON),
+                   help="python with pkm installed (default: this checkout's server venv)")
     r.set_defaults(func=cmd_restore)
     return p
 

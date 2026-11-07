@@ -682,11 +682,12 @@ def test_wedged_interrupt_marks_conversation_unhealthy(tmp_path, monkeypatch):
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await asyncio.wait_for(task, timeout=2)
+        healthy = conv.healthy  # close() retires any handle
         await conv.close()
-        return conv
+        return healthy
 
-    conv = asyncio.run(scenario())
-    assert conv.healthy is False
+    healthy = asyncio.run(scenario())
+    assert healthy is False
 
 
 def test_interrupt_that_raises_marks_conversation_unhealthy(tmp_path):
@@ -705,11 +706,12 @@ def test_interrupt_that_raises_marks_conversation_unhealthy(tmp_path):
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await asyncio.wait_for(task, timeout=2)
+        healthy = conv.healthy  # close() retires any handle
         await conv.close()
-        return conv
+        return healthy
 
-    conv = asyncio.run(scenario())
-    assert conv.healthy is False
+    healthy = asyncio.run(scenario())
+    assert healthy is False
 
 
 def test_interrupt_abandoned_by_a_second_cancellation_marks_unhealthy(tmp_path, caplog):
@@ -738,12 +740,13 @@ def test_interrupt_abandoned_by_a_second_cancellation_marks_unhealthy(tmp_path, 
         task.cancel()  # second cancellation: lands in the interrupt wait
         with contextlib.suppress(asyncio.CancelledError):
             await asyncio.wait_for(task, timeout=2)
+        healthy = conv.healthy  # close() retires any handle
         await conv.close()
-        return conv
+        return healthy
 
     with caplog.at_level(logging.WARNING, logger="pkm.assistant"):
-        conv = asyncio.run(scenario())
-    assert conv.healthy is False
+        healthy = asyncio.run(scenario())
+    assert healthy is False
     assert any("abandoned by a cancellation" in r.message for r in caplog.records)
 
 
@@ -766,11 +769,12 @@ def test_acknowledged_interrupt_leaves_conversation_healthy(tmp_path):
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+        healthy = conv.healthy  # close() retires any handle
         await conv.close()
-        return conv
+        return healthy
 
-    conv = asyncio.run(scenario())
-    assert conv.healthy is True
+    healthy = asyncio.run(scenario())
+    assert healthy is True
 
 
 def test_send_does_not_interrupt_on_normal_completion(tmp_path):
@@ -867,17 +871,18 @@ def test_stalled_turn_times_out_with_an_error_event(tmp_path, monkeypatch):
         conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
         client = FakeSDKClient.instances[0]
         events = [ev async for ev in conv.send("hi")]  # nothing ever fed
+        healthy = conv.healthy
         await conv.close()
-        return conv, client, events
+        return healthy, client, events
 
-    conv, client, events = asyncio.run(scenario())
+    healthy, client, events = asyncio.run(scenario())
     assert len(events) == 1
     assert isinstance(events[0], ErrorEvent)
     assert "no response from the model" in events[0].message.lower()
     # the abandoned query must not keep executing in the subprocess
     assert client.interrupts == 1
     # the interrupt was acknowledged, so the harness is still reusable
-    assert conv.healthy is True
+    assert healthy is True
 
 
 def test_stalled_turn_with_wedged_interrupt_marks_unhealthy(tmp_path, monkeypatch):
@@ -888,13 +893,14 @@ def test_stalled_turn_with_wedged_interrupt_marks_unhealthy(tmp_path, monkeypatc
     async def scenario():
         conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
         events = [ev async for ev in conv.send("hi")]
+        healthy = conv.healthy
         await conv.close()
-        return conv, events
+        return healthy, events
 
-    conv, events = asyncio.run(scenario())
+    healthy, events = asyncio.run(scenario())
     assert len(events) == 1
     assert isinstance(events[0], ErrorEvent)
-    assert conv.healthy is False
+    assert healthy is False
 
 
 def test_sdk_messages_reset_the_stall_deadline(tmp_path, monkeypatch):

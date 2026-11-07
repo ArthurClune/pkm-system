@@ -98,7 +98,7 @@ def test_an_interrupt_with_no_result_retires_the_conversation(tmp_path, monkeypa
     # acknowledged, but the aborted turn never reports its end: whatever it
     # writes later would be the next turn's first message
     monkeypatch.setattr(FakeSDKClient, "interrupt_result", "never")
-    monkeypatch.setattr(claude_engine, "DRAIN_TIMEOUT_S", 0.05, raising=False)
+    monkeypatch.setattr(claude_engine, "DRAIN_TIMEOUT_S", 0.05)
     engine = make_engine(tmp_path)
 
     async def scenario():
@@ -237,3 +237,68 @@ def test_a_confirm_parked_between_turns_is_declined(tmp_path):
 
     decision = asyncio.run(scenario())
     assert isinstance(decision, PermissionResultDeny)
+
+
+def test_a_stall_whose_interrupt_never_reports_retires_the_conversation(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(FakeSDKClient, "interrupt_result", "never")
+    monkeypatch.setattr(claude_engine, "STALL_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(claude_engine, "DRAIN_TIMEOUT_S", 0.05)
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        events = await asyncio.wait_for(
+            asyncio.ensure_future(_collect(conv.send("one"))), 2)
+        healthy = conv.healthy
+        await conv.close()
+        return events, healthy
+
+    events, healthy = asyncio.run(scenario())
+    assert len(events) == 1 and "no response" in events[0].message.lower()
+    assert healthy is False
+
+
+async def _collect(stream):
+    return [ev async for ev in stream]
+
+
+def test_a_dead_harness_is_never_sent_another_query(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        client.die()  # while idle: the next query is the first to notice
+        first = await _collect(conv.send("one"))
+        second = await _collect(conv.send("two"))
+        await conv.close()
+        return client, first, second
+
+    client, first, second = asyncio.run(scenario())
+    assert client.queries == []
+    assert [type(ev) for ev in first + second] == [ErrorEvent, ErrorEvent]
+    assert second[0].message == claude_engine.HARNESS_LOST
+
+
+def test_a_drain_abandoned_by_a_second_cancellation_retires(tmp_path, monkeypatch):
+    monkeypatch.setattr(FakeSDKClient, "interrupt_result", "never")
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        task = asyncio.create_task(_collect(conv.send("one")))
+        for _ in range(3):
+            await asyncio.sleep(0)
+        task.cancel()  # Stop: interrupt, acknowledged, then the drain
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert conv.phase == "draining"
+        task.cancel()  # lands in the drain's wait
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, 2)
+        healthy = conv.healthy
+        await conv.close()
+        return healthy
+
+    assert asyncio.run(scenario()) is False

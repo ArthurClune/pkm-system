@@ -63,6 +63,7 @@ from pkm.assistant.policy import (
     tool_summary,
 )
 from pkm.assistant.target_reader import BlockReader, preview_write
+from pkm.assistant.turn_phase import PhaseEvent, TurnPhase, next_phase
 from pkm.assistant.write_preview import Refusal
 from pkm.contracts.responses import ConfirmId
 from pkm.server.auth_core import sign_session
@@ -84,6 +85,13 @@ INTERRUPT_TIMEOUT_S = 5.0
 # -- EXCEPT while a confirm is parked on the user, whose silence is
 # never a stall (see _pump).
 STALL_TIMEOUT_S = 300.0
+
+# The CLI acknowledges an interrupt and only then writes the aborted turn's
+# ResultMessage (6 ms later in a live run of CLI 2.1.301). The SDK buffers
+# it, so if nobody drains it the next turn reads it as its own result.
+DRAIN_TIMEOUT_S = 10.0
+
+HARNESS_LOST = "The assistant stopped responding. Start a new chat."
 
 
 def harness_cli() -> str:
@@ -213,15 +221,31 @@ class ClaudeConversation:
         self._write_events = 0
         # Per tool_use_id, shared with each turn's TurnMapper: the full tool
         # name of calls without a result yet, and the calls whose card the
-        # user declined. A stopped turn's call can report in the next turn.
+        # user declined. A stopped turn's call reports during its drain.
         self._tool_names: dict[str, str] = {}
         self._declined: set[str] = set()
         self._pump_task: asyncio.Task[None] | None = None
-        # Flips to False the moment an interrupt on this harness goes
-        # unacknowledged (timed out or raised) -- see send()'s cleanup
-        # below. The owner (AssistantService) checks this after the turn
-        # ends and retires rather than reuses a handle gone unhealthy.
-        self.healthy = True
+        self._phase: TurnPhase = "idle"
+        self._drain_deadline = 0.0
+        # True from a turn's end until the next send(): a confirm then has
+        # no consumer to show its card, so it is declined, never parked.
+        self._consumer_gone = False
+
+    @property
+    def phase(self) -> TurnPhase:
+        return self._phase
+
+    @property
+    def healthy(self) -> bool:
+        return self._phase != "dead"
+
+    def _move(self, event: PhaseEvent) -> None:
+        self._phase = next_phase(self._phase, event)
+
+    def _lose(self, reason: str) -> None:
+        if self._phase != "dead":
+            logger.warning("assistant harness retired: %s", reason)
+        self._move("lost")
 
     def attach(self, client: ClaudeSDKClient) -> None:
         self._client = client
@@ -254,6 +278,10 @@ class ClaudeConversation:
             logger.warning("assistant write %s refused: %s", short,
                            approval.message)
             return PermissionResultDeny(message=approval.message)
+        if self._consumer_gone:
+            logger.warning("assistant write %s arrived with no turn to show "
+                           "its card; declined", short)
+            return self._decline(context)
         preview = replace(approval.preview, writes_in_flight=(
             in_flight or events != self._write_events))
         self._confirm_seq += 1
@@ -265,7 +293,7 @@ class ClaudeConversation:
         fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         self._pending[confirm_id] = fut
         self._write_events += 1
-        await self._queue.put(
+        self._queue.put_nowait(
             ConfirmRequest(confirm_id=confirm_id, ops_preview=preview.summary,
                            preview=preview)
         )
@@ -283,6 +311,9 @@ class ClaudeConversation:
             # blocks it showed as `expect`, whatever the dict passed in
             # holds by now.
             return PermissionResultAllow(updated_input=approval.tool_input)
+        return self._decline(context)
+
+    def _decline(self, context: ToolPermissionContext | None) -> PermissionResultDeny:
         if context is not None and context.tool_use_id:
             self._declined.add(context.tool_use_id)
         return PermissionResultDeny(message="The user declined this action.")
@@ -296,11 +327,25 @@ class ClaudeConversation:
             fut.set_result(allow)
 
     async def send(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
-        # a dropped SSE stream can abandon a turn mid-queue; leftovers must
-        # not leak into the next turn
+        # Whatever an ended turn left behind is not this turn's. A confirm
+        # in it has no card on screen, so its future is declined, not
+        # dropped: an open one would also hold off the stall watchdog.
+        self._decline_pending()
         while not self._queue.empty():
             self._queue.get_nowait()
-        await self._live_client().query(text)
+        if self._phase != "idle":
+            self._lose(f"send() found the harness {self._phase}")
+            yield ErrorEvent(message=HARNESS_LOST)
+            return
+        try:
+            await self._live_client().query(text)
+        except Exception as exc:
+            logger.exception("assistant query failed")
+            self._lose("query failed")
+            yield ErrorEvent(message=str(exc))
+            return
+        self._move("query")
+        self._consumer_gone = False
         mapper = TurnMapper(self._tool_names, self._declined)
         pump = asyncio.create_task(self._pump(mapper))
         self._pump_task = pump
@@ -311,15 +356,19 @@ class ClaudeConversation:
                 if isinstance(event, TurnDone):
                     # Every write of a finished turn has its result. A
                     # stopped or failed turn's stay running until theirs
-                    # arrives in a later turn, or that turn finishes.
+                    # arrives, or a later turn finishes.
                     self._running_writes.clear()
                 yield event
                 if isinstance(event, (TurnDone, ErrorEvent)):
                     finished = True
                     break
         finally:
-            if not finished:
-                await self._abandon_turn()
+            self._consumer_gone = True
+            if finished:
+                # a turn that ended in error may leave the harness parked
+                self._decline_pending()
+            else:
+                await self._abandon_turn(pump)
             # if the consumer went away mid-turn, don't block generator
             # close on a live harness turn
             if not pump.done():
@@ -340,8 +389,8 @@ class ClaudeConversation:
             if not fut.done():
                 fut.set_result(False)
 
-    async def _abandon_turn(self) -> None:
-        """Give up on the turn in flight: decline, interrupt, judge health.
+    async def _abandon_turn(self, pump: asyncio.Task[None]) -> None:
+        """Give up on the turn in flight: decline, interrupt, drain.
 
         Runs when the consumer dropped mid-turn -- browser closed the tab,
         navigated away, or the fetch was aborted via the Stop button. The SSE
@@ -354,110 +403,132 @@ class ClaudeConversation:
         after `interrupt()` left the decline unreachable in exactly the case
         it exists for (a wedged harness, no tool_result,
         and a panel showing nothing at all, until the process restarted).
+
+        The pump keeps reading throughout, so the aborted turn's
+        ResultMessage is read here and not by the next turn.
         """
         self._decline_pending()
-        # Then stop the harness: cancelling our local pump task only stops us
-        # from reading further messages, it does NOT stop the CLI subprocess
-        # from continuing to execute the abandoned query. Bounded, because a
-        # harness wedged for any other reason must not hold up this cleanup
-        # either.
+        if self._phase != "streaming":
+            return  # the harness already ended the turn, or is gone
+        if not await self._interrupt("the turn was abandoned"):
+            return
+        self._move("interrupt_acked")
+        if self._phase != "draining":
+            return
+        self._drain_deadline = time.monotonic() + DRAIN_TIMEOUT_S
+        try:
+            await asyncio.wait({pump}, timeout=DRAIN_TIMEOUT_S)
+        except asyncio.CancelledError:
+            self._lose("the drain was abandoned by a cancellation")
+            raise
+        if self._phase == "draining":
+            self._lose(f"no result for the interrupted turn in {DRAIN_TIMEOUT_S}s")
+
+    async def _interrupt(self, why: str) -> bool:
+        """Interrupt the harness, bounded; False (and dead) unless it acks.
+
+        An interrupt the harness never acknowledged is not proof it
+        stopped: it may still be running the turn.
+        """
         try:
             await asyncio.wait_for(self._live_client().interrupt(), INTERRUPT_TIMEOUT_S)
         except TimeoutError:
-            logger.warning(
-                "assistant interrupt not acknowledged in %ss; abandoning the turn "
-                "and retiring the harness",
-                INTERRUPT_TIMEOUT_S,
-            )
-            # The subprocess may still be executing the abandoned turn: an
-            # interrupt it never acknowledged is not proof it stopped. Mark
-            # this handle unhealthy so the caller (AssistantService) tears it
-            # down instead of handing it a later turn.
-            self.healthy = False
+            self._lose(f"interrupt not acknowledged in {INTERRUPT_TIMEOUT_S}s "
+                       f"({why})")
+            return False
         except asyncio.CancelledError:
             # An abandoned wait says as little about the harness as a
             # timed-out one, so the verdict is the same. The cancellation is
-            # re-raised, never swallowed -- the caller keeps unwinding, and
+            # re-raised, never swallowed: the caller keeps unwinding, and
             # sees a handle it must retire. The SSE layer runs this protocol
             # in a task of its own so cancellation is not the normal case
-            # (routes._wait_out).
-            logger.warning("assistant interrupt abandoned by a cancellation; "
-                           "retiring the harness")
-            self.healthy = False
-            # Re-raising here skips send()'s own pump-cancel lines below this
-            # call, which is safe only because healthy = False above sends
-            # this handle to retirement, and close() cancels self._pump_task
-            # itself.
+            # (routes._wait_out). close() cancels the pump itself.
+            self._lose(f"interrupt abandoned by a cancellation ({why})")
             raise
         except Exception:
-            logger.exception("assistant interrupt failed; retiring the harness")
-            self.healthy = False
+            logger.exception("assistant interrupt failed (%s)", why)
+            self._lose("interrupt failed")
+            return False
+        return True
+
+    def _read_timeout(self) -> float:
+        if self._phase == "draining":
+            return max(0.0, self._drain_deadline - time.monotonic())
+        return STALL_TIMEOUT_S
 
     async def _pump(self, mapper: TurnMapper) -> None:
         stream = self._live_client().receive_response()
         pending: asyncio.Task[Any] | None = None
+        stalled = False
+        failure: str | None = None
         try:
             while True:
                 if pending is None:
                     pending = asyncio.ensure_future(anext(stream))
                 # asyncio.wait (unlike wait_for) leaves the read running on
                 # timeout, so a suspended deadline never loses a message.
-                done, _ = await asyncio.wait({pending}, timeout=STALL_TIMEOUT_S)
+                done, _ = await asyncio.wait({pending},
+                                             timeout=self._read_timeout())
                 if not done:
+                    if self._phase == "draining":
+                        if time.monotonic() >= self._drain_deadline:
+                            self._lose("no result for the interrupted turn "
+                                       f"in {DRAIN_TIMEOUT_S}s")
+                            break
+                        continue
                     if self._pending:
                         # Parked on a confirm: the harness sits inside
                         # can_use_tool and cannot emit anything, so this
                         # silence is the user's, not the model's. Fresh
                         # window each pass; never a stall.
                         continue
-                    await self._stall()
-                    return
+                    stalled = True
+                    logger.warning("assistant turn stalled: no SDK message "
+                                   "for %ss; interrupting", STALL_TIMEOUT_S)
+                    if not await self._interrupt("stalled"):
+                        break
+                    self._move("interrupt_acked")
+                    self._drain_deadline = time.monotonic() + DRAIN_TIMEOUT_S
+                    continue
                 settled, pending = pending, None
                 try:
                     msg = settled.result()
                 except StopAsyncIteration:
-                    return
+                    self._lose("the harness's output ended before the "
+                               "turn's result")
+                    failure = HARNESS_LOST
+                    break
                 self._running_writes.difference_update(
                     finished_tool_ids(msg))
-                for event in mapper.map(msg):
-                    await self._queue.put(event)
+                # A drained message still updates the shared tool maps, but
+                # its events are for a consumer that has gone or, after a
+                # stall, is about to be told why.
+                events = mapper.map(msg)
+                if self._phase == "streaming" and not self._consumer_gone:
+                    for event in events:
+                        self._queue.put_nowait(event)
+                if isinstance(msg, ResultMessage):
+                    self._move("result")
+                    break
         except Exception as exc:  # subprocess died, JSON decode, etc.
             logger.exception("assistant turn failed")
-            await self._queue.put(ErrorEvent(message=str(exc)))
+            self._lose("the harness stream failed")
+            failure = str(exc)
         finally:
             if pending is not None and not pending.done():
                 pending.cancel()
                 with contextlib.suppress(Exception, asyncio.CancelledError):
                     await pending
-
-    async def _stall(self) -> None:
-        """Kill a turn the model has gone totally silent on.
-
-        Interrupt FIRST, then report: the ErrorEvent ends the consumer's
-        loop (send() treats it as the turn's end and cancels this pump), so
-        reporting first would cancel the interrupt mid-flight.
-        """
-        logger.warning(
-            "assistant turn stalled: no SDK message for %ss; interrupting", STALL_TIMEOUT_S
-        )
-        try:
-            await asyncio.wait_for(self._live_client().interrupt(), INTERRUPT_TIMEOUT_S)
-        except TimeoutError:
-            # same verdict as _abandon_turn: an unacknowledged interrupt is
-            # not proof the subprocess stopped, so retire the handle
-            logger.warning(
-                "assistant interrupt not acknowledged in %ss after a stall; "
-                "retiring the harness",
-                INTERRUPT_TIMEOUT_S,
-            )
-            self.healthy = False
-        except Exception:
-            logger.exception("assistant interrupt failed after a stall; retiring the harness")
-            self.healthy = False
-        await self._queue.put(ErrorEvent(message=stall_message(STALL_TIMEOUT_S)))
+        # Interrupt and drain FIRST, then report: the ErrorEvent ends the
+        # consumer's loop, and send() then cancels this pump.
+        if stalled:
+            self._queue.put_nowait(ErrorEvent(message=stall_message(STALL_TIMEOUT_S)))
+        elif failure is not None:
+            self._queue.put_nowait(ErrorEvent(message=failure))
 
     async def close(self) -> None:
         self._decline_pending()
+        self._phase = "dead"
         try:
             if self._pump_task is not None and not self._pump_task.done():
                 self._pump_task.cancel()

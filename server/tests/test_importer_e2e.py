@@ -342,38 +342,93 @@ def test_rerun_replaces_database(tmp_path):
                        ).fetchone()[0] == 0
 
 
-@pytest.mark.parametrize("sidecar", ["pkm.sqlite3-wal", "pkm.sqlite3-shm"])
-def test_a_live_sidecar_beside_the_target_refuses_the_import(
-        tmp_path, capsys, sidecar):
-    # SQLite would replay a leftover WAL over the swapped-in file on the next
-    # open, so a fresh connection would read the old database, not the import.
+def _sidecars(out: Path) -> list[str]:
+    return sorted(p.name for p in out.iterdir()
+                  if p.name in ("pkm.sqlite3-wal", "pkm.sqlite3-shm"))
+
+
+def _hold_open(db_path: Path):
+    writer = connect(db_path)
+    writer.execute("PRAGMA journal_mode=WAL")
+    writer.select("SELECT count(*) AS n FROM pages")
+    return writer
+
+
+def test_the_import_folds_the_sidecars_a_closed_reader_left(tmp_path):
     files = _setup_files(tmp_path)
     out = tmp_path / "data"
-    database, report = _seed_published_sentinels(out)
-    (out / sidecar).write_bytes(b"live")
-    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 2
-    assert "stop the server first" in capsys.readouterr().err
-    assert (out / "pkm.sqlite3").read_bytes() == database
+    args = [str(FIXTURE), "--files", str(files), "--out", str(out)]
+    assert main(args) == 0
+    _hold_open(out / "pkm.sqlite3").close()
+    reader = connect(out / "pkm.sqlite3", read_only=True)
+    reader.select("SELECT count(*) AS n FROM pages")
+    reader.close()
+    assert _sidecars(out) == ["pkm.sqlite3-shm", "pkm.sqlite3-wal"]
+    assert main(args) == 0
+    assert _sidecars(out) == []
+
+
+def test_the_import_refuses_while_a_connection_holds_the_target(
+        tmp_path, capsys):
+    # SQLite would replay the open connection's WAL over the swapped-in
+    # file on the next open, so a fresh connection would read the old one.
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    args = [str(FIXTURE), "--files", str(files), "--out", str(out)]
+    assert main(args) == 0
+    _hold_open(out / "pkm.sqlite3").close()  # WAL mode, as the server sets
+    published = (out / "pkm.sqlite3").read_bytes()
+    report = (out / "import-report.txt").read_text(encoding="utf-8")
+    writer = _hold_open(out / "pkm.sqlite3")
+    try:
+        assert main(args) == 2
+        assert (out / "pkm.sqlite3").read_bytes() == published
+        assert _sidecars(out) == ["pkm.sqlite3-shm", "pkm.sqlite3-wal"]
+    finally:
+        writer.close()
+    assert "stop the server first" in capsys.readouterr().err.lower()
     assert (out / "import-report.txt").read_text(encoding="utf-8") == report
     assert not (out / "pkm.sqlite3.tmp").exists()
-    assert not (out / "assets").exists()
+
+
+def test_an_unreadable_target_does_not_block_the_import(tmp_path):
+    # Its WAL cannot replay over anything, and SQLite drops it on close.
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    out.mkdir()
+    (out / "pkm.sqlite3").write_bytes(b"not a database " * 300)
+    (out / "pkm.sqlite3-wal").write_bytes(b"live")
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+    assert _sidecars(out) == []
+    con = connect(out / "pkm.sqlite3")
+    assert con.select_one("SELECT count(*) AS n FROM pages") is not None
+    con.close()
 
 
 def test_a_server_started_during_the_import_refuses_the_swap(
         tmp_path, capsys, monkeypatch):
     files = _setup_files(tmp_path)
     out = tmp_path / "data"
-    database, report = _seed_published_sentinels(out)
+    args = [str(FIXTURE), "--files", str(files), "--out", str(out)]
+    assert main(args) == 0
+    _hold_open(out / "pkm.sqlite3").close()
+    published = (out / "pkm.sqlite3").read_bytes()
+    report = (out / "import-report.txt").read_text(encoding="utf-8")
     real_copy = run_module._copy_assets
+    writers = []
 
-    def copy_then_server_starts(*args):
-        real_copy(*args)
-        (out / "pkm.sqlite3-wal").write_bytes(b"live")
+    def copy_then_server_starts(*copy_args):
+        real_copy(*copy_args)
+        writers.append(_hold_open(out / "pkm.sqlite3"))
 
     monkeypatch.setattr(run_module, "_copy_assets", copy_then_server_starts)
-    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 2
-    assert "stop the server first" in capsys.readouterr().err
-    assert (out / "pkm.sqlite3").read_bytes() == database
+    try:
+        assert main(args) == 2
+    finally:
+        for writer in writers:
+            writer.close()
+    assert "stop the server first" in capsys.readouterr().err.lower()
+    assert (out / "pkm.sqlite3").read_bytes() == published
     assert (out / "import-report.txt").read_text(encoding="utf-8") == report
     assert not (out / "pkm.sqlite3.tmp").exists()
     assert not (out / "import-report.txt.tmp").exists()

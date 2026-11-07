@@ -1,8 +1,6 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from pkm.backup.__main__ import sqlite_backup
 from pkm.backup.restore import main
 from pkm.database import connect
@@ -88,17 +86,32 @@ def test_restore_refuses_a_snapshot_with_its_own_wal(
     assert seeded_config.db_path.read_bytes() == live
 
 
-@pytest.mark.parametrize("sidecar", ["pkm.sqlite3-wal", "pkm.sqlite3-shm"])
-def test_restore_refuses_beside_a_live_sidecar(
-        seeded_config, tmp_path, capsys, sidecar):
+def test_restore_folds_the_sidecars_a_closed_reader_left(
+        seeded_config, tmp_path):
+    data = _write_config(seeded_config)
+    snapshot = _snapshot(seeded_config, tmp_path / "snap.sqlite3")
+    reader = connect(seeded_config.db_path, read_only=True)
+    reader.select("SELECT count(*) AS n FROM pages")
+    reader.close()
+    assert _leftovers(data) == ["pkm.sqlite3-shm", "pkm.sqlite3-wal"]
+    assert main([str(snapshot), "--data-dir", str(data)]) == 0
+    assert _leftovers(data) == []
+
+
+def test_restore_refuses_while_a_connection_holds_the_target(
+        seeded_config, tmp_path, capsys):
     data = _write_config(seeded_config)
     snapshot = _snapshot(seeded_config, tmp_path / "snap.sqlite3")
     live = seeded_config.db_path.read_bytes()
-    (data / sidecar).write_bytes(b"live")
-    assert main([str(snapshot), "--data-dir", str(data)]) == 2
-    assert "stop the server first" in capsys.readouterr().err
-    assert seeded_config.db_path.read_bytes() == live
-    assert _leftovers(data) == [sidecar]
+    writer = connect(seeded_config.db_path)
+    try:
+        writer.select("SELECT count(*) AS n FROM pages")
+        assert main([str(snapshot), "--data-dir", str(data)]) == 2
+        assert seeded_config.db_path.read_bytes() == live
+        assert _leftovers(data) == ["pkm.sqlite3-shm", "pkm.sqlite3-wal"]
+    finally:
+        writer.close()
+    assert "stop the server first" in capsys.readouterr().err.lower()
 
 
 def test_restore_refuses_a_missing_snapshot(seeded_config, tmp_path, capsys):

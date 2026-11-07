@@ -63,3 +63,11 @@ generation change.
   troubleshooting.md row.
 - Tests: `test_backup_restore.py` (red first: generation unchanged after a
   copy-only restore) and three new restore tests in `test_icloud_backup.py`.
+
+Follow-up (review): the nightly backup leaves `-wal`/`-shm` beside a stopped
+prod db, so `db_swap.swap_refusal` now folds them first. It opens and closes
+the target read-write, never unlinks, and refuses only if they persist
+because another connection holds the database. A snapshot with its own
+sidecars gets its own message, pointing at `sqlite3 SNAP '.backup COPY'`.
+New tests: `test_restore_folds_the_sidecars_a_closed_reader_left` and
+`test_restore_refuses_while_a_connection_holds_the_target`.

@@ -221,14 +221,12 @@ With it, every device rebuilds its local copy from the server on its next
 sync and keeps its unsent edits
 ([sync-recovery.md § Rebootstrap triggers](../docs/architecture/sync-recovery.md#rebootstrap-triggers)).
 
-The helper refuses while `pkm.sqlite3-wal` or `-shm` sits beside the
-database, since SQLite would replay that WAL over the restored file. That
-refusal is not a running-server check. An idle server holds no connection
-and leaves no such files, so step 1 is still needed. With the server stopped,
-the files are left by a crash or by a read-only reader. The nightly backup is
-one, so they are common after 03:30. Start the server and stop it again,
-which removes them, then restore. Apple's `/usr/bin/sqlite3` keeps them on
-close, so it cannot clear them.
+`pkm.sqlite3-wal` and `-shm` beside a stopped database are normal: the
+nightly backup's read-only connection leaves them. The helper folds them in
+itself before the swap. If they stay, another connection still has the
+database open, and the helper refuses, since SQLite would replay that WAL
+over the restored file. The refusal is not a running-server check: an idle
+server holds no connection and passes, so step 1 is still needed.
 
 ## Troubleshooting
 

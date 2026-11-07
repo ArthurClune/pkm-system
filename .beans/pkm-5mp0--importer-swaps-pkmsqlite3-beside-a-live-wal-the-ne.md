@@ -48,3 +48,13 @@ re-running is safe and never says to stop the server.
 - Tests: `test_a_live_sidecar_beside_the_target_refuses_the_import` (wal,
   shm; red first: the import exited 0) and
   `test_a_server_started_during_the_import_refuses_the_swap`.
+
+Follow-up (review): both importer checks now go through
+`db_swap.swap_refusal`, which folds leftover sidecars when `pkm.sqlite3`
+exists and refuses only while another connection keeps them. The tests are
+reworked around real connections:
+- `test_the_import_folds_the_sidecars_a_closed_reader_left`
+- `test_the_import_refuses_while_a_connection_holds_the_target`
+- `test_an_unreadable_target_does_not_block_the_import` (SQLite drops a junk
+  WAL beside a non-database on close)
+- `test_a_server_started_during_the_import_refuses_the_swap`

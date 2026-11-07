@@ -10,7 +10,8 @@ import sys
 from pathlib import Path
 
 from pkm.database import connect
-from pkm.db_sidecars import live_sidecar_refusal, sidecar_paths
+from pkm.db_sidecars import sidecar_paths
+from pkm.db_swap import swap_refusal
 from pkm.server.config import load_config
 from pkm.server.db import init_db
 from pkm.server.sync_meta import rotate_database_generation
@@ -20,11 +21,13 @@ class RestoreRefused(Exception):
     pass
 
 
-def _refuse_beside_sidecars(db_path: Path) -> None:
-    refusal = live_sidecar_refusal(
-        db_path, [p for p in sidecar_paths(db_path) if p.exists()])
-    if refusal is not None:
-        raise RestoreRefused(refusal)
+def _refuse_snapshot_sidecars(snapshot: Path) -> None:
+    present = [p.name for p in sidecar_paths(snapshot) if p.exists()]
+    if present:
+        raise RestoreRefused(
+            f"{', '.join(present)} beside the snapshot {snapshot}: it is"
+            " open, or its WAL holds commits the file lacks. Restore from a"
+            f" copy made with `sqlite3 '{snapshot}' '.backup COPY'`.")
 
 
 def restore_snapshot(snapshot: Path, target: Path) -> str:
@@ -35,10 +38,11 @@ def restore_snapshot(snapshot: Path, target: Path) -> str:
     The snapshot is copied as bytes rather than opened: a read-only SQLite
     connection to a WAL-mode file leaves `-wal` and `-shm` beside it on
     close, which would litter the backup folders. So a snapshot with its
-    own sidecars is refused, since the file alone may be incomplete."""
+    own sidecars is refused, since the file alone may be incomplete.
+    Sidecars beside `target` are folded first (`db_swap.swap_refusal`)."""
     if not snapshot.is_file():
         raise RestoreRefused(f"snapshot not found: {snapshot}")
-    _refuse_beside_sidecars(snapshot)
+    _refuse_snapshot_sidecars(snapshot)
     tmp = target.with_name(target.name + ".restore-tmp")
     tmp.unlink(missing_ok=True)
     try:
@@ -53,7 +57,9 @@ def restore_snapshot(snapshot: Path, target: Path) -> str:
             db.commit()
         finally:
             db.close()
-        _refuse_beside_sidecars(target)
+        refusal = swap_refusal(target)
+        if refusal is not None:
+            raise RestoreRefused(refusal)
         os.replace(tmp, target)
     except BaseException:
         tmp.unlink(missing_ok=True)

@@ -32,7 +32,7 @@ pkm/
 │   ├── int64.py                Int64, the bound on int path and query parameters
 │   └── daily.py                date <-> "July 8th, 2026" titles
 ├── database.py          Shell  Db, the typed connection
-├── db_sidecars.py       Core   refusal to swap a database in beside its -wal/-shm
+├── db_sidecars.py, db_swap.py   Core / Shell  fold, then refuse, a database swap beside a held -wal/-shm
 ├── rows.py              Core   Row: one typed key per name a query may return
 ├── brand_registry.py    Core   brand NAMES, MINT_SITES, COLUMN_KEYS, SHAPES
 ├── schema.py            Core   BASE_DDL (replicated to clients) + SERVER_DDL

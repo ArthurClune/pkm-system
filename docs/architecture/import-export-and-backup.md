@@ -34,14 +34,23 @@ leave `-wal` and `-shm` beside it, since a read-only connection to a WAL-mode
 file cannot remove them on close.
 
 Both tools that swap a whole database file in, the restore and the importer,
-refuse while `pkm.sqlite3-wal` or `-shm` sits beside the target
-(`db_sidecars.live_sidecar_refusal`). SQLite replays a leftover WAL over
-whatever file holds the name on the next open, so a file swapped in under a
-live or crashed server reads as the old database, or a mix of both. Each
-checks immediately before its `os.replace`; the importer also checks before
-it starts. The check does not detect a running server: one opens a connection
-per request, so an idle server leaves no sidecars, and stopping it is the
-operator's step.
+run `db_swap.swap_refusal` on the target. SQLite replays a leftover WAL over
+whatever file holds the name on the next open, so a file swapped in beside
+one reads as the old database, or a mix of both.
+
+| Sidecars beside the target | `swap_refusal` |
+|---|---|
+| none | passes |
+| left by a crash or a closed read-only reader, such as the nightly backup | folds them by opening and closing the target read-write, then passes |
+| held by an open connection | the fold's close leaves them, so it refuses: "Stop the server first" |
+
+**It never unlinks a sidecar.** A live writer's WAL holds commits the file
+does not, and only SQLite's last-connection close may remove it. Folding a
+stale WAL into the old file loses nothing, because that file is about to be
+replaced. Each tool checks immediately before its `os.replace`, and the
+importer also checks before it starts. The check is not a running-server
+probe: the server opens a connection per request, so an idle one holds none
+and passes. Stopping it is the operator's step.
 
 ## Markdown export
 
@@ -219,5 +228,5 @@ unlinks any other formed ref.
 
 | Failure at | Leaves | Healed by |
 |---|---|---|
-| any stage before the first `os.replace`, or a WAL beside the target | the published database and report untouched | — (the next run deletes `pkm.sqlite3.tmp` first) |
+| any stage before the first `os.replace`, or a WAL another connection holds | the published database and report untouched | — (the next run deletes `pkm.sqlite3.tmp` first) |
 | between the database and report replaces | the new database beside the old report | the next successful run |

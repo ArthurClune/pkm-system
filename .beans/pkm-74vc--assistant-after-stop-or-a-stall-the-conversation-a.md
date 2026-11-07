@@ -104,3 +104,9 @@ Sketch (Hypothesis `RuleBasedStateMachine`, `proptest` marker, one loop):
   `tests/props/test_assistant_turn_props.py` on `props/virtual_loop.py`.
 - Docs: assistant.md § The turn phase, checks.md property-gate row, two
   troubleshooting rows.
+- Review follow-up: a Stop during a stall's interrupt or drain sent a second
+  interrupt (whose ack retired the conversation) or cancelled the pump
+  mid-drain (the next send got "Start a new chat"). `_abandon_turn` now
+  waits for the stalling pump, bounded by `INTERRUPT_TIMEOUT_S` +
+  `DRAIN_TIMEOUT_S`. The property splits the stall into steps so Stop
+  lands in both windows; two unit tests pin them.

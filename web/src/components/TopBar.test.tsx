@@ -601,3 +601,64 @@ it("does not offer the timestamps item off /page/* routes", () => {
   renderTopBar("/current-work");
   expect(screen.queryByRole("button", { name: "Page menu" })).toBeNull();
 });
+
+/** The bar on /page/Paper with a link to /page/Other, every fetch held until
+ * `release(url)` answers it with `body`. */
+function renderWithHeldFetches() {
+  const held: { url: string; init?: RequestInit; answer: (r: Response) => void }[] = [];
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+    new Promise<Response>((answer) => { held.push({ url: String(input), init, answer }); }));
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}>
+      <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
+        <TopBar sidebarCollapsed={false} onToggleSidebar={vi.fn()} />
+      </SidebarContext.Provider>
+      <Routes>
+        <Route path="/" element={<p>home</p>} />
+        <Route path="/page/*" element={<Link to="/page/Other">go elsewhere</Link>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  const release = async (prefix: string, body: unknown) => {
+    const i = held.findIndex((h) => h.url.startsWith(prefix));
+    expect(i).toBeGreaterThanOrEqual(0);
+    const [h] = held.splice(i, 1);
+    await act(async () => { h.answer(new Response(JSON.stringify(body), { status: 200 })); });
+  };
+  return { fetchMock, release };
+}
+
+it("a delete preview with blockers that lands after navigating away shows nothing", async () => {
+  const { release } = renderWithHeldFetches();
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+  fireEvent.click(screen.getByRole("link", { name: "go elsewhere" }));
+  await release("/api/delete-preview", BLOCKERS);
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it("a delete preview that lands after navigating away asks no confirm", async () => {
+  const { fetchMock, release } = renderWithHeldFetches();
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+  fireEvent.click(screen.getByRole("link", { name: "go elsewhere" }));
+  await release("/api/delete-preview", NO_BLOCKERS);
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(fetchMock).not.toHaveBeenCalledWith(expect.anything(),
+    expect.objectContaining({ method: "DELETE" }));
+});
+
+it("a delete that lands after navigating away leaves the new page open", async () => {
+  const { release } = renderWithHeldFetches();
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+  await release("/api/delete-preview", NO_BLOCKERS);
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  });
+  fireEvent.click(screen.getByRole("link", { name: "go elsewhere" }));
+  await release("/api/page/Paper", { ok: true });
+  expect(screen.queryByText("home")).toBeNull();
+  expect(screen.getByRole("link", { name: "go elsewhere" })).toBeInTheDocument();
+});

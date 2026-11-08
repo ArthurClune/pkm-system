@@ -182,6 +182,14 @@ export function useOutline(
       && linkedTitleRefusal(pending.text) !== null);
   }, [unloadOwner]);
 
+  // Set below, once flushNow exists. A layout cleanup declared before the
+  // session's: React runs an unmounting component's cleanups in declaration
+  // order, so the last draft is applied to the shared session, and shows on
+  // any other surface of this page, before this outline releases its handle
+  // and editor lease to it.
+  const flushOnUnmount = useRef(() => {});
+  useLayoutEffect(() => () => flushOnUnmount.current(), []);
+
   useLayoutEffect(() => {
     const handle = acquireOutlineSession(pageTitle, bootstrapRef.current);
     sessionRef.current = handle;
@@ -439,29 +447,23 @@ export function useOutline(
       document.removeEventListener("visibilitychange", onVisibility);
   }, [flushNow]);
 
-  // Unmount is the last commit point. An ordinary draft needs no
-  // help — nothing cancels its pending debounce, so the timer still fires and
-  // flushes after this outline is gone — but a flush-held draft (caret mid
-  // [[ref / #tag token) has no timer at all, and React delivers no
-  // blur for a node it removes. So any navigation that never touches the
-  // textarea (App's global Ctrl-Shift-D chord, browser back/forward) would
-  // otherwise drop the block's text. The ops are enqueued for delivery even
-  // though the session handle has already been released by the effect above
-  // — durability is the queue's job, and nothing is left to render into.
-  // Deliberately unmount-only: a ref, not a dep, so a changing flushNow
-  // identity can't turn this into a mid-edit flush.
+  // Unmount is the last commit point (the effect is declared above the
+  // session's). A flush-held draft (caret mid [[ref / #tag token) has no
+  // timer at all, and React delivers no blur for a node it removes, so any
+  // navigation that never touches the textarea (App's global Ctrl-Shift-D
+  // chord, browser back/forward) would otherwise drop the block's text. An
+  // ordinary draft's timer would fire after this outline is gone, too late
+  // to reach the session. Deliberately unmount-only: a ref, not a dep, so a
+  // changing flushNow identity can't turn this into a mid-edit flush.
   // A draft run() refuses has nowhere left to show, so it goes to the
   // app-level notice.
-  const flushOnUnmount = useRef(() => {});
   flushOnUnmount.current = () => {
     if (flushNow()) return;
     const notice = draftRefusal();
     if (notice !== null) dropRefusedDraft(notice);
   };
-  useEffect(() => () => {
-    flushOnUnmount.current();
-    setRefusedDraftPending(unloadOwner, false);
-  }, [unloadOwner]);
+  useEffect(() => () => setRefusedDraftPending(unloadOwner, false),
+            [unloadOwner]);
 
 
   // Unknown target content needs an authoritative tree. The session allocates

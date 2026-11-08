@@ -165,6 +165,7 @@ specs: [server](../superpowers/specs/2026-10-02-property-checks-server-design.md
 | `outline/` | `checks.ts`: rows match a reading-view model; history undoes to the start |
 | `ops/` | the replica and the in-memory trees store what the server stores; `enqueueBatch` refuses a batch for title syntax or a text limit exactly when the server does |
 | `assistant/` | the panel's chat machine keeps [the chat machine](frontend.md#the-chat-machine)'s rules (the invariants in the header of `assistant/run.ts`), with Stop, New chat and the models list landing inside a create, a 404 re-create and a turn. Pure, about 20 seconds |
+| `journal/` | `journalPaging` matches a model of [the Journal's paging](frontend.md#the-journal) through loads, resyncs, answers in any order, StrictMode replays and remounts. Pure, about 12 seconds |
 
 Rules a change to the gate must keep:
 

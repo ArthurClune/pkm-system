@@ -120,8 +120,13 @@ it("resolves ((block refs)) from every batch's block_ref_texts", async () => {
                  [block("tuid-u2", "older ((ref_bbbb))")])],
       block_ref_texts: { ref_bbbb: { text: "resolved beta", page_title: "B" } },
     }],
+    // A full batch: a short one would mean nothing older exists.
     ["/api/journal?days=5", {
-      days: [day("2026-07-08", "July 8th, 2026",
+      days: [day("2026-07-12", "July 12th, 2026"),
+             day("2026-07-11", "July 11th, 2026"),
+             day("2026-07-10", "July 10th, 2026"),
+             day("2026-07-09", "July 9th, 2026"),
+             day("2026-07-08", "July 8th, 2026",
                  [block("tuid-u1", "see ((ref_aaaa))")])],
       block_ref_texts: { ref_aaaa: { text: "resolved alpha", page_title: "A" } },
     }],
@@ -641,4 +646,91 @@ it("fires the empty-daily cleanup once on mount", async () => {
   const cleanups = fetchMock.mock.calls.filter(
     ([url]) => String(url) === "/api/journal/cleanup");
   expect(cleanups).toEqual([["/api/journal/cleanup", { method: "POST" }]]);
+});
+
+it("clears a load error once a later load succeeds", async () => {
+  const head = [
+    day("2026-07-08", "July 8th, 2026"),
+    day("2026-07-07", "July 7th, 2026"),
+    day("2026-07-06", "July 6th, 2026"),
+    day("2026-07-05", "July 5th, 2026"),
+    day("2026-07-04", "July 4th, 2026"),
+  ];
+  let olderCalls = 0;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/journal/cleanup") return jsonResponse({ deleted: [] });
+    if (url.startsWith("/api/journal?days=5&before=2026-07-04")) {
+      olderCalls += 1;
+      return olderCalls === 1
+        ? jsonResponse({ detail: "boom" }, 500)
+        : jsonResponse({ days: [day("2026-07-03", "July 3rd, 2026")] });
+    }
+    if (url.startsWith("/api/journal?days=5")) return jsonResponse({ days: head });
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
+  await screen.findByRole("link", { name: "July 8th, 2026" });
+  intersect();
+  const retry = await screen.findByRole("button", { name: /load older days/i });
+  expect(document.querySelector(".journal .error")).not.toBeNull();
+
+  act(() => { retry.click(); });
+  await screen.findByRole("link", { name: "July 3rd, 2026" });
+  expect(document.querySelector(".journal .error")).toBeNull();
+});
+
+it("a failed resync reload keeps the window, so Load older days continues " +
+   "from the oldest day shown", async () => {
+  const head = [
+    day("2026-07-22", "July 22nd, 2026"),
+    day("2026-07-14", "July 14th, 2026"),
+    day("2026-07-09", "July 9th, 2026"),
+    day("2026-07-07", "July 7th, 2026"),
+    day("2026-07-04", "July 4th, 2026"),
+  ];
+  const older = [
+    day("2026-07-02", "July 2nd, 2026"),
+    day("2026-06-30", "June 30th, 2026"),
+    day("2026-06-29", "June 29th, 2026"),
+    day("2026-06-22", "June 22nd, 2026"),
+    day("2026-06-20", "June 20th, 2026"),
+  ];
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/journal/cleanup") return jsonResponse({ deleted: [] });
+    if (url.startsWith("/api/journal?days=10")) {
+      return jsonResponse({ detail: "boom" }, 500);
+    }
+    if (url.startsWith("/api/journal?days=5&before=2026-07-04")) {
+      return jsonResponse({ days: older });
+    }
+    if (url.startsWith("/api/journal?days=5&before=2026-06-20")) {
+      return jsonResponse({ days: [day("2026-06-18", "June 18th, 2026")] });
+    }
+    if (url.startsWith("/api/journal?days=5")) return jsonResponse({ days: head });
+    return jsonResponse({ detail: "not found" }, 404);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const sync = makeSync();
+  const inSync = (s: typeof sync) => (
+    <SyncContext.Provider value={s}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>
+    </SyncContext.Provider>
+  );
+  const { rerender } = render(inSync(sync));
+  await screen.findByRole("link", { name: "July 22nd, 2026" });
+  intersect();
+  await screen.findByRole("link", { name: "June 20th, 2026" });
+
+  rerender(inSync({ ...sync, resyncGeneration: 1 }));
+  const loadOlder = await screen.findByRole("button", { name: /load older days/i });
+  act(() => { loadOlder.click(); });
+
+  expect(await screen.findByRole("link", { name: "June 18th, 2026" }))
+    .toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/journal?days=5&before=2026-06-20", READ_INIT);
+  expect(screen.getByRole("link", { name: "July 22nd, 2026" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "June 20th, 2026" })).toBeInTheDocument();
 });

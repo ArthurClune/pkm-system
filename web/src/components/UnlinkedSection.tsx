@@ -29,12 +29,14 @@ export function UnlinkedSection({ title, onLinked }: {
   const [open, setOpen] = useState(false);
   const [groups, setGroups] = useState<BlockGroup[]>([]);
   const [total, setTotal] = useState<number | null>(null);
-  const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [itemStatus, setItemStatus] = useState<Record<BlockUid, ItemStatus>>({});
   const [hiddenUids, setHiddenUids] = useState<ReadonlySet<BlockUid>>(new Set());
   const inFlight = useRef(new Set<BlockUid>());
+  // Delivered links. The server no longer lists them, so a batch answered
+  // before a link landed must not bring one back.
+  const linked = useRef(new Set<BlockUid>());
 
   const setStatus = (uid: BlockUid, status?: ItemStatus) => {
     setItemStatus((current) => {
@@ -52,10 +54,11 @@ export function UnlinkedSection({ title, onLinked }: {
       const p = await apiGet("/api/unlinked", {
         query: { title, limit: PAGE_SIZE, offset: from },
       });
-      setGroups((g) => mergeGroups(g, p.groups));
+      const fresh = p.groups.map((g) => ({
+        ...g, items: g.items.filter((item) => !linked.current.has(item.uid)),
+      }));
+      setGroups((g) => mergeGroups(g, fresh));
       setTotal(p.total);
-      // /api/unlinked paginates by blocks: advance by items received.
-      setOffset(from + p.groups.reduce((n, gr) => n + gr.items.length, 0));
     } catch (e: unknown) {
       setError(String(e));
     } finally {
@@ -115,6 +118,19 @@ export function UnlinkedSection({ title, onLinked }: {
       setStatus(item.uid, { state: "error", message: String(delivered.error) });
       return;
     }
+    // The server's list has lost this block, shifting every later one left
+    // by one, so it leaves the loaded list and the total rather than staying
+    // hidden: the next Show more offset counts only blocks still listed.
+    linked.current.add(item.uid);
+    setGroups((current) => current.map((g) => ({
+      ...g, items: g.items.filter((i) => i.uid !== item.uid),
+    })));
+    setTotal((current) => current === null ? null : Math.max(0, current - 1));
+    setHiddenUids((current) => {
+      const next = new Set(current);
+      next.delete(item.uid);
+      return next;
+    });
     setStatus(item.uid);
     onLinked?.();
   };
@@ -132,6 +148,11 @@ export function UnlinkedSection({ title, onLinked }: {
     }))
     .filter((group) => group.items.length > 0);
   const visibleTotal = total === null ? null : Math.max(0, total - hiddenUids.size);
+  const loadedCount = groups.reduce((n, g) => n + g.items.length, 0);
+  // /api/unlinked paginates by blocks. A hidden block whose link has not
+  // been delivered may still be listed: counting it out can only re-fetch a
+  // block mergeGroups drops, where counting it in could skip one.
+  const nextOffset = loadedCount - hiddenUids.size;
 
   return (
     <section className="unlinked">
@@ -177,8 +198,9 @@ export function UnlinkedSection({ title, onLinked }: {
             </div>
           ))}
           {error && <p className="error">{error}</p>}
-          {total !== null && offset < total && (
-            <button className="show-more btn-secondary" onClick={() => void load(offset)} disabled={loading}>
+          {total !== null && loadedCount < total && (
+            <button className="show-more btn-secondary" onClick={() => void load(nextOffset)}
+                    disabled={loading}>
               {loading ? "Loading…" : "Show more"}
             </button>
           )}

@@ -202,7 +202,7 @@ function absentReplica(): Replica {
     enqueue: absent, nextBatch: absent, pendingBatches: absent,
     poisonedBatches: absent, deleteBatch: absent, markPoisoned: absent,
     pendingCount: absent, localApi: absent, prepareRecovery: absent,
-    commitRecovery: absent, abortRecovery: absent, reset: absent,
+    commitRecovery: absent, abortRecovery: absent,
     diagnostics: absent, dispose: absent,
   };
 }
@@ -222,12 +222,13 @@ export function SyncProvider({ children, replica }: {
   const subsRef = useRef(new Set<(b: WsBatch) => void>());
   const mountedRef = useRef(true);
   // Declared here, above every closure that reads them, so no later
-  // reordering can leave one in its temporal dead zone. Both are written
-  // synchronously rather than derived from state: the offline gateway's
-  // decisions and the replica-state callback must not lag a transition by a
-  // React render (a bootstrap fetch fires inside the socket-open handler,
-  // before state has re-rendered). `statusRef` is written in the socket
-  // lifecycle's onStatus; `modeRef` on every render, just below.
+  // reordering can leave one in its temporal dead zone. `statusRef` is
+  // written synchronously in the socket lifecycle's onStatus, not derived
+  // from state: the offline gateway and the replica-state callback must not
+  // lag a socket transition by a React render (a bootstrap fetch fires inside
+  // the socket-open handler, before state has re-rendered). `modeRef` is
+  // written during render, just below, so it lags an onState report by one
+  // render: until then the gateway still sees the previous mode.
   const statusRef = useRef<SyncStatus>("connecting");
   const modeRef = useRef(replicaState.mode);
   modeRef.current = replicaState.mode;
@@ -337,6 +338,10 @@ export function SyncProvider({ children, replica }: {
         } else if (next.mode === "recovery-failed" &&
                    statusRef.current === "connected") {
           applySync({ type: "replica-stalled", error: next.error });
+        } else if (next.mode === "no-replica" && next.error !== undefined) {
+          // A worker that died mid-session: the same online-only banner and
+          // Reload as a replica that never opened.
+          applySync({ type: "replica-unusable", error: next.error });
         }
       },
     }) : null;

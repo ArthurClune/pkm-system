@@ -15,7 +15,7 @@ import type { ReplicaDiagnostics } from "../replica/client";
 import type {
   AckedBatch, PendingBatch, RecoveryCommit, RecoveryLease, Replica, ReplicaInit,
 } from "../replica/client";
-import { availabilityOf } from "../replica/errors";
+import { isSessionFatal } from "../replica/errors";
 import { INITIAL_SEQ } from "../ids";
 import { listeners } from "./listeners";
 import type { OpQueue } from "./opQueue";
@@ -26,7 +26,9 @@ import { isFreshCorruption, isStallShaped, isWindowFailure, PullStarvedError } f
 
 export type ReplicaState =
   | { mode: "starting" }
-  | { mode: "no-replica" }
+  /** No database this session can use: a failed open, or a worker that
+   * died. `error` says why when the replica found out itself. */
+  | { mode: "no-replica"; error?: string }
   | { mode: "ready" }
   | { mode: "recovery-failed"; error: string }
   | { mode: "stalled"; error: string };
@@ -47,15 +49,14 @@ export interface ReplicaSync {
    *
    * `null` means the question cannot be answered: this session has no usable
    * database, so there is no cursor to compare and the caller must assume the
-   * worst. Two things put it there — a failed open at startup, and a pull that
-   * rejects with the worker's own latched open failure, which is how a database
-   * that dies mid-session announces itself.
+   * worst. A session-fatal error (`isSessionFatal`) from init or a pull puts
+   * it there: the worker's latched failed open, or an RPC client a dead
+   * worker left terminal.
    *
    * An ordinary failed pull is deliberately NOT null: the cursor is the durable
    * memory of what has been seen, so the next successful reconnect pulls the
    * same window again and reports the change then. That reasoning only holds
-   * while a later pull can succeed, which is exactly what the latch rules out
-   * (only close() re-arms it) — hence the second null case. */
+   * while a later pull can succeed, which a session-fatal error rules out. */
   appliedVersion(): number | null;
   /** True once doStart emits `onState({ mode: "ready" })` (set in the same
    * synchronous step, just before the emit): the local database already has
@@ -65,7 +66,8 @@ export interface ReplicaSync {
    * offline-cold-start gap useSocketLifecycle's first-connect gate closes:
    * a failed start() while offline leaves this false, so the
    * first connect once online still knows to run the reconnect protocol even
-   * with an empty durable queue. Never goes back to false once true. */
+   * with an empty durable queue. A failed start() while online is retried
+   * on the pull's backoff. Never goes back to false once true. */
   hasStarted(): boolean;
   /** Full-snapshot poison repair under the shared recovery lease. Delivery
    * stays paused on return, under the queue's "poison" owner, so the provider
@@ -79,10 +81,11 @@ export interface ReplicaSync {
    * discardPending) then rebuilds from a fresh snapshot. Throws
    * ResetBlockedError when discardPending is false and the flush fails. */
   resetLocalData(opts: { discardPending: boolean }): Promise<void>;
-  /** Stops scheduling backoff retries and clears any pending retry timer.
-   * The provider must call this on teardown (unmount) so a stopped instance
-   * doesn't leak a timer that outlives its component; an in-flight pull may
-   * still finish after stop() but will not reschedule another retry. */
+  /** Stops scheduling backoff retries (of a pull or of a failed start) and
+   * clears any pending retry timer. The provider must call this on teardown
+   * (unmount) so a stopped instance doesn't leak a timer that outlives its
+   * component; an in-flight pull may still finish after stop() but will not
+   * reschedule another retry. */
   stop(): void;
   /** The recovery flush's ack named a skipped op, or a sync payload named a
    * pending batch as already applied whose stored ack did -- the same signal
@@ -160,6 +163,9 @@ export interface ReplicaSyncDeps {
    * arming the timer. Defaults to "never offline" for callers (and tests)
    * that don't track connectivity. */
   isOffline?: () => boolean;
+  /** The backoff's first delay; RETRY_BASE_MS unless a harness that cannot
+   * fake timers needs a retry to land within one example. */
+  retryBaseMs?: number;
 }
 
 const errText = (e: unknown): string =>
@@ -203,11 +209,12 @@ interface RecoveryOptions {
    * caller owns the report: poison repair and the manual reset each have
    * their own banner, and a stall report over it would contradict them. */
   reportReplicaFailure: boolean;
-  /** Wait for a pull that already passed the pending-id guard before taking
-   * the lease: its stale window could otherwise apply after the fresh
-   * snapshot and move the cursor/state backwards. Must stay false for
-   * recovery that runs *inside* pullLoop, which would deadlock awaiting the
-   * pull it is part of. */
+  /** Wait for a pull that already passed the pending-id guard, and for a
+   * start (a retried bootstrap) in flight, before taking the lease: either's
+   * stale snapshot or window could otherwise apply after the fresh snapshot
+   * and move the cursor/state backwards. Must stay false for recovery that
+   * runs *inside* pullLoop or doStart, which would deadlock awaiting the run
+   * it is part of. */
   awaitInFlightPull: boolean;
   /** Force mode "ready" and (re)enable pulls after the commit. Only the
    * manual reset does this: it resolves a recovery-failed state whether or
@@ -252,8 +259,11 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   let windowFailure: { cursor: SyncSeq; message: string; count: number } | null
     = null;
   let pulling: Promise<void> | null = null;
+  let starting: Promise<void> | null = null;
   let again = false;
   let authoritativeRepair: "poison" | null = null;
+  // A pull pass left work to a poison repair; see owePoisonPull.
+  let owedAfterPoison = false;
   // Acks the server gave for leased batches whose rows are still queued. The
   // next commit takes them, so a rebase deletes those rows before its replay
   // instead of replaying their wire text over what the server saved. A run
@@ -276,8 +286,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   // growing backoff; `reportedNonReady` avoids re-announcing "ready" on every
   // ordinary successful pull -- only a pull that follows a reported failure
   // needs to clear it.
+  const retryBase = deps.retryBaseMs ?? RETRY_BASE_MS;
   let consecutiveFailures = 0;
-  let retryDelay = RETRY_BASE_MS;
+  let retryDelay = retryBase;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let reportedNonReady = false;
   // Set by stop(): a torn-down instance must not leak a timer past unmount,
@@ -287,7 +298,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   const noteSuccess = (opts: { force?: boolean } = {}): void => {
     consecutiveFailures = 0;
     windowFailure = null;
-    retryDelay = RETRY_BASE_MS;
+    retryDelay = retryBase;
     if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
     if (reportedNonReady || opts.force) {
       reportedNonReady = false;
@@ -295,16 +306,26 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     }
   };
 
+  /** No database this session can use. A worker that died, or that latched
+   * its own failed open, rejects every later RPC the same way until a reload,
+   * so this is the mode for the rest of the session: appliedVersion() goes
+   * null and every reconnect refetches views, the offline gateway stops
+   * serving reads from the replica, and offline editing ends. No retry is
+   * armed, since none could succeed. */
+  const noteNoReplica = (error: unknown): void => {
+    usable = false;
+    if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
+    onState({ mode: "no-replica", error: errText(error) });
+  };
+
+  /** A failed pull, or a failed start: both retry on one backoff, and both
+   * count towards the stall report. The retry runs whichever of the two is
+   * still owed. */
   const noteFailure = (error: unknown): void => {
-    // The only place after startup where "there is no usable database" can
-    // still be learned: doStart's catch has already run, and a worker that
-    // latches its own failed open mid-session rejects every pull with it until
-    // close(). Without this latch appliedVersion() would freeze at its last
-    // value and answer "nothing moved" for the rest of the session, so no
-    // reconnect would ever refetch a view again. Note this is a
-    // report about the database, not about the pull attempt: isStallShaped
-    // still excludes it from the stall count and the retry below still runs.
-    if (availabilityOf(error) === "unusable") usable = false;
+    if (isSessionFatal(error)) {
+      noteNoReplica(error);
+      return;
+    }
     if (isStallShaped(error)) {
       consecutiveFailures += 1;
       if (consecutiveFailures >= STALL_AFTER_FAILURES) {
@@ -319,7 +340,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     if (!stopped && !isOffline() && retryTimer === null) {
       retryTimer = setTimeout(() => {
         retryTimer = null;
-        void pull();
+        if (started) void pull();
+        // start()'s own catch has already noted the failure
+        else void start().catch(() => undefined);
       }, retryDelay);
       retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS);
     }
@@ -338,6 +361,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     if (authoritativeRepair === "poison") {
       authoritativeRepair = null;
       queue.resume("poison");
+      payPoisonPull();
     }
   });
 
@@ -486,7 +510,11 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     queue.pause("recovery");
     let token: string | null = null;
     try {
-      if (options.awaitInFlightPull) await (pulling ?? Promise.resolve());
+      if (options.awaitInFlightPull) {
+        // a failed start is reported by its own catch
+        await starting?.catch(() => undefined);
+        await (pulling ?? Promise.resolve());
+      }
       const lease = await replica.prepareRecovery();
       token = lease.token;
       await flushLease(lease, options.flush);
@@ -659,6 +687,23 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     });
   };
 
+  /** Work a poison repair now owns is left to it: the pass ends, a joiner's
+   * `again` still gets its own pass, and one more pull is owed for when the
+   * repair releases recovery, since the repair may fail and its snapshot
+   * then covers nothing. */
+  const owePoisonPull = (): void => { owedAfterPoison = true; };
+  const payPoisonPull = (): void => {
+    if (!owedAfterPoison || authoritativeRepair === "poison") return;
+    owedAfterPoison = false;
+    void pull();
+  };
+
+  /** A failed recovery a poison repair now owns is left to that repair,
+   * unless its error is session-fatal: that is about the database, not the
+   * recovery, and noteFailure must hear it or the mode stays ready. */
+  const leftToPoison = (error: unknown): boolean =>
+    authoritativeRepair === "poison" && !isSessionFatal(error);
+
   const pullLoop = async (): Promise<void> => {
     // Counts consecutive "pending-changed" refetches since the last applied
     // window (including across an `again`-triggered restart). A feed that
@@ -692,10 +737,10 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
             // Same ownership rule as the needs-bootstrap branch below: a
             // poison repair holds the recovery lease; leave the corruption
             // for the pull that follows it.
-            if (authoritativeRepair === "poison") return;
+            if (authoritativeRepair === "poison") { owePoisonPull(); break; }
             const rebuilt = await rebuildForCorruption(error);
             if (!rebuilt.ok) {
-              if (authoritativeRepair === "poison") return;
+              if (leftToPoison(rebuilt.error)) { owePoisonPull(); break; }
               throw rebuilt.error;
             }
             // The snapshot moved the cursor to its own seq; one more pull
@@ -718,9 +763,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
             throw error;
           }
           const rebased = await rebaseForUnappliableWindow(error);
-          if (rebased === "deferred") return;
+          if (rebased === "deferred") { owePoisonPull(); break; }
           if (!rebased.ok) {
-            if (authoritativeRepair === "poison") return;
+            if (leftToPoison(rebased.error)) { owePoisonPull(); break; }
             throw rebased.error;
           }
           continue;
@@ -737,7 +782,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
           // A rejected batch owns recovery until the provider has deleted its
           // durable row and scheduled resync. Normal recovery would flush
           // later valid rows, breaking poison's stronger ordering.
-          if (authoritativeRepair === "poison") return;
+          if (authoritativeRepair === "poison") { owePoisonPull(); break; }
           const rebased = await recover("rebase");
           if (!rebased.ok) {
             // A poison signal that arrived mid-recovery (flush-time
@@ -746,7 +791,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
             // genuine failed pull attempt -- rethrow the real error so
             // isStallShaped classifies it correctly instead of a
             // synthetic stand-in that always looked network-shaped.
-            if (authoritativeRepair === "poison") return;
+            if (leftToPoison(rebased.error)) { owePoisonPull(); break; }
             throw rebased.error;
           }
           done = feed.latest_seq <= cursor;
@@ -761,7 +806,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   };
 
   const pull = (): Promise<void> => {
-    if (!started) return Promise.resolve();
+    if (!started || !usable) return Promise.resolve();
     if (pulling) {
       again = true;
       return pulling;
@@ -777,20 +822,12 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     try {
       init = await replica.init();
     } catch (error: unknown) {
-      // "unusable" is the worker reporting its own latched failed open: this
-      // session is online-only, and no later start() can revive it, because the
-      // latch replays for every call until close(). That is what replaces the
-      // `disabled` boolean this function used to set — the session-commitment
-      // moment moves to where the commitment actually happens.
-      //
-      // Anything else, INCLUDING "unreachable", stays an ordinary start
-      // failure: "we could not ask" is not evidence there is no database, and
-      // isStallShaped already excludes it from the stall count.
-      if (availabilityOf(error) === "unusable") {
-        // No database this session can ever read, so no cursor to compare:
-        // appliedVersion() goes null and every reconnect refetches views.
-        usable = false;
-        onState({ mode: "no-replica" });
+      // A session-fatal error makes this session online-only: the worker's
+      // latched failed open, or a dead worker's terminal RPC client, replays
+      // for every later call, so no later start() can revive it. Anything
+      // else, a bare timeout included, is an ordinary start failure.
+      if (isSessionFatal(error)) {
+        noteNoReplica(error);
         return;
       }
       throw error;
@@ -802,29 +839,39 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     if (init.schemaMismatch) {
       // deploy changed the DDL: one coordinator flushes and rebuilds under
       // the same worker lease used for feed generation/reset recovery.
-      if (!(await recover("reset")).ok) return;
+      const recovered = await recover("reset");
+      if (!recovered.ok) throw recovered.error;
     } else if (init.empty) {
       await bootstrap(init.pendingBatches);
     }
     started = true;
     // Read by web/tooling/perf/check.mjs to time replica readiness.
     performance.mark?.("pkm:replica-ready");
-    onState({ mode: "ready" });
+    // Clears the failures and any retry a failed start left behind.
+    noteSuccess({ force: true });
     await pull();
   };
-  let starting: Promise<void> | null = null;
+  const start = async (): Promise<void> => {
+    if (started) {
+      await pull();
+      return;
+    }
+    // single-flight: the mount-time start (cold start offline needs no
+    // socket), the first connect's start and a backoff retry share one
+    // initialization. A failed one takes the pull's backoff, so a first
+    // bootstrap that failed with the socket up does not wait for the next
+    // reconnect, which can be hours away.
+    starting ??= doStart()
+      .catch((error: unknown) => {
+        noteFailure(error);
+        throw error;
+      })
+      .finally(() => { starting = null; });
+    await starting;
+  };
 
   return {
-    async start() {
-      if (started) {
-        await pull();
-        return;
-      }
-      // single-flight: the mount-time start (cold start offline needs no
-      // socket) and the first connect's start must share one initialization
-      starting ??= doStart().finally(() => { starting = null; });
-      await starting;
-    },
+    start,
     onSeq(seq, force = false) {
       if (pulling) {
         // a window is in flight; its server-side latest_seq or metadata may
@@ -864,6 +911,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     },
     completeAuthoritativeRepair(reason) {
       if (authoritativeRepair === reason) authoritativeRepair = null;
+      payPoisonPull();
     },
     async resetLocalData({ discardPending }) {
       // A rejected-batch repair owns recovery until the provider has deleted

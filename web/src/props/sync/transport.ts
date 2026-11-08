@@ -15,8 +15,10 @@ import type { ServerControl } from "./serverControl";
 import { parseChanges, parseOpsAck, readBatchHead, record } from "./wire";
 import { seqOf } from "../../test-helpers";
 
-/** One-shot faults, each consumed by the next request of its kind. */
-export type Fault = "dropAck" | "duplicate" | "lostPull";
+/** One-shot faults, each consumed by the next request of its kind. A
+ * snapshot5xx answers the next snapshot fetch with a 503 the server never
+ * saw. */
+export type Fault = "dropAck" | "duplicate" | "lostPull" | "snapshot5xx";
 
 /** Deliberately wrong transports, for checking that the oracle notices. Each
  * acts once, on the first request it matches. */
@@ -72,7 +74,8 @@ function kindOf(path: string, method: string): RequestKind {
   return "other";
 }
 
-function faultMatches(fault: Fault, kind: RequestKind): boolean {
+function faultMatches(fault: Fault, kind: RequestKind, path: string): boolean {
+  if (fault === "snapshot5xx") return path.split("?")[0] === "/api/sync/snapshot";
   return fault === "lostPull" ? kind === "pull" : kind === "ops";
 }
 
@@ -112,7 +115,9 @@ export function createTransport(server: ServerControl, broken?: Broken,
                                 { windowLimit, signal }: TransportOptions = {}): Transport {
   let offline = false;
   let faults: Fault[] = [];
-  const firedCounts: Record<Fault, number> = { dropAck: 0, duplicate: 0, lostPull: 0 };
+  const firedCounts: Record<Fault, number> = {
+    dropAck: 0, duplicate: 0, lostPull: 0, snapshot5xx: 0,
+  };
   let generation = 0;
   let brokenUsed = false;
   let lastSeq = seqOf(0);
@@ -241,9 +246,13 @@ export function createTransport(server: ServerControl, broken?: Broken,
     }
     const method = (init?.method ?? "GET").toUpperCase();
     const kind = kindOf(path, method);
-    const at = faults.findIndex((f) => faultMatches(f, kind));
+    const at = faults.findIndex((f) => faultMatches(f, kind, path));
     const fault = at < 0 ? null : faults[at];
     if (at >= 0) faults = faults.filter((_, i) => i !== at);
+    if (fault === "snapshot5xx") {
+      firedCounts.snapshot5xx += 1;
+      throw new ApiError(503, path, "proptest: injected snapshot failure");
+    }
     const fullInit: RequestInit = { ...init, method };
     const sentPath = method === "GET" ? withWindowLimit(path, windowLimit) : path;
     let answer = await exchange(sentPath, fullInit, kind, live);

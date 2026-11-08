@@ -12,6 +12,25 @@
 // stored. A page pre-image holds updated_at, or is NULL for a page the batch
 // minted. A block record with a NULL pre-image is a row the batch created.
 //
+// A batch moves through four states. The records are what a window rewinds,
+// so a batch keeps them past its ack until the server's rows replace them:
+//
+//   state     pending_ops row       replay_log records   moved there by
+//   pending   present, poisoned 0   present              enqueueBatch
+//   poisoned  present, poisoned 1   present              markPoisoned
+//   frozen    gone                  present              an ack's deleteBatch,
+//                                                        a window's
+//                                                        applied_batches drop
+//   settled   gone                  gone                 dropWindowRecords on
+//                                                        rows a window ships;
+//                                                        the head window's
+//                                                        rewind of the rest
+//
+// A snapshot clears the log and records the pending batches afresh, so a
+// batch it drops or a rebase settles goes straight to settled. A poisoned
+// batch counts as pending (PENDING_BATCH) until the poison repair deletes
+// its row.
+//
 // Every function runs inside the caller's transaction and opens none.
 
 import type { BatchId, BlockUid, OrderIdx, PageId } from "../api/brands";

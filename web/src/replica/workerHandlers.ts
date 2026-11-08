@@ -123,6 +123,27 @@ const probe = <T>(fn: () => T, fallback: (message: string) => T): T => {
   }
 };
 
+/** The rows of a pending_ops that cannot be read whole, one at a time in id
+ * order, up to the first that fails: the prefix the damage left readable.
+ * None when even the table's existence cannot be read. */
+function salvagePendingRows(db: ReplicaDb): DurablePendingRow[] {
+  const whole = probe(() => readDurablePendingRows(db), () => null);
+  if (whole !== null) return whole;
+  const rows: DurablePendingRow[] = [];
+  for (;;) {
+    const after = rows.at(-1)?.id ?? -1;
+    const next = probe(() => db.select(
+      "SELECT id AS pending_row_id, batch_id, ops_json, poisoned," +
+      " error AS pending_error FROM pending_ops WHERE id > ? ORDER BY id LIMIT 1",
+      ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"], [after],
+    ), () => []);
+    const r = next[0];
+    if (r === undefined) return rows;
+    rows.push({ id: r.pending_row_id, batch_id: r.batch_id, ops_json: r.ops_json,
+                poisoned: r.poisoned, error: r.pending_error });
+  }
+}
+
 const countRows = (db: ReplicaDb, table: string): number => probe(
   () => Number(db.select(
     `SELECT count(*) AS n FROM ${quoteIdentifier(table)}`, ["n"])[0].n),
@@ -257,8 +278,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
       carry.write(kept);
       // the new file's ids restart from the kept rows, as after a rebuild
       ackedSeqs.clear();
-      await deps.discardDbFile();
-      dbPromise = null;
+      // A discard that throws after closing must not leave a closed handle
+      // memoised; the carry already holds the rows.
+      try { await deps.discardDbFile(); } finally { dbPromise = null; }
       target = await db();
       importCarried(target, kept);
     }
@@ -278,6 +300,50 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
     const d = await adoptLeftoverCarry(await db());
     ensureClientTables(d, ensuredHandles);
     return d;
+  };
+  /** "Queue unreadable": the file's pending_ops (or its schema) reads as
+   * damaged. Every queue handler would fail the same way for good, a
+   * recovery's prepareRecovery included, since a rebuild reads the queue
+   * first. The escape is the one adoption takes: the rows that can still be
+   * read, merged with any carry, are committed to the carry before the file
+   * is replaced, and the new file imports them. Rows past the damage are
+   * lost, as they are to every reader. */
+  const replaceUnreadableQueue = async (error: unknown): Promise<ReplicaDb> => {
+    const carry = deps.carry;
+    if (!carry || !deps.discardDbFile) throw error;
+    const old = await db();
+    console.warn("replica: the pending queue cannot be read, replacing the file"
+                 + " with the rows that can", error);
+    const carried = carry.exists() ? probe(() => carry.read(), () => []) : [];
+    const kept = mergeCarriedRows(carried, salvagePendingRows(old));
+    carry.write(kept);
+    ackedSeqs.clear();
+    try { await deps.discardDbFile(); } finally { dbPromise = null; }
+    const fresh = await db();
+    importCarried(fresh, kept);
+    carry.discard();
+    ensureClientTables(fresh, ensuredHandles);
+    return fresh;
+  };
+  /** Whether `error` says the queue itself cannot be read: corruption whose
+   * file also fails a plain read of pending_ops. Corruption elsewhere (an
+   * FTS index) leaves the queue readable and keeps its own repair. */
+  const queueUnreadable = async (error: unknown): Promise<boolean> => {
+    if (error instanceof ReplicaUnusableError) return false;
+    if (!isUnreadableFileMessage(messageOf(error))) return false;
+    let d: ReplicaDb;
+    try { d = await db(); } catch { return false; }
+    return probe(() => { readDurablePendingRows(d); return false; }, () => true);
+  };
+  /** `fn` over the queue's database, run once more on a new file when the
+   * queue turned out unreadable. */
+  const withQueue = async <T>(fn: (d: ReplicaDb) => T | Promise<T>): Promise<T> => {
+    try {
+      return await fn(await queueDb());
+    } catch (error: unknown) {
+      if (!(await queueUnreadable(error))) throw error;
+      return fn(await replaceUnreadableQueue(error));
+    }
   };
   // Batch row id -> the journal seq its server ack named, for batches deleted
   // on an ack, or dropped because a sync payload named them as already
@@ -361,7 +427,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
    * with SQLITE_CORRUPT every time, and so does every later reset. Pending
    * rows lose nothing: a reset drops pending_ops either way, and its caller
    * already holds them from prepareRecovery. */
-  const rebuildOrReplaceFile = async (snapshot?: Snapshot): Promise<void> => {
+  const rebuildOrReplaceFile = async (snapshot: Snapshot): Promise<void> => {
     try {
       rebuildSchema(await db(), snapshot);
     } catch (error: unknown) {
@@ -379,8 +445,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
     beforeDiscard?.();
     console.warn("replica: rebuild hit file-level corruption, replacing the file",
                  error);
-    await deps.discardDbFile();
-    dbPromise = null;
+    try { await deps.discardDbFile(); } finally { dbPromise = null; }
     return db();
   };
   /** A rebase, and on the same file-level damage the same escape, except
@@ -443,22 +508,20 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
 
   return {
     async enqueue({ ops, batchId }) {
-      return gate.run(async () => {
-        const d = await queueDb();
+      return gate.run(() => withQueue((d) => {
         // the first edit can beat the socket connect that triggers init():
         // a fresh database gets its schema here so durability never waits.
         // An existing database (any version) is left alone — init() owns
         // schema-mismatch detection and recovery.
         if (!tableExists(d, "sync_client_meta")) installSchema(d);
         return enqueueBatch(d, ops, nowMs(), batchId);
-      });
+      }));
     },
     async nextBatch() {
-      return gate.run(async () => nextBatch(await queueDb()));
+      return gate.run(() => withQueue(nextBatch));
     },
     async deleteBatch({ id, batchId, ackedSeq }) {
-      return gate.run(async () => {
-        const d = await queueDb();
+      return gate.run(() => withQueue((d) => {
         // The payload is typed as requiring both fields, but a caller that
         // bypasses the typed Replica facade (a test, or a future one) can
         // still hand this a value that isn't really one: this is genuine
@@ -476,21 +539,19 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
         const matched = deleteBatch(d, id, batchId);
         noteAck(id, matched ? ackedSeq : undefined);
         return { pending: pendingCount(d) };
-      });
+      }));
     },
     async markPoisoned({ id, error, batchId }) {
-      return gate.run(async () => {
-        const d = await queueDb();
+      return gate.run(() => withQueue((d) => {
         const matched = markPoisoned(d, id, error, batchId);
         return { pending: pendingCount(d), matched };
-      });
+      }));
     },
     async init() {
-      return gate.run(async () => {
-        // No catch: an unopenable database is db()'s latched
-        // ReplicaUnusableError, exactly as it is for every other handler.
-        // Consumers derive "no-replica" from that rejection.
-        const d = await queueDb();
+      // An unopenable database is db()'s latched ReplicaUnusableError,
+      // exactly as it is for every other handler. Consumers derive
+      // "no-replica" from that rejection.
+      return gate.run(() => withQueue((d) => {
         const fresh = !tableExists(d, "sync_client_meta");
         const pendingBatches = fresh ? [] : readPendingBatches(d);
         if (fresh) installSchema(d);
@@ -502,11 +563,10 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
           plainSpaceTitleCanonicalization:
             plainSpaceTitleCanonicalizationActive(d),
         };
-      });
+      }));
     },
     async applySnapshot({ snapshot, expectedPendingIds }) {
-      return gate.run(async () => {
-        const d = await queueDb();
+      return gate.run(() => withQueue((d) => {
         // snapshot.seq plays the role of a window's latest_seq: the server
         // reads MAX(seq) in the same read transaction as the rows, so a
         // snapshot at seq >= an acked batch's seq already carries that batch.
@@ -518,7 +578,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
         // Bootstrap is single-flight and names its pending set afresh for
         // every attempt, so an acked seq for an id outside this set was noted
         // before the next fetch, which the server answers after that commit:
-        // drop it here to keep the map bounded.
+        // drop it here to keep the map bounded. That holds only while no pull
+        // runs beside a bootstrap, which replicaSync ensures: it pulls only
+        // once started, and bootstraps only before.
         const expected = new Set(expectedPendingIds);
         for (const id of ackedSeqs.keys()) {
           if (!expected.has(id)) ackedSeqs.delete(id);
@@ -526,18 +588,18 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
         if (!covered) return { status: "pending-changed" };
         noteDropped(applySnapshotToDb(d, snapshot, nowMs()));
         return { status: "applied" };
-      });
+      }));
     },
     async applyChanges({ feed, expectedPendingIds }) {
-      return gate.run(async () => {
-        const d = await queueDb();
+      return gate.run(() => withQueue((d) => {
         const currentPendingIds = allBatches(d).map((batch) => batch.id);
         const covered = pendingSetStillCovered(
           expectedPendingIds, currentPendingIds, ackedSeqs, feed.latest_seq);
         // pullLoop is single-flight and snapshots the pending set afresh for
         // every window, so an acked seq for an id outside this snapshot was
         // noted before the next window's fetch, which the server answers
-        // after that commit: drop it here to keep the map bounded.
+        // after that commit: drop it here to keep the map bounded. As for
+        // applySnapshot, this needs no bootstrap running beside the pull.
         const expected = new Set(expectedPendingIds);
         for (const id of ackedSeqs.keys()) {
           if (!expected.has(id)) ackedSeqs.delete(id);
@@ -551,31 +613,28 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
                                     { droppable: expectedPendingIds });
         if (result.status === "applied") noteDropped(result.dropped);
         return result;
-      });
+      }));
     },
     async pendingBatches() {
-      return gate.run(async () => readPendingBatches(await queueDb()));
+      return gate.run(() => withQueue(readPendingBatches));
     },
     async poisonedBatches() {
-      return gate.run(async () => {
-        const d = await queueDb();
-        return tableExists(d, "pending_ops") ? poisonedBatches(d) : [];
-      });
+      return gate.run(() => withQueue((d) =>
+        tableExists(d, "pending_ops") ? poisonedBatches(d) : []));
     },
     async pendingCount() {
-      return gate.run(async () => pendingCount(await queueDb()));
+      return gate.run(() => withQueue(pendingCount));
     },
     async localApi(req) {
-      return gate.run(async () => handleLocalApi(
-        await queueDb(), req, { newBatchId }));
+      return gate.run(() => withQueue((d) => handleLocalApi(d, req, { newBatchId })));
     },
     async prepareRecovery(payload) {
       const expiresAtMs = Number(payload?.expiresAtMs);
       const hasDeadline = Number.isFinite(expiresAtMs);
       const prepared = await gate.prepare(async () => {
-        const d = await queueDb();
-        const batches = readPendingBatches(d);
-        const durableRows = readDurablePendingRows(d);
+        const { batches, durableRows } = await withQueue((d) => ({
+          batches: readPendingBatches(d), durableRows: readDurablePendingRows(d),
+        }));
         if (hasDeadline && clockMs() >= expiresAtMs) {
           throw new Error("recovery preparation expired");
         }
@@ -634,16 +693,6 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
       await gate.abort(token);
       clearPrepared(token);
       return null;
-    },
-    async reset() {
-      return gate.run(async () => {
-        const current = readPendingBatches(await queueDb());
-        if (current.length > 0) {
-          throw new Error("cannot reset replica with pending rows");
-        }
-        await rebuildOrReplaceFile();
-        return null;
-      });
     },
     async diagnostics() {
       // db(), not queueDb(): see queueDb

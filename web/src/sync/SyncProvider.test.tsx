@@ -154,7 +154,7 @@ describe("the socket and remote batches", () => {
 // --- replica lifecycle ---
 
 import type { PendingRowId, Replica } from "../replica/client";
-import { ReplicaUnusableError } from "../replica/errors";
+import { ReplicaUnusableError, RpcLifecycleError } from "../replica/errors";
 
 function fakeReplicaForProvider(): Replica & { log: string[] } {
   const log: string[] = [];
@@ -184,7 +184,6 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
     prepareRecovery: async () => ({ token: "lease-1", batches: [] }),
     commitRecovery: async () => undefined,
     abortRecovery: async () => undefined,
-    reset: async () => undefined,
     diagnostics: async () => ({
       sqliteVersion: "fake", quickCheck: ["ok"],
       integrity: { blocks_fts: "ok", pages_fts: "ok" },
@@ -1479,6 +1478,35 @@ function unopenableReplica(
   return Object.assign(replica, { initCalls: () => initCalls });
 }
 
+describe("a replica worker that dies mid-session", () => {
+  test("the next pull ends offline editing and raises the online-only banner",
+  async () => {
+    stubFetch([
+      ["/api/sync/snapshot", SNAPSHOT],
+      ["/api/sync/changes", { ...EMPTY_FEED, next_since: 9, latest_seq: 9 }],
+      ["/api/ops", { ok: true }],
+    ]);
+    const replica = fakeReplicaForProvider();
+    let sync!: Sync;
+    function Grab() { sync = useSyncWhole(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); });
+    expect(sync.replicaMode).toBe("ready");
+
+    const dead = new RpcLifecycleError("worker-error", "replica worker failed");
+    replica.pendingBatches = () => Promise.reject(dead);
+    await act(async () => { lastWs().message({ type: "seq", seq: 12 }); });
+    await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
+    expect(sync.problem).toMatchObject({
+      kind: "replica-unusable", error: "replica worker failed" });
+
+    // offline, a dead replica can neither serve reads nor keep edits
+    await act(async () => { lastWs().drop(); });
+    expect(sync.status).toBe("reconnecting");
+    expect(sync.canEdit).toBe(false);
+  });
+});
+
 describe("an unopenable replica", () => {
   test("an unopenable replica delivers queued ops online instead of stranding them",
   async () => {
@@ -2672,6 +2700,8 @@ describe("the replica-stalled problem", () => {
       plainSpaceTitleCanonicalization: false, pendingBatches: [] });
     let sync!: Sync;
     function Grab() { sync = useSyncWhole(); return null; }
+    // the failed schema recovery fails the start the first connect awaits
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); }); // socket connects before recovery settles
     expect(sync.status).toBe("connected");
@@ -2679,6 +2709,10 @@ describe("the replica-stalled problem", () => {
     await act(async () => { releaseSnapshot(); await Promise.resolve(); await Promise.resolve(); });
     await vi.waitFor(() => {
       expect(sync.problem).toMatchObject({ kind: "replica-stalled" });
+    });
+    await vi.waitFor(() => {
+      expect(error).toHaveBeenCalledWith("first-connect reconnect.begin() failed",
+                                         expect.anything());
     });
   });
 

@@ -288,3 +288,18 @@ def test_reorder_rejects_unknown_id(client, seeded_config):
 
 def test_reorder_requires_auth(anon_client):
     assert anon_client.put("/api/sidebar", json={"order": []}).status_code == 401
+
+
+def test_add_entry_answers_503_while_the_write_lock_is_held(
+        client, seeded_config, monkeypatch):
+    monkeypatch.setattr("pkm.server.db.BUSY_TIMEOUT_MS", 50)
+    holder = connect(seeded_config.db_path)
+    holder.begin_immediate()
+    try:
+        r = client.post("/api/sidebar", json={"title": "Crypto"})
+    finally:
+        holder.rollback()
+        holder.close()
+    assert r.status_code == 503
+    assert r.headers["Retry-After"] == "1"
+    assert client.get("/api/sidebar").json() == {"entries": []}

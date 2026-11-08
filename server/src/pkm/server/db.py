@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 
 from pkm.database import Db, connect
 from pkm.refs import extract
@@ -159,3 +160,27 @@ def get_db(request: Request) -> Iterator[Db]:
         yield con
     finally:
         con.close()
+
+
+@contextmanager
+def write_txn(db: Db) -> Iterator[None]:
+    """The write transaction of a route that advances the journal: `BEGIN
+    IMMEDIATE` on entry, so the body's first read already holds the write
+    lock; a lock the busy timeout could not take is a 503 with
+    `Retry-After`, never the raw `OperationalError`; a raise rolls back
+    and propagates; a clean exit, a `return` included, commits. The body
+    never commits, rolls back or awaits, and the nudge follows the `with`.
+    """
+    try:
+        db.begin_immediate()
+    except sqlite3.OperationalError as exc:
+        if "locked" not in str(exc):
+            raise
+        raise HTTPException(status_code=503, headers={"Retry-After": "1"},
+                            detail="database busy, retry") from exc
+    try:
+        yield
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise

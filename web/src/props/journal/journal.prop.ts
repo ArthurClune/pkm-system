@@ -55,8 +55,8 @@ function report(details: fc.RunDetails<[Example]>): string {
   ].join("\n");
 }
 
-test("journal paging property", () => {
-  const details = fc.check(fc.property(exampleArb, (example) => {
+test("journal paging property", async () => {
+  const details = await fc.check(fc.asyncProperty(exampleArb, async (example) => {
     const run = runExample(example);
     if (run.problems.length > 0) throw new Error(run.problems.join("\n"));
   }), {
@@ -84,8 +84,8 @@ test("journal paging property", () => {
 
 // The tally is drawn from its own run of the same seed, so counting never
 // sits inside the property under test, where shrinking would recount.
-test("journal paging reach", () => {
-  fc.assert(fc.property(exampleArb, (example) => {
+test("journal paging reach", async () => {
+  await fc.assert(fc.asyncProperty(exampleArb, async (example) => {
     examples += 1;
     for (const label of runExample(example).reached) tally.set(label, (tally.get(label) ?? 0) + 1);
   }), { numRuns: NUM_RUNS / 10, seed: SEED });

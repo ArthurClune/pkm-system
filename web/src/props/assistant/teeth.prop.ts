@@ -84,8 +84,8 @@ const MUTANTS: Record<string, { catches: string[]; machine: Machine }> = {
 };
 
 for (const [name, { machine, catches }] of Object.entries(MUTANTS)) {
-  test(`the assistant property catches: ${name}`, () => {
-    const details = fc.check(fc.property(actionsArb, (actions) => {
+  test(`the assistant property catches: ${name}`, async () => {
+    const details = await fc.check(fc.asyncProperty(actionsArb, async (actions) => {
       const { problems } = runActions(actions, machine);
       if (problems.length > 0) throw new PropertyReport(problems.join("\n"));
     }), {
@@ -106,8 +106,8 @@ for (const [name, { machine, catches }] of Object.entries(MUTANTS)) {
   });
 }
 
-test("the real machine passes the same runs", () => {
-  const details = fc.check(fc.property(actionsArb, (actions) => {
+test("the real machine passes the same runs", async () => {
+  const details = await fc.check(fc.asyncProperty(actionsArb, async (actions) => {
     const { problems } = runActions(actions, REAL);
     if (problems.length > 0) throw new PropertyReport(problems.join("\n"));
   }), { numRuns: CLEAN_RUNS, seed: SEED });

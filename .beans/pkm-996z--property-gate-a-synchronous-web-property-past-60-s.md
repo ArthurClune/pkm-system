@@ -3,8 +3,9 @@
 title: 'Property gate: a synchronous web property past 60 s fails the run with a vitest RPC timeout'
 status: todo
 type: bug
+priority: normal
 created_at: 2026-11-08T14:36:08Z
-updated_at: 2026-11-08T14:36:08Z
+updated_at: 2026-11-08T17:21:54Z
 ---
 
 ## Symptom

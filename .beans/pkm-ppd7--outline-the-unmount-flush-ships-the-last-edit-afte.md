@@ -1,13 +1,13 @@
 ---
 # pkm-ppd7
 title: 'Outline: the unmount flush ships the last edit after releasing the shared session; the other surface shows stale text'
-status: todo
+status: completed
 type: bug
 priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-07T18:42:45Z
+updated_at: 2026-11-08T14:39:06Z
 parent: pkm-zk8b
 ---
 
@@ -29,5 +29,11 @@ without `applyLocal`. The comment "nothing is left to render into" assumes
 no other view of the page.
 
 ## Fix
-- [ ] Red test with two surfaces (the existing draftHold test uses one)
-- [ ] Flush (and apply to the session) before releasing the handle, or have the passive cleanup re-acquire it via `peekOutlineSession`
+- [x] Red test with two surfaces (the existing draftHold test uses one)
+- [x] Flush (and apply to the session) before releasing the handle, or have the passive cleanup re-acquire it via `peekOutlineSession`
+
+## Summary of Changes
+
+- `useOutline`'s unmount flush is a layout cleanup declared before the session effect, so it applies the draft to the shared session before the handle and editor lease are released; the passive cleanup only clears the unload guard.
+- Red test `useOutline.unmountFlush.test.tsx`: two surfaces with editor owners, the main one unmounts after an edit (ordinary and held drafts); the sidebar takes the lease showing the edit.
+- Docs: frontend-editor.md § Drafts and commit points (the order and why); troubleshooting row.

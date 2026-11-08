@@ -13,6 +13,7 @@ function handlers(): OutlineHandlers {
     onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftStart: vi.fn(),
     onDraftChange: vi.fn(), onFlushDraft: vi.fn(() => true),
     pendingDraft: vi.fn(() => null), onInputUnmount: vi.fn(),
+    subscribeDraftEnd: vi.fn(() => () => {}),
     onSplit: vi.fn(), onIndent: vi.fn(), onOutdent: vi.fn(),
     onMoveSubtreeUp: vi.fn(), onMoveSubtreeDown: vi.fn(),
     onBackspaceAtStart: vi.fn(),
@@ -120,6 +121,11 @@ test("typing reports the draft", () => {
 
 test("the first edit of a clean draft reports the text it was typed over", () => {
   const h = handlers();
+  // The outline's pending draft: the textarea is dirty while there is one.
+  let pending: string | null = null;
+  vi.mocked(h.onDraftChange).mockImplementation((_, text) => { pending = text; });
+  vi.mocked(h.pendingDraft).mockImplementation(() =>
+    pending === null ? null : { text: pending, selection: null });
   const { rerender } = mount(h, 0);
   fireEvent.change(focusedTextarea(), { target: { value: "hi" } });
   fireEvent.change(focusedTextarea(), { target: { value: "hi!" } });
@@ -127,8 +133,9 @@ test("the first edit of a clean draft reports the text it was typed over", () =>
   expect(h.onDraftStart).toHaveBeenCalledWith("tuid-u1", "hello [[World]]");
   expect(vi.mocked(h.onDraftStart).mock.invocationCallOrder[0])
     .toBeLessThan(vi.mocked(h.onDraftChange).mock.invocationCallOrder[0]);
-  // The draft commits (the tree catches up), so the next edit starts a new
-  // draft typed over the committed text.
+  // The draft flushes and the tree catches up, so the next edit starts a
+  // new draft typed over the committed text.
+  pending = null;
   rerender(inputElement(h, { ...NODE, text: "hi!" }));
   fireEvent.change(focusedTextarea(), { target: { value: "hi!?" } });
   expect(h.onDraftStart).toHaveBeenCalledTimes(2);

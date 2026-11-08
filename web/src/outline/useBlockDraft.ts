@@ -1,7 +1,8 @@
 // pattern: Imperative Shell
-// The focused block's draft session: the textarea's live value, whether that
-// value is dirty (typed but not yet committed to the block tree), IME
+// The focused block's draft session: the textarea's live value, IME
 // composition state, and the adoption of block-tree text over a clean draft.
+// Whether the value is dirty is not its to record: the outline's pending
+// draft for the block (`pendingDraft`) is the one answer.
 // It owns the textarea element ref and every caret placement that follows a
 // programmatic value change, because those two are the same concern — a value
 // swap that doesn't restore the caret sends it to the end of the text.
@@ -43,13 +44,17 @@ export interface BlockDraftOptions {
    * resumed draft ignores it: its caret goes back where the previous textarea
    * left it, or to the end of the draft when that was not recorded. */
   cursor: number;
-  /** The pending draft this textarea takes over, or null. Its text is read
-   * once, at the first render; its selection is read again at mount, because
-   * the textarea it replaces reports its selection (onUnmount) in the same
-   * commit that mounts this one, after this one has rendered. A resumed draft
-   * starts dirty, so the tree's text does not replace it, and its first edit
-   * reports no new draft start (onDirty), so the draft keeps its base. */
-  resume(): ResumedDraft | null;
+  /** The outline's pending draft for this block, or null. The textarea is
+   * dirty exactly while there is one: the tree's text does not replace it,
+   * and an edit reports no new draft start (onDirty), so the draft keeps its
+   * base. A textarea mounting over one resumes it: its text is read once, at
+   * the first render; its selection is read again at mount, because the
+   * textarea it replaces reports its selection (onUnmount) in the same
+   * commit that mounts this one, after this one has rendered. */
+  pendingDraft(): ResumedDraft | null;
+  /** Subscribe to the end of the pending draft (OutlineHandlers'
+   * subscribeDraftEnd); read once, at mount. */
+  subscribeDraftEnd(listener: () => void): () => void;
   /** The textarea is unmounting with this selection. */
   onUnmount(selStart: number, selEnd: number): void;
   /** Report an edit to the outline (which debounces the autosave).
@@ -92,33 +97,33 @@ export interface BlockDraft {
   onCompositionStart(): void;
   onCompositionEnd(): void;
   /** The draft has been committed and the tree has since changed this block
-   * for the user (undo, redo, an upload filling it): mark it clean and adopt
-   * the tree's text once it has rendered. Left dirty, the textarea would keep
-   * showing the old text, and the next draft would be typed over text the
-   * tree no longer holds. */
+   * for the user (undo, redo, an upload filling it): adopt the tree's text
+   * once it has rendered. Without it, the textarea would keep showing the old
+   * text, and the next draft would be typed over text the tree no longer
+   * holds. */
   settle(): void;
 }
 
 export function useBlockDraft(
-  { text, cursor, onEdit, onDirty, onAdopt, onRefused, resume,
-    onUnmount }: BlockDraftOptions,
+  { text, cursor, onEdit, onDirty, onAdopt, onRefused, pendingDraft,
+    subscribeDraftEnd, onUnmount }: BlockDraftOptions,
 ): BlockDraft {
-  const [resumedText] = useState(() => resume()?.text ?? null);
+  const [resumedText] = useState(() => pendingDraft()?.text ?? null);
   const [draft, setDraft] = useState(resumedText ?? text);
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const initialCursorRef = useRef(cursor);
   const resumingRef = useRef(resumedText !== null);
-  const resumeRef = useRef(resume);
-  resumeRef.current = resume;
+  const pendingDraftRef = useRef(pendingDraft);
+  pendingDraftRef.current = pendingDraft;
   const onUnmountRef = useRef(onUnmount);
   onUnmountRef.current = onUnmount;
-  // Whether the user has typed edits not yet committed to the block tree. Focus
-  // alone is not a draft: while dirty, remote text still lands on the tree but
-  // the textarea keeps the local draft (the draft's flush carries its base
-  // hash, so the server keeps the remote text as a conflict copy); with no
-  // dirty draft the textarea adopts tree changes. draftRef mirrors `draft` so
-  // the adoption effect can read it without re-subscribing on every keystroke.
-  const dirtyRef = useRef(resumedText !== null);
+  // Focus alone is not a draft: while one is pending, remote text still lands
+  // on the tree but the textarea keeps the local draft (the draft's flush
+  // carries its base hash, so the server keeps the remote text as a conflict
+  // copy); with none the textarea adopts tree changes. draftRef mirrors
+  // `draft` so the adoption effect can read it without re-subscribing on
+  // every keystroke.
+  const dirty = () => pendingDraftRef.current() !== null;
   const draftRef = useRef(draft);
   draftRef.current = draft;
   // Set between compositionstart/end: an IME composition in progress. Remote
@@ -145,7 +150,7 @@ export function useBlockDraft(
     const len = el.value.length;
     const sel = !resumingRef.current
       ? { start: initialCursorRef.current, end: initialCursorRef.current }
-      : resumeRef.current()?.selection ?? { start: len, end: len };
+      : pendingDraftRef.current()?.selection ?? { start: len, end: len };
     el.setSelectionRange(Math.min(sel.start, len), Math.min(sel.end, len));
   }, []);
 
@@ -187,11 +192,7 @@ export function useBlockDraft(
   // retried from onCompositionEnd below so a remote update that arrived
   // mid-composition still lands once the IME is done.
   const tryAdopt = () => {
-    if (text === draftRef.current) {
-      dirtyRef.current = false;
-      return;
-    }
-    if (dirtyRef.current || composingRef.current) return;
+    if (text === draftRef.current || dirty() || composingRef.current) return;
     const el = ref.current;
     if (el && document.activeElement === el) {
       const at = clampCaret(el.selectionStart ?? 0, text.length);
@@ -200,11 +201,14 @@ export function useBlockDraft(
     onAdoptRef.current();
     setDraft(text);
   };
-  // settle() bumps this so adoption also runs when the tree's text for this
-  // block ends up where it started (an undo of a draft that had not yet
-  // reached the tree), which leaves `text` unchanged.
+  // settle() and the end of the pending draft bump this so adoption also runs
+  // when the tree's text for this block ends up where it started (an undo of
+  // a draft that had not yet reached the tree, or a flush that sent nothing
+  // while remote text landed under the draft), which leaves `text` unchanged.
   const [settled, setSettled] = useState(0);
   useEffect(tryAdopt, [text, settled]);
+  const subscribeRef = useRef(subscribeDraftEnd);
+  useEffect(() => subscribeRef.current(() => setSettled((n) => n + 1)), []);
 
   // Restore the selection once a setDraft has committed to the DOM (a plain
   // value swap would otherwise leave the browser's default of moving the
@@ -226,8 +230,7 @@ export function useBlockDraft(
   // textarea still shows the text before a remote change, and that is what
   // the user is typing over.
   const markDirty = () => {
-    if (!dirtyRef.current) onDirty(draftRef.current);
-    dirtyRef.current = true;
+    if (!dirty()) onDirty(draftRef.current);
   };
 
   const admit = (next: string, heldCaret: number | null): boolean => {
@@ -283,9 +286,6 @@ export function useBlockDraft(
       composingRef.current = false;
       tryAdopt();
     },
-    settle: () => {
-      dirtyRef.current = false;
-      setSettled((n) => n + 1);
-    },
+    settle: () => setSettled((n) => n + 1),
   };
 }

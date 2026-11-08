@@ -33,6 +33,12 @@ export interface OutlineHandlers {
    * block (or an ancestor) remounts the textarea with no blur, so the draft
    * is still pending and the tree does not hold its text. */
   pendingDraft(uid: BlockUid): ResumedDraft | null;
+  /** Call `listener` each time the pending draft ends: flushed (whether or
+   * not the flush sent anything) or dropped. The pending draft is the only
+   * record of a dirty textarea, and a flush that leaves the tree's text for
+   * the block as it was gives the textarea no other cue to adopt it. Returns
+   * the unsubscribe. */
+  subscribeDraftEnd(listener: () => void): () => void;
   /** The focused textarea for `uid` is unmounting with this selection. It is
    * kept while that block's draft is pending, so a textarea remounted over
    * the draft puts the caret back where the user left it. */

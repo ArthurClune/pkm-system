@@ -415,7 +415,8 @@ test("keystrokes after a remote update keep the draft's first base", () => {
   ]);
 });
 
-test("typing back to the base under a remote edit, then typing on, still bases on the shown text", () => {
+test("typing back to the base under a remote edit, then typing on, bases on the remote text the "
+     + "textarea adopted at the flush", () => {
   vi.useFakeTimers();
   stubFetch([["/api/titles", { titles: [] }]]);
   const sync = mount();
@@ -424,16 +425,17 @@ test("typing back to the base under a remote edit, then typing on, still bases o
   act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
     { op: "update_text", uid: uidOf("tuid-u1"), text: "remote" },
   ] }));
-  // Back to the base: the flush has nothing to send, but the textarea is
-  // still showing text typed over "first", not the "remote" in the tree.
+  // Back to the base: the flush has nothing to send, and ends the draft, so
+  // the textarea adopts the "remote" in the tree.
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "first" } });
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([]);
-  fireEvent.change(screen.getByRole("textbox"), { target: { value: "first!" } });
+  expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("remote");
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "remote!" } });
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "tuid-u1", text: "first!",
-      base_text_hash: sha256Hex("first"), page_title: "Page" }],
+    [{ op: "update_text", uid: "tuid-u1", text: "remote!",
+      base_text_hash: sha256Hex("remote"), page_title: "Page" }],
   ]);
 });
 

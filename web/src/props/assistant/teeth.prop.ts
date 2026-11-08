@@ -34,8 +34,10 @@ function mutate(wrong: (s: ChatState, e: ChatEvent) => Step | null): Machine {
 }
 
 const MUTANTS: Record<string, { catches: string[]; machine: Machine }> = {
+  // A stopped create that streams starts a request (start); one that fails
+  // shows its error (silent). Which comes first depends on the seed.
   "Stop does nothing while the conversation is being created": {
-    catches: ["start"],
+    catches: ["start", "silent"],
     machine: mutate((s, e) =>
       (e.type === "stop" && s.turn.phase === "creating" ? { state: s, effects: [] } : null)),
   },
@@ -59,8 +61,10 @@ const MUTANTS: Record<string, { catches: string[]; machine: Machine }> = {
     machine: { ...REAL, view: (s) => ({ ...REAL.view(s),
       locked: s.conversation.kind !== "none" || s.items.some((i) => i.kind === "user") }) },
   },
+  // Two turns in flight (one), or the first's results ignored so the panel
+  // goes idle while that turn still streams (status).
   "a send while streaming starts a second turn": {
-    catches: ["one"],
+    catches: ["one", "status"],
     machine: mutate((s, e) => (e.type === "send" && s.turn.phase === "streaming"
       ? REAL.step({ ...s, turn: { phase: "idle" } }, e) : null)),
   },

@@ -1250,4 +1250,203 @@ describe("useAssistant", () => {
     expect(latest.answering).toBe(false);
     expect(latest.status).toBe("idle");
   });
+
+  // A stream that waits for its abort, then rejects as fetch does.
+  function streamUntilAborted(onEvent?: (emit: (ev: AssistantEvent) => void) => void) {
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, emit: (ev: AssistantEvent) => void,
+             signal?: AbortSignal) => {
+        onEvent?.(emit);
+        await new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")));
+        });
+      },
+    );
+  }
+
+  test("stop while the conversation is being created starts no stream", async () => {
+    const created = deferredValue<{ id: string; model: string }>();
+    mocks.createConversation.mockReturnValue(created.promise);
+    feed([{ type: "text_delta", text: "a reply nobody asked for" },
+          { type: "turn_done", usage: null }]);
+    render(<Harness />);
+    let sendDone!: Promise<void>;
+    await act(async () => {
+      sendDone = latest.send("hi");
+      await Promise.resolve();
+    });
+    expect(latest.status).toBe("busy");
+    act(() => latest.stop());
+    await act(async () => {
+      created.resolve({ id: "c1", model: "sonnet" });
+      await sendDone;
+    });
+    expect(mocks.streamMessage).not.toHaveBeenCalled();
+    expect(latest.items).toEqual([{ kind: "user", text: "hi" }]);
+    expect(latest.status).toBe("idle");
+    expect(latest.error).toBeNull();
+    // the conversation it made is kept for the next message
+    await act(() => latest.send("again"));
+    expect(mocks.createConversation).toHaveBeenCalledTimes(1);
+    expect(mocks.streamMessage.mock.calls[0][0]).toBe("c1");
+  });
+
+  test("stop during the re-create after a 404 starts no stream", async () => {
+    const recreated = deferredValue<{ id: string; model: string }>();
+    mocks.createConversation
+      .mockResolvedValueOnce({ id: "c1", model: "sonnet" })
+      .mockReturnValueOnce(recreated.promise);
+    mocks.streamMessage.mockImplementationOnce(async () => {
+      throw new ApiError(404, "/api/assistant/conversations/c1/messages");
+    });
+    render(<Harness />);
+    let sendDone!: Promise<void>;
+    await act(async () => {
+      sendDone = latest.send("hi");
+      await vi.waitFor(() => expect(mocks.createConversation).toHaveBeenCalledTimes(2));
+    });
+    act(() => latest.stop());
+    await act(async () => {
+      recreated.resolve({ id: "c2", model: "sonnet" });
+      await sendDone;
+    });
+    expect(mocks.streamMessage).toHaveBeenCalledTimes(1);
+    expect(latest.status).toBe("idle");
+    expect(latest.error).toBeNull();
+  });
+
+  test("a confirm POST that fails after Stop shows no error", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    streamUntilAborted((emit) => emit(confirmEvent("t1")));
+    const post = deferredValue<void>();
+    mocks.confirmTool.mockReturnValue(post.promise);
+    render(<Harness />);
+    let sendDone!: Promise<void>;
+    await act(async () => {
+      sendDone = latest.send("please write");
+      await Promise.resolve();
+    });
+    let answered!: Promise<void>;
+    act(() => { answered = latest.respondConfirm(true); });
+    await act(async () => {
+      latest.stop();
+      await sendDone;
+    });
+    await act(async () => {
+      post.reject(new Error("network down"));
+      await answered;
+    });
+    expect(latest.error).toBeNull();
+    expect(latest.answering).toBe(false);
+    expect(latest.status).toBe("idle");
+  });
+
+  test("the server's default lands after the send: the picker keeps the conversation's model",
+    async () => {
+      const models = deferredValue<{ models: string[]; default: string }>();
+      mocks.fetchModels.mockReturnValue(models.promise);
+      const created = deferredValue<{ id: string; model: string }>();
+      mocks.createConversation.mockReturnValue(created.promise);
+      feed([{ type: "turn_done", usage: null }]);
+      render(<Harness />);
+      act(() => latest.ensureModels());
+      let sendDone!: Promise<void>;
+      await act(async () => {
+        sendDone = latest.send("hi");
+        await Promise.resolve();
+      });
+      expect(mocks.createConversation).toHaveBeenCalledWith("sonnet");
+      expect(latest.modelLocked).toBe(true);
+      await act(async () => models.resolve(
+        { models: ["sonnet", "opus", "haiku", "fable"], default: "haiku" }));
+      expect(latest.model).toBe("sonnet");
+      await act(async () => {
+        created.resolve({ id: "c1", model: "sonnet" });
+        await sendDone;
+      });
+      expect(latest.model).toBe("sonnet");
+    });
+
+  test("the picker shows the model the server says the conversation runs", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "opus" });
+    feed([{ type: "turn_done", usage: null }]);
+    render(<Harness />);
+    await act(() => latest.send("hi"));
+    expect(latest.model).toBe("opus");
+  });
+
+  test("a 404 whose re-create fails leaves the picker unlocked", async () => {
+    mocks.createConversation
+      .mockResolvedValueOnce({ id: "c1", model: "sonnet" })
+      .mockRejectedValueOnce(new Error("cap reached"));
+    mocks.streamMessage.mockImplementation(async () => {
+      throw new ApiError(404, "/api/assistant/conversations/c1/messages");
+    });
+    render(<Harness />);
+    await act(() => latest.send("hi"));
+    expect(latest.error).toContain("cap reached");
+    expect(latest.modelLocked).toBe(false);
+  });
+
+  test("a conversation reaped under a card leaves the picker unlocked", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    streamUntilAborted((emit) => emit(confirmEvent("t1")));
+    mocks.confirmTool.mockRejectedValue(
+      new ApiError(404, "/api/assistant/conversations/c1/confirm"));
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("please write");
+      await Promise.resolve();
+    });
+    await act(() => latest.respondConfirm(true));
+    expect(latest.error).toMatch(/expired/);
+    expect(latest.modelLocked).toBe(false);
+  });
+
+  // After a lost harness the server retires the conversation, so the next
+  // message's POST is a 404 and the panel starts a new conversation.
+  test("the message after a lost harness goes to a new conversation", async () => {
+    mocks.createConversation
+      .mockResolvedValueOnce({ id: "c1", model: "opus" })
+      .mockResolvedValueOnce({ id: "c2", model: "opus" });
+    mocks.streamMessage
+      .mockImplementationOnce(
+        async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+          onEvent({ type: "error",
+            message: "The assistant stopped responding. Start a new chat." });
+        })
+      .mockImplementationOnce(async () => {
+        throw new ApiError(404, "/api/assistant/conversations/c1/messages");
+      })
+      .mockImplementationOnce(
+        async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+          onEvent({ type: "text_delta", text: "back" });
+          onEvent({ type: "turn_done", usage: null });
+        });
+    render(<Harness />);
+    act(() => latest.setModel("opus"));
+    await act(() => latest.send("one"));
+    expect(latest.error).toMatch(/stopped responding/);
+    await act(() => latest.send("two"));
+    expect(mocks.createConversation.mock.calls).toEqual([["opus"], ["opus"]]);
+    expect(mocks.streamMessage.mock.calls[2][0]).toBe("c2");
+    expect(latest.error).toBeNull();
+    expect(latest.model).toBe("opus");
+  });
+
+  test("an empty or busy send starts nothing", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    streamUntilAborted();
+    render(<Harness />);
+    await act(() => latest.send("   "));
+    expect(mocks.createConversation).not.toHaveBeenCalled();
+    await act(async () => {
+      void latest.send("one");
+      await Promise.resolve();
+    });
+    await act(() => latest.send("two"));
+    expect(mocks.streamMessage).toHaveBeenCalledTimes(1);
+    expect(latest.items).toEqual([{ kind: "user", text: "one" }]);
+  });
 });

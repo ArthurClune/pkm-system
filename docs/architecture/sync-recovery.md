@@ -16,12 +16,12 @@ replica is a cache and the queue is the user's intent.
 | A replica write fails (`SQLITE_CANTOPEN`, `IOERR`, a dead worker) | The op is kept in the in-memory lane; only `ReplicaError.rejected` discards | [A local write fails](#a-local-write-fails) |
 | Lane entries and durable rows are both waiting | `headPrecedes` orders them by batch identity | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
 | The OPFS file cannot be opened | Up to the attempt limit, then `unusable` for the session | [When the replica cannot be opened](#when-the-replica-cannot-be-opened) |
-| The worker RPC breaks | `unreachable`: ops kept, barrier held | [Availability](#availability-two-values-one-owner) |
+| The worker RPC breaks | `unreachable`: ops kept, barrier held; the next pull sets mode `no-replica` | [Availability](#availability-two-values-one-owner), [Replica mode](#replica-mode) |
 | The replica opens, then fails every write | The offline banner says unsent changes exist only in memory | [What the UI shows](#what-the-ui-shows) |
 | A window was read before an ack deleted its row | Refetched; `PullStarvedError` after the cap | [Windows and the pending queue](sync-and-offline.md#windows-and-the-pending-queue) |
 | Two repairs or a recovery overlap | Each holds its own barrier owner and releases only that | [The recovery barrier](#the-recovery-barrier) |
 | The server answers a terminal 4xx | Row poisoned, delivery paused, snapshot repair drops it | [A batch the server rejects](#a-batch-the-server-rejects) |
-| A pull keeps failing | Backoff; `stalled` after `STALL_AFTER_FAILURES` | [A pull that keeps failing](#a-pull-that-keeps-failing) |
+| A pull or a first bootstrap keeps failing | Backoff; `stalled` after `STALL_AFTER_FAILURES` | [A pull that keeps failing](#a-pull-that-keeps-failing) |
 | Schema, generation, cursor, FK, title, corruption or repeated window failure | `reset` or `rebase` through `runRecovery` | [Rebootstrap triggers](#rebootstrap-triggers) |
 | A rebuild meets page-level file damage | The file is replaced; the queue rides in the carry | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | Pending rows change while recovery runs | Recovery aborts before anything is destroyed | [Recovery never erases intent](#recovery-never-erases-intent) |
@@ -243,8 +243,11 @@ A mark RPC that fails holds the claim, because the row is still unmarked.
 
 ## A pull that keeps failing
 
-A pull failure reaches `noteFailure`, which retries from `RETRY_BASE_MS`
-doubling to `RETRY_MAX_MS`, with no timer while offline.
+A failed pull, and a failed `start()` (init, schema recovery or the first
+bootstrap), reach `noteFailure`. It retries from `RETRY_BASE_MS` doubling to
+`RETRY_MAX_MS`, with no timer while offline; the retry runs whichever of the
+two is still owed. A first bootstrap that fails with the socket up must not
+wait for the next reconnect, which on a desktop can be hours away.
 `isStallShaped` (`sync/syncFailures.ts`) decides whether it counts towards
 `STALL_AFTER_FAILURES`:
 
@@ -257,6 +260,29 @@ doubling to `RETRY_MAX_MS`, with no timer while offline.
 The third counted failure sets mode `stalled`: "Local sync is stuck", with
 Reset local data. `WINDOW_STRIKES` equals `STALL_AFTER_FAILURES` so that a
 window failing identically rebases before the banner can show.
+
+## Replica mode
+
+`ReplicaState.mode` (`sync/replicaSync.ts`) is what `computeEditability` and
+the offline gateway read: offline, only `ready` may edit or serve reads from
+the replica.
+
+| Mode | Entered when | Left when |
+|---|---|---|
+| `starting` | the provider mounts | `start()` succeeds (`ready`); a failed start is retried on the backoff and may stall |
+| `ready` | `start()` succeeds, or a pull or reset succeeds after a report | a report below |
+| `stalled` | `STALL_AFTER_FAILURES` counted failures of a pull or a start | a later pull or start succeeds, or Reset local data |
+| `recovery-failed` | a `runRecovery` that reports (`reportReplicaFailure`) throws | as `stalled` |
+| `no-replica` | an error `isSessionFatal()` accepts, from init or a pull; a latched failed open met by startup discovery | never: only a reload brings a new worker |
+
+**A session-fatal error ends replica mode for the session.** A dead worker
+leaves its RPC client terminal and a failed open is latched, so every later
+call fails the same way. `noteFailure` then reports `no-replica` with the
+error, arms no retry, and `appliedVersion()` reads null so every reconnect
+refetches views. SyncProvider raises the `replica-unusable` banner from it,
+whose Reload is the way out. Nothing reports the death before the next
+replica call from `replicaSync`, so until then an offline edit still goes to
+the lane under the offline banner's memory-only sentence.
 
 ## Rebootstraps
 

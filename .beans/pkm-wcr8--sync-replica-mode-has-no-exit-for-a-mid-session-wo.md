@@ -1,13 +1,13 @@
 ---
 # pkm-wcr8
 title: 'Sync: replica mode has no exit for a mid-session worker death or a failed first bootstrap'
-status: in-progress
+status: completed
 type: bug
 priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-08T15:18:25Z
+updated_at: 2026-11-08T15:41:31Z
 parent: pkm-zk8b
 ---
 

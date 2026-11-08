@@ -590,6 +590,53 @@ test("a remote update arriving mid-composition is deferred until composition end
   expect(ta.value).toBe("hola [[World]]"); // adopted once composition ends
 });
 
+describe("an open popup", () => {
+  test("Enter picks nothing once the outline turns read-only", () => {
+    const h = handlers();
+    const view = mount(h, 0);
+    const ta = focusedTextarea();
+    fireEvent.change(ta, {
+      target: { value: "/", selectionStart: 1, selectionEnd: 1 },
+    });
+    const edits = vi.mocked(h.onDraftChange).mock.calls.length;
+    view.rerender(inputElement(h, NODE, 0, true));
+    fireEvent.keyDown(ta, { key: "Enter" });
+    fireEvent.keyDown(ta, { key: "Tab" });
+    expect(h.onDraftChange).toHaveBeenCalledTimes(edits);
+    expect(h.onSetHeading).not.toHaveBeenCalled();
+    expect(ta).toHaveValue("/");
+  });
+
+  test("a highlight past rows that shrank under it picks the last row",
+       async () => {
+    const answers: Record<string, string[]> = {
+      a: ["Aa", "Ab", "Ac", "Ad"],
+      ab: ["Abc"],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const q = new URL(String(input), "http://x").searchParams.get("q") ?? "";
+      return new Response(JSON.stringify({ titles: answers[q] ?? [] }),
+                          { status: 200 });
+    }));
+    const h = handlers();
+    mount(h, 0);
+    const ta = focusedTextarea();
+    fireEvent.change(ta, {
+      target: { value: "[[a", selectionStart: 3, selectionEnd: 3 },
+    });
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(5));
+    fireEvent.change(ta, {
+      target: { value: "[[ab", selectionStart: 4, selectionEnd: 4 },
+    });
+    for (let i = 0; i < 4; i++) fireEvent.keyDown(ta, { key: "ArrowDown" });
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(2));
+    expect(screen.getByRole("option", { selected: true }))
+      .toHaveTextContent("ab");
+    fireEvent.keyDown(ta, { key: "Enter" });
+    expect(h.onDraftChange).toHaveBeenLastCalledWith("tuid-u1", "[[ab]]");
+  });
+});
+
 describe("a keydown the IME owns", () => {
   const ENTER_13 = { key: "Enter", keyCode: 13 };
   afterEach(() => { vi.useRealTimers(); });

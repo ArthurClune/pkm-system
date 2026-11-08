@@ -4,7 +4,7 @@ import type { BatchId } from "../api/brands";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { SkippedOp } from "../api/payloads";
 import type { DroppedBatch, PendingBatch, Replica, ReplicaInit, SnapshotApplyResult } from "../replica/client";
-import { ReplicaError, ReplicaUnusableError } from "../replica/errors";
+import { ReplicaError, ReplicaUnusableError, RpcLifecycleError } from "../replica/errors";
 import {
   uidOf, clientIdOf, batchIdOf, seqOf, pendingRowIdOf, sentBatchId, sentBody, bodyBatchId,
   ANY_STRING,
@@ -222,7 +222,7 @@ describe("start, bootstrap and feed pulls", () => {
     const { states, onState } = collector();
     const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
     await sync.start();
-    expect(states.at(-1)).toEqual({ mode: "no-replica" });
+    expect(states.at(-1)).toEqual({ mode: "no-replica", error: "OPFS is not available" });
     expect(fetchJson).not.toHaveBeenCalled();
   });
 
@@ -793,7 +793,9 @@ describe("recovery flushes and the shared coordinator", () => {
     });
     const { states, onState } = collector();
     const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
-    await sync.start();
+    // a failed start: rejected, and retried on the backoff
+    await expect(sync.start()).rejects.toThrow("network down");
+    sync.stop();
     expect(replica.calls).not.toContain("reset");
     expect(replica.calls).toContain("abortRecovery");
     expect(replica.calls).not.toContain("commitRecovery");
@@ -815,7 +817,8 @@ describe("recovery flushes and the shared coordinator", () => {
     const { states, onState } = collector();
     const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
 
-    await sync.start();
+    await expect(sync.start()).rejects.toThrow("snapshot offline");
+    sync.stop();
 
     expect(replica.calls).toContain("abortRecovery");
     expect(replica.calls).not.toContain("commitRecovery");
@@ -985,7 +988,8 @@ describe("recovery flushes and the shared coordinator", () => {
       replica, fetchJson, clientId: CID, onState, queue,
     });
 
-    await sync.start();
+    await expect(sync.start()).rejects.toThrow("pending rows changed");
+    sync.stop();
 
     expect(trace).toEqual(["pause", "prepare", "compare", "abort", "resume"]);
     expect(replica.calls).not.toContain("reset");
@@ -1491,7 +1495,7 @@ describe("resetLocalData", () => {
     const { states, onState } = collector();
     const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
 
-    await sync.start();
+    await expect(sync.start()).rejects.toThrow("snapshot offline");
     expect(states.at(-1)).toEqual({ mode: "recovery-failed", error: "snapshot offline" });
 
     snapshotShouldFail = false;
@@ -1789,7 +1793,8 @@ describe("the delivery barrier", () => {
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState, queue,
     });
-    await sync.start();
+    // a schema recovery whose snapshot fails is a failed start
+    await sync.start().catch(() => undefined);
     if (entrant === "manual reset") {
       await sync.resetLocalData({ discardPending: true })
         .catch(() => undefined);
@@ -2509,5 +2514,199 @@ describe("pending batches a payload already holds", () => {
     await sync.start();
     expect(fetchJson).toHaveBeenCalledWith(
       "/api/sync/snapshot", undefined, { timeoutMs: null });
+  });
+});
+
+describe("replica mode exits", () => {
+  const deadWorker = (): RpcLifecycleError =>
+    new RpcLifecycleError("worker-error", "replica worker failed");
+
+  test("a pull that meets a dead worker reports no-replica and stops retrying",
+  async () => {
+    vi.useFakeTimers();
+    try {
+      let dead = false;
+      const replica = fakeReplica({
+        pendingBatches: async () => {
+          if (dead) throw deadWorker();
+          return [];
+        },
+      });
+      const fetchJson = vi.fn(async () => feed());
+      const { states, onState } = collector();
+      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      await sync.start();
+      expect(states.at(-1)).toEqual({ mode: "ready" });
+
+      dead = true;
+      sync.onSeq(seqOf(99), true);
+      await sync.idle();
+      expect(states.at(-1)).toEqual({
+        mode: "no-replica", error: "replica worker failed" });
+      // views cannot ask a dead database what moved
+      expect(sync.appliedVersion()).toBeNull();
+
+      // Every later RPC replays the terminal error until a reload, so no
+      // backoff retry is armed and a reconnect's start() pulls nothing.
+      const pulls = fetchJson.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * 4);
+      await sync.start();
+      expect(fetchJson.mock.calls.length).toBe(pulls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a timed-out pull RPC is not fatal: the mode stays ready and it retries",
+  async () => {
+    vi.useFakeTimers();
+    try {
+      let timeouts = 1;
+      const replica = fakeReplica({
+        pendingBatches: async () => {
+          if (timeouts > 0) {
+            timeouts -= 1;
+            throw new RpcLifecycleError("timeout", "replica RPC timed out");
+          }
+          return [];
+        },
+      });
+      const fetchJson = vi.fn(async () => feed());
+      const { states, onState } = collector();
+      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      await sync.start();
+      await vi.advanceTimersByTimeAsync(RETRY_BASE_MS);
+      expect(fetchJson).toHaveBeenCalled();
+      expect(states.map((s) => s.mode)).toEqual(["ready"]);
+      expect(sync.appliedVersion()).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a worker that dies before init reports no-replica with its error", async () => {
+    const replica = fakeReplica({
+      init: () => Promise.reject(deadWorker()),
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson: vi.fn(), clientId: CID, onState });
+    await sync.start();
+    expect(states).toEqual([{ mode: "no-replica", error: "replica worker failed" }]);
+    expect(sync.appliedVersion()).toBeNull();
+  });
+
+  test("a first bootstrap that fails while connected is retried and reaches ready",
+  async () => {
+    vi.useFakeTimers();
+    try {
+      const replica = fakeReplica({}, { empty: true, cursor: seqOf(0) });
+      let snapshotFailures = 1;
+      const fetchJson = vi.fn(async (path: string) => {
+        if (path === "/api/sync/snapshot") {
+          if (snapshotFailures > 0) {
+            snapshotFailures -= 1;
+            throw new ApiError(503, path);
+          }
+          return SNAP;
+        }
+        return feed();
+      });
+      const { states, onState } = collector();
+      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      await expect(sync.start()).rejects.toBeInstanceOf(ApiError);
+      expect(sync.hasStarted()).toBe(false);
+
+      // No reconnect comes: the backoff timer alone retries the start.
+      await vi.advanceTimersByTimeAsync(RETRY_BASE_MS);
+      expect(sync.hasStarted()).toBe(true);
+      expect(states.at(-1)).toEqual({ mode: "ready" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a first bootstrap that keeps failing reports stalled, then ready once it succeeds",
+  async () => {
+    vi.useFakeTimers();
+    try {
+      const replica = fakeReplica({}, { empty: true, cursor: seqOf(0) });
+      let snapshotFailures = STALL_AFTER_FAILURES;
+      const fetchJson = vi.fn(async (path: string) => {
+        if (path === "/api/sync/snapshot") {
+          if (snapshotFailures > 0) {
+            snapshotFailures -= 1;
+            throw new ApiError(503, path);
+          }
+          return SNAP;
+        }
+        return feed();
+      });
+      const { states, onState } = collector();
+      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      await expect(sync.start()).rejects.toBeInstanceOf(ApiError);
+      await vi.advanceTimersByTimeAsync(RETRY_BASE_MS);
+      await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2);
+      // a failed first start is not a cold start still in progress
+      expect(states.at(-1)).toEqual({ mode: "stalled", error: ANY_STRING });
+      expect(sync.hasStarted()).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 4);
+      expect(states.at(-1)).toEqual({ mode: "ready" });
+      expect(sync.hasStarted()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a starved first bootstrap is retried like any other failed start", async () => {
+    vi.useFakeTimers();
+    try {
+      let refusals = PENDING_CHANGED_CAP;
+      const replica = fakeReplica({
+        applySnapshot: async () => {
+          if (refusals > 0) {
+            refusals -= 1;
+            return { status: "pending-changed" };
+          }
+          return { status: "applied" };
+        },
+      }, { empty: true, cursor: seqOf(0) });
+      const fetchJson = vi.fn(async (path: string) =>
+        path === "/api/sync/snapshot" ? SNAP : feed());
+      const { states, onState } = collector();
+      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      await expect(sync.start()).rejects.toThrow("bootstrap starved");
+      await vi.advanceTimersByTimeAsync(RETRY_BASE_MS);
+      expect(states.at(-1)).toEqual({ mode: "ready" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a first bootstrap that fails offline arms no timer; the reconnect retries it",
+  async () => {
+    vi.useFakeTimers();
+    try {
+      const replica = fakeReplica({}, { empty: true, cursor: seqOf(0) });
+      let offline = true;
+      const fetchJson = vi.fn(async (path: string) => {
+        if (offline) throw new OfflineError(path);
+        return path === "/api/sync/snapshot" ? SNAP : feed();
+      });
+      const { states, onState } = collector();
+      const sync = createReplicaSync({
+        replica, fetchJson, clientId: CID, onState, isOffline: () => offline,
+      });
+      await expect(sync.start()).rejects.toBeInstanceOf(OfflineError);
+      const calls = fetchJson.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * 2);
+      expect(fetchJson.mock.calls.length).toBe(calls);
+
+      offline = false;
+      await sync.start();
+      expect(states.at(-1)).toEqual({ mode: "ready" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

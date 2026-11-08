@@ -65,9 +65,14 @@ export function PdfEmbed({ href, label, onClose, deferred = false }: EmbedProps)
   const [state, setState] = useState<ViewerState>({ status: "loading" });
   const [probeNote, setProbeNote] = useState<string | undefined>();
   const probing = useRef(false);
-  const mounted = useRef(true);
-  useEffect(() => () => {
-    mounted.current = false;
+  const mounted = useRef(false);
+  useEffect(() => {
+    // Set here, not only in useRef: StrictMode's dev replay runs the cleanup
+    // and then this body again, so a ref set once would stay false.
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
   }, []);
 
   const onDownload = href.startsWith(LOCAL_PREFIX)

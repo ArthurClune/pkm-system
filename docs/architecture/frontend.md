@@ -76,6 +76,13 @@ identity reaches a row.
 `pending` has one publisher, the op queue. Code that changes the durable queue
 behind its back calls `queue.refreshPending()` rather than reading the replica.
 
+An async handler in chrome that outlives a route, such as `TopBar`'s, checks
+after each `await` that the route is still the one it started on (`titleRef`).
+Otherwise a slow answer opens a dialog or navigates over the page the user has
+moved to. A `mounted` ref is set `true` in its effect's body, not only by
+`useRef(true)`: StrictMode's dev replay runs the cleanup and then the body
+again, so a ref set once stays `false`.
+
 ## API layer
 
 `apiFetch<T>` (`api/client.ts`) handles JSON, the 401 → `/login` redirect and
@@ -191,6 +198,24 @@ into state, and a resync replaces day objects in place under stable keys.
 Nothing unmounts a loaded day, so each mounted outline and its `useDismiss`
 listener last for the session (perf scenarios `I` and `J`).
 
+The days on screen are a contiguous, newest-first run of the non-empty days
+`/api/journal` serves, starting at today. Paging state lives in one reducer,
+`views/journalPaging.ts`, and one load is in flight at a time:
+
+| Event | Load it starts | When it lands |
+|---|---|---|
+| mount, or "Load older days" with nothing on screen | head: `BATCH` days | replaces the days |
+| the sentinel or "Load older days" | older: `BATCH` days `before` the oldest shown; ignored while a load is in flight or the past is exhausted | appends |
+| resync | head: as many days as are on screen, at least `BATCH`, at most `SERVER_MAX_DAYS`; supersedes the load in flight | replaces the days |
+
+A failed load leaves the days and their cursor as they were. So "Load older
+days" after a failed resync continues from the oldest day shown, rather than
+starting over with one batch. The error shows only while the latest completed
+load failed: any success clears it. A result that answers a superseded load
+changes nothing. A batch shorter than asked for means the past is exhausted.
+A resync over more than `SERVER_MAX_DAYS` days drops the oldest off, since the
+server clamps `days`; scrolling loads them back.
+
 ### Popovers and menus
 
 `Popover.tsx` is the chrome every anchored popover renders through:
@@ -239,6 +264,15 @@ the generation and clears the selection at the keystroke, not when the
 debounced reload fires. Select all and Load more start only from a list loaded
 under the current generation, since until then `items` and `total` belong to
 the old filter and a Delete would remove files outside the new one.
+
+### Unlinked references
+
+`UnlinkedSection` pages `/api/unlinked` by `offset`, and the server drops a
+block from that list once it references the page. So a delivered Link takes
+its block out of the loaded list and one off `total`, and Show more asks from
+the count of loaded blocks still listed. Counting a block whose Link is not
+yet delivered as gone can only re-fetch it, which `mergeGroups` drops;
+counting a gone one as listed skips the next block.
 
 ## iOS and phone behaviour
 

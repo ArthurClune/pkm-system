@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 
 // The real PdfViewer drags react-pdf/pdfjs into jsdom; substitute a marker.
@@ -195,4 +196,12 @@ it("asset href: no probe, the native download link is left alone", () => {
   document.removeEventListener("click", record);
   expect(prevented).toBe(false);
   expect(f).not.toHaveBeenCalled();
+});
+
+it("local copy: under StrictMode's effect replay a failed probe still shows its note", async () => {
+  stubFetch(async () => new Response('{"detail":"not found"}', { status: 404 }));
+  spyDownloads();
+  render(<StrictMode><PdfEmbed href={localHref} label="Notes" deferred /></StrictMode>);
+  fireEvent.click(screen.getByRole("link", { name: "Notes" }));
+  expect(await screen.findByText(NOT_FOUND)).toHaveClass("pdf-error-note");
 });

@@ -17,9 +17,9 @@ import { acquireOutlineSession,
 import { pagePath } from "../paths";
 import { useResync } from "../sync/SyncProvider";
 import { EditablePage } from "./EditablePage";
-
-const BATCH = 5;
-const SERVER_MAX_DAYS = 31; // get_journal clamps `days`; asking for more is moot
+import { initialJournalPaging, journalPager, journalPaging, loadInFlight,
+         type JournalLoad,
+         type JournalPagingEvent } from "./journalPaging";
 
 // A day's authoritative page fetch 404s when it's been deleted (or never
 // created) underneath us — an empty-daily prune, or the server's
@@ -29,22 +29,12 @@ const fetchDayBlocks = (title: CanonicalTitle): Promise<PagePayload["blocks"]> =
   loadOutlineBlocks(title, substituteMissingDay);
 
 export function Journal() {
-  const [days, setDays] = useState<JournalDay[]>([]);
+  const [paging, setPaging] = useState(initialJournalPaging<JournalDay>);
+  // The IntersectionObserver callback and the fetches read the latest state
+  // here, never a stale render's.
+  const pagingRef = useRef(paging);
   const [refTexts, setRefTexts] = useState<Record<string, BlockRefText>>({});
   const [refCounts, setRefCounts] = useState<Record<string, number>>({});
-  const [autoLoad, setAutoLoad] = useState(true);
-  // The API returns only non-empty days, so a batch shorter than
-  // requested means the journal's past is exhausted: nothing left to load.
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  // Refs, not state, so the IntersectionObserver callback never goes stale.
-  const daysRef = useRef<JournalDay[]>([]);
-  // Day count on screen when a resync reset the cursor: the head reload asks
-  // for the whole window so the view doesn't collapse to one batch.
-  const windowRef = useRef(0);
-  const loadingRef = useRef(false);
-  const genRef = useRef(0);
   const mountedRef = useRef(false);
   const activeReadsRef = useRef(
     new Set<Map<string, CapturedOutlineRead>>(),
@@ -75,28 +65,25 @@ export function Journal() {
     for (const reads of [...activeReadsRef.current]) releaseReads(reads);
   }, [releaseReads]);
 
-  const loadMore = useCallback(async (
-    source: AuthoritativeReadSource = "parent",
+  const dispatch = useCallback((event: JournalPagingEvent<JournalDay>) => {
+    const next = journalPaging(pagingRef.current, event);
+    pagingRef.current = next;
+    setPaging(next);
+    return next;
+  }, []);
+
+  const fetchLoad = useCallback(async (
+    load: JournalLoad, source: AuthoritativeReadSource,
   ) => {
-    if (!mountedRef.current || loadingRef.current) return;
-    loadingRef.current = true;
-    setLoading(true);
-    const gen = genRef.current;
     const reads = captureActiveOutlineReads(source);
     activeReadsRef.current.add(reads);
+    const current = () =>
+      mountedRef.current && loadInFlight(pagingRef.current, load.id) !== null;
     try {
-      const current = daysRef.current;
-      const oldest = current[current.length - 1]?.date;
-      // `before` is exclusive of the date given: passing the oldest loaded
-      // date returns the next non-empty day before it (newest-first). A head
-      // load after a resync re-requests the whole on-screen window instead.
-      const want = oldest ? BATCH : Math.min(
-        SERVER_MAX_DAYS, Math.max(BATCH, windowRef.current));
-      windowRef.current = 0;
       const p = await apiGet("/api/journal", {
-        query: { days: want, before: oldest },
+        query: { days: load.want, before: load.before },
       });
-      if (!mountedRef.current || gen !== genRef.current) return;
+      if (!current()) return;
       const received = p.days.map((day) => {
         const activeAtResponse = isOutlineSessionActive(day.title);
         const session = sessionFor(day.title);
@@ -112,35 +99,33 @@ export function Journal() {
         }
         return { ...day, blocks: session.getSnapshot().blocks };
       });
-      const next = [...current, ...received];
-      daysRef.current = next;
-      setDays(next);
-      // A head load (no `before` cursor: first mount or resync) replaces the
-      // ref-text map so stale resolutions can't linger; older batches merge.
-      setRefTexts((m) => oldest
-        ? { ...m, ...p.block_ref_texts }
-        : { ...p.block_ref_texts });
-      setRefCounts((m) => oldest
-        ? { ...m, ...p.block_ref_counts }
-        : { ...p.block_ref_counts });
-      if (p.days.length < want) {
-        setAutoLoad(false);
-        setDone(true);
-      }
+      // A head load replaces the ref-text map so stale resolutions can't
+      // linger; older batches merge.
+      const head = load.kind === "head";
+      setRefTexts((m) => head ? { ...p.block_ref_texts }
+                              : { ...m, ...p.block_ref_texts });
+      setRefCounts((m) => head ? { ...p.block_ref_counts }
+                               : { ...m, ...p.block_ref_counts });
+      dispatch({ type: "loaded", id: load.id, days: received });
     } catch (e: unknown) {
-      if (!mountedRef.current || gen !== genRef.current) return;
-      setError(String(e));
-      setAutoLoad(false);
+      if (!current()) return;
+      dispatch({ type: "failed", id: load.id, message: String(e) });
     } finally {
       releaseReads(reads);
-      // A superseded load must not release the lock: it now belongs to the
-      // reset()-triggered reload that took over this generation.
-      if (mountedRef.current && gen === genRef.current) {
-        loadingRef.current = false;
-        setLoading(false);
-      }
     }
-  }, [releaseReads, sessionFor]);
+  }, [dispatch, releaseReads, sessionFor]);
+
+  const run = useCallback((
+    event: JournalPagingEvent<JournalDay>,
+    source: AuthoritativeReadSource,
+  ) => {
+    if (!mountedRef.current) return;
+    const before = pagingRef.current.loading;
+    const { loading } = dispatch(event);
+    if (loading !== null && loading !== before) void fetchLoad(loading, source);
+  }, [dispatch, fetchLoad]);
+
+  const loadOlder = useCallback(() => run({ type: "older" }, "parent"), [run]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -151,20 +136,19 @@ export function Journal() {
     const sessions = sessionsRef.current;
     return () => {
       mountedRef.current = false;
-      genRef.current += 1;
-      loadingRef.current = false;
+      dispatch({ type: "abandon" });
       releaseAllReads();
       for (const cleanup of loaderCleanups.values()) cleanup();
       loaderCleanups.clear();
       for (const session of sessions.values()) session.release();
       sessions.clear();
     };
-  }, [releaseAllReads]);
-  useEffect(() => { void loadMore(); }, [loadMore]);
+  }, [dispatch, releaseAllReads]);
+  useEffect(() => { loadOlder(); }, [loadOlder]);
 
   // Fire-and-forget: prune empty daily pages from the past week.
   // Failures are silent; the next Journal load retries. This effect runs
-  // after the loadMore effect above, so the journal GET is dispatched
+  // after the loadOlder effect above, so the journal GET is dispatched
   // first — but the two requests still race on the server over separate
   // connections, which is why deletions may not be reflected in this view
   // (see empty-daily-cleanup-design.md, Concurrency and staleness).
@@ -173,42 +157,35 @@ export function Journal() {
       .catch(() => {});
   }, []);
 
+  // A resync reloads the days on screen and supersedes any load in flight.
+  // The day list is never blanked first: that would unmount every
+  // .journal-day and remount it after the refetch, detaching the DOM
+  // mid-interaction. Block content flows through the shared outline sessions,
+  // and the reload replaces the day list in place under stable per-date keys.
   const reset = useCallback(() => {
-    // Invalidate any in-flight loadMore so its stale response can't clobber
-    // the authoritative refetch, and release its lock so we can start now.
-    genRef.current += 1;
     releaseAllReads();
-    loadingRef.current = false;
-    // Clear only the cursor (daysRef), not the rendered day list: blanking
-    // setDays here unmounted every .journal-day and remounted it after the
-    // refetch, detaching the DOM mid-interaction (remount churn).
-    // Freshness doesn't need the remount — block content flows through the
-    // shared outline sessions, and the head reload below replaces the day
-    // list in place under stable per-date keys when it lands.
-    windowRef.current = daysRef.current.length;
-    daysRef.current = [];
-    setDone(false);
-    setAutoLoad(true);
-    void loadMore("resync");
-  }, [loadMore, releaseAllReads]);
+    run({ type: "resync" }, "resync");
+  }, [releaseAllReads, run]);
   useResync(reset);
 
+  const pager = journalPager(paging);
+  const autoLoad = pager === "sentinel";
   useEffect(() => {
     if (!autoLoad) return;
     const el = sentinelRef.current;
     if (!el) return;
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) void loadMore();
+      if (entries.some((e) => e.isIntersecting)) loadOlder();
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [autoLoad, loadMore]);
+  }, [autoLoad, loadOlder]);
 
   return (
     <div className="journal">
       <BlockRefProvider seed={refTexts}>
         {/* the first loaded day is today by construction */}
-        {days.map((day, i) => ({ day, i }))
+        {paging.days.map((day, i) => ({ day, i }))
           .filter(({ day, i }) => day.exists || i === 0)
           .map(({ day }) => (
             <section className="journal-day" key={day.date}>
@@ -222,18 +199,16 @@ export function Journal() {
             </section>
           ))}
       </BlockRefProvider>
-      {error && <p className="error">{error}</p>}
+      {paging.error && <p className="error">{paging.error}</p>}
       <p className="journal-status" role="status" aria-live="polite">
-        {loading ? "Loading more days…" : ""}
+        {paging.loading ? "Loading more days…" : ""}
       </p>
-      {autoLoad
-        ? <div ref={sentinelRef} className="journal-sentinel" />
-        : done ? null : (
-          <button className="show-more btn-secondary"
-                  onClick={() => { setAutoLoad(true); void loadMore(); }}>
-            Load older days
-          </button>
-        )}
+      {pager === "sentinel" && <div ref={sentinelRef} className="journal-sentinel" />}
+      {pager === "button" && (
+        <button className="show-more btn-secondary" onClick={loadOlder}>
+          Load older days
+        </button>
+      )}
     </div>
   );
 }

@@ -31,3 +31,9 @@ the iPad's on-screen keyboard.
 - [x] Red tests for both event orders (Chromium: isComposing; WebKit: compositionend then keydown 229)
 - [x] Expose composing state from `useBlockDraft` (including the just-ended case) to the key policy as an `EditorKeyInput` field; return `none` while composing
 - [ ] Verify on the iPad simulator (`.claude/skills/ipad-simulator`) that on-screen-keyboard Enter still splits
+
+## Summary of Changes
+
+`useBlockDraft.imeOwns` answers whether the IME owns a keydown: `isComposing`, between compositionstart and compositionend, or the first keydown after a compositionend with keyCode 229 within `IME_COMMIT_WINDOW_MS` (WebKit's order). `EditorKeyInput.composing` makes `decideEditorKey` return `none` for it, and the /date picker's Escape is skipped. The outline draft property (`props/outline/draft*.ts`) gained composition steps and keydowns in both engines' shapes; `imeTeeth.prop.ts` holds two mutants.
+
+Open: the iPad simulator check. `simpad.py up` refused because Xcode's first-launch packages are missing (`xcodebuild -checkFirstLaunchStatus` exits 69), so it needs Arthur to run `sudo xcodebuild -runFirstLaunch`.

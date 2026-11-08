@@ -2748,3 +2748,80 @@ describe("a dead worker under a poison repair", () => {
     expect(sync.appliedVersion()).toBeNull();
   });
 });
+
+describe("a pull left to a poison repair", () => {
+  /** A started replicaSync whose next pull waits on its changes fetch and
+   * then answers needs-bootstrap, with the poison claim in the test's hand. */
+  async function heldPullUnderPoison() {
+    let releaseFetch: () => void = () => undefined;
+    let held = false;
+    let fetches = 0;
+    let applyCall = 0;
+    const replica = fakeReplica({
+      applyChanges: async (window: Changes) => {
+        applyCall += 1;
+        return applyCall === 2
+          ? { status: "needs-bootstrap" as const }
+          : { status: "applied" as const, cursor: window.next_since };
+      },
+    });
+    const fetchJson = vi.fn(async (path: string) => {
+      if (path.startsWith("/api/sync/changes")) {
+        fetches += 1;
+        if (held) {
+          held = false;
+          await new Promise<void>((resolve) => { releaseFetch = resolve; });
+        }
+      }
+      return path === "/api/sync/snapshot" ? SNAP : feed();
+    });
+    let signalPoisonPending: () => void = () => undefined;
+    const queue = {
+      pause: vi.fn(), resume: vi.fn(),
+      onPoisonPending: (listener: () => void) => {
+        signalPoisonPending = listener;
+        return () => undefined;
+      },
+    };
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, onState: () => undefined, queue,
+    });
+    await sync.start();
+    held = true;
+    sync.onSeq(seqOf(9));
+    // let the pull reach its held fetch
+    await vi.waitFor(() => { expect(fetches).toBe(2); });
+    return {
+      sync, replica, fetches: () => fetches, applyCalls: () => applyCall,
+      claimPoison: () => { signalPoisonPending(); },
+      releaseFetch: () => { releaseFetch(); },
+    };
+  }
+
+  test("a pull that joined one left to a poison repair still runs its own pass",
+  async () => {
+    const h = await heldPullUnderPoison();
+    h.claimPoison();
+    // a nudge joins the pull in flight
+    h.sync.onSeq(seqOf(12), true);
+    h.releaseFetch();
+    await h.sync.idle();
+    // the first pass met needs-bootstrap and left it to the repair; the
+    // joiner's pass fetched again
+    expect(h.fetches()).toBe(3);
+  });
+
+  test("work left to a poison repair is pulled again once the repair releases recovery",
+  async () => {
+    const h = await heldPullUnderPoison();
+    h.claimPoison();
+    h.releaseFetch();
+    await h.sync.idle();
+    expect(h.fetches()).toBe(2);
+    expect(h.replica.calls).not.toContain("prepareRecovery");
+
+    h.sync.completeAuthoritativeRepair("poison");
+    await h.sync.idle();
+    expect(h.fetches()).toBe(3);
+  });
+});

@@ -552,6 +552,10 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
         if (outcome !== null) return outcome;
         continue;
       }
+      // A barrier owner may have paused while the read waited on the worker
+      // (a recovery's lease queues behind it): nothing posts past a pause.
+      const readBlock = terminalReason(qstate);
+      if (readBlock !== null) return blocked(readBlock);
       // The lane now needs this read before it can go out — a batch persisted
       // after the head is what used to let it overtake — so a
       // transient nextBatch() failure (caught above) delays the lane through

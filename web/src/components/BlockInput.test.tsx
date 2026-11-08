@@ -590,6 +590,102 @@ test("a remote update arriving mid-composition is deferred until composition end
   expect(ta.value).toBe("hola [[World]]"); // adopted once composition ends
 });
 
+describe("a keydown the IME owns", () => {
+  const ENTER_13 = { key: "Enter", keyCode: 13 };
+  afterEach(() => { vi.useRealTimers(); });
+
+  test("Chromium: the committing Enter, sent while composing, does not split",
+       () => {
+    const h = handlers();
+    mount(h, 5);
+    const ta = focusedTextarea();
+    fireEvent.compositionStart(ta);
+    fireEvent.keyDown(ta, { key: "Enter", keyCode: 229, isComposing: true });
+    fireEvent.compositionEnd(ta);
+    expect(h.onSplit).not.toHaveBeenCalled();
+    fireEvent.keyDown(ta, ENTER_13);
+    expect(h.onSplit).toHaveBeenCalledWith("tuid-u1", 5);
+  });
+
+  test("WebKit: the Enter after compositionend with keyCode 229 does not split",
+       () => {
+    const h = handlers();
+    mount(h, 5);
+    const ta = focusedTextarea();
+    fireEvent.compositionStart(ta);
+    fireEvent.compositionEnd(ta);
+    fireEvent.keyDown(ta, { key: "Enter", keyCode: 229 });
+    expect(h.onSplit).not.toHaveBeenCalled();
+    fireEvent.keyDown(ta, ENTER_13);
+    expect(h.onSplit).toHaveBeenCalledWith("tuid-u1", 5);
+  });
+
+  test("WebKit: only the first keydown after compositionend is the IME's",
+       () => {
+    const h = handlers();
+    mount(h, 5);
+    const ta = focusedTextarea();
+    fireEvent.compositionStart(ta);
+    fireEvent.compositionEnd(ta);
+    fireEvent.keyDown(ta, { key: "Enter", keyCode: 229 });
+    fireEvent.keyDown(ta, { key: "Enter", keyCode: 229 });
+    expect(h.onSplit).toHaveBeenCalledTimes(1);
+  });
+
+  test("a real Enter right after a composition splits", () => {
+    const h = handlers();
+    mount(h, 5);
+    const ta = focusedTextarea();
+    fireEvent.compositionStart(ta);
+    fireEvent.compositionEnd(ta);
+    fireEvent.keyDown(ta, ENTER_13);
+    expect(h.onSplit).toHaveBeenCalledWith("tuid-u1", 5);
+  });
+
+  test("a keyCode 229 Enter with no composition just ended splits", () => {
+    const h = handlers();
+    mount(h, 5);
+    fireEvent.keyDown(focusedTextarea(), { key: "Enter", keyCode: 229 });
+    expect(h.onSplit).toHaveBeenCalledWith("tuid-u1", 5);
+  });
+
+  test("a keyCode 229 Enter long after a composition ended splits", () => {
+    vi.useFakeTimers();
+    const h = handlers();
+    mount(h, 5);
+    const ta = focusedTextarea();
+    fireEvent.compositionStart(ta);
+    fireEvent.compositionEnd(ta);
+    vi.advanceTimersByTime(2_000);
+    fireEvent.keyDown(ta, { key: "Enter", keyCode: 229 });
+    expect(h.onSplit).toHaveBeenCalledWith("tuid-u1", 5);
+  });
+
+  test("candidate arrows, Tab, Escape and [ stay with the IME", () => {
+    const h = handlers();
+    mount(h, 0);
+    const ta = focusedTextarea();
+    fireEvent.compositionStart(ta);
+    for (const key of ["ArrowDown", "ArrowUp", "Tab", "Escape", "["]) {
+      fireEvent.keyDown(ta, { key, keyCode: 229, isComposing: true });
+    }
+    expect(h.onArrow).not.toHaveBeenCalled();
+    expect(h.onIndent).not.toHaveBeenCalled();
+    expect(ta.value).toBe("hello [[World]]");
+    expect(document.activeElement).toBe(ta);
+  });
+
+  test("the composing flag alone holds the keys (no isComposing on the event)",
+       () => {
+    const h = handlers();
+    mount(h, 5);
+    const ta = focusedTextarea();
+    fireEvent.compositionStart(ta);
+    fireEvent.keyDown(ta, ENTER_13);
+    expect(h.onSplit).not.toHaveBeenCalled();
+  });
+});
+
 test("adopting a remote update preserves the caret in a focused, clean textarea", () => {
   const h = handlers();
   const view = mount(h, 0);

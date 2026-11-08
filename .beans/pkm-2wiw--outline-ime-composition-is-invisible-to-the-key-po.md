@@ -1,13 +1,13 @@
 ---
 # pkm-2wiw
 title: 'Outline: IME composition is invisible to the key policy; committing a conversion with Enter splits the block'
-status: todo
+status: in-progress
 type: bug
 priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-07T18:42:45Z
+updated_at: 2026-11-08T14:46:55Z
 parent: pkm-zk8b
 ---
 

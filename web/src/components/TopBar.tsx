@@ -63,9 +63,16 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
     }
   };
 
+  // The page the bar shows now, so a slow export, delete preview or delete
+  // that settles after the user has navigated away neither acts nor reports
+  // against the new route.
+  const titleRef = useRef(title);
+  titleRef.current = title;
+
   const handleDelete = async () => {
     if (title === null) return;
     const preview = await fetchPreview(title);
+    if (titleRef.current !== title) return;
     if (preview !== null && preview.blockers.length > 0) {
       setMenuOpen(false);
       setBlockers(preview.blockers);
@@ -74,7 +81,7 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
     const message = preview === null
       ? plainDeleteMessage(title) : deleteConfirmMessage(title, preview);
     const ok = await confirm(message, { confirmLabel: "Delete", danger: true });
-    if (!ok) return;
+    if (!ok || titleRef.current !== title) return;
     // Clear any error from a previous attempt as this one starts, so a
     // retry never leaves a stale message sitting alongside (or instead of)
     // the new outcome.
@@ -82,11 +89,13 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
     try {
       await apiDelete("/api/page/{title}", { path: { title } });
     } catch (e) {
+      if (titleRef.current !== title) return;
       setMenuOpen(false);
       // A 409 means blockers appeared after the preview; show them from a
       // fresh preview rather than parsing the refusal.
       if (e instanceof ApiError && e.status === 409) {
         const fresh = await fetchPreview(title);
+        if (titleRef.current !== title) return;
         if (fresh !== null && fresh.blockers.length > 0) {
           setBlockers(fresh.blockers);
           return;
@@ -97,14 +106,10 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
       setMenuError(`Couldn't delete "${title}": ${String(e)}`);
       return;
     }
+    if (titleRef.current !== title) return;
     setMenuOpen(false);
     navigate("/");
   };
-
-  // The page the bar shows now, so a slow export that settles after the user
-  // has navigated away neither downloads nor reports against the new route.
-  const titleRef = useRef(title);
-  titleRef.current = title;
 
   const handleExport = async () => {
     if (title === null) return;

@@ -76,6 +76,13 @@ identity reaches a row.
 `pending` has one publisher, the op queue. Code that changes the durable queue
 behind its back calls `queue.refreshPending()` rather than reading the replica.
 
+An async handler in chrome that outlives a route, such as `TopBar`'s, checks
+after each `await` that the route is still the one it started on (`titleRef`).
+Otherwise a slow answer opens a dialog or navigates over the page the user has
+moved to. A `mounted` ref is set `true` in its effect's body, not only by
+`useRef(true)`: StrictMode's dev replay runs the cleanup and then the body
+again, so a ref set once stays `false`.
+
 ## API layer
 
 `apiFetch<T>` (`api/client.ts`) handles JSON, the 401 → `/login` redirect and

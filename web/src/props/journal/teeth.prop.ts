@@ -59,8 +59,8 @@ const MUTANTS: Record<string, Mutant> = {
 };
 
 for (const [name, { reduce, catches }] of Object.entries(MUTANTS)) {
-  test(`the journal property catches: ${name}`, () => {
-    const details = fc.check(fc.property(exampleArb, (example) => {
+  test(`the journal property catches: ${name}`, async () => {
+    const details = await fc.check(fc.asyncProperty(exampleArb, async (example) => {
       const problems = runExample(example, reduce).problems;
       if (problems.length > 0) throw new PropertyReport(problems.join("\n"));
     }), {

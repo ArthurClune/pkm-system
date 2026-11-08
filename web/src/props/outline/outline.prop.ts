@@ -67,8 +67,8 @@ function report(details: fc.RunDetails<[Example]>): string {
   ].join("\n");
 }
 
-test("outline edit commands property", () => {
-  const details = fc.check(fc.property(sequenceArb, ({ start, commands }) => {
+test("outline edit commands property", async () => {
+  const details = await fc.check(fc.asyncProperty(sequenceArb, async ({ start, commands }) => {
     const run = runSequence(start, commands);
     const problems = sequenceProblems(start, run);
     if (problems.length > 0) throw new Error(problems.join("\n"));

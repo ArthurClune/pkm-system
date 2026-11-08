@@ -57,8 +57,8 @@ function report(details: fc.RunDetails<[Action[]]>): string {
   ].join("\n");
 }
 
-test("assistant chat machine property", () => {
-  const details = fc.check(fc.property(actionsArb, (actions) => {
+test("assistant chat machine property", async () => {
+  const details = await fc.check(fc.asyncProperty(actionsArb, async (actions) => {
     const { problems } = runActions(actions, REAL, tally);
     if (problems.length > 0) throw new Error(problems.join("\n"));
   }), {

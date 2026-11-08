@@ -102,8 +102,8 @@ const MUTANTS: Record<string, Mutant> = {
 };
 
 for (const [name, { seam, catches }] of Object.entries(MUTANTS)) {
-  test(`the outline property catches: ${name}`, () => {
-    const details = fc.check(fc.property(sequenceArb, ({ start, commands }) => {
+  test(`the outline property catches: ${name}`, async () => {
+    const details = await fc.check(fc.asyncProperty(sequenceArb, async ({ start, commands }) => {
       const problems = sequenceProblems(start, runSequence(start, commands, seam));
       if (problems.length > 0) throw new PropertyReport(problems.join("\n"));
     }), {

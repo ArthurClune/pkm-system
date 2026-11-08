@@ -36,9 +36,9 @@ test("harness server resets to the seed blocks of its three pages", async () => 
   );
 });
 
-test("fast-check is wired", () => {
-  fc.assert(
-    fc.property(fc.integer(), fc.integer(), (a, b) => a + b === b + a),
+test("fast-check is wired", async () => {
+  await fc.assert(
+    fc.asyncProperty(fc.integer(), fc.integer(), async (a, b) => a + b === b + a),
     { seed: SEED },
   );
 });

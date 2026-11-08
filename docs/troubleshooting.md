@@ -372,6 +372,7 @@ Owner: [checks.md § Property gate](architecture/checks.md#property-gate)
 | Symptom | Cause | Where | Ref |
 |---|---|---|---|
 | A full server `pytest` run fails a `with_floors` share, e.g. `batch input: blank: 4 of 92 cases, under the floor 0.058` (older form `('batch input: blank', 4, 92)`), and passes when rerun | A run's draws are correlated, so a label's share is heavy-tailed (blank fell to 1 of 86 in one run of 60), and floors sat above half the lowest share. Every floor set for this is half the lowest share over 60 unseeded runs, or the generator draws the case more often | [checks.md § Property gate](architecture/checks.md#property-gate) | pkm-v4uc, pkm-36zw, pkm-76sh |
+| `proptest/check.sh web` exits 1 on `Error: [vitest-worker]: Timeout calling "onTaskUpdate"` with every test passed, and later files go unreported | A synchronous property ran past vitest's 60 s worker RPC timeout under load, blocking the worker before it could read the reply | [checks.md § Property gate](architecture/checks.md#property-gate) | pkm-996z |
 
 ## Performance checks
 

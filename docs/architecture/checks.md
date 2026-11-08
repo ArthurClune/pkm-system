@@ -196,3 +196,9 @@ Rules a change to the gate must keep:
   (`props/warnings.ts`) if a fault is meant to provoke it.
 - A web example that depends on timing may not replay from its seed. It is
   still a finding: pin it as a fixed scenario, as `sync.prop.ts` does.
+- A web property is an `fc.asyncProperty`. vitest fails the run when its
+  worker leaves an RPC call unanswered for 60 seconds, even if every test
+  passed, and a synchronous property blocks the worker for its whole run.
+  `props/setup.ts` sets a global `asyncBeforeEach` that yields to a macrotask
+  every `GIVE_WAY_MS` (`props/giveWay.ts`). While it is set, fast-check
+  refuses to build a synchronous `fc.property`.

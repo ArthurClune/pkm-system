@@ -7,7 +7,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/props/**/*.prop.ts"],
-    setupFiles: ["src/test-guards.ts"],
+    setupFiles: ["src/test-guards.ts", "src/props/setup.ts"],
     testTimeout: 600_000,
     hookTimeout: 60_000,
     pool: "forks",

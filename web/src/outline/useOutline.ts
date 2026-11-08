@@ -146,17 +146,25 @@ export function useOutline(
   const sessionRef = useRef<OutlineSessionHandle | null>(null);
   const bootstrapRef = useRef(initial);
   bootstrapRef.current = initial;
+  // The only record of unsaved text: a textarea is dirty exactly while this
+  // holds a draft for its block (handlers.pendingDraft), and hears when it
+  // ends (handlers.subscribeDraftEnd).
   const pendingRef = useRef<PendingDraft | null>(null);
   // The text the focused textarea shows, which the next draft on that block
   // is typed over: reported by the editor when a clean draft goes dirty, and
-  // the flushed draft's text after a flush (a still-dirty textarea keeps
-  // showing it, whether or not the flush sent anything).
+  // the flushed draft's text after a flush.
   const shownRef = useRef<ShownText | null>(null);
   // Where the pending draft's textarea left its selection when it unmounted
   // without a flush; a textarea remounted over the draft restores it. Only
   // meaningful while that draft is pending, so every flush drops it.
   const draftSelectionRef =
     useRef<{ uid: BlockUid; start: number; end: number } | null>(null);
+  const draftEndListenersRef = useRef(new Set<() => void>());
+  const endDraft = useCallback(() => {
+    pendingRef.current = null;
+    draftSelectionRef.current = null;
+    for (const listener of [...draftEndListenersRef.current]) listener();
+  }, []);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The notice a refused draft showed, cleared once a flush gets past it.
   const draftNoticeRef = useRef<string | null>(null);
@@ -221,13 +229,14 @@ export function useOutline(
       timerRef.current = null;
     }
     const pending = pendingRef.current;
-    pendingRef.current = null;
-    draftSelectionRef.current = null;
-    if (pending) shownRef.current = { uid: pending.uid, base: pending.text };
+    if (pending) {
+      endDraft();
+      shownRef.current = { uid: pending.uid, base: pending.text };
+    }
     // The draft ships even when its block has left the tree, and its hash is
     // of the text it was typed over, not of what the tree holds now.
     return pendingTextOps(pending, blocksRef.current, pageTitle);
-  }, [pageTitle]);
+  }, [pageTitle, endDraft]);
 
   /** The notice when the pending draft holds a ref whose title the server
    * refuses, else null. Typing judges every ref but the one whose title the
@@ -246,8 +255,7 @@ export function useOutline(
   const dropRefusedDraft = useCallback((notice: string) => {
     const pending = pendingRef.current;
     if (!pending) return;
-    pendingRef.current = null;
-    draftSelectionRef.current = null;
+    endDraft();
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -257,7 +265,7 @@ export function useOutline(
     // listed first, so the unload guard is not detached and attached again
     dropDraft({ pageTitle, text: pending.text, notice });
     markRefusedPending();
-  }, [pageTitle, markRefusedPending]);
+  }, [pageTitle, markRefusedPending, endDraft]);
 
   /** Drop a refused draft whose block has left the tree or is hidden under
    * a collapsed ancestor: no textarea can show it there. */
@@ -469,8 +477,8 @@ export function useOutline(
 
   // Remote batches: the same applyOps as local edits. Text updates always
   // land on the block tree, even for the focused block — focus does not imply
-  // an unflushed local draft. When a real draft exists the focused textarea
-  // keeps showing it (BlockInput owns that decision), and its flush carries
+  // an unflushed local draft. While a draft is pending the focused textarea
+  // keeps showing it (useBlockDraft asks pendingDraft), and its flush carries
   // the hash of the draft's base, not of the remote text now in the tree. The
   // server therefore keeps the other text as a conflict copy, whichever edit
   // arrives first.
@@ -538,6 +546,11 @@ export function useOutline(
       return { text: pending.text,
                selection: sel?.uid === uid ? { start: sel.start, end: sel.end }
                                            : null };
+    },
+    subscribeDraftEnd: (listener) => {
+      const listeners = draftEndListenersRef.current;
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
     },
     onInputUnmount: (uid, selStart, selEnd) => {
       if (pendingRef.current?.uid !== uid) return;

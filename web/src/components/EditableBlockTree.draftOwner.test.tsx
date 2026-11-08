@@ -70,10 +70,10 @@ function textOps(sync: SyncFake): Extract<BlockOp, { op: "update_text" }>[] {
       op.op === "update_text");
 }
 
-function remoteText(sync: SyncFake, uid: string, text: string) {
+function remoteText(sync: SyncFake, text: string) {
   act(() => sync.emit({
     client_id: clientIdOf("other"), ts: 1,
-    ops: [{ op: "update_text", uid: uidOf(uid), text }],
+    ops: [{ op: "update_text", uid: uidOf("tuid-a"), text }],
   }));
 }
 
@@ -122,7 +122,7 @@ it("a remote edit after a typed-then-erased draft flushed is adopted", () => {
   type("hello");
   act(() => { vi.advanceTimersByTime(600); });
   expect(sync.sent).toEqual([]);
-  remoteText(sync, "tuid-a", "remote");
+  remoteText(sync, "remote");
   expect(textarea().value).toBe("remote");
 });
 
@@ -134,7 +134,7 @@ it("a remote edit under a typed-then-erased draft is adopted once the draft "
   fireEvent.click(blockTexts()[0]);
   type("hellox");
   type("hello");
-  remoteText(sync, "tuid-a", "remote");
+  remoteText(sync, "remote");
   expect(textarea().value).toBe("hello"); // the draft is still pending
   act(() => { vi.advanceTimersByTime(600); });
   expect(sync.sent).toEqual([]);

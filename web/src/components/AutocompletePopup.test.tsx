@@ -16,6 +16,7 @@ function handlers(): OutlineHandlers {
     onDraftChange: vi.fn(),
     onFlushDraft: vi.fn(() => true),
     pendingDraft: vi.fn(() => null), onInputUnmount: vi.fn(),
+    subscribeDraftEnd: vi.fn(() => () => {}),
     onSplit: vi.fn(), onIndent: vi.fn(), onOutdent: vi.fn(),
     onMoveSubtreeUp: vi.fn(), onMoveSubtreeDown: vi.fn(),
     onBackspaceAtStart: vi.fn(),

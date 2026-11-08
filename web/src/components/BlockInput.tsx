@@ -77,7 +77,8 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     onAdopt: () => setDatePickerAt(null), // adopted text invalidates the offset
     onRefused: (notice) => handlers.onRefusedEdit(notice),
     // `?? null`: a handler fake may answer undefined.
-    resume: () => handlers.pendingDraft(node.uid) ?? null,
+    pendingDraft: () => handlers.pendingDraft(node.uid) ?? null,
+    subscribeDraftEnd: (listener) => handlers.subscribeDraftEnd(listener),
     onUnmount: (selStart, selEnd) =>
       handlers.onInputUnmount(node.uid, selStart, selEnd),
   });

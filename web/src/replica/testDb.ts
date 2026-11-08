@@ -149,11 +149,16 @@ const MALFORMED =
 export function withUnreadableQueue(
   db: ReplicaDb,
   { isDamaged = () => true, readableBelow = 1, schema = false }: {
-    isDamaged?: () => boolean; readableBelow?: number; schema?: boolean;
+    isDamaged?: () => boolean;
+    readableBelow?: number | (() => number);
+    schema?: boolean | (() => boolean);
   } = {},
 ): ReplicaDb {
+  const below = (): number =>
+    typeof readableBelow === "function" ? readableBelow() : readableBelow;
+  const schemaDamaged = (): boolean => typeof schema === "function" ? schema() : schema;
   const damagedSql = (sql: string): boolean => isDamaged() &&
-    (/\bpending_ops\b/.test(sql) || (schema && /\bsqlite_master\b/.test(sql)));
+    (/\bpending_ops\b/.test(sql) || (schemaDamaged() && /\bsqlite_master\b/.test(sql)));
   return {
     ...db,
     exec(sql, params) {
@@ -164,8 +169,9 @@ export function withUnreadableQueue(
       if (!damagedSql(sql)) return db.select(sql, keys, params);
       if (!/\bWHERE id > \?/.test(sql)) throw new Error(MALFORMED);
       const rows = db.select(sql, keys, params);
-      const id = (rows[0] as { pending_row_id?: unknown } | undefined)?.pending_row_id;
-      if (typeof id === "number" && id >= readableBelow) throw new Error(MALFORMED);
+      // the one-row read selects the row's id first
+      const id: unknown = Object.values(rows[0] ?? {})[0];
+      if (typeof id === "number" && id >= below()) throw new Error(MALFORMED);
       return rows;
     },
     introspect(sql, params) {

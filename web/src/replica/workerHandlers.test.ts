@@ -1722,7 +1722,7 @@ test("init over an unreadable pending_ops carries the readable rows into a new f
   const { handlers, carry, discardDbFile, fresh, rowsBefore, warn } =
     await queueThatTurnsUnreadable({ readableBelow: 3 });
 
-  const init = await handlers.init(undefined) as { empty: boolean; pendingBatches: PendingBatch[] };
+  const init = await handlers.init(undefined);
 
   expectQueueReplaced(warn);
   expect(discardDbFile).toHaveBeenCalledOnce();
@@ -1736,7 +1736,7 @@ test("init over an unreadable pending_ops carries the readable rows into a new f
 test("prepareRecovery over an unreadable pending_ops leases what could be read", async () => {
   const { handlers, rowsBefore, warn } = await queueThatTurnsUnreadable({ readableBelow: 99 });
 
-  const lease = await handlers.prepareRecovery(undefined) as { token: string; batches: PendingBatch[] };
+  const lease = await handlers.prepareRecovery(undefined);
 
   expectQueueReplaced(warn);
   expect(lease.batches.map((b) => b.batch_id)).toEqual(rowsBefore.map((r) => r.batch_id));

@@ -187,7 +187,9 @@ Rules a change to the gate must keep:
   other state, such as the reach tally, no longer replays from its seed.
 - A new property shows it fails. Each suite's `teeth.prop.ts` breaks a rule
   (a mutant, a broken transport mode, a `/__proptest/*/teeth` route) and must
-  see the named invariant fail, and a clean run must pass.
+  see the named invariant fail, and a clean run must pass. A mutant names
+  every invariant its bug breaks, since which one fires first depends on the
+  seed; sweep a few `PROPTEST_SEED` values before trusting a teeth test.
 - Each web suite prints one `fault warnings` line. An `UNEXPECTED` entry under
   it does not fail the gate. It is a recovery path firing where no fault
   reaches, so fix the cause, or add a kind to `EXPECTED_KINDS`

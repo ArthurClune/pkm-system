@@ -23,6 +23,8 @@ const stubClient = (over: Partial<ClientPort> = {}): ClientPort => ({
   pull: unstubbed("pull"),
   nudge: unstubbed("nudge"),
   failNextWrite: unstubbed("failNextWrite"),
+  loseNextReply: unstubbed("loseNextReply"),
+  lostReplyArmed: () => false,
   reload: unstubbed("reload"),
   connectLanded: unstubbed("connectLanded"),
   cursor: unstubbed("cursor"),

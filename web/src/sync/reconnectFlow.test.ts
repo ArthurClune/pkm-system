@@ -125,13 +125,13 @@ test("a drain observed with no reconnect intent does nothing", async () => {
   expect(trace).toEqual([]);
 });
 
-test("overlapping reconnects share one completion and leave no stale intent",
+test("a reconnect that joins a running completion gets a trailing pull",
 async () => {
   const feed = gate();
   let version = 7;
   const { flow, trace } = harness({
     replicaSync: (t) => ({
-      start: async () => { t.push("start"); version += 1; },
+      start: async () => { t.push("start"); },
       idle: async () => { t.push("idle"); await feed.promise; },
       appliedVersion: () => version,
     }),
@@ -139,18 +139,53 @@ async () => {
 
   const first = flow.begin();
   await vi.waitFor(() => { expect(trace).toContain("idle"); });
-  const second = flow.begin();   // second connect joins the running completion
+  // The first run is past its pull; the second connect's gap holds changes
+  // only a pull of its own can find.
+  const second = flow.begin();
+  await vi.waitFor(() => {
+    expect(trace.filter((step) => step === "drain")).toHaveLength(2);
+  });
+  version += 1;
 
   feed.release();
   await Promise.all([first, second]);
 
-  expect(trace).toEqual(["drain", "start", "idle", "drain", "resync"]);
+  expect(trace).toEqual(
+    ["drain", "start", "idle", "drain", "start", "idle", "resync"]);
 
   // The joined run consumed the second intent too: a later stray drain must
   // not resync again.
   flow.observeDrain({ status: "drained" });
   await Promise.resolve();
   expect(trace.filter((step) => step === "resync")).toHaveLength(1);
+});
+
+test("a trailing pull that moves data resyncs a run that found nothing", async () => {
+  const feed = gate();
+  let version = 7;
+  let pulls = 0;
+  const { flow, trace } = harness({
+    replicaSync: (t) => ({
+      start: async () => {
+        t.push("start");
+        pulls += 1;
+        if (pulls === 2) version += 1;
+      },
+      idle: async () => { t.push("idle"); await feed.promise; },
+      appliedVersion: () => version,
+    }),
+  });
+
+  const first = flow.begin();
+  await vi.waitFor(() => { expect(trace).toContain("idle"); });
+  const second = flow.begin();
+  await vi.waitFor(() => {
+    expect(trace.filter((step) => step === "drain")).toHaveLength(2);
+  });
+  feed.release();
+  await Promise.all([first, second]);
+
+  expect(trace.at(-1)).toBe("resync");
 });
 
 test("nothing finishes or resyncs after unmount", async () => {

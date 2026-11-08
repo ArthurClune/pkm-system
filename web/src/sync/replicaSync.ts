@@ -68,8 +68,8 @@ export interface ReplicaSync {
    * with an empty durable queue. Never goes back to false once true. */
   hasStarted(): boolean;
   /** Full-snapshot poison repair under the shared recovery lease. Delivery
-   * remains paused on return so the provider can delete the poison row, bump
-   * view resync, and only then resume the queue. */
+   * stays paused on return, under the queue's "poison" owner, so the provider
+   * can delete the poison row, bump view resync, and only then resume it. */
   rebaseAuthoritative(reason: "poison"): Promise<void>;
   /** Release poison recovery ownership after row deletion/resync scheduling.
    * This does not resume delivery; the provider owns that final ordering. */
@@ -199,10 +199,6 @@ type FlushPolicy =
  * lifecycle itself exists once. */
 interface RecoveryOptions {
   flush: FlushPolicy;
-  /** Release the delivery barrier when the run ends. False only for poison
-   * repair, where the provider resumes after deleting the durable row and
-   * scheduling resync. */
-  resume: boolean;
   /** Report mode "recovery-failed" when the run throws. False where the
    * caller owns the report: poison repair and the manual reset each have
    * their own banner, and a stall report over it would contradict them. */
@@ -341,7 +337,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   queue.onPoisonMarkUnmatched?.(() => {
     if (authoritativeRepair === "poison") {
       authoritativeRepair = null;
-      queue.resume("recovery");
+      queue.resume("poison");
     }
   });
 
@@ -553,9 +549,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       }
       throw error;
     } finally {
-      if (options.resume && authoritativeRepair !== "poison") {
-        queue.resume("recovery");
-      }
+      // Only this run's own claim: a poison repair or a legacy lane repair
+      // still running holds the barrier under its own owner.
+      queue.resume("recovery");
     }
   };
 
@@ -568,7 +564,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   ): Promise<{ ok: true } | { ok: false; error: unknown }> => {
     try {
       await runRecovery(kind, {
-        flush: "preemptible", resume: true, reportReplicaFailure: true,
+        flush: "preemptible", reportReplicaFailure: true,
         // this runs inside pullLoop; see RecoveryOptions
         awaitInFlightPull: false, forceReadyOnSuccess: false,
       });
@@ -739,9 +735,8 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         }
         if (res.status === "needs-bootstrap") {
           // A rejected batch owns recovery until the provider has deleted its
-          // durable row and scheduled resync. Normal Task 2 recovery would
-          // flush later valid rows and resume a boolean-paused queue, breaking
-          // poison's stronger ordering and failed-Retry barrier.
+          // durable row and scheduled resync. Normal recovery would flush
+          // later valid rows, breaking poison's stronger ordering.
           if (authoritativeRepair === "poison") return;
           const rebased = await recover("rebase");
           if (!rebased.ok) {
@@ -853,8 +848,8 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     async rebaseAuthoritative(_reason) {
       // Ownership is claimed before the barrier so a concurrent normal
       // recovery abandons its stale flush; the rest is the shared lifecycle
-      // under poison's options (no flush of later valid rows, no resume, no
-      // report of its own).
+      // under poison's options (no flush of later valid rows, no report of
+      // its own). The barrier it leaves standing is the "poison" owner's.
       //
       // Deliberately NOT routed through recover(): corruption met here must
       // not escalate to a reset. A reset drops every table, pending_ops
@@ -863,7 +858,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // The repair banner's Retry, or a reload, is the way out.
       authoritativeRepair = "poison";
       await runRecovery("rebase", {
-        flush: "skip", resume: false, reportReplicaFailure: false,
+        flush: "skip", reportReplicaFailure: false,
         awaitInFlightPull: true, forceReadyOnSuccess: false,
       });
     },
@@ -889,7 +884,6 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       await runRecovery("reset", {
         // discarding is the user answering the ResetBlockedError question
         flush: discardPending ? "skip" : "blocking",
-        resume: true,
         // SyncProvider turns this rejection into its own reset-failed banner
         reportReplicaFailure: false,
         awaitInFlightPull: true,

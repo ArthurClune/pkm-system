@@ -152,6 +152,24 @@ test("writeFails goes through the lane", async () => {
   expect(a.unsentInMemory()).toBe(0);
 });
 
+test("a lost reply's durable row goes out behind the lane entry ahead of it", async () => {
+  const a = await start("A");
+  a.offline();
+  a.failNextWrite();
+  const first = await a.edit(setText("pt_seed_4", "lane"));
+  a.loseNextReply();
+  const second = await a.edit(setText("pt_seed_5", "lost reply"));
+  expect(a.unsentInMemory()).toBe(2);
+  // The worker stores the row after the reply has already failed.
+  await vi.waitFor(() => { expect(pendingRows(a)).toBe(1); });
+  await a.online();
+  await settle([a]);
+  const applied = await appliedIds();
+  expect(applied.indexOf(first)).toBeGreaterThanOrEqual(0);
+  expect(applied.indexOf(first)).toBeLessThan(applied.indexOf(second));
+  expect(blockText(a, "pt_seed_5")).toBe("lost reply");
+});
+
 test("a lane rejection whose repair fails offline is retried on reconnect", async () => {
   const a = await start("A");
   // The repair's authoritative read waits until the link has dropped under it.

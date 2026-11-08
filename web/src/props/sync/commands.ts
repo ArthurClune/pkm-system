@@ -35,7 +35,8 @@ import { uidOf, orderIdxOf, seqOf } from "../../test-helpers";
  * test stub fills in the whole surface rather than asserting it. */
 export type ClientPort = Pick<HarnessClient,
   "name" | "writeFailArmed" | "unsentInMemory" | "online" | "offline" | "edit" | "pull"
-  | "nudge" | "failNextWrite" | "reload" | "connectLanded" | "cursor">
+  | "nudge" | "failNextWrite" | "loseNextReply" | "lostReplyArmed" | "reload"
+  | "connectLanded" | "cursor">
   & { readonly transport: Pick<Transport, "arm" | "fetchJson"> };
 
 export interface World<C extends ClientPort = ClientPort> {
@@ -50,7 +51,7 @@ export interface World<C extends ClientPort = ClientPort> {
   cancelled(): boolean;
 }
 
-export type FaultKind = "dropAck" | "duplicate" | "lostPull" | "writeFails";
+export type FaultKind = "dropAck" | "duplicate" | "lostPull" | "writeFails" | "lostReply";
 export type NudgeKind = "latest" | "stale" | "duplicate" | "ahead";
 
 /** How far past the journal an "ahead" nudge points. */
@@ -122,9 +123,10 @@ export abstract class SyncCommand implements fc.AsyncCommand<SyncModel, World> {
     }
     w.watch.observe([...w.clients.values()]);
     for (const [name, c] of w.clients) {
-      // writeFails stays armed until its INSERT has failed and the lane it
-      // pushed the ops into has drained.
-      m.armedWriteFails[name] = c.writeFailArmed() || c.unsentInMemory() > 0;
+      // writeFails and lostReply stay armed until their enqueue has come
+      // and the lane it pushed the ops into has drained.
+      m.armedWriteFails[name] = c.writeFailArmed() || c.lostReplyArmed() ||
+        c.unsentInMemory() > 0;
     }
   }
 }
@@ -233,6 +235,11 @@ export class Fault extends SyncCommand {
     const c = clientOf(w, this.client);
     if (this.kind === "writeFails") {
       c.failNextWrite();
+      m.armedWriteFails[this.client] = true;
+    } else if (this.kind === "lostReply") {
+      // Allowed with a lane entry waiting: the durable row this leaves
+      // must still go out behind it.
+      c.loseNextReply();
       m.armedWriteFails[this.client] = true;
     } else {
       c.transport.arm(this.kind);
@@ -509,7 +516,8 @@ export function commandsFor(names: readonly string[]): fc.Arbitrary<SyncCommand>
     { weight: 3, arbitrary: fc.tuple(client, offlineBack)
         .map(([c, back]) => new Offline(c, back)) },
     { weight: 3, arbitrary: fc.tuple(client, fc.constantFrom<FaultKind>(
-        "dropAck", "duplicate", "lostPull", "writeFails")).map(([c, k]) => new Fault(c, k)) },
+        "dropAck", "duplicate", "lostPull", "writeFails", "lostReply"))
+        .map(([c, k]) => new Fault(c, k)) },
     { weight: 2, arbitrary: fc.tuple(client, connectTiming)
         .map(([c, at]) => new Reload(c, at)) },
     { weight: 1, arbitrary: client.map((c) => new BadBatch(c)) },

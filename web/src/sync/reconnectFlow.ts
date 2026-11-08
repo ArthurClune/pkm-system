@@ -33,8 +33,11 @@
 // next connect instead of looping.
 //
 // `intent` is what makes overlapping reconnects collapse: a second connect
-// while a completion is already running joins that run instead of scheduling
-// another feed pull, and no stale intent survives it.
+// while a completion is already running joins that run, and no stale intent
+// survives it. The join asks the run for one more pull (`trailing`): the run
+// may be past its pull already, and the server sends no seq frame on
+// connect, so nothing else would fetch the changes made during the second
+// gap.
 import type { DrainOutcome, OpQueue } from "./opQueue";
 import type { ReplicaSync } from "./replicaSync";
 
@@ -66,16 +69,25 @@ export function createReconnectFlow(deps: {
   // it.
   let staleViews = false;
   let finishRun: Promise<void> | null = null;
+  // A connect joined the running completion: pull once more before it
+  // decides whether to resync.
+  let trailing = false;
 
   const finish = (): Promise<void> => {
     if (!deps.isMounted()) return Promise.resolve();
     if (!intent) return finishRun ?? Promise.resolve();
     intent = false;
-    if (finishRun) return finishRun;
+    if (finishRun) {
+      trailing = true;
+      return finishRun;
+    }
     finishRun = (async () => {
       const before = deps.replicaSync?.appliedVersion() ?? null;
-      await deps.replicaSync?.start();
-      await deps.replicaSync?.idle();
+      do {
+        trailing = false;
+        await deps.replicaSync?.start();
+        await deps.replicaSync?.idle();
+      } while (trailing && deps.isMounted());
       const after = deps.replicaSync?.appliedVersion() ?? null;
       // Read at the decision, not at the start of the run, so a stale-views
       // connect that JOINED this completion is still honoured by it.

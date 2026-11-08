@@ -30,8 +30,10 @@ export interface OutboxState {
   /** batch_id -> the lane-append boundary that batch must wait behind: every
    * entry whose `seq` is less than this value was appended to the lane
    * before this durable batch was persisted, so it must be delivered first.
-   * Only set for a durable batch the queue persisted while the lane was
-   * non-empty (see markFollows) — a durable row with no entry here (a
+   * Only set for a batch the queue enqueued while the lane was non-empty,
+   * before its persist RPC (see markFollows): a mark may therefore name a
+   * batch that never became durable, which no nextBatch returns and the
+   * clears below drop. A durable row with no entry here (a
    * previous session's rows, the offline shim's create_page in
    * replica/localApi/router.ts) is ahead of the lane by default, since
    * headPrecedes treats a missing mark as a boundary of -1. A mark is
@@ -59,10 +61,11 @@ export function append(
   };
 }
 
-/** A durable batch persisted while the lane still holds entries: every one
- * of them was appended before this batch existed, so it follows all of
- * them. Nothing to mark when the lane is empty — there is nothing for this
- * batch to wait behind. */
+/** A batch about to be persisted while the lane still holds entries: every
+ * one of them was appended before this batch existed, so it follows all of
+ * them. Called before the persist RPC, since a timed-out reply does not stop
+ * the worker storing the row. Nothing to mark when the lane is empty — there
+ * is nothing for this batch to wait behind. */
 export function markFollows(s: OutboxState, batchId: BatchId): OutboxState {
   if (s.entries.length === 0) return s;
   const follows = new Map(s.follows);

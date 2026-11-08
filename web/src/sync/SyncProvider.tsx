@@ -24,7 +24,8 @@ import { createReplicaSync, ResetBlockedError, type ReplicaState } from "./repli
 import { planRetry } from "./retryPolicy";
 import type { WsBatch } from "./socket";
 import { computeEditability, transitionSync,
-         type SyncEvent, type SyncStatus, type SyncProblem } from "./syncState";
+         type SyncEvent, type SyncState, type SyncStatus,
+         type SyncProblem } from "./syncState";
 import { useSocketLifecycle } from "./useSocketLifecycle";
 import { useUnloadGuard } from "./unloadGuard";
 
@@ -232,6 +233,8 @@ export function SyncProvider({ children, replica }: {
   modeRef.current = replicaState.mode;
   const problemRef = useRef<SyncProblem>();
   problemRef.current = problem;
+  // Not rendered: the legacy problem a poison one outranks (syncState).
+  const legacyBehindRef = useRef<SyncState["legacyBehind"]>();
 
   // Route the deterministic delivery-health policy through the syncState core:
   // it computes the next problem value and any resync intent; this shell keeps
@@ -242,8 +245,10 @@ export function SyncProvider({ children, replica }: {
   // that value must survive the provider's whole lifetime.
   const applySync = useCallback((event: SyncEvent): void => {
     const prev = problemRef.current;
-    const transition = transitionSync({ problem: prev }, event);
+    const transition = transitionSync(
+      { problem: prev, legacyBehind: legacyBehindRef.current }, event);
     if (!mountedRef.current) return;
+    legacyBehindRef.current = transition.state.legacyBehind;
     if (transition.state.problem !== prev) {
       // Update the ref immediately (not just on next render): a second
       // applySync dispatched in the same tick (e.g. from a listener firing
@@ -280,13 +285,13 @@ export function SyncProvider({ children, replica }: {
   const legacyRepair = useMemo(() => createLegacyRepair({
     repairSessions: repairActiveOutlineSessions,
     onEvent: applySync,
-    resume: () => queue.resume("recovery"),
+    resume: () => queue.resume("lane"),
     isMounted: () => mountedRef.current,
   }), [applySync, queue]);
 
   useEffect(() => {
     const offs = [
-      queue.onDesync((error) => { void legacyRepair.run(error); }),
+      queue.onDesync((desync) => { void legacyRepair.run(desync.error, desync); }),
       // Either delivery path's ack named a skipped op: a replica-backed
       // tab's own feed tombstones the row, but nothing else bumps resync
       // for it, so this refetches regardless. Never a desync -- the batch

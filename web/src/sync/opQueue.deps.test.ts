@@ -8,6 +8,7 @@ import type { BatchId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { OpsAck, OpBatch } from "../api/payloads";
 import { uidOf, seqOf, batchIdOf, clientIdOf, pendingRowIdOf } from "../test-helpers";
+import { RpcLifecycleError } from "../replica/errors";
 import { memReplica } from "./memReplica";
 import { createOpQueue, type PoisonIntentStore } from "./opQueue";
 import type { PoisonEvent } from "./poisonIntents";
@@ -211,4 +212,71 @@ describe("settleCommitted", () => {
         vi.useRealTimers();
       }
     });
+});
+
+describe("a durable copy whose enqueue reply was lost", () => {
+  test("still goes out behind the lane entry appended before it", async () => {
+    // A's write fails outright: lane only. B's write lands in the worker,
+    // but its reply times out on the main thread, as when a recovery lease
+    // holds the worker's gate past the RPC timeout: B is retained in the lane
+    // too, and its durable row turns up with no reply to say so.
+    const base = memReplica();
+    let calls = 0;
+    const replica = memReplica({
+      ...base,
+      enqueue: async (ops, batchId) => {
+        calls += 1;
+        if (calls === 1) throw new Error("SQLITE_IOERR: disk I/O error");
+        await base.enqueue(ops, batchId);
+        throw new RpcLifecycleError("timeout", "replica RPC enqueue timed out");
+      },
+    });
+    const post = vi.fn(async (_body: OpBatch) => ack());
+    const q = createOpQueue(replica, { post, newBatchId: minter() });
+    q.setOnline(false);
+    q.enqueue([{ op: "delete", uid: uidOf("tuid-a") }]);
+    q.enqueue([{ op: "delete", uid: uidOf("tuid-b") }]);
+    await q.settled();
+    expect(base.rows.map((r) => r.batch_id)).toEqual([bid("batch-2")]);
+
+    q.setOnline(true);
+    await expect(q.drain()).resolves.toEqual({ status: "drained" });
+    const order = post.mock.calls.map((c) => c[0].batch_id);
+    // B goes twice, its second copy a server replay; A goes first.
+    expect(order[0]).toBe(bid("batch-1"));
+    expect(new Set(order)).toEqual(new Set([bid("batch-1"), bid("batch-2")]));
+  });
+});
+
+describe("a pause that lands while the drain reads the next batch", () => {
+  test("holds the batch that read returns", async () => {
+    const base = memReplica();
+    let gate: (() => void) | null = null;
+    const replica = memReplica({
+      ...base,
+      nextBatch: async () => {
+        await new Promise<void>((resolve) => { gate = resolve; });
+        return base.nextBatch();
+      },
+    });
+    const post = vi.fn(async (_body: OpBatch) => ack());
+    const q = createOpQueue(replica, { post, newBatchId: minter() });
+    q.enqueue([{ op: "delete", uid: uidOf("tuid-a") }]);
+    await q.settled();
+    const drained = q.drain();
+    await vi.waitFor(() => { expect(gate).not.toBeNull(); });
+    // A recovery takes the barrier while the read waits on the worker.
+    q.pause("recovery");
+    gate!();
+    await expect(drained).resolves.toMatchObject({
+      status: "blocked", reason: "recovering",
+    });
+    expect(post).not.toHaveBeenCalled();
+
+    gate = null;
+    q.resume("recovery");
+    await vi.waitFor(() => { expect(gate).not.toBeNull(); });
+    gate!();
+    await vi.waitFor(() => { expect(post).toHaveBeenCalledTimes(1); });
+  });
 });

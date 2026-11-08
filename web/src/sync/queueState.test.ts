@@ -15,9 +15,11 @@ const base = (over: Partial<QueueState> = {}): QueueState => ({
 
 describe("terminalReason", () => {
   it("prioritises disposed over recovering over offline", () => {
-    expect(terminalReason(base({ disposed: true, recovering: true, online: false })))
-      .toBe("disposed");
-    expect(terminalReason(base({ recovering: true, online: false }))).toBe("recovering");
+    expect(terminalReason(base({
+      disposed: true, holders: new Set(["poison"]), online: false,
+    }))).toBe("disposed");
+    expect(terminalReason(base({ holders: new Set(["lane"]), online: false })))
+      .toBe("recovering");
     expect(terminalReason(base({ online: false }))).toBe("offline");
     expect(terminalReason(base())).toBeNull();
   });
@@ -41,19 +43,33 @@ describe("transitionQueue connectivity", () => {
   });
 
   it("pause enters recovery and cancels the timer, keeping the retry index", () => {
-    const t = transitionQueue(base({ retryScheduled: true, retryIndex: 2 }), { type: "pause" });
-    expect(t.state).toMatchObject({ recovering: true, retryScheduled: false, retryIndex: 2 });
+    const t = transitionQueue(base({ retryScheduled: true, retryIndex: 2 }),
+                              { type: "pause", owner: "recovery" });
+    expect(t.state).toMatchObject({ retryScheduled: false, retryIndex: 2 });
+    expect([...t.state.holders]).toEqual(["recovery"]);
     expect(t.effects).toEqual([{ type: "clear-timer" }]);
   });
 
-  it("resume leaves recovery and kicks, but is a no-op when not recovering", () => {
-    const resumed = transitionQueue(base({ recovering: true }), { type: "resume" });
-    expect(resumed.state.recovering).toBe(false);
-    expect(resumed.effects).toEqual([{ type: "kick" }]);
+  it("resume releases only its own owner, and kicks when none is left", () => {
+    const both = base({ holders: new Set(["poison", "lane"]) });
+    const one = transitionQueue(both, { type: "resume", owner: "lane" });
+    expect([...one.state.holders]).toEqual(["poison"]);
+    expect(terminalReason(one.state)).toBe("recovering");
+    expect(one.effects).toEqual([]);
 
-    const noop = transitionQueue(base(), { type: "resume" });
-    expect(noop.state).toEqual(base());
+    const none = transitionQueue(one.state, { type: "resume", owner: "poison" });
+    expect(none.state.holders.size).toBe(0);
+    expect(none.effects).toEqual([{ type: "kick" }]);
+  });
+
+  it("a resume by an owner that holds nothing changes nothing", () => {
+    const held = base({ holders: new Set(["poison"]) });
+    const noop = transitionQueue(held, { type: "resume", owner: "lane" });
+    expect(noop.state).toBe(held);
     expect(noop.effects).toEqual([]);
+
+    const idle = transitionQueue(base(), { type: "resume", owner: "recovery" });
+    expect(idle.effects).toEqual([]);
   });
 
   it("dispose is terminal and idempotent", () => {
@@ -103,7 +119,7 @@ describe("transitionQueue delivery outcomes", () => {
   it("a terminal failure reports its reason and never schedules a retry", () => {
     for (const [state, reason] of [
       [base({ disposed: true }), "disposed"],
-      [base({ recovering: true }), "recovering"],
+      [base({ holders: new Set(["startup"]) }), "recovering"],
       [base({ online: false }), "offline"],
     ] as [QueueState, string][]) {
       const t = transitionQueue(state, { type: "delivery-failed" });

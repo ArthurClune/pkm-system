@@ -155,7 +155,7 @@ describe("durable batch delivery", () => {
     ]);
     expect(bodies).toHaveLength(1); // the good batch waits for repair
 
-    q.resume("recovery");
+    q.resume("poison");
     await q.drain();
     expect(bodies).toHaveLength(2);
   });
@@ -333,7 +333,7 @@ describe("an enqueue the replica cannot persist", () => {
     });
     const desyncs: unknown[] = [];
     const q = createOpQueue(replica);
-    q.onDesync((e) => desyncs.push(e));
+    q.onDesync((e) => desyncs.push(e.error));
     const ticket = q.enqueue([op("tuid-u1")]);
     await q.settled();
     await q.drain();
@@ -362,7 +362,7 @@ describe("an enqueue the replica cannot persist", () => {
     const replica = laneOnlyReplica();
     const desyncs: unknown[] = [];
     const q = createOpQueue(replica);
-    q.onDesync((e) => desyncs.push(e));
+    q.onDesync((e) => desyncs.push(e.error));
     const ticket = q.enqueue([op("tuid-u1")]);
     await q.settled();
     await q.drain();
@@ -386,7 +386,7 @@ describe("an enqueue the replica cannot persist", () => {
     });
     const desyncs: unknown[] = [];
     const q = createOpQueue(replica);
-    q.onDesync((e) => desyncs.push(e));
+    q.onDesync((e) => desyncs.push(e.error));
     const ticket = q.enqueue([
       { op: "update_text", uid: uidOf("tuid-u1"), text: "a[[b]]" },
     ]);
@@ -415,7 +415,7 @@ describe("an enqueue the replica cannot persist", () => {
     });
     const desyncs: unknown[] = [];
     const q = createOpQueue(replica);
-    q.onDesync((e) => desyncs.push(e));
+    q.onDesync((e) => desyncs.push(e.error));
     const ticket = q.enqueue([
       op("tuid-u0"),
       { op: "update_text", uid: uidOf("tuid-u1"), text },
@@ -434,7 +434,7 @@ describe("an enqueue the replica cannot persist", () => {
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const q = createOpQueue(laneOnlyReplica());
     const desyncs: unknown[] = [];
-    q.onDesync((e) => desyncs.push(e));
+    q.onDesync((e) => desyncs.push(e.error));
     const atCap = "[[a//".repeat(MAX_LINK_NESTING) + "]]".repeat(MAX_LINK_NESTING);
     const text = atCap + "x".repeat(MAX_BLOCK_TEXT_CHARS - atCap.length);
     const ticket = q.enqueue([{ op: "update_text", uid: uidOf("tuid-u1"), text }]);
@@ -458,7 +458,7 @@ describe("an enqueue the replica cannot persist", () => {
     });
     const desyncs: unknown[] = [];
     const q = createOpQueue(replica);
-    q.onDesync((e) => desyncs.push(e));
+    q.onDesync((e) => desyncs.push(e.error));
     const ticket = q.enqueue([op("tuid-u1")]);
     await q.settled();
     await q.drain();
@@ -480,7 +480,7 @@ describe("an enqueue the replica cannot persist", () => {
     replica.nextBatch = () => Promise.reject(
       new RpcLifecycleError("worker-error", "replica worker failed"));
     const queue = createOpQueue(replica);
-    queue.onDesync((e) => desyncs.push(e));
+    queue.onDesync((e) => desyncs.push(e.error));
     const ticket = queue.enqueue([{ op: "delete", uid: uidOf("tuid-u1") }]);
     await ticket.settled;
     expect(desyncs).toEqual([]);
@@ -1090,7 +1090,7 @@ describe("fallback lane ordering against durable batches", () => {
     const replica = laneOnlyReplica();
     const desyncs: unknown[] = [];
     const q = createOpQueue(replica);
-    q.onDesync((e) => desyncs.push(e));
+    q.onDesync((e) => desyncs.push(e.error));
     q.setOnline(false);
 
     const ticket = q.enqueue([op("tuid-u1")]);
@@ -1229,7 +1229,7 @@ describe("fallback lane ordering against durable batches", () => {
     replica.enqueue = durableEnqueue;
     q.enqueue([op("tuid-newer")]);
     await q.settled();
-    q.resume("recovery");
+    q.resume("poison");
 
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
     expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops)).toEqual([
@@ -1643,7 +1643,7 @@ describe("fallback lane delivery outcomes", () => {
         const replica = laneOnlyReplica();
         const desyncs: unknown[] = [];
         const q = createOpQueue(replica);
-        q.onDesync((e) => desyncs.push(e));
+        q.onDesync((e) => desyncs.push(e.error));
         const ticket = q.enqueue([op("tuid-u1")]);
         await q.settled();
 
@@ -1678,7 +1678,7 @@ describe("fallback lane delivery outcomes", () => {
     const replica = laneOnlyReplica();
     const desyncs: unknown[] = [];
     const q = createOpQueue(replica);
-    q.onDesync((e) => desyncs.push(e));
+    q.onDesync((e) => desyncs.push(e.error));
     const ticket = q.enqueue([op("tuid-u1")]);
     await q.settled();
 
@@ -1702,7 +1702,7 @@ describe("fallback lane delivery outcomes", () => {
     const replica = laneOnlyReplica();
     const desyncs: unknown[] = [];
     const q = createOpQueue(replica);
-    q.onDesync((e) => desyncs.push(e));
+    q.onDesync((e) => desyncs.push(e.error));
     const bad = q.enqueue([op("tuid-bad")]);
     const good = q.enqueue([op("tuid-good")]);
     await q.settled();
@@ -1714,7 +1714,7 @@ describe("fallback lane delivery outcomes", () => {
     expect(desyncs).toHaveLength(1);
     expect(bodies).toHaveLength(1); // the good op waits for the repair
 
-    q.resume("recovery");
+    q.resume("lane");
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
     await expect(good.delivered).resolves.toEqual({ status: "delivered" });
   });
@@ -1728,7 +1728,7 @@ describe("fallback lane delivery outcomes", () => {
       const replica = laneOnlyReplica();
       const desyncs: unknown[] = [];
       const q = createOpQueue(replica);
-      q.onDesync((e) => desyncs.push(e));
+      q.onDesync((e) => desyncs.push(e.error));
       const bad = q.enqueue([op("tuid-bad")]);
       const good = q.enqueue([op("tuid-good")]);
       await q.settled();
@@ -1740,7 +1740,7 @@ describe("fallback lane delivery outcomes", () => {
       expect(desyncs).toHaveLength(1);
       expect(bodies).toHaveLength(1);
 
-      q.resume("recovery");
+      q.resume("lane");
       await expect(q.drain()).resolves.toEqual({ status: "drained" });
       await expect(good.delivered).resolves.toEqual({ status: "delivered" });
     },
@@ -1929,14 +1929,14 @@ describe("blocked drains and terminal states", () => {
     });
     expect(markAttempts).toBe(1); // the mark threw: row 1 is still deliverable
 
-    // an outside resume (SyncProvider's legacy repair, replicaSync) lifts the
+    // an outside resume of "poison" (discarding the intents) lifts the
     // barrier, and nextBatch hands the unmarked row out for a second rejection
-    q.resume("recovery");
+    q.resume("poison");
     await expect(q.drain()).resolves.toMatchObject({
       status: "blocked", reason: "recovering",
     });
 
-    q.resume("recovery");
+    q.resume("poison");
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
     expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops)).toEqual([
       [op("tuid-rejected")], [op("tuid-rejected")], [op("tuid-durable")], [op("tuid-retained")],
@@ -2041,7 +2041,7 @@ describe("onDesync", () => {
     const q = createOpQueue(laneOnlyReplica());
     q.onDesync(() => {
       q.enqueue([op("tuid-u9")]);
-      q.resume("recovery");
+      q.resume("lane");
     });
     const rejected = q.enqueue([op("tuid-u1")]);
     await q.settled();
@@ -2062,7 +2062,7 @@ describe("onDesync", () => {
     ]);
     const q = createOpQueue(laneOnlyReplica());
     q.onDesync(() => {
-      void Promise.resolve().then(() => q.resume("recovery"));
+      void Promise.resolve().then(() => q.resume("lane"));
     });
     q.setOnline(false);
     const rejected = q.enqueue([op("tuid-rejected")]);
@@ -2097,7 +2097,7 @@ describe("onDesync", () => {
       status: "blocked", reason: "recovering",
     });
 
-    q.resume("recovery");
+    q.resume("lane");
     const later = q.enqueue([op("tuid-u2")]);
     await q.settled();
     await expect(q.drain()).resolves.toEqual({ status: "drained" });

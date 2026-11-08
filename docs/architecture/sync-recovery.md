@@ -19,6 +19,7 @@ replica is a cache and the queue is the user's intent.
 | The worker RPC breaks | `unreachable`: ops kept, barrier held | [Availability](#availability-two-values-one-owner) |
 | The replica opens, then fails every write | The offline banner says unsent changes exist only in memory | [What the UI shows](#what-the-ui-shows) |
 | A window was read before an ack deleted its row | Refetched; `PullStarvedError` after the cap | [Windows and the pending queue](sync-and-offline.md#windows-and-the-pending-queue) |
+| Two repairs or a recovery overlap | Each holds its own barrier owner and releases only that | [The recovery barrier](#the-recovery-barrier) |
 | The server answers a terminal 4xx | Row poisoned, delivery paused, snapshot repair drops it | [A batch the server rejects](#a-batch-the-server-rejects) |
 | A pull keeps failing | Backoff; `stalled` after `STALL_AFTER_FAILURES` | [A pull that keeps failing](#a-pull-that-keeps-failing) |
 | Schema, generation, cursor, FK, title, corruption or repeated window failure | `reset` or `rebase` through `runRecovery` | [Rebootstrap triggers](#rebootstrap-triggers) |
@@ -52,7 +53,7 @@ one predicate, `headPrecedes` (`sync/outbox.ts`):
 
 | Durable batch | Goes |
 |---|---|
-| persisted while the lane held entries (a mark in `follows`) | after every lane entry appended before it |
+| enqueued while the lane held entries (a mark in `follows`) | after every lane entry appended before it |
 | any other row: a previous session's, the shim's `create_page` | ahead of the lane |
 | none left (`nextBatch()` returns null) | the lane goes |
 
@@ -60,7 +61,9 @@ one predicate, `headPrecedes` (`sync/outbox.ts`):
 flush does with `deliverLaneAhead(batch_id)`. A path that skips it can post a
 move ahead of the create it depends on.
 
-`opQueue.enqueue` mints the `batch_id` before the persist RPC, so after a lost
+`opQueue.enqueue` mints the `batch_id` and sets the `follows` mark before the
+persist RPC. A reply that times out does not stop the worker storing the row
+later, and an unmarked row would go ahead of the whole lane. After a lost
 reply the durable row and its lane copy share one id, and whichever arrives
 second replays. The worker fills hashes into the durable copy only;
 `batch_replay_hash` leaves those fields out, so the copies still match
@@ -149,6 +152,33 @@ verdict, so no problem banner mounts. The offline `ConnectivityBanner` covers
 it: it appends `memoryOnlySentence`'s output whenever `unsentInMemory > 0` and
 the socket is not `connected`.
 
+## The recovery barrier
+
+The queue delivers nothing while its barrier has a holder. **Each owner
+releases only its own claim**, so one repair finishing never lifts a barrier
+another still needs. `BarrierOwner` (`sync/queueState.ts`) is a closed union,
+and `pause(owner)` and `resume(owner)` take one:
+
+| Owner | Claimed | Released |
+|---|---|---|
+| `startup` | `clientRuntime.startup()` | discovery answers; on poisoned rows, after `poison` is claimed |
+| `poison` | a durable 4xx (`rejectDurableBatch`), a reload's retained mark intents, or a repair of rows startup found | the repair succeeds; marking matched no row; the intents are discarded |
+| `recovery` | `runRecovery`, before its lease | the end of that run, whatever its outcome |
+| `lane` | a lane entry's 4xx (`deliverLaneHead`) | the first legacy outline repair to become stable after it |
+
+The drain checks the barrier again after each `nextBatch()` read, since a
+pause can land while the read waits on the worker's gate.
+
+`onDesync` reports `{ error, lane }`. A local refusal (a text past a limit, a
+`ReplicaError.rejected` op) also desyncs, but it paused nothing, so its legacy
+repair resumes nothing. `legacyRepair.ts` owes a `lane` resume across a failed
+run, so the retry that succeeds pays it. A rejection that lands after a run's
+`onStable` gets a run of its own, since that run read too early for it.
+
+A poison problem without its repair outranks a legacy one in the banner: its
+Retry is what lifts `poison`. The legacy problem waits in `legacyBehind`
+(`sync/syncState.ts`) and is shown once the poison problem ends.
+
 ## A batch the server rejects
 
 `isTerminalRejection` (`sync/rejection.ts`) decides, at both delivery sites in
@@ -198,7 +228,9 @@ Mark intents live in `localStorage` (`sync/poisonIntentStore.ts`,
 `retryPoisonMarks()` keeps the barrier, with Retry and "Discard rejected
 change" (`Sync.discardProblem()`).
 
-`replicaSync`'s `authoritativeRepair` flag is the barrier's ownership claim:
+`replicaSync`'s `authoritativeRepair` flag claims recovery for the poison
+repair, so a normal recovery abandons its flush. It moves with the `poison`
+owner:
 
 | Ownership | When |
 |---|---|
@@ -262,14 +294,13 @@ flowchart TD
     C -.->|no| AB["abortRecovery(token), rethrow"]
     F -.->|throws| AB
     S -.->|throws| AB
-    OK --> R["finally: queue.resume('recovery'),<br/>if resume and no poison repair owns recovery"]
+    OK --> R["finally: queue.resume('recovery')"]
     AB --> R
 ```
 
 | `RecoveryOptions` | schema / feed recovery | poison repair | manual reset |
 |---|---|---|---|
 | `flush` | `"preemptible"`: abandon if a poison mark claims recovery | `"skip"`: never post valid rows ahead of a refused batch | `"blocking"`: a failed flush raises `ResetBlockedError`; `"skip"` if the user discards pending changes |
-| `resume` | yes | no: the runtime resumes after deleting the row | yes |
 | `reportReplicaFailure` | yes, mode `recovery-failed` | no | no |
 | `awaitInFlightPull` | no | yes | yes |
 | `forceReadyOnSuccess` | no | no | yes |

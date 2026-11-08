@@ -1,13 +1,13 @@
 ---
 # pkm-ees3
 title: 'Sync: a durable row whose enqueue reply timed out can be posted ahead of an earlier lane entry'
-status: todo
+status: completed
 type: bug
 priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-07T18:42:45Z
+updated_at: 2026-11-08T14:52:33Z
 parent: pkm-zk8b
 ---
 
@@ -31,8 +31,8 @@ fixed pkm-5ekv, reached by a lost reply.
 (`serveRpc` has no deadline).
 
 ## Fix
-- [ ] Red test (the verifier's repro: lane-only A, timed-out B persisted late, drain order)
-- [ ] Mark the batch as follows-the-lane before the RPC; clear the mark when the copy turns out not to be durable (trial run: the existing 108 opQueue tests stay green)
+- [x] Red test (the verifier's repro: lane-only A, timed-out B persisted late, drain order)
+- [x] Mark the batch as follows-the-lane before the RPC; clear the mark when the copy turns out not to be durable (trial run: the existing 108 opQueue tests stay green)
 
 ## Property testing (required)
 
@@ -59,3 +59,10 @@ This changes the outbox ordering machine. Extend the web `sync/` suite:
   (lane and durable copies interleaved), and every edit is present after
   convergence.
 - Teeth: move `markFollows` back after the RPC and confirm the order invariant fails.
+
+## Summary of Changes
+
+- `opQueue.ts`: `markFollows` runs before the persist RPC; a `ReplicaError.rejected` refusal forgets the mark, since nothing was stored. `outbox.ts` docs say a mark may name a batch that never became durable.
+- Tests: `opQueue.deps.test.ts` (lane-only A, B's reply lost after its row was stored, drain order); `harness.prop.ts` scenario on the real worker and server.
+- Property: the queue property's `lostReply` edits (the reply rejects while the worker's write waits behind a held gate) and its order invariant; teeth mutant drops the mark for lost-reply batches. The full-stack sync suite gains a `lostReply` fault, judged by its per-client order invariant.
+- Docs: sync-recovery.md § The in-memory fallback lane; a troubleshooting row.

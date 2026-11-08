@@ -6,7 +6,7 @@
 // lands where the indicator is drawn.
 import { act, createEvent, fireEvent, render } from "@testing-library/react";
 import { memo, useRef } from "react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
@@ -241,4 +241,37 @@ it("cancels the pending frame when the drag ends, so nothing lands late",
   // without the cancel it would happily move the line after the drag was
   // over.
   expect(indicatorTop()).toBe("0px");
+});
+
+describe("which drag events belong to the block drag in progress", () => {
+  const listing = (types: string[]) => ({
+    types, items: [], files: [], getData: () => "", dropEffect: "",
+  });
+
+  it("a dragover that lists no types continues the block drag", () => {
+    const { zone } = startDrag();
+    const ev = createEvent.dragOver(zone, { clientX: 0, clientY: 5,
+                                            dataTransfer: listing([]) });
+    fireEvent(zone, ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(indicatorTop()).toBe("0px");
+  });
+
+  it("a drop listing only text/plain still moves the block", () => {
+    const { sync, zone } = startDrag();
+    const t = listing(["text/plain"]);
+    fireEvent.dragOver(zone, { clientX: 0, clientY: 5, dataTransfer: t });
+    fireEvent.drop(zone, { clientX: 0, clientY: 5, dataTransfer: t });
+    expect(sync.sent.flat()).toEqual([
+      { op: "move", uid: "tuid-u6", parent_uid: null, order_idx: 0 }]);
+  });
+
+  it("a drop carrying Files ends a stale block drag and moves nothing", () => {
+    const { sync, zone } = startDrag();
+    const t = listing(["Files"]);
+    fireEvent.dragOver(zone, { clientX: 0, clientY: 5, dataTransfer: t });
+    fireEvent.drop(zone, { clientX: 0, clientY: 5, dataTransfer: t });
+    expect(sync.sent.flat().filter((op) => op.op === "move")).toEqual([]);
+    expect(indicatorTop()).toBeNull();
+  });
 });

@@ -1,13 +1,13 @@
 ---
 # pkm-zk8b
 title: 'State-machine review (2026-11-07): fixes'
-status: todo
+status: completed
 type: epic
 priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-07T18:42:45Z
+updated_at: 2026-11-08T17:24:43Z
 ---
 
 Found by the state-machine review of 2026-11-07 (explicit and implicit machines, six area reviewers, then an adversarial verification pass). Verified against main @ a5bb85b3.
@@ -85,3 +85,7 @@ the barrier owner set (pkm-o4qp), the assistant turn phase on the server
 (pkm-74vc), the replica "queue unreadable" outcome (pkm-2zbs), one owner
 for "draft dirty" (pkm-eydv), the assistant conversation and turn machine
 in the web panel (pkm-62jb), the Journal paging reducer (pkm-gks1).
+
+## Summary of Changes
+
+Every child is completed. Fixes merged in groups A to I, each with red tests, a troubleshooting row and, for every new or changed state machine, a property with reach and teeth shown. New web property suites: `assistant` and `journal`. Combined-main gates passed (server pytest, pyrefly, ruff, `pnpm verify`, `proptest/check.sh` server and web), and the work was deployed as 55a04742. The IME fix (pkm-2wiw) was confirmed on a physical iPad. Follow-ups outside the epic: pkm-eynb (GLM live smoke) and pkm-996z (gate timeout under load).

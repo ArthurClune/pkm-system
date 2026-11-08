@@ -1,13 +1,13 @@
 ---
 # pkm-2wiw
 title: 'Outline: IME composition is invisible to the key policy; committing a conversion with Enter splits the block'
-status: in-progress
+status: completed
 type: bug
 priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-08T14:59:05Z
+updated_at: 2026-11-08T17:24:38Z
 parent: pkm-zk8b
 ---
 
@@ -31,7 +31,7 @@ the iPad's on-screen keyboard.
 - [x] Red tests for both event orders (Chromium: isComposing; WebKit: compositionend then keydown 229)
 - [x] Expose composing state from `useBlockDraft` (including the just-ended case) to the key policy as an `EditorKeyInput` field; return `none` while composing
 - [x] Verify on the iPad simulator (`.claude/skills/ipad-simulator`): dispatched composition/keydown orders through the React handlers in real WebKit, and a W3C key-action Enter splits (on-screen keyboard not reachable there; see evidence)
-- [ ] physical iPad: on-screen Enter splits a block, and an IME commit with Enter does not
+- [x] physical iPad: on-screen Enter splits a block, and an IME commit with Enter does not (Arthur, 2026-11-08, on the deploy of 55a04742)
 
 ## Summary of Changes
 

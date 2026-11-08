@@ -120,8 +120,13 @@ it("resolves ((block refs)) from every batch's block_ref_texts", async () => {
                  [block("tuid-u2", "older ((ref_bbbb))")])],
       block_ref_texts: { ref_bbbb: { text: "resolved beta", page_title: "B" } },
     }],
+    // A full batch: a short one would mean nothing older exists.
     ["/api/journal?days=5", {
-      days: [day("2026-07-08", "July 8th, 2026",
+      days: [day("2026-07-12", "July 12th, 2026"),
+             day("2026-07-11", "July 11th, 2026"),
+             day("2026-07-10", "July 10th, 2026"),
+             day("2026-07-09", "July 9th, 2026"),
+             day("2026-07-08", "July 8th, 2026",
                  [block("tuid-u1", "see ((ref_aaaa))")])],
       block_ref_texts: { ref_aaaa: { text: "resolved alpha", page_title: "A" } },
     }],

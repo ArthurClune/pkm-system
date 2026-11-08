@@ -1,13 +1,13 @@
 ---
 # pkm-gks1
 title: 'Journal: a load error never clears, and a failed resync reload makes Load older days collapse to five days (make paging an explicit reducer)'
-status: todo
+status: in-progress
 type: bug
 priority: low
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:46Z
-updated_at: 2026-11-07T18:42:46Z
+updated_at: 2026-11-08T14:21:29Z
 parent: pkm-zk8b
 ---
 
@@ -32,8 +32,8 @@ in its own Functional Core file. That state is `days`, `daysRef`,
 - Any successful load clears the error.
 - Results tagged with an old generation are ignored.
 
-- [ ] Red tests: error then success; failed reload then Load older days
-- [ ] Reducer plus shell; the component dispatches events and runs fetches
+- [x] Red tests: error then success; failed reload then Load older days
+- [x] Reducer plus shell; the component dispatches events and runs fetches
 
 ## Property testing (required)
 

@@ -4,9 +4,10 @@
 // syncState core; anything else (a test harness) can drive it the same way.
 //
 // Startup closes the reload window in which later durable work could post
-// before a previously rejected optimistic batch is repaired: delivery stays
-// paused from startup() until either discovery finds nothing, a repair of
-// what it found succeeds, or the replica proves unusable. Which Retry a click
+// before a previously rejected optimistic batch is repaired: the barrier's
+// "startup" owner holds from startup() until discovery answers. If it found
+// poisoned rows, the "poison" owner takes over before "startup" lets go, and
+// holds until a repair of them succeeds. Which Retry a click
 // means is decided by retryPolicy.ts; runRetry only executes that decision.
 import type { Replica } from "../replica/client";
 import { availabilityOf } from "../replica/errors";
@@ -108,6 +109,9 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
     repairTargets = mergePoisonEvents(events);
     repairSucceeded = false;
     repairFailed = false;
+    // Held already when the rejection came this session; a row found by
+    // startup discovery is claimed here.
+    queue.pause("poison");
     const event = repairTargets[0];
     emit({ type: "repair-started", event });
     const run = (async () => {
@@ -124,7 +128,7 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
           emit({ type: "repair-succeeded", event });
         }
         replicaSync.completeAuthoritativeRepair("poison");
-        if (live()) queue.resume("recovery");
+        if (live()) queue.resume("poison");
         repairSucceeded = true;
       } catch (error: unknown) {
         repairFailed = true;
@@ -164,7 +168,8 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
           // reconnect triggers — replays it.
           if (live()) {
             deps.onReplicaState({ mode: "no-replica" });
-            queue.resume("recovery");
+            queue.resume("poison");
+            queue.resume("startup");
           }
           // Not silent: the user has lost offline editing for the session and
           // gets no other signal, since "no-replica" raises no banner of its
@@ -181,11 +186,20 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
     const repairable = mergePoisonEvents(marked, discovered);
     discovering = false;
     if (repairable.length > 0) {
-      await repair(repairable);
+      // repair() claims "poison" before it returns, so the barrier never
+      // lifts between the two owners.
+      const run = repair(repairable);
+      if (live()) queue.resume("startup");
+      await run;
       if (!repairSucceeded) return;
     } else {
       emit({ type: "poison-discovery-cleared" });
-      if (live()) queue.resume("recovery");
+      // Nothing is poisoned: a reload's retained intents that matched no row
+      // left a "poison" claim with nothing to repair.
+      if (live()) {
+        queue.resume("poison");
+        queue.resume("startup");
+      }
     }
     if (live()) await replicaSync.start();
   };
@@ -242,7 +256,7 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
   return {
     startup: () => {
       queue.setOnline(false);
-      queue.pause("recovery");
+      queue.pause("startup");
       startupRunPromise = (async () => {
         let marked: readonly PoisonEvent[];
         try {
@@ -282,16 +296,18 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
       // held (completeAuthoritativeRepair only clears its own matching
       // reason).
       replicaSync.completeAuthoritativeRepair("poison");
+      // The intents' claim on "poison" goes with them. A repair still
+      // running owns that claim too, and releases it when it succeeds.
+      // Mid-session the still-unmarked durable row is then handed out again:
+      // the server rejects it again and the flow re-enters
+      // rejectDurableBatch, whose per-batch effects are idempotent across
+      // repeats (rememberPoisonMark).
+      if (live() && repairRun === null) queue.resume("poison");
       if (discovering) {
         // Rejoin the normal startup: discovery runs against the replica,
         // and an unopenable one falls into the online-only fallback.
         return continueStartup([]);
       }
-      // Mid-session the still-unmarked durable row is simply handed out
-      // again once the barrier lifts: the server rejects it again and the
-      // flow re-enters rejectDurableBatch, whose per-batch effects are
-      // idempotent across repeats (rememberPoisonMark).
-      if (live()) queue.resume("recovery");
       return Promise.resolve();
     },
     clearRepairTargets: () => { repairTargets = []; },

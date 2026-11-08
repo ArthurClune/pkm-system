@@ -29,7 +29,7 @@ import { readPoisonMarkIntents,
          writePoisonMarkIntents } from "./poisonIntentStore";
 import { withIntent, type PoisonEvent } from "./poisonIntents";
 import { createQueueState, terminalReason, transitionQueue,
-         type QueueBlockReason, type QueueEffect,
+         type BarrierOwner, type QueueBlockReason, type QueueEffect,
          type QueueEvent } from "./queueState";
 import { isTerminalRejection } from "./rejection";
 
@@ -58,7 +58,17 @@ export interface WriteTicket {
   delivered: Promise<DeliveryOutcome>;
 }
 
-export type { PoisonEvent };
+export type { BarrierOwner, PoisonEvent };
+
+/** What onDesync reports: the active outline must be repaired from the
+ * server. `lane` says the queue paused the "lane" owner for it (a lane entry
+ * the server rejected), which the repair resumes once stable; a local refusal
+ * (over a text limit, or a replica-rejected op) paused nothing, so its repair
+ * resumes nothing. */
+export interface Desync {
+  error: unknown;
+  lane: boolean;
+}
 
 export interface PoisonMarkFailure {
   event: PoisonEvent;
@@ -75,13 +85,16 @@ export interface OpQueue {
   settled(): Promise<void>;
   drain(): Promise<DrainOutcome>;
   setOnline(online: boolean): void;
-  pause(reason: "recovery"): void;
-  resume(reason: "recovery"): void;
+  /** Claim the recovery barrier for `owner`; delivery waits until every
+   * owner has resumed. */
+  pause(owner: BarrierOwner): void;
+  /** Release `owner`'s claim, and only that one. */
+  resume(owner: BarrierOwner): void;
   dispose(): void;
-  /** The replica refused an op on its merits, or the server terminally
-   * rejected a lane entry: the active outline must be repaired from the
-   * server. */
-  onDesync(fn: (error: unknown) => void): () => void;
+  /** The replica refused an op on its merits, an op is past a text limit, or
+   * the server terminally rejected a lane entry: the active outline must be
+   * repaired from the server. */
+  onDesync(fn: (desync: Desync) => void): () => void;
   /** Every drain run's outcome, however it was started. */
   onDrain(fn: (outcome: DrainOutcome) => void): () => void;
   /** Either delivery path's ack named a skipped op (see deliverLaneHead and
@@ -188,13 +201,13 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
   let poisonMarkIntents = poisonStore.read();
   // Connectivity + retry policy lives in the queueState core; this shell owns
   // the timer handle and dispatches events into it.
-  let qstate = createQueueState(poisonMarkIntents.length > 0);
+  let qstate = createQueueState(poisonMarkIntents.length > 0 ? ["poison"] : []);
   let pendingCount = 0;
   let persistChain = Promise.resolve();
   let drainRun: Promise<DrainOutcome> | null = null;
   let drainAgain = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
-  const desync = listeners<unknown>();
+  const desync = listeners<Desync>();
   const drained = listeners<DrainOutcome>();
   const skipped = listeners<void>();
   const pending = listeners<number>();
@@ -388,7 +401,7 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
     if (qstate.disposed) throw new Error("op queue disposed");
     const intents = [...poisonMarkIntents];
     if (intents.length === 0) return [];
-    dispatch({ type: "pause" });
+    dispatch({ type: "pause", owner: "poison" });
     let result: { pending: number; matched: boolean } | null = null;
     const matchedIntents: PoisonEvent[] = [];
     for (const event of intents) {
@@ -435,9 +448,9 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
         // this queue makes on its own — hold later entries behind the
         // recovery barrier, and let the onDesync listener run the
         // authoritative repair that resumes it.
-        dispatch({ type: "pause" });
+        dispatch({ type: "pause", owner: "lane" });
         settleLaneHead(head, { status: "failed", error });
-        desync.emit(error);
+        desync.emit({ error, lane: true });
         return blocked("recovering", error);
       }
       return failed(error);
@@ -467,7 +480,7 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
     // the batch. markPoisoned may wait behind a recovery lease whose
     // snapshot still says this row is valid; that lease must learn it
     // is stale before it begins its next POST.
-    dispatch({ type: "pause" });
+    dispatch({ type: "pause", owner: "poison" });
     poisonPending.emit(undefined);
     rememberPoisonMark(event);
     finishDelivery(batch.batch_id, { status: "failed", error });
@@ -695,7 +708,7 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
             `block ${overLimit.uid}: ${describeTextLimit(overLimit.violation)}`);
           resolve({ status: "failed", error });
           resolveDelivery({ status: "failed", error });
-          desync.emit(error);
+          desync.emit({ error, lane: false });
           return;
         }
         // Minted BEFORE the RPC so a lost reply cannot split the batch's
@@ -728,7 +741,7 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
           // retrying can never help. The ONE case that still desyncs.
           if (replicaError?.rejected === true) {
             resolveDelivery({ status: "failed", error });
-            desync.emit(error);
+            desync.emit({ error, lane: false });
             return;
           }
           // Everything else means "could not persist locally right now", which
@@ -776,11 +789,11 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
     setOnline(next) {
       dispatch({ type: "set-online", online: next });
     },
-    pause() {
-      dispatch({ type: "pause" });
+    pause(owner) {
+      dispatch({ type: "pause", owner });
     },
-    resume() {
-      dispatch({ type: "resume" });
+    resume(owner) {
+      dispatch({ type: "resume", owner });
     },
     dispose() {
       if (qstate.disposed) return;

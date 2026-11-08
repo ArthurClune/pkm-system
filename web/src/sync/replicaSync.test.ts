@@ -410,7 +410,9 @@ describe("poison recovery ownership", () => {
     releaseFeed();
     await repair;
     expect(snapshotCalls).toBe(1);
-    expect(queue.resume).not.toHaveBeenCalled();
+    // The run lets go of its own "recovery" claim; "poison" is the
+    // provider's to release once the row is deleted.
+    expect(queue.resume.mock.calls).toEqual([["recovery"]]);
   });
 
   test("poison owns recovery when a held feed needs bootstrap through failure and retry", async () => {
@@ -488,15 +490,17 @@ describe("poison recovery ownership", () => {
     const retry = sync.rebaseAuthoritative("poison");
     await vi.waitFor(() => { expect(retrySnapshotStarted).toBe(true); });
     const postedBeforeRetryCommit = [...posted];
-    const resumesBeforeRetryCommit = queue.resume.mock.calls.length;
+    const resumesBeforeRetryCommit = [...queue.resume.mock.calls];
     releaseRetrySnapshot();
     await retry;
 
     expect(firstError).toMatchObject({ message: "poison snapshot offline" });
     expect(postedBeforeRetryCommit).toEqual([]);
     expect(posted).toEqual([]);
-    expect(resumesBeforeRetryCommit).toBe(0);
-    expect(queue.resume).not.toHaveBeenCalled();
+    // Only the failed poison run's own "recovery" claim: the feed between
+    // the two runs entered no normal recovery.
+    expect(resumesBeforeRetryCommit).toEqual([["recovery"]]);
+    expect(queue.resume).not.toHaveBeenCalledWith("poison");
     expect(snapshotCalls).toBe(2); // failed poison snapshot + successful Retry
     expect(sync.completeAuthoritativeRepair).toBeTypeOf("function");
     sync.completeAuthoritativeRepair("poison");
@@ -561,7 +565,7 @@ describe("poison recovery ownership", () => {
 
     expect(posted).toEqual([]);
     expect(abortRecovery).toHaveBeenCalledWith("stale-normal-lease");
-    expect(queue.resume).not.toHaveBeenCalled();
+    expect(queue.resume).not.toHaveBeenCalledWith("poison");
   });
 
   test("a needs-bootstrap feed answer re-bootstraps when the queue is empty", async () => {
@@ -622,7 +626,7 @@ describe("poison recovery ownership", () => {
 
     signalPoisonPending(); // claims ownership, as rejectDurableBatch would
     signalUnmatched(); // the marking round matched nothing
-    expect(queue.resume).toHaveBeenCalledTimes(1);
+    expect(queue.resume.mock.calls).toEqual([["poison"]]);
 
     sync.onSeq(seqOf(9));
     await sync.idle(); // drives applyCall #2 ("needs-bootstrap")
@@ -1561,7 +1565,8 @@ describe("resetLocalData", () => {
     expect(queue.pause).not.toHaveBeenCalled();
   });
 
-  test("resetLocalData does not resume the queue when poison now owns recovery", async () => {
+  test("resetLocalData releases only its own claim when poison now owns recovery",
+       async () => {
     const replica = fakeReplica();
     let signalPoisonPending: () => void = () => undefined;
     const queue = {
@@ -1588,7 +1593,7 @@ describe("resetLocalData", () => {
 
     await sync.resetLocalData({ discardPending: true });
 
-    expect(queue.resume).not.toHaveBeenCalled();
+    expect(queue.resume.mock.calls).toEqual([["recovery"]]);
   });
 
   test("resetLocalData follows the shared queue/lease/flush/snapshot/commit trace", async () => {
@@ -1753,11 +1758,10 @@ describe("resetLocalData", () => {
 });
 
 describe("the delivery barrier", () => {
-  // Pins the shared recovery protocol rather than any one entrant: whoever owns
-  // delivery resumption releases the barrier exactly once on the way out,
-  // whether the lifecycle committed or threw. Poison repair is the deliberate
-  // exception (the provider resumes after deleting the durable row) and has its
-  // own tests above.
+  // Pins the shared recovery protocol rather than any one entrant: every run
+  // releases its own "recovery" claim exactly once on the way out, whether
+  // the lifecycle committed or threw. Poison repair does the same; the
+  // "poison" claim it leaves standing is the provider's (tests above).
   type BarrierEntrant = "schema recovery" | "feed rebootstrap" | "manual reset";
 
   async function runBarrierEntrant(

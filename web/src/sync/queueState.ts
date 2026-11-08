@@ -3,14 +3,24 @@
 // terminally blocked, when a retryable failure schedules an escalating retry,
 // and how online/pause/resume/dispose transitions cancel or reset that retry.
 // The queue shell owns the actual timers, promises, deliveries, and
-// persistence; this module only decides. Behaviour matches the former inline
-// flag mutations exactly.
+// persistence; this module only decides.
 
 export type QueueBlockReason = "offline" | "retryable" | "recovering" | "disposed";
 
+/** Who may hold the recovery barrier. Each owner releases only its own claim,
+ * so one repair finishing never lifts a barrier another still needs:
+ *   startup   clientRuntime, from mount until poison discovery answers
+ *   poison    a rejected durable batch, from the rejection (or a reload's
+ *             retained mark intent) until its repair succeeds
+ *   recovery  replicaSync's recovery lease, for the length of one run
+ *   lane      a rejected lane entry, until the legacy outline repair is
+ *             stable */
+export type BarrierOwner = "startup" | "poison" | "recovery" | "lane";
+
 export interface QueueState {
   online: boolean;
-  recovering: boolean;
+  /** The barrier's holders; delivery is blocked while any remain. */
+  holders: ReadonlySet<BarrierOwner>;
   disposed: boolean;
   /** A backoff retry timer is currently armed (mirrors retryTimer !== null). */
   retryScheduled: boolean;
@@ -20,12 +30,14 @@ export interface QueueState {
 
 export const RETRY_DELAYS = [250, 1_000, 5_000] as const;
 
-/** `recovering` starts true when durable poison-mark intents survived a reload
- * (the shell must repair before delivery resumes). */
-export function createQueueState(recovering = false): QueueState {
+/** `holders` starts with "poison" when durable poison-mark intents survived a
+ * reload (the shell must repair before delivery resumes). */
+export function createQueueState(
+  holders: Iterable<BarrierOwner> = [],
+): QueueState {
   return {
     online: true,
-    recovering,
+    holders: new Set(holders),
     disposed: false,
     retryScheduled: false,
     retryIndex: 0,
@@ -34,8 +46,8 @@ export function createQueueState(recovering = false): QueueState {
 
 export type QueueEvent =
   | { type: "set-online"; online: boolean }
-  | { type: "pause" }
-  | { type: "resume" }
+  | { type: "pause"; owner: BarrierOwner }
+  | { type: "resume"; owner: BarrierOwner }
   | { type: "dispose" }
   | { type: "batch-succeeded" }
   | { type: "delivery-failed" }
@@ -59,7 +71,7 @@ export function terminalReason(
   state: QueueState,
 ): "offline" | "recovering" | "disposed" | null {
   return state.disposed ? "disposed"
-    : state.recovering ? "recovering"
+    : state.holders.size > 0 ? "recovering"
       : !state.online ? "offline" : null;
 }
 
@@ -79,12 +91,21 @@ export function transitionQueue(
     case "pause":
       // Recovery barrier: cancelRetry(reset=false) keeps the backoff index.
       return {
-        state: { ...state, recovering: true, retryScheduled: false },
+        state: {
+          ...state, holders: new Set([...state.holders, event.owner]),
+          retryScheduled: false,
+        },
         effects: [{ type: "clear-timer" }],
       };
-    case "resume":
-      if (!state.recovering) return { state, effects: [] };
-      return { state: { ...state, recovering: false }, effects: [{ type: "kick" }] };
+    case "resume": {
+      if (!state.holders.has(event.owner)) return { state, effects: [] };
+      const holders = new Set(state.holders);
+      holders.delete(event.owner);
+      return {
+        state: { ...state, holders },
+        effects: holders.size === 0 ? [{ type: "kick" }] : [],
+      };
+    }
     case "dispose":
       if (state.disposed) return { state, effects: [] };
       return {

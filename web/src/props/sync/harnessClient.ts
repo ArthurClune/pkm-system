@@ -264,7 +264,7 @@ export async function startClient(
         onStable();
       },
       onEvent: (event) => { syncEvents.push(event); },
-      resume: () => queue.resume("recovery"),
+      resume: () => queue.resume("lane"),
       isMounted: () => !state.ended,
     });
     const reconnect = createReconnectFlow({
@@ -279,9 +279,9 @@ export async function startClient(
       },
     });
     const offs = [
-      queue.onDesync((error) => {
-        desyncs.push(error);
-        void legacyRepair.run(error);
+      queue.onDesync((desync) => {
+        desyncs.push(desync.error);
+        void legacyRepair.run(desync.error, desync);
       }),
       queue.onPoison((event) => { poisoned.push(event.batch_id); }),
       queue.onUnsentInMemory((n) => {

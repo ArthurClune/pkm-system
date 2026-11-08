@@ -96,8 +96,8 @@ describe("clientRuntime startup", () => {
     await h.runtime.startup();
     await h.runtime.startupRun();
     expect(h.calls).toEqual([
-      "setOnline(false)", "pause(recovery)", "retryPoisonMarks",
-      "poisonedBatches", "resume(recovery)", "start",
+      "setOnline(false)", "pause(startup)", "retryPoisonMarks",
+      "poisonedBatches", "resume(poison)", "resume(startup)", "start",
     ]);
     expect(h.events).toEqual([{ type: "poison-discovery-cleared" }]);
     expect(h.runtime.discoveringPoison()).toBe(false);
@@ -108,10 +108,11 @@ describe("clientRuntime startup", () => {
     const h = setup({ poisoned: async () => [event] });
     await h.runtime.startup();
     expect(h.calls).toEqual([
-      "setOnline(false)", "pause(recovery)", "retryPoisonMarks",
-      "poisonedBatches", "rebaseAuthoritative(poison)", "deleteBatch(3,b-3)",
+      "setOnline(false)", "pause(startup)", "retryPoisonMarks",
+      "poisonedBatches", "pause(poison)",
+      "rebaseAuthoritative(poison)", "resume(startup)", "deleteBatch(3,b-3)",
       "refreshPending", "completeAuthoritativeRepair(poison)",
-      "resume(recovery)", "start",
+      "resume(poison)", "start",
     ]);
     expect(h.events).toEqual([
       { type: "repair-started", event },
@@ -155,7 +156,7 @@ describe("clientRuntime startup", () => {
     marks.resolve([]);
     await h.runtime.startupRun();
     await flush();
-    expect(h.calls).not.toContain("resume(recovery)");
+    expect(h.calls).not.toContain("resume(startup)");
     expect(h.calls).not.toContain("start");
     expect(h.events).toEqual([]);
     expect(h.poisonFns.size).toBe(0);
@@ -168,7 +169,7 @@ describe("clientRuntime startup", () => {
     });
     await h.runtime.startup();
     expect(h.states).toEqual([{ mode: "no-replica" }]);
-    expect(h.calls).toContain("resume(recovery)");
+    expect(h.calls).toContain("resume(startup)");
     expect(h.calls).not.toContain("start");
     expect(h.events).toEqual([{ type: "replica-unusable", error: "no opfs" }]);
     expect(h.runtime.discoveringPoison()).toBe(false);
@@ -177,7 +178,7 @@ describe("clientRuntime startup", () => {
   test("a discovery failure that is not unusable keeps the gate", async () => {
     const h = setup({ poisoned: async () => { throw new Error("rpc timeout"); } });
     await h.runtime.startup();
-    expect(h.calls).not.toContain("resume(recovery)");
+    expect(h.calls).not.toContain("resume(startup)");
     expect(h.events).toEqual([
       { type: "poison-discovery-failed", error: "rpc timeout" },
     ]);
@@ -187,7 +188,7 @@ describe("clientRuntime startup", () => {
   test("a failed mark retry holds the gate without discovery", async () => {
     const h = setup({ marks: async () => { throw new Error("mark rpc"); } });
     await h.runtime.startup();
-    expect(h.calls).toEqual(["setOnline(false)", "pause(recovery)", "retryPoisonMarks"]);
+    expect(h.calls).toEqual(["setOnline(false)", "pause(startup)", "retryPoisonMarks"]);
   });
 });
 
@@ -218,8 +219,9 @@ describe("clientRuntime repair and retry", () => {
     h.calls.length = 0;
     await h.runtime.runRetry({ kind: "repair-targets" });
     expect(h.calls).toEqual([
-      "rebaseAuthoritative(poison)", "deleteBatch(4,b-4)", "refreshPending",
-      "completeAuthoritativeRepair(poison)", "resume(recovery)", "start",
+      "pause(poison)", "rebaseAuthoritative(poison)", "deleteBatch(4,b-4)",
+      "refreshPending", "completeAuthoritativeRepair(poison)",
+      "resume(poison)", "start",
     ]);
   });
 
@@ -250,9 +252,9 @@ describe("clientRuntime repair and retry", () => {
     h.calls.length = 0;
     await h.runtime.runRetry({ kind: "retry-poison-marks", continueStartup: true });
     expect(h.calls).toEqual([
-      "retryPoisonMarks", "poisonedBatches", "rebaseAuthoritative(poison)",
-      "deleteBatch(6,b-6)", "refreshPending",
-      "completeAuthoritativeRepair(poison)", "resume(recovery)", "start",
+      "retryPoisonMarks", "poisonedBatches", "pause(poison)",
+      "rebaseAuthoritative(poison)", "resume(startup)", "deleteBatch(6,b-6)", "refreshPending",
+      "completeAuthoritativeRepair(poison)", "resume(poison)", "start",
     ]);
   });
 
@@ -282,7 +284,9 @@ describe("clientRuntime repair and retry", () => {
     fail = false;
     h.calls.length = 0;
     await h.runtime.runRetry({ kind: "continue-startup" });
-    expect(h.calls).toEqual(["poisonedBatches", "resume(recovery)", "start"]);
+    expect(h.calls).toEqual([
+      "poisonedBatches", "resume(poison)", "resume(startup)", "start",
+    ]);
   });
 
   test("none does nothing", async () => {
@@ -298,7 +302,8 @@ describe("clientRuntime repair and retry", () => {
     await h.runtime.discardPoisonIntents();
     expect(h.calls).toEqual([
       "discardPoisonIntents", "completeAuthoritativeRepair(poison)",
-      "poisonedBatches", "resume(recovery)", "start",
+      "resume(poison)", "poisonedBatches", "resume(poison)", "resume(startup)",
+      "start",
     ]);
     expect(h.events).toEqual([
       { type: "poison-intents-discarded" }, { type: "poison-discovery-cleared" },
@@ -313,7 +318,7 @@ describe("clientRuntime repair and retry", () => {
     await h.runtime.discardPoisonIntents();
     expect(h.calls).toEqual([
       "discardPoisonIntents", "completeAuthoritativeRepair(poison)",
-      "resume(recovery)",
+      "resume(poison)",
     ]);
     expect(h.events).toEqual([{ type: "poison-intents-discarded" }]);
   });
@@ -347,7 +352,7 @@ describe("clientRuntime repair and retry", () => {
     mounted = false;
     await marks;
     expect(h.calls).toEqual([
-      "setOnline(false)", "pause(recovery)", "retryPoisonMarks",
+      "setOnline(false)", "pause(startup)", "retryPoisonMarks",
     ]);
     mounted = true;
     await h.runtime.continueStartup([]);
@@ -356,7 +361,7 @@ describe("clientRuntime repair and retry", () => {
     h.emitMarkFailed({ event: poisonEvent(1, "b-1"), error: "x" });
     await h.runtime.discardPoisonIntents();
     expect(h.states).toEqual([{ mode: "no-replica" }]);
-    expect(h.calls.filter((c) => c === "resume(recovery)")).toHaveLength(1);
+    expect(h.calls.filter((c) => c === "resume(startup)")).toHaveLength(1);
     expect(h.calls).not.toContain("rebaseAuthoritative(poison)");
     expect(h.events).toEqual([{ type: "replica-unusable", error: "gone" }]);
   });
@@ -401,7 +406,7 @@ describe("clientRuntime reconnect", () => {
     expect(h.calls.filter((c) => c === "rebaseAuthoritative(poison)"))
       .toHaveLength(2);
     expect(h.calls).toEqual(expect.arrayContaining([
-      "deleteBatch(1,b-1)", "deleteBatch(2,b-2)", "resume(recovery)", "start",
+      "deleteBatch(1,b-1)", "deleteBatch(2,b-2)", "resume(poison)", "start",
     ]));
     expect(h.calls.at(-1)).toBe("start");
     expect(h.events).toEqual([
@@ -459,8 +464,9 @@ describe("clientRuntime reconnect", () => {
     h.calls.length = 0;
     await h.runtime.retryFailedRepair();
     expect(h.calls).toEqual([
-      "rebaseAuthoritative(poison)", "deleteBatch(3,b-3)", "refreshPending",
-      "completeAuthoritativeRepair(poison)", "resume(recovery)", "start",
+      "pause(poison)", "rebaseAuthoritative(poison)", "deleteBatch(3,b-3)",
+      "refreshPending", "completeAuthoritativeRepair(poison)",
+      "resume(poison)", "start",
     ]);
   });
 

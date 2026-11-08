@@ -29,8 +29,13 @@ export type SyncProblem =
       reset: "idle" | "running" | "blocked" | "failed";
       pending?: number; resetError?: string };
 
+type LegacyProblem = Extract<SyncProblem, { kind: "legacy-rejected" }>;
+
 export interface SyncState {
   problem: SyncProblem | undefined;
+  /** A legacy repair's problem held back while a rejected durable batch's
+   * outranks it (see legacy). It is shown once that problem ends. */
+  legacyBehind?: LegacyProblem;
 }
 
 export type SyncEvent =
@@ -99,6 +104,48 @@ const problem = (
 
 type StalledProblem = Extract<SyncProblem, { kind: "replica-stalled" }>;
 
+/** A rejected durable batch not yet repaired, or a discovery that could not
+ * say whether there is one. Its banner carries the Retry that lifts the
+ * poison owner's barrier, so a legacy repair's banner waits behind it rather
+ * than taking that Retry away. */
+const poisonUnresolved = (current: SyncProblem | undefined): boolean =>
+  (current?.kind === "rejected-batch" && current.repair !== "repaired")
+  || current?.kind === "poison-discovery";
+
+/** Show a poison-side problem, keeping an unrepaired legacy one it replaces
+ * behind it. */
+const poisonProblem = (
+  state: SyncState, next: SyncProblem,
+): SyncTransition => {
+  const current = state.problem;
+  const behind = current?.kind === "legacy-rejected" && current.repair !== "repaired"
+    ? current : state.legacyBehind;
+  return {
+    state: { problem: next, ...(behind ? { legacyBehind: behind } : {}) },
+    effects: [],
+  };
+};
+
+/** The poison-side problem ended: a legacy problem held behind it, if any,
+ * takes its place, else `next`. */
+const poisonEnded = (
+  state: SyncState, next: SyncProblem | undefined,
+  effects: readonly SyncEffect[] = [],
+): SyncTransition => {
+  const behind = state.legacyBehind;
+  const shown = behind !== undefined && (next === undefined || behind.repair !== "repaired")
+    ? behind : next;
+  return { state: { problem: shown }, effects };
+};
+
+/** A legacy repair's phase: shown, or held behind an unresolved poison
+ * problem. Its effects apply either way. */
+const legacy = (
+  state: SyncState, next: LegacyProblem, effects: readonly SyncEffect[] = [],
+): SyncTransition => poisonUnresolved(state.problem)
+  ? { state: { ...state, legacyBehind: next }, effects }
+  : { state: { problem: next }, effects };
+
 /** Shared by reset-started/reset-blocked/reset-failed: a delivery problem of
  * a different kind takes precedence over a reset event, so those cases must
  * leave the state untouched (undefined signals that). Otherwise returns the
@@ -125,25 +172,25 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
           ? [{ type: "bump-resync" }] : [],
       };
     case "poison-mark-failed":
-      return problem(state, {
+      return poisonProblem(state, {
         kind: "rejected-batch", event: event.event, repair: "mark-failed",
         error: event.error,
       });
     case "repair-started":
-      return problem(state, {
+      return poisonProblem(state, {
         kind: "rejected-batch", event: event.event, repair: "running",
       });
     case "repair-succeeded":
-      return problem(state, {
+      return poisonEnded(state, {
         kind: "rejected-batch", event: event.event, repair: "repaired",
       }, [{ type: "bump-resync" }]);
     case "repair-failed":
-      return problem(state, {
+      return poisonProblem(state, {
         kind: "rejected-batch", event: event.event, repair: "failed",
         error: event.error,
       });
     case "poison-discovery-failed":
-      return problem(state, { kind: "poison-discovery", error: event.error });
+      return poisonProblem(state, { kind: "poison-discovery", error: event.error });
     case "poison-intents-discarded":
       // The user discarded retained poison-mark intents, so the
       // mark-failed problem reporting them is now stale. Only that exact
@@ -151,7 +198,7 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
       // so a leftover mark-failed banner would otherwise outlive its intents.
       return state.problem?.kind === "rejected-batch"
           && state.problem.repair === "mark-failed"
-        ? problem(state, undefined) : { state, effects: [] };
+        ? poisonEnded(state, undefined) : { state, effects: [] };
     case "replica-unusable": {
       // A background "this session is online-only" report must not stomp a
       // delivery problem the user can act on — overwriting a failed
@@ -168,17 +215,17 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
     }
     case "poison-discovery-cleared":
       return state.problem?.kind === "poison-discovery"
-        ? problem(state, undefined) : { state, effects: [] };
+        ? poisonEnded(state, undefined) : { state, effects: [] };
     case "legacy-repair-started":
-      return problem(state, {
+      return legacy(state, {
         kind: "legacy-rejected", repair: "running", error: event.error,
       });
     case "legacy-repair-succeeded":
-      return problem(state, {
+      return legacy(state, {
         kind: "legacy-rejected", repair: "repaired", error: event.error,
       }, [{ type: "bump-resync" }]);
     case "legacy-repair-failed":
-      return problem(state, {
+      return legacy(state, {
         kind: "legacy-rejected", repair: "failed", error: event.error,
         repairError: event.repairError,
       });

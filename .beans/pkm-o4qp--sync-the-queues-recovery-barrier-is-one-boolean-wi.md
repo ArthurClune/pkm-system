@@ -1,13 +1,13 @@
 ---
 # pkm-o4qp
 title: 'Sync: the queue''s recovery barrier is one boolean with five owners; a repair can lift a barrier it never took'
-status: todo
+status: in-progress
 type: bug
 priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-07T18:42:45Z
+updated_at: 2026-11-08T14:16:29Z
 parent: pkm-zk8b
 ---
 
@@ -34,10 +34,10 @@ lane rejection → legacyRepair. `runRecovery` already special-cases the
 poison claim; the others don't.
 
 ## Fix
-- [ ] Red tests for both paths (SyncProvider/clientRuntime level)
-- [ ] `recovering` becomes a set of owners: `pause(owner)`/`resume(owner)`; terminalReason "recovering" while non-empty; drop runRecovery's special case
-- [ ] A legacy repair started by a local refusal (overLimit, `rejected`) does not resume at all
-- [ ] Poison Retry banner not replaced by legacy-repair-started (or restored after it)
+- [x] Red tests for both paths (SyncProvider/clientRuntime level)
+- [x] `recovering` becomes a set of owners: `pause(owner)`/`resume(owner)`; terminalReason "recovering" while non-empty; drop runRecovery's special case
+- [x] A legacy repair started by a local refusal (overLimit, `rejected`) does not resume at all
+- [x] Poison Retry banner not replaced by legacy-repair-started (or restored after it)
 
 ## Property testing (required)
 

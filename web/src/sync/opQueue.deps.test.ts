@@ -247,3 +247,36 @@ describe("a durable copy whose enqueue reply was lost", () => {
     expect(new Set(order)).toEqual(new Set([bid("batch-1"), bid("batch-2")]));
   });
 });
+
+describe("a pause that lands while the drain reads the next batch", () => {
+  test("holds the batch that read returns", async () => {
+    const base = memReplica();
+    let gate: (() => void) | null = null;
+    const replica = memReplica({
+      ...base,
+      nextBatch: async () => {
+        await new Promise<void>((resolve) => { gate = resolve; });
+        return base.nextBatch();
+      },
+    });
+    const post = vi.fn(async (_body: OpBatch) => ack());
+    const q = createOpQueue(replica, { post, newBatchId: minter() });
+    q.enqueue([{ op: "delete", uid: uidOf("tuid-a") }]);
+    await q.settled();
+    const drained = q.drain();
+    await vi.waitFor(() => { expect(gate).not.toBeNull(); });
+    // A recovery takes the barrier while the read waits on the worker.
+    q.pause("recovery");
+    gate!();
+    await expect(drained).resolves.toMatchObject({
+      status: "blocked", reason: "recovering",
+    });
+    expect(post).not.toHaveBeenCalled();
+
+    gate = null;
+    q.resume("recovery");
+    await vi.waitFor(() => { expect(gate).not.toBeNull(); });
+    gate!();
+    await vi.waitFor(() => { expect(post).toHaveBeenCalledTimes(1); });
+  });
+});

@@ -142,10 +142,14 @@ export function useDropZone(pageTitle: CanonicalTitle,
     return true;
   };
 
-  /** The drag `e` belongs to. A block drag the event does not carry
-   * (BLOCK_DRAG_TYPE) is one whose dragend never came: it ends here. */
+  /** The drag `e` belongs to. An event carrying files but not
+   * BLOCK_DRAG_TYPE cannot be the block drag in progress, which is one whose
+   * dragend never came: it ends here. Any other event is taken for it, since
+   * WebKit may list a block drag's types empty or without the custom one. */
   const dragOf = (e: React.DragEvent): DragSource | null => {
-    if (dnd.drag?.kind !== "blocks" || carriesBlocks(e)) return dnd.drag;
+    if (dnd.drag?.kind !== "blocks" || carriesBlocks(e) || !carriesFiles(e)) {
+      return dnd.drag;
+    }
     dnd.endDrag();
     return null;
   };

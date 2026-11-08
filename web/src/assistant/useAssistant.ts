@@ -1,9 +1,11 @@
 // pattern: Imperative Shell
-// Chat state for the assistant panel: lazy conversation, SSE-driven items.
+// Runs the assistant panel's chat machine (chatMachine.ts): dispatches the
+// user's actions and each request's results into it, and starts the requests
+// its effects name.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api/client";
-import type { ConfirmId, ConversationId } from "../api/brands";
+import type { ConversationId } from "../api/brands";
 import {
   closeConversationBeacon,
   confirmTool,
@@ -13,8 +15,20 @@ import {
   streamMessage,
   type AssistantModel,
 } from "./client";
+import {
+  chatStatus,
+  initialChat,
+  modelLocked,
+  shownModel,
+  step,
+  turnBusy,
+  type ChatEffect,
+  type ChatEvent,
+  type ChatState,
+  type StreamFailure,
+  type TurnId,
+} from "./chatMachine";
 import type { AssistantEvent } from "./sse";
-import type { WritePreview } from "./writePreview";
 
 /** ApiError carries the server's `detail` message; prefer
  * it over the generic "request failed: <status> <path>" wrapper text. */
@@ -61,96 +75,124 @@ async function streamWithBusyRetry(
   }
 }
 
-export type ChatItem =
-  | { kind: "user"; text: string }
-  | { kind: "assistant"; text: string }
-  // `error` is a write's failure reason, `declined` a write the user denied
-  // on its card, `warning` a batch's skipped-ops line; all come from the
-  // server and are untrusted text/flags.
-  | { kind: "tool"; toolUseId: string; name: string; summary: string;
-      done: boolean; error: string | null; declined: boolean;
-      warning?: string };
+export type { ChatItem, PendingConfirm, PhaseInfo } from "./chatMachine";
 
-export type PendingConfirm = {
-  confirmId: ConfirmId;
-  opsPreview: string;
-  preview: WritePreview | null;
-  // the answer posted for this confirm, set only once it is posted. The
-  // server may hold a failed answer already and ignores a changed one, so
-  // after a failure only this answer may be sent again; it lives here rather
-  // than in the card so a remounted card cannot forget it.
-  sentDecision: boolean | null;
-  // how many cards of this turn the user allowed before answering this one,
-  // before it arrived or while it waited. When the server stamped the card
-  // (`writes_in_flight`), one of those writes may have landed after it read
-  // the current text, and the card says that text may have changed.
-  allowedAhead: number;
-};
+function streamFailure(err: unknown): StreamFailure {
+  if (isAbortError(err)) return { kind: "aborted" };
+  if (err instanceof ApiError && err.status === 404) {
+    return { kind: "notFound", message: friendlyMessage(err) };
+  }
+  return { kind: "failed", message: friendlyMessage(err) };
+}
 
-/** What the busy line shows: the server's phase label ("reasoning",
- * "preparing save_note", "replying") or null for the unlabelled stretches
- * (before the first stream event; while a tool runs), plus when the current
- * stretch started, so the panel can tick an elapsed clock from it. */
-export type PhaseInfo = { label: string | null; since: number };
+/** Runs the machine: each event goes through `step`, the new state is
+ * published, and its effects start requests whose results come back as
+ * events. Effects run after the state is stored, because a stream can call
+ * back into dispatch before the request that started it returns. */
+function createChatDriver(publish: (state: ChatState) => void) {
+  let state = initialChat();
+  // the request each turn has in flight: its abort handle (streams only) and
+  // a promise that settles, never rejecting, once its result is dispatched
+  const requests = new Map<TurnId, { controller: AbortController | null;
+                                     settled: Promise<void> }>();
+  const turnEnds = new Map<TurnId, () => void>();
+
+  /** Settles once the effects this event started have: for an answer, its
+   * POST; for New chat, the old conversation's DELETE. */
+  function dispatch(event: ChatEvent): Promise<void> {
+    const out = step(state, event);
+    state = out.state;
+    publish(state);
+    for (const [turn, resolve] of turnEnds) {
+      if (!turnBusy(state, turn)) {
+        turnEnds.delete(turn);
+        resolve();
+      }
+    }
+    return Promise.all(out.effects.map(run)).then(() => {});
+  }
+
+  function track(turn: TurnId, controller: AbortController | null,
+                 start: () => Promise<void>): Promise<void> {
+    const entry = { controller, settled: Promise.resolve() };
+    requests.set(turn, entry);
+    entry.settled = start().finally(() => {
+      if (requests.get(turn) === entry) requests.delete(turn);
+    });
+    return entry.settled;
+  }
+
+  function run(effect: ChatEffect): Promise<void> {
+    switch (effect.kind) {
+      case "create": {
+        const { turn } = effect;
+        return track(turn, null, () => createConversation(effect.model).then(
+          (c) => { void dispatch({ type: "created", turn, id: c.id, model: c.model }); },
+          (err: unknown) => {
+            void dispatch({ type: "createFailed", turn, message: friendlyMessage(err) });
+          },
+        ));
+      }
+      case "stream": {
+        const { turn } = effect;
+        const controller = new AbortController();
+        return track(turn, controller, () => streamWithBusyRetry(
+          effect.conversation, effect.text,
+          (ev) => { void dispatch({ type: "streamEvent", turn, event: ev, at: Date.now() }); },
+          controller.signal,
+        ).then(
+          () => { void dispatch({ type: "streamEnded", turn }); },
+          (err: unknown) => {
+            void dispatch({ type: "streamFailed", turn, failure: streamFailure(err) });
+          },
+        ));
+      }
+      case "abort":
+        requests.get(effect.turn)?.controller?.abort();
+        return Promise.resolve();
+      case "delete": {
+        const before = effect.after === null ? undefined : requests.get(effect.after)?.settled;
+        return (async () => {
+          await before;
+          try {
+            await deleteConversation(effect.conversation);
+          } catch {
+            // the server may have reaped it already; idle reaping cleans up
+            // whatever this misses
+          }
+        })();
+      }
+      case "confirm": {
+        const { turn, conversation, confirmId, allow } = effect;
+        return confirmTool(conversation, confirmId, allow).then(
+          () => {
+            void dispatch({ type: "confirmPosted", turn, conversation, confirmId, allow,
+                            at: Date.now() });
+          },
+          (err: unknown) => {
+            void dispatch({ type: "confirmFailed", turn, confirmId,
+                            notFound: err instanceof ApiError && err.status === 404,
+                            message: friendlyMessage(err) });
+          },
+        );
+      }
+    }
+  }
+
+  /** Settles once the turn is no longer busy. */
+  function turnEnded(turn: TurnId): Promise<void> {
+    if (!turnBusy(state, turn)) return Promise.resolve();
+    return new Promise((resolve) => turnEnds.set(turn, resolve));
+  }
+
+  return { dispatch, turnEnded, current: () => state };
+}
 
 export function useAssistant() {
-  const [items, setItems] = useState<ChatItem[]>([]);
-  // "confirm" is derived from the queue below, so it holds exactly while a
-  // confirm waits on the user
-  const [runStatus, setStatus] = useState<"idle" | "busy">("idle");
-  const [phase, setPhase] = useState<PhaseInfo | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [model, setModelState] = useState<AssistantModel>("sonnet");
-  // The Claude models are always servable, so they double as the offline/failed
-  // fallback; the server list adds glm only when a z.ai key is configured.
-  const [models, setModels] = useState<AssistantModel[]>(
-    ["sonnet", "opus", "haiku", "fable"]);
-  const [modelLocked, setModelLocked] = useState(false);
-  // distinguishes the user's own picker choice from the initial state, so
-  // the fetched server default can fill the latter without clobbering the
-  // former
-  const modelTouched = useRef(false);
-  // `m` comes from the <select> this feeds (AssistantPanel), whose options
-  // are always rendered from `models` -- never free text.
-  const setModel = useCallback((m: string) => {
-    modelTouched.current = true;
-    setModelState(m as AssistantModel);
-  }, []);
+  const [chat, setChat] = useState<ChatState>(initialChat);
+  const [driver] = useState(() => createChatDriver(setChat));
   const modelsRequested = useRef(false);
-  // FIFO: a confirm arriving while one is on screen waits behind it, so the
-  // card never changes under the user's cursor. The ref mirrors the state for
-  // respondConfirm, which must see an answer given since its last render.
-  const [confirmQueue, setConfirmQueueState] = useState<PendingConfirm[]>([]);
-  const confirmQueueRef = useRef<PendingConfirm[]>([]);
-  const setConfirmQueue = useCallback((next: PendingConfirm[]) => {
-    confirmQueueRef.current = next;
-    setConfirmQueueState(next);
-  }, []);
-  const pendingConfirm = confirmQueue[0] ?? null;
-  // The head stays on screen until its answer is posted; while the POST is in
-  // flight the card's buttons are disabled and further answers are ignored.
-  const [answering, setAnsweringState] = useState(false);
-  const answeringRef = useRef(false);
-  const setAnswering = useCallback((next: boolean) => {
-    answeringRef.current = next;
-    setAnsweringState(next);
-  }, []);
-  const status = confirmQueue.length > 0 ? "confirm" : runStatus;
-  // The Allows posted since the last turn that finished, which a card
-  // arriving now counts. A stopped turn's allowed write may still be
-  // running, so its Allows carry over into the next turn.
-  const allowedInTurn = useRef(0);
-  const conversationId = useRef<ConversationId | null>(null);
-  const abortController = useRef<AbortController | null>(null);
-  const stopRequested = useRef(false);
-
-  // Turn generations. send() takes the next generation; newChat()
-  // bumps it to supersede whatever is running. Every state write that happens
-  // after an await is gated on still being the current generation, so a
-  // superseded turn's events and finalizers cannot touch the chat that
-  // replaced it.
-  const turnGen = useRef(0);
-  const activeTurn = useRef<Promise<void> | null>(null);
+  const pendingConfirm = chat.confirms[0] ?? null;
 
   // A page reload orphans the conversation id client-side
   // without deleting it server-side. Idle reaping and oldest-idle eviction
@@ -158,291 +200,77 @@ export function useAssistant() {
   // pagehide closes it immediately when the tab actually navigates away.
   useEffect(() => {
     const onPageHide = () => {
-      const id = conversationId.current;
-      if (id !== null) closeConversationBeacon(id);
+      const conversation = driver.current().conversation;
+      if (conversation.kind === "open") closeConversationBeacon(conversation.id);
     };
     window.addEventListener("pagehide", onPageHide);
     return () => window.removeEventListener("pagehide", onPageHide);
-  }, []);
+  }, [driver]);
 
   // Called by the panel when it opens (not at app load: the panel component
   // is always mounted, and most loads never open it). One fetch per success;
   // a failure re-arms so the next open retries instead of pinning the
-  // fallback trio for the tab's lifetime.
+  // fallback models for the tab's lifetime.
   const ensureModels = useCallback(() => {
     if (modelsRequested.current) return;
     modelsRequested.current = true;
-    fetchModels()
-      .then((r) => {
-        if (Array.isArray(r?.models) && r.models.length > 0) setModels(r.models);
-        if (typeof r?.default === "string" && !modelTouched.current
-            && conversationId.current === null) {
-          setModelState(r.default);
-        }
-      })
-      .catch(() => {
-        // keep the fallback trio; a failed fetch must not break the panel
+    fetchModels().then(
+      (r) => {
+        void driver.dispatch({
+          type: "modelsLoaded",
+          models: Array.isArray(r?.models) ? r.models : null,
+          default: typeof r?.default === "string" ? r.default : null,
+        });
+      },
+      () => {
+        // keep the fallback models; a failed fetch must not break the panel
         modelsRequested.current = false;
-      });
-  }, []);
+      },
+    );
+  }, [driver]);
 
-  const applyEvent = useCallback((ev: AssistantEvent) => {
-    switch (ev.type) {
-      case "text_delta":
-        setItems((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && last.kind === "assistant") {
-            return [...prev.slice(0, -1), { kind: "assistant", text: last.text + ev.text }];
-          }
-          return [...prev, { kind: "assistant", text: ev.text }];
-        });
-        break;
-      case "tool_started":
-        setItems((prev) => [...prev, {
-          kind: "tool", toolUseId: ev.tool_use_id, name: ev.name,
-          summary: ev.summary, done: false, error: null, declined: false,
-        }]);
-        // the tool's own line takes over from a stale "preparing …" label
-        setPhase({ label: null, since: Date.now() });
-        break;
-      case "phase":
-        setPhase({ label: ev.label, since: Date.now() });
-        break;
-      case "tool_finished":
-        setItems((prev) => {
-          const idx = prev.findIndex(
-            (item) => item.kind === "tool" && item.toolUseId === ev.tool_use_id
-              && !item.done,
-          );
-          if (idx === -1) return prev;
-          const item = prev[idx];
-          if (item.kind !== "tool") return prev;
-          return [...prev.slice(0, idx), {
-            ...item, done: true, error: ev.error ?? null,
-            declined: ev.declined === true,
-            warning: ev.warning ?? undefined,
-          }, ...prev.slice(idx + 1)];
-        });
-        break;
-      case "confirm_request":
-        setConfirmQueue([...confirmQueueRef.current, {
-          confirmId: ev.confirm_id, opsPreview: ev.ops_preview, preview: ev.preview,
-          sentDecision: null, allowedAhead: allowedInTurn.current,
-        }]);
-        break;
-      case "turn_done":
-        allowedInTurn.current = 0;
-        break;
-      case "error":
-        setError(ev.message);
-        break;
-    }
-  }, [setConfirmQueue]);
+  // `m` comes from the <select> this feeds (AssistantPanel), whose options
+  // are always rendered from `models` -- never free text.
+  const setModel = useCallback((m: string) => {
+    void driver.dispatch({ type: "pickModel", model: m as AssistantModel });
+  }, [driver]);
 
-  // Runs one turn; on a 404 (server reaped the conversation -- idle timeout
-  // or oldest-idle eviction elsewhere) it resets the
-  // conversation id and retries exactly once with a freshly created one,
-  // instead of leaving the panel stuck talking to a dead id.
-  const runTurn = useCallback(
-    async (text: string, allowRetry: boolean, gen: number): Promise<void> => {
-      if (gen !== turnGen.current) return;
-      if (conversationId.current === null) {
-        const created = await createConversation(model);
-        if (gen !== turnGen.current) {
-          // newChat landed while the conversation was being created: adopting
-          // the id here would make the "new" chat continue the old one, so
-          // close it instead of leaking it until the server reaps it.
-          try {
-            await deleteConversation(created.id);
-          } catch {
-            // best effort; idle reaping cleans it up either way
-          }
-          return;
-        }
-        conversationId.current = created.id;
-        // a new conversation runs none of the old one's writes
-        allowedInTurn.current = 0;
-      }
-      setModelLocked(true);
-      const controller = new AbortController();
-      abortController.current = controller;
-      try {
-        await streamWithBusyRetry(conversationId.current, text, (ev) => {
-          // a superseded turn keeps streaming until its abort lands; its
-          // events must never fold into the new transcript
-          if (gen !== turnGen.current) return;
-          applyEvent(ev);
-        }, controller.signal);
-      } catch (err) {
-        if (allowRetry && err instanceof ApiError && err.status === 404
-            && gen === turnGen.current) {
-          conversationId.current = null;
-          await runTurn(text, false, gen);
-          return;
-        }
-        throw err;
-      } finally {
-        // identity check: a newer turn's controller must survive this cleanup,
-        // or stop() would silently abort nothing
-        if (abortController.current === controller) abortController.current = null;
-      }
-    },
-    [applyEvent, model],
-  );
-
-  const send = useCallback(
-    async (text: string) => {
-      if (!text.trim()) return;
-      turnGen.current += 1;
-      const gen = turnGen.current;
-      const current = () => gen === turnGen.current;
-      setError(null);
-      setStatus("busy");
-      setPhase({ label: null, since: Date.now() });
-      setItems((prev) => [...prev, { kind: "user", text }]);
-      stopRequested.current = false;
-      const run = (async () => {
-        try {
-          await runTurn(text, true, gen);
-        } catch (err) {
-          // A user-requested Stop aborts the fetch, which
-          // rejects with an AbortError -- that is success, not a failure to
-          // report. A superseded turn's failure belongs to a chat
-          // that no longer exists, so it is not reported either.
-          if (current() && !(stopRequested.current && isAbortError(err))) {
-            setError(friendlyMessage(err));
-          }
-        } finally {
-          if (current()) {
-            // an answer still in flight has nothing left to answer, and the
-            // next turn's card must not wait on it
-            setConfirmQueue([]);
-            setAnswering(false);
-            setStatus("idle");
-            setPhase(null);
-          }
-        }
-      })();
-      activeTurn.current = run;
-      try {
-        await run;
-      } finally {
-        if (activeTurn.current === run) activeTurn.current = null;
-      }
-    },
-    [runTurn, setAnswering, setConfirmQueue],
-  );
+  const send = useCallback(async (text: string) => {
+    const before = driver.current().lastTurn;
+    void driver.dispatch({ type: "send", text, at: Date.now() });
+    const turn = driver.current().lastTurn;
+    if (turn !== before) await driver.turnEnded(turn);
+  }, [driver]);
 
   const stop = useCallback(() => {
-    stopRequested.current = true;
-    abortController.current?.abort();
-  }, []);
+    void driver.dispatch({ type: "stop", at: Date.now() });
+  }, [driver]);
 
-  const respondConfirm = useCallback(
-    async (allow: boolean) => {
-      const gen = turnGen.current;
-      const id = conversationId.current;
-      // the head this render showed, which is what the user answered
-      const shown = pendingConfirm;
-      if (id === null || shown === null || answeringRef.current) return;
-      // gone already: the turn ended, or this is a stale render's closure
-      if (!confirmQueueRef.current.includes(shown)) return;
-      if (shown.sentDecision !== null && shown.sentDecision !== allow) return;
-      const pending = { ...shown, sentDecision: allow };
-      setConfirmQueue(confirmQueueRef.current.map((p) => (p === shown ? pending : p)));
-      setAnswering(true);
-      try {
-        await confirmTool(id, pending.confirmId, allow);
-      } catch (err) {
-        // newChat superseded this decision: the conversation it belonged to is
-        // gone, and neither the reset below nor an error banner may land on the
-        // chat that replaced it.
-        if (gen !== turnGen.current) return;
-        setAnswering(false);
-        if (err instanceof ApiError && err.status === 404) {
-          // reaped while waiting on the user's decision: no live turn to
-          // resume, so start clean rather than resurrect a dead card or the
-          // ones queued behind it
-          conversationId.current = null;
-          setConfirmQueue([]);
-          setStatus("idle");
-          setError("This chat expired before you responded; send a new message to start a fresh one.");
-          return;
-        }
-        // the same card stays, so the user can answer it again
-        setError(friendlyMessage(err));
-        return;
-      }
-      if (gen !== turnGen.current) return;
-      setAnswering(false);
-      if (allow) allowedInTurn.current += 1;
-      if (!confirmQueueRef.current.includes(pending)) return;
-      const rest = confirmQueueRef.current.filter((p) => p !== pending)
-        .map((p) => (allow ? { ...p, allowedAhead: p.allowedAhead + 1 } : p));
-      setConfirmQueue(rest);
-      // the parked stretch was the user's silence, not the model's: restart
-      // the busy line's clock rather than resume a stale label
-      if (rest.length === 0) setPhase({ label: null, since: Date.now() });
-    },
-    [pendingConfirm, setAnswering, setConfirmQueue],
-  );
+  // answers the head this render showed, which is what the user answered
+  const respondConfirm = useCallback(async (allow: boolean) => {
+    if (pendingConfirm === null) return;
+    await driver.dispatch({ type: "answer", confirmId: pendingConfirm.confirmId, allow });
+  }, [driver, pendingConfirm]);
 
+  // The chat clears on the click; the promise settles once the old
+  // conversation's DELETE has, which waits for its aborted stream.
   const newChat = useCallback(async () => {
-    // Supersede first: from here on the running turn's events and finalizers
-    // are ignored, which is what makes clearing the state below safe to do
-    // immediately rather than after the abort round-trip.
-    turnGen.current += 1;
-    const id = conversationId.current;
-    const inflight = activeTurn.current;
-    const controller = abortController.current;
-    conversationId.current = null;
-    abortController.current = null;
-    activeTurn.current = null;
-    setItems([]);
-    setError(null);
-    setStatus("idle");
-    setPhase(null);
-    setConfirmQueue([]);
-    setAnswering(false);
-    setModelLocked(false);
-    controller?.abort();
-    // Await the aborted turn so the server has observed the dropped connection
-    // (and that turn's finalizers have all run) before the DELETE. Only when a
-    // stream actually existed: a turn still inside createConversation has no
-    // connection to drop and no abort signal to cut it short, so waiting on it
-    // could hang for as long as that request does -- and it closes the
-    // conversation it created itself, via the generation check in runTurn.
-    // (`controller` truthy doesn't guarantee a *live* stream: mid-404-retry,
-    // runTurn can be back inside an unabortable createConversation with
-    // controller still set from the attempt that just failed. That's benign
-    // here -- `id` is null in that window too, so this function's own DELETE
-    // below is skipped either way, and the retry's own generation check
-    // closes whatever it creates.)
-    // send()'s own try/catch/finally guarantees `inflight` always fulfils, so
-    // no `.catch()` is needed here to keep this await from rejecting.
-    if (controller && inflight) await inflight;
-    if (id !== null) {
-      try {
-        await deleteConversation(id);
-      } catch {
-        // server may have reaped it already; a fresh chat is the goal
-      }
-    }
-  }, [setAnswering, setConfirmQueue]);
+    await driver.dispatch({ type: "newChat" });
+  }, [driver]);
 
   return {
-    items,
-    status,
-    phase,
-    error,
-    model,
+    items: chat.items,
+    status: chatStatus(chat),
+    phase: chat.phase,
+    error: chat.error,
+    model: shownModel(chat),
     setModel,
-    models,
+    models: chat.models,
     ensureModels,
-    modelLocked,
+    modelLocked: modelLocked(chat),
     pendingConfirm,
-    pendingConfirmCount: confirmQueue.length,
-    answering,
+    pendingConfirmCount: chat.confirms.length,
+    answering: chat.answering,
     send,
     stop,
     respondConfirm,

@@ -1,13 +1,13 @@
 ---
 # pkm-62jb
 title: 'Assistant panel: Stop does nothing while the conversation is being created (make the turn an explicit machine)'
-status: todo
+status: completed
 type: bug
 priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:46Z
-updated_at: 2026-11-07T18:42:46Z
+updated_at: 2026-11-08T14:38:26Z
 parent: pkm-zk8b
 ---
 
@@ -51,9 +51,9 @@ The refs are `runStatus`, `abortController`, `stopRequested`, `turnGen`,
   while the conversation is `none` and the user has not touched the
   picker.
 
-- [ ] Red tests for both Stop windows (during create, during the 404 re-create), F9 and F10
-- [ ] Reducer plus shell; the hook only dispatches events and runs effects
-- [ ] frontend.md (assistant section): the machine and why stop is valid in every busy phase
+- [x] Red tests for both Stop windows (during create, during the 404 re-create), F9 and F10
+- [x] Reducer plus shell; the hook only dispatches events and runs effects
+- [x] frontend.md (assistant section): the machine and why stop is valid in every busy phase
 
 ## Property testing (required)
 
@@ -96,3 +96,12 @@ Sketch (fast-check, a new suite `web/src/props/assistant`, reducer-level):
     `creating` or `open`.
 - Teeth: drop the stop transition from `creating` (today's behaviour) and
   confirm the first invariant fails.
+
+## Summary of Changes
+
+- `web/src/assistant/chatMachine.ts` (Functional Core): the chat as one reducer. Conversation none / creating / open; turn idle / creating / streaming / stopping (idle and streaming as in the server's turn phase). `step` returns the next state and effects (create, stream, abort, delete, confirm). `useAssistant.ts` became the shell: it dispatches user actions and request results (each naming its turn) and runs the effects. The loose refs (runStatus, abortController, stopRequested, turnGen, activeTurn, conversationId, modelLocked, modelTouched) are gone.
+- Stop is a move from creating (incl. the 404 re-create): the created conversation is kept, no stream starts. Confirm results for a turn that is not streaming are dropped (F9). The picker shows the creating/open conversation's model as the server returned it and is locked exactly then; the models default lands only while there is no conversation (F10). A send while busy or blank starts nothing.
+- A failed turn is not a phase: the error line is a field, because a confirm POST failure shows it while the turn keeps streaming.
+- Red tests in `useAssistant.test.tsx` (both Stop windows, F9, F10 both halves, a lost harness's next send); core tests in `chatMachine.test.ts`.
+- New property suite `web/src/props/assistant` (model from frontend.md § The chat machine, simulated server, teeth with seven mutants including the original bug, F9 and F10); about 20 s in `proptest/check.sh web --file assistant`.
+- Docs: frontend.md § The chat machine, checks.md Property gate row, assistant.md link, three troubleshooting rows.

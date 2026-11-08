@@ -306,8 +306,6 @@ fallback in `useAssistant.ts`.
 - After `STREAM_STALL_TIMEOUT_MS` with nothing received the turn errors, with
   an error that is not an `AbortError`: `useAssistant` treats an `AbortError`
   after Stop as success.
-- `newChat` bumps a generation counter before clearing state, so a superseded
-  turn's events and finalizers are dropped.
 - The busy clock (`elapsed.ts::elapsedLabel`) restarts on each phase label,
   tool start and confirm resume, so a parked approval does not inflate it.
 - A tool line pairs with its `tool_finished` by `tool_use_id`, across turns,
@@ -323,6 +321,44 @@ fallback in `useAssistant.ts`.
   diagram that needs stock mermaid waits for a click (external images already
   do everywhere)
   ([frontend-rendering.md](frontend-rendering.md#link-safety-and-external-media)).
+
+### The chat machine
+
+`assistant/chatMachine.ts` (Core) holds the whole chat as one reducer:
+`step(state, event)` returns the next state and the effects to run.
+`useAssistant.ts` only dispatches the user's actions and each request's
+result, and starts the requests the effects name. The conversation is
+`none`, `creating` or `open`; the turn moves like this, and `idle` and
+`streaming` mean what they mean in
+[the server's turn phase](assistant.md#the-turn-phase):
+
+```mermaid
+stateDiagram-v2
+    [*] --> idle
+    idle --> creating: send, no conversation open
+    idle --> streaming: send, conversation open
+    creating --> streaming: created
+    creating --> idle: create failed
+    streaming --> creating: 404, first in this turn
+    streaming --> idle: stream ended or failed, or a confirm 404
+    creating --> stopping: Stop
+    streaming --> stopping: Stop, which aborts the stream
+    stopping --> idle: the create or the stream settles
+```
+
+**Stop is a move from every busy phase.** After it, no output of that turn
+reaches the panel. A create cannot be called back, so Stop in `creating`
+keeps the conversation the create returns but starts no stream from it.
+
+| Rule | Reason |
+|---|---|
+| Every request's result names its turn, and changes nothing on screen unless that turn is busy and not stopping. That includes a failed confirm POST | New chat clears the transcript at once, so a superseded turn's events must not fold into the new one. After Stop no card is left to answer again |
+| A stream's 404 re-creates the conversation once, with the same model, in the same turn. A second 404 fails the turn | The server retires a reaped, evicted or dead conversation, and a lost harness ends its turn with `HARNESS_LOST`. The next send to it gets a 404 |
+| The picker shows the model of the conversation that is creating or open, as the create returned it, and is locked exactly then. The models list's default applies only while there is none and the user has not picked | A conversation keeps the model it was created with, so the picker shows that one |
+| New chat aborts the stream and sends the DELETE only after that stream settles. A conversation created for a superseded turn is deleted | The server sees the dropped connection and ends the turn before it closes the conversation |
+
+`web/src/props/assistant` checks these rules against a model written from
+this section ([checks.md § Property gate](checks.md#property-gate)).
 
 ## Testing and quality gates
 
@@ -415,7 +451,8 @@ web/src/
 ├── components/               Shell  Editor views (EditableBlockTree, BlockInput),
 │                                    inline renderers and chrome; each pure half
 │                                    sits beside its component (pdfViewerCore …)
-├── assistant/                Shell  The chat panel; sse.ts (Core) parses frames
+├── assistant/                Shell  The chat panel; chatMachine.ts (Core) is its
+│                                    state, sse.ts (Core) parses frames
 ├── dnd/                      Shell  Drag context and drop zones; dropGeometry.ts (Core)
 ├── grammar/                  Core   Block grammar (frontend-rendering.md)
 ├── outline/                  —      The editor engine (frontend-editor.md)

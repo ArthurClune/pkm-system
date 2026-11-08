@@ -36,10 +36,10 @@ separately by `replicaSync.usable`, `opQueue.availability` and
 `ReplicaState.mode`; only the queue treats worker-error as fatal.
 
 ## Fix
-- [ ] Red tests: RpcLifecycleError from a pull; bootstrap failure with the socket up
-- [ ] `noteFailure`: any `isSessionFatal` error latches unusable AND reports a mode (no-replica or a new unavailable), so appliedVersion reads null and canEdit/the gateway follow
-- [ ] `doStart` failure takes the pull's backoff retry (and counts toward stall so it surfaces), or reports recovery-failed
-- [ ] Distinguish "started once and failed" from "cold start in progress" in what the UI shows
+- [x] Red tests: RpcLifecycleError from a pull; bootstrap failure with the socket up
+- [x] `noteFailure`: any `isSessionFatal` error latches unusable AND reports a mode (no-replica or a new unavailable), so appliedVersion reads null and canEdit/the gateway follow
+- [x] `doStart` failure takes the pull's backoff retry (and counts toward stall so it surfaces), or reports recovery-failed
+- [x] Distinguish "started once and failed" from "cold start in progress" in what the UI shows
 
 ## Property testing (required)
 
@@ -69,3 +69,28 @@ Sketch (extend the web `sync/` suite's fault alphabet; oracle invariants in
   no edit is accepted into a lane that can never deliver without the UI
   saying so.
 - Teeth: restore the old `noteFailure` latch and confirm the mode invariant fails.
+
+## Summary of Changes
+
+- `replicaSync.noteFailure` treats every `isSessionFatal` error (a dead
+  worker's terminal RPC client, a latched failed open) as the end of replica
+  mode: `usable` false, mode `no-replica` carrying the error, no retry, and
+  `pull()` becomes a no-op. `doStart`'s init path does the same.
+  `SyncProvider` raises the `replica-unusable` banner (Reload) from a
+  `no-replica` report that carries an error.
+- A failed `start()` (bootstrap, starved bootstrap, schema recovery) goes
+  through `noteFailure`: it retries on the pull's backoff (the timer runs
+  `start()` while not started) and counts towards `STALL_AFTER_FAILURES`.
+  `start()` still rejects. The schema-recovery failure now rejects too
+  instead of resolving. Recovery entrants with `awaitInFlightPull` also
+  await a start in flight.
+- The UI distinction: a failed first start that keeps failing is reported
+  `stalled` ("Local sync is stuck", Reset local data) rather than staying
+  `starting`. A start failing only on uncounted errors (offline, an RPC
+  timeout) is retried silently, which is a cold start still in progress.
+- Property: the sync suite draws `WorkerDies`, a `snapshot5xx` fault and a
+  failing first bootstrap per client; `ModeWatch` in `oracle.ts` and
+  `settleReplicas` in `sync.prop.ts` check the mode rules; teeth by hand
+  (old latch, no start retry) both fail.
+- Docs: sync-recovery.md § Replica mode and § A pull that keeps failing;
+  two troubleshooting rows.

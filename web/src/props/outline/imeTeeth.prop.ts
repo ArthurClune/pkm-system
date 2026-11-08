@@ -9,7 +9,7 @@
 //   Enter the IME owns splits the block (`ime`).
 // - Owning every keyCode 229 keydown swallows an Enter that comes with no
 //   composition just ended, as the iPad's keyboard may send it: the block
-//   does not split (`split`).
+//   does not split (`split`), or stays in edit mode (`escape`).
 import fc from "fast-check";
 import { afterEach, expect, test, vi } from "vitest";
 import type * as BlockDraft from "../../outline/useBlockDraft";
@@ -45,7 +45,7 @@ class PropertyReport extends Error {}
 
 afterEach(() => { mutant.current = null; });
 
-async function expectCaught(wrong: Mutant, rule: string): Promise<void> {
+async function expectCaught(wrong: Mutant, rules: string[]): Promise<void> {
   mutant.current = wrong;
   const details = await fc.check(fc.asyncProperty(draftExampleArb,
     async (example) => {
@@ -65,17 +65,18 @@ async function expectCaught(wrong: Mutant, rule: string): Promise<void> {
   expect(error instanceof PropertyReport, `mutant caught by a thrown error,` +
     ` not a property report (seed ${details.seed}): ${String(error)}`).toBe(true);
   const lines = (error as PropertyReport).message.split("\n");
-  expect(lines.some((line) => line.includes(`}: ${rule}: `)),
-         `mutant caught, but not by ${rule} (seed ${details.seed}):\n` +
+  expect(lines.some((line) => rules.some((rule) => line.includes(`}: ${rule}: `))),
+         `mutant caught, but not by ${rules.join(" or ")} (seed ${details.seed}):\n` +
          lines.join("\n")).toBe(true);
 }
 
 test("the draft property catches a policy that reads only isComposing",
      async () => {
-  await expectCaught((e) => e.isComposing, "ime");
+  await expectCaught((e) => e.isComposing, ["ime"]);
 });
 
 test("the draft property catches a policy that owns every keyCode 229",
      async () => {
-  await expectCaught((e, real) => real || e.keyCode === 229, "split");
+  await expectCaught((e, real) => real || e.keyCode === 229,
+                     ["split", "escape"]);
 });

@@ -132,6 +132,8 @@ interface Step {
   undoneTo: string | null;
   /** A keydown the IME owns: it must send and split nothing. */
   imeOwned?: boolean;
+  /** An Escape the IME does not own: the block must leave edit mode. */
+  escapes?: boolean;
 }
 
 function flushStep(model: DraftModel, labels: string[], then: Step["then"],
@@ -303,7 +305,9 @@ async function apply(command: DraftCommand, model: DraftModel,
         fireEvent.keyDown(ta, { key, keyCode, isComposing: ime === "composing" });
       });
       if (owned) return { ...idle, model: keydown(), imeOwned: true };
-      if (key === "Escape") return flushStep(keydown(), labels, "nothing");
+      if (key === "Escape") {
+        return { ...flushStep(keydown(), labels, "nothing"), escapes: true };
+      }
       labels.push("enter-splits");
       return { ...idle, model: keydown(), then: "split" };
     }
@@ -333,6 +337,11 @@ function check(step: Step, sent: BlockOp[][], outline: Outline,
   }
   if (count !== 1) {
     problems.push(`the outline holds ${count} blocks, expected 1`);
+  }
+  if (step.escapes && textarea() !== null) {
+    problems.push("escape: an Escape the IME does not own left the block "
+      + "in edit mode");
+    return { model, problems };
   }
   let next = 0;
   const take = (): BlockOp | undefined => ops[next++];

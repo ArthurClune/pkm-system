@@ -1,13 +1,13 @@
 ---
 # pkm-ppd7
 title: 'Outline: the unmount flush ships the last edit after releasing the shared session; the other surface shows stale text'
-status: todo
+status: in-progress
 type: bug
 priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-07T18:42:45Z
+updated_at: 2026-11-08T14:36:32Z
 parent: pkm-zk8b
 ---
 

@@ -100,3 +100,14 @@ Sketch (extend the web `sync/` suite's fault alphabet; oracle invariants in
   now defers only failures that are not session-fatal (unit test beside
   the code). The property's `afterPull` pulls a second time when the first
   joined a pull already under way.
+- From review: that second pull hid a product bug, now fixed. A pull pass
+  that left recovery to a poison repair `return`ed out of `pullLoop`,
+  dropping a joined `again`, and nothing pulled after the repair released.
+  The pass now ends with `break` (a joined request gets its own pass), and
+  `owedAfterPoison` runs one more pull when `completeAuthoritativeRepair` or
+  an unmatched mark releases the claim. The docs promise no coverage from
+  the repair's snapshot (a failed repair applies none), so the owed pull
+  runs. Red unit tests in `replicaSync.test.ts` ("a pull left to a poison
+  repair"); the property's pull-twice workaround is gone; a fixed scenario
+  ("a nudge joined to a pull left to a poison repair gets its own pass")
+  fails under the old early return.

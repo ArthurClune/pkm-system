@@ -241,6 +241,12 @@ owner:
 
 A mark RPC that fails holds the claim, because the row is still unmarked.
 
+While the claim is held, a pull pass that needs a recovery leaves it to the
+repair. That pass ends, but a pull that joined it still gets a pass of its
+own: callers such as the reconnect's trailing pull take a join to mean their
+pull will run. One more pull is owed for when the claim is released, because
+a repair that fails applies no snapshot and so covers nothing.
+
 ## A pull that keeps failing
 
 A failed pull, and a failed `start()` (init, schema recovery or the first

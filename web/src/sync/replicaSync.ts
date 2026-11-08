@@ -262,6 +262,8 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   let starting: Promise<void> | null = null;
   let again = false;
   let authoritativeRepair: "poison" | null = null;
+  // A pull pass left work to a poison repair; see owePoisonPull.
+  let owedAfterPoison = false;
   // Acks the server gave for leased batches whose rows are still queued. The
   // next commit takes them, so a rebase deletes those rows before its replay
   // instead of replaying their wire text over what the server saved. A run
@@ -359,6 +361,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     if (authoritativeRepair === "poison") {
       authoritativeRepair = null;
       queue.resume("poison");
+      payPoisonPull();
     }
   });
 
@@ -684,6 +687,17 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     });
   };
 
+  /** Work a poison repair now owns is left to it: the pass ends, a joiner's
+   * `again` still gets its own pass, and one more pull is owed for when the
+   * repair releases recovery, since the repair may fail and its snapshot
+   * then covers nothing. */
+  const owePoisonPull = (): void => { owedAfterPoison = true; };
+  const payPoisonPull = (): void => {
+    if (!owedAfterPoison || authoritativeRepair === "poison") return;
+    owedAfterPoison = false;
+    void pull();
+  };
+
   /** A failed recovery a poison repair now owns is left to that repair,
    * unless its error is session-fatal: that is about the database, not the
    * recovery, and noteFailure must hear it or the mode stays ready. */
@@ -723,10 +737,10 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
             // Same ownership rule as the needs-bootstrap branch below: a
             // poison repair holds the recovery lease; leave the corruption
             // for the pull that follows it.
-            if (authoritativeRepair === "poison") return;
+            if (authoritativeRepair === "poison") { owePoisonPull(); break; }
             const rebuilt = await rebuildForCorruption(error);
             if (!rebuilt.ok) {
-              if (leftToPoison(rebuilt.error)) return;
+              if (leftToPoison(rebuilt.error)) { owePoisonPull(); break; }
               throw rebuilt.error;
             }
             // The snapshot moved the cursor to its own seq; one more pull
@@ -749,9 +763,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
             throw error;
           }
           const rebased = await rebaseForUnappliableWindow(error);
-          if (rebased === "deferred") return;
+          if (rebased === "deferred") { owePoisonPull(); break; }
           if (!rebased.ok) {
-            if (leftToPoison(rebased.error)) return;
+            if (leftToPoison(rebased.error)) { owePoisonPull(); break; }
             throw rebased.error;
           }
           continue;
@@ -768,7 +782,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
           // A rejected batch owns recovery until the provider has deleted its
           // durable row and scheduled resync. Normal recovery would flush
           // later valid rows, breaking poison's stronger ordering.
-          if (authoritativeRepair === "poison") return;
+          if (authoritativeRepair === "poison") { owePoisonPull(); break; }
           const rebased = await recover("rebase");
           if (!rebased.ok) {
             // A poison signal that arrived mid-recovery (flush-time
@@ -777,7 +791,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
             // genuine failed pull attempt -- rethrow the real error so
             // isStallShaped classifies it correctly instead of a
             // synthetic stand-in that always looked network-shaped.
-            if (leftToPoison(rebased.error)) return;
+            if (leftToPoison(rebased.error)) { owePoisonPull(); break; }
             throw rebased.error;
           }
           done = feed.latest_seq <= cursor;
@@ -897,6 +911,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     },
     completeAuthoritativeRepair(reason) {
       if (authoritativeRepair === reason) authoritativeRepair = null;
+      payPoisonPull();
     },
     async resetLocalData({ discardPending }) {
       // A rejected-batch repair owns recovery until the provider has deleted

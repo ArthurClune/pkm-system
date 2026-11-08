@@ -21,7 +21,7 @@ from pkm.title_migration import (
     build_title_migration_plan,
     noncanonical_titles,
 )
-from pkm.server.db import open_db
+from pkm.server.db import open_db, write_txn
 from pkm.server.store import (
     append_page_without_rewrite,
     retitle_page_without_rewrite,
@@ -190,10 +190,7 @@ def apply_title_migration(
     if db.in_transaction:
         raise RuntimeError("title migration apply cannot run inside a caller transaction")
 
-    transaction_started = False
-    try:
-        db.begin_immediate()
-        transaction_started = True
+    with write_txn(db):
         plan = build_title_migration_plan(_inventory_title_migration(db))
         if plan.digest != expected_digest:
             raise StaleTitleMigration(expected_digest, plan.digest)
@@ -279,12 +276,7 @@ def apply_title_migration(
             sidebars_retitled=len(plan.sidebar_retitles),
             generation=generation,
         )
-        db.commit()
-        return outcome
-    except BaseException:
-        if transaction_started:
-            db.rollback()
-        raise
+    return outcome
 
 
 def _counted(n: int, singular: str, plural: str) -> str:

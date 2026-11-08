@@ -44,12 +44,13 @@ const supportsFieldSizing =
 // keydown, seconds later, is the user's.
 const IME_COMMIT_WINDOW_MS = 500;
 
-/** The clock the window is measured on; tests replace `now`. */
+/** The clock the window is measured on, read in each handler; tests replace
+ * `now`. Never an event's timeStamp: WebKit stamps a trusted keydown on
+ * another clock from the compositionend it raises itself. */
 export const imeClock = { now: (): number => performance.now() };
 
 /** The fields of a keydown that say whether the IME owns it. */
-export type ImeKeydown = Pick<KeyboardEvent, "isComposing" | "keyCode"
-  | "timeStamp">;
+export type ImeKeydown = Pick<KeyboardEvent, "isComposing" | "keyCode">;
 
 export interface BlockDraftOptions {
   /** The block tree's committed text for this block. */
@@ -111,7 +112,7 @@ export interface BlockDraft {
   replace(text: string, selStart: number, selEnd: number,
           holdFlush: boolean): boolean;
   onCompositionStart(): void;
-  onCompositionEnd(e: { timeStamp: number }): void;
+  onCompositionEnd(): void;
   /** Whether the IME owns this keydown, which the editor must then leave
    * alone: one sent mid-composition, or the keystroke that ended one. Call
    * it once per keydown, since it consumes the composition just ended. */
@@ -150,7 +151,7 @@ export function useBlockDraft(
   // adoption must not call setDraft mid-composition (it would disturb the
   // native composition UI), so it's deferred and retried on compositionend.
   const composingRef = useRef(false);
-  // The compositionend's timeStamp until the next keydown, else null.
+  // When the composition ended (imeClock), until the next keydown; else null.
   const compositionEndedAtRef = useRef<number | null>(null);
   // Selection to restore once a setDraft (an adoption or a programmatic
   // replace) has committed (see the layout effect below); null when no
@@ -304,9 +305,9 @@ export function useBlockDraft(
     onCompositionStart: () => {
       composingRef.current = true;
     },
-    onCompositionEnd: (e) => {
+    onCompositionEnd: () => {
       composingRef.current = false;
-      compositionEndedAtRef.current = e.timeStamp;
+      compositionEndedAtRef.current = imeClock.now();
       tryAdopt();
     },
     imeOwns: (e) => {
@@ -314,7 +315,7 @@ export function useBlockDraft(
       compositionEndedAtRef.current = null;
       if (e.isComposing || composingRef.current) return true;
       return e.keyCode === 229 && endedAt !== null
-        && Math.abs(e.timeStamp - endedAt) < IME_COMMIT_WINDOW_MS;
+        && imeClock.now() - endedAt < IME_COMMIT_WINDOW_MS;
     },
     settle: () => setSettled((n) => n + 1),
   };

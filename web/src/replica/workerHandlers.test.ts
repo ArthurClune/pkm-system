@@ -375,7 +375,6 @@ test("one failed open is replayed by EVERY handler, and opens only once", async 
     ["poisonedBatches", undefined],
     ["pendingCount", undefined],
     ["localApi", { method: "GET", path: "/api/page/AI", nowMs: 1 }],
-    ["reset", undefined],
     ["prepareRecovery", undefined],
   ];
   // This loop calls every method generically by name, so it goes through
@@ -475,7 +474,8 @@ test("a schema rebuild forgets acked seqs, since pending_ops ids restart", async
   await handlers.enqueue({ ops: [{ op: "delete", uid: uidOf("uid_b1") }], batchId: bid("a") });
   const [first] = ids();
   await handlers.deleteBatch({ id: pid(first), batchId: bid("a"), ackedSeq: seq(6) });
-  await handlers.reset(undefined);
+  const lease = await handlers.prepareRecovery(undefined);
+  await handlers.commitRecovery({ token: lease.token, input: { kind: "reset", snapshot: SNAP } });
   await handlers.init(undefined);
   await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
   await handlers.enqueue({ ops: [{ op: "delete", uid: uidOf("uid_b1") }], batchId: bid("b") });
@@ -519,23 +519,6 @@ test("a reset over a damaged file replaces the file and rebuilds into the new on
   await expect(handlers.enqueue({
     ops: [{ op: "delete", uid: uidOf("uid_b1") }], batchId: bid("b"),
   })).resolves.toEqual({ pending: 1, batchId: "b" });
-});
-
-test("the no-pending reset replaces a damaged file too", async () => {
-  const warn = quietWarn();
-  const damaged = await openRawTestDb();
-  const fresh = await openRawTestDb();
-  let current = withDamagedFreelist(damaged.db);
-  const discardDbFile = vi.fn(() => { current = fresh.db; });
-  const handlers = buildHandlers({ openDb: async () => current, discardDbFile });
-  await handlers.init(undefined);
-
-  await expect(handlers.reset(undefined)).resolves.toBeNull();
-  expectFileReplaced(warn);
-  expect(discardDbFile).toHaveBeenCalledOnce();
-  expect(fresh.db.introspect(
-    "SELECT name FROM sqlite_master WHERE name = 'pending_ops'"))
-    .toEqual([{ name: "pending_ops" }]);
 });
 
 test("a reset failure that is not corruption keeps the file", async () => {

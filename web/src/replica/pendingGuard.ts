@@ -16,8 +16,11 @@
 // /api/sync/changes reads latest_seq in the same read snapshot as the window
 // rows. latest_seq >= B's acked seq therefore means the window (with its
 // continuation pages) already carries B -- the same guarantee a refetch would
-// give. pending_ops ids are AUTOINCREMENT, so a removed id never comes back as
-// a different batch.
+// give. pending_ops ids are AUTOINCREMENT, so within one file a removed id
+// never comes back as a different batch. A rebuild drops the table and its
+// counter, and a file replacement starts a new one, so ids restart there;
+// every such path clears ackedSeqs (workerHandlers.ts), so no recorded seq
+// vouches for a reused id.
 
 import type { SyncSeq } from "../api/brands";
 import type { PendingRowId } from "./client";

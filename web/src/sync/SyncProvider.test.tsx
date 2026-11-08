@@ -184,7 +184,6 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
     prepareRecovery: async () => ({ token: "lease-1", batches: [] }),
     commitRecovery: async () => undefined,
     abortRecovery: async () => undefined,
-    reset: async () => undefined,
     diagnostics: async () => ({
       sqliteVersion: "fake", quickCheck: ["ok"],
       integrity: { blocks_fts: "ok", pages_fts: "ok" },

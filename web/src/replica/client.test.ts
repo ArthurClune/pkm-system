@@ -6,7 +6,7 @@ import type { BatchId } from "../api/brands";
 import type { components } from "../api/types";
 import type { Snapshot } from "./apply";
 import { createReplica, type AckedBatch, type Replica, type ReplicaRpc } from "./client";
-import { SCHEMA_VERSION, installSchema } from "./clientSchema";
+import { installSchema } from "./clientSchema";
 import { ReplicaUnusableError } from "./errors";
 import { setMeta } from "./meta";
 import { createRpcClient, serveRpc, toPortLike, type RpcHandlers } from "./rpc";
@@ -192,17 +192,6 @@ test("a schema-version mismatch is reported with the pending queue intact", asyn
   }]);
 });
 
-test("reset destroys the database and reinstalls a fresh schema", async () => {
-  const { replica, current } = await setup();
-  await replica.init();
-  await replica.applySnapshot(SNAP);
-  await replica.reset();
-  const init = await replica.init();
-  expect(init.empty).toBe(true);
-  expect(init.schemaMismatch).toBe(false);
-  const rows = current().db.introspect("SELECT value FROM sync_client_meta WHERE key='schema_version'");
-  expect(rows).toEqual([{ value: SCHEMA_VERSION }]);
-});
 
 test("openDb failure rejects init() with the worker's latched error", async () => {
   // init() is just another handler: the worker's db() latch rejects it
@@ -261,7 +250,6 @@ test("snapshot and recovery RPCs use the long timeout; ordinary calls use the de
     const snapshot = replica.applySnapshot(SNAP)
       .then(() => undefined, (error: unknown) => error)
       .finally(() => { snapshotSettled = true; });
-    const reset = replica.reset().catch((error: unknown) => error);
     let prepareSettled = false;
     const prepare = replica.prepareRecovery()
       .then(() => undefined, (error: unknown) => error)
@@ -273,7 +261,6 @@ test("snapshot and recovery RPCs use the long timeout; ordinary calls use the de
     expect(prepareSettled).toBe(false);
     await vi.advanceTimersByTimeAsync(90_000);
     await expect(snapshot).resolves.toMatchObject({ kind: "timeout" });
-    await expect(reset).resolves.toMatchObject({ kind: "timeout" });
     await expect(prepare).resolves.toMatchObject({ kind: "timeout" });
   } finally {
     vi.useRealTimers();

@@ -66,7 +66,6 @@ function fakeReplica(over: Partial<Replica> = {},
     }),
     commitRecovery: () => rec("commitRecovery", undefined),
     abortRecovery: () => rec("abortRecovery", undefined),
-    reset: () => rec("reset", undefined),
     diagnostics: () => rec("diagnostics", {
       sqliteVersion: "fake", quickCheck: ["ok"],
       integrity: { blocks_fts: "ok", pages_fts: "ok" },

@@ -54,7 +54,6 @@ function rowReplica(): Replica {
     prepareRecovery: async () => ({ token: "lease", batches: [...rows] }),
     commitRecovery: async () => undefined,
     abortRecovery: async () => undefined,
-    reset: async () => undefined,
     diagnostics: async () => ({
       sqliteVersion: "fake", quickCheck: ["ok"],
       integrity: { blocks_fts: "ok", pages_fts: "ok" },

@@ -48,7 +48,6 @@ export function memReplica(over: Partial<Replica> = {}): Replica & {
     prepareRecovery: async () => ({ token: "lease-1", batches: [...rows] }),
     commitRecovery: async () => undefined,
     abortRecovery: async () => undefined,
-    reset: async () => undefined,
     diagnostics: async () => ({
       sqliteVersion: "mem", quickCheck: ["ok"],
       integrity: { blocks_fts: "ok", pages_fts: "ok" },

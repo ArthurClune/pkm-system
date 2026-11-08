@@ -427,7 +427,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
    * with SQLITE_CORRUPT every time, and so does every later reset. Pending
    * rows lose nothing: a reset drops pending_ops either way, and its caller
    * already holds them from prepareRecovery. */
-  const rebuildOrReplaceFile = async (snapshot?: Snapshot): Promise<void> => {
+  const rebuildOrReplaceFile = async (snapshot: Snapshot): Promise<void> => {
     try {
       rebuildSchema(await db(), snapshot);
     } catch (error: unknown) {
@@ -578,7 +578,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
         // Bootstrap is single-flight and names its pending set afresh for
         // every attempt, so an acked seq for an id outside this set was noted
         // before the next fetch, which the server answers after that commit:
-        // drop it here to keep the map bounded.
+        // drop it here to keep the map bounded. That holds only while no pull
+        // runs beside a bootstrap, which replicaSync ensures: it pulls only
+        // once started, and bootstraps only before.
         const expected = new Set(expectedPendingIds);
         for (const id of ackedSeqs.keys()) {
           if (!expected.has(id)) ackedSeqs.delete(id);
@@ -596,7 +598,8 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
         // pullLoop is single-flight and snapshots the pending set afresh for
         // every window, so an acked seq for an id outside this snapshot was
         // noted before the next window's fetch, which the server answers
-        // after that commit: drop it here to keep the map bounded.
+        // after that commit: drop it here to keep the map bounded. As for
+        // applySnapshot, this needs no bootstrap running beside the pull.
         const expected = new Set(expectedPendingIds);
         for (const id of ackedSeqs.keys()) {
           if (!expected.has(id)) ackedSeqs.delete(id);
@@ -690,16 +693,6 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
       await gate.abort(token);
       clearPrepared(token);
       return null;
-    },
-    async reset() {
-      return gate.run(async () => {
-        const current = await withQueue(readPendingBatches);
-        if (current.length > 0) {
-          throw new Error("cannot reset replica with pending rows");
-        }
-        await rebuildOrReplaceFile();
-        return null;
-      });
     },
     async diagnostics() {
       // db(), not queueDb(): see queueDb

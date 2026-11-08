@@ -10,7 +10,7 @@ import type { LocalApiRequest, LocalApiResult } from "./localApi/router";
 import { createRpcClient, type PortLike } from "./rpc";
 
 /** Timeout budget for every recovery-adjacent worker RPC (prepareRecovery,
- * applySnapshot, commitRecovery, reset): these can process a full local
+ * applySnapshot, commitRecovery, diagnostics): these can process a full local
  * database and share the same generous allowance. */
 const RECOVERY_TIMEOUT_MS = 120_000;
 
@@ -168,10 +168,6 @@ export interface Replica {
   commitRecovery(token: string, input: RecoveryCommit): Promise<void>;
   /** Release a prepared lease without destructive work. */
   abortRecovery(token: string): Promise<void>;
-  /** Drop and reinstall the schema. Caller enforces the non-empty-queue
-   * guard (offline-editing-design.md §6): never call with unsynced pending ops.
-   */
-  reset(): Promise<void>;
   /** Read-only self-report for the corruption path; never rejects for a
    * broken index, only for a database that cannot be opened at all. */
   diagnostics(): Promise<ReplicaDiagnostics>;
@@ -226,8 +222,6 @@ export type ReplicaRpc = {
   };
   /** result: null, same reasoning as applySnapshot above. */
   abortRecovery: { payload: string; result: null };
-  /** result: null, same reasoning as applySnapshot above. */
-  reset: { payload: undefined; result: null };
   diagnostics: { payload: undefined; result: ReplicaDiagnostics };
   /** result: null; nothing reads it -- `dispose()` discards it directly. */
   close: { payload: undefined; result: null };
@@ -262,8 +256,6 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
       "commitRecovery", { token, input }, { timeoutMs: RECOVERY_TIMEOUT_MS },
     ).then(() => undefined),
     abortRecovery: (token) => rpc.call("abortRecovery", token).then(() => undefined),
-    reset: () => rpc.call("reset", undefined, { timeoutMs: RECOVERY_TIMEOUT_MS })
-      .then(() => undefined),
     diagnostics: () =>
       rpc.call("diagnostics", undefined, { timeoutMs: RECOVERY_TIMEOUT_MS }),
     dispose: () => (disposing ??= (async () => {

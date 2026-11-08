@@ -94,3 +94,9 @@ Sketch (extend the web `sync/` suite's fault alphabet; oracle invariants in
   (old latch, no start retry) both fail.
 - Docs: sync-recovery.md § Replica mode and § A pull that keeps failing;
   two troubleshooting rows.
+- Found by the property at the gate: a feed rebase that a poison repair
+  had preempted met the dead worker at its lease, and pullLoop left that
+  failure to the poison repair, so the mode stayed ready. `leftToPoison`
+  now defers only failures that are not session-fatal (unit test beside
+  the code). The property's `afterPull` pulls a second time when the first
+  joined a pull already under way.

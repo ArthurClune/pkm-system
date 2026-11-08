@@ -159,7 +159,7 @@ async function settleReplicas(world: World<HarnessClient>, model: SyncModel):
     await c.online();
     model.online[name] = true;
     await c.pull();
-    world.modes.afterPull(c);
+    await world.modes.afterPull(c);
     count(c.hasStarted() ? "settle: dead worker online-only after a pull"
                          : "settle: dead worker never started");
     if (await within(c.queue.drain(), LANE_DRAIN_WAIT_MS) === TIMED_OUT) {

@@ -2709,3 +2709,42 @@ describe("replica mode exits", () => {
     }
   });
 });
+
+describe("a dead worker under a poison repair", () => {
+  test("a pull whose recovery meets a dead worker after poison claimed recovery reports no-replica",
+  async () => {
+    // From the sync property: a rejected batch claims recovery while a
+    // feed rebase is under way, and the worker dies before its lease. The
+    // poison deferral must not swallow a session-fatal error.
+    let applyCall = 0;
+    let signalPoisonPending: () => void = () => undefined;
+    const replica = fakeReplica({
+      applyChanges: async (window: Changes) => {
+        applyCall += 1;
+        return applyCall === 1
+          ? { status: "applied" as const, cursor: window.next_since }
+          : { status: "needs-bootstrap" as const };
+      },
+      prepareRecovery: async () => {
+        signalPoisonPending();
+        throw new RpcLifecycleError("worker-error", "replica worker failed");
+      },
+    });
+    const queue = {
+      pause: vi.fn(), resume: vi.fn(),
+      onPoisonPending: (listener: () => void) => {
+        signalPoisonPending = listener;
+        return () => undefined;
+      },
+    };
+    const { states, onState } = collector();
+    const sync = createReplicaSync({
+      replica, fetchJson: async () => feed(), clientId: CID, onState, queue,
+    });
+    await sync.start();
+    sync.onSeq(seqOf(9));
+    await sync.idle();
+    expect(states.at(-1)).toEqual({ mode: "no-replica", error: "replica worker failed" });
+    expect(sync.appliedVersion()).toBeNull();
+  });
+});

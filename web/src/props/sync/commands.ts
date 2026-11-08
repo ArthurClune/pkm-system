@@ -284,7 +284,7 @@ export class Pull extends SyncCommand {
     await c.pull();
     if (m.dead[this.client]) {
       w.count(c.hasStarted() ? "Pull with a dead worker" : "Pull with a dead worker, never started");
-      w.modes.afterPull(c);
+      await w.modes.afterPull(c);
       return `Pull(${this.client}) worker dead, mode ${c.mode()}`;
     }
     return `Pull(${this.client}) cursor ${c.cursor()}`;

@@ -201,7 +201,7 @@ function stubWorld(events: string[], cancelled = false): World {
     server: stubServer(),
     clients: new Map([["A", client]]),
     watch: { observe: () => undefined },
-    modes: { observe: () => undefined, afterPull: () => undefined },
+    modes: { observe: () => undefined, afterPull: () => Promise.resolve() },
     transcript: [],
     count: () => undefined,
     cancelled: () => cancelled,

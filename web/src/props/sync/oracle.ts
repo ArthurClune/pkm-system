@@ -292,14 +292,20 @@ export class CursorWatch {
 }
 
 type ModeClient = Pick<HarnessClient,
-  "name" | "mode" | "workerDead" | "appliedVersion" | "hasStarted">;
+  "name" | "mode" | "workerDead" | "appliedVersion" | "hasStarted" | "pull">;
+
+/** How many forced pulls afterPull allows a dead worker's client: the first
+ * may join a pull already under way, which can end without another read
+ * (it leaves recovery to a poison repair), so the second is the first sure
+ * to call the worker. */
+const PULLS_TO_MEET_A_DEATH = 2;
 
 /** Replica mode (sync-recovery.md § Replica mode). A live worker is never
- * taken for dead, and once a started client's worker has died, one pull is
- * enough to make the session online-only: mode no-replica, no answer to
- * "what moved" for a reconnect to trust, and no editing while offline. Run
- * after every command (observe) and after each forced pull of a client
- * whose worker died (afterPull). */
+ * taken for dead, and once a started client's worker has died, a pull that
+ * calls the worker makes the session online-only: mode no-replica, no
+ * answer to "what moved" for a reconnect to trust, and no editing while
+ * offline. Run after every command (observe) and after a forced pull of a
+ * client whose worker died (afterPull, which pulls again if it must). */
 export class ModeWatch {
   observe(clients: readonly ModeClient[]): void {
     for (const c of clients) {
@@ -309,8 +315,12 @@ export class ModeWatch {
     }
   }
 
-  afterPull(c: ModeClient): void {
+  async afterPull(c: ModeClient): Promise<void> {
     if (!c.workerDead() || !c.hasStarted()) return;
+    for (let pulls = 1; pulls < PULLS_TO_MEET_A_DEATH && c.mode() !== "no-replica";
+         pulls += 1) {
+      await c.pull();
+    }
     const problems = [
       ...(c.mode() === "no-replica" ? [] : [`mode is ${c.mode()}`]),
       ...(c.appliedVersion() === null ? [] : [`appliedVersion is ${c.appliedVersion()}`]),

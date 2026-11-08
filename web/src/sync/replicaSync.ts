@@ -684,6 +684,12 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     });
   };
 
+  /** A failed recovery a poison repair now owns is left to that repair,
+   * unless its error is session-fatal: that is about the database, not the
+   * recovery, and noteFailure must hear it or the mode stays ready. */
+  const leftToPoison = (error: unknown): boolean =>
+    authoritativeRepair === "poison" && !isSessionFatal(error);
+
   const pullLoop = async (): Promise<void> => {
     // Counts consecutive "pending-changed" refetches since the last applied
     // window (including across an `again`-triggered restart). A feed that
@@ -720,7 +726,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
             if (authoritativeRepair === "poison") return;
             const rebuilt = await rebuildForCorruption(error);
             if (!rebuilt.ok) {
-              if (authoritativeRepair === "poison") return;
+              if (leftToPoison(rebuilt.error)) return;
               throw rebuilt.error;
             }
             // The snapshot moved the cursor to its own seq; one more pull
@@ -745,7 +751,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
           const rebased = await rebaseForUnappliableWindow(error);
           if (rebased === "deferred") return;
           if (!rebased.ok) {
-            if (authoritativeRepair === "poison") return;
+            if (leftToPoison(rebased.error)) return;
             throw rebased.error;
           }
           continue;
@@ -771,7 +777,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
             // genuine failed pull attempt -- rethrow the real error so
             // isStallShaped classifies it correctly instead of a
             // synthetic stand-in that always looked network-shaped.
-            if (authoritativeRepair === "poison") return;
+            if (leftToPoison(rebased.error)) return;
             throw rebased.error;
           }
           done = feed.latest_seq <= cursor;

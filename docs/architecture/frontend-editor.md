@@ -302,6 +302,19 @@ selection. New shortcuts go into one of them, and Cmd-letter wraps
 into `META_WRAP_EDITS`, never into ad-hoc handlers. [keyboard.md](../keyboard.md)
 owns the list, and a new key must not collide with an app-global chord.
 
+A keydown the IME owns decides `none`, whatever the key, so committing a
+conversion with Enter never splits. `useBlockDraft.imeOwns` answers for it:
+
+| Keydown | Owned by the IME |
+|---|---|
+| `isComposing`, or between `compositionstart` and `compositionend` | yes (Chromium sends the committing Enter this way) |
+| the first after a `compositionend`, with keyCode 229, within `IME_COMMIT_WINDOW_MS` | yes (WebKit ends the composition before sending its committing keydown) |
+| any other, keyCode 229 included | no |
+
+keyCode 229 alone is not enough, because a keydown can carry it with no
+composition just ended, and its Enter must still split. The window covers a
+composition ended without a key, by a clicked candidate.
+
 `KeyboardBar` feeds each key to `decideEditorKey` as the key it names. When the
 policy answers `none` for a character, `insertTypedChar` types it, since no
 native keystroke follows. The bar's platform rules are in

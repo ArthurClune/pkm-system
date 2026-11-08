@@ -163,7 +163,7 @@ specs: [server](../superpowers/specs/2026-10-02-property-checks-server-design.md
 | `test_assistant_turn_props.py` | each turn shows only its own events, and retirement matches [the turn phase](assistant.md#the-turn-phase), through every interrupt order. It runs on a virtual clock (`props/virtual_loop.py`) |
 | `sync/` | the invariants in the header of `sync/oracle.ts` |
 | `outline/` | `checks.ts`: rows match a reading-view model; history undoes to the start |
-| `outline/draft.prop.ts` | the real editor in jsdom (`draftHarness.tsx`) holds a pending draft exactly when `draftModel.ts` does; the textarea shows it or else the tree; each flush hashes its draft's base |
+| `outline/draft.prop.ts` | the real editor in jsdom (`draftHarness.tsx`) holds a pending draft exactly when `draftModel.ts` does; the textarea shows it or else the tree, and adopts nothing mid-composition; each flush hashes its draft's base; a keydown the IME owns sends nothing |
 | `ops/` | the replica and the in-memory trees store what the server stores; `enqueueBatch` refuses a batch for title syntax or a text limit exactly when the server does |
 
 Rules a change to the gate must keep:

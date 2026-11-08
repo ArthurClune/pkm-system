@@ -7,7 +7,7 @@ priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-08T14:46:55Z
+updated_at: 2026-11-08T14:59:05Z
 parent: pkm-zk8b
 ---
 
@@ -28,6 +28,6 @@ and keyCode 229. Guarding on keyCode 229 alone risks swallowing Enter from
 the iPad's on-screen keyboard.
 
 ## Fix
-- [ ] Red tests for both event orders (Chromium: isComposing; WebKit: compositionend then keydown 229)
-- [ ] Expose composing state from `useBlockDraft` (including the just-ended case) to the key policy as an `EditorKeyInput` field; return `none` while composing
+- [x] Red tests for both event orders (Chromium: isComposing; WebKit: compositionend then keydown 229)
+- [x] Expose composing state from `useBlockDraft` (including the just-ended case) to the key policy as an `EditorKeyInput` field; return `none` while composing
 - [ ] Verify on the iPad simulator (`.claude/skills/ipad-simulator`) that on-screen-keyboard Enter still splits

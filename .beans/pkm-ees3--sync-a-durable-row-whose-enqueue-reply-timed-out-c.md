@@ -1,13 +1,13 @@
 ---
 # pkm-ees3
 title: 'Sync: a durable row whose enqueue reply timed out can be posted ahead of an earlier lane entry'
-status: todo
+status: in-progress
 type: bug
 priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-07T18:42:45Z
+updated_at: 2026-11-08T14:28:36Z
 parent: pkm-zk8b
 ---
 
@@ -31,8 +31,8 @@ fixed pkm-5ekv, reached by a lost reply.
 (`serveRpc` has no deadline).
 
 ## Fix
-- [ ] Red test (the verifier's repro: lane-only A, timed-out B persisted late, drain order)
-- [ ] Mark the batch as follows-the-lane before the RPC; clear the mark when the copy turns out not to be durable (trial run: the existing 108 opQueue tests stay green)
+- [x] Red test (the verifier's repro: lane-only A, timed-out B persisted late, drain order)
+- [x] Mark the batch as follows-the-lane before the RPC; clear the mark when the copy turns out not to be durable (trial run: the existing 108 opQueue tests stay green)
 
 ## Property testing (required)
 

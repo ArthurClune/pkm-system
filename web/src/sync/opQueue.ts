@@ -718,11 +718,13 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
         // delivers second lands on the server's applied_batches replay
         // instead of a create-collision 400.
         const batchId = newBatchId();
+        // Marked behind every lane entry appended before it, if any (see
+        // markFollows), BEFORE the RPC: a reply that times out does not
+        // stop the worker persisting the row later, and an unmarked row
+        // counts as ahead of the whole lane.
+        outbox = markFollows(outbox, batchId);
         try {
           const result = await replica.enqueue(ops, batchId);
-          // Persisted durably: marked behind every lane entry appended
-          // before it, if any (see markFollows).
-          outbox = markFollows(outbox, batchId);
           if (qstate.disposed) {
             resolveDelivery({
               status: "failed", error: new Error("op queue disposed"),
@@ -740,6 +742,8 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
           // title syntax): the server would refuse it too, so retaining and
           // retrying can never help. The ONE case that still desyncs.
           if (replicaError?.rejected === true) {
+            // Refused before anything was stored: no durable copy exists.
+            outbox = forget(outbox, batchId);
             resolveDelivery({ status: "failed", error });
             desync.emit({ error, lane: false });
             return;

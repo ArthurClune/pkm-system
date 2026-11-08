@@ -3,11 +3,14 @@
 // The outline draft property: one block in the real editor (useOutline and
 // EditableBlockTree in jsdom) takes a random interleaving of typing, erasing,
 // debounce ticks, remote edits, replays landing through an authoritative
-// read, a flush-and-splice command, undo, blur and refocus. After every step
-// the editor must agree with draftModel.ts: the outline holds a pending draft
-// exactly when the model does, the textarea shows that draft or else the
-// tree's text, every flush hashes the text its draft was typed over, and a
-// conflict arises only under a remote edit or replay.
+// read, a flush-and-splice command, undo, blur, refocus, IME composition
+// start and end, and Enter or Escape keydowns in each engine's composition
+// shape. After every step the editor must agree with draftModel.ts: the
+// outline holds a pending draft exactly when the model does, the textarea
+// shows that draft or else the tree's text (or, mid-composition, what it
+// showed), every flush hashes the text its draft was typed over, a conflict
+// arises only under a remote edit or replay, and a keydown the IME owns sends
+// and splits nothing while any other Enter splits.
 //
 // A failure prints the seed, the path, the shrunk example and a replay line.
 import fc from "fast-check";

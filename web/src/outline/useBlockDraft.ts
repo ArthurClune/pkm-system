@@ -44,6 +44,9 @@ const supportsFieldSizing =
 // keydown, seconds later, is the user's.
 const IME_COMMIT_WINDOW_MS = 500;
 
+/** The clock the window is measured on; tests replace `now`. */
+export const imeClock = { now: (): number => performance.now() };
+
 /** The fields of a keydown that say whether the IME owns it. */
 export type ImeKeydown = Pick<KeyboardEvent, "isComposing" | "keyCode"
   | "timeStamp">;

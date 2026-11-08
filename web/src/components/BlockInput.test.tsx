@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen,
+         waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -6,6 +7,7 @@ import { SidebarContext } from "../contexts";
 import { titleForDate } from "../replica/daily";
 import { block, orderIdxOf, stubFetch } from "../test-helpers";
 import type { OutlineHandlers } from "../outline/handlers";
+import { imeClock } from "../outline/useBlockDraft";
 import { BlockInput } from "./BlockInput";
 
 function handlers(): OutlineHandlers {
@@ -639,7 +641,7 @@ describe("an open popup", () => {
 
 describe("a keydown the IME owns", () => {
   const ENTER_13 = { key: "Enter", keyCode: 13 };
-  afterEach(() => { vi.useRealTimers(); });
+  afterEach(() => { vi.restoreAllMocks(); });
 
   test("Chromium: the committing Enter, sent while composing, does not split",
        () => {
@@ -696,15 +698,39 @@ describe("a keydown the IME owns", () => {
     expect(h.onSplit).toHaveBeenCalledWith("tuid-u1", 5);
   });
 
-  test("a keyCode 229 Enter long after a composition ended splits", () => {
-    vi.useFakeTimers();
+  // WebKit stamps a trusted keydown on another clock from the events it
+  // raises itself, compositionend among them.
+  function fireStamped(el: HTMLElement, ev: Event, timeStamp: number) {
+    Object.defineProperty(ev, "timeStamp", { value: timeStamp });
+    fireEvent(el, ev);
+  }
+
+  test("WebKit: a committing keydown stamped on another clock is the IME's",
+       () => {
+    let clock = 1_000;
+    vi.spyOn(imeClock, "now").mockImplementation(() => clock);
     const h = handlers();
     mount(h, 5);
     const ta = focusedTextarea();
     fireEvent.compositionStart(ta);
-    fireEvent.compositionEnd(ta);
-    vi.advanceTimersByTime(2_000);
-    fireEvent.keyDown(ta, { key: "Enter", keyCode: 229 });
+    fireStamped(ta, createEvent.compositionEnd(ta), 2_064);
+    clock += 10;
+    fireStamped(ta, createEvent.keyDown(ta, { key: "Enter", keyCode: 229 }),
+                815_684_366_637);
+    expect(h.onSplit).not.toHaveBeenCalled();
+  });
+
+  test("a keyCode 229 Enter long after a composition ended splits", () => {
+    let clock = 1_000;
+    vi.spyOn(imeClock, "now").mockImplementation(() => clock);
+    const h = handlers();
+    mount(h, 5);
+    const ta = focusedTextarea();
+    fireEvent.compositionStart(ta);
+    fireStamped(ta, createEvent.compositionEnd(ta), 2_064);
+    clock += 600;
+    fireStamped(ta, createEvent.keyDown(ta, { key: "Enter", keyCode: 229 }),
+                2_064);
     expect(h.onSplit).toHaveBeenCalledWith("tuid-u1", 5);
   });
 

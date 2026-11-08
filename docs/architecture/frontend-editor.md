@@ -334,6 +334,11 @@ is placed in a layout effect of the commit that sets the value
 (`useBlockDraft.replace`), which runs before the next keystroke; a
 `requestAnimationFrame` can run after it.
 
+A read-only outline hides the popup, and the policy is told it is closed,
+since a pick edits the block. The highlight is clamped to the rows shown:
+title rows can shrink under it when a slower fetch for the query lands, with
+no edit to reset it.
+
 ### Paste
 
 Plain Cmd-V is native, unless its result would be past a text limit:

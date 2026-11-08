@@ -105,6 +105,9 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   const acRows: AcRow[] = !ac.ctx ? [] : ac.ctx.kind === "command"
     ? matchSlashCommands(ac.ctx.query).map((c) => ({ label: c.label, isNew: false, command: c.name }))
     : buildRows(options, ac.ctx.query);
+  // Title rows can shrink under the highlight with no edit to reset it, when
+  // a slower fetch for the current query lands.
+  const acSelected = Math.min(ac.selected, Math.max(acRows.length - 1, 0));
 
   /** Replace the draft with `text`, placing a collapsed caret at `cursorPos`.
    * Used by the completion/command paths, which have already decided the new
@@ -288,13 +291,14 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   const decideKey = (k: KeyPress, el: HTMLTextAreaElement): KeyDecision => {
     // A popup the caret has moved away from must not claim the key: Enter
     // stays a split, Tab stays an indent. resolve() drops the
-    // stale context, so the policy is told the popup is closed.
-    const acLive = ac.resolve(el) !== null;
+    // stale context, so the policy is told the popup is closed. A read-only
+    // outline hides the popup, and a pick would edit it.
+    const acLive = !readOnly && ac.resolve(el) !== null;
     return decideEditorKey({
       ...k,
       selStart: el.selectionStart, selEnd: el.selectionEnd,
       draft: draft.text, readOnly,
-      acRowsLength: acLive ? acRows.length : 0, acSelected: ac.selected,
+      acRowsLength: acLive ? acRows.length : 0, acSelected,
     });
   };
 
@@ -314,7 +318,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
         return;
       case "ac-pick":
         e.preventDefault();
-        pick(acRows[ac.selected]);
+        pick(acRows[acSelected]);
         return;
       case "ac-close":
         e.preventDefault();
@@ -478,7 +482,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
                 onCompositionStart={draft.onCompositionStart}
                 onCompositionEnd={draft.onCompositionEnd} />
       {!readOnly && (
-        <AutocompletePopup rows={acRows} selected={ac.selected} onPick={pick} />
+        <AutocompletePopup rows={acRows} selected={acSelected} onPick={pick} />
       )}
       {!readOnly && datePickerAt !== null && (
         <DatePickerPopup initial={new Date()} onPick={pickDate} />

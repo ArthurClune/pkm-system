@@ -52,14 +52,13 @@ function memoryOnlySentence(unsentInMemory: number): string | null {
 }
 
 /** The second sentence turns on connectivity, because the truth does.
- * This problem is a ReplicaUnusableError (SyncProvider only
- * raises replica-unusable for availabilityOf(error) === "unusable"), which
- * is never `rejected`, so opQueue always retains here — but retained ops live
- * in the in-memory fallback lane. So "still being saved" is true while the
- * socket is up and delivering, and false the moment it is not: a refresh or a
- * closed tab then takes them. The copy stays conditional even with
- * useUnloadGuard installed, because the guard does not hold on iPad,
- * so the unconditional reassurance would be a promise we cannot
+ * This problem is a session-fatal replica error (a failed open, or a worker
+ * that died), which is never `rejected`, so opQueue always retains here —
+ * but retained ops live in the in-memory fallback lane. So "still being
+ * saved" is true while the socket is up and delivering, and false the moment
+ * it is not: a refresh or a closed tab then takes them. The copy stays
+ * conditional even with useUnloadGuard installed, because the guard does not
+ * hold on iPad, so the unconditional reassurance would be a promise we cannot
  * keep there. Offline with nothing pending is neither a promise to make nor a
  * loss to warn about, so the first sentence stands alone. */
 function onlineOnlySafetyCopy(status: SyncStatus, pending: number): string | null {

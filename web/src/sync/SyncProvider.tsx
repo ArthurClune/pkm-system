@@ -337,6 +337,10 @@ export function SyncProvider({ children, replica }: {
         } else if (next.mode === "recovery-failed" &&
                    statusRef.current === "connected") {
           applySync({ type: "replica-stalled", error: next.error });
+        } else if (next.mode === "no-replica" && next.error !== undefined) {
+          // A worker that died mid-session: the same online-only banner and
+          // Reload as a replica that never opened.
+          applySync({ type: "replica-unusable", error: next.error });
         }
       },
     }) : null;

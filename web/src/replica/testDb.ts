@@ -137,3 +137,41 @@ export function failingOnce(
     transaction: (fn) => db.transaction(fn),
   };
 }
+
+const MALFORMED =
+  "SQLITE_CORRUPT: sqlite3 result code 11: database disk image is malformed";
+
+/** A database whose `pending_ops` b-tree is damaged while `isDamaged()`:
+ * every statement naming the table throws SQLITE_CORRUPT, except a one-row
+ * read by id (`WHERE id > ?`) of a row below `readableBelow`, so a row-by-row
+ * read gets that prefix. `schema` damages sqlite_master too, so even asking
+ * whether a table exists fails. */
+export function withUnreadableQueue(
+  db: ReplicaDb,
+  { isDamaged = () => true, readableBelow = 1, schema = false }: {
+    isDamaged?: () => boolean; readableBelow?: number; schema?: boolean;
+  } = {},
+): ReplicaDb {
+  const damagedSql = (sql: string): boolean => isDamaged() &&
+    (/\bpending_ops\b/.test(sql) || (schema && /\bsqlite_master\b/.test(sql)));
+  return {
+    ...db,
+    exec(sql, params) {
+      if (damagedSql(sql)) throw new Error(MALFORMED);
+      db.exec(sql, params);
+    },
+    select(sql, keys, params) {
+      if (!damagedSql(sql)) return db.select(sql, keys, params);
+      if (!/\bWHERE id > \?/.test(sql)) throw new Error(MALFORMED);
+      const rows = db.select(sql, keys, params);
+      const id = (rows[0] as { pending_row_id?: unknown } | undefined)?.pending_row_id;
+      if (typeof id === "number" && id >= readableBelow) throw new Error(MALFORMED);
+      return rows;
+    },
+    introspect(sql, params) {
+      if (damagedSql(sql)) throw new Error(MALFORMED);
+      return db.introspect(sql, params);
+    },
+    transaction: (fn) => db.transaction(fn),
+  };
+}

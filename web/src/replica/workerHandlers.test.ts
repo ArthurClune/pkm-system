@@ -11,7 +11,7 @@ import type { Columns } from "./columns.gen";
 import type { ReplicaDb, SqlValue } from "./db";
 import type { DurablePendingRow } from "./queue";
 import { failingOnce, fakeCarryFiles, openRawTestDb, openTestDb,
-         withDamagedFreelist } from "./testDb";
+         withDamagedFreelist, withUnreadableQueue } from "./testDb";
 import { setMeta } from "./meta";
 import { subtreeHash } from "./subtreeHash";
 import { buildHandlers, type WorkerDeps } from "./workerHandlers";
@@ -1675,4 +1675,128 @@ test("a reopened file missing pending_seen is ensured before the first queue cal
   await reopened.pendingCount(undefined);
   expect(t.db.select(
     "SELECT 1 AS n FROM sqlite_master WHERE name='pending_seen'", ["n"])).toHaveLength(1);
+});
+
+/** Three queued rows in a file whose pending_ops later reads as damaged
+ * (withUnreadableQueue), with a carry and a discard that swaps in a fresh
+ * file. */
+async function queueThatTurnsUnreadable(damage: {
+  readableBelow?: number; schema?: boolean; discardThrows?: number;
+} = {}) {
+  const warn = quietWarn();
+  const old = await openRawTestDb();
+  const fresh = await openRawTestDb();
+  const carry = createCarryStore(fakeCarryFiles(await openRawTestDb()));
+  let isDamaged = false;
+  const damaged = withUnreadableQueue(old.db, { isDamaged: () => isDamaged, ...damage });
+  let current = damaged;
+  let throwsLeft = damage.discardThrows ?? 0;
+  let opens = 0;
+  const discardDbFile = vi.fn(() => {
+    if (throwsLeft > 0) {
+      throwsLeft -= 1;
+      throw new Error("unlink failed");
+    }
+    current = fresh.db;
+  });
+  const handlers = buildHandlers({
+    openDb: async () => { opens += 1; return current; },
+    discardDbFile, carry, nowMs: () => 10,
+  });
+  await handlers.init(undefined);
+  await handlers.applySnapshot({ snapshot: SNAP, expectedPendingIds: [] });
+  for (const name of ["one", "two", "three"]) {
+    await handlers.enqueue({ ops: [{ op: "delete", uid: uidOf("uid_b1") }], batchId: bid(name) });
+  }
+  const rowsBefore = durable(old.db);
+  isDamaged = true;
+  return { handlers, carry, discardDbFile, fresh, rowsBefore, warn, opens: () => opens };
+}
+
+const expectQueueReplaced = (warn: ReturnType<typeof quietWarn>) => {
+  expect(warn).toHaveBeenCalledWith(
+    expect.stringContaining("the pending queue cannot be read"), expect.anything());
+};
+
+test("init over an unreadable pending_ops carries the readable rows into a new file", async () => {
+  const { handlers, carry, discardDbFile, fresh, rowsBefore, warn } =
+    await queueThatTurnsUnreadable({ readableBelow: 3 });
+
+  const init = await handlers.init(undefined) as { empty: boolean; pendingBatches: PendingBatch[] };
+
+  expectQueueReplaced(warn);
+  expect(discardDbFile).toHaveBeenCalledOnce();
+  // the new file needs its snapshot, and holds every row that could be read
+  expect(init.empty).toBe(true);
+  expect(init.pendingBatches.map((b) => [b.id, b.batch_id])).toEqual([[1, "one"], [2, "two"]]);
+  expect(durable(fresh.db)).toEqual(rowsBefore.slice(0, 2));
+  expect(carry.exists()).toBe(false);
+});
+
+test("prepareRecovery over an unreadable pending_ops leases what could be read", async () => {
+  const { handlers, rowsBefore, warn } = await queueThatTurnsUnreadable({ readableBelow: 99 });
+
+  const lease = await handlers.prepareRecovery(undefined) as { token: string; batches: PendingBatch[] };
+
+  expectQueueReplaced(warn);
+  expect(lease.batches.map((b) => b.batch_id)).toEqual(rowsBefore.map((r) => r.batch_id));
+  await expect(handlers.commitRecovery({
+    token: lease.token, input: { kind: "reset", snapshot: SNAP },
+  })).resolves.toBeNull();
+});
+
+test("nextBatch over an unreadable pending_ops serves the head from the new file", async () => {
+  const { handlers, warn } = await queueThatTurnsUnreadable({ readableBelow: 99 });
+  await expect(handlers.nextBatch(undefined)).resolves.toMatchObject({ id: 1, batch_id: "one" });
+  expectQueueReplaced(warn);
+  await expect(handlers.enqueue({
+    ops: [{ op: "delete", uid: uidOf("uid_b1") }], batchId: bid("four"),
+  })).resolves.toEqual({ pending: 4, batchId: "four" });
+});
+
+test("a damaged schema still leaves a working queue, with nothing to carry", async () => {
+  const { handlers, warn, carry } = await queueThatTurnsUnreadable({ schema: true });
+  await expect(handlers.pendingCount(undefined)).resolves.toBe(0);
+  expectQueueReplaced(warn);
+  expect(carry.exists()).toBe(false);
+});
+
+test("a discard that throws keeps the rows in the carry, and the next handler succeeds",
+async () => {
+  const { handlers, carry, rowsBefore, opens } =
+    await queueThatTurnsUnreadable({ readableBelow: 99, discardThrows: 1 });
+  await expect(handlers.pendingCount(undefined)).rejects.toThrow("unlink failed");
+  expect(carry.read()).toEqual(rowsBefore);
+  const before = opens();
+
+  await expect(handlers.pendingBatches(undefined)).resolves.toHaveLength(3);
+  // the failed discard reset the handle, so the next call opened again
+  expect(opens()).toBeGreaterThan(before);
+  expect(carry.exists()).toBe(false);
+});
+
+test("a reset whose discard throws reopens the file on the next call", async () => {
+  quietWarn();
+  const damaged = await openRawTestDb();
+  let opens = 0;
+  let closed = false;
+  const handlers = buildHandlers({
+    openDb: async () => {
+      opens += 1;
+      closed = false;
+      return { ...withDamagedFreelist(damaged.db), select: (sql, keys, params) => {
+        if (closed) throw new Error("database is closed");
+        return damaged.db.select(sql, keys, params);
+      } };
+    },
+    discardDbFile: () => { closed = true; throw new Error("unlink failed"); },
+  });
+  await handlers.init(undefined);
+  const lease = await handlers.prepareRecovery(undefined) as { token: string };
+  await expect(handlers.commitRecovery({
+    token: lease.token, input: { kind: "reset", snapshot: SNAP },
+  })).rejects.toThrow("unlink failed");
+  const before = opens;
+  await expect(handlers.pendingCount(undefined)).resolves.toBe(0);
+  expect(opens).toBe(before + 1);
 });

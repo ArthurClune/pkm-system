@@ -380,7 +380,10 @@ sequenceDiagram
 
 `reconnectFlow.ts` drains before it pulls, so the pull sees this client's
 offline edits. A socket reconnect and the queue's `onDrain`
-(`reconnect.observeDrain`) share one completion. Before its drain, a connect
+(`reconnect.observeDrain`) share one completion. A connect that joins a
+running completion gets one more pull before the resync decision. The
+running one may be past its pull, and the server sends no seq frame on
+connect. Before its drain, a connect
 retries a failed rejected-batch repair (`retryFailedRepair`), whose barrier
 would block the drain
 ([sync-recovery.md § A batch the server rejects](sync-recovery.md#a-batch-the-server-rejects)).

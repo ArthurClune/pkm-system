@@ -28,6 +28,7 @@
 import type { BatchId, SyncSeq } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import { createReplica, type Replica } from "../../replica/client";
+import { RpcLifecycleError } from "../../replica/errors";
 import type { ReplicaDb } from "../../replica/db";
 import { getMeta } from "../../replica/meta";
 import { serveRpc, toPortLike } from "../../replica/rpc";
@@ -81,9 +82,17 @@ export interface HarnessClient {
   failNextWrite(): void;
   /** A failNextWrite whose INSERT has not yet come. */
   writeFailArmed(): boolean;
-  /** Batches a failed local write has pushed into the lane, across lives:
-   * how often writeFails fired. */
+  /** Batches pushed into the lane, across lives: how often writeFails and
+   * lostReply fired together. */
   lanePushes(): number;
+  /** The next enqueue's reply times out on the main thread while the worker
+   * still stores the row, as when a recovery lease holds the worker's gate
+   * past the RPC timeout: the batch has a durable row and a lane copy. */
+  loseNextReply(): void;
+  /** A loseNextReply whose enqueue has not yet come. */
+  lostReplyArmed(): boolean;
+  /** How often loseNextReply fired, across lives. */
+  lostReplies(): number;
   /** The batch ids whose pending_ops INSERT failed, in order: the lane sends
    * them from memory, unhashed, and their ops never reach the replica. */
   readonly laneBatches: readonly BatchId[];
@@ -190,6 +199,8 @@ export async function startClient(
   let writeDb: ReplicaDb = db;
   let writeArmed = false;
   let lanePushes = 0;
+  let loseArmed = false;
+  let lostReplies = 0;
   const laneBatches: BatchId[] = [];
   let disposed = false;
 
@@ -216,7 +227,21 @@ export async function startClient(
       channel.port1.close();
       channel.port2.close();
     });
-    const queue = createOpQueue(replica, {
+    // The queue's view of the replica: a lost reply rejects on this side
+    // while the worker's write goes on. Not with a write failure armed, whose
+    // INSERT would store nothing.
+    const queueReplica: Replica = {
+      ...replica,
+      enqueue: (ops, batchId) => {
+        if (!loseArmed || writeArmed) return replica.enqueue(ops, batchId);
+        loseArmed = false;
+        lostReplies += 1;
+        replica.enqueue(ops, batchId).catch(() => undefined);
+        return Promise.reject(new RpcLifecycleError(
+          "timeout", "proptest: replica RPC enqueue timed out"));
+      },
+    };
+    const queue = createOpQueue(queueReplica, {
       post: doors.post,
       clientId,
       poisonStore: {
@@ -445,6 +470,9 @@ export async function startClient(
     },
     writeFailArmed: () => writeArmed,
     lanePushes: () => lanePushes,
+    loseNextReply() { loseArmed = true; },
+    lostReplyArmed: () => loseArmed,
+    lostReplies: () => lostReplies,
     laneBatches,
     async reload(at) {
       // Severed first: the old life's fetches fail now rather than after

@@ -58,18 +58,22 @@ const tally = new Map<string, number>();
 const count = (key: string, n = 1): void => { tally.set(key, (tally.get(key) ?? 0) + n); };
 countSkipsWith(count);
 
-const FAULT_KINDS: readonly FaultKind[] = ["dropAck", "duplicate", "lostPull", "writeFails"];
+const FAULT_KINDS: readonly FaultKind[] = [
+  "dropAck", "duplicate", "lostPull", "writeFails", "lostReply"];
 
 /** How many of each fault kind fired across these clients: transport faults
  * that met a request, and failed local writes that pushed a batch into the
  * lane. */
 const firedFaults = (clients: Iterable<HarnessClient>): Record<FaultKind, number> => {
-  const fired: Record<FaultKind, number> = { dropAck: 0, duplicate: 0, lostPull: 0, writeFails: 0 };
+  const fired: Record<FaultKind, number> = {
+    dropAck: 0, duplicate: 0, lostPull: 0, writeFails: 0, lostReply: 0,
+  };
   for (const c of clients) {
     fired.dropAck += c.transport.fired("dropAck");
     fired.duplicate += c.transport.fired("duplicate");
     fired.lostPull += c.transport.fired("lostPull");
-    fired.writeFails += c.lanePushes();
+    fired.writeFails += c.lanePushes() - c.lostReplies();
+    fired.lostReply += c.lostReplies();
   }
   return fired;
 };

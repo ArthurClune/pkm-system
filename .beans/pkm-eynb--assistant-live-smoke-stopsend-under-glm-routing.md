@@ -1,11 +1,11 @@
 ---
 # pkm-eynb
 title: 'Assistant: live-smoke Stop→send under GLM routing'
-status: todo
+status: scrapped
 type: task
 priority: deferred
 created_at: 2026-11-07T22:00:16Z
-updated_at: 2026-11-08T17:26:27Z
+updated_at: 2026-11-08T17:30:37Z
 ---
 
 Follow-up to pkm-74vc (assistant turn phase: drain the aborted result after Stop or a stall). Its Stop→send live smoke ran under Claude routing only; the GLM run was skipped because Arthur declined key access on 2026-11-07.
@@ -37,3 +37,7 @@ A z.ai key that Arthur supplies for the run. Do not look for one yourself.
 ## Deferred (2026-11-08)
 
 Arthur has no GLM (z.ai) account at the moment, so no key exists for the live smoke. Pick it up when GLM routing is in use again.
+
+## Reasons for Scrapping
+
+The fix it would smoke (pkm-74vc) is model-independent and passed the same smoke under Claude routing. Arthur has no GLM account; if GLM routing returns, run the smoke then rather than keep a deferred bean. The procedure stays above for that case.

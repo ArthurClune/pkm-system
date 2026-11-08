@@ -1,6 +1,6 @@
 // pattern: Functional Core
-// What the assistant panel must do, stated from assistant.md § The panel's
-// chat machine and frontend.md § The assistant panel: which conversation the
+// What the assistant panel must do, stated from frontend.md § The chat
+// machine and assistant.md § The turn phase: which conversation the
 // panel talks to, which turn is busy, what the picker shows, and which
 // requests each step must and must not start. It never calls the reducer it
 // checks; where the two disagree, the disagreement is a finding.

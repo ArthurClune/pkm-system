@@ -7,7 +7,7 @@ priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:46Z
-updated_at: 2026-11-08T14:25:48Z
+updated_at: 2026-11-08T14:35:31Z
 parent: pkm-zk8b
 ---
 
@@ -53,7 +53,7 @@ The refs are `runStatus`, `abortController`, `stopRequested`, `turnGen`,
 
 - [x] Red tests for both Stop windows (during create, during the 404 re-create), F9 and F10
 - [x] Reducer plus shell; the hook only dispatches events and runs effects
-- [ ] frontend.md (assistant section): the machine and why stop is valid in every busy phase
+- [x] frontend.md (assistant section): the machine and why stop is valid in every busy phase
 
 ## Property testing (required)
 

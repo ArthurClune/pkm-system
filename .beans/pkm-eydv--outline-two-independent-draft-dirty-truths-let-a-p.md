@@ -1,13 +1,13 @@
 ---
 # pkm-eydv
 title: 'Outline: two independent ''draft dirty'' truths let a programmatic change be overwritten by the next keystroke'
-status: todo
+status: in-progress
 type: bug
 priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-07T18:42:45Z
+updated_at: 2026-11-08T14:20:56Z
 parent: pkm-zk8b
 ---
 

@@ -6,14 +6,14 @@
 // lands where the indicator is drawn.
 import { act, createEvent, fireEvent, render } from "@testing-library/react";
 import { memo, useRef } from "react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider, useDnd } from "./DndContext";
 import { useDropZone, type Indicator } from "./useDropZone";
 import { EditablePage } from "../views/EditablePage";
-import { block, makeSync, orderIdxOf, canonicalTitleOf, uidOf, clientIdOf } from "../test-helpers";
+import { block, makeSync, orderIdxOf, canonicalTitleOf, uidOf, clientIdOf, dragTransfer } from "../test-helpers";
 
 const ROW_H = 20;
 const ROWS = 6; // u1..u6; u6 is the one dragged, leaving five candidate rows
@@ -40,16 +40,6 @@ function stubRects() {
 }
 afterEach(() => { vi.restoreAllMocks(); });
 
-// jsdom has no DataTransfer: minimal stub (as in the dnd wiring tests)
-function dt() {
-  const data: Record<string, string> = {};
-  return {
-    setData: (k: string, v: string) => { data[k] = v; },
-    getData: (k: string) => data[k] ?? "",
-    effectAllowed: "", dropEffect: "",
-  };
-}
-
 /** Render u1..u6 and grab u6's handle, so the candidate rows are u1..u5 with
  * midpoints at clientY 10, 30, 50, 70, 90. */
 function startDrag() {
@@ -65,7 +55,7 @@ function startDrag() {
       </DndProvider>
     </SyncContext.Provider>);
   const reads = stubRects();
-  const transfer = dt();
+  const transfer = dragTransfer();
   const handle = document.querySelector('[data-uid="tuid-u6"] .bullet')!;
   fireEvent.dragStart(handle, { dataTransfer: transfer });
   reads.rows = 0; // the drag is armed; count only what dragover measures
@@ -223,7 +213,7 @@ it("does not commit a new indicator object when the position hasn't moved",
   act(() => { dnd.startDrag({ kind: "blocks", height: 0, uid: uidOf("tuid-u2"), pageTitle: canonicalTitleOf("P") }); });
 
   const zone = document.querySelector('[data-testid="zone"]')!;
-  const transfer = dt();
+  const transfer = dragTransfer();
   let now = 0;
   const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => now);
 
@@ -251,4 +241,37 @@ it("cancels the pending frame when the drag ends, so nothing lands late",
   // without the cancel it would happily move the line after the drag was
   // over.
   expect(indicatorTop()).toBe("0px");
+});
+
+describe("which drag events belong to the block drag in progress", () => {
+  const listing = (types: string[]) => ({
+    types, items: [], files: [], getData: () => "", dropEffect: "",
+  });
+
+  it("a dragover that lists no types continues the block drag", () => {
+    const { zone } = startDrag();
+    const ev = createEvent.dragOver(zone, { clientX: 0, clientY: 5,
+                                            dataTransfer: listing([]) });
+    fireEvent(zone, ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(indicatorTop()).toBe("0px");
+  });
+
+  it("a drop listing only text/plain still moves the block", () => {
+    const { sync, zone } = startDrag();
+    const t = listing(["text/plain"]);
+    fireEvent.dragOver(zone, { clientX: 0, clientY: 5, dataTransfer: t });
+    fireEvent.drop(zone, { clientX: 0, clientY: 5, dataTransfer: t });
+    expect(sync.sent.flat()).toEqual([
+      { op: "move", uid: "tuid-u6", parent_uid: null, order_idx: 0 }]);
+  });
+
+  it("a drop carrying Files ends a stale block drag and moves nothing", () => {
+    const { sync, zone } = startDrag();
+    const t = listing(["Files"]);
+    fireEvent.dragOver(zone, { clientX: 0, clientY: 5, dataTransfer: t });
+    fireEvent.drop(zone, { clientX: 0, clientY: 5, dataTransfer: t });
+    expect(sync.sent.flat().filter((op) => op.op === "move")).toEqual([]);
+    expect(indicatorTop()).toBeNull();
+  });
 });

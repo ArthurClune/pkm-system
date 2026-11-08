@@ -7,7 +7,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { DndProvider } from "../dnd/DndContext";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, jsonResponse, makeSync, orderIdxOf, canonicalTitleOf } from "../test-helpers";
+import { block, dragTransfer, jsonResponse, makeSync, orderIdxOf,
+         canonicalTitleOf } from "../test-helpers";
 import type { BlockNode } from "../api/payloads";
 import { EditablePage } from "./EditablePage";
 
@@ -63,4 +64,22 @@ it("dropping an image on a populated page uploads it as a block at the drop line
   });
   // jsdom measures every row as zero-height, so the line lands after the last
   expect(sync.sent[0]).toMatchObject([{ op: "create", order_idx: 1 }]);
+});
+
+it("a file drop after a block drag that never ended uploads, and moves nothing",
+   async () => {
+  const sync = renderPage([block("tuid-u1", "one", { order_idx: orderIdxOf(0) }),
+                           block("tuid-u2", "two", { order_idx: orderIdxOf(1) })]);
+  fireEvent.dragStart(document.querySelector('[data-uid="tuid-u1"] .bullet')!,
+                      { dataTransfer: dragTransfer() });
+  const zone = document.querySelector(".outline-drop-zone")!;
+  const t = transfer();
+  fireEvent.dragOver(zone, { clientX: 0, clientY: 0, dataTransfer: t });
+  await act(async () => {
+    fireEvent.drop(zone, { clientX: 0, clientY: 0, dataTransfer: t });
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(sync.sent.flat().filter((op) => op.op === "move")).toEqual([]);
+  expect(sync.sent.flat()).toContainEqual(expect.objectContaining(
+    { op: "create", text: `![cat.png](${INFO.url})` }));
 });

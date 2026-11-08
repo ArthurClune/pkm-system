@@ -15,7 +15,26 @@ const input = (over: Partial<EditorKeyInput>): EditorKeyInput => ({
   readOnly: false,
   acRowsLength: 0,
   acSelected: 0,
+  composing: false,
   ...over,
+});
+
+describe("decideEditorKey during IME composition", () => {
+  it.each([
+    ["Enter", {}], ["Tab", {}], ["Tab", { shiftKey: true }], ["Escape", {}],
+    ["ArrowDown", {}], ["ArrowUp", {}], ["ArrowLeft", {}], ["ArrowRight", {}],
+    ["[", {}], ["(", {}], ["Backspace", {}], ["Enter", { metaKey: true }],
+    ["ArrowDown", { shiftKey: true }], ["z", { metaKey: true }],
+  ] as const)("leaves %s %o to the IME", (key, mods) => {
+    expect(decideEditorKey(input({ key, ...mods, composing: true })))
+      .toEqual({ type: "none" });
+  });
+
+  it("leaves the popup's keys to the IME while it is open", () => {
+    expect(decideEditorKey(input({
+      key: "Enter", acRowsLength: 2, composing: true,
+    }))).toEqual({ type: "none" });
+  });
 });
 
 describe("decideEditorKey autocomplete precedence", () => {

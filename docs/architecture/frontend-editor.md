@@ -302,6 +302,19 @@ selection. New shortcuts go into one of them, and Cmd-letter wraps
 into `META_WRAP_EDITS`, never into ad-hoc handlers. [keyboard.md](../keyboard.md)
 owns the list, and a new key must not collide with an app-global chord.
 
+A keydown the IME owns decides `none`, whatever the key, so committing a
+conversion with Enter never splits. `useBlockDraft.imeOwns` answers for it:
+
+| Keydown | Owned by the IME |
+|---|---|
+| `isComposing`, or between `compositionstart` and `compositionend` | yes (Chromium sends the committing Enter this way) |
+| the first after a `compositionend`, with keyCode 229, within `IME_COMMIT_WINDOW_MS` | yes (WebKit ends the composition before sending its committing keydown) |
+| any other, keyCode 229 included | no |
+
+keyCode 229 alone is not enough, because a keydown can carry it with no
+composition just ended, and its Enter must still split. The window covers a
+composition ended without a key, by a clicked candidate.
+
 `KeyboardBar` feeds each key to `decideEditorKey` as the key it names. When the
 policy answers `none` for a character, `insertTypedChar` types it, since no
 native keystroke follows. The bar's platform rules are in
@@ -320,6 +333,11 @@ selected, and `selectionStart` would read it as empty. After a pick, the caret
 is placed in a layout effect of the commit that sets the value
 (`useBlockDraft.replace`), which runs before the next keystroke; a
 `requestAnimationFrame` can run after it.
+
+A read-only outline hides the popup, and the policy is told it is closed,
+since a pick edits the block. The highlight is clamped to the rows shown:
+title rows can shrink under it when a slower fetch for the query lands, with
+no edit to reset it.
 
 ### Paste
 
@@ -357,6 +375,16 @@ the indicator was drawn.
 
 A `DragSource` (`outline/dnd.ts`) is `blocks` or `files`; both share the
 zone's geometry and `resolveDrop`.
+
+A block drag can outlive its gesture. A remote batch that removes the handle
+mid-drag detaches it, and its `dragend` never reaches React, or never fires
+at all. So the handle listens for its own `dragend` (`onDragEndBlock`), and
+the drag's `dataTransfer` carries `BLOCK_DRAG_TYPE`. A zone ends the block
+drag in `DndContext` at the first drag event that carries `"Files"` without
+that type. Otherwise a later Finder drop would move the old block instead of
+uploading the files. Any other event is taken for the block drag, because
+WebKit may list its types empty or without the custom one, and requiring the
+type would end every block drag there.
 
 `allowedDepths` offers no depth that would put the dragged subtree past
 `MAX_OUTLINE_DEPTH`, so a drag needs no depth notice. The exception is a

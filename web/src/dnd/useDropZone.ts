@@ -4,8 +4,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
-import { allowedDepths, depthFromX, dropRows, resolveDrop, INDENT_PX,
-         type DragSource, type DropPosition, type DropRow,
+import { allowedDepths, BLOCK_DRAG_TYPE, depthFromX, dropRows, resolveDrop,
+         INDENT_PX, type DragSource, type DropPosition, type DropRow,
          type DropTarget } from "../outline/dnd";
 import { uploadableDrag } from "../outline/fileDrop";
 import { boundaryFromRects, cacheIsUsable, cachedRectFor,
@@ -30,6 +30,9 @@ const THROTTLE_MS = 50;
 /** The drag's `dataTransfer` says it carries files. */
 const carriesFiles = (e: React.DragEvent) =>
   Array.from(e.dataTransfer?.types ?? []).includes("Files");
+
+const carriesBlocks = (e: React.DragEvent) =>
+  Array.from(e.dataTransfer?.types ?? []).includes(BLOCK_DRAG_TYPE);
 
 /** Over the focused block's own textarea, which takes a file drop itself
  * (each file becomes its own block after it). */
@@ -121,9 +124,9 @@ export function useDropZone(pageTitle: CanonicalTitle,
    * files drag on first sight. Returns true when the zone is taking this
    * event as part of a files drag. The accept (preventDefault, dropEffect) is
    * synchronous like every dragover's. */
-  const acceptFiles = (e: React.DragEvent): boolean => {
+  const acceptFiles = (e: React.DragEvent, drag: DragSource | null): boolean => {
     if (!onDropFiles || !containerRef.current || !carriesFiles(e)) return false;
-    if (dnd.drag !== null && dnd.drag.kind !== "files") return false;
+    if (drag !== null && drag.kind !== "files") return false;
     if (overBlockTextarea(e)) {
       // the textarea's own drop handler owns this one: no line, no accept
       cancelFrame();
@@ -131,12 +134,24 @@ export function useDropZone(pageTitle: CanonicalTitle,
       setIndicator(null);
       return false;
     }
-    if (dnd.drag === null &&
+    if (drag === null &&
         !uploadableDrag(Array.from(e.dataTransfer.items ?? []))) return false;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
-    if (dnd.drag === null) dnd.startDrag({ kind: "files" });
+    if (drag === null) dnd.startDrag({ kind: "files" });
     return true;
+  };
+
+  /** The drag `e` belongs to. An event carrying files but not
+   * BLOCK_DRAG_TYPE cannot be the block drag in progress, which is one whose
+   * dragend never came: it ends here. Any other event is taken for it, since
+   * WebKit may list a block drag's types empty or without the custom one. */
+  const dragOf = (e: React.DragEvent): DragSource | null => {
+    if (dnd.drag?.kind !== "blocks" || carriesBlocks(e) || !carriesFiles(e)) {
+      return dnd.drag;
+    }
+    dnd.endDrag();
+    return null;
   };
 
   // the render's own process, for the effect below, which must not re-run
@@ -144,10 +159,11 @@ export function useDropZone(pageTitle: CanonicalTitle,
   const processRef = useRef(process);
   processRef.current = process;
 
-  const onDragEnter = (e: React.DragEvent) => { acceptFiles(e); };
+  const onDragEnter = (e: React.DragEvent) => { acceptFiles(e, dragOf(e)); };
 
   const onDragOver = (e: React.DragEvent) => {
-    if (dnd.drag?.kind === "blocks") {
+    const drag = dragOf(e);
+    if (drag?.kind === "blocks") {
       if (!containerRef.current) return;
       // preventDefault is the "this zone accepts the drag" signal, and HTML5
       // DnD only honours it synchronously: deferring it to the coalesced frame
@@ -157,13 +173,13 @@ export function useDropZone(pageTitle: CanonicalTitle,
       // position this zone would decline.
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
-    } else if (!acceptFiles(e)) {
+    } else if (!acceptFiles(e, drag)) {
       return;
     }
     pointerRef.current = { x: e.clientX, y: e.clientY };
     // A files drag is still starting when dnd.drag is null: the effect on
     // `dragging` draws its first line.
-    if (!dnd.drag) return;
+    if (!drag) return;
     if (performance.now() - processedAtRef.current >= THROTTLE_MS) {
       cancelFrame();
       process();
@@ -189,7 +205,7 @@ export function useDropZone(pageTitle: CanonicalTitle,
   const onDrop = (e: React.DragEvent) => {
     // dnd.drag is null in this closure when the drop beats the render that
     // would have started the files drag; the event still says what it is
-    const drag: DragSource | null = dnd.drag
+    const drag: DragSource | null = dragOf(e)
       ?? (onDropFiles && carriesFiles(e) ? { kind: "files" } : null);
     if (drag?.kind === "files") {
       // the textarea takes a dropped file itself, and says so by

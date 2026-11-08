@@ -113,15 +113,16 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
   // The tree hands this object to every row, so a fresh literal per render
   // would defeat EditableBlock's memo — one Journal day's worth of wasted
   // rows per mounted day, on any re-render.
-  const handlers = useMemo(() => ({ ...outline.handlers, onDragStartBlock }),
-                           [outline.handlers, onDragStartBlock]);
+  const onDragEndBlock = useCallback(() => dnd.endDrag(), [dnd]);
+  const handlers = useMemo(
+    () => ({ ...outline.handlers, onDragStartBlock, onDragEndBlock }),
+    [outline.handlers, onDragStartBlock, onDragEndBlock]);
 
   return (
     <div ref={containerRef}
          className={ownsEditor ? "outline-drop-zone" : undefined}
          style={ownsEditor ? { position: "relative" } : undefined}
-         {...(ownsEditor && !outline.readOnly ? zoneProps : {})}
-         onDragEnd={ownsEditor ? () => dnd.endDrag() : undefined}>
+         {...(ownsEditor && !outline.readOnly ? zoneProps : {})}>
       {ownsEditor && outline.uploadError && (
         <p className="error upload-error" role="alert">
           {outline.uploadError}

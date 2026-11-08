@@ -1,13 +1,13 @@
 ---
 # pkm-713t
 title: 'Outline autocomplete: Enter picks while the outline is read-only, and an unclamped highlight throws'
-status: todo
+status: completed
 type: bug
 priority: low
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-07T18:42:45Z
+updated_at: 2026-11-08T15:00:12Z
 parent: pkm-zk8b
 ---
 
@@ -22,6 +22,10 @@ Found by the state-machine review of 2026-11-07 (explicit and implicit machines,
   asynchronously (`useTitleOptions` keeps old options until the 150 ms
   debounced fetch); Enter then calls `pick(undefined)` and throws a TypeError.
 
-- [ ] Red tests for both
-- [ ] `acLive && !readOnly`
-- [ ] Clamp `selected` to the current row count at pick time
+- [x] Red tests for both
+- [x] `acLive && !readOnly`
+- [x] Clamp `selected` to the current row count at pick time
+
+## Summary of Changes
+
+`BlockInput.decideKey` tells the policy the popup is closed while `readOnly`, so Enter and Tab no longer pick into a read-only outline. The highlight is clamped to the rows shown (`acSelected`) for the policy, the pick and the popup, so title rows shrinking under it after a late fetch pick the last row instead of throwing. Tests: `BlockInput.test.tsx` "an open popup".

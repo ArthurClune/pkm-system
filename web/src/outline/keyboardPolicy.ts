@@ -38,6 +38,9 @@ export interface EditorKeyInput {
   caretOnFirstDisplayLine?: boolean;
   /** Same as caretOnFirstDisplayLine, for the last visual line. */
   caretOnLastDisplayLine?: boolean;
+  /** The IME owns this keystroke (useBlockDraft's imeOwns): it commits,
+   * cancels or navigates a composition, so every key is "none". */
+  composing: boolean;
 }
 
 export type KeyDecision =
@@ -138,6 +141,7 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   const pos = i.selStart;
   const caretOnly = i.selStart === i.selEnd;
 
+  if (i.composing) return NONE;
   // Option/Alt+Arrow belongs to native text navigation. Catch every modifier
   // variant before autocomplete, Shift selection, or boundary-arrow handling
   // can claim it.

@@ -18,9 +18,10 @@ import { ROUTER_FUTURE_FLAGS } from "../../router";
 import { SyncContext } from "../../sync/SyncProvider";
 import { block, canonicalTitleOf, clientIdOf, makeSync, orderIdxOf,
          uidOf } from "../../test-helpers";
-import { afterEdit, afterFlush, afterLanded, flushOpMatches, flushSend,
-         initialModel, serverApply, shown, type DraftCommand,
-         type DraftExample, type DraftModel } from "./draftModel";
+import { afterEdit, afterFlush, afterLanded, displayed, flushOpMatches,
+         flushSend, imeOwns, initialModel, serverApply, shown,
+         type DraftCommand, type DraftExample,
+         type DraftModel } from "./draftModel";
 
 const UID = uidOf("tuid-draft");
 const FILE = { path: "Papers/notes.zip", href: "/api/local/Papers/notes.zip" };
@@ -107,6 +108,7 @@ export async function runDraftExample(example: DraftExample,
           (p) => `step ${i} ${JSON.stringify(command)}: ${p}`));
         break;
       }
+      if (step.then === "split") break;
     }
   } finally {
     cleanup();
@@ -123,10 +125,15 @@ interface Step {
   /** The draft flush this step must send first, or null. */
   flush: { text: string; base: string } | null;
   conflictAllowed: boolean;
-  /** What else the step sends after the flush. */
-  then: "nothing" | "splice" | "undo";
+  /** What else the step sends after the flush. A split ends the example:
+   * the model is of one block. */
+  then: "nothing" | "splice" | "undo" | "split";
   /** For an undo: the text the undone batch's block had before it. */
   undoneTo: string | null;
+  /** A keydown the IME owns: it must send and split nothing. */
+  imeOwned?: boolean;
+  /** An Escape the IME does not own: the block must leave edit mode. */
+  escapes?: boolean;
 }
 
 function flushStep(model: DraftModel, labels: string[], then: Step["then"],
@@ -148,6 +155,8 @@ async function apply(command: DraftCommand, model: DraftModel,
   const idle: Step = { model, flush: null, conflictAllowed: false,
                        then: "nothing", undoneTo: null };
   const ta = textarea();
+  // Only a keydown consumes the composition just ended.
+  const keydown = (): DraftModel => ({ ...model, endedAt: null });
   switch (command.k) {
     case "type":
     case "erase": {
@@ -157,6 +166,9 @@ async function apply(command: DraftCommand, model: DraftModel,
       }
       const value = command.k === "type" ? ta.value + command.ch
                                          : ta.value.slice(0, -1);
+      if (model.pending === null && model.display !== model.server) {
+        labels.push("typed-over-held-text");
+      }
       act(() => {
         fireEvent.change(ta, { target: { value } });
         ta.setSelectionRange(value.length, value.length);
@@ -175,6 +187,7 @@ async function apply(command: DraftCommand, model: DraftModel,
     case "remote":
     case "replay": {
       if (model.pending !== null) labels.push(`${command.k}-under-draft`);
+      if (model.composing) labels.push(`${command.k}-while-composing`);
       if (command.k === "remote") {
         act(() => emit({
           client_id: clientIdOf("other"), ts: 1,
@@ -210,9 +223,14 @@ async function apply(command: DraftCommand, model: DraftModel,
         labels.push("skip");
         return idle;
       }
+      if (imeOwns(model, "plain")) {
+        labels.push("undo-while-composing");
+        act(() => { fireEvent.keyDown(ta, { key: "z", metaKey: true }); });
+        return { ...idle, model: keydown(), imeOwned: true };
+      }
       if (model.pending !== null) labels.push("undo-over-draft");
       act(() => { fireEvent.keyDown(ta, { key: "z", metaKey: true }); });
-      const step = flushStep(model, labels, "undo");
+      const step = flushStep(keydown(), labels, "undo");
       const undo = [...step.model.undo];
       if (step.flush !== null) undo.push(model.server);
       const undoneTo = undo.pop() ?? null;
@@ -223,8 +241,11 @@ async function apply(command: DraftCommand, model: DraftModel,
         labels.push("skip");
         return idle;
       }
+      // A browser ends the composition before the blur.
+      if (model.composing) act(() => { fireEvent.compositionEnd(ta); });
       act(() => { fireEvent.blur(ta); });
-      return flushStep(model, labels, "nothing");
+      return flushStep({ ...model, composing: false, endedAt: null }, labels,
+                       "nothing");
     }
     case "refocus": {
       if (ta !== null) {
@@ -233,6 +254,62 @@ async function apply(command: DraftCommand, model: DraftModel,
       }
       act(() => { fireEvent.click(blockText()); });
       return idle;
+    }
+    case "compose-start": {
+      if (ta === null || model.composing) {
+        labels.push("skip");
+        return idle;
+      }
+      act(() => { fireEvent.compositionStart(ta); });
+      return { ...idle, model: { ...model, composing: true } };
+    }
+    case "compose-end": {
+      if (ta === null || !model.composing) {
+        labels.push("skip");
+        return idle;
+      }
+      labels.push("compose-end");
+      if (model.display !== shown(model)) labels.push("compose-end-adopts");
+      act(() => { fireEvent.compositionEnd(ta); });
+      if (command.key === null) {
+        return { ...idle, model: { ...model, composing: false,
+                                   endedAt: model.now } };
+      }
+      // The event clock moves past the timers' (Date, not the fake timer
+      // queue), so the model dates the end that much earlier.
+      if (command.gapMs > 0) vi.setSystemTime(Date.now() + command.gapMs);
+      const ended = { ...model, composing: false,
+                      endedAt: model.now - command.gapMs };
+      return apply(command.key, { ...ended, display: shown(ended) },
+                   outlineRef, title, emit, labels);
+    }
+    case "key": {
+      if (ta === null) {
+        labels.push("skip");
+        return idle;
+      }
+      const { key, ime } = command;
+      const keyCode = ime !== "plain" ? 229 : key === "Enter" ? 13 : 27;
+      const owned = imeOwns(model, ime);
+      if (owned) {
+        labels.push(model.composing ? `ime-${key}-composing`
+          : ime === "composing" ? `ime-${key}-flagged`
+          : `ime-${key}-after-end`);
+      } else if (ime === "229") {
+        labels.push(model.endedAt !== null ? `${key}-229-late`
+                                           : `${key}-229-unowned`);
+      } else if (model.endedAt !== null) {
+        labels.push(`${key}-right-after-end`);
+      }
+      act(() => {
+        fireEvent.keyDown(ta, { key, keyCode, isComposing: ime === "composing" });
+      });
+      if (owned) return { ...idle, model: keydown(), imeOwned: true };
+      if (key === "Escape") {
+        return { ...flushStep(keydown(), labels, "nothing"), escapes: true };
+      }
+      labels.push("enter-splits");
+      return { ...idle, model: keydown(), then: "split" };
     }
   }
 }
@@ -244,7 +321,28 @@ function check(step: Step, sent: BlockOp[][], outline: Outline,
   const problems: string[] = [];
   let model = step.model;
   const before = model.server;
+  const count = outline.blocks.length;
   const ops = sent.flat();
+  if (step.then === "split") {
+    if (count !== 2) {
+      problems.push(`split: an Enter the IME does not own left ${count} `
+        + "block(s), expected 2");
+    }
+    return { model, problems };
+  }
+  if (step.imeOwned && (count !== 1 || ops.length > 0)) {
+    problems.push(`ime: a keydown the IME owns left ${count} block(s) and `
+      + `sent ${JSON.stringify(ops)}`);
+    return { model, problems };
+  }
+  if (count !== 1) {
+    problems.push(`the outline holds ${count} blocks, expected 1`);
+  }
+  if (step.escapes && textarea() !== null) {
+    problems.push("escape: an Escape the IME does not own left the block "
+      + "in edit mode");
+    return { model, problems };
+  }
   let next = 0;
   const take = (): BlockOp | undefined => ops[next++];
   const toServer = (op: BlockOp, allowed: boolean) => {
@@ -293,10 +391,16 @@ function check(step: Step, sent: BlockOp[][], outline: Outline,
       + `draft, the model ${model.pending ? "holds one" : "none"}`);
   }
   const ta = textarea();
-  if (ta !== null && ta.value !== shown(model)) {
+  const expected = displayed(model);
+  if (ta !== null && ta.value !== expected) {
     problems.push(`adopt: the textarea shows ${JSON.stringify(ta.value)}, `
-      + `expected ${JSON.stringify(shown(model))} (`
-      + `${model.pending ? "the pending draft" : "the tree's text"})`);
+      + `expected ${JSON.stringify(expected)} (`
+      + `${model.pending ? "the pending draft"
+        : model.composing ? "the text before the composition"
+        : "the tree's text"})`);
   }
-  return { model, problems };
+  if (model.composing && ta === null) {
+    problems.push("ime: the textarea went away mid-composition");
+  }
+  return { model: { ...model, display: expected }, problems };
 }

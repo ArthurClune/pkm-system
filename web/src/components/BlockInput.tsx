@@ -40,7 +40,7 @@ import { KeyboardBar } from "./KeyboardBar";
  * display-line flags. Selection, draft and popup state are read live. */
 type KeyPress = Pick<EditorKeyInput, "key" | "code" | "metaKey" | "ctrlKey"
   | "altKey" | "shiftKey" | "caretOnFirstDisplayLine"
-  | "caretOnLastDisplayLine">;
+  | "caretOnLastDisplayLine" | "composing">;
 
 /** `caret` when typing there holds the draft's flush, else null. */
 function heldCaret(text: string, caret: number): number | null {
@@ -105,6 +105,9 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   const acRows: AcRow[] = !ac.ctx ? [] : ac.ctx.kind === "command"
     ? matchSlashCommands(ac.ctx.query).map((c) => ({ label: c.label, isNew: false, command: c.name }))
     : buildRows(options, ac.ctx.query);
+  // Title rows can shrink under the highlight with no edit to reset it, when
+  // a slower fetch for the current query lands.
+  const acSelected = Math.min(ac.selected, Math.max(acRows.length - 1, 0));
 
   /** Replace the draft with `text`, placing a collapsed caret at `cursorPos`.
    * Used by the completion/command paths, which have already decided the new
@@ -257,6 +260,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     // preventDefault: the browser's own paste must still fire so onPaste
     // below receives the clipboard.
     outlinePasteArmedRef.current = isOutlinePasteChord(e);
+    const composing = draft.imeOwns(e.nativeEvent);
     // Display-line measurement is real layout work, so it's only done for
     // the plain (unmodified) arrow that would actually consult it
     // — never for the Shift/Meta/Ctrl chords, which have their own logic,
@@ -270,7 +274,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       ? measureCaretDisplayLine(el, el.selectionEnd)?.last : undefined;
     // The /date picker owns Escape while open; everything else falls
     // through to the normal policy (typing closes the picker via onChange).
-    if (datePickerAt !== null && e.key === "Escape") {
+    if (!composing && datePickerAt !== null && e.key === "Escape") {
       e.preventDefault();
       setDatePickerAt(null);
       return;
@@ -279,6 +283,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       key: e.key, code: e.code,
       metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey,
       shiftKey: e.shiftKey, caretOnFirstDisplayLine, caretOnLastDisplayLine,
+      composing,
     }, el);
     runDecision(decision, el, e);
   };
@@ -286,13 +291,14 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   const decideKey = (k: KeyPress, el: HTMLTextAreaElement): KeyDecision => {
     // A popup the caret has moved away from must not claim the key: Enter
     // stays a split, Tab stays an indent. resolve() drops the
-    // stale context, so the policy is told the popup is closed.
-    const acLive = ac.resolve(el) !== null;
+    // stale context, so the policy is told the popup is closed. A read-only
+    // outline hides the popup, and a pick would edit it.
+    const acLive = !readOnly && ac.resolve(el) !== null;
     return decideEditorKey({
       ...k,
       selStart: el.selectionStart, selEnd: el.selectionEnd,
       draft: draft.text, readOnly,
-      acRowsLength: acLive ? acRows.length : 0, acSelected: ac.selected,
+      acRowsLength: acLive ? acRows.length : 0, acSelected,
     });
   };
 
@@ -312,7 +318,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
         return;
       case "ac-pick":
         e.preventDefault();
-        pick(acRows[ac.selected]);
+        pick(acRows[acSelected]);
         return;
       case "ac-close":
         e.preventDefault();
@@ -411,7 +417,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     outlinePasteArmedRef.current = false;
     const decision = decideKey({
       key: k.key, code: "", metaKey: false, ctrlKey: false, altKey: false,
-      shiftKey: k.shiftKey,
+      shiftKey: k.shiftKey, composing: false,
     }, el);
     if (decision.type === "none" && k.key.length === 1) {
       applyKeyEdit(insertTypedChar(draft.text, el.selectionStart,
@@ -476,7 +482,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
                 onCompositionStart={draft.onCompositionStart}
                 onCompositionEnd={draft.onCompositionEnd} />
       {!readOnly && (
-        <AutocompletePopup rows={acRows} selected={ac.selected} onPick={pick} />
+        <AutocompletePopup rows={acRows} selected={acSelected} onPick={pick} />
       )}
       {!readOnly && datePickerAt !== null && (
         <DatePickerPopup initial={new Date()} onPick={pickDate} />

@@ -524,3 +524,16 @@ export function fixtureRefs(rows: readonly unknown[]):
     kind: fixtureText(r, "kind"),
   }));
 }
+
+/** jsdom has no DataTransfer: a stub a block drag can write into. `types`
+ * lists what was set, as a browser lists it during dragover. */
+export function dragTransfer() {
+  const data: Record<string, string> = {};
+  return {
+    setData: (k: string, v: string) => { data[k] = v; },
+    getData: (k: string) => data[k] ?? "",
+    get types() { return Object.keys(data); },
+    items: [], files: [],
+    effectAllowed: "", dropEffect: "",
+  };
+}

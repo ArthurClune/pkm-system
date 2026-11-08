@@ -35,6 +35,19 @@ const supportsFieldSizing =
   typeof CSS !== "undefined" && typeof CSS.supports === "function" &&
   CSS.supports("field-sizing", "content");
 
+// WebKit ends a composition before dispatching the keydown that committed
+// it, and sends that keydown with isComposing false and keyCode 229. So the
+// first keydown after a compositionend is the IME's when it is 229 and close
+// in time. 229 alone is not enough: a 229 keydown can arrive with no
+// composition just ended, and must not lose its Enter. The window bounds a
+// composition ended without a key (a candidate clicked): the next
+// keydown, seconds later, is the user's.
+const IME_COMMIT_WINDOW_MS = 500;
+
+/** The fields of a keydown that say whether the IME owns it. */
+export type ImeKeydown = Pick<KeyboardEvent, "isComposing" | "keyCode"
+  | "timeStamp">;
+
 export interface BlockDraftOptions {
   /** The block tree's committed text for this block. */
   text: string;
@@ -95,7 +108,11 @@ export interface BlockDraft {
   replace(text: string, selStart: number, selEnd: number,
           holdFlush: boolean): boolean;
   onCompositionStart(): void;
-  onCompositionEnd(): void;
+  onCompositionEnd(e: { timeStamp: number }): void;
+  /** Whether the IME owns this keydown, which the editor must then leave
+   * alone: one sent mid-composition, or the keystroke that ended one. Call
+   * it once per keydown, since it consumes the composition just ended. */
+  imeOwns(e: ImeKeydown): boolean;
   /** The draft has been committed and the tree has since changed this block
    * for the user (undo, redo, an upload filling it): adopt the tree's text
    * once it has rendered. Without it, the textarea would keep showing the old
@@ -130,6 +147,8 @@ export function useBlockDraft(
   // adoption must not call setDraft mid-composition (it would disturb the
   // native composition UI), so it's deferred and retried on compositionend.
   const composingRef = useRef(false);
+  // The compositionend's timeStamp until the next keydown, else null.
+  const compositionEndedAtRef = useRef<number | null>(null);
   // Selection to restore once a setDraft (an adoption or a programmatic
   // replace) has committed (see the layout effect below); null when no
   // restore is pending.
@@ -282,9 +301,17 @@ export function useBlockDraft(
     onCompositionStart: () => {
       composingRef.current = true;
     },
-    onCompositionEnd: () => {
+    onCompositionEnd: (e) => {
       composingRef.current = false;
+      compositionEndedAtRef.current = e.timeStamp;
       tryAdopt();
+    },
+    imeOwns: (e) => {
+      const endedAt = compositionEndedAtRef.current;
+      compositionEndedAtRef.current = null;
+      if (e.isComposing || composingRef.current) return true;
+      return e.keyCode === 229 && endedAt !== null
+        && Math.abs(e.timeStamp - endedAt) < IME_COMMIT_WINDOW_MS;
     },
     settle: () => setSettled((n) => n + 1),
   };

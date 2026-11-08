@@ -14,6 +14,7 @@ import type { FocusTarget } from "../outline/edits";
 import type { OutlineHandlers } from "../outline/handlers";
 import { BlockEditContext, RootBlocksContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
+import { BLOCK_DRAG_TYPE } from "../outline/dnd";
 import { decideSelectionKey } from "../outline/keyboardPolicy";
 import { selectedUids, selectionText,
          type BlockSelection } from "../outline/blockSelection";
@@ -468,7 +469,12 @@ const EditableBlock = memo(function EditableBlock(
               onDragStart={(e) => {
                 if (fallback) return;
                 e.dataTransfer.setData("text/plain", node.uid);
+                e.dataTransfer.setData(BLOCK_DRAG_TYPE, node.uid);
                 e.dataTransfer.effectAllowed = "move";
+                // On the handle itself: a handle a remote batch removed
+                // mid-drag gets its dragend detached, out of React's reach.
+                e.currentTarget.addEventListener(
+                  "dragend", () => handlers.onDragEndBlock?.(), { once: true });
                 handlers.onDragStartBlock?.(node.uid);
               }}
               // Click or right-click opens the block menu; plain

@@ -6,6 +6,12 @@
 // it, and otherwise sends update_text hashing the base. While a draft is
 // pending the textarea keeps it; with none the textarea shows the tree.
 //
+// And from § Keyboard policy, IME composition: while a composition is in
+// progress the textarea adopts nothing, and catches up when it ends. A keydown
+// the IME owns decides nothing: one sent mid-composition, or the first keydown
+// after a compositionend when it carries keyCode 229 and comes within
+// IME_COMMIT_WINDOW_MS. Every other Enter splits and Escape blurs.
+//
 // The server here is the one block's text, applying what the editor sends in
 // order. A send whose base hash is not the server's text is a conflict.
 import fc from "fast-check";
@@ -13,6 +19,7 @@ import type { BlockOp } from "../../api/ops";
 import { sha256Hex } from "../../replica/sha256";
 
 export const DEBOUNCE_MS = 500;
+export const IME_COMMIT_WINDOW_MS = 500;
 /** Texts remote edits and replays land: short, so they collide with what the
  * user typed, its base and each other. */
 const LANDED = ["", "a", "ab", "remote"] as const;
@@ -29,7 +36,27 @@ export type DraftCommand =
   | { k: "splice"; at: number }
   | { k: "undo" }
   | { k: "blur" }
-  | { k: "refocus" };
+  | { k: "refocus" }
+  | { k: "compose-start" }
+  /** With a key: the keydown follows, at once as WebKit sends the one that
+   * committed the composition, or gapMs later on the event clock alone (no
+   * timer runs) as after a composition a clicked candidate ended. */
+  | { k: "compose-end"; key: KeyCommand | null; gapMs: 0 | 600 }
+  | KeyCommand;
+
+/** A keydown sent mid-composition (isComposing and keyCode 229), with
+ * keyCode 229 alone (WebKit's committing keydown), or a plain one. */
+export type KeyCommand = { k: "key"; key: "Enter" | "Escape"; ime: ImeFlags };
+
+export type ImeFlags = "composing" | "229" | "plain";
+
+function keyCommandArb(): fc.Arbitrary<KeyCommand> {
+  return fc.record({
+    k: fc.constant("key" as const),
+    key: fc.constantFrom("Enter" as const, "Escape" as const),
+    ime: fc.constantFrom<ImeFlags>("composing", "229", "229", "plain"),
+  });
+}
 
 export const draftCommandArb: fc.Arbitrary<DraftCommand> = fc.oneof(
   { weight: 6, arbitrary: fc.constantFrom("a", "b").map((ch) => ({ k: "type", ch }) as const) },
@@ -41,6 +68,13 @@ export const draftCommandArb: fc.Arbitrary<DraftCommand> = fc.oneof(
   { weight: 2, arbitrary: fc.constant({ k: "undo" } as const) },
   { weight: 1, arbitrary: fc.constant({ k: "blur" } as const) },
   { weight: 2, arbitrary: fc.constant({ k: "refocus" } as const) },
+  { weight: 3, arbitrary: fc.constant({ k: "compose-start" } as const) },
+  { weight: 4, arbitrary: fc.record({
+    k: fc.constant("compose-end" as const),
+    key: fc.option(keyCommandArb(), { freq: 2 }),
+    gapMs: fc.constantFrom<0 | 600>(0, 0, 600),
+  }) },
+  { weight: 3, arbitrary: keyCommandArb() },
 );
 
 export const draftExampleArb = fc.record({
@@ -61,11 +95,30 @@ export interface DraftModel {
   undo: string[];
   now: number;
   due: number | null;
+  /** What the textarea shows; it moves only by an edit while composing. */
+  display: string;
+  composing: boolean;
+  /** When the last composition ended, until the next keydown. */
+  endedAt: number | null;
 }
 
 export function initialModel(start: string): DraftModel {
   return { server: start, pending: null, landedUnderDraft: false, undo: [],
-           now: 0, due: null };
+           now: 0, due: null, display: start, composing: false,
+           endedAt: null };
+}
+
+/** What the textarea must show after a step: while composing it adopts
+ * nothing. */
+export function displayed(m: DraftModel): string {
+  return m.composing ? m.display : shown(m);
+}
+
+/** Whether the IME owns a keydown with these flags. */
+export function imeOwns(m: DraftModel, ime: ImeFlags): boolean {
+  if (m.composing || ime === "composing") return true;
+  return ime === "229" && m.endedAt !== null
+    && m.now - m.endedAt < IME_COMMIT_WINDOW_MS;
 }
 
 /** What the textarea must show: the pending draft, else the tree. */
@@ -85,11 +138,16 @@ export function afterFlush(m: DraftModel): DraftModel {
   return { ...m, pending: null, landedUnderDraft: false, due: null };
 }
 
-/** The model after the user's edit made the textarea show `text`. */
+/** The model after the user's edit made the textarea show `text`. A clean
+ * draft's base is what the textarea showed, which is not the server's text
+ * when it landed during a composition: that counts as landing under the
+ * draft. */
 export function afterEdit(m: DraftModel, text: string): DraftModel {
-  const pending = m.pending === null ? { text, base: m.server }
+  const pending = m.pending === null ? { text, base: m.display }
                                      : { ...m.pending, text };
-  return { ...m, pending, due: m.now + DEBOUNCE_MS };
+  const stale = m.pending === null && m.display !== m.server;
+  return { ...m, pending, due: m.now + DEBOUNCE_MS, display: text,
+           landedUnderDraft: m.landedUnderDraft || stale };
 }
 
 export function afterLanded(m: DraftModel, text: string): DraftModel {

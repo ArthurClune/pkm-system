@@ -3,8 +3,9 @@
 title: 'Assistant: live-smoke Stop→send under GLM routing'
 status: todo
 type: task
+priority: deferred
 created_at: 2026-11-07T22:00:16Z
-updated_at: 2026-11-07T22:00:16Z
+updated_at: 2026-11-08T17:26:27Z
 ---
 
 Follow-up to pkm-74vc (assistant turn phase: drain the aborted result after Stop or a stall). Its Stop→send live smoke ran under Claude routing only; the GLM run was skipped because Arthur declined key access on 2026-11-07.
@@ -32,3 +33,7 @@ GLM calls itself Claude, so the reply proves nothing. Show either:
 A z.ai key that Arthur supplies for the run. Do not look for one yourself.
 
 - [ ] Stop→send smoke under GLM routing passes, with the routing proof
+
+## Deferred (2026-11-08)
+
+Arthur has no GLM (z.ai) account at the moment, so no key exists for the live smoke. Pick it up when GLM routing is in use again.

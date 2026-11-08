@@ -23,7 +23,7 @@ replica is a cache and the queue is the user's intent.
 | The server answers a terminal 4xx | Row poisoned, delivery paused, snapshot repair drops it | [A batch the server rejects](#a-batch-the-server-rejects) |
 | A pull or a first bootstrap keeps failing | Backoff; `stalled` after `STALL_AFTER_FAILURES` | [A pull that keeps failing](#a-pull-that-keeps-failing) |
 | Schema, generation, cursor, FK, title, corruption or repeated window failure | `reset` or `rebase` through `runRecovery` | [Rebootstrap triggers](#rebootstrap-triggers) |
-| A rebuild meets page-level file damage | The file is replaced; the queue rides in the carry | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
+| A rebuild meets page-level file damage, or `pending_ops` cannot be read | The file is replaced; the queue rides in the carry | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | Pending rows change while recovery runs | Recovery aborts before anything is destroyed | [Recovery never erases intent](#recovery-never-erases-intent) |
 
 ## A local write fails
@@ -381,6 +381,16 @@ cannot sink its report.
 | A carry that reads as `SQLITE_CORRUPT*` or `SQLITE_NOTADB` (`isUnreadableFileMessage`) | discarded with a warning | a cut-short carry write rolls back on open, so an unreadable carry is storage damage; until step 2 the replica holds the rows |
 | A replica whose `installSchema` or `importPendingRows` throws | the carry's rows merge by id with every row the old file can still give (`mergeCarriedRows`, `carryMerge.ts`; the carry wins a clash), go back to the carry, and the file is replaced | rows are lost only if both files are damaged at once |
 | Any other error | the handler fails and the carry is kept | the carry is the rows' sure copy |
+
+A queue that cannot be read takes the same escape. `withQueue` treats a
+handler's corruption error as that case when a plain read of `pending_ops`
+fails too. It carries the rows that can still be read (`salvagePendingRows`,
+the prefix before the damage, merged with any carry), replaces the file, and
+runs the handler again. Without it init, `prepareRecovery` and the drain's
+`nextBatch` fail on every page load, so neither Reset local data nor the
+lane gets past them. Corruption elsewhere, such as the FTS index, leaves the
+queue readable and keeps its own repair. A discard that throws still drops
+the memoised handle, because it may already have closed it.
 
 **Corruption must reach `isCorruptionError` with its own message.** SQLite
 rolls back by itself on `SQLITE_CORRUPT`, `IOERR` or `FULL`, and a later

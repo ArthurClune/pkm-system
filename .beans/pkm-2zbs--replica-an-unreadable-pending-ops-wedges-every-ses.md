@@ -1,13 +1,13 @@
 ---
 # pkm-2zbs
 title: 'Replica: an unreadable pending_ops wedges every session and strands in-memory edits'
-status: in-progress
+status: completed
 type: bug
 priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-08T15:18:25Z
+updated_at: 2026-11-08T15:51:47Z
 parent: pkm-zk8b
 ---
 
@@ -31,10 +31,10 @@ F3: `replaceFileAfter` and `adoptLeftoverCarry` do
 `closeDb()`, handlers keep using a closed handle (reset path has no retry).
 
 ## Fix
-- [ ] Red tests: init and prepareRecovery over a failing pending_ops read; a throwing discard
-- [ ] "Queue unreadable" becomes a named outcome of init/prepare: carry what is readable (`probe(readDurablePendingRows)`), replace the file, as adoption already does
-- [ ] Lane edits deliver even while the durable queue is unreadable
-- [ ] `try { await deps.discardDbFile(); } finally { dbPromise = null; }` in both places
+- [x] Red tests: init and prepareRecovery over a failing pending_ops read; a throwing discard
+- [x] "Queue unreadable" becomes a named outcome of init/prepare: carry what is readable (`probe(readDurablePendingRows)`), replace the file, as adoption already does
+- [x] Lane edits deliver even while the durable queue is unreadable
+- [x] `try { await deps.discardDbFile(); } finally { dbPromise = null; }` in both places
 
 ## Property testing (required)
 
@@ -66,3 +66,30 @@ Sketch (fast-check over `buildHandlers` with the in-memory sqlite harness
   handler succeeds; a carry exists whenever the old file is unlinked and the
   import has not committed.
 - Teeth: remove the new catch in `queueDb` and confirm the no-wedge invariant fails.
+
+## Summary of Changes
+
+- `workerHandlers.ts`: every queue handler runs through `withQueue`. A
+  corruption error whose file also fails a plain read of `pending_ops` (or
+  of the schema) is "queue unreadable": the readable prefix
+  (`salvagePendingRows`, row by row in id order after a failed whole read)
+  merged with any carry is committed to the carry, the file is discarded,
+  the new file imports the rows, the carry goes, and the handler runs once
+  more. This covers init, prepareRecovery (so Reset local data), nextBatch
+  (so the drain, and the lane behind it), enqueue, delete, mark, the apply
+  handlers and the local API. Corruption elsewhere (FTS) leaves the queue
+  readable and keeps its own repair. commitRecovery's read stays
+  unwrapped: damage between prepare and commit fails that commit, and the
+  next handler replaces the file.
+- Both existing discard sites (`replaceFileAfter`, `adoptLeftoverCarry`)
+  and the new one reset `dbPromise` in a `finally`.
+- Lane edits: they deliver because the drain's `nextBatch` succeeds on the
+  new file (`opQueue.unreadableQueue.test.ts`, red on the old worker). The
+  queue itself is unchanged: if no replacement can ever succeed (no carry
+  or discard dep), the lane still waits behind the failing read.
+- Tests: six red-first worker tests, the composed lane test, and the
+  property `replica/queueUnreadable.props.test.ts` (no wedge, rows kept
+  with ids, no carry after success, carry complete at every discard);
+  teeth by hand: no catch in `withQueue`, and no discard `finally`.
+- Docs: sync-recovery.md § Reset, rebase and file replacement; two
+  troubleshooting rows.

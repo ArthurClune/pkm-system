@@ -105,6 +105,9 @@ export interface OutlineHandlers {
    * spreading useOutline's handlers and adding this key — optionality means
    * that spread no longer needs a satisfy-the-interface stub to override. */
   onDragStartBlock?(uid: BlockUid): void;
+  /** The block drag ended; as optional as onDragStartBlock, for the same
+   * reason. */
+  onDragEndBlock?(): void;
   /** App-level undo/redo: global history, not per-outline. False when
    * nothing was done because the pending draft may not be saved. */
   onUndo(): boolean;

@@ -376,6 +376,13 @@ the indicator was drawn.
 A `DragSource` (`outline/dnd.ts`) is `blocks` or `files`; both share the
 zone's geometry and `resolveDrop`.
 
+A block drag can outlive its gesture. A remote batch that removes the handle
+mid-drag detaches it, and its `dragend` never reaches React, or never fires
+at all. So the handle listens for its own `dragend` (`onDragEndBlock`), and
+the drag's `dataTransfer` carries `BLOCK_DRAG_TYPE`. A zone ends the block
+drag in `DndContext` at the first drag event that lacks that type. Otherwise
+a later Finder drop would move the old block instead of uploading the files.
+
 `allowedDepths` offers no depth that would put the dragged subtree past
 `MAX_OUTLINE_DEPTH`, so a drag needs no depth notice. The exception is a
 legacy subtree too tall for any depth: it still gets the shallowest, which

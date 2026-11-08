@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
 import { expect, it } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -6,8 +6,7 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { EditablePage } from "../views/EditablePage";
-import { act } from "@testing-library/react";
-import { block, clientIdOf, makeSync, orderIdxOf, reserveOutlineEditor, canonicalTitleOf,
+import { block, clientIdOf, makeSync, orderIdxOf, reserveOutlineEditor, canonicalTitleOf, uidOf,
          dragTransfer } from "../test-helpers";
 
 function Harness({ onReady }: { onReady: (dnd: ReturnType<typeof useDnd>) => void }) {
@@ -321,7 +320,7 @@ it("a drag whose handle another device deleted mid-drag ends at its dragend",
   fireEvent.dragStart(handle, { dataTransfer: dragTransfer() });
   expect(dnd.drag).not.toBeNull();
   act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1,
-                        ops: [{ op: "delete", uid: "tuid-u2" }] }));
+                        ops: [{ op: "delete", uid: uidOf("tuid-u2") }] }));
   expect(handle.isConnected).toBe(false);
   fireEvent.dragEnd(handle);
   expect(dnd.drag).toBeNull();

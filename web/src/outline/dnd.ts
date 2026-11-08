@@ -34,6 +34,11 @@ export interface FileDragSource { kind: "files" }
 
 export type DragSource = BlockDragSource | FileDragSource;
 
+/** The type a block drag's dataTransfer carries. A drag event without it is
+ * not the block drag in progress: one whose dragend never came (its handle
+ * left the document mid-drag) must not take a later drag's drop. */
+export const BLOCK_DRAG_TYPE = "application/x-pkm-block";
+
 /** Every uid a drag carries (the group when present, else the grab handle). */
 export function dragUids(drag: BlockDragSource): BlockUid[] {
   return drag.uids ?? [drag.uid];

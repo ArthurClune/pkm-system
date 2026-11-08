@@ -2408,7 +2408,8 @@ describe("reconnect pulls and resync", () => {
     }
   });
 
-  test("overlapping reconnects share one completion and leave no stale intent", async () => {
+  test("a reconnect joining a running completion gets one trailing pull and no stale intent",
+       async () => {
     vi.useFakeTimers();
     try {
       let changeCalls = 0;
@@ -2457,15 +2458,18 @@ describe("reconnect pulls and resync", () => {
       expect(changeCalls).toBe(baselineChanges + 1);
       expect(sync.resyncGeneration).toBe(baselineResync);
 
+      // The second connect's gap gets a pull of its own, inside the one
+      // completion, which resyncs once.
       await act(async () => { releaseFeed(); await feedGate; });
-      expect(changeCalls).toBe(baselineChanges + 1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(changeCalls).toBe(baselineChanges + 2);
       expect(sync.resyncGeneration).toBe(baselineResync + 1);
 
       await act(async () => {
         await sync.enqueue([{ op: "delete", uid: uidOf("unrelated") }]).settled;
         await Promise.resolve();
       });
-      expect(changeCalls).toBe(baselineChanges + 1);
+      expect(changeCalls).toBe(baselineChanges + 2);
       expect(sync.resyncGeneration).toBe(baselineResync + 1);
     } finally {
       vi.useRealTimers();

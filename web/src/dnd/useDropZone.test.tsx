@@ -13,7 +13,7 @@ import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider, useDnd } from "./DndContext";
 import { useDropZone, type Indicator } from "./useDropZone";
 import { EditablePage } from "../views/EditablePage";
-import { block, makeSync, orderIdxOf, canonicalTitleOf, uidOf, clientIdOf } from "../test-helpers";
+import { block, makeSync, orderIdxOf, canonicalTitleOf, uidOf, clientIdOf, dragTransfer } from "../test-helpers";
 
 const ROW_H = 20;
 const ROWS = 6; // u1..u6; u6 is the one dragged, leaving five candidate rows
@@ -40,16 +40,6 @@ function stubRects() {
 }
 afterEach(() => { vi.restoreAllMocks(); });
 
-// jsdom has no DataTransfer: minimal stub (as in the dnd wiring tests)
-function dt() {
-  const data: Record<string, string> = {};
-  return {
-    setData: (k: string, v: string) => { data[k] = v; },
-    getData: (k: string) => data[k] ?? "",
-    effectAllowed: "", dropEffect: "",
-  };
-}
-
 /** Render u1..u6 and grab u6's handle, so the candidate rows are u1..u5 with
  * midpoints at clientY 10, 30, 50, 70, 90. */
 function startDrag() {
@@ -65,7 +55,7 @@ function startDrag() {
       </DndProvider>
     </SyncContext.Provider>);
   const reads = stubRects();
-  const transfer = dt();
+  const transfer = dragTransfer();
   const handle = document.querySelector('[data-uid="tuid-u6"] .bullet')!;
   fireEvent.dragStart(handle, { dataTransfer: transfer });
   reads.rows = 0; // the drag is armed; count only what dragover measures
@@ -223,7 +213,7 @@ it("does not commit a new indicator object when the position hasn't moved",
   act(() => { dnd.startDrag({ kind: "blocks", height: 0, uid: uidOf("tuid-u2"), pageTitle: canonicalTitleOf("P") }); });
 
   const zone = document.querySelector('[data-testid="zone"]')!;
-  const transfer = dt();
+  const transfer = dragTransfer();
   let now = 0;
   const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => now);
 

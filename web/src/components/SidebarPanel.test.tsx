@@ -6,22 +6,12 @@ import { afterEach, expect, it, vi } from "vitest";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { SyncContext } from "../sync/SyncProvider";
 import {
-  block, makeSync, pageIdOf, pagePayload, stubFetch, canonicalTitleOf, uidOf, rawTitleOf,
+  block, dragTransfer, makeSync, pageIdOf, pagePayload, stubFetch, canonicalTitleOf,
+  uidOf, rawTitleOf,
 } from "../test-helpers";
 import { SidebarPanel } from "./SidebarPanel";
 
 afterEach(() => vi.unstubAllGlobals());
-
-// jsdom has no DataTransfer: minimal stub (mirrors
-// EditableBlockTree.dnd.test.tsx)
-function dt() {
-  const data: Record<string, string> = {};
-  return {
-    setData: (k: string, v: string) => { data[k] = v; },
-    getData: (k: string) => data[k] ?? "",
-    effectAllowed: "", dropEffect: "",
-  };
-}
 
 function Harness({ onReady }: { onReady: (dnd: ReturnType<typeof useDnd>) => void }) {
   const dnd = useDnd();
@@ -76,7 +66,7 @@ it("panel bullets are draggable and start a drag for the panel's page", async ()
   const bullet = document.querySelector(".sidebar-panel .bullet");
   expect(bullet).toHaveAttribute("draggable", "true");
 
-  fireEvent.dragStart(bullet!, { dataTransfer: dt() });
+  fireEvent.dragStart(bullet!, { dataTransfer: dragTransfer() });
   expect(dnd().drag).toEqual({ kind: "blocks", uid: "tuid-s1", pageTitle: "Some Page",
     height: 0 });
 });

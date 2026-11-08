@@ -6,17 +6,9 @@ import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { EditablePage } from "../views/EditablePage";
-import { block, makeSync, orderIdxOf, reserveOutlineEditor, canonicalTitleOf } from "../test-helpers";
-
-// jsdom has no DataTransfer: minimal stub
-function dt() {
-  const data: Record<string, string> = {};
-  return {
-    setData: (k: string, v: string) => { data[k] = v; },
-    getData: (k: string) => data[k] ?? "",
-    effectAllowed: "", dropEffect: "",
-  };
-}
+import { act } from "@testing-library/react";
+import { block, clientIdOf, makeSync, orderIdxOf, reserveOutlineEditor, canonicalTitleOf,
+         dragTransfer } from "../test-helpers";
 
 function Harness({ onReady }: { onReady: (dnd: ReturnType<typeof useDnd>) => void }) {
   const dnd = useDnd();
@@ -46,7 +38,7 @@ it("bullets are draggable and a drop reorders via one move op", () => {
   const bullets = document.querySelectorAll(".bullet");
   expect(bullets[0]).toHaveAttribute("draggable", "true");
 
-  const transfer = dt();
+  const transfer = dragTransfer();
   fireEvent.dragStart(bullets[1], { dataTransfer: transfer });
   // drop at the very top boundary (above row u1): rects are all 0 in
   // jsdom, so clientY 0 maps to boundary 0 and clientX 0 to depth 0
@@ -75,7 +67,7 @@ it("dragging a block inside a multi-block selection moves the whole selection", 
   expect(document.querySelectorAll(".block-row.selected")).toHaveLength(2);
 
   // drag u2's bullet to the top boundary: the whole [u2, u3] run moves
-  const transfer = dt();
+  const transfer = dragTransfer();
   fireEvent.dragStart(document.querySelector('[data-uid="tuid-u2"] .bullet')!,
                       { dataTransfer: transfer });
   const zone = document.querySelector(".block-tree")!;
@@ -102,7 +94,7 @@ it("a drag carries the grabbed block's subtree height", () => {
   ], (d) => { dnd = d; });
 
   fireEvent.dragStart(document.querySelector('[data-uid="tuid-u1"] .bullet')!,
-                      { dataTransfer: dt() });
+                      { dataTransfer: dragTransfer() });
   expect(dnd.drag).toEqual({ kind: "blocks", uid: "tuid-u1", pageTitle: "P",
                              height: 2 });
 });
@@ -124,7 +116,7 @@ it("a selection drag carries the tallest root's height, not the grabbed one's", 
 
   // grab the leaf root: the selection's other root is three levels tall
   fireEvent.dragStart(document.querySelector('[data-uid="tuid-u1"] .bullet')!,
-                      { dataTransfer: dt() });
+                      { dataTransfer: dragTransfer() });
   expect(dnd.drag).toEqual({ kind: "blocks", uid: "tuid-u1", pageTitle: "P",
                              uids: ["tuid-u1", "tuid-u2"], height: 3 });
 });
@@ -142,7 +134,7 @@ it("dragging a block outside the selection moves only that block", () => {
   fireEvent.keyDown(ta, { key: "ArrowDown", shiftKey: true });
   expect(document.querySelectorAll(".block-row.selected")).toHaveLength(2);
 
-  const transfer = dt();
+  const transfer = dragTransfer();
   fireEvent.dragStart(document.querySelector('[data-uid="tuid-u3"] .bullet')!,
                       { dataTransfer: transfer });
   const zone = document.querySelector(".block-tree")!;
@@ -168,7 +160,7 @@ it("an empty page accepts a top-level drop from another page", () => {
 
   // drag starts on the source page's bullet (only page with any blocks)
   const srcBullet = document.querySelector(".bullet")!;
-  const transfer = dt();
+  const transfer = dragTransfer();
   fireEvent.dragStart(srcBullet, { dataTransfer: transfer });
 
   const zone = screen.getByText(/start writing/i).closest(".empty-drop-zone")!;
@@ -183,7 +175,7 @@ it("an empty page accepts a top-level drop from another page", () => {
 it("dragleave clears the drop indicator", () => {
   renderPage();
   const bullets = document.querySelectorAll(".bullet");
-  const transfer = dt();
+  const transfer = dragTransfer();
   fireEvent.dragStart(bullets[1], { dataTransfer: transfer });
 
   const zone = document.querySelector(".outline-drop-zone")!;
@@ -198,7 +190,7 @@ it("dragleave clears the drop indicator", () => {
 it("dragend without a drop clears the active drag so a later drop is inert", () => {
   const sync = renderPage();
   const bullets = document.querySelectorAll(".bullet");
-  const transfer = dt();
+  const transfer = dragTransfer();
   fireEvent.dragStart(bullets[1], { dataTransfer: transfer });
 
   const zone = document.querySelector(".outline-drop-zone")!;
@@ -217,7 +209,7 @@ it("dragend without a drop clears the active drag so a later drop is inert", () 
 it("a drop that changes nothing enqueues nothing and still ends the drag", () => {
   const sync = renderPage();
   const bullets = document.querySelectorAll(".bullet");
-  const transfer = dt();
+  const transfer = dragTransfer();
   fireEvent.dragStart(bullets[1], { dataTransfer: transfer }); // u2, already last
 
   const zone = document.querySelector(".outline-drop-zone")!;
@@ -261,7 +253,7 @@ it("a fallback panel (title already active elsewhere) is excluded from DnD both 
     // "Src" block over the fallback's block-tree enqueues nothing, because the
     // fallback has no drop handlers.
     const srcBullet = document.querySelector('[data-uid="tuid-s1"] .bullet')!;
-    const transfer = dt();
+    const transfer = dragTransfer();
     fireEvent.dragStart(srcBullet, { dataTransfer: transfer });
     const fallbackTree = document.querySelector('[data-uid="tuid-u1"]')!.closest(".block-tree")!;
     fireEvent.dragOver(fallbackTree, { clientX: 0, clientY: 0, dataTransfer: transfer });
@@ -310,7 +302,7 @@ it("hands DnD registration to the remaining same-title view", () => {
   const bullets = document.querySelectorAll(".bullet");
   expect(bullets).toHaveLength(2);
   expect(bullets[1]).toHaveAttribute("draggable", "true");
-  const transfer = dt();
+  const transfer = dragTransfer();
   fireEvent.dragStart(bullets[1], { dataTransfer: transfer });
   const zone = document.querySelector(".block-tree")!;
   fireEvent.dragOver(zone, { clientX: 0, clientY: -1, dataTransfer: transfer });
@@ -319,4 +311,18 @@ it("hands DnD registration to the remaining same-title view", () => {
   expect(sync.sent).toEqual([[
     { op: "move", uid: "tuid-u2", parent_uid: null, order_idx: 0 },
   ]]);
+});
+
+it("a drag whose handle another device deleted mid-drag ends at its dragend",
+   () => {
+  let dnd!: ReturnType<typeof useDnd>;
+  const sync = renderPage(undefined, (d) => { dnd = d; });
+  const handle = document.querySelector('[data-uid="tuid-u2"] .bullet')!;
+  fireEvent.dragStart(handle, { dataTransfer: dragTransfer() });
+  expect(dnd.drag).not.toBeNull();
+  act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1,
+                        ops: [{ op: "delete", uid: "tuid-u2" }] }));
+  expect(handle.isConnected).toBe(false);
+  fireEvent.dragEnd(handle);
+  expect(dnd.drag).toBeNull();
 });

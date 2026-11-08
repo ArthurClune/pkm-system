@@ -1,13 +1,13 @@
 ---
 # pkm-7knn
 title: 'Outline: a block drag whose source row is removed mid-drag never ends; a later file drop moves the stale block'
-status: todo
+status: in-progress
 type: bug
 priority: low
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-07T18:42:45Z
+updated_at: 2026-11-08T15:02:52Z
 parent: pkm-zk8b
 ---
 
@@ -19,5 +19,5 @@ later external drag over an outline is treated as that block drag: a Finder
 file drop moves the old block (undoable) and the files are not uploaded. A
 window-level `dragend` listener would not fix it.
 
-- [ ] Red test
+- [x] Red test
 - [ ] Tag block drags with a custom MIME type and treat only drags carrying it as block drags

@@ -313,7 +313,10 @@ conversion with Enter never splits. `useBlockDraft.imeOwns` answers for it:
 
 keyCode 229 alone is not enough, because a keydown can carry it with no
 composition just ended, and its Enter must still split. The window covers a
-composition ended without a key, by a clicked candidate.
+composition ended without a key, by a clicked candidate. The window is read
+on one clock in the handlers (`imeClock`), never by comparing two events'
+`timeStamp`: WebKit stamps a trusted keydown on another clock from the events
+it raises itself, `compositionend` among them.
 
 `KeyboardBar` feeds each key to `decideEditorKey` as the key it names. When the
 policy answers `none` for a character, `insertTypedChar` types it, since no

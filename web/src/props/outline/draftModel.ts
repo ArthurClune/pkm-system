@@ -39,7 +39,7 @@ export type DraftCommand =
   | { k: "refocus" }
   | { k: "compose-start" }
   /** With a key: the keydown follows, at once as WebKit sends the one that
-   * committed the composition, or gapMs later on the event clock alone (no
+   * committed the composition, or gapMs later on the IME clock alone (no
    * timer runs) as after a composition a clicked candidate ended. */
   | { k: "compose-end"; key: KeyCommand | null; gapMs: 0 | 600 }
   | KeyCommand;

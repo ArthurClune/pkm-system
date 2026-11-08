@@ -3,7 +3,8 @@
 // EditableBlockTree rendered in jsdom over a sync fake, with fake timers for
 // the debounce. Each command is a DOM event or an outline/session call; after
 // it, effects settle and the editor is checked against draftModel.ts.
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render,
+         screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { vi } from "vitest";
 import type { CanonicalTitle } from "../../api/brands";
@@ -13,6 +14,7 @@ import { EditableBlockTree } from "../../components/EditableBlockTree";
 import type { OutlineHandlers } from "../../outline/handlers";
 import { peekOutlineSession } from "../../outline/outlineSessions";
 import { resetHistory } from "../../outline/undoManager";
+import { imeClock } from "../../outline/useBlockDraft";
 import { useOutline, type Outline } from "../../outline/useOutline";
 import { ROUTER_FUTURE_FLAGS } from "../../router";
 import { SyncContext } from "../../sync/SyncProvider";
@@ -75,6 +77,8 @@ export async function runDraftExample(example: DraftExample,
                                       seam: DraftSeam = REAL_SEAM,
 ): Promise<DraftRun> {
   vi.useFakeTimers();
+  // The IME window reads the faked Date, the clock ticks and gapMs move.
+  const clock = vi.spyOn(imeClock, "now").mockImplementation(() => Date.now());
   vi.stubGlobal("fetch", vi.fn(async () =>
     new Response(JSON.stringify({ detail: "not found" }), { status: 404 })));
   resetHistory();
@@ -112,10 +116,22 @@ export async function runDraftExample(example: DraftExample,
     }
   } finally {
     cleanup();
+    clock.mockRestore();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   }
   return { problems, labels };
+}
+
+/** WebKit stamps a trusted keydown on another clock from the events it
+ * raises itself, compositionend among them; so do these. */
+const KEYDOWN_CLOCK_BASE = 815_684_366_637;
+
+function keyDown(ta: HTMLTextAreaElement, init: KeyboardEventInit): void {
+  const ev = createEvent.keyDown(ta, init);
+  Object.defineProperty(ev, "timeStamp",
+                        { value: KEYDOWN_CLOCK_BASE + performance.now() });
+  fireEvent(ta, ev);
 }
 
 /** What a command did to the model, and what it should have sent. */
@@ -225,11 +241,11 @@ async function apply(command: DraftCommand, model: DraftModel,
       }
       if (imeOwns(model, "plain")) {
         labels.push("undo-while-composing");
-        act(() => { fireEvent.keyDown(ta, { key: "z", metaKey: true }); });
+        act(() => { keyDown(ta, { key: "z", metaKey: true }); });
         return { ...idle, model: keydown(), imeOwned: true };
       }
       if (model.pending !== null) labels.push("undo-over-draft");
-      act(() => { fireEvent.keyDown(ta, { key: "z", metaKey: true }); });
+      act(() => { keyDown(ta, { key: "z", metaKey: true }); });
       const step = flushStep(keydown(), labels, "undo");
       const undo = [...step.model.undo];
       if (step.flush !== null) undo.push(model.server);
@@ -275,7 +291,7 @@ async function apply(command: DraftCommand, model: DraftModel,
         return { ...idle, model: { ...model, composing: false,
                                    endedAt: model.now } };
       }
-      // The event clock moves past the timers' (Date, not the fake timer
+      // The IME clock moves past the timers' (Date, not the fake timer
       // queue), so the model dates the end that much earlier.
       if (command.gapMs > 0) vi.setSystemTime(Date.now() + command.gapMs);
       const ended = { ...model, composing: false,
@@ -302,7 +318,7 @@ async function apply(command: DraftCommand, model: DraftModel,
         labels.push(`${key}-right-after-end`);
       }
       act(() => {
-        fireEvent.keyDown(ta, { key, keyCode, isComposing: ime === "composing" });
+        keyDown(ta, { key, keyCode, isComposing: ime === "composing" });
       });
       if (owned) return { ...idle, model: keydown(), imeOwned: true };
       if (key === "Escape") {

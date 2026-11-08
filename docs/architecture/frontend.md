@@ -258,6 +258,15 @@ debounced reload fires. Select all and Load more start only from a list loaded
 under the current generation, since until then `items` and `total` belong to
 the old filter and a Delete would remove files outside the new one.
 
+### Unlinked references
+
+`UnlinkedSection` pages `/api/unlinked` by `offset`, and the server drops a
+block from that list once it references the page. So a delivered Link takes
+its block out of the loaded list and one off `total`, and Show more asks from
+the count of loaded blocks still listed. Counting a block whose Link is not
+yet delivered as gone can only re-fetch it, which `mergeGroups` drops;
+counting a gone one as listed skips the next block.
+
 ## iOS and phone behaviour
 
 | Platform behaviour | What the app does | Code |

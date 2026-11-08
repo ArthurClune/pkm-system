@@ -992,7 +992,8 @@ it("Show more after linking continues where the server's shortened list " +
   const sync = makeSync();
   const all = Array.from({ length: 23 }, (_, i) =>
     ({ uid: uidOf(`uid_u${String(i).padStart(2, "0")}`), text: `Acme mention ${i}` }));
-  const linked = () => new Set(sync.sent.flat().map((op) => op.uid));
+  const linked = () => new Set(sync.sent.flat()
+    .flatMap((op) => op.op === "update_text" ? [op.uid] : []));
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input), "http://x");
     const listed = all.filter((item) => !linked().has(item.uid));

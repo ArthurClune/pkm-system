@@ -82,6 +82,10 @@ export interface HarnessClient {
   edit(ops: BlockOp[]): Promise<BatchId>;
   /** Pulls now and waits for the pull to finish. */
   pull(): Promise<void>;
+  /** How the last pull() met replicaSync: alone, joining a pull in flight,
+   * or joining one while a poison repair owned recovery (that pass may be
+   * left to the repair, and the join must still get a pass of its own). */
+  lastPullJoin(): PullJoin;
   /** A websocket seq frame: not awaited. */
   nudge(seq: SyncSeq, force?: boolean): void;
   /** The next pending_ops INSERT throws. */
@@ -107,6 +111,10 @@ export interface HarnessClient {
   reload(connectAt?: number): Promise<void>;
   /** The current life's replica worker dies. */
   killWorker(): void;
+  /** The worker dies the moment replicaSync's next applyChanges answers
+   * needs-bootstrap: a fixed scenario's way to land a death between a pull
+   * pass that leaves recovery to a poison repair and the pass after it. */
+  killOnNeedsBootstrap(): void;
   /** Whether the current life's worker has died. */
   workerDead(): boolean;
   /** Batches not yet committed when a worker died, across lives: durable
@@ -173,6 +181,18 @@ interface Life {
 const PENDING_INSERT = /^\s*INSERT INTO pending_ops/i;
 
 export type ConnectLanding = "mid-startup" | "after startup";
+
+export type PullJoin = "alone" | "joined" | "joined under poison";
+
+const POISON_EVENTS = new Set<SyncEvent["type"]>([
+  "repair-started", "repair-failed", "poison-mark-failed", "repair-succeeded",
+  "poison-intents-discarded"]);
+/** Whether a poison repair owns recovery, read from the runtime's events. */
+const poisonOwns = (events: readonly SyncEvent[]): boolean => {
+  const last = [...events].reverse().find((e) => POISON_EVENTS.has(e.type));
+  return last !== undefined && last.type !== "repair-succeeded" &&
+    last.type !== "poison-intents-discarded";
+};
 
 /** How the client's first bootstrap goes. "fails": its first two snapshot
  * fetches answer 503. "timesOut": its first snapshot fetch answers 503 and
@@ -315,6 +335,14 @@ export async function startClient(
       init: () => {
         state.startAttempted = true;
         return replica.init();
+      },
+      applyChanges: async (feed, expectedPendingIds) => {
+        const res = await replica.applyChanges(feed, expectedPendingIds);
+        if (killOnNeedsBootstrap && res.status === "needs-bootstrap") {
+          killOnNeedsBootstrap = false;
+          killCurrent();
+        }
+        return res;
       },
       applySnapshot: (snapshot, expectedPendingIds) => {
         if (!snapshotTimeoutArmed) return replica.applySnapshot(snapshot, expectedPendingIds);
@@ -481,6 +509,14 @@ export async function startClient(
   };
 
   let landed: ConnectLanding | null = null;
+  let killOnNeedsBootstrap = false;
+  const killCurrent = (): void => {
+    if (life.state.workerDead) return;
+    const committed = transport.committed;
+    for (const id of enqueued) if (!committed.has(id)) undeliveredAtDeath.add(id);
+    life.kill();
+  };
+  let lastJoin: PullJoin = "alone";
 
   /** A page load that connects: the mount, and the socket's first connect
    * either once the startup has finished or `at` ticks after the mount
@@ -534,11 +570,16 @@ export async function startClient(
       const latest = await server.latestSeq();
       // A reload while the seq was read ended this life: never call into it.
       if (l.state.ended) return;
+      // idle() hands out the one in-flight pull, or a fresh resolved promise
+      const inFlight = l.replicaSync.idle() === l.replicaSync.idle();
+      lastJoin = !inFlight ? "alone"
+        : poisonOwns(syncEvents) ? "joined under poison" : "joined";
       // Forced: a rotated generation keeps the journal's seq, and a pull must
       // still run to find it.
       l.replicaSync.onSeq(latest, true);
       await l.replicaSync.idle();
     },
+    lastPullJoin: () => lastJoin,
     nudge(seq, force = false) {
       life.replicaSync.onSeq(seq, force);
     },
@@ -583,12 +624,8 @@ export async function startClient(
       }
     },
     connectLanded: () => landed,
-    killWorker() {
-      if (life.state.workerDead) return;
-      const committed = transport.committed;
-      for (const id of enqueued) if (!committed.has(id)) undeliveredAtDeath.add(id);
-      life.kill();
-    },
+    killWorker: () => killCurrent(),
+    killOnNeedsBootstrap() { killOnNeedsBootstrap = true; },
     workerDead: () => life.state.workerDead,
     undeliveredAtDeath,
     deathLanePushes: () => deathLanePushes,

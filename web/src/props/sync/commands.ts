@@ -37,7 +37,7 @@ export type ClientPort = Pick<HarnessClient,
   "name" | "writeFailArmed" | "unsentInMemory" | "online" | "offline" | "edit" | "pull"
   | "nudge" | "failNextWrite" | "loseNextReply" | "lostReplyArmed" | "reload"
   | "connectLanded" | "cursor" | "killWorker" | "workerDead" | "canEdit" | "mode"
-  | "appliedVersion" | "hasStarted">
+  | "appliedVersion" | "hasStarted" | "lastPullJoin">
   & { readonly transport: Pick<Transport, "arm" | "fetchJson"> };
 
 export interface World<C extends ClientPort = ClientPort> {
@@ -282,9 +282,10 @@ export class Pull extends SyncCommand {
     const c = clientOf(w, this.client);
     w.count("Pull");
     await c.pull();
+    w.count(`Pull ${c.lastPullJoin()}`);
     if (m.dead[this.client]) {
       w.count(c.hasStarted() ? "Pull with a dead worker" : "Pull with a dead worker, never started");
-      await w.modes.afterPull(c);
+      w.modes.afterPull(c);
       return `Pull(${this.client}) worker dead, mode ${c.mode()}`;
     }
     return `Pull(${this.client}) cursor ${c.cursor()}`;

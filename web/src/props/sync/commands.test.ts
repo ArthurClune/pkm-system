@@ -34,6 +34,7 @@ const stubClient = (over: Partial<ClientPort> = {}): ClientPort => ({
   mode: () => "ready",
   appliedVersion: unstubbed("appliedVersion"),
   hasStarted: () => true,
+  lastPullJoin: () => "alone",
   transport: { arm: unstubbed("arm"), fetchJson: unstubbed("fetchJson") },
   ...over,
 });
@@ -201,7 +202,7 @@ function stubWorld(events: string[], cancelled = false): World {
     server: stubServer(),
     clients: new Map([["A", client]]),
     watch: { observe: () => undefined },
-    modes: { observe: () => undefined, afterPull: () => Promise.resolve() },
+    modes: { observe: () => undefined, afterPull: () => undefined },
     transcript: [],
     count: () => undefined,
     cancelled: () => cancelled,

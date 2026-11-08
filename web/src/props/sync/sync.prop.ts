@@ -28,8 +28,8 @@ import { cancellable, ExampleCancelled } from "./cancel";
 import { conflictNoise, overwrittenTarget } from "./conflictNoise";
 import { staleNamers } from "./deleteWins";
 import { BadBatch, commandsFor, connectTally, connectTiming, countSkipsWith, Edit,
-         Fault, type FaultKind, NAMES, Nudge, Offline, Pull, Reload, Rename, SyncCommand,
-         WorkerDies, type World } from "./commands";
+         Fault, type FaultKind, NAMES, Nudge, Offline, Pull, Reload, Rename,
+         RotateGeneration, SyncCommand, WorkerDies, type World } from "./commands";
 import { PATH, REPLAY_PATH, SEED } from "./env";
 import { type FirstStart, startClient, type HarnessClient } from "./harnessClient";
 import { initialModel, type SyncModel } from "./model";
@@ -159,7 +159,7 @@ async function settleReplicas(world: World<HarnessClient>, model: SyncModel):
     await c.online();
     model.online[name] = true;
     await c.pull();
-    await world.modes.afterPull(c);
+    world.modes.afterPull(c);
     count(c.hasStarted() ? "settle: dead worker online-only after a pull"
                          : "settle: dead worker never started");
     if (await within(c.queue.drain(), LANE_DRAIN_WAIT_MS) === TIMED_OUT) {
@@ -167,7 +167,9 @@ async function settleReplicas(world: World<HarnessClient>, model: SyncModel):
     }
     const durable = new Set(c.db.select(
       "SELECT batch_id FROM pending_ops", ["batch_id"]).map((r) => r.batch_id));
-    const unsent = c.laneBatches.filter((id) =>
+    // a lost reply's lane copy too: its durable row may never have been
+    // stored, when the worker's gate was held past the death
+    const unsent = [...c.laneBatches, ...c.lostReplyBatches].filter((id) =>
       !c.transport.committed.has(id) && !durable.has(id));
     if (unsent.length > 0) count("settle: dead worker's reload drops lane batches");
     unsent.forEach((id) => dropped.add(id));
@@ -476,6 +478,94 @@ class Drained extends SyncCommand {
 
   toString(): string { return `Drained(${this.client})`; }
 }
+
+/** The release of each client's held changes fetches (HoldPulls). */
+const heldPulls = new Map<string, () => void>();
+
+const clientIn = (w: World<HarnessClient>, name: string): HarnessClient => {
+  const c = w.clients.get(name);
+  if (!c) throw new Error(`no client ${name}`);
+  return c;
+};
+
+/** Holds the client's changes fetches until ReleasePulls, and arms its
+ * worker to die at the next needs-bootstrap answer. A fixed scenario's
+ * step, never drawn by the property. */
+class HoldPulls extends SyncCommand {
+  protected readonly kindName = "HoldPulls";
+  constructor(readonly client: string) { super(); }
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return m.clients.includes(this.client) ? null : "client not in this example";
+  }
+  protected act(_m: SyncModel, w: World<HarnessClient>): Promise<string> {
+    const c = clientIn(w, this.client);
+    heldPulls.set(this.client, c.transport.stall("/api/sync/changes"));
+    c.killOnNeedsBootstrap();
+    return Promise.resolve(this.toString());
+  }
+  toString(): string { return `HoldPulls(${this.client})`; }
+}
+
+/** Waits until the client's poison repair has started. */
+class AwaitPoisonRepair extends SyncCommand {
+  protected readonly kindName = "AwaitPoisonRepair";
+  constructor(readonly client: string) { super(); }
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return m.clients.includes(this.client) ? null : "client not in this example";
+  }
+  protected async act(_m: SyncModel, w: World<HarnessClient>): Promise<string> {
+    const c = clientIn(w, this.client);
+    const started = await within((async () => {
+      while (!c.syncEvents.some((e) => e.type === "repair-started")) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    })(), REPRO_WAIT_MS);
+    if (started === TIMED_OUT) throw new Error(`${this.client}'s poison repair never started`);
+    return this.toString();
+  }
+  toString(): string { return `AwaitPoisonRepair(${this.client})`; }
+}
+
+/** Lets the held fetches go and waits for the pull, which must have met a
+ * needs-bootstrap answer and the death armed for it, then checks the mode:
+ * a pass after that answer must have met the dead worker. */
+class ReleasePulls extends SyncCommand {
+  protected readonly kindName = "ReleasePulls";
+  constructor(readonly client: string) { super(); }
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return m.clients.includes(this.client) ? null : "client not in this example";
+  }
+  protected async act(m: SyncModel, w: World<HarnessClient>): Promise<string> {
+    const c = clientIn(w, this.client);
+    heldPulls.get(this.client)?.();
+    heldPulls.delete(this.client);
+    await c.replicaSync.idle();
+    // the scenario is about this death; without it the check is vacuous
+    if (!c.workerDead()) throw new Error("the pull never met a needs-bootstrap answer");
+    m.dead[this.client] = true;
+    w.count("ReleasePulls: worker died at a needs-bootstrap left to poison");
+    w.modes.afterPull(c);
+    return `${this.toString()}: worker dead, mode ${c.mode()}`;
+  }
+  toString(): string { return `ReleasePulls(${this.client})`; }
+}
+
+// A's pull is held at its changes fetch while the generation rotates and a
+// rejected batch's repair claims recovery. A nudge joins the held pull.
+// Released, the pull's window needs a bootstrap, which it leaves to the
+// repair, and the worker dies at that answer: the joined nudge's own pass
+// must still run, meet the dead worker and end replica mode.
+test("a nudge joined to a pull left to a poison repair gets its own pass", async () => {
+  await runExample(["A"], [
+    new HoldPulls("A"),
+    new RotateGeneration(),
+    new Nudge("A", "ahead"),
+    new BadBatch("A"),
+    new AwaitPoisonRepair("A"),
+    new Nudge("A", "ahead"),
+    new ReleasePulls("A"),
+  ]);
+});
 
 // The pool's #3 is pt_seed_4 and #4 is pt_seed_5. A moves pt_seed_5 under
 // pt_seed_4, gives it a child, then moves it back out and deletes

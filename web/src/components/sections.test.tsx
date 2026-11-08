@@ -984,3 +984,51 @@ it("the unlinked header is a focusable button reporting its expanded state", asy
   fireEvent.click(toggle);
   expect(toggle).toHaveAttribute("aria-expanded", "false");
 });
+
+it("Show more after linking continues where the server's shortened list " +
+   "now stands, and the count drops by one per link", async () => {
+  // The server excludes a block from /api/unlinked once it references the
+  // page, so each delivered link shifts the rest of its list left by one.
+  const sync = makeSync();
+  const all = Array.from({ length: 23 }, (_, i) =>
+    ({ uid: uidOf(`uid_u${String(i).padStart(2, "0")}`), text: `Acme mention ${i}` }));
+  const linked = () => new Set(sync.sent.flat().map((op) => op.uid));
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "http://x");
+    const listed = all.filter((item) => !linked().has(item.uid));
+    const offset = Number(url.searchParams.get("offset"));
+    const limit = Number(url.searchParams.get("limit"));
+    return jsonResponse({
+      groups: [{ page_id: pageIdOf(2), page_title: "Source",
+                 items: listed.slice(offset, offset + limit) }],
+      total: listed.length,
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <UnlinkedSection title={canonicalTitleOf("ACME")} />
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  fireEvent.click(screen.getByText(/unlinked references/i));
+  await screen.findByText("Acme mention 19");
+  for (const n of [0, 1, 2]) {
+    const row = screen.getByText(`Acme mention ${n}`).closest(".backlink-item")!;
+    fireEvent.click(row.querySelector("button")!);
+    await vi.waitFor(() =>
+      expect(screen.queryByText(`Acme mention ${n}`)).toBeNull());
+  }
+  expect(screen.getByRole("button", { name: /unlinked references/i }))
+    .toHaveTextContent("Unlinked references (20)");
+
+  fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+  for (const n of [20, 21, 22]) {
+    expect(await screen.findByText(`Acme mention ${n}`)).toBeInTheDocument();
+  }
+  expect(screen.getByRole("button", { name: /unlinked references/i }))
+    .toHaveTextContent("Unlinked references (20)");
+  expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
+  expect(screen.getAllByRole("button", { name: "Link" })).toHaveLength(20);
+});

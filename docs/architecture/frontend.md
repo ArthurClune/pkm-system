@@ -191,6 +191,24 @@ into state, and a resync replaces day objects in place under stable keys.
 Nothing unmounts a loaded day, so each mounted outline and its `useDismiss`
 listener last for the session (perf scenarios `I` and `J`).
 
+The days on screen are a contiguous, newest-first run of the non-empty days
+`/api/journal` serves, starting at today. Paging state lives in one reducer,
+`views/journalPaging.ts`, and one load is in flight at a time:
+
+| Event | Load it starts | When it lands |
+|---|---|---|
+| mount, or "Load older days" with nothing on screen | head: `BATCH` days | replaces the days |
+| the sentinel or "Load older days" | older: `BATCH` days `before` the oldest shown; ignored while a load is in flight or the past is exhausted | appends |
+| resync | head: as many days as are on screen, at least `BATCH`, at most `SERVER_MAX_DAYS`; supersedes the load in flight | replaces the days |
+
+A failed load leaves the days and their cursor as they were. So "Load older
+days" after a failed resync continues from the oldest day shown, rather than
+starting over with one batch. The error shows only while the latest completed
+load failed: any success clears it. A result that answers a superseded load
+changes nothing. A batch shorter than asked for means the past is exhausted.
+A resync over more than `SERVER_MAX_DAYS` days drops the oldest off, since the
+server clamps `days`; scrolling loads them back.
+
 ### Popovers and menus
 
 `Popover.tsx` is the chrome every anchored popover renders through:

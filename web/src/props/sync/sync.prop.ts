@@ -5,8 +5,15 @@
 // the changes feed's window at a few journal rows, so a catch-up crosses
 // window boundaries (see windowLimit). Half the time a client's first
 // connect, and a Reload's, comes at a drawn tick of its startup rather than
-// after it (connectTiming in commands.ts). The fixed scenarios run first,
-// through the same commands.
+// after it (connectTiming in commands.ts), and one client in five has its
+// first bootstrap fail (firstStart). The fixed scenarios run first, through
+// the same commands.
+//
+// Between the commands and quiesce, settleReplicas checks what quiesce's own
+// reconnect would hide: a first bootstrap that failed with the socket up
+// must be retried without one, and a client whose worker died must be
+// online-only after one pull. It then reloads each such client, as its
+// banner asks; lane batches that reload destroys are expected lost.
 //
 // A failure prints the seed, the path, the shrunk command list, what each
 // command did in the failing run, the oracle's findings and a replay line.
@@ -14,6 +21,7 @@
 // often each fault was armed and fired, is printed once, after the file.
 import fc from "fast-check";
 import { afterAll, beforeAll, expect, test } from "vitest";
+import type { BatchId } from "../../api/brands";
 import { extractRefs } from "../../grammar/refs";
 import { EDIT_TARGETS, type OpDraft, PAGE_TITLES } from "./arbitraries";
 import { cancellable, ExampleCancelled } from "./cancel";
@@ -21,11 +29,11 @@ import { conflictNoise, overwrittenTarget } from "./conflictNoise";
 import { staleNamers } from "./deleteWins";
 import { BadBatch, commandsFor, connectTally, connectTiming, countSkipsWith, Edit,
          Fault, type FaultKind, NAMES, Nudge, Offline, Pull, Reload, Rename, SyncCommand,
-         type World } from "./commands";
+         WorkerDies, type World } from "./commands";
 import { PATH, REPLAY_PATH, SEED } from "./env";
-import { startClient, type HarnessClient } from "./harnessClient";
+import { type FirstStart, startClient, type HarnessClient } from "./harnessClient";
 import { initialModel, type SyncModel } from "./model";
-import { checkQuiescent, CursorWatch } from "./oracle";
+import { checkQuiescent, CursorWatch, ModeWatch } from "./oracle";
 import { quiesce, TIMED_OUT, within } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
 import { captureFaultWarnings } from "../warningsCapture";
@@ -51,6 +59,13 @@ const PROPERTY_LIMIT_MS = 420_000;
 const DISPOSE_LIMIT_MS = 10_000;
 /** How long a fixed scenario waits for the state it sets up. */
 const REPRO_WAIT_MS = 5_000;
+/** How long settleReplicas waits for a failed first bootstrap's backoff
+ * retry: well past FAST_RETRY_MS doubled for every failure an example
+ * draws. */
+const FIRST_START_WAIT_MS = 5_000;
+/** How long settleReplicas lets a dead worker's lane drain before its
+ * reload. */
+const LANE_DRAIN_WAIT_MS = 5_000;
 
 type Commands = Iterable<fc.AsyncCommand<SyncModel, World, boolean>>;
 
@@ -59,20 +74,21 @@ const count = (key: string, n = 1): void => { tally.set(key, (tally.get(key) ?? 
 countSkipsWith(count);
 
 const FAULT_KINDS: readonly FaultKind[] = [
-  "dropAck", "duplicate", "lostPull", "writeFails", "lostReply"];
+  "dropAck", "duplicate", "lostPull", "writeFails", "lostReply", "snapshot5xx"];
 
 /** How many of each fault kind fired across these clients: transport faults
  * that met a request, and failed local writes that pushed a batch into the
  * lane. */
 const firedFaults = (clients: Iterable<HarnessClient>): Record<FaultKind, number> => {
   const fired: Record<FaultKind, number> = {
-    dropAck: 0, duplicate: 0, lostPull: 0, writeFails: 0, lostReply: 0,
+    dropAck: 0, duplicate: 0, lostPull: 0, writeFails: 0, lostReply: 0, snapshot5xx: 0,
   };
   for (const c of clients) {
     fired.dropAck += c.transport.fired("dropAck");
     fired.duplicate += c.transport.fired("duplicate");
     fired.lostPull += c.transport.fired("lostPull");
-    fired.writeFails += c.lanePushes() - c.lostReplies();
+    fired.snapshot5xx += c.transport.fired("snapshot5xx");
+    fired.writeFails += c.lanePushes() - c.lostReplies() - c.deathLanePushes();
     fired.lostReply += c.lostReplies();
   }
   return fired;
@@ -107,6 +123,60 @@ interface ExampleOptions {
   /** Each client's first connect, by client order, in ticks after its
    * mount begins (StartOptions); absent, once its startup has finished. */
   connectAt?: readonly (number | undefined)[];
+  /** Each client's first bootstrap, by client order; absent, "ok". */
+  firstStart?: readonly FirstStart[];
+}
+
+/** Resolves once `ready()` holds, polling; TIMED_OUT after `ms`. */
+const waitUntil = (ready: () => boolean, ms: number): Promise<void | typeof TIMED_OUT> =>
+  within((async () => {
+    while (!ready()) await new Promise((resolve) => setTimeout(resolve, 5));
+  })(), ms);
+
+/** The replica-mode rules quiesce would hide, then the dead workers'
+ * reloads. Faults stop first: a retried bootstrap is owed success only once
+ * they have. Returns the lane batches a reload destroyed while they were
+ * still unsent: they may never land. */
+async function settleReplicas(world: World<HarnessClient>, model: SyncModel):
+    Promise<Set<BatchId>> {
+  const dropped = new Set<BatchId>();
+  for (const c of world.clients.values()) c.transport.clearFaults();
+  for (const [name, c] of world.clients) {
+    // A start held back behind a failed poison repair waits for that
+    // repair's own Retry or the next connect, as sync-recovery.md says.
+    if (!model.online[name] || model.dead[name] || c.hasStarted() ||
+        !c.startAttempted()) continue;
+    count("settle: first start owed a retry");
+    const started = await waitUntil(() => c.hasStarted(), FIRST_START_WAIT_MS);
+    if (started === TIMED_OUT) {
+      throw new Error(`replica mode: ${name}'s first bootstrap failed with the socket` +
+                      ` up and was not retried within ${FIRST_START_WAIT_MS}ms`);
+    }
+    world.transcript.push(`settle: ${name}'s first start retried by the backoff`);
+  }
+  for (const [name, c] of world.clients) {
+    if (!model.dead[name]) continue;
+    await c.online();
+    model.online[name] = true;
+    await c.pull();
+    world.modes.afterPull(c);
+    count(c.hasStarted() ? "settle: dead worker online-only after a pull"
+                         : "settle: dead worker never started");
+    if (await within(c.queue.drain(), LANE_DRAIN_WAIT_MS) === TIMED_OUT) {
+      count("settle: dead worker's lane drain hung");
+    }
+    const durable = new Set(c.db.select(
+      "SELECT batch_id FROM pending_ops", ["batch_id"]).map((r) => r.batch_id));
+    const unsent = c.laneBatches.filter((id) =>
+      !c.transport.committed.has(id) && !durable.has(id));
+    if (unsent.length > 0) count("settle: dead worker's reload drops lane batches");
+    unsent.forEach((id) => dropped.add(id));
+    world.transcript.push(`settle: Reload(${name}) of a dead worker` +
+      (unsent.length > 0 ? `, lane unsent: ${unsent.join(", ")}` : ""));
+    await c.reload();
+    model.dead[name] = false;
+  }
+  return dropped;
 }
 
 /** No cap two times in three, else a window of one to five journal rows:
@@ -175,9 +245,10 @@ async function runExample(names: readonly string[], cmds: Commands,
     const started: string[] = [];
     for (const [i, name] of names.entries()) {
       const at = opts.connectAt?.[i];
+      const firstStart = opts.firstStart?.[i] ?? "ok";
       const c = await startClient(name, guard.server, undefined,
                                   { windowLimit: opts.windowLimit, signal: guard.signal },
-                                  { connectAt: at });
+                                  { connectAt: at, firstStart });
       if (guard.cancelled()) {
         // Cancelled while it started: the clean-up ran without it.
         await c.dispose();
@@ -185,14 +256,20 @@ async function runExample(names: readonly string[], cmds: Commands,
       }
       clients.set(name, c);
       count(`start ${connectTally(at, c.connectLanded())}`);
-      started.push(at === undefined ? name : `${name} (connect at tick ${at})`);
+      if (firstStart !== "ok") {
+        count("Fault snapshot5xx", firstStart === "fails" ? 2 : 1);
+        count(`start first bootstrap ${firstStart}, ${
+          c.hasStarted() ? "started by the first connect" : "not started by it"}`);
+      }
+      started.push((at === undefined ? name : `${name} (connect at tick ${at})`) +
+                   (firstStart === "ok" ? "" : `, first bootstrap ${firstStart}`));
     }
     transcript.push(`start ${started.join(", ")}` +
       (opts.windowLimit === undefined ? "" : `, window limit ${opts.windowLimit}`));
     const model = initialModel([...names]);
     const world: World<HarnessClient> = {
-      server: guard.server, clients, watch: new CursorWatch(), transcript, count,
-      cancelled: guard.cancelled,
+      server: guard.server, clients, watch: new CursorWatch(), modes: new ModeWatch(),
+      transcript, count, cancelled: guard.cancelled,
     };
     const all = (): HarnessClient[] => [...clients.values()];
     world.watch.observe(all());
@@ -206,6 +283,7 @@ async function runExample(names: readonly string[], cmds: Commands,
                                            : "Online at quiesce, before its return");
     }
     await opts.beforeQuiesce?.(world);
+    const dropped = await settleReplicas(world, model);
     const fired = Object.entries(firedFaults(all())).filter(([, n]) => n > 0);
     if (fired.length > 0) {
       transcript.push(`faults fired: ${fired.map(([k, n]) => `${k} ${n}`).join(", ")}`);
@@ -238,7 +316,12 @@ async function runExample(names: readonly string[], cmds: Commands,
       count("examples with a leading attribute");
     }
     transcript.push("check");
-    await checkQuiescent(all(), guard.server, model, { applied, conflicts });
+    // A destroyed lane batch that never landed was lost by design.
+    const landed = new Set(applied.map((r) => r.batch_id));
+    const good = new Map([...model.good].map(([name, ids]) =>
+      [name, ids.filter((id) => !dropped.has(id) || landed.has(id))]));
+    await checkQuiescent(all(), guard.server, { good, bad: model.bad },
+                         { applied, conflicts });
   };
   let abandon = (): void => undefined;
   const abandoned = new Promise<typeof ABANDONED>((resolve) => {
@@ -666,12 +749,57 @@ test("rename racing a batch that links the renamed page", async () => {
   }
 });
 
+// A's worker dies with a batch on the wire. The next edit goes to the lane
+// and is delivered online; once a pull meets the dead worker A is
+// online-only, so offline its editor is read-only.
+test("a worker that dies mid-session ends offline editing after one pull", async () => {
+  await runExample(["A"], [
+    new Edit("A", [draft({ kind: "update_text", text: "before the death" })]),
+    new WorkerDies("A"),
+    new Edit("A", [draft({ kind: "update_text", target: 1, text: "into the lane" })]),
+    new Pull("A"),
+    new Offline("A"),
+    new Edit("A", [draft({ kind: "update_text", target: 2, text: "refused" })]),
+  ]);
+});
+
+// A's durable row is still queued offline when its worker dies, and nothing
+// has pulled since, so the later offline edit is accepted into the lane. At
+// settle the lane delivers first and the durable row after the reload.
+test("a dead worker's durable rows land after its lane, at the next life", async () => {
+  await runExample(["A", "B"], [
+    new Offline("A"),
+    new Edit("A", [draft({ kind: "update_text", text: "durable, offline" })]),
+    new WorkerDies("A"),
+    new Edit("A", [draft({ kind: "update_text", text: "lane, offline" })]),
+    new Edit("B", [draft({ kind: "update_text", target: 1, text: "B meanwhile" })]),
+  ]);
+});
+
+// A's first two snapshot fetches answer 503: the mount's start and the first
+// connect's both fail, and only the backoff can start it before quiesce.
+test("a first bootstrap that fails with the socket up is retried by the backoff", async () => {
+  await runExample(["A", "B"], [
+    new Edit("B", [draft({ kind: "update_text", text: "B edits" })]),
+  ], { firstStart: ["fails", "timesOut"] });
+});
+
 /** An example's clients and the commands drawn for exactly those. */
 type Drawn = [number, Commands];
 /** Each client's first connect, by client order (ExampleOptions). */
 type Starts = [number | undefined, number | undefined, number | undefined];
 
 const starts: fc.Arbitrary<Starts> = fc.tuple(connectTiming, connectTiming, connectTiming);
+
+/** One first bootstrap in five fails, half of those by a 503 on its first two
+ * snapshot fetches and half by an applySnapshot reply that times out. */
+const firstStart: fc.Arbitrary<FirstStart> = fc.oneof(
+  { weight: 8, arbitrary: fc.constant<FirstStart>("ok") },
+  { weight: 1, arbitrary: fc.constant<FirstStart>("fails") },
+  { weight: 1, arbitrary: fc.constant<FirstStart>("timesOut") },
+);
+type FirstStarts = [FirstStart, FirstStart, FirstStart];
+const firstStarts: fc.Arbitrary<FirstStarts> = fc.tuple(firstStart, firstStart, firstStart);
 
 /** Two or three clients, equally often. Each branch draws its commands
  * from its own clients alone, so no draw names a client the example lacks.
@@ -694,13 +822,15 @@ const showStarts = (n: number, at: Starts): string =>
     `${name} ${at[i] === undefined ? "after startup" : `tick ${at[i]}`}`).join(", ");
 
 /** The failure report: everything needed to read and replay it. */
-function report(details: fc.RunDetails<[Drawn, number | undefined, Starts]>): string {
+function report(details: fc.RunDetails<[Drawn, number | undefined, Starts, FirstStarts]>):
+    string {
   const counterexample = details.counterexample;
   const shown = counterexample === null ? "none"
     : `${counterexample[0][0]} clients, ` +
       (counterexample[1] === undefined ? "no window limit"
                                        : `window limit ${counterexample[1]}`) +
       `, connect at ${showStarts(counterexample[0][0], counterexample[2])}` +
+      `, first bootstraps ${counterexample[3].slice(0, counterexample[0][0]).join(", ")}` +
       `, ${String(counterexample[0][1])}`;
   const replay = /replayPath="([^"]*)"/.exec(shown)?.[1];
   const error = details.errorInstance instanceof Error
@@ -727,12 +857,14 @@ test("sync protocol property", async () => {
     // added.
     windowLimit,
     starts,
-    async ([n, cmds], limit, at) => {
+    firstStarts,
+    async ([n, cmds], limit, at, first) => {
       count("examples");
       count(`examples with ${n} clients`);
       count(limit === undefined ? "examples with no window limit"
                                 : `examples with window limit ${limit}`);
-      await runExample(NAMES.slice(0, n), cmds, { windowLimit: limit, connectAt: at });
+      await runExample(NAMES.slice(0, n), cmds,
+                       { windowLimit: limit, connectAt: at, firstStart: first });
     },
   ), {
     numRuns: NUM_RUNS, seed: SEED, path: PATH,

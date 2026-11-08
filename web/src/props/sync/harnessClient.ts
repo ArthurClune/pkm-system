@@ -19,6 +19,11 @@
 // database, and the old ports close, so nothing from an old promise chain
 // can write into the database the new life opens.
 //
+// A worker can die mid-life (killWorker): its RPC client turns terminal, as
+// when a real worker throws, so every later call rejects with worker-error,
+// while the requests it had already received finish as a crash just after
+// them would leave the file. Only a reload brings a new worker.
+//
 // A page load's first connect comes, by default, once the startup has
 // finished. In the app it need not: the socket's onStatus is a macrotask
 // that can land at any await inside runtime.startup(), and the
@@ -29,6 +34,7 @@ import type { BatchId, SyncSeq } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import { createReplica, type Replica } from "../../replica/client";
 import { RpcLifecycleError } from "../../replica/errors";
+import { computeEditability, type ReplicaMode } from "../../sync/syncState";
 import type { ReplicaDb } from "../../replica/db";
 import { getMeta } from "../../replica/meta";
 import { serveRpc, toPortLike } from "../../replica/rpc";
@@ -99,6 +105,30 @@ export interface HarnessClient {
   /** A page reload. Online, the new life connects `connectAt` ticks after
    * its mount begins (see StartOptions); offline, it does not connect. */
   reload(connectAt?: number): Promise<void>;
+  /** The current life's replica worker dies. */
+  killWorker(): void;
+  /** Whether the current life's worker has died. */
+  workerDead(): boolean;
+  /** Batches not yet committed when a worker died, across lives: durable
+   * rows that wait for the next life, behind that life's lane. */
+  readonly undeliveredAtDeath: ReadonlySet<BatchId>;
+  /** Batches a dead worker's life pushed into the lane, across lives. */
+  deathLanePushes(): number;
+  /** Batches whose enqueue reply loseNextReply lost: a lane copy and a
+   * durable row, across lives. */
+  readonly lostReplyBatches: readonly BatchId[];
+  /** SyncProvider's replicaState.mode for the current life. */
+  mode(): ReplicaMode;
+  /** The current life's replicaSync.appliedVersion(). */
+  appliedVersion(): number | null;
+  /** The current life's replicaSync.hasStarted(). */
+  hasStarted(): boolean;
+  /** Whether the current life's replicaSync has called init: a start was
+   * attempted, rather than held back behind a poison repair. */
+  startAttempted(): boolean;
+  /** What the editor may do: computeEditability over the life's status and
+   * mode, as SyncProvider derives canEdit. */
+  canEdit(): boolean;
   /** Whether the current life's timed connect fired before its startup had
    * finished, or null when it had no timing or did not connect. */
   connectLanded(): ConnectLanding | null;
@@ -111,6 +141,10 @@ export interface HarnessClient {
 interface LifeState {
   /** useSocketLifecycle's statusRef. */
   status: SyncStatus;
+  /** SyncProvider's replicaState.mode, set by both of its writers. */
+  mode: ReplicaMode;
+  workerDead: boolean;
+  startAttempted: boolean;
   everConnected: boolean;
   unsentInMemory: number;
   ended: boolean;
@@ -133,17 +167,30 @@ interface Life {
    * the same order on its persist chain, and each mint fills the oldest
    * empty slot. */
   idSlots: { id?: BatchId }[];
+  kill(): void;
 }
 
 const PENDING_INSERT = /^\s*INSERT INTO pending_ops/i;
 
 export type ConnectLanding = "mid-startup" | "after startup";
 
+/** How the client's first bootstrap goes. "fails": its first two snapshot
+ * fetches answer 503. "timesOut": its first snapshot fetch answers 503 and
+ * the next applySnapshot reply times out while the worker applies it. Either
+ * way the mount's start and the first connect's both fail, unless the
+ * connect joins the mount's, and only the backoff retries it. */
+export type FirstStart = "ok" | "fails" | "timesOut";
+
+/** The backoff's first delay for a client whose first start is drawn to
+ * fail: the app's second would outlast most examples. */
+export const FAST_RETRY_MS = 25;
+
 export interface StartOptions {
   /** Ticks (event-loop turns, each a setTimeout of 0) after the first
    * mount begins at which the socket connects; absent, it connects once the
    * startup has finished. */
   connectAt?: number;
+  firstStart?: FirstStart;
 }
 
 /** `n` event-loop turns. */
@@ -181,7 +228,8 @@ function lifeDb(current: () => ReplicaDb): LifeDb {
 
 export async function startClient(
   name: string, server: ServerControl, broken?: Broken,
-  transportOptions: TransportOptions = {}, { connectAt }: StartOptions = {},
+  transportOptions: TransportOptions = {},
+  { connectAt, firstStart = "ok" }: StartOptions = {},
 ): Promise<HarnessClient> {
   const raw = await openRawTestDb();
   const db = raw.db;
@@ -202,6 +250,11 @@ export async function startClient(
   let loseArmed = false;
   let lostReplies = 0;
   const laneBatches: BatchId[] = [];
+  const undeliveredAtDeath = new Set<BatchId>();
+  const lostReplyBatches: BatchId[] = [];
+  let deathLanePushes = 0;
+  let snapshotTimeoutArmed = firstStart === "timesOut";
+  const retryBaseMs = firstStart === "ok" ? undefined : FAST_RETRY_MS;
   let disposed = false;
 
   const buildLife = (doors: TransportLife): Life => {
@@ -210,7 +263,8 @@ export async function startClient(
     const clientId = clientIdOf(`proptest-${name}-${lives}`);
     const idSlots: { id?: BatchId }[] = [];
     const state: LifeState = {
-      status: "connecting", everConnected: false, unsentInMemory: 0, ended: false,
+      status: "connecting", mode: "starting", workerDead: false, startAttempted: false,
+      everConnected: false, unsentInMemory: 0, ended: false,
     };
     const handle = lifeDb(() => writeDb);
     const channel = new MessageChannel();
@@ -230,15 +284,44 @@ export async function startClient(
     // The queue's view of the replica: a lost reply rejects on this side
     // while the worker's write goes on. Not with a write failure armed, whose
     // INSERT would store nothing.
+    // A dead worker's enqueue goes to the lane unhashed, as a failed write
+    // does; one in flight at the death may also have stored its row.
+    const deadLane = <T>(batchId: BatchId, sent: Promise<T>): Promise<T> =>
+      sent.catch((error: unknown) => {
+        if (error instanceof RpcLifecycleError && error.kind === "worker-error") {
+          laneBatches.push(batchId);
+          deathLanePushes += 1;
+        }
+        throw error;
+      });
     const queueReplica: Replica = {
       ...replica,
       enqueue: (ops, batchId) => {
-        if (!loseArmed || writeArmed) return replica.enqueue(ops, batchId);
+        if (!loseArmed || writeArmed || state.workerDead) {
+          return deadLane(batchId, replica.enqueue(ops, batchId));
+        }
         loseArmed = false;
         lostReplies += 1;
+        lostReplyBatches.push(batchId);
         replica.enqueue(ops, batchId).catch(() => undefined);
         return Promise.reject(new RpcLifecycleError(
           "timeout", "proptest: replica RPC enqueue timed out"));
+      },
+    };
+    // replicaSync's view: a first applySnapshot drawn to time out rejects
+    // here while the worker applies it.
+    const syncReplica: Replica = {
+      ...replica,
+      init: () => {
+        state.startAttempted = true;
+        return replica.init();
+      },
+      applySnapshot: (snapshot, expectedPendingIds) => {
+        if (!snapshotTimeoutArmed) return replica.applySnapshot(snapshot, expectedPendingIds);
+        snapshotTimeoutArmed = false;
+        replica.applySnapshot(snapshot, expectedPendingIds).catch(() => undefined);
+        return Promise.reject(new RpcLifecycleError(
+          "timeout", "proptest: replica RPC applySnapshot timed out"));
       },
     };
     const queue = createOpQueue(queueReplica, {
@@ -258,12 +341,13 @@ export async function startClient(
       },
     });
     const replicaSync = createReplicaSync({
-      replica,
+      replica: syncReplica,
       fetchJson: doors.fetchJson,
       clientId,
       queue,
       isOffline: () => state.status === "reconnecting",
-      onState: () => undefined,
+      onState: (next) => { if (!state.ended) state.mode = next.mode; },
+      retryBaseMs,
     });
     const runtime = createClientRuntime({
       queue, replicaSync,
@@ -281,7 +365,7 @@ export async function startClient(
         deleteBatch: (id, batchId) => replica.deleteBatch(id, batchId),
       },
       onSyncEvent: (event) => { syncEvents.push(event); },
-      onReplicaState: () => undefined,
+      onReplicaState: (next) => { if (!state.ended) state.mode = next.mode; },
     });
     const legacyRepair = createLegacyRepair({
       repairSessions: async (onStable) => {
@@ -318,6 +402,11 @@ export async function startClient(
     return {
       state, queue, replica, replicaSync, runtime, reconnect,
       initialPending: Promise.resolve(0), offs, handle, idSlots,
+      kill: () => {
+        state.workerDead = true;
+        // what a Worker's error event does to the RPC client (rpc.ts)
+        toPortLike(channel.port1).onerror?.({ message: "proptest: replica worker died" });
+      },
     };
   };
 
@@ -351,6 +440,8 @@ export async function startClient(
     }
   };
 
+  if (firstStart !== "ok") transport.arm("snapshot5xx");
+  if (firstStart === "fails") transport.arm("snapshot5xx");
   let life = buildLife(transport.newLife());
   let offline = false;
 
@@ -492,6 +583,21 @@ export async function startClient(
       }
     },
     connectLanded: () => landed,
+    killWorker() {
+      if (life.state.workerDead) return;
+      const committed = transport.committed;
+      for (const id of enqueued) if (!committed.has(id)) undeliveredAtDeath.add(id);
+      life.kill();
+    },
+    workerDead: () => life.state.workerDead,
+    undeliveredAtDeath,
+    deathLanePushes: () => deathLanePushes,
+    lostReplyBatches,
+    mode: () => life.state.mode,
+    appliedVersion: () => life.replicaSync.appliedVersion(),
+    hasStarted: () => life.replicaSync.hasStarted(),
+    startAttempted: () => life.state.startAttempted,
+    canEdit: () => computeEditability(life.state.status, life.state.mode).canEdit,
     cursor() {
       const hasMeta = db.select(
         "SELECT 1 AS n FROM sqlite_master WHERE type = 'table' AND name = 'sync_client_meta'", ["n"],

@@ -163,6 +163,9 @@ export interface ReplicaSyncDeps {
    * arming the timer. Defaults to "never offline" for callers (and tests)
    * that don't track connectivity. */
   isOffline?: () => boolean;
+  /** The backoff's first delay; RETRY_BASE_MS unless a harness that cannot
+   * fake timers needs a retry to land within one example. */
+  retryBaseMs?: number;
 }
 
 const errText = (e: unknown): string =>
@@ -281,8 +284,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   // growing backoff; `reportedNonReady` avoids re-announcing "ready" on every
   // ordinary successful pull -- only a pull that follows a reported failure
   // needs to clear it.
+  const retryBase = deps.retryBaseMs ?? RETRY_BASE_MS;
   let consecutiveFailures = 0;
-  let retryDelay = RETRY_BASE_MS;
+  let retryDelay = retryBase;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let reportedNonReady = false;
   // Set by stop(): a torn-down instance must not leak a timer past unmount,
@@ -292,7 +296,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   const noteSuccess = (opts: { force?: boolean } = {}): void => {
     consecutiveFailures = 0;
     windowFailure = null;
-    retryDelay = RETRY_BASE_MS;
+    retryDelay = retryBase;
     if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
     if (reportedNonReady || opts.force) {
       reportedNonReady = false;

@@ -5,7 +5,7 @@
 //
 // Every command's run ends the same way (SyncCommand.run): a client whose
 // Offline drew a return and whose countdown this command finished comes back
-// online, the cursor watch looks at every client, and the model's
+// online, the cursor and mode watches look at every client, and the model's
 // armedWriteFails is brought up to date from the clients, since only they
 // know when a lane has drained.
 // Preconditions read the model only, and every rejection is counted (see
@@ -26,7 +26,7 @@ import type { ConnectLanding, HarnessClient } from "./harnessClient";
 import type { Transport } from "./transport";
 import { countDown, FALL_BACK, midnightCrossing, type MidnightDay, type OfflineBack,
          SPRING_FORWARD, type SyncModel } from "./model";
-import type { CursorWatch } from "./oracle";
+import type { CursorWatch, ModeWatch } from "./oracle";
 import { ExampleCancelled } from "./cancel";
 import type { ServerControl } from "./serverControl";
 import { uidOf, orderIdxOf, seqOf } from "../../test-helpers";
@@ -36,13 +36,15 @@ import { uidOf, orderIdxOf, seqOf } from "../../test-helpers";
 export type ClientPort = Pick<HarnessClient,
   "name" | "writeFailArmed" | "unsentInMemory" | "online" | "offline" | "edit" | "pull"
   | "nudge" | "failNextWrite" | "loseNextReply" | "lostReplyArmed" | "reload"
-  | "connectLanded" | "cursor">
+  | "connectLanded" | "cursor" | "killWorker" | "workerDead" | "canEdit" | "mode"
+  | "appliedVersion" | "hasStarted">
   & { readonly transport: Pick<Transport, "arm" | "fetchJson"> };
 
 export interface World<C extends ClientPort = ClientPort> {
   server: ServerControl;
   clients: Map<string, C>;
   watch: Pick<CursorWatch, "observe">;
+  modes: Pick<ModeWatch, "observe" | "afterPull">;
   /** One resolved line per command run, for the failure report. */
   transcript: string[];
   /** Counts what ran, by name (see tally). */
@@ -51,7 +53,8 @@ export interface World<C extends ClientPort = ClientPort> {
   cancelled(): boolean;
 }
 
-export type FaultKind = "dropAck" | "duplicate" | "lostPull" | "writeFails" | "lostReply";
+export type FaultKind = "dropAck" | "duplicate" | "lostPull" | "writeFails" | "lostReply"
+  | "snapshot5xx";
 export type NudgeKind = "latest" | "stale" | "duplicate" | "ahead";
 
 /** How far past the journal an "ahead" nudge points. */
@@ -73,6 +76,7 @@ export function countSkipsWith(count: (key: string) => void): void {
 
 const NOT_STARTED = "client not in this example";
 const LANE_BUSY = "write failure armed or lane unsent";
+const WORKER_DEAD = "worker dead";
 
 /** Why `client` cannot take a command that needs it, or null. The property
  * draws only the clients it starts (commandsFor), so this catches a fixed
@@ -122,6 +126,7 @@ export abstract class SyncCommand implements fc.AsyncCommand<SyncModel, World> {
       w.count(`Online after ${after}`);
     }
     w.watch.observe([...w.clients.values()]);
+    w.modes.observe([...w.clients.values()]);
     for (const [name, c] of w.clients) {
       // writeFails and lostReply stay armed until their enqueue has come
       // and the lane it pushed the ops into has drained.
@@ -140,6 +145,12 @@ export class Edit extends SyncCommand {
   }
 
   protected async act(m: SyncModel, w: World): Promise<string> {
+    const c = clientOf(w, this.client);
+    // The editor is read-only here, as SyncProvider's canEdit makes it.
+    if (!c.canEdit()) {
+      w.count(`Edit refused: read-only, mode ${c.mode()}`);
+      return `${this.toString()}: refused, read-only in mode ${c.mode()}`;
+    }
     const { ops, used } = resolveOps(this.drafts, targetPool(m),
                                      m.freshUids[this.client] ?? []);
     m.freshUids[this.client] = (m.freshUids[this.client] ?? []).slice(used.length);
@@ -155,7 +166,8 @@ export class Edit extends SyncCommand {
         w.count(op.page_title ? `Edit op move top of ${op.page_title}` : "Edit op move top untitled");
       }
     }
-    const id = await clientOf(w, this.client).edit(ops);
+    if (c.workerDead()) w.count("Edit with a dead worker");
+    const id = await c.edit(ops);
     m.good.get(this.client)?.push(id);
     return `Edit(${this.client}) ${id}: ${ops.map(showOp).join("; ")}`;
   }
@@ -167,14 +179,16 @@ export class Edit extends SyncCommand {
 
 /** A create of a uid live in every replica and on the server: the replica
  * keeps it as a replay, the server rejects it with a 400. Only on the
- * durable path: no armed write failure and nothing unsent in memory. */
+ * durable path: no armed write failure, nothing unsent in memory, and a live
+ * worker. */
 export class BadBatch extends SyncCommand {
   protected readonly kindName = "BadBatch";
   constructor(readonly client: string) { super(); }
 
   protected blocked(m: Readonly<SyncModel>): string | null {
     return notStarted(m, this.client) ??
-      (m.armedWriteFails[this.client] ? LANE_BUSY : null);
+      (m.armedWriteFails[this.client] ? LANE_BUSY : null) ??
+      (m.dead[this.client] ? WORKER_DEAD : null);
   }
 
   protected async act(m: SyncModel, w: World): Promise<string> {
@@ -227,8 +241,11 @@ export class Fault extends SyncCommand {
   protected get kindName(): string { return `Fault ${this.kind}`; }
 
   protected blocked(m: Readonly<SyncModel>): string | null {
+    const local = this.kind === "writeFails" || this.kind === "lostReply";
     return notStarted(m, this.client) ??
-      (this.kind === "writeFails" && m.armedWriteFails[this.client] ? LANE_BUSY : null);
+      (this.kind === "writeFails" && m.armedWriteFails[this.client] ? LANE_BUSY : null) ??
+      // a dead worker's enqueue never reaches the database to fail there
+      (local && m.dead[this.client] ? WORKER_DEAD : null);
   }
 
   protected act(m: SyncModel, w: World): Promise<string> {
@@ -261,10 +278,15 @@ export class Pull extends SyncCommand {
     return notStarted(m, this.client) ?? (m.online[this.client] ? null : "offline");
   }
 
-  protected async act(_m: SyncModel, w: World): Promise<string> {
+  protected async act(m: SyncModel, w: World): Promise<string> {
     const c = clientOf(w, this.client);
     w.count("Pull");
     await c.pull();
+    if (m.dead[this.client]) {
+      w.count(c.hasStarted() ? "Pull with a dead worker" : "Pull with a dead worker, never started");
+      w.modes.afterPull(c);
+      return `Pull(${this.client}) worker dead, mode ${c.mode()}`;
+    }
     return `Pull(${this.client}) cursor ${c.cursor()}`;
   }
 
@@ -314,11 +336,12 @@ export class Reload extends SyncCommand {
       (m.armedWriteFails[this.client] ? LANE_BUSY : null);
   }
 
-  protected async act(_m: SyncModel, w: World): Promise<string> {
+  protected async act(m: SyncModel, w: World): Promise<string> {
     const c = clientOf(w, this.client);
     assertNoLane(this, c);
-    w.count("Reload");
+    w.count(m.dead[this.client] ? "Reload of a dead worker" : "Reload");
     await c.reload(this.connectAt);
+    m.dead[this.client] = false;
     const landed = c.connectLanded();
     w.count(`Reload ${connectTally(this.connectAt, landed)}`);
     // An offline load ignores its timing; the report says so rather than
@@ -339,6 +362,27 @@ export function connectTally(connectAt: number | undefined,
                              landed: ConnectLanding | null): string {
   if (connectAt === undefined) return "connect untimed";
   return landed === null ? "connect timed, offline" : `connect timed, landed ${landed}`;
+}
+
+/** The client's replica worker dies (a crash, or a chunk 404 after a
+ * deploy): every later replica RPC rejects with worker-error until a
+ * Reload. */
+export class WorkerDies extends SyncCommand {
+  protected readonly kindName = "WorkerDies";
+  constructor(readonly client: string) { super(); }
+
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return notStarted(m, this.client) ?? (m.dead[this.client] ? "already dead" : null);
+  }
+
+  protected act(m: SyncModel, w: World): Promise<string> {
+    clientOf(w, this.client).killWorker();
+    m.dead[this.client] = true;
+    w.count(`WorkerDies ${m.online[this.client] ? "online" : "offline"}`);
+    return Promise.resolve(this.toString());
+  }
+
+  toString(): string { return `WorkerDies(${this.client})`; }
 }
 
 /** Every client's next pull runs rebase recovery. */
@@ -503,9 +547,9 @@ export const connectTiming: fc.Arbitrary<number | undefined> =
 /** Every command, naming only `names` (the clients the example starts), so no
  * draw is spent on a client the example lacks. Weighted as calibrated: Edit
  * 10, Pull 3, Nudge 3, Offline 3, Fault 3, Reload 2, BadBatch 1,
- * RotateGeneration 1, CrossMidnight 1, Rename 1, DeletePage 1, so a BadBatch
- * is about one command in twenty-nine. An Offline's three units buy a whole
- * offline period, its return included. */
+ * RotateGeneration 1, CrossMidnight 1, Rename 1, DeletePage 1, WorkerDies 1,
+ * so a BadBatch is about one command in thirty. An Offline's three units buy
+ * a whole offline period, its return included. */
 export function commandsFor(names: readonly string[]): fc.Arbitrary<SyncCommand>[] {
   const client = fc.constantFrom(...names);
   return [fc.oneof(
@@ -516,7 +560,7 @@ export function commandsFor(names: readonly string[]): fc.Arbitrary<SyncCommand>
     { weight: 3, arbitrary: fc.tuple(client, offlineBack)
         .map(([c, back]) => new Offline(c, back)) },
     { weight: 3, arbitrary: fc.tuple(client, fc.constantFrom<FaultKind>(
-        "dropAck", "duplicate", "lostPull", "writeFails", "lostReply"))
+        "dropAck", "duplicate", "lostPull", "writeFails", "lostReply", "snapshot5xx"))
         .map(([c, k]) => new Fault(c, k)) },
     { weight: 2, arbitrary: fc.tuple(client, connectTiming)
         .map(([c, at]) => new Reload(c, at)) },
@@ -531,5 +575,6 @@ export function commandsFor(names: readonly string[]): fc.Arbitrary<SyncCommand>
         .map(([c, [from, to]]) => new Rename(c, from, to)) },
     { weight: 1, arbitrary: fc.tuple(client, fc.nat({ max: PAGE_TITLES.length - 1 }))
         .map(([c, t]) => new DeletePage(c, t)) },
+    { weight: 1, arbitrary: client.map((c) => new WorkerDies(c)) },
   )];
 }

@@ -1,7 +1,8 @@
 // pattern: Functional Core
 // The sync property's model: which clients are online and when an offline
-// one comes back, which batch ids must land and which must be rejected, each
-// client's unused create uids, and the server clock. The expected tree is the
+// one comes back, whose replica worker has died, which batch ids must land
+// and which must be rejected, each client's unused create uids, and the
+// server clock. The expected tree is the
 // oracle's job, not the model's.
 //
 // The server clock is the harness's own (sync_server.py) and never ticks. It
@@ -29,6 +30,8 @@ export interface SyncModel {
   /** A write failure is armed, or the lane entry it caused is unsent: no
    * BadBatch, Reload or second writeFails until it clears. */
   armedWriteFails: Record<string, boolean>;
+  /** The client's replica worker died and no reload has replaced it. */
+  dead: Record<string, boolean>;
   clockMs: number;
 }
 
@@ -145,6 +148,7 @@ export function initialModel(clients: string[]): SyncModel {
     good: new Map(clients.map((c) => [c, []])),
     bad: new Set(),
     armedWriteFails: each(() => false),
+    dead: each(() => false),
     clockMs: START_MS,
   };
 }

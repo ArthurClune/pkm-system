@@ -7,7 +7,10 @@
 //   accounting        applied_batches holds exactly the expected batches,
 //                     no rejected batch, every rejected batch was reported
 //                     as poisoned, and no pending or poisoned rows remain
-//   per-client order  each client's batches landed in its enqueue order
+//   per-client order  each client's batches landed in its enqueue order,
+//                     except that a durable batch still undelivered when its
+//                     worker died may land after the lane batches enqueued
+//                     behind it (sync-recovery.md § A local write fails)
 //   desync/poison     no onDesync, and onPoison only for expected rejections
 //   delete wins       no block a deleted page held is alive, and a deleted
 //                     title exists only if a rename or a batch not stale for
@@ -25,8 +28,11 @@
 // applied list, renames, deletes and conflict headers are read before it,
 // and every other invariant runs first; afterwards the server holds the
 // replay's state.
-// CursorWatch is the eighth check, run after every command rather than here.
+// CursorWatch is the eighth check, run after every command rather than here,
+// and ModeWatch the ninth, run after every command and after each pull of a
+// client whose worker died.
 import type { BatchId, SyncSeq } from "../../api/brands";
+import { computeEditability } from "../../sync/syncState";
 import { conflictNoise } from "./conflictNoise";
 import { deleteWins, replaySeenSeq, withSeenSeq } from "./deleteWins";
 import type { HarnessClient } from "./harnessClient";
@@ -118,18 +124,32 @@ async function accounting(clients: HarnessClient[], applied: Applied,
   return out;
 }
 
+type OrderClient = Pick<HarnessClient,
+  "name" | "laneBatches" | "lostReplyBatches" | "undeliveredAtDeath">;
+
 /** Only the relative order of the batches that did land: a missing batch is
- * accounting's finding. */
-function perClientOrder(applied: Applied, exp: Expectation): Findings {
+ * accounting's finding. Once a worker dies the drain delivers only the lane,
+ * and the durable rows it left wait for the next life, so a durable batch
+ * undelivered at a death may land after a later lane batch. */
+function perClientOrder(clients: readonly OrderClient[], applied: Applied,
+                        exp: Expectation): Findings {
   const landed = applied.map((r) => r.batch_id);
   const landedSet = new Set(landed);
   return [...exp.good].flatMap(([name, ids]) => {
+    const c = clients.find((x) => x.name === name);
+    const lane = new Set([...c?.laneBatches ?? [], ...c?.lostReplyBatches ?? []]);
+    const deferred = (id: BatchId): boolean =>
+      (c?.undeliveredAtDeath.has(id) ?? false) && !lane.has(id);
     const mine = new Set(ids);
     const actual = landed.filter((id) => mine.has(id));
     const wanted = ids.filter((id) => landedSet.has(id));
-    return actual.join() === wanted.join()
-      ? []
-      : [`client ${name} enqueued ${list(wanted)} but they landed as ${list(actual)}`];
+    const rank = new Map(wanted.map((id, i) => [id, i]));
+    const inverted = actual.some((later, j) => actual.slice(j + 1).some((earlier) =>
+      (rank.get(earlier) ?? 0) < (rank.get(later) ?? 0) &&
+      !(deferred(earlier) && lane.has(later))));
+    return inverted
+      ? [`client ${name} enqueued ${list(wanted)} but they landed as ${list(actual)}`]
+      : [];
   });
 }
 
@@ -234,7 +254,7 @@ export async function checkQuiescent(clients: HarnessClient[], server: ServerCon
   const results: [Invariant, Findings][] = [
     ["convergence", await evaluate(() => convergence(clients, fromSnapshot(faulted)))],
     ["accounting", await evaluate(() => accounting(clients, applied, exp))],
-    ["per-client order", await evaluate(() => perClientOrder(applied, exp))],
+    ["per-client order", await evaluate(() => perClientOrder(clients, applied, exp))],
     ["desync/poison", await evaluate(() => desyncPoison(clients, exp))],
     ["delete wins", await evaluate(() =>
       deleteWins({ applied, committed, renames, deletes, snapshot: faulted }))],
@@ -267,6 +287,39 @@ export class CursorWatch {
         throw new Error(`cursor monotonic: ${c.name} went from ${before} to ${now}`);
       }
       if (before === undefined || now > before) this.highest.set(c.name, now);
+    }
+  }
+}
+
+type ModeClient = Pick<HarnessClient,
+  "name" | "mode" | "workerDead" | "appliedVersion" | "hasStarted">;
+
+/** Replica mode (sync-recovery.md § Replica mode). A live worker is never
+ * taken for dead, and once a started client's worker has died, one pull is
+ * enough to make the session online-only: mode no-replica, no answer to
+ * "what moved" for a reconnect to trust, and no editing while offline. Run
+ * after every command (observe) and after each forced pull of a client
+ * whose worker died (afterPull). */
+export class ModeWatch {
+  observe(clients: readonly ModeClient[]): void {
+    for (const c of clients) {
+      if (!c.workerDead() && c.mode() === "no-replica") {
+        throw new Error(`replica mode: ${c.name} reports no-replica with a live worker`);
+      }
+    }
+  }
+
+  afterPull(c: ModeClient): void {
+    if (!c.workerDead() || !c.hasStarted()) return;
+    const problems = [
+      ...(c.mode() === "no-replica" ? [] : [`mode is ${c.mode()}`]),
+      ...(c.appliedVersion() === null ? [] : [`appliedVersion is ${c.appliedVersion()}`]),
+      ...(computeEditability("reconnecting", c.mode()).canEdit
+        ? ["it could still edit offline"] : []),
+    ];
+    if (problems.length > 0) {
+      throw new Error(`replica mode: ${c.name}'s worker died and a pull has run, ` +
+                      `but ${problems.join(", ")}`);
     }
   }
 }

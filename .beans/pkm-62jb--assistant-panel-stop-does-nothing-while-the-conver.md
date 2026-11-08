@@ -1,13 +1,13 @@
 ---
 # pkm-62jb
 title: 'Assistant panel: Stop does nothing while the conversation is being created (make the turn an explicit machine)'
-status: todo
+status: in-progress
 type: bug
 priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:46Z
-updated_at: 2026-11-07T18:42:46Z
+updated_at: 2026-11-08T14:25:48Z
 parent: pkm-zk8b
 ---
 
@@ -51,8 +51,8 @@ The refs are `runStatus`, `abortController`, `stopRequested`, `turnGen`,
   while the conversation is `none` and the user has not touched the
   picker.
 
-- [ ] Red tests for both Stop windows (during create, during the 404 re-create), F9 and F10
-- [ ] Reducer plus shell; the hook only dispatches events and runs effects
+- [x] Red tests for both Stop windows (during create, during the 404 re-create), F9 and F10
+- [x] Reducer plus shell; the hook only dispatches events and runs effects
 - [ ] frontend.md (assistant section): the machine and why stop is valid in every busy phase
 
 ## Property testing (required)

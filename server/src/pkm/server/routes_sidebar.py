@@ -19,7 +19,7 @@ from pkm.refs import (describe_title_length, is_blank_title,
                       title_length_over, title_syntax_reason)
 from pkm.server import notify
 from pkm.server.auth import require_auth
-from pkm.server.db import get_db
+from pkm.server.db import get_db, write_txn
 from pkm.server.store import insert_sidebar_entry
 from pkm.server.sync_meta import read_title
 
@@ -59,20 +59,21 @@ def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
         raise HTTPException(
             status_code=422,
             detail=f"unsupported page-title syntax: {canonical_title!r}")
-    db.begin_immediate()
-    existing = db.select(
-        "SELECT title, order_idx AS sidebar_order_idx FROM sidebar_entries")
-    if any(r["title"] == canonical_title for r in existing):
-        db.rollback()
-        raise HTTPException(status_code=409, detail="entry already exists")
-    order_idx = next_order_idx([r["sidebar_order_idx"] for r in existing])
-    try:
-        entry_id = insert_sidebar_entry(db, canonical_title, order_idx)
-    except sqlite3.IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=409, detail="entry already exists") from None
-    notify.commit_and_nudge_threadpool(request, db)
+    with write_txn(db):
+        existing = db.select(
+            "SELECT title, order_idx AS sidebar_order_idx"
+            " FROM sidebar_entries")
+        if any(r["title"] == canonical_title for r in existing):
+            raise HTTPException(status_code=409,
+                                detail="entry already exists")
+        order_idx = next_order_idx(
+            [r["sidebar_order_idx"] for r in existing])
+        try:
+            entry_id = insert_sidebar_entry(db, canonical_title, order_idx)
+        except sqlite3.IntegrityError:
+            raise HTTPException(
+                status_code=409, detail="entry already exists") from None
+    notify.nudge_threadpool(request, db)
     return SidebarNavEntry(id=entry_id, title=canonical_title)
 
 

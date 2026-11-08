@@ -414,15 +414,28 @@ The routes below take `BEGIN IMMEDIATE` before their first read, so no
 concurrent commit lands between that read and the write it justifies. A new
 route whose decision rests on what it reads joins them.
 
-| Route | Lock taken before | Busy lock |
-|---|---|---|
-| `POST /api/ops` | the dedupe read and every op's context read; the text and title judges run before it, in the threadpool | 503 + `Retry-After` |
-| `POST /api/page/{title}/rename` | the snapshot of referencing blocks, so no batch commits an unrewritten `[[Old]]`; a title race cannot reach the `UPDATE` | 503 + `Retry-After` |
-| `DELETE /api/page/{title}` | the snapshot of referencing blocks | 503 + `Retry-After` |
-| `DELETE /api/assets/{sha256}` | the strip's read of each referencing block, or with `if_unreferenced=true` the reference check | 503 + `Retry-After` |
-| `POST /api/journal/cleanup` | the emptiness and link checks, so a block created on the day cannot go with the page | 503 + `Retry-After` |
-| `POST /api/sidebar` | the uniqueness check and `max(order_idx) + 1`, so a same-title race is a 409 | uncaught: 500 |
-| `POST /api/migrations/title-canonicalization` | the re-inventory | uncaught: 500 |
+**Every one takes the lock through `pkm.server.db.write_txn`.** A lock the
+busy timeout could not take is a 503 with `Retry-After`. The helper rolls
+back on any raise and commits on a clean exit, a `return` included. The nudge follows the `with` block
+([Post-commit nudges](#post-commit-nudges)). `test_write_txn.py` scans
+`server/src` and fails on a `begin_immediate` call outside the helper.
+
+| Route | Lock taken before |
+|---|---|
+| `POST /api/ops` | the dedupe read and every op's context read; the text and title judges run before it, in the threadpool |
+| `POST /api/page/{title}/rename` | the snapshot of referencing blocks, so no batch commits an unrewritten `[[Old]]`; a title race cannot reach the `UPDATE` |
+| `DELETE /api/page/{title}` | the snapshot of referencing blocks |
+| `DELETE /api/assets/{sha256}` | the strip's read of each referencing block, or with `if_unreferenced=true` the reference check |
+| `POST /api/journal/cleanup` | the emptiness and link checks, so a block created on the day cannot go with the page |
+| `POST /api/sidebar` | the uniqueness check and `max(order_idx) + 1`, so a same-title race is a 409 |
+| `POST /api/migrations/title-canonicalization` | the re-inventory |
+
+A lock holder must never await the event loop before its commit. Another
+request on the loop would wait in `BEGIN IMMEDIATE` for the busy timeout,
+blocking the loop, while the holder cannot resume to commit; every write
+would stall and then 503. The same scan fails on an `await` inside a
+`with write_txn` body, and on a `commit` or `rollback` there, which the
+helper owns.
 
 `apply_batch` itself runs on the event loop and holds the lock until the
 commit. Its work is a constant, plus work linear in the request, which
@@ -893,8 +906,10 @@ that may not advance `changes.seq` adds `force:true` and the new
 `generation`, which makes a client pull at its own cursor without advancing
 it. `POST /api/ops` also echoes the applied ops.
 
-Sync-def routes call `notify.commit_and_nudge_threadpool`; async routes call
-`db.commit()`, then `await nudge(request, db)`. `delete_asset` nudges because
+A route under [`write_txn`](#the-write-lock) nudges after its `with` block:
+`notify.nudge_threadpool` from a sync-def route, `await nudge(request, db)`
+from `post_ops`. Other sync-def routes call
+`notify.commit_and_nudge_threadpool`. `delete_asset` nudges because
 it rewrites blocks; `cleanup_journal` only when it deleted something. No type
 or test discovers a new route: `test_journal_advancing_contract.py` asserts
 the nudge for each route on its hand-kept list, so a new journal-advancing

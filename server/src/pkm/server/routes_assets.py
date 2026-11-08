@@ -6,7 +6,6 @@ import hashlib
 import logging
 import os
 import shutil
-import sqlite3
 import tempfile
 import time
 import uuid
@@ -32,7 +31,7 @@ from pkm.filenames import safe_filename
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
-from pkm.server.db import get_config, get_db
+from pkm.server.db import get_config, get_db, write_txn
 from pkm.server.fts import phrase_query
 from pkm.server.mime_sniff import resolve_stored_mime, sniff_mime
 from pkm.server.store import reindex_refs_for_text
@@ -235,14 +234,7 @@ def delete_asset(request: Request, sha256: Sha256Hex,
     # The write lock precedes every read: no batch can commit between the
     # strip's read of a block and its rewrite, nor a new reference slip in
     # between the unreferenced check and the delete.
-    try:
-        db.begin_immediate()
-    except sqlite3.OperationalError as exc:
-        if "locked" not in str(exc):
-            raise
-        raise HTTPException(status_code=503, headers={"Retry-After": "1"},
-                            detail="database busy, retry") from exc
-    try:
+    with write_txn(db):
         row = db.select_one("SELECT sha256 FROM assets WHERE sha256 = ?",
                             (sha,))
         if row is None:
@@ -254,10 +246,6 @@ def delete_asset(request: Request, sha256: Sha256Hex,
         else:
             refs_removed = 0
         db.execute("DELETE FROM assets WHERE sha256 = ?", (sha,))
-    except BaseException:
-        db.rollback()
-        raise
-    db.commit()
     path = config.assets_dir / sha[:2] / sha
     try:
         path.unlink(missing_ok=True)

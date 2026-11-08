@@ -2,7 +2,6 @@
 """POST /api/ops — the only write path. One transaction per batch."""
 from __future__ import annotations
 
-import sqlite3
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -14,7 +13,7 @@ from pkm.database import Db
 from pkm.server import notify
 from pkm.server.notify import OpsFrame
 from pkm.server.auth import require_auth
-from pkm.server.db import get_db
+from pkm.server.db import get_db, write_txn
 from pkm.server.ops_apply import apply_batch, expected_now
 from pkm.server.ops_core import OpError, judge_batch
 from pkm.server.ops_expect import unmet_expectation
@@ -26,8 +25,7 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 def _stored_ack(db: Db, batch: OpBatch) -> OpsAck | None:
     """The ack stored for `batch.batch_id`, or None when none is. A stored
-    batch replays its ack verbatim; one stored with other ops is a 409.
-    The caller rolls back whatever transaction it holds first."""
+    batch replays its ack verbatim; one stored with other ops is a 409."""
     row = db.select_one(
         "SELECT request_hash, response FROM applied_batches"
         " WHERE batch_id = ?", (batch.batch_id,))
@@ -85,55 +83,42 @@ async def post_ops(request: Request,
         raise HTTPException(status_code=400,
                             detail={"index": e.index, "reason": e.reason})
     now = int(time.time() * 1000)
-    try:
-        db.begin_immediate()
-    except sqlite3.OperationalError as exc:
-        if "locked" not in str(exc):
-            raise
-        raise HTTPException(status_code=503, headers={"Retry-After": "1"},
-                            detail="database busy, retry") from exc
     replay_hash = batch_replay_hash(batch)
-    try:
+    with write_txn(db):
         stored = _stored_ack(db, batch)
-    except HTTPException:
-        db.rollback()
-        raise
-    if stored is not None:
-        db.rollback()
-        return stored
-    if batch.expect:
-        reason = unmet_expectation(batch.expect,
-                                   expected_now(db, batch.expect))
-        if reason is not None:
-            db.rollback()
-            raise HTTPException(status_code=412,
-                                detail={"index": None, "reason": reason})
-    try:
-        result = apply_batch(db, judged, now)
-    except OpError as e:
-        db.rollback()
-        raise HTTPException(status_code=400,
-                            detail={"index": e.index, "reason": e.reason})
-    # Read inside the batch's own write transaction, so this is exactly the
-    # journal max including the batch's rows. A replica compares it with a
-    # sync window's latest_seq: a window whose latest_seq has reached it
-    # already carries this batch. Acks stored before this field
-    # existed replay without it; clients treat a missing seq as unknown.
-    seq = latest_seq(db)
-    # `applied` counts every op processed, skipped ones included; `skipped`
-    # lists every op whose target no longer exists (ops_core.skip_report),
-    # and is empty for a clean batch.
-    response = OpsAck(ok=True, ts=now, applied=len(batch.ops), seq=seq,
-                      skipped=result.skipped)
-    # No IntegrityError branch here: BEGIN IMMEDIATE has been held since
-    # before the dedupe SELECT above, so a second submission of this same
-    # batch_id cannot reach this INSERT concurrently -- it blocks on the
-    # write lock this transaction holds, and finds the row through the
-    # ordinary dedupe SELECT once this transaction commits and releases it.
-    db.execute(
-        "INSERT INTO applied_batches VALUES (?,?,?,?)",
-        (batch.batch_id, replay_hash, response.model_dump_json(), now))
-    db.commit()
+        if stored is not None:
+            return stored
+        if batch.expect:
+            reason = unmet_expectation(batch.expect,
+                                       expected_now(db, batch.expect))
+            if reason is not None:
+                raise HTTPException(status_code=412,
+                                    detail={"index": None, "reason": reason})
+        try:
+            result = apply_batch(db, judged, now)
+        except OpError as e:
+            raise HTTPException(status_code=400,
+                                detail={"index": e.index, "reason": e.reason})
+        # Read inside the batch's own write transaction, so this is exactly
+        # the journal max including the batch's rows. A replica compares it
+        # with a sync window's latest_seq: a window whose latest_seq has
+        # reached it already carries this batch. Acks stored before this
+        # field existed replay without it; clients treat a missing seq as
+        # unknown.
+        seq = latest_seq(db)
+        # `applied` counts every op processed, skipped ones included;
+        # `skipped` lists every op whose target no longer exists
+        # (ops_core.skip_report), and is empty for a clean batch.
+        response = OpsAck(ok=True, ts=now, applied=len(batch.ops), seq=seq,
+                          skipped=result.skipped)
+        # No IntegrityError branch here: the write lock has been held since
+        # before the dedupe SELECT above, so a second submission of this
+        # same batch_id cannot reach this INSERT concurrently -- it blocks
+        # on the lock this transaction holds, and finds the row through the
+        # ordinary dedupe SELECT once this transaction commits.
+        db.execute(
+            "INSERT INTO applied_batches VALUES (?,?,?,?)",
+            (batch.batch_id, replay_hash, response.model_dump_json(), now))
     await request.app.state.hub.broadcast(OpsFrame(
         client_id=batch.client_id, ts=now, ops=result.broadcast_ops))
     await notify.nudge(request, db)

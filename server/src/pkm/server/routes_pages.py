@@ -2,7 +2,6 @@
 """Page read routes: page tree, block-ref resolution (backlinks: Task 5)."""
 from __future__ import annotations
 
-import sqlite3
 import time
 from collections.abc import Sequence
 from datetime import date
@@ -31,7 +30,7 @@ from pkm.server.auth import require_auth
 from pkm.server.grouping import group_backlinks, group_by_page
 from pkm.server.daily import (is_page_empty, past_week_dates,
                               select_journal_days)
-from pkm.server.db import get_db
+from pkm.server.db import get_db, write_txn
 from pkm.server.fts import phrase_query
 from pkm.server.store import (BlankTitleError, DeleteBlockedError,
                               ForbiddenTitleError, delete_page_rows,
@@ -355,31 +354,22 @@ def delete_page(request: Request, title: RawTitle,
     `[[` past the cap; nothing is changed."""
     # Same ordering rule as rename: the write lock precedes the snapshot of
     # referencing blocks, so no batch can commit between snapshot and rewrite.
-    try:
-        db.begin_immediate()
-    except sqlite3.OperationalError as exc:
-        if "locked" not in str(exc):
-            raise
-        raise HTTPException(status_code=503, headers={"Retry-After": "1"},
-                            detail="database busy, retry") from exc
-    try:
+    with write_txn(db):
         canonical_title = read_title(db, title)
         page = fetch_page(db, canonical_title)
         if page is None:
             raise HTTPException(status_code=404, detail="page not found")
-        delete_page_unlinking(db, page["page_id"], canonical_title, int(time.time() * 1000))
-    except DeleteBlockedError as exc:
-        db.rollback()
-        raise HTTPException(status_code=409, detail={
-            "message": "page is still referenced in ways a delete cannot"
-                       " rewrite",
-            "blockers": [b.model_dump()
-                         for b in _blocker_models(exc.blockers)],
-        }) from None
-    except BaseException:
-        db.rollback()
-        raise
-    notify.commit_and_nudge_threadpool(request, db)
+        try:
+            delete_page_unlinking(db, page["page_id"], canonical_title,
+                                  int(time.time() * 1000))
+        except DeleteBlockedError as exc:
+            raise HTTPException(status_code=409, detail={
+                "message": "page is still referenced in ways a delete cannot"
+                           " rewrite",
+                "blockers": [b.model_dump()
+                             for b in _blocker_models(exc.blockers)],
+            }) from None
+    notify.nudge_threadpool(request, db)
     return OkAck(ok=True)
 
 
@@ -401,14 +391,7 @@ def rename_page(request: Request, title: RawTitle, body: RenamePageRequest,
     # cannot commit between that snapshot and the rewrite and escape it:
     # it is ordered wholly before or wholly after the rename.
     result: Literal["renamed", "merged"]
-    try:
-        db.begin_immediate()
-    except sqlite3.OperationalError as exc:
-        if "locked" not in str(exc):
-            raise
-        raise HTTPException(status_code=503, headers={"Retry-After": "1"},
-                            detail="database busy, retry") from exc
-    try:
+    with write_txn(db):
         canonical = title_reader(db)
         canonical_title = canonical(title)
         # normalized here as well as in get_or_create_page: the merge branch
@@ -437,29 +420,26 @@ def rename_page(request: Request, title: RawTitle, body: RenamePageRequest,
             raise HTTPException(status_code=400,
                                 detail="daily notes cannot be renamed")
         now_ms = int(time.time() * 1000)
-        # No IntegrityError branch: with the write lock held no other writer
-        # can create new_title after this check, and the helpers retitle
-        # sidebar entries without tripping UNIQUE(title).
+        # No IntegrityError branch: with the write lock held no other
+        # writer can create new_title after this check, and the helpers
+        # retitle sidebar entries without tripping UNIQUE(title).
         target = fetch_page(db, new_title)
-        if target is None:
-            rename_page_rows(db, page["page_id"], canonical_title, new_title, now_ms,
-                             canonical)
-            result = "renamed"
-        elif not body.allow_merge:
+        if target is not None and not body.allow_merge:
             raise HTTPException(status_code=409,
                                 detail=f"page {new_title!r} already exists")
-        else:
-            merge_page_rows(db, page["page_id"], target["page_id"], canonical_title, new_title,
-                            now_ms, canonical)
-            result = "merged"
-    except RewriteTextLimitError as exc:
-        db.rollback()
-        raise HTTPException(status_code=422,
-                            detail=f"rename refused: {exc}") from None
-    except BaseException:
-        db.rollback()
-        raise
-    notify.commit_and_nudge_threadpool(request, db)
+        try:
+            if target is None:
+                rename_page_rows(db, page["page_id"], canonical_title,
+                                 new_title, now_ms, canonical)
+                result = "renamed"
+            else:
+                merge_page_rows(db, page["page_id"], target["page_id"],
+                                canonical_title, new_title, now_ms, canonical)
+                result = "merged"
+        except RewriteTextLimitError as exc:
+            raise HTTPException(status_code=422,
+                                detail=f"rename refused: {exc}") from None
+    notify.nudge_threadpool(request, db)
     return RenamePageResponse(result=result, title=new_title)
 
 
@@ -638,15 +618,8 @@ def cleanup_journal(request: Request,
     block on another page."""
     # The write lock precedes the emptiness and link checks, so no block
     # created on a day between its check and its delete goes with the page.
-    try:
-        db.begin_immediate()
-    except sqlite3.OperationalError as exc:
-        if "locked" not in str(exc):
-            raise
-        raise HTTPException(status_code=503, headers={"Retry-After": "1"},
-                            detail="database busy, retry") from exc
     deleted: list[CanonicalTitle] = []
-    try:
+    with write_txn(db):
         for d in past_week_dates(date.today()):
             title = _daily_title(d)
             page = fetch_page(db, title)
@@ -661,10 +634,6 @@ def cleanup_journal(request: Request,
                 continue
             delete_page_rows(db, page["page_id"], title)
             deleted.append(title)
-    except BaseException:
-        db.rollback()
-        raise
-    db.commit()
     # Guarded (unlike most routes' unconditional nudge): this route is
     # called on every journal load (docstring above), so a no-op run is the
     # common case, and only a non-empty `deleted` actually advanced

@@ -311,6 +311,26 @@ def test_title_migration_apply_returns_409_for_stale_digest(client, seeded_confi
     assert r.json() == {"detail": "title migration audit digest is stale"}
 
 
+def test_title_migration_apply_answers_503_while_the_write_lock_is_held(
+        client, seeded_config, monkeypatch):
+    _seed_migration_graph(seeded_config.db_path)
+    digest = client.get("/api/migrations/title-canonicalization").json()[
+        "digest"]
+    monkeypatch.setattr("pkm.server.db.BUSY_TIMEOUT_MS", 50)
+    holder = connect(seeded_config.db_path)
+    holder.begin_immediate()
+    try:
+        r = client.post("/api/migrations/title-canonicalization",
+                        json={"audit_digest": digest})
+    finally:
+        holder.rollback()
+        holder.close()
+    assert r.status_code == 503
+    assert r.headers["Retry-After"] == "1"
+    assert client.get("/api/migrations/title-canonicalization").json()[
+        "digest"] == digest
+
+
 def test_title_migration_apply_returns_409_for_blocked_migration(client, seeded_config):
     _seed_migration_graph(seeded_config.db_path)
     con = connect(seeded_config.db_path)

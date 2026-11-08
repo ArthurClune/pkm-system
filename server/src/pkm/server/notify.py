@@ -91,8 +91,7 @@ def commit_and_nudge_threadpool(request: Request, db: Db) -> None:
     """Pairs commit + nudge for sync-def routes, whose writes touch a
     changes-journaled table (blocks/pages/sidebar_entries, schema.py
     SERVER_DDL) -- a bare `db.commit()` silently drops the nudge that
-    should follow it. Async routes have no equivalent helper (no call
-    sites need one): call `db.commit()` then `await nudge(request, db)`
-    directly."""
+    should follow it. A route under `db.write_txn`, which commits, calls
+    `nudge_threadpool` (or, if async, `await nudge`) after its `with`."""
     db.commit()
     nudge_threadpool(request, db)

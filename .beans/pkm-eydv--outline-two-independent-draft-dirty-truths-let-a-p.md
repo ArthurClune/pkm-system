@@ -1,13 +1,13 @@
 ---
 # pkm-eydv
 title: 'Outline: two independent ''draft dirty'' truths let a programmatic change be overwritten by the next keystroke'
-status: in-progress
+status: completed
 type: bug
 priority: normal
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:45Z
-updated_at: 2026-11-08T14:20:56Z
+updated_at: 2026-11-08T14:39:06Z
 parent: pkm-zk8b
 ---
 
@@ -30,9 +30,9 @@ pkm-22ay declined unifying them in 2026-07 because the pending state was not
 reachable from BlockInput; `handlers.pendingDraft(uid)` is now passed in.
 
 ## Fix
-- [ ] Red tests: the goodlinks retype sequence; type-then-erase then remote edit
-- [ ] Derive "dirty" from `handlers.pendingDraft(uid)`; delete `dirtyRef`
-- [ ] frontend-editor.md: the rule naming who owns "dirty"
+- [x] Red tests: the goodlinks retype sequence; type-then-erase then remote edit
+- [x] Derive "dirty" from `handlers.pendingDraft(uid)`; delete `dirtyRef`
+- [x] frontend-editor.md: the rule naming who owns "dirty"
 
 ## Property testing (required)
 
@@ -62,3 +62,11 @@ Sketch (fast-check, `web/src/props/outline`):
   that draft began; a conflict arises only when a remoteEdit or
   queuedReplayLands happened while a draft was pending.
 - Teeth: restore the old `dirtyRef` and confirm the goodlinks shape fails.
+
+## Summary of Changes
+
+- `useBlockDraft` no longer keeps `dirtyRef`: dirty is `handlers.pendingDraft(uid) !== null` (the `resume` option became `pendingDraft`).
+- New port method `OutlineHandlers.subscribeDraftEnd`: `useOutline` notifies when the pending draft ends (flush, sent or not, or drop), and the textarea re-runs adoption. A flush that sends nothing leaves the tree's text unchanged, so without it a remote edit that landed under a typed-then-erased draft was never shown.
+- Red tests: `EditableBlockTree.draftOwner.test.tsx` (goodlinks retype; type-then-erase with the remote edit after and before the flush). `EditablePage.test.tsx`'s test that pinned the old typed-back-to-base behaviour now pins the new one.
+- Property: `web/src/props/outline/draft.prop.ts` (real editor in jsdom, model `draftModel.ts`), teeth `draftTeeth.prop.ts` (the textarea's own dirty flag back; must be named `adopt`).
+- Docs: frontend-editor.md § Drafts and commit points states the owner; troubleshooting row; checks.md row.

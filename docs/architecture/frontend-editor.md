@@ -228,6 +228,13 @@ never the tree.** A `PendingDraft` (`outline/outlineState.ts`) is
 adopts it, and a dirty textarea never adopts it. Hashing `base` lets the server keep
 both texts when another device edited from the same base.
 
+The pending draft is the only record of a dirty textarea. `useBlockDraft`
+asks `handlers.pendingDraft(uid)` and keeps no flag of its own, so a draft a
+command flushed cannot leave the textarea dirty over the text the command
+spliced in. It adopts the tree's text whenever no draft is pending.
+`handlers.subscribeDraftEnd` tells it when one ends, because a flush that
+sends nothing leaves the tree's text unchanged and gives it no other cue.
+
 | When | Rule |
 |---|---|
 | A clean draft's first edit | `onDraftStart` reports the shown text, which `captureDraft` keeps as `base` |
@@ -248,7 +255,10 @@ both texts when another device edited from the same base.
 A held draft has no armed timer, and React delivers no blur for a node it
 removes. So `useOutline` flushes on unmount, for navigation the editor never
 sees (the `Ctrl-Shift-D` chord, back/forward); its callback sits in a ref so
-the effect runs only then. `ensureRefPageThenOpen` (`Ctrl-O` over a `[[ref]]`)
+the effect runs only then. The flush is a layout cleanup declared before the
+session effect's, which releases the handle and editor lease. React runs
+them in that order, so another surface of the page (a sidebar panel) takes
+the lease already showing the last edit. `ensureRefPageThenOpen` (`Ctrl-O` over a `[[ref]]`)
 flushes before `POST /api/pages`. Tab hide and reload are covered by the
 `visibilitychange` flush, a refused draft excepted (below).
 

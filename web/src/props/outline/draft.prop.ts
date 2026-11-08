@@ -23,9 +23,9 @@ import { draftExampleArb, type DraftExample } from "./draftModel";
 captureFaultWarnings("outline draft");
 
 /** Examples per gate run, sized so this file takes about 16 seconds: run
- * alone, clean runs measured about 190 examples a second, each rendering the
+ * alone, clean runs measured about 215 examples a second, each rendering the
  * editor afresh. */
-export const NUM_RUNS = 3_000;
+export const NUM_RUNS = 3_500;
 /** The whole property, shrinking included; see outline.prop.ts for how a cut
  * off reads. */
 const PROPERTY_LIMIT_MS = 45_000;

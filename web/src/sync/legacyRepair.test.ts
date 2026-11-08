@@ -39,10 +39,13 @@ function setup(overrides: Partial<LegacyRepairDeps> = {}) {
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+/** The desync of a lane rejection, whose barrier the repair owes back. */
+const LANE = { lane: true } as const;
+
 describe("run", () => {
   test("a successful repair resumes delivery", async () => {
     const h = setup();
-    const run = h.repair.run(new Error("bad op"));
+    const run = h.repair.run(new Error("bad op"), LANE);
     h.attempts[0].resolve();
     await run;
     expect(h.state.resumes).toBe(1);
@@ -55,7 +58,7 @@ describe("run", () => {
 
   test("a failed repair reports the failure and does not resume", async () => {
     const h = setup();
-    const run = h.repair.run(new Error("bad op"));
+    const run = h.repair.run(new Error("bad op"), LANE);
     h.attempts[0].reject(new TypeError("fetch failed"));
     await run;
     expect(h.state.resumes).toBe(0);
@@ -67,8 +70,8 @@ describe("run", () => {
 
   test("a run while one is in flight joins it and records the newer error", async () => {
     const h = setup();
-    const first = h.repair.run(new Error("first"));
-    const second = h.repair.run(new Error("second"));
+    const first = h.repair.run(new Error("first"), LANE);
+    const second = h.repair.run(new Error("second"), LANE);
     expect(second).toBe(first);
     h.attempts[0].resolve();
     await second;
@@ -79,7 +82,7 @@ describe("run", () => {
 
   test("a repair that succeeds after unmount neither reports nor resumes", async () => {
     const h = setup();
-    const run = h.repair.run(new Error("bad op"));
+    const run = h.repair.run(new Error("bad op"), LANE);
     h.state.mounted = false;
     h.attempts[0].resolve();
     await run;
@@ -87,9 +90,73 @@ describe("run", () => {
     expect(h.events).toEqual([{ type: "legacy-repair-started", error: "bad op" }]);
   });
 
+  test("a repair for a local refusal reports but resumes nothing", async () => {
+    const h = setup();
+    const run = h.repair.run(new Error("over limit"), { lane: false });
+    h.attempts[0].resolve();
+    await run;
+    expect(h.state.resumes).toBe(0);
+    expect(h.events.map((e) => e.type)).toEqual([
+      "legacy-repair-started", "legacy-repair-succeeded",
+    ]);
+  });
+
+  test("a lane rejection joining a local refusal's run is resumed by it",
+       async () => {
+    const h = setup();
+    const run = h.repair.run(new Error("over limit"), { lane: false });
+    void h.repair.run(new Error("bad op"), LANE);
+    h.attempts[0].resolve();
+    await run;
+    expect(h.attempts).toHaveLength(1);
+    expect(h.state.resumes).toBe(1);
+  });
+
+  test("a rejection arriving after a run's onStable gets a run of its own",
+       async () => {
+    const reading = deferred();
+    const tail = deferred();
+    const state = { resumes: 0, attempts: 0 };
+    const repair = createLegacyRepair({
+      repairSessions: async (onStable) => {
+        state.attempts += 1;
+        if (state.attempts === 1) {
+          await reading.promise;
+          onStable();
+          await tail.promise;
+        } else {
+          onStable();
+        }
+      },
+      onEvent: () => undefined,
+      resume: () => { state.resumes += 1; },
+      isMounted: () => true,
+    });
+    const first = repair.run(new Error("over limit"), { lane: false });
+    reading.resolve();
+    await flush();
+    const second = repair.run(new Error("bad op"), LANE);
+    tail.resolve();
+    await first;
+    await second;
+    expect(state.attempts).toBe(2);
+    expect(state.resumes).toBe(1);
+  });
+
+  test("a lane rejection whose run failed is resumed by the retry", async () => {
+    const h = setup();
+    const run = h.repair.run(new Error("bad op"), LANE);
+    h.attempts[0].reject(new TypeError("fetch failed"));
+    await run;
+    const retry = h.repair.run(h.repair.rejected());
+    h.attempts[1].resolve();
+    await retry;
+    expect(h.state.resumes).toBe(1);
+  });
+
   test("clear forgets the rejected error", async () => {
     const h = setup();
-    const run = h.repair.run(new Error("bad op"));
+    const run = h.repair.run(new Error("bad op"), LANE);
     h.attempts[0].resolve();
     await run;
     h.repair.clear();
@@ -100,7 +167,7 @@ describe("run", () => {
 describe("retryFailed", () => {
   test("reruns a failed repair with the recorded error", async () => {
     const h = setup();
-    const run = h.repair.run(new Error("bad op"));
+    const run = h.repair.run(new Error("bad op"), LANE);
     h.attempts[0].reject(new TypeError("fetch failed"));
     await run;
 
@@ -126,7 +193,7 @@ describe("retryFailed", () => {
 
   test("does not rerun a repair that succeeded", async () => {
     const h = setup();
-    const run = h.repair.run(new Error("bad op"));
+    const run = h.repair.run(new Error("bad op"), LANE);
     h.attempts[0].resolve();
     await run;
     await h.repair.retryFailed();
@@ -136,7 +203,7 @@ describe("retryFailed", () => {
 
   test("a failure that a later run repaired is not rerun", async () => {
     const h = setup();
-    const run = h.repair.run(new Error("bad op"));
+    const run = h.repair.run(new Error("bad op"), LANE);
     h.attempts[0].reject(new TypeError("fetch failed"));
     await run;
     // The banner's Retry gets there first.
@@ -150,7 +217,7 @@ describe("retryFailed", () => {
 
   test("waits for an in-flight repair and reruns it once if it fails", async () => {
     const h = setup();
-    void h.repair.run(new Error("bad op"));
+    void h.repair.run(new Error("bad op"), LANE);
     const retry = h.repair.retryFailed();
     await flush();
     expect(h.attempts).toHaveLength(1);
@@ -164,7 +231,7 @@ describe("retryFailed", () => {
 
   test("waits for an in-flight repair and does not rerun it if it succeeds", async () => {
     const h = setup();
-    void h.repair.run(new Error("bad op"));
+    void h.repair.run(new Error("bad op"), LANE);
     const retry = h.repair.retryFailed();
     h.attempts[0].resolve();
     await retry;
@@ -174,7 +241,7 @@ describe("retryFailed", () => {
 
   test("two connects waiting on one failed attempt rerun it once", async () => {
     const h = setup();
-    const run = h.repair.run(new Error("bad op"));
+    const run = h.repair.run(new Error("bad op"), LANE);
     h.attempts[0].reject(new TypeError("fetch failed"));
     await run;
     const first = h.repair.retryFailed();
@@ -189,7 +256,7 @@ describe("retryFailed", () => {
 
   test("a rerun that fails again waits for the next connect", async () => {
     const h = setup();
-    const run = h.repair.run(new Error("bad op"));
+    const run = h.repair.run(new Error("bad op"), LANE);
     h.attempts[0].reject(new TypeError("fetch failed"));
     await run;
     const retry = h.repair.retryFailed();
@@ -209,7 +276,7 @@ describe("retryFailed", () => {
 
   test("does not rerun after unmount", async () => {
     const h = setup();
-    const run = h.repair.run(new Error("bad op"));
+    const run = h.repair.run(new Error("bad op"), LANE);
     h.attempts[0].reject(new TypeError("fetch failed"));
     await run;
     h.state.mounted = false;

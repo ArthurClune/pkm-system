@@ -250,6 +250,60 @@ describe("transitionSync legacy repair", () => {
     });
   });
 
+  it("waits behind an unrepaired rejected batch, keeping its Retry", () => {
+    const failed: SyncProblem = {
+      kind: "rejected-batch", event: poison(), repair: "failed", error: "boom",
+    };
+    const started = transitionSync(withProblem(failed), {
+      type: "legacy-repair-started", error: "over limit",
+    });
+    expect(started.state.problem).toEqual(failed);
+    const succeeded = transitionSync(started.state, {
+      type: "legacy-repair-succeeded", error: "over limit",
+    });
+    expect(succeeded.state.problem).toEqual(failed);
+    expect(succeeded.effects).toEqual([{ type: "bump-resync" }]);
+  });
+
+  it("shows a hidden legacy failure once the rejected batch is repaired", () => {
+    const failed: SyncProblem = {
+      kind: "rejected-batch", event: poison(), repair: "failed", error: "boom",
+    };
+    const hidden = transitionSync(withProblem(failed), {
+      type: "legacy-repair-failed", error: "reject", repairError: "still bad",
+    });
+    const running = transitionSync(hidden.state, {
+      type: "repair-started", event: poison(),
+    });
+    expect(running.state.problem).toMatchObject({
+      kind: "rejected-batch", repair: "running",
+    });
+    const repaired = transitionSync(running.state, {
+      type: "repair-succeeded", event: poison(),
+    });
+    expect(repaired.state.problem).toEqual({
+      kind: "legacy-rejected", repair: "failed", error: "reject",
+      repairError: "still bad",
+    });
+  });
+
+  it("moves an unrepaired legacy problem behind a rejected batch", () => {
+    const legacy: SyncProblem = {
+      kind: "legacy-rejected", repair: "failed", error: "reject",
+      repairError: "still bad",
+    };
+    const marked = transitionSync(withProblem(legacy), {
+      type: "poison-mark-failed", event: poison(), error: "io",
+    });
+    expect(marked.state.problem).toMatchObject({
+      kind: "rejected-batch", repair: "mark-failed",
+    });
+    const discarded = transitionSync(marked.state, {
+      type: "poison-intents-discarded",
+    });
+    expect(discarded.state.problem).toEqual(legacy);
+  });
+
   it("dismisses a repaired legacy problem", () => {
     const t = transitionSync(withProblem({
       kind: "legacy-rejected", repair: "repaired", error: "reject",

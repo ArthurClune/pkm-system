@@ -1,13 +1,13 @@
 ---
 # pkm-gks1
 title: 'Journal: a load error never clears, and a failed resync reload makes Load older days collapse to five days (make paging an explicit reducer)'
-status: in-progress
+status: completed
 type: bug
 priority: low
 tags:
     - state-machine-review
 created_at: 2026-11-07T18:42:46Z
-updated_at: 2026-11-08T14:21:29Z
+updated_at: 2026-11-08T14:29:11Z
 parent: pkm-zk8b
 ---
 
@@ -72,3 +72,19 @@ Sketch (fast-check, a new suite `web/src/props/journal`, reducer-level):
   - a stale-generation result changes nothing.
 - Teeth: zero the window before the reload's await (today's `loadMore`) and
   confirm the never-shrink invariant fails.
+
+## Summary of Changes
+
+Paging is one Functional Core reducer, views/journalPaging.ts: the days,
+the one load in flight (named by an id, so an answer to a superseded or
+abandoned load changes nothing), done and the error. A resync starts a head
+load of the window on screen but leaves the days and their cursor until it
+lands; a failure keeps them and shows the error; any success clears it.
+Journal.tsx dispatches events and runs the fetch the state asks for.
+Docs: frontend.md § The Journal states the paging rules (written first, the
+model's source); checks.md § Property gate gains journal/; troubleshooting row.
+
+Property suite web/src/props/journal: model.ts from the doc, a load's start
+and answer as separate steps among older, resync, respond(pick, ok),
+StrictMode replay and remount. Checks: contiguous, never-shrinks, days,
+error, done, in-flight, pager, stale. Teeth: four reducer mutants.

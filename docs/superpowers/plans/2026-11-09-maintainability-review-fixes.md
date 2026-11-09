@@ -54,7 +54,7 @@ Failure modes no single task's tests exercise, most likely first. Each has its p
 1. A refusal the user never sees: undo of a refused batch must put the entry back on the undo stack and show `BATCH_TOO_LARGE_NOTICE`, not drop it (W1, test 3).
 2. A lost late caller after the `coalesce` conversion: a kick, pull or repair request that arrives after the run's last check but before it settles must get a run (W9, one test per converted site).
 3. Lock contention on the first read of the day: `GET /api/journal` creating today while a batch holds the lock answers 503 with `Retry-After`, never 500, and never hangs past `BUSY_TIMEOUT_MS` (W2, test 2).
-4. Stop during every phase of the turn, including while `query()` is still being written and while an interrupt is already in flight; the conversation survives and the next turn reads only its own messages (W3, tests 1 to 3).
+4. Stop during every phase of the turn, including while `query()` is still being written and while an interrupt is already in flight; the conversation survives and the next turn reads only its own messages (W3, steps 2 and 6). A stop the server never acknowledges must still free the panel (W3, step 8).
 5. A doc anchor moved by W18 that a troubleshooting row, a code comment or `props/model.py` still cites (W18: `check-docs.mjs` plus `git grep 'backend.md#'`).
 
 ---
@@ -121,12 +121,12 @@ Failure modes no single task's tests exercise, most likely first. Each has its p
 **Problem.** `TurnPhase` (`assistant/turn_phase.py`) owns idle/streaming/draining/dead, but `ClaudeConversation` (`assistant/claude_engine.py`) also keeps `_stalling`, the pump's local `stalled`, and moves to `streaming` only after `await query()`. The interrupt-then-drain sequence is written in both `_abandon_turn` and `_pump`'s stall branch. Three consequences:
 - B1: Stop while the stall watchdog fires sends two interrupts; the second ack finds `draining` and `next_phase` answers `dead`.
 - B2: a cancellation during `send()`'s `await query()` leaves phase `idle` with a turn's output unread; the next turn reads it as its own.
-- B3: after a stalled turn's Stop the server holds `_Entry.busy` for up to `INTERRUPT_TIMEOUT_S + DRAIN_TIMEOUT_S` (15 s) while the web retries a 409 for about 300 ms (`BUSY_RETRY_ATTEMPTS` × `BUSY_RETRY_DELAY_MS` in `web/src/assistant/useAssistant.ts`).
+- B3: Stop is a fetch abort, so the web returns to `idle` at once while the server may hold `_Entry.busy` for up to `INTERRUPT_TIMEOUT_S + DRAIN_TIMEOUT_S` (15 s); the web retries a 409 for about 300 ms (`BUSY_RETRY_ATTEMPTS` × `BUSY_RETRY_DELAY_MS` in `web/src/assistant/useAssistant.ts`), then shows "a turn is already in progress".
 
 **Files:**
-- Modify: `server/src/pkm/assistant/turn_phase.py`, `server/src/pkm/assistant/claude_engine.py`, `web/src/assistant/useAssistant.ts`
+- Modify: `server/src/pkm/assistant/turn_phase.py`, `claude_engine.py`, `service.py`, `routes.py`, `events.py`; `web/src/assistant/chatMachine.ts`, `useAssistant.ts`, `sse.ts`, `client.ts`
 - Test: `server/tests/test_turn_phase.py`, `server/tests/test_assistant_turn_phase.py`, `server/tests/test_claude_engine.py`, `server/tests/props/test_assistant_turn_props.py`, `web/src/assistant/useAssistant.test.tsx`
-- Docs: `docs/architecture/assistant.md` § The turn phase (diagram and rule table); `docs/troubleshooting.md` rows
+- Docs: `docs/architecture/assistant.md` § The turn phase (diagram and rule table) and the stop sequence; `frontend.md` § The chat machine (the `stopping` exits); one row for the new route in `backend.md`'s API table; `docs/troubleshooting.md` rows
 
 **Interfaces:**
 - `TurnPhase = Literal["idle", "querying", "streaming", "interrupting", "acking", "draining", "dead"]`
@@ -148,7 +148,13 @@ Failure modes no single task's tests exercise, most likely first. Each has its p
 - `ClaudeConversation._stop_turn(self, why: str) -> None`: the only caller of `_interrupt`. Returns at once when the phase is `interrupting` or `draining`; otherwise moves `interrupt`, interrupts, moves `interrupt_acked`, sets the drain deadline. `_pump`'s stall branch and `_abandon_turn` both call it. `_abandon_turn` then only awaits the pump with a bound. `_stalling` and `stalled` are deleted; whether to emit the stall `ErrorEvent` is decided by a `why` recorded on the conversation.
 - `close()` moves `lost` through `next_phase`.
 - `send()` moves `query` before `await query()`; a `CancelledError` there calls `_lose("query abandoned by a cancellation")` and re-raises.
-- Web: `streamWithBusyRetry` retries a 409 for as long as the server may hold the turn. `BUSY_RETRY_WINDOW_MS = 16_000` with the existing delay growing to a 500 ms ceiling; the busy line shows the existing "stopping" label while it waits. (Default chosen here; if Arthur prefers Send disabled until a server "stopped" acknowledgement, that replaces this bullet only.)
+- Stop is acknowledged by the server (Arthur, 2026-11-09), so the web never returns to `idle` while the server still holds the turn:
+  - New route `POST /api/assistant/conversations/{conversation_id}/stop`, response `AssistantAck`. It calls `AssistantService.stop(conversation_id)`, which calls `ClaudeConversation.stop_turn()` (public wrapper over `_stop_turn("stopped by the user")` after `_decline_pending()`) and returns at once; 404 for an unknown id; a no-op 200 when no turn is open.
+  - New SSE event `TurnStopped` (wire name `turn_stopped`, no fields) in `events.py` and `sse.ts`. The pump puts it on the queue as the last event of a turn that ended by a user stop, after the drained `result`; the stream then ends normally. A stall keeps its `ErrorEvent`.
+  - Web `chatMachine.step` case `stop` for a `streaming` turn emits a new effect `{ kind: "postStop"; turn: TurnId }` in place of `abort`; the turn stays `stopping` until `turn_stopped`, an `error`, or the stream's end. Send stays refused while `stopping` (the existing `t.phase !== "idle"` guard).
+  - Fallback: the driver arms `STOP_ACK_TIMEOUT_MS = 16_000` (the server's `INTERRUPT_TIMEOUT_S + DRAIN_TIMEOUT_S` plus a second) when it posts the stop; if the POST fails or the timer fires first, it aborts the fetch, which is today's disconnect path (`routes._abandon_stream`), still the path for a closed tab and for New chat.
+  - Stop during `creating` is unchanged: there is no conversation id to post to.
+  - `streamWithBusyRetry` is unchanged; it now only covers the fallback.
 
 - [ ] **Step 1: Table tests** in `test_turn_phase.py`: every row above, plus `("draining", "interrupt")`, `("querying", "result")` and `("idle", "interrupt_acked")` all `"dead"`.
 - [ ] **Step 2: Red engine tests** in `test_assistant_turn_phase.py`:
@@ -158,11 +164,13 @@ Failure modes no single task's tests exercise, most likely first. Each has its p
 - [ ] **Step 3: Run; expect FAIL.**
 - [ ] **Step 4: Implement** the table, `_stop_turn`, the `send()` ordering, `close()`.
 - [ ] **Step 5: Property model.** In `props/test_assistant_turn_props.py` add a rule that holds Stop's interrupt while the clock advances, and one that cancels the consumer while `query()` is pending; label both with `event()`, read their rates, and show teeth by reverting `_stop_turn`'s early return once.
-- [ ] **Step 6: Web red test** in `useAssistant.test.tsx`: `a send that meets 409 for ten seconds after Stop succeeds without an error` (fake timers).
-- [ ] **Step 7: Implement the retry window.**
-- [ ] **Step 8: Run** server suite, `pnpm verify`, `proptest/check.sh` (both sides: the assistant suites).
-- [ ] **Step 9: Live smoke.** Harness changes are always smoked live: on a scratch server (8975), start a turn, press Stop, send again; confirm one conversation id throughout in the server log.
-- [ ] **Step 10: Docs, bean, commit.**
+- [ ] **Step 6: Server red tests** in `test_assistant_routes.py` (or the existing routes test file): `stop ends the stream with turn_stopped and leaves the conversation usable` (send, post stop, read the stream to its end, send again on the same id); `stop with no turn open is a 200 no-op`; `stop for an unknown conversation is 404`.
+- [ ] **Step 7: Implement the route, `AssistantService.stop`, `stop_turn` and `TurnStopped`.** Regenerate `web/src/api/openapi.json` and the types.
+- [ ] **Step 8: Web red tests.** `chatMachine.test.ts`: `stop on a streaming turn posts a stop and stays stopping`; `turn_stopped ends a stopping turn with no error`; `send while stopping is refused`. `useAssistant.test.tsx` (fake timers): `a stop the server never acknowledges aborts the fetch after STOP_ACK_TIMEOUT_MS`; `a failed stop POST aborts the fetch at once`.
+- [ ] **Step 9: Implement the effect, the event and the fallback timer.** Update the assistant property model (`props/assistant/model.ts`, the simulated server and the mutants) for the acknowledged stop.
+- [ ] **Step 10: Run** server suite, `pnpm verify`, `proptest/check.sh` (both sides: the assistant suites).
+- [ ] **Step 11: Live smoke.** Harness changes are always smoked live: on a scratch server (8975), start a turn, press Stop, send again; confirm one conversation id throughout in the server log, and that Send re-enables only after `turn_stopped`. Repeat by closing the tab mid-turn to exercise the disconnect path.
+- [ ] **Step 12: Docs, bean, commit.**
 
 ## W4: Small web bugs (`pkm-t6xh`)
 
@@ -345,7 +353,7 @@ Also in this package, the stale code comments each reviewer listed (they are fal
 - Rename `pkm/title_migration.py` → `pkm/title_migration_core.py`; the core builds the `contracts/responses.py` models directly, deleting the same-name dataclasses and `routes_migrations._audit_payload`'s copy.
 - `config.load_config` passes only keys present in the JSON; the `Config` dataclass holds every default once.
 - One MIME table in `assets_core.py`: `MIME_POLICY: dict[str, MimePolicy]` (`category`, `inline`, `describable`); `ALLOWED_UPLOAD_MIME`, `INLINE_MIME`, `_DOCUMENT_MIME` and `describe.core.ELIGIBLE_MIME` derive from it. The SVG exclusion sits on the SVG row. A test asserts the derived sets equal today's.
-- Delete `importer/import_sidebar.py`, `sidebar_rows.missing_entry_rows` and their tests; move `next_order_idx` and `reorder_is_valid` beside `routes_sidebar.py`. (The script also holds a personal topic list in a public repo; deleting it removes it from the tree, not from history.)
+- Move `next_order_idx` and `reorder_is_valid` out of `importer/sidebar_rows.py` to beside `routes_sidebar.py`, so the live route stops importing from the importer package. Whether `importer/import_sidebar.py` (a one-off seed script from July with a hard-coded entry list, run by nothing but its own test) is deleted with `missing_entry_rows` is Arthur's call, open as of 2026-11-09; until he answers, it stays and imports the helpers from their new home.
 - `LoginThrottle` moves to `server/throttle.py`.
 - Small copies: `tree.BLOCK_COLS` (three copies), one `like_escape`, rename wording in `render.py`, `assistant.policy` imports `mcp.tools.READ_TOOL_NAMES`, `mcp/server.py` stops building a `FastMCP` at import, delete `routes_pages._daily_title`, one pluraliser, one `_raw_page` in `client/workflows.py`, drop the four identity `as_raw_title` re-mints in `importer/preflight.py`.
 - `current-work`'s `now_ms`: replace with an injected clock dependency the tests override; the param leaves the API (regenerate OpenAPI and types).
@@ -430,6 +438,7 @@ Not blocking any merge above. Each entry is added by the package that makes the 
 | Backlinks paging reducer (`backlinksPaging.ts`) | W15 | new `props/backlinks/` |
 | Unlinked-item lifecycle map | W15 | with backlinks |
 | Banner under `replica-state` events (`transitionSync`) | W8 | extend `props/sync/` |
+| Acknowledged stop (`postStop`, `turn_stopped`, the fallback timer) | W3 | already in the assistant suites (W3 updates them); listed so the shell half is covered with the row below |
 | Chat driver shell: DELETE only after the stream settles (`createChatDriver`) | W14 | extend `props/assistant/` to drive the driver, settling stream and DELETE as separate actions |
 | Confirm answer state (`PendingConfirm.answer`) | W14 | extend the assistant model's confirm invariant |
 | `useModal` focus trap | W15 | judge when written whether a property earns its cost over the unit table |

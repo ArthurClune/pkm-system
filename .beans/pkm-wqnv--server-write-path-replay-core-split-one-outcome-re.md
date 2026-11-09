@@ -1,0 +1,12 @@
+---
+# pkm-wqnv
+title: 'Server write path: replay_core split, one outcome, required context fields, op-hash pins'
+status: todo
+type: task
+priority: normal
+created_at: 2026-11-09T21:39:24Z
+updated_at: 2026-11-09T21:39:24Z
+parent: pkm-4gda
+---
+
+Plan: docs/superpowers/plans/2026-11-09-maintainability-review-fixes.md § W12. Child of the 2026-11-09 maintainability review epic.

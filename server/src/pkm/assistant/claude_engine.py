@@ -423,11 +423,11 @@ class ClaudeConversation:
         self._request_stop(STOPPED_BY_USER)
 
     def _request_stop(self, why: str) -> None:
-        """Ask the pump to stop the open turn; the first reason given is
-        the one acted on. A turn already being stopped keeps its own."""
+        """Ask the pump to stop the turn; the first reason asked is the one
+        heard. The pump hears it once, in whatever phase, and _stop_turn
+        leaves a turn already interrupted, or ended, as it is."""
         request = self._stop_request
-        if (self._phase in ("querying", "streaming") and request is not None
-                and not request.done()):
+        if request is not None and not request.done():
             request.set_result(why)
 
     def _decline_pending(self) -> None:

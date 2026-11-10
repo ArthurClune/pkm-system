@@ -7,16 +7,21 @@ write's tool_use parks it in `can_use_tool` until the decision, and an
 interrupt is acknowledged only after any parked decision. The rule drawn
 for each Stop or stall says how the interrupt ends an open turn: its
 aborted ResultMessage after the ack (what CLI 2.1.301 does), before it,
-never, or no ack at all (a hang or a raise). The process can also die, or
-close its output, at any step.
+never, or no ack at all (a hang or a raise). A Stop is the user's (the
+stream stays open and ends on its own) or a dropped connection. Its
+interrupt can be held while the clock passes the stall watchdog's
+deadline, and a query can be held while the consumer is cancelled or the
+user stops. The process can also die, or close its output, at any step.
 
 The model is assistant.md § The turn phase, not the engine: a conversation
-whose interrupt went unacknowledged, whose drain found no result, or whose
-stream raised or ended is retired, and any other stays usable. Every turn's
-events belong to its own prompt and a finished turn ends on its own
-result. A parked confirm is on the live consumer's screen or answered. The
-running writes cover every allowed write whose result the CLI has not
-written yet."""
+whose query was abandoned, whose interrupt went unacknowledged, whose drain
+found no result, or whose stream raised or ended is retired, and any other
+stays usable. Every turn's events belong to its own prompt and a finished
+turn ends on its own result; a turn the user stopped ends on
+`TurnStopped`, unless a stall's interrupt came first, and no other turn
+shows one. No turn sends a second interrupt. A parked confirm is on the
+live consumer's screen or answered. The running writes cover every allowed
+write whose result the CLI has not written yet."""
 from __future__ import annotations
 
 import asyncio
@@ -41,7 +46,7 @@ from pkm.assistant import claude_engine
 from pkm.assistant.claude_engine import ClaudeConversation
 from pkm.assistant.events import (AssistantEvent, ConfirmRequest, ErrorEvent,
                                   TextDelta, ToolFinished, ToolStarted,
-                                  TurnDone)
+                                  TurnDone, TurnStopped)
 from pkm.assistant.service import AssistantService
 from pkm.contracts.responses import ConversationId
 from props.harness import examples
@@ -76,6 +81,10 @@ class ScriptedCLI(FakeSDKClient):
         # so a step can land while it is in flight
         self.held = False
         self.release = asyncio.Event()
+        # held_query: query() writes the prompt, then waits for
+        # query_release before it returns
+        self.held_query = False
+        self.query_release = asyncio.Event()
 
     def next_id(self) -> int:
         self.seq += 1
@@ -86,6 +95,8 @@ class ScriptedCLI(FakeSDKClient):
             self.queried_untrusted = True
         await super().query(text)
         self.prompt = text
+        if self.held_query:
+            await self.query_release.wait()
 
     async def interrupt(self):
         self.interrupts += 1
@@ -163,6 +174,13 @@ class Turn:
     prompt: str
     task: asyncio.Task
     events: list[AssistantEvent] = field(default_factory=list)
+    # the CLI's interrupt count when the turn began
+    cli: ScriptedCLI | None = None
+    interrupts_before: int = 0
+
+    def interrupts(self) -> int:
+        return 0 if self.cli is None else (self.cli.interrupts
+                                           - self.interrupts_before)
 
 
 def assert_of(prompt: str, events: list[AssistantEvent]) -> None:
@@ -196,6 +214,18 @@ class TurnMachine(RuleBasedStateMachine):
         # "draining", under the drawn interrupt order
         self.stall_state: str | None = None
         self.stall_order = "after_ack"
+        # When the stall watchdog would next fire: the pump reads its
+        # window from _read_timeout at each pass.
+        self.stall_deadline = 0.0
+        real = self._real_read_timeout = ClaudeConversation._read_timeout
+        machine = self
+
+        def watched(self: ClaudeConversation) -> float:
+            window = real(self)
+            machine.stall_deadline = machine.loop.time() + window
+            return window
+
+        ClaudeConversation._read_timeout = watched
 
     def run(self, coro):
         return self.loop.run_until_complete(coro)
@@ -223,6 +253,7 @@ class TurnMachine(RuleBasedStateMachine):
         finally:
             self.loop.close()
             claude_engine.harness_cli = self._real_cli
+            ClaudeConversation._read_timeout = self._real_read_timeout
             shutil.rmtree(self.tmp, ignore_errors=True)
 
     def conv(self) -> ClaudeConversation | None:
@@ -269,11 +300,19 @@ class TurnMachine(RuleBasedStateMachine):
         assert turn is not None
         assert turn.task.done(), f"turn {turn.prompt} did not end ({how})"
         assert_of(turn.prompt, turn.events)
+        assert turn.interrupts() <= 1, (
+            f"turn {turn.prompt} sent {turn.interrupts()} interrupts ({how})")
+        stopped = [ev for ev in turn.events if isinstance(ev, TurnStopped)]
+        if how.startswith("user stop"):
+            assert stopped == [turn.events[-1]], (how, turn.events)
+        else:
+            assert not stopped, (how, turn.events)
         self.turn = None
         self.last_end = how
         self.stall_state = None
         if self.cli is not None:
             self.cli.held = False
+            self.cli.held_query = False
         return turn
 
     # -- the user ---------------------------------------------------------
@@ -282,7 +321,7 @@ class TurnMachine(RuleBasedStateMachine):
     @rule()
     def send(self) -> None:
         event(f"send after: {self.last_end}")
-        if self.last_end == "stop after_ack":
+        if self.last_end.endswith("stop after_ack"):
             event("send after a stop whose result came after the ack")
 
         async def go():
@@ -297,7 +336,8 @@ class TurnMachine(RuleBasedStateMachine):
             sink: list[AssistantEvent] = []
             task = asyncio.get_running_loop().create_task(
                 self._consume(self.service.send(self.id(), prompt), sink))
-            self.turn = Turn(prompt, task, sink)
+            self.turn = Turn(prompt, task, sink, self.c(),
+                             self.c().interrupts)
             await self.settle()
             return dead_before
 
@@ -334,18 +374,25 @@ class TurnMachine(RuleBasedStateMachine):
         self.run(self.settle())
 
     @precondition(lambda self: self.live())
-    @rule(order=st.sampled_from(ORDERS), race=st.booleans())
-    def stop(self, order: str, race: bool) -> None:
+    @rule(order=st.sampled_from(ORDERS), race=st.booleans(),
+          hold=st.booleans(), via=st.sampled_from(["user", "disconnect"]))
+    def stop(self, order: str, race: bool, hold: bool, via: str) -> None:
+        """The user's Stop (the stream stays open and ends on its own) or
+        a dropped connection. `hold`: the interrupt is held while the
+        clock passes the stall watchdog's deadline."""
         assert self.turn is not None and self.cli is not None
         cli = self.cli
+        turn = self.turn
         stalling = self.stall_state
         if stalling:
             # the stall's own interrupt is the only one the harness needs
             order = self.stall_order
-            event(f"stop with the stall's interrupt {stalling} ({order})")
+            event(f"{via} stop with the stall's interrupt {stalling} "
+                  f"({order})")
         race = race and self.open_unparked() and not cli.running
         if race and order not in ACKED:
             race = False
+        hold = hold and not race and self.open_unparked()
         if race:
             event("stop as the harness finished the turn")
         elif cli.parked:
@@ -354,21 +401,123 @@ class TurnMachine(RuleBasedStateMachine):
             event("stop with an allowed write running")
         turn_open = (cli.turn_open and not race) or stalling is not None
         if not stalling:
-            event(f"stop {order}" + ("" if turn_open else " (turn closed)"))
+            event(f"{via} stop {order}" + ("" if turn_open else " (turn closed)"))
         cli.next_interrupt = order
+        if hold:
+            cli.held = True
+            cli.release = asyncio.Event()
 
-        async def go():
+        async def go() -> bool:
             if race:
                 cli.finish()  # the turn ends as Stop lands
-            self.t().task.cancel()
+            if hold:
+                # Stop just before the watchdog would fire
+                await asyncio.sleep(
+                    max(0.0, self.stall_deadline - self.loop.time() - 1))
+            if via == "user":
+                self.service.stop(self.id())
+            else:
+                turn.task.cancel()
             await self.settle()
+            crossed = False
+            if hold:
+                await asyncio.sleep(2)
+                crossed = self.loop.time() > self.stall_deadline
             cli.release.set()  # the CLI answers interrupts in flight
+            await asyncio.wait({turn.task}, timeout=(
+                claude_engine.INTERRUPT_TIMEOUT_S
+                + claude_engine.DRAIN_TIMEOUT_S + 1))
             with contextlib.suppress(asyncio.CancelledError):
-                await self.t().task
+                await turn.task
+            return crossed
+
+        if self.run(go()):
+            event(f"{via} stop's interrupt held past the stall deadline")
+        how = f"stop {order}" if turn_open else "stop"
+        if via == "user":
+            # a stall's interrupt came first: the turn is the stall's
+            how = f"stall {order}, then a user stop" if stalling else f"user {how}"
+        ended = self._end_turn(how)
+        if via == "user" and stalling:
+            assert ended.events[-1] == ErrorEvent(
+                message=claude_engine.stall_message(
+                    claude_engine.STALL_TIMEOUT_S)), ended.events
+        if turn_open and order not in ("after_ack", "before_ack"):
+            self.alive = False
+        assert (self.cid in self.service._entries) == self.alive
+
+    @precondition(lambda self: not self.live() and self.alive)
+    @rule()
+    def stop_with_no_turn_open(self) -> None:
+        cli = self.c()
+        before = cli.interrupts
+        event("user stop with no turn open")
+
+        async def go():
+            self.service.stop(self.id())
+            await self.settle()
 
         self.run(go())
-        self._end_turn(f"stop {order}" if turn_open else "stop")
-        if turn_open and order not in ("after_ack", "before_ack"):
+        assert cli.interrupts == before
+        assert self.cid in self.service._entries
+
+    @precondition(lambda self: not self.live() and self.alive
+                  and not self.c().dead)
+    @rule(how=st.sampled_from(["cancel", "user"]),
+          order=st.sampled_from(ORDERS))
+    def query_cut_short(self, how: str, order: str) -> None:
+        """A send whose query() is still being written when the consumer is
+        cancelled or the user stops."""
+        cli = self.c()
+        cli.held_query = True
+        cli.query_release = asyncio.Event()
+        cli.next_interrupt = order
+        self.turns += 1
+        prompt = f"p{self.turns}"
+        sink: list[AssistantEvent] = []
+
+        async def start() -> asyncio.Task:
+            await asyncio.sleep(USER_PAUSE_S)
+            task = asyncio.get_running_loop().create_task(
+                self._consume(self.service.send(self.id(), prompt), sink))
+            await self.settle()
+            return task
+
+        task = self.run(start())
+        self.turn = Turn(prompt, task, sink, cli, cli.interrupts)
+        conv = self.conv()
+        assert conv is not None and conv.phase == "querying"
+        assert cli.queries[-1] == prompt and not task.done()
+        if how == "cancel":
+            event("consumer cancelled while query() is pending")
+
+            async def cancel():
+                task.cancel()
+                await self.settle()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+
+            self.run(cancel())
+            # the prompt reached the CLI: a turn may run that nobody reads
+            cli.untrusted = True
+            self._end_turn("query cancelled")
+            self.alive = False
+            assert self.cid not in self.service._entries
+            return
+        event(f"user stop while query() is pending ({order})")
+
+        async def stop():
+            self.service.stop(self.id())
+            await self.settle()
+            cli.query_release.set()
+            await asyncio.wait({task}, timeout=(
+                claude_engine.INTERRUPT_TIMEOUT_S
+                + claude_engine.DRAIN_TIMEOUT_S + 1))
+
+        self.run(stop())
+        ended = self._end_turn(f"user stop {order}")
+        assert ended.events == [TurnStopped()], ended.events
+        if order not in ("after_ack", "before_ack"):
             self.alive = False
         assert (self.cid in self.service._entries) == self.alive
 
@@ -524,6 +673,13 @@ class TurnMachine(RuleBasedStateMachine):
         if conv is None or self.cli is None or not self.alive:
             return
         assert set(self.c().running) <= conv._running_writes
+
+    @invariant()
+    def one_interrupt_per_turn(self) -> None:
+        if self.turn is not None:
+            assert self.t().interrupts() <= 1, (
+                f"turn {self.t().prompt} sent {self.t().interrupts()} "
+                "interrupts")
 
     @invariant()
     def an_untrusted_harness_is_never_reused(self) -> None:

@@ -7,12 +7,11 @@
 //   mark after the RPC   a batch marked as following the lane only once its
 //                        persist reply arrives, so a lost reply leaves its
 //                        durable row unmarked (order)
-import fc from "fast-check";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { SEED } from "../env";
+import { afterEach, beforeEach, vi } from "vitest";
+import { expectMutantsCaught } from "../gate";
 import { captureFaultWarnings } from "../warningsCapture";
 import { queueCommands } from "./queueArbitraries";
-import { lostReplyIds, runQueueExample } from "./queueHarness";
+import { lostReplyIds, type QueueCmd, runQueueExample } from "./queueHarness";
 
 captureFaultWarnings("sync queue teeth");
 
@@ -43,36 +42,32 @@ vi.mock("../../sync/outbox", async (importOriginal) => {
 });
 
 const NUM_RUNS = 10_000;
+const TIME_LIMIT_MS = 15_000;
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); });
-afterEach(() => {
-  vi.useRealTimers();
+afterEach(() => { vi.useRealTimers(); });
+
+const disarm = (): void => {
   mutants.resumeClearsAll = false;
   mutants.markAfterRpc = false;
-});
+};
 
-/** Runs the property under the current mutant; returns the first finding. */
-async function firstFinding(): Promise<string | null> {
-  const details = await fc.check(fc.asyncProperty(queueCommands, async (cmds) => {
-    const findings = await runQueueExample(cmds, () => undefined);
-    if (findings.length > 0) throw new Error(findings.join("\n"));
-  }), { numRuns: NUM_RUNS, ...(SEED === undefined ? {} : { seed: SEED }) });
-  if (!details.failed) return null;
-  const error = details.errorInstance;
-  return error instanceof Error ? error.message : String(error);
-}
-
-test("a resume that clears every owner breaks the barrier", async () => {
-  mutants.resumeClearsAll = true;
-  const finding = await firstFinding();
-  expect(finding, "mutant survived").not.toBeNull();
-  expect(finding).toMatch(/^barrier: /m);
-});
-
-test("marking a batch only after its persist reply breaks the order", async () => {
-  mutants.markAfterRpc = true;
-  mutants.isLost = (id) => [...lostReplyIds].some((lost) => lost === id);
-  const finding = await firstFinding();
-  expect(finding, "mutant survived").not.toBeNull();
-  expect(finding).toMatch(/^order: /m);
+expectMutantsCaught({
+  suite: "queue property",
+  mutants: {
+    "a resume that clears every owner breaks the barrier": {
+      catches: ["barrier"], disarm,
+      arm: () => { mutants.resumeClearsAll = true; },
+    },
+    "marking a batch only after its persist reply breaks the order": {
+      catches: ["order"], disarm,
+      arm: () => {
+        mutants.markAfterRpc = true;
+        mutants.isLost = (id) => [...lostReplyIds].some((lost) => lost === id);
+      },
+    },
+  },
+  arbs: [queueCommands],
+  problems: async (_, cmds: QueueCmd[]) => runQueueExample(cmds, () => undefined),
+  numRuns: NUM_RUNS, limitMs: TIME_LIMIT_MS,
 });

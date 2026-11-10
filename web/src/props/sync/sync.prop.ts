@@ -30,12 +30,13 @@ import { staleNamers } from "./deleteWins";
 import { BadBatch, commandsFor, connectTally, connectTiming, countSkipsWith, Edit,
          Fault, type FaultKind, NAMES, Nudge, Offline, Pull, Reload, Rename,
          RotateGeneration, SyncCommand, WorkerDies, type World } from "./commands";
-import { PATH, REPLAY_PATH, SEED } from "./env";
+import { REPLAY_PATH } from "./env";
 import { type FirstStart, startClient, type HarnessClient } from "./harnessClient";
 import { initialModel, type SyncModel } from "./model";
 import { checkQuiescent, CursorWatch, ModeWatch } from "./oracle";
 import { quiesce, TIMED_OUT, within } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
+import { checkGateProperty } from "../gate";
 import { captureFaultWarnings } from "../warningsCapture";
 
 captureFaultWarnings("sync");
@@ -49,12 +50,10 @@ const QUIESCE_LIMIT_MS = 30_000;
  * liveness failure is quiesce's to report. A command that hangs is caught
  * here instead, as a failing example fast-check can shrink. */
 const EXAMPLE_LIMIT_MS = 90_000;
-/** The whole property, shrinking included. fast-check abandons the example
- * the limit cuts into, which the property then cancels. Cut off while
- * shrinking, it fails with the smallest counterexample so far; cut off
- * before any failure, it fails as a budget problem, never as a finding. The
- * margin to vitest's testTimeout (vitest.props.config.ts) covers that
- * example's clean-up and the report, so vitest never cuts a report off. */
+/** fast-check abandons the example the limit cuts into, which the property
+ * then cancels. The margin to vitest's testTimeout (vitest.props.config.ts)
+ * covers that example's clean-up and the report, so vitest never cuts a
+ * report off. */
 const PROPERTY_LIMIT_MS = 420_000;
 const DISPOSE_LIMIT_MS = 10_000;
 /** How long a fixed scenario waits for the state it sets up. */
@@ -911,44 +910,23 @@ const showStarts = (n: number, at: Starts): string =>
   NAMES.slice(0, n).map((name, i) =>
     `${name} ${at[i] === undefined ? "after startup" : `tick ${at[i]}`}`).join(", ");
 
-/** The failure report: everything needed to read and replay it. */
-function report(details: fc.RunDetails<[Drawn, number | undefined, Starts, FirstStarts]>):
-    string {
-  const counterexample = details.counterexample;
-  const shown = counterexample === null ? "none"
-    : `${counterexample[0][0]} clients, ` +
-      (counterexample[1] === undefined ? "no window limit"
-                                       : `window limit ${counterexample[1]}`) +
-      `, connect at ${showStarts(counterexample[0][0], counterexample[2])}` +
-      `, first bootstraps ${counterexample[3].slice(0, counterexample[0][0]).join(", ")}` +
-      `, ${String(counterexample[0][1])}`;
-  const replay = /replayPath="([^"]*)"/.exec(shown)?.[1];
-  const error = details.errorInstance instanceof Error
-    ? details.errorInstance.message : String(details.errorInstance);
-  return [
-    `sync property failed after ${details.numRuns} runs and ${details.numShrinks} shrinks` +
-      (details.interrupted ? " (shrinking cut off at the time limit: the smallest" +
-                             " counterexample so far)" : ""),
-    `seed: ${details.seed}`,
-    `path: ${details.counterexamplePath ?? "none"}`,
-    `counterexample: ${shown}`,
-    `error: ${error}`,
-    `replay: proptest/check.sh web --file sync/sync.prop.ts --seed ${details.seed}` +
-      (details.counterexamplePath ? ` --path '${details.counterexamplePath}'` : "") +
-      (replay ? ` --replay-path '${replay}'` : ""),
-  ].join("\n");
-}
+/** The counterexample as the report shows it. */
+const show = ([[n, cmds], limit, at, first]: [Drawn, number | undefined, Starts, FirstStarts]):
+    string =>
+  `counterexample: ${n} clients, ` +
+  (limit === undefined ? "no window limit" : `window limit ${limit}`) +
+  `, connect at ${showStarts(n, at)}` +
+  `, first bootstraps ${first.slice(0, n).join(", ")}` +
+  `, ${String(cmds)}`;
 
 test("sync protocol property", async () => {
-  const details = await fc.check(fc.asyncProperty(
-    clientsAndCommands,
+  await checkGateProperty({
+    suite: "sync property", file: "sync/sync.prop.ts",
     // A new arbitrary goes last: an arbitrary's place fixes what a seed and
     // path replay, so the ones before it replay as they did before it was
     // added.
-    windowLimit,
-    starts,
-    firstStarts,
-    async ([n, cmds], limit, at, first) => {
+    arbs: [clientsAndCommands, windowLimit, starts, firstStarts],
+    predicate: async ([n, cmds], limit, at, first) => {
       count("examples");
       count(`examples with ${n} clients`);
       count(limit === undefined ? "examples with no window limit"
@@ -956,35 +934,13 @@ test("sync protocol property", async () => {
       await runExample(NAMES.slice(0, n), cmds,
                        { windowLimit: limit, connectAt: at, firstStart: first });
     },
-  ), {
-    numRuns: NUM_RUNS, seed: SEED, path: PATH,
-    interruptAfterTimeLimit: PROPERTY_LIMIT_MS, markInterruptAsFailure: false,
+    numRuns: NUM_RUNS, limitMs: PROPERTY_LIMIT_MS, show,
+    // The example the time limit cut into is still running: stop it before
+    // anything is reported, and before the next file resets the server.
+    settle: async () => {
+      if (inFlight === null) return;
+      inFlight.abandon();
+      await within(inFlight.finished.catch(() => undefined), DISPOSE_LIMIT_MS * 2);
+    },
   });
-  // The example the time limit cut into is still running: stop it before
-  // anything is reported, and before the next file resets the server.
-  if (inFlight !== null) {
-    inFlight.abandon();
-    await within(inFlight.finished.catch(() => undefined), DISPOSE_LIMIT_MS * 2);
-  }
-  // A failure keeps failed set when the time limit cuts its shrinking off,
-  // with the smallest counterexample so far. Cut off before any failure,
-  // fast-check reports interrupted, and failed as well if no example had
-  // finished, but with no counterexample: either way that is the budget.
-  if (details.failed && details.counterexample !== null) {
-    const text = report(details);
-    console.error(text);
-    throw new Error(text);
-  }
-  if (details.interrupted) {
-    const text = `sync property ran out of its time budget after ${details.numRuns} of` +
-      ` ${NUM_RUNS} runs (no failure found): a budget problem, not a finding\n` +
-      `seed: ${details.seed}`;
-    console.error(text);
-    throw new Error(text);
-  }
-  if (details.failed) {
-    const text = report(details);
-    console.error(text);
-    throw new Error(text);
-  }
 });

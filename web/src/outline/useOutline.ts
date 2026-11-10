@@ -10,7 +10,6 @@ import type { BlockNode } from "../api/payloads";
 import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { apiPost } from "../api/typedClient";
 import { useConfirm } from "../components/ConfirmDialog";
-import type { OutlineDndApi } from "../dnd/DndContext";
 import { toggleTodo } from "../grammar/todo";
 import { findOpTitleViolation, linkedTitleRefusal,
          titleRefusalNotice } from "../replica/titles";
@@ -19,7 +18,7 @@ import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { stampBaseTextHashes, withoutStamps } from "./baseTextHash";
 import { FIRST_ORDER_IDX } from "./orderIdx";
-import type { DropTarget } from "./dnd";
+import type { DropTarget, OutlineDndApi } from "./dnd";
 import { editRefusal } from "./editRefusal";
 import { fileDropNotice, partitionUploadable, planFileDropBlocks,
          planUploadBlocks } from "./fileDrop";

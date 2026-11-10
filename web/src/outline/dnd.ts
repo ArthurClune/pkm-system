@@ -158,3 +158,16 @@ export function resolveDrop(blocks: BlockNode[], pageTitle: CanonicalTitle,
   }
   return target;
 }
+
+export interface OutlineDndApi {
+  /** Move a group of blocks (a multi-block selection's roots, document
+   * order; a plain drag passes one uid) to the target as a contiguous run. */
+  moveTo(uids: BlockUid[], target: DropTarget): void;
+  /** Save the outline's pending draft; false when it may not be saved,
+   * and the drop must then move nothing out of that outline. */
+  flushDraft(): boolean;
+  removeSubtreeLocal(uid: BlockUid): BlockNode | null;
+  insertSubtreeLocal(node: BlockNode, target: DropTarget): void;
+  /** Show why a drop into or out of this outline was refused. */
+  refuse(notice: string): void;
+}

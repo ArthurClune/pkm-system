@@ -5,28 +5,14 @@
 // source/target outlines and enqueued as a move op.
 import { createContext, useContext, useEffect, useMemo, useRef, useState,
          type ReactNode } from "react";
-import type { BlockUid, CanonicalTitle } from "../api/brands";
-import type { BlockNode } from "../api/payloads";
+import type { CanonicalTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
-import { dragUids, type BlockDragSource, type DragSource,
-         type DropTarget } from "../outline/dnd";
+import { dragUids, type BlockDragSource, type DragSource, type DropTarget,
+         type OutlineDndApi } from "../outline/dnd";
 import { groupMoveOps } from "../outline/edits";
 import { editRefusal } from "../outline/editRefusal";
 import { orderIdxPlus } from "../outline/orderIdx";
 import { useSyncActions } from "../sync/SyncProvider";
-
-export interface OutlineDndApi {
-  /** Move a group of blocks (a multi-block selection's roots, document
-   * order; a plain drag passes one uid) to the target as a contiguous run. */
-  moveTo(uids: BlockUid[], target: DropTarget): void;
-  /** Save the outline's pending draft; false when it may not be saved,
-   * and the drop must then move nothing out of that outline. */
-  flushDraft(): boolean;
-  removeSubtreeLocal(uid: BlockUid): BlockNode | null;
-  insertSubtreeLocal(node: BlockNode, target: DropTarget): void;
-  /** Show why a drop into or out of this outline was refused. */
-  refuse(notice: string): void;
-}
 
 export type DndRegistration =
   | { accepted: true; unregister(): void }

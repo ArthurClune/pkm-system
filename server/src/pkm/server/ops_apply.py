@@ -194,13 +194,20 @@ def _rewrites_within(
 
 
 def parent_chain(db: Db, uid: BlockUid) -> tuple[BlockUid, ...]:
-    """uid and every ancestor above it, root last. Each block has exactly one
-    parent, so this is a single path -- but a corrupted DB could already
-    contain a cycle, so recursion is guarded by a visited-path check (`path`)
-    rather than a depth cap: it stops the instant a uid reappears, however
-    deep the real hierarchy runs, instead of silently truncating it. The
-    comma-delimited path only works as a membership test because UID_RE
-    (ops_core.py) bars commas from ever appearing in a uid."""
+    """uid, then each ancestor above it nearest first, root last. Callers
+    rely on that order: the assistant card's ancestors are this less uid,
+    and `write_preview._ends_under` walks them up and stops at the first
+    it knows. The query has no ORDER BY: SQLite's recursive CTE runs its
+    queue first-in first-out, so a single path comes out in walk order,
+    and a test pins it.
+
+    Each block has exactly one parent, so this is a single path -- but a
+    corrupted DB could already contain a cycle, so recursion is guarded by
+    a visited-path check (`path`) rather than a depth cap: it stops the
+    instant a uid reappears, however deep the real hierarchy runs, instead
+    of silently truncating it. The comma-delimited path only works as a
+    membership test because UID_RE (ops_core.py) bars commas from ever
+    appearing in a uid."""
     rows = db.select(
         f"""WITH RECURSIVE chain(uid, parent_uid, path) AS (
               SELECT uid, parent_uid, ',' || uid || ',' FROM blocks

@@ -345,6 +345,16 @@ def test_delete_removes_entire_deep_subtree(db, depth, hashed, monkeypatch):
     assert remaining == 0
 
 
+def test_parent_chain_lists_the_block_then_its_ancestors_nearest_first(db):
+    # The assistant card walks a block's ancestors up from its parent and
+    # stops at the first it knows, so the order is part of the contract.
+    apply_batch(db, judge_batch(_batch(*_linear_chain("Machine Learning", 5,
+                                                      prefix="chain"))), NOW)
+    db.commit()
+    assert parent_chain(db, uid_of("chain4")) == tuple(
+        uid_of(f"chain{i}") for i in range(4, -1, -1))
+
+
 def test_parent_chain_and_subtree_terminate_on_preexisting_cycle(db):
     # ops skips any move that would CREATE a cycle, but a corrupted DB
     # could already contain one (e.g. from before this fix, or manual

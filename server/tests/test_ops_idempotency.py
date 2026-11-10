@@ -2,16 +2,17 @@
 durable client queue must not double-apply (offline-editing-design.md §1)."""
 import json
 from pathlib import Path
-from typing import assert_type
+from typing import assert_type, get_args
 
 import pytest
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 
 from pkm.contracts.ops import (BlockOp, CreateOp, DeleteOp, OpBatch, SetCollapsedOp,
                                Sha256Hex, SyncSeq, UpdateTextOp, subtree_hash,
                                text_hash)
 from pkm.server.db import open_db
-from pkm.server.ops_hash import batch_replay_hash, batch_request_hash
+from pkm.server.ops_hash import (_canonical_op, _canonical_replay_op, batch_replay_hash,
+                                 batch_request_hash)
 from pkm.test_data.ids import (batch_id_of, client_id_of, malformed_uid, order_idx_of, raw_title_of,
                                seq_of, sha_of, uid_of)
 
@@ -396,3 +397,90 @@ def test_a_replayed_batch_is_not_rechecked(client):
     assert r1.status_code == 200
     r2 = client.post("/api/ops", json=body)
     assert r2.status_code == 200 and r2.json() == r1.json()
+
+
+# Recorded once from the code, never regenerated: a stored batch's hash
+# must survive every deploy, so a pin that moved would bless the break.
+OP_HASH_CASES = json.loads(
+    (Path(__file__).parents[2] / "shared" / "fixtures" / "op_hashes.json")
+    .read_text())["cases"]
+
+# Fields `_canonical_op` always hashes, None included.
+HASHED_FIELDS: dict[str, frozenset[str]] = {
+    "create": frozenset({"op", "uid", "page_title", "parent_uid", "order_idx",
+                         "text", "heading", "view_type"}),
+    "update_text": frozenset({"op", "uid", "text", "base_text_hash"}),
+    "move": frozenset({"op", "uid", "parent_uid", "order_idx", "page_title"}),
+    "delete": frozenset({"op", "uid"}),
+    "set_collapsed": frozenset({"op", "uid", "collapsed"}),
+    "set_heading": frozenset({"op", "uid", "heading"}),
+    "set_view_type": frozenset({"op", "uid", "view_type"}),
+    "create_page": frozenset({"op", "page_title"}),
+}
+# Fields added after ops of that kind were stored: hashed only when set.
+DROPPED_WHEN_UNSET: dict[str, frozenset[str]] = {
+    "update_text": frozenset({"page_title"}),
+    "delete": frozenset({"base_subtree_hash"}),
+}
+# Fields the worker fills into the durable copy of a batch only.
+REPLAY_EXCLUDED: dict[str, frozenset[str]] = {
+    "update_text": frozenset({"base_text_hash", "page_title"}),
+    "delete": frozenset({"base_subtree_hash"}),
+}
+
+
+def _op_members() -> dict[str, type[BaseModel]]:
+    union = get_args(BlockOp)[0]
+    members: dict[str, type[BaseModel]] = {}
+    for member in get_args(union):
+        (kind,) = get_args(member.model_fields["op"].annotation)
+        members[kind] = member
+    return members
+
+
+def test_every_op_kind_has_pinned_hashes():
+    """A batch committed before a deploy and retried after it, its ack
+    lost, must hash as it did or it 409s and the client poisons a batch
+    the server holds. Each kind is pinned bare and, where it has optional
+    fields, with every one of them set."""
+    members = _op_members()
+    names = [case["name"] for case in OP_HASH_CASES]
+    minimal = {name.removesuffix("-minimal") for name in names
+               if name.endswith("-minimal")}
+    assert minimal == set(members), (
+        "pin a <kind>-minimal case in shared/fixtures/op_hashes.json, "
+        "with the hashes the code produces when the kind ships")
+    full = {kind for kind, member in members.items()
+            if any(not f.is_required() for f in member.model_fields.values())}
+    assert set(names) == ({f"{k}-minimal" for k in members}
+                          | {f"{k}-full" for k in full})
+    for case in OP_HASH_CASES:
+        op = _BLOCK_OP.validate_python(case["op"])
+        fields = members[op.op].model_fields
+        if case["name"].endswith("-minimal"):
+            assert set(case["op"]) == {n for n, f in fields.items()
+                                       if f.is_required()}, case["name"]
+        else:
+            assert all(getattr(op, n) is not None for n in fields), case["name"]
+        batch = _gold_batch([op])
+        assert batch_request_hash(batch) == case["request_hash"], case["name"]
+        assert batch_replay_hash(batch) == case["replay_hash"], case["name"]
+
+
+def test_every_op_field_is_classified():
+    for kind, member in _op_members().items():
+        dropped = DROPPED_WHEN_UNSET.get(kind, frozenset())
+        hashed = HASHED_FIELDS.get(kind, frozenset())
+        assert set(member.model_fields) == hashed | dropped, (
+            f"{kind}: a new field must be left out of _canonical_op while "
+            "it is unset, or the deploy re-hashes every stored op of that "
+            "kind; then classify it here and pin it in op_hashes.json")
+        assert REPLAY_EXCLUDED.get(kind, frozenset()) <= set(member.model_fields)
+    for case in OP_HASH_CASES:
+        op = _BLOCK_OP.validate_python(case["op"])
+        dropped = DROPPED_WHEN_UNSET.get(op.op, frozenset())
+        hashed = HASHED_FIELDS[op.op] | {
+            n for n in dropped if getattr(op, n) is not None}
+        assert set(_canonical_op(op)) == hashed, case["name"]
+        assert (set(_canonical_replay_op(op))
+                == hashed - REPLAY_EXCLUDED.get(op.op, frozenset())), case["name"]

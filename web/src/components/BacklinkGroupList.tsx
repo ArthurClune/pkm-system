@@ -4,6 +4,7 @@
 // precedent as JournalDayReferences reusing BacklinksSection rather than
 // growing a second renderer.
 import type { BlockUid, CanonicalTitle } from "../api/brands";
+import { InertMediaContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import type { AssetRefGroup } from "../views/filesCore";
 import type { ShownBacklinkGroup } from "./groups";
@@ -24,7 +25,7 @@ export function BacklinkGroupList({ groups, onNavigate }: {
    * navigation lives on the inline links themselves). */
   onNavigate?: (pageTitle: CanonicalTitle, uid: BlockUid) => void;
 }) {
-  return (
+  const list = (
     <>
       {groups.map((g) => (
         <div className="backlink-group" key={groupKey(g)}>
@@ -57,4 +58,9 @@ export function BacklinkGroupList({ groups, onNavigate }: {
       ))}
     </>
   );
+  // A navigable row's whole surface is the click target, so embedded media
+  // must not take the click for itself.
+  return onNavigate
+    ? <InertMediaContext.Provider value={true}>{list}</InertMediaContext.Provider>
+    : list;
 }

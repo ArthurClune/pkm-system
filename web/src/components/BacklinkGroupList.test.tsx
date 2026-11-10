@@ -15,11 +15,11 @@ const group: ShownBacklinkGroup = {
   items: [{ uid: uidOf("tuid-uid_a"), text: "text", crumbs: [] }],
 };
 
-function mount(onNavigate: OnNavigate) {
+function mount(onNavigate?: OnNavigate, shown: ShownBacklinkGroup = group) {
   return render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
       <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
-        <BacklinkGroupList groups={[group]} onNavigate={onNavigate} />
+        <BacklinkGroupList groups={[shown]} onNavigate={onNavigate} />
       </SidebarContext.Provider>
     </MemoryRouter>,
   );
@@ -30,6 +30,25 @@ it("navigates with the group's page title and the clicked item's uid", () => {
   mount(onNavigate);
   fireEvent.click(screen.getByText("text"));
   expect(onNavigate).toHaveBeenCalledWith("Source", "tuid-uid_a");
+});
+
+const imageGroup: ShownBacklinkGroup = {
+  ...group,
+  items: [{
+    uid: uidOf("tuid-uid_img"), crumbs: [],
+    text: `![pic](/assets/${"ab".repeat(32)}/pic.png)`,
+  }],
+};
+
+it("rows with onNavigate render media inert", () => {
+  mount(() => undefined, imageGroup);
+  expect(screen.getByRole("img", { name: "pic" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Expand image/ })).toBeNull();
+});
+
+it("rows without onNavigate keep media live", () => {
+  mount(undefined, imageGroup);
+  expect(screen.getByRole("button", { name: /Expand image/ })).toBeInTheDocument();
 });
 
 // pageTitle and uid can't be swapped.

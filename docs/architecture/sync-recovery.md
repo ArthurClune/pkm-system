@@ -143,11 +143,11 @@ sentence depends on connectivity:
 | State | Second sentence | Why |
 |---|---|---|
 | Connected | "Your changes are still being saved to the server." | the queue retains every write |
-| Offline, work pending | N unsent changes exist only in memory and a reload discards them | they live only in the lane |
-| Offline, clean queue | none | nothing to lose |
+| Offline, `unsentInMemory > 0` | N unsent changes exist only in memory and a reload discards them | they live only in the lane; durable rows (`pending` minus `unsentInMemory`) survive a reload and are not counted |
+| Offline, `unsentInMemory === 0` | none | nothing to lose |
 
 Its action is Reload, not Retry, because the failed open is latched for the
-session. A replica that opens and then fails every write has no availability
+session. Reload asks for confirmation only when `unsentInMemory > 0`. A replica that opens and then fails every write has no availability
 verdict, so no problem banner mounts. The offline `ConnectivityBanner` covers
 it: it appends `memoryOnlySentence`'s output whenever `unsentInMemory > 0` and
 the socket is not `connected`.

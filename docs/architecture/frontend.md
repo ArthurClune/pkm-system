@@ -255,8 +255,9 @@ after the await.
 `/files` is a table over `/api/assets/search`; the store is in
 [files-and-assets.md](files-and-assets.md). Image and PDF thumbs open in-app
 (`ImageOverlay`, `PdfViewer`'s overlay-only mode). The refs popover renders
-through `BacklinkGroupList`, whose rows render media inert
-(`InertMediaContext`) so the whole row is a click target. `AssetRefGroup` has
+through `BacklinkGroupList`, which provides `InertMediaContext` itself
+whenever `onNavigate` is set, so media in a navigable row is inert and the
+whole row is the click target. `AssetRefGroup` has
 no `page_id`, which keeps asset refs out of `mergeGroups`. Pagination has a
 synchronous single-flight lock against a double click, and a generation guard
 that discards responses a filter change has made stale. A filter change bumps

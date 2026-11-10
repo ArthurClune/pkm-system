@@ -87,8 +87,8 @@ class RewriteStep:
         default=None, init=False, repr=False, compare=False)
     records: StepRecords | None = field(
         default=None, init=False, repr=False, compare=False)
-    derived: dict[Callable[[str], str], StepTitles] = field(
-        default_factory=dict, init=False, repr=False, compare=False)
+    derived: tuple[Callable[[str], str], StepTitles] | None = field(
+        default=None, init=False, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -140,10 +140,12 @@ def _derive(step: RewriteStep, canonical: Callable[[str], str]) -> StepTitles:
 
 def _derived(step: RewriteStep,
              canonical: Callable[[str], str]) -> StepTitles:
-    """`_derive`, once per step and canonicalisation."""
-    titles = step.derived.get(canonical)
-    if titles is None:
-        titles = step.derived[canonical] = _derive(step, canonical)
+    """`_derive`, once per step. A batch replays every step under its one
+    title reader, so a step asked under another function is a shell bug."""
+    if step.derived is None:
+        step.derived = (canonical, _derive(step, canonical))
+    held, titles = step.derived
+    assert held is canonical, "a step derives under one canonicalisation"
     return titles
 
 

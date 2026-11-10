@@ -499,6 +499,17 @@ def test_the_rows_a_batch_records_for_its_replays_fit_its_budget(
     assert 0 < recorded <= replay_core.MAX_BATCH_REPLAY_WORK, recorded
 
 
+def test_a_step_derives_under_one_canonicalisation():
+    # A batch derives every step under its one title reader; a second
+    # function asking for the same step's titles is a shell bug, which
+    # would otherwise derive the step again under it.
+    step = replay_core.RewriteStep(text_hash("a"), text_hash("b"), {},
+                                   {"t"}, {})
+    replay_core._derived(step, normalize_title)
+    with pytest.raises(AssertionError):
+        replay_core._derived(step, lambda raw: normalize_title(raw).lower())
+
+
 def test_a_step_keeps_its_key_for_every_op():
     # The step's share of its key is frozensets of its titles, built once:
     # rebuilt for each op, it hashed every title per op, in C.

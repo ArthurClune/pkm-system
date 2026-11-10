@@ -90,7 +90,9 @@ def test_op_application_reindexes_through_the_shared_composition(
 
     _update_text(con, uid_of("uid_b4"), "now [[AI]] and ((uid_b1))", 4242)
 
-    assert calls == [("uid_b4", "now [[AI]] and ((uid_b1))", 4242)]
+    assert [call[:3] for call in calls] == [
+        ("uid_b4", "now [[AI]] and ((uid_b1))", 4242)]
+    assert callable(calls[0][3])  # the batch's title reader
     assert _ref_titles(con, uid_of("uid_b4")) == {("AI", "link")}
     assert _block_ref_targets(con, uid_of("uid_b4")) == {"uid_b1"}
 

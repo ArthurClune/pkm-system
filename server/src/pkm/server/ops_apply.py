@@ -49,16 +49,20 @@ from pkm.server.replay_core import (MAX_BATCH_REPLAY_WORK, ROW_CHARS,
 from pkm.server.store import (BlankTitleError, fetch_page,
                               get_or_create_page, insert_block_rewrites,
                               reindex_refs_for_text, stale_titles)
-from pkm.server.sync_meta import read_title, title_reader
+from pkm.server.sync_meta import title_reader
 from pkm.unlink import TitleMatch
 
 # Every op that addresses a block by uid: BlockOp minus create_page.
 _AddressedOp = Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
                      SetCollapsedOp, SetHeadingOp, SetViewTypeOp]
 
+# The batch's one title reader (`sync_meta.title_reader`), which every
+# title the batch resolves goes through.
+_Canonical = Callable[[str], CanonicalTitle]
 
-def _resolve_page(db: Db, title: RawTitle,
-                  now_ms: int) -> Row:
+
+def _resolve_page(db: Db, title: RawTitle, now_ms: int, *,
+                  canonical: _Canonical) -> Row:
     """get_or_create_page for op page_title fields: falls back to
     UNTITLED_PAGE_TITLE rather than propagating BlankTitleError.
 
@@ -68,12 +72,14 @@ def _resolve_page(db: Db, title: RawTitle,
     permanently. Get-or-create semantics put every blank title on the same
     page rather than minting one each."""
     try:
-        return get_or_create_page(db, title, now_ms)
+        return get_or_create_page(db, title, now_ms, canonical=canonical)
     except BlankTitleError:
-        return get_or_create_page(db, UNTITLED_PAGE_TITLE, now_ms)
+        return get_or_create_page(db, UNTITLED_PAGE_TITLE, now_ms,
+                                  canonical=canonical)
 
 
-def _hint_page(db: Db, page_title: RawTitle | None) -> CanonicalTitle | None:
+def _hint_page(db: Db, page_title: RawTitle | None,
+               canonical: _Canonical) -> CanonicalTitle | None:
     """The stored title of the page an orphan edit's page_title hint names
     now, or None. Canonicalized the way get_or_create_page looks pages up.
     A hint whose page was renamed or deleted since the client saw it simply
@@ -81,7 +87,7 @@ def _hint_page(db: Db, page_title: RawTitle | None) -> CanonicalTitle | None:
     referencing block, with rows only where some block referenced the page."""
     if page_title is None:
         return None
-    page = fetch_page(db, read_title(db, page_title))
+    page = fetch_page(db, canonical(page_title))
     return page["title"] if page is not None else None
 
 
@@ -289,7 +295,8 @@ def _conflict_header(db: Db, target_uid: BlockUid, day: str,
 
 def _conflict_landing(db: Db, target_uid: BlockUid,
                       now_ms: int,
-                      exclude: Collection[str] = ()) -> ConflictLanding:
+                      exclude: Collection[str] = (), *,
+                      canonical: _Canonical) -> ConflictLanding:
     """Where text that could not apply to target_uid lands: today's daily
     page, under its existing header for the block or at a fresh top-level
     slot. The day key is the local date (server timezone) of the batch's own
@@ -305,7 +312,7 @@ def _conflict_landing(db: Db, target_uid: BlockUid,
     local_day = datetime.fromtimestamp(now_ms / 1000).date()
     day = title_for_date(local_day)
     daily_title = canonical_daily_title(local_day)
-    daily = get_or_create_page(db, daily_title, now_ms)
+    daily = get_or_create_page(db, daily_title, now_ms, canonical=canonical)
     daily_page_id = daily["page_id"]
     next_top = db.select_one(
         "SELECT COALESCE(MAX(order_idx) + 1, 0) AS next_order_idx"
@@ -325,13 +332,14 @@ def _conflict_landing(db: Db, target_uid: BlockUid,
                            entry_uid=new_uid(), header=header)
 
 
-def _existing_page_id(db: Db, title: RawTitle) -> PageId | None:
+def _existing_page_id(db: Db, title: RawTitle,
+                      canonical: _Canonical) -> PageId | None:
     """The page `_resolve_page` would return for title, if it exists
     already; never creates one."""
-    canonical = read_title(db, title)
-    if is_blank_title(canonical):
-        canonical = read_title(db, UNTITLED_PAGE_TITLE)
-    page = fetch_page(db, canonical)
+    stored = canonical(title)
+    if is_blank_title(stored):
+        stored = canonical(UNTITLED_PAGE_TITLE)
+    page = fetch_page(db, stored)
     return page["page_id"] if page is not None else None
 
 
@@ -348,7 +356,8 @@ def _deleted_block_page(db: Db, uid: BlockUid) -> PageId | None:
 
 
 def _destination_siblings(db: Db, op: _AddressedOp, skip: Skip,
-                          parent_exists: bool) -> tuple[BlockUid, ...]:
+                          parent_exists: bool,
+                          canonical: _Canonical) -> tuple[BlockUid, ...]:
     """The live blocks of a skipped create's or move's destination sibling
     group, where the client's local apply placed the op (placement.ts),
     when only these journal rows would re-ship them: the orphan move of a
@@ -371,7 +380,7 @@ def _destination_siblings(db: Db, op: _AddressedOp, skip: Skip,
             "SELECT uid FROM blocks WHERE parent_uid = ?"
             " ORDER BY order_idx, uid", (op.parent_uid,))
     else:
-        page_id = (_existing_page_id(db, op.page_title)
+        page_id = (_existing_page_id(db, op.page_title, canonical)
                    if op.page_title is not None
                    else _deleted_block_page(db, op.uid))
         if page_id is None:
@@ -382,7 +391,7 @@ def _destination_siblings(db: Db, op: _AddressedOp, skip: Skip,
     return tuple(r["uid"] for r in rows)
 
 
-def _diverted_create_page(db: Db, op: CreateOp
+def _diverted_create_page(db: Db, op: CreateOp, canonical: _Canonical
                           ) -> tuple[CanonicalTitle | None, PageId | None]:
     """(the stored title of the page op.page_title names now, the page the
     client placed the diverted block on). The client placed it on its
@@ -391,7 +400,7 @@ def _diverted_create_page(db: Db, op: CreateOp
     A title that names no page (renamed since, or blank) falls back to the
     page the parent's own delete row recorded; None when neither is
     known."""
-    hint = fetch_page(db, read_title(db, op.page_title))
+    hint = fetch_page(db, canonical(op.page_title))
     if hint is not None:
         return hint["title"], hint["page_id"]
     assert op.parent_uid is not None  # a diverted create names its parent
@@ -400,34 +409,42 @@ def _diverted_create_page(db: Db, op: CreateOp
 
 def _skip_context(db: Db, op: _AddressedOp, skip: Skip,
                   block: BlockInfo | None, parent_exists: bool,
-                  now_ms: int) -> SkippedContext:
+                  now_ms: int, *, canonical: _Canonical) -> SkippedContext:
     """Context for an op classify_skip flagged. Resolves no op page_title
     (get_or_create would create a page for an op that isn't applied), and
     pays for today's daily page only when an entry lands."""
     hint_page: CanonicalTitle | None = None
     ghost_page: PageId | None = None
     if skip.kind == "diverted_create" and isinstance(op, CreateOp):
-        hint_page, ghost_page = _diverted_create_page(db, op)
+        hint_page, ghost_page = _diverted_create_page(db, op, canonical)
     if skip.landing_uid is None:
         return SkipContext(skip, ghost_page)
     if isinstance(op, UpdateTextOp):
-        hint_page = _hint_page(db, op.page_title)
+        hint_page = _hint_page(db, op.page_title, canonical)
     if skip.kind == "stale_page" and isinstance(op, CreateOp):
         # the header names the deleted page as a code span even when a
         # newer batch has re-created it since
         return LandedSkipContext(
-            skip, _conflict_landing(db, skip.landing_uid, now_ms), None,
-            _destination_siblings(db, op, skip, parent_exists), ghost_page)
+            skip,
+            _conflict_landing(db, skip.landing_uid, now_ms,
+                              canonical=canonical),
+            None,
+            _destination_siblings(db, op, skip, parent_exists, canonical),
+            ghost_page)
     if skip.kind in ("move_parent_missing", "move_cycle", "stale_page"):
         assert block is not None  # the block exists; its target does not fit
         page_title = _require_page_title(db, block.page_id)
         subtree = _subtree_deepest_first(db, op.uid)
         return StuckMoveContext(
-            skip, _conflict_landing(db, skip.landing_uid, now_ms),
+            skip,
+            _conflict_landing(db, skip.landing_uid, now_ms,
+                              canonical=canonical),
             page_title, subtree)
     return LandedSkipContext(
-        skip, _conflict_landing(db, skip.landing_uid, now_ms),
-        hint_page, _destination_siblings(db, op, skip, parent_exists),
+        skip,
+        _conflict_landing(db, skip.landing_uid, now_ms, canonical=canonical),
+        hint_page,
+        _destination_siblings(db, op, skip, parent_exists, canonical),
         ghost_page)
 
 
@@ -436,24 +453,14 @@ class BatchReplay:
     """What one batch's hashed edits share as it applies:
     - `allowance`, what its replays may still spend
       (`replay_core.MAX_BATCH_REPLAY_WORK`), the rows they read included;
-    - `reader`, its one title canonicalisation, the stale titles' when it
-      has them, else read on first use. One function for the whole batch,
-      so what a step derives under it (`replay_core.StepTitles`) is reused
-      by every op;
     - `histories`, each block's rewrite steps, read one base hash at a
       time as a walk reaches it (`walk`) and kept as the batch records
       more (`recorded`). A block can hold millions of rows, and many ops
       can edit one block, so each op reads only the hashes its walk
       reaches, and pays for them."""
     allowance: int
-    reader: Callable[[str], str] | None = None
     histories: dict[BlockUid, RewriteHistory] = dataclasses.field(
         default_factory=dict)
-
-    def canonical(self, db: Db) -> Callable[[str], str]:
-        if self.reader is None:
-            self.reader = title_reader(db)
-        return self.reader
 
     def history(self, uid: BlockUid) -> RewriteHistory:
         return self.histories.setdefault(uid, RewriteHistory.lazy())
@@ -516,14 +523,15 @@ class BatchReplay:
 
 def _context_for(db: Db, op: BlockOp, now_ms: int,
                  is_stale: TitleMatch | None = None, *,
-                 replay: BatchReplay) -> OpContext:
+                 replay: BatchReplay, canonical: _Canonical) -> OpContext:
     """Read what `op` needs, classify it once (classify_skip, then
     classify_text_edit for a hashed edit), and return the context type
     that classification calls for. `is_stale` matches the titles of pages
     deleted after the batch's `seen_seq`; None when there are none.
-    `replay` is what the batch's hashed edits share (`BatchReplay`)."""
+    `replay` is what the batch's hashed edits share (`BatchReplay`), and
+    `canonical` the batch's title reader."""
     if isinstance(op, CreatePageOp):
-        page = _resolve_page(db, op.page_title, now_ms)
+        page = _resolve_page(db, op.page_title, now_ms, canonical=canonical)
         return PageContext(page["page_id"])
     block = _block_info(db, op.uid)
     parent_uid = (op.parent_uid if isinstance(op, (CreateOp, MoveOp))
@@ -548,20 +556,22 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
                          page_stale)
     if skip is not None:
         return _skip_context(db, op, skip, block, parent is not None,
-                             now_ms)
+                             now_ms, canonical=canonical)
     if isinstance(op, CreateOp):
         # Under a live parent the block lands on the parent's page, so the
         # op's page_title is never resolved: a title gone stale since
         # another device moved the parent would get_or_create an empty
         # page. It places only a top-level create.
         page_id = (parent.page_id if parent is not None
-                   else _resolve_page(db, op.page_title, now_ms)["page_id"])
+                   else _resolve_page(db, op.page_title, now_ms,
+                                      canonical=canonical)["page_id"])
         return CreateContext(uid_taken=block is not None, page_id=page_id,
                              depth=parent_depth + 1)
     assert block is not None  # classify_skip covered its absence
     if isinstance(op, MoveOp):
         # same rule as create: page_title places only a top-level move
-        page_id = (_resolve_page(db, op.page_title, now_ms)["page_id"]
+        page_id = (_resolve_page(db, op.page_title, now_ms,
+                                 canonical=canonical)["page_id"]
                    if op.page_title is not None and parent is None
                    else None)
         subtree, height = _subtree_with_height(db, op.uid)
@@ -581,7 +591,8 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
         # inside the subtree being deleted (a block on today's daily page
         # can hold its own earlier header): that header gets a fresh one.
         landing = _conflict_landing(db, op.uid, now_ms,
-                                    exclude={r.uid for r in rows})
+                                    exclude={r.uid for r in rows},
+                                    canonical=canonical)
         copy_uids = {r.uid: new_uid() for r in rows if r.uid != op.uid}
         return DeleteConflictContext(
             block, rows, _require_page_title(db, block.page_id), landing,
@@ -596,19 +607,14 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
         history = replay.walk(db, op.uid, base)
         # a replay matches titles the way the rename or delete did: under
         # plain-space titles `[[ Old ]]` is the page Old, and left linked
-        # it re-creates the page. The flag is read only for an edit with a
-        # rewrite row to replay.
-        if not (history.is_unread(base)
-                or history.newest(base, frozenset()) is not None):
-            canonical: Callable[[str], str] = normalize_title
-        else:
-            canonical = replay.canonical(db)
+        # it re-creates the page
         outcome = classify_text_edit(
             op.text, op.base_text_hash, row["text"], history, canonical,
             replay.allowance)
         if outcome.kind == "over_limit":
             return ReplayOverLimitContext(
-                block, row["title"], _conflict_landing(db, op.uid, now_ms),
+                block, row["title"],
+                _conflict_landing(db, op.uid, now_ms, canonical=canonical),
                 outcome)
         if outcome.kind != "conflict":
             return TextEditContext(block, outcome)
@@ -616,11 +622,13 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
         # queries
         return TextConflictContext(
             block, row["text"], row["title"],
-            _conflict_landing(db, op.uid, now_ms), outcome)
+            _conflict_landing(db, op.uid, now_ms, canonical=canonical),
+            outcome)
     return BlockContext(block)
 
 
-def _execute(db: Db, eff: Effect, now_ms: int) -> None:
+def _execute(db: Db, eff: Effect, now_ms: int, *,
+             canonical: _Canonical) -> None:
     if isinstance(eff, ShiftSiblings):
         db.execute(
             "UPDATE blocks SET order_idx = order_idx + 1"
@@ -659,7 +667,8 @@ def _execute(db: Db, eff: Effect, now_ms: int) -> None:
             "UPDATE blocks SET view_type = ?, updated_at = ? WHERE uid = ?",
             (eff.view_type, now_ms, eff.uid))
     elif isinstance(eff, ReindexRefs):
-        reindex_refs_for_text(db, eff.uid, eff.text, now_ms)
+        reindex_refs_for_text(db, eff.uid, eff.text, now_ms,
+                              canonical=canonical)
     elif isinstance(eff, TouchPage):
         db.execute("UPDATE pages SET updated_at = ? WHERE id = ?",
                    (now_ms, eff.page_id))
@@ -771,16 +780,18 @@ def apply_batch(db: Db, judged: JudgedBatch,
     batch = judged.batch
     broadcast_ops: list[dict[str, object]] = []
     skipped: list[SkippedOp] = []
+    # One reader for the whole batch: every title it resolves, and every
+    # step a replay derives (`replay_core.StepTitles`), uses this function.
+    canonical = title_reader(db)
     # proptest/sync_server.py replaces this through this module global, so
     # call it by its bare name.
     stale = stale_titles(db, batch.seen_seq)
     is_stale: TitleMatch | None = None
-    stale_canonical = title_reader(db) if stale else None
-    if stale_canonical is not None:
+    if stale:
 
         def is_stale(raw: str) -> bool:
-            return stale_canonical(normalize_title(raw)) in stale
-    replay = BatchReplay(MAX_BATCH_REPLAY_WORK, stale_canonical)
+            return canonical(normalize_title(raw)) in stale
+    replay = BatchReplay(MAX_BATCH_REPLAY_WORK)
     for index, op in enumerate(batch.ops):
         sent = op
         if is_stale is not None:
@@ -788,31 +799,29 @@ def apply_batch(db: Db, judged: JudgedBatch,
                 # the replica's local page goes through dropStrandedLocalPages
                 continue
             op = unlink_stale_text(op, is_stale)
-        ctx = _context_for(db, op, now_ms, is_stale, replay=replay)
+        ctx = _context_for(db, op, now_ms, is_stale, replay=replay,
+                           canonical=canonical)
         effects = plan_op(index, op, ctx)
         replayed: tuple[RewriteStep, ...] = ()
-        replay_canonical = normalize_title
         known: Mapping[StepKey, str] = {}
         if isinstance(ctx, HASHED_EDIT_CONTEXTS):
             replay.charge(ctx.outcome)
             # an over_limit edit lands as sent: no replayed text to record
             if ctx.outcome.kind != "over_limit":
                 replayed = ctx.outcome.replayed
-                replay_canonical = ctx.outcome.canonical
                 known = ctx.outcome.known
         if replayed or (is_stale is not None and op is not sent):
             # proptest/sync_server.py replaces this through this module
             # global, so call it by its bare name.
             effects += rewrite_effects(
-                sent, effects, stale, stale_canonical or replay_canonical,
-                replayed,
+                sent, effects, stale, canonical, replayed,
                 ctx.outcome.text if isinstance(ctx, TextEditContext) else None,
                 known)
         for eff in effects:
             if isinstance(eff, RecordRewrite):
                 eff = RecordRewrite(eff.uid,
                                     replay.recorded(db, eff.uid, eff.rewrites))
-            _execute(db, eff, now_ms)
+            _execute(db, eff, now_ms, canonical=canonical)
         if isinstance(ctx, (*SKIPPED_CONTEXTS, ReplayOverLimitContext)):
             skipped.append(skip_report(index, op, ctx))
         else:

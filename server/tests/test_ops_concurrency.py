@@ -56,8 +56,9 @@ def test_concurrent_rename_cannot_resurrect_the_old_title(
     ml_title = canonical_title_of("Machine Learning")
     ml_renamed_title = canonical_title_of("ML Renamed")
 
-    def racing(db, page_title: RawTitle | None):
-        stored = real_hint_page(db, page_title)  # the page: not renamed yet
+    def racing(db, page_title: RawTitle | None, canonical):
+        # the page: not renamed yet
+        stored = real_hint_page(db, page_title, canonical)
         con2 = open_db(seeded_config.db_path)
         con2.execute("PRAGMA busy_timeout=50")
         page = fetch_page(con2, ml_title)

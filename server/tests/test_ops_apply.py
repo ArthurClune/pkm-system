@@ -18,6 +18,7 @@ from pkm.server.db import open_db
 from pkm.server.ops_apply import (_subtree_deepest_first, parent_chain,
                                   subtree_rows, apply_batch)
 from pkm.server.ops_core import DeleteBlocks, OpError, SubtreeRow, judge_batch
+from pkm.server.sync_meta import title_reader
 from pkm.test_data.ids import batch_id_of, client_id_of, order_idx_of, raw_title_of, sha_of, uid_of
 
 NOW = 1_800_000_000_000
@@ -324,10 +325,10 @@ def test_delete_removes_entire_deep_subtree(db, depth, hashed, monkeypatch):
     deletes = []
     execute = ops_apply._execute
 
-    def recording_execute(db, eff, now_ms):
+    def recording_execute(db, eff, now_ms, **kwargs):
         if isinstance(eff, DeleteBlocks):
             deletes.append(eff.uids)
-        return execute(db, eff, now_ms)
+        return execute(db, eff, now_ms, **kwargs)
 
     monkeypatch.setattr(ops_apply, "_execute", recording_execute)
     op = {"op": "delete", "uid": "level0"}
@@ -441,7 +442,8 @@ def test_diverged_delete_mints_header_then_root_then_descendants(
                         lambda n: next(minted))
     op = DeleteOp(op="delete", uid=uid_of("uid_b2"),
                   base_subtree_hash=sha_of("0" * 64))
-    ctx = ops_apply._context_for(db, op, NOW, replay=_replay())
+    ctx = ops_apply._context_for(db, op, NOW, replay=_replay(),
+                                 canonical=title_reader(db))
     assert isinstance(ctx, ops_core.DeleteConflictContext)
     assert isinstance(ctx.landing.header, ops_core.FreshHeader)
     assert ctx.landing.header.uid == "hdrmint00001"
@@ -708,6 +710,41 @@ def _flag_reads(db, op) -> int:
     apply_batch(db, judge_batch(_batch(op)), NOW)
     trace(db, None)
     return sum("sync_meta" in sql and "SELECT" in sql for sql in seen)
+
+
+def _title_flag_reads(db, *ops) -> int:
+    seen: list[str] = []
+    trace(db, seen.append)
+    apply_batch(db, judge_batch(_batch(*ops)), NOW)
+    trace(db, None)
+    return sum("plain_space_title_canonicalization" in sql
+               and "SELECT" in sql for sql in seen)
+
+
+def test_a_batch_reads_the_title_flag_once(db):
+    # A new page, two links to index, a conflict landing on today's daily
+    # page with its header's links, and an orphan edit's page hint: every
+    # title the batch resolves goes through the one reader it took first.
+    reads = _title_flag_reads(
+        db,
+        {"op": "create", "uid": "flag_c1", "page_title": "Flag Once Page",
+         "order_idx": 0, "text": "[[Flag A]] and [[Flag B]]"},
+        {"op": "update_text", "uid": "uid_b6", "text": "mine",
+         "base_text_hash": text_hash("stale")},
+        {"op": "update_text", "uid": "flag_gone1", "text": "lost",
+         "page_title": "Machine Learning"})
+    db.commit()
+    assert db.select_one(
+        "SELECT count(*) AS n FROM pages WHERE title = ?", (NOW_DAY,)
+    )["n"] == 1
+    assert reads == 1
+
+
+def test_a_batch_that_resolves_no_title_reads_the_flag_once(db):
+    # The reader is taken before the first op, so a batch that resolves no
+    # title pays one indexed read for it too.
+    assert _title_flag_reads(db, {"op": "set_collapsed", "uid": "uid_b1",
+                                  "collapsed": True}) == 1
 
 
 def _rewritten_block(db, uid: BlockUid, kind, t0, t1):
@@ -1003,7 +1040,8 @@ def test_context_for_picks_the_context_its_classification_calls_for(
     # it for every way an op can plan. `detail` is the skip kind, the text
     # edit outcome, or whether a create's uid is taken.
     parsed = _batch(op).ops[0]
-    ctx = ops_apply._context_for(db, parsed, NOW, replay=_replay())
+    ctx = ops_apply._context_for(db, parsed, NOW, replay=_replay(),
+                                 canonical=title_reader(db))
     assert type(ctx).__name__ == context
     if isinstance(ctx, ops_core.SKIPPED_CONTEXTS):
         assert ctx.skip.kind == detail

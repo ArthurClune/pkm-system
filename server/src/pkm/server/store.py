@@ -76,8 +76,10 @@ def fetch_page(db: Db, title: CanonicalTitle) -> Row | None:
         " WHERE title = ?", (title,))
 
 
-def get_or_create_page(db: Db, title: RawTitle,
-                       now_ms: int) -> Row:
+def get_or_create_page(
+    db: Db, title: RawTitle, now_ms: int, *,
+    canonical: Callable[[str], CanonicalTitle] | None = None,
+) -> Row:
     """Canonicalize at the choke point shared by every creation path.
 
     Whitespace runs always fold (refs.normalize_title), because a lookup
@@ -90,8 +92,12 @@ def get_or_create_page(db: Db, title: RawTitle,
     Blankness remains a separate policy: a title that is all whitespace is
     refused with BlankTitleError. Interactive routes translate that to 422;
     offline-replayed ops substitute their fixed fallback rather than wedging
-    the durable queue."""
-    canonical_title = read_title(db, title)
+    the durable queue.
+
+    `canonical` is the caller's `title_reader`, for a caller that resolves
+    many titles; None reads the flag here."""
+    canonical_title = (read_title(db, title) if canonical is None
+                       else canonical(title))
     if is_blank_title(canonical_title):
         raise BlankTitleError(canonical_title)
     if title_syntax_reason(canonical_title) is not None:
@@ -116,7 +122,9 @@ def get_or_create_page(db: Db, title: RawTitle,
 
 
 def index_ref(db: Db, src_uid: BlockUid,
-             ref_title: NormalizedTitle, ref_kind: str, now_ms: int) -> None:
+              ref_title: NormalizedTitle, ref_kind: str, now_ms: int, *,
+              canonical: Callable[[str], CanonicalTitle] | None = None,
+              ) -> None:
     """Resolve one extracted Ref onto a page and record it in `refs`.
 
     refs.extract() now filters blank titles itself, including plain-space
@@ -130,9 +138,10 @@ def index_ref(db: Db, src_uid: BlockUid,
     MAX_PAGE_TITLE_CHARS is skipped too, so a server-made text never
     creates a page past the cap and never fails for one; a page stored
     before the cap is found, not created, so it keeps its backlink.
+    `canonical` is as on get_or_create_page.
     """
     try:
-        page = get_or_create_page(db, ref_title, now_ms)
+        page = get_or_create_page(db, ref_title, now_ms, canonical=canonical)
     except (BlankTitleError, ForbiddenTitleError, TitleTooLongError):
         return
     db.execute("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
@@ -149,8 +158,10 @@ def reindex_block_refs(db: Db, src_uid: BlockUid,
                    [(src_uid, t) for t in targets])
 
 
-def reindex_refs_for_text(db: Db, src_uid: BlockUid, text: str,
-                          now_ms: int) -> None:
+def reindex_refs_for_text(
+    db: Db, src_uid: BlockUid, text: str, now_ms: int, *,
+    canonical: Callable[[str], CanonicalTitle] | None = None,
+) -> None:
     """Rebuild one block's whole outgoing ref index from its text.
 
     The invariant every write path shares: `refs` and `block_refs` are
@@ -159,13 +170,15 @@ def reindex_refs_for_text(db: Db, src_uid: BlockUid, text: str,
     application (ops_apply's ReindexRefs effect) and snapshot rewriting
     (rewrite_snapshotted_blocks, i.e. rename/merge and the title migration) --
     go through here, so the ritual stays in lockstep with the extractor and
-    the schema. `now_ms` only stamps pages that a `[[link]]` creates. Never
-    commits: the caller owns the transaction.
+    the schema. `now_ms` only stamps pages that a `[[link]]` creates;
+    `canonical` is as on get_or_create_page. Never commits: the caller owns
+    the transaction.
     """
     parsed = extract(text)
     db.execute("DELETE FROM refs WHERE src_block_uid = ?", (src_uid,))
     for ref in parsed.refs:
-        index_ref(db, src_uid, ref.title, ref.kind, now_ms)
+        index_ref(db, src_uid, ref.title, ref.kind, now_ms,
+                  canonical=canonical)
     reindex_block_refs(db, src_uid, parsed.block_refs)
 
 

@@ -1,6 +1,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
+import { rawTitleOf } from "../src/test-mint";
 
 // Another device reparents the block being typed in, within the same page.
 // The reparent remounts the textarea with no blur while the draft is still
@@ -20,7 +21,7 @@ async function login(page: Page) {
 
 test("a remote reparent of the block being typed in keeps the typed text", async ({ page }) => {
   const stamp = Date.now();
-  const title = `Remote Move Draft ${stamp}`;
+  const title = rawTitleOf(`Remote Move Draft ${stamp}`);
   const tag = `SfpHeld${stamp}`;
   const u1 = `e2esfp1a${stamp}`.slice(0, 32);
   const u2 = `e2esfp1b${stamp}`.slice(0, 32);

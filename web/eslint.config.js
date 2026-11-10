@@ -10,8 +10,9 @@
 //     floated promises, promise-valued void callbacks (e.g. React event
 //     handlers), thrown non-Errors, and untyped caught errors.
 //   * Import control: concrete JSON requests use typedClient, raw apiFetch
-//     stays at the transport boundary, and only tests import test-helpers,
-//     testDb and memReplica.
+//     stays at the transport boundary, only tests import test-helpers,
+//     test-mint, testDb and memReplica, and the Playwright specs, which
+//     vitest cannot load into, mint through test-mint alone.
 //   * No `any` flowing through production code (no-explicit-any and the
 //     no-unsafe-* rules): an untyped JSON value reaching code that assumes
 //     its shape fails at runtime instead of at the type check. Repo rules
@@ -45,17 +46,18 @@ const apiFetchBan = {
     + "raw apiFetch is reserved for transport boundaries.",
 };
 
-// Every spelling of the module (`../test-helpers`, `./test-helpers.ts`,
-// `../test-helpers.js`), static or dynamic.
+// Every spelling of the test helpers and the test mint module they
+// re-export (`../test-helpers`, `./test-mint.ts`, `../test-helpers.js`),
+// static or dynamic.
 const TEST_HELPERS_MESSAGE =
   "test helpers mint brands without a parse; product code reads or parses "
   + "them";
 const testHelpersBan = {
-  group: ["**/test-helpers*"],
+  group: ["**/test-helpers*", "**/test-mint*"],
   message: TEST_HELPERS_MESSAGE,
 };
 const testHelpersDynamicBan = {
-  selector: "ImportExpression[source.value=/test-helpers/]",
+  selector: "ImportExpression[source.value=/test-helpers|test-mint/]",
   message: TEST_HELPERS_MESSAGE,
 };
 
@@ -79,11 +81,60 @@ const testFixturesDynamicBan = {
 const templateSourceBan = {
   selector:
     "ImportExpression > TemplateLiteral > "
-    + "TemplateElement[value.raw=/test-helpers|testDb|memReplica/]",
+    + "TemplateElement[value.raw=/test-helpers|test-mint|testDb|memReplica/]",
   message:
     "test code is not imported by product code, whatever the import() "
     + "spelling: " + TEST_HELPERS_MESSAGE + "; testDb and memReplica are "
     + "fixtures for tests",
+};
+
+// One project service serves every block: typescript-eslint builds it once,
+// from the first file it parses, so the options are the same everywhere.
+// playwright.config.ts sits in no tsconfig.json's `include` that the service
+// finds (the nearest is web/tsconfig.json), so it falls to the default
+// project, e2e/tsconfig.json.
+const typed = {
+  languageOptions: {
+    parserOptions: {
+      projectService: {
+        allowDefaultProject: ["playwright.config.ts"],
+        defaultProject: "e2e/tsconfig.json",
+      },
+      tsconfigRootDir: import.meta.dirname,
+    },
+  },
+  linterOptions: {
+    reportUnusedDisableDirectives: "error",
+  },
+};
+
+const rules = {
+  "@typescript-eslint/no-floating-promises": "error",
+  "@typescript-eslint/no-misused-promises": "error",
+  "@typescript-eslint/only-throw-error": "error",
+  "@typescript-eslint/use-unknown-in-catch-callback-variable": "error",
+  "@typescript-eslint/no-explicit-any": "error",
+  "@typescript-eslint/no-unsafe-assignment": "error",
+  "@typescript-eslint/no-unsafe-member-access": "error",
+  "@typescript-eslint/no-unsafe-return": "error",
+  "@typescript-eslint/no-unsafe-argument": "error",
+  "@typescript-eslint/no-unsafe-call": "error",
+  "brands/name-carries-brand": "error",
+  "brands/no-brand-assertion": "error",
+  "brands/no-brand-bypass": "error",
+  "repo/select-keys-literal": "error",
+  "repo/ts-expect-error-in-probe": "error",
+  "@typescript-eslint/ban-ts-comment": ["error", {
+    "ts-ignore": true,
+    "ts-nocheck": true,
+    "ts-expect-error": "allow-with-description",
+    "ts-check": false,
+  }],
+  "no-restricted-imports": ["error", {
+    patterns: [apiFetchBan, testHelpersBan, testFixturesBan],
+  }],
+  "no-restricted-syntax": ["error",
+    testHelpersDynamicBan, testFixturesDynamicBan, templateSourceBan],
 };
 
 export default tseslint.config(
@@ -112,50 +163,22 @@ export default tseslint.config(
     // Tests and test support included: agents copy the code they read, and
     // tests are most of it.
     files: ["src/**/*.{ts,tsx}", "tooling/**/*.{ts,tsx}"],
-    languageOptions: {
-      parserOptions: {
-        projectService: true,
-        tsconfigRootDir: import.meta.dirname,
-      },
-    },
-    linterOptions: {
-      reportUnusedDisableDirectives: "error",
-    },
-    plugins: {
-      "react-hooks": reactHooks,
-      brands,
-      repo,
-    },
+    ...typed,
+    plugins: { "react-hooks": reactHooks, brands, repo },
     rules: {
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "error",
-      "@typescript-eslint/no-floating-promises": "error",
-      "@typescript-eslint/no-misused-promises": "error",
-      "@typescript-eslint/only-throw-error": "error",
-      "@typescript-eslint/use-unknown-in-catch-callback-variable": "error",
-      "@typescript-eslint/no-explicit-any": "error",
-      "@typescript-eslint/no-unsafe-assignment": "error",
-      "@typescript-eslint/no-unsafe-member-access": "error",
-      "@typescript-eslint/no-unsafe-return": "error",
-      "@typescript-eslint/no-unsafe-argument": "error",
-      "@typescript-eslint/no-unsafe-call": "error",
-      "brands/name-carries-brand": "error",
-      "brands/no-brand-assertion": "error",
-      "brands/no-brand-bypass": "error",
-      "repo/select-keys-literal": "error",
-      "repo/ts-expect-error-in-probe": "error",
-      "@typescript-eslint/ban-ts-comment": ["error", {
-        "ts-ignore": true,
-        "ts-nocheck": true,
-        "ts-expect-error": "allow-with-description",
-        "ts-check": false,
-      }],
-      "no-restricted-imports": ["error", {
-        patterns: [apiFetchBan, testHelpersBan, testFixturesBan],
-      }],
-      "no-restricted-syntax": ["error",
-        testHelpersDynamicBan, testFixturesDynamicBan, templateSourceBan],
+      ...rules,
     },
+  },
+  {
+    // The Playwright specs and their config hold no React, and the fixture
+    // callback Playwright names `use` is not a hook, so the hooks rules stay
+    // off here.
+    files: ["e2e/**/*.{ts,mjs}", "playwright.config.ts"],
+    ...typed,
+    plugins: { brands, repo },
+    rules,
   },
   {
     // Transport boundaries may import apiFetch, but not the test helpers.
@@ -170,9 +193,10 @@ export default tseslint.config(
   },
   {
     // Tests by name and by location (the brand registry's testCode) may
-    // import the test mint module. Last, so a later override cannot take
-    // that back; a transport-layer test that needs apiFetch gets its own
-    // block after this one.
+    // import the test mint module. After the product blocks, so none of
+    // them takes that back; a transport-layer test that needs apiFetch, and
+    // the e2e specs, which may not load vitest, get their own blocks after
+    // this one.
     files: testFileGlobs,
     rules: {
       "no-restricted-imports": ["error", { patterns: [apiFetchBan] }],
@@ -190,6 +214,17 @@ export default tseslint.config(
     ],
     rules: {
       "no-restricted-imports": "off",
+    },
+  },
+  {
+    // test-helpers imports vitest, which fails to load under Playwright.
+    files: ["e2e/**/*.{ts,mjs}"],
+    rules: {
+      "no-restricted-imports": ["error", { patterns: [apiFetchBan, {
+        group: ["**/test-helpers*"],
+        message: "test-helpers imports vitest, which Playwright cannot "
+          + "load; mint from src/test-mint",
+      }] }],
     },
   },
 );

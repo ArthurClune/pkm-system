@@ -3,7 +3,11 @@
 // the block where it was, sends nothing, and says why in the page's notice
 // slot. A command that stays within the cap still applies.
 import { type Page } from "@playwright/test";
+import type { BlockUid, RawTitle } from "../src/api/brands";
+import type { components } from "../src/api/types";
+import { rawTitleOf, uidOf } from "../src/test-mint";
 import { expect, test } from "./fixtures";
+import { serverJson, wireModel } from "./wireJson";
 
 const PASSWORD = "e2e-pw";
 const NOTICE = "Blocks can't nest more than 100 levels deep.";
@@ -16,7 +20,7 @@ async function login(page: Page) {
   await expect(page.locator(".ws-banner")).toHaveCount(0);
 }
 
-const created: string[] = [];
+const created: RawTitle[] = [];
 test.afterEach(async ({ page }) => {
   for (const title of created.splice(0)) {
     await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
@@ -25,7 +29,7 @@ test.afterEach(async ({ page }) => {
 
 // The uid of the row's parent block, or null at top level: a row sits in
 // div.block, whose parent is the enclosing div.block-children.
-const parentOf = (page: Page, uid: string) =>
+const parentOf = (page: Page, uid: BlockUid) =>
   page.locator(`.block-row[data-uid="${uid}"]`).evaluate((row) => {
     const children = row.parentElement?.parentElement;
     if (!children?.classList.contains("block-children")) return null;
@@ -34,16 +38,16 @@ const parentOf = (page: Page, uid: string) =>
     return parentRow?.dataset.uid ?? null;
   });
 
-type Op = { op: string; uid: string; parent_uid?: string | null };
+type Op = { op: string; uid: BlockUid; parent_uid?: BlockUid | null };
 
 test("Tab at level 100 is refused with the notice and sends nothing",
      async ({ page }) => {
   await login(page);
   const stamp = Date.now().toString(36);
-  const title = `Depth Cap ${stamp}`;
-  const uid = (level: number) => `dc${stamp}l${level}`;
-  const a100 = `dc${stamp}a100`;
-  const b100 = `dc${stamp}b100`;
+  const title = rawTitleOf(`Depth Cap ${stamp}`);
+  const uid = (level: number) => uidOf(`dc${stamp}l${level}`);
+  const a100 = uidOf(`dc${stamp}a100`);
+  const b100 = uidOf(`dc${stamp}b100`);
   created.push(title);
   expect((await page.request.post("/api/pages", { data: { title } })).ok())
     .toBeTruthy();
@@ -67,7 +71,7 @@ test("Tab at level 100 is refused with the notice and sends nothing",
   const answered: Promise<unknown>[] = [];
   page.on("request", (request) => {
     if (request.method() === "POST" && request.url().endsWith("/api/ops")) {
-      sent.push(...((request.postDataJSON() as { ops?: Op[] } | null)?.ops ?? []));
+      sent.push(...(wireModel<{ ops?: Op[] } | null>(request.postDataJSON())?.ops ?? []));
       answered.push(request.response());
     }
   });
@@ -106,6 +110,6 @@ test("Tab at level 100 is refused with the notice and sends nothing",
   expect(sent.some((op) => op.uid === b100)).toBe(false);
   await Promise.all(answered);
   const res = await page.request.get(`/api/block/${uid(98)}`);
-  const body = await res.json() as { block: { children: { uid: string }[] } };
+  const body = await serverJson<components["schemas"]["BlockPayload"]>(res);
   expect(body.block.children.map((c) => c.uid)).toEqual([uid(99)]);
 });

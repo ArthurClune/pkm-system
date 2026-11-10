@@ -1,5 +1,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { rawTitleOf, uidOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
 
 // A referenced block shows an incoming-reference count badge in
 // the right gutter; clicking it pops up the referencing locations, and an
@@ -15,17 +17,17 @@ async function login(page: Page) {
   await expect(page.locator(".ws-banner")).toHaveCount(0);
 }
 
-async function createPage(page: Page, title: string) {
+async function createPage(page: Page, title: RawTitle) {
   const response = await page.request.post("/api/pages", { data: { title } });
   expect(response.ok()).toBeTruthy();
 }
 
 test("badge shows the incoming count and its popover navigates", async ({ page }) => {
   const stamp = Date.now();
-  const target = `RefBadgeTarget${stamp}`;
-  const source = `RefBadgeSource${stamp}`;
-  const targetUid = `e2ed31ftgt${stamp}`.slice(0, 32);
-  const sourceUid = `e2ed31fsrc${stamp}`.slice(0, 32);
+  const target = rawTitleOf(`RefBadgeTarget${stamp}`);
+  const source = rawTitleOf(`RefBadgeSource${stamp}`);
+  const targetUid = uidOf(`e2ed31ftgt${stamp}`.slice(0, 32));
+  const sourceUid = uidOf(`e2ed31fsrc${stamp}`.slice(0, 32));
   await login(page);
   await createPage(page, target);
   await createPage(page, source);

@@ -1,0 +1,10 @@
+{
+  "//": "The e2e specs and playwright.config.ts as tsc and the lint's project service see them. Node types for the Playwright runner, and Vite's for the src modules the specs import types and test mints from; the DOM lib stays, since page.evaluate bodies run in the page. checkJs covers the worker script, which carries JSDoc types.",
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "vite/client"],
+    "allowJs": true,
+    "checkJs": true
+  },
+  "include": ["**/*.ts", "**/*.mjs", "../playwright.config.ts"]
+}

@@ -3,6 +3,8 @@
 // live block tree — so editing a heading changes the list with no refresh.
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { rawTitleOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
 
 const PASSWORD = "e2e-pw";
 
@@ -70,25 +72,25 @@ test("a {{toc}} block lists the page's headings and follows their edits",
 
 // A long page whose last heading is far below the toc. Seeded through
 // /api/ops so the jump has real distance to cover; deleted afterwards.
-const created: string[] = [];
+const created: RawTitle[] = [];
 test.afterEach(async ({ page }) => {
   for (const title of created.splice(0)) {
     await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
   }
 });
 
-async function longPage(page: Page): Promise<string> {
-  const title = `Toc Long ${Date.now()}`;
+async function longPage(page: Page): Promise<RawTitle> {
+  const title = rawTitleOf(`Toc Long ${Date.now()}`);
   created.push(title);
   expect((await page.request.post("/api/pages", { data: { title } })).ok()).toBeTruthy();
   const stamp = Date.now().toString(36);
   const texts = ["{{toc}}", ...Array.from({ length: 80 }, (_, i) => `filler ${i}`)];
-  const ops = texts.map((text, i) => ({
+  const ops: Record<string, unknown>[] = texts.map((text, i) => ({
     op: "create", uid: `toc${stamp}f${i}`, page_title: title, parent_uid: null,
     order_idx: i, text,
   }));
   ops.push({ op: "create", uid: `toc${stamp}tgt`, page_title: title, parent_uid: null,
-             order_idx: texts.length, text: "Far Heading", heading: 2 } as never);
+             order_idx: texts.length, text: "Far Heading", heading: 2 });
   const res = await page.request.post("/api/ops", { data: {
     client_id: "e2e-toc", batch_id: `e2e-toc-${stamp}`, ops } });
   expect(res.ok()).toBeTruthy();

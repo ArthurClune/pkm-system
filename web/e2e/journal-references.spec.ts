@@ -1,5 +1,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import type { PagePayload } from "../src/api/payloads";
+import { serverJson } from "./wireJson";
 
 const PASSWORD = "e2e-pw";
 
@@ -46,9 +48,7 @@ test("a [[daily note]] reference from another page shows under that day " +
     const res = await page.request.get(
       `/api/page/${encodeURIComponent(todayTitle)}`);
     if (!res.ok()) return false;
-    const body = await res.json() as {
-      backlinks: { groups: { page_title: string; items: { text: string }[] }[] };
-    };
+    const body = await serverJson<PagePayload>(res);
     return body.backlinks.groups.some((g) => g.page_title === src);
   }, { timeout: 20_000 }).toBe(true);
 

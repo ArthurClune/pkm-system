@@ -321,8 +321,8 @@ describe("brands plugin paths", () => {
   });
 
   it("makes the test mint module a mint site for every brand", () => {
-    expect(isMintSite("SyncSeq", "web/src/test-helpers.ts")).toBe(true);
-    expect(isMintSite("ParkedTitle", "web/src/test-helpers.ts")).toBe(true);
+    expect(isMintSite("SyncSeq", "web/src/test-mint.ts")).toBe(true);
+    expect(isMintSite("ParkedTitle", "web/src/test-mint.ts")).toBe(true);
     expect(isMintSite("SyncSeq", "web/src/props/ops/compare.ts")).toBe(false);
   });
 
@@ -663,7 +663,7 @@ describe("tests under the lint", () => {
       + 'export const u = "x" as BlockUid;\n');
     expect(rulesOf(found)).toEqual(["brands/no-brand-assertion"]);
     expect(found[0].message).toContain("uidOf");
-    expect(found[0].message).toContain("test-helpers");
+    expect(found[0].message).toContain("test-mint");
   }, ESLINT_TIMEOUT_MS);
 
   it("a test file may not widen select's keys", async () => {
@@ -685,7 +685,7 @@ describe("tests under the lint", () => {
     expect(found[0].message).toContain("pageIdOf");
   }, ESLINT_TIMEOUT_MS);
 
-  it("test-helpers.ts may mint every brand", async () => {
+  it("test-mint.ts may mint every brand", async () => {
     // `up` leads from the linted file to src/.
     const text = (up: string): string =>
       `import type { BlockUid, PageId, Sha256Hex, SyncSeq } from "${up}api/brands";\n`
@@ -697,7 +697,7 @@ describe("tests under the lint", () => {
       + "export const d = (n: number) => n as SyncSeq;\n"
       + "export const e = (n: number) => n as PendingRowId;\n"
       + "export const f = (n: number) => n as RequestId;\n";
-    expect(await messagesFor("src/test-helpers.ts", text("./"))).toEqual([]);
+    expect(await messagesFor("src/test-mint.ts", text("./"))).toEqual([]);
     const outside = await messagesFor("src/props/ops/compare.ts", text("../../"));
     expect(rulesOf(outside)).toEqual(
       Array<string>(6).fill("brands/no-brand-assertion"));
@@ -717,6 +717,8 @@ describe("tests under the lint", () => {
       'import { uidOf } from "./test-helpers.ts";\nvoid uidOf;\n',
       'import { uidOf } from "../test-helpers.js";\nvoid uidOf;\n',
       'export const load = () => import("../test-helpers");\n',
+      'import { uidOf } from "../test-mint";\nvoid uidOf;\n',
+      'export const load = () => import("./test-mint.ts");\n',
     ];
     const bans = new Set(["no-restricted-imports", "no-restricted-syntax"]);
     const restricted = async (rel: string): Promise<string[]> => {
@@ -741,6 +743,32 @@ describe("tests under the lint", () => {
     expect(await restricted("src/outline/tree.test.ts")).toEqual([]);
     expect(await restricted("src/props/ops/example.ts")).toEqual([]);
     expect(await restricted("src/replica/testDb.ts")).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("an e2e spec mints from test-mint and may not load test-helpers", async () => {
+    const helpers = await messagesFor("e2e/undo.spec.ts",
+      'import { uidOf } from "../src/test-helpers";\nvoid uidOf;\n');
+    expect(rulesOf(helpers)).toEqual(["no-restricted-imports"]);
+    expect(helpers[0].message).toContain("vitest");
+    expect(await messagesFor("e2e/undo.spec.ts",
+      'import { uidOf } from "../src/test-mint";\nvoid uidOf;\n')).toEqual([]);
+    const named = await messagesFor("e2e/undo.spec.ts",
+      "export function f(uid: string): string {\n  return uid;\n}\n");
+    expect(rulesOf(named)).toEqual(["brands/name-carries-brand"]);
+    expect(named[0].message).toContain("from web/src/test-mint.ts");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("e2e fixtures are not judged as React hooks", async () => {
+    // Playwright names the fixture callback `use`.
+    const rel = "e2e/fixtures.ts";
+    const found = await messagesFor(rel, readFileSync(join(webRoot, rel), "utf8"));
+    expect(found).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("playwright.config.ts gets the typed rules", async () => {
+    const found = await messagesFor("playwright.config.ts",
+      'export const n: number = JSON.parse("1");\n');
+    expect(rulesOf(found)).toEqual(["@typescript-eslint/no-unsafe-assignment"]);
   }, ESLINT_TIMEOUT_MS);
 
   it("product code may not import the test fixtures, tests may", async () => {
@@ -774,7 +802,7 @@ describe("tests under the lint", () => {
     expect(rulesOf(found)).toEqual(["brands/no-brand-bypass"]);
     expect(found[0].message).toContain("uidOf");
     // The test mint module may write any brand-named field.
-    expect(await messagesFor("src/test-helpers.ts", text)).toEqual([]);
+    expect(await messagesFor("src/test-mint.ts", text)).toEqual([]);
   }, ESLINT_TIMEOUT_MS);
 
   it("test files keep the apiFetch import ban", async () => {
@@ -865,7 +893,7 @@ describe("tests under the lint", () => {
   it("only the exported offType may assert to a type parameter in the test mint module", async () => {
     const offType = "export function offType<T>(value: unknown): T {\n"
       + "  return value as T;\n}\n";
-    expect(await messagesFor("src/test-helpers.ts", offType)).toEqual([]);
+    expect(await messagesFor("src/test-mint.ts", offType)).toEqual([]);
     expect(rulesOf(await messagesFor("src/props/ops/compare.ts", offType)))
       .toEqual(["brands/no-brand-assertion"]);
     // a second helper, a non-exported offType and an arrow are launders
@@ -875,11 +903,11 @@ describe("tests under the lint", () => {
       + "function offType2<T>(value: unknown): T {\n"
       + "  return value as T;\n}\n"
       + "export const arrow = <T,>(value: unknown): T => value as T;\n";
-    const found = await messagesFor("src/test-helpers.ts", others);
+    const found = await messagesFor("src/test-mint.ts", others);
     expect(rulesOf(found)).toEqual(
       Array<string>(3).fill("brands/no-brand-assertion"));
     expect(found.every((m) => m.message.includes("launders"))).toBe(true);
-    const unexported = await messagesFor("src/test-helpers.ts",
+    const unexported = await messagesFor("src/test-mint.ts",
       "function offType<T>(value: unknown): T {\n"
       + "  return value as T;\n}\nexport { offType as handle };\n");
     expect(rulesOf(unexported)).toEqual(["brands/no-brand-assertion"]);

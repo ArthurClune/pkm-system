@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import type { Page } from "@playwright/test";
 import { SAH_POOL_INSTALL_OPTIONS } from "../src/replica/openRetry";
+import { wireModel } from "./wireJson";
 
 export interface SqliteWasmSource { indexMjs: string; wasmBase64: string }
 
@@ -41,6 +42,7 @@ export interface SahpoolTool {
 }
 
 interface ToolSlot { worker: Worker; indexUrl: string; wasmUrl: string }
+type ToolReply = { id: number; ok: boolean; result?: unknown; error?: string };
 type ToolWindow = Window & { __sahpoolTools?: ToolSlot[] };
 
 let nextId = 0;
@@ -66,21 +68,21 @@ export async function startSahpoolTool(
     const reply = await page.evaluate(({ index, id, cmd, args }) => {
       const { worker, indexUrl, wasmUrl } = (window as ToolWindow).__sahpoolTools![index];
       if (cmd === "install") args = { ...args, indexUrl, wasmUrl };
-      return new Promise<{ ok: boolean; result?: unknown; error?: string }>((resolve) => {
-        const onMessage = ({ data }: MessageEvent) => {
+      return new Promise<ToolReply>((resolve) => {
+        const onMessage = ({ data }: MessageEvent<ToolReply>) => {
           if (data?.id !== id) return;
           worker.removeEventListener("message", onMessage);
           resolve(data);
         };
         worker.addEventListener("message", onMessage);
         worker.addEventListener("error", (event) => {
-          resolve({ ok: false, error: `worker error: ${event.message}` });
+          resolve({ id, ok: false, error: `worker error: ${event.message}` });
         }, { once: true });
         worker.postMessage({ id, cmd, args });
       });
     }, { index, id: nextId++, cmd, args });
     if (!reply.ok) throw new Error(`sahpool tool ${cmd} failed: ${reply.error}`);
-    return reply.result as T;
+    return wireModel<T>(reply.result);
   };
 
   const terminate = () => page.evaluate((i) => {

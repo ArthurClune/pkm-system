@@ -431,7 +431,7 @@
   },
   "testMintSites": [
     "server/src/pkm/test_data/ids.py",
-    "web/src/test-helpers.ts"
+    "web/src/test-mint.ts"
   ],
   "testHelpers": {
     "BlockUid": "uid",
@@ -469,16 +469,19 @@
     "web/src/fcFilterCap.ts",
     "web/src/orphanWatchdog.ts",
     "web/src/test-helpers.ts",
+    "web/src/test-mint.ts",
     "web/src/props/",
     "web/src/replica/replayArbs.ts",
     "web/src/replica/testDb.ts",
-    "web/src/sync/memReplica.ts"
+    "web/src/sync/memReplica.ts",
+    "web/e2e/"
   ],
   "optOutFiles": [
     "server/src/pkm/**/routes_*.py",
     "web/tooling/viteBudgetPlugin.ts",
     "web/src/api/client.ts",
     "web/tooling/perf/rebase.perf.ts",
-    "web/src/fcFilterCap.ts"
+    "web/src/fcFilterCap.ts",
+    "web/e2e/wireJson.ts"
   ]
 }

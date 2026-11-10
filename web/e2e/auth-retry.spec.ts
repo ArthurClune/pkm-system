@@ -15,6 +15,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
+import { rawTitleOf } from "../src/test-mint";
 
 const PASSWORD = "e2e-pw";
 
@@ -39,7 +40,7 @@ async ({ page, context }) => {
   await snapshot;
   await changes;
 
-  const title = `Auth Retry E2E ${Date.now()}`;
+  const title = rawTitleOf(`Auth Retry E2E ${Date.now()}`);
   // Created through the client's own search bar, not a raw server call: this
   // writes the page into the local replica and delivers it before the block
   // below is installed, so only the test's own edit is held back by it.

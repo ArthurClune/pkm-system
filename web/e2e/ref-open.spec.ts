@@ -1,5 +1,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { rawTitleOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
 
 // Ctrl-O (open a [[page reference]] under the caret) and
 // Ctrl-Shift-O (open it in the sidebar) used to jump straight to the target
@@ -19,7 +21,7 @@ async function login(page: Page) {
   await expect(page.locator(".ws-banner")).toHaveCount(0);
 }
 
-async function createPage(page: Page, title: string) {
+async function createPage(page: Page, title: RawTitle) {
   const response = await page.request.post("/api/pages", { data: { title } });
   expect(response.ok()).toBeTruthy();
 }
@@ -38,7 +40,7 @@ async function typeUnflushedRef(page: Page, target: string) {
 
 test("Ctrl-O creates a not-yet-existing referenced page before navigating", async ({ page }) => {
   const stamp = Date.now();
-  const source = `RefOpenSource${stamp}`;
+  const source = rawTitleOf(`RefOpenSource${stamp}`);
   const target = `RefOpenTarget${stamp}`;
   await login(page);
   await createPage(page, source);
@@ -61,7 +63,7 @@ test("Ctrl-O creates a not-yet-existing referenced page before navigating", asyn
 
 test("Ctrl-Shift-O creates a not-yet-existing referenced page and opens it in the sidebar", async ({ page }) => {
   const stamp = Date.now();
-  const source = `RefOpenSidebarSource${stamp}`;
+  const source = rawTitleOf(`RefOpenSidebarSource${stamp}`);
   const target = `RefOpenSidebarTarget${stamp}`;
   await login(page);
   await createPage(page, source);

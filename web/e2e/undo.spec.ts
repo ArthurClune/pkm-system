@@ -2,8 +2,6 @@ import { type Page } from "@playwright/test";
 import { expect, test } from "./ownPage";
 import { waitForServerText } from "./server-state";
 
-const PASSWORD = "e2e-pw";
-
 const input = (page: Page) => page.locator("textarea.block-input");
 
 // the End key does not move the caret in text fields on macOS — set it

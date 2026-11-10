@@ -7,6 +7,8 @@
 // path this spec deliberately avoids by seeding a referencing block first.
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import type { SearchPayload } from "../src/api/payloads";
+import { serverJson } from "./wireJson";
 
 const PASSWORD = "e2e-pw";
 
@@ -47,7 +49,7 @@ test("clicking an asset link in an assistant reply opens the "
 
   // sanity: the block is actually findable by sha before we rely on it below
   const search = await page.request.get(`/api/search?q=${sha}&exact=1`);
-  expect((await search.json()).blocks).toEqual([
+  expect((await serverJson<SearchPayload>(search)).blocks).toEqual([
     expect.objectContaining({ uid, page_title: pageTitle }),
   ]);
 

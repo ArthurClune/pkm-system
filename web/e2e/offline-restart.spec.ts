@@ -9,6 +9,10 @@ import {
   request, type WebSocketRoute,
 } from "@playwright/test";
 import { expect, test, trackResponses } from "./fixtures";
+import { rawTitleOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
+import type { PagePayload } from "../src/api/payloads";
+import { serverJson } from "./wireJson";
 
 const PASSWORD = "e2e-pw";
 
@@ -38,13 +42,13 @@ async function steerSocket(context: BrowserContext, startOffline: boolean) {
   };
 }
 
-async function serverTexts(api: APIRequestContext, title: string): Promise<string[]> {
-  type Node = { text: string; children: Node[] };
+async function serverTexts(api: APIRequestContext, title: RawTitle): Promise<string[]> {
+  type Node = PagePayload["blocks"][number];
   const flat = (bs: Node[]): string[] =>
     bs.flatMap((b) => [b.text, ...flat(b.children)]);
   const res = await api.get(`/api/page/${encodeURIComponent(title)}`);
   if (!res.ok()) return [];
-  return flat((await res.json() as { blocks: Node[] }).blocks);
+  return flat((await serverJson<PagePayload>(res)).blocks);
 }
 
 test("an edit made offline is delivered after the browser restarts",
@@ -53,7 +57,7 @@ async ({ badResponses }) => {
   const baseURL = test.info().project.use.baseURL;
   const profile = test.info().outputPath("profile");
   const stamp = Date.now();
-  const title = `Offline Restart ${stamp}`;
+  const title = rawTitleOf(`Offline Restart ${stamp}`);
   const text = `survives a restart ${stamp}`;
   let context: BrowserContext | null = null;
   let api: APIRequestContext | null = null;

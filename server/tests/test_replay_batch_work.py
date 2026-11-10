@@ -610,7 +610,7 @@ def test_one_pass_finds_the_stale_titles_probing_each_found(
                         text=text, base_text_hash=text_hash("base"))
     planned = (ops_core.UpdateText(sent.uid, written),)
     rows = ops_core.rewrite_effects(sent, planned, stale, canonical)
-    expected = replay_core._rewrite_chain(text, written, probed, (), canonical) \
+    expected = replay_core.rewrite_chain(text, written, probed, (), canonical) \
         if probed and written != text else ()
     assert rows == ((ops_core.RecordRewrite(sent.uid, expected),)
                     if expected else ())

@@ -14,6 +14,8 @@ sent."""
 from __future__ import annotations
 
 import sqlite3
+import subprocess
+import sys
 from collections.abc import Callable
 
 import pytest
@@ -519,6 +521,26 @@ def test_a_step_derives_under_one_canonicalisation():
     replay_core._derived(step, normalize_title)
     with pytest.raises(AssertionError):
         replay_core._derived(step, lambda raw: normalize_title(raw).lower())
+
+
+def test_the_one_canonicalisation_guard_survives_optimisation():
+    # Under `python -O` an assert is stripped, and the second function
+    # would silently get the first one's titles.
+    code = (
+        "from pkm.contracts.ops import text_hash\n"
+        "from pkm.refs import normalize_title\n"
+        "from pkm.server import replay_core\n"
+        "step = replay_core.RewriteStep(text_hash('a'), text_hash('b'),"
+        " {}, {'t'}, {})\n"
+        "replay_core._derived(step, normalize_title)\n"
+        "try:\n"
+        "    replay_core._derived(step, str.lower)\n"
+        "except AssertionError:\n"
+        "    raise SystemExit(0)\n"
+        "raise SystemExit(1)\n")
+    done = subprocess.run([sys.executable, "-O", "-c", code],
+                          capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
 
 
 def test_a_step_keeps_its_key_for_every_op():

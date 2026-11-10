@@ -454,7 +454,7 @@ class Model:
         that changed the text, chained by hash: the unlink of the stale
         titles that changed it, then each replayed step. A chain that does
         not reproduce the written text is not recorded (code:
-        replay_core._rewrite_chain)."""
+        replay_core.rewrite_chain)."""
         titles = frozenset(t for t in stale if unlink_stale(sent, {t}) != sent)
         if written == sent or not (titles or replayed):
             return

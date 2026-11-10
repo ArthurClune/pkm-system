@@ -35,7 +35,7 @@ from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        overwritten_header_text,
                                        stale_page_move_note)
 from pkm.server.replay_core import (BlockRewrite, RewriteStep, StepKey,
-                                    TextEditOutcome, _rewrite_chain,
+                                    TextEditOutcome, rewrite_chain,
                                     over_limit_landing_text,
                                     stale_titles_linked)
 from pkm.text_limits import (TextLimitViolation,
@@ -803,7 +803,7 @@ def rewrite_effects(
     titles, `replayed` the steps a hashed update_text's replay consumed, and
     `settled` the text a clean or identical edit leaves in the block (an
     identical one plans no write), and `known` the steps the replay made
-    (`_rewrite_chain`). Text that was parked rather than written to the
+    (`rewrite_chain`). Text that was parked rather than written to the
     op's uid leaves no rows."""
     if not isinstance(original, (CreateOp, UpdateTextOp)):
         return ()
@@ -815,8 +815,8 @@ def rewrite_effects(
     titles = stale_titles_linked(original.text, stale, canonical)
     if not (titles or replayed) or written == original.text:
         return ()
-    rows = _rewrite_chain(original.text, written, titles, replayed,
-                          canonical, known)
+    rows = rewrite_chain(original.text, written, titles, replayed,
+                         canonical, known)
     return (RecordRewrite(original.uid, rows),) if rows else ()
 
 

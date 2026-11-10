@@ -57,6 +57,7 @@ ROW_CHARS: Final = 2 * 64
 # instead of replaying it again.
 StepKey = tuple[Callable[[str], str], tuple[object, ...], str]
 
+
 @dataclass(frozen=True)
 class BlockRewrite:
     """One thing a rename, merge, the title migration or a page delete did
@@ -93,7 +94,7 @@ class RewriteStep:
 
 @dataclass(frozen=True)
 class StepRecords:
-    """The records an op that replays a step writes for it (`_rewrite_chain`),
+    """The records an op that replays a step writes for it (`rewrite_chain`),
     every title, rename and copy the step holds, and what writing them is
     charged (`_charged`): each row's titles and `ROW_CHARS`."""
     records: tuple[tuple[RewriteKind, str, str], ...]
@@ -141,11 +142,14 @@ def _derive(step: RewriteStep, canonical: Callable[[str], str]) -> StepTitles:
 def _derived(step: RewriteStep,
              canonical: Callable[[str], str]) -> StepTitles:
     """`_derive`, once per step. A batch replays every step under its one
-    title reader, so a step asked under another function is a shell bug."""
+    title reader, so a step asked under another function is a shell bug,
+    raised rather than asserted so `python -O` cannot hand it the first
+    reader's titles."""
     if step.derived is None:
         step.derived = (canonical, _derive(step, canonical))
     held, titles = step.derived
-    assert held is canonical, "a step derives under one canonicalisation"
+    if held is not canonical:
+        raise AssertionError("a step derives under one canonicalisation")
     return titles
 
 
@@ -621,7 +625,7 @@ def unlink_stale_text(op: BlockOp, is_stale: TitleMatch) -> BlockOp:
                         page_title=op.page_title)
 
 
-def _rewrite_chain(
+def rewrite_chain(
     sent: str, written: str, stale_titles: Collection[CanonicalTitle],
     replayed: Sequence[RewriteStep], canonical: Callable[[str], str],
     known: Mapping[StepKey, str] | None = None,

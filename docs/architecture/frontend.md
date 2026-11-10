@@ -329,10 +329,7 @@ fallback (`FALLBACK_MODELS` in `chatMachine.ts`).
 `step(state, event)` returns the next state and the effects to run.
 `useAssistant.ts` only dispatches the user's actions and each request's
 result, and starts the requests the effects name. The conversation is
-`none`, `creating` or `open`; the turn moves like this. The turn's `idle`
-means the browser's request has settled, so it can come before the server's
-`idle`: the server may still be `draining` ([turn
-phase](assistant.md#the-turn-phase)), which `streamWithBusyRetry` absorbs:
+`none`, `creating` or `open`; the turn moves like this:
 
 ```mermaid
 stateDiagram-v2
@@ -342,10 +339,10 @@ stateDiagram-v2
     creating --> streaming: created
     creating --> idle: create failed
     streaming --> creating: 404, first in this turn
-    streaming --> idle: stream ended or failed, or a confirm 404
+    streaming --> idle: stream ended or failed, turn_stopped, or a confirm 404
     creating --> stopping: Stop
-    streaming --> stopping: Stop, which aborts the stream
-    stopping --> idle: the create or the stream settles
+    streaming --> stopping: Stop, which posts a stop
+    stopping --> idle: the create settles, or turn_stopped, an error event, or the stream settles
     creating --> idle: New chat
     streaming --> idle: New chat
     stopping --> idle: New chat
@@ -354,13 +351,19 @@ stateDiagram-v2
 **Stop is a move from every busy phase.** After it, no output of that turn
 reaches the panel. A create cannot be called back, so Stop in `creating`
 keeps the conversation the create returns but starts no stream from it.
+Stop in `streaming` asks the server (`postStop`), and the turn stays
+`stopping` until the server has ended it, so the panel is idle only once
+the server is ([turn phase](assistant.md#the-turn-phase)). The exceptions
+are an aborted stream, Stop's fallback or New chat, after which the server
+may still be draining; `streamWithBusyRetry` absorbs that.
 
 | Rule | Reason |
 |---|---|
 | Every request's result names its turn, and changes nothing on screen unless that turn is busy and not stopping. That includes a failed confirm POST | New chat clears the transcript at once, so a superseded turn's events must not fold into the new one. After Stop no card is left to answer again |
 | A stream's 404 re-creates the conversation once, with the same model, in the same turn. A second 404 fails the turn | The server retires a reaped, evicted or dead conversation, and a lost harness ends its turn with `HARNESS_LOST`. The next send to it gets a 404 |
 | The picker shows the model of the conversation that is creating or open, as the create returned it, and is locked exactly then. The models list's default applies only while there is none and the user has not picked | A conversation keeps the model it was created with, so the picker shows that one |
-| New chat aborts the stream and sends the DELETE only after that stream settles. A conversation created for a superseded turn is deleted | The server sees the dropped connection and ends the turn before it closes the conversation |
+| `postStop` posts `POST …/stop`. If that fails, or nothing ends the turn within `STOP_ACK_TIMEOUT_MS` (`useAssistant.ts`), the hook aborts the stream | The server's own bound is `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S`; past it the server cannot answer, and the panel must still be freed |
+| New chat aborts the stream, a stopping turn's included, and sends the DELETE only after that stream settles. A conversation created for a superseded turn is deleted | The server sees the dropped connection and ends the turn before it closes the conversation |
 
 `web/src/props/assistant` checks these rules against a model written from
 this section ([checks.md § Property gate](checks.md#property-gate)).

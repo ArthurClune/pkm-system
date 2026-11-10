@@ -3,7 +3,7 @@
 // scrolling past: call `captureFaultWarnings("<suite>")` once at the top
 // level of the file. Expected kinds are tallied into a single summary line
 // printed after the file's tests; unknown calls are printed verbatim in that
-// summary and never fail the run. Nothing is forwarded to the real
+// summary and then fail the file. Nothing is forwarded to the real
 // console.warn while the file runs, so no raw line reaches the output.
 //
 // console.warn is replaced directly rather than with vi.spyOn so a test's
@@ -11,7 +11,7 @@
 
 import { afterAll, beforeAll, expect } from "vitest";
 import { SEED } from "./env";
-import { classify, emptyTally, summarise } from "./warnings";
+import { classify, emptyTally, summarise, unexpectedFailure } from "./warnings";
 
 export function captureFaultWarnings(suite: string): void {
   let original: typeof console.warn | undefined;
@@ -30,5 +30,7 @@ export function captureFaultWarnings(suite: string): void {
   afterAll(() => {
     if (original) console.warn = original;
     console.log(summarise(suite, tally));
+    const failure = unexpectedFailure(tally);
+    if (failure !== null) throw new Error(`fault warnings (${suite}): ${failure}`);
   });
 }

@@ -7,43 +7,40 @@
 // read and its stable point, a lost enqueue reply and the write behind a
 // held gate.
 //
-// The tally after the file prints how often each command ran or was skipped
-// by its precondition, and how often each named interleaving was reached.
-import fc from "fast-check";
-import { afterAll, afterEach, beforeEach, test, vi } from "vitest";
-import { PATH, SEED } from "../env";
+// The tally after the property prints how often each command ran or was
+// skipped by its precondition, and how often each named interleaving was
+// reached.
+import { afterEach, beforeEach, test, vi } from "vitest";
+import { checkGateProperty, EXAMPLES } from "../gate";
+import { bump, type Reach, type Tally } from "../reach";
 import { captureFaultWarnings } from "../warningsCapture";
 import { queueCommands, QueueReport } from "./queueArbitraries";
-import { runQueueExample, showCmd } from "./queueHarness";
+import { type QueueCmd, runQueueExample, showCmd } from "./queueHarness";
 
 captureFaultWarnings("sync queue");
 
 const NUM_RUNS = 10_000;
+const PROPERTY_LIMIT_MS = 60_000;
 
-const tally = new Map<string, number>();
-const count = (key: string): void => { tally.set(key, (tally.get(key) ?? 0) + 1); };
+const tally: Tally = new Map();
+/** Where each label must stay above its share of EXAMPLES. */
+const REACH: Reach = { per: EXAMPLES, floors: {} };
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); });
 afterEach(() => { vi.useRealTimers(); });
 
-afterAll(() => {
-  const width = Math.max(0, ...[...tally.keys()].map((k) => k.length));
-  console.log(`sync queue property tally (every run, shrinks included):\n${
-    [...tally].sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, n]) => `  ${k.padEnd(width)}  ${n}`).join("\n")}`);
-});
-
 test("the barrier holds for every owner, and the lane keeps enqueue order", async () => {
-  await fc.assert(fc.asyncProperty(queueCommands, async (cmds) => {
-    const transcript: string[] = [];
-    const findings = await runQueueExample(cmds, count, transcript);
-    if (findings.length > 0) {
-      throw new QueueReport(`${findings.join("\n")}\nran: ${transcript.join("; ")}\n` +
-        `drawn: ${cmds.map(showCmd).join("; ")}`);
-    }
-  }), {
-    numRuns: NUM_RUNS,
-    ...(SEED === undefined ? {} : { seed: SEED }),
-    ...(PATH === undefined ? {} : { path: PATH }),
+  await checkGateProperty({
+    suite: "sync queue property", file: "sync/queue.prop.ts", arbs: [queueCommands],
+    predicate: async (cmds: QueueCmd[]) => {
+      const transcript: string[] = [];
+      const findings = await runQueueExample(cmds, (key) => bump(tally, key), transcript);
+      if (findings.length > 0) {
+        throw new QueueReport(`${findings.join("\n")}\nran: ${transcript.join("; ")}\n` +
+          `drawn: ${cmds.map(showCmd).join("; ")}`);
+      }
+    },
+    numRuns: NUM_RUNS, limitMs: PROPERTY_LIMIT_MS, tally, reach: REACH,
+    show: ([cmds]) => `counterexample: ${cmds.map(showCmd).join("; ")}`,
   });
 });

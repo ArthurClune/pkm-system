@@ -6,20 +6,16 @@
 // can end without the tree catching up (a flush-and-splice command, or a
 // flush that sends nothing while a remote edit landed), and then the
 // textarea keeps showing stale text. The property must name that `adopt`.
-import fc from "fast-check";
-import { expect, test } from "vitest";
 import type { OutlineHandlers } from "../../outline/handlers";
-import { SEED } from "../env";
+import { expectMutantsCaught } from "../gate";
 import { captureFaultWarnings } from "../warningsCapture";
 import { runDraftExample, type DraftSeam } from "./draftHarness";
-import { draftExampleArb } from "./draftModel";
+import { draftExampleArb, type DraftExample } from "./draftModel";
 
 captureFaultWarnings("outline draft teeth");
 
 const NUM_RUNS = 400;
 const TIME_LIMIT_MS = 15_000;
-
-class PropertyReport extends Error {}
 
 function ownDirtyFlag(): DraftSeam {
   // the textarea's last edit while it counts itself dirty
@@ -54,27 +50,12 @@ function ownDirtyFlag(): DraftSeam {
   };
 }
 
-test("the draft property catches a textarea that keeps its own dirty flag",
-     async () => {
-  const details = await fc.check(fc.asyncProperty(draftExampleArb,
-    async (example) => {
-      const run = await runDraftExample(example, ownDirtyFlag());
-      if (run.problems.length > 0) {
-        throw new PropertyReport(run.problems.join("\n"));
-      }
-    }), {
-    numRuns: NUM_RUNS, seed: SEED, endOnFailure: true,
-    interruptAfterTimeLimit: TIME_LIMIT_MS,
-  });
-  const cutOff = details.interrupted
-    ? ` (cut off by the ${TIME_LIMIT_MS / 1000}s time limit)` : "";
-  expect(details.failed, `mutant survived ${details.numRuns} runs${cutOff}` +
-    ` (seed ${details.seed})`).toBe(true);
-  const error = details.errorInstance;
-  expect(error instanceof PropertyReport, `mutant caught by a thrown error,` +
-    ` not a property report (seed ${details.seed}): ${String(error)}`).toBe(true);
-  const lines = (error as PropertyReport).message.split("\n");
-  expect(lines.some((line) => line.includes("}: adopt: ")),
-         `mutant caught, but not by adopt (seed ${details.seed}):\n` +
-         lines.join("\n")).toBe(true);
+expectMutantsCaught({
+  suite: "draft property",
+  mutants: { "a textarea that keeps its own dirty flag": { catches: ["adopt"] } },
+  arbs: [draftExampleArb],
+  problems: async (_, example: DraftExample) =>
+    (await runDraftExample(example, ownDirtyFlag())).problems,
+  numRuns: NUM_RUNS, limitMs: TIME_LIMIT_MS,
+  caughtBy: (line, rule) => line.includes(`}: ${rule}: `),
 });

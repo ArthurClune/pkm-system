@@ -10,14 +10,13 @@
 // - Owning every keyCode 229 keydown swallows an Enter that comes with no
 //   composition just ended, as the iPad's keyboard may send it: the block
 //   does not split (`split`), or stays in edit mode (`escape`).
-import fc from "fast-check";
-import { afterEach, expect, test, vi } from "vitest";
+import { vi } from "vitest";
 import type * as BlockDraft from "../../outline/useBlockDraft";
 import type { ImeKeydown } from "../../outline/useBlockDraft";
-import { SEED } from "../env";
+import { expectMutantsCaught } from "../gate";
 import { captureFaultWarnings } from "../warningsCapture";
 import { runDraftExample } from "./draftHarness";
-import { draftExampleArb } from "./draftModel";
+import { draftExampleArb, type DraftExample } from "./draftModel";
 
 type Mutant = (e: ImeKeydown, real: boolean) => boolean;
 
@@ -41,42 +40,21 @@ captureFaultWarnings("outline ime teeth");
 const NUM_RUNS = 400;
 const TIME_LIMIT_MS = 15_000;
 
-class PropertyReport extends Error {}
-
-afterEach(() => { mutant.current = null; });
-
-async function expectCaught(wrong: Mutant, rules: string[]): Promise<void> {
-  mutant.current = wrong;
-  const details = await fc.check(fc.asyncProperty(draftExampleArb,
-    async (example) => {
-      const run = await runDraftExample(example);
-      if (run.problems.length > 0) {
-        throw new PropertyReport(run.problems.join("\n"));
-      }
-    }), {
-    numRuns: NUM_RUNS, seed: SEED, endOnFailure: true,
-    interruptAfterTimeLimit: TIME_LIMIT_MS,
-  });
-  const cutOff = details.interrupted
-    ? ` (cut off by the ${TIME_LIMIT_MS / 1000}s time limit)` : "";
-  expect(details.failed, `mutant survived ${details.numRuns} runs${cutOff}` +
-    ` (seed ${details.seed})`).toBe(true);
-  const error = details.errorInstance;
-  expect(error instanceof PropertyReport, `mutant caught by a thrown error,` +
-    ` not a property report (seed ${details.seed}): ${String(error)}`).toBe(true);
-  const lines = (error as PropertyReport).message.split("\n");
-  expect(lines.some((line) => rules.some((rule) => line.includes(`}: ${rule}: `))),
-         `mutant caught, but not by ${rules.join(" or ")} (seed ${details.seed}):\n` +
-         lines.join("\n")).toBe(true);
-}
-
-test("the draft property catches a policy that reads only isComposing",
-     async () => {
-  await expectCaught((e) => e.isComposing, ["ime"]);
+const policy = (wrong: Mutant, catches: readonly string[]) => ({
+  catches,
+  arm: () => { mutant.current = wrong; },
+  disarm: () => { mutant.current = null; },
 });
 
-test("the draft property catches a policy that owns every keyCode 229",
-     async () => {
-  await expectCaught((e, real) => real || e.keyCode === 229,
-                     ["split", "escape"]);
+expectMutantsCaught({
+  suite: "draft property",
+  mutants: {
+    "a policy that reads only isComposing": policy((e) => e.isComposing, ["ime"]),
+    "a policy that owns every keyCode 229":
+      policy((e, real) => real || e.keyCode === 229, ["split", "escape"]),
+  },
+  arbs: [draftExampleArb],
+  problems: async (_, example: DraftExample) => (await runDraftExample(example)).problems,
+  numRuns: NUM_RUNS, limitMs: TIME_LIMIT_MS,
+  caughtBy: (line, rule) => line.includes(`}: ${rule}: `),
 });

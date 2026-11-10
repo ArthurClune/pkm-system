@@ -108,3 +108,13 @@ export function summarise(suite: string, tally: WarningTally): string {
   const unknown = tally.unknown.map((u) => `  UNEXPECTED [${u.context}] ${u.text}`);
   return [head, `  ${tally.unknown.length} unexpected:`, ...unknown].join("\n");
 }
+
+/** The file's failure when any warning had no expected kind, else null. A
+ * new warning is either a bug the faults uncovered or a kind to add to
+ * EXPECTED_KINDS, with the reason; it is never silenced. */
+export function unexpectedFailure(tally: WarningTally): string | null {
+  if (tally.unknown.length === 0) return null;
+  return [`${tally.unknown.length} unexpected warning(s): fix the cause, or add a kind` +
+          " to EXPECTED_KINDS (warnings.ts) for a warning a fault is meant to provoke",
+          ...tally.unknown.map((u) => `  [${u.context}] ${u.text}`)].join("\n");
+}

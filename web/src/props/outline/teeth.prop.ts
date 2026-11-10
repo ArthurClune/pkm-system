@@ -9,13 +9,11 @@
 // Each command mutant wraps the real function and re-derives its tree from the
 // mutated ops, so the tree and the ops it reports stay consistent and only the
 // meaning is wrong.
-import fc from "fast-check";
-import { expect, test } from "vitest";
 import type { BlockOp } from "../../api/ops";
 import type { BlockNode } from "../../api/payloads";
 import type { EditResult } from "../../outline/edits";
 import { applyOps } from "../../outline/tree";
-import { SEED } from "../env";
+import { expectMutantsCaught } from "../gate";
 import { PAGE_TITLE, sequenceArb } from "./arbitraries";
 import { sequenceProblems } from "./checks";
 import { REAL, runSequence, type Seam } from "./run";
@@ -26,9 +24,6 @@ captureFaultWarnings("outline teeth");
 
 const NUM_RUNS = 3000;
 const TIME_LIMIT_MS = 15_000;
-
-/** What the property throws: one problem per line, each led by its property. */
-class PropertyReport extends Error {}
 
 interface Mutant {
   seam: Seam;
@@ -101,25 +96,9 @@ const MUTANTS: Record<string, Mutant> = {
   },
 };
 
-for (const [name, { seam, catches }] of Object.entries(MUTANTS)) {
-  test(`the outline property catches: ${name}`, async () => {
-    const details = await fc.check(fc.asyncProperty(sequenceArb, async ({ start, commands }) => {
-      const problems = sequenceProblems(start, runSequence(start, commands, seam));
-      if (problems.length > 0) throw new PropertyReport(problems.join("\n"));
-    }), {
-      numRuns: NUM_RUNS, seed: SEED, endOnFailure: true,
-      interruptAfterTimeLimit: TIME_LIMIT_MS,
-    });
-    const cutOff = details.interrupted
-      ? ` (cut off by the ${TIME_LIMIT_MS / 1000}s time limit, not a full run)` : "";
-    expect(details.failed, `mutant survived ${details.numRuns} runs${cutOff}` +
-      ` (seed ${details.seed}): ${name}`).toBe(true);
-    const error = details.errorInstance;
-    expect(error instanceof PropertyReport, `mutant caught by a thrown error, not a property` +
-      ` report (seed ${details.seed}): ${name}: ${String(error)}`).toBe(true);
-    const lines = (error as PropertyReport).message.split("\n");
-    expect(lines.some((line) => catches.some((p) => line.startsWith(`${p}: `))),
-           `mutant caught, but not by ${catches.join(" or ")} (seed ${details.seed}):` +
-           ` ${name}:\n${lines.join("\n")}`).toBe(true);
-  });
-}
+expectMutantsCaught({
+  suite: "outline property", mutants: MUTANTS, arbs: [sequenceArb],
+  problems: async (mutant, { start, commands }) =>
+    sequenceProblems(start, runSequence(start, commands, mutant.seam)),
+  numRuns: NUM_RUNS, limitMs: TIME_LIMIT_MS,
+});

@@ -2,19 +2,15 @@
 // The journal property's teeth: wrong versions of the paging reducer, each of
 // which the property must catch, by a report naming the property the mutant
 // breaks. A mutant that survives means the property cannot see that bug.
-import fc from "fast-check";
-import { expect, test } from "vitest";
-import { SEED } from "../env";
+import { expectMutantsCaught } from "../gate";
 import { captureFaultWarnings } from "../warningsCapture";
-import { exampleArb } from "./arbitraries";
+import { exampleArb, type Example } from "./arbitraries";
 import { REAL, runExample, type Reducer } from "./run";
 
 captureFaultWarnings("journal teeth");
 
 const NUM_RUNS = 20_000;
 const TIME_LIMIT_MS = 15_000;
-
-class PropertyReport extends Error {}
 
 interface Mutant {
   reduce: Reducer;
@@ -58,23 +54,8 @@ const MUTANTS: Record<string, Mutant> = {
   },
 };
 
-for (const [name, { reduce, catches }] of Object.entries(MUTANTS)) {
-  test(`the journal property catches: ${name}`, async () => {
-    const details = await fc.check(fc.asyncProperty(exampleArb, async (example) => {
-      const problems = runExample(example, reduce).problems;
-      if (problems.length > 0) throw new PropertyReport(problems.join("\n"));
-    }), {
-      numRuns: NUM_RUNS, seed: SEED, endOnFailure: true,
-      interruptAfterTimeLimit: TIME_LIMIT_MS,
-    });
-    expect(details.failed, `mutant survived ${details.numRuns} runs` +
-      ` (seed ${details.seed}): ${name}`).toBe(true);
-    const error = details.errorInstance;
-    expect(error instanceof PropertyReport, `mutant caught by a thrown error, not a property` +
-      ` report (seed ${details.seed}): ${name}: ${String(error)}`).toBe(true);
-    const lines = (error as PropertyReport).message.split("\n");
-    expect(lines.some((line) => catches.some((p) => line.startsWith(`${p}: `))),
-           `mutant caught, but not by ${catches.join(" or ")} (seed ${details.seed}):` +
-           ` ${name}:\n${lines.join("\n")}`).toBe(true);
-  });
-}
+expectMutantsCaught({
+  suite: "journal property", mutants: MUTANTS, arbs: [exampleArb],
+  problems: async (mutant, example: Example) => runExample(example, mutant.reduce).problems,
+  numRuns: NUM_RUNS, limitMs: TIME_LIMIT_MS,
+});

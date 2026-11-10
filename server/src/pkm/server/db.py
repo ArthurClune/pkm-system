@@ -184,3 +184,15 @@ def write_txn(db: Db) -> Iterator[None]:
     except BaseException:
         db.rollback()
         raise
+
+
+@contextmanager
+def read_txn(db: Db) -> Iterator[None]:
+    """One read snapshot for a multi-statement read, so a write committed
+    between its statements cannot reach half of a payload. The body never
+    writes; the snapshot ends on exit, a raise or a `return`."""
+    db.execute("BEGIN")
+    try:
+        yield
+    finally:
+        db.rollback()

@@ -27,7 +27,7 @@ from pkm.assistant.write_preview import (Approval, Refusal, StoredBlock,
                                          delete_target_uids,
                                          write_target_uids)
 from pkm.contracts.ops import BlockUid, subtree_hash
-from pkm.server.db import open_db
+from pkm.server.db import open_db, read_txn
 from pkm.server.ops_apply import subtree_rows
 
 logger = logging.getLogger("pkm.assistant")
@@ -68,42 +68,42 @@ def db_block_reader(db_path: Path) -> BlockReader:
             return {}
         db = open_db(db_path)
         try:
-            db.execute("BEGIN")  # one snapshot for texts, pages and counts
-            marks = ",".join("?" * len(uids))
-            rows = db.select(
-                "SELECT uid, text, page_id FROM blocks"
-                f" WHERE uid IN ({marks})", tuple(uids))
-            if not rows:
-                return {}
-            page_ids = list(dict.fromkeys(row["page_id"] for row in rows))
-            titles = {page["page_id"]: page["page_title"]
-                      for page in db.select(
-                          "SELECT id AS page_id, title AS page_title"
-                          " FROM pages WHERE id IN"
-                          f" ({','.join('?' * len(page_ids))})",
-                          tuple(page_ids))}
-            out: dict[BlockUid, StoredBlock] = {}
-            for row in rows:
-                uid = row["uid"]
-                if row["page_id"] not in titles:
-                    raise LookupError("a target block's page row is missing")
-                descendants = hashed = None
-                if uid in count_under:
-                    # the row was just read in this snapshot, so the walk
-                    # holds at least the block itself
-                    sub = subtree_rows(db, uid)
-                    descendants = len(sub) - 1
-                    hashed = subtree_hash((r.uid, r.text) for r in sub)
-                ancestors = None
-                if uid in ancestors_of:
-                    ancestors = tuple(
-                        up["uid"] for up in db.select(_ANCESTORS_SQL, (uid,)))
-                out[uid] = StoredBlock(page_title=titles[row["page_id"]],
-                                       text=row["text"],
-                                       descendants=descendants,
-                                       ancestors=ancestors,
-                                       subtree_hash=hashed)
-            return out
+            with read_txn(db):  # one snapshot for texts, pages and counts
+                marks = ",".join("?" * len(uids))
+                rows = db.select(
+                    "SELECT uid, text, page_id FROM blocks"
+                    f" WHERE uid IN ({marks})", tuple(uids))
+                if not rows:
+                    return {}
+                page_ids = list(dict.fromkeys(row["page_id"] for row in rows))
+                titles = {page["page_id"]: page["page_title"]
+                          for page in db.select(
+                              "SELECT id AS page_id, title AS page_title"
+                              " FROM pages WHERE id IN"
+                              f" ({','.join('?' * len(page_ids))})",
+                              tuple(page_ids))}
+                out: dict[BlockUid, StoredBlock] = {}
+                for row in rows:
+                    uid = row["uid"]
+                    if row["page_id"] not in titles:
+                        raise LookupError("a target block's page row is missing")
+                    descendants = hashed = None
+                    if uid in count_under:
+                        # the row was just read in this snapshot, so the walk
+                        # holds at least the block itself
+                        sub = subtree_rows(db, uid)
+                        descendants = len(sub) - 1
+                        hashed = subtree_hash((r.uid, r.text) for r in sub)
+                    ancestors = None
+                    if uid in ancestors_of:
+                        ancestors = tuple(
+                            up["uid"] for up in db.select(_ANCESTORS_SQL, (uid,)))
+                    out[uid] = StoredBlock(page_title=titles[row["page_id"]],
+                                           text=row["text"],
+                                           descendants=descendants,
+                                           ancestors=ancestors,
+                                           subtree_hash=hashed)
+                return out
         finally:
             db.close()
     return read

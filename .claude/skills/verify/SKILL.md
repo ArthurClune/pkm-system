@@ -119,31 +119,9 @@ own throwaway server on port 8977 with its own fixture, so it never
 conflicts with the scratch server this skill drives on 8975. Results land
 in `perf/out/`.
 
-What to do with each verdict (the table's `next:` lines say the same):
-
-- **Regression** — read your own diff along the regressed path, find the
-  cause, fix it, re-run. Only bring it to Arthur, with the table and what
-  you found, if it survives. If Arthur accepts it, re-record with
-  `perf/check.sh <side> --bootstrap` and give his reason in the commit
-  message.
-- **Unstable** — the harness is flaky, not your change. File a bean against
-  the perf harness and carry on with your work; leave the harness alone in
-  this branch.
-- **Stale baseline** — re-run with `perf/check.sh <side> --rebaseline` and
-  commit the rewritten baseline file with your change.
-- **Lost / reclassified** — scenarios or metric classes changed; re-record
-  with `perf/check.sh <side> --bootstrap`, reason in the commit message.
-
-Two situations the verdicts don't cover:
-
-- **Cannot compare: env differs** because your branch bumps Python or
-  SQLite: read the diff, then `perf/check.sh <side> --bootstrap` on the
-  branch. `--rebaseline` would reproduce the merge base's old environment
-  (its own venv) and refuse again. A Chromium bump or a fixture change is
-  different: `check.ts` always runs from the branch's Playwright, so
-  `--rebaseline` catches it up fine.
-- **Merge conflict in a `perf/baseline-*.json`**: take either side, then
-  re-run `perf/check.sh` and commit what it writes.
+What to do with each verdict: follow the `next:` lines it prints, and read
+the Performance bullet in [AGENTS.md](../../../AGENTS.md#testing) for what
+they cannot say.
 
 ## Gotchas
 

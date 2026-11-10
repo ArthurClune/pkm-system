@@ -12,6 +12,7 @@ import {
   createConversation,
   deleteConversation,
   fetchModels,
+  stopTurn,
   streamMessage,
   type AssistantModel,
 } from "./client";
@@ -47,14 +48,13 @@ function isBusyError(err: unknown): boolean {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// AbortController.abort() rejects the client's own fetch
-// promise the instant Stop is clicked, well before the server has noticed
-// the dropped connection and released the conversation's busy flag (see
-// the reservation in service.py's `send`). Sending again right after
-// Stop can therefore land on the server a few milliseconds too early and
-// see a 409. Retrying briefly closes that window without changing the
-// contract for a *sustained* busy conflict, which still surfaces as an
-// error once these short retries are exhausted.
+// An aborted fetch rejects at once, before the server has noticed the
+// dropped connection and released the conversation's busy flag (the
+// reservation in service.py's `send`). Sending again right after Stop's
+// fallback abort can therefore land a few milliseconds too early and see a
+// 409. Retrying briefly closes that window without changing the contract
+// for a *sustained* busy conflict, which still surfaces as an error once
+// these short retries are exhausted.
 const BUSY_RETRY_ATTEMPTS = 5;
 const BUSY_RETRY_DELAY_MS = 60;
 
@@ -74,6 +74,11 @@ async function streamWithBusyRetry(
     }
   }
 }
+
+/** How long a posted Stop may wait for the server to end the turn before
+ * the stream is aborted: the server's own bound (claude_engine.py
+ * `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S`) plus a second. */
+export const STOP_ACK_TIMEOUT_MS = 16_000;
 
 export type { ChatItem, PendingConfirm, PhaseInfo } from "./chatMachine";
 
@@ -150,6 +155,21 @@ function createChatDriver(publish: (state: ChatState) => void) {
       case "abort":
         requests.get(effect.turn)?.controller?.abort();
         return Promise.resolve();
+      case "postStop": {
+        // The turn stays stopping until the server ends its stream. If the
+        // POST fails, or the server says nothing in time, the stream is
+        // aborted: the dropped connection stops the turn server-side.
+        const request = requests.get(effect.turn);
+        const abort = () => {
+          if (requests.get(effect.turn) === request) request?.controller?.abort();
+        };
+        const timer = setTimeout(abort, STOP_ACK_TIMEOUT_MS);
+        void request?.settled.then(() => clearTimeout(timer));
+        return stopTurn(effect.conversation).catch(() => {
+          clearTimeout(timer);
+          abort();
+        });
+      }
       case "delete": {
         const before = effect.after === null ? undefined : requests.get(effect.after)?.settled;
         return (async () => {

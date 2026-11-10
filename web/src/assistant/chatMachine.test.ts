@@ -25,6 +25,56 @@ describe("chatMachine", () => {
     expect(step(s, { type: "stop", at: 1 })).toEqual({ state: s, effects: [] });
   });
 
+  const streaming: ChatEvent[] = [
+    { type: "send", text: "hi", at: 1 },
+    { type: "created", turn: 1, id: c1, model: "sonnet" },
+  ];
+
+  test("stop on a streaming turn posts a stop and stays stopping", () => {
+    const { state, effects } = run([...streaming, { type: "stop", at: 2 }]);
+    expect(effects.at(-1)).toEqual({ kind: "postStop", turn: 1, conversation: c1 });
+    expect(effects.some((e) => e.kind === "abort")).toBe(false);
+    expect(state.turn).toEqual({ phase: "stopping", id: 1 });
+    expect(chatStatus(state)).toBe("busy");
+  });
+
+  test("turn_stopped ends a stopping turn with no error", () => {
+    const { state } = run([...streaming, { type: "stop", at: 2 },
+      { type: "streamEvent", turn: 1, event: { type: "turn_stopped" }, at: 3 }]);
+    expect(state.turn).toEqual({ phase: "idle" });
+    expect(state.error).toBeNull();
+    expect(state.conversation).toEqual({ kind: "open", id: c1, model: "sonnet" });
+  });
+
+  test("an error event ends a stopping turn without showing it", () => {
+    const { state } = run([...streaming, { type: "stop", at: 2 },
+      { type: "streamEvent", turn: 1, event: { type: "error", message: "stalled" }, at: 3 }]);
+    expect(state.turn).toEqual({ phase: "idle" });
+    expect(state.error).toBeNull();
+  });
+
+  test("a stopping turn's other events change nothing and keep it busy", () => {
+    const before = run([...streaming, { type: "stop", at: 2 }]).state;
+    const { state } = run([
+      { type: "streamEvent", turn: 1, event: { type: "text_delta", text: "late" }, at: 3 },
+      { type: "streamEvent", turn: 1, event: { type: "turn_done", usage: null }, at: 4 },
+    ], before);
+    expect(state).toEqual(before);
+  });
+
+  test("send while stopping is refused", () => {
+    const before = run([...streaming, { type: "stop", at: 2 }]).state;
+    expect(step(before, { type: "send", text: "again", at: 3 })).toEqual({ state: before, effects: [] });
+  });
+
+  test("New chat while stopping aborts the stream and deletes after it settles", () => {
+    const before = run([...streaming, { type: "stop", at: 2 }]).state;
+    expect(step(before, { type: "newChat" }).effects).toEqual([
+      { kind: "abort", turn: 1 },
+      { kind: "delete", conversation: c1, after: 1 },
+    ]);
+  });
+
   test("a conversation created for a turn New chat superseded is closed", () => {
     const { state, effects } = run([
       { type: "send", text: "hi", at: 1 },
@@ -69,7 +119,7 @@ describe("chatMachine", () => {
       { type: "stop", at: 2 },
       { type: "streamFailed", turn: 1, failure: { kind: "notFound", message: "gone" } },
     ]);
-    expect(effects.map((e) => e.kind)).toEqual(["create", "stream", "abort"]);
+    expect(effects.map((e) => e.kind)).toEqual(["create", "stream", "postStop"]);
     expect(state.conversation).toEqual({ kind: "none" });
     expect(state.picked).toBe("opus");
     expect(state.error).toBeNull();

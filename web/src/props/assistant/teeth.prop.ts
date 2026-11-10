@@ -71,10 +71,33 @@ const MUTANTS: Record<string, { catches: string[]; machine: Machine }> = {
   "a stopped turn's stream events still show": {
     catches: ["silent"],
     machine: mutate((s, e) => {
-      if (e.type !== "streamEvent" || s.turn.phase !== "stopping" || s.turn.id !== e.turn) return null;
+      if (e.type !== "streamEvent" || s.turn.phase !== "stopping" || s.turn.id !== e.turn
+          || e.event.type === "turn_stopped") return null;
       const as = REAL.step({ ...s, turn: { phase: "streaming", id: e.turn, text: "", recreated: true } }, e);
       return { state: { ...as.state, turn: s.turn }, effects: as.effects };
     }),
+  },
+  // The acknowledged Stop: the panel must ask the server, and stay busy
+  // until the server has ended the turn.
+  "Stop on a streaming turn aborts the stream instead of posting a stop": {
+    catches: ["stop"],
+    machine: mutate((s, e) => {
+      if (e.type !== "stop" || s.turn.phase !== "streaming") return null;
+      return { state: REAL.step(s, e).state, effects: [{ kind: "abort", turn: s.turn.id }] };
+    }),
+  },
+  "Stop frees the panel before the server has ended the turn": {
+    catches: ["status"],
+    machine: mutate((s, e) => {
+      if (e.type !== "stop" || s.turn.phase !== "streaming") return null;
+      const out = REAL.step(s, e);
+      return { state: { ...out.state, turn: { phase: "idle" } }, effects: out.effects };
+    }),
+  },
+  "a stopping turn ignores turn_stopped": {
+    catches: ["status"],
+    machine: mutate((s, e) => (e.type === "streamEvent" && e.event.type === "turn_stopped"
+      && s.turn.phase === "stopping" ? { state: s, effects: [] } : null)),
   },
   "a conversation created for a superseded turn is left open": {
     catches: ["leak"],

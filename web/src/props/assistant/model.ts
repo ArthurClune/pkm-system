@@ -11,7 +11,10 @@ export type Conv =
   | { kind: "creating"; model: AssistantModel }
   | { kind: "open"; id: string; model: AssistantModel };
 
-/** `turn` is the id the reducer gave the turn, read off its first request. */
+/** `turn` is the id the reducer gave the turn, read off its first request.
+ * A stopped turn stays busy until the server ends it (its stream says it
+ * stopped, fails or ends) or its create settles: the panel is idle only
+ * once the server is. */
 export type Busy = { turn: number; stage: "creating" | "streaming"; stopped: boolean;
                      recreated: boolean };
 
@@ -37,7 +40,8 @@ export type Input =
   | { k: "answer" }
   | { k: "created"; turn: number; id: string; model: AssistantModel }
   | { k: "createFailed"; turn: number }
-  | { k: "streamEvent"; turn: number }
+  // `last`: the server's last word on the turn, `turn_stopped` or an error
+  | { k: "streamEvent"; turn: number; last: "stopped" | "error" | null }
   | { k: "streamEnded"; turn: number }
   | { k: "streamFailed"; turn: number; failure: "notFound" | "failed" | "aborted" }
   | { k: "confirmPosted"; turn: number }
@@ -46,21 +50,24 @@ export type Input =
 /** What the step must do. `start` is the one request a step may start (a
  * create with this model, or a stream to this conversation); a step with no
  * `start` starts none. `turn` is the turn it must be for, or "new" for a
- * turn id never seen. `silent`: the transcript, the cards and the error line
- * must not change. `error`: "set" means a failure the user must see. */
+ * turn id never seen. `stops`: the turns whose stop must be posted to the
+ * server, and no other. `silent`: the transcript, the cards and the error
+ * line must not change. `error`: "set" means a failure the user must see. */
 export type Expectation = {
   start: null
     | { kind: "create"; model: AssistantModel; turn: number | "new" }
     | { kind: "stream"; conversation: string; turn: number | "new" };
   deletes: string[];
   aborts: number[];
+  stops: number[];
   mayConfirm: boolean;
   silent: boolean;
   error: "set" | "cleared" | "any";
 };
 
 const NOTHING: Expectation = {
-  start: null, deletes: [], aborts: [], mayConfirm: false, silent: true, error: "any",
+  start: null, deletes: [], aborts: [], stops: [], mayConfirm: false, silent: true,
+  error: "any",
 };
 
 /** The picker shows the model of the conversation being created or open,
@@ -93,13 +100,15 @@ export function expect(doc: Doc, input: Input): { doc: Doc; expect: Expectation 
     }
     case "stop": {
       if (b === null || b.stopped) return { doc, expect: NOTHING };
-      // Stop clears any card: the server declines a parked confirm
+      // Stop clears any card: the server declines a parked confirm. A
+      // stream is asked to stop, not dropped, so the turn stays busy until
+      // the server has ended it.
       return { doc: { ...doc, busy: { ...b, stopped: true } },
                expect: { ...NOTHING, silent: false,
-                         aborts: b.stage === "streaming" ? [b.turn] : [] } };
+                         stops: b.stage === "streaming" ? [b.turn] : [] } };
     }
     case "newChat": {
-      const aborts = b !== null && b.stage === "streaming" && !b.stopped ? [b.turn] : [];
+      const aborts = b !== null && b.stage === "streaming" ? [b.turn] : [];
       const deletes = doc.conv.kind === "open" ? [doc.conv.id] : [];
       return { doc: { ...dropConv(doc), busy: null },
                expect: { ...NOTHING, silent: false, aborts, deletes } };
@@ -133,7 +142,13 @@ export function expect(doc: Doc, input: Input): { doc: Doc; expect: Expectation 
     }
     case "streamEvent": {
       const t = live(doc, input.turn);
-      if (t === null || t.stopped || t.stage !== "streaming") return { doc, expect: NOTHING };
+      if (t === null || t.stage !== "streaming") return { doc, expect: NOTHING };
+      if (t.stopped) {
+        return { doc: input.last === null ? doc : { ...doc, busy: null }, expect: NOTHING };
+      }
+      if (input.last === "stopped") {
+        return { doc: { ...doc, busy: null }, expect: { ...NOTHING, silent: false } };
+      }
       return { doc, expect: { ...NOTHING, silent: false } };
     }
     case "streamEnded": {

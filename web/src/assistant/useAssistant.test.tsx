@@ -1,5 +1,5 @@
 import { act, render } from "@testing-library/react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { ApiError } from "../api/client";
 import type { AssistantEvent } from "./sse";
 
@@ -10,10 +10,11 @@ const mocks = vi.hoisted(() => ({
   streamMessage: vi.fn(),
   closeConversationBeacon: vi.fn(),
   fetchModels: vi.fn(),
+  stopTurn: vi.fn(),
 }));
 vi.mock("./client", () => mocks);
 
-import { useAssistant } from "./useAssistant";
+import { STOP_ACK_TIMEOUT_MS, useAssistant } from "./useAssistant";
 import { confirmIdOf } from "../test-helpers";
 
 let latest: ReturnType<typeof useAssistant>;
@@ -22,7 +23,34 @@ function Harness() {
   return <div data-testid="status">{latest.status}</div>;
 }
 
-afterEach(() => vi.clearAllMocks());
+// The server's side of Stop: each open stream registers how it ends, and a
+// stop POST ends every one of them with turn_stopped.
+let openStreams: Array<() => void> = [];
+
+/** Settles as the stream of a turn the server stops, or rejects as an
+ * aborted fetch does. */
+function untilStopped(emit: (ev: AssistantEvent) => void,
+                      signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    openStreams.push(() => {
+      emit({ type: "turn_stopped" });
+      resolve();
+    });
+    signal?.addEventListener("abort", () =>
+      reject(new DOMException("aborted", "AbortError")));
+  });
+}
+
+beforeEach(() => {
+  mocks.stopTurn.mockImplementation(async () => {
+    for (const end of openStreams.splice(0)) end();
+  });
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
+  openStreams = [];
+});
 
 function feed(events: AssistantEvent[]) {
   mocks.streamMessage.mockImplementation(
@@ -322,7 +350,7 @@ describe("useAssistant", () => {
     expect(latest.pendingConfirm?.allowedAhead).toBe(0);
   });
 
-  // Turn one shows c1 and runs until aborted; turn two shows c2.
+  // Turn one shows c1 and runs until stopped; turn two shows c2.
   function stoppedThenNext() {
     let calls = 0;
     mocks.streamMessage.mockImplementation(
@@ -331,11 +359,7 @@ describe("useAssistant", () => {
         calls += 1;
         if (calls === 1) {
           onEvent(confirmEvent("c1"));
-          await new Promise((_resolve, reject) => {
-            signal?.addEventListener("abort", () => {
-              reject(new DOMException("aborted", "AbortError"));
-            });
-          });
+          await untilStopped(onEvent, signal);
           return;
         }
         onEvent(confirmEvent("c2"));
@@ -796,18 +820,14 @@ describe("useAssistant", () => {
     expect(latest.error).toBe("at most 3 concurrent conversations");
   });
 
-  test("stop aborts the in-flight turn without surfacing an error", async () => {
+  test("stop posts a stop and the turn ends on the server's turn_stopped", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     let capturedSignal: AbortSignal | undefined;
     mocks.streamMessage.mockImplementation(
-      async (_id: string, _text: string, _onEvent: unknown, signal?: AbortSignal) => {
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void,
+             signal?: AbortSignal) => {
         capturedSignal = signal;
-        await new Promise((_resolve, reject) => {
-          signal?.addEventListener("abort", () => {
-            const err = new DOMException("aborted", "AbortError");
-            reject(err);
-          });
-        });
+        await untilStopped(onEvent, signal);
       },
     );
     render(<Harness />);
@@ -817,23 +837,110 @@ describe("useAssistant", () => {
       await Promise.resolve();
     });
     expect(latest.status).toBe("busy");
-    expect(capturedSignal).toBeInstanceOf(AbortSignal);
     await act(async () => {
       latest.stop();
       await sendDone;
     });
+    expect(mocks.stopTurn).toHaveBeenCalledWith("c1");
+    expect(capturedSignal?.aborted).toBe(false);
     expect(latest.status).toBe("idle");
     expect(latest.error).toBeNull();
   });
 
-  test("stop then an immediate resend tolerates a transient 409 from the server catching up", async () => {
-    // AbortController.abort() rejects the client's fetch promise
-    // immediately, well before the server has processed the TCP
-    // disconnect and released the conversation's busy flag. A
-    // send() issued right after Stop can therefore land while the server
-    // still thinks the previous turn is running; retry briefly instead of
-    // surfacing a confusing "a turn is already in progress" error for a
-    // condition that resolves itself in milliseconds.
+  // A stream the server never ends: only an abort settles it.
+  function streamUntilAbortedOnly(signals: AbortSignal[]) {
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, _onEvent: unknown, signal?: AbortSignal) => {
+        if (signal) signals.push(signal);
+        await new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")));
+        });
+      },
+    );
+  }
+
+  test("a stop the server never acknowledges aborts the fetch after STOP_ACK_TIMEOUT_MS",
+    async () => {
+      vi.useFakeTimers();
+      try {
+        mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+        mocks.stopTurn.mockResolvedValue(undefined);
+        const signals: AbortSignal[] = [];
+        streamUntilAbortedOnly(signals);
+        render(<Harness />);
+        await act(async () => {
+          void latest.send("hi");
+          await vi.waitFor(() => expect(signals).toHaveLength(1));
+        });
+        await act(async () => { latest.stop(); });
+        await act(async () => { await vi.advanceTimersByTimeAsync(STOP_ACK_TIMEOUT_MS - 1); });
+        expect(signals[0].aborted).toBe(false);
+        expect(latest.status).toBe("busy");
+        await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+        expect(signals[0].aborted).toBe(true);
+        expect(latest.status).toBe("idle");
+        expect(latest.error).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+  test("a failed stop POST aborts the fetch at once", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+      mocks.stopTurn.mockRejectedValue(new Error("network down"));
+      const signals: AbortSignal[] = [];
+      streamUntilAbortedOnly(signals);
+      render(<Harness />);
+      await act(async () => {
+        void latest.send("hi");
+        await vi.waitFor(() => expect(signals).toHaveLength(1));
+      });
+      await act(async () => { latest.stop(); });
+      expect(signals[0].aborted).toBe(true);
+      expect(latest.status).toBe("idle");
+      expect(latest.error).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a stopped turn that ends in time is not aborted later", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+      let capturedSignal: AbortSignal | undefined;
+      mocks.streamMessage.mockImplementation(
+        async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void,
+               signal?: AbortSignal) => {
+          capturedSignal = signal;
+          await untilStopped(onEvent, signal);
+        },
+      );
+      render(<Harness />);
+      await act(async () => {
+        void latest.send("hi");
+        await vi.waitFor(() => expect(capturedSignal).toBeDefined());
+      });
+      await act(async () => { latest.stop(); });
+      expect(latest.status).toBe("idle");
+      await act(async () => { await vi.advanceTimersByTimeAsync(STOP_ACK_TIMEOUT_MS); });
+      expect(capturedSignal?.aborted).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a resend tolerates a transient 409 from the server catching up", async () => {
+    // An aborted fetch (Stop's fallback, New chat) rejects at once, well
+    // before the server has processed the TCP disconnect and released the
+    // conversation's busy flag. A send() issued right after can therefore
+    // land while the server still thinks the previous turn is running;
+    // retry briefly instead of surfacing a confusing "a turn is already in
+    // progress" error for a condition that resolves itself in
+    // milliseconds.
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     mocks.streamMessage
       .mockImplementationOnce(async () => {
@@ -1064,13 +1171,10 @@ describe("useAssistant", () => {
     mocks.deleteConversation.mockResolvedValue(undefined);
     const signals: AbortSignal[] = [];
     mocks.streamMessage.mockImplementation(
-      async (_id: string, _text: string, _onEvent: unknown,
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void,
              signal?: AbortSignal) => {
         if (signal) signals.push(signal);
-        await new Promise<void>((_resolve, reject) => {
-          signal?.addEventListener("abort", () =>
-            reject(new DOMException("aborted", "AbortError")));
-        });
+        await untilStopped(onEvent, signal);
       },
     );
     render(<Harness />);
@@ -1090,7 +1194,8 @@ describe("useAssistant", () => {
       await secondDone;
     });
     expect(signals).toHaveLength(2);
-    expect(signals[1].aborted).toBe(true);   // the newer turn really stopped
+    expect(signals[0].aborted).toBe(true);   // New chat aborted the old turn
+    expect(mocks.stopTurn).toHaveBeenCalledTimes(1);  // the newer turn's Stop
     expect(latest.status).toBe("idle");
     expect(latest.error).toBeNull();
   });
@@ -1147,8 +1252,10 @@ describe("useAssistant", () => {
     // Turn one's finalizers must not have reset turn two's busy status...
     expect(latest.status).toBe("busy");
     expect(latest.error).toBeNull();
-    // ...nor discarded turn two's controller.
-    latest.stop();
+    // ...nor discarded turn two's controller, which a failed stop POST
+    // aborts.
+    mocks.stopTurn.mockRejectedValueOnce(new Error("network down"));
+    await act(async () => { latest.stop(); });
     expect(turns[1].signal?.aborted).toBe(true);
   });
 
@@ -1251,16 +1358,14 @@ describe("useAssistant", () => {
     expect(latest.status).toBe("idle");
   });
 
-  // A stream that waits for its abort, then rejects as fetch does.
-  function streamUntilAborted(onEvent?: (emit: (ev: AssistantEvent) => void) => void) {
+  // A stream that runs until the server stops it, or rejects as fetch does
+  // when aborted.
+  function streamUntilStopped(onEvent?: (emit: (ev: AssistantEvent) => void) => void) {
     mocks.streamMessage.mockImplementation(
       async (_id: string, _text: string, emit: (ev: AssistantEvent) => void,
              signal?: AbortSignal) => {
         onEvent?.(emit);
-        await new Promise<void>((_resolve, reject) => {
-          signal?.addEventListener("abort", () =>
-            reject(new DOMException("aborted", "AbortError")));
-        });
+        await untilStopped(emit, signal);
       },
     );
   }
@@ -1318,7 +1423,7 @@ describe("useAssistant", () => {
 
   test("a confirm POST that fails after Stop shows no error", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
-    streamUntilAborted((emit) => emit(confirmEvent("t1")));
+    streamUntilStopped((emit) => emit(confirmEvent("t1")));
     const post = deferredValue<void>();
     mocks.confirmTool.mockReturnValue(post.promise);
     render(<Harness />);
@@ -1391,7 +1496,7 @@ describe("useAssistant", () => {
 
   test("a conversation reaped under a card leaves the picker unlocked", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
-    streamUntilAborted((emit) => emit(confirmEvent("t1")));
+    streamUntilStopped((emit) => emit(confirmEvent("t1")));
     mocks.confirmTool.mockRejectedValue(
       new ApiError(404, "/api/assistant/conversations/c1/confirm"));
     render(<Harness />);
@@ -1437,7 +1542,7 @@ describe("useAssistant", () => {
 
   test("an empty or busy send starts nothing", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
-    streamUntilAborted();
+    streamUntilStopped();
     render(<Harness />);
     await act(() => latest.send("   "));
     expect(mocks.createConversation).not.toHaveBeenCalled();

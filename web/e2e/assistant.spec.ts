@@ -166,9 +166,9 @@ test("in a very short window the hint points up to the end it passed", async ({ 
 });
 
 test("Stop button cancels a hung turn and the conversation stays usable", async ({ page }) => {
-  // FakeEngine's "please hang" scenario never yields or
-  // finishes, so only a genuine abort (AbortController -> fetch abort ->
-  // server-side cancellation) can end the turn.
+  // FakeEngine's "please hang" scenario never yields or finishes, so only
+  // the server's answer to Stop (POST .../stop, then turn_stopped) ends the
+  // turn before the panel's fallback abort, well past this test's waits.
   await login(page);
   await page.keyboard.press("Control+j");
   const panel = page.getByRole("region", { name: "Assistant" });

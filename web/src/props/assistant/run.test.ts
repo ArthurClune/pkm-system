@@ -37,6 +37,28 @@ describe("assistant property runner", () => {
     expect(tally.get("confirm fails after stop")).toBe(1);
   });
 
+  test("send, stop while streaming, then the server says the turn stopped", () => {
+    // outcome 0 on a stopped stream is turn_stopped
+    const tally = reached([send, resolve, stop, resolve, send]);
+    expect(tally.get("stop while streaming")).toBe(1);
+    expect(tally.get("turn_stopped after stop")).toBe(1);
+  });
+
+  test("send, stop while streaming, then the stop's fallback aborts the stream", () => {
+    const tally = reached([send, resolve, stop, { a: "server", pick: 0, outcome: 55 }]);
+    expect(tally.get("stop's fallback aborts after stop")).toBe(1);
+  });
+
+  test("a mutant that aborts on Stop instead of posting one is caught by `stop`", () => {
+    const step: StepFn = (s, e) => {
+      if (e.type !== "stop" || s.turn.phase !== "streaming") return REAL.step(s, e);
+      const out = REAL.step(s, e);
+      return { state: out.state, effects: [{ kind: "abort", turn: s.turn.id }] };
+    };
+    const { problems } = runActions([send, resolve, stop], { ...REAL, step });
+    expect(problems.some((p) => p.startsWith("stop: "))).toBe(true);
+  });
+
   test("send, the models list with another default, then the create resolves", () => {
     const tally = reached([send, { a: "modelsLoaded", default: "haiku" }, resolve]);
     expect(tally.get("create resolves after a default landed meanwhile")).toBe(1);

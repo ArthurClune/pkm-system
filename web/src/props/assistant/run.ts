@@ -7,7 +7,11 @@
 // problem names its invariant first so a failing run says which one broke.
 //
 //   start   a step starts exactly the request the model expects, or none
-//   one     at most one turn has a live request (create, or stream not aborted)
+//   stop    Stop on a streaming turn posts a stop for it, to its
+//           conversation, and nothing else does
+//   one     at most one turn has a live request (create, or a stream that
+//           is neither aborted nor past its last event), and a live stream
+//           is the busy turn's, stopped or not
 //   silent  a stopped, superseded or finished turn's results change nothing
 //           on screen: no item, no card, no error
 //   picker  the picker shows the model of the conversation being created or
@@ -58,9 +62,11 @@ export const HARNESS_LOST = "The assistant stopped responding. Start a new chat.
 type Req = { key: number } & (
   | { kind: "create"; turn: number; model: AssistantModel }
   // `started`: an event arrived, so the POST was answered; `lost`: the
-  // server forgot the conversation, so the stream can only end
+  // server forgot the conversation, so the stream can only end; `stopPosted`:
+  // the panel asked the server to stop the turn; `over`: the server sent the
+  // turn's last event (turn_stopped or an error), so the stream can only end
   | { kind: "stream"; turn: number; conversation: ConversationId; aborted: boolean;
-      lost: boolean; started: boolean }
+      lost: boolean; started: boolean; stopPosted: boolean; over: boolean }
   | { kind: "confirm"; turn: number; conversation: ConversationId; confirmId: ConfirmId });
 
 export type Tally = Map<string, number>;
@@ -145,6 +151,17 @@ class World {
         this.problems.push(`one: expected an abort of turn ${t}`);
       }
     }
+    const open = doc.conv.kind === "open" ? doc.conv.id : null;
+    for (const t of ex.stops) {
+      if (!effects.some((e) => e.kind === "postStop" && e.turn === t && e.conversation === open)) {
+        this.problems.push(`stop: expected a stop posted for turn ${t} to ${String(open)}`);
+      }
+    }
+    for (const e of effects) {
+      if (e.kind === "postStop" && !ex.stops.includes(e.turn)) {
+        this.problems.push(`stop: unexpected ${JSON.stringify(e)}`);
+      }
+    }
     for (const e of effects) {
       switch (e.kind) {
         case "create":
@@ -154,7 +171,12 @@ class World {
         case "stream":
           this.seenTurns.add(e.turn);
           this.reqs.push({ key: this.nextId++, kind: "stream", turn: e.turn, conversation: e.conversation,
-                           aborted: false, lost: false, started: false });
+                           aborted: false, lost: false, started: false, stopPosted: false,
+                           over: false });
+          break;
+        case "postStop":
+          this.reqs = this.reqs.map((r) =>
+            (r.kind === "stream" && r.turn === e.turn ? { ...r, stopPosted: true } : r));
           break;
         case "abort":
           this.reqs = this.reqs.map((r) =>
@@ -213,10 +235,10 @@ class World {
       this.problems.push("silent: a card shows after Stop");
     }
     const live = this.reqs.filter((r) => (r.kind === "create" && r.turn === doc.busy?.turn)
-      || (r.kind === "stream" && !r.aborted));
+      || (r.kind === "stream" && !r.aborted && !r.over));
     if (live.length > 1) this.problems.push(`one: ${live.length} live requests ${JSON.stringify(live)}`);
     for (const r of live) {
-      if (r.kind === "stream" && (doc.busy === null || r.turn !== doc.busy.turn || doc.busy.stopped)) {
+      if (r.kind === "stream" && (doc.busy === null || r.turn !== doc.busy.turn)) {
         this.problems.push(`one: a stream of turn ${r.turn} is live, the model's turn is ` +
           `${JSON.stringify(doc.busy)}`);
       }
@@ -242,6 +264,16 @@ class World {
       case "turnDone": return { type: "turn_done", usage: null };
       case "error": return { type: "error", message: "boom" };
     }
+  }
+
+  /** Delivers a stream's event; turn_stopped and an error are the server's
+   * last word on the turn. */
+  deliver(r: Extract<Req, { kind: "stream" }>, ev: AssistantEvent, at: number): void {
+    const last = ev.type === "turn_stopped" ? "stopped" : ev.type === "error" ? "error" : null;
+    this.reqs = this.reqs.map((x) => (x.key === r.key && x.kind === "stream"
+      ? { ...x, started: true, over: x.over || last !== null } : x));
+    this.feed({ type: "streamEvent", turn: r.turn, event: ev, at },
+              { k: "streamEvent", turn: r.turn, last });
   }
 
   /** The server forgets the conversation; its streams can only end. */
@@ -284,10 +316,8 @@ class World {
       this.feed({ type: "streamEnded", turn: r.turn }, { k: "streamEnded", turn: r.turn });
     };
     const event = (kind: StreamKind) => {
-      this.reqs = this.reqs.map((x) => (x.key === r.key ? { ...r, started: true } : x));
       this.count(`stream event${this.relation(r.turn)}${r.aborted ? " (aborted)" : ""}`);
-      this.feed({ type: "streamEvent", turn: r.turn, event: this.streamEvent(kind), at },
-                { k: "streamEvent", turn: r.turn });
+      this.deliver(r, this.streamEvent(kind), at);
     };
     const fail = (failure: "notFound" | "failed" | "aborted") => {
       this.settle(r);
@@ -302,13 +332,39 @@ class World {
     };
     if (r.aborted) {
       if (outcome < 70) fail("aborted");
-      else if (outcome < 85 && !r.lost) event(KINDS[outcome % KINDS.length]);
+      else if (outcome < 85 && !r.lost && !r.over) event(KINDS[outcome % KINDS.length]);
       else end();
       return;
     }
+    if (r.over) return end();
     // the POST to a conversation the server no longer knows is a 404
     if (this.gone(r.conversation) && !r.started) return fail("notFound");
     if (r.lost) return end();
+    if (r.stopPosted) {
+      // the server drains the stopped turn, then says so; until then an
+      // event sent before the stop may still arrive. The hook aborts the
+      // stream if the stop POST fails or the server is silent too long.
+      if (outcome < 35) {
+        this.count(`turn_stopped${this.relation(r.turn)}`);
+        this.deliver(r, { type: "turn_stopped" }, at);
+        return;
+      }
+      if (outcome < 50) return event(KINDS[outcome % KINDS.length]);
+      if (outcome < 62) {
+        this.count(`stop's fallback aborts${this.relation(r.turn)}`);
+        this.reqs = this.reqs.map((x) => (x.key === r.key && x.kind === "stream"
+          ? { ...x, aborted: true } : x));
+        return fail("aborted");
+      }
+      if (outcome < 72) return end();
+      if (outcome < 80) return fail("failed");
+      if (outcome < 90) {
+        // a stall's interrupt came before the stop
+        this.count(`error ends a stopped turn${this.relation(r.turn)}`);
+        this.deliver(r, { type: "error", message: "No response from the model" }, at);
+        return;
+      }
+    }
     if (outcome < 55) return event(KINDS[outcome % KINDS.length]);
     if (outcome < 67) return end();
     if (outcome < 75) return fail("failed");
@@ -323,8 +379,7 @@ class World {
     this.retire(r.conversation);
     this.lostBy.add(r.conversation);
     this.count(`harness lost${this.relation(r.turn)}`);
-    this.feed({ type: "streamEvent", turn: r.turn, event: { type: "error", message: HARNESS_LOST }, at },
-              { k: "streamEvent", turn: r.turn });
+    this.deliver(r, { type: "error", message: HARNESS_LOST }, at);
   }
 
   settleConfirm(r: Extract<Req, { kind: "confirm" }>, outcome: number, at: number): void {

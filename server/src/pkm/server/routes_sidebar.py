@@ -81,25 +81,27 @@ def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
 def delete_sidebar_entry(request: Request,
                          entry_id: Annotated[SidebarEntryId, INT64_RANGE],
                          db: Db = Depends(get_db)) -> OkAck:
-    cur = db.execute("DELETE FROM sidebar_entries WHERE id = ?", (entry_id,))
-    if cur.rowcount == 0:
-        db.rollback()
-        raise HTTPException(status_code=404, detail="entry not found")
-    notify.commit_and_nudge_threadpool(request, db)
+    with write_txn(db):
+        cur = db.execute(
+            "DELETE FROM sidebar_entries WHERE id = ?", (entry_id,))
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="entry not found")
+    notify.nudge_threadpool(request, db)
     return OkAck(ok=True)
 
 
 @router.put("/api/sidebar", response_model=OkAck)
 def reorder_sidebar_entries(request: Request, body: ReorderSidebarEntriesRequest,
                             db: Db = Depends(get_db)) -> OkAck:
-    existing_ids = {r["sidebar_entry_id"] for r in db.select(
-        "SELECT id AS sidebar_entry_id FROM sidebar_entries")}
-    if not reorder_is_valid(existing_ids, body.order):
-        raise HTTPException(
-            status_code=400,
-            detail="order must list every existing entry id exactly once")
-    db.executemany(
-        "UPDATE sidebar_entries SET order_idx = ? WHERE id = ?",
-        [(idx, entry_id) for idx, entry_id in enumerate(body.order)])
-    notify.commit_and_nudge_threadpool(request, db)
+    with write_txn(db):
+        existing_ids = {r["sidebar_entry_id"] for r in db.select(
+            "SELECT id AS sidebar_entry_id FROM sidebar_entries")}
+        if not reorder_is_valid(existing_ids, body.order):
+            raise HTTPException(
+                status_code=400,
+                detail="order must list every existing entry id exactly once")
+        db.executemany(
+            "UPDATE sidebar_entries SET order_idx = ? WHERE id = ?",
+            [(idx, entry_id) for idx, entry_id in enumerate(body.order)])
+    notify.nudge_threadpool(request, db)
     return OkAck(ok=True)

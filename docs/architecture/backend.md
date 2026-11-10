@@ -418,7 +418,9 @@ route whose decision rests on what it reads joins them.
 busy timeout could not take is a 503 with `Retry-After`. The helper rolls
 back on any raise and commits on a clean exit, a `return` included. The nudge follows the `with` block
 ([Post-commit nudges](#post-commit-nudges)). `test_write_txn.py` scans
-`server/src` and fails on a `begin_immediate` call outside the helper.
+`server/src` and fails on a `begin_immediate` call outside the helper, and on
+a `.commit()` in `pkm/server` outside it (`upload_asset` alone is allow-listed:
+`assets` is not journalled).
 
 | Route | Lock taken before |
 |---|---|
@@ -428,6 +430,9 @@ back on any raise and commits on a clean exit, a `return` included. The nudge fo
 | `DELETE /api/assets/{sha256}` | the strip's read of each referencing block, or with `if_unreferenced=true` the reference check |
 | `POST /api/journal/cleanup` | the emptiness and link checks, so a block created on the day cannot go with the page |
 | `POST /api/sidebar` | the uniqueness check and `max(order_idx) + 1`, so a same-title race is a 409 |
+| `PUT /api/sidebar` | the read of `existing_ids` the order is validated against, so an entry added or removed meanwhile cannot slip past the check |
+| `DELETE /api/sidebar/{entry_id}`, `POST /api/pages` | the write itself |
+| `GET /api/page/{title}` and `GET /api/journal` | on the miss path only: a read of today's page runs unlocked, and a miss takes the lock and reads again before creating |
 | `POST /api/migrations/title-canonicalization` | the re-inventory |
 
 A lock holder must never await the event loop before its commit. Another
@@ -908,8 +913,7 @@ it. `POST /api/ops` also echoes the applied ops.
 
 A route under [`write_txn`](#the-write-lock) nudges after its `with` block:
 `notify.nudge_threadpool` from a sync-def route, `await nudge(request, db)`
-from `post_ops`. Other sync-def routes call
-`notify.commit_and_nudge_threadpool`. `delete_asset` nudges because
+from `post_ops`. There is no other way to commit and nudge. `delete_asset` nudges because
 it rewrites blocks; `cleanup_journal` only when it deleted something. No type
 or test discovers a new route: `test_journal_advancing_contract.py` asserts
 the nudge for each route on its hand-kept list, so a new journal-advancing

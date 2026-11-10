@@ -303,3 +303,38 @@ def test_add_entry_answers_503_while_the_write_lock_is_held(
     assert r.status_code == 503
     assert r.headers["Retry-After"] == "1"
     assert client.get("/api/sidebar").json() == {"entries": []}
+
+
+def _held_lock_response(seeded_config, monkeypatch, call):
+    monkeypatch.setattr("pkm.server.db.BUSY_TIMEOUT_MS", 50)
+    holder = connect(seeded_config.db_path)
+    holder.begin_immediate()
+    try:
+        return call()
+    finally:
+        holder.rollback()
+        holder.close()
+
+
+def test_reorder_under_a_held_write_lock_answers_503(
+        client, seeded_config, monkeypatch):
+    _seed_entries(seeded_config.db_path, [("A", 0), ("B", 1)])
+    entries = client.get("/api/sidebar").json()["entries"]
+    ids = [e["id"] for e in reversed(entries)]
+    r = _held_lock_response(seeded_config, monkeypatch, lambda: client.put(
+        "/api/sidebar", json={"order": ids}))
+    assert r.status_code == 503
+    assert r.headers["Retry-After"] == "1"
+    assert [e["title"] for e in client.get("/api/sidebar").json()["entries"]
+            ] == ["A", "B"]
+
+
+def test_delete_entry_under_a_held_write_lock_answers_503(
+        client, seeded_config, monkeypatch):
+    _seed_entries(seeded_config.db_path, [("A", 0)])
+    entry_id = client.get("/api/sidebar").json()["entries"][0]["id"]
+    r = _held_lock_response(seeded_config, monkeypatch, lambda: client.delete(
+        f"/api/sidebar/{entry_id}"))
+    assert r.status_code == 503
+    assert r.headers["Retry-After"] == "1"
+    assert len(client.get("/api/sidebar").json()["entries"]) == 1

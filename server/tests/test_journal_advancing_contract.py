@@ -6,9 +6,8 @@ cleanup route (routes_pages.py cleanup_journal) shipped without one and
 replicas kept deleted pages until an unrelated mutation nudged them.
 
 This list is the enforcement mechanism: nothing makes a new route emit its
-nudge automatically (see notify.py's commit_and_nudge_threadpool for the
-closest thing -- pairing commit+nudge in one call so there's one line to
-remember instead of two), so a route that starts writing to a journaled
+nudge automatically (a route under write_txn calls notify.nudge_threadpool
+after its `with`), so a route that starts writing to a journaled
 table without adding a case here is a silent contract violation.
 If you add or change a journal-advancing route, add or update its entry.
 
@@ -336,3 +335,37 @@ def test_zero_group_title_activation_forces_an_equal_cursor_replica_pull(
     assert changes["latest_seq"] == latest_seq
     assert changes["generation"] == applied["generation"]
     assert changes["plain_space_title_canonicalization"] is True
+
+
+def _answers_503_under_a_held_lock(client, seeded_config, monkeypatch, call):
+    monkeypatch.setattr("pkm.server.db.BUSY_TIMEOUT_MS", 50)
+    holder = connect(seeded_config.db_path)
+    holder.begin_immediate()
+    try:
+        r = call()
+    finally:
+        holder.rollback()
+        holder.close()
+    assert r.status_code == 503
+    assert r.headers["Retry-After"] == "1"
+
+
+def test_create_page_answers_503_while_the_write_lock_is_held(
+        client, seeded_config, monkeypatch):
+    _answers_503_under_a_held_lock(
+        client, seeded_config, monkeypatch,
+        lambda: client.post("/api/pages", json={"title": "Held Lock Page"}))
+
+
+def test_first_journal_read_of_the_day_answers_503_while_the_lock_is_held(
+        client, seeded_config, monkeypatch):
+    _answers_503_under_a_held_lock(
+        client, seeded_config, monkeypatch,
+        lambda: client.get("/api/journal?days=1"))
+
+
+def test_first_read_of_today_answers_503_while_the_lock_is_held(
+        client, seeded_config, monkeypatch):
+    _answers_503_under_a_held_lock(
+        client, seeded_config, monkeypatch,
+        lambda: client.get(f"/api/page/{title_for_date(date.today())}"))

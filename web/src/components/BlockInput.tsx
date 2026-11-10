@@ -393,13 +393,11 @@ export function BlockInput({ node, cursor, handlers, readOnly,
         return;
       case "undo":
         e.preventDefault(); // kill native textarea undo
-        // The undo flushed the draft first, so settling loses nothing; a
-        // draft that may not be saved stops it, and stays.
-        if (handlers.onUndo()) draft.settle();
+        handlers.onUndo();
         return;
       case "redo":
         e.preventDefault();
-        if (handlers.onRedo()) draft.settle();
+        handlers.onRedo();
         return;
       default: {
         const exhaustive: never = decision;
@@ -428,12 +426,8 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   };
   const onPhone = isPhoneUserAgent(navigator.userAgent);
 
-  // The landing run() flushes the draft before it edits the tree, so
-  // settling afterwards loses nothing and shows the uploaded markdown.
   const uploadFiles = (at: number, files: File[]) => {
-    void handlers.onFiles(node.uid, at, files).then((landed) => {
-      if (landed) draft.settle();
-    });
+    void handlers.onFiles(node.uid, at, files);
   };
 
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {

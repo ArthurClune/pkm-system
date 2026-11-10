@@ -117,12 +117,6 @@ export interface BlockDraft {
    * alone: one sent mid-composition, or the keystroke that ended one. Call
    * it once per keydown, since it consumes the composition just ended. */
   imeOwns(e: ImeKeydown): boolean;
-  /** The draft has been committed and the tree has since changed this block
-   * for the user (undo, redo, an upload filling it): adopt the tree's text
-   * once it has rendered. Without it, the textarea would keep showing the old
-   * text, and the next draft would be typed over text the tree no longer
-   * holds. */
-  settle(): void;
 }
 
 export function useBlockDraft(
@@ -224,8 +218,8 @@ export function useBlockDraft(
     onAdoptRef.current();
     setDraft(text);
   };
-  // settle() and the end of the pending draft bump this so adoption also runs
-  // when the tree's text for this block ends up where it started (an undo of
+  // The end of the pending draft bumps this so adoption also runs when the
+  // tree's text for this block ends up where it started (an undo of
   // a draft that had not yet reached the tree, or a flush that sent nothing
   // while remote text landed under the draft), which leaves `text` unchanged.
   const [settled, setSettled] = useState(0);
@@ -317,6 +311,5 @@ export function useBlockDraft(
       return e.keyCode === 229 && endedAt !== null
         && imeClock.now() - endedAt < IME_COMMIT_WINDOW_MS;
     },
-    settle: () => setSettled((n) => n + 1),
   };
 }

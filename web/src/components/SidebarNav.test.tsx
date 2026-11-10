@@ -3,7 +3,8 @@ import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import { SidebarContext } from "../contexts";
-import { defer, jsonResponse, pageIdOf, stubFetch, typeProbe } from "../test-helpers";
+import { SyncContext } from "../sync/SyncProvider";
+import { defer, jsonResponse, makeSync, pageIdOf, stubFetch, typeProbe } from "../test-helpers";
 import { deleteSidebarEntry, SidebarNav } from "./SidebarNav";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -324,4 +325,23 @@ it("disables the up button on the first entry and the down button on the last", 
   expect(screen.getByRole("button", { name: /move ai down/i })).toBeDisabled();
   expect(screen.getByRole("button", { name: /move aws down/i })).not.toBeDisabled();
   expect(screen.getByRole("button", { name: /move ai up/i })).not.toBeDisabled();
+});
+
+it("a resync refetches the entries", async () => {
+  let entries = [{ id: 1, title: "AI" }];
+  const fetchMock = vi.fn(async () => jsonResponse({ entries }));
+  vi.stubGlobal("fetch", fetchMock);
+  const tree = (generation: number) => (
+    <SyncContext.Provider
+      value={makeSync("connected", { resyncGeneration: generation })}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>
+    </SyncContext.Provider>
+  );
+  const { rerender } = render(tree(0));
+  await screen.findByRole("link", { name: "AI" });
+
+  entries = [{ id: 1, title: "AI" }, { id: 2, title: "AWS" }];
+  rerender(tree(1));
+  await screen.findByRole("link", { name: "AWS" });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 });

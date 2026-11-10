@@ -3,7 +3,7 @@
 committed baseline, confirm candidates (re-run, then merge base), write
 ratcheted baselines, print the table.
 
-Merge-base runs use this branch's harness (perfcheck, check.mjs,
+Merge-base runs use this branch's harness (perfcheck, check.ts,
 e2e_serve.py) against the merge base's product code (pkm package, web/dist),
 so they work even when the merge base predates this tooling.
 
@@ -216,7 +216,7 @@ class FrontendRunner:
                       out: Path) -> tuple[list[str], dict[str, str]]:
         # the harness is always this checkout's; PERF_WEB_ROOT is the code
         # measured
-        cmd = ["node", str(self.repo / "web" / "tooling" / "perf" / "check.mjs"),
+        cmd = ["node", str(self.repo / "web" / "tooling" / "perf" / "check.ts"),
                "--out", str(out)]
         if only:
             cmd += ["--only", frontend_letters(only)]

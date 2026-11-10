@@ -405,7 +405,7 @@ fails on, and `AGENTS.md` § Testing says how to run them.
 - **Budgets** (`web/tooling/budgets.json`, `viteBudgetPlugin.ts`): the build
   fails when the entry, largest asset, total, service-worker precache or a
   library's owned bytes (mermaid, pdfjs, katex) exceed their caps.
-- **Perf**: `web/tooling/perf/check.mjs` is the frontend half of
+- **Perf**: `web/tooling/perf/check.ts` is the frontend half of
   `perf/check.sh` ([checks.md § Performance gate](checks.md#performance-gate)); its
   [README](../../web/tooling/perf/README.md) lists the files and the measurement caveats.
 

@@ -5,19 +5,25 @@
 // server on 8977 and sets PERF_FROZEN_NOW / PERF_FIXTURE_HASH / PERF_COMMIT.
 // Every metric declares its class here; changing one is a reviewed change.
 import { chromium } from "@playwright/test";
+import type {
+  Browser, BrowserContext, CDPSession, Locator, Page, Request, Route,
+} from "@playwright/test";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expandOnly } from "./contextGroups.ts";
 import { BASE, BIG_PAGE, INIT, REACT_INIT, sleep, attachCounters, freshBag,
-         resetBag, login } from "./harness.mjs";
+         resetBag, login } from "./harness.ts";
+import type { Bag } from "./harness.ts";
 
-const arg = (name, dflt) => {
+function arg(name: string): string | undefined;
+function arg(name: string, dflt: string): string;
+function arg(name: string, dflt?: string): string | undefined {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] : dflt;
-};
-const OUT = arg("--out");
+}
+const OUT_ARG = arg("--out");
 const LETTERS = "H,W,A,B,F,J,I,K,S,R";
 const REQUESTED = arg("--only", LETTERS).split(",");
 {
@@ -29,14 +35,20 @@ const REQUESTED = arg("--only", LETTERS).split(",");
   }
 }
 const ONLY = expandOnly(REQUESTED.join(","));
-const FROZEN = process.env.PERF_FROZEN_NOW;
-if (!OUT || !FROZEN) { console.error("need --out and PERF_FROZEN_NOW"); process.exit(2); }
+const FROZEN_ENV = process.env.PERF_FROZEN_NOW;
+if (!OUT_ARG || !FROZEN_ENV) { console.error("need --out and PERF_FROZEN_NOW"); process.exit(2); }
+const OUT: string = OUT_ARG;
+const FROZEN: string = FROZEN_ENV;
 const IDLE_MS = 30_000;
 
-const ex = (value) => ({ class: "exact", value });
-const band = (value) => ({ class: "band", value });
-const tm = (value) => ({ class: "timing", value: +value.toFixed(1) });
-const scenarios = {};
+interface Metric {
+  class: "exact" | "band" | "timing";
+  value: number;
+}
+const ex = (value: number): Metric => ({ class: "exact", value });
+const band = (value: number): Metric => ({ class: "band", value });
+const tm = (value: number): Metric => ({ class: "timing", value: +value.toFixed(1) });
+const scenarios: Record<string, Record<string, Metric>> = {};
 
 // Runs before the fake clock is installed, so it keeps the real
 // performance.now (sub-millisecond); the fake one counts whole milliseconds,
@@ -56,7 +68,7 @@ const REAL_NOW = () => {
 // tight in-page loop — back-to-back reads can all land in the same coarse
 // timer bucket (browsers quantise performance.now() for a real clock too),
 // which would look identically "always integer" for a few microseconds.
-async function assertRealNowUnfaked(page) {
+async function assertRealNowUnfaked(page: Page): Promise<void> {
   for (let i = 0; i < 8; i++) {
     const n = await page.evaluate(() => window.__realNow?.());
     if (typeof n === "number" && !Number.isInteger(n)) return;
@@ -73,15 +85,18 @@ async function assertRealNowUnfaked(page) {
 // restarting per document, so timings subtract this document's start.
 const MARKS = () => {
   window.__docStart = performance.now();
-  const marks = (window.__marks = []);
+  window.__marks = [];
+  const marks = window.__marks;
   const fake = performance.mark.bind(performance);
-  performance.mark = (name, ...rest) => {
+  performance.mark = (name: string, ...rest: [PerformanceMarkOptions?]) => {
     marks.push({ name, startTime: performance.now() });
     return fake(name, ...rest);
   };
 };
 
-async function newContext(browser, { react = false } = {}) {
+async function newContext(
+  browser: Browser, { react = false }: { react?: boolean } = {},
+): Promise<BrowserContext> {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 },
                                         timezoneId: "Europe/London" });
   await ctx.addInitScript(REAL_NOW);
@@ -105,16 +120,28 @@ async function newContext(browser, { react = false } = {}) {
 const QUIET_MS = 1000;
 const SETTLE_TIMEOUT_MS = 30_000;
 
-function trackInflight(page) {
-  const net = { inflight: new Set(), lastChange: Date.now() };
+interface Net {
+  inflight: Set<Request>;
+  lastChange: number;
+}
+
+interface Session {
+  page: Page;
+  bag: Bag;
+  cdp: CDPSession;
+  net: Net;
+}
+
+function trackInflight(page: Page): Net {
+  const net: Net = { inflight: new Set(), lastChange: Date.now() };
   page.on("request", (r) => { net.inflight.add(r); net.lastChange = Date.now(); });
-  const done = (r) => { net.inflight.delete(r); net.lastChange = Date.now(); };
+  const done = (r: Request) => { net.inflight.delete(r); net.lastChange = Date.now(); };
   page.on("requestfinished", done);
   page.on("requestfailed", done);
   return net;
 }
 
-async function settle({ net }) {
+async function settle({ net }: { net: Net }): Promise<void> {
   const start = Date.now(), deadline = start + SETTLE_TIMEOUT_MS;
   while (net.inflight.size > 0 || Date.now() - Math.max(net.lastChange, start) < QUIET_MS) {
     if (Date.now() > deadline) {
@@ -125,7 +152,7 @@ async function settle({ net }) {
   }
 }
 
-async function openPage(ctx) {
+async function openPage(ctx: BrowserContext): Promise<Session> {
   const page = await ctx.newPage();
   const bag = freshBag();
   attachCounters(page, bag);
@@ -135,40 +162,49 @@ async function openPage(ctx) {
   return { page, bag, cdp, net };
 }
 
-const layoutCount = async (cdp) =>
-  (await cdp.send("Performance.getMetrics")).metrics.find((m) => m.name === "LayoutCount").value;
+async function layoutCount(cdp: CDPSession): Promise<number> {
+  const { metrics } = await cdp.send("Performance.getMetrics");
+  const layout = metrics.find((m) => m.name === "LayoutCount");
+  if (!layout) throw new Error("CDP Performance.getMetrics has no LayoutCount");
+  return layout.value;
+}
 
-async function replicaReadyMs(page) {
+async function replicaReadyMs(page: Page): Promise<number> {
   const ready = () => window.__marks.find((m) => m.name === "pkm:replica-ready");
   await page.waitForFunction(ready, null, { timeout: 120_000 });
-  return page.evaluate(() => window.__marks.find((m) => m.name === "pkm:replica-ready")
-    .startTime - window.__docStart);
+  return page.evaluate(() => {
+    const mark = window.__marks.find((m) => m.name === "pkm:replica-ready");
+    if (!mark) throw new Error("no pkm:replica-ready mark");
+    return mark.startTime - window.__docStart;
+  });
 }
 
 // Resource entries come from a PerformanceObserver: the browser still
 // records them, but the fake performance.getEntriesByType returns [].
 // Called once the page has settled, so the buffered entries are complete.
-const apiBytes = (page) => page.evaluate(() => new Promise((resolve, reject) => {
+const apiBytes = (page: Page) => page.evaluate(() => new Promise<number>((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error("no resource timing entries")), 10_000);
   new PerformanceObserver((list, obs) => {
     obs.disconnect();
     clearTimeout(timer);
     resolve(list.getEntries()
       .filter((r) => new URL(r.name).pathname.startsWith("/api/"))
-      .reduce((s, r) => s + (r.encodedBodySize || 0), 0));
+      .reduce((s, r) => s + ("encodedBodySize" in r
+        && typeof r.encodedBodySize === "number" ? r.encodedBodySize : 0), 0));
   }).observe({ type: "resource", buffered: true });
 }));
 
-const count = (bag, p) => bag.requests[p] ?? 0;
+const count = (bag: Bag, p: string): number => bag.requests[p] ?? 0;
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
                 "August", "September", "October", "November", "December"];
-const suffix = (d) => (d % 100 >= 10 && d % 100 <= 20) ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[d % 10] ?? "th");
-const dailyTitle = (dt) => `${MONTHS[dt.getMonth()]} ${dt.getDate()}${suffix(dt.getDate())}, ${dt.getFullYear()}`;
+const ORDINALS: Record<number, string> = { 1: "st", 2: "nd", 3: "rd" };
+const suffix = (d: number) => (d % 100 >= 10 && d % 100 <= 20) ? "th" : (ORDINALS[d % 10] ?? "th");
+const dailyTitle = (dt: Date) => `${MONTHS[dt.getMonth()]} ${dt.getDate()}${suffix(dt.getDate())}, ${dt.getFullYear()}`;
 
 const CLOCK_SLACK_MS = 10 * 60_000;
 
-async function assertFrozenClock(page) {
+async function assertFrozenClock(page: Page): Promise<void> {
   // The fake clock starts at FROZEN and flows, so the browser's now must sit
   // just after it; a real clock would read today's date.
   const seen = await page.evaluate(() => new Date().toISOString());
@@ -178,7 +214,7 @@ async function assertFrozenClock(page) {
   }
 }
 
-async function assertNewestJournalDay(page) {
+async function assertNewestJournalDay(page: Page): Promise<void> {
   // The journal opens on the newest existing day, whatever the clock says,
   // so this checks the fixture, not the clock: its newest day is FROZEN's.
   const want = dailyTitle(new Date(FROZEN));
@@ -191,7 +227,7 @@ async function assertNewestJournalDay(page) {
   }
 }
 
-async function cold(st) {
+async function cold(st: Session): Promise<void> {
   const { page, bag } = st;
   await login(page);
   const readyMs = await replicaReadyMs(page);
@@ -207,7 +243,7 @@ async function cold(st) {
   };
 }
 
-async function warm(st) {
+async function warm(st: Session): Promise<void> {
   const { page, bag } = st;
   resetBag(bag);
   await page.goto(BASE + BIG_PAGE);
@@ -222,14 +258,14 @@ async function warm(st) {
   };
 }
 
-async function idle(st, name, url, readySel) {
+async function idle(st: Session, name: string, url: string, readySel: string): Promise<void> {
   const { page } = st;
   await page.goto(BASE + url);
   await page.waitForSelector(readySel, { timeout: 30_000 });
   await settle(st);
   await page.evaluate(() => window.__perfReset());
   await sleep(IDLE_MS);
-  const p = await page.evaluate(() => JSON.parse(JSON.stringify(window.__perf)));
+  const p = await page.evaluate(() => window.__perf);
   scenarios[name] = {
     timers_armed: band(p.st + p.si),
     fetches: band(p.fetch + p.xhr),
@@ -254,13 +290,13 @@ async function idle(st, name, url, readySel) {
 // regression, and an app fix of the race as an improvement.
 const PULL_WAIT_MS = 2000;
 const ACK_MARGIN_MS = 100;
-const isPath = (p) => (url) => url.pathname === p;
+const isPath = (p: string) => (url: URL) => url.pathname === p;
 
-async function pinSaveOrder(page) {
-  let pullSent, ackDelivered, opsIntercepted = false;
-  const pulled = new Promise((resolve) => { pullSent = resolve; });
-  const acked = new Promise((resolve) => { ackDelivered = resolve; });
-  const onChanges = async (route) => {
+async function pinSaveOrder(page: Page): Promise<() => Promise<void>> {
+  let pullSent: () => void, ackDelivered: () => void, opsIntercepted = false;
+  const pulled = new Promise<void>((resolve) => { pullSent = resolve; });
+  const acked = new Promise<void>((resolve) => { ackDelivered = resolve; });
+  const onChanges = async (route: Route) => {
     // Only a pull sent after this save's ops request was intercepted counts
     // as "the nudge's pull" — an earlier, unrelated pull must not satisfy it.
     if (opsIntercepted) pullSent();
@@ -269,7 +305,7 @@ async function pinSaveOrder(page) {
     await sleep(ACK_MARGIN_MS);
     await route.fulfill({ response });
   };
-  const onOps = async (route) => {
+  const onOps = async (route: Route) => {
     opsIntercepted = true;
     const response = await route.fetch();
     await Promise.race([pulled, sleep(PULL_WAIT_MS)]);
@@ -291,9 +327,9 @@ async function pinSaveOrder(page) {
 // Without the React hook (F) the count stays 0 and this is a short wait.
 const REACT_QUIET_MS = 500;
 
-async function reactQuiet(page) {
+async function reactQuiet(page: Page): Promise<void> {
   const start = Date.now();
-  let last = null, since = start;
+  let last: number | null = null, since = start;
   for (;;) {
     const n = await page.evaluate(() => window.__react?.commits ?? 0);
     if (n !== last) { last = n; since = Date.now(); }
@@ -305,17 +341,27 @@ async function reactQuiet(page) {
   }
 }
 
-async function typeInto(st, rootSel, text, target) {
+const NO_REACT_HOOK = "React commit hook not installed in this context";
+
+async function reactCounts(page: Page): Promise<ReactCounters> {
+  const r = await page.evaluate(() => (window.__react ? { ...window.__react } : null));
+  if (!r) throw new Error(NO_REACT_HOOK);
+  return r;
+}
+
+async function typeInto(st: Session, rootSel: string, text: string, target: Locator) {
   const { page, cdp } = st;
   await target.click();
   await page.waitForSelector("textarea.block-input", { timeout: 10_000 });
-  await page.locator("textarea.block-input").evaluate((el) =>
-    el.setSelectionRange(el.value.length, el.value.length));
+  await page.locator("textarea.block-input").evaluate((el) => {
+    if (!(el instanceof HTMLTextAreaElement)) throw new Error("block input is not a textarea");
+    el.setSelectionRange(el.value.length, el.value.length);
+  });
   await reactQuiet(page);
   await page.evaluate((sel) => { window.__perfReset(); window.__reactReset?.();
                                  window.__perfMutStart(sel); }, rootSel);
-  const requests = [];
-  const onRequest = (req) => requests.push(req);
+  const requests: Request[] = [];
+  const onRequest = (req: Request) => requests.push(req);
   page.on("request", onRequest);
   const unpin = await pinSaveOrder(page);
   const l0 = await layoutCount(cdp);
@@ -329,7 +375,7 @@ async function typeInto(st, rootSel, text, target) {
   page.off("request", onRequest);
   const l1 = await layoutCount(cdp);
   const p = await page.evaluate(() => { window.__perfMutStop();
-                                        return JSON.parse(JSON.stringify(window.__perf)); });
+                                        return window.__perf; });
   const r = await page.evaluate(() => window.__react ? { ...window.__react } : null);
   await page.keyboard.press("Escape");
   return { layouts: l1 - l0, p, r, requests };
@@ -338,12 +384,12 @@ async function typeInto(st, rootSel, text, target) {
 // Every /api/ request sent from the first key until the save's follow-ups
 // settle, repeat pulls included; requests for the app shell and assets are
 // not counted.
-const apiRequests = (requests) =>
+const apiRequests = (requests: Request[]) =>
   requests.filter((req) => new URL(req.url()).pathname.startsWith("/api/")).length;
 
 const TYPED = "perf check typing probe, fifty characters exactly!".slice(0, 50);
 
-async function typing(st) {
+async function typing(st: Session): Promise<void> {
   const { page } = st;
   await page.goto(BASE + BIG_PAGE);
   await page.waitForSelector("div.block-text", { timeout: 30_000 });
@@ -356,7 +402,7 @@ async function typing(st) {
                             api_requests: ex(apiRequests(requests)) };
 }
 
-async function journalScroll(st) {
+async function journalScroll(st: Session): Promise<void> {
   const { page, bag } = st;
   await page.goto(BASE + "/");
   await page.waitForSelector("section.journal-day", { timeout: 30_000 });
@@ -373,7 +419,7 @@ async function journalScroll(st) {
   };
 }
 
-async function journalTyping(st) {
+async function journalTyping(st: Session): Promise<void> {
   const { page } = st;
   await page.goto(BASE + "/");
   await page.waitForSelector("section.journal-day", { timeout: 30_000 });
@@ -385,11 +431,12 @@ async function journalTyping(st) {
   const days = await page.locator("section.journal-day").count();
   const { r } = await typeInto(st, ".journal, main, #root", TYPED,
                                page.locator("section.journal-day div.block-text").first());
+  if (!r) throw new Error(NO_REACT_HOOK);
   scenarios["J/journal-typing"] = { days_mounted: ex(days), react_commits: band(r.commits),
                                     rendered_fibers: band(r.rendered) };
 }
 
-async function drag(st, name, fromBottom) {
+async function drag(st: Session, name: string, fromBottom: boolean): Promise<void> {
   const { page, cdp } = st;
   await page.goto(BASE + BIG_PAGE);
   await page.waitForSelector("div.block-text", { timeout: 30_000 });
@@ -410,7 +457,7 @@ async function drag(st, name, fromBottom) {
     const handle = zone?.querySelector('[data-uid] .bullet[draggable="true"]');
     if (!zone || !handle) return { error: "no drop zone / drag handle" };
     const transfer = new DataTransfer();
-    const fire = (el, type, x, y) => {
+    const fire = (el: Element, type: string, x: number, y: number) => {
       const ev = new DragEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y,
                                        dataTransfer: transfer });
       const t0 = window.__realNow(); el.dispatchEvent(ev);
@@ -418,7 +465,7 @@ async function drag(st, name, fromBottom) {
     };
     fire(handle, "dragstart", 40, 120);
     await new Promise((r) => setTimeout(r, 100));
-    const top = 80, bottom = window.innerHeight - 40, ms = [];
+    const top = 80, bottom = window.innerHeight - 40, ms: number[] = [];
     let notPrevented = 0;
     for (let i = 0; i < events; i++) {
       const got = fire(zone, "dragover", 200, top + ((bottom - top) * i) / (events - 1));
@@ -428,9 +475,9 @@ async function drag(st, name, fromBottom) {
     fire(handle, "dragend", 200, bottom);
     return { totalMs: ms.reduce((s, v) => s + v, 0), notPrevented };
   }, { events: 120, paceMs: 16 });
-  if (d.error) throw new Error(d.error);
+  if ("error" in d) throw new Error(d.error);
   await sleep(1500);
-  const r = await page.evaluate(() => ({ ...window.__react }));
+  const r = await reactCounts(page);
   scenarios[name] = { not_prevented: ex(d.notPrevented), react_commits: band(r.commits),
                       forced_layouts: band((await layoutCount(cdp)) - l0),
                       // summed over the 120 dragovers: one handler takes
@@ -438,7 +485,7 @@ async function drag(st, name, fromBottom) {
                       handler_ms: tm(d.totalMs) };
 }
 
-async function search(st, name, term) {
+async function search(st: Session, name: string, term: string): Promise<void> {
   const { page, bag } = st;
   await page.goto(BASE + "/");
   await page.waitForSelector("section.journal-day", { timeout: 30_000 });
@@ -455,7 +502,7 @@ async function search(st, name, term) {
   // `Create page "<term>"` row appears once results for exactly the typed
   // term are on screen (no fixture page carries either term as its title).
   const head = term.slice(0, -1), last = term.slice(-1);
-  const created = (q) => `li.search-result:has-text('Create page "${q}"')`;
+  const created = (q: string) => `li.search-result:has-text('Create page "${q}"')`;
   // 400 ms per key, well clear of SearchBar's 150 ms debounce, so every key
   // sends its own search; at 150 ms two keys sometimes shared one.
   await input.pressSequentially(head, { delay: 400 });
@@ -463,8 +510,9 @@ async function search(st, name, term) {
   await settle(st);
   await page.evaluate((label) => {
     const input = document.querySelector("input.top-bar-search-input");
+    if (!input) throw new Error("no search input");
     window.__searchMs = new Promise((resolve) => {
-      let t0 = null;
+      let t0: number | null = null;
       const done = () => [...document.querySelectorAll("li.search-result .result-page")]
         .some((el) => el.textContent === label);
       const mo = new MutationObserver(() => {
@@ -478,16 +526,17 @@ async function search(st, name, term) {
   await input.press(last);
   const resultsMs = await page.evaluate(() => Promise.race([
     window.__searchMs,
-    new Promise((_, reject) => setTimeout(() => reject(new Error("no results for the full term")), 15_000)),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("no results for the full term")), 15_000)),
   ]));
+  if (resultsMs === undefined) throw new Error("the search timer was never armed");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   // Open a real block hit by clicking it: Enter on the synthetic
   // `Create page "…"` row would write to the DB mid-run.
   await page.locator("li.search-result:has(mark)").first().click();
   await settle(st);
-  const p = await page.evaluate(() => JSON.parse(JSON.stringify(window.__perf)));
-  const r = await page.evaluate(() => ({ ...window.__react }));
+  const p = await page.evaluate(() => window.__perf);
+  const r = await reactCounts(page);
   scenarios[name] = {
     search_requests: ex(count(bag, "/api/search")),
     fetches: ex(p.fetch + p.xhr),
@@ -505,7 +554,7 @@ async function search(st, name, term) {
 // into a band; instead this waits for the full term's results and then for
 // network idle, so any late-firing debounce has already resolved before
 // the count is read (spec Determinism step 2).
-async function searchBurst(st, name, term) {
+async function searchBurst(st: Session, name: string, term: string): Promise<void> {
   const { page, bag } = st;
   await page.goto(BASE + "/");
   await page.waitForSelector("section.journal-day", { timeout: 30_000 });
@@ -522,23 +571,25 @@ async function searchBurst(st, name, term) {
   scenarios[name] = { search_requests: ex(count(bag, "/api/search")) };
 }
 
-const any = (...ids) => ids.some((id) => ONLY.has(id));
+const any = (...ids: string[]) => ids.some((id) => ONLY.has(id));
 
 // Every failure names what it was doing, so a broken gate says which
 // scenario to look at.
-async function step(label, fn) {
+const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+async function step<T>(label: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (e) {
-    throw new Error(`${label} failed: ${e.message}`, { cause: e });
+    throw new Error(`${label} failed: ${messageOf(e)}`, { cause: e });
   }
 }
-const run = (name, fn) => step(`scenario ${name}`, fn);
+const run = (name: string, fn: () => Promise<void>) => step(`scenario ${name}`, fn);
 
 // R is a vitest scenario against the replica code, not a browser one: it
 // drives the fixture server over HTTP from node. Run it serially, last, so
 // nothing else writes to the server between its window POSTs and GETs.
-async function rebase() {
+async function rebase(): Promise<void> {
   const webDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const out = `${OUT}.rebase.json`;
   fs.rmSync(out, { force: true });
@@ -550,25 +601,27 @@ async function rebase() {
     stdio: ["ignore", "pipe", "pipe"],
   });
   let tail = "";
-  const keep = (b) => { tail = (tail + b).slice(-8000); };
+  const keep = (b: Buffer) => { tail = (tail + b.toString()).slice(-8000); };
   child.stdout.on("data", keep);
   child.stderr.on("data", keep);
-  const code = await new Promise((resolve, reject) => {
+  const code = await new Promise<number | null>((resolve, reject) => {
     child.on("error", reject);
     child.on("close", resolve);
   });
   if (code !== 0) throw new Error(`rebase scenario exited ${code}:\n${tail}`);
-  let doc;
+  let doc: unknown;
   try {
     doc = JSON.parse(fs.readFileSync(out, "utf8"));
   } catch (e) {
-    throw new Error(`rebase scenario wrote no usable ${out}: ${e.message}\n${tail}`);
+    throw new Error(`rebase scenario wrote no usable ${out}: ${messageOf(e)}\n${tail}`);
   }
   Object.assign(scenarios, doc);
   fs.rmSync(out, { force: true });
 }
 
-async function loggedIn(browser, letters, opts) {
+async function loggedIn(
+  browser: Browser, letters: string, opts?: { react?: boolean },
+): Promise<{ ctx: BrowserContext; st: Session }> {
   return step(`setup for ${letters}`, async () => {
     const ctx = await newContext(browser, opts);
     const st = await openPage(ctx);
@@ -579,7 +632,7 @@ async function loggedIn(browser, letters, opts) {
   });
 }
 
-async function main() {
+async function main(): Promise<void> {
   const browser = await chromium.launch({ headless: true });
   try {
     // H and W share a fresh context: H is its first (empty-replica) load,
@@ -633,4 +686,4 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e: unknown) => { console.error(e); process.exit(1); });

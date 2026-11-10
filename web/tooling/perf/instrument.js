@@ -2,13 +2,15 @@
 // into window.__perf. Installed before app code so it sees every call.
 (() => {
   const w = window;
+  /** @typedef {"fetchUrls" | "wsUrls" | "resetAt"} NotACounter */
+  /** @type {Exclude<keyof PerfCounters, NotACounter>[]} */
   const KEYS = ["st", "si", "raf", "stFired", "siFired", "rafFired",
                 "fetch", "ws", "xhr", "longtasks", "longtaskMs", "maxLongtask",
                 "mut", "mutOutside"];
-  const P = {};
-  for (const k of KEYS) P[k] = 0;
-  P.fetchUrls = {};
-  P.wsUrls = {};
+  /** @type {PerfCounters} */
+  const P = { st: 0, si: 0, raf: 0, stFired: 0, siFired: 0, rafFired: 0,
+              fetch: 0, ws: 0, xhr: 0, longtasks: 0, longtaskMs: 0, maxLongtask: 0,
+              mut: 0, mutOutside: 0, fetchUrls: {}, wsUrls: {}, resetAt: 0 };
   w.__perf = P;
   w.__perfReset = () => {
     for (const k of KEYS) P[k] = 0;
@@ -18,6 +20,7 @@
   };
   P.resetAt = Date.now();
 
+  /** @param {string | URL} u */
   const path = (u) => {
     try { return new URL(u, w.location.href).pathname; } catch { return String(u); }
   };
@@ -27,7 +30,7 @@
     P.st++;
     if (typeof fn === "function") {
       const orig = fn;
-      fn = function () { P.stFired++; return orig.apply(this, arguments); };
+      fn = /** @this {unknown} */ function () { P.stFired++; return orig.apply(this, arguments); };
     }
     return _st.call(w, fn, d, ...a);
   };
@@ -36,7 +39,7 @@
     P.si++;
     if (typeof fn === "function") {
       const orig = fn;
-      fn = function () { P.siFired++; return orig.apply(this, arguments); };
+      fn = /** @this {unknown} */ function () { P.siFired++; return orig.apply(this, arguments); };
     }
     return _si.call(w, fn, d, ...a);
   };
@@ -44,21 +47,35 @@
   if (_raf) {
     w.requestAnimationFrame = function (fn) {
       P.raf++;
-      return _raf.call(w, function () { P.rafFired++; return fn.apply(this, arguments); });
+      return _raf.call(w, /** @this {unknown} */ function (time) {
+        P.rafFired++; return fn.call(this, time);
+      });
     };
   }
 
   const _fetch = w.fetch;
   w.fetch = function (input, init) {
     P.fetch++;
-    const u = typeof input === "string" ? input : (input && input.url) || "";
+    const u = typeof input === "string" ? input : (input && "url" in input && input.url) || "";
     const k = path(u);
     P.fetchUrls[k] = (P.fetchUrls[k] || 0) + 1;
     return _fetch.call(w, input, init);
   };
 
+  // Typed by the overloads' common prefix, so a call forwards whichever
+  // overload the page used.
+  /**
+   * @type {(this: XMLHttpRequest, m: string, u: string | URL,
+   *   ...rest: unknown[]) => void}
+   */
   const _open = w.XMLHttpRequest && w.XMLHttpRequest.prototype.open;
   if (_open) {
+    /**
+     * @this {XMLHttpRequest}
+     * @param {string} m
+     * @param {string | URL} u
+     * @param {...unknown} rest
+     */
     w.XMLHttpRequest.prototype.open = function (m, u, ...rest) {
       P.xhr++;
       const k = path(u);
@@ -67,16 +84,16 @@
     };
   }
 
-  const _WS = w.WebSocket;
-  function WSWrap(url, protocols) {
-    P.ws++;
-    const k = path(url);
-    P.wsUrls[k] = (P.wsUrls[k] || 0) + 1;
-    return protocols === undefined ? new _WS(url) : new _WS(url, protocols);
-  }
-  WSWrap.prototype = _WS.prototype;
-  WSWrap.CONNECTING = 0; WSWrap.OPEN = 1; WSWrap.CLOSING = 2; WSWrap.CLOSED = 3;
-  w.WebSocket = WSWrap;
+  // A construct trap keeps the real constructor's prototype, constants and
+  // arguments, so `new WebSocket(...)` behaves as before, counted.
+  w.WebSocket = new Proxy(w.WebSocket, {
+    construct(target, args, newTarget) {
+      P.ws++;
+      const k = path(args[0]);
+      P.wsUrls[k] = (P.wsUrls[k] || 0) + 1;
+      return Reflect.construct(target, args, newTarget);
+    },
+  });
 
   try {
     new PerformanceObserver((list) => {

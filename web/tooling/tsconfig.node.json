@@ -11,6 +11,7 @@
     "runPlaywright.ts",
     "fcis.ts",
     "genTypes.ts",
-    "perf/contextGroups.ts"
+    "perf/check.ts",
+    "perf/globals.d.ts"
   ]
 }

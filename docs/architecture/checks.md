@@ -27,7 +27,7 @@ convention plus review.
 | unit-test guards | replica rows fit `Columns`; no unsilenced `console.warn`/`error`; no runaway fast-check filter; `types.d.ts` matches `openapi.json` | every vitest run | `replica/rowCheck.ts`, `src/test-setup.ts`, `src/test-guards.ts`, `genTypes.drift.test.ts` | each guard's test shows its teeth |
 | bundle budgets | the build stays under its caps | `vite build` | `viteBudgetPlugin.ts`, `budgets.json` | |
 | Playwright | the built SPA works against a real server | last in `pnpm verify` | `web/e2e` | any 5xx or server exception fails |
-| performance gate | no count rises; no timing clearly worsens | `perf/check.sh`, before merge | `server/tooling/perfcheck`, `web/tooling/perf/check.mjs` | [Performance gate](#performance-gate) |
+| performance gate | no count rises; no timing clearly worsens | `perf/check.sh`, before merge | `server/tooling/perfcheck`, `web/tooling/perf/check.ts` | [Performance gate](#performance-gate) |
 | property gate | random batches and commands keep the invariants | `proptest/check.sh`, before merge | `server/tests/props`, `web/src/props` | [Property gate](#property-gate) |
 | architecture docs | mermaid parses; links resolve; no bean id in prose | by hand | `.claude/skills/architecture-docs/check-docs.mjs` | |
 
@@ -140,7 +140,7 @@ Rules a change to the gate must keep:
 - Counts are deterministic or the run fails. Backend counts are taken twice
   (`UnstableCountError`) and scenario R measures two passes. Clocks, timezone,
   fixture copies, typing paces and browser context groups
-  (`CONTEXT_GROUPS` in `contextGroups.ts`, which `check.mjs --only`
+  (`CONTEXT_GROUPS` in `contextGroups.ts`, which `check.ts --only`
   expands) are pinned beside the code that needs them. What no control removes is
   classed `band` or `timing`.
 - `cache_key` (`fixture.py`, `build.py`, the DDL, the product source) decides

@@ -234,18 +234,29 @@ def test_a_batch_of_renamed_edits_stops_at_its_work_budget(
     assert skipped.count("text_limit") > 8
 
 
+def _charged_for(charge: int, work: int,
+                 step: replay_core.RewriteStep) -> None:
+    """`charge` covers `work`, what the step scanned and built, and is no
+    more than that and the rows an op records for the step: an overcharge
+    runs a batch's budget out early and lands ordinary stale edits as
+    sent."""
+    records = replay_core._step_records(step).chars
+    assert work <= charge <= work + records, (work, charge, records)
+
+
 def test_a_rename_step_is_charged_what_it_scans_and_splices():
-    # At least the text it scans and the text it builds; it fits an
-    # allowance of its own cost, and past what is left it stops and spends
-    # all of it, as an unlink does. A step that renames and unlinks pays
-    # for the unlink's reads on top of the rename.
+    # The text it scans and the text it builds, and no more than those and
+    # the rows it leaves; it fits an allowance of its own cost, and past
+    # what is left it stops and spends all of it, as an unlink does. A
+    # step that renames and unlinks pays for the unlink's reads on top of
+    # the rename.
     text = "[[A]] " * 10
     renamed = "[[Bbbbbbbbbb]] " * 10
     step = replay_core.RewriteStep(text_hash("a"), text_hash("b"),
                                 {"A": as_raw_title("Bbbbbbbbbb")}, set(), {})
     built, cost = replay_core._replay_step(text, step, normalize_title)
     assert built == renamed
-    assert cost >= len(text) + len(renamed)
+    _charged_for(cost, len(text) + len(renamed), step)
     assert replay_core._replay_step(text, step, normalize_title, cost) == \
         (renamed, cost)
     assert replay_core._replay_step(text, step, normalize_title, cost - 1) == \
@@ -255,7 +266,8 @@ def test_a_rename_step_is_charged_what_it_scans_and_splices():
                                 {"Bbbbbbbbbb"}, {})
     plain, reads = replay_core._replay_step(text, both, normalize_title)
     assert plain == "Bbbbbbbbbb " * 10
-    assert reads >= len(text) + len(renamed) + unlink.unlink_reads(renamed)
+    _charged_for(reads, len(text) + len(renamed)
+                 + unlink.unlink_reads(renamed), both)
     assert replay_core._replay_step(text, both, normalize_title, reads) == \
         (plain, reads)
     assert replay_core._replay_step(text, both, normalize_title, reads - 1) == \
@@ -452,12 +464,13 @@ def test_a_rename_then_a_copy_too_long_pays_for_the_rename(monkeypatch):
     assert large < 2 * small, (small, large)
 
 
-def _stops(text: str, step: replay_core.RewriteStep, at_least: int) -> None:
-    """The step stops, charged at least `at_least`, the work it did before
-    stopping; given less than that, it spends exactly what it was given."""
+def _stops(text: str, step: replay_core.RewriteStep, work: int) -> None:
+    """The step stops, charged for `work`, what it scanned and built
+    before stopping (`_charged_for`); given less than that, it spends
+    exactly what it was given."""
     stopped, charge = replay_core._replay_step(text, step, normalize_title)
     assert stopped is None
-    assert charge >= at_least, (charge, at_least)
+    _charged_for(charge, work, step)
     for allowance in (5, charge - 1):
         assert replay_core._replay_step(text, step, normalize_title,
                                         allowance) == (None, allowance)

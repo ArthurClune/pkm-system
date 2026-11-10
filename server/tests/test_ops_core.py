@@ -9,7 +9,7 @@ from scaling import loop_steps
 
 from rawread import read
 from pkm import refs, spans, unlink
-from pkm.server import ops_core
+from pkm.server import ops_core, replay_core
 from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING,
                                MAX_OUTLINE_DEPTH, BlockOp, BlockUid, CreateOp, CreatePageOp,
                                DeleteOp, MoveOp, OpBatch, PageId, SetCollapsedOp,
@@ -25,27 +25,25 @@ from pkm.server.conflict_notes import (deleted_header_text,
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
 from pkm.server.ops_core import judge_batch
-from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
-                                 ConflictLanding, CreateContext, DeleteBlocks,
+from pkm.server.replay_core import (BlockRewrite, MAX_REPLAYED_REWRITES,
+                                    TextEditOutcome, classify_text_edit,
+                                    replay_title_rewrites, unlink_stale_text)
+from pkm.server.ops_core import (BlockContext, BlockInfo, ConflictLanding,
+                                 CreateContext, DeleteBlocks,
                                  DeleteConflictContext, DeleteContext,
                                  ExistingHeader, FreshHeader, InsertBlock,
                                  JournalBlock, LandedSkipContext, MoveContext,
                                  OpError, PageContext, RecordConflictHeader,
-                                 RecordRewrite,
-                                 ReindexRefs, SetCollapsed, SetHeading,
-                                 SetPageId, SetParent, SetViewType,
+                                 RecordRewrite, ReindexRefs, SetCollapsed,
+                                 SetHeading, SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, Skip, SkipContext,
-                                 ReplayOverLimitContext,
-                                 SkippedContext, StuckMoveContext,
-                                 SubtreeRow, TextConflictContext,
-                                 TextEditContext, TextEditOutcome, TouchPage,
-                                 UpdateText, classify_skip,
-                                 classify_text_edit, conflict_entry_effects,
+                                 ReplayOverLimitContext, SkippedContext,
+                                 StuckMoveContext, SubtreeRow,
+                                 TextConflictContext, TextEditContext,
+                                 TouchPage, UpdateText, classify_skip,
+                                 conflict_entry_effects,
                                  descendant_copy_effects, delete_diverged,
-                                 replay_title_rewrites,
-                                 plan_op, skip_report, rewrite_effects,
-                                 unlink_stale_text)
-from pkm.server.ops_core import MAX_REPLAYED_REWRITES
+                                 plan_op, skip_report, rewrite_effects)
 from pkm.text_limits import text_limit_violation
 from pkm.unlink import unlink_stale_refs
 from pkm.test_data.ids import (
@@ -845,7 +843,7 @@ def test_replay_judges_the_nesting_copies_join_before_unlinking():
                              "inline"))
         edit = before + " offline"
         outcome: list[TextEditOutcome] = []
-        work = loop_steps((ops_core, unlink, refs, spans), lambda: outcome.append(
+        work = loop_steps((ops_core, replay_core, unlink, refs, spans), lambda: outcome.append(
             classify_text_edit(edit, base, "T", rows)))
         return work, outcome[0]
 

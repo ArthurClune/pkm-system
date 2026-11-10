@@ -41,7 +41,7 @@ SALT = bytes.fromhex("22" * 16)
 
 # Deliberately wrong: a well-formed sha256 hex that can never equal
 # text_hash(HASHED_EDIT_TEXT), so ops/edit-hashed-conflict always lands as a
-# conflict (ops_core.classify_text_edit) rather than a clean apply.
+# conflict (replay_core.classify_text_edit) rather than a clean apply.
 _STALE_HASH = "a" * 64
 # A fresh, never-created uid for ops/create-missing-parent's own block: it
 # must not exist yet (classify_skip checks block_exists on it
@@ -123,7 +123,7 @@ def scenarios(lm: Landmarks, max_seq: int) -> list[Scenario]:
             [{"op": "update_text", "uid": lm.edit_uid, "text": "edited by the perf check"}]), writes=True),
         # Hashed update_text paths: edit-1 above sends no
         # base_text_hash at all, so it only ever exercises the legacy
-        # hashless branch (ops_core.classify_text_edit is never called).
+        # hashless branch (replay_core.classify_text_edit is never called).
         # These four all target lm.hashed_edit_uid / lm.rename_ref_uid,
         # whose text is the fixture's known HASHED_EDIT_TEXT / (post-rename)
         # RENAME_REF_TEXT rewrite -- see perfcheck.fixture -- so the right
@@ -143,7 +143,7 @@ def scenarios(lm: Landmarks, max_seq: int) -> list[Scenario]:
         # lm.rename_ref_uid carries a block_rewrites row from the fixture's
         # seeded rename (build.py); this base_text_hash is the block's text
         # from *before* that rename, so classify_text_edit must replay the
-        # rewrite (ops_core.replay_title_rewrites) before it can classify
+        # rewrite (replay_core.replay_title_rewrites) before it can classify
         # the edit -- here, cleanly, since nothing has touched the block
         # since the rename.
         Scenario("ops/edit-rename-replay", "POST", "/api/ops", body=batch(

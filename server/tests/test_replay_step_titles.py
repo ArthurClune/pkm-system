@@ -27,12 +27,13 @@ from pkm import refs, spans, text_limits, unlink
 from pkm.database import connect
 from pkm.contracts.ops import BlockUid, Sha256Hex, SyncSeq, text_hash
 from pkm.refs import normalize_title
-from pkm.server import ops_apply, ops_core
+from pkm.server import ops_apply, ops_core, replay_core
 from pkm.server.config import Config
 from pkm.server.db import open_db
 from pkm.test_data.ids import batch_id_of, client_id_of, seq_of, uid_of
 
-MODULES = (unlink, refs, spans, ops_core, ops_apply, text_limits)
+MODULES = (unlink, refs, spans, ops_core, replay_core, ops_apply,
+           text_limits)
 ORIGINAL = "the text the step started from"
 _batch_counter = 0
 _block_counter = 0
@@ -234,7 +235,7 @@ def test_rows_past_the_budget_cost_what_the_budget_does(
     # were read whole; now the read measures what the budget could pay
     # for, stops, and the edit lands as sent.
     monkeypatch.setattr(ops_apply, "MAX_BATCH_REPLAY_WORK",
-                        1_000 * ops_core.ROW_CHARS)
+                        1_000 * replay_core.ROW_CHARS)
 
     def work(k: int) -> tuple[int, list[str]]:
         uid = _titled_step(seeded_config, k)
@@ -259,7 +260,7 @@ def test_one_statement_charges_a_hashs_rows_and_reads_only_what_fits(
     _insert_rows(seeded_config, uid, [
         (base, text_hash("after"), "unlink", f"é{i}", "") for i in range(5)]
         + [(text_hash("other"), text_hash("after"), "unlink", "o", "")])
-    each = ops_core.ROW_CHARS + len("é0".encode())
+    each = replay_core.ROW_CHARS + len("é0".encode())
     con = open_db(seeded_config.db_path)
     try:
         def read(allowance: int):
@@ -284,9 +285,9 @@ def test_one_statement_charges_a_hashs_rows_and_reads_only_what_fits(
             con, uid, text_hash("nothing"), 0) == ((), 0)
         assert ops_apply._rewrites_within(
             con, uid, text_hash("other"), each) == (
-                (ops_core.BlockRewrite(text_hash("other"), text_hash("after"),
+                (replay_core.BlockRewrite(text_hash("other"), text_hash("after"),
                                        "o", "", "unlink"),),
-                ops_core.ROW_CHARS + 1)
+                replay_core.ROW_CHARS + 1)
     finally:
         con.close()
 
@@ -327,7 +328,7 @@ def test_the_charge_sizes_rows_without_reading_their_text(seeded_config):
     _insert_rows(seeded_config, uid, [
         (base, text_hash("after"), "inline", long, long) for _ in range(3)])
     assert _break_overflow_chains(seeded_config.db_path, "block_rewrites")
-    each = ops_core.ROW_CHARS + 2 * len(long)
+    each = replay_core.ROW_CHARS + 2 * len(long)
     con = open_db(seeded_config.db_path)
     try:
         assert ops_apply._rewrites_within(con, uid, base, 3 * each - 1) \
@@ -346,10 +347,10 @@ def test_a_negative_allowance_still_measures_at_most_one_row(seeded_config):
     base = text_hash(ORIGINAL)
     _insert_rows(seeded_config, uid, [
         (base, text_hash("after"), "unlink", "t", "") for _ in range(20)])
-    each = ops_core.ROW_CHARS + 1
+    each = replay_core.ROW_CHARS + 1
     con = open_db(seeded_config.db_path)
     try:
-        for allowance in (-ops_core.ROW_CHARS - 1, -100 * each, -1):
+        for allowance in (-replay_core.ROW_CHARS - 1, -100 * each, -1):
             assert [r["n"] for r in con.select(
                 ops_apply._CHARGED_REWRITES,
                 ops_apply._charge_params(uid, base, allowance))] == [each]
@@ -365,7 +366,7 @@ def test_an_edit_whose_rows_cost_past_the_budget_lands_every_link_plain(
     # so the landing makes every link plain: any could name a deleted page,
     # and left linked it would re-create it. The block keeps its text.
     monkeypatch.setattr(ops_apply, "MAX_BATCH_REPLAY_WORK",
-                        10 * ops_core.ROW_CHARS)
+                        10 * replay_core.ROW_CHARS)
     uid = _titled_step(seeded_config, 100)
     assert _skipped(client, _edits(uid, ["[[t0]] [[AI]] #t1 x"])) == \
         ["text_limit"]
@@ -401,7 +402,7 @@ def test_a_batch_touching_many_blocks_reads_what_its_budget_pays_for(
     # read every block's rows, however many blocks it touched. The reads
     # are charged now, so past the budget the edits land as sent.
     monkeypatch.setattr(ops_apply, "MAX_BATCH_REPLAY_WORK",
-                        5 * 2_000 * (ops_core.ROW_CHARS + 5))
+                        5 * 2_000 * (replay_core.ROW_CHARS + 5))
 
     def work(blocks: int) -> int:
         uids = [_titled_step(seeded_config, 2_000) for _ in range(blocks)]
@@ -459,13 +460,13 @@ def test_each_step_derives_its_titles_once_per_batch(
     # it runs.
     uid = _titled_step(seeded_config, 1_000)
     derived = [0]
-    real = ops_core._derive
+    real = replay_core._derive
 
     def counted(step, canonical):
         derived[0] += 1
         return real(step, canonical)
 
-    monkeypatch.setattr(ops_core, "_derive", counted)
+    monkeypatch.setattr(replay_core, "_derive", counted)
     _post(client, _edits(uid, [f"x{i}" for i in range(20)]))
     assert derived[0] == 1
 
@@ -493,18 +494,18 @@ def test_the_rows_a_batch_records_for_its_replays_fit_its_budget(
         seeded_config,
         "SELECT sum(? + length(old_title) + length(new_title)) AS n"
         " FROM block_rewrites WHERE uid = ? AND base_hash <> ?",
-        (ops_core.ROW_CHARS, uid, text_hash(ref)))
+        (replay_core.ROW_CHARS, uid, text_hash(ref)))
     assert isinstance(recorded, int)
-    assert 0 < recorded <= ops_core.MAX_BATCH_REPLAY_WORK, recorded
+    assert 0 < recorded <= replay_core.MAX_BATCH_REPLAY_WORK, recorded
 
 
 def test_a_step_keeps_its_key_for_every_op():
     # The step's share of its key is frozensets of its titles, built once:
     # rebuilt for each op, it hashed every title per op, in C.
-    step = ops_core.RewriteStep(text_hash("a"), text_hash("b"), {},
+    step = replay_core.RewriteStep(text_hash("a"), text_hash("b"), {},
                                 {f"t{i}" for i in range(100)}, {})
-    first = ops_core._step_key("x0", step, normalize_title)
-    assert ops_core._step_key("x1", step, normalize_title)[1] is first[1]
+    first = replay_core._step_key("x0", step, normalize_title)
+    assert replay_core._step_key("x1", step, normalize_title)[1] is first[1]
 
 
 # --- a later edit of the same queue -----------------------------------------
@@ -565,13 +566,13 @@ _ROW = st.tuples(st.sampled_from(_HASHES), st.sampled_from(_HASHES),
                  st.sampled_from(["", "c", "d"]))
 
 
-def _rows(drawn) -> tuple[ops_core.BlockRewrite, ...]:
+def _rows(drawn) -> tuple[replay_core.BlockRewrite, ...]:
     """Drawn rows in the order written."""
-    return tuple(ops_core.BlockRewrite(base, after, old, new, kind)
+    return tuple(replay_core.BlockRewrite(base, after, old, new, kind)
                  for base, after, kind, old, new in drawn)
 
 
-def _walks(history: ops_core.RewriteHistory
+def _walks(history: replay_core.RewriteHistory
            ) -> dict[Sha256Hex, list[tuple[object, ...]]]:
     """Each base hash's steps, newest first, as what they hold."""
     out: dict[Sha256Hex, list[tuple[object, ...]]] = {}
@@ -598,7 +599,7 @@ def test_a_batch_keeps_the_rows_it_reads_and_records_as_a_read_of_all(
     # has read, its steps are the ones a read of every row makes, in the
     # same order.
     newest_first = list(reversed(_rows(stored)))
-    history = ops_core.RewriteHistory.lazy()
+    history = replay_core.RewriteHistory.lazy()
     for base in reached:
         if not history.is_read(base):
             history.add_read(base, [r for r in newest_first
@@ -610,7 +611,7 @@ def test_a_batch_keeps_the_rows_it_reads_and_records_as_a_read_of_all(
                                         if r.base_hash == base])
         history.record(_rows(rows))
         newest_first = [*reversed(_rows(rows)), *newest_first]
-    whole = ops_core.RewriteHistory(newest_first)
+    whole = replay_core.RewriteHistory(newest_first)
     read = {b for b in _HASHES if history.is_read(b)}
     assert {b: w for b, w in _walks(history).items() if b in read} == \
         {b: w for b, w in _walks(whole).items() if b in read}
@@ -628,16 +629,16 @@ def test_a_walk_stops_blind_at_a_hash_too_costly_to_read():
     # The shell reads each hash the walk reaches; one too costly is marked
     # unread, and the replay stops there, an over_limit edit whose landing
     # knows no titles.
-    history = ops_core.RewriteHistory.lazy()
+    history = replay_core.RewriteHistory.lazy()
     first, second = text_hash("a"), text_hash("b")
     assert history.next_unread(first) == first
-    history.add_read(first, [ops_core.BlockRewrite(first, second, "z", "",
+    history.add_read(first, [replay_core.BlockRewrite(first, second, "z", "",
                                                    "unlink")])
     assert history.next_unread(first) == second
     history.add_unread(second)
     assert history.next_unread(first) is None
-    outcome = ops_core.classify_text_edit("[[z]] [[y]]", first, "current",
+    outcome = replay_core.classify_text_edit("[[z]] [[y]]", first, "current",
                                           history)
     assert outcome.kind == "over_limit" and outcome.blind
-    assert ops_core.over_limit_landing_text(
+    assert replay_core.over_limit_landing_text(
         "[[z]] [[y]] #w", outcome.replayed, normalize_title, True) == "z y w"

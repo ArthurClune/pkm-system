@@ -16,7 +16,7 @@ from pkm.refs import (CanonicalTitle, NormalizedTitle, describe_title_length,
                       title_length_over, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map, spelled_or_canonical
 from pkm.rows import Row
-from pkm.server.ops_core import BlockRewrite
+from pkm.server.replay_core import BlockRewrite
 from pkm.server.sync_meta import read_title, title_reader
 from pkm.text_limits import (TextLimitViolation, describe_text_limit,
                              rewrite_text_limit_violation)
@@ -220,7 +220,7 @@ def _record_block_rewrite(
     One row per title that actually moved in *this* block's text -- a pair
     whose key it never mentioned is not a rewrite of it -- and every row
     carries the before/after hashes of the whole rewrite. That is what lets
-    `ops_core.replay_title_rewrites` reassemble the map this call applied
+    `replay_core.replay_title_rewrites` reassemble the map this call applied
     (the title migration rewrites several titles in one pass, and applying
     them one at a time would not reproduce it) without a second table.
     """

@@ -10,7 +10,7 @@ from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockUid, CreateOp, CreatePageOp, DeleteOp, MoveOp, OpBatch,
                                SetCollapsedOp, SetHeadingOp, SetViewTypeOp, subtree_hash,
                                SyncSeq, text_hash, UpdateTextOp)
-from pkm.server import ops_apply, ops_core
+from pkm.server import ops_apply, ops_core, replay_core
 from pkm.server.db import open_db
 from pkm.server.ops_apply import (_parent_chain, _subtree_deepest_first,
                                   subtree_rows, apply_batch)
@@ -22,7 +22,7 @@ NOW_DAY = title_for_date(datetime.fromtimestamp(NOW / 1000).date())
 
 
 def _replay():
-    return ops_apply.BatchReplay(ops_core.MAX_BATCH_REPLAY_WORK)
+    return ops_apply.BatchReplay(replay_core.MAX_BATCH_REPLAY_WORK)
 
 
 @pytest.fixture()
@@ -615,14 +615,14 @@ def test_op_error_index_reports_failing_op(db):
 # --- replaying recorded rename/merge rewrites ------------------------------
 
 
-def _rewrite_chain(steps: int) -> tuple[ops_core.BlockRewrite, ...]:
+def _rewrite_chain(steps: int) -> tuple[replay_core.BlockRewrite, ...]:
     """Records for `steps` successive renames of one block's only ref:
     "[[T0]]" -> "[[T1]]" -> ... Newest first, as the shell orders them."""
     records = []
     text = "[[T0]]"
     for i in range(steps):
         after = f"[[T{i + 1}]]"
-        records.append(ops_core.BlockRewrite(
+        records.append(replay_core.BlockRewrite(
             base_hash=text_hash(text), after_hash=text_hash(after),
             old_text=f"T{i}", new_text=f"T{i + 1}"))
         text = after
@@ -630,20 +630,20 @@ def _rewrite_chain(steps: int) -> tuple[ops_core.BlockRewrite, ...]:
 
 
 def test_replay_follows_a_chain_of_records_up_to_the_cap():
-    text, base = ops_core.replay_title_rewrites(
+    text, base = replay_core.replay_title_rewrites(
         "[[T0]] edited", text_hash("[[T0]]"), _rewrite_chain(12))
 
-    cap = ops_core.MAX_REPLAYED_REWRITES
+    cap = replay_core.MAX_REPLAYED_REWRITES
     assert text == f"[[T{cap}]] edited"
     assert base == text_hash(f"[[T{cap}]]")
 
 
 def test_replay_rewrites_a_padded_spelling_that_canonicalises_to_the_old_title():
-    rewrites = (ops_core.BlockRewrite(
+    rewrites = (replay_core.BlockRewrite(
         base_hash=text_hash("[[Old]]"), after_hash=text_hash("[[New]]"),
         old_text="Old", new_text="New"),)
 
-    text, _ = ops_core.replay_title_rewrites(
+    text, _ = replay_core.replay_title_rewrites(
         "[[ Old ]] edited", text_hash("[[Old]]"), rewrites,
         lambda raw: normalize_title(raw).strip(" "))
 
@@ -653,19 +653,19 @@ def test_replay_rewrites_a_padded_spelling_that_canonicalises_to_the_old_title()
 def test_replay_leaves_an_unrecorded_base_hash_untouched():
     stale = text_hash("never rewritten")
 
-    assert ops_core.replay_title_rewrites(
+    assert replay_core.replay_title_rewrites(
         "[[T0]] edited", stale, _rewrite_chain(3)) == ("[[T0]] edited", stale)
-    assert ops_core.replay_title_rewrites(
+    assert replay_core.replay_title_rewrites(
         "[[T0]] edited", stale, ()) == ("[[T0]] edited", stale)
 
 
 def test_replay_ignores_an_inline_record_whose_key_is_no_uid():
     before, after = "[[Gone]] ((abc123def))", "Gone copy"
-    record = ops_core.BlockRewrite(
+    record = replay_core.BlockRewrite(
         base_hash=text_hash(before), after_hash=text_hash(after),
         old_text="not a uid", new_text="copy", kind="inline")
 
-    assert ops_core.replay_title_rewrites(
+    assert replay_core.replay_title_rewrites(
         before, text_hash(before), (record,)) == (before, text_hash(after))
 
 
@@ -790,10 +790,10 @@ def test_replay_applies_one_multi_title_rewrite_as_a_single_step():
     applied one at a time, the second would no longer match."""
     before, after = "[[A]] and [[B]]", "[[A2]] and [[B2]]"
     records = tuple(
-        ops_core.BlockRewrite(text_hash(before), text_hash(after), old, new)
+        replay_core.BlockRewrite(text_hash(before), text_hash(after), old, new)
         for old, new in (("A", "A2"), ("B", "B2")))
 
-    assert ops_core.replay_title_rewrites(
+    assert replay_core.replay_title_rewrites(
         "[[A]] and [[B]] edited", text_hash(before), records) == (
             "[[A2]] and [[B2]] edited", text_hash(after))
 

@@ -21,29 +21,31 @@ from pkm.contracts.titles import UNTITLED_PAGE_TITLE, RawTitle
 from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
                       normalize_title)
 from pkm.rows import Row
-from pkm.server.ops_core import (MAX_BATCH_REPLAY_WORK, ROW_CHARS,
-                                 SKIPPED_CONTEXTS,
+from pkm.server.ops_core import (SKIPPED_CONTEXTS,
                                  BlockContext, BlockInfo,
-                                 BlockRewrite, ConflictLanding, CreateContext,
+                                 ConflictLanding, CreateContext,
                                  DeleteBlocks, DeleteConflictContext,
                                  DeleteContext, Effect,
                                  ExistingHeader, FreshHeader, InsertBlock,
                                  JournalBlock, LandedSkipContext, MoveContext,
                                  JudgedBatch, OpContext, PageContext,
                                  RecordConflictHeader, RecordRewrite,
-                                 RewriteHistory, RewriteStep, ReindexRefs,
+                                 ReindexRefs,
                                  SetCollapsed, SetHeading, SetPageId,
                                  SetParent, SetViewType, ShiftSiblings, Skip,
                                  SkipContext, SkippedContext,
-                                 StepKey, StuckMoveContext,
+                                 StuckMoveContext,
                                  SubtreeRow,
                                  ReplayOverLimitContext,
                                  TextConflictContext,
                                  TextEditContext, TouchPage, UpdateText,
-                                 classify_skip, classify_text_edit,
+                                 classify_skip,
                                  delete_diverged, plan_op,
-                                 skip_report, rewrite_effects,
-                                 unlink_stale_text)
+                                 skip_report, rewrite_effects)
+from pkm.server.replay_core import (MAX_BATCH_REPLAY_WORK, ROW_CHARS,
+                                    BlockRewrite, RewriteHistory, RewriteStep,
+                                    StepKey, classify_text_edit,
+                                    unlink_stale_text)
 from pkm.server.store import (BlankTitleError, fetch_page,
                               get_or_create_page, insert_block_rewrites,
                               reindex_refs_for_text, stale_titles)
@@ -132,7 +134,7 @@ def _rewrites_of(rows: Sequence[Row]) -> tuple[BlockRewrite, ...]:
 # The titles load only when the sum fits: past it the join's seek key is
 # NULL and finds none. With no rows joined, one row of placeholders
 # carries `n` alone. Newest first, by rowid: the order
-# `ops_core.replay_title_rewrites` walks the chain in, and a row a batch
+# `replay_core.replay_title_rewrites` walks the chain in, and a row a batch
 # writes is always newest, as its history keeps it
 # (`RewriteHistory.record`), even after the clock steps back.
 _CHARGED_REWRITES = """
@@ -428,10 +430,10 @@ def _skip_context(db: Db, op: _AddressedOp, skip: Skip,
 class BatchReplay:
     """What one batch's hashed edits share as it applies:
     - `allowance`, what its replays may still spend
-      (`ops_core.MAX_BATCH_REPLAY_WORK`), the rows they read included;
+      (`replay_core.MAX_BATCH_REPLAY_WORK`), the rows they read included;
     - `reader`, its one title canonicalisation, the stale titles' when it
       has them, else read on first use. One function for the whole batch,
-      so what a step derives under it (`ops_core.StepTitles`) is reused
+      so what a step derives under it (`replay_core.StepTitles`) is reused
       by every op;
     - `histories`, each block's rewrite steps, read one base hash at a
       time as a walk reaches it (`walk`) and kept as the batch records

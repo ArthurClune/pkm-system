@@ -18,7 +18,7 @@ from hypothesis import given, settings, strategies as st
 from hostile import count, event
 from pkm.contracts.ops import BlockUid, text_hash
 from pkm.refs import extract, normalize_title, strip_code
-from pkm.server.ops_core import BlockRewrite, replay_title_rewrites
+from pkm.server.replay_core import BlockRewrite, replay_title_rewrites
 from pkm.unlink import (DeletePlan, SourceBlock, apply_delete_rewrite,
                         plan_page_delete, unlink_stale_refs)
 from props.harness import examples, merge_floors

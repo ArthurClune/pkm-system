@@ -21,7 +21,7 @@ from pkm.contracts.titles import UNTITLED_PAGE_TITLE, RawTitle
 from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
                       normalize_title)
 from pkm.rows import Row
-from pkm.server.ops_core import (SKIPPED_CONTEXTS,
+from pkm.server.ops_core import (HASHED_EDIT_CONTEXTS, SKIPPED_CONTEXTS,
                                  BlockContext, BlockInfo,
                                  ConflictLanding, CreateContext,
                                  DeleteBlocks, DeleteConflictContext,
@@ -44,8 +44,8 @@ from pkm.server.ops_core import (SKIPPED_CONTEXTS,
                                  skip_report, rewrite_effects)
 from pkm.server.replay_core import (MAX_BATCH_REPLAY_WORK, ROW_CHARS,
                                     BlockRewrite, RewriteHistory, RewriteStep,
-                                    StepKey, classify_text_edit,
-                                    unlink_stale_text)
+                                    StepKey, TextEditOutcome,
+                                    classify_text_edit, unlink_stale_text)
 from pkm.server.store import (BlankTitleError, fetch_page,
                               get_or_create_page, insert_block_rewrites,
                               reindex_refs_for_text, stale_titles)
@@ -474,12 +474,21 @@ class BatchReplay:
         rest, as a replay step past the budget does."""
         read = _rewrites_within(db, uid, base_hash, self.allowance)
         if read is None:
-            self.allowance = 0
+            self._spend(self.allowance)
             history.add_unread(base_hash)
             return
         rows, cost = read
-        self.allowance -= cost
+        self._spend(cost)
         history.add_read(base_hash, rows)
+
+    def charge(self, outcome: TextEditOutcome) -> None:
+        """Debit what a hashed edit's replay spent (`outcome.reads`), once
+        it is planned and before its effects record anything."""
+        self._spend(outcome.reads)
+
+    def _spend(self, cost: int) -> None:
+        """The one place `allowance` falls."""
+        self.allowance -= cost
 
     def recorded(self, db: Db, uid: BlockUid,
                  rows: Sequence[BlockRewrite]) -> tuple[BlockRewrite, ...]:
@@ -600,15 +609,14 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
         if outcome.kind == "over_limit":
             return ReplayOverLimitContext(
                 block, row["title"], _conflict_landing(db, op.uid, now_ms),
-                outcome.replayed, canonical, outcome.reads, outcome.blind)
+                outcome)
         if outcome.kind != "conflict":
             return TextEditContext(block, outcome)
         # only a real conflict pays for today's daily page and its extra
         # queries
         return TextConflictContext(
-            block, outcome.text, row["text"], row["title"],
-            _conflict_landing(db, op.uid, now_ms), outcome.replayed,
-            canonical, outcome.known, outcome.reads)
+            block, row["text"], row["title"],
+            _conflict_landing(db, op.uid, now_ms), outcome)
     return BlockContext(block)
 
 
@@ -785,18 +793,13 @@ def apply_batch(db: Db, judged: JudgedBatch,
         replayed: tuple[RewriteStep, ...] = ()
         replay_canonical = normalize_title
         known: Mapping[StepKey, str] = {}
-        if isinstance(ctx, TextEditContext):
-            replayed = ctx.outcome.replayed
-            replay_canonical = ctx.outcome.canonical
-            known = ctx.outcome.known
-            replay.allowance -= ctx.outcome.reads
-        elif isinstance(ctx, TextConflictContext):
-            replayed = ctx.replayed
-            replay_canonical = ctx.canonical
-            known = ctx.known
-            replay.allowance -= ctx.reads
-        elif isinstance(ctx, ReplayOverLimitContext):
-            replay.allowance -= ctx.reads
+        if isinstance(ctx, HASHED_EDIT_CONTEXTS):
+            replay.charge(ctx.outcome)
+            # an over_limit edit lands as sent: no replayed text to record
+            if ctx.outcome.kind != "over_limit":
+                replayed = ctx.outcome.replayed
+                replay_canonical = ctx.outcome.canonical
+                known = ctx.outcome.known
         if replayed or (is_stale is not None and op is not sent):
             # proptest/sync_server.py replaces this through this module
             # global, so call it by its bare name.

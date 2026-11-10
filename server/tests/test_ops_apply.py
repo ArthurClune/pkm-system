@@ -1,3 +1,4 @@
+import ast
 import re
 import secrets
 from pathlib import Path
@@ -991,7 +992,8 @@ def _move(uid: BlockUid, parent: BlockUid | None) -> MoveOp:
     (_edit(uid_of("uid_b6"), "plain"), "BlockContext", None),
     (_edit(uid_of("uid_b6"), "clean", base=_B6_TEXT), "TextEditContext", "clean"),
     (_edit(uid_of("uid_b6"), _B6_TEXT, base="stale"), "TextEditContext", "identical"),
-    (_edit(uid_of("uid_b6"), "mine", base="stale"), "TextConflictContext", None),
+    (_edit(uid_of("uid_b6"), "mine", base="stale"), "TextConflictContext",
+     "conflict"),
     (_edit(_GHOST, "lost"), "LandedSkipContext", "orphan_edit"),
     (_edit(_GHOST, " "), "SkipContext", "orphan_edit"),
 ])
@@ -1005,7 +1007,7 @@ def test_context_for_picks_the_context_its_classification_calls_for(
     assert type(ctx).__name__ == context
     if isinstance(ctx, ops_core.SKIPPED_CONTEXTS):
         assert ctx.skip.kind == detail
-    elif isinstance(ctx, ops_core.TextEditContext):
+    elif isinstance(ctx, ops_core.HASHED_EDIT_CONTEXTS):
         assert ctx.outcome.kind == detail
     elif isinstance(ctx, ops_core.CreateContext):
         assert ctx.uid_taken is detail
@@ -1015,6 +1017,45 @@ def test_skipped_contexts_are_exactly_the_skipped_context_union():
     # apply_batch reports an op as skipped by isinstance against this tuple;
     # a Union member missing from it would be broadcast as applied instead
     assert set(ops_core.SKIPPED_CONTEXTS) == set(get_args(ops_core.SkippedContext))
+
+
+def test_hashed_edit_contexts_are_exactly_the_hashed_edit_union():
+    # apply_batch charges an op's replay by isinstance against this tuple;
+    # a Union member missing from it would replay for free
+    assert set(ops_core.HASHED_EDIT_CONTEXTS) == set(
+        get_args(ops_core.HashedEditContext))
+
+
+def test_the_replay_allowance_falls_in_one_place():
+    # Every debit of a batch's replay budget goes through
+    # `BatchReplay._spend`, so what a batch is charged is read in one place.
+    tree = ast.parse(Path(ops_apply.__file__).read_text())
+    owners: dict[int, str] = {}
+    for cls in ast.walk(tree):
+        if isinstance(cls, ast.ClassDef):
+            for fn in cls.body:
+                if isinstance(fn, ast.FunctionDef):
+                    for node in ast.walk(fn):
+                        owners[id(node)] = f"{cls.name}.{fn.name}"
+    for fn in ast.walk(tree):
+        if isinstance(fn, ast.FunctionDef):
+            for node in ast.walk(fn):
+                owners.setdefault(id(node), fn.name)
+    debits = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+            targets = [node.target]
+        else:
+            continue
+        for target in targets:
+            for part in ast.walk(target):
+                if isinstance(part, ast.Attribute) and part.attr == "allowance":
+                    debits.append(
+                        f"{owners.get(id(node), '<module>')}:{node.lineno}")
+    assert debits and all(d.startswith("BatchReplay._spend:")
+                          for d in debits), debits
 
 
 def test_conflict_landing_uses_the_batch_clock(db):

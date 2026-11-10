@@ -6,10 +6,11 @@ them, under the work budget a batch may spend doing so. Pure: the shell
 (`ops_apply`) reads the rows and passes them in."""
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import (Callable, Collection, Iterator, Mapping,
+                             Sequence)
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
-from typing import Final, Literal
+from typing import Final, Literal, NamedTuple
 
 from pkm.contracts.ops import (MAX_BLOCK_TEXT_CHARS, BlockOp, BlockUid,
                                CreateOp, RewriteKind, Sha256Hex,
@@ -174,6 +175,13 @@ def _rewrite_steps(rewrites: Sequence[BlockRewrite]) -> list[RewriteStep]:
 StoredRow = tuple[Sha256Hex, RewriteKind, str, str]
 
 
+class WalkStep(NamedTuple):
+    """Where a walk is (`RewriteHistory.walk`): the hash it reached and the
+    step it takes from there, None when that hash's rows are unread."""
+    base_hash: Sha256Hex
+    step: RewriteStep | None
+
+
 class RewriteHistory:
     """A block's rewrite steps, found by the hash they start from: what a
     replay walks. Built from rows, it holds every hash those rows start
@@ -208,20 +216,32 @@ class RewriteHistory:
         """Whether the hash's rows were too costly to read."""
         return base_hash in self._unread
 
-    def next_unread(self, base_hash: Sha256Hex) -> Sha256Hex | None:
-        """The first hash a walk from `base_hash` (`replay`) reaches whose
-        rows are not read yet, or None when the walk needs no more."""
+    def walk(self, base_hash: Sha256Hex) -> Iterator[WalkStep]:
+        """The steps a replay from `base_hash` takes, in order: from each
+        hash the newest step not taken yet, at most `MAX_REPLAYED_REWRITES`
+        of them. Each step is taken once, so a record can never be replayed
+        twice however the hashes line up. The walk ends at a hash with no
+        step left, or at the bound, which reads no further; it ends with
+        `WalkStep(h, None)` exactly when it reaches a hash `h` whose rows
+        are not read, or were too costly to read."""
         taken: set[int] = set()
         for _ in range(MAX_REPLAYED_REWRITES):
-            if self.is_unread(base_hash):
-                return None
-            if not self.is_read(base_hash):
-                return base_hash
+            if self.is_unread(base_hash) or not self.is_read(base_hash):
+                yield WalkStep(base_hash, None)
+                return
             step = self.newest(base_hash, taken)
             if step is None:
-                return None
+                return
             taken.add(id(step))
+            yield WalkStep(base_hash, step)
             base_hash = step.after_hash
+
+    def next_unread(self, base_hash: Sha256Hex) -> Sha256Hex | None:
+        """The first hash a walk from `base_hash` reaches whose rows are
+        not read yet, or None when the walk needs no more."""
+        for at in self.walk(base_hash):
+            if at.step is None and not self.is_unread(at.base_hash):
+                return at.base_hash
         return None
 
     def add_read(self, base_hash: Sha256Hex,
@@ -413,7 +433,7 @@ class Replayed:
     steps: tuple[RewriteStep, ...]
     known: dict[StepKey, str]
     reads: int
-    blind: bool = False
+    blind: bool
 
 
 def replay(
@@ -437,11 +457,10 @@ def replay(
     cleanly if nothing else touched the block, and conflicts under the *new*
     title if something did.
 
-    Each step is consumed, so a record can never be replayed twice however
-    the hashes line up; `MAX_REPLAYED_REWRITES` bounds the walk regardless.
-    `rewrites` is newest-record-first, which decides the winner in the
-    unlikely case that two rewrites share a base hash (a block edited back
-    to a previous text, then renamed again).
+    The steps are the ones `RewriteHistory.walk` takes. `rewrites` is
+    newest-record-first, which decides the winner in the unlikely case
+    that two rewrites share a base hash (a block edited back to a previous
+    text, then renamed again).
 
     `canonical` is the title canonicalisation the delete matched with (the
     shell passes the database's `title_reader`): an unlink step must treat
@@ -464,31 +483,26 @@ def replay(
     history = (rewrites if isinstance(rewrites, RewriteHistory)
                else RewriteHistory(rewrites))
     consumed: list[RewriteStep] = []
-    taken: set[int] = set()
     memo = dict(known or {})
     spent = 0
     replayed: str | None = text
     stopped_at: Sha256Hex | None = None
-    for _ in range(MAX_REPLAYED_REWRITES):
-        if history.is_unread(base_hash) or not history.is_read(base_hash):
-            return Replayed(None, stopped_at or base_hash, tuple(consumed),
-                             memo, spent, blind=True)
-        match = history.newest(base_hash, taken)
-        if match is None:
-            break
-        taken.add(id(match))
-        consumed.append(match)
+    for at in history.walk(base_hash):
+        if at.step is None:
+            return Replayed(None, stopped_at or at.base_hash,
+                            tuple(consumed), memo, spent, True)
+        consumed.append(at.step)
         if replayed is not None:
             left = None if allowance is None else allowance - spent
-            replayed, reads = _cached_step(replayed, match, canonical, memo,
+            replayed, reads = _cached_step(replayed, at.step, canonical, memo,
                                            left)
             spent += reads
             if replayed is None:
-                stopped_at = base_hash
-        base_hash = match.after_hash
+                stopped_at = at.base_hash
+        base_hash = at.step.after_hash
     if stopped_at is not None:
-        return Replayed(None, stopped_at, tuple(consumed), memo, spent)
-    return Replayed(replayed, base_hash, tuple(consumed), memo, spent)
+        return Replayed(None, stopped_at, tuple(consumed), memo, spent, False)
+    return Replayed(replayed, base_hash, tuple(consumed), memo, spent, False)
 
 
 def over_limit_landing_text(text: str, replayed: Sequence[RewriteStep],
@@ -521,6 +535,9 @@ def over_limit_landing_text(text: str, replayed: Sequence[RewriteStep],
     return unlink_stale_refs(text, is_gone)
 
 
+TextEditKind = Literal["identical", "clean", "conflict", "over_limit"]
+
+
 @dataclass(frozen=True)
 class TextEditOutcome:
     """Where a hashed update_text op on a live block lands, once any rename/
@@ -546,20 +563,19 @@ class TextEditOutcome:
     `MAX_BATCH_REPLAY_WORK`, which an `over_limit` may also have run out;
     `blind` an `over_limit` whose walk met rows too costly to read
     (`over_limit_landing_text`)."""
-    kind: Literal["identical", "clean", "conflict", "over_limit"]
+    kind: TextEditKind
     text: str
-    replayed: tuple[RewriteStep, ...] = field(default=(), compare=False)
-    canonical: Callable[[str], str] = field(default=normalize_title,
-                                            compare=False)
-    known: Mapping[StepKey, str] = field(default_factory=dict, compare=False)
-    reads: int = field(default=0, compare=False)
-    blind: bool = field(default=False, compare=False)
+    replayed: tuple[RewriteStep, ...] = field(compare=False)
+    canonical: Callable[[str], str] = field(compare=False)
+    known: Mapping[StepKey, str] = field(compare=False)
+    reads: int = field(compare=False)
+    blind: bool = field(compare=False)
 
 
 def classify_text_edit(
     text: str, base_hash: Sha256Hex, current_text: str,
     rewrites: Sequence[BlockRewrite] | RewriteHistory,
-    canonical: Callable[[str], str] = normalize_title,
+    canonical: Callable[[str], str],
     allowance: int | None = None,
 ) -> TextEditOutcome:
     """Where the edit lands (`TextEditOutcome`). `rewrites` is the block's
@@ -570,8 +586,7 @@ def classify_text_edit(
                     allowance=allowance)
     steps, known, reads = walked.steps, walked.known, walked.reads
 
-    def outcome(kind: Literal["identical", "clean", "conflict",
-                              "over_limit"], landed: str) -> TextEditOutcome:
+    def outcome(kind: TextEditKind, landed: str) -> TextEditOutcome:
         return TextEditOutcome(kind, landed, steps, canonical, known, reads,
                                walked.blind)
 

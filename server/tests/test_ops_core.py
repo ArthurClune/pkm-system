@@ -26,8 +26,9 @@ from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
 from pkm.server.ops_core import judge_batch
 from pkm.server.replay_core import (BlockRewrite, MAX_REPLAYED_REWRITES,
-                                    TextEditOutcome, classify_text_edit,
-                                    replay, unlink_stale_text)
+                                    TextEditKind, TextEditOutcome,
+                                    classify_text_edit, replay,
+                                    unlink_stale_text)
 from pkm.server.ops_core import (BlockContext, BlockInfo, ConflictLanding,
                                  CreateContext, DeleteBlocks,
                                  DeleteConflictContext, DeleteContext,
@@ -81,13 +82,19 @@ def _skip_ctx(op: BlockOp, *, block_exists: bool = False,
                          page_stale=page_stale)
     assert skip is not None
     if skip.landing_uid is None:
-        return SkipContext(skip)
+        return SkipContext(skip, None)
     if (skip.kind in ("move_parent_missing", "move_cycle")
             or (skip.kind == "stale_page" and isinstance(op, MoveOp))):
         return StuckMoveContext(skip, _landing(header), page_title, subtree)
     return LandedSkipContext(
         skip, _landing(header),
-        None if hint_page is None else canonical_title_of(hint_page))
+        None if hint_page is None else canonical_title_of(hint_page), (),
+        None)
+
+
+def _outcome(kind: TextEditKind, text: str) -> TextEditOutcome:
+    """An outcome of `kind` landing `text`, after no replay."""
+    return TextEditOutcome(kind, text, (), normalize_title, {}, 0, False)
 
 
 def test_batch_parses_discriminated_ops():
@@ -423,8 +430,16 @@ def test_a_context_that_does_not_fit_the_op_is_a_programmer_error_not_a_400():
     edit = UpdateTextOp(op="update_text", uid=uid_of("uid_b3"), text="x",
                         base_text_hash=text_hash("y"))
     with pytest.raises(AssertionError):
-        plan_op(0, edit, TextEditContext(
-            B, TextEditOutcome("conflict", "x")))
+        plan_op(0, edit, TextEditContext(B, _outcome("conflict", "x")))
+    # each hashed-edit context holds only the outcome kinds it plans
+    with pytest.raises(AssertionError):
+        plan_op(0, edit, TextConflictContext(
+            B, "y", canonical_title_of("Machine Learning"), _landing(),
+            _outcome("clean", "x")))
+    with pytest.raises(AssertionError):
+        plan_op(0, edit, ReplayOverLimitContext(
+            B, canonical_title_of("Machine Learning"), _landing(),
+            _outcome("conflict", "x")))
 
 
 def test_a_skip_context_that_does_not_fit_its_skip_kind_is_a_programmer_error():
@@ -433,12 +448,12 @@ def test_a_skip_context_that_does_not_fit_its_skip_kind_is_a_programmer_error():
     heading = SetHeadingOp(op="set_heading", uid=uid_of("ghost1"), heading=1)
     with pytest.raises(AssertionError):
         plan_op(0, heading, SkipContext(
-            Skip("orphan_structural", uid_of("ghost1"))))
+            Skip("orphan_structural", uid_of("ghost1")), None))
     move = MoveOp(op="move", uid=uid_of("uid_b3"), parent_uid=uid_of("ghost_p1"), order_idx=order_idx_of(0))
     with pytest.raises(AssertionError):
         plan_op(0, move, LandedSkipContext(
             Skip("move_parent_missing", uid_of("uid_b3")), _landing(),
-            None))
+            None, (), None))
     with pytest.raises(AssertionError):
         plan_op(0, heading, StuckMoveContext(
             Skip("orphan_structural", uid_of("ghost1")), _landing(),
@@ -523,11 +538,12 @@ def _text_ctx(op: UpdateTextOp, current: str,
     """The context ops_apply._context_for builds for a hashed edit of _BLK
     whose live text is `current`."""
     assert op.base_text_hash is not None
-    outcome = classify_text_edit(op.text, op.base_text_hash, current, ())
+    outcome = classify_text_edit(op.text, op.base_text_hash, current, (),
+                                 normalize_title)
     if outcome.kind != "conflict":
         return TextEditContext(_BLK, outcome)
-    return TextConflictContext(_BLK, outcome.text, current, page_title,
-                               _landing(header))
+    return TextConflictContext(_BLK, current, page_title, _landing(header),
+                               outcome)
 
 
 def test_missing_block_creates_daily_header_naming_the_hint():
@@ -659,9 +675,9 @@ def test_conflict_applies_the_replayed_edit_not_the_callers_text():
     op = UpdateTextOp(op="update_text", uid=uid_of("uid_t1"),
                       text="note about [[Old]] plus comment",
                       base_text_hash=text_hash(t0))
-    ctx = TextConflictContext(_BLK, "note about [[New]] plus comment", t1,
-                              canonical_title_of("Machine Learning"),
-                              _landing())
+    ctx = TextConflictContext(
+        _BLK, t1, canonical_title_of("Machine Learning"), _landing(),
+        _outcome("conflict", "note about [[New]] plus comment"))
     effs = plan_op(0, op, ctx)
     assert effs[-3:] == (
         UpdateText(uid_of("uid_t1"), "note about [[New]] plus comment"),
@@ -674,21 +690,21 @@ def test_conflict_applies_the_replayed_edit_not_the_callers_text():
 
 def test_classify_text_edit_identical_without_rewrites():
     outcome = classify_text_edit("same", text_hash("anything else"),
-                                 "same", ())
-    assert outcome == TextEditOutcome("identical", "same")
+                                 "same", (), normalize_title)
+    assert (outcome.kind, outcome.text) == ("identical", "same")
 
 
 def test_classify_text_edit_clean_without_rewrites():
     outcome = classify_text_edit("new text", text_hash("old text"),
-                                 "old text", ())
-    assert outcome == TextEditOutcome("clean", "new text")
+                                 "old text", (), normalize_title)
+    assert (outcome.kind, outcome.text) == ("clean", "new text")
 
 
 def test_classify_text_edit_conflict_without_rewrites():
     outcome = classify_text_edit(
         "new text", text_hash("what I saw before going offline"),
-        "server text meanwhile", ())
-    assert outcome == TextEditOutcome("conflict", "new text")
+        "server text meanwhile", (), normalize_title)
+    assert (outcome.kind, outcome.text) == ("conflict", "new text")
 
 
 def test_classify_text_edit_identical_with_rewrite_replay():
@@ -696,8 +712,9 @@ def test_classify_text_edit_identical_with_rewrite_replay():
     # the live text: replaying it makes the edit identical, not a conflict.
     t0, t1 = "note about [[Old]]", "note about [[New]]"
     rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "Old", "New"),)
-    outcome = classify_text_edit(t0, text_hash(t0), t1, rewrites)
-    assert outcome == TextEditOutcome("identical", t1)
+    outcome = classify_text_edit(t0, text_hash(t0), t1, rewrites,
+                                 normalize_title)
+    assert (outcome.kind, outcome.text) == ("identical", t1)
 
 
 def test_classify_text_edit_clean_with_rewrite_replay():
@@ -708,8 +725,10 @@ def test_classify_text_edit_clean_with_rewrite_replay():
     t0, t1 = "note about [[Old]]", "note about [[New]]"
     edit = "note about [[Old]] plus comment"
     rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "Old", "New"),)
-    outcome = classify_text_edit(edit, text_hash(t0), t1, rewrites)
-    assert outcome == TextEditOutcome("clean", "note about [[New]] plus comment")
+    outcome = classify_text_edit(edit, text_hash(t0), t1, rewrites,
+                                 normalize_title)
+    assert (outcome.kind, outcome.text) == (
+        "clean", "note about [[New]] plus comment")
 
 
 def test_classify_text_edit_conflict_with_rewrite_replay():
@@ -720,8 +739,9 @@ def test_classify_text_edit_conflict_with_rewrite_replay():
     live = "note about [[New]] and more edits"
     edit = "note about [[Old]] plus comment"
     rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "Old", "New"),)
-    outcome = classify_text_edit(edit, text_hash(t0), live, rewrites)
-    assert outcome == TextEditOutcome(
+    outcome = classify_text_edit(edit, text_hash(t0), live, rewrites,
+                                 normalize_title)
+    assert (outcome.kind, outcome.text) == (
         "conflict", "note about [[New]] plus comment")
 
 
@@ -743,7 +763,8 @@ def test_classify_text_edit_over_limit_when_a_rename_replay_passes_the_cap():
     # the review's repro: 2,000 links of a title grown by 998 characters
     t0, t1, rewrites = _retitle("a", "Z" * 1000)
     edit = "[[a]] " * 2000
-    outcome = classify_text_edit(edit, text_hash(t0), t1, rewrites)
+    outcome = classify_text_edit(edit, text_hash(t0), t1, rewrites,
+                                 normalize_title)
     assert outcome.kind == "over_limit"
     assert outcome.text == edit
 
@@ -753,10 +774,12 @@ def test_classify_text_edit_applies_a_replay_landing_exactly_at_the_cap():
     links = "[[a]] " * 900
     grown = 900 * len("[[" + "Z" * 1000 + "]] ")
     edit = links + "x" * (MAX_BLOCK_TEXT_CHARS - grown)
-    outcome = classify_text_edit(edit, text_hash(t0), t1, rewrites)
+    outcome = classify_text_edit(edit, text_hash(t0), t1, rewrites,
+                                 normalize_title)
     assert outcome.kind == "clean"
     assert len(outcome.text) == MAX_BLOCK_TEXT_CHARS
-    over = classify_text_edit(edit + "x", text_hash(t0), t1, rewrites)
+    over = classify_text_edit(edit + "x", text_hash(t0), t1, rewrites,
+                              normalize_title)
     assert over.kind == "over_limit"
 
 
@@ -767,8 +790,9 @@ def test_classify_text_edit_over_limit_when_a_rename_replay_nests_past_the_cap()
     rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "Old", "New title"),)
     edit = "[[a//" * MAX_LINK_NESTING + " #Old" + "]]" * MAX_LINK_NESTING
     assert text_limit_violation(edit) is None
-    outcome = classify_text_edit(edit, text_hash(t0), t1, rewrites)
-    assert outcome == TextEditOutcome("over_limit", edit)
+    outcome = classify_text_edit(edit, text_hash(t0), t1, rewrites,
+                                 normalize_title)
+    assert (outcome.kind, outcome.text) == ("over_limit", edit)
 
 
 def test_classify_text_edit_over_limit_when_a_delete_inlines_past_the_cap():
@@ -777,8 +801,9 @@ def test_classify_text_edit_over_limit_when_a_delete_inlines_past_the_cap():
     rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "uid_p1", copy,
                              "inline"),)
     edit = "((uid_p1)) " * 1000
-    outcome = classify_text_edit(edit, text_hash(t0), t1, rewrites)
-    assert outcome == TextEditOutcome("over_limit", edit)
+    outcome = classify_text_edit(edit, text_hash(t0), t1, rewrites,
+                                 normalize_title)
+    assert (outcome.kind, outcome.text) == ("over_limit", edit)
 
 
 def _peak_bytes(run: Callable[[], object]) -> int:
@@ -798,7 +823,8 @@ def test_replay_past_the_cap_is_refused_without_building_the_text():
     edit = "[[a]] " * 3
     outcome: list[TextEditOutcome] = []
     peak = _peak_bytes(lambda: outcome.append(
-        classify_text_edit(edit, text_hash(t0), t1, rewrites)))
+        classify_text_edit(edit, text_hash(t0), t1, rewrites,
+                           normalize_title)))
     assert peak < MAX_BLOCK_TEXT_CHARS
     assert outcome[0].kind == "over_limit"
 
@@ -819,7 +845,8 @@ def test_replay_refuses_the_worst_amplification_without_building_it(kind):
     edit = link * (MAX_BLOCK_TEXT_CHARS // len(link))
     outcome: list[TextEditOutcome] = []
     peak = _peak_bytes(lambda: outcome.append(
-        classify_text_edit(edit, text_hash(t0), t1, rewrites)))
+        classify_text_edit(edit, text_hash(t0), t1, rewrites,
+                           normalize_title)))
     assert outcome[0].kind == "over_limit"
     # linear in the edit (the scan and its span list, one tuple per link
     # sharing one title), where the spliced text would be ~10^11
@@ -844,7 +871,7 @@ def test_replay_judges_the_nesting_copies_join_before_unlinking():
         edit = before + " offline"
         outcome: list[TextEditOutcome] = []
         work = loop_steps((ops_core, replay_core, unlink, refs, spans), lambda: outcome.append(
-            classify_text_edit(edit, base, "T", rows)))
+            classify_text_edit(edit, base, "T", rows, normalize_title)))
         return work, outcome[0]
 
     (small, _), (large, outcome) = run(5), run(20)
@@ -857,7 +884,7 @@ def test_plan_replay_over_limit_lands_the_edit_and_keeps_the_block():
     op = UpdateTextOp(op="update_text", uid=uid_of("uid_b3"),
                       text="[[a]] " * 2000, base_text_hash=text_hash("[[a]]"))
     ctx = ReplayOverLimitContext(B, canonical_title_of("Machine Learning"),
-                                 _landing())
+                                 _landing(), _outcome("over_limit", op.text))
     assert plan_op(0, op, ctx) == (
         *conflict_entry_effects(
             uid_of("uid_b3"), op.text,
@@ -1465,7 +1492,8 @@ def test_plan_stale_context_must_fit_the_op():
     move = _top_move("X")
     skip = Skip("stale_page", uid_of("uid_m0000001"))
     with pytest.raises(AssertionError):
-        plan_op(0, move, LandedSkipContext(skip, _landing(), None))
+        plan_op(0, move, LandedSkipContext(skip, _landing(), None, (),
+                                           None))
     create = _top_create("X", "t")
     with pytest.raises(AssertionError):
         plan_op(0, create, StuckMoveContext(
@@ -1513,7 +1541,7 @@ def _replay_effects(sent_text, base_text, rewrites, current,
     unlinked = unlink_stale_refs(
         sent_text, lambda raw: canonical_title_of(normalize_title(raw)) in stale)
     outcome = classify_text_edit(unlinked, text_hash(base_text), current,
-                                 rewrites)
+                                 rewrites, normalize_title)
     planned = (() if outcome.kind == "identical"
                else (UpdateText(_U1, outcome.text),))
     return rewrite_effects(sent, planned, stale, normalize_title,
@@ -1579,7 +1607,8 @@ def test_rewrite_effects_record_a_stale_unlink_that_is_identical_to_current():
 def test_rewrite_effects_record_nothing_when_the_chain_misses_written():
     t0 = "[[A]]"
     rewrites = (BlockRewrite(text_hash(t0), text_hash("[[B]]"), "A", "B"),)
-    outcome = classify_text_edit("[[A]] x", text_hash(t0), "[[B]] x", rewrites)
+    outcome = classify_text_edit("[[A]] x", text_hash(t0), "[[B]] x", rewrites,
+                                 normalize_title)
     sent = UpdateTextOp(op="update_text", uid=_U1, text="[[A]] x",
                         base_text_hash=text_hash(t0))
     assert rewrite_effects(sent, (), frozenset(), normalize_title,

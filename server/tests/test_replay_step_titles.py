@@ -637,8 +637,59 @@ def test_a_walk_stops_blind_at_a_hash_too_costly_to_read():
     assert history.next_unread(first) == second
     history.add_unread(second)
     assert history.next_unread(first) is None
+    assert _walked(history, first) == [(first, second), (second, None)]
     outcome = replay_core.classify_text_edit("[[z]] [[y]]", first, "current",
-                                          history)
+                                             history, normalize_title)
     assert outcome.kind == "over_limit" and outcome.blind
     assert replay_core.over_limit_landing_text(
         "[[z]] [[y]] #w", outcome.replayed, normalize_title, True) == "z y w"
+
+
+def _walked(history: replay_core.RewriteHistory, base: Sha256Hex
+            ) -> list[tuple[Sha256Hex, Sha256Hex | None]]:
+    """Each hash a walk from `base` reaches, with the after hash of the step
+    it takes there, None where it stops at rows it has not read."""
+    return [(at.base_hash, None if at.step is None else at.step.after_hash)
+            for at in history.walk(base)]
+
+
+def _row(base: Sha256Hex, after: Sha256Hex,
+         old_text: str) -> replay_core.BlockRewrite:
+    return replay_core.BlockRewrite(base, after, old_text, "", "unlink")
+
+
+def test_walk_yields_steps_newest_first_until_an_unread_hash():
+    # Two steps start from h0. The walk takes the newer, comes back to h0,
+    # takes the older one, the only one left, and stops at h2, unread.
+    h0, h1, h2 = (text_hash(f"w{i}") for i in range(3))
+    history = replay_core.RewriteHistory.lazy()
+    history.add_read(h0, [_row(h0, h1, "newer"), _row(h0, h2, "older")])
+    history.add_read(h1, [_row(h1, h0, "back")])
+    assert _walked(history, h0) == [(h0, h1), (h1, h0), (h0, h2), (h2, None)]
+    # at a read hash with no step left the chain ends, not blind
+    history.add_read(h2, [])
+    assert _walked(history, h0) == [(h0, h1), (h1, h0), (h0, h2)]
+
+
+def test_walk_ends_with_none_at_a_hash_too_costly():
+    h0, h1 = text_hash("w0"), text_hash("w1")
+    history = replay_core.RewriteHistory.lazy()
+    history.add_read(h0, [_row(h0, h1, "a")])
+    history.add_unread(h1)
+    assert _walked(history, h0) == [(h0, h1), (h1, None)]
+
+
+def test_walk_stops_at_the_bound_without_none():
+    # A chain past the bound: the hash the bound's last step reaches is
+    # unread. The walk takes the bound's steps and stops, neither asking
+    # for that hash's rows nor stopping blind.
+    n = replay_core.MAX_REPLAYED_REWRITES
+    hashes = [text_hash(f"w{i}") for i in range(n + 1)]
+    history = replay_core.RewriteHistory.lazy()
+    for i in range(n):
+        history.add_read(hashes[i], [_row(hashes[i], hashes[i + 1], "a")])
+    walked = _walked(history, hashes[0])
+    assert walked == [(hashes[i], hashes[i + 1]) for i in range(n)]
+    assert history.next_unread(hashes[0]) is None
+    replayed = replay_core.replay("x", hashes[0], history, normalize_title)
+    assert not replayed.blind and len(replayed.steps) == n

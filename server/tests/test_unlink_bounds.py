@@ -364,7 +364,7 @@ def test_a_replay_judges_depth_times_length_before_unlinking():
                   for uid, copy in copies.items()))
         out: list[TextEditOutcome] = []
         work = loop_steps(MODULES, lambda: out.append(
-            classify_text_edit(edit, base, "T", rows)))
+            classify_text_edit(edit, base, "T", rows, normalize_title)))
         return work, out[0].kind
 
     deep_work, deep, shallow_work, shallow = _work_at(1000, run)

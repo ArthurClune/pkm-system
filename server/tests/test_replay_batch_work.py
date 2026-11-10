@@ -99,7 +99,7 @@ def test_an_edit_pays_for_its_replay_once(client, seeded_config):
     finally:
         con.close()
     once = loop_steps(MODULES, lambda: replay_core.classify_text_edit(
-        SENT, text_hash(original), "current", rows))
+        SENT, text_hash(original), "current", rows, normalize_title))
     got = []
     route = loop_steps(MODULES, lambda: got.append(
         _post(client, [_stale_edit(original)])))
@@ -402,7 +402,8 @@ def _over_limit_batch(text: str, rows: tuple[replay_core.BlockRewrite, ...],
         allowance = replay_core.MAX_BATCH_REPLAY_WORK
         for _ in range(ops):
             outcome = replay_core.classify_text_edit(
-                text, text_hash(text), "current", rows, allowance=allowance)
+                text, text_hash(text), "current", rows, normalize_title,
+                allowance=allowance)
             assert outcome.kind == "over_limit"
             allowance -= outcome.reads
             assert allowance >= 0
@@ -527,7 +528,7 @@ def test_the_rows_reuse_the_replay_and_record_the_same(
         in stale)
     current = "elsewhere" if conflicting else "unused"
     outcome = replay_core.classify_text_edit(unlinked, hashes[0], current,
-                                          rewrites)
+                                             rewrites, normalize_title)
     if outcome.kind == "over_limit":
         return
     # the replay itself, against one that keeps nothing

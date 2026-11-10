@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import (Callable, Iterator, Mapping,
                              Sequence)
 from collections.abc import Set as AbstractSet
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal, Union
 
 from pkm.contracts.ops import (MAX_OUTLINE_DEPTH,
@@ -26,7 +26,7 @@ from pkm.contracts.ops import (MAX_OUTLINE_DEPTH,
 from pkm.contracts.responses import SkipReason, SkippedOp
 from pkm.contracts.titles import RawTitle
 from pkm.refs import (CanonicalTitle, TitleRefusal, describe_title_length,
-                      extract, normalize_title, title_length_over, title_refusal)
+                      extract, title_length_over, title_refusal)
 from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
                                        deleted_header_text,
                                        live_block_header_text,
@@ -280,7 +280,8 @@ class ConflictLanding:
 #
 # One context type per way an op can plan, each holding exactly what that
 # planning reads. The shell picks the type from its one classification, so
-# the planner re-derives nothing. Production passes every field.
+# the planner re-derives nothing. No field has a default, so every caller
+# says what each holds.
 
 
 @dataclass(frozen=True)
@@ -435,19 +436,14 @@ class TextEditContext:
 @dataclass(frozen=True)
 class TextConflictContext:
     """A hashed update_text on a live block that `classify_text_edit` found
-    a conflict: `text`, the edit with rewrites replayed, wins, and
+    a conflict: `outcome.text`, the edit with rewrites replayed, wins, and
     `current_text` lands under a header naming `page_title`, the block's
-    own page. `replayed`, `canonical`, `known` and `reads` are as on the
-    outcome."""
+    own page."""
     block: BlockInfo
-    text: str
     current_text: str
     page_title: CanonicalTitle
     landing: ConflictLanding
-    replayed: tuple[RewriteStep, ...] = ()
-    canonical: Callable[[str], str] = normalize_title
-    known: Mapping[StepKey, str] = field(default_factory=dict, compare=False)
-    reads: int = 0
+    outcome: TextEditOutcome
 
 
 @dataclass(frozen=True)
@@ -455,15 +451,19 @@ class ReplayOverLimitContext:
     """A hashed update_text on a live block that `classify_text_edit` found
     `over_limit`: the block keeps its text, and the edit lands under a
     header naming `page_title`, the block's own page, as
-    `over_limit_landing_text` makes it. `replayed`, `canonical`, `reads`
-    and `blind` are as on the outcome."""
+    `over_limit_landing_text` makes it from the outcome."""
     block: BlockInfo
     page_title: CanonicalTitle
     landing: ConflictLanding
-    replayed: tuple[RewriteStep, ...] = ()
-    canonical: Callable[[str], str] = normalize_title
-    reads: int = 0
-    blind: bool = False
+    outcome: TextEditOutcome
+
+
+HashedEditContext = Union[TextEditContext, TextConflictContext,
+                          ReplayOverLimitContext]
+# HashedEditContext's members as a tuple, for isinstance: spelled out so
+# type checkers narrow on it, as SKIPPED_CONTEXTS is; a test pins it
+HASHED_EDIT_CONTEXTS = (TextEditContext, TextConflictContext,
+                        ReplayOverLimitContext)
 
 
 @dataclass(frozen=True)
@@ -472,7 +472,7 @@ class SkipContext:
     noop, or a blank orphan_edit / diverted_create. `ghost_page`: see
     LandedSkipContext."""
     skip: Skip
-    ghost_page: PageId | None = None
+    ghost_page: PageId | None
 
 
 @dataclass(frozen=True)
@@ -493,8 +493,8 @@ class LandedSkipContext:
     skip: Skip
     landing: ConflictLanding
     hint_page: CanonicalTitle | None
-    siblings: tuple[BlockUid, ...] = ()
-    ghost_page: PageId | None = None
+    siblings: tuple[BlockUid, ...]
+    ghost_page: PageId | None
 
 
 @dataclass(frozen=True)
@@ -893,19 +893,22 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
         # conflict: concurrent edit -- incoming wins, loser preserved under
         # today's daily-note conflict header naming the block's page
         assert isinstance(op, UpdateTextOp) and op.base_text_hash is not None
+        assert ctx.outcome.kind == "conflict"
         header_text = overwritten_header_text(ctx.page_title, op.uid)
         return (*conflict_entry_effects(op.uid, ctx.current_text,
                                         header_text, ctx.landing),
-                UpdateText(op.uid, ctx.text),
-                ReindexRefs(op.uid, ctx.text),
+                UpdateText(op.uid, ctx.outcome.text),
+                ReindexRefs(op.uid, ctx.outcome.text),
                 TouchPage(ctx.block.page_id))
     if isinstance(ctx, ReplayOverLimitContext):
         # the block keeps its text, and is journalled so a replica that
         # applied the edit gets its row back
         assert isinstance(op, UpdateTextOp) and op.base_text_hash is not None
+        assert ctx.outcome.kind == "over_limit"
         header_text = live_block_header_text(ctx.page_title, op.uid)
-        landed = over_limit_landing_text(op.text, ctx.replayed, ctx.canonical,
-                                         ctx.blind)
+        outcome = ctx.outcome
+        landed = over_limit_landing_text(op.text, outcome.replayed,
+                                         outcome.canonical, outcome.blind)
         return (*conflict_entry_effects(op.uid, landed, header_text,
                                         ctx.landing),
                 JournalBlock(op.uid, False))

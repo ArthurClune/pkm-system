@@ -755,7 +755,8 @@ def apply_batch(db: Db, judged: JudgedBatch,
     """Apply a batch inside the caller's transaction. The text and title
     judges have run already (`ops_core.judge_batch`), before the caller
     took the write lock; nothing here judges them again. Planning can
-    still raise `OpError` (a depth cap, a move cycle)."""
+    still raise `OpError` (an invalid, taken or impossible uid, a depth
+    cap)."""
     batch = judged.batch
     broadcast_ops: list[dict[str, object]] = []
     skipped: list[SkippedOp] = []

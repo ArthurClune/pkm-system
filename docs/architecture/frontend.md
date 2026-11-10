@@ -4,7 +4,7 @@ The frontend is a React single-page app built with Vite: an offline-capable,
 real-time-synced Roam-style outliner. The server owns its shapes. API types
 are generated from its OpenAPI schema, the replica schema from its DDL, and
 the block grammar is pinned to the Python parser by shared fixtures. `pnpm
-check:fcis` (`web/tooling/fcis.mjs`) fails a Functional Core module that
+check:fcis` (`web/tooling/fcis.ts`) fails a Functional Core module that
 imports a Shell ([overview.md](overview.md#functional-core--imperative-shell)).
 
 This doc covers the app shell. The outline editor is in
@@ -111,7 +111,7 @@ stale artifact ([backend.md](backend.md#generated-artifacts-and-parity-fixtures)
 
 A server field typed with a branded `NewType` carries an `x-brand` marker in
 `openapi.json` ([backend.md](backend.md#wire-models-and-brands)).
-`tooling/genTypes-core.mjs` turns it into `Brands.<Name>`, a reference to the
+`tooling/genTypes-core.ts` turns it into `Brands.<Name>`, a reference to the
 export of that name in `api/brands.ts`, where every web brand is defined. A
 subtype brand adds a second key, not a second `__brand`, since two `__brand`
 literals intersect to `never`.
@@ -405,7 +405,7 @@ fails on, and `AGENTS.md` § Testing says how to run them.
 - **Budgets** (`web/tooling/budgets.json`, `viteBudgetPlugin.ts`): the build
   fails when the entry, largest asset, total, service-worker precache or a
   library's owned bytes (mermaid, pdfjs, katex) exceed their caps.
-- **Perf**: `web/tooling/perf/check.mjs` is the frontend half of
+- **Perf**: `web/tooling/perf/check.ts` is the frontend half of
   `perf/check.sh` ([checks.md § Performance gate](checks.md#performance-gate)); its
   [README](../../web/tooling/perf/README.md) lists the files and the measurement caveats.
 

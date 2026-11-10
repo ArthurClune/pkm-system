@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import cases from "../../../shared/fixtures/registry_paths.json";
-import { pathMatcher } from "./registry.mjs";
+import { pathMatcher } from "./registry.ts";
 
 describe("registry path matcher", () => {
   it("matches every case of the shared registry_paths fixture", () => {

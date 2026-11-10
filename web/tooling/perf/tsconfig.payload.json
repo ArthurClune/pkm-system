@@ -1,0 +1,10 @@
+{
+  "//": "The addInitScript payloads, which harness.ts reads as text and the browser runs as classic scripts, so they stay JavaScript and are checked through their JSDoc. DOM types only: node's timer and global types would misdescribe what the page has.",
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": [],
+    "allowJs": true,
+    "checkJs": true
+  },
+  "include": ["instrument.js", "react-commits.js", "globals.d.ts"]
+}

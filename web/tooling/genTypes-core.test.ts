@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { BRANDS_IMPORT, generateTypes } from "./genTypes-core.mjs";
+import { BRANDS_IMPORT, generateTypes } from "./genTypes-core.ts";
 
 // A minimal OpenAPI 3.1 document whose only content is component schemas.
 function spec(schemas: Record<string, unknown>) {

@@ -9,10 +9,10 @@ import {
   pathMatcher,
   repoPath,
   testFileGlobs,
-} from "./registry.mjs";
-import { nameCarriesBrand } from "./nameCarriesBrand.mjs";
-import { noBrandAssertion } from "./noBrandAssertion.mjs";
-import { noBrandBypass } from "./noBrandBypass.mjs";
+} from "./registry.ts";
+import { nameCarriesBrand } from "./nameCarriesBrand.ts";
+import { noBrandAssertion } from "./noBrandAssertion.ts";
+import { noBrandBypass } from "./noBrandBypass.ts";
 
 export { isMintSite, isTestCode, pathMatcher, repoPath, testFileGlobs };
 

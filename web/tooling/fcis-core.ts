@@ -2,7 +2,7 @@
 // Pure FCIS policy: header parsing, exemption validation, relative-import
 // resolution among a known file set, core->shell/mixed edge legality, and
 // deterministic diagnostic sorting/formatting. No filesystem or TypeScript
-// compiler I/O lives here -- see fcis.mjs for the imperative shell that
+// compiler I/O lives here -- see fcis.ts for the imperative shell that
 // gathers modules and edges (via the TypeScript compiler API) and calls
 // into this module to decide what's wrong.
 import { dirname, join, normalize } from "node:path/posix";
@@ -13,12 +13,49 @@ const HEADER_RE = /^\s*\/\/+\s*pattern:\s*(.+?)\s*$/;
 
 const MIXED_UNAVOIDABLE_RE = /^Mixed \(unavoidable\)(?:\s*--\s*(.*))?$/;
 
+export type Header =
+  | { status: "missing" }
+  | { status: "duplicate"; lines: number[] }
+  | { status: "late"; line: number; raw: string }
+  | { status: "unknown"; line: number; raw: string }
+  | { status: "missing-reason"; line: number }
+  | { status: "ok"; kind: "core" | "shell"; line: number }
+  | { status: "ok"; kind: "mixed"; variant: "needs-refactoring"; line: number }
+  | {
+    status: "ok"; kind: "mixed"; variant: "unavoidable"; reason: string;
+    line: number;
+  };
+
+export type Classification =
+  { file: string } & (Header | { status: "exempt"; reason: string });
+
+/** What edge legality reads of either end's classification. */
+export type EdgeEnd =
+  | { status: "ok"; kind: "core" | "shell" | "mixed" }
+  | { status: Exclude<Classification["status"], "ok"> };
+
+export interface Edge {
+  source: string;
+  target: string;
+  kind: "import" | "export" | "dynamic-import";
+  typeOnly: boolean;
+  line: number;
+}
+
+export interface Diagnostic {
+  file: string;
+  kind: string;
+  message: string;
+  line?: number;
+  target?: string;
+}
+
 /** Scans every line of a file's text for "// pattern: ..." header comments
  * and classifies what it found: missing (none anywhere), duplicate (more
  * than one anywhere), late (exactly one, but past the first five lines), or
  * the parsed contents of a single header within the first five lines. */
-export function parseHeaderLines(lines) {
-  const matches = [];
+export function parseHeaderLines(lines: string[]): Header {
+  const matches: { line: number; raw: string }[] = [];
   lines.forEach((line, idx) => {
     const m = HEADER_RE.exec(line);
     if (m) matches.push({ line: idx + 1, raw: m[1] });
@@ -30,7 +67,7 @@ export function parseHeaderLines(lines) {
   return parseHeaderText(raw, line);
 }
 
-function parseHeaderText(raw, line) {
+function parseHeaderText(raw: string, line: number): Header {
   if (raw === "Functional Core") return { status: "ok", kind: "core", line };
   if (raw === "Imperative Shell") return { status: "ok", kind: "shell", line };
   if (raw === "Mixed (needs refactoring)") {
@@ -48,18 +85,22 @@ function parseHeaderText(raw, line) {
 /** Classifies one runtime module: an exact exemptions-map hit short-circuits
  * to "exempt" (no header required, no edge legality applied to or from it);
  * otherwise the file's own text is scanned for its header. */
-export function classifyModule(file, fileText, exemptions) {
+export function classifyModule(
+  file: string, fileText: string, exemptions: Record<string, unknown>,
+): Classification {
   if (Object.prototype.hasOwnProperty.call(exemptions, file)) {
-    return { file, status: "exempt", reason: exemptions[file] };
+    return { file, status: "exempt", reason: String(exemptions[file]) };
   }
   return { file, ...parseHeaderLines(fileText.split("\n")) };
 }
 
 /** Diagnostics for a single module's own header -- independent of any edge
  * it participates in. */
-export function headerDiagnostics(classification) {
-  const { file, status } = classification;
-  switch (status) {
+export function headerDiagnostics(
+  classification: Classification,
+): Diagnostic[] {
+  const { file } = classification;
+  switch (classification.status) {
     case "missing":
       return [{
         file, kind: "missing-header",
@@ -91,15 +132,15 @@ export function headerDiagnostics(classification) {
     case "ok":
     case "exempt":
       return [];
-    default:
-      return [];
   }
 }
 
 /** Every exemption entry must carry a real, non-empty reason -- no bare
  * paths and no globs (callers only ever look up exact file paths). */
-export function validateExemptions(exemptions) {
-  const diagnostics = [];
+export function validateExemptions(
+  exemptions: Record<string, unknown>,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
   for (const [file, reason] of Object.entries(exemptions)) {
     if (typeof reason !== "string" || reason.trim() === "") {
       diagnostics.push({
@@ -118,7 +159,9 @@ const RESOLUTION_SUFFIXES = ["", ".ts", ".tsx", ".d.ts", "/index.ts", "/index.ts
  * same .ts/.tsx/index/.d.ts forms TypeScript itself would. Returns the
  * resolved file's key in `existingFiles`, or null if `specifier` isn't
  * relative or nothing matching exists (an external package, most often). */
-export function resolveRelativeSpecifier(fromFile, specifier, existingFiles) {
+export function resolveRelativeSpecifier(
+  fromFile: string, specifier: string, existingFiles: ReadonlySet<string>,
+): string | null {
   if (!specifier.startsWith(".")) return null;
   const joined = normalize(join(dirname(fromFile), specifier));
   for (const suffix of RESOLUTION_SUFFIXES) {
@@ -135,7 +178,9 @@ const RESTRICTED_TARGET_KINDS = new Set(["shell", "mixed"]);
  * runtime. Type-only edges are always permitted (they don't exist once
  * types are erased); every other direction (shell->core, shell->shell,
  * mixed->anything, edges touching an exempt module) is unrestricted. */
-export function edgeDiagnostic(edge, sourceClassification, targetClassification) {
+export function edgeDiagnostic(
+  edge: Edge, sourceClassification: EdgeEnd, targetClassification: EdgeEnd,
+): Diagnostic | null {
   if (edge.typeOnly) return null;
   if (sourceClassification.status !== "ok" || sourceClassification.kind !== "core") return null;
   if (targetClassification.status !== "ok") return null;
@@ -149,12 +194,10 @@ export function edgeDiagnostic(edge, sourceClassification, targetClassification)
 }
 
 /** Deterministic ordering: source file, then location, then target, then
- * diagnostic kind -- so a rerun with no code changes prints identically.
- * @template {{ file: string, line?: number, target?: string, kind: string }} D
- * @param {D[]} diagnostics
- * @returns {D[]}
- */
-export function sortDiagnostics(diagnostics) {
+ * diagnostic kind -- so a rerun with no code changes prints identically. */
+export function sortDiagnostics<
+  D extends { file: string; line?: number; target?: string; kind: string },
+>(diagnostics: D[]): D[] {
   return [...diagnostics].sort((a, b) =>
     a.file.localeCompare(b.file) ||
     (a.line ?? 0) - (b.line ?? 0) ||
@@ -162,6 +205,6 @@ export function sortDiagnostics(diagnostics) {
     a.kind.localeCompare(b.kind));
 }
 
-export function formatDiagnostic(diagnostic) {
+export function formatDiagnostic(diagnostic: { message: string }): string {
   return diagnostic.message;
 }

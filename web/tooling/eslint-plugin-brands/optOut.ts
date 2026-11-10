@@ -1,8 +1,11 @@
 // pattern: Imperative Shell
+import type { TSESLint, TSESTree } from "@typescript-eslint/utils";
+
+export type OptOutKind = "reason" | "bare";
 
 // "reason" for `// brand: untrusted -- <why>`, "bare" for the marker with no
 // reason, null for any other comment.
-function optOutKind(comment) {
+function optOutKind(comment: TSESTree.Comment): OptOutKind | null {
   if (/^\s*brand: untrusted -- \S/.test(comment.value)) return "reason";
   if (/^\s*brand: untrusted\b/.test(comment.value)) return "bare";
   return null;
@@ -18,9 +21,26 @@ function optOutKind(comment) {
 // walk in cannot change who is covered. A site is `{ line, column, resolve }`
 // and `resolve(kind)` reports it given the kind of the comment that covers it
 // ("reason", "bare") or null.
-const ledgers = new WeakMap();
+interface Site {
+  line: number;
+  column: number;
+  resolve: (kind: OptOutKind | null) => void;
+}
 
-export function joinLedger(context) {
+interface Ledger {
+  rules: number;
+  sites: Site[];
+  reportUnused: (comment: TSESTree.Comment) => void;
+}
+
+const ledgers = new WeakMap<TSESLint.SourceCode, Ledger>();
+
+export function joinLedger(
+  context: Readonly<TSESLint.RuleContext<"optOutUnused", []>>,
+): {
+  site: (node: TSESTree.Node, resolve: Site["resolve"]) => void;
+  exit: () => void;
+} {
   const { sourceCode } = context;
   let ledger = ledgers.get(sourceCode);
   if (!ledger) {
@@ -46,14 +66,15 @@ export function joinLedger(context) {
   };
 }
 
-function settleOptOuts(sourceCode, ledger) {
-  const standsAlone = (c) =>
+function settleOptOuts(sourceCode: TSESLint.SourceCode, ledger: Ledger): void {
+  const standsAlone = (c: TSESTree.Comment) =>
     sourceCode.lines[c.loc.start.line - 1].slice(0, c.loc.start.column)
       .trim() === "";
   const comments = sourceCode.getAllComments()
     .map((comment) => ({ comment, kind: optOutKind(comment) }))
-    .filter((o) => o.kind !== null);
-  const claimed = new Set();
+    .filter((o): o is { comment: TSESTree.Comment; kind: OptOutKind } =>
+      o.kind !== null);
+  const claimed = new Set<TSESTree.Comment>();
   const sites = [...ledger.sites].sort(
     (a, b) => a.line - b.line || a.column - b.column);
   for (const site of sites) {

@@ -1,10 +1,10 @@
 # Frontend performance gate
 
-`check.mjs` runs headless via `perf/check.sh` and compares what the SPA does
+`check.ts` runs headless via `perf/check.sh` and compares what the SPA does
 against the committed baseline in `perf/`.
 [docs/architecture/checks.md](../../../docs/architecture/checks.md#performance-gate)
 describes how it reaches a verdict and keeps its counts deterministic.
-`harness.mjs` holds its Playwright setup.
+`harness.ts` holds its Playwright setup.
 
 An earlier headed investigation toolkit (seed, scenario runner, probes) was
 retired once the gate covered its scenarios. `baselines/<date>/` is its
@@ -14,13 +14,14 @@ outcome. The scripts those reports name no longer exist; `git log` has them.
 
 | File | Role |
 |---|---|
-| `check.mjs` | the gate; each metric declares its class there |
-| `harness.mjs` | login, request/WebSocket counters, shared constants |
+| `check.ts` | the gate; each metric declares its class there |
+| `harness.ts` | login, request/WebSocket counters, shared constants |
 | `instrument.js` | `addInitScript` payload: wraps timers/fetch/WebSocket, observes long tasks and outline DOM mutations, exposes `window.__perf` |
 | `react-commits.js` | `addInitScript` payload for scenario J: a minimal `__REACT_DEVTOOLS_GLOBAL_HOOK__` counting commits and re-rendered fibers into `window.__react` |
-| `rebase.perf.ts`, `rebaseTargets.ts`, `vitest.rebase.config.ts` | scenario R (SQL counts of `applyChanges` over a pending queue), run by `check.mjs` as a vitest subprocess |
+| `globals.d.ts`, `tsconfig.payload.json` | the page globals the payloads install, as `check.ts` reads them; the payloads stay JavaScript, since `harness.ts` hands their text to the browser, and are type-checked through their JSDoc against DOM types alone |
+| `rebase.perf.ts`, `rebaseTargets.ts`, `vitest.rebase.config.ts` | scenario R (SQL counts of `applyChanges` over a pending queue), run by `check.ts` as a vitest subprocess |
 | `sqlcount.ts` | SQL counter used by R: statements, trigger statements, VM steps, full scans |
-| `contextGroups.mjs` | scenario context grouping used by `check.mjs` |
+| `contextGroups.ts` | scenario context grouping used by `check.ts` |
 
 ## Read the numbers with these caveats
 

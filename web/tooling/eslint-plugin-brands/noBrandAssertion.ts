@@ -37,6 +37,7 @@
 // the module's checked helper (`uidOf`) instead of the product remedy.
 // `satisfies` and non-null `!` are not assertions toward a brand and are left
 // alone.
+import type { TSESLint, TSESTree } from "@typescript-eslint/utils";
 import ts from "typescript";
 import {
   isMintSite,
@@ -45,7 +46,7 @@ import {
   registry,
   repoPath,
   testMintSites,
-} from "./registry.mjs";
+} from "./registry.ts";
 import {
   anyReturning,
   cachedBrands,
@@ -53,21 +54,43 @@ import {
   declaresBrand,
   genericReturn,
   inForeignFile,
+  isArrayLike,
   isForeign,
   mintedBrands,
   servicesOf,
   shallowBrands,
   unbackedLaunder,
-} from "./types.mjs";
-import { OPT_OUT_UNUSED, joinLedger } from "./optOut.mjs";
-import { remedy, webTestMints } from "./remedy.mjs";
+} from "./types.ts";
+import { OPT_OUT_UNUSED, joinLedger } from "./optOut.ts";
+import { remedy, webTestMints } from "./remedy.ts";
 import {
   OFF_TYPE,
   OFF_TYPE_DEPTH,
   TEST_MINT_SOURCE,
-} from "./testHelpers.mjs";
+} from "./testHelpers.ts";
 
-export const noBrandAssertion = {
+type MessageIds =
+  | "assertion" | "declaration" | "overload" | "launder" | "launderValue"
+  | "optOutUnused" | "offTypeBrand" | "offTypeSlot";
+type BrandMessage = "assertion" | "declaration" | "overload";
+
+// A declaration TypeScript lets stand as an overload signature, and the
+// node lists it and its implementation sit in.
+type Overloadable =
+  | ts.FunctionDeclaration | ts.MethodDeclaration | ts.ConstructorDeclaration
+  | ts.GetAccessorDeclaration | ts.SetAccessorDeclaration;
+const isOverloadable = (n: ts.Node): n is Overloadable =>
+  ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n)
+  || ts.isConstructorDeclaration(n) || ts.isGetAccessorDeclaration(n)
+  || ts.isSetAccessorDeclaration(n);
+const siblingsOf = (parent: ts.Node): readonly ts.Node[] | undefined => {
+  if (ts.isClassLike(parent)) return parent.members;
+  if (ts.isSourceFile(parent) || ts.isBlock(parent) || ts.isModuleBlock(parent)
+    || ts.isCaseOrDefaultClause(parent)) return parent.statements;
+  return undefined;
+};
+
+export const noBrandAssertion: TSESLint.RuleModule<MessageIds> = {
   meta: {
     type: "problem",
     schema: [],
@@ -106,10 +129,16 @@ export const noBrandAssertion = {
     const mayOptOut = optOutFiles.some((m) => m(path));
     const ledger = joinLedger(context);
     const inTestMint = testMintSites.some((m) => m(path));
-    const typeOf = (estreeNode) =>
+    const typeOf = (estreeNode: TSESTree.Node) =>
       checker.getTypeAtLocation(esTreeNodeToTSNodeMap.get(estreeNode));
+    const returnOf = (decl: ts.SignatureDeclaration) => {
+      const signature = checker.getSignatureFromDeclaration(decl);
+      return signature && checker.getReturnTypeOfSignature(signature);
+    };
     // Report `brands` outside their mint sites.
-    const report = (node, brands, messageId) => {
+    const report = (
+      node: TSESTree.Node, brands: Iterable<string>, messageId: BrandMessage,
+    ) => {
       const outside = [...brands].filter((b) => !isMintSite(b, path));
       if (outside.length === 0) return;
       context.report({
@@ -118,11 +147,11 @@ export const noBrandAssertion = {
         data: { brand: outside.join(", "), remedy: remedy(outside, inTest) },
       });
     };
-    const checkBrands = (node, type, messageId) =>
+    const checkBrands = (node: TSESTree.Node, type: ts.Type, messageId: BrandMessage) =>
       report(node, cachedBrands(checker, type), messageId);
     // Whether `type` launders beyond what `from`, where given, already
     // holds; reported unless an opt-out line allows it.
-    const reportLaunder = (node, type, from) => {
+    const reportLaunder = (node: TSESTree.Node, type: ts.Type, from?: ts.Type) => {
       if (!cachedLaunders(checker, type)) return false;
       if (from !== undefined && !unbackedLaunder(checker, from, type)) return false;
       ledger.site(node, (optOut) => {
@@ -140,14 +169,16 @@ export const noBrandAssertion = {
     // Whether the assertion is in the body of the test mint module's
     // exported `offType`, the one declared junk mint: it asserts to its type
     // parameter, which launders anywhere else.
-    const inOffType = (node) => inTestMint
+    const inOffType = (node: TSESTree.Node) => inTestMint
       && context.sourceCode.getAncestors(node).some((a) =>
         a.type === "FunctionDeclaration" && a.id?.name === OFF_TYPE
         && a.parent.type === "ExportNamedDeclaration");
-    const check = (node) => {
+    const check = (node: TSESTree.TSAsExpression | TSESTree.TSTypeAssertion) => {
       if (inOffType(node)) return;
       const target = node.typeAnnotation;
-      if (target.type === "TSTypeReference" && target.typeName.name === "const") {
+      if (target.type === "TSTypeReference"
+        && target.typeName.type === "Identifier"
+        && target.typeName.name === "const") {
         return;
       }
       const type = typeOf(target);
@@ -162,21 +193,24 @@ export const noBrandAssertion = {
     // Guard<T> = (v: string) => v is T`): that is a contract only another
     // predicate can fulfil, and the one that does is judged at its own
     // declaration.
-    const BODILESS = new Set([
+    const BODILESS = new Set<string>([
       "TSFunctionType", "TSMethodSignature", "TSCallSignatureDeclaration",
     ]);
-    const checkPredicate = (node) => {
+    const checkPredicate = (node: TSESTree.TSTypePredicate) => {
       const annotation = node.typeAnnotation?.typeAnnotation;
       if (!annotation) return;
       const narrowed = typeOf(annotation);
       const fn = node.parent?.parent;
-      const declared = (fn?.params ?? []).map(
+      const params: readonly TSESTree.Node[] =
+        fn !== undefined && "params" in fn ? fn.params : [];
+      const name = node.parameterName.type === "Identifier"
+        ? node.parameterName.name : undefined;
+      const declared = params.map(
         (p) => (p.type === "AssignmentPattern" ? p.left : p),
-      ).find((p) => p.type === "Identifier"
-        && p.name === node.parameterName.name);
+      ).find((p) => p.type === "Identifier" && p.name === name);
       const declaredType = declared ? typeOf(declared) : undefined;
-      if (!BODILESS.has(fn?.type)
-        && reportLaunder(node, narrowed, declaredType)) return;
+      const bodiless = fn !== undefined && BODILESS.has(fn.type);
+      if (!bodiless && reportLaunder(node, narrowed, declaredType)) return;
       const minted = declaredType
         ? mintedBrands(checker, declaredType, narrowed)
         : cachedBrands(checker, narrowed);
@@ -186,16 +220,19 @@ export const noBrandAssertion = {
     // checks it against the body: a brand it adds over the implementation's
     // return type is minted. TypeScript keeps an implementation right after
     // its overloads; a predicate overload is judged as a predicate.
-    const checkOverload = (node, tsNode) => {
-      const siblings = ts.isClassLike(tsNode.parent)
-        ? tsNode.parent.members : tsNode.parent.statements;
+    const checkOverload = (node: TSESTree.Node, tsNode: ts.Node) => {
+      if (!isOverloadable(tsNode)) return;
+      const siblings = siblingsOf(tsNode.parent);
       if (!siblings) return;
       const name = tsNode.name?.getText();
+      const sameKind = (n: ts.Node | undefined): n is Overloadable =>
+        n !== undefined && isOverloadable(n) && n.kind === tsNode.kind;
       let i = siblings.indexOf(tsNode) + 1;
-      while (i < siblings.length && siblings[i].kind === tsNode.kind
-        && siblings[i].body === undefined) i++;
-      const impl = siblings[i];
-      if (!impl || impl.kind !== tsNode.kind || impl.body === undefined
+      for (let sib = siblings.at(i); sameKind(sib) && sib.body === undefined;) {
+        sib = siblings.at(++i);
+      }
+      const impl = siblings.at(i);
+      if (!sameKind(impl) || impl.body === undefined
         || impl.name?.getText() !== name) return;
       const signature = checker.getSignatureFromDeclaration(tsNode);
       const implSignature = checker.getSignatureFromDeclaration(impl);
@@ -218,13 +255,14 @@ export const noBrandAssertion = {
     // a declaration file. An ambient declaration asserts a value exists with
     // no body to check, however deep it is nested.
     const ambientFile = /\.d\.[cm]?ts$/.test(context.filename);
-    const isAmbient = (node) => ambientFile || node.declare === true
-      || context.sourceCode.getAncestors(node).some((a) => a.declare === true
+    const hasDeclare = (n: TSESTree.Node) => "declare" in n && n.declare === true;
+    const isAmbient = (node: TSESTree.Node) => ambientFile || hasDeclare(node)
+      || context.sourceCode.getAncestors(node).some((a) => hasDeclare(a)
         || a.type === "TSModuleDeclaration" && a.kind === "global");
     // A function a caller can ask to return anything, backed by no body the
     // checker sees (`declare function mk<T>(s: string): T`): reported like
     // an assertion toward `T`.
-    const reportGenericValue = (node, type) => {
+    const reportGenericValue = (node: TSESTree.Node, type: ts.Type) => {
       if (!genericReturn(checker, type)) return;
       ledger.site(node, (optOut) => {
         if (optOut === "reason" && mayOptOut) return;
@@ -237,34 +275,38 @@ export const noBrandAssertion = {
     };
     // An ambient declaration mints what its type carries: nothing checks the
     // value behind it, and a generic return is whatever the caller names.
-    const checkAmbient = (node, type) => {
+    const checkAmbient = (node: TSESTree.Node, type: ts.Type) => {
       checkBrands(node, type, "declaration");
       reportGenericValue(node, type);
     };
     // An ambient signature's own return, which `typeOf` of the whole
     // declaration (a function type) does not carry for a generic.
-    const checkAmbientSignature = (node, returnType) => {
+    const checkAmbientSignature = (
+      node: TSESTree.TSDeclareFunction | TSESTree.MethodDefinition,
+      returnType: TSESTree.TSTypeAnnotation | undefined,
+    ) => {
       const annotation = returnType?.typeAnnotation;
       if (annotation && annotation.type !== "TSTypePredicate") {
         checkBrands(node, typeOf(annotation), "declaration");
       }
       const tsNode = esTreeNodeToTSNodeMap.get(node);
+      if (!ts.isFunctionLike(tsNode)) return;
       const signature = checker.getSignatureFromDeclaration(tsNode);
       if (signature && !checker.getTypePredicateOfSignature(signature)) {
         reportGenericValue(node, checker.getTypeAtLocation(tsNode));
       }
     };
     // Without `declare`, a TSDeclareFunction is an overload signature.
-    const checkDeclaredFunction = (node) => {
+    const checkDeclaredFunction = (node: TSESTree.TSDeclareFunction) => {
       if (isAmbient(node)) checkAmbientSignature(node, node.returnType);
       else checkOverload(node, esTreeNodeToTSNodeMap.get(node));
     };
-    const checkMethodOverload = (node) => {
+    const checkMethodOverload = (node: TSESTree.MethodDefinition) => {
       if (node.value.type !== "TSEmptyBodyFunctionExpression") return;
       if (isAmbient(node)) checkAmbientSignature(node, node.value.returnType);
       else checkOverload(node, esTreeNodeToTSNodeMap.get(node));
     };
-    const checkDeclaredVariable = (node) => {
+    const checkDeclaredVariable = (node: TSESTree.VariableDeclaration) => {
       if (!isAmbient(node)) return;
       for (const d of node.declarations) {
         if (d.id.typeAnnotation) checkAmbient(d, typeOf(d.id));
@@ -273,26 +315,27 @@ export const noBrandAssertion = {
     // A value that is not a function expression, so no body the checker
     // reads backs it, where a generic-return function type is wanted and the
     // value returns `any` (`JSON.parse`), which fits any `T`.
-    const BODIED = new Set([
+    const BODIED = new Set<string>([
       "ArrowFunctionExpression", "FunctionExpression", "TSAsExpression",
       "TSTypeAssertion", "SpreadElement",
     ]);
-    const checkValue = (value, contextual) => {
+    const checkValue = (value: TSESTree.Node, contextual: ts.Type | undefined) => {
       if (!contextual || !genericReturn(checker, contextual)) return;
       if (anyReturning(checker, typeOf(value))) {
         reportGenericValue(value, contextual);
       }
     };
-    const checkContextual = (value) => {
+    const checkContextual = (value: TSESTree.Node | null | undefined) => {
       if (!value || BODIED.has(value.type)) return;
-      checkValue(value,
-        checker.getContextualType(esTreeNodeToTSNodeMap.get(value)));
+      const tsValue = esTreeNodeToTSNodeMap.get(value);
+      if (!ts.isExpression(tsValue)) return;
+      checkValue(value, checker.getContextualType(tsValue));
     };
     // A `declare` field, or a field of an ambient class, has no initialiser
     // to check. A field with no annotation takes its type from its
     // initialiser, so the generic-return type is declared by a base class or
     // an interface the class implements.
-    const checkField = (node) => {
+    const checkField = (node: TSESTree.PropertyDefinition) => {
       const annotation = node.typeAnnotation?.typeAnnotation;
       if (annotation && isAmbient(node)) {
         checkAmbient(node, typeOf(annotation));
@@ -320,7 +363,7 @@ export const noBrandAssertion = {
     // type carries, and a method re-declared with another return is an
     // unchecked overload, minting what it adds over each declaration it
     // overloads.
-    const checkMerge = (node) => {
+    const checkMerge = (node: TSESTree.TSInterfaceDeclaration) => {
       const tsNode = esTreeNodeToTSNodeMap.get(node);
       const merges = (checker.getSymbolAtLocation(tsNode.name)?.declarations ?? [])
         .some((d) => d !== tsNode && (ts.isClassLike(d) || inForeignFile(d)));
@@ -336,18 +379,19 @@ export const noBrandAssertion = {
           continue;
         }
         if (!ts.isMethodSignature(tsMember)) continue;
-        const returned = checker.getReturnTypeOfSignature(
-          checker.getSignatureFromDeclaration(tsMember));
-        let minted;
+        const returned = returnOf(tsMember);
+        if (returned === undefined) continue;
+        let minted: Set<string> | undefined;
         for (const peer of peers) {
-          const gained = ts.isMethodDeclaration(peer) || ts.isMethodSignature(peer)
-            ? mintedBrands(checker, checker.getReturnTypeOfSignature(
-              checker.getSignatureFromDeclaration(peer)), returned)
+          const peerReturn = ts.isMethodDeclaration(peer) || ts.isMethodSignature(peer)
+            ? returnOf(peer) : undefined;
+          const gained = peerReturn !== undefined
+            ? mintedBrands(checker, peerReturn, returned)
             : cachedBrands(checker, returned);
           minted = minted === undefined
             ? gained : new Set([...minted].filter((b) => gained.has(b)));
         }
-        report(member, minted, "declaration");
+        report(member, minted ?? [], "declaration");
       }
     };
     return {
@@ -360,7 +404,7 @@ export const noBrandAssertion = {
           esTreeNodeToTSNodeMap.get(node))?.declaration;
         if (decl === undefined || !TEST_MINT_SOURCE.test(
           decl.getSourceFile().fileName.replace(/\.[cm]?[jt]sx?$/, ""))) return;
-        const forged = (brands) => {
+        const forged = (brands: readonly string[]) => {
           const forgers = brands.map((b) => registry.malformed[b])
             .filter((stem) => stem !== undefined)
             .map((stem) => `malformed${stem[0].toUpperCase()}${stem.slice(1)}`);
@@ -382,10 +426,10 @@ export const noBrandAssertion = {
         // arrays and unions to a fixed depth, whatever the argument's source.
         const arg = node.arguments[0];
         if (arg === undefined || arg.type === "SpreadElement") return;
-        const walk = (type, depth) => {
+        const walk = (type: ts.Type, depth: number): void => {
           if (depth > OFF_TYPE_DEPTH) return;
           if (type.isUnion()) return type.types.forEach((m) => walk(m, depth));
-          if (checker.isArrayType(type) || checker.isTupleType(type)) {
+          if (isArrayLike(checker, type)) {
             return checker.getTypeArguments(type)
               .forEach((m) => walk(m, depth + 1));
           }

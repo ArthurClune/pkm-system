@@ -140,7 +140,7 @@ Two situations the verdicts don't cover:
   SQLite: read the diff, then `perf/check.sh <side> --bootstrap` on the
   branch. `--rebaseline` would reproduce the merge base's old environment
   (its own venv) and refuse again. A Chromium bump or a fixture change is
-  different: `check.mjs` always runs from the branch's Playwright, so
+  different: `check.ts` always runs from the branch's Playwright, so
   `--rebaseline` catches it up fine.
 - **Merge conflict in a `perf/baseline-*.json`**: take either side, then
   re-run `perf/check.sh` and commit what it writes.

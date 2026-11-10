@@ -4,8 +4,9 @@
 // element type is a type parameter inside a method or property named
 // `select` (a wrapper passing its generic keys through). Any other
 // array could widen K to every column.
+import type { TSESLint, TSESTree } from "@typescript-eslint/utils";
 import ts from "typescript";
-import { servicesOf } from "../eslint-plugin-brands/types.mjs";
+import { isArrayLike, servicesOf } from "../eslint-plugin-brands/types.ts";
 
 const SELECT_KEYS_MESSAGES = {
   spreadArgs:
@@ -23,7 +24,9 @@ const SELECT_KEYS_MESSAGES = {
     + "or expression could name a column the query does not return)",
 };
 
-export const selectKeysLiteral = {
+type MessageIds = keyof typeof SELECT_KEYS_MESSAGES;
+
+export const selectKeysLiteral: TSESLint.RuleModule<MessageIds> = {
   meta: {
     type: "problem",
     schema: [],
@@ -32,18 +35,19 @@ export const selectKeysLiteral = {
   create(context) {
     const { program, esTreeNodeToTSNodeMap } = servicesOf(context);
     const checker = program.getTypeChecker();
-    const typeOf = (node) =>
+    const typeOf = (node: TSESTree.Node) =>
       checker.getTypeAtLocation(esTreeNodeToTSNodeMap.get(node));
     // Whether `member.<name>` is the `select` method of the ReplicaDb
     // interface, found by declaration so any type that extends it counts.
-    const isReplicaDbSelect = (object) => {
+    const isReplicaDbSelect = (object: TSESTree.Expression) => {
       const decl = typeOf(object).getProperty("select")?.declarations?.[0];
       return decl !== undefined && ts.isMethodSignature(decl)
         && ts.isInterfaceDeclaration(decl.parent)
         && decl.parent.name.text === "ReplicaDb";
     };
-    const hasTypeParameterElements = (type) => {
-      const flagged = (t) => (t.flags & ts.TypeFlags.TypeParameter) !== 0;
+    const hasTypeParameterElements = (type: ts.Type) => {
+      const flagged = (t: ts.Type) => (t.flags & ts.TypeFlags.TypeParameter) !== 0;
+      if (!isArrayLike(checker, type)) return false;
       if (checker.isArrayType(type)) {
         return flagged(checker.getTypeArguments(type)[0]);
       }
@@ -56,10 +60,12 @@ export const selectKeysLiteral = {
     // Whether the nearest enclosing function is a `select` implementation:
     // a method, or the value of a property, named `select`. Only there can
     // a generic K forwarded unchanged have come from a checked caller.
-    const inSelectImplementation = (node) => {
+    const inSelectImplementation = (node: TSESTree.CallExpression) => {
       const ancestors = context.sourceCode.getAncestors(node);
       const fn = ancestors.findLast((a) => /Function/.test(a.type));
-      const holder = fn === undefined ? undefined : ancestors[ancestors.indexOf(fn) - 1];
+      if (fn === undefined) return false;
+      const at = ancestors.indexOf(fn);
+      const holder = at > 0 ? ancestors[at - 1] : undefined;
       if (holder === undefined || fn.parent !== holder) return false;
       if (holder.type !== "Property" && holder.type !== "MethodDefinition") {
         return false;

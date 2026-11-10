@@ -48,7 +48,7 @@ def scenarios_of(findings: Iterable) -> list[str]:
 
 
 def frontend_letters(names: Iterable[str]) -> str:
-    """The scenario letters of `names`, for check.mjs's --only; it expands
+    """The scenario letters of `names`, for check.ts's --only; it expands
     each to its browser-context group."""
     return ",".join(sorted({n.split("/", 1)[0] for n in names}))
 

@@ -32,7 +32,7 @@ def test_sides_for_skips_e2e_specs_and_docs_under_web():
 
 
 def test_frontend_letters_pass_through_unexpanded():
-    # check.mjs expands each letter to its browser-context group
+    # check.ts expands each letter to its browser-context group
     assert run_core.frontend_letters(["K/drag-top", "K/drag-bottom", "S/search-rare"]) == "K,S"
     assert run_core.frontend_letters(["F/typing"]) == "F"
     assert run_core.frontend_letters(["R/rebase-paste", "F/typing"]) == "F,R"
@@ -42,7 +42,7 @@ def test_check_command_points_the_scenario_at_the_measured_worktree(tmp_path):
     repo, wt = tmp_path / "repo", tmp_path / "wt"
     cmd, env = run.FrontendRunner(repo).check_command(
         wt, ["R/rebase-edit"], "abc", tmp_path / "out.json")
-    assert cmd[:2] == ["node", str(repo / "web" / "tooling" / "perf" / "check.mjs")]
+    assert cmd[:2] == ["node", str(repo / "web" / "tooling" / "perf" / "check.ts")]
     assert cmd[cmd.index("--only") + 1] == "R"
     assert env["PERF_WEB_ROOT"] == str(wt / "web")
     assert env["PERF_COMMIT"] == "abc"

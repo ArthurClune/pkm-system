@@ -24,7 +24,7 @@
 // `visited` is therefore itself a churn metric: an untouched subtree costs
 // one visit, not its size.
 //
-// Installed only when J is among the requested scenarios (check.mjs): walking
+// Installed only when J is among the requested scenarios (check.ts): walking
 // the fiber tree on every commit is real CPU, and would pollute the CPU
 // figures of the idle and typing scenarios.
 (() => {
@@ -38,12 +38,19 @@
   // replace it, or the numbers become its numbers.
   if (w.__REACT_DEVTOOLS_GLOBAL_HOOK__) return;
 
+  /**
+   * @typedef {object} Fiber
+   * @property {number} flags
+   * @property {Fiber | null} alternate
+   * @property {Fiber | null} child
+   * @property {Fiber | null} sibling
+   */
+  /** @param {Fiber | null} root */
   const walk = (root) => {
     let visited = 0;
     let rendered = 0;
     const stack = root ? [root] : [];
-    while (stack.length > 0) {
-      const fiber = stack.pop();
+    for (let fiber = stack.pop(); fiber !== undefined; fiber = stack.pop()) {
       visited += 1;
       if ((fiber.flags & 1) !== 0) rendered += 1;
       const prev = fiber.alternate;
@@ -65,7 +72,9 @@
     onScheduleFiberRoot: () => undefined,
     onPostCommitFiberRoot: () => undefined,
     onCommitFiberUnmount: () => undefined,
-    onCommitFiberRoot: (_id, root) => {
+    onCommitFiberRoot: (
+      /** @type {unknown} */ _id, /** @type {{ current: Fiber | null }} */ root,
+    ) => {
       R.commits += 1;
       const counted = walk(root.current);
       R.visited += counted.visited;

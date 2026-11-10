@@ -4,17 +4,18 @@
 // teeth test per mutant. Fixed scenarios, server setup and the per-file
 // constants stay in the driver files.
 import fc from "fast-check";
+import { appendFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { PATH, SEED } from "./env";
 import { budgetReport, failureReport } from "./gateReport";
-import { bump, showTally, type Tally } from "./reach";
+import { bump, type Reach, reachProblems, showTally, type Tally } from "./reach";
 
 /** The label the gate counts once per example run. */
 export const EXAMPLES = "examples";
 
 type Arbs<Ts extends unknown[]> = { [K in keyof Ts]: fc.Arbitrary<Ts[K]> };
 
-export interface GateProperty<Ts extends [unknown, ...unknown[]]> {
+interface GateRun<Ts extends [unknown, ...unknown[]]> {
   /** "journal property": leads every message. */
   suite: string;
   /** The `--file` value in the replay line. */
@@ -33,11 +34,16 @@ export interface GateProperty<Ts extends [unknown, ...unknown[]]> {
   show: (counterexample: Ts) => string;
   /** Runs after the property, before its result is judged. */
   settle?: () => Promise<void>;
-  /** Emptied before the run, so it holds only what the run's examples
-   * write; the gate counts EXAMPLES into it and prints it afterwards. */
-  tally?: Tally;
-  showTally?: (tally: Tally) => string;
 }
+
+/** `tally` is emptied before the run, so it holds only what the run's
+ * examples write; the gate counts EXAMPLES into it and prints it
+ * afterwards. `reach` floors are judged on it after a passing run. */
+type Counted =
+  | { tally?: undefined; reach?: undefined; showTally?: undefined }
+  | { tally: Tally; reach?: Reach; showTally?: (tally: Tally) => string };
+
+export type GateProperty<Ts extends [unknown, ...unknown[]]> = GateRun<Ts> & Counted;
 
 export async function checkGateProperty<Ts extends [unknown, ...unknown[]]>(
   p: GateProperty<Ts>,
@@ -70,7 +76,27 @@ export async function checkGateProperty<Ts extends [unknown, ...unknown[]]>(
                         seed: details.seed }));
   }
   if (details.failed) fail(report());
+  if (p.reach) judgeReach(p.suite, p.tally, p.reach, details.seed);
   return details;
+}
+
+/** After a passing run: appends the tally to PROPTEST_REACH_LOG when that
+ * is set, then fails on any floor the tally misses. A replayed path's tally
+ * counts one counterexample, not a run, so it is neither logged nor
+ * judged. */
+export function judgeReach(suite: string, tally: ReadonlyMap<string, number>,
+                           reach: Reach, seed: number | undefined = SEED): void {
+  if (PATH !== undefined) return;
+  const log = process.env.PROPTEST_REACH_LOG;
+  if (log) {
+    appendFileSync(log, `${JSON.stringify({
+      suite, per: reach.per, tally: Object.fromEntries(tally) })}\n`);
+  }
+  const problems = reachProblems(tally, reach);
+  if (problems.length > 0) {
+    fail(`${suite} missed its reach floors (seed ${seed ?? "unseeded"}):\n` +
+         problems.map((line) => `  ${line}`).join("\n"));
+  }
 }
 
 function fail(text: string): never {

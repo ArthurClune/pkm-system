@@ -1,11 +1,11 @@
 ---
 # pkm-rmdl
 title: 'Docs: correct statements the code contradicts'
-status: in-progress
+status: completed
 type: task
 priority: high
 created_at: 2026-11-09T21:39:23Z
-updated_at: 2026-11-10T06:51:54Z
+updated_at: 2026-11-10T07:04:07Z
 parent: pkm-4gda
 ---
 

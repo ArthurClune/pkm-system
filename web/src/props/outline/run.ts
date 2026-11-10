@@ -21,8 +21,9 @@ import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
 import { emptyHistory, historyAnchors, invertOps, recordEntry, resolveAnchors,
          takeRedo, takeUndo, type HistoryEntry,
          type HistoryState } from "../../outline/history";
-import { captureDraft, pendingTextOps, validateOutlineFocus,
-         type PendingDraft } from "../../outline/outlineState";
+import { captureDraft, pendingTextOps,
+         type PendingDraft } from "../../outline/draft";
+import { validateOutlineFocus } from "../../outline/outlineState";
 import { isOutlinePaste, planOutlinePaste,
          type PastedNode } from "../../outline/paste";
 import { applyOps, findNode, visibleUids } from "../../outline/tree";

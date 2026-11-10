@@ -43,9 +43,9 @@ import { extendSelection, needsDeleteConfirmation, pruneSelection,
 import { acquireOutlineSession,
          type OutlineSessionHandle } from "./outlineSessions";
 import { dropDraft, setRefusedDraftPending } from "./droppedDrafts";
-import { captureDraft, pendingTextOps, spliceUploadedMarkdown,
-         validateOutlineFocus, type PendingDraft,
-         type ShownText } from "./outlineState";
+import { captureDraft, pendingTextOps, type PendingDraft,
+         type ShownText } from "./draft";
+import { spliceUploadedMarkdown, validateOutlineFocus } from "./outlineState";
 import { performRedo, performUndo, recordHistory,
          registerOutlineHistory, releaseUnusedAssets } from "./undoManager";
 

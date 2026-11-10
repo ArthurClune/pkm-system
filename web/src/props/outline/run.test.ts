@@ -2,6 +2,7 @@ import fc from "fast-check";
 import { describe, expect, it, vi } from "vitest";
 import type { BlockOp } from "../../api/ops";
 import type { BlockNode } from "../../api/payloads";
+import { sha256Hex } from "../../replica/sha256";
 import type * as CommandCore from "../../outline/command";
 import { allowedDepths, dropRows } from "../../outline/dnd";
 import { emptyHistory } from "../../outline/history";
@@ -9,7 +10,7 @@ import { applyOps, blocksEqual, findNode } from "../../outline/tree";
 import { forestArb, PAGE_TITLE, renderForest, sequenceArb, treeArb, type Command,
          type IndentStyle } from "./arbitraries";
 import { readingRows } from "./reading";
-import { runSequence } from "./run";
+import { runSequence, unguardedBatches } from "./run";
 import { uidOf, orderIdxOf } from "../../test-helpers";
 
 /** Every wire batch the cores returned, and how often each was called. */
@@ -134,6 +135,45 @@ describe("runSequence", () => {
     expect(run.history.undo.map((e) => e.ops)).toEqual([
       [{ op: "update_text", uid: uid("b"), text: "#b]] " }],
     ]);
+  });
+
+  it("a refused step carries the batch it would have sent, which applies nothing", () => {
+    const start = [node("a", 0, { text: "x [[a" }), node("b", 1, { text: "#b]]" })];
+    const run = runSequence(start, [
+      { kind: "type", row: 1, text: "#b]] " },
+      { kind: "backspace", row: 1 },
+      { kind: "indent", row: 0 },
+    ]);
+    const backspace = run.steps[1];
+    expect(backspace.refusedBatch).toMatchObject({ at: 0, pre: start });
+    expect(backspace.refusedBatch?.ops).toEqual([
+      { op: "update_text", uid: uid("b"), text: "#b]] ",
+        base_text_hash: sha256Hex("#b]]"), page_title: PAGE_TITLE },
+      { op: "update_text", uid: uid("a"), text: "x [[a#b]] ",
+        base_text_hash: sha256Hex("x [[a"), page_title: PAGE_TITLE },
+      expect.objectContaining({ op: "delete", uid: uid("b") }),
+    ]);
+    expect(textOf(backspace.refusedBatch!.after, "a")).toBe("x [[a#b]] ");
+    expect(textOf(backspace.after, "a")).toBe("x [[a");
+    expect(run.batches.some((b) => b.ops === backspace.refusedBatch?.ops)).toBe(false);
+  });
+
+  it("unguarded batches end with the first refused command's batch", () => {
+    const start = [node("a", 0, { text: "x [[a" }), node("b", 1, { text: "#b]]" })];
+    const run = runSequence(start, [
+      { kind: "indent", row: 1 },
+      { kind: "outdent", row: 1 },
+      { kind: "backspace", row: 1 },
+      { kind: "indent", row: 1 },
+    ]);
+    const refused = run.steps[2];
+    const sends = unguardedBatches(run);
+    expect(sends).toHaveLength(3);
+    expect(sends.slice(0, 2)).toEqual(run.batches.slice(0, 2));
+    expect(sends[2]).toEqual({ pre: refused.refusedBatch?.pre, ops: refused.refusedBatch?.ops,
+                               after: refused.refusedBatch?.after, refused: refused.refused });
+    expect(unguardedBatches(runSequence(flat(), [{ kind: "indent", row: 1 }])))
+      .toEqual(runSequence(flat(), [{ kind: "indent", row: 1 }]).batches);
   });
 
   it("a drop that resolves to no move still flushes the draft", () => {

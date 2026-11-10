@@ -5,11 +5,13 @@
 // batch only under the FOLDS_DRAFT rule below (otherwise it lands as its own
 // entry first), and undo or redo flushes the draft as its own entry before
 // replaying anything. A command the editor refuses applies nothing of its
-// own, as in the editor; a refused undo or redo throws, since every entry
-// replayed here was accepted once.
+// own, as in the editor, and its step keeps the batch a client without the
+// guard would have sent (unguardedBatches); a refused undo or redo throws,
+// since every entry replayed here was accepted once.
 import type { BlockUid } from "../../api/brands";
 import type { BlockOp, SetViewTypeOp } from "../../api/ops";
 import type { BlockNode } from "../../api/payloads";
+import { stampBaseTextHashes } from "../../outline/baseTextHash";
 import { planCommand, planReplay } from "../../outline/command";
 import { selectedUids, selectionDragUids,
          type BlockSelection } from "../../outline/blockSelection";
@@ -62,6 +64,11 @@ export interface Step {
   undo?: { expectedRows: Row[] };
   /** For a command the editor refused: its notice. */
   refused?: string;
+  /** For a command the editor refused: the batch it would have sent without
+   * the guard, the draft's text ops first, which the editor never sends and
+   * the outline checks ignore. `at` is where it would have gone among
+   * Run.batches. */
+  refusedBatch?: WireBatch & { at: number };
 }
 
 /** The command functions a teeth check swaps for deliberately wrong
@@ -79,7 +86,13 @@ export const REAL: Seam = {
 
 /** One request the editor would send: the ops as stamped on the wire, with the
  * tree they were computed against and the tree the editor shows after. */
-export interface WireBatch { pre: BlockNode[]; ops: BlockOp[]; after: BlockNode[] }
+export interface WireBatch {
+  pre: BlockNode[];
+  ops: BlockOp[];
+  after: BlockNode[];
+  /** Set on a batch the editor refused to send: its notice. */
+  refused?: string;
+}
 
 export interface RunOptions { seam?: Seam; mintPrefix?: string }
 
@@ -132,6 +145,20 @@ export function replayEntry(tree: BlockNode[], entry: HistoryEntry,
   return { blocks: plan.next, ops: plan.resolved, wireOps: plan.wireOps };
 }
 
+/** The batches a client without the editor's guard would send: the
+ * editor's up to its first refused command, then the batch that command
+ * would have sent, marked refused. Nothing after it: every later batch was
+ * planned on a tree that kept the refusal. */
+export function unguardedBatches(run: Run): WireBatch[] {
+  for (const step of run.steps) {
+    const refused = step.refusedBatch;
+    if (refused === undefined) continue;
+    const { at, ...batch } = refused;
+    return [...run.batches.slice(0, at), { ...batch, refused: step.refused }];
+  }
+  return run.batches;
+}
+
 export function runSequence(start: BlockNode[], commands: readonly Command[],
                             seamOrOptions: Seam | RunOptions = REAL): Run {
   const options: RunOptions = "outdentBlock" in seamOrOptions ? { seam: seamOrOptions } : seamOrOptions;
@@ -160,8 +187,14 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
    * the batch's history entry, both as planCommand plans them. */
   const run = (fn: (b: BlockNode[]) => EditResult) => {
     const pre = tree;
-    const plan = planCommand(pre, draft, fn, PAGE_TITLE, focus, []);
+    // fn runs once: a paste hands out its fresh uids as it is called.
+    const ran: { result: EditResult | null } = { result: null };
+    const plan = planCommand(pre, draft, (b) => (ran.result = fn(b)), PAGE_TITLE, focus, []);
     draft = null;
+    const refusedBatch = plan.verdict.kind === "refused" && ran.result !== null
+      ? { pre, at: batches.length, after: ran.result.blocks,
+          ops: stampBaseTextHashes(pre, PAGE_TITLE, [...plan.wireOps, ...ran.result.ops]) }
+      : null;
     if (plan.wireOps.length > 0) {
       tree = plan.next;
       batches.push({ pre, ops: plan.wireOps, after: plan.next });
@@ -172,7 +205,7 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
       entryRows.set(plan.entry, { before: readingRows(pre), after: newest });
     }
     if (plan.focus) focus = plan.focus;
-    return plan;
+    return { plan, refusedBatch };
   };
 
   const flushNow = () => { run(noop); };
@@ -360,10 +393,11 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
                    inverse: [] });
       continue;
     }
-    const done = run(edit);
+    const { plan: done, refusedBatch } = run(edit);
     steps.push({ command, resolved, base: done.base, after: done.next, ops: done.ops,
                  focus: done.focus, inverse: done.inverse,
-                 ...(done.verdict.kind === "refused" ? { refused: done.verdict.notice } : {}) });
+                 ...(done.verdict.kind === "refused" ? { refused: done.verdict.notice } : {}),
+                 ...(refusedBatch ? { refusedBatch } : {}) });
   }
 
   flushNow();

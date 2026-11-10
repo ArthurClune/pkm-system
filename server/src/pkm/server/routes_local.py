@@ -70,7 +70,7 @@ def _request_download(path: Path) -> None:
 
 def _locate(config: Config, url_path: str) -> tuple[Path, Path, str]:
     """(root, unresolved candidate, rel) or raise 404. Does no stat.
-    `url_path` is the `{path:path}` route parameter, which uvicorn has
+    `url_path` is the `{path:wholepath}` route parameter, which uvicorn has
     already percent-decoded once, so this calls `clean_relative`
     directly rather than `resolve_relative` (which would decode again)."""
     if config.local_docs_root is None:

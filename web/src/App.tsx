@@ -227,9 +227,7 @@ export function App() {
                   Assistant
                 </button>
                 {/* Below the user-editable favourites, but styled "primary"
-                  * like Daily Notes/Current Work/TODO above. Only
-                  * one setting exists today; more are coming, so this link --
-                  * not those -- is where they'll live. */}
+                  * like Daily Notes/Current Work/TODO above. */}
                 <NavRouteLink to={ROUTES.files} className="nav-link primary"
                               onNavigate={() => setNavOpen(false)}>
                   Files

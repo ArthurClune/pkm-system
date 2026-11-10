@@ -96,9 +96,10 @@ export function useSocketLifecycle(deps: SocketLifecycleDeps): void {
             // A pending count of zero is NOT by itself proof there is nothing
             // to do: an offline cold start's mount-time startupRun() already
             // tried replicaSync.start(), and if the snapshot fetch failed for
-            // being offline, the replica never reached "ready" — its failure
-            // is swallowed upstream (SyncProvider's startup effect), so
-            // nothing else retries it. Gate on `hasStarted()` too, so this
+            // being offline, the replica never reached "ready" — the failure
+            // is swallowed in clientRuntime.startup, and a failed start arms
+            // no retry timer while offline, so only this connect retries it.
+            // Gate on `hasStarted()` too, so this
             // first connect still runs the reconnect protocol (which retries
             // start()) instead of leaving the replica un-bootstrapped until a
             // reload. A replica that never existed (`null`) needs

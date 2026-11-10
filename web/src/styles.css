@@ -877,6 +877,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
   border-radius: var(--radius-panel); box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); }
 .search-result { padding: 6px 16px; cursor: pointer; display: flex;
   flex-direction: column; }
+.search-create-error { padding: 6px 16px; color: var(--color-error); }
 .search-result.selected { background: var(--color-selected-bg); }
 .result-page { font-weight: 600; }
 .result-snippet { font-size: 13px; color: var(--color-text-secondary); }

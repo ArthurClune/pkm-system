@@ -20,7 +20,7 @@ convention plus review.
 | contract tests | generated artifacts are fresh; routes declare a `response_model`; row keys match the DDL; registry paths exist and still mint; the property suite stays out of `pytest -q` | pytest | `test_openapi_sync.py`, `test_routes_models.py`, `test_rows_vocabulary.py`, `test_brandlint_registry.py`, `test_proptest_exclusion.py`, parity tests | regenerate per [backend.md](backend.md#generated-artifacts-and-parity-fixtures) |
 | row check | every `Db.select` row fits its `Row` keys and brand shapes | pytest (`PKM_ROW_CHECK=1`) | `pkm.database`, `pkm.rows` | `RowCheckError` names the column |
 | pyrefly, ruff | server types; no implicit `Any` in `server/src`; `ANN`, `ANN401`, `E501` | `uv run pyrefly check`, `uv run ruff check` | `pyrefly.toml`, `[tool.ruff]`, whose comments give the policy | |
-| typecheck | `tsc` on `src`, the generated API types, the `.ts` files of `tooling`, and `web/e2e` with `playwright.config.ts`; `tooling`'s `.mjs` files are not type-checked | `pnpm verify`, `pnpm build` | `typecheck` in `web/package.json`, `web/e2e/tsconfig.json` | |
+| typecheck | `tsc` on `src`, the generated API types, all of `tooling`, and `web/e2e` with `playwright.config.ts` | `pnpm verify`, `pnpm build` | `typecheck` in `web/package.json`, `web/e2e/tsconfig.json`, `web/tooling/tsconfig.node.json`, `web/tooling/perf/tsconfig.payload.json` | |
 | eslint | hooks, promises, no `any`, import bans, web brand rules, no unchecked `@ts-` suppression; `web/e2e` and `playwright.config.ts` too, without the hooks rules | `pnpm verify` (`lint`) | `web/eslint.config.js`, `web/tooling/eslint-plugin-brands` | fixtures in `web/tooling/eslint-fixtures`, pinned by `lintConfig.test.ts` |
 | FCIS check | a Functional Core web module never imports an Imperative Shell or Mixed one, and every runtime module carries a valid header | `pnpm verify` (`check:fcis`) | `web/tooling/fcis.ts` | [overview.md](overview.md#functional-core--imperative-shell) |
 | vitest | unit tests pass over `coverage.thresholds` | `pnpm verify` (`test:coverage`) | `web/vite.config.ts` | |
@@ -30,6 +30,16 @@ convention plus review.
 | performance gate | no count rises; no timing clearly worsens | `perf/check.sh`, before merge | `server/tooling/perfcheck`, `web/tooling/perf/check.ts` | [Performance gate](#performance-gate) |
 | property gate | random batches and commands keep the invariants | `proptest/check.sh`, before merge | `server/tests/props`, `web/src/props` | [Property gate](#property-gate) |
 | architecture docs | mermaid parses; links resolve; no bean id in prose | by hand | `.claude/skills/architecture-docs/check-docs.mjs` | |
+
+Node runs the scripts under `web/tooling` as `.ts` by type stripping, with
+no build step. Stripping rewrites nothing, so `tsconfig.node.json` checks the
+scripts node loads as it loads them. Imports carry their `.ts` extension,
+type-only imports say `type`, and syntax that needs a transform (an enum, a
+parameter property) is refused. The plain tooling pass would accept all three,
+and node would then fail at run time. The perf payloads `instrument.js` and
+`react-commits.js` stay JavaScript, because `harness.ts` hands their text to
+the browser. `tsconfig.payload.json` checks their JSDoc against DOM types
+alone.
 
 ## Comment and regex lint
 

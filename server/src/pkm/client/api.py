@@ -250,7 +250,8 @@ class PkmClient:
 
     def get_page_blocks(self, title: RawTitle) -> tuple[list[BlockNode], bool]:
         """The blocks of `title`, or an empty list if the page doesn't
-        exist yet -- (blocks, missing). Never creates the page itself: a
+        exist yet -- (blocks, missing). Never creates the page itself,
+        except today's daily note, which the server creates on read: a
         batch that references a missing title folds a create_page op for
         it into the same OpBatch as whatever else the batch does, so
         creation commits atomically with the rest instead of persisting

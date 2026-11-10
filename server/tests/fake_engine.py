@@ -93,9 +93,17 @@ class FakeConversation:
         self._tool_seq += 1
         return f"fake-tool-{self._tool_seq}"
 
-    async def send(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
-        self.sent.append(text)
+    def send(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
+        # the turn is reserved here, so a stop before its first step counts
         stop = self._stop = asyncio.Event()
+        return self._events(text, stop)
+
+    async def _events(self, text: str, stop: asyncio.Event
+                      ) -> AsyncGenerator[AssistantEvent, None]:
+        if stop.is_set():
+            yield TurnStopped()
+            return
+        self.sent.append(text)
         async with contextlib.aclosing(self._turn(text, stop)) as events:
             async for event in events:
                 if not stop.is_set():

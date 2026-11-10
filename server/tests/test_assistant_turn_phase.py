@@ -735,3 +735,80 @@ def test_a_write_reaching_a_stopping_turn_is_declined_without_a_card(
     decision, events = asyncio.run(scenario())
     assert isinstance(decision, PermissionResultDeny)
     assert not any(isinstance(ev, ConfirmRequest) for ev in events)
+
+
+def test_a_stop_before_the_reserved_turn_starts_stops_it(tmp_path):
+    # the stop POST can be handled after the messages route reserved the
+    # turn and before the response body takes its first step
+    engine = make_engine(tmp_path)
+    service = AssistantService(engine)
+
+    async def scenario():
+        cid, _ = await service.create("sonnet")
+        client = FakeSDKClient.instances[0]
+        stream = service.send(cid, "one")
+        service.stop(cid)
+        reading = asyncio.ensure_future(_collect(stream))
+        for _ in range(5):
+            await asyncio.sleep(0)
+        if not reading.done():  # the stop was lost: let the turn finish
+            client.feed(delta("partial"), make_result(usage={"tag": "one"}))
+        events = await asyncio.wait_for(reading, 2)
+        conv = service._entries[cid].handle
+        assert isinstance(conv, claude_engine.ClaudeConversation)
+        phase = conv.phase
+        nxt = await turn(conv, "two", client)
+        await service.close_all()
+        return client, events, phase, nxt
+
+    client, events, phase, nxt = asyncio.run(scenario())
+    assert events == [TurnStopped()]
+    assert client.queries == ["two"]
+    assert client.interrupts == 0
+    assert phase == "idle"
+    assert nxt == [TextDelta(text="re two"), TurnDone(usage={"tag": "two"})]
+
+
+def test_a_stop_for_a_finished_turn_does_not_reach_the_next(tmp_path):
+    engine = make_engine(tmp_path)
+    service = AssistantService(engine)
+
+    async def scenario():
+        cid, _ = await service.create("sonnet")
+        client = FakeSDKClient.instances[0]
+        client.feed(make_result(usage={"tag": "one"}))
+        first = await _collect(service.send(cid, "one"))
+        service.stop(cid)  # lands after its turn ended
+        stream = service.send(cid, "two")
+        reading = asyncio.ensure_future(_collect(stream))
+        for _ in range(5):
+            await asyncio.sleep(0)
+        client.feed(delta("re two"), make_result(usage={"tag": "two"}))
+        events = await asyncio.wait_for(reading, 2)
+        await service.close_all()
+        return client, first, events
+
+    client, first, events = asyncio.run(scenario())
+    assert first == [TurnDone(usage={"tag": "one"})]
+    assert events == [TextDelta(text="re two"), TurnDone(usage={"tag": "two"})]
+    assert client.interrupts == 0
+
+
+def test_a_stop_as_the_turn_finishes_keeps_its_turn_done(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        task, events = await _open_turn(conv, client)
+        client.feed(make_result(usage={"tag": "one"}))
+        conv.stop_turn()  # in the same loop pass as the result
+        await asyncio.wait_for(task, 2)
+        phase = conv.phase
+        await conv.close()
+        return client, events, phase
+
+    client, events, phase = asyncio.run(scenario())
+    assert events == [TextDelta(text="partial"), TurnDone(usage={"tag": "one"})]
+    assert client.interrupts == 0
+    assert phase == "idle"

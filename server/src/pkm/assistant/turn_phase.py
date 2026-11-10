@@ -9,8 +9,9 @@ from typing import Literal
 # querying: the prompt is being written; it may already have reached the
 #   harness, so a turn may be running.
 # streaming: a query went and its ResultMessage has not been read.
-# interrupting: an interrupt is in flight. The pump sent it and reads
-#   nothing until it is answered, so no result is read in this phase.
+# interrupting: an interrupt is in flight. The pump sent it and handles
+#   no message until it is answered (its read may already hold one), so no
+#   result is handled in this phase.
 # draining: an interrupt was acknowledged and the aborted turn's
 #   ResultMessage, which the CLI writes after the ack, has not been read.
 # dead: the harness cannot be trusted with another turn.

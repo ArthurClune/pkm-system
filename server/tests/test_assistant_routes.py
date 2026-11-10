@@ -392,11 +392,8 @@ def test_mid_stream_engine_error_yields_error_event(seeded_config):
 # conversation takes the next turn
 
 
-def _turn_until_stopped(client, cid: str, text: str) -> list[tuple[str, dict]]:
-    """Stream `text`, posting stops until the stream has ended."""
-    # fails fast, before a stream nothing would end
-    assert client.post(f"/api/assistant/conversations/{cid}/stop").status_code == 200
-
+def _turn_until_stopped(client, cid: str, text: str, ready) -> list[tuple[str, dict]]:
+    """Stream `text`, and post one stop once `ready()` holds."""
     def consume() -> list[tuple[str, dict]]:
         with client.stream(
             "POST", f"/api/assistant/conversations/{cid}/messages", json={"text": text}
@@ -407,11 +404,10 @@ def _turn_until_stopped(client, cid: str, text: str) -> list[tuple[str, dict]]:
     with ThreadPoolExecutor(max_workers=1) as ex:
         fut = ex.submit(consume)
         deadline = time.time() + 5
-        while time.time() < deadline and not fut.done():
-            # a stop that lands before the turn opens is a no-op
-            resp = client.post(f"/api/assistant/conversations/{cid}/stop")
-            assert resp.json() == {"ok": True}
-            time.sleep(0.05)
+        while not ready() and time.time() < deadline:
+            time.sleep(0.01)
+        resp = client.post(f"/api/assistant/conversations/{cid}/stop")
+        assert resp.json() == {"ok": True}
         return fut.result(timeout=5)
 
 
@@ -425,11 +421,14 @@ def test_stop_ends_the_stream_with_turn_stopped_and_leaves_the_conversation_usab
 
     monkeypatch.setattr(claude_engine, "harness_cli", lambda: "/no/claude")
     engine = make_engine(tmp_path)
-    with TestClient(create_app(seeded_config, assistant_engine=engine)) as c:
+    app = create_app(seeded_config, assistant_engine=engine)
+    with TestClient(app) as c:
         assert c.post("/api/login", json={"password": "test-pw"}).status_code == 200
         cid = c.post("/api/assistant/conversations", json={}).json()["id"]
         sdk = FakeSDKClient.instances[0]
-        events = _turn_until_stopped(c, cid, "one")
+        conv = app.state.assistant._entries[cid].handle
+        events = _turn_until_stopped(c, cid, "one",
+                                     lambda: conv.phase == "streaming")
         assert events == [("turn_stopped", {})]
         assert sdk.interrupts == 1
         # the next turn's reply, buffered as the SDK would buffer it
@@ -445,7 +444,10 @@ def test_stop_ends_the_stream_with_turn_stopped_and_leaves_the_conversation_usab
 
 def test_stop_ends_the_fake_engines_hung_turn(assistant_client):
     cid = assistant_client.post("/api/assistant/conversations", json={}).json()["id"]
-    assert _turn_until_stopped(assistant_client, cid, "please hang") == [("turn_stopped", {})]
+    entry = assistant_client.app.state.assistant._entries[cid]
+    # the turn is reserved: started or not, the stop reaches it
+    events = _turn_until_stopped(assistant_client, cid, "please hang", lambda: entry.busy)
+    assert events == [("turn_stopped", {})]
     r = assistant_client.post(f"/api/assistant/conversations/{cid}/messages", json={"text": "again"})
     assert parse_sse(r.text)[0] == ("text_delta", {"text": "echo: again"})
 

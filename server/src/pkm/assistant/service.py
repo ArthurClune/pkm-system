@@ -185,10 +185,13 @@ class AssistantService:
         # after this function returns). No `await` occurs between the check
         # above and this assignment, so no other coroutine can interleave.
         entry.busy = True
-        return self._stream(conversation_id, entry, text)
+        # The handle's turn is reserved now too, so a stop() that lands
+        # before the response body starts reaches this turn.
+        return self._stream(conversation_id, entry, entry.handle.send(text))
 
     async def _stream(
-        self, cid: ConversationId, entry: _Entry, text: str
+        self, cid: ConversationId, entry: _Entry,
+        turn_events: AsyncGenerator[AssistantEvent, None],
     ) -> AsyncGenerator[AssistantEvent, None]:
         try:
             entry.last_used = self._clock()
@@ -200,7 +203,7 @@ class AssistantService:
             # health check in the finally below, and an unacknowledged
             # interrupt would leave the conversation in the registry for a
             # later turn to reuse.
-            async with contextlib.aclosing(entry.handle.send(text)) as turn:
+            async with contextlib.aclosing(turn_events) as turn:
                 async for event in turn:
                     yield event
             entry.last_used = self._clock()
@@ -235,8 +238,9 @@ class AssistantService:
         self._get(conversation_id).handle.resolve_confirm(confirm_id, allow)
 
     def stop(self, conversation_id: ConversationId) -> None:
-        """Stop the open turn, if any. Returns at once: the entry stays busy
-        until that turn's stream ends, on `TurnStopped`."""
+        """Stop the reserved turn, started or not, if any. Returns at once:
+        the entry stays busy until that turn's stream ends, on
+        `TurnStopped`."""
         self._get(conversation_id).handle.stop_turn()
 
     async def delete(self, conversation_id: ConversationId) -> None:

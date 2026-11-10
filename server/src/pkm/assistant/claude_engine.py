@@ -349,7 +349,20 @@ class ClaudeConversation:
         if fut is not None and not fut.done():
             fut.set_result(allow)
 
-    async def send(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
+    def send(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
+        """Reserve the turn and return its event stream.
+
+        The stop request is minted here, not when the stream first runs:
+        the service reserves a turn by calling this, and a Stop that lands
+        before the response body starts must reach this turn, not the last.
+        """
+        stop_request: asyncio.Future[str] = (
+            asyncio.get_running_loop().create_future())
+        self._stop_request = stop_request
+        return self._turn(text, stop_request)
+
+    async def _turn(self, text: str, stop_request: asyncio.Future[str]
+                    ) -> AsyncGenerator[AssistantEvent, None]:
         # Whatever an ended turn left behind is not this turn's. A confirm
         # in it has no card on screen, so its future is declined, not
         # dropped: an open one would also hold off the stall watchdog.
@@ -360,9 +373,10 @@ class ClaudeConversation:
             self._lose(f"send() found the harness {self._phase}")
             yield ErrorEvent(message=HARNESS_LOST)
             return
-        stop_request: asyncio.Future[str] = (
-            asyncio.get_running_loop().create_future())
-        self._stop_request = stop_request
+        if stop_request.done():
+            # stopped before it began: no prompt reaches the harness
+            yield TurnStopped()
+            return
         self._stop_why = None
         self._consumer_gone = False
         # Before the query, not after: the prompt may reach the harness
@@ -478,10 +492,12 @@ class ClaudeConversation:
     async def _stop_turn(self, why: str) -> None:
         """Interrupt the open turn and open its drain.
 
-        Only the pump calls this, and it reads nothing while the interrupt
-        is in flight, so one interrupt at most is ever sent per turn and the
-        aborted result is read only once the ack has moved the phase to
-        `draining`. A turn already interrupted keeps its interrupt.
+        Only the pump calls this, and it processes no message while the
+        interrupt is in flight (its read may take one off the SDK's buffer,
+        but handles it only afterwards), so one interrupt at most is ever
+        sent per turn and the aborted result is handled only once the ack
+        has moved the phase to `draining`. A turn already interrupted keeps
+        its interrupt.
         """
         if self._phase != "streaming":
             return
@@ -541,9 +557,10 @@ class ClaudeConversation:
                 done, _ = await asyncio.wait(
                     waits, timeout=self._read_timeout(),
                     return_when=asyncio.FIRST_COMPLETED)
-                if stop_request in done:
-                    # before any message read with it: after a Stop no
-                    # output of the turn reaches the consumer
+                if stop_request in done and pending not in done:
+                    # A read settled in the same pass goes first: a turn
+                    # that finished as the Stop landed ends on its own
+                    # result, with no interrupt sent to an idle CLI.
                     heard_stop = True
                     await self._stop_turn(stop_request.result())
                     if self._phase == "dead":
@@ -580,7 +597,8 @@ class ClaudeConversation:
                     finished_tool_ids(msg))
                 # A drained message still updates the shared tool maps, but
                 # its events are for a consumer that has gone or is about to
-                # be told why the turn ended.
+                # be told why the turn ended. Events queued before the pump
+                # heard a Stop still reach the consumer; the web drops them.
                 events = mapper.map(msg)
                 if self._phase == "streaming" and not self._consumer_gone:
                     for event in events:

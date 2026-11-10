@@ -437,6 +437,11 @@ class TurnMachine(RuleBasedStateMachine):
         if via == "user":
             # a stall's interrupt came first: the turn is the stall's
             how = f"stall {order}, then a user stop" if stalling else f"user {how}"
+        if (race and via == "user" and turn.events
+                and turn.events[-1] == TurnDone(usage={"tag": turn.prompt})):
+            # the pump read the result before it heard the Stop
+            event("user stop as the harness finished: the turn's own result")
+            how = "finished as a user stop landed"
         ended = self._end_turn(how)
         if via == "user" and stalling:
             assert ended.events[-1] == ErrorEvent(
@@ -459,6 +464,35 @@ class TurnMachine(RuleBasedStateMachine):
 
         self.run(go())
         assert cli.interrupts == before
+        assert self.cid in self.service._entries
+
+    @precondition(lambda self: not self.live() and self.alive
+                  and not self.c().dead)
+    @rule()
+    def stop_before_the_turn_starts(self) -> None:
+        """The stop POST lands after the messages route reserved the turn
+        and before the response body's first step."""
+        cli = self.c()
+        before = (cli.interrupts, len(cli.queries))
+        self.turns += 1
+        prompt = f"p{self.turns}"
+        sink: list[AssistantEvent] = []
+        event("user stop before the reserved turn starts")
+
+        async def go() -> asyncio.Task:
+            await asyncio.sleep(USER_PAUSE_S)
+            stream = self.service.send(self.id(), prompt)
+            self.service.stop(self.id())
+            task = asyncio.get_running_loop().create_task(
+                self._consume(stream, sink))
+            await self.settle()
+            return task
+
+        task = self.run(go())
+        self.turn = Turn(prompt, task, sink, cli, cli.interrupts)
+        ended = self._end_turn("user stop before it started")
+        assert ended.events == [TurnStopped()], ended.events
+        assert (cli.interrupts, len(cli.queries)) == before
         assert self.cid in self.service._entries
 
     @precondition(lambda self: not self.live() and self.alive

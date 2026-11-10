@@ -8,15 +8,16 @@ import {
   resolveRelativeSpecifier,
   sortDiagnostics,
   validateExemptions,
-} from "./fcis-core.mjs";
+} from "./fcis-core.ts";
+import type { Classification, Edge } from "./fcis-core.ts";
 
-const core = { status: "ok", kind: "core" };
-const shell = { status: "ok", kind: "shell" };
-const mixedNeeds = { status: "ok", kind: "mixed", variant: "needs-refactoring" };
-const mixedUnavoidable = { status: "ok", kind: "mixed", variant: "unavoidable", reason: "why" };
-const exempt = { status: "exempt", reason: "generated data" };
+const core = { status: "ok", kind: "core" } as const;
+const shell = { status: "ok", kind: "shell" } as const;
+const mixedNeeds = { status: "ok", kind: "mixed", variant: "needs-refactoring" } as const;
+const mixedUnavoidable = { status: "ok", kind: "mixed", variant: "unavoidable", reason: "why" } as const;
+const exempt = { status: "exempt", reason: "generated data" } as const;
 
-function edge(overrides: Record<string, unknown> = {}) {
+function edge(overrides: Partial<Edge> = {}): Edge {
   return { source: "a.ts", target: "b.ts", kind: "import", typeOnly: false, line: 3, ...overrides };
 }
 
@@ -94,10 +95,15 @@ describe("headerDiagnostics", () => {
     expect(headerDiagnostics({ file: "a.ts", status: "exempt", reason: "r" })).toEqual([]);
   });
 
-  test.each(["missing", "late", "duplicate", "unknown", "missing-reason"])(
-    "%s status produces exactly one diagnostic naming the file",
-    (status) => {
-      const classification = { file: "src/a.ts", status, line: 6, raw: "Nope", lines: [1, 3] };
+  test.each<Classification>([
+    { file: "src/a.ts", status: "missing" },
+    { file: "src/a.ts", status: "late", line: 6, raw: "Nope" },
+    { file: "src/a.ts", status: "duplicate", lines: [1, 3] },
+    { file: "src/a.ts", status: "unknown", line: 6, raw: "Nope" },
+    { file: "src/a.ts", status: "missing-reason", line: 6 },
+  ])(
+    "$status status produces exactly one diagnostic naming the file",
+    (classification) => {
       const diagnostics = headerDiagnostics(classification);
       expect(diagnostics).toHaveLength(1);
       expect(diagnostics[0].file).toBe("src/a.ts");

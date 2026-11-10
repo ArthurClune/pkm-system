@@ -3,9 +3,9 @@
 // Thin CLI shell for `pnpm check:fcis`: walks web/src for runtime .ts/.tsx
 // modules, reads each one's text and AST (via the TypeScript compiler API)
 // to find its header and its relative import/export/dynamic-import edges,
-// then hands plain data to fcis-core.mjs's pure policy to decide what (if
+// then hands plain data to fcis-core.ts's pure policy to decide what (if
 // anything) is wrong. All filesystem access, AST parsing, and process exit
-// live here; fcis-core.mjs never touches the disk or the compiler.
+// live here; fcis-core.ts never touches the disk or the compiler.
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,24 +18,24 @@ import {
   resolveRelativeSpecifier,
   sortDiagnostics,
   validateExemptions,
-} from "./fcis-core.mjs";
+} from "./fcis-core.ts";
+import type { Classification, Edge } from "./fcis-core.ts";
 
 const TOOLING_DIR = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = dirname(TOOLING_DIR);
 const SRC_ROOT = join(WEB_ROOT, "src");
 const EXEMPTIONS_PATH = join(TOOLING_DIR, "fcis-exemptions.json");
 
-function toPosixRelative(fromRoot, full) {
+function toPosixRelative(fromRoot: string, full: string): string {
   return relative(fromRoot, full).split(/\\/).join("/");
 }
 
 /** Every `.ts`/`.tsx` file under src, relative to the web/ root with posix
  * separators -- the universe resolveRelativeSpecifier resolves against. */
-function listSrcFiles() {
-  const files = [];
+function listSrcFiles(): string[] {
+  const files: string[] = [];
   const stack = [SRC_ROOT];
-  while (stack.length > 0) {
-    const dir = stack.pop();
+  for (let dir = stack.pop(); dir !== undefined; dir = stack.pop()) {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
@@ -48,11 +48,11 @@ function listSrcFiles() {
   return files;
 }
 
-function isRuntimeFile(file) {
+function isRuntimeFile(file: string): boolean {
   return !/\.test\.tsx?$/.test(file) && !/\.d\.ts$/.test(file);
 }
 
-function importIsTypeOnly(node) {
+function importIsTypeOnly(node: ts.ImportDeclaration): boolean {
   const clause = node.importClause;
   if (!clause) return false; // side-effect import: always runtime
   if (clause.isTypeOnly) return true;
@@ -63,7 +63,7 @@ function importIsTypeOnly(node) {
   return named.elements.length > 0 && named.elements.every((el) => el.isTypeOnly);
 }
 
-function exportIsTypeOnly(node) {
+function exportIsTypeOnly(node: ts.ExportDeclaration): boolean {
   if (node.isTypeOnly) return true;
   const clause = node.exportClause;
   if (!clause) return false; // `export * from "./x"`
@@ -74,9 +74,16 @@ function exportIsTypeOnly(node) {
 /** Recursively collects every relative-import edge in a source file: static
  * imports, re-exports with a module specifier, and dynamic import() calls
  * -- wherever in the file they appear. */
-function collectEdges(sourceFile) {
-  const edges = [];
-  const visit = (node) => {
+interface RawEdge {
+  specifier: string;
+  kind: Edge["kind"];
+  typeOnly: boolean;
+  node: ts.Node;
+}
+
+function collectEdges(sourceFile: ts.SourceFile): RawEdge[] {
+  const edges: RawEdge[] = [];
+  const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
       edges.push({
         specifier: node.moduleSpecifier.text,
@@ -114,19 +121,27 @@ function collectEdges(sourceFile) {
   return edges;
 }
 
-function lineOf(sourceFile, node) {
+function lineOf(sourceFile: ts.SourceFile, node: ts.Node): number {
   return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 }
 
-function main() {
+function readExemptions(): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(readFileSync(EXEMPTIONS_PATH, "utf8"));
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${EXEMPTIONS_PATH}: expected an object of file -> reason`);
+  }
+  return Object.fromEntries(Object.entries(parsed));
+}
+
+function main(): void {
   const allFiles = new Set(listSrcFiles());
   const runtimeFiles = [...allFiles].filter(isRuntimeFile).sort();
-  const exemptions = JSON.parse(readFileSync(EXEMPTIONS_PATH, "utf8"));
+  const exemptions = readExemptions();
 
   const diagnostics = [...validateExemptions(exemptions)];
 
-  const classifications = new Map();
-  const texts = new Map();
+  const classifications = new Map<string, Classification>();
+  const texts = new Map<string, string>();
   for (const file of runtimeFiles) {
     const text = readFileSync(join(WEB_ROOT, file), "utf8");
     texts.set(file, text);
@@ -135,7 +150,7 @@ function main() {
     diagnostics.push(...headerDiagnostics(classification));
   }
 
-  const getClassification = (file) =>
+  const getClassification = (file: string): Classification =>
     classifications.get(file) ?? {
       file,
       status: "exempt",
@@ -145,12 +160,12 @@ function main() {
   for (const file of runtimeFiles) {
     const scriptKind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
     const sourceFile = ts.createSourceFile(
-      file, texts.get(file), ts.ScriptTarget.Latest, true, scriptKind);
-    const sourceClassification = classifications.get(file);
+      file, texts.get(file) ?? "", ts.ScriptTarget.Latest, true, scriptKind);
+    const sourceClassification = getClassification(file);
     for (const rawEdge of collectEdges(sourceFile)) {
       const target = resolveRelativeSpecifier(file, rawEdge.specifier, allFiles);
       if (!target) continue; // external package or unresolvable: out of scope
-      const edge = {
+      const edge: Edge = {
         source: file, target, kind: rawEdge.kind, typeOnly: rawEdge.typeOnly,
         line: lineOf(sourceFile, rawEdge.node),
       };

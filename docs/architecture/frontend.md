@@ -4,7 +4,7 @@ The frontend is a React single-page app built with Vite: an offline-capable,
 real-time-synced Roam-style outliner. The server owns its shapes. API types
 are generated from its OpenAPI schema, the replica schema from its DDL, and
 the block grammar is pinned to the Python parser by shared fixtures. `pnpm
-check:fcis` (`web/tooling/fcis.mjs`) fails a Functional Core module that
+check:fcis` (`web/tooling/fcis.ts`) fails a Functional Core module that
 imports a Shell ([overview.md](overview.md#functional-core--imperative-shell)).
 
 This doc covers the app shell. The outline editor is in

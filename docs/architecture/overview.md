@@ -135,7 +135,7 @@ Every runtime file declares its role in a header comment:
 ```
 
 On the web the boundary is machine-checked: `pnpm check:fcis`
-(`web/tooling/fcis.mjs`) fails on any Functional-Core → Shell or Mixed import,
+(`web/tooling/fcis.ts`) fails on any Functional-Core → Shell or Mixed import,
 type-only imports excepted. On the server it is convention plus review. The write path
 is the clearest case: a pure planner (`ops_core.plan_op`) between two thin
 shells ([backend.md](backend.md#the-write-path)). The rules and escape hatches

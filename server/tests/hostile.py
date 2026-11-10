@@ -68,15 +68,16 @@ def with_floors(floors: dict[str, float], per: str):
     A floor is half the lowest share the label reached over at least 30
     unseeded runs, as the gate makes them (a seeded run repeats its draws,
     so its spread says nothing), rounded down to three decimals;
-    `PKM_FLOOR_LOG` collects the runs. Shares are heavy-tailed because a
-    run's examples are correlated: a label fell under a twentieth of its
-    median in one run of
-    sixty, so a floor near the typical share, or set from a few runs, fails
-    with nothing wrong. A label whose lowest count was under about five
-    events has no floor, since half of so few is noise. A category the
-    generator chooses (a flag state, a mode) is a pytest parameter instead,
-    so it is reached by construction; otherwise the generator is changed to
-    draw the label more often, or it stays an `event`."""
+    `PKM_FLOOR_LOG` collects every label's count in each run, so `{}`
+    floors measure a property that has none yet. Shares are heavy-tailed
+    because a run's examples are correlated: a label fell under a
+    twentieth of its median in one run of sixty, so a floor near the
+    typical share, or set from a few runs, fails with nothing wrong. A
+    label whose lowest count was under about five events has no floor,
+    since half of so few is noise. A category the generator chooses (a
+    flag state, a mode) is a pytest parameter instead, so it is reached by
+    construction; otherwise the generator is changed to draw the label
+    more often, or it stays an `event`."""
     def decorate(test):
         @functools.wraps(test)
         def run(*args, **kwargs):
@@ -92,7 +93,7 @@ def with_floors(floors: dict[str, float], per: str):
                                    if isinstance(v, (bool, int, str))},
                         "per": total,
                         "floors": floors,
-                        "tally": {label: TALLY[label] for label in floors},
+                        "tally": dict(TALLY),
                     }) + "\n")
             assert total, per
             for label, share in floors.items():

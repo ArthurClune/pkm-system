@@ -17,19 +17,22 @@ from typing import Any
 import pytest
 import time_machine
 from httpx2 import Response
-from hypothesis import event, settings, strategies as st
+from hypothesis import settings, strategies as st
 from hypothesis.stateful import (RuleBasedStateMachine, initialize, invariant,
-                                 precondition, rule)
+                                 precondition, rule,
+                                 run_state_machine_as_test)
 from hypothesis.vendor.pretty import RepresentationPrinter
 
 from conftest import SEED_BLOCKS
+from hostile import count, event
 from pkm.contracts.ops import BlockUid, SyncSeq, subtree_hash, text_hash
 from pkm.contracts.titles import RawTitle
 from pkm.refs import canonicalize_title, extract, is_blank_title
 from pkm.server.sync_meta import plain_space_title_canonicalization_active
 from props.harness import (DAILY_TITLE, FROZEN_NOW, FreshApp,
                            assert_unique_keys, assert_well_formed, examples,
-                           fresh_app, read_db, seed_ops, template_db_path)
+                           fresh_app, merge_floors, read_db, seed_ops,
+                           template_db_path)
 from props.model import MBlock, Model
 from props.limit_texts import (AT_NESTING_LIMIT, COPIES_PAST_CAP, EMOJI_AT_CAP,
                                LONG_WITHIN_CAP, NEST_IN_CODE, PAST_LIMIT_TEXTS)
@@ -177,6 +180,7 @@ class OpsMachine(RuleBasedStateMachine):
 
     @initialize(rows=seed_tree(UIDS))
     def seed(self, rows: list[MBlock]) -> None:
+        count("example")
         self.traveller = time_machine.travel(FROZEN_NOW, tick=False)
         self.clock = self.traveller.start()
         self.app = fresh_app(template_db_path())
@@ -568,6 +572,7 @@ class OpsMachine(RuleBasedStateMachine):
             assert block_refs.get(uid, set()) == set(parsed.block_refs), uid
 
 
-TestOps = OpsMachine.TestCase
-TestOps.settings = settings(max_examples=examples("ops_state"),
-                            stateful_step_count=30)
+@merge_floors({}, "example")
+def test_ops() -> None:
+    run_state_machine_as_test(OpsMachine, settings=settings(
+        max_examples=examples("ops_state"), stateful_step_count=30))

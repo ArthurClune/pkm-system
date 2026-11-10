@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 from conftest import TEST_PASSWORD, make_config, seed_db
 from fastapi.testclient import TestClient
+from hostile import with_floors
 
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BlockUid
@@ -37,13 +38,25 @@ MERGE_EXAMPLES: dict[str, int] = {"smoke": 4, "ops_state": 380, "planner": 1050,
                                  "unlink": 1000, "assistant_turn": 1000}
 
 
+def _merge_profile() -> bool:
+    return os.environ.get("HYPOTHESIS_PROFILE", "dev") == "merge"
+
+
 def examples(key: str) -> int:
     """Example count for `key`, by profile: `MERGE_EXAMPLES[key]` under
     `merge`, capped at 20 under every other profile (`dev`'s default and
     the test run's own speed matter more than full coverage there)."""
     n = MERGE_EXAMPLES[key]
-    profile = os.environ.get("HYPOTHESIS_PROFILE", "dev")
-    return n if profile == "merge" else min(n, 20)
+    return n if _merge_profile() else min(n, 20)
+
+
+def merge_floors(floors: dict[str, float], per: str):
+    """`hostile.with_floors` under the `merge` profile, and the test as it
+    is under any other: `examples` caps those runs at 20, too few for any
+    floor to hold."""
+    if _merge_profile():
+        return with_floors(floors, per)
+    return lambda test: test
 
 
 @functools.cache

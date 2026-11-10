@@ -107,6 +107,48 @@ def test_the_write_lock_is_taken_only_through_write_txn() -> None:
     assert problems == []
 
 
+# `assets` has no changes-journal trigger, so its upload needs neither the
+# lock-then-decide protocol nor a nudge.
+UNJOURNALLED_COMMITTERS = {("pkm/server/routes_assets.py", "upload_asset")}
+# A command-line fixture dumper that seeds its own throwaway database.
+NOT_A_ROUTE = {"pkm/server/shim_parity_dump.py"}
+
+
+def server_commit_problems(rel: str, source: str) -> list[str]:
+    """`.commit()` calls in a server module outside `db.py`, minus the
+    allow-listed committers: a route that commits itself skips `write_txn`'s
+    lock, its 503 and its rollback."""
+    if (rel == HELPER_FILE or rel in NOT_A_ROUTE
+            or not rel.startswith("pkm/server/")):
+        return []
+    tree = ast.parse(source)
+    owner = _enclosing_functions(tree)
+    out: list[str] = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "commit"):
+            fn = owner.get(node)
+            name = getattr(fn, "name", None)
+            if (rel, name) not in UNJOURNALLED_COMMITTERS:
+                out.append(f"{rel}:{node.lineno}: commit in {name} outside"
+                           f" {HELPER}")
+    return out
+
+
+def test_no_route_commits_outside_write_txn() -> None:
+    problems = [p for path in sorted(SRC.rglob("*.py"))
+                for p in server_commit_problems(
+                    path.relative_to(SRC).as_posix(), path.read_text())]
+    assert problems == []
+
+
+def test_the_commit_scan_flags_a_route_commit() -> None:
+    problems = server_commit_problems(
+        "pkm/server/routes_x.py", "def route(db):\n    db.commit()\n")
+    assert len(problems) == 1 and "commit in route" in problems[0]
+
+
 def test_the_scan_reaches_a_route_that_uses_the_helper() -> None:
     uses = [path for path in SRC.rglob("*.py")
             if f"with {HELPER}(" in path.read_text()]

@@ -270,8 +270,15 @@ def get_page(request: Request, title: RawTitle, bl_offset: Int64 = 0, bl_limit: 
         # plain reads mint pages.
         if date_for_title(canonical_title) != date.today():
             raise HTTPException(status_code=404, detail="page not found")
-        page = get_or_create_page(db, canonical_title, int(time.time() * 1000))
-        notify.commit_and_nudge_threadpool(request, db)
+        with write_txn(db):
+            # Re-read under the lock: another request may have created it.
+            page = fetch_page(db, canonical_title)
+            created = page is None
+            if page is None:
+                page = get_or_create_page(
+                    db, canonical_title, int(time.time() * 1000))
+        if created:
+            notify.nudge_threadpool(request, db)
     blocks = db.select(
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
         (page["page_id"],))
@@ -303,14 +310,16 @@ def create_page(request: Request, body: CreatePageRequest,
     # whitespace-only title normalizes to "" there); this route is
     # interactive, so it turns that into an explicit 422 rather than the
     # ops path's fallback-title recovery (ops_apply.py).
-    try:
-        page = get_or_create_page(db, body.title, int(time.time() * 1000))
-    except BlankTitleError:
-        raise HTTPException(status_code=422,
-                            detail="title must not be blank") from None
-    except ForbiddenTitleError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
-    notify.commit_and_nudge_threadpool(request, db)
+    with write_txn(db):
+        try:
+            page = get_or_create_page(
+                db, body.title, int(time.time() * 1000))
+        except BlankTitleError:
+            raise HTTPException(status_code=422,
+                                detail="title must not be blank") from None
+        except ForbiddenTitleError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+    notify.nudge_threadpool(request, db)
     return _page_meta(page)
 
 
@@ -557,8 +566,13 @@ def get_journal(request: Request, before: str | None = None, days: Int64 = 7,
             raise HTTPException(status_code=400, detail="invalid before date")
     today = date.today()
     if cursor is None and fetch_page(db, _daily_title(today)) is None:
-        get_or_create_page(db, _daily_title(today), int(time.time() * 1000))
-        notify.commit_and_nudge_threadpool(request, db)
+        with write_txn(db):
+            created = fetch_page(db, _daily_title(today)) is None
+            if created:
+                get_or_create_page(
+                    db, _daily_title(today), int(time.time() * 1000))
+        if created:
+            notify.nudge_threadpool(request, db)
     nonempty: set[date] = set()
     for row in db.select(_NONEMPTY_DAILY_SQL):
         d = date_for_title(row["title"])

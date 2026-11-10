@@ -1,12 +1,11 @@
 // pattern: Imperative Shell
-// the keys argument of `ReplicaDb.select` is
+// repo/select-keys-literal: the keys argument of `ReplicaDb.select` is
 // an array literal of string literals, or an array or tuple whose
 // element type is a type parameter inside a method or property named
 // `select` (a wrapper passing its generic keys through). Any other
-// array could widen K to every column. Not a brand rule; it lives here
-// as the repo's type-aware rule home.
+// array could widen K to every column.
 import ts from "typescript";
-import { servicesOf } from "./types.mjs";
+import { servicesOf } from "../eslint-plugin-brands/types.mjs";
 
 const SELECT_KEYS_MESSAGES = {
   spreadArgs:

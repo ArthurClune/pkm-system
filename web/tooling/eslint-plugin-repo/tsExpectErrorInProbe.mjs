@@ -1,10 +1,11 @@
 // pattern: Imperative Shell
-// a `@ts-expect-error` comment sits in
+// repo/ts-expect-error-in-probe: a `@ts-expect-error` comment sits in
 // the body of a function expression or arrow passed directly to the
 // `typeProbe` imported from the test helpers, which never calls it, so a
 // suppression cannot carry an off-type value into code that runs. A
 // value a test must feed a runtime guard is `offType<T>(v)` from the
-// same module. Not a brand rule either.
+// same module.
+import { TEST_HELPERS_SOURCE } from "../eslint-plugin-brands/testHelpers.mjs";
 
 const PROBE_MESSAGES = {
   outsideProbe:
@@ -12,10 +13,6 @@ const PROBE_MESSAGES = {
     + "block from the test helpers, which never runs its body; to feed a "
     + "runtime guard a value its type forbids, use `offType<T>(value)`",
 };
-
-export const TEST_HELPERS_SOURCE = /(?:^|\/)test-helpers(?:\.[cm]?[jt]sx?)?$/;
-export const OFF_TYPE = "offType";
-export const OFF_TYPE_DEPTH = 4;
 
 // The directive TypeScript reads: a line comment whose text starts with it,
 // or a block comment whose last line does.

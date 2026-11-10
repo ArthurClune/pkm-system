@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// `Reflect.apply`, and a brand-named field
+// brands/no-brand-bypass: `Reflect.apply`, and a brand-named field
 // written through `Object.assign` or `Object.defineProperty`, which skip
 // the checks the two rules above rely on tsc to raise.
 import { isMintSite, isTestCode, registry, repoPath } from "./registry.mjs";

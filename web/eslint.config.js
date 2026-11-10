@@ -14,7 +14,9 @@
 //     testDb and memReplica.
 //   * No `any` flowing through production code (no-explicit-any and the
 //     no-unsafe-* rules): an untyped JSON value reaching code that assumes
-//     its shape fails at runtime instead of at the type check.
+//     its shape fails at runtime instead of at the type check. Repo rules
+//     (tooling/eslint-plugin-repo) hold `ReplicaDb.select` keys to a
+//     literal, so a widened key type cannot claim columns the query lacks.
 //   * Brand discipline (tooling/eslint-plugin-brands): a name that means a
 //     brand carries it, brands are asserted only at their mint sites, and
 //     `Reflect.apply` / `construct` / `set` and brand-named `Object.assign` /
@@ -25,13 +27,15 @@
 //     in a `typeProbe(() => { ... })` block, whose body is type-checked but
 //     never runs, so a test cannot silence a brand error the rules above
 //     rely on tsc to raise or carry an off-type value into code that runs
-//     (`offType<T>(v)` is the declared way to feed a runtime guard).
+//     (`offType<T>(v)` is the declared way to feed a runtime guard); that
+//     rule is `repo/ts-expect-error-in-probe`.
 // reportUnusedDisableDirectives is an error so a stale suppression can never
 // linger: the "zero exhaustive-deps suppressions" invariant is enforced by
 // tooling, not by convention.
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 import brands, { testFileGlobs } from "./tooling/eslint-plugin-brands/index.mjs";
+import repo from "./tooling/eslint-plugin-repo/index.mjs";
 
 const apiFetchBan = {
   group: ["**/api/client"],
@@ -120,6 +124,7 @@ export default tseslint.config(
     plugins: {
       "react-hooks": reactHooks,
       brands,
+      repo,
     },
     rules: {
       "react-hooks/rules-of-hooks": "error",
@@ -137,8 +142,8 @@ export default tseslint.config(
       "brands/name-carries-brand": "error",
       "brands/no-brand-assertion": "error",
       "brands/no-brand-bypass": "error",
-      "brands/select-keys-literal": "error",
-      "brands/ts-expect-error-in-probe": "error",
+      "repo/select-keys-literal": "error",
+      "repo/ts-expect-error-in-probe": "error",
       "@typescript-eslint/ban-ts-comment": ["error", {
         "ts-ignore": true,
         "ts-nocheck": true,

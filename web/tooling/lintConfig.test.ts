@@ -100,7 +100,7 @@ const cases: readonly FixtureCase[] = [
   },
   {
     file: "select-keys-literal.ts",
-    rule: "brands/select-keys-literal",
+    rule: "repo/select-keys-literal",
     count: 10,
     corrected:
       'import type { Columns } from "../../src/replica/columns.gen";\n' +
@@ -577,7 +577,7 @@ const cases: readonly FixtureCase[] = [
   },
   {
     file: "ts-expect-error-in-probe.ts",
-    rule: "brands/ts-expect-error-in-probe",
+    rule: "repo/ts-expect-error-in-probe",
     count: 6,
     correctedAs: "src/paths.test.ts",
     corrected:
@@ -1156,7 +1156,7 @@ describe("tests under the lint", () => {
       + "export const f = (db: ReplicaDb, ks: [\"uid\"]) =>\n"
       + '  db.select("SELECT uid FROM blocks", ks);\n';
     const found = await messagesFor("src/paths.test.ts", text);
-    expect(rulesOf(found)).toEqual(["brands/select-keys-literal"]);
+    expect(rulesOf(found)).toEqual(["repo/select-keys-literal"]);
     expect(found[0].message).toContain("array literal of string literals");
   }, ESLINT_TIMEOUT_MS);
 
@@ -1294,7 +1294,7 @@ describe("tests under the lint", () => {
     const head = 'import { typeProbe } from "./test-helpers";\n';
     const err = "// @ts-expect-error -- a string where a number goes\n"
       + 'const n: number = "x";\n';
-    const rule = "brands/ts-expect-error-in-probe";
+    const rule = "repo/ts-expect-error-in-probe";
     // this rule's reports alone: an import from the wrong module is also an
     // unsafe call
     const reported = async (text: string): Promise<string[]> =>

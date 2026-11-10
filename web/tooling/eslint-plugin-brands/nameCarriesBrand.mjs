@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// a parameter, property signature or class
+// brands/name-carries-brand: a parameter, property signature or class
 // property whose name means a brand (uid, pageId, sha ...) must be
 // declared with exactly that brand (or null, or an array of it).
 import { isTestCode, optOutFiles, registry, repoPath } from "./registry.mjs";

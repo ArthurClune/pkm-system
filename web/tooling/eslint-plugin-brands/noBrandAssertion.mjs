@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// `as`/`<T>` toward a type that contains a
+// brands/no-brand-assertion: `as`/`<T>` toward a type that contains a
 // brand (directly or through a type parameter's constraint), a type
 // predicate (`x is B`), an overload signature returning a brand its
 // implementation does not, and a `declare`d value or function returning
@@ -65,7 +65,7 @@ import {
   OFF_TYPE,
   OFF_TYPE_DEPTH,
   TEST_HELPERS_SOURCE,
-} from "./tsExpectErrorInProbe.mjs";
+} from "./testHelpers.mjs";
 
 export const noBrandAssertion = {
   meta: {

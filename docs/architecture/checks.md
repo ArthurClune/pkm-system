@@ -71,7 +71,7 @@ boundary `api/client.ts` and a few harness files on the web. It covers one
 site, the leftmost on its line, and one that covers nothing is reported.
 
 The rules and their messages are `RULES` in `brandlint/core.py` and the
-header of `eslint-plugin-brands/index.mjs`.
+header of each rule module under `eslint-plugin-brands/`.
 
 ### Known limits
 

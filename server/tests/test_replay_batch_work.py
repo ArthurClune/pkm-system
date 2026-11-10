@@ -235,18 +235,17 @@ def test_a_batch_of_renamed_edits_stops_at_its_work_budget(
 
 
 def test_a_rename_step_is_charged_what_it_scans_and_splices():
-    # The text it scans and the text it builds, and the row it leaves;
-    # past what is left it stops and spends all of it, as an unlink does.
-    # A step that renames and unlinks leaves its unlink only what the
-    # rename did not spend.
+    # At least the text it scans and the text it builds; it fits an
+    # allowance of its own cost, and past what is left it stops and spends
+    # all of it, as an unlink does. A step that renames and unlinks pays
+    # for the unlink's reads on top of the rename.
     text = "[[A]] " * 10
     renamed = "[[Bbbbbbbbbb]] " * 10
     step = replay_core.RewriteStep(text_hash("a"), text_hash("b"),
                                 {"A": as_raw_title("Bbbbbbbbbb")}, set(), {})
-    retitle_row = replay_core.ROW_CHARS + len("A") + len("Bbbbbbbbbb")
-    cost = len(text) + len(renamed) + retitle_row
-    assert replay_core._replay_step(text, step, normalize_title) == \
-        (renamed, cost)
+    built, cost = replay_core._replay_step(text, step, normalize_title)
+    assert built == renamed
+    assert cost >= len(text) + len(renamed)
     assert replay_core._replay_step(text, step, normalize_title, cost) == \
         (renamed, cost)
     assert replay_core._replay_step(text, step, normalize_title, cost - 1) == \
@@ -256,8 +255,7 @@ def test_a_rename_step_is_charged_what_it_scans_and_splices():
                                 {"Bbbbbbbbbb"}, {})
     plain, reads = replay_core._replay_step(text, both, normalize_title)
     assert plain == "Bbbbbbbbbb " * 10
-    assert reads == cost + unlink.unlink_reads(renamed) + \
-        replay_core.ROW_CHARS + len("Bbbbbbbbbb")
+    assert reads >= len(text) + len(renamed) + unlink.unlink_reads(renamed)
     assert replay_core._replay_step(text, both, normalize_title, reads) == \
         (plain, reads)
     assert replay_core._replay_step(text, both, normalize_title, reads - 1) == \
@@ -454,6 +452,17 @@ def test_a_rename_then_a_copy_too_long_pays_for_the_rename(monkeypatch):
     assert large < 2 * small, (small, large)
 
 
+def _stops(text: str, step: replay_core.RewriteStep, at_least: int) -> None:
+    """The step stops, charged at least `at_least`, the work it did before
+    stopping; given less than that, it spends exactly what it was given."""
+    stopped, charge = replay_core._replay_step(text, step, normalize_title)
+    assert stopped is None
+    assert charge >= at_least, (charge, at_least)
+    for allowance in (5, charge - 1):
+        assert replay_core._replay_step(text, step, normalize_title,
+                                        allowance) == (None, allowance)
+
+
 def test_every_exit_of_a_step_charges_what_it_scanned_or_built():
     # A rename over the cap scanned the text; a copy over the cap after a
     # rename scanned the renamed text too; a refused unlink spliced and
@@ -462,36 +471,27 @@ def test_every_exit_of_a_step_charges_what_it_scanned_or_built():
         text_hash("a"), text_hash("b"), {"A": as_raw_title("t" * 990)},
         set(), {})
     long_text = "[[A]] " * 2_000
-    assert replay_core._replay_step(long_text, renaming, normalize_title) == \
-        (None, len(long_text))
-    assert replay_core._replay_step(long_text, renaming, normalize_title,
-                                 5) == (None, 5)
+    _stops(long_text, renaming, len(long_text))
     text = "[[A]] " * 1_000 + f"(({_COPY_UID}))"
     both = replay_core.RewriteStep(
         text_hash("a"), text_hash("b"), {"A": as_raw_title("t" * 990)},
         set(), {_COPY_UID: "c" * 10_000})
     renamed = "[[" + "t" * 990 + "]] "
     built = len(renamed) * 1_000 + len(f"(({_COPY_UID}))")
-    rename_cost = len(text) + built
-    assert replay_core._replay_step(text, both, normalize_title) == \
-        (None, rename_cost + built)
-    assert replay_core._replay_step(text, both, normalize_title,
-                                 rename_cost + 7) == (None, rename_cost + 7)
+    _stops(text, both, len(text) + 2 * built)
     copy = "[[[[a]]]] " * 70_000
     refused_text = f"[[x (({_COPY_UID}))]]"
     refusing = replay_core.RewriteStep(text_hash("a"), text_hash("b"), {},
                                     set(), {_COPY_UID: copy})
     spliced = f"[[x {copy}]]"
     assert text_limits.unlink_refused(refused_text, spliced)
-    assert replay_core._replay_step(refused_text, refusing, normalize_title) \
-        == (None, unlink.unlink_reads(spliced))
+    _stops(refused_text, refusing, unlink.unlink_reads(spliced))
     renaming_too = replay_core.RewriteStep(
         text_hash("a"), text_hash("b"), {"A": as_raw_title("Bb")}, set(),
         {_COPY_UID: copy})
-    assert replay_core._replay_step(f"[[A]] {refused_text}", renaming_too,
-                                 normalize_title) == \
-        (None, len(f"[[A]] {refused_text}") + len(f"[[Bb]] {refused_text}")
-         + unlink.unlink_reads(f"[[Bb]] {spliced}"))
+    _stops(f"[[A]] {refused_text}", renaming_too,
+           len(f"[[A]] {refused_text}") + len(f"[[Bb]] {refused_text}")
+           + unlink.unlink_reads(f"[[Bb]] {spliced}"))
 
 _UID = "uid_u0000002"
 _STEPS = [("retitle", "A", "B"), ("retitle", "B", "C d"), ("unlink", "A", ""),

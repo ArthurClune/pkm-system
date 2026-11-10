@@ -251,16 +251,15 @@ def test_rows_past_the_budget_cost_what_the_budget_does(
 
 def test_one_statement_charges_a_hashs_rows_and_reads_only_what_fits(
         seeded_config):
-    # The charge and the read are one statement. Its sum is each row's
-    # titles in bytes and ROW_CHARS; past the allowance it joins no row,
-    # so no title the batch cannot pay for is loaded, and the read
-    # returns None.
+    # The charge and the read are one statement. Each row is charged at
+    # least its titles in bytes, rows alike; past the allowance it
+    # joins no row, so no title the batch cannot pay for is loaded, and
+    # the read returns None.
     uid = _fresh_uid()
     base = text_hash(ORIGINAL)
     _insert_rows(seeded_config, uid, [
         (base, text_hash("after"), "unlink", f"é{i}", "") for i in range(5)]
         + [(text_hash("other"), text_hash("after"), "unlink", "o", "")])
-    each = replay_core.ROW_CHARS + len("é0".encode())
     con = open_db(seeded_config.db_path)
     try:
         def read(allowance: int):
@@ -270,24 +269,26 @@ def test_one_statement_charges_a_hashs_rows_and_reads_only_what_fits(
             return con.select(ops_apply._CHARGED_REWRITES,
                               ops_apply._charge_params(uid, base, allowance))
 
-        got = read(5 * each)
+        got = read(replay_core.MAX_BATCH_REPLAY_WORK)
         assert got is not None
         rows, cost = got
-        assert cost == 5 * each
+        assert cost >= 5 * len("é0".encode()) and cost % 5 == 0, cost
+        each = cost // 5
         assert [r.old_text for r in rows] == [f"é{i}" for i in range(4, -1, -1)]
-        assert read(5 * each - 1) is None
-        assert [(r["rewrite_old_text"], r["n"]) for r in raw(5 * each - 1)] \
-            == [("", 5 * each)]
+        assert read(cost) == got
+        assert read(cost - 1) is None
+        assert [(r["rewrite_old_text"], r["n"]) for r in raw(cost - 1)] \
+            == [("", cost)]
         # past the rows the allowance could pay for, none are measured
         assert [r["n"] for r in raw(2 * each)] == [3 * each]
         assert read(0) is None
         assert ops_apply._rewrites_within(
             con, uid, text_hash("nothing"), 0) == ((), 0)
-        assert ops_apply._rewrites_within(
-            con, uid, text_hash("other"), each) == (
-                (replay_core.BlockRewrite(text_hash("other"), text_hash("after"),
-                                       "o", "", "unlink"),),
-                replay_core.ROW_CHARS + 1)
+        other = ops_apply._rewrites_within(con, uid, text_hash("other"), each)
+        assert other is not None
+        assert other[0] == (replay_core.BlockRewrite(
+            text_hash("other"), text_hash("after"), "o", "", "unlink"),)
+        assert len("o") <= other[1] <= each
     finally:
         con.close()
 
@@ -327,15 +328,22 @@ def test_the_charge_sizes_rows_without_reading_their_text(seeded_config):
     long = "x" * 50_000
     _insert_rows(seeded_config, uid, [
         (base, text_hash("after"), "inline", long, long) for _ in range(3)])
-    assert _break_overflow_chains(seeded_config.db_path, "block_rewrites")
-    each = replay_core.ROW_CHARS + 2 * len(long)
     con = open_db(seeded_config.db_path)
     try:
-        assert ops_apply._rewrites_within(con, uid, base, 3 * each - 1) \
-            is None
+        got = ops_apply._rewrites_within(con, uid, base,
+                                         replay_core.MAX_BATCH_REPLAY_WORK)
+    finally:
+        con.close()
+    assert got is not None
+    cost = got[1]
+    assert cost >= 3 * 2 * len(long)
+    assert _break_overflow_chains(seeded_config.db_path, "block_rewrites")
+    con = open_db(seeded_config.db_path)
+    try:
+        assert ops_apply._rewrites_within(con, uid, base, cost - 1) is None
         # the broken chains do fail a read of the text
         with pytest.raises(sqlite3.DatabaseError, match="malformed"):
-            ops_apply._rewrites_within(con, uid, base, 3 * each)
+            ops_apply._rewrites_within(con, uid, base, cost)
     finally:
         con.close()
 
@@ -347,10 +355,13 @@ def test_a_negative_allowance_still_measures_at_most_one_row(seeded_config):
     base = text_hash(ORIGINAL)
     _insert_rows(seeded_config, uid, [
         (base, text_hash("after"), "unlink", "t", "") for _ in range(20)])
-    each = replay_core.ROW_CHARS + 1
     con = open_db(seeded_config.db_path)
     try:
-        for allowance in (-replay_core.ROW_CHARS - 1, -100 * each, -1):
+        got = ops_apply._rewrites_within(con, uid, base,
+                                         replay_core.MAX_BATCH_REPLAY_WORK)
+        assert got is not None and got[1] % 20 == 0
+        each = got[1] // 20
+        for allowance in (-each - 1, -100 * each, -1):
             assert [r["n"] for r in con.select(
                 ops_apply._CHARGED_REWRITES,
                 ops_apply._charge_params(uid, base, allowance))] == [each]

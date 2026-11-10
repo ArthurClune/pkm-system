@@ -2,6 +2,8 @@ import { type Page } from "@playwright/test";
 import { trackResponses } from "./fixtures";
 import { expect, test } from "./ownPage";
 import { waitForServerText } from "./server-state";
+import { rawTitleOf, uidOf } from "../src/test-mint";
+import type { BlockUid } from "../src/api/brands";
 
 const PASSWORD = "e2e-pw";
 
@@ -65,7 +67,7 @@ test("core editing loop: create, split, indent, persist, link, backlink", async 
 });
 
 test("Tab and Shift-Tab move a multi-block selection one level", async ({ page }) => {
-  const title = `MultiIndent${Date.now()}`;
+  const title = rawTitleOf(`MultiIndent${Date.now()}`);
   await login(page);
   const createRes = await page.request.post("/api/pages", { data: { title } });
   expect(createRes.ok()).toBeTruthy();
@@ -114,7 +116,7 @@ test("Tab and Shift-Tab move a multi-block selection one level", async ({ page }
 });
 
 test("Shift-Cmd moves a selected run within and across a parent", async ({ page }) => {
-  const title = `SelectedMove${Date.now()}`;
+  const title = rawTitleOf(`SelectedMove${Date.now()}`);
   await login(page);
   const createRes = await page.request.post("/api/pages", { data: { title } });
   expect(createRes.ok()).toBeTruthy();
@@ -181,13 +183,13 @@ test("Shift-Cmd moves a selected run within and across a parent", async ({ page 
   await expect(tree).toBeFocused();
   await expect(selectedRows).toHaveCount(2);
 
-  const directChildren = (uid: string) => page.locator(
+  const directChildren = (uid: BlockUid) => page.locator(
     `.block-row[data-uid="${uid}"] + .block-children > .block > .block-row`,
   );
 
   await page.keyboard.press("Shift+Meta+ArrowUp");
 
-  const sourceChildren = directChildren(sourceUid!);
+  const sourceChildren = directChildren(uidOf(sourceUid!));
   await expect(sourceChildren).toHaveCount(3);
   await expect(sourceChildren.nth(0)).toHaveAttribute("data-uid", firstUid!);
   await expect(sourceChildren.nth(1)).toHaveAttribute("data-uid", secondUid!);
@@ -199,7 +201,7 @@ test("Shift-Cmd moves a selected run within and across a parent", async ({ page 
 
   await expect(sourceChildren).toHaveCount(1);
   await expect(sourceChildren.nth(0)).toHaveAttribute("data-uid", seedUid!);
-  const leftChildren = directChildren(leftUid!);
+  const leftChildren = directChildren(uidOf(leftUid!));
   await expect(leftChildren).toHaveCount(3);
   await expect(leftChildren.nth(1)).toHaveAttribute("data-uid", firstUid!);
   await expect(leftChildren.nth(2)).toHaveAttribute("data-uid", secondUid!);
@@ -210,7 +212,7 @@ test("Shift-Cmd moves a selected run within and across a parent", async ({ page 
 });
 
 test("Ctrl-Cmd arrows select to block edge, then whole blocks", async ({ page }) => {
-  const title = `CtrlCmdSelect${Date.now()}`;
+  const title = rawTitleOf(`CtrlCmdSelect${Date.now()}`);
   await login(page);
   const createRes = await page.request.post("/api/pages", { data: { title } });
   expect(createRes.ok()).toBeTruthy();
@@ -396,7 +398,7 @@ test("can click back into a line after emptying it", async ({ page, ownPage }) =
 test("pausing mid [[ autocomplete does not create the partial page", async ({ page }) => {
   // unique titles: the e2e DB is shared across specs and retries
   const stamp = Date.now();
-  const scratch = `RefHold${stamp}`;
+  const scratch = rawTitleOf(`RefHold${stamp}`);
   const partial = `Xlah${stamp} Wo`;
   const full = `Xlah${stamp} Work`;
   await login(page);
@@ -447,7 +449,7 @@ test("edits broadcast live to a second client", async ({ page, ownPage, browser,
 test("Cmd-B bolds the selection and renders <strong>", async ({ page }) => {
   // unique page: the e2e DB is shared across specs/retries, and today's
   // journal must stay untouched (other specs assume its state)
-  const title = `BoldKey${Date.now()}`;
+  const title = rawTitleOf(`BoldKey${Date.now()}`);
   await login(page);
   const createRes = await page.request.post("/api/pages", { data: { title } });
   expect(createRes.ok()).toBeTruthy();

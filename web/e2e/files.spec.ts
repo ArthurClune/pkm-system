@@ -1,7 +1,13 @@
 // Asset file browser (/files): browse, copy-link, orphan purge, linked
 // delete, and export.
+import { type Page } from "@playwright/test";
+import type { components } from "../src/api/types";
+import { rawTitleOf } from "../src/test-mint";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
+import { serverJson } from "./wireJson";
+
+type AssetUploadResponse = components["schemas"]["AssetUploadResponse"];
 
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8"
@@ -14,7 +20,7 @@ const PNG2 = Buffer.concat([PNG, Buffer.from([0])]);
 // "reffed.png" whatever else the shared e2e DB holds.
 const PNG3 = Buffer.concat([PNG, Buffer.from([2, 7])]);
 
-async function login(page) {
+async function login(page: Page) {
   await page.goto("/login");
   await page.fill("#pw", "e2e-pw");
   await page.click("text=log in");
@@ -22,17 +28,17 @@ async function login(page) {
   await expect(page.locator(".ws-banner")).toHaveCount(0);
 }
 
-async function upload(page, name: string, buffer: Buffer) {
+async function upload(page: Page, name: string, buffer: Buffer): Promise<AssetUploadResponse> {
   const r = await page.request.post("/api/assets", {
     multipart: { file: { name, mimeType: "image/png", buffer } },
   });
   expect(r.ok()).toBeTruthy();
-  return r.json();
+  return serverJson<AssetUploadResponse>(r);
 }
 
 test("browse, orphan purge, linked delete, export", async ({ page }) => {
   await login(page);
-  const title = `Files E2E ${Date.now()}`;
+  const title = rawTitleOf(`Files E2E ${Date.now()}`);
   const linked = await upload(page, "linked.png", PNG);
   const orphan = await upload(page, "orphan.png", PNG2);
   await page.request.post("/api/pages", { data: { title } });
@@ -52,15 +58,15 @@ test("browse, orphan purge, linked delete, export", async ({ page }) => {
 
   // Orphan copy-link (clipboard patched before click).
   await page.evaluate(() => {
-    (navigator.clipboard as any).writeText = (t: string) => {
-      (window as any).__copied = t;
+    navigator.clipboard.writeText = (t: string) => {
+      document.body.dataset.copied = t;
       return Promise.resolve();
     };
   });
   const orphanCard = page.locator(".file-card",
                                   { hasText: "orphan.png" });
   await orphanCard.getByRole("button", { name: "Copy link" }).click();
-  expect(await page.evaluate(() => (window as any).__copied))
+  expect(await page.evaluate(() => document.body.dataset.copied))
     .toContain(`](${orphan.url})`);
 
   // Orphan purge: filter -> select all -> calm delete.
@@ -89,7 +95,7 @@ test("browse, orphan purge, linked delete, export", async ({ page }) => {
 
 test("refs popover navigates; thumbnail expands in-app", async ({ page }) => {
   await login(page);
-  const title = `Files Popover E2E ${Date.now()}`;
+  const title = rawTitleOf(`Files Popover E2E ${Date.now()}`);
   const reffed = await upload(page, "reffed.png", PNG3);
   await page.request.post("/api/pages", { data: { title } });
   const uid = `filespop${Date.now()}`;

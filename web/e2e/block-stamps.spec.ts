@@ -1,6 +1,8 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
+import { rawTitleOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
 
 const PASSWORD = "e2e-pw";
 
@@ -14,7 +16,7 @@ async function login(page: Page) {
 
 /** Creates a uniquely-named page via POST (never writes to today's journal,
  * which other specs assume stays empty) and navigates to it. */
-async function createAndVisitPage(page: Page, title: string) {
+async function createAndVisitPage(page: Page, title: RawTitle) {
   const createRes = await page.request.post("/api/pages", { data: { title } });
   expect(createRes.ok()).toBeTruthy();
   await page.goto(`/page/${encodeURIComponent(title)}`);
@@ -30,7 +32,7 @@ async function toggleStamps(page: Page) {
 }
 
 test("the page menu toggles a stamp column that survives a reload", async ({ page }) => {
-  const title = `BlockStamps${Date.now()}`;
+  const title = rawTitleOf(`BlockStamps${Date.now()}`);
   await login(page);
   await createAndVisitPage(page, title);
 

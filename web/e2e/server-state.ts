@@ -6,8 +6,9 @@
 // a reload can race the last queued mutation's HTTP delivery. Polling the
 // server directly is deterministic.
 import { expect, type Page } from "@playwright/test";
-
-type BlockNode = { text: string; children: BlockNode[] };
+import type { RawTitle } from "../src/api/brands";
+import type { BlockNode, PagePayload } from "../src/api/payloads";
+import { serverJson } from "./wireJson";
 
 function flattenText(blocks: BlockNode[]): string[] {
   return blocks.flatMap((b) => [b.text, ...flattenText(b.children)]);
@@ -16,11 +17,10 @@ function flattenText(blocks: BlockNode[]): string[] {
 /** Polls the server's copy of `pageTitle` until some block contains `text`
  * verbatim. Deliveries are ordered (single offline queue), so waiting for
  * the last edit implies every earlier one has landed too. */
-export async function waitForServerText(page: Page, pageTitle: string, text: string) {
+export async function waitForServerText(page: Page, pageTitle: RawTitle, text: string) {
   await expect.poll(async () => {
     const res = await page.request.get(`/api/page/${encodeURIComponent(pageTitle)}`);
     if (!res.ok()) return [];
-    const body = await res.json() as { blocks: BlockNode[] };
-    return flattenText(body.blocks);
+    return flattenText((await serverJson<PagePayload>(res)).blocks);
   }, { timeout: 20_000 }).toContain(text);
 }

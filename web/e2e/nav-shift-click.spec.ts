@@ -1,5 +1,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import type { SidebarNavEntry } from "../src/api/payloads";
+import { serverJson } from "./wireJson";
 
 // Shift-clicking a pinned page in the left nav fell through to the
 // browser's native shift-click and opened the whole app in a second window --
@@ -43,7 +45,7 @@ test("shift-clicking a pinned left-nav page opens the sidebar, not a second wind
   expect(created.ok()).toBeTruthy();
   const pinned = await page.request.post("/api/sidebar", { data: { title } });
   expect(pinned.ok()).toBeTruthy();
-  const entryId = (await pinned.json()).id;
+  const entryId = (await serverJson<SidebarNavEntry>(pinned)).id;
 
   try {
     await page.goto("/");

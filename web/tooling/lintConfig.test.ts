@@ -745,6 +745,32 @@ describe("tests under the lint", () => {
     expect(await restricted("src/replica/testDb.ts")).toEqual([]);
   }, ESLINT_TIMEOUT_MS);
 
+  it("an e2e spec mints from test-mint and may not load test-helpers", async () => {
+    const helpers = await messagesFor("e2e/undo.spec.ts",
+      'import { uidOf } from "../src/test-helpers";\nvoid uidOf;\n');
+    expect(rulesOf(helpers)).toEqual(["no-restricted-imports"]);
+    expect(helpers[0].message).toContain("vitest");
+    expect(await messagesFor("e2e/undo.spec.ts",
+      'import { uidOf } from "../src/test-mint";\nvoid uidOf;\n')).toEqual([]);
+    const named = await messagesFor("e2e/undo.spec.ts",
+      "export function f(uid: string): string {\n  return uid;\n}\n");
+    expect(rulesOf(named)).toEqual(["brands/name-carries-brand"]);
+    expect(named[0].message).toContain("from web/src/test-mint.ts");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("e2e fixtures are not judged as React hooks", async () => {
+    // Playwright names the fixture callback `use`.
+    const rel = "e2e/fixtures.ts";
+    const found = await messagesFor(rel, readFileSync(join(webRoot, rel), "utf8"));
+    expect(found).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("playwright.config.ts gets the typed rules", async () => {
+    const found = await messagesFor("playwright.config.ts",
+      'export const n: number = JSON.parse("1");\n');
+    expect(rulesOf(found)).toEqual(["@typescript-eslint/no-unsafe-assignment"]);
+  }, ESLINT_TIMEOUT_MS);
+
   it("product code may not import the test fixtures, tests may", async () => {
     const imports = [
       'import { openTestDb } from "../replica/testDb";\nvoid openTestDb;\n',

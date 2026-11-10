@@ -1,12 +1,14 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./ownPage";
 import { waitForServerText } from "./server-state";
+import { rawTitleOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
 
 const input = (page: Page) => page.locator("textarea.block-input");
 
 /** Write a fresh top-level block on the page the test owns, which starts
  * empty, and wait for the server to hold it. */
-async function writeFirstBlock(page: Page, title: string, text: string) {
+async function writeFirstBlock(page: Page, title: RawTitle, text: string) {
   await page.getByText("Click to start writing…").click();
   await input(page).fill(text);
   await input(page).press("Escape"); // blur: flushes the draft op
@@ -48,7 +50,7 @@ test("renaming onto an existing page merges after confirm", async ({ page, ownPa
   await page.getByText("Click to start writing…").click();
   await input(page).fill("content-from-a-g0t5");
   await input(page).press("Escape");
-  await waitForServerText(page, "Merge A g0t5", "content-from-a-g0t5");
+  await waitForServerText(page, rawTitleOf("Merge A g0t5"), "content-from-a-g0t5");
 
   await page.locator("h1.page-title").click();
   await page.locator("input.page-title-input").fill("Merge B g0t5");

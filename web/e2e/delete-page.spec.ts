@@ -1,5 +1,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { rawTitleOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
 
 const PASSWORD = "e2e-pw";
 
@@ -13,7 +15,7 @@ async function login(page: Page) {
 
 /** Creates a uniquely-named page via POST (never writes to today's
  * journal, which other specs assume stays empty) and navigates to it. */
-async function createAndVisitPage(page: Page, title: string) {
+async function createAndVisitPage(page: Page, title: RawTitle) {
   const createRes = await page.request.post("/api/pages", { data: { title } });
   expect(createRes.ok()).toBeTruthy();
   await page.goto(`/page/${encodeURIComponent(title)}`);
@@ -32,7 +34,7 @@ async function openPageMenu(page: Page) {
 // native `confirm()`/`page.on("dialog")` involved at all), so this spec
 // doubles as regression coverage for that iPad-only failure mode.
 test("deleting a page shows an in-app confirm dialog naming the page", async ({ page }) => {
-  const title = `DeletePageConfirm${Date.now()}`;
+  const title = rawTitleOf(`DeletePageConfirm${Date.now()}`);
   await login(page);
   await createAndVisitPage(page, title);
 
@@ -43,7 +45,7 @@ test("deleting a page shows an in-app confirm dialog naming the page", async ({ 
 });
 
 test("cancelling the delete confirm leaves the page intact", async ({ page }) => {
-  const title = `DeletePageCancel${Date.now()}`;
+  const title = rawTitleOf(`DeletePageCancel${Date.now()}`);
   await login(page);
   await createAndVisitPage(page, title);
 
@@ -61,7 +63,7 @@ test("cancelling the delete confirm leaves the page intact", async ({ page }) =>
 });
 
 test("confirming the delete dialog deletes the page and returns to the journal", async ({ page }) => {
-  const title = `DeletePageConfirmed${Date.now()}`;
+  const title = rawTitleOf(`DeletePageConfirmed${Date.now()}`);
   await login(page);
   await createAndVisitPage(page, title);
 
@@ -78,7 +80,7 @@ test("confirming the delete dialog deletes the page and returns to the journal",
 // inside the same wrapper the hook tests for containment -- a click on it
 // must toggle, not dismiss-then-reopen.
 test("the page menu dismisses on Escape and on an outside click", async ({ page }) => {
-  const title = `PageMenuDismiss${Date.now()}`;
+  const title = rawTitleOf(`PageMenuDismiss${Date.now()}`);
   await login(page);
   await createAndVisitPage(page, title);
   const trigger = page.getByRole("button", { name: "Page menu" });
@@ -100,7 +102,7 @@ test("the page menu dismisses on Escape and on an outside click", async ({ page 
 });
 
 test("Escape cancels the delete confirm dialog (keyboard accessibility)", async ({ page }) => {
-  const title = `DeletePageEscape${Date.now()}`;
+  const title = rawTitleOf(`DeletePageEscape${Date.now()}`);
   await login(page);
   await createAndVisitPage(page, title);
 
@@ -115,7 +117,7 @@ test("Escape cancels the delete confirm dialog (keyboard accessibility)", async 
 });
 
 test.describe("keyboard on the delete confirm dialog", () => {
-  let title: string | null = null;
+  let title: RawTitle | null = null;
   test.afterEach(async ({ page }) => {
     if (title) {
       await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
@@ -126,7 +128,7 @@ test.describe("keyboard on the delete confirm dialog", () => {
   // Real Chromium, because the bug lived in how a window keydown listener
   // and a focused button's native Enter activation interact.
   test("Enter on a focused Cancel cancels the delete", async ({ page }) => {
-    title = `DeletePageEnterCancel${Date.now()}`;
+    title = rawTitleOf(`DeletePageEnterCancel${Date.now()}`);
     await login(page);
     await createAndVisitPage(page, title);
 

@@ -7,6 +7,10 @@
 // the browser is offline.
 import { type Page, type Response, type WebSocketRoute } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { rawTitleOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
+import type { components } from "../src/api/types";
+import { serverJson } from "./wireJson";
 
 const PASSWORD = "e2e-pw";
 
@@ -18,20 +22,20 @@ async function login(page: Page) {
   await expect(page.locator(".ws-banner")).toHaveCount(0);
 }
 
-type FeedBody = { blocks?: { uid: string }[]; pages?: { id: number; title: string }[] };
+type FeedBody = components["schemas"]["ChangesPayload"];
 
 const changesMatching = (page: Page, match: (body: FeedBody) => boolean) =>
   page.waitForResponse(async (response: Response) => {
     if (!response.url().includes("/api/sync/changes")) return false;
     if (!response.ok()) return false;
     try {
-      return match(await response.json() as FeedBody);
+      return match(await serverJson<FeedBody>(response));
     } catch {
       return false;
     }
   }, { timeout: 20_000 });
 
-async function openFromSearch(page: Page, title: string) {
+async function openFromSearch(page: Page, title: RawTitle) {
   await page.getByLabel("Search").fill(title);
   await page.locator(".search-result", { hasText: title }).first().click();
   await expect(page.locator("h1.page-title")).toHaveText(title);
@@ -68,9 +72,9 @@ test("a page id reused while this tab is offline leaves no stale linked referenc
       baseURL, storageState: await context.storageState(),
     });
     const stamp = Date.now();
-    const source = `ReuseSrc${stamp}`;
-    const target = `ReuseTgt${stamp}`;
-    const reborn = `ReuseNew${stamp}`;
+    const source = rawTitleOf(`ReuseSrc${stamp}`);
+    const target = rawTitleOf(`ReuseTgt${stamp}`);
+    const reborn = rawTitleOf(`ReuseNew${stamp}`);
     const srcUid = `e2ereusesrc${stamp}`.slice(0, 32);
     const markerUid = `e2ereusemrk${stamp}`.slice(0, 32);
     try {

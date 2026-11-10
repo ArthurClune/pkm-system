@@ -3,6 +3,8 @@
 // references it (a second drop of the same bytes).
 import { type Locator, type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import type { PagePayload } from "../src/api/payloads";
+import { serverJson } from "./wireJson";
 
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8"
@@ -66,7 +68,7 @@ async function dropPng(page: Page, rows: Locator, png: number[], after: number) 
   let url = "";
   await expect.poll(async () => {
     const res = await page.request.get(`/api/page/${encodeURIComponent(title!)}`);
-    const texts = ((await res.json()).blocks as { text: string }[]).map((b) => b.text);
+    const texts = (await serverJson<PagePayload>(res)).blocks.map((b) => b.text);
     url = texts.map((t) => /^!\[undo-release\.png\]\((\/assets\/[^)]+)\)$/.exec(t)?.[1])
       .find(Boolean) ?? "";
     return url;

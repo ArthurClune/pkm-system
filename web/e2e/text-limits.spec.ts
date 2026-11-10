@@ -6,6 +6,8 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
+import { rawTitleOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
 
 const PASSWORD = "e2e-pw";
 const NESTING = "Links can't nest more than 32 levels deep.";
@@ -23,7 +25,7 @@ async function login(page: Page) {
   await expect(page.locator(".ws-banner")).toHaveCount(0);
 }
 
-const created: string[] = [];
+const created: RawTitle[] = [];
 test.afterEach(async ({ page }) => {
   for (const title of created.splice(0)) {
     await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
@@ -37,7 +39,7 @@ const input = (page: Page) => page.locator("textarea.block-input");
 async function openSeeded(page: Page, name: string) {
   await login(page);
   const stamp = Date.now().toString(36);
-  const title = `${name} ${stamp}`;
+  const title = rawTitleOf(`${name} ${stamp}`);
   const seed = `seed ${stamp}`;
   created.push(title);
   expect((await page.request.post("/api/pages", { data: { title } })).ok())

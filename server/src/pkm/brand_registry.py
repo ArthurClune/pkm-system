@@ -316,6 +316,7 @@ TEST_CODE: tuple[str, ...] = (
     "web/src/replica/replayArbs.ts",
     "web/src/replica/testDb.ts",
     "web/src/sync/memReplica.ts",
+    "web/e2e/",
 )
 
 # Glob patterns for files where a line may carry `# brand: untrusted --
@@ -339,6 +340,10 @@ OPT_OUT_FILES: tuple[str, ...] = (
     # as a predicate on the arbitrary's type parameter; the capped filter's
     # is backed by the arbitrary it wraps.
     "web/src/fcFilterCap.ts",
+    # The Playwright specs' JSON boundary, as client.ts is the app's:
+    # `APIResponse.json()` and `postDataJSON()` are untyped, and the
+    # generated API types name the brands a body carries.
+    "web/e2e/wireJson.ts",
 )
 
 # Columns whose key is not their own name: table -> {column: key}. One

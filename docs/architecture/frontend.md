@@ -126,7 +126,8 @@ brand back into `string`.
 Where a brand may be minted is `MINT_SITES` in
 `server/src/pkm/brand_registry.py`, enforced on the web by
 `brands/no-brand-assertion` ([checks.md § Brand rules](checks.md#brand-rules)).
-Tests mint through the checked helpers in `test-helpers.ts`. `sync/wire.ts`
+Tests mint through the checked helpers in `test-mint.ts`, which
+`test-helpers.ts` re-exports. `sync/wire.ts`
 reads network bodies, tombstone ids (`tombstoneIdOfWire`) and WebSocket frames
 (`wsFrameOfWire`) as the contract's types; `ReplicaDb.select` does the same for
 replica rows ([sync-and-offline.md](sync-and-offline.md#reading-rows)).
@@ -461,7 +462,8 @@ web/src/
 ├── useStaleGuard.ts          Shell  The stale-response idiom for async reads
 ├── theme.ts, useTheme.ts,    —      The theme preference and the theme it resolves to
 │   useEffectiveTheme.ts
-├── test-helpers.ts           —      Checked brand mints for tests
+├── test-helpers.ts           —      Unit-test fixtures; re-exports test-mint.ts
+├── test-mint.ts              —      Checked brand mints for unit and e2e tests
 ├── styles.css                —      All styling (styling.md)
 ├── api/                      Shell  apiFetch, the typed client, brands.ts, the
 │                                    generated openapi.json and types.d.ts

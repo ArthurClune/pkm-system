@@ -20,8 +20,8 @@ convention plus review.
 | contract tests | generated artifacts are fresh; routes declare a `response_model`; row keys match the DDL; registry paths exist and still mint; the property suite stays out of `pytest -q` | pytest | `test_openapi_sync.py`, `test_routes_models.py`, `test_rows_vocabulary.py`, `test_brandlint_registry.py`, `test_proptest_exclusion.py`, parity tests | regenerate per [backend.md](backend.md#generated-artifacts-and-parity-fixtures) |
 | row check | every `Db.select` row fits its `Row` keys and brand shapes | pytest (`PKM_ROW_CHECK=1`) | `pkm.database`, `pkm.rows` | `RowCheckError` names the column |
 | pyrefly, ruff | server types; no implicit `Any` in `server/src`; `ANN`, `ANN401`, `E501` | `uv run pyrefly check`, `uv run ruff check` | `pyrefly.toml`, `[tool.ruff]`, whose comments give the policy | |
-| typecheck | `tsc` on `src`, the generated API types and the `.ts` files of `tooling`; `.mjs` files and `web/e2e` are not type-checked | `pnpm verify`, `pnpm build` | `typecheck` in `web/package.json` | |
-| eslint | hooks, promises, no `any`, import bans, web brand rules, no unchecked `@ts-` suppression | `pnpm verify` (`lint`) | `web/eslint.config.js`, `web/tooling/eslint-plugin-brands` | fixtures in `web/tooling/eslint-fixtures`, pinned by `lintConfig.test.ts` |
+| typecheck | `tsc` on `src`, the generated API types, the `.ts` files of `tooling`, and `web/e2e` with `playwright.config.ts`; `tooling`'s `.mjs` files are not type-checked | `pnpm verify`, `pnpm build` | `typecheck` in `web/package.json`, `web/e2e/tsconfig.json` | |
+| eslint | hooks, promises, no `any`, import bans, web brand rules, no unchecked `@ts-` suppression; `web/e2e` and `playwright.config.ts` too, without the hooks rules | `pnpm verify` (`lint`) | `web/eslint.config.js`, `web/tooling/eslint-plugin-brands` | fixtures in `web/tooling/eslint-fixtures`, pinned by `lintConfig.test.ts` |
 | FCIS check | a Functional Core web module never imports an Imperative Shell or Mixed one, and every runtime module carries a valid header | `pnpm verify` (`check:fcis`) | `web/tooling/fcis.mjs` | [overview.md](overview.md#functional-core--imperative-shell) |
 | vitest | unit tests pass over `coverage.thresholds` | `pnpm verify` (`test:coverage`) | `web/vite.config.ts` | |
 | unit-test guards | replica rows fit `Columns`; no unsilenced `console.warn`/`error`; no runaway fast-check filter; `types.d.ts` matches `openapi.json` | every vitest run | `replica/rowCheck.ts`, `src/test-setup.ts`, `src/test-guards.ts`, `genTypes.drift.test.ts` | each guard's test shows its teeth |
@@ -63,11 +63,14 @@ against the staged registry.
 Tests are under every rule. They mint through the checked helpers in
 `TEST_MINT_SITES`, which raise unless a value fits the brand's `SHAPES`. A
 deliberately bad value comes from a `MALFORMED` helper. Product code may
-import neither.
+import neither. The web's mint module, `test-mint.ts`, imports no vitest, so
+the Playwright specs mint there; `test-helpers.ts` re-exports it, and imports
+vitest, so the specs may not import it.
 
 The one opt-out is `brand: untrusted -- <reason>` in a comment, allowed only
-in `OPT_OUT_FILES`: route modules on the server, and the HTTP response
-boundary `api/client.ts` and a few harness files on the web. It covers one
+in `OPT_OUT_FILES`: route modules on the server, and on the web the HTTP
+response boundary `api/client.ts`, its Playwright twin `e2e/wireJson.ts`,
+and a few harness files. It covers one
 site, the leftmost on its line, and one that covers nothing is reported.
 
 The rules and their messages are `RULES` in `brandlint/core.py` and the

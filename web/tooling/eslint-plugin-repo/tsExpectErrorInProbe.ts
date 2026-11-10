@@ -5,7 +5,8 @@
 // suppression cannot carry an off-type value into code that runs. A
 // value a test must feed a runtime guard is `offType<T>(v)` from the
 // same module.
-import { TEST_HELPERS_SOURCE } from "../eslint-plugin-brands/testHelpers.mjs";
+import type { TSESLint, TSESTree } from "@typescript-eslint/utils";
+import { TEST_HELPERS_SOURCE } from "../eslint-plugin-brands/testHelpers.ts";
 
 const PROBE_MESSAGES = {
   outsideProbe:
@@ -16,15 +17,15 @@ const PROBE_MESSAGES = {
 
 // The directive TypeScript reads: a line comment whose text starts with it,
 // or a block comment whose last line does.
-function isExpectError(comment) {
+function isExpectError(comment: TSESTree.Comment): boolean {
   if (comment.type === "Line") {
     return /^\/*\s*@ts-expect-error\b/.test(comment.value);
   }
-  const last = comment.value.split("\n").at(-1);
+  const last = comment.value.split("\n").at(-1) ?? "";
   return /^[\s*]*@ts-expect-error\b/.test(last);
 }
 
-export const tsExpectErrorInProbe = {
+export const tsExpectErrorInProbe: TSESLint.RuleModule<"outsideProbe"> = {
   meta: {
     type: "problem",
     schema: [],
@@ -32,19 +33,22 @@ export const tsExpectErrorInProbe = {
   },
   create(context) {
     const { sourceCode } = context;
-    const bodies = [];
+    const bodies: TSESTree.Range[] = [];
     // Whether `name` at `node` is the `typeProbe` import of the test
     // helpers: a local function of the same name is another binding.
-    const isTypeProbe = (node) => {
-      let scope = sourceCode.getScope(node);
-      let variable;
+    const isTypeProbe = (node: TSESTree.Identifier) => {
+      let scope: TSESLint.Scope.Scope | null = sourceCode.getScope(node);
+      let variable: TSESLint.Scope.Variable | undefined;
       while (scope !== null && variable === undefined) {
         variable = scope.set.get(node.name);
         scope = scope.upper;
       }
       const def = variable?.defs[0];
-      return def !== undefined && def.node.type === "ImportSpecifier"
+      return def !== undefined && def.type === "ImportBinding"
+        && def.node.type === "ImportSpecifier"
+        && def.node.imported.type === "Identifier"
         && def.node.imported.name === "typeProbe"
+        && def.parent.type === "ImportDeclaration"
         && TEST_HELPERS_SOURCE.test(String(def.parent.source.value));
     };
     return {

@@ -35,8 +35,8 @@
 // tooling, not by convention.
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
-import brands, { testFileGlobs } from "./tooling/eslint-plugin-brands/index.mjs";
-import repo from "./tooling/eslint-plugin-repo/index.mjs";
+import brands, { testFileGlobs } from "./tooling/eslint-plugin-brands/index.ts";
+import repo from "./tooling/eslint-plugin-repo/index.ts";
 
 const apiFetchBan = {
   group: ["**/api/client"],
@@ -162,7 +162,7 @@ export default tseslint.config(
   {
     // Tests and test support included: agents copy the code they read, and
     // tests are most of it.
-    files: ["src/**/*.{ts,tsx}", "tooling/**/*.{ts,tsx}"],
+    files: ["src/**/*.{ts,tsx}", "tooling/**/*.{ts,tsx,mjs}"],
     ...typed,
     plugins: { "react-hooks": reactHooks, brands, repo },
     rules: {

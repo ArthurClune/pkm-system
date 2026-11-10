@@ -1,9 +1,11 @@
 // pattern: Imperative Shell
-import { WEB_PREFIX, registry } from "./registry.mjs";
+import { WEB_PREFIX, registry } from "./registry.ts";
 
 // The brand-specific parser, where the web has one.
 const MODULES_SHOWN = 3;
-const PARSERS = { BlockUid: "parseBlockUid", SyncSeq: "parseSyncSeq" };
+const PARSERS: Record<string, string> = {
+  BlockUid: "parseBlockUid", SyncSeq: "parseSyncSeq",
+};
 
 export const webTestMints = registry.testMintSites
   .filter((p) => p.startsWith(WEB_PREFIX));
@@ -11,8 +13,8 @@ export const webTestMints = registry.testMintSites
 // "use uidOf or malformedUid from web/src/test-mint.ts": the checked
 // helper a test mints these brands with, and the forger of a bad value where
 // the brand has a shape. Null when a brand has no helper.
-function testRemedy(brands) {
-  const names = [];
+function testRemedy(brands: readonly string[]): string | null {
+  const names: string[] = [];
   for (const b of brands) {
     const stem = registry.testHelpers[b];
     if (stem === undefined) return null;
@@ -27,14 +29,14 @@ function testRemedy(brands) {
 
 // "parseBlockUid, or mint it in web/src/uid.ts" from the registry's web mint
 // modules for these brands; in test code, the test helper.
-export function remedy(brands, inTest) {
+export function remedy(brands: readonly string[], inTest: boolean): string {
   const forTest = inTest ? testRemedy(brands) : null;
   if (forTest !== null) return forTest;
-  const parsers = brands.map((b) => PARSERS[b]).filter(Boolean);
+  const parsers = brands.flatMap((b) => PARSERS[b] ?? []);
   const modules = [...new Set(brands.flatMap(
     (b) => (registry.mintSites[b] ?? []).filter((p) => p.startsWith("web/")),
   ))];
-  const parts = [];
+  const parts: string[] = [];
   if (parsers.length) parts.push(`parse it with ${parsers.join(", ")}`);
   if (modules.length) {
     const shown = modules.slice(0, MODULES_SHOWN).join(", ");
@@ -48,7 +50,7 @@ export function remedy(brands, inTest) {
 }
 
 // `BlockUid` or `BlockUid[]`, by whether the name is a plural.
-export function brandText(name, wanted) {
+export function brandText(name: string, wanted: readonly string[]): string {
   const text = wanted.join(" or ");
   return /(uids|ids)$/i.test(name) ? `${text}[]` : text;
 }

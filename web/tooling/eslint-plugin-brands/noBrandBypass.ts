@@ -2,9 +2,11 @@
 // brands/no-brand-bypass: `Reflect.apply`, and a brand-named field
 // written through `Object.assign` or `Object.defineProperty`, which skip
 // the checks the two rules above rely on tsc to raise.
-import { isMintSite, isTestCode, registry, repoPath } from "./registry.mjs";
-import { declaresBrand, servicesOf } from "./types.mjs";
-import { brandText, remedy } from "./remedy.mjs";
+import type { TSESLint, TSESTree } from "@typescript-eslint/utils";
+import ts from "typescript";
+import { isMintSite, isTestCode, registry, repoPath } from "./registry.ts";
+import { declaresBrand, servicesOf } from "./types.ts";
+import { brandText, remedy } from "./remedy.ts";
 
 // `Object.assign`, `Object.defineProperty` and `Reflect.set` write a field
 // past the type the object was declared with, and `Reflect.apply` and
@@ -18,10 +20,16 @@ import { brandText, remedy } from "./remedy.mjs";
 // at the call is unknown here and not reported. A reference to one of these
 // functions that is not the callee of a call (`const { assign } = Object`,
 // `const R = Reflect`, `.call`) is reported, so no alias hides a call.
-const WATCHED = {
+type Base = "Object" | "Reflect";
+const WATCHED: Record<Base, Set<string>> = {
   Object: new Set(["assign", "defineProperty", "defineProperties"]),
   Reflect: new Set(["apply", "construct", "set", "defineProperty"]),
 };
+const isBase = (name: string): name is Base =>
+  name === "Object" || name === "Reflect";
+const PRIMITIVE = ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike
+  | ts.TypeFlags.BigIntLike | ts.TypeFlags.BooleanLike
+  | ts.TypeFlags.ESSymbolLike | ts.TypeFlags.EnumLike;
 const GLOBAL_OBJECTS = new Set(["globalThis", "window", "self"]);
 // `typeof Object`, `x instanceof Object`, `x === Object` and `Object(x)`
 // read the constructor without reaching the functions on it.
@@ -30,7 +38,9 @@ const SAFE_BASE_PARENTS = new Set([
 ]);
 const TYPE_PARENT = /^TS(TypeReference|QualifiedName|ExpressionWithTypeArguments|InterfaceHeritage|ClassImplements)$/;
 
-export const noBrandBypass = {
+type MessageIds = "call" | "write" | "alias";
+
+export const noBrandBypass: TSESLint.RuleModule<MessageIds> = {
   meta: {
     type: "problem",
     schema: [],
@@ -56,9 +66,9 @@ export const noBrandBypass = {
     const inTest = isTestCode(path);
     const { program, esTreeNodeToTSNodeMap } = servicesOf(context);
     const checker = program.getTypeChecker();
-    const tsNodeOf = (node) => esTreeNodeToTSNodeMap.get(node);
-    const typeOf = (node) => checker.getTypeAtLocation(tsNodeOf(node));
-    const staticText = (node) => {
+    const tsNodeOf = (node: TSESTree.Node) => esTreeNodeToTSNodeMap.get(node);
+    const typeOf = (node: TSESTree.Node) => checker.getTypeAtLocation(tsNodeOf(node));
+    const staticText = (node: TSESTree.Node) => {
       if (node.type === "Literal" && typeof node.value === "string") {
         return node.value;
       }
@@ -68,15 +78,15 @@ export const noBrandBypass = {
       return null;
     };
     // The name `Object.assign` or `Object["assign"]` selects.
-    const memberName = (member) => {
+    const memberName = (member: TSESTree.MemberExpression) => {
       if (!member.computed && member.property.type === "Identifier") {
         return member.property.name;
       }
       return member.computed ? staticText(member.property) : null;
     };
     // Whether `id` is the global `Object`, not a local that shadows it.
-    const isGlobal = (id) => {
-      for (let scope = context.sourceCode.getScope(id); scope;
+    const isGlobal = (id: TSESTree.Identifier) => {
+      for (let scope: TSESLint.Scope.Scope | null = context.sourceCode.getScope(id); scope;
         scope = scope.upper) {
         const variable = scope.set.get(id.name);
         if (variable) return variable.defs.length === 0;
@@ -84,9 +94,9 @@ export const noBrandBypass = {
       return true;
     };
     // "Object" or "Reflect" for `Object`, `globalThis.Object`, ...
-    const baseOf = (node) => {
+    const baseOf = (node: TSESTree.Node): Base | null => {
       if (node.type === "Identifier") {
-        return Object.hasOwn(WATCHED, node.name) && isGlobal(node) ? node.name : null;
+        return isBase(node.name) && isGlobal(node) ? node.name : null;
       }
       if (node.type !== "MemberExpression") return null;
       if (node.object.type !== "Identifier") return null;
@@ -94,16 +104,16 @@ export const noBrandBypass = {
         return null;
       }
       const name = memberName(node);
-      return name !== null && Object.hasOwn(WATCHED, name) ? name : null;
+      return name !== null && isBase(name) ? name : null;
     };
-    const apiOf = (callee) => {
+    const apiOf = (callee: TSESTree.Expression) => {
       if (callee.type !== "MemberExpression") return null;
       const base = baseOf(callee.object);
       const name = memberName(callee);
       return base !== null && name !== null && WATCHED[base].has(name)
         ? `${base}.${name}` : null;
     };
-    const reportKey = (node, api, name) => {
+    const reportKey = (node: TSESTree.Node, api: string, name: string) => {
       const wanted = registry.names[name];
       if (wanted.every((b) => isMintSite(b, path))) return;
       context.report({
@@ -117,51 +127,66 @@ export const noBrandBypass = {
         },
       });
     };
-    const meansBrand = (name) => Object.hasOwn(registry.names, name);
-    const holdsBrand = (valueNode, name) =>
+    const meansBrand = (name: string) => Object.hasOwn(registry.names, name);
+    const holdsBrand = (valueNode: TSESTree.Node, name: string) =>
       declaresBrand(checker, typeOf(valueNode), registry.names[name]);
     // Report a brand-named `name` whose value node is not that brand.
-    const checkValue = (node, api, name, valueNode) => {
+    const checkValue = (
+      node: TSESTree.Node, api: string, name: string,
+      valueNode: TSESTree.Node | null | undefined,
+    ) => {
       if (!meansBrand(name)) return;
       if (valueNode && holdsBrand(valueNode, name)) return;
       reportKey(node, api, name);
     };
     // A descriptor literal `{ value: x }` writes x; a getter, a non-literal
     // descriptor or no value writes something unchecked.
-    const checkDescriptor = (node, api, name, descriptor) => {
+    const checkDescriptor = (
+      node: TSESTree.Node, api: string, name: string,
+      descriptor: TSESTree.Node | undefined,
+    ) => {
       if (!meansBrand(name)) return;
-      let valueNode = null;
+      let valueNode: TSESTree.Node | null = null;
       if (descriptor?.type === "ObjectExpression") {
         const only = descriptor.properties.every((p) => p.type === "Property"
           && !p.computed && p.key.type === "Identifier"
           && ["value", "configurable", "enumerable", "writable"]
             .includes(p.key.name));
-        const value = descriptor.properties.find((p) => p.key?.name === "value");
-        if (only && value) valueNode = value.value;
+        const value = descriptor.properties.find((p) => p.type === "Property"
+          && p.key.type === "Identifier" && p.key.name === "value");
+        if (only && value?.type === "Property") valueNode = value.value;
       }
       checkValue(node, api, name, valueNode);
     };
     // The names an object literal sets, by identifier, string or computed
     // string key.
-    const literalKeys = (obj) => obj.properties.flatMap((p) => {
+    const literalKeys = (
+      obj: TSESTree.ObjectExpression,
+    ): [TSESTree.Property, string][] => obj.properties.flatMap((p) => {
       if (p.type !== "Property") return [];
-      let name = null;
+      let name: string | null = null;
       if (p.computed || p.key.type !== "Identifier") name = staticText(p.key);
       else name = p.key.name;
-      return name === null ? [] : [[p, name]];
+      if (name === null) return [];
+      const pair: [TSESTree.Property, string] = [p, name];
+      return [pair];
     });
     // The names a key argument can be: its text, or the string literals its
     // type is made of.
-    const keyNames = (arg) => {
+    const keyNames = (arg: TSESTree.Expression) => {
       const text = staticText(arg);
       if (text !== null) return [text];
       const type = typeOf(arg);
       const parts = type.isUnion() ? type.types : [type];
-      return parts.every((t) => t.isStringLiteral())
-        ? parts.map((t) => t.value) : [];
+      const names: string[] = [];
+      for (const t of parts) {
+        if (!t.isStringLiteral()) return [];
+        names.push(t.value);
+      }
+      return names;
     };
     // The properties of a source's type that mean a brand and do not hold it.
-    const checkSource = (arg, api) => {
+    const checkSource = (arg: TSESTree.Expression, api: string) => {
       const type = typeOf(arg);
       for (const symbol of checker.getPropertiesOfType(type)) {
         if (!meansBrand(symbol.name)) continue;
@@ -171,7 +196,7 @@ export const noBrandBypass = {
         }
       }
     };
-    const checkAssign = (node, api) => {
+    const checkAssign = (node: TSESTree.CallExpression, api: string) => {
       for (const arg of node.arguments.slice(1)) {
         if (arg.type === "SpreadElement") continue;
         if (arg.type !== "ObjectExpression") {
@@ -186,7 +211,9 @@ export const noBrandBypass = {
         }
       }
     };
-    const checkKeyWrite = (node, api, descriptorAt) => {
+    const checkKeyWrite = (
+      node: TSESTree.CallExpression, api: string, descriptorAt: number,
+    ) => {
       const [, key] = node.arguments;
       if (!key || key.type === "SpreadElement") return;
       for (const name of keyNames(key)) {
@@ -201,7 +228,9 @@ export const noBrandBypass = {
     // A use of the global `Object` or `Reflect` (`outer` is the name or the
     // `globalThis.` form of it) that is not a direct call of a watched
     // function.
-    const checkBaseUse = (outer, base) => {
+    const checkBaseUse = (
+      outer: TSESTree.Identifier | TSESTree.MemberExpression, base: Base,
+    ) => {
       const parent = outer.parent;
       if (parent.type === "MemberExpression" && parent.object === outer) {
         const name = memberName(parent);
@@ -216,7 +245,7 @@ export const noBrandBypass = {
         || TYPE_PARENT.test(parent.type)) return;
       context.report({ node: outer, messageId: "alias", data: { base } });
     };
-    const isReference = (id) => {
+    const isReference = (id: TSESTree.Identifier) => {
       const p = id.parent;
       if (p.type === "MemberExpression" && p.property === id && !p.computed) {
         return false;
@@ -266,9 +295,11 @@ export const noBrandBypass = {
           return;
         }
         // `g.Object` on an alias of the global object: the name alone says
-        // what it reaches.
+        // what it reaches, unless its type is a primitive the global is not
+        // (`ts.TypeFlags.Object`, an enum member).
         const name = memberName(node);
-        if (name !== null && Object.hasOwn(WATCHED, name)) {
+        if (name !== null && isBase(name)
+          && (typeOf(node).flags & PRIMITIVE) === 0) {
           context.report({ node, messageId: "alias", data: { base: name } });
         }
       },

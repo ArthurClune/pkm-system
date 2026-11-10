@@ -12,6 +12,8 @@
     "fcis.ts",
     "genTypes.ts",
     "perf/check.ts",
-    "perf/globals.d.ts"
+    "perf/globals.d.ts",
+    "eslint-plugin-brands/index.ts",
+    "eslint-plugin-repo/index.ts"
   ]
 }

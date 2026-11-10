@@ -15,7 +15,7 @@ import {
   isTestCode,
   pathMatcher,
   repoPath,
-} from "./eslint-plugin-brands/index.mjs";
+} from "./eslint-plugin-brands/index.ts";
 
 const toolingDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = dirname(toolingDir);

@@ -1,10 +1,11 @@
 // pattern: Imperative Shell
+import type { ParserServicesWithTypeInformation, TSESLint } from "@typescript-eslint/utils";
 import ts from "typescript";
 
 const SET_TYPES = new Set(["Set", "ReadonlySet"]);
 const MAP_TYPES = new Set(["Map", "ReadonlyMap"]);
 // The subtype chain of api/brands.ts, most derived first: [key, brand].
-const SUBTYPES = [
+const SUBTYPES: readonly (readonly [key: string, brand: string])[] = [
   ["__canonical", "CanonicalTitle"],
   ["__normalized", "NormalizedTitle"],
 ];
@@ -14,8 +15,27 @@ const BRAND_TAGS = new Set(["__brand", ...SUBTYPES.map(([key]) => key)]);
 
 const SIGNATURE_KINDS = [ts.SignatureKind.Call, ts.SignatureKind.Construct];
 
+// The flag tests TypeScript's own checker narrows by, as type guards.
+const isObject = (t: ts.Type): t is ts.ObjectType =>
+  (t.flags & ts.TypeFlags.Object) !== 0;
+const isReference = (t: ts.Type): t is ts.TypeReference =>
+  isObject(t) && (t.objectFlags & ts.ObjectFlags.Reference) !== 0;
+const isMapped = (t: ts.Type): boolean =>
+  isObject(t) && (t.objectFlags & ts.ObjectFlags.Mapped) !== 0;
+const isIndexedAccess = (t: ts.Type): t is ts.IndexedAccessType =>
+  (t.flags & ts.TypeFlags.IndexedAccess) !== 0;
+const isIndex = (t: ts.Type): t is ts.IndexType =>
+  (t.flags & ts.TypeFlags.Index) !== 0;
+const isConditional = (t: ts.Type): t is ts.ConditionalType =>
+  (t.flags & ts.TypeFlags.Conditional) !== 0;
+// An array or tuple: a reference whose arguments are its elements.
+export const isArrayLike = (checker: ts.TypeChecker, t: ts.Type): t is ts.TypeReference =>
+  isReference(t) && (checker.isArrayType(t) || checker.isTupleType(t));
+// A type's symbol name, "" for a type with no symbol.
+const symbolName = (t: ts.Type): string => t.symbol?.name ?? "";
+
 // A type declared only in the TypeScript lib or a dependency.
-export function isForeign(type) {
+export function isForeign(type: ts.Type): boolean {
   const decls = type.symbol?.declarations ?? [];
   return decls.length > 0 && decls.every((d) => {
     const f = d.getSourceFile();
@@ -28,10 +48,10 @@ export function isForeign(type) {
 // string literal, found through unions, intersections, type arguments (array,
 // tuple, Set, Promise ...) and object properties. Properties of library and
 // dependency types are not walked: no brand lives there and they are big.
-function brandsOf(checker, type) {
-  const found = new Set();
-  const seen = new Set();
-  const walk = (t) => {
+function brandsOf(checker: ts.TypeChecker, type: ts.Type): Set<string> {
+  const found = new Set<string>();
+  const seen = new Set<ts.Type>();
+  const walk = (t: ts.Type): void => {
     if (seen.has(t)) return;
     seen.add(t);
     // A type parameter, `Row[K]` or a conditional type holds what its
@@ -50,7 +70,7 @@ function brandsOf(checker, type) {
         ? SUBTYPES.find(([key]) => t.types.some((m) => m.getProperty(key)))
         : undefined;
       if (subtype) {
-        const inner = new Set();
+        const inner = new Set<string>();
         for (const m of t.types) brandsOf(checker, m).forEach((b) => inner.add(b));
         const at = SUBTYPES.indexOf(subtype);
         for (const [, ancestor] of SUBTYPES.slice(at + 1)) inner.delete(ancestor);
@@ -67,11 +87,8 @@ function brandsOf(checker, type) {
       const bt = checker.getTypeOfSymbol(brand);
       if (bt.isStringLiteral()) found.add(bt.value);
     }
-    if (t.flags & ts.TypeFlags.Object) {
-      if (checker.isArrayType(t) || checker.isTupleType(t)
-        || t.objectFlags & ts.ObjectFlags.Reference) {
-        checker.getTypeArguments(t).forEach(walk);
-      }
+    if (isObject(t)) {
+      if (isReference(t)) checker.getTypeArguments(t).forEach(walk);
       const foreign = isForeign(t);
       // A guard type (`type Guard<T> = (v: string) => v is T`) carries its
       // brand in the predicate of its call signature, and a function or
@@ -87,7 +104,7 @@ function brandsOf(checker, type) {
       }
       // A lib mapped type (Partial, Pick, Record ...) takes its properties
       // from the caller's type argument, so it is always walked.
-      const mapped = (t.objectFlags & ts.ObjectFlags.Mapped) !== 0;
+      const mapped = isMapped(t);
       if (mapped && t.getProperties().length === 0
         && checker.getIndexInfosOfType(t).length === 0) {
         // A mapped type over a type parameter (`Pick<Row, K>`) has no
@@ -117,10 +134,11 @@ function brandsOf(checker, type) {
 }
 
 const UNIT = ts.TypeFlags.Unit | ts.TypeFlags.Void;
-const isUnit = (t) => t.isUnion() ? t.types.every(isUnit) : (t.flags & UNIT) !== 0;
-const isObjectish = (t) =>
+const isUnit = (t: ts.Type): boolean =>
+  t.isUnion() ? t.types.every(isUnit) : (t.flags & UNIT) !== 0;
+const isObjectish = (t: ts.Type) =>
   (t.flags & (ts.TypeFlags.Object | ts.TypeFlags.NonPrimitive)) !== 0;
-const isNullish = (t) => (t.flags
+const isNullish = (t: ts.Type) => (t.flags
   & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void)) !== 0;
 
 const STRINGISH = ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike;
@@ -136,7 +154,9 @@ const STRINGISH = ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike;
 // keys) never yields a value, so a literal there does not launder. A member
 // that is itself a brand (`T extends BlockUid | PageId`) does not launder:
 // the mint-site check judges it.
-function laundersParam(checker, param, asValue) {
+function laundersParam(
+  checker: ts.TypeChecker, param: ts.Type, asValue: boolean,
+): boolean {
   const constraint = checker.getBaseConstraintOfType(param);
   if (constraint === undefined || constraint === param) return true;
   const members = constraint.isUnion() ? constraint.types : [constraint];
@@ -154,23 +174,25 @@ function laundersParam(checker, param, asValue) {
 // Whether `param` occurs in `type`, through unions, intersections, type
 // arguments, alias arguments, properties, index signatures and the
 // parameters and returns of signatures.
-function mentions(checker, type, param, seen = new Set()) {
+function mentions(
+  checker: ts.TypeChecker, type: ts.Type, param: ts.Type,
+  seen = new Set<ts.Type>(),
+): boolean {
   if (seen.has(type)) return false;
   seen.add(type);
   if (type === param) return true;
-  const go = (t) => mentions(checker, t, param, seen);
+  const go = (t: ts.Type) => mentions(checker, t, param, seen);
   if (type.aliasTypeArguments?.some(go)) return true;
-  if (type.flags & ts.TypeFlags.IndexedAccess) {
+  if (isIndexedAccess(type)) {
     return go(type.objectType) || go(type.indexType);
   }
-  if (type.flags & ts.TypeFlags.Index) return go(type.type);
-  if (type.flags & ts.TypeFlags.Conditional) {
+  if (isIndex(type)) return go(type.type);
+  if (isConditional(type)) {
     return go(type.checkType) || go(type.extendsType);
   }
   if (type.isUnionOrIntersection()) return type.types.some(go);
-  if (!(type.flags & ts.TypeFlags.Object)) return false;
-  if ((type.objectFlags & ts.ObjectFlags.Reference)
-    && checker.getTypeArguments(type).some(go)) return true;
+  if (!isObject(type)) return false;
+  if (isReference(type) && checker.getTypeArguments(type).some(go)) return true;
   if (isForeign(type)) return false;
   return type.getProperties().some((p) => go(checker.getTypeOfSymbol(p)))
     || checker.getIndexInfosOfType(type).some((i) => go(i.keyType) || go(i.type))
@@ -186,19 +208,21 @@ function mentions(checker, type, param, seen = new Set()) {
 // brandsOf walks brands, and through the arguments of any type alias. Alias
 // arguments, index keys and a mapped type's keys are walked as keys; the
 // structure behind an alias is walked as values.
-export function launders(checker, type, neverLaunders = true) {
-  const seen = [new Set(), new Set()];
+export function launders(
+  checker: ts.TypeChecker, type: ts.Type, neverLaunders = true,
+): boolean {
+  const seen = [new Set<ts.Type>(), new Set<ts.Type>()];
   // The type parameters of a function type in the target that a parameter
   // of that function mentions (`transaction<T>(fn: () => T): T`): its caller
   // ties them to a value they passed. Inside a return, `never` is a function
   // that does not come back.
-  const tied = new Set();
+  const tied = new Set<ts.Type>();
   let inReturn = 0;
-  const walk = (t, asValue = true) => {
+  const walk = (t: ts.Type, asValue = true): boolean => {
     const visited = seen[asValue ? 1 : 0];
     if (visited.has(t)) return false;
     visited.add(t);
-    const key = (u) => walk(u, false);
+    const key = (u: ts.Type) => walk(u, false);
     if (t.flags & ts.TypeFlags.Never) return neverLaunders && inReturn === 0;
     if (t.flags & ts.TypeFlags.TypeParameter) {
       return !tied.has(t) && laundersParam(checker, t, asValue);
@@ -207,23 +231,22 @@ export function launders(checker, type, neverLaunders = true) {
     // from a type parameter, and a caller picks them: `keyof
     // Record<BlockUid, 1>` is a BlockUid. A concrete `keyof Row` resolves to
     // its literal keys and never reaches here.
-    if (t.flags & ts.TypeFlags.Index) return true;
+    if (isIndex(t)) return true;
     if (t.aliasTypeArguments?.some(key)) return true;
-    if (t.flags & ts.TypeFlags.IndexedAccess) {
+    if (isIndexedAccess(t)) {
       return walk(t.objectType) || key(t.indexType);
     }
-    if (t.flags & ts.TypeFlags.Conditional) {
+    if (isConditional(t)) {
       const constraint = checker.getBaseConstraintOfType(t);
       return walk(t.checkType, asValue)
         || constraint !== undefined && walk(constraint, asValue);
     }
     if (t.isUnionOrIntersection()) return t.types.some((m) => walk(m, asValue));
-    if (!(t.flags & ts.TypeFlags.Object)) return false;
-    if (checker.isArrayType(t) || checker.isTupleType(t)
-      || t.objectFlags & ts.ObjectFlags.Reference) {
+    if (!isObject(t)) return false;
+    if (isReference(t)) {
       if (checker.getTypeArguments(t).some((a) => walk(a))) return true;
     }
-    const mapped = (t.objectFlags & ts.ObjectFlags.Mapped) !== 0;
+    const mapped = isMapped(t);
     if (isForeign(t) && !mapped) return false;
     const props = t.getProperties();
     const infos = checker.getIndexInfosOfType(t);
@@ -244,7 +267,7 @@ export function launders(checker, type, neverLaunders = true) {
       || SIGNATURE_KINDS.some((kind) => checker.getSignaturesOfType(t, kind)
         .some(walkReturn));
   };
-  const walkReturn = (sig) => {
+  const walkReturn = (sig: ts.Signature) => {
     const own = (sig.typeParameters ?? []).filter((p) => sig.getParameters()
       .some((a) => mentions(checker, checker.getTypeOfSymbol(a), p)));
     own.forEach((p) => tied.add(p));
@@ -260,7 +283,7 @@ export function launders(checker, type, neverLaunders = true) {
 // The brand literal a type itself carries (not one nested inside it): the
 // most derived subtype key's brand when it holds one (SUBTYPES), else its
 // `__brand` literal.
-function ownBrand(checker, type) {
+function ownBrand(checker: ts.TypeChecker, type: ts.Type): string | null {
   const subtype = SUBTYPES.find(([key]) => type.getProperty(key));
   if (subtype) return subtype[1];
   const brand = type.getProperty("__brand");
@@ -274,17 +297,20 @@ function ownBrand(checker, type) {
 // Map's or index signature's key. A brand nested in an object's property is
 // not counted, so a junk union of object shapes that mention ids is not a
 // forged brand.
-export function shallowBrands(checker, type) {
-  const found = new Set();
-  const walk = (t) => {
+export function shallowBrands(checker: ts.TypeChecker, type: ts.Type): Set<string> {
+  const found = new Set<string>();
+  const walk = (t: ts.Type): void => {
     if (t.isUnion()) return t.types.forEach(walk);
     const own = ownBrand(checker, t);
-    if (own !== null) return found.add(own);
-    if (checker.isArrayType(t) || checker.isTupleType(t)) {
+    if (own !== null) {
+      found.add(own);
+      return undefined;
+    }
+    if (isArrayLike(checker, t)) {
       return checker.getTypeArguments(t).forEach(walk);
     }
-    const name = t.symbol?.name;
-    if (SET_TYPES.has(name) || MAP_TYPES.has(name)) {
+    const name = symbolName(t);
+    if (isReference(t) && (SET_TYPES.has(name) || MAP_TYPES.has(name))) {
       const [first] = checker.getTypeArguments(t);
       if (first !== undefined) walk(first);
       return undefined;
@@ -302,20 +328,22 @@ export function shallowBrands(checker, type) {
 // array/tuple/Set of those, a Map or index-signature type keyed by one, or a
 // union of such. A union with the base type, or a brand merely nested in an
 // object, does not pass.
-export function declaresBrand(checker, type, wanted) {
+export function declaresBrand(
+  checker: ts.TypeChecker, type: ts.Type, wanted: readonly string[],
+): boolean {
   if (type.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) return true;
   if (type.isUnion()) {
     return type.types.every((m) => declaresBrand(checker, m, wanted));
   }
   const own = ownBrand(checker, type);
   if (own !== null) return wanted.includes(own);
-  if (checker.isArrayType(type) || checker.isTupleType(type)) {
+  if (isArrayLike(checker, type)) {
     const elems = checker.getTypeArguments(type);
     return elems.length > 0
       && elems.every((e) => declaresBrand(checker, e, wanted));
   }
-  const name = type.symbol?.name;
-  if (SET_TYPES.has(name) || MAP_TYPES.has(name)) {
+  const name = symbolName(type);
+  if (isReference(type) && (SET_TYPES.has(name) || MAP_TYPES.has(name))) {
     // A Set's element, or a Map's key, is the id; a Map's value is not.
     const [first] = checker.getTypeArguments(type);
     return first !== undefined && declaresBrand(checker, first, wanted);
@@ -335,7 +363,7 @@ export function declaresBrand(checker, type, wanted) {
 // object, and two objects whose shared property holds unit types with no
 // value in common (a discriminant: `{ op: "insert" }` and `{ op: "move" }`,
 // or two `__brand` literals).
-function overlaps(checker, a, b) {
+function overlaps(checker: ts.TypeChecker, a: ts.Type, b: ts.Type): boolean {
   const any = ts.TypeFlags.Any | ts.TypeFlags.Unknown;
   if (a.flags & ts.TypeFlags.TypeParameter) {
     a = checker.getBaseConstraintOfType(a) ?? checker.getUnknownType();
@@ -372,7 +400,7 @@ function overlaps(checker, a, b) {
     // A string's characters sit behind a number index, not properties.
     const apparent = checker.getApparentType(prim);
     const indexed = checker.getIndexInfoOfType(apparent, ts.IndexKind.Number);
-    const isNumeric = (name) => String(Number(name)) === name;
+    const isNumeric = (name: string) => String(Number(name)) === name;
     return obj.getProperties().every((p) => BRAND_TAGS.has(p.name)
       || apparent.getProperty(p.name) || indexed && isNumeric(p.name));
   }
@@ -384,21 +412,26 @@ function overlaps(checker, a, b) {
 // reference's own: `Index<BlockUid, V>` extending `Map<K, V>` gives `Map`
 // with [BlockUid, V]. A base whose arguments are not plain type parameters
 // of the type extending it is skipped, and so is what lies beyond it.
-function instantiatedBases(checker, type) {
-  if (!(type.objectFlags & ts.ObjectFlags.Reference)) return [];
-  const bases = [];
-  const seen = new Set();
-  const walk = (target, args) => {
+interface Base {
+  target: ts.GenericType;
+  args: ts.Type[];
+}
+
+function instantiatedBases(checker: ts.TypeChecker, type: ts.Type): Base[] {
+  if (!isReference(type)) return [];
+  const bases: Base[] = [];
+  const seen = new Set<ts.Type>();
+  const walk = (target: ts.InterfaceType, args: readonly ts.Type[]) => {
     if (seen.has(target)) return;
     seen.add(target);
-    const params = target.typeParameters ?? [];
-    for (const base of checker.getBaseTypes(target) ?? []) {
-      if (!(base.objectFlags & ts.ObjectFlags.Reference)) continue;
+    const params: readonly ts.Type[] = target.typeParameters ?? [];
+    for (const base of checker.getBaseTypes(target)) {
+      if (!isReference(base)) continue;
       const mapped = checker.getTypeArguments(base).map((a) => {
         const i = params.indexOf(a);
         return i >= 0 ? args[i] : undefined;
       });
-      if (!mapped.every((a) => a !== undefined)) continue;
+      if (!mapped.every((a): a is ts.Type => a !== undefined)) continue;
       bases.push({ target: base.target, args: mapped });
       walk(base.target, mapped);
     }
@@ -409,11 +442,11 @@ function instantiatedBases(checker, type) {
 
 // What an array-like or iterable type holds: its number index type, or the
 // first type argument of a reference (`Iterable<T>`, `ReadonlySet<T>`).
-function elementOf(checker, type) {
+function elementOf(checker: ts.TypeChecker, type: ts.Type): ts.Type | undefined {
   const indexed = checker.getIndexTypeOfType(type, ts.IndexKind.Number);
   if (indexed) return indexed;
-  if (!(type.objectFlags & ts.ObjectFlags.Reference)) return undefined;
-  return checker.getTypeArguments(type)[0];
+  if (!isReference(type)) return undefined;
+  return checker.getTypeArguments(type).at(0);
 }
 
 // Whether `to`, which launders, has a laundering position that the declared
@@ -425,12 +458,15 @@ function elementOf(checker, type) {
 // intersection where every member is, a generic mapped type (`Partial<T>`)
 // where what it maps over is, and an array, reference or object through its
 // elements, arguments and properties.
-export function unbackedLaunder(checker, from, to, seen = new Map()) {
+export function unbackedLaunder(
+  checker: ts.TypeChecker, from: ts.Type, to: ts.Type,
+  seen = new Map<ts.Type, Set<ts.Type>>(),
+): boolean {
   if (from === to || !cachedLaunders(checker, to)) return false;
   // `any` fits every type parameter and holds none: a guard over
   // `MessageEvent["data"]` narrows a string to any `T`.
   if (from.flags & ts.TypeFlags.Any) return true;
-  const unheld = (source, target) =>
+  const unheld = (source: ts.Type | undefined, target: ts.Type): boolean =>
     source === undefined ? cachedLaunders(checker, target)
       : unbackedLaunder(checker, source, target, seen);
   if (from.isUnion()) {
@@ -456,11 +492,10 @@ export function unbackedLaunder(checker, from, to, seen = new Map()) {
   if (targets.has(to)) return false;
   seen.set(from, targets.add(to));
   if (to.isIntersection()) return to.types.some((m) => unheld(from, m));
-  if (!(to.flags & ts.TypeFlags.Object)) return !checker.isTypeAssignableTo(from, to);
-  const isReference = (t) => (t.objectFlags & ts.ObjectFlags.Reference) !== 0;
-  if (checker.isArrayType(to) || checker.isTupleType(to)) {
-    const fromElements = checker.isTupleType(from) && checker.isTupleType(to)
-      ? checker.getTypeArguments(from) : [];
+  if (!isObject(to)) return !checker.isTypeAssignableTo(from, to);
+  if (isArrayLike(checker, to)) {
+    const fromElements = isReference(from) && checker.isTupleType(from)
+      && checker.isTupleType(to) ? checker.getTypeArguments(from) : [];
     const element = elementOf(checker, from);
     return checker.getTypeArguments(to).some(
       (t, i) => unheld(fromElements[i] ?? element, t),
@@ -477,12 +512,12 @@ export function unbackedLaunder(checker, from, to, seen = new Map()) {
   }
   // A lib type's members are not walked: `unknown` holds nothing of
   // `Promise<T>`, a `Promise<U>` was paired above.
-  if (isForeign(to) && !(to.objectFlags & ts.ObjectFlags.Mapped)) {
+  if (isForeign(to) && !isMapped(to)) {
     return !checker.isTypeAssignableTo(from, to);
   }
   const props = to.getProperties();
   const infos = checker.getIndexInfosOfType(to);
-  if (to.objectFlags & ts.ObjectFlags.Mapped && props.length === 0
+  if (isMapped(to) && props.length === 0
     && infos.length === 0) {
     // `Partial<T>` over a type parameter has no members until instantiated:
     // it is held where what it maps over is (its alias arguments, or the
@@ -497,7 +532,7 @@ export function unbackedLaunder(checker, from, to, seen = new Map()) {
     const keys = decl?.typeParameter.constraint;
     if (keys && checker.getTypeFromTypeNode(decl) === to) {
       const keyType = checker.getTypeFromTypeNode(keys);
-      if (keyType.flags & ts.TypeFlags.Index) over.push(keyType.type);
+      if (isIndex(keyType)) over.push(keyType.type);
     }
     return over.some((o) => cachedLaunders(checker, o) && unheld(from, o));
   }
@@ -516,8 +551,10 @@ export function unbackedLaunder(checker, from, to, seen = new Map()) {
 
 // The brands of the properties of `to` that `from` does not declare: what
 // width subtyping lets a value of `from` hold there.
-function undeclaredBrands(checker, from, to) {
-  const found = new Set();
+function undeclaredBrands(
+  checker: ts.TypeChecker, from: ts.Type, to: ts.Type,
+): Set<string> {
+  const found = new Set<string>();
   if (checker.getIndexTypeOfType(from, ts.IndexKind.String)) return found;
   for (const p of to.getProperties()) {
     if (from.getProperty(p.name)) continue;
@@ -540,20 +577,23 @@ function undeclaredBrands(checker, from, to) {
 // brand elsewhere in `from` does not cover it. Only the members of a `from`
 // union that could hold a `to` are compared: `BlockUid | null` narrowed to
 // `BlockUid` gains none, `BlockUid | string` gains BlockUid from its string.
-export function mintedBrands(checker, from, to, seen = new Map()) {
-  const minted = new Set();
-  const add = (brands) => brands.forEach((b) => minted.add(b));
+export function mintedBrands(
+  checker: ts.TypeChecker, from: ts.Type, to: ts.Type,
+  seen = new Map<ts.Type, Set<ts.Type>>(),
+): Set<string> {
+  const minted = new Set<string>();
+  const add = (brands: ReadonlySet<string>) => brands.forEach((b) => minted.add(b));
   const every = () => new Set(cachedBrands(checker, to));
   // What a member `to` lends `from` where `from` cannot be it: the brands of
   // the properties `from` does not declare.
-  const lentBy = (source, member) => {
+  const lentBy = (source: ts.Type, member: ts.Type) => {
     if (overlaps(checker, source, member)) {
       return mintedBrands(checker, source, member, seen);
     }
     return isObjectish(member) && isObjectish(source)
-      ? undeclaredBrands(checker, source, member) : new Set();
+      ? undeclaredBrands(checker, source, member) : new Set<string>();
   };
-  const compare = (source, target) => add(source === undefined
+  const compare = (source: ts.Type | undefined, target: ts.Type) => add(source === undefined
     ? cachedBrands(checker, target) : mintedBrands(checker, source, target, seen));
   if (from === to) return minted;
   if (from.flags & ts.TypeFlags.Any) return every();
@@ -573,7 +613,7 @@ export function mintedBrands(checker, from, to, seen = new Map()) {
   // A value of `A & B` is an `A` and a `B`: it gains only what it would
   // gain as each of them.
   if (from.isIntersection() && ownBrand(checker, from) === null) {
-    let common;
+    let common: Set<string> | undefined;
     for (const m of from.types) {
       const gained = mintedBrands(checker, m, to, seen);
       common = common === undefined
@@ -615,16 +655,15 @@ export function mintedBrands(checker, from, to, seen = new Map()) {
   const targets = seen.get(from) ?? new Set();
   if (targets.has(to)) return minted;
   seen.set(from, targets.add(to));
-  const isReference = (t) => (t.objectFlags & ts.ObjectFlags.Reference) !== 0;
   // An intersection that is not itself a brand (`Set<BlockUid> & { a: 1 }`)
   // mints what any of its members does, each taking its own path.
   if (ownBrand(checker, to) === null && to.isIntersection()) {
     for (const m of to.types) add(mintedBrands(checker, from, m, seen));
     return minted;
   }
-  if (checker.isArrayType(to) || checker.isTupleType(to)) {
-    const fromElements = checker.isTupleType(from) && checker.isTupleType(to)
-      ? checker.getTypeArguments(from) : [];
+  if (isArrayLike(checker, to)) {
+    const fromElements = isReference(from) && checker.isTupleType(from)
+      && checker.isTupleType(to) ? checker.getTypeArguments(from) : [];
     const element = elementOf(checker, from);
     checker.getTypeArguments(to).forEach(
       (t, i) => compare(fromElements[i] ?? element, t),
@@ -645,13 +684,13 @@ export function mintedBrands(checker, from, to, seen = new Map()) {
     }
   }
   const structural = ownBrand(checker, to) === null && isObjectish(to)
-    && (!isForeign(to) || (to.objectFlags & ts.ObjectFlags.Mapped) !== 0);
+    && (!isForeign(to) || isMapped(to));
   if (!structural) return every();
   // A brand of `to` that no compared position holds (the `T` of our own
   // `interface TaggedSet<T> extends Set<T>`, reached only through method
   // signatures) is minted too.
-  const accounted = new Set();
-  const position = (source, target) => {
+  const accounted = new Set<string>();
+  const position = (source: ts.Type | undefined, target: ts.Type) => {
     cachedBrands(checker, target).forEach((b) => accounted.add(b));
     compare(source, target);
   };
@@ -695,7 +734,7 @@ export function mintedBrands(checker, from, to, seen = new Map()) {
     // be one of the target's. A plain target key is backed by the `from`
     // signature its reads hit, which for a string index includes number
     // keys, as TypeScript applies it.
-    const applies = (i) => checker.isTypeAssignableTo(info.keyType, i.keyType)
+    const applies = (i: ts.IndexInfo) => checker.isTypeAssignableTo(info.keyType, i.keyType)
       || (i.keyType.flags & ts.TypeFlags.String) !== 0
         && checker.isTypeAssignableTo(info.keyType, checker.getNumberType());
     const same = fromInfos.find((i) =>
@@ -711,39 +750,49 @@ export function mintedBrands(checker, from, to, seen = new Map()) {
   return minted;
 }
 
-export function servicesOf(context) {
+export function servicesOf(
+  context: Readonly<TSESLint.RuleContext<string, readonly unknown[]>>,
+): Pick<ParserServicesWithTypeInformation, "program" | "esTreeNodeToTSNodeMap"> {
   const services = context.sourceCode.parserServices;
-  if (!services?.program || !services.esTreeNodeToTSNodeMap) {
+  const program = services?.program;
+  const esTreeNodeToTSNodeMap = services?.esTreeNodeToTSNodeMap;
+  if (!program || !esTreeNodeToTSNodeMap) {
     throw new Error("brands rules need type information (projectService)");
   }
-  return services;
+  return { program, esTreeNodeToTSNodeMap };
 }
 
 // Brand and launder detection are cached per type for the lifetime of a
 // program.
-const caches = new WeakMap();
-function cachedBy(compute, checker, type) {
-  let byChecker = caches.get(compute);
-  if (!byChecker) caches.set(compute, byChecker = new WeakMap());
-  let cache = byChecker.get(checker);
-  if (!cache) byChecker.set(checker, cache = new Map());
-  if (!cache.has(type)) cache.set(type, compute(checker, type));
-  return cache.get(type);
+type Compute<T> = (checker: ts.TypeChecker, type: ts.Type) => T;
+function cachedBy<T>(compute: Compute<T>): Compute<T> {
+  const byChecker = new WeakMap<ts.TypeChecker, Map<ts.Type, T>>();
+  return (checker, type) => {
+    let cache = byChecker.get(checker);
+    if (!cache) byChecker.set(checker, cache = new Map<ts.Type, T>());
+    const hit = cache.get(type);
+    if (hit !== undefined) return hit;
+    const computed = compute(checker, type);
+    cache.set(type, computed);
+    return computed;
+  };
 }
-export const cachedBrands = (checker, type) => cachedBy(brandsOf, checker, type);
-export const cachedLaunders = (checker, type) => cachedBy(launders, checker, type);
+export const cachedBrands: Compute<Set<string>> = cachedBy(brandsOf);
+export const cachedLaunders: Compute<boolean> = cachedBy(
+  (checker, type) => launders(checker, type),
+);
 // What a function returns launders unless it is `never`: a function that
 // returns `never` never produces a value.
-const launderingReturn = (checker, type) => launders(checker, type, false);
-const cachedLaunderingReturn = (checker, type) =>
-  cachedBy(launderingReturn, checker, type);
+const cachedLaunderingReturn = cachedBy(
+  (checker, type) => launders(checker, type, false),
+);
 
-const members = (type) => (type.isUnion() ? type.types : [type]);
+const members = (type: ts.Type) => (type.isUnion() ? type.types : [type]);
 
 // Whether a call of this function type lets the caller name what comes back:
 // a signature with type parameters of its own whose return launders
 // (`<T>(s: string) => T`, `<T>(s: string) => Promise<T[]>`).
-export function genericReturn(checker, type) {
+export function genericReturn(checker: ts.TypeChecker, type: ts.Type): boolean {
   return members(type).some((m) =>
     checker.getSignaturesOfType(m, ts.SignatureKind.Call).some((sig) =>
       (sig.typeParameters?.length ?? 0) > 0
@@ -752,27 +801,29 @@ export function genericReturn(checker, type) {
 
 // Whether `any` is the type or sits in a union, intersection or type
 // argument of it: what `JSON.parse` returns, which fits any `T`.
-function holdsAny(checker, type, seen = new Set()) {
+function holdsAny(
+  checker: ts.TypeChecker, type: ts.Type, seen = new Set<ts.Type>(),
+): boolean {
   if (seen.has(type)) return false;
   seen.add(type);
   if (type.flags & ts.TypeFlags.Any) return true;
   if (type.isUnionOrIntersection()) {
     return type.types.some((m) => holdsAny(checker, m, seen));
   }
-  return (type.objectFlags & ts.ObjectFlags.Reference) !== 0
+  return isReference(type)
     && checker.getTypeArguments(type).some((a) => holdsAny(checker, a, seen));
 }
 
 // Whether a value of this type is, or returns, `any` somewhere, so that
 // assigning it to `<T>(s: string) => T` is accepted for any `T`.
-export function anyReturning(checker, type) {
+export function anyReturning(checker: ts.TypeChecker, type: ts.Type): boolean {
   return holdsAny(checker, type) || members(type).some((m) =>
     checker.getSignaturesOfType(m, ts.SignatureKind.Call).some((sig) =>
       holdsAny(checker, checker.getReturnTypeOfSignature(sig))));
 }
 
 // Whether a declaration sits in the TypeScript lib or a dependency.
-export const inForeignFile = (decl) => {
+export const inForeignFile = (decl: ts.Declaration): boolean => {
   const f = decl.getSourceFile();
   return f.hasNoDefaultLib || f.isDeclarationFile
     && /node_modules|typescript\/lib/.test(f.fileName);

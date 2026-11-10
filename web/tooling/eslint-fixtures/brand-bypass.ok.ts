@@ -22,3 +22,7 @@ export function branded(row: Row, uid: BlockUid, other: Row): void {
   Reflect.set(row, "uid", uid);
 }
 export const sameKind = (x: unknown) => x instanceof Object;
+// A member named Object or Reflect whose value is a number or string is not
+// the global: TypeScript's own `ts.TypeFlags.Object` reads like one.
+enum Flags { Object = 1, Reflect = 2 }
+export const flagged = (f: number) => (f & (Flags.Object | Flags.Reflect)) !== 0;

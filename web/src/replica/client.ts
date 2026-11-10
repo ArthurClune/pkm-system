@@ -215,12 +215,12 @@ export type ReplicaRpc = {
     payload: { expiresAtMs: number } | undefined;
     result: RecoveryLease;
   };
-  /** result: null, same reasoning as applySnapshot above. */
+  /** result: null; the client method discards it. */
   commitRecovery: {
     payload: { token: string; input: RecoveryCommit };
     result: null;
   };
-  /** result: null, same reasoning as applySnapshot above. */
+  /** result: null; the client method discards it. */
   abortRecovery: { payload: string; result: null };
   diagnostics: { payload: undefined; result: ReplicaDiagnostics };
   /** result: null; nothing reads it -- `dispose()` discards it directly. */

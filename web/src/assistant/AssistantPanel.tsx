@@ -236,8 +236,9 @@ function ConfirmCard({
       scroller?.removeEventListener("scroll", measure, { capture: true });
     };
   }, [scrollerRef]);
-  // sentDecision is set by the hook only once it posts; the head stays only
-  // after a failed post, so a sent decision that is not in flight failed
+  // The machine sets sentDecision when the answer is given and `answering`
+  // while the post is in flight; the head stays after a failed post, so a
+  // sent decision that is not in flight failed.
   const failed = sentDecision !== null && !answering;
   const n = preview?.ops.length ?? 0;
   const position = count > 1 ? ` (1 of ${count})` : "";

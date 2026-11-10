@@ -59,7 +59,7 @@ export async function confirmTool(
 // missed keepalives is comfortably past any scheduling jitter.
 const STREAM_STALL_TIMEOUT_MS = 60_000;
 
-/** Deliberately NOT an AbortError: useAssistant treats an AbortError after
+/** Deliberately NOT an AbortError: the chat machine treats an abort after
  * Stop as success, and this is the opposite of success. */
 async function readWithStallGuard(
   reader: ReadableStreamDefaultReader<Uint8Array>,

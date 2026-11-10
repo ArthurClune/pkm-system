@@ -10,10 +10,8 @@
 //   "Access Handles cannot be created if there is another open Access
 //    Handle or Writable stream associated with the same file."
 // The stale handles release moments later, so retrying the open with a short
-// backoff recovers cleanly. Left unhandled, the open error propagates out of
-// replica.enqueue, the sync provider mistakes it for a server rejection
-// (onDesync), and the legacy repair wipes the active outline to the server's
-// (empty) state, detaching the editor.
+// backoff recovers cleanly. Left unhandled, the open fails and the replica
+// stays dead for the rest of the session.
 //
 // sleep and the open factory are injected so the schedule is unit-testable
 // without a real Worker, OPFS, or timers.

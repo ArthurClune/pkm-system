@@ -987,9 +987,10 @@ export interface paths {
         put?: never;
         /**
          * Stop Turn
-         * @description Stop the conversation's open turn. Answers at once; the turn's stream
-         *     then ends with a `turn_stopped` event once the harness is ready for the
-         *     next turn. A no-op when no turn is open.
+         * @description Stop the conversation's reserved turn, started or not. Answers once
+         *     the stop is recorded; the turn's stream then ends with a `turn_stopped`
+         *     event once the harness is ready for the next turn. The request names no
+         *     turn: a no-op when none is reserved.
          */
         post: operations["stop_turn_api_assistant_conversations__conversation_id__stop_post"];
         delete?: never;

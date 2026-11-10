@@ -1385,7 +1385,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | POST | `/api/assistant/conversations/{id}` | Beacon close (`navigator.sendBeacon`) |
 | POST | `/api/assistant/conversations/{id}/messages` | One turn → SSE stream; 409 while a turn runs |
 | POST | `/api/assistant/conversations/{id}/confirm` | Answer a write confirmation |
-| POST | `/api/assistant/conversations/{id}/stop` | Stop the open turn; answers at once, and the turn's stream ends with `turn_stopped`. A no-op with no turn open |
+| POST | `/api/assistant/conversations/{id}/stop` | Stop the reserved turn, started or not; answers at once, and the turn's stream ends with `turn_stopped`. Names no turn: a no-op when none is reserved, and it stops whichever turn is reserved when it lands |
 | DELETE | `/api/assistant/conversations/{id}` | Close the conversation |
 | **Assets** ([files-and-assets.md](files-and-assets.md)) | | |
 | POST | `/api/assets` | Multipart upload; 413 `upload too large` past `max_upload_bytes`, and 413 `request body too large` for a body past that plus `UPLOAD_ENVELOPE_BYTES` ([Auth](#auth)) |

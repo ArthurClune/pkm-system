@@ -432,7 +432,8 @@ class ClaudeConversation:
     def stop_turn(self) -> None:
         """The user's Stop. Returns at once: the pump interrupts the turn
         and drains its aborted result, then ends the stream with
-        `TurnStopped`. A no-op when no turn is open."""
+        `TurnStopped`. Reaches the reserved turn even before it starts;
+        a no-op once that turn has ended."""
         self._decline_pending()
         self._request_stop(STOPPED_BY_USER)
 

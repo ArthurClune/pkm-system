@@ -249,14 +249,17 @@ keeps reading after the ack until that result, bounded by
 The pump is the only sender of an interrupt (`_stop_turn`, the one caller of
 `_interrupt`). A Stop or a dropped consumer is a request it hears in its
 read wait (`_request_stop`); the stall watchdog is its own read timing out.
-It reads nothing while its interrupt is in flight.
+It handles no message while its interrupt is in flight. Its read may take
+one off the SDK's buffer meanwhile, but that message waits until the ack
+has moved the phase to `draining`.
 
 | Rule | Reason |
 |---|---|
 | A turn sends one interrupt at most. `_stop_turn` acts only in `streaming`, so a Stop during a stall's interrupt or drain, a second Stop, and a disconnect after a Stop send none | A second ack would find the phase `draining`, and the table makes that `dead` |
 | `send()` moves `query` before it awaits `query()`. A cancellation there makes the phase `dead` | The prompt may already have reached the harness, and a turn nobody reads would be read by the next one as its own |
-| A Stop with no turn open sends no interrupt | No pump is reading to hear it. An idle CLI acknowledges an interrupt with no result, so a drain would wait out its bound |
-| The user's Stop (`POST …/stop`, `stop_turn()`) answers at once. The stream then ends with `TurnStopped` (`turn_stopped`) once the drain has read the aborted result, or the harness is lost. A stall's interrupt that came first ends it with the stall's `error` instead | The panel stays busy until this event, so a send after Stop never meets the entry still busy. The entry's `busy` flag clears when the stream ends |
+| A stop reaches the turn the service has reserved, started or not: `send()` mints the turn's stop request when called, and `AssistantService.send()` calls it as it sets `busy`. A turn stopped before its first step sends no prompt and yields only `TurnStopped` | The stop POST can be handled before the response body starts. A stop after its turn has ended reaches nothing, since each turn has its own request |
+| A read that settled in the same pass as a Stop is handled first, so a turn that finished as the Stop landed ends on its own `TurnDone` | No interrupt goes to an idle CLI. An idle CLI acknowledges an interrupt with no result, so a drain would wait out its bound |
+| The user's Stop (`POST …/stop`, `stop_turn()`) answers at once. The stream then ends with `TurnStopped` (`turn_stopped`) once the drain has read the aborted result, or the harness is lost. A stall's interrupt that came first ends it with the stall's `error` instead | Once the pump hears the stop this takes at most `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S`. A stop heard while the prompt is still being written waits on `query()`, which has no bound; there only the web's fallback ([frontend.md § The chat machine](frontend.md#the-chat-machine)) bounds the panel. The entry's `busy` flag clears a few loop passes after `TurnStopped` is written |
 | A write that reaches `can_use_tool` while its turn is being stopped, or after its consumer has gone, is declined without a card. `send()` declines any confirm still parked before it clears the queue | A parked card would hold the harness where it cannot acknowledge the interrupt. A dropped `ConfirmRequest` would leave its future parked, which also suspends the stall watchdog |
 | A `dead` phase retires the conversation: `AssistantService._stream()` checks `healthy` when the turn ends, and `send()` refuses a `dead` harness without querying it | The subprocess may still be running the turn, or is gone. The next `send()` for that id raises `UnknownConversationError`, a 404 the panel answers by re-creating the conversation ([frontend.md § The chat machine](frontend.md#the-chat-machine)). A stream that ended gets an in-band `error`, or the consumer would wait forever |
 

@@ -90,8 +90,9 @@ async def _abandon_stream(
     """Cancel the in-flight read, then close `stream`, on the way out.
 
     Closing it here rather than letting it be collected is the point: the
-    engine's abandon-turn protocol (decline parked confirms, bounded
-    interrupt, retire the harness -- `ClaudeConversation._abandon_turn`) lives
+    engine's abandon-turn protocol (decline parked confirms, have the pump
+    interrupt and drain the turn, retire the harness if that fails within
+    its bound -- `ClaudeConversation._abandon_turn`) lives
     in that generator's `finally`, and an orphaned async generator runs its
     `finally` when CPython's finalizer hook gets to it, which is prompt in
     practice but not a schedule.
@@ -257,9 +258,10 @@ async def stop_turn(
     conversation_id: ConversationId,
     service: AssistantService = Depends(get_service),
 ) -> AssistantAck:
-    """Stop the conversation's open turn. Answers at once; the turn's stream
-    then ends with a `turn_stopped` event once the harness is ready for the
-    next turn. A no-op when no turn is open."""
+    """Stop the conversation's reserved turn, started or not. Answers once
+    the stop is recorded; the turn's stream then ends with a `turn_stopped`
+    event once the harness is ready for the next turn. The request names no
+    turn: a no-op when none is reserved."""
     try:
         service.stop(conversation_id)
     except UnknownConversationError as exc:

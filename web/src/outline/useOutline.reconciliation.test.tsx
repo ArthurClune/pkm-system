@@ -16,7 +16,7 @@ import {
   canonicalTitleOf,
   uidOf,
   clientIdOf,
-  ticketIdOf, rawTitleOf,
+  ticketIdOf, rawTitleOf, typeInto,
 } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -200,7 +200,7 @@ it("a new parent tree flushes a live draft before adopting it", () => {
   act(() => {
     outline.handlers.onFocusBlock(uidOf("tuid-a"), 0);
     // Held, so no debounce timer is involved.
-    outline.handlers.onDraftChange(uidOf("tuid-a"), "typed", true);
+    typeInto(outline, uidOf("tuid-a"), "typed", true);
   });
 
   rerender(view([block("tuid-a", "server A")]));

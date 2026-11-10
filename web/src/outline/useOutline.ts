@@ -44,8 +44,7 @@ import { extendSelection, needsDeleteConfirmation, pruneSelection,
 import { acquireOutlineSession,
          type OutlineSessionHandle } from "./outlineSessions";
 import { dropDraft, setRefusedDraftPending } from "./droppedDrafts";
-import { captureDraft, pendingTextOps, type PendingDraft,
-         type ShownText } from "./draft";
+import { openDraft, pendingTextOps, type PendingDraft } from "./draft";
 import { performRedo, performUndo, recordHistory,
          registerOutlineHistory, releaseUnusedAssets } from "./undoManager";
 
@@ -128,10 +127,6 @@ export function useOutline(
   // holds a draft for its block (handlers.pendingDraft), and hears when it
   // ends (handlers.subscribeDraftEnd).
   const pendingRef = useRef<PendingDraft | null>(null);
-  // The text the focused textarea shows, which the next draft on that block
-  // is typed over: reported by the editor when a clean draft goes dirty, and
-  // the flushed draft's text after a flush.
-  const shownRef = useRef<ShownText | null>(null);
   // Where the pending draft's textarea left its selection when it unmounted
   // without a flush; a textarea remounted over the draft restores it. Only
   // meaningful while that draft is pending, so every flush drops it.
@@ -215,10 +210,7 @@ export function useOutline(
       timerRef.current = null;
     }
     const pending = pendingRef.current;
-    if (pending) {
-      endDraft();
-      shownRef.current = { uid: pending.uid, base: pending.text };
-    }
+    if (pending) endDraft();
     // The draft ships even when its block has left the tree, and its hash is
     // of the text it was typed over, not of what the tree holds now.
     return pendingTextOps(pending, blocksRef.current, pageTitle);
@@ -493,20 +485,19 @@ export function useOutline(
     },
     onBlurBlock: (uid) => {
       if (!flushNow()) return;
-      // The textarea goes away; a later one reports its own shown text.
-      if (shownRef.current?.uid === uid) shownRef.current = null;
       // Only clear if this block still owns focus — a structural op may
       // already have moved it (the old textarea's unmount-blur arrives late).
       setFocus((f) => (f?.uid === uid ? null : f));
     },
     onDraftStart: (uid, shown) => {
-      flushOtherDraft(uid);
-      shownRef.current = { uid, base: shown };
+      if (!flushOtherDraft(uid)) return;
+      pendingRef.current = openDraft(uid, shown);
+      markRefusedPending();
     },
     onDraftChange: (uid, text, holdFlush) => {
-      flushOtherDraft(uid);
-      pendingRef.current = captureDraft(
-        pendingRef.current, uid, text, blocksRef.current, shownRef.current);
+      const pending = pendingRef.current;
+      if (pending?.uid !== uid) return;
+      pendingRef.current = { ...pending, text };
       markRefusedPending();
       if (timerRef.current) {
         clearTimeout(timerRef.current);

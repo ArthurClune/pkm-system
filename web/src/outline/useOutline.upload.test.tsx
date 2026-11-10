@@ -10,7 +10,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, defer, jsonResponse, makeSync, stubFetch, canonicalTitleOf, type SyncFake,
-         orderIdxOf, uidOf } from "../test-helpers";
+         orderIdxOf, uidOf, typeInto } from "../test-helpers";
 import { findNode } from "./tree";
 import { resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
@@ -275,7 +275,7 @@ it("an unflushed draft keeps the block non-empty", async () => {
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-u1"), 0));
-  act(() => getOutline().handlers.onDraftChange(uidOf("tuid-u1"), "typed"));
+  act(() => typeInto(getOutline(), uidOf("tuid-u1"), "typed"));
 
   await act(async () => {
     void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
@@ -298,7 +298,7 @@ it("a block deleted during the upload sends the blocks to the page end",
   act(() => { void getOutline().handlers.onFiles(uidOf("tuid-u2"), 4, [file]); });
   act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-u2"), 0));
   act(() => {
-    getOutline().handlers.onDraftChange(uidOf("tuid-u2"), "");
+    typeInto(getOutline(), uidOf("tuid-u2"), "");
     getOutline().handlers.onBackspaceAtStart(uidOf("tuid-u2"));
   });
   expect(rootTexts(getOutline())).toEqual(["keep"]);

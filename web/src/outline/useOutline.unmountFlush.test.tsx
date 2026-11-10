@@ -6,7 +6,7 @@ import { useEffect } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, canonicalTitleOf, makeSync, orderIdxOf, uidOf,
-         type SyncFake } from "../test-helpers";
+         type SyncFake, typeInto } from "../test-helpers";
 import { findNode } from "./tree";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -44,7 +44,7 @@ it.each([
   const sidebar = mount(sync, Symbol("sidebar"));
   expect(main.outline().ownsEditor).toBe(true);
   act(() => main.outline().handlers.onFocusBlock(UID, 0));
-  act(() => main.outline().handlers.onDraftChange(UID, "before!", held));
+  act(() => typeInto(main.outline(), UID, "before!", held));
   act(() => main.unmount());
   expect(sync.sent.flat()).toEqual([expect.objectContaining(
     { op: "update_text", uid: UID, text: "before!" })]);

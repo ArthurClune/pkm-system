@@ -10,7 +10,7 @@ import { sha256Hex } from "../replica/sha256";
 import { uploadAsset } from "./assets";
 import { useOutline, type Outline } from "../outline/useOutline";
 import {
-  block, FakeWebSocket, jsonResponse, orderIdxOf, pagePayload, canonicalTitleOf, uidOf, shaOf,
+  block, FakeWebSocket, jsonResponse, orderIdxOf, pagePayload, canonicalTitleOf, uidOf, shaOf, typeInto,
 } from "../test-helpers";
 import { SyncProvider } from "./SyncProvider";
 
@@ -79,7 +79,7 @@ test("(a) a text draft whose debounce fires after disconnect posts no op", () =>
   act(() => lastWs().open()); // connected
 
   act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-u1"), 0));
-  act(() => getOutline().handlers.onDraftChange(uidOf("tuid-u1"), "hello")); // 500ms timer
+  act(() => typeInto(getOutline(), uidOf("tuid-u1"), "hello")); // 500ms timer
   act(() => lastWs().drop()); // disconnect before the debounce fires
   act(() => { vi.advanceTimersByTime(600); }); // debounce -> flush -> enqueue
 
@@ -124,7 +124,7 @@ test("(c) reconnect flushes the ops preserved while offline, in order", async ()
   act(() => lastWs().open()); // first connect
 
   act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-u1"), 0));
-  act(() => getOutline().handlers.onDraftChange(uidOf("tuid-u1"), "offline edit"));
+  act(() => typeInto(getOutline(), uidOf("tuid-u1"), "offline edit"));
   act(() => lastWs().drop());
   act(() => { vi.advanceTimersByTime(600); }); // debounce enqueues while offline
   expect(opsPosts()).toHaveLength(0); // preserved, not sent

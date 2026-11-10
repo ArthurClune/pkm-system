@@ -16,7 +16,7 @@ import {
   canonicalTitleOf,
   typeProbe,
   uidOf,
-  clientIdOf,
+  clientIdOf, typeInto,
 } from "../test-helpers";
 import { recordHistory, resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
@@ -151,7 +151,7 @@ it("undo restores a deleted block's text via subtree recreate", () => {
   const outline = setup(sync, PAGE, ab());
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-b"), 0));
   act(() => {
-    outline().handlers.onDraftChange(uidOf("tuid-b"), "");
+    typeInto(outline(), uidOf("tuid-b"), "");
     outline().handlers.onBackspaceAtStart(uidOf("tuid-b"));
   });
   expect(outline().blocks).toHaveLength(1);
@@ -166,7 +166,7 @@ it("a flushed draft posts update_text with the pre-edit text's hash", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-a"), 5));
-  act(() => outline().handlers.onDraftChange(uidOf("tuid-a"), "alpha edited"));
+  act(() => typeInto(outline(), uidOf("tuid-a"), "alpha edited"));
   act(() => outline().handlers.onBlurBlock(uidOf("tuid-a")));
   expect(sync.sent[0][0]).toMatchObject({
     op: "update_text", uid: "tuid-a", text: "alpha edited",
@@ -187,7 +187,7 @@ it("run() records UNSTAMPED ops, so a redo hashes the current text", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-a"), 5));
-  act(() => outline().handlers.onDraftChange(uidOf("tuid-a"), "one"));
+  act(() => typeInto(outline(), uidOf("tuid-a"), "one"));
   act(() => outline().handlers.onBlurBlock(uidOf("tuid-a"))); // flush: records the entry
   act(() => { outline().handlers.onUndo(); });         // back to "alpha"
 
@@ -232,7 +232,7 @@ it("a pending draft flushes and becomes the first undo step", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-a"), 5));
-  act(() => outline().handlers.onDraftChange(uidOf("tuid-a"), "alpha edited"));
+  act(() => typeInto(outline(), uidOf("tuid-a"), "alpha edited"));
   act(() => { outline().handlers.onUndo(); }); // flush-then-undo
   expect(outline().blocks[0].text).toBe("alpha");
 });
@@ -263,7 +263,7 @@ it("undo clamps the restored caret to the restored text", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, [block("tuid-a", "ab", { order_idx: orderIdxOf(0) })]);
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-a"), 2));
-  act(() => outline().handlers.onDraftChange(uidOf("tuid-a"), "x y"));
+  act(() => typeInto(outline(), uidOf("tuid-a"), "x y"));
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-a"), 3));
   act(() => outline().handlers.onSplit(uidOf("tuid-a"), 3));
   act(() => { outline().handlers.onUndo(); });
@@ -287,7 +287,7 @@ it("typing in a cell of a collapsed table keeps focus there through a flush and 
     const sync = makeSync();
     const outline = setup(sync, PAGE, collapsedTable());
     act(() => outline().handlers.onFocusBlock(uidOf("tuid-r1b"), 1));
-    act(() => outline().handlers.onDraftChange(uidOf("tuid-r1b"), "bc"));
+    act(() => typeInto(outline(), uidOf("tuid-r1b"), "bc"));
     act(() => { vi.advanceTimersByTime(5000); }); // the debounced flush
     expect(sync.sent[0]).toMatchObject([{ op: "update_text", uid: "tuid-r1b", text: "bc" }]);
     expect(outline().focus).toEqual({ uid: "tuid-r1b", cursor: 1 });
@@ -308,7 +308,7 @@ it("a remote collapse of the typed block's parent moves focus "
                            children: [block("tuid-c", "child", { order_idx: orderIdxOf(0) })] }),
   ]);
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-c"), 5));
-  act(() => outline().handlers.onDraftChange(uidOf("tuid-c"), "child typed"));
+  act(() => typeInto(outline(), uidOf("tuid-c"), "child typed"));
   act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
     { op: "set_collapsed", uid: uidOf("tuid-p"), collapsed: true },
   ] }));
@@ -377,7 +377,7 @@ it("a batch carrying a draft for a remotely deleted block stays undoable", () =>
     block("tuid-b", "beta", { order_idx: orderIdxOf(1) }),
     block("tuid-c", "gamma", { order_idx: orderIdxOf(2) }),
   ]);
-  act(() => outline().handlers.onDraftChange(uidOf("tuid-a"), "see [[Held", true));
+  act(() => typeInto(outline(), uidOf("tuid-a"), "see [[Held", true));
   act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
     { op: "delete", uid: uidOf("tuid-a") },
   ] }));

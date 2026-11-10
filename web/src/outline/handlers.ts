@@ -20,11 +20,13 @@ export interface OutlineHandlers {
    * must not clear the new focus (the hook checks the uid). */
   onBlurBlock(uid: BlockUid): void;
   /** The first edit of a clean draft is about to be reported: `shown` is the
-   * text the textarea showed, which the user is typing over. It becomes the
-   * new draft's base, so its flush hashes what the user saw rather than a
-   * remote text the tree took before the textarea could show it. */
+   * text the textarea showed, which the user is typing over. It opens the
+   * draft with `shown` as its base, so its flush hashes what the user saw
+   * rather than a remote text the tree took before the textarea could show
+   * it. No draft opens while another block's draft cannot be saved. */
   onDraftStart(uid: BlockUid, shown: string): void;
-  /** holdFlush: the caret sits mid [[ref / #tag token, so the
+  /** Changes the open draft's text; with no draft open on `uid` it records
+   * nothing. holdFlush: the caret sits mid [[ref / #tag token, so the
    * debounced autosave must wait — flushing now would create a page from the
    * half-typed title. Blur/structural commits flush held drafts regardless. */
   onDraftChange(uid: BlockUid, text: string, holdFlush?: boolean): void;

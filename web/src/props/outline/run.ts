@@ -22,7 +22,7 @@ import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
 import { emptyHistory, historyAnchors, invertOps, recordEntry, resolveAnchors,
          takeRedo, takeUndo, type HistoryEntry,
          type HistoryState } from "../../outline/history";
-import { captureDraft, pendingTextOps,
+import { openDraft, pendingTextOps,
          type PendingDraft } from "../../outline/draft";
 import { isOutlinePaste, planOutlinePaste,
          type PastedNode } from "../../outline/paste";
@@ -220,9 +220,11 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
     // A draft on another block is flushed before this one starts.
     if (draft && draft.uid !== uid) flushNow();
     const base = displayed();
-    draft = captureDraft(draft, uid, command.text, tree);
-    const after = displayed();
     const before = findNode(base, uid)?.text ?? "";
+    // BlockInput opens a draft on the text its textarea shows.
+    const open = draft?.uid === uid ? draft : openDraft(uid, before);
+    draft = { ...open, text: command.text };
+    const after = displayed();
     const ops: BlockOp[] = before !== command.text
       ? [{ op: "update_text", uid, text: command.text }] : [];
     // onFocusBlock sets the caret once, when the block takes focus, and typing

@@ -1,9 +1,10 @@
 import { expect, vi } from "vitest";
 import { acquireOutlineSession } from "./outline/outlineSessions";
-import { applyOps } from "./outline/tree";
+import { applyOps, findNode } from "./outline/tree";
+import type { Outline } from "./outline/useOutline";
 import type { BlockOp } from "./api/ops";
 import type { Backlinks, BlockNode, PagePayload } from "./api/payloads";
-import type { BatchId, CanonicalTitle, NormalizedTitle } from "./api/brands";
+import type { BatchId, BlockUid, CanonicalTitle, NormalizedTitle } from "./api/brands";
 import type { WsBatch } from "./sync/socket";
 import type { Sync, SyncStatus } from "./sync/SyncProvider";
 import type { WriteTicket } from "./sync/opQueue";
@@ -137,6 +138,18 @@ export function servePageApplyingSent(sync: SyncFake, pageTitle: CanonicalTitle,
       : jsonResponse({ detail: "not found" }, 404)));
   vi.stubGlobal("fetch", mock);
   return mock;
+}
+
+/** Type `text` into `uid` as BlockInput does: a block with no pending
+ * draft first reports the text it showed, the tree's. */
+export function typeInto(outline: Pick<Outline, "handlers" | "blocks">,
+                         uid: BlockUid, text: string, holdFlush?: boolean): void {
+  if (outline.handlers.pendingDraft(uid) === null) {
+    const node = findNode(outline.blocks, uid);
+    if (!node) throw new Error(`typeInto: no textarea can show ${uid}`);
+    outline.handlers.onDraftStart(uid, node.text);
+  }
+  outline.handlers.onDraftChange(uid, text, holdFlush);
 }
 
 export function block(rawUid: string, text: string,

@@ -13,12 +13,15 @@ import pytest
 from fastapi import HTTPException
 
 from pkm.database import connect
-from pkm.server.db import open_db, write_txn
+from pkm.server.db import open_db, read_txn, write_txn
 from rawread import read
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 HELPER_FILE = "pkm/server/db.py"
 HELPER = "write_txn"
+READ_HELPER = "read_txn"
+READ_SCOPES = ("pkm/server/", "pkm/assistant/")
+PLAIN_BEGIN = re.compile(r"\s*BEGIN(\s+DEFERRED)?\s*", re.IGNORECASE)
 LOCKING_SQL = re.compile(r"\s*BEGIN\s+(IMMEDIATE|EXCLUSIVE)\b", re.IGNORECASE)
 
 
@@ -262,3 +265,115 @@ def test_another_begin_failure_is_not_a_503(tmp_path: Path) -> None:
     with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
         with write_txn(db):
             pass
+
+
+def bare_begin_problems(rel: str, source: str) -> list[str]:
+    """A call with a plain `BEGIN` string argument outside `db.py`: a read
+    snapshot belongs to `read_txn`, which also ends it."""
+    if rel == HELPER_FILE or not rel.startswith(READ_SCOPES):
+        return []
+    return [f"{rel}:{node.lineno}: bare {arg.value.strip()!r}"
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Call)
+            for arg in node.args
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+            and PLAIN_BEGIN.fullmatch(arg.value)]
+
+
+def test_no_bare_begin_outside_db() -> None:
+    problems = [p for path in sorted(SRC.rglob("*.py"))
+                for p in bare_begin_problems(
+                    path.relative_to(SRC).as_posix(), path.read_text())]
+    assert problems == []
+
+
+def read_txn_write_problems(rel: str, source: str) -> list[str]:
+    """Calls inside a `with read_txn(...)` body that write or end the
+    transaction: the helper owns the rollback and the body only reads."""
+    tree = ast.parse(source)
+    out: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.With, ast.AsyncWith)):
+            continue
+        if not any(isinstance(item.context_expr, ast.Call) and (
+                getattr(item.context_expr.func, "id", None) == READ_HELPER
+                or getattr(item.context_expr.func, "attr", None)
+                == READ_HELPER) for item in node.items):
+            continue
+        for inner in _walk_same_scope(node.body):
+            if (isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Attribute)
+                    and inner.func.attr in (
+                        "execute", "executemany", "commit", "rollback")):
+                out.append(f"{rel}:{inner.lineno}: {inner.func.attr} inside"
+                           f" {READ_HELPER}")
+    return out
+
+
+def test_a_read_txn_body_never_writes() -> None:
+    problems = [p for path in sorted(SRC.rglob("*.py"))
+                for p in read_txn_write_problems(
+                    path.relative_to(SRC).as_posix(), path.read_text())]
+    assert problems == []
+
+
+@pytest.mark.parametrize(("source", "expected"), [
+    ("def f(db):\n    with read_txn(db):\n        db.execute('x')\n",
+     "execute inside read_txn"),
+    ("def f(db):\n    with db_mod.read_txn(db):\n        db.commit()\n",
+     "commit inside read_txn"),
+    ("def f(db):\n    with read_txn(db):\n        db.executemany('x', [])\n",
+     "executemany inside read_txn"),
+    ("def f(db):\n    with read_txn(db):\n        db.rollback()\n",
+     "rollback inside read_txn"),
+])
+def test_the_read_scan_flags(source: str, expected: str) -> None:
+    problems = read_txn_write_problems("pkm/server/x.py", source)
+    assert len(problems) == 1 and expected in problems[0], problems
+
+
+def test_the_read_scan_passes() -> None:
+    source = ("def f(db):\n    with read_txn(db):\n        db.select('x')\n"
+              "    db.commit()\n"
+              "    with write_txn(db):\n        db.execute('x')\n")
+    assert read_txn_write_problems("pkm/server/x.py", source) == []
+
+
+def test_the_bare_begin_scan_flags_and_passes() -> None:
+    flagged = bare_begin_problems(
+        "pkm/assistant/x.py", "def f(db):\n    db.execute('begin')\n")
+    assert len(flagged) == 1
+    assert bare_begin_problems(
+        "pkm/server/x.py",
+        "def f(db):\n    db.execute(' BEGIN DEFERRED ')\n") != []
+    assert bare_begin_problems(HELPER_FILE, "db.execute('BEGIN')\n") == []
+    assert bare_begin_problems(
+        "pkm/server/x.py", "db.execute('BEGIN IMMEDIATE')\n") == []
+
+
+def test_read_txn_ends_on_return_and_on_raise(tmp_path: Path) -> None:
+    db = open_db(_table(tmp_path))
+    with read_txn(db):
+        assert db.in_transaction
+    assert not db.in_transaction
+    with pytest.raises(KeyError):
+        with read_txn(db):
+            raise KeyError("x")
+    assert not db.in_transaction
+
+
+def test_read_txn_reads_one_snapshot(tmp_path: Path) -> None:
+    path = _table(tmp_path)
+    seed = connect(path)
+    seed.execute("PRAGMA journal_mode=WAL")
+    seed.execute("INSERT INTO t VALUES (1)")
+    seed.commit()
+    reader = open_db(path)
+    with read_txn(reader):
+        assert [x for (x,) in read(reader, "SELECT x FROM t")] == [1]
+        writer = connect(path)
+        writer.execute("INSERT INTO t VALUES (2)")
+        writer.commit()
+        writer.close()
+        assert [x for (x,) in read(reader, "SELECT x FROM t")] == [1]
+    assert [x for (x,) in read(reader, "SELECT x FROM t")] == [1, 2]

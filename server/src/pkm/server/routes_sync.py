@@ -26,7 +26,7 @@ from pkm.contracts.int64 import INT64_RANGE, Int64
 from pkm.database import Db
 from pkm.rows import Row, heading_level
 from pkm.server.auth import require_auth
-from pkm.server.db import get_db
+from pkm.server.db import get_db, read_txn
 from pkm.server.logfmt import truncate_for_log
 from pkm.server.sync_core import (ChangeRow, chunk_ids, dedupe_window,
                                     hydrate_in_order, missing_parent_uids,
@@ -276,8 +276,7 @@ def sync_changes(since: Annotated[SyncSeq, INT64_RANGE] = NO_SEQ,
     """One window of the change journal after `since`, hydrated to current
     rows, plus which of the `pending` batch ids that window already holds."""
     limit = max(1, min(limit, MAX_LIMIT))
-    db.execute("BEGIN")  # one consistent read snapshot for scan + hydration
-    try:
+    with read_txn(db):  # one consistent read snapshot for scan + hydration
         generation = database_generation(db)
         plain_space_active = plain_space_title_canonicalization_active(db)
         latest = latest_seq(db)
@@ -350,8 +349,6 @@ def sync_changes(since: Annotated[SyncSeq, INT64_RANGE] = NO_SEQ,
             latest_seq=latest, pages=pages, blocks=blocks, sidebar=sidebar,
             tombstones=tombstones,
             applied_batches=_applied_batches(db, pending))
-    finally:
-        db.rollback()  # end the read transaction; nothing was written
 
 
 @router.get("/api/sync/snapshot", response_model=SnapshotPayload)
@@ -360,8 +357,7 @@ def sync_snapshot(pending: PendingIds = None,
                   ) -> SnapshotPayload:
     """The whole graph at one journal seq, plus which of the `pending` batch
     ids it already holds."""
-    db.execute("BEGIN")
-    try:
+    with read_txn(db):
         seq = latest_seq(db)
         uids = [r["uid"] for r in db.select("SELECT uid FROM blocks")]
         blocks, _ = _block_payloads(db, uids)
@@ -381,5 +377,3 @@ def sync_snapshot(pending: PendingIds = None,
             sidebar=sidebar,
             applied_batches=_applied_batches(db, pending),
         )
-    finally:
-        db.rollback()

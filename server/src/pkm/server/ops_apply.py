@@ -94,19 +94,26 @@ def _block_info(db: Db, uid: BlockUid) -> BlockInfo | None:
     return BlockInfo(row["uid"], row["page_id"], row["parent_uid"])
 
 
+def _unvisited(path_col: str, uid_col: str) -> str:
+    """The recursive walks' guard, as SQL text over two column expressions:
+    the uid is not yet on the comma-delimited path. Exact as a membership
+    test because UID_RE admits no comma."""
+    return f"instr({path_col}, ',' || {uid_col} || ',') = 0"
+
+
 def _block_with_depth(db: Db,
                       uid: BlockUid) -> tuple[BlockInfo | None, int]:
     """The block and the level it sits at (1 at top level), in one query;
-    (None, 0) when it is gone. The level counts _parent_chain's walk, under
+    (None, 0) when it is gone. The level counts parent_chain's walk, under
     the same visited-path guard, and comes back as `n`."""
     row = db.select_one(
-        """WITH RECURSIVE chain(uid, parent_uid, path) AS (
+        f"""WITH RECURSIVE chain(uid, parent_uid, path) AS (
               SELECT uid, parent_uid, ',' || uid || ',' FROM blocks
                WHERE uid = ?
               UNION ALL
               SELECT b.uid, b.parent_uid, c.path || b.uid || ','
                 FROM chain c JOIN blocks b ON b.uid = c.parent_uid
-               WHERE instr(c.path, ',' || b.uid || ',') = 0
+               WHERE {_unvisited('c.path', 'b.uid')}
             ) SELECT b.uid, b.page_id, b.parent_uid,
                      (SELECT COUNT(*) FROM chain) AS n
                 FROM blocks b WHERE b.uid = ?""", (uid, uid))
@@ -180,7 +187,7 @@ def _rewrites_within(
     return (_rewrites_of(rows) if cost else ()), cost
 
 
-def _parent_chain(db: Db, uid: BlockUid) -> tuple[BlockUid, ...]:
+def parent_chain(db: Db, uid: BlockUid) -> tuple[BlockUid, ...]:
     """uid and every ancestor above it, root last. Each block has exactly one
     parent, so this is a single path -- but a corrupted DB could already
     contain a cycle, so recursion is guarded by a visited-path check (`path`)
@@ -189,13 +196,13 @@ def _parent_chain(db: Db, uid: BlockUid) -> tuple[BlockUid, ...]:
     comma-delimited path only works as a membership test because UID_RE
     (ops_core.py) bars commas from ever appearing in a uid."""
     rows = db.select(
-        """WITH RECURSIVE chain(uid, parent_uid, path) AS (
+        f"""WITH RECURSIVE chain(uid, parent_uid, path) AS (
               SELECT uid, parent_uid, ',' || uid || ',' FROM blocks
                WHERE uid = ?
               UNION ALL
               SELECT b.uid, b.parent_uid, c.path || b.uid || ','
                 FROM chain c JOIN blocks b ON b.uid = c.parent_uid
-               WHERE instr(c.path, ',' || b.uid || ',') = 0
+               WHERE {_unvisited('c.path', 'b.uid')}
             ) SELECT uid FROM chain""", (uid,))
     return tuple(r["uid"] for r in rows)
 
@@ -205,16 +212,16 @@ def _subtree_with_height(db: Db, uid: BlockUid
     """uid and every descendant, deepest first (children before parents, as
     DeleteBlocks and SetPageId both require), and the subtree's height: how
     many levels its deepest block sits below uid, 0 for a leaf. Same
-    visited-path guard as _parent_chain: a proper tree can't revisit a uid,
+    visited-path guard as parent_chain: a proper tree can't revisit a uid,
     so the guard only ever fires on already-corrupted data, and otherwise
     traverses to full depth. Each row's depth comes back as `n`."""
     rows = db.select(
-        """WITH RECURSIVE sub(uid, path, depth) AS (
+        f"""WITH RECURSIVE sub(uid, path, depth) AS (
               SELECT uid, ',' || uid || ',', 0 FROM blocks WHERE uid = ?
               UNION ALL
               SELECT b.uid, s.path || b.uid || ',', s.depth + 1
                 FROM sub s JOIN blocks b ON b.parent_uid = s.uid
-               WHERE instr(s.path, ',' || b.uid || ',') = 0
+               WHERE {_unvisited('s.path', 'b.uid')}
             ) SELECT uid, depth AS n FROM sub ORDER BY depth DESC""", (uid,))
     return tuple(r["uid"] for r in rows), rows[0]["n"] if rows else 0
 
@@ -235,7 +242,7 @@ def subtree_rows(db: Db,
     holds, and the guard refuses a uid already on the path. Every row
     DeleteBlocks removes is therefore one the copies can reach."""
     rows = db.select(
-        """WITH RECURSIVE sub(uid, parent_uid, order_idx, text, path, depth)
+        f"""WITH RECURSIVE sub(uid, parent_uid, order_idx, text, path, depth)
             AS (
               SELECT uid, parent_uid, order_idx, text, ',' || uid || ',', 0
                 FROM blocks WHERE uid = ?
@@ -243,7 +250,7 @@ def subtree_rows(db: Db,
               SELECT b.uid, b.parent_uid, b.order_idx, b.text,
                      s.path || b.uid || ',', s.depth + 1
                 FROM sub s JOIN blocks b ON b.parent_uid = s.uid
-               WHERE instr(s.path, ',' || b.uid || ',') = 0
+               WHERE {_unvisited('s.path', 'b.uid')}
             ) SELECT uid, parent_uid, order_idx, text FROM sub
                ORDER BY depth DESC""", (uid,))
     return tuple(SubtreeRow(r["uid"], r["parent_uid"], r["order_idx"],
@@ -255,10 +262,10 @@ def _conflict_header(db: Db, target_uid: BlockUid, day: str,
     """Today's conflict header for target_uid, with the next child order_idx
     under it and its level, or None when there is none or the user has
     deleted it (or moved it off the daily page) since it was recorded. The
-    level is _parent_chain's walk counted, under the same visited-path
+    level is parent_chain's walk counted, under the same visited-path
     guard, in the query that finds the header (`n`)."""
     row = db.select_one(
-        """WITH RECURSIVE chain(uid, parent_uid, path, header_uid) AS (
+        f"""WITH RECURSIVE chain(uid, parent_uid, path, header_uid) AS (
               SELECT b.uid, b.parent_uid, ',' || b.uid || ',', b.uid
                 FROM conflict_headers h JOIN blocks b ON b.uid = h.header_uid
                WHERE h.target_uid = ? AND h.day = ? AND b.page_id = ?
@@ -266,7 +273,7 @@ def _conflict_header(db: Db, target_uid: BlockUid, day: str,
               SELECT b.uid, b.parent_uid, c.path || b.uid || ',',
                      c.header_uid
                 FROM chain c JOIN blocks b ON b.uid = c.parent_uid
-               WHERE instr(c.path, ',' || b.uid || ',') = 0
+               WHERE {_unvisited('c.path', 'b.uid')}
             ) SELECT header_uid, COUNT(*) AS n FROM chain
                GROUP BY header_uid""",
         (target_uid, day, daily_page_id))
@@ -520,7 +527,7 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
         parent = _block_info(db, parent_uid) if parent_uid else None
         parent_depth = 0
     # a move's target chain: what classify_skip's cycle test reads
-    chain = (_parent_chain(db, parent.uid)
+    chain = (parent_chain(db, parent.uid)
              if isinstance(op, MoveOp) and block is not None
              and parent is not None else ())
     # only a top-level create / move places by page_title

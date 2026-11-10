@@ -1,4 +1,6 @@
+import re
 import secrets
+from pathlib import Path
 from datetime import datetime
 from typing import get_args
 
@@ -12,7 +14,7 @@ from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockUid, CreateOp, CreatePage
                                SyncSeq, text_hash, UpdateTextOp)
 from pkm.server import ops_apply, ops_core, replay_core
 from pkm.server.db import open_db
-from pkm.server.ops_apply import (_parent_chain, _subtree_deepest_first,
+from pkm.server.ops_apply import (_subtree_deepest_first, parent_chain,
                                   subtree_rows, apply_batch)
 from pkm.server.ops_core import DeleteBlocks, OpError, SubtreeRow, judge_batch
 from pkm.test_data.ids import batch_id_of, client_id_of, order_idx_of, raw_title_of, sha_of, uid_of
@@ -358,7 +360,7 @@ def test_parent_chain_and_subtree_terminate_on_preexisting_cycle(db):
     db.commit()
     expected = {"cycle0", "cycle1", "cycle2", "cycle3", "cycle4"}
 
-    chain = _parent_chain(db, uid_of("cycle4"))
+    chain = parent_chain(db, uid_of("cycle4"))
     assert set(chain) == expected
     assert len(chain) == len(expected)          # no duplicate re-walks
 
@@ -1048,3 +1050,14 @@ def test_block_rewrites_has_one_writer():
         str(p.relative_to(src)) for p in src.rglob("*.py")
         for _ in range(p.read_text().count("INTO block_rewrites")))
     assert writers == ["pkm/server/store.py"]
+
+
+def test_the_visited_path_guard_is_written_once() -> None:
+    src = Path(__file__).resolve().parents[1] / "src" / "pkm"
+    guard = re.compile(r"instr\(\{?\w*\.?path")
+    hits = [f"{path.relative_to(src)}:{n}"
+            for sub in ("server", "assistant")
+            for path in sorted((src / sub).glob("*.py"))
+            for n, line in enumerate(path.read_text().splitlines(), 1)
+            if guard.search(line)]
+    assert len(hits) == 1 and hits[0].startswith("server/ops_apply.py"), hits

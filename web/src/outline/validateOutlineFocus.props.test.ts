@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest";
 import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { uidOf } from "../test-helpers";
-import { validateOutlineFocus } from "./outlineState";
+import { validateOutlineFocus } from "./edits";
 import { visibleUids } from "./tree";
 import { allNodes, isTable, pathTo, treeArb } from "../props/outline/visibleTree";
 

@@ -7,9 +7,7 @@ import {
 import {
   beginAuthoritativeRead,
   createOutlineState,
-  spliceUploadedMarkdown,
   transitionOutline,
-  validateOutlineFocus,
   type ReadToken,
 } from "./outlineState";
 import { findNode } from "./tree";
@@ -198,72 +196,6 @@ describe("outline causality", () => {
     expect(result.state.deferredAuthoritative).toBeNull();
   });
 
-  it("invalidates focus when an adopted tree no longer contains its uid", () => {
-    expect(validateOutlineFocus(
-      { uid: uidOf("tuid-gone"), cursor: 2 }, [block("tuid-kept", "text")],
-    )).toBeNull();
-    expect(validateOutlineFocus(
-      { uid: uidOf("tuid-kept"), cursor: 2 }, [block("tuid-kept", "text")],
-    )).toEqual({ uid: "tuid-kept", cursor: 2 });
-  });
-
-  it("keeps a valid focus as the same object", () => {
-    const focus = { uid: uidOf("tuid-kept"), cursor: 2 };
-    expect(validateOutlineFocus(focus, [block("tuid-kept", "text")])).toBe(focus);
-  });
-
-  it("snaps a caret off the middle of a surrogate pair", () => {
-    // `a😀b` is a, \uD83D, \uDE00, b: offset 2 splits the emoji, and text
-    // typed there would leave both halves lone (saved as U+FFFD).
-    expect(validateOutlineFocus(
-      { uid: uidOf("tuid-e"), cursor: 2 }, [block("tuid-e", "a\u{1F600}b")],
-    )).toEqual({ uid: "tuid-e", cursor: 1 });
-  });
-
-  it("clamps a caret past the end of the block's text", () => {
-    // Undo restores focus recorded on "x y" (caret 3) over the text "ab".
-    expect(validateOutlineFocus(
-      { uid: uidOf("tuid-u"), cursor: 3 }, [block("tuid-u", "ab")],
-    )).toEqual({ uid: "tuid-u", cursor: 2 });
-  });
-
-  it("moves focus hidden under a collapsed ancestor to that ancestor's end", () => {
-    // Split child c of p, collapse p, undo: focusBefore names c, now hidden.
-    const tree = [block("tuid-p", "parent", { collapsed: true, children: [
-      block("tuid-c", "child", { order_idx: orderIdxOf(0) }),
-    ] })];
-    expect(validateOutlineFocus({ uid: uidOf("tuid-c"), cursor: 1 }, tree))
-      .toEqual({ uid: "tuid-p", cursor: 6 });
-  });
-
-  it("moves hidden focus to the outermost collapsed ancestor, the one on screen", () => {
-    const tree = [block("tuid-g", "grand", { collapsed: true, children: [
-      block("tuid-p", "parent", { order_idx: orderIdxOf(0), collapsed: true, children: [
-        block("tuid-c", "child", { order_idx: orderIdxOf(0) }),
-      ] }),
-    ] })];
-    expect(validateOutlineFocus({ uid: uidOf("tuid-c"), cursor: 0 }, tree))
-      .toEqual({ uid: "tuid-g", cursor: 5 });
-  });
-
-  it("keeps focus in a cell of a collapsed Roam table: its rows stay on screen", () => {
-    const tree = [block("tuid-t", "{{[[table]]}}", { collapsed: true, children: [
-      block("tuid-r1", "a", { order_idx: orderIdxOf(0), children: [
-        block("tuid-r1b", "b", { order_idx: orderIdxOf(0) }),
-      ] }),
-    ] })];
-    const focus = { uid: uidOf("tuid-r1b"), cursor: 1 };
-    expect(validateOutlineFocus(focus, tree)).toBe(focus);
-  });
-
-  it("keeps focus on a collapsed block itself: only its children are hidden", () => {
-    const tree = [block("tuid-p", "parent", { collapsed: true, children: [
-      block("tuid-c", "child", { order_idx: orderIdxOf(0) }),
-    ] })];
-    expect(validateOutlineFocus({ uid: uidOf("tuid-p"), cursor: 2 }, tree))
-      .toEqual({ uid: "tuid-p", cursor: 2 });
-  });
-
   it("requests one fresh read instead of adopting a pre-edit candidate", () => {
     const started = beginAuthoritativeRead(
       createOutlineState(rawTitleOf("Page"), [block("tuid-u1", "old")]),
@@ -395,20 +327,6 @@ describe("outline causality", () => {
     expect(repaired.state.blocks.map((node) => node.uid)).toEqual(["target"]);
     expect(repaired.state.blocks[0].children.map((node) => node.uid))
       .toEqual(["tuid-moved"]);
-  });
-
-  it("clamps an upload splice offset past intervening typing", () => {
-    // The user kept typing during a slow upload; the pre-paste offset now sits
-    // beyond the (shortened) text and must clamp to its end.
-    expect(spliceUploadedMarkdown("hi", 10, "[img](x)")).toEqual({
-      text: "hi[img](x)", selStart: 10, selEnd: 10,
-    });
-  });
-
-  it("splices uploaded markdown at the requested offset", () => {
-    expect(spliceUploadedMarkdown("ab", 1, "X")).toEqual({
-      text: "aXb", selStart: 2, selEnd: 2,
-    });
   });
 
   // `local-ops` records a ticket's replay, and the delivery

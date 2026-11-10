@@ -17,13 +17,13 @@ import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          moveBlocksTo, moveBlockDown, moveBlockUp, moveSelectionDown,
          moveSelectionUp, moveSubtreeDown, moveSubtreeUp, outdentBlock,
          outdentSelection, setCollapsed, setHeading, setViewType, splitBlock,
-         type EditResult, type FocusTarget } from "../../outline/edits";
+         validateOutlineFocus, type EditResult,
+         type FocusTarget } from "../../outline/edits";
 import { emptyHistory, historyAnchors, invertOps, recordEntry, resolveAnchors,
          takeRedo, takeUndo, type HistoryEntry,
          type HistoryState } from "../../outline/history";
 import { captureDraft, pendingTextOps,
          type PendingDraft } from "../../outline/draft";
-import { validateOutlineFocus } from "../../outline/outlineState";
 import { isOutlinePaste, planOutlinePaste,
          type PastedNode } from "../../outline/paste";
 import { applyOps, findNode, visibleUids } from "../../outline/tree";

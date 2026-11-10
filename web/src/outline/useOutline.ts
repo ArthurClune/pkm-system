@@ -26,7 +26,8 @@ import { fileDropNotice, partitionUploadable, planFileDropBlocks,
 import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          moveBlocksTo, moveSelectionDown, moveSelectionUp, moveSubtreeDown,
          moveSubtreeUp, outdentBlock, outdentSelection, revealBlock,
-         setCollapsed, setHeading, splitBlock, setViewType, type EditResult,
+         setCollapsed, setHeading, splitBlock, setViewType,
+         spliceUploadedMarkdown, validateOutlineFocus, type EditResult,
          type FocusTarget } from "./edits";
 import { goodlinksAttribute, goodlinksCandidates, goodlinksNotice } from "./goodlinks";
 import type { OutlineHandlers } from "./handlers";
@@ -45,7 +46,6 @@ import { acquireOutlineSession,
 import { dropDraft, setRefusedDraftPending } from "./droppedDrafts";
 import { captureDraft, pendingTextOps, type PendingDraft,
          type ShownText } from "./draft";
-import { spliceUploadedMarkdown, validateOutlineFocus } from "./outlineState";
 import { performRedo, performUndo, recordHistory,
          registerOutlineHistory, releaseUnusedAssets } from "./undoManager";
 

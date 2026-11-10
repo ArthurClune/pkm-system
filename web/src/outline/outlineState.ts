@@ -6,10 +6,8 @@ import type { BlockUid, OrderIdx, RawTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import type { TicketId } from "../sync/opQueue";
-import { clampCaret, type FocusTarget } from "./edits";
-import { snapCaret, type TextSelection } from "./keyEdits";
-import { ancestorChain, applyOps, applyOpsWithChange, blocksEqual, findNode,
-         hidesChildren, insertSubtree } from "./tree";
+import { applyOps, applyOpsWithChange, blocksEqual, findNode,
+         insertSubtree } from "./tree";
 import { bumpedUids } from "./blockStamps";
 
 // Distinct web-only brands for ReadToken's two same-typed counters. Both are
@@ -337,47 +335,4 @@ export function transitionOutline(
       throw new Error(`unhandled outline event: ${String(exhaustive)}`);
     }
   }
-}
-
-/** The focus this tree can show: null when the block is gone; its nearest
- * visible ancestor (the outermost one that hides its children), caret at the
- * end of its text, when the block is hidden; otherwise the same block with
- * its caret clamped to the text and moved off the middle of a surrogate pair.
- * A focus that already holds comes back as the same object. */
-export function validateOutlineFocus(
-  focus: FocusTarget | null,
-  blocks: BlockNode[],
-): FocusTarget | null {
-  if (!focus) return null;
-  let siblings = blocks;
-  for (const uid of ancestorChain(blocks, focus.uid)) {
-    // The chain is a root-to-block path through this tree, so each uid is
-    // among the children of the one before it.
-    const node = siblings.find((n) => n.uid === uid)!;
-    if (uid === focus.uid) {
-      // Snapped as well as clamped: a caret kept across a remote edit or
-      // restored by undo can land inside a surrogate pair, where typing
-      // would leave both halves lone (saved as U+FFFD).
-      const cursor = snapCaret(node.text, clampCaret(focus.cursor, node.text.length));
-      return cursor === focus.cursor ? focus : { uid, cursor };
-    }
-    if (hidesChildren(node)) return { uid, cursor: node.text.length };
-    siblings = node.children;
-  }
-  return null;
-}
-
-/** Splice markdown (a /goodlinks or /link-local-file attribute) into a block's
- * text at the recorded caret, clamped to the current length (the user may have
- * kept typing during a slow upload). Returns the new text plus the caret
- * placed after the insertion. */
-export function spliceUploadedMarkdown(
-  text: string,
-  requestedOffset: number,
-  markdown: string,
-): TextSelection {
-  const at = snapCaret(text, Math.min(requestedOffset, text.length));
-  const spliced = text.slice(0, at) + markdown + text.slice(at);
-  const caret = at + markdown.length;
-  return { text: spliced, selStart: caret, selEnd: caret };
 }

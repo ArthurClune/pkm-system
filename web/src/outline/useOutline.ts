@@ -18,7 +18,7 @@ import { newUid } from "../uid";
 import { FIRST_ORDER_IDX } from "./orderIdx";
 import type { DropTarget, OutlineDndApi } from "./dnd";
 import { planCommand } from "./command";
-import { fileDropNotice, partitionUploadable, planFileDropBlocks,
+import { fileDropNotice, type FileDropPlan, partitionUploadable, planFileDropBlocks,
          planUploadBlocks } from "./fileDrop";
 import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          moveBlocksTo, moveSelectionDown, moveSelectionUp, moveSubtreeDown,
@@ -417,6 +417,41 @@ export function useOutline(
   }, [flushNow]);
 
   const scrollToUidRef = useRef<BlockUid | null>(null);
+  // Uploads, then places one block per upload with the plan the caller
+  // supplies, planned against the tree as it is once the uploads finish:
+  // the target may have gone meanwhile.
+  const uploadAndPlace = useCallback(async (
+    files: readonly File[], rejected: readonly string[],
+    plan: (b: BlockNode[], texts: string[], uids: BlockUid[]) => FileDropPlan,
+  ): Promise<boolean> => {
+    setUploadError(null);
+    const texts: string[] = [];
+    const fresh: Sha256Hex[] = [];
+    const failures: string[] = [];
+    for (const file of files) {
+      try {
+        const info = await uploadAsset(file);
+        if (!info.existing) fresh.push(info.sha256);
+        texts.push(assetMarkdown(info));
+      } catch (err) {
+        // a failed upload adds no block; the others still land
+        const reason = err instanceof Error ? err.message : String(err);
+        failures.push(`${file.name}: ${reason}`);
+      }
+    }
+    const notice = fileDropNotice(failures, [...rejected]);
+    if (notice !== null) setUploadError(notice);
+    if (texts.length === 0) return false;
+    const uids = texts.map(() => newUid());
+    let fallbackUid: BlockUid | null = null;
+    const applied = run((b) => {
+      const placed = plan(b, texts, uids);
+      fallbackUid = placed.fellBack ? placed.firstUid : null;
+      return placed.result;
+    }, { freshAssets: fresh });
+    if (applied && fallbackUid !== null) scrollToUidRef.current = fallbackUid;
+    return applied;
+  }, [run]);
   const handlers = useMemo<OutlineHandlers>(() => ({
     // A draft run() would not save keeps the editor on its block: focus
     // does not move off it (here, onBlurBlock, onArrow, block selection),
@@ -506,43 +541,9 @@ export function useOutline(
       const ops: BlockOp[] = [{ op: "update_text", uid, text: flipped }];
       return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
     }),
-    onFiles: (uid, _cursor, files) => {
-      setUploadError(null);
-      return (async () => {
-        const texts: string[] = [];
-        const fresh: Sha256Hex[] = [];
-        const failures: string[] = [];
-        for (const file of files) {
-          try {
-            const info = await uploadAsset(file);
-            if (!info.existing) fresh.push(info.sha256);
-            texts.push(assetMarkdown(info));
-          } catch (err) {
-            // a failed upload adds no block; the others still land
-            const reason = err instanceof Error ? err.message : String(err);
-            failures.push(`${file.name}: ${reason}`);
-          }
-        }
-        if (failures.length > 0) {
-          setUploadError(failures.length === 1
-            ? `Upload failed — ${failures[0]}`
-            : `${failures.length} uploads failed — ${failures.join("; ")}`);
-        }
-        if (texts.length === 0) return false;
-        const uids = texts.map(() => newUid());
-        let fallbackUid: BlockUid | null = null;
-        const applied = run((b) => {
-          // planned against the tree as it is now: the block may have gone
-          // while the uploads ran. Focus follows planUploadBlocks' rule.
-          const plan = planUploadBlocks(b, pageTitle, uid, texts, uids,
-                                        focusRef.current?.uid ?? null);
-          fallbackUid = plan.fellBack ? plan.firstUid : null;
-          return plan.result;
-        }, { freshAssets: fresh });
-        if (applied && fallbackUid !== null) scrollToUidRef.current = fallbackUid;
-        return applied;
-      })();
-    },
+    onFiles: (uid, files) => uploadAndPlace(files, [],
+      (b, texts, uids) => planUploadBlocks(b, pageTitle, uid, texts, uids,
+                                           focusRef.current?.uid ?? null)),
     onGoodlinks: (uid, cursor) => {
       setGoodlinksNotice(null);
       const url = goodlinksCandidates(blocksRef.current, uid)[0];
@@ -664,7 +665,7 @@ export function useOutline(
     },
     onRefusedEdit: (notice) => setEditNotice(notice),
   }), [run, flushNow, flushOtherDraft, markRefusedPending, pageTitle,
-      selection, sync, confirm]);
+      selection, sync, confirm, uploadAndPlace]);
 
   const dnd = useMemo<OutlineDndApi>(() => ({
     flushDraft: flushNow,
@@ -699,35 +700,10 @@ export function useOutline(
   }, [blocks]);
 
   const onDropFiles = useCallback(async (files: File[], target: DropTarget) => {
-    setUploadError(null);
     const { accepted, rejected } = partitionUploadable(files);
-    const failures: string[] = [];
-    const texts: string[] = [];
-    const fresh: Sha256Hex[] = [];
-    for (const file of accepted) {
-      try {
-        const info = await uploadAsset(file);
-        if (!info.existing) fresh.push(info.sha256);
-        texts.push(assetMarkdown(info));
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : String(err);
-        failures.push(`${file.name}: ${reason}`);
-      }
-    }
-    const notice = fileDropNotice(failures, rejected.map((f) => f.name));
-    if (notice !== null) setUploadError(notice);
-    if (texts.length === 0) return;
-    const uids = texts.map(() => newUid());
-    let fallbackUid: BlockUid | null = null;
-    const applied = run((b) => {
-      // planned against the tree as it is now: the target's parent may have
-      // gone while the uploads ran
-      const plan = planFileDropBlocks(b, pageTitle, target, texts, uids);
-      fallbackUid = plan.fellBack ? plan.firstUid : null;
-      return plan.result;
-    }, { freshAssets: fresh });
-    if (applied && fallbackUid !== null) scrollToUidRef.current = fallbackUid;
-  }, [run, pageTitle]);
+    await uploadAndPlace(accepted, rejected.map((f) => f.name),
+      (b, texts, uids) => planFileDropBlocks(b, pageTitle, target, texts, uids));
+  }, [uploadAndPlace, pageTitle]);
 
   const createFirstBlock = useCallback(() => {
     run((b) => {

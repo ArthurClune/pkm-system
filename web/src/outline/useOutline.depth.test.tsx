@@ -252,8 +252,7 @@ it("an /upload past the depth cap releases the files, reports no insert",
   let inserted: boolean | void = undefined;
 
   await act(async () => {
-    inserted = await outline().handlers.onFiles(
-      uidOf("tuid-d101"), 0, [png("one.png")]);
+    inserted = await outline().handlers.onFiles(uidOf("tuid-d101"), [png("one.png")]);
   });
 
   expect(inserted).toBe(false);

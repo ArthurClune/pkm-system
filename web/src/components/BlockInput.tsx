@@ -50,7 +50,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
                              onRequestUpload, onRequestLocalFile }: {
   node: BlockNode; cursor: CaretOffset;
   handlers: OutlineHandlers; readOnly: boolean;
-  onRequestUpload: (uid: BlockUid, at: CaretOffset) => void;
+  onRequestUpload: (uid: BlockUid) => void;
   onRequestLocalFile: (uid: BlockUid, at: CaretOffset) => void;
 }) {
   const headingClass =
@@ -196,7 +196,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
         setText(plan.text, plan.at);
         handlers.onBlurBlock(node.uid);
         switch (plan.to) {
-          case "upload": onRequestUpload(node.uid, plan.at); return;
+          case "upload": onRequestUpload(node.uid); return;
           case "goodlinks": handlers.onGoodlinks(node.uid, plan.at); return;
           case "local-file": onRequestLocalFile(node.uid, plan.at); return;
           default: {
@@ -404,8 +404,8 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   };
   const onPhone = isPhoneUserAgent(navigator.userAgent);
 
-  const uploadFiles = (at: number, files: File[]) => {
-    void handlers.onFiles(node.uid, at, files);
+  const uploadFiles = (files: File[]) => {
+    void handlers.onFiles(node.uid, files);
   };
 
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -415,7 +415,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     const files = Array.from(e.clipboardData.files);
     if (files.length > 0) {
       e.preventDefault();
-      uploadFiles(e.currentTarget.selectionStart, files);
+      uploadFiles(files);
       return;
     }
     const text = e.clipboardData.getData("text/plain");
@@ -440,7 +440,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0 || readOnly) return;
     e.preventDefault();
-    uploadFiles(e.currentTarget.selectionStart, files);
+    uploadFiles(files);
   };
 
   return (

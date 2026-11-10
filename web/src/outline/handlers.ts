@@ -66,9 +66,8 @@ export interface OutlineHandlers {
   /** Resolves once the uploads have finished: true when something landed
    * (each upload as its own block after `uid`, or in `uid` when it was
    * empty), false when nothing did (every upload failed, or the command was
-   * refused). `cursor` is unused
-   * by the planner. */
-  onFiles(uid: BlockUid, cursor: number, files: File[]): Promise<boolean>;
+   * refused). */
+  onFiles(uid: BlockUid, files: File[]): Promise<boolean>;
   /** /goodlinks (see outline/goodlinks.ts): resolve the nearest URL against
    * GoodLinks and splice the `Local copy::` attribute at `cursor` in `uid`.
    * The block has already been blurred by the pick, like /upload. */

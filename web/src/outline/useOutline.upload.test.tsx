@@ -57,7 +57,7 @@ it("onFiles adds the upload as a new block after one with text", async () => {
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   await act(async () => {
-    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), [file]);
     await flush();
   });
 
@@ -73,7 +73,7 @@ it("a failed upload sets a visible uploadError and leaves the text untouched",
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   await act(async () => {
-    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), [file]);
     await flush();
   });
 
@@ -90,7 +90,7 @@ it("dismissUploadError clears the message", async () => {
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   await act(async () => {
-    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), [file]);
     await flush();
   });
   expect(getOutline().uploadError).not.toBeNull();
@@ -114,7 +114,7 @@ it("the /upload dialog path adds a block and leaves focus null",
   expect(getOutline().focus).toBeNull();
 
   await act(async () => {
-    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), [file]);
     await flush();
   });
 
@@ -132,7 +132,7 @@ it("a paste into a focused block with text leaves focus where it was",
   act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-u1"), 5));
 
   await act(async () => {
-    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), [file]);
     await flush();
   });
 
@@ -150,7 +150,7 @@ it("a paste into a focused empty block fills it and focuses past the markdown",
   act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-u1"), 0));
 
   await act(async () => {
-    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 0, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), [file]);
     await flush();
   });
 
@@ -170,7 +170,7 @@ it("moving focus to another block during a slow upload leaves it there",
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-u1"), 5));
-  act(() => { void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]); });
+  act(() => { void getOutline().handlers.onFiles(uidOf("tuid-u1"), [file]); });
   act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-u2"), 0));
 
   await act(async () => {
@@ -189,7 +189,7 @@ it("starting a new upload clears a stale error from a previous failure", async (
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
   await act(async () => {
-    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), [file]);
     await flush();
   });
   expect(getOutline().uploadError).not.toBeNull();
@@ -198,7 +198,7 @@ it("starting a new upload clears a stale error from a previous failure", async (
     JSON.stringify(INFO), { status: 200,
       headers: { "Content-Type": "application/json" } }));
   await act(async () => {
-    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), [file]);
     await flush();
   });
 
@@ -218,7 +218,7 @@ it("several uploads become sibling blocks in upload order, one undo entry",
                  new File(["y"], "dog.png", { type: "image/png" })];
 
   await act(async () => {
-    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, files);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), files);
     await flush();
   });
 
@@ -239,7 +239,7 @@ it("undo after filling an empty block restores it and removes the sibling",
                  new File(["y"], "dog.png", { type: "image/png" })];
 
   await act(async () => {
-    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 0, files);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), files);
     await flush();
   });
 
@@ -260,7 +260,7 @@ it("a failed upload among several still lands the others", async () => {
                  new File(["y"], "dog.png", { type: "image/png" })];
 
   await act(async () => {
-    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, files);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), files);
     await flush();
   });
 
@@ -278,7 +278,7 @@ it("an unflushed draft keeps the block non-empty", async () => {
   act(() => typeInto(getOutline(), uidOf("tuid-u1"), "typed"));
 
   await act(async () => {
-    void getOutline().handlers.onFiles(uidOf("tuid-u1"), 5, [file]);
+    void getOutline().handlers.onFiles(uidOf("tuid-u1"), [file]);
     await flush();
   });
 
@@ -295,7 +295,7 @@ it("a block deleted during the upload sends the blocks to the page end",
      block("tuid-u2", "gone", { order_idx: orderIdxOf(1) })]);
   const file = new File(["x"], "cat.png", { type: "image/png" });
 
-  act(() => { void getOutline().handlers.onFiles(uidOf("tuid-u2"), 4, [file]); });
+  act(() => { void getOutline().handlers.onFiles(uidOf("tuid-u2"), [file]); });
   act(() => getOutline().handlers.onFocusBlock(uidOf("tuid-u2"), 0));
   act(() => {
     typeInto(getOutline(), uidOf("tuid-u2"), "");

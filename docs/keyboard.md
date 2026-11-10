@@ -80,6 +80,7 @@ See "While blocks are selected" below for what you can do next.
 | Ctrl+O | Open the `[[page]]` the caret is inside |
 | Ctrl+Shift+O | Open the `[[page]]` the caret is inside in the sidebar |
 | `[`, `(`, `{`, `"`, `'`, backtick | Auto-pair, or wrap the selection; typing `[[` opens the page-link autocomplete |
+| `]`, `)`, `}`, `"`, `'`, backtick, typed right before the same character | Steps over it instead of inserting another |
 | Escape | Stop editing the block |
 
 ### Autocomplete popup (after `[[`, `#`, or `/`)

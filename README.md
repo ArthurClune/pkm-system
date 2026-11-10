@@ -47,8 +47,8 @@ editing the sidebar, deleting pages, and `{{[[query]]}}` blocks.
 
 **When edits collide** (the same block changed on two devices while one was
 offline), the server keeps the last write per block and saves the losing text
-as a `[[conflict]]` block next to the winner. An offline edit to a block that
-was deleted in the meantime is appended to today's daily note.
+as a `[[conflict]]` block on today's daily page, under a header for that block.
+An offline edit to a block that was deleted in the meantime lands there too.
 
 **Limits:** the first visit and login need a connection. The replica is
 per-browser, so a new device or a cleared browser profile starts online. If
@@ -58,9 +58,9 @@ why.
 ## Assistant
 
 `Cmd/Ctrl+J` opens a chat panel backed by a Claude agent. Pick a model
-(`opus`, `sonnet`, `haiku`, or `glm` when a z.ai key is configured; the
-default is `glm` when available, otherwise `sonnet`) and ask it to find,
-summarise or write notes.
+(any of `MODELS` in `server/src/pkm/assistant/policy.py`, `glm` only when a
+z.ai key is configured; the default is `glm` when available, otherwise
+`sonnet`) and ask it to find, summarise or write notes.
 
 The agent runs on the server. Its only tools are the `pkm` verbs, which reach
 your graph through the same HTTP API as every other client. Reads run without
@@ -180,7 +180,10 @@ pnpm dev           # Vite dev server on http://localhost:5173
 ```
 
 The dev server proxies `/api`, `/assets` and `/login` to the backend on
-`127.0.0.1:8974` (see `web/vite.config.ts`), so run the server alongside it.
+`127.0.0.1:8974` unless `PKM_API_PORT` names another port (see
+`web/vite.config.ts`). On a machine whose port 8974 is production, start a
+scratch server and set `PKM_API_PORT` to its port first; unset, `pnpm dev`
+writes to production.
 
 Other web scripts:
 

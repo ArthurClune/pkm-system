@@ -52,8 +52,9 @@ the column too. `.block-ref-popover` copies `.block-menu`'s surface, a pair
 Buttons and fields are styled by named class, and there is no bare
 `input`/`select` element rule: a new control opts in by name.
 
-- **Buttons** are pills. `.btn-secondary` carries its own padding, so call
-  sites add none. `.btn-danger` fills with `--color-error-fill`, a token
+- **Buttons** are pills. `.btn-secondary` carries its own padding. A call
+  site that wants other metrics overrides it in a rule that sits later in
+  `styles.css` or has higher specificity (`.file-copy`). `.btn-danger` fills with `--color-error-fill`, a token
   separate from the error text colour. The chrome trio
   (`.top-bar-menu-button`, `.sidebar-toggle-button`, `.help-button`) has a
   transparent border, so hover does not shift layout.
@@ -125,7 +126,8 @@ Other rules:
   `visibility: hidden`, restored by `.left-nav.open`, or its links stay tab
   stops. The hamburger carries `aria-expanded` and `aria-controls="left-nav"`.
   Closing returns focus to it, guarded on the drawer's previous state because
-  every `NavLink` calls `setNavOpen(false)`.
+  every nav link (`NavRouteLink`, `NavPageLink`, `SidebarNav`) calls
+  `onNavigate`, which is `setNavOpen(false)`.
 - **Clickable headings.** Page-title rename (`.page-title-edit`) and the
   Unlinked references collapse (`.section-toggle`) wrap their label in a real
   `<button>` inside the heading, with `font: inherit`, explicit

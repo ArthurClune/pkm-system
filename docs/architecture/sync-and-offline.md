@@ -31,7 +31,7 @@ at push time.
 | WS hub | `ws.py`, `notify.py` | Post-commit nudges and op echoes ([backend.md § Post-commit nudges](backend.md#post-commit-nudges)) |
 | Replica | `web/src/replica/` | sqlite-wasm in a worker, on the OPFS SAHPool VFS |
 | Op queue | `sync/opQueue.ts`, `replica/queue.ts`, `sync/outbox.ts` | Durable `pending_ops`, optimistic apply, drain |
-| Orchestration | `sync/SyncProvider.tsx`, `clientRuntime.ts`, `useSocketLifecycle.ts`, `reconnectFlow.ts`, `replicaSync.ts` | Connect ordering, the pull loop, recovery, view refetch |
+| Orchestration | `sync/SyncProvider.tsx`, `clientRuntime.ts`, `useSocketLifecycle.ts`, `reconnectFlow.ts`, `replicaSync.ts`, `legacyRepair.ts` | Connect ordering, the pull loop, recovery, view refetch |
 | Offline API shim | `replica/localApi/` | Serves the read API's JSON shapes from the replica |
 
 No `OpQueue` method may emit synchronously. `SyncProvider` subscribes in an
@@ -384,8 +384,8 @@ offline edits. A socket reconnect and the queue's `onDrain`
 running completion gets one more pull before the resync decision. The
 running one may be past its pull, and the server sends no seq frame on
 connect. Before its drain, a connect
-retries a failed rejected-batch repair (`retryFailedRepair`), whose barrier
-would block the drain
+retries a failed rejected-batch repair, then a failed lane repair
+(`retryFailedRepair`), whose barrier would block the drain
 ([sync-recovery.md § A batch the server rejects](sync-recovery.md#a-batch-the-server-rejects)).
 
 ### When views refetch

@@ -9,6 +9,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { expandOnly } from "./contextGroups.mjs";
 import { BASE, BIG_PAGE, INIT, REACT_INIT, sleep, attachCounters, freshBag,
          resetBag, login } from "./harness.mjs";
 
@@ -18,15 +19,16 @@ const arg = (name, dflt) => {
 };
 const OUT = arg("--out");
 const LETTERS = "H,W,A,B,F,J,I,K,S,R";
-const ONLY = new Set((arg("--only", LETTERS)).split(","));
+const REQUESTED = arg("--only", LETTERS).split(",");
 {
   const valid = new Set(LETTERS.split(","));
-  const unknown = [...ONLY].filter((l) => !valid.has(l));
+  const unknown = REQUESTED.filter((l) => !valid.has(l));
   if (unknown.length) {
     console.error(`--only: unknown scenario letter(s) ${unknown.join(",")}; valid letters: ${LETTERS}`);
     process.exit(2);
   }
 }
+const ONLY = expandOnly(REQUESTED.join(","));
 const FROZEN = process.env.PERF_FROZEN_NOW;
 if (!OUT || !FROZEN) { console.error("need --out and PERF_FROZEN_NOW"); process.exit(2); }
 const IDLE_MS = 30_000;

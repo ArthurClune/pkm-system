@@ -136,8 +136,9 @@ Rules a change to the gate must keep:
   emit the `pkm:replica-ready` mark.
 - Counts are deterministic or the run fails. Backend counts are taken twice
   (`UnstableCountError`) and scenario R measures two passes. Clocks, timezone,
-  fixture copies, typing paces and browser context groups (`_CONTEXT_GROUPS`)
-  are pinned beside the code that needs them. What no control removes is
+  fixture copies, typing paces and browser context groups
+  (`CONTEXT_GROUPS` in `contextGroups.mjs`, which `check.mjs --only`
+  expands) are pinned beside the code that needs them. What no control removes is
   classed `band` or `timing`.
 - `cache_key` (`fixture.py`, `build.py`, the DDL, the product source) decides
   when the cached fixture is rebuilt. `fixture_hash` (`fixture.py` only)

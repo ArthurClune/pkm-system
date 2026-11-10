@@ -30,4 +30,4 @@ Task plan: docs/superpowers/plans/2026-11-10-w17-gates-and-tooling.md
 - [x] T14 orchestrator cleanups
 - [x] T15 one regeneration command
 - [x] T16 budgets carry one sentence per limit
-- [ ] T17 docs say what W17 made true
+- [x] T17 docs say what W17 made true

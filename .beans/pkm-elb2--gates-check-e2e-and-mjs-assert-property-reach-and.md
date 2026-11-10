@@ -25,7 +25,7 @@ Task plan: docs/superpowers/plans/2026-11-10-w17-gates-and-tooling.md
 - [x] T9 the two non-brand rules get their own plugin
 - [x] T10 fixtures become bad/ok pairs
 - [x] T11 one registry path matcher on both sides
-- [ ] T12 tooling .mjs type-checked and linted
+- [x] T12 tooling .mjs type-checked and linted
 - [x] T13 perf investigation toolkit gets its own port (or retires)
 - [x] T14 orchestrator cleanups
 - [x] T15 one regeneration command

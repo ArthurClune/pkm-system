@@ -15,17 +15,16 @@
 // conditional server delete, refused while any block still references the
 // file). An undo whose delivery fails leaves the files.
 //
-// A replay that would put a block past the outline depth cap, store a
-// block text past a text limit (grammar/textLimits.ts) or hold a ref to a
-// title the server refuses (replica/titles.ts), applies and sends nothing (the
-// server refuses such a batch whole, and the offline queue would discard
-// it), shows the refusal's notice, and puts its entry back, so it can be
-// retried once the user has made room. The entry goes back as though it had
-// been refused at the keypress (restoreEntry, history.ts), so an edit
-// recorded while the page was being read keeps its place. Its delivery
-// resolves "failed", so a refused upload undo keeps the files. A page this
-// tab cannot read is judged by the text limits and the titles only,
-// which need no tree: its depth is left to the server.
+// A replay that editRefusal refuses (past the outline depth cap, a text
+// limit or the batch size, or holding a ref to a title the server
+// refuses), applies and sends nothing (the server refuses such a batch
+// whole, and the offline queue would discard it), shows the refusal's
+// notice, and puts its entry back, so it can be retried once the user has
+// made room. The entry goes back as though it had been refused at the
+// keypress (restoreEntry, history.ts), so an edit recorded while the page
+// was being read keeps its place. Its delivery resolves "failed", so a
+// refused upload undo keeps the files. A page this tab cannot read is judged
+// without its tree: its depth is left to the server.
 import type { Sha256Hex, CanonicalTitle } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
@@ -33,14 +32,11 @@ import { releaseAssets } from "../sync/assetRelease";
 import type { DeliveryOutcome, WriteTicket } from "../sync/opQueue";
 import { pagePath } from "../paths";
 import { stampBaseTextHashes } from "./baseTextHash";
-import { findOpTextLimitViolation,
-         textLimitNotice } from "../grammar/textLimits";
-import { findOpTitleViolation, titleRefusalNotice } from "../replica/titles";
-import { DEPTH_NOTICE, findDepthViolation } from "./depthCap";
 import type { FocusTarget } from "./edits";
 import { emptyHistory, recordEntry, resolveAnchors, restoreEntry, takeRedo,
          takeUndo, type BatchAnchors, type HistoryEntry,
          type HistoryState } from "./history";
+import { editRefusal } from "./editRefusal";
 import { loadOutlineBlocks } from "./loadOutlineBlocks";
 import { substituteMissingDaily } from "./missingPage";
 import { peekOutlineSession } from "./outlineSessions";
@@ -284,7 +280,7 @@ function dispatchWithSession(sync: HistoryDispatch, handle: SessionHandle,
   try {
     const live = handle.getSnapshot().blocks;
     const resolved = resolveAnchors(live, title, batch, anchors);
-    const refusal = refusalNotice(live, resolved, title);
+    const refusal = editRefusal(applyOps(live, resolved, title), resolved, []);
     if (refusal === null) {
       const wireOps = stampBaseTextHashes(live, title, resolved);
       const write = sync.enqueue(wireOps, ["page", title]);
@@ -322,39 +318,18 @@ async function dispatchUnmounted(
     const live = await loadPage(title);
     if (stale()) return dropped();
     const resolved = resolveAnchors(live, title, batch, anchors);
-    refusal = refusalNotice(live, resolved, title);
+    refusal = editRefusal(applyOps(live, resolved, title), resolved, []);
     wireOps = stampBaseTextHashes(live, title, resolved);
   } catch (e: unknown) {
     if (stale()) return dropped();
     console.warn("undo/redo could not read the page; sending unstamped", e);
     wireOps = [...batch];
-    refusal = textLimitRefusal(batch);
+    refusal = editRefusal(null, batch, []);
   }
   if (refusal !== null) return refuse(title, focus, onRefused, refusal);
   const write = sync.enqueue(wireOps, ["page", title]);
   settle(title, focus);
   return write;
-}
-
-// Why the batch must not ship, or null when it may: the depth cap first,
-// judged on the tree the batch would leave (a batch that places no block,
-// typing or a heading, cannot nest one deeper, and clones nothing), then the
-// text limits of the texts it would store.
-function refusalNotice(live: BlockNode[], ops: BlockOp[],
-                       title: CanonicalTitle): string | null {
-  const places = ops.some((op) => op.op === "create" || op.op === "move");
-  if (places && findDepthViolation(applyOps(live, ops, title), ops) !== null) {
-    return DEPTH_NOTICE;
-  }
-  return textLimitRefusal(ops);
-}
-
-// The refusals that need no tree: the text limits, then a refused title
-// (an undo can restore a ref a block held before a title rule).
-function textLimitRefusal(ops: BlockOp[]): string | null {
-  const overLimit = findOpTextLimitViolation(ops);
-  if (overLimit !== null) return textLimitNotice(overLimit.violation);
-  return titleRefusalNotice(findOpTitleViolation(ops)?.reason ?? null);
 }
 
 // Nothing applied or sent; the notice goes to the page's outlines, or waits

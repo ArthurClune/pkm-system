@@ -446,6 +446,7 @@ describe("legacy repair of a rejected batch", () => {
       flushDraft: vi.fn(() => true),
       removeSubtreeLocal: vi.fn(() => moved),
       insertSubtreeLocal: vi.fn(),
+      refuse: vi.fn(),
     };
     const sourceRegistration = dnd.registerOutline(sourceTitle, sourceDnd);
     try {

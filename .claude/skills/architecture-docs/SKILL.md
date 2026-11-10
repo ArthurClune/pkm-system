@@ -191,8 +191,9 @@ node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/<file>.md
 
 Every mermaid block parses under the project's own mermaid; links and heading
 anchors resolve, including inbound anchors from sibling docs (a renamed heading
-breaks those silently); a bean id in prose fails — its one home is the Ref
-column of `docs/troubleshooting.md`. It also prints, for judgement rather than
+breaks those silently). A bean id in a `docs/architecture` line is the
+comment lint's to refuse on commit; its one home is the Ref column of
+`docs/troubleshooting.md`. The checker also prints, for judgement rather than
 pass/fail, the longest prose sentences, the longest table cells, any
 identifiers dropped since `HEAD`, and each file's word count against `HEAD`. A
 table cell that reads as a paragraph is prose that escaped the sentence check.

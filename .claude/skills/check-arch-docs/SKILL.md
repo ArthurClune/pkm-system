@@ -15,12 +15,14 @@ this check enforces; this file only sequences the audit.
 
 ## The audit
 
-1. **Mechanical sweep** — run the architecture-docs checker over every doc;
-   its `checkBeans` fails on bean ids in prose, and its exclusions (table
-   rows, linked spec filenames) live in the script, nowhere else:
+1. **Mechanical sweep** — run the architecture-docs checker over every doc,
+   then the comment lint, which refuses bean ids, line numbers and pathless
+   spec pointers in `docs/architecture` (its exclusions live in
+   `server/tooling/commentlint`, nowhere else):
 
    ```bash
    node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/*.md docs/troubleshooting.md
+   PYTHONPATH=server/tooling python3 -m commentlint.run --all
    ```
 
    A flagged bean id is a provenance tag — drop the tag, keep the sentence.
@@ -65,5 +67,5 @@ this check enforces; this file only sequences the audit.
 |---|---|
 | Bean id in the Ref column of `docs/troubleshooting.md` | that column is its designated home |
 | Bean id inside a linked spec/plan filename | filenames are identifiers, not provenance |
-| `pkm-replica`, `pkm-specific`, other product uses of "pkm-" | not bean ids — the id shape ends at a word boundary, so they never match; a genuine new false positive means extending `checkBeans` in check-docs.mjs, not ignoring the failure |
+| `pkm-replica`, `pkm-specific`, other product uses of "pkm-" | not bean ids — the id shape ends at a word boundary, so they never match; a genuine new false positive means extending `_NOT_BEAN_IDS` in `commentlint/core.py`, not ignoring the failure |
 | A "Known gap" paragraph describing a current, deliberate gap | the gap is an invariant; only the bean tag on it was provenance |

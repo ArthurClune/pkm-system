@@ -54,8 +54,8 @@ _URL_SCHEMES: set[str] = {"http", "https"}
 
 
 def parse_link_id(value: str) -> GoodlinksId | None:
-    """The one place a str becomes a GoodlinksId: `value` unchanged if it is
-    32 lowercase hex characters, None otherwise."""
+    """`value` as a GoodlinksId if it is 32 lowercase hex characters, None
+    otherwise. The only function that mints one from a str."""
     return GoodlinksId(value) if _ID_RE.fullmatch(value) else None
 
 

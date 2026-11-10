@@ -118,11 +118,12 @@ spare.
 
 ### Availability: two values, one owner
 
-**The worker owns the answer and latches it until `close()`.** `db()` in
+**The worker owns the answer and latches it.** `db()` in
 `workerHandlers.ts` wraps the first `openDb()` failure in a
-`ReplicaUnusableError`, and every later handler call throws it. Only `close()`
-re-arms it, because lifting the barrier starts a drain against a reopened,
-unexamined database.
+`ReplicaUnusableError`, and every later handler call throws it. Only the
+`close` handler re-arms it, because lifting the barrier starts a drain against
+a reopened, unexamined database. Only `dispose()` sends `close`, and it then
+terminates the worker, so in production the latch lasts the worker's life.
 
 | `ReplicaAvailability` | Evidence | Keep the op? | May lift the barrier? |
 |---|---|---|---|
@@ -279,7 +280,7 @@ the replica.
 | `ready` | `start()` succeeds, or a pull or reset succeeds after a report | a report below |
 | `stalled` | `STALL_AFTER_FAILURES` counted failures of a pull or a start | a later pull or start succeeds, or Reset local data |
 | `recovery-failed` | a `runRecovery` that reports (`reportReplicaFailure`) throws | as `stalled` |
-| `no-replica` | an error `isSessionFatal()` accepts, from init or a pull; a latched failed open met by startup discovery | never: only a reload brings a new worker |
+| `no-replica` | an error `isSessionFatal()` accepts, from init, a pull or a failed `start()` (`noteFailure`); a latched failed open met by startup discovery; SyncProvider when there is no replica (`runtime === null`) | never: only a reload brings a new worker |
 
 **A session-fatal error ends replica mode for the session.** A dead worker
 leaves its RPC client terminal and a failed open is latched, so every later
@@ -314,7 +315,7 @@ rebootstrap:
 ```mermaid
 flowchart TD
     P["queue.pause('recovery')"] --> AW{"awaitInFlightPull?"}
-    AW -->|yes| WP["await the pull in flight"] --> L
+    AW -->|yes| WP["await the start and the pull in flight"] --> L
     AW -->|no| L["replica.prepareRecovery()<br/>gate held, pending rows fingerprinted"]
     L --> F["flushLease: skip · preemptible · blocking<br/>each ack held as { id, batch_id, seq }"]
     F --> S["GET /api/sync/snapshot"]
@@ -379,8 +380,11 @@ snapshot would be adopted later and bring back batches acked since.
 Every queue handler reaches the database through `queueDb`, which adopts a
 leftover carry before serving. Adoption cannot wait for `init`: an edit can
 reach a restarted worker first, take the carried ids, and the by-id import
-would drop those rows. `diagnostics` alone uses `db()`, so an adoption failure
-cannot sink its report.
+would drop those rows. The recovery internals (`rebuildOrReplaceFile`,
+`rebaseOrReplaceFile`, `replaceUnreadableQueue`) use `db()` instead, because
+mid-replacement the carry is the rows' only copy and must not be adopted into a
+half-built file. `diagnostics` uses it too, so an adoption failure cannot sink
+its report.
 
 | Adoption meets | Outcome | Why no row is lost |
 |---|---|---|

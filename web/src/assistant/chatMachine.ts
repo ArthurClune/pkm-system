@@ -51,8 +51,8 @@ export type Conversation =
   | { kind: "creating"; model: AssistantModel }
   | { kind: "open"; id: ConversationId; model: AssistantModel };
 
-/** idle and streaming mean what the server's turn phase means by them
- * (assistant.md § The turn phase). creating waits on the conversation;
+/** idle means this browser's request has settled, which can come before
+ * the server's own idle. creating waits on the conversation;
  * stopping is a Stop waiting for the turn's request to settle, whose output
  * is dropped. `recreated` is set once the turn has re-created a conversation
  * the server no longer knew, so a second 404 fails instead of looping. */

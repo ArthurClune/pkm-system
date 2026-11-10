@@ -64,7 +64,8 @@ CURRENT_TEXT_ENTRIES: frozenset[str] = frozenset(
 SUBTREE_DELETE_ENTRIES: frozenset[str] = frozenset({"batch:delete"})
 
 # The Claude models also exist as the web picker's fetch-failure fallback
-# (useAssistant.ts); a rename or addition there must stay in sync.
+# (`FALLBACK_MODELS` in chatMachine.ts); a rename or addition there must
+# stay in sync.
 MODELS: tuple[AssistantModel, ...] = ("sonnet", "opus", "haiku", "fable", "glm")
 
 # Models that route to z.ai's Anthropic-compatible endpoint and are only

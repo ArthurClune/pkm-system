@@ -11,6 +11,8 @@ import { HISTORY_BLOCKED_NOTICE, historyIdle, performRedo, performUndo,
          recordHistory, registerOutlineHistory, resetHistory,
          setAssetReleaser, setHistoryNavigator,
          setHistoryPageLoader } from "./undoManager";
+import { BATCH_TOO_LARGE_NOTICE,
+         MAX_OPS_PER_BATCH } from "../sync/batchLimits";
 import { DEPTH_NOTICE, MAX_OUTLINE_DEPTH } from "./depthCap";
 import { LINK_NESTING_NOTICE,
          TEXT_LENGTH_NOTICE } from "../grammar/textLimits";
@@ -889,4 +891,111 @@ it("a page that cannot be read still judges the text limits", async () => {
   expect(h.notices).toEqual([LINK_NESTING_NOTICE]);
   h.unregister();
   warn.mockRestore();
+});
+
+// --- the batch size limit ---
+
+const ROOT = uidOf("tuid-root");
+
+// One root with MAX_OPS_PER_BATCH descendants: deleting it is one op, and
+// restoring it is one create per node, one over the limit.
+const bigTree = (): BlockNode[] => [block("tuid-root", "root", {
+  order_idx: orderIdxOf(0),
+  children: Array.from({ length: MAX_OPS_PER_BATCH }, (_, i) =>
+    block(`tuid-k${i}`, "k", { order_idx: orderIdxOf(i) })),
+})];
+const deleteRoot = (): BlockOp[] => [{ op: "delete", uid: ROOT }];
+
+function recordBigDelete(): HistoryEntry {
+  const pre = bigTree();
+  const ops = deleteRoot();
+  const inverse = invertOps(pre, PAGE, ops)!;
+  const e: HistoryEntry = {
+    pageTitle: PAGE, ops, inverse,
+    anchors: historyAnchors(pre, PAGE, ops, inverse),
+    freshAssets: [], focusBefore: { uid: ROOT, cursor: 0 },
+    focusAfter: null,
+  };
+  recordHistory(e);
+  return e;
+}
+
+it("undo of a delete whose subtree is over the op limit is refused and kept",
+   () => {
+  const sync = makeSync();
+  const e = recordBigDelete();
+  expect(e.inverse.length).toBeGreaterThan(MAX_OPS_PER_BATCH);
+  const handle = acquireOutlineSession(PAGE, []);
+  const h = hooksFor();
+  const empty = handle.getSnapshot().blocks;
+
+  expect(performUndo(sync)).toBe(true);
+  expect(sync.sent).toEqual([]);
+  expect(handle.getSnapshot().blocks).toBe(empty);
+  expect(h.notices).toEqual([BATCH_TOO_LARGE_NOTICE]);
+
+  // back on the stack: a second undo attempts the same entry
+  expect(performUndo(sync)).toBe(true);
+  expect(sync.sent).toEqual([]);
+  expect(h.notices).toEqual([BATCH_TOO_LARGE_NOTICE, BATCH_TOO_LARGE_NOTICE]);
+  h.unregister();
+  handle.release();
+});
+
+it("a redo whose batch is over the op limit is refused and kept", () => {
+  const sync = makeSync();
+  const inverse = deleteRoot();
+  const ops = invertOps(bigTree(), PAGE, deleteRoot())!;
+  recordHistory({
+    pageTitle: PAGE, ops, inverse,
+    anchors: { ops: ops.map(() => null), inverse: [null] },
+    freshAssets: [], focusBefore: null, focusAfter: null,
+  });
+  const handle = acquireOutlineSession(PAGE, bigTree());
+  const h = hooksFor();
+  expect(performUndo(sync)).toBe(true);
+  expect(sync.sent).toHaveLength(1);
+  const after = handle.getSnapshot().blocks;
+
+  expect(performRedo(sync)).toBe(true);
+  expect(sync.sent).toHaveLength(1);
+  expect(handle.getSnapshot().blocks).toBe(after);
+  expect(h.notices).toEqual([BATCH_TOO_LARGE_NOTICE]);
+
+  expect(performRedo(sync)).toBe(true);
+  expect(sync.sent).toHaveLength(1);
+  expect(h.notices).toEqual([BATCH_TOO_LARGE_NOTICE, BATCH_TOO_LARGE_NOTICE]);
+  h.unregister();
+  handle.release();
+});
+
+it("an undo over the op limit on an unmounted page is refused and kept",
+   async () => {
+  const sync = makeSync();
+  setHistoryPageLoader(async () => []);
+  recordBigDelete();
+  expect(performUndo(sync)).toBe(true);
+  await historyIdle();
+  expect(sync.sent).toEqual([]);
+  const h = hooksFor();
+  expect(h.notices).toEqual([BATCH_TOO_LARGE_NOTICE]);
+
+  expect(performUndo(sync)).toBe(true);
+  await historyIdle();
+  expect(sync.sent).toEqual([]);
+  expect(h.notices).toEqual([BATCH_TOO_LARGE_NOTICE, BATCH_TOO_LARGE_NOTICE]);
+  h.unregister();
+});
+
+it("a page that cannot be read still judges the op limit", async () => {
+  const sync = makeSync();
+  setHistoryPageLoader(async () => { throw new Error("offline"); });
+  vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  recordBigDelete();
+  expect(performUndo(sync)).toBe(true);
+  await historyIdle();
+  expect(sync.sent).toEqual([]);
+  const h = hooksFor();
+  expect(h.notices).toEqual([BATCH_TOO_LARGE_NOTICE]);
+  h.unregister();
 });

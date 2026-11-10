@@ -19,8 +19,11 @@ flowchart LR
 inline code and TODO markers. Ref extraction (`grammar/refs.ts`,
 `replica/refs.ts`), caret lookup (`outline/refAtCaret.ts`), TODO toggling and
 slash commands adapt its token stream rather than scanning privately.
-`shared/fixtures/ref_grammar.json` pins it to `server/src/pkm/refs.py`; both
-sides' tests replay the fixture.
+`server/src/pkm/refs.py` owns the grammar and `scan.ts` mirrors it
+([backend.md § Ref grammar](backend.md#ref-grammar));
+`shared/fixtures/ref_grammar.json` pins the two together, and both sides' tests
+replay it
+([generated artifacts and parity fixtures](backend.md#generated-artifacts-and-parity-fixtures)).
 
 A block whose `[[` runs nest past `MAX_LINK_NESTING` gets no run tokens
 from `scanGrammar`. Its brackets render as text, and `extractRefs` reports

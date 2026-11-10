@@ -858,7 +858,7 @@ class ConflictLanding:
 #
 # One context type per way an op can plan, each holding exactly what that
 # planning reads. The shell picks the type from its one classification, so
-# the planner re-derives nothing and has no optional field to find missing.
+# the planner re-derives nothing. Production passes every field.
 
 
 @dataclass(frozen=True)

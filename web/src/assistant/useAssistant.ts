@@ -50,7 +50,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // AbortController.abort() rejects the client's own fetch
 // promise the instant Stop is clicked, well before the server has noticed
 // the dropped connection and released the conversation's busy flag (see
-// service.py's synchronous reservation, item 7). Sending again right after
+// the reservation in service.py's `send`). Sending again right after
 // Stop can therefore land on the server a few milliseconds too early and
 // see a 409. Retrying briefly closes that window without changing the
 // contract for a *sustained* busy conflict, which still surfaces as an

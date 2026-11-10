@@ -11,6 +11,7 @@ import type { BlockOp } from "../api/ops";
 import { dragUids, type BlockDragSource, type DragSource,
          type DropTarget } from "../outline/dnd";
 import { groupMoveOps } from "../outline/edits";
+import { editRefusal } from "../outline/editRefusal";
 import { orderIdxPlus } from "../outline/orderIdx";
 import { useSyncActions } from "../sync/SyncProvider";
 
@@ -23,6 +24,8 @@ export interface OutlineDndApi {
   flushDraft(): boolean;
   removeSubtreeLocal(uid: BlockUid): BlockNode | null;
   insertSubtreeLocal(node: BlockNode, target: DropTarget): void;
+  /** Show why a drop into or out of this outline was refused. */
+  refuse(notice: string): void;
 }
 
 export type DndRegistration =
@@ -151,11 +154,21 @@ export function DndProvider({ children }: { children: ReactNode }) {
             ["page", d.pageTitle]);
         }
       } else {
+        const dst = outlinesRef.current.get(target.page_title)?.api;
+        const moveOps: BlockOp[] = uids.map((uid, k) => ({
+          op: "move", uid, parent_uid: target.parent_uid,
+          order_idx: orderIdxPlus(target.order_idx, k),
+          page_title: target.page_title }));
+        const refusal = editRefusal(null, moveOps, []);
+        if (refusal !== null) {
+          (dst ?? src)?.refuse(refusal);
+          setDrag(null);
+          return;
+        }
         if (src && !src.flushDraft()) {
           setDrag(null);
           return;
         }
-        const dst = outlinesRef.current.get(target.page_title)?.api;
         // Per-uid surgery + ops at consecutive slots: block k inserts before
         // whatever now sits at order_idx + k, keeping the run's order.
         const moves = uids.map((uid, k) => ({
@@ -168,11 +181,8 @@ export function DndProvider({ children }: { children: ReactNode }) {
             dst.insertSubtreeLocal(m.node, { ...target, order_idx: m.orderIdx });
           }
         }
-        const ops: BlockOp[] = moves.map((m) => ({ op: "move", uid: m.uid,
-          parent_uid: target.parent_uid, order_idx: m.orderIdx,
-          page_title: target.page_title }));
         const ticket = sync.enqueue(
-          ops, ["page", d.pageTitle, target.page_title],
+          moveOps, ["page", d.pageTitle, target.page_title],
         );
         const replays = moves
           .filter((m) => m.node !== null)

@@ -4,6 +4,8 @@ import { expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext, type Sync } from "../sync/SyncProvider";
 import { block, makeSync, orderIdxOf, uidOf, canonicalTitleOf } from "../test-helpers";
+import { BATCH_TOO_LARGE_NOTICE,
+         MAX_OPS_PER_BATCH } from "../sync/batchLimits";
 import { DndProvider, useDnd, type OutlineDndApi } from "./DndContext";
 
 function Harness({ onReady }: { onReady: (dnd: ReturnType<typeof useDnd>) => void }) {
@@ -25,7 +27,7 @@ function setup(over: Partial<Sync> = {}) {
 function fakeOutline(over: Partial<OutlineDndApi> = {}): OutlineDndApi {
   return { moveTo: vi.fn(), flushDraft: vi.fn(() => true),
            removeSubtreeLocal: vi.fn(() => null),
-           insertSubtreeLocal: vi.fn(), ...over };
+           insertSubtreeLocal: vi.fn(), refuse: vi.fn(), ...over };
 }
 
 it("same-page drop delegates to the registered outline's moveTo", () => {
@@ -110,6 +112,24 @@ it("a cross-page drop from an outline keeping an unsaved draft moves "
   expect(src.removeSubtreeLocal).not.toHaveBeenCalled();
   expect(dst.insertSubtreeLocal).not.toHaveBeenCalled();
   expect(sync.sent).toEqual([]);
+});
+
+it("a cross-page drop of more than the op limit is refused with a notice "
+   + "and moves nothing", () => {
+  const { sync, dnd } = setup();
+  const src = fakeOutline();
+  const dst = fakeOutline();
+  dnd().registerOutline(canonicalTitleOf("A"), src);
+  dnd().registerOutline(canonicalTitleOf("B"), dst);
+  const uids = Array.from({ length: MAX_OPS_PER_BATCH + 1 },
+                          (_, i) => uidOf(`tuid-u${i}`));
+  dnd().drop({ kind: "blocks", height: 0, uid: uids[0]!,
+               pageTitle: canonicalTitleOf("A"), uids },
+             { parent_uid: null, order_idx: orderIdxOf(1), page_title: canonicalTitleOf("B") });
+  expect(sync.sent).toEqual([]);
+  expect(src.removeSubtreeLocal).not.toHaveBeenCalled();
+  expect(dst.insertSubtreeLocal).not.toHaveBeenCalled();
+  expect(dst.refuse).toHaveBeenCalledWith(BATCH_TOO_LARGE_NOTICE);
 });
 
 it("unmounted cross-page target skips insertion but retains subtree replay", () => {

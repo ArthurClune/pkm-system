@@ -20,9 +20,9 @@ convention plus review.
 | contract tests | generated artifacts are fresh; routes declare a `response_model`; row keys match the DDL; registry paths exist and still mint; the property suite stays out of `pytest -q` | pytest | `test_openapi_sync.py`, `test_routes_models.py`, `test_rows_vocabulary.py`, `test_brandlint_registry.py`, `test_proptest_exclusion.py`, parity tests | regenerate per [backend.md](backend.md#generated-artifacts-and-parity-fixtures) |
 | row check | every `Db.select` row fits its `Row` keys and brand shapes | pytest (`PKM_ROW_CHECK=1`) | `pkm.database`, `pkm.rows` | `RowCheckError` names the column |
 | pyrefly, ruff | server types; no implicit `Any` in `server/src`; `ANN`, `ANN401`, `E501` | `uv run pyrefly check`, `uv run ruff check` | `pyrefly.toml`, `[tool.ruff]`, whose comments give the policy | |
-| typecheck | `tsc` on `src`, the generated API types and `tooling` | `pnpm verify`, `pnpm build` | `typecheck` in `web/package.json` | |
+| typecheck | `tsc` on `src`, the generated API types and the `.ts` files of `tooling`; `.mjs` files and `web/e2e` are not type-checked | `pnpm verify`, `pnpm build` | `typecheck` in `web/package.json` | |
 | eslint | hooks, promises, no `any`, import bans, web brand rules, no unchecked `@ts-` suppression | `pnpm verify` (`lint`) | `web/eslint.config.js`, `web/tooling/eslint-plugin-brands` | fixtures in `web/tooling/eslint-fixtures`, pinned by `lintConfig.test.ts` |
-| FCIS check | a Functional Core web module never imports an Imperative Shell one | `pnpm verify` (`check:fcis`) | `web/tooling/fcis.mjs` | [overview.md](overview.md#functional-core--imperative-shell) |
+| FCIS check | a Functional Core web module never imports an Imperative Shell or Mixed one, and every runtime module carries a valid header | `pnpm verify` (`check:fcis`) | `web/tooling/fcis.mjs` | [overview.md](overview.md#functional-core--imperative-shell) |
 | vitest | unit tests pass over `coverage.thresholds` | `pnpm verify` (`test:coverage`) | `web/vite.config.ts` | |
 | unit-test guards | replica rows fit `Columns`; no unsilenced `console.warn`/`error`; no runaway fast-check filter; `types.d.ts` matches `openapi.json` | every vitest run | `replica/rowCheck.ts`, `src/test-setup.ts`, `src/test-guards.ts`, `genTypes.drift.test.ts` | each guard's test shows its teeth |
 | bundle budgets | the build stays under its caps | `vite build` | `viteBudgetPlugin.ts`, `budgets.json` | |
@@ -122,7 +122,8 @@ because the two runs share the machine's load.
 Rules a change to the gate must keep:
 
 - **Only a passing check rewrites a baseline**, from
-  `Comparison.new_baseline`. Only `--bootstrap` lowers a band's `max` or a
+  `Comparison.new_baseline`. Only a recording run (`--bootstrap`, or
+  `--rebaseline`, which records at the merge base) lowers a band's `max` or a
   timing, so one lucky run cannot tighten the baseline until ordinary runs
   fail.
 - Load moves timings both ways: a paced handler can run faster on a busy
@@ -165,8 +166,8 @@ specs: [server](../superpowers/specs/2026-10-02-property-checks-server-design.md
 | `outline/` | `checks.ts`: rows match a reading-view model; history undoes to the start |
 | `outline/draft.prop.ts` | the real editor in jsdom (`draftHarness.tsx`) holds a pending draft exactly when `draftModel.ts` does; the textarea shows it or else the tree, and adopts nothing mid-composition; each flush hashes its draft's base; a keydown the IME owns sends nothing |
 | `ops/` | the replica and the in-memory trees store what the server stores; `enqueueBatch` refuses a batch for title syntax or a text limit exactly when the server does |
-| `assistant/` | the panel's chat machine keeps [the chat machine](frontend.md#the-chat-machine)'s rules (the invariants in the header of `assistant/run.ts`), with Stop, New chat and the models list landing inside a create, a 404 re-create and a turn. Pure, about 20 seconds |
-| `journal/` | `journalPaging` matches a model of [the Journal's paging](frontend.md#the-journal) through loads, resyncs, answers in any order, StrictMode replays and remounts. Pure, about 12 seconds |
+| `assistant/` | the panel's chat machine keeps [the chat machine](frontend.md#the-chat-machine)'s rules (the invariants in the header of `assistant/run.ts`), with Stop, New chat and the models list landing inside a create, a 404 re-create and a turn. Pure; `PROPERTY_LIMIT_MS` in `assistant.prop.ts` cuts it off |
+| `journal/` | `journalPaging` matches a model of [the Journal's paging](frontend.md#the-journal) through loads, resyncs, answers in any order, StrictMode replays and remounts. Pure; `PROPERTY_LIMIT_MS` in `journal.prop.ts` cuts it off |
 
 Rules a change to the gate must keep:
 
@@ -185,7 +186,7 @@ Rules a change to the gate must keep:
   is measured.
 - A generator draws only from Hypothesis or fast-check. A draw steered by
   other state, such as the reach tally, no longer replays from its seed.
-- A new property shows it fails. Each suite's `teeth.prop.ts` breaks a rule
+- A new property shows it fails. Each web suite's `teeth.prop.ts` breaks a rule
   (a mutant, a broken transport mode, a `/__proptest/*/teeth` route) and must
   see the named invariant fail, and a clean run must pass. A mutant names
   every invariant its bug breaks, since which one fires first depends on the

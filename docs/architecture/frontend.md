@@ -149,8 +149,8 @@ on the server's WS echo, so a `CanonicalTitle` is assignable to it.
 | `/page/*` | PageView, one page |
 | `/current-work` | Recently edited pages |
 | `/files` | The asset browser |
-| `/settings` | Whole-database export |
-| `/help` | The keyboard-shortcut doc |
+| `/settings` | Whole-database export, image-description status |
+| `/help` | `docs/keyboard.md` (bundled with `?raw`), rendered by `help/parseHelpMarkdown.ts`, which knows only headings, paragraphs, pipe tables and code spans: a list or link there renders literally |
 | `*` | NotFound |
 
 Every pathname under `/page/` renders PageView directly, because react-router
@@ -297,7 +297,7 @@ counting a gone one as listed skips the next block.
 `src/assistant/` is the chat panel for the server-side assistant
 ([assistant.md](assistant.md)). Conversations are lost on reload. The model
 list comes from `GET /api/assistant/models` on first open, with a hardcoded
-fallback in `useAssistant.ts`.
+fallback (`FALLBACK_MODELS` in `chatMachine.ts`).
 
 - `client.ts::streamMessage` feeds the response body through `sse.ts`, a pure
   frame parser, into `useAssistant.ts`. It bypasses `apiFetch`, which reads
@@ -305,8 +305,8 @@ fallback in `useAssistant.ts`.
 - `sse.ts` drops a frame whose `event:` name is not in `EVENT_TYPES`. That
   hides keepalives, and also drops a new event type until it is added.
 - After `STREAM_STALL_TIMEOUT_MS` with nothing received the turn errors, with
-  an error that is not an `AbortError`: `useAssistant` treats an `AbortError`
-  after Stop as success.
+  an error that is not an `AbortError`: `useAssistant` reports an
+  `AbortError` as `aborted`, and `step` shows no error for it.
 - The busy clock (`elapsed.ts::elapsedLabel`) restarts on each phase label,
   tool start and confirm resume, so a parked approval does not inflate it.
 - A tool line pairs with its `tool_finished` by `tool_use_id`, across turns,
@@ -329,9 +329,10 @@ fallback in `useAssistant.ts`.
 `step(state, event)` returns the next state and the effects to run.
 `useAssistant.ts` only dispatches the user's actions and each request's
 result, and starts the requests the effects name. The conversation is
-`none`, `creating` or `open`; the turn moves like this, and `idle` and
-`streaming` mean what they mean in
-[the server's turn phase](assistant.md#the-turn-phase):
+`none`, `creating` or `open`; the turn moves like this. The turn's `idle`
+means the browser's request has settled, so it can come before the server's
+`idle`: the server may still be `draining` ([turn
+phase](assistant.md#the-turn-phase)), which `streamWithBusyRetry` absorbs:
 
 ```mermaid
 stateDiagram-v2
@@ -345,6 +346,9 @@ stateDiagram-v2
     creating --> stopping: Stop
     streaming --> stopping: Stop, which aborts the stream
     stopping --> idle: the create or the stream settles
+    creating --> idle: New chat
+    streaming --> idle: New chat
+    stopping --> idle: New chat
 ```
 
 **Stop is a move from every busy phase.** After it, no output of that turn
@@ -400,7 +404,9 @@ fails on, and `AGENTS.md` § Testing says how to run them.
 ## Build notes (`vite.config.ts`)
 
 - The dev server proxies `/api` (with WebSocket), `/assets` and `/login` to
-  the backend on `PKM_API_PORT` (default 8974, production's port), so run the server beside `pnpm dev`.
+  the backend on `PKM_API_PORT`. Unset, that is 8974, production's port, so
+  `pnpm dev` writes to production: on this machine set `PKM_API_PORT=8975` and
+  run a scratch server there.
   The backend refuses any `Origin` but its own on `/api/ws` and unsafe
   methods, so the `/api` proxy rewrites the dev server's own origin to the
   backend's (`devProxyOrigin` in `web/tooling/devProxyOrigin.ts`). Any other
@@ -443,6 +449,11 @@ web/src/
 ├── externalLink.ts           Core   iOS-standalone check; the x-safari rewrite
 ├── uid.ts                    Shell  Mints uids, ClientId and BatchId
 ├── ids.ts                    Core   Parses an untrusted string into an id brand
+├── paths.ts                  Core   Page title to URL path and back
+├── contexts.ts               Shell  The app's React contexts
+├── useStaleGuard.ts          Shell  The stale-response idiom for async reads
+├── theme.ts, useTheme.ts,    —      The theme preference and the theme it resolves to
+│   useEffectiveTheme.ts
 ├── test-helpers.ts           —      Checked brand mints for tests
 ├── styles.css                —      All styling (styling.md)
 ├── api/                      Shell  apiFetch, the typed client, brands.ts, the
@@ -454,6 +465,7 @@ web/src/
 │                                    sits beside its component (pdfViewerCore …)
 ├── assistant/                Shell  The chat panel; chatMachine.ts (Core) is its
 │                                    state, sse.ts (Core) parses frames
+├── help/                     Core   parseHelpMarkdown.ts, the /help renderer
 ├── dnd/                      Shell  Drag context and drop zones; dropGeometry.ts (Core)
 ├── grammar/                  Core   Block grammar (frontend-rendering.md)
 ├── outline/                  —      The editor engine (frontend-editor.md)

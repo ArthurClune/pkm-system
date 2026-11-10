@@ -21,6 +21,7 @@ symptom in [troubleshooting.md](../troubleshooting.md).
 | `preview_keys_dump.py` | Shell | Writes `web/src/assistant/previewKeys.gen.ts`, the keys each card action may carry ([generated artifacts](backend.md#generated-artifacts-and-parity-fixtures)) |
 | `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols: the seam the test double plugs into. `send()` is an async generator because the caller closes it |
 | `harness_env.py` | Core | `resolve_harness_env()`: requested model and available key → the SDK alias and the subprocess env |
+| `turn_phase.py` | Core | `TurnPhase` and `_MOVES`: where a conversation's harness is in its turn, and what moves it on ([the turn phase](#the-turn-phase)) |
 | `service.py` | Shell | `AssistantService`, the in-memory conversation registry: a cap (`max_conversations`), a lazy idle reap (`idle_ttl`), a 409 for a second concurrent turn; `close_all()` on app shutdown |
 | `claude_engine.py` | Shell | `ClaudeEngine`, the Claude Agent SDK adapter and only engine |
 | `routes.py` | Shell | The HTTP/SSE endpoints. An engine failure mid-stream is an in-band `error` event, not a broken response |
@@ -79,8 +80,9 @@ user who has had the chance to read all of it.
 | `batch_aliases` (`pkm.batch`, run by `validate_batch` and `plan_batch`) refuses a reused `as`, and an alias used before or by the command that makes it | A reused name sends later references to the newer block. With one creator per name, the card can name that write by number |
 
 The browser keeps confirms in a queue. The head stays until its POST settles,
-so a second `confirm_request` never swaps the card under the cursor. The hook
-owns `sentDecision`, set when it posts, and after a failed post the card
+so a second `confirm_request` never swaps the card under the cursor.
+`chatMachine.step` owns `sentDecision`, set on the `answer` event before the
+POST runs, and after a failed post the card
 offers a retry of that same decision only: the server may already hold it.
 
 Allow arms after `ALLOW_ARM_MS`, and only once markers before the first op and
@@ -131,7 +133,7 @@ that case together:
 |---|---|
 | server, `ClaudeConversation.can_use_tool` | stamps `writes_in_flight` when another write could land after the read: a confirm waited on the user, or an allowed write was still running, as the read started; or a confirm parked or a write was allowed during it |
 | server, `_pump` and `send` | an allowed write stops running when its tool result arrives (`finished_tool_ids`), or when a turn finishes (`TurnDone`), the only end for one without a `tool_use_id`. A stopped or errored turn does not finish, so its running writes stamp the next turn's cards |
-| web, `useAssistant` | `allowedAhead` counts the Allows posted since the last finished turn (`turn_done`) or new conversation, before the card is answered, before it arrived or while it waited |
+| web, `chatMachine.ts` | `allowedAhead` counts the Allows posted since the last finished turn (`turn_done`) or new conversation, before the card is answered, before it arrived or while it waited |
 | web, `ConfirmCard` | a stamped card with a `found` or `missing` block and `allowedAhead` above zero shows `.assistant-confirm-stale` |
 
 **A card is never silently stale from the assistant's own writes.** The

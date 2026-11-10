@@ -11,20 +11,16 @@ import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { apiPost } from "../api/typedClient";
 import { useConfirm } from "../components/ConfirmDialog";
 import type { OutlineDndApi } from "../dnd/DndContext";
-import { findOpTextLimitViolation,
-         textLimitNotice } from "../grammar/textLimits";
 import { toggleTodo } from "../grammar/todo";
 import { findOpTitleViolation, linkedTitleRefusal,
          titleRefusalNotice } from "../replica/titles";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
-import { BATCH_TOO_LARGE_NOTICE,
-         findBatchSizeViolation } from "../sync/batchLimits";
 import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { stampBaseTextHashes, withoutStamps } from "./baseTextHash";
 import { FIRST_ORDER_IDX } from "./orderIdx";
 import type { DropTarget } from "./dnd";
-import { DEPTH_NOTICE, findDepthViolation } from "./depthCap";
+import { editRefusal } from "./editRefusal";
 import { fileDropNotice, partitionUploadable, planFileDropBlocks,
          planUploadBlocks } from "./fileDrop";
 import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
@@ -88,24 +84,6 @@ export interface Outline {
    * component's tree. Backs onDeleteBlockSelection's large-selection prompt —
    * window.confirm is suppressed by iPadOS Safari in standalone mode. */
   dialog: ReactNode;
-}
-
-/** Why `result` must not apply, or null when it may: the depth cap first,
- * then the text limits of the texts its ops would store, then the size of
- * the whole batch (the draft's `textOps` ship with it), then a refused
- * title (over the title cap or forbidden syntax), which the
- * server refuses the whole batch for. The queue judges the same rule but
- * throws, so a batch it refuses would reset the outline and lose the draft. */
-function commandRefusal(result: EditResult,
-                        textOps: readonly BlockOp[]): string | null {
-  if (findDepthViolation(result.blocks, result.ops) !== null) {
-    return DEPTH_NOTICE;
-  }
-  const overLimit = findOpTextLimitViolation(result.ops);
-  if (overLimit !== null) return textLimitNotice(overLimit.violation);
-  const batch = [...textOps, ...result.ops];
-  if (findBatchSizeViolation(batch) !== null) return BATCH_TOO_LARGE_NOTICE;
-  return titleRefusalNotice(findOpTitleViolation(batch)?.reason ?? null);
 }
 
 export function useOutline(
@@ -335,7 +313,7 @@ export function useOutline(
     // whole. Queued, that refusal would also drop the batch's other ops
     // (sync/rejection.ts), so the web never queues one.
     if (result.ops.length > 0) {
-      const refusal = commandRefusal(result, textOps);
+      const refusal = editRefusal(result.blocks, result.ops, textOps);
       setEditNotice(refusal);
       if (refusal !== null) {
         result = { blocks: base, ops: [], focus: null };
@@ -770,6 +748,7 @@ export function useOutline(
       publishBlocks(insertSubtree(
         blocksRef.current, node, target.parent_uid, target.order_idx));
     },
+    refuse: (notice) => setEditNotice(notice),
   }), [run, flushNow, pageTitle, publishBlocks]);
 
   // The first block of a drop or upload that fell back to the end of the

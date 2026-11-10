@@ -50,10 +50,9 @@ async function openDb(): Promise<ReplicaDb> {
   sqlite3 ??= (await sqlite3InitModule()) as unknown as Sqlite3;
   // A page reload/navigation can spawn this worker before the previous one
   // has released the OPFS SAH pool; retry through that transient contention
-  // instead of surfacing it as a spurious "server rejected"
-  // desync that wipes the active outline. The install options are what let a
-  // retry be a real second attempt rather than a replay of the memoised
-  // failure — see SAH_POOL_INSTALL_OPTIONS.
+  // instead of leaving the replica dead for the session. The install
+  // options are what let a retry be a real second attempt rather than a
+  // replay of the memoised failure — see SAH_POOL_INSTALL_OPTIONS.
   return openWithRetry(async () => {
     pool ??= await sqlite3!.installOpfsSAHPoolVfs({ ...SAH_POOL_INSTALL_OPTIONS });
     // The same navigation race can also let the install SUCCEED with a pool

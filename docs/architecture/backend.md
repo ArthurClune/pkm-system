@@ -40,7 +40,7 @@ pkm/
 ├── todo.py              Core   {{TODO}}/{{DONE}} markers, mirrored by grammar/todo.ts
 ├── rename.py, unlink.py Core   rename and page-delete rewrites of block text
 ├── text_limits.py       Core   the length and `[[` nesting limits on block text
-├── title_migration.py   Core   title migration planner
+├── title_migration.py   Core   title migration planner (the transactional shell is `server/title_migration.py`)
 ├── planning.py, batch.py, render.py   Core   shared by the CLI, MCP and client
 ├── *_dump.py            Shell  generated-artifact writers
 ├── server/                     the FastAPI app (below)
@@ -58,8 +58,12 @@ server/
 ├── auth_gate_core.py, auth_gate.py  Core / Shell  which requests are public, the body caps; AuthGateMiddleware
 ├── http_protocol.py     Shell  DeadlineH11Protocol: closes a connection whose request head is late or whose client stops reading
 ├── origin_core.py, origin_guard.py  Core / Shell  allowed origins; OriginGuardMiddleware
+├── security_headers.py  Shell  middleware adding fixed security headers
 ├── routes_*.py          Shell  the HTTP surface
 ├── ops_core.py          Core   plan_op(), classify_skip, classify_text_edit
+├── ops_hash.py          Core   the hashes that bind a batch_id to one payload
+├── ops_expect.py        Core   which `expect` entry no longer holds
+├── conflict_notes.py    Core   the text of conflict headers and skip notes
 ├── ops_apply.py         Shell  apply_batch: read context, plan, execute effects
 ├── store.py             Shell  page create, delete, rename, merge; never commits
 ├── sync_meta.py         Shell  flag and generation; read_title, title_reader
@@ -157,7 +161,7 @@ tables kept in step by triggers. `blocks_fts` is keyed by implicit rowid, so
 |---|---|---|
 | `changes` | The append-only journal: `seq`, `kind`, `entity_id`, `deleted`, `page_id` | Triggers on `blocks`, `pages` and `sidebar_entries`, so a new write path is journalled automatically; also `JournalBlock` ([Missing targets](#missing-targets)) |
 | `applied_batches` | Each batch's request hash and stored ack | `post_ops` |
-| `block_rewrites` | What a rename, merge, title migration or page delete did to one block's text, replayed over a stale edit ([Conflicts](#conflicts)). Pruned after `BLOCK_REWRITE_RETENTION_MS` | `store.rewrite_snapshotted_blocks`, `ops_core.rewrite_effects` |
+| `block_rewrites` | What a rename, merge, title migration or page delete did to one block's text, replayed over a stale edit ([Conflicts](#conflicts)). Pruned after `BLOCK_REWRITE_RETENTION_MS` | `store.rewrite_snapshotted_blocks` (rename, merge, title migration), `store._record_delete_rewrite` (page delete), `ops_apply._execute` on a `RecordRewrite` that `ops_core.rewrite_effects` plans |
 | `page_deletions` | Each user-deleted page's title and the journal head after it ([Stale batches](#stale-batches)). Pruned on the same window | `store.delete_page_unlinking` only |
 | `conflict_headers` | Today's conflict header per block; a new header deletes other days' rows | `ops_apply._execute` |
 | `sync_meta` | `db_generation` (a rebuilt or restored database gets a new one and clients rebootstrap) and the `plain_space_title_canonicalization` flag | startup, title migration apply, `pkm.backup.restore` |
@@ -418,7 +422,9 @@ route whose decision rests on what it reads joins them.
 busy timeout could not take is a 503 with `Retry-After`. The helper rolls
 back on any raise and commits on a clean exit, a `return` included. The nudge follows the `with` block
 ([Post-commit nudges](#post-commit-nudges)). `test_write_txn.py` scans
-`server/src` and fails on a `begin_immediate` call outside the helper.
+`server/src` and fails on a `begin_immediate` call outside the helper, and on
+a `.commit()` in `pkm/server` outside it (`upload_asset` alone is allow-listed:
+`assets` is not journalled).
 
 | Route | Lock taken before |
 |---|---|
@@ -428,6 +434,9 @@ back on any raise and commits on a clean exit, a `return` included. The nudge fo
 | `DELETE /api/assets/{sha256}` | the strip's read of each referencing block, or with `if_unreferenced=true` the reference check |
 | `POST /api/journal/cleanup` | the emptiness and link checks, so a block created on the day cannot go with the page |
 | `POST /api/sidebar` | the uniqueness check and `max(order_idx) + 1`, so a same-title race is a 409 |
+| `PUT /api/sidebar` | the read of `existing_ids` the order is validated against, so an entry added or removed meanwhile cannot slip past the check |
+| `DELETE /api/sidebar/{entry_id}`, `POST /api/pages` | the write itself |
+| `GET /api/page/{title}` and `GET /api/journal` | on the miss path only: a read of today's page runs unlocked, and a miss takes the lock and reads again before creating |
 | `POST /api/migrations/title-canonicalization` | the re-inventory |
 
 A lock holder must never await the event loop before its commit. Another
@@ -453,7 +462,8 @@ the pages deleted since the batch's `seen_seq`.
 `classify_text_edit` for a hashed edit) and hands `plan_op` the context type
 that classification calls for, such as `TextConflictContext` or
 `StuckMoveContext`. `apply_batch` reads the ack's skip off the same context.
-Every context field is required.
+`ops_apply._context_for` passes every context field. Some have defaults,
+so a construction that omits one takes it silently.
 A context that does not fit its op is an `AssertionError`, a 500 the client
 retries; it must never be a 400, which would poison the client's queue over a
 server bug.
@@ -621,7 +631,7 @@ deletes. So a stale edit cannot re-create a renamed-away page, a link to a
 deleted page, or a `((ref))` to a gone block. A hashless edit to a live block
 is last-write-wins. A replay or stale unlink makes the written text differ
 from the sent text, and the client hashes its next edit from what it sent.
-So `ops_core.rewrite_effects` records a `block_rewrites` chain
+So `ops_core.rewrite_effects` plans a `block_rewrites` chain
 (`RecordRewrite`) from the sent text's hash to the written one.
 
 The chain's stale-unlink rows name each stale title whose own unlink would
@@ -908,8 +918,7 @@ it. `POST /api/ops` also echoes the applied ops.
 
 A route under [`write_txn`](#the-write-lock) nudges after its `with` block:
 `notify.nudge_threadpool` from a sync-def route, `await nudge(request, db)`
-from `post_ops`. Other sync-def routes call
-`notify.commit_and_nudge_threadpool`. `delete_asset` nudges because
+from `post_ops`. There is no other way to commit and nudge. `delete_asset` nudges because
 it rewrites blocks; `cleanup_journal` only when it deleted something. No type
 or test discovers a new route: `test_journal_advancing_contract.py` asserts
 the nudge for each route on its hand-kept list, so a new journal-advancing
@@ -1350,17 +1359,17 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | DELETE | `/api/page/{title}` | Delete a page, unlinking inbound refs; 409 with `blockers`, each an `excerpt` and `text_length` ([Page mutations](#page-mutations-and-the-sidebar)) |
 | GET | `/api/delete-preview?title=` | What a delete would rewrite or be refused for, a `limit` blocker included |
 | POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge`; 422 when the new title is [refused](#refused-titles) or longer than `MAX_PAGE_TITLE_CHARS`, or the rewrite would carry a block past a text limit |
-| GET | `/api/unlinked?title` | Unlinked mentions, not from the page itself |
+| GET | `/api/unlinked?title&limit&offset` | Unlinked mentions, not from the page itself; `limit` is clamped to 1–100 |
 | GET | `/api/journal?before&days` | Daily-notes feed |
 | POST | `/api/journal/cleanup` | Prune empty, unreferenced daily pages from the week before today |
-| GET | `/api/current-work` | Recently edited pages, bucketed by age |
+| GET | `/api/current-work?now_ms` | Recently edited pages, bucketed by age; `now_ms` replaces the server clock, for tests |
 | **Migrations** | | |
 | GET | `/api/migrations/title-canonicalization` | Side-effect-free audit and digest: `groups`, `blockers`, `sidebar_retitles` ([Title integrity](#title-integrity-and-one-time-activation)) |
 | POST | `/api/migrations/title-canonicalization` | Apply the audited digest, returning counts such as `sidebars_retitled`; 409 on stale, blocked, a rewrite past a text limit, or active with nothing to do |
 | **Search & queries** | | |
-| GET | `/api/search?q` | FTS5 search over pages and blocks |
-| GET | `/api/query?expr` | `{{[[query]]}}` evaluation; 400 past `query.MAX_QUERY_DEPTH` nesting or `MAX_QUERY_OPERANDS` page operands |
-| GET | `/api/titles?q` | Title completion for `[[` and `#` |
+| GET | `/api/search?q&limit&exact` | FTS5 search over pages and blocks; `limit` is clamped to 1–100; `exact` drops the prefix match on the last term |
+| GET | `/api/query?expr&expand` | `{{[[query]]}}` evaluation; `expand` adds one hop through pages that reference the operand; 400 past `query.MAX_QUERY_DEPTH` nesting or `MAX_QUERY_OPERANDS` page operands |
+| GET | `/api/titles?q&limit` | Title completion for `[[` and `#`; `limit` is clamped to 1–50 |
 | GET | `/api/todos?page` | `{{TODO}}` blocks grouped by page |
 | GET | `/api/changed?since&until&page&limit` | Blocks changed in `[since, until)`, each `new` or `edited`; 400 on an empty window |
 | **Sidebar** | | |
@@ -1384,7 +1393,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | POST | `/api/assets/scan?force` | Enqueue undescribed images |
 | GET | `/api/assets/search?q&limit&offset&type&from_ms&to_ms&linked` | Search behind `/files` |
 | DELETE | `/api/assets/{sha256}` | Delete, stripping its tokens; 409 with `limit` `blockers` when a strip would carry a block past a text limit; `if_unreferenced=true` 409s instead while referenced |
-| POST | `/api/assets/export.zip` | Zip the selected assets |
+| POST | `/api/assets/export.zip` | Zip the assets named by the form field `sha256s`; unknown shas are skipped; 413 past `MAX_EXPORT_ASSET_COUNT` or `MAX_EXPORT_TOTAL_BYTES` |
 | **Local documents** ([files-and-assets.md](files-and-assets.md#local-documents)) | | |
 | GET | `/api/local-check` | Classify every `/api/local/` href in block text |
 | GET | `/api/local-index` | Every visible file under `local_docs_root`; 503 when the listing fails |
@@ -1433,32 +1442,33 @@ These are generated or hand-kept, checked in, and **the test suites fail when
 one is stale**. Regenerate and commit with the change that invalidates them.
 Python commands run from `server/`, `pnpm` ones from `web/`.
 
-| Artifact | Regenerate with | Guarded by | Pins |
+| Artifact | Regenerate with | Test that fails when stale | Pins |
 |---|---|---|---|
 | `web/src/api/openapi.json`, `types.d.ts` | `uv run python -m pkm.server.openapi_dump > ../web/src/api/openapi.json`, then `pnpm gen-types` | `test_openapi_sync.py`, `genTypes.drift.test.ts` | the web's API types to the response models |
 | `web/src/replica/baseSchema.gen.ts` | `uv run python -m pkm.schema_dump > ../web/src/replica/baseSchema.gen.ts` | `test_schema_artifact.py` | the replica schema to `BASE_DDL` |
-| `web/src/replica/columns.gen.ts`, `web/tooling/brandRegistry.gen.json` | `uv run python -m pkm.rows_dump` | `test_rows_artifact.py`, `columns.test.ts` | `Columns`, `COLUMN_META` and the web lint's registry to `rows.Row` and `brand_registry` |
+| `web/src/replica/columns.gen.ts`, `web/tooling/brandRegistry.gen.json` | `uv run python -m pkm.rows_dump` | `test_rows_artifact.py` | `Columns`, `COLUMN_META` and the web lint's registry to `rows.Row` and `brand_registry` |
 | `web/src/assistant/previewKeys.gen.ts` | `uv run python -m pkm.assistant.preview_keys_dump > ../web/src/assistant/previewKeys.gen.ts` | `test_preview_keys_artifact.py` | the approval card's allow-list (`PREVIEW_KEYS`) to `WRITE_PREVIEW_FIELDS`, `CURRENT_TEXT_ENTRIES` and `SUBTREE_DELETE_ENTRIES`, `CURRENT_EXCERPT_CHARS`, and `PREVIEW_FIELDS` to `WritePreview`'s fields |
 | `server/src/pkm/contracts/tag_chars.py` | `uv run python -m pkm.tag_chars_dump --table > src/pkm/contracts/tag_chars.py`, only to move the tag table to a new Unicode version | `test_tag_chars_artifact.py`, which compares it only under the Unicode version it froze | `TAG_WORD_RANGES` to the running CPython's `\w` |
 | `web/src/grammar/tagChars.gen.ts` | `uv run python -m pkm.tag_chars_dump > ../web/src/grammar/tagChars.gen.ts` | `test_tag_chars_artifact.py` | the web's tag class (`TAG_WORD_CLASS`) to `TAG_WORD_RANGES` |
-| `web/src/grammar/titleWhitespace.gen.ts` | `uv run python -m pkm.title_whitespace_dump > ../web/src/grammar/titleWhitespace.gen.ts` | `test_title_whitespace_artifact.py`, the `TITLE_WHITESPACE` case in `replica/titles.test.ts` | the web's fold set to `TITLE_WHITESPACE` |
+| `web/src/grammar/titleWhitespace.gen.ts` | `uv run python -m pkm.title_whitespace_dump > ../web/src/grammar/titleWhitespace.gen.ts` | `test_title_whitespace_artifact.py` | the web's fold set to `TITLE_WHITESPACE` |
 | `shared/fixtures/refs_parity.json` | `uv run python -m pkm.refs_parity_dump > ../shared/fixtures/refs_parity.json` | `test_refs_parity_fixture.py` | `refs.extract` |
-| `shared/fixtures/title_parity.json` | `uv run python -m pkm.title_parity_dump > ../shared/fixtures/title_parity.json` | `test_title_parity_fixture.py`, `titleParity.test.ts` | `normalize_title`, `target_canonical_title`, `title_syntax_reason`, `is_blank_title`, `extract` |
-| `shared/fixtures/text_limits_parity.json` | `uv run python -m pkm.text_limits_parity_dump > ../shared/fixtures/text_limits_parity.json` | `test_text_limits_parity_fixture.py`, `textLimitsParity.test.ts` | `text_limit_violation`, `link_nesting_depth`, `describe_text_limit`, `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` |
+| `shared/fixtures/title_parity.json` | `uv run python -m pkm.title_parity_dump > ../shared/fixtures/title_parity.json` | `test_title_parity_fixture.py` | `normalize_title`, `target_canonical_title`, `title_syntax_reason`, `is_blank_title`, `extract` |
+| `shared/fixtures/text_limits_parity.json` | `uv run python -m pkm.text_limits_parity_dump > ../shared/fixtures/text_limits_parity.json` | `test_text_limits_parity_fixture.py` | `text_limit_violation`, `link_nesting_depth`, `describe_text_limit`, `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` |
 | `shared/fixtures/shim_parity.json` | `uv run python -m pkm.server.shim_parity_dump > ../shared/fixtures/shim_parity.json` | `test_shim_parity_fixture.py` | the offline shim (`replica/localApi/`) to the read routes' JSON |
-| `shared/fixtures/text_hash_parity.json` | `UPDATE_TEXT_HASH_FIXTURE=1 pnpm vitest run src/replica/textHashParity.test.ts` | that test, `test_text_hash_parity.py` | `text_hash`, `subtree_hash`, `well_formed` |
-| `shared/fixtures/local_links_parity.json` | `UPDATE_LOCAL_LINKS_FIXTURE=1 pnpm vitest run src/outline/localLinksParity.test.ts` | that test, `test_local_links_parity.py` | `local_docs.extract_local_hrefs` |
-| `shared/fixtures/upload_links_parity.json` | `UPDATE_UPLOAD_LINKS_FIXTURE=1 pnpm vitest run src/sync/assetsParity.test.ts` | that test, `test_upload_links_parity.py` | `assets_core.strip_asset_tokens` |
-| `ref_grammar.json` | hand-edited | `test_refs.py`, `grammar/refs.test.ts` | the [ref grammar](#ref-grammar) |
-| `title_syntax.json` | hand-edited | `test_refs.py`, `replica/titles.test.ts` | `title_syntax_reason` |
-| `title_length.json` | hand-edited | `test_title_length_fixture.py`, `grammar/titleLength.test.ts`, `replica/titles.test.ts` | `MAX_PAGE_TITLE_CHARS`, `title_length_over`, and which linked titles `find_op_title_violation` refuses, with its wording |
-| `missing_targets.json` | hand-edited | `test_ops_core.py`, `missingTarget.test.ts` | `classify_skip`; `placement_cases` pin where a create or move lands |
-| `subtree_hash.json` | hand-edited | `test_subtree_hash.py`, `subtreeHash.test.ts` | `subtree_hash` |
-| `ops_acks.json` | hand-edited | `test_ops_idempotency.py`, `opsAck.test.ts` | the stored-ack-to-wire mapping and `SkipReason` |
+| `shared/fixtures/text_hash_parity.json` | `UPDATE_TEXT_HASH_FIXTURE=1 pnpm vitest run src/replica/textHashParity.test.ts` | `textHashParity.test.ts` | `text_hash`, `subtree_hash`, `well_formed` |
+| `shared/fixtures/local_links_parity.json` | `UPDATE_LOCAL_LINKS_FIXTURE=1 pnpm vitest run src/outline/localLinksParity.test.ts` | `localLinksParity.test.ts` | `local_docs.extract_local_hrefs` |
+| `shared/fixtures/upload_links_parity.json` | `UPDATE_UPLOAD_LINKS_FIXTURE=1 pnpm vitest run src/sync/assetsParity.test.ts` | `assetsParity.test.ts` | `assets_core.strip_asset_tokens` |
+| `ref_grammar.json` | hand-edited | `test_refs.py` | the [ref grammar](#ref-grammar) |
+| `title_syntax.json` | hand-edited | `test_refs.py` | `title_syntax_reason` |
+| `title_length.json` | hand-edited | `test_title_length_fixture.py` | `MAX_PAGE_TITLE_CHARS`, `title_length_over`, and which linked titles `find_op_title_violation` refuses, with its wording |
+| `missing_targets.json` | hand-edited | `test_ops_core.py` | `classify_skip`; `placement_cases` pin where a create or move lands |
+| `subtree_hash.json` | hand-edited | `test_subtree_hash.py` | `subtree_hash` |
+| `ops_acks.json` | hand-edited | `test_ops_idempotency.py` | the stored-ack-to-wire mapping and `SkipReason` |
 | `batch_limits.json` | hand-edited | `test_batch_limits_fixture.py` | `MAX_OPS_PER_BATCH`, `PRIVATE_BODY_MAX_BYTES` |
-| `draft_flush.json` | hand-edited | `test_ops_endpoint.py`, `EditablePage.draftFlush.test.tsx` | the op an editor draft flushes |
+| `outline_depth.json` | hand-edited | `test_outline_depth.py` | `MAX_OUTLINE_DEPTH`, equal to the web's `depthCap.ts` |
+| `draft_flush.json` | hand-edited | `test_ops_endpoint.py` | the op an editor draft flushes |
 
-Hand-edited fixtures live in `shared/fixtures/`. `rows_dump` fails for a
+Hand-edited fixtures live in `shared/fixtures/`, and `git grep <name>.json` finds every test that reads one. `rows_dump` fails for a
 brand `brands.ts` lacks. The `--table` redirect empties `tag_chars.py` before
 the dump runs. So `tag_chars_dump` imports the table only for the plain run,
 which writes the TS file, and must keep no top-level import of it. The seeded

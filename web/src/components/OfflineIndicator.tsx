@@ -261,9 +261,9 @@ function ConnectivityBanner({ status, canEdit, pending, unsentInMemory,
       </div>
     );
   }
-  // The lane can carry entries a durable-path failure never counted in
-  // `pending` (a replica that opens and then fails every write), so this is
-  // named regardless of whether editing is currently allowed.
+  // unsentInMemory is the lane's share of `pending` (a replica that opens
+  // and then fails every write): edits held only in memory, so it is named
+  // regardless of whether editing is currently allowed.
   const memoryOnly = memoryOnlySentence(unsentInMemory);
   if (!canEdit) {
     // A full stop already closing readOnlyReason must not double up when the

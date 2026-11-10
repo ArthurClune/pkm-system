@@ -1,14 +1,16 @@
 // pattern: Functional Core
-// Drives the real outline commands from abstract descriptors and records undo
-// history the way useOutline.run and undoManager do: a typed draft is held
-// until the next command flushes it, joining that command's batch only under
-// the FOLDS_DRAFT rule below (otherwise it lands as its own entry first), the
-// batch's inverse is taken against the pre-flush tree, and undo or redo
-// flushes the draft as its own entry before replaying anything.
+// Drives the real outline commands from abstract descriptors through the
+// cores useOutline.run and undoManager run (outline/command.ts): a typed
+// draft is held until the next command flushes it, joining that command's
+// batch only under the FOLDS_DRAFT rule below (otherwise it lands as its own
+// entry first), and undo or redo flushes the draft as its own entry before
+// replaying anything. A command the editor refuses applies nothing of its
+// own, as in the editor; a refused undo or redo throws, since every entry
+// replayed here was accepted once.
 import type { BlockUid } from "../../api/brands";
 import type { BlockOp, SetViewTypeOp } from "../../api/ops";
 import type { BlockNode } from "../../api/payloads";
-import { stampBaseTextHashes, withoutStamps } from "../../outline/baseTextHash";
+import { planCommand, planReplay } from "../../outline/command";
 import { selectedUids, selectionDragUids,
          type BlockSelection } from "../../outline/blockSelection";
 import { allowedDepths, dropRows, resolveDrop, type DragSource,
@@ -19,11 +21,9 @@ import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          outdentSelection, setCollapsed, setHeading, setViewType, splitBlock,
          validateOutlineFocus, type EditResult,
          type FocusTarget } from "../../outline/edits";
-import { emptyHistory, historyAnchors, invertOps, recordEntry, resolveAnchors,
-         takeRedo, takeUndo, type HistoryEntry,
-         type HistoryState } from "../../outline/history";
-import { openDraft, pendingTextOps,
-         type PendingDraft } from "../../outline/draft";
+import { emptyHistory, invertOps, recordEntry, takeRedo, takeUndo,
+         type HistoryEntry, type HistoryState } from "../../outline/history";
+import { openDraft, type PendingDraft } from "../../outline/draft";
 import { isOutlinePaste, planOutlinePaste,
          type PastedNode } from "../../outline/paste";
 import { applyOps, findNode, visibleUids } from "../../outline/tree";
@@ -60,19 +60,21 @@ export interface Step {
   inverse: BlockOp[] | null;
   /** For undo/redo: the rows the entry should restore. */
   undo?: { expectedRows: Row[] };
+  /** For a command the editor refused: its notice. */
+  refused?: string;
 }
 
-/** The functions a teeth check swaps for deliberately wrong versions. */
+/** The command functions a teeth check swaps for deliberately wrong
+ * versions. */
 export interface Seam {
   outdentBlock: typeof outdentBlock;
   moveBlockDown: typeof moveBlockDown;
   planOutlinePaste: typeof planOutlinePaste;
-  invertOps: typeof invertOps;
   deleteSelection: typeof deleteSelection;
 }
 
 export const REAL: Seam = {
-  outdentBlock, moveBlockDown, planOutlinePaste, invertOps, deleteSelection,
+  outdentBlock, moveBlockDown, planOutlinePaste, deleteSelection,
 };
 
 /** One request the editor would send: the ops as stamped on the wire, with the
@@ -116,20 +118,23 @@ function countNodes(forest: readonly PastedNode[]): number {
   return forest.reduce((n, p) => n + 1 + countNodes(p.children), 0);
 }
 
-/** Replays a history entry the way undoManager does, placements re-keyed
- * against `tree`; every replay goes through here. `ops` is the batch as
- * applied, after re-keying. */
+/** Replays a history entry through planReplay, as undoManager does, onto
+ * `tree`; every replay goes through here. `blocks` is the tree it leaves,
+ * `ops` the batch as applied after re-keying, `wireOps` as sent. */
 export function replayEntry(tree: BlockNode[], entry: HistoryEntry,
-                            direction: "undo" | "redo"): { blocks: BlockNode[]; ops: BlockOp[] } {
+                            direction: "undo" | "redo"):
+    { blocks: BlockNode[]; ops: BlockOp[]; wireOps: BlockOp[] } {
   const undoing = direction === "undo";
-  const ops = resolveAnchors(tree, PAGE_TITLE, undoing ? entry.inverse : entry.ops,
-                             undoing ? entry.anchors.inverse : entry.anchors.ops);
-  return { blocks: applyOps(tree, ops, PAGE_TITLE), ops };
+  const plan = planReplay(tree, undoing ? entry.inverse : entry.ops,
+                          undoing ? entry.anchors.inverse : entry.anchors.ops, PAGE_TITLE);
+  if (plan.refusal !== null) throw new Error(`runner: replay refused (${plan.refusal})`);
+  if (plan.next === null) throw new Error("runner: a replay onto a tree left none");
+  return { blocks: plan.next, ops: plan.resolved, wireOps: plan.wireOps };
 }
 
 export function runSequence(start: BlockNode[], commands: readonly Command[],
                             seamOrOptions: Seam | RunOptions = REAL): Run {
-  const options: RunOptions = "invertOps" in seamOrOptions ? { seam: seamOrOptions } : seamOrOptions;
+  const options: RunOptions = "outdentBlock" in seamOrOptions ? { seam: seamOrOptions } : seamOrOptions;
   const seam = options.seam ?? REAL;
   const prefix = options.mintPrefix ?? "tuid-n";
   const batches: WireBatch[] = [];
@@ -151,41 +156,23 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
       ? applyOps(tree, [{ op: "update_text", uid: draft.uid, text: draft.text }], PAGE_TITLE)
       : tree;
 
-  /** useOutline.run: flush the draft, run the command on the flushed tree,
-   * record the whole batch with its inverse against the pre-flush tree. */
+  /** useOutline.run: flush the draft into the command's batch and record
+   * the batch's history entry, both as planCommand plans them. */
   const run = (fn: (b: BlockNode[]) => EditResult) => {
-    const textOps = pendingTextOps(draft, tree, PAGE_TITLE);
-    draft = null;
     const pre = tree;
-    const undoableTextOps = textOps.filter((op) => findNode(pre, op.uid));
-    const base = textOps.length > 0 ? applyOps(pre, textOps, PAGE_TITLE) : pre;
-    const result = fn(base);
-    if (textOps.length + result.ops.length === 0) {
-      const noInverse: BlockOp[] | null = [];
-      return { base, after: base, result, inverse: noInverse };
+    const plan = planCommand(pre, draft, fn, PAGE_TITLE, focus, []);
+    draft = null;
+    if (plan.wireOps.length > 0) {
+      tree = plan.next;
+      batches.push({ pre, ops: plan.wireOps, after: plan.next });
     }
-    const next = result.ops.length > 0 ? result.blocks : base;
-    tree = next;
-    batches.push({ pre, ops: stampBaseTextHashes(pre, PAGE_TITLE, [...textOps, ...result.ops]),
-                   after: next });
-    const recorded = [...undoableTextOps.map(withoutStamps), ...result.ops];
-    const inverse = seam.invertOps(pre, PAGE_TITLE, recorded);
-    if (inverse !== null && inverse.length > 0) {
-      const entry: HistoryEntry = {
-        pageTitle: PAGE_TITLE,
-        ops: recorded,
-        inverse,
-        anchors: historyAnchors(pre, PAGE_TITLE, recorded, inverse),
-        freshAssets: [],
-        focusBefore: focus,
-        focusAfter: result.focus ?? focus,
-      };
-      history = recordEntry(history, entry);
-      newest = readingRows(next);
-      entryRows.set(entry, { before: readingRows(pre), after: newest });
+    if (plan.entry) {
+      history = recordEntry(history, plan.entry);
+      newest = readingRows(plan.next);
+      entryRows.set(plan.entry, { before: readingRows(pre), after: newest });
     }
-    if (result.focus) focus = result.focus;
-    return { base, after: next, result, inverse };
+    if (plan.focus) focus = plan.focus;
+    return plan;
   };
 
   const flushNow = () => { run(noop); };
@@ -206,7 +193,7 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
     const undoing = command.kind === "undo";
     const replayed = replayEntry(base, entry, command.kind);
     tree = replayed.blocks;
-    batches.push({ pre: base, ops: stampBaseTextHashes(base, PAGE_TITLE, replayed.ops), after: tree });
+    batches.push({ pre: base, ops: replayed.wireOps, after: tree });
     // useOutline's applyFocus: the entry's focus, validated as useOutline does.
     focus = validateOutlineFocus(undoing ? entry.focusBefore : entry.focusAfter, tree);
     const rows = entryRows.get(entry);
@@ -233,7 +220,7 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
     if (focusedUid() !== uid) focus = { uid, cursor: before.length };
     // Typing returns no focus; the editor's focus is left where it is.
     return { command, resolved: { kind: "type", uid, text: command.text }, base, after, ops,
-             focus: null, inverse: seam.invertOps(base, PAGE_TITLE, ops) };
+             focus: null, inverse: invertOps(base, PAGE_TITLE, ops) };
   };
 
   for (const command of commands) {
@@ -374,8 +361,9 @@ export function runSequence(start: BlockNode[], commands: readonly Command[],
       continue;
     }
     const done = run(edit);
-    steps.push({ command, resolved, base: done.base, after: done.after, ops: done.result.ops,
-                 focus: done.result.focus, inverse: done.inverse });
+    steps.push({ command, resolved, base: done.base, after: done.next, ops: done.ops,
+                 focus: done.focus, inverse: done.inverse,
+                 ...(done.verdict.kind === "refused" ? { refused: done.verdict.notice } : {}) });
   }
 
   flushNow();

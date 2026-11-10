@@ -63,6 +63,19 @@ describe("stepProblems", () => {
     expect(stepProblems({ ...step, ops })).toEqual(only("silent"));
   });
 
+  it("a refused command whose model stores a text the server refuses is a noop", () => {
+    // Joining the two texts makes the ref [[a#b]]: a title the server refuses.
+    const start = [node("a", 0, { text: "x [[a" }), node("b", 1, { text: "#b]]" })];
+    const [step] = runSequence(start, [{ kind: "backspace", row: 1 }]).steps;
+    expect(step.refused).toBeDefined();
+    expect(stepProblems(step)).toEqual([]);
+  });
+
+  it("a refusal the model cannot explain is reported", () => {
+    const [step] = runSequence(flat(), [{ kind: "indent", row: 0 }]).steps;
+    expect(stepProblems({ ...step, refused: "no reason" })).toEqual(only("refusal"));
+  });
+
   it("a missing inverse is reported as undoable", () => {
     const [step] = runSequence(flat(), [{ kind: "indent", row: 1 }]).steps;
     expect(stepProblems({ ...step, inverse: null })).toEqual(only("undoable"));

@@ -1,14 +1,40 @@
 import fc from "fast-check";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { BlockOp } from "../../api/ops";
 import type { BlockNode } from "../../api/payloads";
+import type * as CommandCore from "../../outline/command";
 import { allowedDepths, dropRows } from "../../outline/dnd";
 import { emptyHistory } from "../../outline/history";
 import { applyOps, blocksEqual, findNode } from "../../outline/tree";
 import { forestArb, PAGE_TITLE, renderForest, sequenceArb, treeArb, type Command,
          type IndentStyle } from "./arbitraries";
 import { readingRows } from "./reading";
-import { REAL, runSequence } from "./run";
+import { runSequence } from "./run";
 import { uidOf, orderIdxOf } from "../../test-helpers";
+
+/** Every wire batch the cores returned, and how often each was called. */
+const planned = vi.hoisted(() => ({
+  wireOps: new Set<readonly unknown[]>(), commands: 0, replays: 0,
+}));
+
+vi.mock("../../outline/command", async (importOriginal) => {
+  const real = await importOriginal<typeof CommandCore>();
+  return {
+    ...real,
+    planCommand: (...args: Parameters<typeof real.planCommand>) => {
+      const plan = real.planCommand(...args);
+      planned.commands++;
+      planned.wireOps.add(plan.wireOps);
+      return plan;
+    },
+    planReplay: (...args: Parameters<typeof real.planReplay>) => {
+      const plan = real.planReplay(...args);
+      planned.replays++;
+      planned.wireOps.add(plan.wireOps);
+      return plan;
+    },
+  };
+});
 
 const uid = (tag: string) => uidOf(`tuid-${tag}`);
 
@@ -23,6 +49,23 @@ const flat = (): BlockNode[] => ["a", "b", "c", "d"].map((tag, i) => node(tag, i
 const textOf = (blocks: BlockNode[], u: string) => findNode(blocks, uid(u))?.text;
 
 describe("runSequence", () => {
+  it("every batch the runner reports is one a core returned", () => {
+    planned.wireOps.clear();
+    planned.commands = 0;
+    planned.replays = 0;
+    const run = runSequence(flat(), [
+      { kind: "type", row: 1, text: "zz" },
+      { kind: "split", row: 1, caret: 50 },
+      { kind: "undo" },
+      { kind: "redo" },
+    ]);
+    expect(planned.commands).toBeGreaterThan(0);
+    expect(planned.replays).toBeGreaterThan(0);
+    expect(run.batches.length).toBeGreaterThanOrEqual(3);
+    const fromCore = (ops: BlockOp[]) => planned.wireOps.has(ops);
+    expect(run.batches.map((b) => fromCore(b.ops))).toEqual(run.batches.map(() => true));
+  });
+
   it("a type command is held as a draft and flushed by the next command", () => {
     const run = runSequence(flat(), [
       { kind: "type", row: 1, text: "zz" },
@@ -75,12 +118,22 @@ describe("runSequence", () => {
     ]);
   });
 
-  it("a batch with no inverse is not recorded", () => {
-    const run = runSequence(flat(), [{ kind: "indent", row: 1 }],
-                            { ...REAL, invertOps: () => null });
-    expect(run.steps[0].ops.length).toBeGreaterThan(0);
-    expect(run.steps[0].inverse).toBeNull();
-    expect(run.history).toEqual(emptyHistory());
+  it("a refused command applies nothing of its own and ships only the draft", () => {
+    // Joining the two texts makes the ref [[a#b]]: a title the server refuses.
+    const start = [node("a", 0, { text: "x [[a" }), node("b", 1, { text: "#b]]" })];
+    const run = runSequence(start, [
+      { kind: "type", row: 1, text: "#b]] " },
+      { kind: "backspace", row: 1 },
+    ]);
+    const backspace = run.steps[1];
+    expect(backspace.refused).toMatch(/page title/);
+    expect(backspace.ops).toEqual([]);
+    expect(backspace.after).toEqual(backspace.base);
+    expect(textOf(backspace.after, "b")).toBe("#b]] ");
+    expect(run.batches.map((b) => b.ops.map((op) => op.op))).toEqual([["update_text"]]);
+    expect(run.history.undo.map((e) => e.ops)).toEqual([
+      [{ op: "update_text", uid: uid("b"), text: "#b]] " }],
+    ]);
   });
 
   it("a drop that resolves to no move still flushes the draft", () => {

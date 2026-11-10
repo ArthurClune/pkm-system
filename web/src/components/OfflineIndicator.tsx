@@ -61,17 +61,19 @@ function memoryOnlySentence(unsentInMemory: number): string | null {
  * hold on iPad, so the unconditional reassurance would be a promise we cannot
  * keep there. Offline with nothing pending is neither a promise to make nor a
  * loss to warn about, so the first sentence stands alone. */
-function onlineOnlySafetyCopy(status: SyncStatus, pending: number): string | null {
+function onlineOnlySafetyCopy(
+  status: SyncStatus, unsentInMemory: number,
+): string | null {
   if (status === "connected") {
     return " Your changes are still being saved to the server.";
   }
-  const sentence = memoryOnlySentence(pending);
+  const sentence = memoryOnlySentence(unsentInMemory);
   return sentence === null ? null : ` You are offline: ${sentence}`;
 }
 
-function ReplicaUnusableBanner({ status, pending, actions }: {
+function ReplicaUnusableBanner({ status, unsentInMemory, actions }: {
   status: SyncStatus;
-  pending: number;
+  unsentInMemory: number;
   actions: BannerActions;
 }) {
   // Reload, not Retry: the worker latches a failed open for the session,
@@ -82,7 +84,7 @@ function ReplicaUnusableBanner({ status, pending, actions }: {
   return (
     <div className="ws-banner" role="status">
       Working online only — offline editing is unavailable for now.
-      {onlineOnlySafetyCopy(status, pending)}
+      {onlineOnlySafetyCopy(status, unsentInMemory)}
       <button type="button" onClick={actions.reload}>
         Reload
       </button>
@@ -220,17 +222,18 @@ function ReplicaStalledBanner({ problem, actions }: {
 
 /** One banner per problem kind, dispatched exhaustively: a new SyncProblem
  * kind fails to typecheck here rather than rendering nothing. */
-function DeliveryProblemBanner({ problem, status, pending, actions }: {
+function DeliveryProblemBanner({ problem, status, unsentInMemory, actions }: {
   problem: SyncProblem;
   status: SyncStatus;
-  pending: number;
+  unsentInMemory: number;
   actions: BannerActions;
 }) {
   switch (problem.kind) {
     case "poison-discovery":
       return <PoisonDiscoveryBanner problem={problem} actions={actions} />;
     case "replica-unusable":
-      return <ReplicaUnusableBanner status={status} pending={pending}
+      return <ReplicaUnusableBanner status={status}
+                                    unsentInMemory={unsentInMemory}
                                     actions={actions} />;
     case "legacy-rejected":
       return <LegacyRejectedBanner problem={problem} actions={actions} />;
@@ -295,9 +298,9 @@ export function OfflineIndicator() {
   // too, but it does not replace this confirm: beforeunload is unreliable in an
   // iOS standalone PWA, and this wording says what is actually at stake.
   const reloadForOnlineOnly = async (): Promise<void> => {
-    if (pending > 0) {
+    if (unsentInMemory > 0) {
       const ok = await confirm(
-        `${pending} unsent change${pending === 1 ? "" : "s"} ` +
+        `${unsentInMemory} unsent change${unsentInMemory === 1 ? "" : "s"} ` +
         "have not reached the server yet. Reloading now discards them.",
         { confirmLabel: "Discard and reload", danger: true });
       if (!ok) return;
@@ -324,7 +327,8 @@ export function OfflineIndicator() {
     <>
       {problem !== undefined && (
         <DeliveryProblemBanner problem={problem} status={status}
-                               pending={pending} actions={actions} />
+                               unsentInMemory={unsentInMemory}
+                               actions={actions} />
       )}
       <ConnectivityBanner status={status} canEdit={canEdit} pending={pending}
                           unsentInMemory={unsentInMemory}

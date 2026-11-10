@@ -738,7 +738,7 @@ def test_replay_reads_the_title_flag_no_more_often_for_a_delete_than_a_rename(
 
 def test_stale_hash_identical_text_does_not_create_daily_page(db):
     # Device 2 pushes text device 1 already synced, under a stale base
-    # hash -- check 2 (identical), never a conflict, so no daily page gets
+    # hash -- identical, never a conflict, so no daily page gets
     # created for it.
     apply_batch(db, judge_batch(_batch(
         {"op": "update_text", "uid": "uid_b1", "text": "Tags:: #AI",

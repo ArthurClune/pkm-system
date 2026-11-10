@@ -525,9 +525,9 @@ def over_limit_landing_text(text: str, replayed: Sequence[RewriteStep],
 class TextEditOutcome:
     """Where a hashed update_text op on a live block lands, once any rename/
     merge rewrites it predates have been replayed onto it
-    (`replay`): identical to the block's current text (check 2,
-    a no-op), a clean apply (check 4), or a concurrent edit that must land as
-    a conflict (check 5). `text` is the replayed edit -- what actually gets
+    (`replay`): `identical` to the block's current text (a no-op), `clean`
+    (applies without conflict), or a `conflict`, a concurrent edit that must
+    land under a header. `text` is the replayed edit -- what actually gets
     applied or diffed, not the caller's original op.text.
 
     `over_limit`: the replay would make text a write may not store

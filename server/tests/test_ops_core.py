@@ -604,28 +604,28 @@ def test_missing_block_appends_under_todays_header():
     assert not any(isinstance(e, RecordConflictHeader) for e in effs)
 
 
-def test_check_2_identical_text_is_noop_even_with_stale_hash():
+def test_identical_text_is_noop_even_with_stale_hash():
     # device 2 pushes the same text device 1 already synced: base hash is stale
     # but the content matches -- never a conflict (offline-editing-design.md §2)
     op = _op(text="same", base="anything else")
     assert plan_op(0, op, _text_ctx(op, "same")) == ()
 
 
-def test_check_3_absent_hash_applies_as_today():
+def test_hashless_edit_applies_as_sent():
     op = UpdateTextOp(op="update_text", uid=uid_of("uid_t1"), text="new")
     effs = plan_op(0, op, BlockContext(_BLK))
     assert any(isinstance(e, UpdateText) for e in effs)
     assert not any(isinstance(e, InsertBlock) for e in effs)
 
 
-def test_check_4_matching_hash_applies_without_conflict():
+def test_clean_edit_applies_without_conflict():
     op = _op()
     assert plan_op(0, op, _text_ctx(op, "old text")) == (
         UpdateText(uid_of("uid_t1"), "new text"),
         ReindexRefs(uid_of("uid_t1"), "new text"), TouchPage(page_id_of(1)))
 
 
-def test_check_5_incoming_wins_and_loser_goes_to_daily_header():
+def test_conflict_incoming_wins_and_loser_goes_to_daily_header():
     op = _op(base="what I saw before going offline")
     effs = plan_op(0, op, _text_ctx(op, "server text meanwhile"))
     upd = next(e for e in effs if isinstance(e, UpdateText))
@@ -642,7 +642,7 @@ def test_check_5_incoming_wins_and_loser_goes_to_daily_header():
                   for e in effs)
 
 
-def test_check_5_appends_under_todays_header():
+def test_conflict_appends_under_todays_header():
     op = _op(base="what I saw before going offline")
     effs = plan_op(0, op, _text_ctx(op, "server text meanwhile",
                                     header=_EXISTING))
@@ -654,7 +654,7 @@ def test_check_5_appends_under_todays_header():
     assert any(isinstance(e, UpdateText) for e in effs)
 
 
-def test_check_5_applies_the_replayed_edit_not_the_callers_text():
+def test_conflict_applies_the_replayed_edit_not_the_callers_text():
     t0, t1 = "note about [[Old]]", "note about [[New]] and more"
     op = UpdateTextOp(op="update_text", uid=uid_of("uid_t1"),
                       text="note about [[Old]] plus comment",

@@ -135,7 +135,7 @@ def test_hashed_identical_edit_is_a_true_noop(small_fixture):
         row = con.select_one(
             "SELECT text, updated_at FROM blocks WHERE uid = ?",
             (lm.hashed_edit_uid,))
-        assert row == {"text": HASHED_EDIT_TEXT, "updated_at": updated_at_before}  # check 2: no write at all
+        assert row == {"text": HASHED_EDIT_TEXT, "updated_at": updated_at_before}  # identical: no write at all
 
 
 def test_hashed_conflict_lands_the_loser_and_keeps_the_winner(small_fixture):

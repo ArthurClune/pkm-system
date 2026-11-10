@@ -166,7 +166,7 @@ class Skip:
     - noop: set_collapsed / delete of a missing block
     - orphan_structural: move / set_heading / set_view_type of a missing
       block; a note says what was skipped
-    - orphan_edit: update_text of a missing block, hashed or not (check 1);
+    - orphan_edit: update_text of a missing block, hashed or not;
       its text lands unless blank
     - diverted_create: create under a missing parent; the block is not
       created and its text lands instead
@@ -420,14 +420,14 @@ def descendant_copy_effects(
 @dataclass(frozen=True)
 class BlockContext:
     """set_collapsed, set_heading, set_view_type, or a hashless update_text
-    (check 3) of a live block."""
+    of a live block."""
     block: BlockInfo
 
 
 @dataclass(frozen=True)
 class TextEditContext:
     """A hashed update_text on a live block that `classify_text_edit` found
-    identical (check 2) or clean (check 4)."""
+    identical or clean."""
     block: BlockInfo
     outcome: TextEditOutcome
 
@@ -435,7 +435,7 @@ class TextEditContext:
 @dataclass(frozen=True)
 class TextConflictContext:
     """A hashed update_text on a live block that `classify_text_edit` found
-    concurrent (check 5): `text`, the edit with rewrites replayed, wins, and
+    a conflict: `text`, the edit with rewrites replayed, wins, and
     `current_text` lands under a header naming `page_title`, the block's
     own page. `replayed`, `canonical`, `known` and `reads` are as on the
     outcome."""
@@ -765,10 +765,10 @@ def _plan_skip_own(op: BlockOp, ctx: SkippedContext) -> tuple[Effect, ...]:
         tombstones = (JournalBlock(op.uid, True, ctx.ghost_page),
                       JournalBlock(op.parent_uid, True))
     else:
-        # orphan_edit (check 1): edit-vs-delete race, uid+text is all we
+        # orphan_edit: edit-vs-delete race, uid+text is all we
         # have, the deleted row's page/parent are gone -> conflict entry
         # appended under today's daily-note header naming the hint, rather
-        # than dropping the edit (offline-editing-design.md §2, check 1).
+        # than dropping the edit (offline-editing-design.md §2).
         # orphan_structural: the op's note lands the same way.
         tombstones = (JournalBlock(op.uid, True),)
     if isinstance(ctx, SkipContext):                 # blank text: nothing lost
@@ -885,12 +885,12 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
         # ReplayOverLimitContext
         assert ctx.outcome.kind in ("identical", "clean")
         if ctx.outcome.kind == "identical":
-            return ()                                # check 2: identical
-        return (UpdateText(op.uid, ctx.outcome.text),  # check 4: clean apply
+            return ()                                # identical
+        return (UpdateText(op.uid, ctx.outcome.text),  # clean apply
                 ReindexRefs(op.uid, ctx.outcome.text),
                 TouchPage(ctx.block.page_id))
     if isinstance(ctx, TextConflictContext):
-        # check 5: concurrent edit -- incoming wins, loser preserved under
+        # conflict: concurrent edit -- incoming wins, loser preserved under
         # today's daily-note conflict header naming the block's page
         assert isinstance(op, UpdateTextOp) and op.base_text_hash is not None
         header_text = overwritten_header_text(ctx.page_title, op.uid)
@@ -948,7 +948,7 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
         assert isinstance(op, DeleteOp)
         return (DeleteBlocks(ctx.subtree), TouchPage(ctx.block.page_id))
     # BlockContext
-    if isinstance(op, UpdateTextOp):                 # check 3: hashless
+    if isinstance(op, UpdateTextOp):                 # hashless
         assert op.base_text_hash is None
         return (UpdateText(op.uid, op.text),
                 ReindexRefs(op.uid, op.text),

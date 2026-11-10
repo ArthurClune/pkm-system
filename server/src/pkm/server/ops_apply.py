@@ -74,10 +74,10 @@ def _resolve_page(db: Db, title: RawTitle,
 
 
 def _hint_page(db: Db, page_title: RawTitle | None) -> CanonicalTitle | None:
-    """The stored title of the page check 1's page_title hint names now, or
-    None. Canonicalized the way get_or_create_page looks pages up. A hint
-    whose page was renamed or deleted since the client saw it simply names
-    none: block_rewrites can't map it to the new title, being keyed by
+    """The stored title of the page an orphan edit's page_title hint names
+    now, or None. Canonicalized the way get_or_create_page looks pages up.
+    A hint whose page was renamed or deleted since the client saw it simply
+    names none: block_rewrites can't map it to the new title, being keyed by
     referencing block, with rows only where some block referenced the page."""
     if page_title is None:
         return None

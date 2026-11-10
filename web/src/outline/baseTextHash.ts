@@ -8,8 +8,8 @@
 // (replica/queue.ts) only when they are undefined, so any op that never
 // reaches the database goes to the server unguarded — which is EVERY op in a
 // session whose replica could not be opened, because those ride the
-// in-memory fallback lane and post head.ops verbatim. The server then returns
-// early into plain last-write-wins (ops_core.py, "check 3: legacy"), so a
+// in-memory fallback lane and post head.ops verbatim. The server then takes
+// the hashless branch of ops_core.plan_op, which is plain last-write-wins, so a
 // concurrent edit from the tab that DOES own the replica is overwritten
 // outright instead of being landed on the daily note as a conflict header.
 // (An edit to a block the server no longer has lands on the daily note

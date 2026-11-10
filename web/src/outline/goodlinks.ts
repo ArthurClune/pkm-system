@@ -5,8 +5,12 @@
 // notice for each failure. useOutline does the network and the splice.
 import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
-import { UNAUTHORIZED_DETAIL } from "../components/goodlinks";
 import { locate } from "./tree";
+
+// The server's 503 detail for a refused API token. The reader and the
+// /goodlinks notice each word the ordinary 503 ("not running") their own
+// way, and show only this one detail exactly as the server sent it.
+export const UNAUTHORIZED_DETAIL = "Goodlinks rejected the API token";
 
 const URL_RE = /https?:\/\/(?:[^\s<>()[\]]|\([^\s<>()[\]]*\))+/g;
 

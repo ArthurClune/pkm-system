@@ -5,7 +5,7 @@
 // HTML it did not generate itself, and it only ever receives HTML the
 // server has already reduced to its allowlist; the iframe sandbox (no
 // scripts, no same-origin) is the second barrier. Do not widen either.
-import { UNAUTHORIZED_DETAIL } from "./goodlinks";
+import { UNAUTHORIZED_DETAIL } from "../outline/goodlinks";
 
 export const READER_SANDBOX = "allow-popups allow-popups-to-escape-sandbox";
 

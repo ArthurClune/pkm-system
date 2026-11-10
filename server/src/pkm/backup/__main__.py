@@ -34,9 +34,10 @@ def sqlite_backup(live_db: Path, dest: Path) -> None:
     src = open_ro(live_db)
     try:
         src.backup_to(tmp)
+        os.replace(tmp, dest)
     finally:
         src.close()
-    os.replace(tmp, dest)
+        tmp.unlink(missing_ok=True)
 
 
 def git_commit_export(export_dir: Path, day: date) -> str:

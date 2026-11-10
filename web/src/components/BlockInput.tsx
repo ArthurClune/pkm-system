@@ -25,8 +25,7 @@ import { insertTypedChar, isPhoneUserAgent,
 import { decideEditorKey, type EditorKeyInput,
          type KeyDecision } from "../outline/keyboardPolicy";
 import { isOutlinePaste, isOutlinePasteChord } from "../outline/paste";
-import { applySlashCommand, matchSlashCommands,
-         resolveHeading, stripTrigger } from "../outline/slashCommands";
+import { matchSlashCommands, planPick } from "../outline/slashCommands";
 import { useAutocomplete } from "../outline/useAutocomplete";
 import { useBlockDraft } from "../outline/useBlockDraft";
 import { pagePath } from "../paths";
@@ -167,67 +166,48 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     const target = ac.resolve(draft.ref.current);
     if (!target) return; // caret has moved off the token; resolve closed it
     const { ctx, caret, text } = target;
-    // "/upload": strip the trigger, then open the tree-owned file picker.
-    // handlers.onFiles puts each upload in its own block once the user has
-    // chosen files; the input outlives this component because
-    // the pick blurs (and so unmounts) BlockInput itself before opening the
-    // dialog -- the native file dialog does not reliably blur the
-    // textarea on its own, so this can't rely on that. setText must run
-    // first: onBlurBlock flushes the draft, and the flush needs to see the
-    // stripped-trigger text this onDraftChange call just registered.
-    if (row.command === "upload") {
-      const { text: stripped, at } = stripTrigger(text, caret, ctx);
+    if (row.command === undefined) {
+      const applied = applyCompletion(text, caret, ctx, row.pageTitle);
       ac.close();
-      setText(stripped, at);
-      handlers.onBlurBlock(node.uid);
-      onRequestUpload(node.uid, at);
+      setText(applied.text, applied.cursor);
       return;
     }
-    // "/date": strip the trigger like /upload, but open the inline
-    // focus-preserving picker instead of a native dialog — the textarea
-    // keeps focus (the picker is mouse-down-only), so the eventual
-    // insertion goes through the normal setText draft path.
-    if (row.command === "date") {
-      const { text: stripped, at } = stripTrigger(text, caret, ctx);
-      ac.close();
-      setText(stripped, at);
-      setDatePickerAt(at);
-      return;
-    }
-    // "/goodlinks": strip the trigger and give up the block like /upload,
-    // then let the engine resolve the nearest URL and splice the attribute
-    // at the recorded offset. The block is blurred first so the inserted
-    // link renders (as a button) the moment the splice lands.
-    if (row.command === "goodlinks") {
-      const { text: stripped, at } = stripTrigger(text, caret, ctx);
-      ac.close();
-      setText(stripped, at);
-      handlers.onBlurBlock(node.uid);
-      handlers.onGoodlinks(node.uid, at);
-      return;
-    }
-    // "/link-local-file": same blur-first shape as /upload; the tree opens
-    // the picker and splices the pick through handlers.onLinkLocalFile.
-    if (row.command === "link-local-file") {
-      const { text: stripped, at } = stripTrigger(text, caret, ctx);
-      ac.close();
-      setText(stripped, at);
-      handlers.onBlurBlock(node.uid);
-      onRequestLocalFile(node.uid, at);
-      return;
-    }
-    const applied = row.command !== undefined
-      ? applySlashCommand(text, caret, ctx, row.command, new Date())
-      : applyCompletion(text, caret, ctx, row.pageTitle);
+    const plan = planPick(row.command, text, caret, ctx, node.heading,
+                          new Date());
     ac.close();
-    setText(applied.text, applied.cursor);
-    // Heading commands (/h1 /h2 /h3 /normal) aren't text transforms: the
-    // trigger is stripped above like any other command, but the heading
-    // field itself is set via a dedicated op, dispatched here against the
-    // block's current heading so picking the active one toggles it off.
-    if (row.command) {
-      const heading = resolveHeading(row.command, node.heading);
-      if (heading !== undefined) handlers.onSetHeading(node.uid, heading);
+    // The hand-offs set the stripped text first: onBlurBlock flushes the
+    // draft, and the flush needs the text this setText registered. They
+    // blur before opening the picker because a native file dialog does not
+    // reliably blur the textarea, and the tree-owned picker outlives this
+    // component. /date keeps focus: its picker is mouse-down-only, so the
+    // eventual insertion goes through the normal draft path.
+    switch (plan.kind) {
+      case "text":
+        setText(plan.text, plan.cursor);
+        if (plan.heading !== undefined) {
+          handlers.onSetHeading(node.uid, plan.heading);
+        }
+        return;
+      case "date-picker":
+        setText(plan.text, plan.at);
+        setDatePickerAt(plan.at);
+        return;
+      case "hand-off":
+        setText(plan.text, plan.at);
+        handlers.onBlurBlock(node.uid);
+        switch (plan.to) {
+          case "upload": onRequestUpload(node.uid, plan.at); return;
+          case "goodlinks": handlers.onGoodlinks(node.uid, plan.at); return;
+          case "local-file": onRequestLocalFile(node.uid, plan.at); return;
+          default: {
+            const exhaustive: never = plan.to;
+            return exhaustive;
+          }
+        }
+      default: {
+        const exhaustive: never = plan;
+        return exhaustive;
+      }
     }
   };
 

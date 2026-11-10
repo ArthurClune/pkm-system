@@ -1,5 +1,7 @@
 ## Development
 
+This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it
+
 ### Task Tracking
 
 **IMPORTANT:** Run `beans prime` at the start of every development session. This loads the beans workflow.

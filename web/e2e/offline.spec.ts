@@ -3,7 +3,7 @@
 // the server. The websocket is steered through routeWebSocket so "offline"
 // is deterministic — context.setOffline alone does not kill an open socket.
 import { type Page, type WebSocketRoute } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { expect, test } from "./ownPage";
 
 const PASSWORD = "e2e-pw";
 
@@ -77,7 +77,12 @@ test("offline banner stays in document flow above responsive chrome", async ({ p
   expect(scrolledHamburgerBox!.y).toBe(hamburgerBox!.y);
 });
 
-test("offline: edit, create page, link, navigate; reconnect drains to server", async ({ page, context }) => {
+test.afterEach(async ({ page }) => {
+  // created offline by the test below; a 404 here is fine
+  await page.request.delete("/api/page/Offline%20Target");
+});
+
+test("offline: edit, create page, link, navigate; reconnect drains to server", async ({ page, context, scratch }) => {
   test.setTimeout(60_000);
 
   // Steer the app's websocket: while `offline` new connections are refused,
@@ -100,6 +105,13 @@ test("offline: edit, create page, link, navigate; reconnect drains to server", a
   await login(page);
   await snapshot;
   await changes;
+  // The replica learns of the new page from the changes feed; offline, a
+  // page it has not hydrated answers 404 and its editor stays disabled.
+  const hydrated = page.waitForResponse("**/api/sync/changes*");
+  await scratch.open();
+  await hydrated;
+  await expect(page.getByRole("button", { name: "Click to start writing…" }))
+    .toBeEnabled();
 
   // -- go offline ----------------------------------------------------------
   offline = true;
@@ -107,18 +119,9 @@ test("offline: edit, create page, link, navigate; reconnect drains to server", a
   for (const ws of live.splice(0)) await ws.close();
   await expect(page.locator(".ws-banner")).toContainText("Offline");
 
-  // edit a block on today's page (must not assume an empty day: specs share
-  // the server DB)
-  const today = page.locator(".journal-day").first();
-  await expect(today).toBeVisible();
-  const startWriting = today.getByText("Click to start writing…");
-  if (await startWriting.count() > 0) {
-    await startWriting.click();
-  } else {
-    await today.locator(".block-text").first().click();
-    await caretToEnd(page);
-    await input(page).press("Enter");
-  }
+  // edit a block on the scratch page, which starts empty
+  const today = page.locator("main");
+  await page.getByText("Click to start writing…").click();
   await input(page).fill("offline edit survives");
   await input(page).press("Escape"); // blur: flushes the draft op
   await expect(page.locator(".ws-banner")).toContainText(/\d+ changes? pending/);
@@ -129,8 +132,8 @@ test("offline: edit, create page, link, navigate; reconnect drains to server", a
   await expect(page).toHaveURL(/\/page\/Offline%20Target/);
   await expect(page.locator("h1.page-title")).toHaveText("Offline Target");
 
-  // back on the daily page, [[ autocomplete offers the offline-created page
-  await page.getByRole("link", { name: "Daily Notes" }).click();
+  // back on the scratch page, [[ autocomplete offers the offline-created page
+  await page.goBack();
   const marker = today.locator(".block-text", { hasText: "offline edit survives" });
   await marker.click();
   await caretToEnd(page);

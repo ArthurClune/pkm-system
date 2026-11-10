@@ -3,7 +3,7 @@
 // indicator follows scroll, and the fullscreen overlay opens/closes.
 import { readFileSync } from "node:fs";
 import { type Page } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { expect, test } from "./ownPage";
 
 const samplePdf = readFileSync(
   new URL("../../test-data/assets/sample.pdf", import.meta.url),
@@ -19,12 +19,8 @@ async function login(page: Page) {
 
 const input = (page: Page) => page.locator("textarea.block-input");
 
-const caretToEnd = (page: Page) =>
-  input(page).evaluate((el: HTMLTextAreaElement) =>
-    el.setSelectionRange(el.value.length, el.value.length));
-
-test("uploaded multi-page PDF renders, scrolls, and expands", async ({ page }) => {
-  await login(page);
+test("uploaded multi-page PDF renders, scrolls, and expands", async ({ page, ownPage }) => {
+  void ownPage;
 
   // page.request shares the logged-in cookie jar
   const res = await page.request.post("/api/assets", {
@@ -35,16 +31,7 @@ test("uploaded multi-page PDF renders, scrolls, and expands", async ({ page }) =
   expect(res.ok()).toBe(true);
   const { url } = await res.json() as { url: string };
 
-  const today = page.locator(".journal-day").first();
-  await expect(today).toBeVisible();
-  const startWriting = today.getByText("Click to start writing…");
-  if (await startWriting.count() > 0) {
-    await startWriting.click();
-  } else {
-    await today.locator(".block-text").first().click();
-    await caretToEnd(page);
-    await input(page).press("Enter");
-  }
+  await page.getByText("Click to start writing…").click();
   await input(page).fill(`[three-page.pdf](${url})`);
   await input(page).press("Escape");
 
@@ -96,6 +83,11 @@ test("uploaded multi-page PDF renders, scrolls, and expands", async ({ page }) =
   expect(await page.evaluate(() => document.body.style.overflow)).toBe("");
 });
 
+test.afterEach(async ({ page }) => {
+  // created through search by the macro test below; a 404 here is fine
+  await page.request.delete("/api/page/PDF%20Macro");
+});
+
 test("Roam-style {{[[pdf]]: …}} macro renders the viewer", async ({ page }) => {
   await login(page);
 
@@ -107,9 +99,6 @@ test("Roam-style {{[[pdf]]: …}} macro renders the viewer", async ({ page }) =>
   expect(res.ok()).toBe(true);
   const { url } = await res.json() as { url: string };
 
-  // A dedicated page keeps this test independent of whatever blocks other
-  // specs left on today's journal (whose first block may be a PDF embed --
-  // an interactive island that clicks can't enter edit mode through).
   await page.getByLabel("Search").fill("PDF Macro");
   await page.locator(".search-result", { hasText: 'Create page "PDF Macro"' }).click();
   await expect(page.locator("h1.page-title")).toHaveText("PDF Macro");

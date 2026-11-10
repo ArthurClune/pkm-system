@@ -3,7 +3,7 @@
 // serves content, runtime-cached assets render, uncached ones show a
 // placeholder.
 import { type Page, type WebSocketRoute } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { expect, test } from "./ownPage";
 import { waitForServerText } from "./server-state";
 
 const PASSWORD = "e2e-pw";
@@ -26,7 +26,7 @@ const caretToEnd = (page: Page) =>
   input(page).evaluate((el: HTMLTextAreaElement) =>
     el.setSelectionRange(el.value.length, el.value.length));
 
-test("cold start offline: SW shell + replica content + asset cache", async ({ page, context }) => {
+test("cold start offline: SW shell + replica content + asset cache", async ({ page, context, scratch }) => {
   test.setTimeout(60_000);
 
   let offline = false;
@@ -60,17 +60,12 @@ test("cold start offline: SW shell + replica content + asset cache", async ({ pa
   expect(upload.ok()).toBeTruthy();
   const { url } = await upload.json() as { url: string };
 
-  const today = page.locator(".journal-day").first();
-  await expect(today).toBeVisible();
-  const pageTitle = await today.locator("h1.page-title").innerText();
-  const startWriting = today.getByText("Click to start writing…");
-  if (await startWriting.count() > 0) {
-    await startWriting.click();
-  } else {
-    await today.locator(".block-text").first().click();
-    await caretToEnd(page);
-    await input(page).press("Enter");
-  }
+  const hydrated = page.waitForResponse("**/api/sync/changes*");
+  const pageTitle = await scratch.open();
+  await hydrated;
+  await expect(page.getByRole("button", { name: "Click to start writing…" }))
+    .toBeEnabled();
+  await page.getByText("Click to start writing…").click();
   await input(page).fill(`shell smoke ![pic](${url})`);
   await input(page).press("Escape");
 
@@ -94,10 +89,9 @@ test("cold start offline: SW shell + replica content + asset cache", async ({ pa
   for (const ws of live.splice(0)) await ws.close();
   await page.reload(); // the SW serves /index.html from the precache
 
-  // shell booted, replica serves the journal, indicator reports offline
-  await expect(page.locator(".journal-day").first()).toBeVisible();
+  // shell booted, replica serves the page, indicator reports offline
+  await expect(page.locator("main")).toContainText("shell smoke");
   await expect(page.locator(".ws-banner")).toContainText("Offline");
-  await expect(page.locator(".journal-day").first()).toContainText("shell smoke");
 
   // the viewed asset comes from the SW cache
   await expect(page.locator("img.asset-image")).toBeVisible();
@@ -107,8 +101,7 @@ test("cold start offline: SW shell + replica content + asset cache", async ({ pa
   });
 
   // an asset never viewed online cannot load: labelled placeholder
-  const day = page.locator(".journal-day").first();
-  await day.locator(".block-text").first().click();
+  await page.locator("main .block-text").first().click();
   await caretToEnd(page);
   await input(page).press("Enter");
   await input(page).fill(
@@ -123,7 +116,7 @@ test("cold start offline: SW shell + replica content + asset cache", async ({ pa
 // by the service worker, so a diagram renders with no network at all. This
 // guards the budget task's promise that the Mermaid exception buys genuine
 // offline rendering, not just a smaller eager bundle.
-test("mermaid renders offline from the precached chunk", async ({ page, context }) => {
+test("mermaid renders offline from the precached chunk", async ({ page, context, scratch }) => {
   test.setTimeout(60_000);
 
   let offline = false;
@@ -146,17 +139,12 @@ test("mermaid renders offline from the precached chunk", async ({ page, context 
     return navigator.serviceWorker.controller !== null;
   });
 
-  const today = page.locator(".journal-day").first();
-  await expect(today).toBeVisible();
-  const pageTitle = await today.locator("h1.page-title").innerText();
-  const startWriting = today.getByText("Click to start writing…");
-  if (await startWriting.count() > 0) {
-    await startWriting.click();
-  } else {
-    await today.locator(".block-text").first().click();
-    await caretToEnd(page);
-    await input(page).press("Enter");
-  }
+  const hydrated = page.waitForResponse("**/api/sync/changes*");
+  const pageTitle = await scratch.open();
+  await hydrated;
+  await expect(page.getByRole("button", { name: "Click to start writing…" }))
+    .toBeEnabled();
+  await page.getByText("Click to start writing…").click();
   // A fenced mermaid block lives in a single block's multi-line text; the
   // renderer tokenizes it into a code-block(lang="mermaid") -> MermaidDiagram.
   await input(page).fill("```mermaid\ngraph TD\nA-->B\n```");
@@ -177,7 +165,7 @@ test("mermaid renders offline from the precached chunk", async ({ page, context 
   for (const ws of live.splice(0)) await ws.close();
   await page.reload();
 
-  await expect(page.locator(".journal-day").first()).toBeVisible();
+  await expect(page.locator("main")).toBeVisible();
   await expect(page.locator(".ws-banner")).toContainText("Offline");
   // the diagram re-renders with zero network: proof the mermaid chunk came
   // from the SW precache, not a live fetch.

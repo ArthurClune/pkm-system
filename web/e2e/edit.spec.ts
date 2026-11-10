@@ -1,5 +1,6 @@
 import { type Page } from "@playwright/test";
-import { expect, test, trackResponses } from "./fixtures";
+import { trackResponses } from "./fixtures";
+import { expect, test } from "./ownPage";
 import { waitForServerText } from "./server-state";
 
 const PASSWORD = "e2e-pw";
@@ -20,14 +21,11 @@ const caretToEnd = (page: Page) =>
   input(page).evaluate((el: HTMLTextAreaElement) =>
     el.setSelectionRange(el.value.length, el.value.length));
 
-test("core editing loop: create, split, indent, persist, link, backlink", async ({ page }) => {
-  await login(page);
-  const today = page.locator(".journal-day").first();
-  await expect(today).toBeVisible();
-  const pageTitle = await today.locator("h1.page-title").innerText();
+test("core editing loop: create, split, indent, persist, link, backlink", async ({ page, ownPage }) => {
+  const pageTitle = ownPage.title;
 
-  // fresh DB: today is empty -> the start-writing affordance
-  await today.getByText("Click to start writing…").click();
+  // a freshly created page is empty -> the start-writing affordance
+  await page.getByText("Click to start writing…").click();
   await input(page).fill("first block");
   await input(page).press("Enter"); // split at end -> new empty sibling
   await input(page).fill("second block");
@@ -54,7 +52,7 @@ test("core editing loop: create, split, indent, persist, link, backlink", async 
 
   // persisted across a full reload, structure intact
   await page.reload();
-  const day = page.locator(".journal-day").first();
+  const day = page.locator(".block-tree");
   await expect(day.locator(".block-text", { hasText: "first block" })).toBeVisible();
   const child = day.locator(".block-children .block-text", { hasText: "second block" });
   await expect(child).toBeVisible();
@@ -372,21 +370,9 @@ test.describe("Shift selection in a multi-line block", () => {
   });
 });
 
-test("can click back into a line after emptying it", async ({ page }) => {
-  await login(page);
-  const today = page.locator(".journal-day").first();
-  await expect(today).toBeVisible();
-
-  // append a fresh sibling after whatever's already on today's page (this
-  // must not assume an empty day: other tests in this file share the DB)
-  const startWriting = today.getByText("Click to start writing…");
-  if (await startWriting.count() > 0) {
-    await startWriting.click();
-  } else {
-    await today.locator(".block-text").first().click();
-    await caretToEnd(page);
-    await input(page).press("Enter");
-  }
+test("can click back into a line after emptying it", async ({ page, ownPage }) => {
+  void ownPage;
+  await page.getByText("Click to start writing…").click();
   await input(page).fill("mc07-marker");
   await input(page).press("Escape"); // blur: renders as unfocused, non-empty
 
@@ -440,28 +426,21 @@ test("pausing mid [[ autocomplete does not create the partial page", async ({ pa
     .toBeTruthy();
 });
 
-test("edits broadcast live to a second client", async ({ browser, badResponses }) => {
-  const ctxA = await browser.newContext();
+test("edits broadcast live to a second client", async ({ page, ownPage, browser, badResponses }) => {
   const ctxB = await browser.newContext();
-  trackResponses(ctxA, badResponses);
   trackResponses(ctxB, badResponses);
-  const a = await ctxA.newPage();
   const b = await ctxB.newPage();
-  await login(a);
   await login(b);
+  await b.goto(`/page/${encodeURIComponent(ownPage.title)}`);
 
-  const dayA = a.locator(".journal-day").first();
-  await dayA.locator(".block-text").first().click();
-  await caretToEnd(a);
-  await input(a).press("Enter");
-  await input(a).fill("sync-check-42");
-  await input(a).press("Escape"); // flush
+  await page.getByText("Click to start writing…").click();
+  await input(page).fill("sync-check-42");
+  await input(page).press("Escape"); // flush
 
   // b sees it without reloading (websocket patch)
-  await expect(b.locator(".journal-day").first())
+  await expect(b.locator(".block-tree"))
     .toContainText("sync-check-42", { timeout: 10_000 });
 
-  await ctxA.close();
   await ctxB.close();
 });
 

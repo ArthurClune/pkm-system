@@ -52,6 +52,16 @@ export async function confirmTool(
   });
 }
 
+/** The user's Stop. The server stops the reserved turn before it answers;
+ * the turn's stream then ends with `turn_stopped` once the server can take
+ * the next turn. */
+export async function stopTurn(id: ConversationId, signal?: AbortSignal): Promise<void> {
+  await apiPost("/api/assistant/conversations/{conversation_id}/stop", {
+    path: { conversation_id: id },
+    init: { signal },
+  });
+}
+
 // The server writes a keepalive comment frame into the
 // stream every 15s (routes.py KEEPALIVE_INTERVAL_S), so a full minute with
 // no bytes at all means the link to the server is dead -- a state a stalled
@@ -59,8 +69,8 @@ export async function confirmTool(
 // missed keepalives is comfortably past any scheduling jitter.
 const STREAM_STALL_TIMEOUT_MS = 60_000;
 
-/** Deliberately NOT an AbortError: the chat machine treats an abort after
- * Stop as success, and this is the opposite of success. */
+/** Deliberately NOT an AbortError: the chat machine treats an abort as
+ * the end of a turn the user stopped or left, and this is a failure. */
 async function readWithStallGuard(
   reader: ReadableStreamDefaultReader<Uint8Array>,
 ): Promise<ReadableStreamReadResult<Uint8Array>> {
@@ -83,6 +93,7 @@ export async function streamMessage(
   text: string,
   onEvent: (ev: AssistantEvent) => void,
   signal?: AbortSignal,
+  onOpen?: () => void,
 ): Promise<void> {
   const path = `/api/assistant/conversations/${id}/messages`;
   const res = await fetch(path, {
@@ -96,6 +107,8 @@ export async function streamMessage(
     throw new ApiError(401, path, await readErrorDetail(res));
   }
   if (!res.ok || !res.body) throw new ApiError(res.status, path, res.ok ? undefined : await readErrorDetail(res));
+  // the server has reserved the turn
+  onOpen?.();
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   const parser = createSseParser();

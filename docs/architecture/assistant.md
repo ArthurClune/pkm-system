@@ -184,9 +184,12 @@ reply, which can report a refused write as done.
 | Admission (reap, cap check, eviction, `engine.create_conversation()`) runs under one `asyncio.Lock`, bounded by `CREATE_TIMEOUT_S`; nothing else takes it | Two concurrent `create()` calls would both see free capacity; a wedged spawn fails one request instead of every later one |
 | Teardown of a reaped or evicted conversation runs after the lock is released | The registry pop already enforces the cap, so a hung `close()` blocks only its own request |
 
-A closed tab, a navigation and the Stop button all end the same way:
-Starlette closes or cancels the response body, and each layer closes the next
-explicitly rather than leaving it to the async-generator finalizer.
+A closed tab, a navigation, New chat and Stop's fallback abort
+([frontend.md § The chat machine](frontend.md#the-chat-machine)) all end the
+same way: Starlette closes or cancels the response body, and each layer
+closes the next explicitly rather than leaving it to the async-generator
+finalizer. The Stop button itself takes another path: `POST …/stop`
+([the turn phase](#the-turn-phase)).
 
 ```mermaid
 flowchart LR
@@ -204,26 +207,35 @@ The teardown rules:
   on it gets a 409, and `close_all()` takes it at shutdown.
 - `_abandon_stream` logs rather than raises, because it unwinds inside a
   `GeneratorExit`.
-- `_abandon_turn` declines every parked confirm before it awaits
-  `interrupt()`: a harness parked in `can_use_tool` cannot acknowledge an
-  interrupt until it has its decision.
+- `_abandon_turn` declines every parked confirm before it asks the pump to
+  stop the turn: a harness parked in `can_use_tool` cannot acknowledge an
+  interrupt until it has its decision. It then waits for the pump, bounded
+  by `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S`.
 
 ### The turn phase
 
 `ClaudeConversation` keeps one `TurnPhase` (`turn_phase.py`, a pure
-`next_phase` table) for where its harness is in a turn:
+`next_phase` table) for where its harness is in a turn. Any move the table
+lacks is `dead`, and `close()` moves `lost` from any phase:
 
 ```mermaid
 stateDiagram-v2
     [*] --> idle
-    idle --> streaming: query sent
-    streaming --> idle: ResultMessage read
-    streaming --> draining: Stop or stall, interrupt acknowledged
-    draining --> idle: aborted ResultMessage read
-    streaming --> dead: interrupt unacknowledged, stream raised or ended
-    draining --> dead: no result in DRAIN_TIMEOUT_S
-    idle --> dead: close, or a query that fails
+    idle --> querying: query
+    querying --> streaming: query_sent
+    streaming --> idle: result
+    streaming --> interrupting: interrupt (Stop, disconnect or stall)
+    interrupting --> draining: interrupt_acked
+    draining --> idle: result (the aborted turn's)
+    querying --> dead: lost
+    streaming --> dead: lost
+    interrupting --> dead: lost
+    draining --> dead: lost
 ```
+
+`lost` is a query that fails or is cancelled, an interrupt that times out
+(`INTERRUPT_TIMEOUT_S`), raises or is cancelled, a drain that times out
+(`DRAIN_TIMEOUT_S`), or a stream that raises or ends before its result.
 
 **The aborted turn's result is drained before the conversation takes
 another turn.** The CLI acknowledges an interrupt and only then writes the
@@ -234,13 +246,22 @@ keeps reading after the ack until that result, bounded by
 `DRAIN_TIMEOUT_S`. The drained messages still update the tool maps and
 `_running_writes`, but their events reach no consumer.
 
+The pump is the only sender of an interrupt (`_stop_turn`, the one caller of
+`_interrupt`). A Stop or a dropped consumer is a request it hears in its
+read wait (`_request_stop`); the stall watchdog is its own read timing out.
+It handles no message while its interrupt is in flight. Its read may take
+one off the SDK's buffer meanwhile, but that message waits until the ack
+has moved the phase to `draining`.
+
 | Rule | Reason |
 |---|---|
-| A Stop that finds the phase `idle` sends no interrupt | The harness already ended the turn. An idle CLI acknowledges an interrupt with no result, so a drain would wait out its bound |
-| A Stop during a stall's interrupt or drain sends no interrupt of its own. It waits for the pump, bounded by `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S` | The pump owns that interrupt and its drain. A second ack would arrive while the phase is `draining`, and cancelling the pump would leave the aborted result unread |
-| An interrupt that times out (`INTERRUPT_TIMEOUT_S`), raises or is cancelled makes the phase `dead`. So do a drain that times out and a stream that raises or ends before its result | The subprocess may still be running the turn, or is gone. A stream that ended gets an in-band `error`, or the consumer would wait forever |
-| `AssistantService._stream()` retires a handle whose `healthy` is false (phase `dead`) when the turn ends | The next `send()` for that id raises `UnknownConversationError`, a 404 the panel answers by re-creating the conversation ([frontend.md § The chat machine](frontend.md#the-chat-machine)). `send()` itself refuses a `dead` harness without querying it |
-| A confirm that arrives after its turn's consumer has gone is declined without a card. `send()` declines any confirm still parked before it clears the queue | A dropped `ConfirmRequest` would leave its future parked, which also suspends the stall watchdog |
+| A turn sends one interrupt at most. `_stop_turn` acts only in `streaming`, so a Stop during a stall's interrupt or drain, a second Stop, and a disconnect after a Stop send none | A second ack would find the phase `draining`, and the table makes that `dead` |
+| `send()` moves `query` before it awaits `query()`. A cancellation there makes the phase `dead` | The prompt may already have reached the harness, and a turn nobody reads would be read by the next one as its own |
+| A stop reaches the turn the service has reserved, started or not: `send()` mints the turn's stop request when called, and `AssistantService.send()` calls it as it sets `busy`. A turn stopped before its first step sends no prompt and yields only `TurnStopped` | The stop POST can be handled before the response body starts. A stop after its turn has ended reaches nothing, since each turn has its own request |
+| A read that settled in the same pass as a Stop is handled first, so a turn that finished as the Stop landed ends on its own `TurnDone` | No interrupt goes to an idle CLI. An idle CLI acknowledges an interrupt with no result, so a drain would wait out its bound |
+| The user's Stop (`POST …/stop`, `stop_turn()`) answers at once. The stream then ends with `TurnStopped` (`turn_stopped`) once the drain has read the aborted result, or the harness is lost. A stall's interrupt that came first ends it with the stall's `error` instead | Once the pump hears the stop this takes at most `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S`. A stop heard while the prompt is still being written waits on `query()`, which has no bound; there only the web's fallback ([frontend.md § The chat machine](frontend.md#the-chat-machine)) bounds the panel. The entry's `busy` flag clears a few loop passes after `TurnStopped` is written |
+| A write that reaches `can_use_tool` while its turn is being stopped, or after its consumer has gone, is declined without a card. `send()` declines any confirm still parked before it clears the queue | A parked card would hold the harness where it cannot acknowledge the interrupt. A dropped `ConfirmRequest` would leave its future parked, which also suspends the stall watchdog |
+| A `dead` phase retires the conversation: `AssistantService._stream()` checks `healthy` when the turn ends, and `send()` refuses a `dead` harness without querying it | The subprocess may still be running the turn, or is gone. The next `send()` for that id raises `UnknownConversationError`, a 404 the panel answers by re-creating the conversation ([frontend.md § The chat machine](frontend.md#the-chat-machine)). A stream that ended gets an in-band `error`, or the consumer would wait forever |
 
 ## Harness confinement
 

@@ -14,7 +14,10 @@ export type AssistantEvent =
   | { type: "confirm_request"; confirm_id: ConfirmId; ops_preview: string;
       preview: WritePreview | null }
   | { type: "turn_done"; usage: Record<string, unknown> | null }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  // the last event of a turn the user stopped, once the server can take
+  // the next one
+  | { type: "turn_stopped" };
 
 const EVENT_TYPES = new Set([
   "text_delta",
@@ -24,6 +27,7 @@ const EVENT_TYPES = new Set([
   "confirm_request",
   "turn_done",
   "error",
+  "turn_stopped",
 ]);
 
 function parseFrame(frame: string): AssistantEvent | null {

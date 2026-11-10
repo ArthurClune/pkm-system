@@ -33,6 +33,12 @@ class ConversationHandle(Protocol):
         """Answer a pending ConfirmRequest. Unknown ids are ignored."""
         ...
 
+    def stop_turn(self) -> None:
+        """The user's Stop: decline any parked confirm and end the open
+        turn, whose stream then ends with TurnStopped once the harness can
+        take the next one. Returns at once; a no-op with no turn reserved."""
+        ...
+
     async def close(self) -> None: ...
 
 

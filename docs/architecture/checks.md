@@ -161,7 +161,7 @@ specs: [server](../superpowers/specs/2026-10-02-property-checks-server-design.md
 | `test_ops_state.py` | blocks, pages, rewrite rows and acks match `props/model.py`, title and text-limit refusals included, and an over-limit replay's landing, with its deleted titles plain; replay is inert |
 | `test_planner_props.py` | sibling order matches `positions_after` |
 | `test_unlink_props.py` | no rewritten source references the page; a second pass is inert |
-| `test_assistant_turn_props.py` | each turn shows only its own events, and retirement matches [the turn phase](assistant.md#the-turn-phase), through every interrupt order. It runs on a virtual clock (`props/virtual_loop.py`) |
+| `test_assistant_turn_props.py` | each turn shows only its own events and sends one interrupt at most, only a user-stopped turn ends on `TurnStopped`, and retirement matches [the turn phase](assistant.md#the-turn-phase). The rules draw every interrupt order, a Stop held past the stall deadline, a Stop before the reserved turn's first step and a query cut short. It runs on a virtual clock (`props/virtual_loop.py`) |
 | `sync/` | the invariants in the header of `sync/oracle.ts`; `queue.prop.ts` holds those in the header of `sync/queueModel.ts`, without a server |
 | `outline/` | `checks.ts`: rows match a reading-view model; history undoes to the start |
 | `outline/draft.prop.ts` | the real editor in jsdom (`draftHarness.tsx`) holds a pending draft exactly when `draftModel.ts` does; the textarea shows it or else the tree, and adopts nothing mid-composition; each flush hashes its draft's base; a keydown the IME owns sends nothing |

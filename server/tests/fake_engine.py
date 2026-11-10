@@ -28,16 +28,20 @@ Behavior is keyed on the user text so Playwright can drive it:
                   -> the "please update" flow, except the reply is
                      "Updated." whatever the tool did (a model that
                      claims success over a refused write).
-- "please hang"   -> parks forever (never yields, never finishes) until the
+- "please hang"   -> parks (never yields) until stop_turn() or the
                      consumer stops iterating (e2e drive for the Stop
                      button: nothing else in this double can keep a turn
                      "busy" indefinitely to click Stop on).
 - anything else   -> TextDelta("echo: <text>") + TurnDone.
+
+stop_turn() declines any parked card; the turn's events from then on are
+dropped and it ends on TurnStopped, as the real engine's does.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import (AsyncGenerator, Callable, Collection, Mapping,
                              Sequence)
 from dataclasses import replace
@@ -49,6 +53,7 @@ from pkm.assistant.events import (
     ToolFinished,
     ToolStarted,
     TurnDone,
+    TurnStopped,
     tool_error_reason,
 )
 from pkm.assistant.target_reader import BlockReader, preview_write
@@ -82,16 +87,39 @@ class FakeConversation:
         self._decisions: dict[ConfirmId, asyncio.Future[bool]] = {}
         self._confirm_seq = 0
         self._tool_seq = 0
+        self._stop = asyncio.Event()
 
     def _tool_id(self) -> str:
         self._tool_seq += 1
         return f"fake-tool-{self._tool_seq}"
 
-    async def send(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
+    def send(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
+        # the turn is reserved here, so a stop before its first step counts
+        stop = self._stop = asyncio.Event()
+        return self._events(text, stop)
+
+    async def _events(self, text: str, stop: asyncio.Event
+                      ) -> AsyncGenerator[AssistantEvent, None]:
+        if stop.is_set():
+            yield TurnStopped()
+            return
         self.sent.append(text)
+        async with contextlib.aclosing(self._turn(text, stop)) as events:
+            async for event in events:
+                if not stop.is_set():
+                    yield event
+        if stop.is_set():
+            yield TurnStopped()
+
+    def stop_turn(self) -> None:
+        self._decline_all()
+        self._stop.set()
+
+    async def _turn(self, text: str, stop: asyncio.Event
+                    ) -> AsyncGenerator[AssistantEvent, None]:
         if "please hang" in text:
-            await asyncio.Event().wait()  # never set: blocks until cancelled
-            return  # pragma: no cover - unreachable
+            await stop.wait()
+            return
         if "please write twice" in text:
             futs: list[asyncio.Future[bool]] = []
             ids: list[str] = []
@@ -225,11 +253,14 @@ class FakeConversation:
         if fut is not None and not fut.done():
             fut.set_result(allow)
 
-    async def close(self) -> None:
-        self.closed = True
+    def _decline_all(self) -> None:
         for fut in self._decisions.values():
             if not fut.done():
                 fut.set_result(False)
+
+    async def close(self) -> None:
+        self.closed = True
+        self._decline_all()
 
 
 class FakeEngine:

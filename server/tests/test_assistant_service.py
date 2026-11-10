@@ -7,7 +7,7 @@ import pytest
 
 from fake_engine import FakeEngine
 from pkm.assistant.engine import ConversationHandle
-from pkm.assistant.events import AssistantEvent, ConfirmRequest, TextDelta, TurnDone
+from pkm.assistant.events import AssistantEvent, ConfirmRequest, TextDelta, TurnDone, TurnStopped
 from pkm.assistant.service import (
     AssistantService,
     BusyError,
@@ -31,6 +31,7 @@ class _StubHandle:
     def __init__(self, *, hang_close: bool = False, unhealthy_after_interrupt: bool = False) -> None:
         self.closed = False
         self.healthy = True
+        self.stops = 0
         self._hang_close = hang_close
         # Models what claude_engine.ClaudeConversation.send() does for real:
         # a turn that blocks (as a live turn does) until the consumer drops,
@@ -55,6 +56,9 @@ class _StubHandle:
 
     def resolve_confirm(self, confirm_id: ConfirmId, allow: bool) -> None:
         pass
+
+    def stop_turn(self) -> None:
+        self.stops += 1
 
     async def close(self) -> None:
         if self._hang_close:
@@ -314,6 +318,34 @@ def test_confirm_unknown_conversation_raises():
     service = AssistantService(FakeEngine())
     with pytest.raises(UnknownConversationError):
         service.confirm(conversation_id_of("nope"), confirm_id_of("t1"), True)
+
+
+def test_stop_unknown_conversation_raises():
+    service = AssistantService(FakeEngine())
+    with pytest.raises(UnknownConversationError):
+        service.stop(conversation_id_of("nope"))
+
+
+def test_stop_keeps_the_entry_busy_until_the_stopped_stream_ends():
+    service = AssistantService(FakeEngine())
+
+    async def scenario():
+        cid, _ = await service.create(None)
+        stream = service.send(cid, "please hang")
+        reading = asyncio.ensure_future(anext(stream))
+        for _ in range(3):
+            await asyncio.sleep(0)
+        service.stop(cid)
+        last = await asyncio.wait_for(reading, 2)
+        busy_at_the_last_event = service._entries[cid].busy
+        rest = [ev async for ev in stream]
+        return last, busy_at_the_last_event, rest, service._entries[cid].busy
+
+    last, busy_then, rest, busy_after = asyncio.run(scenario())
+    assert last == TurnStopped()
+    assert busy_then is True
+    assert rest == []
+    assert busy_after is False
 
 
 # --- an interrupt that never lands leaves the harness state uncertain --

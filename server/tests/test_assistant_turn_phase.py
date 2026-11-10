@@ -6,10 +6,13 @@ import contextlib
 
 import pytest
 from claude_agent_sdk import PermissionResultDeny, StreamEvent
-from fake_sdk_client import FakeSDKClient, make_engine, make_result
+from fake_sdk_client import (FakeSDKClient, HangingInterruptClient,
+                             make_engine, make_result)
+from props.virtual_loop import VirtualTimeLoop
 
 from pkm.assistant import claude_engine, harness_env
-from pkm.assistant.events import ErrorEvent, TextDelta, TurnDone
+from pkm.assistant.events import (ConfirmRequest, ErrorEvent, TextDelta,
+                                  TurnDone, TurnStopped)
 from pkm.assistant.policy import SYSTEM_PROMPT
 from pkm.assistant.service import AssistantService, UnknownConversationError
 
@@ -317,15 +320,41 @@ class ManualAbortClient(FakeSDKClient):
 
 
 class HeldInterruptClient(FakeSDKClient):
-    """An interrupt is answered only once the test sets `release`."""
+    """An interrupt is answered only once the test sets `release`; `calls`
+    counts the interrupts sent, answered or not."""
+
+    def __init__(self, options):
+        super().__init__(options)
+        self.release = asyncio.Event()
+        self.calls = 0
+
+    async def interrupt(self):
+        self.calls += 1
+        await self.release.wait()
+        await super().interrupt()
+
+
+class HeldQueryClient(FakeSDKClient):
+    """query() writes the prompt, then returns only once the test sets
+    `release`, as a write still draining into the CLI's stdin does."""
 
     def __init__(self, options):
         super().__init__(options)
         self.release = asyncio.Event()
 
-    async def interrupt(self):
+    async def query(self, text):
+        await super().query(text)
         await self.release.wait()
-        await super().interrupt()
+
+
+def on_a_virtual_clock(scenario):
+    """Run `scenario()` on a loop whose clock jumps to the next timer, so a
+    stall watchdog fires without waiting it out."""
+    loop = VirtualTimeLoop()
+    try:
+        return loop.run_until_complete(scenario())
+    finally:
+        loop.close()
 
 
 async def _until(condition, timeout: float = 2.0) -> None:
@@ -390,3 +419,396 @@ def test_stop_while_a_stall_interrupts_sends_no_second_interrupt(
     assert client.interrupts == 1
     assert healthy is True
     assert events == [TextDelta(text="re two"), TurnDone(usage={"tag": "two"})]
+
+
+def test_stop_while_the_stall_interrupt_is_in_flight_sends_one_interrupt(
+        tmp_path):
+    engine = make_engine(tmp_path, factory=HeldInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        assert isinstance(client, HeldInterruptClient)
+        task = asyncio.create_task(_collect(conv.send("one")))
+        await asyncio.sleep(claude_engine.STALL_TIMEOUT_S + 1)
+        assert client.calls == 1  # the stall's interrupt waits
+        task.cancel()  # Stop while it is in flight
+        await asyncio.sleep(1)
+        client.release.set()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, 30)
+        phase = conv.phase
+        await user_types_next_message()
+        events = await turn(conv, "two", client)
+        await conv.close()
+        return client, phase, events
+
+    client, phase, events = on_a_virtual_clock(scenario)
+    assert client.calls == 1
+    assert phase == "idle"
+    assert events == [TextDelta(text="re two"), TurnDone(usage={"tag": "two"})]
+
+
+def test_stall_while_stops_interrupt_is_in_flight_sends_one_interrupt(
+        tmp_path):
+    engine = make_engine(tmp_path, factory=HeldInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        assert isinstance(client, HeldInterruptClient)
+        task = asyncio.create_task(_collect(conv.send("one")))
+        await asyncio.sleep(claude_engine.STALL_TIMEOUT_S - 1)
+        task.cancel()  # Stop: its interrupt waits
+        await asyncio.sleep(2)  # the stall watchdog's window closes
+        client.release.set()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, 30)
+        phase = conv.phase
+        await user_types_next_message()
+        events = await turn(conv, "two", client)
+        await conv.close()
+        return client, phase, events
+
+    client, phase, events = on_a_virtual_clock(scenario)
+    assert client.calls == 1
+    assert phase == "idle"
+    assert events == [TextDelta(text="re two"), TurnDone(usage={"tag": "two"})]
+
+
+def test_a_cancelled_query_retires_the_conversation(tmp_path):
+    # the prompt may have reached the harness, so a turn may be running
+    # that nobody reads: its output would be the next turn's
+    engine = make_engine(tmp_path, factory=HeldQueryClient)
+    service = AssistantService(engine)
+
+    async def scenario():
+        cid, _ = await service.create("sonnet")
+        conv = service._entries[cid].handle
+        assert isinstance(conv, claude_engine.ClaudeConversation)
+        client = FakeSDKClient.instances[0]
+        assert isinstance(client, HeldQueryClient)
+        task = asyncio.create_task(_collect(service.send(cid, "one")))
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert client.queries == ["one"]
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, 2)
+        phase = conv.phase
+        retired = cid not in service._entries
+        await service.close_all()
+        return phase, retired
+
+    phase, retired = asyncio.run(scenario())
+    assert phase == "dead"
+    assert retired is True
+
+
+# -- the user's Stop (ClaudeConversation.stop_turn), with the consumer still
+# reading: the stream ends on TurnStopped once the aborted result is read
+
+
+async def _open_turn(conv, client: FakeSDKClient, text: str = "one"):
+    """A turn that has shown one event, and the task collecting the rest."""
+    events: list = []
+
+    async def collect():
+        async for ev in conv.send(text):
+            events.append(ev)
+
+    task = asyncio.create_task(collect())
+    for _ in range(5):
+        await asyncio.sleep(0)
+    client.feed(delta("partial"))
+    await _until(lambda: bool(events))
+    return task, events
+
+
+@pytest.mark.parametrize("order", ["after_ack", "before_ack"])
+def test_a_user_stop_ends_the_stream_on_turn_stopped(tmp_path, monkeypatch,
+                                                      order):
+    monkeypatch.setattr(FakeSDKClient, "interrupt_result", order)
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        task, events = await _open_turn(conv, client)
+        conv.stop_turn()
+        await asyncio.wait_for(task, 2)
+        phase = conv.phase
+        nxt = await turn(conv, "two", client)
+        await conv.close()
+        return client, events, phase, nxt
+
+    client, events, phase, nxt = asyncio.run(scenario())
+    assert events == [TextDelta(text="partial"), TurnStopped()]
+    assert client.interrupts == 1
+    assert phase == "idle"
+    assert nxt == [TextDelta(text="re two"), TurnDone(usage={"tag": "two"})]
+
+
+def test_a_user_stop_while_the_query_is_written_stops_the_turn(tmp_path):
+    engine = make_engine(tmp_path, factory=HeldQueryClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        assert isinstance(client, HeldQueryClient)
+        task = asyncio.create_task(_collect(conv.send("one")))
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert conv.phase == "querying"
+        conv.stop_turn()
+        client.release.set()
+        events = await asyncio.wait_for(task, 2)
+        phase = conv.phase
+        await conv.close()
+        return client, events, phase
+
+    client, events, phase = asyncio.run(scenario())
+    assert events == [TurnStopped()]
+    assert client.interrupts == 1
+    assert phase == "idle"
+
+
+def test_a_second_user_stop_sends_no_second_interrupt(tmp_path):
+    engine = make_engine(tmp_path, factory=HeldInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        assert isinstance(client, HeldInterruptClient)
+        task, events = await _open_turn(conv, client)
+        conv.stop_turn()
+        await _until(lambda: conv.phase == "interrupting")
+        conv.stop_turn()  # while the first one's interrupt is in flight
+        client.release.set()
+        await _until(lambda: conv.phase == "draining" or task.done())
+        conv.stop_turn()  # while its drain is open
+        await asyncio.wait_for(task, 2)
+        phase = conv.phase
+        await conv.close()
+        return client, events, phase
+
+    client, events, phase = asyncio.run(scenario())
+    assert client.calls == 1
+    assert events[-1] == TurnStopped()
+    assert phase == "idle"
+
+
+def test_a_user_stop_with_no_turn_open_is_a_no_op(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        conv.stop_turn()  # before any turn
+        await turn(conv, "one", client)
+        conv.stop_turn()  # after one
+        for _ in range(5):
+            await asyncio.sleep(0)
+        nxt = await turn(conv, "two", client)
+        phase = conv.phase
+        await conv.close()
+        return client, phase, nxt
+
+    client, phase, nxt = asyncio.run(scenario())
+    assert client.interrupts == 0
+    assert phase == "idle"
+    assert nxt == [TextDelta(text="re two"), TurnDone(usage={"tag": "two"})]
+
+
+def test_a_user_stop_during_a_stalls_interrupt_ends_on_the_stall_error(
+        tmp_path):
+    engine = make_engine(tmp_path, factory=HeldInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        assert isinstance(client, HeldInterruptClient)
+        task = asyncio.create_task(_collect(conv.send("one")))
+        await asyncio.sleep(claude_engine.STALL_TIMEOUT_S + 1)
+        conv.stop_turn()
+        await asyncio.sleep(1)
+        client.release.set()
+        events = await asyncio.wait_for(task, 30)
+        phase = conv.phase
+        await conv.close()
+        return client, events, phase
+
+    client, events, phase = on_a_virtual_clock(scenario)
+    assert client.calls == 1
+    assert events == [ErrorEvent(
+        message=claude_engine.stall_message(claude_engine.STALL_TIMEOUT_S))]
+    assert phase == "idle"
+
+
+def test_no_stall_fires_while_a_user_stops_interrupt_is_in_flight(tmp_path):
+    engine = make_engine(tmp_path, factory=HeldInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        assert isinstance(client, HeldInterruptClient)
+        task = asyncio.create_task(_collect(conv.send("one")))
+        await asyncio.sleep(claude_engine.STALL_TIMEOUT_S - 1)
+        conv.stop_turn()
+        await asyncio.sleep(2)  # past the stall watchdog's window
+        client.release.set()
+        events = await asyncio.wait_for(task, 30)
+        phase = conv.phase
+        await conv.close()
+        return client, events, phase
+
+    client, events, phase = on_a_virtual_clock(scenario)
+    assert client.calls == 1
+    assert events == [TurnStopped()]
+    assert phase == "idle"
+
+
+def test_a_user_stop_whose_interrupt_is_unanswered_still_ends_the_stream(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(claude_engine, "INTERRUPT_TIMEOUT_S", 0.05)
+    engine = make_engine(tmp_path, factory=HangingInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        task, events = await _open_turn(conv, FakeSDKClient.instances[0])
+        conv.stop_turn()
+        await asyncio.wait_for(task, 2)
+        healthy = conv.healthy
+        await conv.close()
+        return events, healthy
+
+    events, healthy = asyncio.run(scenario())
+    assert events[-1] == TurnStopped()
+    assert healthy is False
+
+
+def test_a_disconnect_during_a_user_stop_sends_no_second_interrupt(tmp_path):
+    engine = make_engine(tmp_path, factory=HeldInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        assert isinstance(client, HeldInterruptClient)
+        task, _ = await _open_turn(conv, client)
+        conv.stop_turn()
+        await _until(lambda: conv.phase == "interrupting")
+        task.cancel()  # the tab closes
+        for _ in range(5):
+            await asyncio.sleep(0)
+        client.release.set()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, 2)
+        phase = conv.phase
+        nxt = await turn(conv, "two", client)
+        await conv.close()
+        return client, phase, nxt
+
+    client, phase, nxt = asyncio.run(scenario())
+    assert client.calls == 1
+    assert phase == "idle"
+    assert nxt == [TextDelta(text="re two"), TurnDone(usage={"tag": "two"})]
+
+
+def test_a_write_reaching_a_stopping_turn_is_declined_without_a_card(
+        tmp_path):
+    engine = make_engine(tmp_path, factory=HeldInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        assert isinstance(client, HeldInterruptClient)
+        task, events = await _open_turn(conv, client)
+        conv.stop_turn()
+        await _until(lambda: conv.phase == "interrupting")
+        decision = await asyncio.wait_for(conv.can_use_tool(
+            "mcp__pkm__save_note", {"text": "Demo"}, None), 2)
+        client.release.set()
+        await asyncio.wait_for(task, 2)
+        await conv.close()
+        return decision, events
+
+    decision, events = asyncio.run(scenario())
+    assert isinstance(decision, PermissionResultDeny)
+    assert not any(isinstance(ev, ConfirmRequest) for ev in events)
+
+
+def test_a_stop_before_the_reserved_turn_starts_stops_it(tmp_path):
+    # the stop POST can be handled after the messages route reserved the
+    # turn and before the response body takes its first step
+    engine = make_engine(tmp_path)
+    service = AssistantService(engine)
+
+    async def scenario():
+        cid, _ = await service.create("sonnet")
+        client = FakeSDKClient.instances[0]
+        stream = service.send(cid, "one")
+        service.stop(cid)
+        reading = asyncio.ensure_future(_collect(stream))
+        for _ in range(5):
+            await asyncio.sleep(0)
+        if not reading.done():  # the stop was lost: let the turn finish
+            client.feed(delta("partial"), make_result(usage={"tag": "one"}))
+        events = await asyncio.wait_for(reading, 2)
+        conv = service._entries[cid].handle
+        assert isinstance(conv, claude_engine.ClaudeConversation)
+        phase = conv.phase
+        nxt = await turn(conv, "two", client)
+        await service.close_all()
+        return client, events, phase, nxt
+
+    client, events, phase, nxt = asyncio.run(scenario())
+    assert events == [TurnStopped()]
+    assert client.queries == ["two"]
+    assert client.interrupts == 0
+    assert phase == "idle"
+    assert nxt == [TextDelta(text="re two"), TurnDone(usage={"tag": "two"})]
+
+
+def test_a_stop_for_a_finished_turn_does_not_reach_the_next(tmp_path):
+    engine = make_engine(tmp_path)
+    service = AssistantService(engine)
+
+    async def scenario():
+        cid, _ = await service.create("sonnet")
+        client = FakeSDKClient.instances[0]
+        client.feed(make_result(usage={"tag": "one"}))
+        first = await _collect(service.send(cid, "one"))
+        service.stop(cid)  # lands after its turn ended
+        stream = service.send(cid, "two")
+        reading = asyncio.ensure_future(_collect(stream))
+        for _ in range(5):
+            await asyncio.sleep(0)
+        client.feed(delta("re two"), make_result(usage={"tag": "two"}))
+        events = await asyncio.wait_for(reading, 2)
+        await service.close_all()
+        return client, first, events
+
+    client, first, events = asyncio.run(scenario())
+    assert first == [TurnDone(usage={"tag": "one"})]
+    assert events == [TextDelta(text="re two"), TurnDone(usage={"tag": "two"})]
+    assert client.interrupts == 0
+
+
+def test_a_stop_as_the_turn_finishes_keeps_its_turn_done(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        task, events = await _open_turn(conv, client)
+        client.feed(make_result(usage={"tag": "one"}))
+        conv.stop_turn()  # in the same loop pass as the result
+        await asyncio.wait_for(task, 2)
+        phase = conv.phase
+        await conv.close()
+        return client, events, phase
+
+    client, events, phase = asyncio.run(scenario())
+    assert events == [TextDelta(text="partial"), TurnDone(usage={"tag": "one"})]
+    assert client.interrupts == 0
+    assert phase == "idle"

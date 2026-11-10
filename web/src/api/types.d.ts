@@ -976,6 +976,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/assistant/conversations/{conversation_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop Turn
+         * @description Stop the conversation's reserved turn, started or not. Answers once
+         *     the stop is recorded; the turn's stream then ends with a `turn_stopped`
+         *     event once the harness is ready for the next turn. The request names no
+         *     turn: a no-op when none is reserved.
+         */
+        post: operations["stop_turn_api_assistant_conversations__conversation_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/assistant/conversations/{conversation_id}": {
         parameters: {
             query?: never;
@@ -3582,6 +3605,37 @@ export interface operations {
                 "application/json": components["schemas"]["ConfirmRequestBody"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantAck"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_turn_api_assistant_conversations__conversation_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: Brands.ConversationId;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { confirmIdOf, conversationIdOf } from "../test-helpers";
 import {
-  chatStatus, initialChat, modelLocked, shownModel, step,
+  chatStatus, initialChat, modelLocked, shownModel, step, UNASKED_STOP_MESSAGE,
   type ChatEvent, type ChatState,
 } from "./chatMachine";
 
@@ -23,6 +23,77 @@ describe("chatMachine", () => {
   test("stop with no turn busy changes nothing", () => {
     const s = initialChat();
     expect(step(s, { type: "stop", at: 1 })).toEqual({ state: s, effects: [] });
+  });
+
+  const streaming: ChatEvent[] = [
+    { type: "send", text: "hi", at: 1 },
+    { type: "created", turn: 1, id: c1, model: "sonnet" },
+  ];
+
+  test("stop on a streaming turn posts a stop and stays stopping", () => {
+    const { state, effects } = run([...streaming, { type: "stop", at: 2 }]);
+    expect(effects.at(-1)).toEqual({ kind: "postStop", turn: 1, conversation: c1 });
+    expect(effects.some((e) => e.kind === "abort")).toBe(false);
+    expect(state.turn.phase).toBe("stopping");
+    expect(chatStatus(state)).toBe("busy");
+  });
+
+  test("a stopped turn stays busy until both its stream and its stop POST are done", () => {
+    const stopped = run([...streaming, { type: "stop", at: 2 }]).state;
+    const turnStopped: ChatEvent = { type: "streamEvent", turn: 1, event: { type: "turn_stopped" }, at: 3 };
+    const settled: ChatEvent = { type: "stopSettled", turn: 1 };
+    // the stream's last word first, then the POST
+    const a = run([turnStopped], stopped).state;
+    expect(chatStatus(a)).toBe("busy");
+    expect(chatStatus(run([settled], a).state)).toBe("idle");
+    // the POST first, then the stream's end
+    const b = run([settled], stopped).state;
+    expect(chatStatus(b)).toBe("busy");
+    expect(chatStatus(run([{ type: "streamEnded", turn: 1 }], b).state)).toBe("idle");
+  });
+
+  test("a turn_stopped the turn did not ask for ends it with a notice", () => {
+    const { state } = run([...streaming,
+      { type: "streamEvent", turn: 1, event: { type: "turn_stopped" }, at: 3 }]);
+    expect(state.turn).toEqual({ phase: "idle" });
+    expect(state.error).toBe(UNASKED_STOP_MESSAGE);
+  });
+
+  test("turn_stopped ends a stopping turn with no error", () => {
+    const { state } = run([...streaming, { type: "stop", at: 2 }, { type: "stopSettled", turn: 1 },
+      { type: "streamEvent", turn: 1, event: { type: "turn_stopped" }, at: 3 }]);
+    expect(state.turn).toEqual({ phase: "idle" });
+    expect(state.error).toBeNull();
+    expect(state.conversation).toEqual({ kind: "open", id: c1, model: "sonnet" });
+  });
+
+  test("an error event ends a stopping turn without showing it", () => {
+    const { state } = run([...streaming, { type: "stop", at: 2 }, { type: "stopSettled", turn: 1 },
+      { type: "streamEvent", turn: 1, event: { type: "error", message: "stalled" }, at: 3 }]);
+    expect(state.turn).toEqual({ phase: "idle" });
+    expect(state.error).toBeNull();
+  });
+
+  test("a stopping turn's other events change nothing and keep it busy", () => {
+    const before = run([...streaming, { type: "stop", at: 2 }]).state;
+    const { state } = run([
+      { type: "streamEvent", turn: 1, event: { type: "text_delta", text: "late" }, at: 3 },
+      { type: "streamEvent", turn: 1, event: { type: "turn_done", usage: null }, at: 4 },
+    ], before);
+    expect(state).toEqual(before);
+  });
+
+  test("send while stopping is refused", () => {
+    const before = run([...streaming, { type: "stop", at: 2 }]).state;
+    expect(step(before, { type: "send", text: "again", at: 3 })).toEqual({ state: before, effects: [] });
+  });
+
+  test("New chat while stopping aborts the stream and deletes after it settles", () => {
+    const before = run([...streaming, { type: "stop", at: 2 }]).state;
+    expect(step(before, { type: "newChat" }).effects).toEqual([
+      { kind: "abort", turn: 1 },
+      { kind: "delete", conversation: c1, after: 1 },
+    ]);
   });
 
   test("a conversation created for a turn New chat superseded is closed", () => {
@@ -69,7 +140,7 @@ describe("chatMachine", () => {
       { type: "stop", at: 2 },
       { type: "streamFailed", turn: 1, failure: { kind: "notFound", message: "gone" } },
     ]);
-    expect(effects.map((e) => e.kind)).toEqual(["create", "stream", "abort"]);
+    expect(effects.map((e) => e.kind)).toEqual(["create", "stream", "postStop"]);
     expect(state.conversation).toEqual({ kind: "none" });
     expect(state.picked).toBe("opus");
     expect(state.error).toBeNull();

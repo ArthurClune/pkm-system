@@ -243,8 +243,8 @@ def test_stale_unlink_leaves_no_ref_to_the_target(text):
         event("stale: attribute names the target")
     if any(target(r.title) and r.kind != "attribute" for r in refs):
         event("stale: links the target")
-    if any(r.title == BACKTICK_TITLE for r in refs):
-        event("stale: a title holding a backtick")
+    if BACKTICK_TITLE in text:
+        event("stale: names a title holding a backtick")
     result = unlink_stale_refs(text, target)
     if result == text:
         event("stale: nothing to strip")

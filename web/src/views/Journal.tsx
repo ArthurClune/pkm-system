@@ -11,7 +11,6 @@ import { substituteMissingDay } from "../outline/missingPage";
 import { acquireOutlineSession,
          captureActiveOutlineReads,
          isOutlineSessionActive,
-         type AuthoritativeReadSource,
          type CapturedOutlineRead,
          type OutlineSessionHandle } from "../outline/outlineSessions";
 import { pagePath } from "../paths";
@@ -72,10 +71,8 @@ export function Journal() {
     return next;
   }, []);
 
-  const fetchLoad = useCallback(async (
-    load: JournalLoad, source: AuthoritativeReadSource,
-  ) => {
-    const reads = captureActiveOutlineReads(source);
+  const fetchLoad = useCallback(async (load: JournalLoad) => {
+    const reads = captureActiveOutlineReads();
     activeReadsRef.current.add(reads);
     const current = () =>
       mountedRef.current && loadInFlight(pagingRef.current, load.id) !== null;
@@ -94,7 +91,7 @@ export function Journal() {
           void session.requestAuthoritative(() => fetchDayBlocks(day.title))
             .catch(() => undefined);
         } else {
-          const token = session.beginAuthoritativeRead(source);
+          const token = session.beginAuthoritativeRead();
           session.receiveAuthoritative(token, day.blocks);
         }
         return { ...day, blocks: session.getSnapshot().blocks };
@@ -115,17 +112,14 @@ export function Journal() {
     }
   }, [dispatch, releaseReads, sessionFor]);
 
-  const run = useCallback((
-    event: JournalPagingEvent<JournalDay>,
-    source: AuthoritativeReadSource,
-  ) => {
+  const run = useCallback((event: JournalPagingEvent<JournalDay>) => {
     if (!mountedRef.current) return;
     const before = pagingRef.current.loading;
     const { loading } = dispatch(event);
-    if (loading !== null && loading !== before) void fetchLoad(loading, source);
+    if (loading !== null && loading !== before) void fetchLoad(loading);
   }, [dispatch, fetchLoad]);
 
-  const loadOlder = useCallback(() => run({ type: "older" }, "parent"), [run]);
+  const loadOlder = useCallback(() => run({ type: "older" }), [run]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -164,7 +158,7 @@ export function Journal() {
   // and the reload replaces the day list in place under stable per-date keys.
   const reset = useCallback(() => {
     releaseAllReads();
-    run({ type: "resync" }, "resync");
+    run({ type: "resync" });
   }, [releaseAllReads, run]);
   useResync(reset);
 

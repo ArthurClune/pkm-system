@@ -163,7 +163,7 @@ it("delivery replaces a blocked pre-delivery response with exactly one fresh rea
 
   act(() => outline.handlers.onSetHeading(uidOf("tuid-u1"), 1));
   expect(sent[0].scope).toEqual(["page", "Page"]);
-  const token = outline.session!.beginAuthoritativeRead("parent");
+  const token = outline.session!.beginAuthoritativeRead();
   act(() => {
     outline.session!.receiveAuthoritative(token, [block("tuid-u1", "pre-delivery")]);
   });

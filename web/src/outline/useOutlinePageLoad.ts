@@ -60,11 +60,14 @@ import { loadOutlineBlocks, statusOf } from "./loadOutlineBlocks";
 import type { MissingPagePolicy } from "./missingPage";
 import {
   acquireOutlineSession,
-  type AuthoritativeReadSource,
   type OutlineSessionHandle,
   type ParentReadiness,
   type ReadToken,
 } from "./outlineSessions";
+
+/** Why a read starts: only a "parent" read registers the surface as the
+ * recovery controller. */
+export type PageReadSource = "parent" | "resync";
 
 interface OutlineRead {
   handle: OutlineSessionHandle;
@@ -78,7 +81,7 @@ export interface OutlinePageLoad {
   /** The failure message for the requested title; each surface renders it. */
   error: string | null;
   /** Start a fresh guarded read, e.g. after a resync bump. */
-  reload: (source: AuthoritativeReadSource) => void;
+  reload: (source: PageReadSource) => void;
 }
 
 export function useOutlinePageLoad(
@@ -104,7 +107,7 @@ export function useOutlinePageLoad(
   const missingPageRef = useRef(missingPage);
   missingPageRef.current = missingPage;
 
-  const load = useCallback((source: AuthoritativeReadSource,
+  const load = useCallback((source: PageReadSource,
                             handle = sessionRef.current) => {
     if (!handle) return;
     const seq = ++seqRef.current;
@@ -113,7 +116,7 @@ export function useOutlinePageLoad(
       previous.readiness?.release();
       previous.handle.cancelAuthoritativeRead(previous.token);
     }
-    const token = handle.beginAuthoritativeRead(source);
+    const token = handle.beginAuthoritativeRead();
     const readiness = source === "parent"
       ? handle.registerParentReadiness(token)
       : null;
@@ -216,7 +219,7 @@ export function useOutlinePageLoad(
   }, [load, key]);
 
   const reload = useCallback(
-    (source: AuthoritativeReadSource) => load(source), [load],
+    (source: PageReadSource) => load(source), [load],
   );
   return {
     payload: payloadState?.title === title ? payloadState.payload : null,

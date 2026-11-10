@@ -398,7 +398,7 @@ export function useOutline(
     // relevant write, so the session defers the parent tree until that write
     // settles instead of overwriting the typed text.
     flushNow();
-    const token = handle.beginAuthoritativeRead("parent");
+    const token = handle.beginAuthoritativeRead();
     handle.receiveAuthoritative(token, initial);
   }, [initial, flushNow]);
 

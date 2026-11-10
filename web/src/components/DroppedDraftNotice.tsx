@@ -4,6 +4,7 @@
 // the whole of it. A clipped preview says so, and a failed copy shows the
 // full text to select by hand, so no text is lost without the user seeing.
 import { useState, useSyncExternalStore } from "react";
+import { copyText } from "../copyText";
 import { dismissDroppedDraft, droppedDrafts, subscribeDroppedDrafts,
          type DroppedDraft } from "../outline/droppedDrafts";
 
@@ -15,12 +16,8 @@ function DroppedDraftBanner({ draft }: { draft: DroppedDraft }) {
   const clipped = chars.length > DROPPED_PREVIEW_CHARS;
   const preview = clipped
     ? chars.slice(0, DROPPED_PREVIEW_CHARS).join("") + "…" : draft.text;
-  // Inside the promise chain, so a missing Clipboard API (an insecure
-  // origin) or a synchronous throw also shows the text to select.
-  const copyText = () => {
-    void Promise.resolve()
-      .then(() => navigator.clipboard.writeText(draft.text))
-      .then(() => setCopy("copied"), () => setCopy("failed"));
+  const copyDraft = () => {
+    void copyText(draft.text).then((ok) => setCopy(ok ? "copied" : "failed"));
   };
   return (
     <div className="ws-banner dropped-draft" role="alert">
@@ -41,7 +38,7 @@ function DroppedDraftBanner({ draft }: { draft: DroppedDraft }) {
           <textarea readOnly value={draft.text} aria-label="Unsaved text" />
         </>
       )}
-      <button type="button" onClick={copyText}>
+      <button type="button" onClick={copyDraft}>
         {copy === "copied" ? "Copied" : "Copy"}
       </button>
       <button type="button" onClick={() => dismissDroppedDraft(draft.id)}>

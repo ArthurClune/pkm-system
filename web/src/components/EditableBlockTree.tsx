@@ -13,6 +13,7 @@ import type { BlockNode } from "../api/payloads";
 import type { FocusTarget } from "../outline/edits";
 import type { OutlineHandlers } from "../outline/handlers";
 import { BlockEditContext, RootBlocksContext } from "../contexts";
+import { copyText } from "../copyText";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { BLOCK_DRAG_TYPE } from "../outline/dnd";
 import { decideSelectionKey } from "../outline/keyboardPolicy";
@@ -249,7 +250,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
         handlers.onExtendBlockSelection(decision.dir);
         return;
       case "copy-selection":
-        void navigator.clipboard?.writeText(selectionText(blocks, selection));
+        void copyText(selectionText(blocks, selection));
         return;
       case "clear-selection":
         handlers.onClearBlockSelection();
@@ -344,7 +345,7 @@ function blockMenuItems(
     {
       label: "Copy block reference",
       // Copying is read-only-safe (same rationale as multi-block copy).
-      action: () => void navigator.clipboard?.writeText(`((${uid}))`),
+      action: () => void copyText(`((${uid}))`),
     },
     headingItem("Plain text", null),
     headingItem("Heading 1", 1),

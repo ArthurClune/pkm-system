@@ -140,7 +140,7 @@ Rules a change to the gate must keep:
 - Counts are deterministic or the run fails. Backend counts are taken twice
   (`UnstableCountError`) and scenario R measures two passes. Clocks, timezone,
   fixture copies, typing paces and browser context groups
-  (`CONTEXT_GROUPS` in `contextGroups.mjs`, which `check.mjs --only`
+  (`CONTEXT_GROUPS` in `contextGroups.ts`, which `check.mjs --only`
   expands) are pinned beside the code that needs them. What no control removes is
   classed `band` or `timing`.
 - `cache_key` (`fixture.py`, `build.py`, the DDL, the product source) decides

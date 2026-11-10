@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { CONTEXT_GROUPS, expandOnly } from "./contextGroups.mjs";
+import { CONTEXT_GROUPS, expandOnly } from "./contextGroups.ts";
 
 describe("expandOnly", () => {
   test("a letter expands to its whole browser-context group", () => {

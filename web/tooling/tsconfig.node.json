@@ -1,0 +1,11 @@
+{
+  "//": "The scripts node runs itself, by type stripping: package.json's scripts, the eslint plugins eslint.config.js imports, and perfcheck's check.ts. Listing the entry points pulls in what they import. Node resolves imports as written and strips types without rewriting, so imports carry their .ts extension, type-only imports say `type`, and syntax that needs a transform (enums, parameter properties) is refused here before node refuses it at run time.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": ["runPlaywright.ts", "perf/contextGroups.ts"]
+}

@@ -3,18 +3,21 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": "^22.18.0 || >=24.3.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "pnpm typecheck && vite build",
     "test": "vitest",
     "test:unit": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc && tsc -p tsconfig.apitypes.json && tsc -p tooling/tsconfig.typecheck.json && tsc -p e2e/tsconfig.json",
+    "typecheck": "tsc && tsc -p tsconfig.apitypes.json && tsc -p tooling/tsconfig.typecheck.json && tsc -p tooling/tsconfig.node.json && tsc -p e2e/tsconfig.json",
     "lint": "eslint src tooling e2e playwright.config.ts",
     "check:fcis": "node tooling/fcis.mjs",
     "lint:comments": "PYTHONPATH=../server/tooling python3 -m commentlint.run --all",
-    "e2e": "pnpm build && node tooling/runPlaywright.mjs",
-    "verify": "pnpm typecheck && pnpm lint && pnpm lint:comments && pnpm check:fcis && pnpm test:coverage && vite build && node tooling/runPlaywright.mjs",
+    "e2e": "pnpm build && node tooling/runPlaywright.ts",
+    "verify": "pnpm typecheck && pnpm lint && pnpm lint:comments && pnpm check:fcis && pnpm test:coverage && vite build && node tooling/runPlaywright.ts",
     "gen-types": "node tooling/genTypes.mjs"
   },
   "dependencies": {

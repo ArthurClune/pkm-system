@@ -1,10 +1,11 @@
 {
-  "//": "Type-aware lint project for tooling/ and the eslint fixtures. ESLint's projectService consumes this. pnpm typecheck runs tsc over tsconfig.typecheck.json, which extends this but leaves out eslint-fixtures, so their intentional violations never fail the build.",
+  "//": "Type-aware lint project for tooling/ and the eslint fixtures. ESLint's projectService consumes this. pnpm typecheck runs tsc over tsconfig.typecheck.json, which extends this but leaves out eslint-fixtures, so their intentional violations never fail the build, and over tsconfig.node.json for the scripts node runs itself.",
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "types": ["node", "vite/client"],
     "allowJs": true,
     "checkJs": false,
+    "allowImportingTsExtensions": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false
   },

@@ -20,7 +20,7 @@ outcome. The scripts those reports name no longer exist; `git log` has them.
 | `react-commits.js` | `addInitScript` payload for scenario J: a minimal `__REACT_DEVTOOLS_GLOBAL_HOOK__` counting commits and re-rendered fibers into `window.__react` |
 | `rebase.perf.ts`, `rebaseTargets.ts`, `vitest.rebase.config.ts` | scenario R (SQL counts of `applyChanges` over a pending queue), run by `check.mjs` as a vitest subprocess |
 | `sqlcount.ts` | SQL counter used by R: statements, trigger statements, VM steps, full scans |
-| `contextGroups.mjs` | scenario context grouping used by `check.mjs` |
+| `contextGroups.ts` | scenario context grouping used by `check.mjs` |
 
 ## Read the numbers with these caveats
 

@@ -9,7 +9,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { expandOnly } from "./contextGroups.mjs";
+import { expandOnly } from "./contextGroups.ts";
 import { BASE, BIG_PAGE, INIT, REACT_INIT, sleep, attachCounters, freshBag,
          resetBag, login } from "./harness.mjs";
 

@@ -24,7 +24,7 @@
 // `visited` is therefore itself a churn metric: an untouched subtree costs
 // one visit, not its size.
 //
-// Installed only when J is among the requested scenarios (perf.mjs): walking
+// Installed only when J is among the requested scenarios (check.mjs): walking
 // the fiber tree on every commit is real CPU, and would pollute the CPU
 // figures of the idle and typing scenarios.
 (() => {

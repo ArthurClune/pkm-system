@@ -1,13 +1,13 @@
 // pattern: Imperative Shell
-// Shared Playwright helpers for perf.mjs (investigation) and check.mjs (gate).
+// Shared Playwright helpers for check.mjs.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const HERE = path.dirname(fileURLToPath(import.meta.url));
-export const PORT = process.env.E2E_PORT ?? "8977";
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const PORT = process.env.E2E_PORT ?? "8977";
 export const BASE = `http://127.0.0.1:${PORT}`;
-export const PASSWORD = "e2e-pw";
+const PASSWORD = "e2e-pw";
 export const BIG_PAGE = "/page/" + encodeURIComponent("Perf Big Page");
 export const INIT = fs.readFileSync(path.join(HERE, "instrument.js"), "utf8");
 export const REACT_INIT = fs.readFileSync(path.join(HERE, "react-commits.js"), "utf8");

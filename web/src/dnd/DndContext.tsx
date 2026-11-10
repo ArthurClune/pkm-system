@@ -5,13 +5,13 @@
 // source/target outlines and enqueued as a move op.
 import { createContext, useContext, useEffect, useMemo, useRef, useState,
          type ReactNode } from "react";
-import type { CanonicalTitle } from "../api/brands";
-import type { BlockOp } from "../api/ops";
-import { dragUids, type BlockDragSource, type DragSource, type DropTarget,
+import type { BlockUid, CanonicalTitle } from "../api/brands";
+import type { BlockNode } from "../api/payloads";
+import { crossPageReplays, dragUids, planCrossPageDrop,
+         type BlockDragSource, type DragSource, type DropTarget,
          type OutlineDndApi } from "../outline/dnd";
 import { groupMoveOps } from "../outline/edits";
 import { editRefusal } from "../outline/editRefusal";
-import { orderIdxPlus } from "../outline/orderIdx";
 import { useSyncActions } from "../sync/SyncProvider";
 
 export type DndRegistration =
@@ -141,11 +141,8 @@ export function DndProvider({ children }: { children: ReactNode }) {
         }
       } else {
         const dst = outlinesRef.current.get(target.page_title)?.api;
-        const moveOps: BlockOp[] = uids.map((uid, k) => ({
-          op: "move", uid, parent_uid: target.parent_uid,
-          order_idx: orderIdxPlus(target.order_idx, k),
-          page_title: target.page_title }));
-        const refusal = editRefusal(null, moveOps, []);
+        const plan = planCrossPageDrop(uids, target);
+        const refusal = editRefusal(null, plan.ops, []);
         if (refusal !== null) {
           (dst ?? src)?.refuse(refusal);
           setDrag(null);
@@ -155,25 +152,19 @@ export function DndProvider({ children }: { children: ReactNode }) {
           setDrag(null);
           return;
         }
-        // Per-uid surgery + ops at consecutive slots: block k inserts before
-        // whatever now sits at order_idx + k, keeping the run's order.
-        const moves = uids.map((uid, k) => ({
-          uid,
-          node: src?.removeSubtreeLocal(uid) ?? null,
-          orderIdx: orderIdxPlus(target.order_idx, k),
-        }));
-        for (const m of moves) {
-          if (dst && m.node) {
-            dst.insertSubtreeLocal(m.node, { ...target, order_idx: m.orderIdx });
-          }
+        const removed = new Map<BlockUid, BlockNode>();
+        for (const uid of uids) {
+          const node = src?.removeSubtreeLocal(uid) ?? null;
+          if (node) removed.set(uid, node);
+        }
+        for (const slot of plan.slots) {
+          const node = removed.get(slot.uid);
+          if (dst && node) dst.insertSubtreeLocal(node, slot.target);
         }
         const ticket = sync.enqueue(
-          moveOps, ["page", d.pageTitle, target.page_title],
+          plan.ops, ["page", d.pageTitle, target.page_title],
         );
-        const replays = moves
-          .filter((m) => m.node !== null)
-          .map((m) => ({ type: "insert-subtree" as const, node: m.node!,
-                         parentUid: target.parent_uid, orderIdx: m.orderIdx }));
+        const replays = crossPageReplays(plan.slots, removed);
         if (replays.length > 0) {
           sync.attachOutlineReplay(ticket, target.page_title, replays);
         }

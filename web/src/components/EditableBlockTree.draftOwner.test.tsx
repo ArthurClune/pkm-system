@@ -14,7 +14,7 @@ import { sha256Hex } from "../replica/sha256";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, canonicalTitleOf, clientIdOf, jsonResponse, makeSync,
-         orderIdxOf, uidOf, type SyncFake } from "../test-helpers";
+         orderIdxOf, uidOf, type SyncFake, confirmYes } from "../test-helpers";
 import { EditableBlockTree } from "./EditableBlockTree";
 
 const ID = "e4966bb2483b5c78f658398c0ae7b03f";
@@ -23,7 +23,7 @@ const LINK = { id: ID, title: "UML", url: "https://tratt.net/uml.html",
 const RESOLVE = "/api/goodlinks/resolve";
 
 function Page({ initial }: { initial: BlockNode[] }) {
-  const o = useOutline(canonicalTitleOf("Draft Owner"), initial);
+  const o = useOutline(canonicalTitleOf("Draft Owner"), initial, confirmYes);
   return <EditableBlockTree blocks={o.blocks} focus={o.focus}
                             selection={o.selection} handlers={o.handlers}
                             readOnly={o.readOnly} />;

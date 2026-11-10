@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
+import { useConfirm } from "../components/ConfirmDialog";
 import { SyncContext } from "../sync/SyncProvider";
 import { subtreeHash } from "../replica/subtreeHash";
 import { block, makeSync, orderIdxOf, canonicalTitleOf, type SyncFake, uidOf } from "../test-helpers";
@@ -15,9 +16,10 @@ function Harness({ titleText, initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf(titleText), initial);
+  const { confirm, dialog } = useConfirm();
+  const outline = useOutline(canonicalTitleOf(titleText), initial, confirm);
   useEffect(() => onReady(outline));
-  return <>{outline.dialog}</>;
+  return <>{dialog}</>;
 }
 
 function setup(sync: SyncFake, titleText: string, initial: BlockNode[]) {

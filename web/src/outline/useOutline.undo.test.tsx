@@ -16,15 +16,14 @@ import {
   canonicalTitleOf,
   typeProbe,
   uidOf,
-  clientIdOf, typeInto,
-} from "../test-helpers";
+  clientIdOf, typeInto, confirmYes} from "../test-helpers";
 import { recordHistory, resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ titleText, initial, onReady }: {
   titleText: string; initial: BlockNode[]; onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf(titleText), initial);
+  const outline = useOutline(canonicalTitleOf(titleText), initial, confirmYes);
   useEffect(() => onReady(outline));
   return null;
 }

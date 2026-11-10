@@ -17,6 +17,9 @@ export * from "./test-mint";
  * `@ts-expect-error` inside it fails the build once the line stops
  * erroring, but nothing in it ever runs. It is the only place the lint
  * allows a `@ts-expect-error`. */
+/** The `confirm` a useOutline harness passes when no prompt is under test. */
+export const confirmYes = (): Promise<boolean> => Promise.resolve(true);
+
 export function typeProbe(probe: () => void): void {
   void probe;
 }

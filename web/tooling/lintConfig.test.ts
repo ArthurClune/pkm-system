@@ -38,6 +38,9 @@ interface FixtureCase {
   // A web-root path to lint the `.ok` file's text as, when its own location
   // forbids what it needs (importing the test helpers).
   correctedAs?: string;
+  // A web-root path to lint the `.bad` file's text as, when the rule keys on
+  // where the file lives.
+  badAs?: string;
   // Text each message of `rule` must contain, in order, from the first.
   messages?: string[][];
 }
@@ -66,6 +69,13 @@ const cases: readonly FixtureCase[] = [
   {
     file: "restricted-api-fetch.bad.ts",
     rule: "no-restricted-imports",
+  },
+  {
+    file: "engine-imports-ui.bad.ts",
+    rule: "no-restricted-imports",
+    badAs: "src/outline/tree.ts",
+    correctedAs: "src/outline/tree.ts",
+    messages: [["the outline engine imports no UI code"]],
   },
   {
     file: "select-keys-literal.bad.ts",
@@ -237,7 +247,12 @@ describe("eslint flat config", () => {
     expect(new Set(cases.map((c) => c.file)), "a .bad fixture has no case")
       .toEqual(new Set(bad));
     for (const c of cases) {
-      const results = await linter.lintFiles([join(fixturesDir, c.file)]);
+      const badPath = join(fixturesDir, c.file);
+      const results = c.badAs === undefined
+        ? await linter.lintFiles([badPath])
+        : await linter.lintText(readFileSync(badPath, "utf8"), {
+          filePath: join(webRoot, c.badAs),
+        });
       const ruleIds = results.flatMap((r) => r.messages.map((m) => m.ruleId));
       expect(ruleIds, `${c.file} messages: ${JSON.stringify(ruleIds)}`)
         .toContain(c.rule);
@@ -743,6 +758,19 @@ describe("tests under the lint", () => {
     expect(await restricted("src/outline/tree.test.ts")).toEqual([]);
     expect(await restricted("src/props/ops/example.ts")).toEqual([]);
     expect(await restricted("src/replica/testDb.ts")).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("the outline engine imports no UI code, its tests may", async () => {
+    const ui = 'import { useConfirm } from "../components/ConfirmDialog";\n'
+      + "void useConfirm;\n";
+    const found = await messagesFor("src/outline/tree.ts", ui);
+    expect(rulesOf(found)).toEqual(["no-restricted-imports"]);
+    expect(await messagesFor("src/outline/tree.test.ts", ui)).toEqual([]);
+    // The block replaces the base bans, so it repeats them.
+    const fetchImport = 'import { apiFetch } from "../api/client";\n'
+      + "void apiFetch;\n";
+    expect(rulesOf(await messagesFor("src/outline/tree.ts", fetchImport)))
+      .toEqual(["no-restricted-imports"]);
   }, ESLINT_TIMEOUT_MS);
 
   it("an e2e spec mints from test-mint and may not load test-helpers", async () => {

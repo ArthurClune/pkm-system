@@ -14,8 +14,7 @@ import {
   type SyncFake,
   canonicalTitleOf,
   uidOf,
-  clientIdOf,
-} from "../test-helpers";
+  clientIdOf, confirmYes} from "../test-helpers";
 import { findNode } from "./tree";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -24,7 +23,7 @@ function Harness({ titleText, initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf(titleText), initial);
+  const outline = useOutline(canonicalTitleOf(titleText), initial, confirmYes);
   useEffect(() => onReady(outline));
   return null;
 }

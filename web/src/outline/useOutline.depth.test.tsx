@@ -8,7 +8,7 @@ import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, canonicalTitleOf, jsonResponse, makeSync, malformedUid,
-         orderIdxOf, type SyncFake, uidOf } from "../test-helpers";
+         orderIdxOf, type SyncFake, uidOf, confirmYes } from "../test-helpers";
 import type { DropTarget } from "./dnd";
 import { DEPTH_NOTICE } from "./depthCap";
 import type { BlockOp } from "../api/ops";
@@ -31,7 +31,7 @@ function Harness({ initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf(PAGE), initial);
+  const outline = useOutline(canonicalTitleOf(PAGE), initial, confirmYes);
   useEffect(() => onReady(outline));
   // top-level blocks only: enough DOM for the scroll-to-new-block effect
   return <>{outline.blocks.map((b) => <div key={b.uid} data-uid={b.uid} />)}</>;

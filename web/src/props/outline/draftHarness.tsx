@@ -19,7 +19,7 @@ import { useOutline, type Outline } from "../../outline/useOutline";
 import { ROUTER_FUTURE_FLAGS } from "../../router";
 import { SyncContext } from "../../sync/SyncProvider";
 import { block, canonicalTitleOf, clientIdOf, makeSync, orderIdxOf,
-         uidOf } from "../../test-helpers";
+         uidOf, confirmYes } from "../../test-helpers";
 import { afterEdit, afterFlush, afterLanded, displayed, flushOpMatches,
          flushSend, imeOwns, initialModel, serverApply, shown,
          type DraftCommand, type DraftExample,
@@ -48,7 +48,7 @@ function Page({ title, initial, seam, outlineRef }: {
   title: CanonicalTitle; initial: BlockNode[]; seam: DraftSeam;
   outlineRef: { current: Outline | null };
 }) {
-  const o = useOutline(title, initial);
+  const o = useOutline(title, initial, confirmYes);
   outlineRef.current = o;
   const treeText = () =>
     outlineRef.current?.blocks.find((b) => b.uid === UID)?.text ?? "";

@@ -3,13 +3,12 @@
 // debounce, and the wiring between pure edit commands, the op queue, and
 // remote websocket batches. All op semantics live in edits.ts / tree.ts.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
-         useState, type ReactNode } from "react";
+         useState } from "react";
 import { ApiError } from "../api/client";
 import type { BlockUid, CanonicalTitle, Sha256Hex } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import { apiPost } from "../api/typedClient";
-import { useConfirm } from "../components/ConfirmDialog";
 import { toggleTodo } from "../grammar/todo";
 import { findOpTitleViolation, linkedTitleRefusal,
          titleRefusalNotice } from "../replica/titles";
@@ -76,15 +75,12 @@ export interface Outline {
    * command that applies clears it. */
   editNotice: string | null;
   dismissEditNotice(): void;
-  /** In-app confirm dialog: render this once in the owning
-   * component's tree. Backs onDeleteBlockSelection's large-selection prompt —
-   * window.confirm is suppressed by iPadOS Safari in standalone mode. */
-  dialog: ReactNode;
 }
 
 export function useOutline(
   pageTitle: CanonicalTitle,
   initial: BlockNode[],
+  confirm: (message: string) => Promise<boolean>,
   editorOwner?: symbol,
 ): Outline {
   // Actions and editability only, deliberately: `sync` is a dependency of
@@ -93,7 +89,6 @@ export function useOutline(
   // flushed edit.
   const sync = useSyncActions();
   const { canEdit } = useSyncEditability();
-  const { confirm, dialog } = useConfirm();
   const [blocks, setBlocks] = useState(initial);
   const [session, setSession] = useState<OutlineSessionHandle | null>(null);
   const [ownsEditor, setOwnsEditor] = useState(false);
@@ -773,6 +768,5 @@ export function useOutline(
     dismissGoodlinksNotice: () => setGoodlinksNotice(null),
     editNotice,
     dismissEditNotice: () => setEditNotice(null),
-    dialog,
   };
 }

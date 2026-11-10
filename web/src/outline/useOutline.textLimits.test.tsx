@@ -14,7 +14,7 @@ import { TITLE_SYNTAX_NOTICE } from "../replica/titles";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, canonicalTitleOf, makeSync, orderIdxOf, type SyncFake,
-         uidOf } from "../test-helpers";
+         uidOf, confirmYes } from "../test-helpers";
 import { findNode } from "./tree";
 import { performUndo, resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
@@ -39,7 +39,7 @@ function Harness({ initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf(PAGE), initial);
+  const outline = useOutline(canonicalTitleOf(PAGE), initial, confirmYes);
   useEffect(() => onReady(outline));
   return null;
 }

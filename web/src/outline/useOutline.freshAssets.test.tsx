@@ -12,8 +12,7 @@ import {
   orderIdxOf,
   type SyncFake,
   canonicalTitleOf,
-  uidOf,
-} from "../test-helpers";
+  uidOf, confirmYes} from "../test-helpers";
 import type { DropTarget } from "./dnd";
 import * as undoManager from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
@@ -21,7 +20,7 @@ import { useOutline, type Outline } from "./useOutline";
 function Harness({ initial, onReady }: {
   initial: BlockNode[]; onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf("Page"), initial);
+  const outline = useOutline(canonicalTitleOf("Page"), initial, confirmYes);
   useEffect(() => onReady(outline));
   return null;
 }

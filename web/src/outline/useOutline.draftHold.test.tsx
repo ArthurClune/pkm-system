@@ -9,13 +9,13 @@ import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
 import { block, clientIdOf, makeSync, orderIdxOf, type SyncFake, canonicalTitleOf, typeInto,
-         uidOf } from "../test-helpers";
+         uidOf, confirmYes } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ titleText, initial, onReady }: {
   titleText: string; initial: BlockNode[]; onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf(titleText), initial);
+  const outline = useOutline(canonicalTitleOf(titleText), initial, confirmYes);
   useEffect(() => onReady(outline));
   return null;
 }

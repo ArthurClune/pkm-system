@@ -11,6 +11,7 @@ import { uploadAsset } from "./assets";
 import { useOutline, type Outline } from "../outline/useOutline";
 import {
   block, FakeWebSocket, jsonResponse, orderIdxOf, pagePayload, canonicalTitleOf, uidOf, shaOf, typeInto,
+  confirmYes,
 } from "../test-helpers";
 import { SyncProvider } from "./SyncProvider";
 
@@ -24,7 +25,7 @@ function Harness({ initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf("Page"), initial);
+  const outline = useOutline(canonicalTitleOf("Page"), initial, confirmYes);
   useEffect(() => onReady(outline));
   return null;
 }

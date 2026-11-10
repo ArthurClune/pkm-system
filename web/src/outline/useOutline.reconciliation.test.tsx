@@ -16,8 +16,7 @@ import {
   canonicalTitleOf,
   uidOf,
   clientIdOf,
-  ticketIdOf, rawTitleOf, typeInto,
-} from "../test-helpers";
+  ticketIdOf, rawTitleOf, typeInto, confirmYes} from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ titleText, initial, onReady }: {
@@ -25,7 +24,7 @@ function Harness({ titleText, initial, onReady }: {
   initial: BlockNode[];
   onReady(outline: Outline): void;
 }) {
-  const outline = useOutline(canonicalTitleOf(titleText), initial);
+  const outline = useOutline(canonicalTitleOf(titleText), initial, confirmYes);
   useEffect(() => onReady(outline));
   return null;
 }

@@ -10,7 +10,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, defer, jsonResponse, makeSync, stubFetch, canonicalTitleOf, type SyncFake,
-         orderIdxOf, uidOf, typeInto } from "../test-helpers";
+         orderIdxOf, uidOf, typeInto, confirmYes } from "../test-helpers";
 import { findNode } from "./tree";
 import { resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
@@ -20,7 +20,7 @@ function Harness({ titleText, initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf(titleText), initial);
+  const outline = useOutline(canonicalTitleOf(titleText), initial, confirmYes);
   useEffect(() => onReady(outline));
   return null;
 }

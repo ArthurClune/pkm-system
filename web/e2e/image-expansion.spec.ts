@@ -10,6 +10,7 @@ const PNG = Buffer.from(
 );
 
 const input = (page: Page) => page.locator("textarea.block-input");
+
 test("uploaded image expands to a contained fullscreen modal", async ({ page, ownPage }) => {
   const response = await page.request.post("/api/assets", {
     multipart: { file: { name: "pic.png", mimeType: "image/png", buffer: PNG } },

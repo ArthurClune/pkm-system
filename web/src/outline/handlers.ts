@@ -23,8 +23,9 @@ export interface OutlineHandlers {
    * text the textarea showed, which the user is typing over. It opens the
    * draft with `shown` as its base, so its flush hashes what the user saw
    * rather than a remote text the tree took before the textarea could show
-   * it. No draft opens while another block's draft cannot be saved. */
-  onDraftStart(uid: BlockUid, shown: string): void;
+   * it. No draft opens while another block's draft cannot be saved: false,
+   * and the textarea then drops the edit. */
+  onDraftStart(uid: BlockUid, shown: string): boolean;
   /** Changes the open draft's text; with no draft open on `uid` it records
    * nothing. holdFlush: the caret sits mid [[ref / #tag token, so the
    * debounced autosave must wait — flushing now would create a page from the

@@ -468,9 +468,10 @@ export function useOutline(
       setFocus((f) => (f?.uid === uid ? null : f));
     },
     onDraftStart: (uid, shown) => {
-      if (!flushOtherDraft(uid)) return;
+      if (!flushOtherDraft(uid)) return false;
       pendingRef.current = openDraft(uid, shown);
       markRefusedPending();
+      return true;
     },
     onDraftChange: (uid, text, holdFlush) => {
       const pending = pendingRef.current;

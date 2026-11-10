@@ -74,10 +74,13 @@ export function stepProblems(step: Step): string[] {
   const baseRows = readingRows(step.base);
   const modelled = step.resolved ? expectedRows(baseRows, step.resolved) : { kind: "noop" as const };
   // A refused command is a noop, but only when what the model expects it to
-  // store holds a text the server refuses: a judge that refused more would
-  // otherwise turn every check of the command into a noop's.
+  // store holds a text the server refuses that the command writes: a judge
+  // that refused more would otherwise turn every check of the command into
+  // a noop's.
+  const unchanged = new Set(baseRows.map((r) => `${r.uid}\n${r.text}`));
   if (step.refused !== undefined
-      && !(modelled.kind === "rows" && modelled.rows.some((r) => refusable(r.text)))) {
+      && !(modelled.kind === "rows"
+        && modelled.rows.some((r) => refusable(r.text) && !unchanged.has(`${r.uid}\n${r.text}`)))) {
     problems.push(`refusal: refused (${step.refused}), but the model expects nothing the` +
                   " server refuses");
   }

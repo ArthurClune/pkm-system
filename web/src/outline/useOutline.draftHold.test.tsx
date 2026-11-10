@@ -150,7 +150,7 @@ it("a new draft does not replace another block's draft that may not be saved", (
     block("tuid-b", "b text", { order_idx: orderIdxOf(1) }),
   ]);
   act(() => typeInto(outline(), uidOf("tuid-a"), "see [[a#b]]"));
-  act(() => outline().handlers.onDraftStart(uidOf("tuid-b"), "b text"));
+  act(() => { outline().handlers.onDraftStart(uidOf("tuid-b"), "b text"); });
   act(() => outline().handlers.onDraftChange(uidOf("tuid-b"), "b text!"));
   act(() => { vi.advanceTimersByTime(5000); });
   expect(outline().handlers.pendingDraft(uidOf("tuid-a"))?.text).toBe("see [[a#b]]");
@@ -166,7 +166,7 @@ it("a draft after a flush bases on the shown text, not the flushed text", () => 
   act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
     { op: "update_text", uid: uidOf("tuid-a"), text: "remote" },
   ] }));
-  act(() => outline().handlers.onDraftStart(uidOf("tuid-a"), "remote"));
+  act(() => { outline().handlers.onDraftStart(uidOf("tuid-a"), "remote"); });
   act(() => outline().handlers.onDraftChange(uidOf("tuid-a"), "remote!"));
   act(() => { outline().handlers.onFlushDraft(); });
   expect(sync.sent[sync.sent.length - 1]).toEqual([

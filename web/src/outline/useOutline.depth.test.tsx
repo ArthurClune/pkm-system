@@ -86,7 +86,7 @@ it("a refused indent still ships and applies the block's draft", () => {
   const sync = makeSync();
   const outline = setup(sync);
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-d100b"), 5));
-  act(() => outline().handlers.onDraftStart(uidOf("tuid-d100b"), "d100b"));
+  act(() => { outline().handlers.onDraftStart(uidOf("tuid-d100b"), "d100b"); });
   act(() => outline().handlers.onDraftChange(uidOf("tuid-d100b"), "typed"));
 
   act(() => outline().handlers.onIndent(uidOf("tuid-d100b")));
@@ -354,7 +354,7 @@ describe("a page holding rows past the cap", () => {
     const outline = setup(sync, legacyTree());
     const deep = uidOf("tuid-L120");
     act(() => outline().handlers.onFocusBlock(deep, 4));
-    act(() => outline().handlers.onDraftStart(deep, "L120"));
+    act(() => { outline().handlers.onDraftStart(deep, "L120"); });
     act(() => outline().handlers.onDraftChange(deep, "deep edit"));
     act(() => { outline().handlers.onFlushDraft(); });
     expect(sync.sent).toEqual([[

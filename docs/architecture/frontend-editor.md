@@ -246,7 +246,7 @@ sends nothing leaves the tree's text unchanged and gives it no other cue.
 
 | When | Rule |
 |---|---|
-| A clean draft's first edit | `onDraftStart` opens the draft on the shown text, its `base`, unless another block's refused draft stays. `onDraftChange` only changes `text`, and records nothing when no draft is open for its block |
+| A clean draft's first edit | `onDraftStart` opens the draft on the shown text, its `base`, unless another block's refused draft stays, and then it returns false and `useBlockDraft` drops the edit instead of showing it. `onDraftChange` only changes `text`, and records nothing when no draft is open for its block |
 | Undo, redo, or an upload that fills the focused (empty) block | the textarea adopts the tree's text whenever no draft is pending, so the tree's new text lands. When a draft was pending, its end (`subscribeDraftEnd`) re-runs adoption even if the tree's text ends where it started. An undo or redo that a refused draft stopped (`onUndo` returns false) leaves the draft open |
 | Focus or a new draft moves to another block | the old draft flushes first. A block a remote batch removes unmounts with no blur, so nothing else would flush it. A refused draft is the exception (below) |
 | A remote batch reparents the block or an ancestor | the textarea remounts with no blur. `BlockInput` reads `handlers.pendingDraft(uid)` at mount and resumes it dirty with its base, and restores the selection the old textarea reported (`onInputUnmount`) |

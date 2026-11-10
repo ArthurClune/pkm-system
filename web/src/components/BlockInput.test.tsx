@@ -12,7 +12,7 @@ import { BlockInput } from "./BlockInput";
 
 function handlers(): OutlineHandlers {
   return {
-    onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftStart: vi.fn(),
+    onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftStart: vi.fn(() => true),
     onDraftChange: vi.fn(), onFlushDraft: vi.fn(() => true),
     pendingDraft: vi.fn(() => null), onInputUnmount: vi.fn(),
     subscribeDraftEnd: vi.fn(() => () => {}),
@@ -142,6 +142,26 @@ test("the first edit of a clean draft reports the text it was typed over", () =>
   fireEvent.change(focusedTextarea(), { target: { value: "hi!?" } });
   expect(h.onDraftStart).toHaveBeenCalledTimes(2);
   expect(h.onDraftStart).toHaveBeenLastCalledWith("tuid-u1", "hi!");
+});
+
+test("a typed change the outline would not record as a draft is not shown", () => {
+  const h = handlers();
+  vi.mocked(h.onDraftStart).mockReturnValue(false);
+  mount(h, 0);
+  fireEvent.change(focusedTextarea(), { target: { value: "hi" } });
+  expect(focusedTextarea()).toHaveValue("hello [[World]]");
+  expect(h.onDraftChange).not.toHaveBeenCalled();
+});
+
+test("a key edit the outline would not record as a draft changes nothing", () => {
+  const h = handlers();
+  vi.mocked(h.onDraftStart).mockReturnValue(false);
+  mount(h, 0);
+  const ta = focusedTextarea();
+  ta.setSelectionRange(0, 0);
+  fireEvent.keyDown(ta, { key: "[" });
+  expect(ta).toHaveValue("hello [[World]]");
+  expect(h.onDraftChange).not.toHaveBeenCalled();
 });
 
 test("a textarea mounting over a pending draft shows it and keeps its base", () => {

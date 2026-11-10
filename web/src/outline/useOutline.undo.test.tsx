@@ -314,7 +314,7 @@ it("a remote collapse of the typed block's parent moves focus "
   expect(outline().focus).toEqual({ uid: "tuid-p", cursor: 6 });
 
   // Typing in the parent's textarea flushes the hidden block's draft first.
-  act(() => outline().handlers.onDraftStart(uidOf("tuid-p"), "parent"));
+  act(() => { outline().handlers.onDraftStart(uidOf("tuid-p"), "parent"); });
   expect(sync.sent[0]).toMatchObject([{ op: "update_text", uid: "tuid-c", text: "child typed" }]);
   expect(outline().blocks[0].children[0].text).toBe("child typed");
   expect(outline().blocks[0].text).toBe("parent");

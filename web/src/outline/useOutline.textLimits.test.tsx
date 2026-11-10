@@ -140,7 +140,7 @@ it("a refused command still ships and applies the block's draft", () => {
   const sync = makeSync();
   const outline = setup(sync);
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-big2"), 0));
-  act(() => outline().handlers.onDraftStart(uidOf("tuid-big2"), HALF));
+  act(() => { outline().handlers.onDraftStart(uidOf("tuid-big2"), HALF); });
   act(() => outline().handlers.onDraftChange(uidOf("tuid-big2"), `${HALF}!`));
 
   act(() => outline().handlers.onBackspaceAtStart(uidOf("tuid-big2")));

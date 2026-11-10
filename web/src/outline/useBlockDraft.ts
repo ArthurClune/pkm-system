@@ -80,8 +80,9 @@ export interface BlockDraftOptions {
    * half-typed title. */
   onEdit(text: string, holdFlush: boolean): void;
   /** Called before the first onEdit of a clean draft with the text the
-   * textarea showed until then: the text the user is typing over. */
-  onDirty(shown: string): void;
+   * textarea showed until then: the text the user is typing over. False
+   * when the outline did not open a draft; the edit is then dropped. */
+  onDirty(shown: string): boolean;
   /** Called when committed text is adopted over the draft: the replacement
    * text invalidates any offset into the old text the caller remembered. */
   onAdopt(): void;
@@ -246,9 +247,7 @@ export function useBlockDraft(
   // draftRef, not the tree's text: until the adoption effect has run, the
   // textarea still shows the text before a remote change, and that is what
   // the user is typing over.
-  const markDirty = () => {
-    if (!dirty()) onDirty(draftRef.current);
-  };
+  const markDirty = (): boolean => dirty() || onDirty(draftRef.current);
 
   const admit = (next: string, heldCaret: number | null): boolean => {
     // The text limits first: the ref scan must never read past them.
@@ -274,7 +273,7 @@ export function useBlockDraft(
     text: draft,
     admit,
     typed: (next, holdFlush) => {
-      markDirty();
+      if (!markDirty()) return;
       setDraft(next);
       onEdit(next, holdFlush);
     },
@@ -283,7 +282,7 @@ export function useBlockDraft(
           && !admit(next, holdFlush ? selEnd : null)) {
         return false;
       }
-      markDirty();
+      if (!markDirty()) return false;
       const el = ref.current;
       if (el && el.value === next) {
         // Selection-only edit (skipping over an auto-inserted closer): there

@@ -1,16 +1,8 @@
 import { type Page } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { expect, test } from "./ownPage";
 import { waitForServerText } from "./server-state";
 
 const PASSWORD = "e2e-pw";
-
-async function login(page: Page) {
-  await page.goto("/login");
-  await page.fill("#pw", PASSWORD);
-  await page.click("text=log in");
-  await page.waitForURL("**/");
-  await expect(page.locator(".ws-banner")).toHaveCount(0);
-}
 
 const input = (page: Page) => page.locator("textarea.block-input");
 
@@ -19,18 +11,15 @@ const caretToEnd = (page: Page) =>
   input(page).evaluate((el: HTMLTextAreaElement) =>
     el.setSelectionRange(el.value.length, el.value.length));
 
-// Markers unique to this spec: other e2e specs share the same server/DB
-// (single worker, serial run) and already leave content on today's page
-// (e.g. edit.spec.ts's "second block"), so plain words like "second" would
-// collide via getByText's substring match.
+// Markers unique to this spec so plain words cannot collide via getByText's
+// substring match.
 const FIRST = "undo-alpha-pkm7q14";
 const SECOND = "undo-beta-pkm7q14";
 
-test("undo and redo across text and structure", async ({ page }) => {
-  await login(page);
-  const today = page.locator(".journal-day").first();
+test("undo and redo across text and structure", async ({ page, ownPage }) => {
+  const today = page.locator("main");
   await expect(today).toBeVisible();
-  const pageTitle = await today.locator("h1.page-title").innerText();
+  const pageTitle = ownPage.title;
 
   // block-row count is not assumed to start at 0: other specs share the DB
   // and run first, so track the delta this test introduces instead of an
@@ -85,6 +74,6 @@ test("undo and redo across text and structure", async ({ page }) => {
   // final redo batch to reach the server, and reload() can race it.
   await waitForServerText(page, pageTitle, SECOND);
   await page.reload();
-  await expect(page.locator(".journal-day").first().getByText(SECOND, { exact: true }))
+  await expect(page.locator("main").getByText(SECOND, { exact: true }))
     .toBeVisible();
 });

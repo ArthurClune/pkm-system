@@ -251,6 +251,7 @@ it("warns instead of reassuring when an online-only session goes offline", () =>
       kind: "replica-unusable", error: "Access Handles cannot be created",
     },
     pending: 2,
+    unsentInMemory: 2,
   });
   // The problem banner renders before the connectivity banner.
   const banner = screen.getAllByRole("status")[0];
@@ -270,6 +271,7 @@ it("uses the singular for one unsent change in an offline online-only session", 
       kind: "replica-unusable", error: "Access Handles cannot be created",
     },
     pending: 1,
+    unsentInMemory: 1,
   });
   expect(screen.getAllByRole("status")[0]).toHaveTextContent(
     "1 unsent change exists only in memory here. "
@@ -295,6 +297,34 @@ it("says nothing about safety when an offline online-only session is clean", () 
   expect(banner).not.toHaveTextContent("discards");
 });
 
+it("a dead worker with one persisted row and no lane entries shows no memory-only sentence", async () => {
+  const reload = vi.fn();
+  const original = globalThis.location;
+  Object.defineProperty(globalThis, "location", {
+    configurable: true, value: { ...original, reload },
+  });
+  try {
+    renderWith({
+      status: "reconnecting",
+      canEdit: false,
+      problem: {
+        kind: "replica-unusable", error: "Access Handles cannot be created",
+      },
+      pending: 1,
+      unsentInMemory: 0,
+    });
+    const banner = screen.getAllByRole("status")[0];
+    expect(banner).not.toHaveTextContent("only in memory");
+    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+    await vi.waitFor(() => { expect(reload).toHaveBeenCalledTimes(1); });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  } finally {
+    Object.defineProperty(globalThis, "location", {
+      configurable: true, value: original,
+    });
+  }
+});
+
 it("Reload confirms before discarding undelivered work", async () => {
   // location.reload() destroys the in-memory fallback lane,
   // which in an online-only session is the ONLY place undelivered ops live.
@@ -312,6 +342,7 @@ it("Reload confirms before discarding undelivered work", async () => {
         kind: "replica-unusable", error: "Access Handles cannot be created",
       },
       pending: 2,
+      unsentInMemory: 2,
     });
     fireEvent.click(screen.getByRole("button", { name: "Reload" }));
     // A confirmation naming the cost, and nothing destroyed until answered.

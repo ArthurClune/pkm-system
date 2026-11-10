@@ -44,6 +44,7 @@ Owners: [sync-and-offline.md](architecture/sync-and-offline.md) and
 | Undoing the delete of a block with more than 500 descendants (or dropping more than 500 blocks onto another page) shows "Server rejected a change" and the change is lost | The undo's inverse is one `create` per block, and a cross-page drop queued without a size check; the server answers 422 and the queue discards the batch | [frontend-editor.md § Rules an edit must not break](architecture/frontend-editor.md#rules-an-edit-must-not-break) | pkm-ey0s |
 
 ### "Local sync is stuck" and an unusable replica
+| The "Working online only" banner, or its Reload confirm, claims unsent changes exist only in memory when they are durable rows | `DeliveryProblemBanner` passed `pending` (durable plus lane) where only `unsentInMemory` is lost on reload | [sync-recovery.md § What the UI shows](architecture/sync-recovery.md#what-the-ui-shows) | pkm-t6xh |
 
 | Symptom | Cause | Where | Ref |
 |---|---|---|---|
@@ -256,6 +257,9 @@ Owner: [frontend-editor.md](architecture/frontend-editor.md)
 | A slow undo or redo on an unmounted page is refused (depth cap or text limit); the next undo then replays an older edit first, or the redo later replays over a newer edit | The replay was refused after an edit was recorded during the page read, and `restoreEntry` put the entry on top of its stack. It now goes back as though refused at the keypress | [frontend-editor.md § Rules an edit must not break](architecture/frontend-editor.md#rules-an-edit-must-not-break) | pkm-pgod |
 
 ## Frontend shell
+| Enter on "Create page" for a refused title does nothing | `SearchBar`'s `go()` swallowed the `POST /api/pages` error; it now shows the server's `detail` in a `role="alert"` row until the next keystroke | [frontend.md § Popovers and menus](architecture/frontend.md#popovers-and-menus) | pkm-t6xh |
+| Copy link, Copy block reference or Copy selection throws unhandled | No Clipboard API (insecure origin) or a refused write; every write now goes through `copyText`, which resolves false, and `Files` shows the link to copy by hand | [frontend.md § Popovers and menus](architecture/frontend.md#popovers-and-menus) | pkm-t6xh |
+| The left nav keeps stale entries after a reconnect or resync | `SidebarNav` fetched once on mount and did not subscribe to `useResync` | [frontend.md § Navigation chrome](architecture/frontend.md#navigation-chrome) | pkm-t6xh |
 
 Owner: [frontend.md](architecture/frontend.md)
 
@@ -281,6 +285,8 @@ Owner: [frontend.md](architecture/frontend.md)
 | Tab to Cancel in a confirm dialog and press Enter: the delete or discard goes ahead | `useConfirm`'s `window` listener settled every Enter as `true` and its `preventDefault` stopped the focused button's own activation | [frontend.md § Popovers and menus](architecture/frontend.md#popovers-and-menus) | pkm-ysp6 |
 
 ## Rendering
+| A PDF link edited from an uploaded asset to a local copy loads without a click | `PdfEmbed` kept `armed` across the href change; `InlineSegments` now keys it by href | [frontend-rendering.md](architecture/frontend-rendering.md) | pkm-t6xh |
+| Clicking an image inside a block-ref popover row expands it instead of navigating | Only `FileCardPopovers` provided `InertMediaContext`; `BacklinkGroupList` now provides it whenever `onNavigate` is set | [frontend.md § Popovers and menus](architecture/frontend.md#popovers-and-menus) | pkm-t6xh |
 
 Owner: [frontend-rendering.md](architecture/frontend-rendering.md)
 

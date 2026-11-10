@@ -9,6 +9,7 @@ vi.mock("./PdfViewer", () => ({
   ),
 }));
 
+import { InlineSegments } from "./InlineSegments";
 import { PdfEmbed } from "./PdfEmbed";
 
 const href = `/assets/${"ab".repeat(32)}/doc.pdf`;
@@ -204,4 +205,16 @@ it("local copy: under StrictMode's effect replay a failed probe still shows its 
   render(<StrictMode><PdfEmbed href={localHref} label="Notes" deferred /></StrictMode>);
   fireEvent.click(screen.getByRole("link", { name: "Notes" }));
   expect(await screen.findByText(NOT_FOUND)).toHaveClass("pdf-error-note");
+});
+
+it("an asset href edited to a local href is not armed", async () => {
+  const local = "/api/local/Papers/doc.pdf";
+  const { rerender } = render(
+    <InlineSegments segments={[{ kind: "pdf-embed", href }]} />);
+  await waitFor(() => expect(screen.getByTestId("pdf-viewer")).toBeInTheDocument());
+
+  rerender(<InlineSegments segments={[{ kind: "pdf-embed", href: local }]} />);
+  await act(async () => {});
+  expect(screen.queryByTestId("pdf-viewer")).toBeNull();
+  expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
 });

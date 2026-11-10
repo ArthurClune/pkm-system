@@ -5,6 +5,7 @@ import { apiDelete, apiGet, apiPost, apiPut } from "../api/typedClient";
 import type { SidebarEntryId } from "../api/brands";
 import { asRawTitle } from "../replica/titles";
 import type { SidebarNavEntry } from "../api/payloads";
+import { useResync } from "../sync/SyncProvider";
 import { NavPageLink } from "./NavPageLink";
 
 type MutationState = "idle" | "running" | "failed";
@@ -53,6 +54,13 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
       .catch(() => { if (!cancelled) setError(true); });
     return () => { cancelled = true; };
   }, []);
+
+  // Behind the lane, so a resync read never lands between a mutation and its
+  // own refresh. A failed read keeps the entries already shown.
+  useResync(() => {
+    laneRef.current = laneRef.current.then(
+      () => refresh().then(() => undefined, () => undefined));
+  });
 
   if (error) return <p className="error nav-sidebar-error">Couldn't load sidebar entries.</p>;
 

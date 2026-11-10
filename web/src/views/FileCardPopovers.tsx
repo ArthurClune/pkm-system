@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiGet } from "../api/typedClient";
 import { BacklinkGroupList } from "../components/BacklinkGroupList";
-import { InertMediaContext } from "../contexts";
 import { pagePath } from "../paths";
 import { Popover } from "../Popover";
 import { refGroups, refUidChunks } from "./filesCore";
@@ -51,13 +50,11 @@ export function FileRefsPopover({ refs, x, y, onClose }: {
         <p className="loading">Loading…</p>
       )}
       {groups !== null && (
-        <InertMediaContext.Provider value={true}>
-          <BacklinkGroupList groups={groups}
-            onNavigate={(pageTitle, uid) => {
-              onClose();
-              navigate(`${pagePath(pageTitle)}#${uid}`);
-            }} />
-        </InertMediaContext.Provider>
+        <BacklinkGroupList groups={groups}
+          onNavigate={(pageTitle, uid) => {
+            onClose();
+            navigate(`${pagePath(pageTitle)}#${uid}`);
+          }} />
       )}
     </Popover>
   );

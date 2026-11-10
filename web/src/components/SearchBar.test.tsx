@@ -322,3 +322,29 @@ it("a failed create POST keeps the search open and does not navigate", async () 
   expect(input).toHaveValue("papers");
   expect(screen.getAllByRole("listitem").length).toBeGreaterThan(0);
 });
+
+it("a refused create shows the reason and keeps the search open", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.startsWith("/api/search?q=a%2Fb")) {
+      return jsonResponse({ pages: [], blocks: [] });
+    }
+    if (url.startsWith("/api/pages")) {
+      return jsonResponse({ detail: "Titles cannot contain /" }, 422);
+    }
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  const input = renderBar();
+  fireEvent.change(input, { target: { value: "a/b" } });
+  await screen.findByText('Create page "a/b"');
+  await act(async () => {
+    fireEvent.keyDown(input, { key: "Enter" });
+  });
+  expect(await screen.findByRole("alert"))
+    .toHaveTextContent("Titles cannot contain /");
+  expect(input).toHaveValue("a/b");
+  expect(screen.queryByText("page view here")).toBeNull();
+
+  fireEvent.change(input, { target: { value: "a/bc" } });
+  expect(screen.queryByRole("alert")).toBeNull();
+});

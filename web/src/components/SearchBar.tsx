@@ -1,6 +1,7 @@
 // pattern: Imperative Shell
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ApiError } from "../api/client";
 import { apiGet, apiPost } from "../api/typedClient";
 import type { BlockUid, RawTitle } from "../api/brands";
 import type { SearchPayload } from "../api/payloads";
@@ -55,6 +56,7 @@ export function SearchBar() {
   const [open, setOpen] = useState(false); // dropdown may show (bar engaged)
   const [rows, setRows] = useState<ResultRow[]>([]);
   const [selected, setSelected] = useState(0);
+  const [createError, setCreateError] = useState<string | null>(null);
   // The query whose results `rows` currently reflects -- null while a fetch
   // for the current query hasn't settled yet. Gates the create-page row so
   // it only appears once we actually know there's no exact page match,
@@ -77,6 +79,7 @@ export function SearchBar() {
     setRows([]);
     setResultsQuery(null);
     setSelected(0);
+    setCreateError(null);
     inputRef.current?.blur();
   }, [guard]);
 
@@ -143,8 +146,11 @@ export function SearchBar() {
     if (row.key === CREATE_ROW_KEY) {
       try {
         await apiPost("/api/pages", { body: { title: row.title } });
-      } catch {
-        return; // creation failed: keep the search open, don't navigate
+      } catch (e) {
+        // Keep the search open and say why, e.g. a refused title.
+        setCreateError(e instanceof ApiError && e.detail
+          ? e.detail : "Could not create the page.");
+        return;
       }
       cancel();
       navigate(pagePath(row.title));
@@ -179,7 +185,11 @@ export function SearchBar() {
              placeholder="Search…"
              aria-label="Search" value={query}
              onFocus={() => setOpen(true)}
-             onChange={(e) => { setOpen(true); setQuery(e.target.value); }}
+             onChange={(e) => {
+               setOpen(true);
+               setCreateError(null);
+               setQuery(e.target.value);
+             }}
              onKeyDown={onKeyDown} />
       {/* must directly follow the input: the CSS hides it via `+` when the
         * input is focused or holds text */}
@@ -188,6 +198,9 @@ export function SearchBar() {
       </kbd>
       {open && displayRows.length > 0 && (
         <ul className="search-results">
+          {createError !== null && (
+            <li role="alert" className="search-create-error">{createError}</li>
+          )}
           {displayRows.map((row, i) => (
             <li key={row.key}
                 className={"search-result" + (i === selected ? " selected" : "")}

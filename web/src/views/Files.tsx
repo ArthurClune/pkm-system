@@ -1,5 +1,6 @@
 // pattern: Imperative Shell
 import { useCallback, useEffect, useRef, useState } from "react";
+import { copyText } from "../copyText";
 import type { Sha256Hex } from "../api/brands";
 import { deleteRefusalBlockers } from "../api/client";
 import { apiDelete, apiGet, apiPost } from "../api/typedClient";
@@ -326,8 +327,10 @@ export function Files() {
   };
 
   const copyLink = async (item: AssetSearchItem) => {
-    await navigator.clipboard.writeText(clipboardToken(item));
-    setNotice("Link copied.");
+    const token = clipboardToken(item);
+    setNotice(await copyText(token)
+      ? "Link copied."
+      : `Copying failed. Select and copy it: ${token}`);
   };
 
   const runScan = async () => {

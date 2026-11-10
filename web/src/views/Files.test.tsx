@@ -451,6 +451,18 @@ describe("Files", () => {
     expect(screen.getByText("Link copied.")).toBeInTheDocument();
   });
 
+  it("shows the link text when the copy fails", async () => {
+    Object.assign(navigator, { clipboard: undefined });
+    mockFetch.mockResolvedValueOnce(payload([item({})]));
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button",
+                                            { name: "Copy link" }));
+    expect(await screen.findByText(
+      new RegExp(`!\\[pic\\.png\\]\\(/assets/${"ab".repeat(32)}/pic\\.png\\)`)))
+      .toBeInTheDocument();
+    expect(screen.queryByText("Link copied.")).toBeNull();
+  });
+
   it("runs a scan and reports the queue size", async () => {
     mockFetch.mockResolvedValueOnce(payload([]));
     renderFiles();

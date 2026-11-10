@@ -60,9 +60,9 @@ export const SLASH_COMMANDS = [
   { name: "link-local-file", label: "link to local file…" },
 ] as const;
 
-/** Every command name SLASH_COMMANDS lists, derived so a renamed, added or
- * removed command can't drift out of sync with the places that switch on
- * a name by hand (HEADING_COMMANDS below, applySlashCommand's cases). */
+/** Every command name SLASH_COMMANDS lists. HEADING_COMMANDS' keys are
+ * checked against it; applySlashCommand and BlockInput's pick match bare
+ * strings, so the compiler does not check their cases. */
 export type SlashCommandName = (typeof SLASH_COMMANDS)[number]["name"];
 
 export interface SlashCommand {

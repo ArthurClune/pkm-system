@@ -15,7 +15,7 @@ const ICON: Record<ReturnType<typeof useTheme>["preference"], () => JSX.Element>
 };
 
 /** Cycles system -> light -> dark -> system on click. Lives in the left nav
- * next to Search. */
+ * above the favourites. */
 export function ThemeToggle() {
   const { preference, cycle } = useTheme();
   const PreferenceIcon = ICON[preference];

@@ -10,7 +10,7 @@ of the disk. Never loosen it for convenience: a path that fails here is
 a 404, not a warning.
 
 Two decode paths, exactly one `unquote` each: uvicorn already
-percent-decodes the `{path:path}` route parameter before FastAPI binds
+percent-decodes the `{path:wholepath}` route parameter before FastAPI binds
 it, so the file route calls `clean_relative` directly on that decoded
 string. `/api/local-check` starts from a raw, still-encoded href found
 in block text, so it calls `resolve_relative`, which decodes once and
@@ -89,7 +89,7 @@ def resolve_relative(url_path: str) -> str | None:
     """Percent-decode `url_path` once and return it as a clean relative
     path via `clean_relative`, or None if it is invalid. For callers
     that start from a raw, still-encoded href (e.g. one found in block
-    text). Uvicorn already decodes the `{path:path}` route parameter, so
+    text). Uvicorn already decodes the `{path:wholepath}` route parameter, so
     the file route calls `clean_relative` directly instead of this."""
     return clean_relative(unquote(url_path))
 

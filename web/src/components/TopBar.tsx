@@ -21,8 +21,7 @@ import { SearchBar } from "./SearchBar";
  * toggle (leftmost, so it stays put regardless of what else is here), the
  * search bar (self-contained: SearchBar owns query, results dropdown, and
  * the Cmd/Ctrl-U shortcut), and, on /page/* routes, a "…" page menu -- the
- * anchor for page-level actions ("Open in sidebar", "Delete page…"; more
- * land here later). */
+ * anchor for page-level actions (stamps, sidebar, export, delete). */
 export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;

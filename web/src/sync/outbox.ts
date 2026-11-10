@@ -24,11 +24,11 @@ export interface LaneEntry {
 export interface OutboxState {
   readonly entries: readonly LaneEntry[];
   /** Monotonic count of lane entries ever appended: the source of each
-   * entry's `seq` and of the boundary a durable batch's `follows` mark
+   * entry's `laneSeq` and of the boundary a durable batch's `follows` mark
    * records. */
   readonly appended: number;
   /** batch_id -> the lane-append boundary that batch must wait behind: every
-   * entry whose `seq` is less than this value was appended to the lane
+   * entry whose `laneSeq` is less than this value was appended to the lane
    * before this durable batch was persisted, so it must be delivered first.
    * Only set for a batch the queue enqueued while the lane was non-empty,
    * before its persist RPC (see markFollows): a mark may therefore name a
@@ -48,9 +48,9 @@ export function createOutbox(): OutboxState {
   return { entries: [], appended: 0, follows: new Map() };
 }
 
-/** Retain ops at the tail of the lane under the next `seq`. Any durable batch
- * already persisted is simply unmarked in `follows`, which headPrecedes
- * treats as ahead of this entry regardless. */
+/** Retain ops at the tail of the lane under the next `laneSeq`. Any
+ * durable batch already persisted is simply unmarked in `follows`, which
+ * headPrecedes treats as ahead of this entry regardless. */
 export function append(
   s: OutboxState, batchId: BatchId, ops: BlockOp[],
 ): OutboxState {
@@ -82,7 +82,7 @@ export function laneHead(s: OutboxState): LaneEntry | undefined {
  * queue empty, so any lane head qualifies outright — there is nothing left
  * for it to wait behind. Otherwise a durable batch the queue never marked
  * (see `follows`) is ahead of the lane by construction: the lookup's `-1`
- * default can never exceed a real (non-negative) seq. This is the ONE
+ * default can never exceed a real (non-negative) laneSeq. This is the ONE
  * predicate both the drain and deliverLaneAhead consult — ordering is
  * decided here, once, by batch identity. */
 export function headPrecedes(

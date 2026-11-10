@@ -5,9 +5,9 @@ description: Build, launch, and drive this app end-to-end to verify a change aga
 
 # Verifying pkm end-to-end
 
-The server serves the built SPA from `web/dist`; there is no dev-server path
-that avoids the prod proxy footgun (dev vite proxies to 8974 = production on
-this machine — never point verification at it).
+The server serves the built SPA from `web/dist`. `pnpm dev` proxies to 8974
+(production on this machine) unless `PKM_API_PORT` points it at a scratch
+server; never run it unset, and never point verification at 8974.
 
 ## Recipe
 

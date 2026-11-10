@@ -26,6 +26,9 @@ designs and their rejected alternatives are in the specs under
 | [cli-and-mcp.md](cli-and-mcp.md) | change the `pkm` CLI or an MCP tool |
 | [assistant.md](assistant.md) | change the embedded LLM harness |
 | [checks.md](checks.md) | add or answer a mechanical check: commit hooks, coverage, perf and property gates |
+| [cli.md](../cli.md) | run the `pkm` CLI or MCP server, or the one-time title migration |
+| [SECURITY.md](../SECURITY.md) | change what the app defends against, or answer a security question |
+| [keyboard.md](../keyboard.md) | change a shortcut; it is also what `/help` renders |
 | [troubleshooting.md](../troubleshooting.md) | are chasing a symptom someone has seen before |
 
 ## System context
@@ -132,8 +135,8 @@ Every runtime file declares its role in a header comment:
 ```
 
 On the web the boundary is machine-checked: `pnpm check:fcis`
-(`web/tooling/fcis.mjs`) fails on any Functional-Core → Shell import, type-only
-imports excepted. On the server it is convention plus review. The write path
+(`web/tooling/fcis.mjs`) fails on any Functional-Core → Shell or Mixed import,
+type-only imports excepted. On the server it is convention plus review. The write path
 is the clearest case: a pure planner (`ops_core.plan_op`) between two thin
 shells ([backend.md](backend.md#the-write-path)). The rules and escape hatches
 are in `AGENTS.md`.

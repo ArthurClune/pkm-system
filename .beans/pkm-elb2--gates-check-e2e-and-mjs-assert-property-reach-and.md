@@ -17,9 +17,9 @@ Task plan: docs/superpowers/plans/2026-11-10-w17-gates-and-tooling.md
 - [x] T1 every server property file is marked or allowed
 - [ ] T2 server gate suites assert reach
 - [x] T3 server teeth
-- [ ] T4 one web gate driver (gate.ts)
+- [x] T4 one web gate driver (gate.ts)
 - [ ] T5 web reach floors
-- [ ] T6 an unexpected fault warning fails the gate
+- [x] T6 an unexpected fault warning fails the gate
 - [x] T7 web/e2e and playwright.config.ts type-checked and linted
 - [x] T8 split the brands plugin, behaviour unchanged
 - [x] T9 the two non-brand rules get their own plugin

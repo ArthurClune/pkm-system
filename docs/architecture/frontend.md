@@ -247,7 +247,8 @@ is as fresh as the page payload.
 Every confirmation goes through `useConfirm` (`components/ConfirmDialog.tsx`),
 never `window.confirm` ([below](#ios-and-phone-behaviour)). The owning
 component must render the returned `dialog`, or `confirm()` never settles; a
-hook with a confirm-backed handler re-exports it, as `useOutline` does. Remote
+hook with a confirm-backed handler takes `confirm` as an argument, as
+`useOutline` does, and its owner (`EditablePage`) renders the dialog. Remote
 batches can land while a dialog is open, so a handler re-derives its target
 after the await.
 

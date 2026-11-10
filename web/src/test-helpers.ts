@@ -12,14 +12,14 @@ import { batchIdOf, normalizedTitleOf, orderIdxOf, pageIdOf, ticketIdOf, uidOf }
 
 export * from "./test-mint";
 
+/** The `confirm` a useOutline harness passes when no prompt is under test. */
+export const confirmYes = (): Promise<boolean> => Promise.resolve(true);
+
 /** A block of compile-time checks. The callback is never called: tsc still
  * type-checks its body (`pnpm typecheck` covers tests), so a
  * `@ts-expect-error` inside it fails the build once the line stops
  * erroring, but nothing in it ever runs. It is the only place the lint
  * allows a `@ts-expect-error`. */
-/** The `confirm` a useOutline harness passes when no prompt is under test. */
-export const confirmYes = (): Promise<boolean> => Promise.resolve(true);
-
 export function typeProbe(probe: () => void): void {
   void probe;
 }

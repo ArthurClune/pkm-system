@@ -8,7 +8,7 @@ const PARSERS = { BlockUid: "parseBlockUid", SyncSeq: "parseSyncSeq" };
 export const webTestMints = registry.testMintSites
   .filter((p) => p.startsWith(WEB_PREFIX));
 
-// "use uidOf or malformedUid from web/src/test-helpers.ts": the checked
+// "use uidOf or malformedUid from web/src/test-mint.ts": the checked
 // helper a test mints these brands with, and the forger of a bad value where
 // the brand has a shape. Null when a brand has no helper.
 function testRemedy(brands) {

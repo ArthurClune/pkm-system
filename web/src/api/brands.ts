@@ -18,7 +18,7 @@
 // A sha256 hex digest, distinct from a plain string so a text can never
 // be passed where a hash belongs. Minted only by `sha256Hex` in
 // replica/sha256.ts (and its server twin `text_hash`); a test mints one
-// with `shaOf` (test-helpers.ts).
+// with `shaOf` (test-mint.ts).
 export type Sha256Hex = string & { readonly __brand: "Sha256Hex" };
 
 // The changes-journal sequence number (server `changes.seq`), distinct
@@ -63,7 +63,7 @@ export type ConfirmId = string & { readonly __brand: "ConfirmId" };
 
 // A block's uid, matching server/src/pkm/refs.py's BLOCK_REF_TOKEN shape.
 // Minted by `newUid` (uid.ts) and `parseBlockUid` (ids.ts); a test mints
-// one with `uidOf` (test-helpers.ts).
+// one with `uidOf` (test-mint.ts).
 export type BlockUid = string & { readonly __brand: "BlockUid" };
 
 // A page's row id. Offline pages mint a negative id (replica/localOps.ts)
@@ -78,7 +78,7 @@ export type SidebarEntryId = number & { readonly __brand: "SidebarEntryId" };
 // A title no check has run on: text as typed or received. The root of the
 // title hierarchy. `asRawTitle` (replica/titles.ts) is the general mint, as
 // `as_raw_title` is on the server; the other sites are in the brand
-// registry's MINT_SITES. A test mints one with `rawTitleOf` (test-helpers.ts).
+// registry's MINT_SITES. A test mints one with `rawTitleOf` (test-mint.ts).
 export type RawTitle = string & { readonly __brand: "RawTitle" };
 
 // A RawTitle that has been through normalize_title / normalizeRefTitle:
@@ -104,7 +104,7 @@ export type CanonicalTitle = NormalizedTitle & { readonly __canonical: true };
 // two siblings' keys are never assumed adjacent. `sidebar_entries.order_idx`
 // is `SidebarOrderIdx`, not this brand. Every
 // arithmetic site goes through outline/orderIdx.ts; a test mints one with
-// `orderIdxOf` (test-helpers.ts).
+// `orderIdxOf` (test-mint.ts).
 export type OrderIdx = number & { readonly __brand: "OrderIdx" };
 
 // A sidebar entry's order key (`sidebar_entries.order_idx`): the server

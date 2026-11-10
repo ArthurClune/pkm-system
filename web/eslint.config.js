@@ -11,7 +11,7 @@
 //     handlers), thrown non-Errors, and untyped caught errors.
 //   * Import control: concrete JSON requests use typedClient, raw apiFetch
 //     stays at the transport boundary, and only tests import test-helpers,
-//     testDb and memReplica.
+//     test-mint, testDb and memReplica.
 //   * No `any` flowing through production code (no-explicit-any and the
 //     no-unsafe-* rules): an untyped JSON value reaching code that assumes
 //     its shape fails at runtime instead of at the type check. Repo rules
@@ -45,17 +45,18 @@ const apiFetchBan = {
     + "raw apiFetch is reserved for transport boundaries.",
 };
 
-// Every spelling of the module (`../test-helpers`, `./test-helpers.ts`,
-// `../test-helpers.js`), static or dynamic.
+// Every spelling of the test helpers and the test mint module they
+// re-export (`../test-helpers`, `./test-mint.ts`, `../test-helpers.js`),
+// static or dynamic.
 const TEST_HELPERS_MESSAGE =
   "test helpers mint brands without a parse; product code reads or parses "
   + "them";
 const testHelpersBan = {
-  group: ["**/test-helpers*"],
+  group: ["**/test-helpers*", "**/test-mint*"],
   message: TEST_HELPERS_MESSAGE,
 };
 const testHelpersDynamicBan = {
-  selector: "ImportExpression[source.value=/test-helpers/]",
+  selector: "ImportExpression[source.value=/test-helpers|test-mint/]",
   message: TEST_HELPERS_MESSAGE,
 };
 
@@ -79,7 +80,7 @@ const testFixturesDynamicBan = {
 const templateSourceBan = {
   selector:
     "ImportExpression > TemplateLiteral > "
-    + "TemplateElement[value.raw=/test-helpers|testDb|memReplica/]",
+    + "TemplateElement[value.raw=/test-helpers|test-mint|testDb|memReplica/]",
   message:
     "test code is not imported by product code, whatever the import() "
     + "spelling: " + TEST_HELPERS_MESSAGE + "; testDb and memReplica are "

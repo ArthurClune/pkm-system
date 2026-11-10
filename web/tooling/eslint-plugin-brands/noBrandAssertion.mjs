@@ -64,7 +64,7 @@ import { remedy, webTestMints } from "./remedy.mjs";
 import {
   OFF_TYPE,
   OFF_TYPE_DEPTH,
-  TEST_HELPERS_SOURCE,
+  TEST_MINT_SOURCE,
 } from "./testHelpers.mjs";
 
 export const noBrandAssertion = {
@@ -358,7 +358,7 @@ export const noBrandAssertion = {
         }
         const decl = checker.getResolvedSignature(
           esTreeNodeToTSNodeMap.get(node))?.declaration;
-        if (decl === undefined || !TEST_HELPERS_SOURCE.test(
+        if (decl === undefined || !TEST_MINT_SOURCE.test(
           decl.getSourceFile().fileName.replace(/\.[cm]?[jt]sx?$/, ""))) return;
         const forged = (brands) => {
           const forgers = brands.map((b) => registry.malformed[b])

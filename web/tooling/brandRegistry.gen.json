@@ -431,7 +431,7 @@
   },
   "testMintSites": [
     "server/src/pkm/test_data/ids.py",
-    "web/src/test-helpers.ts"
+    "web/src/test-mint.ts"
   ],
   "testHelpers": {
     "BlockUid": "uid",
@@ -469,6 +469,7 @@
     "web/src/fcFilterCap.ts",
     "web/src/orphanWatchdog.ts",
     "web/src/test-helpers.ts",
+    "web/src/test-mint.ts",
     "web/src/props/",
     "web/src/replica/replayArbs.ts",
     "web/src/replica/testDb.ts",

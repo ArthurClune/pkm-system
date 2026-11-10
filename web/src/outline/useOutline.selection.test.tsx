@@ -262,7 +262,7 @@ it("drops a selection whose head block a newer tree no longer holds", () => {
 
   const session = getOutline().session!;
   act(() => {
-    session.receiveAuthoritative(session.beginAuthoritativeRead("parent"), [
+    session.receiveAuthoritative(session.beginAuthoritativeRead(), [
       block("tuid-a", "alpha", { order_idx: orderIdxOf(0) }),
       block("tuid-c", "gamma", { order_idx: orderIdxOf(2) }),
     ]);
@@ -283,7 +283,7 @@ it("drops a selection whose anchor a newer tree hides under a collapse", () => {
   collapsed[1] = { ...collapsed[1], collapsed: true };
   act(() => {
     session.receiveAuthoritative(
-      session.beginAuthoritativeRead("parent"), collapsed);
+      session.beginAuthoritativeRead(), collapsed);
   });
 
   expect(getOutline().selection).toBeNull();
@@ -297,7 +297,7 @@ it("keeps the same selection when a newer tree still holds both ends", () => {
 
   const session = getOutline().session!;
   act(() => {
-    session.receiveAuthoritative(session.beginAuthoritativeRead("parent"), [
+    session.receiveAuthoritative(session.beginAuthoritativeRead(), [
       ...abc(), block("tuid-d", "delta", { order_idx: orderIdxOf(3) }),
     ]);
   });

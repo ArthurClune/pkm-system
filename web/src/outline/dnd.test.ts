@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { block, orderIdxOf, uidOf, canonicalTitleOf } from "../test-helpers";
 import type { BlockNode } from "../api/payloads";
-import { allowedDepths, depthFromX, dropRows, resolveDrop,
-         INDENT_PX, type DragSource, type DropRow } from "./dnd";
+import { allowedDepths, crossPageReplays, depthFromX, dropRows,
+         planCrossPageDrop, resolveDrop, INDENT_PX, type DragSource,
+         type DropRow, type DropTarget } from "./dnd";
+import { orderIdxPlus } from "./orderIdx";
 
 // Page "P":  a(0) [ b(0) [ c(0) ] ]  d(1, collapsed) [ e(0) ]  f(2)
 function page(): BlockNode[] {
@@ -169,5 +171,36 @@ describe("allowedDepths and the outline depth cap", () => {
   it("stays non-empty when the dragged subtree alone is past the cap", () => {
     const rows = chain(2);
     expect(allowedDepths(rows, rows.length, 150)).toEqual([0]);
+  });
+});
+
+describe("cross-page drops", () => {
+  const target: DropTarget = {
+    parent_uid: uidOf("tuid-p"), order_idx: orderIdxOf(5),
+    page_title: canonicalTitleOf("Target"),
+  };
+
+  it("planCrossPageDrop gives each block the next key, in order", () => {
+    const uids = [uidOf("tuid-a"), uidOf("tuid-b"), uidOf("tuid-c")];
+    const { ops, slots } = planCrossPageDrop(uids, target);
+    expect(ops).toEqual(uids.map((uid, k) => ({
+      op: "move", uid, parent_uid: target.parent_uid,
+      order_idx: orderIdxPlus(target.order_idx, k),
+      page_title: target.page_title,
+    })));
+    expect(slots).toEqual(uids.map((uid, k) => ({
+      uid, target: { ...target, order_idx: orderIdxPlus(target.order_idx, k) },
+    })));
+  });
+
+  it("crossPageReplays skips a block the source did not hold", () => {
+    const { slots } = planCrossPageDrop(
+      [uidOf("tuid-a"), uidOf("tuid-b"), uidOf("tuid-c")], target);
+    const held = block("tuid-c", "C");
+    const replays = crossPageReplays(slots, new Map([[uidOf("tuid-c"), held]]));
+    expect(replays).toEqual([{
+      type: "insert-subtree", node: held, parentUid: target.parent_uid,
+      orderIdx: orderIdxPlus(target.order_idx, 2),
+    }]);
   });
 });

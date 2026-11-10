@@ -214,7 +214,7 @@ async function apply(command: DraftCommand, model: DraftModel,
         try {
           const current = outlineRef.current!.blocks;
           act(() => {
-            const token = handle.beginAuthoritativeRead("resync");
+            const token = handle.beginAuthoritativeRead();
             handle.receiveAuthoritative(token, current.map((b) =>
               b.uid === UID ? { ...b, text: command.text } : b));
           });

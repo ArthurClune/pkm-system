@@ -702,8 +702,8 @@ describe("legacy repair of a rejected batch", () => {
       const load = vi.fn(async () => [block("tuid-u1", "post-delivery")]);
       removeLoader = target.setAuthoritativeLoader("editable", load);
       other = acquireOutlineSession(otherTitle, [block("tuid-u2", "other old")]);
-      const targetToken = target.beginAuthoritativeRead("parent");
-      const otherToken = other.beginAuthoritativeRead("parent");
+      const targetToken = target.beginAuthoritativeRead();
+      const otherToken = other.beginAuthoritativeRead();
       target.receiveAuthoritative(targetToken, [block("tuid-u1", "pre-POST")]);
       other.receiveAuthoritative(otherToken, [block("tuid-u2", "other fresh")]);
 

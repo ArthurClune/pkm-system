@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import type { CanonicalTitle, RawTitle } from "../api/brands";
 import { apiGet } from "../api/typedClient";
+import type { SlashCommandName } from "../outline/slashCommands";
 import { asRawTitle } from "../replica/titles";
 import { useStaleGuard } from "../useStaleGuard";
 
@@ -41,12 +42,12 @@ export interface TitleAcRow {
   command?: undefined;
 }
 
-/** A "command" (slash) row: picking runs applySlashCommand instead of the
+/** A "command" (slash) row: picking runs planPick instead of the
  * ref/tag applyCompletion path. */
 export interface CommandAcRow {
   label: string;
   isNew: boolean;
-  command: string;
+  command: SlashCommandName;
   pageTitle?: undefined;
 }
 

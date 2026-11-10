@@ -16,6 +16,7 @@ const input = (over: Partial<EditorKeyInput>): EditorKeyInput => ({
   acRowsLength: 0,
   acSelected: 0,
   composing: false,
+  datePickerOpen: false,
   ...over,
 });
 
@@ -879,5 +880,33 @@ describe("decideSelectionKey", () => {
     expect(decideSelectionKey(selKey({
       key: "ArrowUp", shiftKey: true, ctrlKey: true,
     }))).toEqual({ type: "none" });
+  });
+});
+
+describe("decideEditorKey with the date picker open", () => {
+  const open = { datePickerOpen: true, key: "Escape" };
+
+  it("Escape with the date picker open closes it", () => {
+    expect(decideEditorKey(input(open))).toEqual({ type: "close-date-picker" });
+  });
+
+  it("closes it whatever the modifiers", () => {
+    expect(decideEditorKey(input({ ...open, shiftKey: true, metaKey: true })))
+      .toEqual({ type: "close-date-picker" });
+  });
+
+  it("Escape with the picker open while composing is the IME's", () => {
+    expect(decideEditorKey(input({ ...open, composing: true })))
+      .toEqual({ type: "none" });
+  });
+
+  it("Escape with the picker open beats the autocomplete popup", () => {
+    expect(decideEditorKey(input({ ...open, acRowsLength: 2 })))
+      .toEqual({ type: "close-date-picker" });
+  });
+
+  it("another key leaves the picker to the normal policy", () => {
+    expect(decideEditorKey(input({ datePickerOpen: true, key: "Enter" })))
+      .not.toEqual({ type: "close-date-picker" });
   });
 });

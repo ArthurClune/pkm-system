@@ -44,9 +44,6 @@ import { needsAuthoritativeReload } from "./tree";
 
 export type { ReadToken } from "./outlineState";
 export type { ParentReadiness } from "./parentReadElection";
-export type AuthoritativeReadSource =
-  "parent" | "resync" | "cross-page-move" | "write-settled";
-
 /** Which surface registered a blocks-only loader:
  *  * `page` — the page-load controller (`useOutlinePageLoad`), the surface
  *    that owns this title's full-payload parent read and its missing-page
@@ -84,7 +81,7 @@ export interface OutlineSessionHandle {
   getSnapshot(): SharedOutlineSnapshot;
   subscribe(listener: () => void): () => void;
   claimEditor(owner: symbol): EditorLease;
-  beginAuthoritativeRead(source: AuthoritativeReadSource): ReadToken;
+  beginAuthoritativeRead(): ReadToken;
   receiveAuthoritative(token: ReadToken, blocks: BlockNode[]): boolean;
   receiveParentAuthoritative(token: ReadToken, payload: PagePayload): boolean;
   failAuthoritativeRead(token: ReadToken, error: unknown): boolean;
@@ -728,9 +725,7 @@ export function attachActiveOutlineWriteReplay(
 /** Capture causality for every currently active title before a multi-title
  * request dispatches. Reservations pin their session but do not supersede an
  * unrelated read unless the response actually contains that title. */
-export function captureActiveOutlineReads(
-  _source: AuthoritativeReadSource,
-): Map<string, CapturedOutlineRead> {
+export function captureActiveOutlineReads(): Map<string, CapturedOutlineRead> {
   const captures = new Map<string, CapturedOutlineRead>();
   for (const [title, session] of sessions) {
     const reserved = reserveAuthoritativeRead(session.state);

@@ -10,7 +10,6 @@ import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import { apiPost } from "../api/typedClient";
 import { useConfirm } from "../components/ConfirmDialog";
-import type { OutlineDndApi } from "../dnd/DndContext";
 import { toggleTodo } from "../grammar/todo";
 import { findOpTitleViolation, linkedTitleRefusal,
          titleRefusalNotice } from "../replica/titles";
@@ -18,7 +17,7 @@ import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { FIRST_ORDER_IDX } from "./orderIdx";
-import type { DropTarget } from "./dnd";
+import type { DropTarget, OutlineDndApi } from "./dnd";
 import { planCommand } from "./command";
 import { fileDropNotice, partitionUploadable, planFileDropBlocks,
          planUploadBlocks } from "./fileDrop";
@@ -339,7 +338,7 @@ export function useOutline(
     // relevant write, so the session defers the parent tree until that write
     // settles instead of overwriting the typed text.
     flushNow();
-    const token = handle.beginAuthoritativeRead("parent");
+    const token = handle.beginAuthoritativeRead();
     handle.receiveAuthoritative(token, initial);
   }, [initial, flushNow]);
 

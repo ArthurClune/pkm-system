@@ -77,8 +77,16 @@ class ErrorEvent:
     message: str
 
 
+@dataclass(frozen=True)
+class TurnStopped:
+    """The last event of a turn the user stopped: the harness answered the
+    interrupt and the aborted turn's result has been read, so the
+    conversation takes its next turn as soon as the stream ends."""
+
+
 AssistantEvent = (
-    TextDelta | ToolStarted | ToolFinished | Phase | ConfirmRequest | TurnDone | ErrorEvent
+    TextDelta | ToolStarted | ToolFinished | Phase | ConfirmRequest | TurnDone
+    | ErrorEvent | TurnStopped
 )
 
 _EVENT_NAMES: dict[type, str] = {
@@ -89,6 +97,7 @@ _EVENT_NAMES: dict[type, str] = {
     ConfirmRequest: "confirm_request",
     TurnDone: "turn_done",
     ErrorEvent: "error",
+    TurnStopped: "turn_stopped",
 }
 
 

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
 import { ApiError } from "../api/client";
 import type { BlockUid, CanonicalTitle, Sha256Hex } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
-import type { BlockOp, UpdateTextOp } from "../api/ops";
+import type { BlockOp } from "../api/ops";
 import { apiPost } from "../api/typedClient";
 import { useConfirm } from "../components/ConfirmDialog";
 import type { OutlineDndApi } from "../dnd/DndContext";
@@ -17,10 +17,9 @@ import { findOpTitleViolation, linkedTitleRefusal,
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 import { newUid } from "../uid";
-import { stampBaseTextHashes, withoutStamps } from "./baseTextHash";
 import { FIRST_ORDER_IDX } from "./orderIdx";
 import type { DropTarget } from "./dnd";
-import { editRefusal } from "./editRefusal";
+import { planCommand } from "./command";
 import { fileDropNotice, partitionUploadable, planFileDropBlocks,
          planUploadBlocks } from "./fileDrop";
 import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
@@ -31,7 +30,6 @@ import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          type FocusTarget } from "./edits";
 import { goodlinksAttribute, goodlinksCandidates, goodlinksNotice } from "./goodlinks";
 import type { OutlineHandlers } from "./handlers";
-import { historyAnchors, invertOps } from "./history";
 import { localCopyAttribute } from "./localFiles";
 import { loadOutlineBlocks } from "./loadOutlineBlocks";
 import { substituteMissingDaily } from "./missingPage";
@@ -204,17 +202,16 @@ export function useOutline(
     sessionRef.current?.applyOptimistic(next);
   }, []);
 
-  const takePendingTextOps = useCallback((): UpdateTextOp[] => {
+  /** End the pending draft and hand it over for flushing. */
+  const takePendingDraft = useCallback((): PendingDraft | null => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
     const pending = pendingRef.current;
     if (pending) endDraft();
-    // The draft ships even when its block has left the tree, and its hash is
-    // of the text it was typed over, not of what the tree holds now.
-    return pendingTextOps(pending, blocksRef.current, pageTitle);
-  }, [pageTitle, endDraft]);
+    return pending;
+  }, [endDraft]);
 
   /** The notice when the pending draft holds a ref whose title the server
    * refuses, else null. Typing judges every ref but the one whose title the
@@ -287,83 +284,35 @@ export function useOutline(
       draftNoticeRef.current = null;
       setEditNotice((n) => (n === cleared ? null : n));
     }
-    const textOps = takePendingTextOps();
+    const pending = takePendingDraft();
     markRefusedPending();
-    const pre = blocksRef.current; // history inverts the FULL batch from here
-    // A draft whose block has left this tree still ships, but it cannot be
-    // inverted here; leaving it out of the history entry keeps the rest of
-    // the batch undoable, and a redo does not re-send it.
-    const undoableTextOps = textOps.filter((op) => findNode(pre, op.uid));
-    const base = textOps.length > 0
-      ? applyOps(pre, textOps, pageTitle)
-      : pre;
-    let result = fn(base);
-    // A command that would put a block past the depth cap, or store a text
-    // past a text limit, applies none of its ops, but the draft's text ops
-    // above still ship: they are what the user typed, and sent with the
-    // command the server would refuse them too, since it refuses a batch
-    // whole. Queued, that refusal would also drop the batch's other ops
-    // (sync/rejection.ts), so the web never queues one.
-    if (result.ops.length > 0) {
-      const refusal = editRefusal(result.blocks, result.ops, textOps);
-      setEditNotice(refusal);
-      if (refusal !== null) {
-        result = { blocks: base, ops: [], focus: null };
-        // the uploads that made this command already stored their files,
-        // and no history entry will ever own them
-        if (opts?.freshAssets && opts.freshAssets.length > 0) {
-          releaseUnusedAssets(opts.freshAssets);
-        }
-      }
+    const freshAssets = opts?.freshAssets ?? [];
+    const plan = planCommand(blocksRef.current, pending, fn, pageTitle,
+                             focusRef.current, freshAssets);
+    if (plan.verdict.kind !== "none") {
+      setEditNotice(plan.verdict.kind === "refused" ? plan.verdict.notice : null);
     }
-    const applied = result.ops.length > 0;
-    const ops = [...textOps, ...result.ops];
-    if (ops.length === 0) return applied;
-    const next = result.ops.length > 0 ? result.blocks : base;
-    // Conflict protection must not depend on the ops reaching the database:
-    // the guards (base_text_hash on update_text, base_subtree_hash on
-    // delete) are stamped here, against `pre` — the pre-flush tree the whole
-    // batch grew from — because an online-only session's ops never reach
-    // replica/queue.ts, the other choke point that stamps them.
-    const wireOps = stampBaseTextHashes(pre, pageTitle, ops);
-    const write = sync.enqueue(wireOps, ["page", pageTitle]);
+    // the uploads that made a refused command already stored their files,
+    // and no history entry will ever own them
+    if (plan.verdict.kind === "refused" && freshAssets.length > 0) {
+      releaseUnusedAssets(freshAssets);
+    }
+    const applied = plan.verdict.kind === "applied";
+    if (plan.wireOps.length === 0) return applied;
+    const write = sync.enqueue(plan.wireOps, ["page", pageTitle]);
     const handle = sessionRef.current;
-    if (handle) handle.applyLocal(write, wireOps);
+    if (handle) handle.applyLocal(write, plan.wireOps);
     else {
-      blocksRef.current = next;
-      setBlocks(next);
+      blocksRef.current = plan.next;
+      setBlocks(plan.next);
     }
-    // Undo history: record the batch with its inverse, computed
-    // against the pre-flush tree the full batch (textOps + result.ops) grew
-    // from. Empty inverse = nothing undoable (collapse-only / create_page);
-    // null = not invertible from this tree (cross-page move) — skip, history
-    // stays best-effort.
-    //
-    // Deliberately the UNSTAMPED ops: a hash captured now is stale by the time
-    // undo/redo replays the entry, and a stale hash lands a spurious
-    // [[conflict]] header on the daily note. undoManager stamps at replay
-    // time instead. The flushed text op arrives already stamped with the
-    // draft's base, so its stamps are stripped here.
-    //
-    // Placement anchors are read off `pre` too, so a replay re-keys each
-    // placement against the tree it lands on (see history.ts).
-    const recorded = [...undoableTextOps.map(withoutStamps), ...result.ops];
-    const inverse = invertOps(pre, pageTitle, recorded);
-    if (inverse !== null && inverse.length > 0) {
-      recordHistory({
-        pageTitle, ops: recorded, inverse,
-        anchors: historyAnchors(pre, pageTitle, recorded, inverse),
-        freshAssets: opts?.freshAssets ?? [],
-        focusBefore: focusRef.current,
-        focusAfter: result.focus ?? focusRef.current,
-      });
-    }
-    if (result.focus) {
+    if (plan.entry) recordHistory(plan.entry);
+    if (plan.focus) {
       setSelection(null);
-      setFocus(result.focus);
+      setFocus(plan.focus);
     }
     return applied;
-  }, [releaseUnshownDraft, draftRefusal, takePendingTextOps,
+  }, [releaseUnshownDraft, draftRefusal, takePendingDraft,
       markRefusedPending, pageTitle, sync]);
 
   /** Save the pending draft now. False when run() kept it unsaved, and the

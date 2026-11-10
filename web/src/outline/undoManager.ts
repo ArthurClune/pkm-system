@@ -31,16 +31,14 @@ import type { BlockNode } from "../api/payloads";
 import { releaseAssets } from "../sync/assetRelease";
 import type { DeliveryOutcome, WriteTicket } from "../sync/opQueue";
 import { pagePath } from "../paths";
-import { stampBaseTextHashes } from "./baseTextHash";
+import { planReplay, type PlannedReplay } from "./command";
 import type { FocusTarget } from "./edits";
-import { emptyHistory, recordEntry, resolveAnchors, restoreEntry, takeRedo,
+import { emptyHistory, recordEntry, restoreEntry, takeRedo,
          takeUndo, type BatchAnchors, type HistoryEntry,
          type HistoryState } from "./history";
-import { editRefusal } from "./editRefusal";
 import { loadOutlineBlocks } from "./loadOutlineBlocks";
 import { substituteMissingDaily } from "./missingPage";
 import { peekOutlineSession } from "./outlineSessions";
-import { applyOps } from "./tree";
 
 export interface HistoryDispatch {
   enqueue(ops: BlockOp[], scope?: readonly string[]): WriteTicket;
@@ -265,12 +263,8 @@ function dispatchWithSession(sync: HistoryDispatch, handle: SessionHandle,
                              batch: BlockOp[], anchors: BatchAnchors,
                              title: CanonicalTitle, focus: FocusTarget | null,
                              onRefused: () => void): Dispatched {
-  // The tree must be read BEFORE enqueueing: the hash must be taken against the
-  // tree as it is now, not as it was when the entry was recorded, or a replay
-  // after any later edit would carry a stale hash and land a spurious
-  // daily-note [[conflict]] header. Placements are re-keyed against the same
-  // tree, before stamping, so the hashes cover the ops that actually ship
-  // (history.ts states the anchor rule).
+  // The tree is read BEFORE enqueueing: planReplay re-keys and stamps the
+  // batch against the tree as it is now.
   //
   // try/finally because the handle is acquired before sync.enqueue, which
   // throws on a disposed queue (opQueue.ts); a leaked refcount pins the
@@ -278,16 +272,13 @@ function dispatchWithSession(sync: HistoryDispatch, handle: SessionHandle,
   // The write, or the notice of the refusal that stopped it.
   let outcome: WriteTicket | string;
   try {
-    const live = handle.getSnapshot().blocks;
-    const resolved = resolveAnchors(live, title, batch, anchors);
-    const refusal = editRefusal(applyOps(live, resolved, title), resolved, []);
-    if (refusal === null) {
-      const wireOps = stampBaseTextHashes(live, title, resolved);
-      const write = sync.enqueue(wireOps, ["page", title]);
-      handle.applyLocal(write, wireOps);
+    const plan = planReplay(handle.getSnapshot().blocks, batch, anchors, title);
+    if (plan.refusal === null) {
+      const write = sync.enqueue(plan.wireOps, ["page", title]);
+      handle.applyLocal(write, plan.wireOps);
       outcome = write;
     } else {
-      outcome = refusal;
+      outcome = plan.refusal;
     }
   } finally {
     handle.release();
@@ -307,27 +298,21 @@ async function dispatchUnmounted(
   // A session disappears only when it has no handles and no undelivered
   // writes, so with none this tab holds nothing unresolved for the page and
   // the page as the normal read returns it is a correct tree to re-key and
-  // stamp against. If that read fails the recorded batch ships as it is: the
-  // recorded keys are right only while nothing shifted the page's keys since
-  // recording, and an online-only session never fills the missing hashes in.
-  // Nor is its depth judged: the server decides. Its texts are, since that
-  // needs no tree. A reset during the read drops the dispatch whole.
-  let wireOps: BlockOp[];
-  let refusal: string | null;
+  // stamp against. If that read fails the recorded batch ships as it is
+  // (planReplay with no tree). A reset during the read drops the dispatch
+  // whole.
+  let plan: PlannedReplay;
   try {
     const live = await loadPage(title);
     if (stale()) return dropped();
-    const resolved = resolveAnchors(live, title, batch, anchors);
-    refusal = editRefusal(applyOps(live, resolved, title), resolved, []);
-    wireOps = stampBaseTextHashes(live, title, resolved);
+    plan = planReplay(live, batch, anchors, title);
   } catch (e: unknown) {
     if (stale()) return dropped();
     console.warn("undo/redo could not read the page; sending unstamped", e);
-    wireOps = [...batch];
-    refusal = editRefusal(null, batch, []);
+    plan = planReplay(null, batch, anchors, title);
   }
-  if (refusal !== null) return refuse(title, focus, onRefused, refusal);
-  const write = sync.enqueue(wireOps, ["page", title]);
+  if (plan.refusal !== null) return refuse(title, focus, onRefused, plan.refusal);
+  const write = sync.enqueue(plan.wireOps, ["page", title]);
   settle(title, focus);
   return write;
 }

@@ -32,6 +32,7 @@ from perfcheck.fixture import FROZEN_NOW
 from perfcheck.run_core import (busy_reason, busy_report, exit_code, frontend_letters, incomparable_advice,
                                 is_test_runner, missing_import_advice, missing_pkm_import, next_steps, parse_ps,
                                 scenarios_of, sides_for, stale_entries, top_processes)
+from repo_git import GitError, changed_paths, git, repo_root
 
 FRONTEND_PORT = 8977
 TZ = "Europe/London"
@@ -80,7 +81,7 @@ def _cwd(pid: int) -> str | None:
 def main_checkout(repo: Path) -> Path:
     """The main checkout `repo` belongs to; its .claude/worktrees/ are under
     it."""
-    common = _git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir").strip()
+    common = git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir").strip()
     return Path(common).parent
 
 
@@ -91,7 +92,7 @@ def _busy_processes(repo: Path) -> str:
         procs = top_processes(parse_ps(_ps()))
         cwds = {p.pid: _cwd(p.pid) for p in procs if is_test_runner(p.command)}
         return "\n".join(busy_report(procs, cwds, str(main_checkout(repo))))
-    except (OSError, subprocess.CalledProcessError, PerfRunError) as e:
+    except (OSError, subprocess.CalledProcessError, PerfRunError, GitError) as e:
         return f"(could not list processes: {e})"
 
 
@@ -129,30 +130,9 @@ def ensure_still_quiet(side: str, repo: Path) -> float:
     return load
 
 
-def _git(repo: Path, *args: str) -> str:
-    try:
-        return subprocess.run(["git", "-C", str(repo), *args], check=True,
-                              capture_output=True, text=True).stdout
-    except subprocess.CalledProcessError as e:
-        stderr = (e.stderr or "").strip()
-        raise PerfRunError(f"git {' '.join(args)} failed"
-                           + (f": {stderr}" if stderr else "")) from e
-
-
-def repo_root() -> Path:
-    return Path(_git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
-
-
-def changed_paths(repo: Path) -> list[str]:
-    base = _git(repo, "merge-base", "HEAD", "main").strip()
-    tracked = _git(repo, "diff", "--name-only", base).splitlines()
-    untracked = _git(repo, "ls-files", "--others", "--exclude-standard").splitlines()
-    return sorted(set(tracked) | set(untracked))
-
-
 def head_commit(repo: Path) -> str:
-    dirty = _git(repo, "status", "--porcelain").strip()
-    sha = _git(repo, "rev-parse", "--short", "HEAD").strip()
+    dirty = git(repo, "status", "--porcelain").strip()
+    sha = git(repo, "rev-parse", "--short", "HEAD").strip()
     return f"{sha}+dirty" if dirty else sha
 
 
@@ -342,13 +322,13 @@ USED_MARKER = ".perf-used"
 
 
 def merge_base_worktree(repo: Path, side: str) -> tuple[Path, str]:
-    sha = _git(repo, "merge-base", "HEAD", "main").strip()
+    sha = git(repo, "merge-base", "HEAD", "main").strip()
     root = cache_dir() / "worktrees"
     wt = root / sha[:12]
     with cache_lock("worktrees", "the merge-base worktrees"):
         if not wt.exists():
-            _git(repo, "worktree", "prune")  # forget a cached worktree whose directory was deleted
-            _git(repo, "worktree", "add", "--detach", str(wt), sha)
+            git(repo, "worktree", "prune")  # forget a cached worktree whose directory was deleted
+            git(repo, "worktree", "add", "--detach", str(wt), sha)
         (wt / USED_MARKER).touch()  # marked before use, so a pruner never takes it mid-run
         if side == "frontend" and not (wt / ".perf-built").exists():
             subprocess.run(["pnpm", "install", "--frozen-lockfile"], check=True, cwd=wt / "web",
@@ -369,10 +349,10 @@ def prune_worktrees(repo: Path, root: Path, keep: Path) -> None:
     used = {p.name: last_used(p) for p in root.iterdir() if p.is_dir()}
     for name in stale_entries(used, time.time(), {keep.name}, UNUSED_FOR_S):
         try:
-            _git(repo, "worktree", "remove", "--force", str(root / name))
+            git(repo, "worktree", "remove", "--force", str(root / name))
         except subprocess.CalledProcessError:  # half-created, or another clone's
             shutil.rmtree(root / name, ignore_errors=True)
-    _git(repo, "worktree", "prune")
+    git(repo, "worktree", "prune")
 
 
 def _runner(repo: Path, side: str) -> BackendRunner | FrontendRunner:
@@ -493,7 +473,7 @@ def main() -> int:
     try:
         repo = repo_root()
         sides = sides_for(changed_paths(repo)) if a.side == "auto" else [a.side]
-    except (PerfRunError, subprocess.CalledProcessError) as e:
+    except (PerfRunError, GitError, subprocess.CalledProcessError) as e:
         print(f"## perf: failed — {e}", file=sys.stderr)
         return 2
     if not sides:
@@ -507,7 +487,7 @@ def main() -> int:
                                   allow_busy=a.allow_busy)
             else:
                 rc |= do_check(repo, side, a.allow_busy)
-        except (PerfRunError, CacheLockTimeout, subprocess.CalledProcessError) as e:
+        except (PerfRunError, GitError, CacheLockTimeout, subprocess.CalledProcessError) as e:
             print(f"## perf: {side} failed — {e}", file=sys.stderr)
             rc |= 2
     return rc

@@ -17,23 +17,8 @@ import time
 import urllib.request
 from pathlib import Path
 
-from proptest.sides import available, resolve_file_filter, sides_for
-
-
-def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(repo), *args], check=True,
-                          capture_output=True, text=True).stdout
-
-
-def repo_root() -> Path:
-    return Path(_git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
-
-
-def changed_paths(repo: Path) -> list[str]:
-    base = _git(repo, "merge-base", "HEAD", "main").strip()
-    tracked = _git(repo, "diff", "--name-only", base).splitlines()
-    untracked = _git(repo, "ls-files", "--others", "--exclude-standard").splitlines()
-    return sorted(set(tracked) | set(untracked))
+from proptest.sides import resolve_file_filter, sides_for
+from repo_git import changed_paths, repo_root
 
 
 def _run_server(repo: Path, seed: int | None, path: str | None = None,
@@ -53,7 +38,7 @@ WEB_PASSWORD = "proptest-pw"
 _HEALTH_DEADLINE_S = 30.0
 
 
-def web_command(seed: int | None, file: str | None = None) -> list[str]:
+def web_command(file: str | None = None) -> list[str]:
     # The seed travels in PROPTEST_SEED, not argv: vitest has no seed flag.
     cmd = ["pnpm", "exec", "vitest", "run", "--config", "vitest.props.config.ts"]
     if file is not None:
@@ -115,7 +100,7 @@ def _run_web(repo: Path, seed: int | None, path: str | None = None,
                     return 1
                 time.sleep(0.2)
             env = {**os.environ, **web_env(WEB_PORT, seed, path, replay_path)}
-            return subprocess.run(web_command(seed, file), cwd=repo / "web", env=env).returncode
+            return subprocess.run(web_command(file), cwd=repo / "web", env=env).returncode
         finally:
             server.terminate()
             try:
@@ -166,9 +151,6 @@ def main(argv: list[str]) -> int:
         sides = [a.side]
     rc = 0
     for side in sides:
-        if not available(side):
-            print(f"{side}: no properties yet")
-            continue
         rc = max(rc, _RUNNERS[side](repo, a.seed, a.path, a.replay_path, a.file))
     return rc
 

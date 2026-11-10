@@ -15,10 +15,6 @@ _SIDES = (("backend", lambda p: p.startswith("server/")),
           ("frontend", lambda p: p.startswith("web/") and not p.startswith("web/e2e/")
            and not p.endswith(".md")))
 
-# check.mjs runs these letters in one shared browser context each; counts
-# were recorded in that company, so a re-run takes the whole group
-_CONTEXT_GROUPS = ("HW", "ABFI", "JKS", "R")
-
 # 1-min load per core above which a machine counts as busy. On the 10-core
 # dev Mac an idle check's own load sits around 2-2.5 (0.25 per core), while a
 # parallel test suite or CPU burners push it past 10 (1.0 per core).
@@ -52,13 +48,9 @@ def scenarios_of(findings: Iterable) -> list[str]:
 
 
 def frontend_letters(names: Iterable[str]) -> str:
-    letters = {n.split("/", 1)[0] for n in names}
-    known = {x for g in _CONTEXT_GROUPS for x in g}
-    unknown = letters - known
-    if unknown:
-        raise ValueError(f"scenario letter(s) {sorted(unknown)} are not in any _CONTEXT_GROUPS "
-                         f"group {_CONTEXT_GROUPS}; add the group before re-running")
-    return ",".join(sorted({x for g in _CONTEXT_GROUPS if letters & set(g) for x in g}))
+    """The scenario letters of `names`, for check.mjs's --only; it expands
+    each to its browser-context group."""
+    return ",".join(sorted({n.split("/", 1)[0] for n in names}))
 
 
 def next_steps(side: str, verdicts: Iterable[str]) -> list[str]:

@@ -1,6 +1,6 @@
 # pattern: Functional Core
-"""Decisions for the proptest orchestrator: which sides a diff touches,
-and which of those sides has a property suite to run yet."""
+"""Decisions for the proptest orchestrator: which sides a diff touches, and
+which web suite a `--file` names."""
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -15,16 +15,9 @@ _SIDES = (("server", lambda p: p.startswith("server/")),
            or p.startswith("server/src/")
            or p == "server/tooling/proptest/sync_server.py"))
 
-_AVAILABLE = {"server", "web"}
-
-
 def sides_for(paths: Iterable[str]) -> list[str]:
     paths = list(paths)
     return [side for side, touches in _SIDES if any(touches(p) for p in paths)]
-
-
-def available(side: str) -> bool:
-    return side in _AVAILABLE
 
 
 _WEB_PROPS = "src/props/"

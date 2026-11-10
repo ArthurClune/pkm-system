@@ -252,6 +252,21 @@ async def confirm_tool(
     return AssistantAck(ok=True)
 
 
+@router.post("/api/assistant/conversations/{conversation_id}/stop", response_model=AssistantAck)
+async def stop_turn(
+    conversation_id: ConversationId,
+    service: AssistantService = Depends(get_service),
+) -> AssistantAck:
+    """Stop the conversation's open turn. Answers at once; the turn's stream
+    then ends with a `turn_stopped` event once the harness is ready for the
+    next turn. A no-op when no turn is open."""
+    try:
+        service.stop(conversation_id)
+    except UnknownConversationError as exc:
+        raise HTTPException(status_code=404, detail="unknown conversation") from exc
+    return AssistantAck(ok=True)
+
+
 async def delete_conversation(
     conversation_id: ConversationId, service: AssistantService = Depends(get_service)
 ) -> AssistantAck:

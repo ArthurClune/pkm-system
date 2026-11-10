@@ -234,6 +234,11 @@ class AssistantService:
     def confirm(self, conversation_id: ConversationId, confirm_id: ConfirmId, allow: bool) -> None:
         self._get(conversation_id).handle.resolve_confirm(confirm_id, allow)
 
+    def stop(self, conversation_id: ConversationId) -> None:
+        """Stop the open turn, if any. Returns at once: the entry stays busy
+        until that turn's stream ends, on `TurnStopped`."""
+        self._get(conversation_id).handle.stop_turn()
+
     async def delete(self, conversation_id: ConversationId) -> None:
         entry = self._entries.pop(conversation_id, None)
         if entry is not None:

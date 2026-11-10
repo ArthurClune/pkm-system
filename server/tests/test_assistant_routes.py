@@ -311,6 +311,9 @@ class ExplodingConversation:
     def resolve_confirm(self, confirm_id: ConfirmId, allow: bool) -> None:  # pragma: no cover - protocol stub
         pass
 
+    def stop_turn(self) -> None:  # pragma: no cover - protocol stub
+        pass
+
     async def close(self):
         pass
 
@@ -383,3 +386,78 @@ def test_mid_stream_engine_error_yields_error_event(seeded_config):
         assert ("text_delta", {"text": "partial"}) in events
         assert events[-1][0] == "error"
         assert "engine crashed" in events[-1][1]["message"]
+
+
+# -- POST .../stop: the stream ends on turn_stopped, and the same
+# conversation takes the next turn
+
+
+def _turn_until_stopped(client, cid: str, text: str) -> list[tuple[str, dict]]:
+    """Stream `text`, posting stops until the stream has ended."""
+    # fails fast, before a stream nothing would end
+    assert client.post(f"/api/assistant/conversations/{cid}/stop").status_code == 200
+
+    def consume() -> list[tuple[str, dict]]:
+        with client.stream(
+            "POST", f"/api/assistant/conversations/{cid}/messages", json={"text": text}
+        ) as r:
+            assert r.status_code == 200
+            return parse_sse("".join(r.iter_text()))
+
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        fut = ex.submit(consume)
+        deadline = time.time() + 5
+        while time.time() < deadline and not fut.done():
+            # a stop that lands before the turn opens is a no-op
+            resp = client.post(f"/api/assistant/conversations/{cid}/stop")
+            assert resp.json() == {"ok": True}
+            time.sleep(0.05)
+        return fut.result(timeout=5)
+
+
+def test_stop_ends_the_stream_with_turn_stopped_and_leaves_the_conversation_usable(
+        seeded_config, tmp_path, monkeypatch):
+    from fake_sdk_client import FakeSDKClient, make_engine, make_result
+    from fastapi.testclient import TestClient
+
+    from pkm.assistant import claude_engine
+    from pkm.server.app import create_app
+
+    monkeypatch.setattr(claude_engine, "harness_cli", lambda: "/no/claude")
+    engine = make_engine(tmp_path)
+    with TestClient(create_app(seeded_config, assistant_engine=engine)) as c:
+        assert c.post("/api/login", json={"password": "test-pw"}).status_code == 200
+        cid = c.post("/api/assistant/conversations", json={}).json()["id"]
+        sdk = FakeSDKClient.instances[0]
+        events = _turn_until_stopped(c, cid, "one")
+        assert events == [("turn_stopped", {})]
+        assert sdk.interrupts == 1
+        # the next turn's reply, buffered as the SDK would buffer it
+        assert c.portal is not None
+        c.portal.call(sdk.feed, make_result(usage={"tag": "two"}))
+        with c.stream(
+            "POST", f"/api/assistant/conversations/{cid}/messages", json={"text": "two"}
+        ) as r:
+            assert r.status_code == 200
+            after = parse_sse("".join(r.iter_text()))
+        assert after == [("turn_done", {"usage": {"tag": "two"}})]
+
+
+def test_stop_ends_the_fake_engines_hung_turn(assistant_client):
+    cid = assistant_client.post("/api/assistant/conversations", json={}).json()["id"]
+    assert _turn_until_stopped(assistant_client, cid, "please hang") == [("turn_stopped", {})]
+    r = assistant_client.post(f"/api/assistant/conversations/{cid}/messages", json={"text": "again"})
+    assert parse_sse(r.text)[0] == ("text_delta", {"text": "echo: again"})
+
+
+def test_stop_with_no_turn_open_is_a_200_no_op(assistant_client, fake_engine):
+    cid = assistant_client.post("/api/assistant/conversations", json={}).json()["id"]
+    r = assistant_client.post(f"/api/assistant/conversations/{cid}/stop")
+    assert r.status_code == 200 and r.json() == {"ok": True}
+    r = assistant_client.post(f"/api/assistant/conversations/{cid}/messages", json={"text": "hi"})
+    assert [name for name, _ in parse_sse(r.text)] == ["text_delta", "turn_done"]
+
+
+def test_stop_for_an_unknown_conversation_is_404(assistant_client):
+    r = assistant_client.post("/api/assistant/conversations/nope/stop")
+    assert r.status_code == 404

@@ -351,6 +351,19 @@ def test_get_page_blocks_returns_existing_page(pkm_client):
         "AI overview mentions Machine Learning in plain text"]
 
 
+def test_get_page_blocks_asks_for_one_backlink_group(pkm_client, monkeypatch):
+    seen: list[dict] = []
+    real_get = pkm_client._http.request
+
+    def spy(method, path, **kw):
+        seen.append(dict(kw.get("params") or {}))
+        return real_get(method, path, **kw)
+
+    monkeypatch.setattr(pkm_client._http, "request", spy)
+    pkm_client.get_page_blocks("AI")
+    assert [p["bl_limit"] for p in seen] == [1]
+
+
 def test_get_page_blocks_missing_page_is_not_created(pkm_client):
     blocks, missing = pkm_client.get_page_blocks("Brand New Page")
     assert missing is True

@@ -329,6 +329,7 @@ Owner: [cli-and-mcp.md](architecture/cli-and-mcp.md)
 
 | Symptom | Cause | Where | Ref |
 |---|---|---|---|
+| Every CLI or MCP write makes the server build up to 100 backlink groups the planner discards | `get_page_blocks` took `get_page`'s default `bl_limit` of 100 though it reads only `blocks`; it now asks for 1 (the route clamps the limit to at least 1) | [cli-and-mcp.md § The shared client](architecture/cli-and-mcp.md#the-shared-client) | pkm-3kbm |
 | `pkm batch` or MCP `outline` raises `IndexError` for items that start nested or nest two levels at once | `creates` indexed its parent stack by unclamped depth, where `parse_outline` clamps a jumping indent | [cli-and-mcp.md § Pure planners](architecture/cli-and-mcp.md#pure-planners) | pkm-ux3w |
 | A CLI or MCP append (`pkm save`, batch `create`/`todo`/`outline`/`move`, a new `## Heading`) or a batch `index` lands mid-list | The planner used a child count, or `index` itself, as the `order_idx`, though sibling keys have gaps (`order_idx_at_position`) | [cli-and-mcp.md § Pure planners](architecture/cli-and-mcp.md#pure-planners) | pkm-la88, pkm-78fk |
 | A `pkm batch` naming one page two ways (`Foo` and `Foo\t`, or ` Foo` and `Foo` under the plain-space flag) lands its blocks out of order | Each spelling was planned on its own copy, so both appended from the same blocks (`batch.page_keys`) | [cli-and-mcp.md § Pure planners](architecture/cli-and-mcp.md#pure-planners) | pkm-u4rw |

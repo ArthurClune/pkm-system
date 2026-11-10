@@ -277,7 +277,7 @@ class PkmClient:
         server normalizes it again at the same choke point and lands on
         this identical row either way."""
         try:
-            return self.get_page(normalize_title(title)).blocks, False
+            return self.get_page(normalize_title(title), bl_limit=1).blocks, False
         except ApiError as e:
             if e.status != 404:
                 raise

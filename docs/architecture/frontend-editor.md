@@ -12,7 +12,10 @@ web/src/outline/
 ├── handlers.ts              —      OutlineHandlers, the command port (types only)
 ├── useOutline.ts            Shell  Implements OutlineHandlers: drafts, run(), uploads
 ├── outlineSessions.ts       Shell  Per-title shared sessions and loader election
-├── outlineState.ts          Core   transitionOutline, the session reducer
+├── outlineState.ts          Core   transitionOutline, the session reducer; the draft
+│                                   core (PendingDraft, captureDraft, pendingTextOps)
+├── droppedDrafts.ts         Shell  Refused drafts kept for the app-level notice
+├── depthCap.ts              Core   MAX_OUTLINE_DEPTH and findDepthViolation
 ├── parentReadElection.ts,   Shell  Who starts a title's next parent read; the
 │   repairEpochs.ts                 post-settlement repair pass
 ├── useOutlinePageLoad.ts    Shell  The read lifecycle for PageView and sidebar panels
@@ -129,8 +132,9 @@ Toc entries, block refs and search hits link to `#<uid>`.
 scoped to a sidebar panel. `PageView` passes the router's location key, so a
 second click on one entry jumps again.
 
-- A target under a collapsed ancestor has no row. `EditablePage`'s
-  `revealBlock` expands each ancestor that `hidesChildren` says hides it, in one
+- A target under a collapsed ancestor has no row. `EditablePage` calls
+  `useOutline.reveal`, which runs `edits.ts::revealBlock` to expand each
+  ancestor that `hidesChildren` says hides it, in one
   `set_collapsed(false)` batch with no undo step, once per navigation.
   Re-running it on a lease change would re-open a row the reader has collapsed
   since. A read-only outline cannot emit the batch, so its hidden target stays
@@ -183,7 +187,7 @@ flowchart LR
 | An offset transform, and a caret the editor places, snaps with `snapCaret` (`keyEdits.ts`); `outline/surrogatePairs.props.test.ts` covers each | a slice between surrogate halves stores two U+FFFD |
 | `set_collapsed` does not stamp (`opBumpsUpdatedAt`, which `replica/localOps.test.ts` pins for the replica) | collapsing re-dates the block |
 | No create or move lands a block past `MAX_OUTLINE_DEPTH`. `run()` and `undoManager`'s dispatch judge each by its subtree in the tree the ops leave (`depthCap.ts`), and refuse the whole command | the server refuses the batch whole, and the offline queue's [rebase](sync-recovery.md#a-batch-the-server-rejects) drops its other ops with it |
-| No edit queues a text past a [text limit](backend.md#planning), or a ref (link, tag or attribute) to a [refused title](backend.md#refused-titles): past `MAX_PAGE_TITLE_CHARS`, or holding `#` or other forbidden syntax. `useBlockDraft.admit` judges typing and a plain paste, `run()` a draft it saves ([below](#drafts-and-commit-points)) and a command's ops, and `undoManager`'s dispatch a replay. As on the server, every ref a text holds is judged (`linkedTitleRefusal` shares `findOpTitleViolation`'s loop), so a block holding a refused one refuses edits that keep it. `UnlinkedSection` judges a Link's text limits only | the same: the server's 400 poisons the batch, and the repair drops its other ops with it |
+| No edit queues a text past a [text limit](backend.md#planning), or a ref (link, tag or attribute) to a [refused title](backend.md#refused-titles): past `MAX_PAGE_TITLE_CHARS`, or holding `#` or other forbidden syntax. `useBlockDraft.admit` judges a draft's text limits and refs as it is typed or pasted, leaving out the title the caret is still inside; `run()` judges a saved draft's refs again (`draftRefusal`, [below](#drafts-and-commit-points)) and a command's ops, and `undoManager`'s dispatch a replay. As on the server, every ref a text holds is judged (`linkedTitleRefusal` shares `findOpTitleViolation`'s loop), so a block holding a refused one refuses edits that keep it. `UnlinkedSection` judges a Link's text limits only | the same: the server's 400 poisons the batch, and the repair drops its other ops with it |
 | No command queues a batch past `MAX_OPS_PER_BATCH` or the private body cap (`findBatchSizeViolation`, `batchLimits.ts`). `run()` judges the draft's text ops together with the command's, for the reason it judges depth | the server refuses the batch whole, and a queued refusal discards it |
 
 A depth refusal (`DEPTH_NOTICE`), a text-limit one (`textLimitNotice`), a
@@ -265,8 +269,8 @@ flushes before `POST /api/pages`. Tab hide and reload are covered by the
 Typing leaves out the title the caret is in while the draft is held
 (`linkedTitleRefusal`'s `heldCaret`). The user is still typing that title,
 and one the server accepts can pass through one it refuses: `[[a [b] c]]`
-passes through `[[a []]]`, whose title ends in `[`. `run()` judges the whole draft when it saves it, so no
-path ships an unjudged text. A draft it refuses is never sent. It stays on
+passes through `[[a []]]`, whose title ends in `[`. `run()` judges the whole draft's refs when it saves it, and
+`admit` has judged its text limits and refs, so no path ships an unjudged text. A draft it refuses is never sent. It stays on
 screen to be fixed while its block can show it:
 
 | With a refused draft on a shown block | What happens |

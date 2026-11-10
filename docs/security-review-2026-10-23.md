@@ -1,5 +1,9 @@
 # Security review — 2026-10-23
 
+Status: closed. The fixes this review led to have landed; the findings below
+are the record of what was found, not an open list. [SECURITY.md](SECURITY.md)
+describes the system as it is now, including the advisories that stay open.
+
 Review of commit `5ce279af` for pkm-3y4b, covering routes added
 since the 2026-07-14 review and the embedded assistant boundaries.
 The threat model is defined in [SECURITY.md](SECURITY.md).

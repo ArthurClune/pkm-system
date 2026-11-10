@@ -4,7 +4,7 @@
 A NewType adds nothing to JSON Schema, so without a marker the web's
 generated types see a branded field as a plain string. `brand(Name)`
 makes pydantic validate and dump `Name` exactly as its supertype and
-adds `"x-brand": "Name"` to the schema; `web/tooling/genTypes.mjs` turns
+adds `"x-brand": "Name"` to the schema; `web/tooling/genTypes.ts` turns
 that marker into the hand-written `Brands.Name` of `web/src/api/brands.ts`.
 
 Tag a NewType in its own statement after declaring it:

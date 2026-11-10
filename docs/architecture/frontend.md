@@ -111,7 +111,7 @@ stale artifact ([backend.md](backend.md#generated-artifacts-and-parity-fixtures)
 
 A server field typed with a branded `NewType` carries an `x-brand` marker in
 `openapi.json` ([backend.md](backend.md#wire-models-and-brands)).
-`tooling/genTypes-core.mjs` turns it into `Brands.<Name>`, a reference to the
+`tooling/genTypes-core.ts` turns it into `Brands.<Name>`, a reference to the
 export of that name in `api/brands.ts`, where every web brand is defined. A
 subtype brand adds a second key, not a second `__brand`, since two `__brand`
 literals intersect to `never`.

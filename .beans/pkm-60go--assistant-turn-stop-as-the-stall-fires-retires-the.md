@@ -29,3 +29,4 @@ Plan: docs/superpowers/plans/2026-11-09-maintainability-review-fixes.md § W3. C
 - Web: `postStop` effect, `turn_stopped`/`error` end a stopping turn, `STOP_ACK_TIMEOUT_MS` fallback abort; New chat aborts a stopping turn's stream.
 - Property suites: server draws user Stop, a held Stop across the stall deadline, a cut-short query; web model expects a posted stop, with three new mutants.
 - No `acking` phase: the pump reads nothing while its interrupt is in flight, so a result is never read before the ack.
+- Review fixes: a stop reaches the reserved turn before its first step (`send()` mints the stop request when called); a read settled in the same pass as a Stop is handled first; the web posts a stop only to an opened stream, retries no 409 after Stop, waits for the stop POST to settle before leaving `stopping`, and shows `UNASKED_STOP_MESSAGE` for a stop it did not ask for.

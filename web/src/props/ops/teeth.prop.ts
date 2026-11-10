@@ -15,6 +15,7 @@ import { applyChanges } from "../../replica/apply";
 import { rollbackToSavepoint } from "../../replica/db";
 import { applyLocalOps } from "../../replica/localOps";
 import { allBatches, enqueueBatch } from "../../replica/queue";
+import { expectMutantsCaught } from "../gate";
 import { SEED } from "../sync/env";
 import { connectServer } from "../sync/serverControl";
 import { type Example, exampleArb } from "./arbitraries";
@@ -59,18 +60,21 @@ const moveUids = (ops: BlockOp[]): BlockUid[] =>
 
 interface Mutant {
   seam: OpsSeam;
-  /** The check whose prefix a catch must carry. */
-  check: string;
+  /** The checks whose prefix a catch must carry. */
+  catches: readonly string[];
   afterSeed?: () => Promise<void>;
+  disarm?: () => Promise<void>;
 }
+
+const server = await connectServer();
 
 const MUTANTS: Record<string, Mutant> = {
   "the echo shifts the moved block too": {
-    check: "check 1:",
+    catches: ["check 1:"],
     seam: { ...REAL_OPS, applyEcho: applyEchoShiftingMoved },
   },
   "the optimistic move lands one slot late": {
-    check: "check 3:",
+    catches: ["check 3:"],
     seam: {
       ...REAL_OPS,
       enqueue: (db, ops, nowMs, batchId) => {
@@ -82,7 +86,7 @@ const MUTANTS: Record<string, Mutant> = {
     },
   },
   "the replay is applied without rewinding first": {
-    check: "check R:",
+    catches: ["check R:"],
     seam: {
       ...REAL_OPS,
       applyWindow: (db, feed, nowMs) => {
@@ -106,71 +110,30 @@ const MUTANTS: Record<string, Mutant> = {
       },
     },
   },
+  "the echo drops a cross-page title": {
+    catches: ["check 1:"], seam: REAL_OPS,
+    afterSeed: () => server.setEchoTeeth(true),
+    disarm: () => server.setEchoTeeth(false),
+  },
+  "the server takes text past the limits": {
+    catches: ["rejection:"], seam: REAL_OPS,
+    afterSeed: () => server.setLimitTeeth(true),
+    disarm: () => server.setLimitTeeth(false),
+  },
+  "the server refuses text at the limits": {
+    catches: ["rejection:"], seam: REAL_OPS,
+    afterSeed: () => server.setStrictLimitTeeth(true),
+    disarm: () => server.setStrictLimitTeeth(false),
+  },
 };
 
-const server = await connectServer();
-
-/** The property's own failure text for `ex`, one problem per line. */
-class PropertyReport extends Error {}
-
-function property(seam: OpsSeam, afterSeed?: () => Promise<void>) {
-  return fc.asyncProperty(exampleArb, async (ex) => {
-    const problems = await runExample(server, ex, { seam, afterSeed });
-    if (problems.length > 0) throw new PropertyReport(problems.join("\n"));
-  });
-}
-
-async function expectCaught(name: string, check: string, seam: OpsSeam,
-                            afterSeed?: () => Promise<void>): Promise<void> {
-  const details = await fc.check(property(seam, afterSeed), {
-    numRuns: NUM_RUNS, seed: SEED, endOnFailure: true,
-    interruptAfterTimeLimit: TIME_LIMIT_MS,
-  });
-  const cutOff = details.interrupted
-    ? ` (cut off by the ${TIME_LIMIT_MS / 1000}s time limit, not a full run)` : "";
-  expect(details.failed, `mutant survived ${details.numRuns} runs${cutOff}` +
-    ` (seed ${details.seed}): ${name}`).toBe(true);
-  const error = details.errorInstance;
-  expect(error instanceof PropertyReport, `mutant caught by a thrown error, not a property` +
-    ` report (seed ${details.seed}): ${name}: ${String(error)}`).toBe(true);
-  const lines = (error as PropertyReport).message.split("\n");
-  expect(lines.some((line) => line.includes(check)),
-         `mutant caught, but not by ${check} (seed ${details.seed}): ${name}:\n` +
-         lines.join("\n")).toBe(true);
-  console.log(`teeth: ${name}: caught by ${check} after ${details.numRuns} runs`);
-}
-
-for (const [name, { seam, check, afterSeed }] of Object.entries(MUTANTS)) {
-  test(`the ops property catches: ${name}`, () => expectCaught(name, check, seam, afterSeed),
-       TIME_LIMIT_MS + 30_000);
-}
-
-test("the ops property catches: the echo drops a cross-page title", async () => {
-  try {
-    await expectCaught("the echo drops a cross-page title", "check 1:", REAL_OPS,
-                       () => server.setEchoTeeth(true));
-  } finally {
-    await server.setEchoTeeth(false);
-  }
-}, TIME_LIMIT_MS + 30_000);
-
-test("the ops property catches: the server takes text past the limits", async () => {
-  try {
-    await expectCaught("the server takes text past the limits", "rejection:", REAL_OPS,
-                       () => server.setLimitTeeth(true));
-  } finally {
-    await server.setLimitTeeth(false);
-  }
-}, TIME_LIMIT_MS + 30_000);
-
-test("the ops property catches: the server refuses text at the limits", async () => {
-  try {
-    await expectCaught("the server refuses text at the limits", "rejection:", REAL_OPS,
-                       () => server.setStrictLimitTeeth(true));
-  } finally {
-    await server.setStrictLimitTeeth(false);
-  }
-}, TIME_LIMIT_MS + 30_000);
+expectMutantsCaught({
+  suite: "ops property", mutants: MUTANTS, arbs: [exampleArb],
+  problems: (mutant, ex) =>
+    runExample(server, ex, { seam: mutant.seam, afterSeed: mutant.afterSeed }),
+  numRuns: NUM_RUNS, limitMs: TIME_LIMIT_MS,
+  caughtBy: (line, check) => line.includes(check),
+});
 
 test("a seed the server refuses at a limit is a rejection, not a harness fault", async () => {
   const at = (n: number, text: string): BlockNode => ({
@@ -199,7 +162,10 @@ test("a seed the server refuses at a limit is a rejection, not a harness fault",
 });
 
 test("the real operations pass the same run", async () => {
-  const details = await fc.check(property(REAL_OPS), {
+  const details = await fc.check(fc.asyncProperty(exampleArb, async (ex) => {
+    const problems = await runExample(server, ex, { seam: REAL_OPS });
+    if (problems.length > 0) throw new Error(problems.join("\n"));
+  }), {
     numRuns: CLEAN_RUNS, seed: SEED, interruptAfterTimeLimit: CLEAN_LIMIT_MS,
     markInterruptAsFailure: true,
   });

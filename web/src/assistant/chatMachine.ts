@@ -52,17 +52,19 @@ export type Conversation =
   | { kind: "open"; id: ConversationId; model: AssistantModel };
 
 /** creating waits on the conversation. stopping is a Stop waiting for the
- * server to end the turn (`turn_stopped`, an `error`, or the stream's end)
- * or for the create to settle; its output is dropped. So the turn is idle
- * only once the server is, except when Stop's fallback aborts the stream
- * (useAssistant.ts `STOP_ACK_TIMEOUT_MS`) or New chat does. `recreated` is
- * set once the turn has re-created a conversation the server no longer
- * knew, so a second 404 fails instead of looping. */
+ * create to settle, or for the turn's stream to end (`turn_stopped`, an
+ * `error`, or the stream's end) AND its stop POST to settle; its output is
+ * dropped. The server acts on a stop before answering it, so once the POST
+ * has settled it cannot stop a later turn. So the turn is idle only once the
+ * server is, except when Stop's fallback aborts the stream and the POST
+ * (useAssistant.ts `STOP_ACK_TIMEOUT_MS`) or New chat aborts the stream.
+ * `recreated` is set once the turn has re-created a conversation the server
+ * no longer knew, so a second 404 fails instead of looping. */
 export type Turn =
   | { phase: "idle" }
   | { phase: "creating"; id: TurnId; text: string; recreated: boolean }
   | { phase: "streaming"; id: TurnId; text: string; recreated: boolean }
-  | { phase: "stopping"; id: TurnId };
+  | { phase: "stopping"; id: TurnId; streamOpen: boolean; stopPosting: boolean };
 
 export type ChatState = {
   conversation: Conversation;
@@ -105,6 +107,7 @@ export type ChatEvent =
   | { type: "streamEvent"; turn: TurnId; event: AssistantEvent; at: number }
   | { type: "streamEnded"; turn: TurnId }
   | { type: "streamFailed"; turn: TurnId; failure: StreamFailure }
+  | { type: "stopSettled"; turn: TurnId }
   | { type: "answer"; confirmId: ConfirmId; allow: boolean }
   | { type: "confirmPosted"; turn: TurnId; conversation: ConversationId;
       confirmId: ConfirmId; allow: boolean; at: number }
@@ -131,6 +134,11 @@ export type StepFn = (state: ChatState, event: ChatEvent) => Step;
  * offline/failed fallback; the server list adds glm only when a z.ai key is
  * configured. */
 export const FALLBACK_MODELS: AssistantModel[] = ["sonnet", "opus", "haiku", "fable"];
+
+/** A turn ended by a stop it did not ask for: one meant for an earlier
+ * turn that reached the server late. */
+export const UNASKED_STOP_MESSAGE =
+  "This reply was stopped before it finished; send your message again.";
 
 export const EXPIRED_MESSAGE =
   "This chat expired before you responded; send a new message to start a fresh one.";
@@ -174,6 +182,15 @@ const same = (state: ChatState): Step => ({ state, effects: [] });
  * turn's card must not wait on it. */
 function endTurn(s: ChatState): ChatState {
   return { ...s, turn: IDLE, confirms: [], answering: false, phase: null };
+}
+
+/** A stopping turn ends once nothing it waits for is left. */
+function settleStopping(s: ChatState, done: { stream?: true; stopPost?: true }): ChatState {
+  const t = s.turn;
+  if (t.phase !== "stopping") return s;
+  const next = { ...t, streamOpen: t.streamOpen && !done.stream,
+                 stopPosting: t.stopPosting && !done.stopPost };
+  return next.streamOpen || next.stopPosting ? { ...s, turn: next } : endTurn(s);
 }
 
 /** The picker keeps showing the model the dropped conversation ran. */
@@ -256,10 +273,14 @@ export function step(s: ChatState, e: ChatEvent): Step {
       const stopping: ChatState = { ...s, phase: { label: "stopping", since: e.at } };
       // a create cannot be called back, so its result is awaited and kept,
       // but no stream starts from it
-      if (t.phase === "creating") return same({ ...stopping, turn: { phase: "stopping", id: t.id } });
+      if (t.phase === "creating") {
+        return same({ ...stopping,
+                      turn: { phase: "stopping", id: t.id, streamOpen: false, stopPosting: false } });
+      }
       if (t.phase === "streaming" && s.conversation.kind === "open") {
         return {
-          state: { ...stopping, turn: { phase: "stopping", id: t.id }, confirms: [], answering: false },
+          state: { ...stopping, confirms: [], answering: false,
+                   turn: { phase: "stopping", id: t.id, streamOpen: true, stopPosting: true } },
           effects: [{ kind: "postStop", turn: t.id, conversation: s.conversation.id }],
         };
       }
@@ -316,16 +337,21 @@ export function step(s: ChatState, e: ChatEvent): Step {
     }
     case "streamEvent":
       if (!turnBusy(s, e.turn) || t.phase === "creating") return same(s);
-      // the server's last word on the turn: it can take the next one
-      if (e.event.type === "turn_stopped"
-          || (t.phase === "stopping" && e.event.type === "error")) {
-        return same(endTurn(s));
+      if (t.phase === "stopping") {
+        // the server's last word on the turn: it can take the next one
+        const last = e.event.type === "turn_stopped" || e.event.type === "error";
+        return same(last ? settleStopping(s, { stream: true }) : s);
       }
-      if (t.phase !== "streaming") return same(s);
+      if (e.event.type === "turn_stopped") {
+        return same({ ...endTurn(s), error: UNASKED_STOP_MESSAGE });
+      }
       return same(applyStreamEvent(s, e.event, e.at));
     case "streamEnded":
       if (!turnBusy(s, e.turn) || t.phase === "creating") return same(s);
-      return same(endTurn(s));
+      return same(t.phase === "stopping" ? settleStopping(s, { stream: true }) : endTurn(s));
+    case "stopSettled":
+      if (!turnBusy(s, e.turn)) return same(s);
+      return same(settleStopping(s, { stopPost: true }));
     case "streamFailed": {
       if (!turnBusy(s, e.turn) || t.phase === "creating") return same(s);
       const f = e.failure;
@@ -341,7 +367,7 @@ export function step(s: ChatState, e: ChatEvent): Step {
           effects: [{ kind: "create", turn: t.id, model }],
         };
       }
-      let next = endTurn(s);
+      let next = t.phase === "stopping" ? settleStopping(s, { stream: true }) : endTurn(s);
       if (f.kind === "notFound") next = dropConversation(next);
       // after Stop every failure, the abort itself included, is the Stop
       if (t.phase === "streaming" && f.kind !== "aborted") next = { ...next, error: f.message };

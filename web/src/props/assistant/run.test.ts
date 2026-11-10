@@ -49,6 +49,19 @@ describe("assistant property runner", () => {
     expect(tally.get("stop's fallback aborts after stop")).toBe(1);
   });
 
+  test("send, then a turn_stopped the turn did not ask for", () => {
+    // outcome 53 on an unstopped stream is a stop meant for an earlier turn
+    const tally = reached([send, resolve, { a: "server", pick: 0, outcome: 53 }]);
+    expect(tally.get("unasked turn_stopped")).toBe(1);
+  });
+
+  test("send, stop, the stream ends, then the stop POST settles late", () => {
+    // the stream is the first request and the stop POST the second
+    const tally = reached([send, resolve, stop, { a: "server", pick: 0, outcome: 65 },
+                           { a: "server", pick: 0, outcome: 0 }, send]);
+    expect(tally.get("stop POST settles late after stop")).toBe(1);
+  });
+
   test("a mutant that aborts on Stop instead of posting one is caught by `stop`", () => {
     const step: StepFn = (s, e) => {
       if (e.type !== "stop" || s.turn.phase !== "streaming") return REAL.step(s, e);

@@ -50,11 +50,11 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // An aborted fetch rejects at once, before the server has noticed the
 // dropped connection and released the conversation's busy flag (the
-// reservation in service.py's `send`). Sending again right after Stop's
-// fallback abort can therefore land a few milliseconds too early and see a
-// 409. Retrying briefly closes that window without changing the contract
+// reservation in service.py's `send`), and the busy flag clears a few loop
+// passes after a stopped turn's last event. Sending again in either window
+// can see a 409. Retrying briefly closes it without changing the contract
 // for a *sustained* busy conflict, which still surfaces as an error once
-// these short retries are exhausted.
+// these short retries are exhausted. A stopped turn retries nothing.
 const BUSY_RETRY_ATTEMPTS = 5;
 const BUSY_RETRY_DELAY_MS = 60;
 
@@ -63,21 +63,26 @@ async function streamWithBusyRetry(
   text: string,
   onEvent: (ev: AssistantEvent) => void,
   signal: AbortSignal,
+  onOpen: () => void,
+  keepTrying: () => boolean,
 ): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     try {
-      await streamMessage(id, text, onEvent, signal);
+      await streamMessage(id, text, onEvent, signal, onOpen);
       return;
     } catch (err) {
-      if (attempt >= BUSY_RETRY_ATTEMPTS || !isBusyError(err)) throw err;
+      if (attempt >= BUSY_RETRY_ATTEMPTS || !isBusyError(err) || !keepTrying()) throw err;
       await sleep(BUSY_RETRY_DELAY_MS);
     }
   }
 }
 
-/** How long a posted Stop may wait for the server to end the turn before
- * the stream is aborted: the server's own bound (claude_engine.py
- * `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S`) plus a second. */
+/** How long a Stop may wait for the server to end the turn before the
+ * stream and the stop POST are aborted: the server's own bound once the
+ * pump hears the stop (claude_engine.py `INTERRUPT_TIMEOUT_S` +
+ * `DRAIN_TIMEOUT_S`) plus a second. A stop that lands while the prompt is
+ * still being written waits on a `query()` with no bound of its own, so
+ * there this is the only bound. */
 export const STOP_ACK_TIMEOUT_MS = 16_000;
 
 export type { ChatItem, PendingConfirm, PhaseInfo } from "./chatMachine";
@@ -96,10 +101,12 @@ function streamFailure(err: unknown): StreamFailure {
  * back into dispatch before the request that started it returns. */
 function createChatDriver(publish: (state: ChatState) => void) {
   let state = initialChat();
-  // the request each turn has in flight: its abort handle (streams only) and
-  // a promise that settles, never rejecting, once its result is dispatched
+  // the request each turn has in flight: its abort handle (streams only), a
+  // promise that settles, never rejecting, once its result is dispatched,
+  // and one that resolves once a stream's response has opened
   const requests = new Map<TurnId, { controller: AbortController | null;
-                                     settled: Promise<void> }>();
+                                     settled: Promise<void>;
+                                     opened: Promise<void> }>();
   const turnEnds = new Map<TurnId, () => void>();
 
   /** Settles once the effects this event started have: for an answer, its
@@ -118,8 +125,9 @@ function createChatDriver(publish: (state: ChatState) => void) {
   }
 
   function track(turn: TurnId, controller: AbortController | null,
-                 start: () => Promise<void>): Promise<void> {
-    const entry = { controller, settled: Promise.resolve() };
+                 start: () => Promise<void>,
+                 opened: Promise<void> = new Promise(() => {})): Promise<void> {
+    const entry = { controller, settled: Promise.resolve(), opened };
     requests.set(turn, entry);
     entry.settled = start().finally(() => {
       if (requests.get(turn) === entry) requests.delete(turn);
@@ -141,34 +149,54 @@ function createChatDriver(publish: (state: ChatState) => void) {
       case "stream": {
         const { turn } = effect;
         const controller = new AbortController();
+        let markOpened!: () => void;
+        const opened = new Promise<void>((resolve) => { markOpened = resolve; });
         return track(turn, controller, () => streamWithBusyRetry(
           effect.conversation, effect.text,
           (ev) => { void dispatch({ type: "streamEvent", turn, event: ev, at: Date.now() }); },
-          controller.signal,
+          controller.signal, markOpened,
+          () => state.turn.phase === "streaming" && state.turn.id === turn,
         ).then(
           () => { void dispatch({ type: "streamEnded", turn }); },
           (err: unknown) => {
             void dispatch({ type: "streamFailed", turn, failure: streamFailure(err) });
           },
-        ));
+        ), opened);
       }
       case "abort":
         requests.get(effect.turn)?.controller?.abort();
         return Promise.resolve();
       case "postStop": {
-        // The turn stays stopping until the server ends its stream. If the
-        // POST fails, or the server says nothing in time, the stream is
-        // aborted: the dropped connection stops the turn server-side.
-        const request = requests.get(effect.turn);
+        // The stop is posted only once the stream's response has opened, so
+        // the server has reserved this turn and the stop cannot reach
+        // another; a stream that settles first was never this turn's. The
+        // turn stays stopping until its stream has ended and this POST has
+        // settled. If the POST fails, or the two are not done in time, the
+        // stream and the POST are aborted: the dropped connection stops the
+        // turn server-side.
+        const { turn, conversation } = effect;
+        const request = requests.get(turn);
+        const streamDone = request?.settled ?? Promise.resolve();
+        const post = new AbortController();
         const abort = () => {
-          if (requests.get(effect.turn) === request) request?.controller?.abort();
+          post.abort();
+          if (requests.get(turn) === request) request?.controller?.abort();
         };
         const timer = setTimeout(abort, STOP_ACK_TIMEOUT_MS);
-        void request?.settled.then(() => clearTimeout(timer));
-        return stopTurn(effect.conversation).catch(() => {
-          clearTimeout(timer);
-          abort();
-        });
+        const posted = (async () => {
+          const open = await Promise.race([
+            request?.opened.then(() => true) ?? Promise.resolve(false),
+            streamDone.then(() => false),
+          ]);
+          if (!open) return;
+          try {
+            await stopTurn(conversation, post.signal);
+          } catch {
+            abort();
+          }
+        })().then(() => { void dispatch({ type: "stopSettled", turn }); });
+        void Promise.all([streamDone, posted]).then(() => clearTimeout(timer));
+        return posted;
       }
       case "delete": {
         const before = effect.after === null ? undefined : requests.get(effect.after)?.settled;

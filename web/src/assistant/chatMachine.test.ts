@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { confirmIdOf, conversationIdOf } from "../test-helpers";
 import {
-  chatStatus, initialChat, modelLocked, shownModel, step,
+  chatStatus, initialChat, modelLocked, shownModel, step, UNASKED_STOP_MESSAGE,
   type ChatEvent, type ChatState,
 } from "./chatMachine";
 
@@ -34,12 +34,33 @@ describe("chatMachine", () => {
     const { state, effects } = run([...streaming, { type: "stop", at: 2 }]);
     expect(effects.at(-1)).toEqual({ kind: "postStop", turn: 1, conversation: c1 });
     expect(effects.some((e) => e.kind === "abort")).toBe(false);
-    expect(state.turn).toEqual({ phase: "stopping", id: 1 });
+    expect(state.turn.phase).toBe("stopping");
     expect(chatStatus(state)).toBe("busy");
   });
 
+  test("a stopped turn stays busy until both its stream and its stop POST are done", () => {
+    const stopped = run([...streaming, { type: "stop", at: 2 }]).state;
+    const turnStopped: ChatEvent = { type: "streamEvent", turn: 1, event: { type: "turn_stopped" }, at: 3 };
+    const settled: ChatEvent = { type: "stopSettled", turn: 1 };
+    // the stream's last word first, then the POST
+    const a = run([turnStopped], stopped).state;
+    expect(chatStatus(a)).toBe("busy");
+    expect(chatStatus(run([settled], a).state)).toBe("idle");
+    // the POST first, then the stream's end
+    const b = run([settled], stopped).state;
+    expect(chatStatus(b)).toBe("busy");
+    expect(chatStatus(run([{ type: "streamEnded", turn: 1 }], b).state)).toBe("idle");
+  });
+
+  test("a turn_stopped the turn did not ask for ends it with a notice", () => {
+    const { state } = run([...streaming,
+      { type: "streamEvent", turn: 1, event: { type: "turn_stopped" }, at: 3 }]);
+    expect(state.turn).toEqual({ phase: "idle" });
+    expect(state.error).toBe(UNASKED_STOP_MESSAGE);
+  });
+
   test("turn_stopped ends a stopping turn with no error", () => {
-    const { state } = run([...streaming, { type: "stop", at: 2 },
+    const { state } = run([...streaming, { type: "stop", at: 2 }, { type: "stopSettled", turn: 1 },
       { type: "streamEvent", turn: 1, event: { type: "turn_stopped" }, at: 3 }]);
     expect(state.turn).toEqual({ phase: "idle" });
     expect(state.error).toBeNull();
@@ -47,7 +68,7 @@ describe("chatMachine", () => {
   });
 
   test("an error event ends a stopping turn without showing it", () => {
-    const { state } = run([...streaming, { type: "stop", at: 2 },
+    const { state } = run([...streaming, { type: "stop", at: 2 }, { type: "stopSettled", turn: 1 },
       { type: "streamEvent", turn: 1, event: { type: "error", message: "stalled" }, at: 3 }]);
     expect(state.turn).toEqual({ phase: "idle" });
     expect(state.error).toBeNull();

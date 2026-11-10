@@ -12,11 +12,13 @@ export type Conv =
   | { kind: "open"; id: string; model: AssistantModel };
 
 /** `turn` is the id the reducer gave the turn, read off its first request.
- * A stopped turn stays busy until the server ends it (its stream says it
- * stopped, fails or ends) or its create settles: the panel is idle only
- * once the server is. */
+ * A stopped turn stays busy until its create settles or, once streaming,
+ * until both its stream is over (it says it stopped, errs, fails or ends)
+ * and its stop POST has settled (`streamOpen`, `stopPosting`): the panel is
+ * idle only once the server is, and no stop of this turn is left to reach a
+ * later one. */
 export type Busy = { turn: number; stage: "creating" | "streaming"; stopped: boolean;
-                     recreated: boolean };
+                     recreated: boolean; streamOpen: boolean; stopPosting: boolean };
 
 export type Doc = {
   conv: Conv;
@@ -44,6 +46,7 @@ export type Input =
   | { k: "streamEvent"; turn: number; last: "stopped" | "error" | null }
   | { k: "streamEnded"; turn: number }
   | { k: "streamFailed"; turn: number; failure: "notFound" | "failed" | "aborted" }
+  | { k: "stopSettled"; turn: number }
   | { k: "confirmPosted"; turn: number }
   | { k: "confirmFailed"; turn: number; notFound: boolean };
 
@@ -78,6 +81,14 @@ export function shown(doc: Doc): AssistantModel {
 
 const dropConv = (doc: Doc): Doc => ({ ...doc, conv: { kind: "none" }, picked: shown(doc) });
 
+/** A stopped turn's stream is over, or its stop POST settled: the turn
+ * ends once neither is left. */
+function settleStopped(doc: Doc, t: Busy, done: "stream" | "stopPost"): Doc {
+  const next = { ...t, streamOpen: t.streamOpen && done !== "stream",
+                 stopPosting: t.stopPosting && done !== "stopPost" };
+  return { ...doc, busy: next.streamOpen || next.stopPosting ? next : null };
+}
+
 /** The results of the busy turn's own requests still count, unless it was
  * stopped: after Stop no output of that turn reaches the panel. */
 function live(doc: Doc, turn: number): Busy | null {
@@ -89,7 +100,8 @@ export function expect(doc: Doc, input: Input): { doc: Doc; expect: Expectation 
   switch (input.k) {
     case "send": {
       if (input.blank || b !== null) return { doc, expect: NOTHING };
-      const busy: Busy = { turn: -1, stage: "creating", stopped: false, recreated: false };
+      const busy: Busy = { turn: -1, stage: "creating", stopped: false, recreated: false,
+                           streamOpen: false, stopPosting: false };
       const ex = { ...NOTHING, silent: false, error: "cleared" as const };
       if (doc.conv.kind === "open") {
         return { doc: { ...doc, busy: { ...busy, stage: "streaming" } },
@@ -103,9 +115,10 @@ export function expect(doc: Doc, input: Input): { doc: Doc; expect: Expectation 
       // Stop clears any card: the server declines a parked confirm. A
       // stream is asked to stop, not dropped, so the turn stays busy until
       // the server has ended it.
-      return { doc: { ...doc, busy: { ...b, stopped: true } },
-               expect: { ...NOTHING, silent: false,
-                         stops: b.stage === "streaming" ? [b.turn] : [] } };
+      const streaming = b.stage === "streaming";
+      return { doc: { ...doc, busy: { ...b, stopped: true, streamOpen: streaming,
+                                      stopPosting: streaming } },
+               expect: { ...NOTHING, silent: false, stops: streaming ? [b.turn] : [] } };
     }
     case "newChat": {
       const aborts = b !== null && b.stage === "streaming" ? [b.turn] : [];
@@ -144,17 +157,25 @@ export function expect(doc: Doc, input: Input): { doc: Doc; expect: Expectation 
       const t = live(doc, input.turn);
       if (t === null || t.stage !== "streaming") return { doc, expect: NOTHING };
       if (t.stopped) {
-        return { doc: input.last === null ? doc : { ...doc, busy: null }, expect: NOTHING };
+        return { doc: input.last === null ? doc : settleStopped(doc, t, "stream"), expect: NOTHING };
       }
       if (input.last === "stopped") {
-        return { doc: { ...doc, busy: null }, expect: { ...NOTHING, silent: false } };
+        // a stop this turn never asked for, meant for an earlier one: the
+        // user is told the reply was cut short
+        return { doc: { ...doc, busy: null }, expect: { ...NOTHING, silent: false, error: "set" } };
       }
       return { doc, expect: { ...NOTHING, silent: false } };
     }
     case "streamEnded": {
       const t = live(doc, input.turn);
       if (t === null || t.stage !== "streaming") return { doc, expect: NOTHING };
-      return { doc: { ...doc, busy: null }, expect: t.stopped ? NOTHING : { ...NOTHING, silent: false } };
+      if (t.stopped) return { doc: settleStopped(doc, t, "stream"), expect: NOTHING };
+      return { doc: { ...doc, busy: null }, expect: { ...NOTHING, silent: false } };
+    }
+    case "stopSettled": {
+      const t = live(doc, input.turn);
+      if (t === null || !t.stopped) return { doc, expect: NOTHING };
+      return { doc: settleStopped(doc, t, "stopPost"), expect: NOTHING };
     }
     case "streamFailed": {
       const t = live(doc, input.turn);
@@ -170,6 +191,7 @@ export function expect(doc: Doc, input: Input): { doc: Doc; expect: Expectation 
                            start: { kind: "create", model, turn: t.turn } } };
       }
       const ended: Doc = input.failure === "notFound" ? dropConv(doc) : doc;
+      if (t.stopped) return { doc: settleStopped(ended, t, "stream"), expect: NOTHING };
       return { doc: { ...ended, busy: null },
                expect: t.stopped ? NOTHING
                  : { ...NOTHING, silent: false, error: input.failure === "aborted" ? "any" : "set" } };

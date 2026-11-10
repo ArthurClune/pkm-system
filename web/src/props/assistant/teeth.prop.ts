@@ -99,6 +99,23 @@ const MUTANTS: Record<string, { catches: string[]; machine: Machine }> = {
     machine: mutate((s, e) => (e.type === "streamEvent" && e.event.type === "turn_stopped"
       && s.turn.phase === "stopping" ? { state: s, effects: [] } : null)),
   },
+  // A stop POST still in flight could stop the next turn, so a stopped turn
+  // waits for it; a stop that does arrive unasked must not end a turn
+  // silently.
+  "a stopped turn ends on turn_stopped before its stop POST settles": {
+    catches: ["status"],
+    machine: mutate((s, e) => (e.type === "streamEvent" && e.event.type === "turn_stopped"
+      && s.turn.phase === "stopping" && s.turn.id === e.turn
+      ? { state: { ...s, turn: { phase: "idle" }, confirms: [], answering: false, phase: null },
+          effects: [] } : null)),
+  },
+  "a turn_stopped the turn did not ask for ends it silently": {
+    catches: ["error"],
+    machine: mutate((s, e) => (e.type === "streamEvent" && e.event.type === "turn_stopped"
+      && s.turn.phase === "streaming" && s.turn.id === e.turn
+      ? { state: { ...s, turn: { phase: "idle" }, confirms: [], answering: false, phase: null },
+          effects: [] } : null)),
+  },
   "a conversation created for a superseded turn is left open": {
     catches: ["leak"],
     machine: mutate((s, e) => (e.type === "created" && !turnBusy(s, e.turn)

@@ -67,7 +67,11 @@ type Req = { key: number } & (
   // turn's last event (turn_stopped or an error), so the stream can only end
   | { kind: "stream"; turn: number; conversation: ConversationId; aborted: boolean;
       lost: boolean; started: boolean; stopPosted: boolean; over: boolean }
-  | { kind: "confirm"; turn: number; conversation: ConversationId; confirmId: ConfirmId });
+  | { kind: "confirm"; turn: number; conversation: ConversationId; confirmId: ConfirmId }
+  // a stop POST: the hook reports its settling, however it settled, and
+  // only once the turn's stream has opened; it may settle long after the
+  // stream has ended
+  | { kind: "stop"; turn: number });
 
 export type Tally = Map<string, number>;
 
@@ -177,6 +181,7 @@ class World {
         case "postStop":
           this.reqs = this.reqs.map((r) =>
             (r.kind === "stream" && r.turn === e.turn ? { ...r, stopPosted: true } : r));
+          this.reqs.push({ key: this.nextId++, kind: "stop", turn: e.turn });
           break;
         case "abort":
           this.reqs = this.reqs.map((r) =>
@@ -365,7 +370,13 @@ class World {
         return;
       }
     }
-    if (outcome < 55) return event(KINDS[outcome % KINDS.length]);
+    if (outcome < 53) return event(KINDS[outcome % KINDS.length]);
+    if (outcome < 55) {
+      // a stop meant for an earlier turn that reached the server late
+      this.count(`unasked turn_stopped${this.relation(r.turn)}`);
+      this.deliver(r, { type: "turn_stopped" }, at);
+      return;
+    }
     if (outcome < 67) return end();
     if (outcome < 75) return fail("failed");
     if (outcome < 87) {
@@ -380,6 +391,15 @@ class World {
     this.lostBy.add(r.conversation);
     this.count(`harness lost${this.relation(r.turn)}`);
     this.deliver(r, { type: "error", message: HARNESS_LOST }, at);
+  }
+
+  settleStop(r: Extract<Req, { kind: "stop" }>): void {
+    this.settle(r);
+    const streaming = this.reqs.some((x) => x.kind === "stream" && x.turn === r.turn
+      && !x.aborted && !x.over);
+    this.count(`stop POST settles${streaming ? " before its stream is over" : " late"}` +
+      this.relation(r.turn));
+    this.feed({ type: "stopSettled", turn: r.turn }, { k: "stopSettled", turn: r.turn });
   }
 
   settleConfirm(r: Extract<Req, { kind: "confirm" }>, outcome: number, at: number): void {
@@ -448,6 +468,7 @@ class World {
         const r = this.reqs[a.pick % this.reqs.length];
         if (r.kind === "create") this.settleCreate(r, a.outcome);
         else if (r.kind === "stream") this.settleStream(r, a.outcome, at);
+        else if (r.kind === "stop") this.settleStop(r);
         else this.settleConfirm(r, a.outcome, at);
         return true;
       }

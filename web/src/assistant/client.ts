@@ -52,11 +52,13 @@ export async function confirmTool(
   });
 }
 
-/** The user's Stop. The server answers at once; the turn's stream then ends
- * with `turn_stopped` once the server can take the next turn. */
-export async function stopTurn(id: ConversationId): Promise<void> {
+/** The user's Stop. The server stops the reserved turn before it answers;
+ * the turn's stream then ends with `turn_stopped` once the server can take
+ * the next turn. */
+export async function stopTurn(id: ConversationId, signal?: AbortSignal): Promise<void> {
   await apiPost("/api/assistant/conversations/{conversation_id}/stop", {
     path: { conversation_id: id },
+    init: { signal },
   });
 }
 
@@ -91,6 +93,7 @@ export async function streamMessage(
   text: string,
   onEvent: (ev: AssistantEvent) => void,
   signal?: AbortSignal,
+  onOpen?: () => void,
 ): Promise<void> {
   const path = `/api/assistant/conversations/${id}/messages`;
   const res = await fetch(path, {
@@ -104,6 +107,8 @@ export async function streamMessage(
     throw new ApiError(401, path, await readErrorDetail(res));
   }
   if (!res.ok || !res.body) throw new ApiError(res.status, path, res.ok ? undefined : await readErrorDetail(res));
+  // the server has reserved the turn
+  onOpen?.();
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   const parser = createSseParser();

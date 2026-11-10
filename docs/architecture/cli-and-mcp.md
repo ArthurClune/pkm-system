@@ -121,7 +121,10 @@ which is fetched once for every later delete on it.
 with an alphanumeric. `UID_RE` still accepts a leading `-` or `_`, so older
 blocks stay addressable; tighten only the minters, never `UID_RE`.
 
-A page a write targets is never created by a separate request.
+A page a write targets is never created by a separate request, with one
+exception: the default target is today's daily note, and `GET /api/page`
+creates today on read, so `get_page_blocks` can create it before the batch
+is sent. No other title is created by a read.
 `PkmClient.get_page_blocks` reports a missing one as `([], True)`, and the
 workflow prepends a `create_page` op (`planning.create_page_ops`) to the same
 `OpBatch`, so a batch that fails validation leaves neither behind. The lookup

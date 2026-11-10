@@ -1,11 +1,12 @@
 # pattern: Imperative Shell
-"""Write data/config.json:
-python -m pkm.server.setup --data-dir ../data --password PW"""
+"""Write data/config.json, prompting for the password:
+python -m pkm.server.setup --data-dir ../data"""
 from __future__ import annotations
 
 import argparse
 import getpass
 import json
+import os
 import secrets
 from pathlib import Path
 
@@ -36,8 +37,15 @@ def main(argv: list[str] | None = None) -> int:
         cfg["web_dist"] = args.web_dist
     out = Path(args.data_dir) / "config.json"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-    out.chmod(0o600)
+    tmp = out.with_name(f".{out.name}.{secrets.token_hex(8)}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(cfg, indent=2))
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, out)
     print(f"wrote {out}")
     return 0
 

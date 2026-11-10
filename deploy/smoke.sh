@@ -28,8 +28,10 @@ curl -fsS "$BASE/healthz" >/dev/null || fail "serve https healthz"
 read -rs -p "app password: " PW; echo
 JAR="$(mktemp)"
 trap 'rm -f "$JAR"' EXIT
-curl -fsS -c "$JAR" -H 'Content-Type: application/json' \
-  -d "{\"password\": \"$PW\"}" "$BASE/api/login" >/dev/null || fail "login"
+printf '%s' "$PW" |
+  python3 -c 'import json,sys; print(json.dumps({"password": sys.stdin.read()}))' |
+  curl -fsS -c "$JAR" -H 'Content-Type: application/json' --data @- \
+    "$BASE/api/login" >/dev/null || fail "login"
 curl -fsS -b "$JAR" "$BASE/api/titles" >/dev/null || fail "authed read"
 
 BOGUS="$BASE/assets/$(printf 'a%.0s' {1..64})/x" # auth runs before lookup

@@ -1,7 +1,10 @@
+import sqlite3
 from pathlib import Path
 
+import pytest
+
 from pkm.backup.__main__ import sqlite_backup
-from pkm.database import connect
+from pkm.database import Db, connect
 from pkm.export.writer import export_graph
 from pkm.schema import DDL
 
@@ -31,3 +34,20 @@ def test_export_reads_snapshot_through_read_only_db(tmp_path: Path) -> None:
     assert counts["pages"] == 1
     assert (tmp_path / "export" / "pages" / "Alpha.md").read_text(
         encoding="utf-8") == "# Alpha\n\n- hello\n"
+
+
+def test_a_failing_backup_leaves_no_temp_file(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    live = tmp_path / "live.sqlite3"
+    _seed(live)
+    dest = tmp_path / "snap.sqlite3"
+
+    def partial_then_fail(self: Db, target: Path) -> None:
+        Path(target).write_bytes(b"half a database")
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(Db, "backup_to", partial_then_fail)
+    with pytest.raises(sqlite3.OperationalError):
+        sqlite_backup(live, dest)
+    assert not dest.exists()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["live.sqlite3"]

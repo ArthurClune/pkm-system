@@ -1,23 +1,26 @@
 import ast
 import dataclasses
+import json
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from brandlint.core import _glob_to_regex, check_text
+from brandlint.core import check_text, registry_path_matches
 from brandlint.registry import load_registry
 
 REPO = Path(__file__).resolve().parents[2]
 REGISTRY = load_registry(REPO)
+PATH_CASES = [
+    (c["pattern"], c["path"], c["matches"]) for c in json.loads(
+        (REPO / "shared" / "fixtures" / "registry_paths.json").read_text(encoding="utf-8"))]
 TRACKED = subprocess.run(["git", "-C", str(REPO), "ls-files"], check=True, capture_output=True,
                          text=True).stdout.splitlines()
 
 
 def under(site: str) -> list[str]:
-    """The tracked files a registry site names: the file, or those under a
-    directory prefix ending `/`."""
-    return [p for p in TRACKED if p == site or (site.endswith("/") and p.startswith(site))]
+    """The tracked files a registry site names."""
+    return [p for p in TRACKED if registry_path_matches(site, p)]
 
 
 def text_of(path: str) -> str:
@@ -98,9 +101,14 @@ def test_a_test_code_site_exists(site: str):
     assert under(site), f"{site} is a TEST_CODE entry but no tracked file matches"
 
 
+@pytest.mark.parametrize(("pattern", "path", "matches"), PATH_CASES)
+def test_a_registry_path_matches_as_the_shared_fixture_says(pattern: str, path: str, matches: bool):
+    assert registry_path_matches(pattern, path) is matches
+
+
 @pytest.mark.parametrize("pattern", REGISTRY.opt_out_files)
 def test_an_opt_out_file_still_has_an_opt_out(pattern: str):
-    matches = [p for p in TRACKED if _glob_to_regex(pattern).match(p)]
+    matches = [p for p in TRACKED if registry_path_matches(pattern, p)]
     assert matches, f"{pattern} is an OPT_OUT_FILES entry but matches no tracked file"
     assert any("brand: untrusted --" in text_of(p) for p in matches), \
         f"no file matching {pattern} carries an opt-out any more"

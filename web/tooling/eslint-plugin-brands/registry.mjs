@@ -11,11 +11,12 @@ export const registry = JSON.parse(
 
 // A registry path: a trailing "/" is a directory prefix, otherwise a glob
 // where `**/` is zero or more directories, a bare `**` crosses directories
-// and `*` does not (the server lint's `_glob_to_regex` translation).
+// and `*` does not. The server lint's `registry_path_matches` is the same
+// rule, and shared/fixtures/registry_paths.json pins the two together.
 export function pathMatcher(pattern) {
   if (pattern.endsWith("/")) return (p) => p.startsWith(pattern);
   const body = pattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
     .replace(/\*\*\//g, "\u0001")
     .replace(/\*\*/g, "\u0000")
     .replace(/\*/g, "[^/]*")

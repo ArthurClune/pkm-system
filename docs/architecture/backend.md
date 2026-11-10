@@ -1468,6 +1468,7 @@ Python commands run from `server/`, `pnpm` ones from `web/`.
 | `batch_limits.json` | hand-edited | `test_batch_limits_fixture.py` | `MAX_OPS_PER_BATCH`, `PRIVATE_BODY_MAX_BYTES` |
 | `outline_depth.json` | hand-edited | `test_outline_depth.py` | `MAX_OUTLINE_DEPTH`, equal to the web's `depthCap.ts` |
 | `draft_flush.json` | hand-edited | `test_ops_endpoint.py` | the op an editor draft flushes |
+| `registry_paths.json` | hand-edited | `test_brandlint_registry.py`, `eslint-plugin-brands/registry.test.ts` | the brand registry's path syntax: `registry_path_matches` on the server and `pathMatcher` on the web |
 
 Hand-edited fixtures live in `shared/fixtures/`, and `git grep <name>.json` finds every test that reads one. `rows_dump` fails for a
 brand `brands.ts` lacks. The `--table` redirect empties `tag_chars.py` before

@@ -118,24 +118,34 @@ def _test_fix(brand: str, registry: Registry) -> str:
     return fix
 
 
-def _glob_to_regex(pattern: str) -> re.Pattern[str]:
+def registry_path_matches(pattern: str, path: str) -> bool:
+    """Whether a registry path names `path`. A trailing `/` is a directory
+    prefix; otherwise the pattern is a glob where `**/` is zero or more
+    directories, a bare `**` crosses directories and `*` does not. The web
+    lint's `pathMatcher` is the same rule, and
+    `shared/fixtures/registry_paths.json` pins the two together."""
+    if pattern.endswith("/"):
+        return path.startswith(pattern)
     out = []
     i = 0
     while i < len(pattern):
         if pattern.startswith("**/", i):
             out.append("(?:.*/)?")
             i += 3
+        elif pattern.startswith("**", i):
+            out.append(".*")
+            i += 2
         elif pattern[i] == "*":
             out.append("[^/]*")
             i += 1
         else:
             out.append(re.escape(pattern[i]))
             i += 1
-    return re.compile("".join(out) + r"\Z")
+    return re.fullmatch("".join(out), path) is not None
 
 
 def _opt_out_allowed(path: str, registry: Registry) -> bool:
-    return any(_glob_to_regex(p).match(path) for p in registry.opt_out_files)
+    return _site_allowed(path, registry.opt_out_files)
 
 
 def _comments(text: str) -> list[tuple[int, str]]:
@@ -425,7 +435,7 @@ def _ignored_returns(path: str, tree: ast.AST, ignored: set[int], registry: Regi
 
 
 def _site_allowed(path: str, sites: tuple[str, ...]) -> bool:
-    return any(path == site or (site.endswith("/") and path.startswith(site)) for site in sites)
+    return any(registry_path_matches(site, path) for site in sites)
 
 
 def _local_newtypes(tree: ast.AST) -> dict[str, str | None]:

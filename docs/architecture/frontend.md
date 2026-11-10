@@ -407,7 +407,7 @@ fails on, and `AGENTS.md` § Testing says how to run them.
   library's owned bytes (mermaid, pdfjs, katex) exceed their caps.
 - **Perf**: `web/tooling/perf/check.mjs` is the frontend half of
   `perf/check.sh` ([checks.md § Performance gate](checks.md#performance-gate)); its
-  [README](../../web/tooling/perf/README.md) covers the investigation toolkit.
+  [README](../../web/tooling/perf/README.md) lists the files and the measurement caveats.
 
 ## Build notes (`vite.config.ts`)
 

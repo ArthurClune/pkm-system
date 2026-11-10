@@ -36,12 +36,14 @@ from claude_agent_sdk import (AssistantMessage, CLIConnectionError,
                               PermissionResultAllow, StreamEvent,
                               ToolPermissionContext, ToolResultBlock,
                               ToolUseBlock, UserMessage)
-from hypothesis import event, settings, strategies as st
+from hypothesis import settings, strategies as st
 from hypothesis.stateful import (RuleBasedStateMachine, initialize, invariant,
-                                 precondition, rule)
+                                 precondition, rule,
+                                 run_state_machine_as_test)
 
 from fake_sdk_client import (AFTER_ACK_S, FakeSDKClient, aborted_result,
                              make_engine, make_result)
+from hostile import count, event
 from pkm.assistant import claude_engine
 from pkm.assistant.claude_engine import ClaudeConversation
 from pkm.assistant.events import (AssistantEvent, ConfirmRequest, ErrorEvent,
@@ -49,7 +51,7 @@ from pkm.assistant.events import (AssistantEvent, ConfirmRequest, ErrorEvent,
                                   TurnDone, TurnStopped)
 from pkm.assistant.service import AssistantService
 from pkm.contracts.responses import ConversationId
-from props.harness import examples
+from props.harness import examples, merge_floors
 from props.virtual_loop import VirtualTimeLoop
 
 pytestmark = pytest.mark.proptest
@@ -285,6 +287,7 @@ class TurnMachine(RuleBasedStateMachine):
 
     @initialize()
     def start(self) -> None:
+        count("example")
         self.run(self._new_chat())
 
     def live(self) -> bool:
@@ -725,6 +728,7 @@ class TurnMachine(RuleBasedStateMachine):
             assert (self.cid in self.service._entries) == self.alive
 
 
-TestTurnPhase = TurnMachine.TestCase
-TestTurnPhase.settings = settings(max_examples=examples("assistant_turn"),
-                                  stateful_step_count=30)
+@merge_floors({}, "example")
+def test_turn_phase() -> None:
+    run_state_machine_as_test(TurnMachine, settings=settings(
+        max_examples=examples("assistant_turn"), stateful_step_count=30))

@@ -1036,3 +1036,12 @@ def test_conflict_landing_uses_the_batch_clock(db):
                       (landed["page_id"],)).fetchone() is not None
     assert db.select_one("SELECT id AS page_id FROM pages WHERE title = ?", (
         title_for_date(morning.date()),)) is None
+
+
+def test_block_rewrites_has_one_writer():
+    from pathlib import Path
+    src = Path(ops_apply.__file__).parents[2]
+    writers = sorted(
+        str(p.relative_to(src)) for p in src.rglob("*.py")
+        for _ in range(p.read_text().count("INTO block_rewrites")))
+    assert writers == ["pkm/server/store.py"]

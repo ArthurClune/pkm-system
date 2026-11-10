@@ -45,8 +45,8 @@ from pkm.server.ops_core import (MAX_BATCH_REPLAY_WORK, ROW_CHARS,
                                  skip_report, rewrite_effects,
                                  unlink_stale_text)
 from pkm.server.store import (BlankTitleError, fetch_page,
-                              get_or_create_page, reindex_refs_for_text,
-                              stale_titles)
+                              get_or_create_page, insert_block_rewrites,
+                              reindex_refs_for_text, stale_titles)
 from pkm.server.sync_meta import read_title, title_reader
 from pkm.unlink import TitleMatch
 
@@ -659,11 +659,7 @@ def _execute(db: Db, eff: Effect, now_ms: int) -> None:
             " header_uid) VALUES (?,?,?)",
             (eff.target_uid, eff.day, eff.header_uid))
     elif isinstance(eff, RecordRewrite):
-        db.executemany(
-            "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
-            " new_title, created_at, kind) VALUES (?,?,?,?,?,?,?)",
-            [(eff.uid, r.base_hash, r.after_hash, r.old_text, r.new_text,
-              now_ms, r.kind) for r in eff.rewrites])
+        insert_block_rewrites(db, eff.uid, eff.rewrites, now_ms)
     elif isinstance(eff, JournalBlock):
         # the same row the blocks triggers write (schema.py SERVER_DDL)
         db.execute(

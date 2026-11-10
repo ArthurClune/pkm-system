@@ -16,6 +16,7 @@ from pkm.refs import (CanonicalTitle, NormalizedTitle, describe_title_length,
                       title_length_over, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map, spelled_or_canonical
 from pkm.rows import Row
+from pkm.server.ops_core import BlockRewrite
 from pkm.server.sync_meta import read_title, title_reader
 from pkm.text_limits import (TextLimitViolation, describe_text_limit,
                              rewrite_text_limit_violation)
@@ -192,6 +193,19 @@ def _snapshot_referencing_blocks(
     return tuple((row["uid"], row["text"]) for row in rows)
 
 
+def insert_block_rewrites(
+    db: Db, uid: BlockUid, rows: Iterable[BlockRewrite], now_ms: int,
+) -> None:
+    """The one writer of `block_rewrites`. Rows land in the order given:
+    replay reads a hash's rows newest first by rowid, and an older row's
+    copy of a key wins."""
+    db.executemany(
+        "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
+        " new_title, created_at, kind) VALUES (?,?,?,?,?,?,?)",
+        [(uid, r.base_hash, r.after_hash, r.old_text, r.new_text,
+          now_ms, r.kind) for r in rows])
+
+
 def _record_block_rewrite(
     db: Db,
     uid: BlockUid,
@@ -210,20 +224,17 @@ def _record_block_rewrite(
     (the title migration rewrites several titles in one pass, and applying
     them one at a time would not reproduce it) without a second table.
     """
-    db.executemany(
-        "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
-        " new_title, created_at, kind) VALUES (?,?,?,?,?,?,'retitle')",
-        [
-            (uid, text_hash(original_text), text_hash(new_text),
-             old_title, new_title, now_ms)
-            for old_title, new_title in replacements.items()
-            if rewrite_title_refs_map(
-                original_text, {old_title: new_title},
-                normalize=spelled_or_canonical(
-                    canonical, {old_title: new_title}),
-            ) != original_text
-        ],
-    )
+    before, after = text_hash(original_text), text_hash(new_text)
+    insert_block_rewrites(
+        db, uid,
+        [BlockRewrite(before, after, old_title, new_title, "retitle")
+         for old_title, new_title in replacements.items()
+         if rewrite_title_refs_map(
+             original_text, {old_title: new_title},
+             normalize=spelled_or_canonical(
+                 canonical, {old_title: new_title}),
+         ) != original_text],
+        now_ms)
 
 
 def _prune_block_rewrites(db: Db, now_ms: int) -> None:
@@ -460,17 +471,12 @@ def _record_delete_rewrite(
     title, and one `inline` row per block ref copied in. Every row carries
     the before/after hashes of the whole rewrite."""
     base, after = text_hash(original_text), text_hash(new_text)
-    rows: list[tuple[str, str, str]] = []
+    rows: list[BlockRewrite] = []
     if uid in plan.unlinked:
-        rows.append(("unlink", title, ""))
-    rows.extend(("inline", target, copy)
+        rows.append(BlockRewrite(base, after, title, "", "unlink"))
+    rows.extend(BlockRewrite(base, after, target, copy, "inline")
                 for target, copy in plan.inlined.get(uid, {}).items())
-    db.executemany(
-        "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
-        " new_title, created_at, kind) VALUES (?,?,?,?,?,?,?)",
-        [(uid, base, after, old, new, now_ms, kind)
-         for kind, old, new in rows],
-    )
+    insert_block_rewrites(db, uid, rows, now_ms)
 
 
 def delete_page_unlinking(db: Db, page_id: PageId,

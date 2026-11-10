@@ -18,9 +18,9 @@
 // A failure prints the seed, the path, the shrunk command list, what each
 // command did in the failing run, the oracle's findings and a replay line.
 // How often each command ran or was skipped by its precondition, and how
-// often each fault was armed and fired, is printed once, after the file.
+// often each fault was armed and fired, is printed after the property.
 import fc from "fast-check";
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { beforeAll, expect, test } from "vitest";
 import type { BatchId } from "../../api/brands";
 import { extractRefs } from "../../grammar/refs";
 import { EDIT_TARGETS, type OpDraft, PAGE_TITLES } from "./arbitraries";
@@ -36,7 +36,8 @@ import { initialModel, type SyncModel } from "./model";
 import { checkQuiescent, CursorWatch, ModeWatch } from "./oracle";
 import { quiesce, TIMED_OUT, within } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
-import { checkGateProperty } from "../gate";
+import { checkGateProperty, EXAMPLES } from "../gate";
+import { bump, type Reach, type Tally } from "../reach";
 import { captureFaultWarnings } from "../warningsCapture";
 
 captureFaultWarnings("sync");
@@ -68,8 +69,9 @@ const LANE_DRAIN_WAIT_MS = 5_000;
 
 type Commands = Iterable<fc.AsyncCommand<SyncModel, World, boolean>>;
 
-const tally = new Map<string, number>();
-const count = (key: string, n = 1): void => { tally.set(key, (tally.get(key) ?? 0) + n); };
+/** The fixed scenarios count into it too; the property empties it first. */
+const tally: Tally = new Map();
+const count = (key: string, n = 1): void => { bump(tally, key, n); };
 countSkipsWith(count);
 
 const FAULT_KINDS: readonly FaultKind[] = [
@@ -101,17 +103,22 @@ beforeAll(async () => {
 
 /** Fault rows read armed and fired side by side; everything else is one
  * count per key. */
-afterAll(() => {
+function showSyncTally(t: Tally): string {
   const isFault = (k: string): boolean => /^Fault \S+( fired)?$/.test(k);
-  const rest = [...tally].filter(([k]) => !isFault(k));
+  const rest = [...t].filter(([k]) => !isFault(k));
   const width = Math.max(0, ...rest.map(([k]) => k.length));
   const faults = FAULT_KINDS.map((kind) =>
-    `  Fault ${kind.padEnd(10)}  armed ${String(tally.get(`Fault ${kind}`) ?? 0).padStart(6)}` +
-    `  fired ${String(tally.get(`Fault ${kind} fired`) ?? 0).padStart(6)}`);
-  console.log(`sync property tally (every run, shrinks included):\n${
+    `  Fault ${kind.padEnd(10)}  armed ${String(t.get(`Fault ${kind}`) ?? 0).padStart(6)}` +
+    `  fired ${String(t.get(`Fault ${kind} fired`) ?? 0).padStart(6)}`);
+  return `sync property tally (the property's examples):\n${
     rest.sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, n]) => `  ${k.padEnd(width)}  ${n}`).join("\n")}\n${faults.join("\n")}`);
-});
+      .map(([k, n]) => `  ${k.padEnd(width)}  ${n}`).join("\n")}\n${faults.join("\n")}`;
+}
+
+/** Where each label must stay above its share of EXAMPLES. The reach
+ * signal is each `Fault <kind> fired`: a fault armed far more often than
+ * it fired is the case a floor must catch. */
+const REACH: Reach = { per: EXAMPLES, floors: {} };
 
 interface ExampleOptions {
   /** Runs after the commands, before quiescence. */
@@ -927,7 +934,6 @@ test("sync protocol property", async () => {
     // added.
     arbs: [clientsAndCommands, windowLimit, starts, firstStarts],
     predicate: async ([n, cmds], limit, at, first) => {
-      count("examples");
       count(`examples with ${n} clients`);
       count(limit === undefined ? "examples with no window limit"
                                 : `examples with window limit ${limit}`);
@@ -935,6 +941,7 @@ test("sync protocol property", async () => {
                        { windowLimit: limit, connectAt: at, firstStart: first });
     },
     numRuns: NUM_RUNS, limitMs: PROPERTY_LIMIT_MS, show,
+    tally, showTally: showSyncTally, reach: REACH,
     // The example the time limit cut into is still running: stop it before
     // anything is reported, and before the next file resets the server.
     settle: async () => {

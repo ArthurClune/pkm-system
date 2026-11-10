@@ -7,13 +7,14 @@
 //
 // A failure prints the seed, the path, the shrunk start state and steps,
 // every problem at the first failing step and a replay line. The tally of
-// what the examples reached is printed once, after the file.
-import { afterAll, beforeAll, expect, test } from "vitest";
+// what the examples reached is printed after the property.
+import { beforeAll, expect, test } from "vitest";
 import type { BlockNode } from "../../api/payloads";
-import { checkGateProperty } from "../gate";
+import { checkGateProperty, EXAMPLES } from "../gate";
+import { bump, type Reach, type Tally } from "../reach";
 import { connectServer, type ServerControl } from "../sync/serverControl";
 import { type Example, exampleArb, OPS_PAGES, type RawDraft } from "./arbitraries";
-import { clipText, newTally, runExample, showTally } from "./example";
+import { clipText, newTally, runExample, tallyLabels } from "./example";
 import { captureFaultWarnings } from "../warningsCapture";
 import { uidOf, orderIdxOf, batchIdOf } from "../../test-helpers";
 
@@ -27,15 +28,13 @@ export const NUM_RUNS = 2250;
 /** The margin over NUM_RUNS covers a slower gate. */
 const PROPERTY_LIMIT_MS = 120_000;
 
-const tally = newTally();
+const tally: Tally = new Map();
+/** Where each label must stay above its share of EXAMPLES. */
+const REACH: Reach = { per: EXAMPLES, floors: {} };
 let server: ServerControl;
 
 beforeAll(async () => {
   server = await connectServer();
-});
-
-afterAll(() => {
-  console.log(showTally(tally));
 });
 
 /** A tree one row per line, indented by depth: uid, order_idx, text,
@@ -108,10 +107,12 @@ test("ops property", async () => {
   await checkGateProperty({
     suite: "ops property", file: "ops/ops.prop.ts", arbs: [exampleArb],
     predicate: async (ex) => {
-      const problems = await runExample(server, ex, { tally });
+      const reached = newTally();
+      const problems = await runExample(server, ex, { tally: reached });
+      for (const [label, n] of tallyLabels(reached)) bump(tally, label, n);
       if (problems.length > 0) throw new Error(problems.join("\n"));
     },
-    numRuns: NUM_RUNS, limitMs: PROPERTY_LIMIT_MS,
+    numRuns: NUM_RUNS, limitMs: PROPERTY_LIMIT_MS, tally, reach: REACH,
     show: ([ex]) => `counterexample: ${showExample(ex)}`,
   });
 });

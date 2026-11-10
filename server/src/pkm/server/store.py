@@ -220,7 +220,7 @@ def _record_block_rewrite(
     One row per title that actually moved in *this* block's text -- a pair
     whose key it never mentioned is not a rewrite of it -- and every row
     carries the before/after hashes of the whole rewrite. That is what lets
-    `replay_core.replay_title_rewrites` reassemble the map this call applied
+    `replay_core.replay` reassemble the map this call applied
     (the title migration rewrites several titles in one pass, and applying
     them one at a time would not reproduce it) without a second table.
     """
@@ -308,16 +308,6 @@ def rewrite_snapshotted_blocks(
         reindex_refs_for_text(db, uid, new_text, now_ms)
     _prune_block_rewrites(db, now_ms)
     return rewritten
-
-
-def rewrite_referencing_blocks(db: Db, page_id: PageId,
-                               old_title: CanonicalTitle,
-                               new_title: CanonicalTitle,
-                               now_ms: int) -> None:
-    """Preserved single-page rewrite helper. Never commits."""
-    snapshots = _snapshot_referencing_blocks(db, page_id)
-    rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms,
-                               title_reader(db))
 
 
 def insert_sidebar_entry(db: Db, title: CanonicalTitle,

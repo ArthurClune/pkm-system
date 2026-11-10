@@ -521,7 +521,7 @@ def test_orphan_conflict_hint_naming_a_renamed_away_page_does_not_recreate_it(
     # The client's hint can be stale -- "Machine Learning" was renamed
     # away before this offline edit reached the server. The header must name
     # it without linking it (a [[link]] would make the ref indexer recreate
-    # an empty page under the old title -- exactly what replay_title_rewrites
+    # an empty page under the old title -- exactly what replay_core.replay
     # exists to prevent for live blocks).
     from pkm.server.db import open_db
 

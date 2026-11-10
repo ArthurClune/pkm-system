@@ -55,20 +55,18 @@ from pkm.unlink import TitleMatch
 # Every op that addresses a block by uid: BlockOp minus create_page.
 _AddressedOp = Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
                      SetCollapsedOp, SetHeadingOp, SetViewTypeOp]
-# Fallback title for an op's page_title that normalizes to "" (e.g. a
-# whitespace-only string -- pydantic's min_length=1 lets that through). The
-# ops path must never reject a batch over this (an offline client
-# replays queued batches, and a rejected one wedges its queue permanently),
-# so instead of raising BlankTitleError up to the caller it resolves to this
-# fixed, always-valid title -- get_or_create semantics, so repeated blank
-# titles all land on the same page rather than minting one each.
 
 
 def _resolve_page(db: Db, title: RawTitle,
                   now_ms: int) -> Row:
     """get_or_create_page for op page_title fields: falls back to
-    UNTITLED_PAGE_TITLE rather than propagating BlankTitleError (see
-    module docstring above)."""
+    UNTITLED_PAGE_TITLE rather than propagating BlankTitleError.
+
+    A page_title that normalizes to "" (a whitespace-only string passes
+    pydantic's min_length=1) must never reject a batch: an offline client
+    replays queued batches, and a rejected one wedges its queue
+    permanently. Get-or-create semantics put every blank title on the same
+    page rather than minting one each."""
     try:
         return get_or_create_page(db, title, now_ms)
     except BlankTitleError:
@@ -134,7 +132,7 @@ def _rewrites_of(rows: Sequence[Row]) -> tuple[BlockRewrite, ...]:
 # The titles load only when the sum fits: past it the join's seek key is
 # NULL and finds none. With no rows joined, one row of placeholders
 # carries `n` alone. Newest first, by rowid: the order
-# `replay_core.replay_title_rewrites` walks the chain in, and a row a batch
+# `replay_core.replay` walks the chain in, and a row a batch
 # writes is always newest, as its history keeps it
 # (`RewriteHistory.record`), even after the clock steps back.
 _CHARGED_REWRITES = """
@@ -720,7 +718,7 @@ def _broadcast_op(db: Db, op: BlockOp,
 
 
 @dataclasses.dataclass(frozen=True)
-class AppliedBatch:
+class BatchEffects:
     """What apply_batch did: the applied ops as they should be broadcast
     (see _broadcast_op), and one `ops_core.skip_report` per op the shell
     classified as skipped. A skipped op is not echoed as if it were applied; its
@@ -749,7 +747,7 @@ def expected_now(db: Db, expect: Sequence[ExpectedBlock]
 
 
 def apply_batch(db: Db, judged: JudgedBatch,
-                now_ms: int) -> AppliedBatch:
+                now_ms: int) -> BatchEffects:
     """Apply a batch inside the caller's transaction. The text and title
     judges have run already (`ops_core.judge_batch`), before the caller
     took the write lock; nothing here judges them again. Planning can
@@ -758,6 +756,8 @@ def apply_batch(db: Db, judged: JudgedBatch,
     batch = judged.batch
     broadcast_ops: list[dict[str, object]] = []
     skipped: list[SkippedOp] = []
+    # proptest/sync_server.py replaces this through this module global, so
+    # call it by its bare name.
     stale = stale_titles(db, batch.seen_seq)
     is_stale: TitleMatch | None = None
     stale_canonical = title_reader(db) if stale else None
@@ -791,6 +791,8 @@ def apply_batch(db: Db, judged: JudgedBatch,
         elif isinstance(ctx, ReplayOverLimitContext):
             replay.allowance -= ctx.reads
         if replayed or (is_stale is not None and op is not sent):
+            # proptest/sync_server.py replaces this through this module
+            # global, so call it by its bare name.
             effects += rewrite_effects(
                 sent, effects, stale, stale_canonical or replay_canonical,
                 replayed,
@@ -805,4 +807,4 @@ def apply_batch(db: Db, judged: JudgedBatch,
             skipped.append(skip_report(index, op, ctx))
         else:
             broadcast_ops.append(_broadcast_op(db, op, ctx))
-    return AppliedBatch(broadcast_ops, skipped)
+    return BatchEffects(broadcast_ops, skipped)

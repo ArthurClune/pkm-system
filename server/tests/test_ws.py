@@ -267,13 +267,13 @@ def test_broadcast_drops_bad_connections_and_still_delivers(monkeypatch):
         # delivery now happens on each client's own drain task, not
         # synchronously inside broadcast() -- wait for it to land.
         await _until(lambda: good.sent == [_wire(1)])
-        await _until(lambda: set(hub._conns) == {good})
+        await _until(lambda: set(hub._clients) == {good})
         # Hub-initiated drops (send failure/timeout) must close the
         # socket, or a real client would never see `onclose` fire and
         # reconnect.
         await _until(lambda: raising.closed and stalling.closed)
         assert good.sent == [_wire(1)]
-        assert set(hub._conns) == {good}
+        assert set(hub._clients) == {good}
         assert raising.closed
         assert stalling.closed
         assert not good.closed
@@ -345,7 +345,7 @@ def test_broadcast_disconnects_client_whose_queue_overflows(monkeypatch):
         # task never gets a turn to dequeue -- the queue genuinely fills.
         for i in range(5):
             await hub.broadcast(_frame(i))
-        assert _as_ws(client) not in hub._conns
+        assert _as_ws(client) not in set(hub._clients)
         # The close is fired via asyncio.create_task (broadcast()'s
         # enqueue loop can't await it), so give it a turn to run.
         await _until(lambda: client.closed)
@@ -375,7 +375,7 @@ def test_default_thresholds_keep_a_backlogged_client():
             await hub.broadcast(_frame(i))
         queued = hub._clients[_as_ws(client)].queue.qsize()
         assert queued > 8, f"backlog never built: {queued} queued"
-        assert _as_ws(client) in hub._conns
+        assert _as_ws(client) in set(hub._clients)
         assert not client.closed
 
     asyncio.run(_run())
@@ -394,7 +394,7 @@ def test_default_send_timeout_waits_out_a_slow_send():
         await hub.broadcast(_frame(2))
         await _until(lambda: client.sent == [_wire(1), _wire(2)],
                      timeout=5.0)
-        assert _as_ws(client) in hub._conns
+        assert _as_ws(client) in set(hub._clients)
 
     asyncio.run(_run())
 

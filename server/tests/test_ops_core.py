@@ -27,7 +27,7 @@ from pkm.server.ops_apply import apply_batch
 from pkm.server.ops_core import judge_batch
 from pkm.server.replay_core import (BlockRewrite, MAX_REPLAYED_REWRITES,
                                     TextEditOutcome, classify_text_edit,
-                                    replay_title_rewrites, unlink_stale_text)
+                                    replay, unlink_stale_text)
 from pkm.server.ops_core import (BlockContext, BlockInfo, ConflictLanding,
                                  CreateContext, DeleteBlocks,
                                  DeleteConflictContext, DeleteContext,
@@ -1292,21 +1292,23 @@ def test_skip_report_names_the_op_and_where_its_note_landed(op, ctx,
 def test_replay_applies_an_unlink_step():
     t0, t1 = "Tags:: #AI", "Tags:: AI"
     rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "AI", "", "unlink"),)
-    text, base = replay_title_rewrites(
-        "Tags:: #AI plus", text_hash(t0), rewrites)
-    assert text == "Tags:: AI plus"
-    assert base == text_hash(t1)
+    replayed = replay(
+        "Tags:: #AI plus", text_hash(t0), rewrites, normalize_title)
+    assert replayed.text == "Tags:: AI plus"
+    assert replayed.base_hash == text_hash(t1)
 
 
 def test_replay_unlink_matches_through_the_given_canonicaliser():
     t0, t1 = "x [[ AI ]] y", "x  AI  y"
     rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "AI", "", "unlink"),)
     stale = "x [[ AI ]] y offline"
-    # default: today's normalize_title matching leaves the padded link
-    assert replay_title_rewrites(stale, text_hash(t0), rewrites)[0] == stale
-    text, base = replay_title_rewrites(
+    # plain normalize_title matching leaves the padded link
+    assert replay(
+        stale, text_hash(t0), rewrites, normalize_title).text == stale
+    replayed = replay(
         stale, text_hash(t0), rewrites,
         canonical=lambda title: title.strip(" "))
+    text, base = replayed.text, replayed.base_hash
     assert text == "x  AI  y offline"
     assert base == text_hash(t1)
 
@@ -1315,7 +1317,8 @@ def test_replay_unlink_normalizes_the_stored_title():
     t0, t1 = "see [[A I]]", "see A I"
     rewrites = (
         BlockRewrite(text_hash(t0), text_hash(t1), "A\tI", "", "unlink"),)
-    text, _ = replay_title_rewrites("see [[A I]] more", text_hash(t0), rewrites)
+    text = replay(
+        "see [[A I]] more", text_hash(t0), rewrites, normalize_title).text
     assert text == "see A I more"
 
 
@@ -1324,7 +1327,8 @@ def test_replay_skips_a_row_of_unknown_kind():
     # an unknown kind on purpose: asserting the replay skips it
     rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "Old", "New",
                              "bogus"),)  # pyrefly: ignore[bad-argument-type]
-    text, _ = replay_title_rewrites("see [[Old]] more", text_hash(t0), rewrites)
+    text = replay(
+        "see [[Old]] more", text_hash(t0), rewrites, normalize_title).text
     assert text == "see [[Old]] more"
 
 
@@ -1332,10 +1336,10 @@ def test_replay_applies_an_inline_step():
     t0, t1 = "see ((uid_p1))", "see copied"
     rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "uid_p1", "copied",
                              "inline"),)
-    text, base = replay_title_rewrites(
-        "see ((uid_p1)) more", text_hash(t0), rewrites)
-    assert text == "see copied more"
-    assert base == text_hash(t1)
+    replayed = replay(
+        "see ((uid_p1)) more", text_hash(t0), rewrites, normalize_title)
+    assert replayed.text == "see copied more"
+    assert replayed.base_hash == text_hash(t1)
 
 
 def test_replay_chains_unlink_then_retitle():
@@ -1344,10 +1348,10 @@ def test_replay_chains_unlink_then_retitle():
         BlockRewrite(text_hash(t1), text_hash(t2), "Paper", "Papers"),
         BlockRewrite(text_hash(t0), text_hash(t1), "AI", "", "unlink"),
     )
-    text, base = replay_title_rewrites(
-        "#AI [[Paper]] x", text_hash(t0), rewrites)
-    assert text == "AI [[Papers]] x"
-    assert base == text_hash(t2)
+    replayed = replay(
+        "#AI [[Paper]] x", text_hash(t0), rewrites, normalize_title)
+    assert replayed.text == "AI [[Papers]] x"
+    assert replayed.base_hash == text_hash(t2)
 
 
 def _top_create(title_text: str, text: str) -> CreateOp:
@@ -1599,5 +1603,6 @@ def test_replay_of_a_real_delete_unlink_row_fences_a_leading_attribute():
     t0 = "old"
     rewrites = (BlockRewrite(text_hash(t0), text_hash("new"), "X", "",
                              "unlink"),)
-    text, _ = replay_title_rewrites("X:: v see [[X]]", text_hash(t0), rewrites)
+    text = replay(
+        "X:: v see [[X]]", text_hash(t0), rewrites, normalize_title).text
     assert text == "`X`:: v see X"

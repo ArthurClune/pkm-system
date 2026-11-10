@@ -45,7 +45,7 @@ only touches *control* whitespace, so a spaces-only bracket ref like
 `[[   ]]` is NOT dropped: extract() yields `Ref(title="   ")`, "non-empty"
 by that check even though it is nothing but padding. That ref.title then
 reaches get_or_create_page unguarded at the two ref-indexing call sites
-(ops_apply.py's ReindexRefs handling, store.py's rewrite_referencing_blocks
+(ops_apply.py's ReindexRefs handling, store.py's rewrite_snapshotted_blocks
 used by rename/merge) and raises BlankTitleError -- which neither
 routes_ops.py (catches only OpError) nor the rename route (catches only
 sqlite3.IntegrityError) handles, so it surfaces as an uncaught HTTP 500.
@@ -513,7 +513,7 @@ def test_create_op_with_spaces_only_ref_in_text_does_not_500(
 
 def test_rename_page_with_referencing_spaces_only_ref_succeeds(
         client, seeded_config):
-    """Final-review CRITICAL: rename_page_rows -> rewrite_referencing_blocks
+    """Final-review CRITICAL: rename_page_rows -> rewrite_snapshotted_blocks
     hits the exact same unguarded get_or_create_page(ref.title) call, for
     every block referencing the page being renamed, that ReindexRefs does.
     uid_b4 already refs "Machine Learning" (page id 1, SEED_REFS); adding a

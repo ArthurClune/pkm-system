@@ -44,9 +44,9 @@ def batch_replay_hash(batch: OpBatch) -> str:
     unfilled ops. Both copies eventually reach the server; they carry the
     same intent, so the same batch_id replaying with only these
     guard/label fields differing must not 409. Stored in
-    applied_batches.request_hash for rows written after this change --
-    see routes_ops.py for how a row holding the (older) strict hash still
-    replays."""
+    applied_batches.request_hash for a row stored since that column held
+    the replay hash -- see routes_ops.py for how a row holding the (older)
+    strict hash still replays."""
     canon = json.dumps([_canonical_replay_op(op) for op in batch.ops],
                        sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canon.encode()).hexdigest()

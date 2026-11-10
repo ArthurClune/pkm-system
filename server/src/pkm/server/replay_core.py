@@ -73,7 +73,7 @@ class BlockRewrite:
 
 @dataclass
 class RewriteStep:
-    """One pass over a block: what `replay_title_rewrites` consumes. A step
+    """One pass over a block: what `replay` consumes. A step
     is not changed once built, so what a replay derives from it is kept on
     it (`key_parts`, `records`, `derived`): a batch keeps a block's steps
     for all its ops (`RewriteHistory`), so it derives each once."""
@@ -209,7 +209,7 @@ class RewriteHistory:
         return base_hash in self._unread
 
     def next_unread(self, base_hash: Sha256Hex) -> Sha256Hex | None:
-        """The first hash a walk from `base_hash` (`_replay`) reaches whose
+        """The first hash a walk from `base_hash` (`replay`) reaches whose
         rows are not read yet, or None when the walk needs no more."""
         taken: set[int] = set()
         for _ in range(MAX_REPLAYED_REWRITES):
@@ -268,51 +268,6 @@ class RewriteHistory:
                                    step.unlinked | older.unlinked,
                                    {**step.inlines, **older.inlines})
             group[pair] = step
-
-
-def replay_title_rewrites(
-    text: str,
-    base_hash: Sha256Hex,
-    rewrites: Sequence[BlockRewrite],
-    canonical: Callable[[str], str] = normalize_title,
-) -> tuple[str | None, Sha256Hex]:
-    """Re-apply the renames this block already went through to an edit made
-    before them, returning the edit's text and base hash as they would read
-    had the device seen those renames first.
-
-    A rename or merge rewrites `[[Old]]` in every referencing block. An
-    offline device that had edited one of those blocks pushes its own text
-    with the pre-rename hash, and plain last-write-wins would let that text
-    win verbatim -- re-creating the page the rename had emptied. Following
-    the recorded chain instead makes the edit an edit of the rewritten text,
-    which then meets the ordinary conflict rules unchanged: it applies
-    cleanly if nothing else touched the block, and conflicts under the *new*
-    title if something did.
-
-    Each step is consumed, so a record can never be replayed twice however
-    the hashes line up; `MAX_REPLAYED_REWRITES` bounds the walk regardless.
-    `rewrites` is newest-record-first, which decides the winner in the
-    unlikely case that two rewrites share a base hash (a block edited back
-    to a previous text, then renamed again).
-
-    `canonical` is the title canonicalisation the delete matched with (the
-    shell passes the database's `title_reader`): an unlink step must treat
-    the same spellings as the deleted page as the delete did, or a padded
-    `[[ AI ]]` the delete unlinked under plain-space canonicalisation would
-    survive the replay and recreate the page. A retitle step matches a spelling
-    that is itself a key, else its canonical form, as the rename it replays
-    did.
-
-    The unlink step also defuses a leading attribute naming the deleted page
-    (`X:: v` becomes `` `X`:: v ``), so the replayed text never re-creates it.
-
-    The text is None when a step would grow it past the length cap, or
-    nest its copies past the nesting cap or make their unlink too much
-    work (`_replay_step`); `classify_text_edit` then lands the edit as
-    sent.
-    """
-    replayed = _replay(text, base_hash, rewrites, canonical)
-    return replayed.text, replayed.base_hash
 
 
 def _replay_step(text: str, step: RewriteStep,
@@ -447,8 +402,8 @@ def _cached_step(
 
 
 @dataclass(frozen=True)
-class _Replayed:
-    """What `_replay` made: the text (None when a step stopped it), the
+class Replayed:
+    """What `replay` made: the text (None when a step stopped it), the
     hash it ends at (that step's base when it stopped), the steps it
     consumed in the order it walked them, every step it replayed by key,
     the reads it spent (`_replay_step`), and whether the walk stopped
@@ -461,14 +416,44 @@ class _Replayed:
     blind: bool = False
 
 
-def _replay(
+def replay(
     text: str, base_hash: Sha256Hex,
     rewrites: Sequence[BlockRewrite] | RewriteHistory,
     canonical: Callable[[str], str],
     known: Mapping[StepKey, str] | None = None,
     allowance: int | None = None,
-) -> _Replayed:
-    """`replay_title_rewrites`, with what else a caller needs (`_Replayed`).
+) -> Replayed:
+    """Re-apply the renames this block already went through to an edit made
+    before them, returning the edit's text and base hash as they would read
+    had the device seen those renames first, with what else a caller needs
+    (`Replayed`).
+
+    A rename or merge rewrites `[[Old]]` in every referencing block. An
+    offline device that had edited one of those blocks pushes its own text
+    with the pre-rename hash, and plain last-write-wins would let that text
+    win verbatim -- re-creating the page the rename had emptied. Following
+    the recorded chain instead makes the edit an edit of the rewritten text,
+    which then meets the ordinary conflict rules unchanged: it applies
+    cleanly if nothing else touched the block, and conflicts under the *new*
+    title if something did.
+
+    Each step is consumed, so a record can never be replayed twice however
+    the hashes line up; `MAX_REPLAYED_REWRITES` bounds the walk regardless.
+    `rewrites` is newest-record-first, which decides the winner in the
+    unlikely case that two rewrites share a base hash (a block edited back
+    to a previous text, then renamed again).
+
+    `canonical` is the title canonicalisation the delete matched with (the
+    shell passes the database's `title_reader`): an unlink step must treat
+    the same spellings as the deleted page as the delete did, or a padded
+    `[[ AI ]]` the delete unlinked under plain-space canonicalisation would
+    survive the replay and recreate the page. A retitle step matches a spelling
+    that is itself a key, else its canonical form, as the rename it replays
+    did.
+
+    The unlink step also defuses a leading attribute naming the deleted page
+    (`X:: v` becomes `` `X`:: v ``), so the replayed text never re-creates it.
+
     The text is None when a step would carry it past a text limit, or its
     unlink past `allowance` (`_replay_step`), and the hash is then the base
     of that step. The walk still follows the chain past it, so the steps
@@ -486,7 +471,7 @@ def _replay(
     stopped_at: Sha256Hex | None = None
     for _ in range(MAX_REPLAYED_REWRITES):
         if history.is_unread(base_hash) or not history.is_read(base_hash):
-            return _Replayed(None, stopped_at or base_hash, tuple(consumed),
+            return Replayed(None, stopped_at or base_hash, tuple(consumed),
                              memo, spent, blind=True)
         match = history.newest(base_hash, taken)
         if match is None:
@@ -502,8 +487,8 @@ def _replay(
                 stopped_at = base_hash
         base_hash = match.after_hash
     if stopped_at is not None:
-        return _Replayed(None, stopped_at, tuple(consumed), memo, spent)
-    return _Replayed(replayed, base_hash, tuple(consumed), memo, spent)
+        return Replayed(None, stopped_at, tuple(consumed), memo, spent)
+    return Replayed(replayed, base_hash, tuple(consumed), memo, spent)
 
 
 def over_limit_landing_text(text: str, replayed: Sequence[RewriteStep],
@@ -540,7 +525,7 @@ def over_limit_landing_text(text: str, replayed: Sequence[RewriteStep],
 class TextEditOutcome:
     """Where a hashed update_text op on a live block lands, once any rename/
     merge rewrites it predates have been replayed onto it
-    (replay_title_rewrites): identical to the block's current text (check 2,
+    (`replay`): identical to the block's current text (check 2,
     a no-op), a clean apply (check 4), or a concurrent edit that must land as
     a conflict (check 5). `text` is the replayed edit -- what actually gets
     applied or diffed, not the caller's original op.text.
@@ -581,24 +566,24 @@ def classify_text_edit(
     rows, or the steps the batch keeps for it (`RewriteHistory`);
     `allowance` is what is left of the batch's replay budget, None for no
     budget."""
-    replay = _replay(text, base_hash, rewrites, canonical,
-                     allowance=allowance)
-    steps, known, reads = replay.steps, replay.known, replay.reads
+    walked = replay(text, base_hash, rewrites, canonical,
+                    allowance=allowance)
+    steps, known, reads = walked.steps, walked.known, walked.reads
 
     def outcome(kind: Literal["identical", "clean", "conflict",
                               "over_limit"], landed: str) -> TextEditOutcome:
         return TextEditOutcome(kind, landed, steps, canonical, known, reads,
-                               replay.blind)
+                               walked.blind)
 
-    if replay.text is None:
+    if walked.text is None:
         return outcome("over_limit", text)
-    if replay.text == current_text:
-        return outcome("identical", replay.text)
-    if steps and text_limit_violation(replay.text) is not None:
+    if walked.text == current_text:
+        return outcome("identical", walked.text)
+    if steps and text_limit_violation(walked.text) is not None:
         return outcome("over_limit", text)
-    if text_hash(current_text) == replay.base_hash:
-        return outcome("clean", replay.text)
-    return outcome("conflict", replay.text)
+    if text_hash(current_text) == walked.base_hash:
+        return outcome("clean", walked.text)
+    return outcome("conflict", walked.text)
 
 
 def unlink_stale_text(op: BlockOp, is_stale: TitleMatch) -> BlockOp:
@@ -680,7 +665,7 @@ def _rewrite_chain(
     if text != written or not rows:
         return ()
     # what a later edit will actually do: replay the recorded rows
-    if _replay(sent, text_hash(sent), rows, canonical, memo,
+    if replay(sent, text_hash(sent), rows, canonical, memo,
                allowance).text != written:
         return ()
     return tuple(rows)

@@ -143,7 +143,7 @@ def scenarios(lm: Landmarks, max_seq: int) -> list[Scenario]:
         # lm.rename_ref_uid carries a block_rewrites row from the fixture's
         # seeded rename (build.py); this base_text_hash is the block's text
         # from *before* that rename, so classify_text_edit must replay the
-        # rewrite (replay_core.replay_title_rewrites) before it can classify
+        # rewrite (replay_core.replay) before it can classify
         # the edit -- here, cleanly, since nothing has touched the block
         # since the rename.
         Scenario("ops/edit-rename-replay", "POST", "/api/ops", body=batch(

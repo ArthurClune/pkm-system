@@ -630,12 +630,13 @@ def _rewrite_chain(steps: int) -> tuple[replay_core.BlockRewrite, ...]:
 
 
 def test_replay_follows_a_chain_of_records_up_to_the_cap():
-    text, base = replay_core.replay_title_rewrites(
-        "[[T0]] edited", text_hash("[[T0]]"), _rewrite_chain(12))
+    replayed = replay_core.replay(
+        "[[T0]] edited", text_hash("[[T0]]"), _rewrite_chain(12),
+        normalize_title)
 
     cap = replay_core.MAX_REPLAYED_REWRITES
-    assert text == f"[[T{cap}]] edited"
-    assert base == text_hash(f"[[T{cap}]]")
+    assert replayed.text == f"[[T{cap}]] edited"
+    assert replayed.base_hash == text_hash(f"[[T{cap}]]")
 
 
 def test_replay_rewrites_a_padded_spelling_that_canonicalises_to_the_old_title():
@@ -643,20 +644,20 @@ def test_replay_rewrites_a_padded_spelling_that_canonicalises_to_the_old_title()
         base_hash=text_hash("[[Old]]"), after_hash=text_hash("[[New]]"),
         old_text="Old", new_text="New"),)
 
-    text, _ = replay_core.replay_title_rewrites(
+    replayed = replay_core.replay(
         "[[ Old ]] edited", text_hash("[[Old]]"), rewrites,
         lambda raw: normalize_title(raw).strip(" "))
 
-    assert text == "[[New]] edited"
+    assert replayed.text == "[[New]] edited"
 
 
 def test_replay_leaves_an_unrecorded_base_hash_untouched():
     stale = text_hash("never rewritten")
 
-    assert replay_core.replay_title_rewrites(
-        "[[T0]] edited", stale, _rewrite_chain(3)) == ("[[T0]] edited", stale)
-    assert replay_core.replay_title_rewrites(
-        "[[T0]] edited", stale, ()) == ("[[T0]] edited", stale)
+    for rows in (_rewrite_chain(3), ()):
+        replayed = replay_core.replay(
+            "[[T0]] edited", stale, rows, normalize_title)
+        assert (replayed.text, replayed.base_hash) == ("[[T0]] edited", stale)
 
 
 def test_replay_ignores_an_inline_record_whose_key_is_no_uid():
@@ -665,8 +666,9 @@ def test_replay_ignores_an_inline_record_whose_key_is_no_uid():
         base_hash=text_hash(before), after_hash=text_hash(after),
         old_text="not a uid", new_text="copy", kind="inline")
 
-    assert replay_core.replay_title_rewrites(
-        before, text_hash(before), (record,)) == (before, text_hash(after))
+    replayed = replay_core.replay(
+        before, text_hash(before), (record,), normalize_title)
+    assert (replayed.text, replayed.base_hash) == (before, text_hash(after))
 
 
 def test_clean_edit_with_block_rewrites_does_not_create_daily_page(db):
@@ -793,9 +795,10 @@ def test_replay_applies_one_multi_title_rewrite_as_a_single_step():
         replay_core.BlockRewrite(text_hash(before), text_hash(after), old, new)
         for old, new in (("A", "A2"), ("B", "B2")))
 
-    assert replay_core.replay_title_rewrites(
-        "[[A]] and [[B]] edited", text_hash(before), records) == (
-            "[[A2]] and [[B2]] edited", text_hash(after))
+    replayed = replay_core.replay(
+        "[[A]] and [[B]] edited", text_hash(before), records, normalize_title)
+    assert (replayed.text, replayed.base_hash) == (
+        "[[A2]] and [[B2]] edited", text_hash(after))
 
 
 # --- ops on missing blocks ---------------------------------------------------

@@ -5,10 +5,8 @@ broadcast() hands each frame to a small per-client queue and returns --
 it never waits on a client's network send. A dedicated "drain" task per
 connection is the sole consumer of that client's queue, so frames are
 delivered strictly in the order broadcast() was called for that client,
-even though delivery to different clients proceeds fully concurrently
-(the previous implementation awaited each client in turn with a
-one-second timeout, so N stalled clients added N seconds of latency to
-every write that broadcasts).
+even though delivery to different clients proceeds fully concurrently,
+so a stalled client adds no latency to the write that broadcasts.
 
 A client that fails to keep its queue draining (QUEUE_SIZE behind) or
 whose send doesn't complete within SEND_TIMEOUT is disconnected outright
@@ -55,13 +53,6 @@ class _Client:
 class Hub:
     def __init__(self) -> None:
         self._clients: dict[WebSocket, _Client] = {}
-
-    @property
-    def _conns(self) -> set[WebSocket]:
-        """Connected sockets. Named to match the previous attribute name
-        so existing call sites/tests reading connection membership don't
-        need to know about the per-client queue internals."""
-        return set(self._clients)
 
     async def connect(self, ws: WebSocket) -> None:
         await ws.accept()

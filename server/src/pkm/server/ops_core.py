@@ -136,6 +136,8 @@ def judge_batch(batch: OpBatch) -> JudgedBatch:
     the write lock and the event loop. Limits first, over the whole batch:
     the title pass runs `extract` over every text, which must never read
     one past the caps."""
+    # proptest/sync_server.py and props/test_teeth.py replace this through
+    # this module global, so call it by its bare name.
     limit = find_op_text_limit_violation(batch.ops)
     if limit is not None:
         raise OpError(

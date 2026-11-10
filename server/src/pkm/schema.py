@@ -209,7 +209,7 @@ CREATE TABLE IF NOT EXISTS applied_batches(
 --   inline   old_title = the target block uid, new_title = the copied text
 -- The allowed values are enforced by SQLite's CHECK and the RewriteKind type.
 -- store.rewrite_snapshotted_blocks writes a row per changed block per title
--- it rewrote there, and replay_core.replay_title_rewrites
+-- it rewrote there, and replay_core.replay
 -- replays them over a stale device's update_text so an unsynced edit cannot
 -- carry the old title (or ref) back and re-create the page it was renamed
 -- or deleted away from.

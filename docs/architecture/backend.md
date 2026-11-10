@@ -60,7 +60,8 @@ server/
 ├── origin_core.py, origin_guard.py  Core / Shell  allowed origins; OriginGuardMiddleware
 ├── security_headers.py  Shell  middleware adding fixed security headers
 ├── routes_*.py          Shell  the HTTP surface
-├── ops_core.py          Core   plan_op(), classify_skip, classify_text_edit
+├── ops_core.py          Core   judges, skips, contexts, effects; plan_op(), classify_skip
+├── replay_core.py       Core   the rewrite replay: walk, steps, budget charges, classify_text_edit
 ├── ops_hash.py          Core   the hashes that bind a batch_id to one payload
 ├── ops_expect.py        Core   which `expect` entry no longer holds
 ├── conflict_notes.py    Core   the text of conflict headers and skip notes
@@ -76,6 +77,10 @@ server/
 neither side; `tests/test_client_contracts.py` fails on an import that
 crosses back. The assistant and describe routes live outside `pkm/server/`;
 `app.py` mounts them.
+
+`pkm/planning.py` plans a write on the CLI, MCP and client side, as ops to
+post. The server's planner is `ops_core.plan_op`, which turns one received op
+and its context into effects ([Planning](#planning)).
 
 ## Database
 
@@ -161,7 +166,7 @@ tables kept in step by triggers. `blocks_fts` is keyed by implicit rowid, so
 |---|---|---|
 | `changes` | The append-only journal: `seq`, `kind`, `entity_id`, `deleted`, `page_id` | Triggers on `blocks`, `pages` and `sidebar_entries`, so a new write path is journalled automatically; also `JournalBlock` ([Missing targets](#missing-targets)) |
 | `applied_batches` | Each batch's request hash and stored ack | `post_ops` |
-| `block_rewrites` | What a rename, merge, title migration or page delete did to one block's text, replayed over a stale edit ([Conflicts](#conflicts)). Pruned after `BLOCK_REWRITE_RETENTION_MS` | `store.rewrite_snapshotted_blocks` (rename, merge, title migration), `store._record_delete_rewrite` (page delete), `ops_apply._execute` on a `RecordRewrite` that `ops_core.rewrite_effects` plans |
+| `block_rewrites` | What a rename, merge, title migration or page delete did to one block's text, replayed over a stale edit ([Conflicts](#conflicts)). Pruned after `BLOCK_REWRITE_RETENTION_MS` | `store.insert_block_rewrites` only, for `store._record_block_rewrite` (rename, merge, title migration), `store._record_delete_rewrite` (page delete), `ops_apply._execute` on a `RecordRewrite` that `ops_core.rewrite_effects` plans |
 | `page_deletions` | Each user-deleted page's title and the journal head after it ([Stale batches](#stale-batches)). Pruned on the same window | `store.delete_page_unlinking` only |
 | `conflict_headers` | Today's conflict header per block; a new header deletes other days' rows | `ops_apply._execute` |
 | `sync_meta` | `db_generation` (a rebuilt or restored database gets a new one and clients rebootstrap) and the `plain_space_title_canonicalization` flag | startup, title migration apply, `pkm.backup.restore` |
@@ -228,14 +233,15 @@ otherwise, never the texts.
 
 The single-chain walks carry `path` as `,uid,uid,…,` and keep a row only
 while `instr(c.path, ',' || b.uid || ',') = 0`, so a cycle stops at the
-repeat. `UID_RE` admits no comma, so the test is exact. Each walk has a
+repeat. `ops_apply._unvisited` is the one place that test is spelled.
+`UID_RE` admits no comma, so the test is exact. Each walk has a
 replica mirror; change a pair together. None caps depth, so a chain deeper
 than `MAX_OUTLINE_DEPTH` from before the cap reads whole.
 
 | Walk | Server | Replica mirror | Cycle guard |
 |---|---|---|---|
 | Ancestors with text, for breadcrumbs and backlink groups | `routes_pages._fetch_ancestors` | `localApi/tree.ts::fetchAncestors` | `UNION` |
-| One block's parent chain, for a move's cycle check | `ops_apply._parent_chain` | `localOps.ts::parentChain` | path string |
+| One block's parent chain, for a move's cycle check and the assistant card's ancestors | `ops_apply.parent_chain` | `localOps.ts::parentChain` | path string |
 | One block's subtree, deepest first, for delete, re-paging and journalling | `ops_apply._subtree_deepest_first` | `localOps.ts::subtreeUids` | path string |
 
 ## Typed boundaries
@@ -426,6 +432,13 @@ back on any raise and commits on a clean exit, a `return` included. The nudge fo
 a `.commit()` in `pkm/server` outside it (`upload_asset` alone is allow-listed:
 `assets` is not journalled).
 
+A read of several statements, such as a sync payload or the assistant's
+card, takes one snapshot through `db.read_txn`, without the write lock. A
+write committed between its statements then cannot reach half of the
+payload. The same test file fails on a bare `BEGIN` in `pkm/server` or
+`pkm/assistant` outside `db.py`, and on a write, commit or rollback inside a
+`with read_txn` body.
+
 | Route | Lock taken before |
 |---|---|
 | `POST /api/ops` | the dedupe read and every op's context read; the text and title judges run before it, in the threadpool |
@@ -458,15 +471,17 @@ the pages deleted since the batch's `seen_seq`.
 
 ### Planning
 
-`ops_apply._context_for` classifies each op once (`classify_skip`, and
-`classify_text_edit` for a hashed edit) and hands `plan_op` the context type
-that classification calls for, such as `TextConflictContext` or
-`StuckMoveContext`. `apply_batch` reads the ack's skip off the same context.
-`ops_apply._context_for` passes every context field. Some have defaults,
-so a construction that omits one takes it silently.
-A context that does not fit its op is an `AssertionError`, a 500 the client
-retries; it must never be a 400, which would poison the client's queue over a
-server bug.
+Planning here is `ops_core.plan_op`: one op and its context in, effect
+tuples out. `ops_apply._context_for` classifies each op once (`classify_skip`,
+and `replay_core.classify_text_edit` for a hashed edit) and hands `plan_op`
+the context type that classification calls for, such as
+`TextConflictContext` or `StuckMoveContext`. `apply_batch` reads the ack's
+skip off the same context. No context field has a default. A hashed
+edit's context carries the whole `TextEditOutcome`, which `plan_op` plans
+from and `apply_batch` charges. A context that does not fit its op, or an
+outcome that does not fit its context, is an `AssertionError`. That is a
+500 the client retries; it must never be a 400, which would poison the
+client's queue over a server bug.
 
 - **Ordering.** An insert or move emits `ShiftSiblings`, bumping every
   sibling at or above the target `order_idx`. Nothing renumbers the gaps this
@@ -486,7 +501,10 @@ server bug.
   stored ack with no effects; with other ops it is a 409. The stored
   `batch_replay_hash` (`ops_hash.py`) leaves out `base_text_hash`,
   `update_text`'s `page_title` and `base_subtree_hash`, which the worker may
-  fill into only the durable copy of a batch.
+  fill into only the durable copy of a batch. A change to what either hash
+  covers re-hashes every stored batch of that kind, and a retry across the
+  deploy then 409s. `op_hashes.json` pins both hashes for every op kind,
+  and a new optional field must be left out of the hash while unset.
 - **Well-formed text.** `WellFormedModel` turns lone surrogates into U+FFFD
   ([Hostile input](#hostile-input)). The rule is to normalise, never reject:
   SQLite cannot bind a surrogate, a 5xx is retried forever and a 4xx poisons
@@ -523,65 +541,63 @@ server bug.
   the text the replay makes. Each link grows by up to the title's growth
   (a title may be `MAX_PAGE_TITLE_CHARS` long, a legacy one longer), so the
   replayed text could be orders of magnitude past the cap.
-  `ops_core._replay_step` projects each splice's length from its spans
-  (`spans.spliced_length`) and stops before building one past
-  `MAX_BLOCK_TEXT_CHARS`. It also stops, before the step's unlink, when the
-  spliced copies nest past `MAX_LINK_NESTING` deeper than the step found
-  the text, or when their depth times length passes `MAX_UNLINK_WORK` and
-  the text's own (`text_limits.unlink_refused`). A link the step's unlink
-  leaves when its passes run out is fenced, as on the
+  `replay_core._replay_step` stops a step before it builds text past
+  `MAX_BLOCK_TEXT_CHARS`, or past `MAX_LINK_NESTING` or `MAX_UNLINK_WORK`
+  beyond the text it was given, judging from the spans before it splices
+  (`spans.spliced_length`, `text_limits.unlink_refused`). A link the
+  step's unlink leaves when its passes run out is fenced, as on the
   [stale path](#stale-batches). `classify_text_edit` then judges the
   result with `text_limit_violation`. Either refusal is the `over_limit`
   outcome: the block keeps its text, and the edit lands as a conflict
   entry. A 400 would poison the client's queue over text it never sent.
   The entry is the edit as sent with every title the replay's chain deleted
-  or renamed away made plain (`ops_core.over_limit_landing_text`), or its
-  links would re-create those pages. The chain is walked past the step
-  that stopped the replay, so a later step's titles count too. The replay
-  and the landing match titles through `title_reader` whenever the block
-  has a rewrite row (`ops_apply._context_for`), as the rename or delete
-  they replay did: under plain-space canonicalisation a `[[ Old ]]` the
-  client added offline is the page `Old`, and left linked it re-creates it.
+  or renamed away made plain (`replay_core.over_limit_landing_text`), or
+  its links would re-create those pages. The chain is walked past the step
+  that stopped the replay, so a later step's titles count too.
+- **Title reader.** `apply_batch` reads the title flag once
+  (`title_reader`) and passes that one reader to every title the batch
+  resolves, every replay and every landing. The replay must match titles
+  as the rename or delete it replays did: under plain-space
+  canonicalisation a `[[ Old ]]` the client added offline is the page
+  `Old`, and left linked it re-creates it. A step derives its canonical
+  titles once per batch, so asking it under a second reader is an
+  `AssertionError` (`replay_core._derived`).
 - **Replay budget.** A batch's replays share one budget,
-  `ops_core.MAX_BATCH_REPLAY_WORK`, counted in characters. The rows a
-  replay reads, and the copies and titles it splices, come from the
-  server's history, not the request, and a block can hold millions of
-  rows. Without the budget a batch of tiny edits could hold the write lock
-  for minutes. It is charged:
+  `replay_core.MAX_BATCH_REPLAY_WORK`, counted in characters. It bounds
+  all the work a batch derives from the server's history rather than the
+  request: the rows a replay reads, and the copies and titles it splices.
+  A block can hold millions of rows, so without the budget a batch of tiny
+  edits could hold the write lock for minutes. It is charged:
 
   | Work | Charge |
   |---|---|
-  | reading the rows from one base hash (`ops_apply.BatchReplay`) | each row's old and new text in bytes, plus `ops_core.ROW_CHARS` |
+  | reading the rows from one base hash (`ops_apply._rewrites_within`) | each row's old and new text in bytes, plus `replay_core.ROW_CHARS` |
   | an unlink | what the capped unlink can read (`unlink.unlink_reads`) |
   | a rename | the text it scans plus the text it splices, since a longer title grows every link |
-  | the [rows](#conflicts) an op records for a step that changed its text (`ops_core._charged`) | each row's old and new text, plus `ROW_CHARS`; an inline row's new text is its copy |
+  | the [rows](#conflicts) an op records for a step that changed its text (`replay_core._charged`) | each row's old and new text, plus `ROW_CHARS`; an inline row's new text is its copy |
 
-  When a step would pass what is left, the edit lands as sent, as for
-  `over_limit`, and that step spends the rest, so every later step stops
-  before splicing. A step a cap stops (the length cap, or an unlink
-  refused for its depth) pays for what it scanned or built
-  (`ops_core._spent`). A stopped step is not kept, so a step that paid
-  nothing would be done again by every op of the batch. A replay runs
-  each step once: the rewrite rows and their check look up the
-  classification's steps by what `_replay_step` depends on
-  (`ops_core._step_key`) instead of replaying them again.
+  The allowance falls only in `ops_apply.BatchReplay._spend`. `_read`
+  debits a hash's rows as a walk reaches them, and `BatchReplay.charge`
+  debits each hashed edit's replay once `plan_op` has planned it, before
+  its effects record rows. When a step would pass what is left, the edit
+  lands `over_limit`, and that step spends the rest, so every later step
+  stops before splicing. A step a cap stops pays for what it scanned or
+  built (`replay_core._spent`). A stopped step is not kept, so a step that
+  paid nothing would be done again by every op of the batch.
 
   Nothing an op does beyond its charge may grow with the block's rows or
   a step's titles. Otherwise one stale edit linking many deleted titles
-  makes every later edit of the block pay for all of them.
-  `ops_apply.BatchReplay` reads a block's rows one base hash at a time,
-  only when an edit's walk reaches that hash (`RewriteHistory.lazy`,
-  `next_unread`), through `idx_block_rewrites_uid` in rowid order. One
-  statement charges and reads a hash (`_rewrites_within`). It sums the
-  sizes of at most as many rows as the allowance could pay for. The
-  measure uses `octet_length`, so it reads each measured row's record
-  header and none of its text, overflow pages included. The text loads
-  only when the sum fits. A hash too costly to read stops the walk
-  blind: the edit lands as sent, with every link made plain, since any
-  could name a page the unread chain deleted. The batch keeps what it read and what it records, so no hash
-  is read twice. Each step's key parts are built once (`_step_key`), and
-  its canonical title sets once under the batch's one canonicalisation
-  (`ops_core._derive`).
+  makes every later edit of the block pay for all of them. So a block's
+  rows are read one base hash at a time, only when an edit's walk reaches
+  that hash (`BatchReplay.walk`, `RewriteHistory.next_unread`).
+  `_rewrites_within` reads them through `idx_block_rewrites_uid` and sizes
+  them with `octet_length` before it loads any text. A hash too costly to
+  read stops the walk blind: the edit lands as sent, with every link made
+  plain, since any could name a page the unread chain deleted. The batch
+  keeps what it read and what it records, so no hash is read twice. A
+  replay runs each step once: the rewrite rows look up the
+  classification's steps by what `_replay_step` depends on
+  (`replay_core._step_key`) instead of replaying them again.
 
 Conflicts, missing targets, stale batches and concurrent structure edits are
 what a batch meets when the tree changed after it was planned. None rejects
@@ -615,12 +631,12 @@ title, only when `[[Page]]` reads back as it
 (`conflict_notes.existing_page_label`). `contracts.ops.new_uid` starts uids
 with an alphanumeric so the CLI can address them without `--`.
 
-`ops_core.classify_text_edit` sorts a hashed `update_text` on a live block,
+`replay_core.classify_text_edit` sorts a hashed `update_text` on a live block,
 checking in this order:
 
 | Situation | Outcome |
 |---|---|
-| `base_text_hash` matches a pre-rewrite snapshot of this block | The `block_rewrites` rows replay over the incoming text (`ops_core.replay_title_rewrites`), which then meets the rows below |
+| `base_text_hash` matches a pre-rewrite snapshot of this block | The `block_rewrites` rows replay over the incoming text (`replay_core.replay`), which then meets the rows below |
 | The replay would be over a text limit | The block keeps its text; the edit as sent lands under a conflict header, and the ack lists the op as skipped (`text_limit`) |
 | Incoming text equals current | No-op, even with a stale hash |
 | `hash(current) == base_text_hash` | Clean apply |
@@ -635,7 +651,7 @@ So `ops_core.rewrite_effects` plans a `block_rewrites` chain
 (`RecordRewrite`) from the sent text's hash to the written one.
 
 The chain's stale-unlink rows name each stale title whose own unlink would
-change the sent text. `ops_core.stale_titles_linked` finds them in one pass
+change the sent text. `replay_core.stale_titles_linked` finds them in one pass
 that matches nothing and records every title the unlink asks about
 (`unlink.linked_titles`). It then intersects those with the stale set,
 which walks the text's titles, not the deletions. Probing each title with
@@ -644,7 +660,7 @@ client picks that number. Recording what the full-set unlink matched would
 instead name a title that only another's unlink exposes (`[[z [[y]]]]` with
 `y` and `z y` deleted), which the rows must not.
 
-A replayed step is recorded whole (`ops_core._step_records`): every
+A replayed step is recorded whole (`replay_core._step_records`): every
 title, rename and copy it holds, not only what the sent text moved. The
 client's next queued edit is hashed on the sent text and replays these
 rows. A ref it adds back must still get its copy, and a link it adds back
@@ -783,7 +799,7 @@ deletion as newer.
 |---|---|
 | `create_page` for a stale title | dropped, not reported; the replica removes its page (`dropStrandedLocalPages`) |
 | top-level `create` / `move` with a stale `page_title` | skipped as `stale_page` (a `SkipKind`), reported `page_deleted` (a `SkipReason`) ([above](#missing-targets)) |
-| text linking a stale title | the links become plain text (`ops_core.unlink_stale_text`) |
+| text linking a stale title | the links become plain text (`replay_core.unlink_stale_text`) |
 | a leading `Title::` naming a stale title | fenced in place, `` `X`:: v `` (`unlink.defuse_attribute`), so it indexes no ref; the unlink replay defuses too. A text at the cap is stored two characters past it ([Planning](#planning)) |
 
 `unlink_stale_refs` fences what the unlink's passes leave: the title goes
@@ -1467,6 +1483,7 @@ below, in the order its `STEPS` table holds; add a dump to that table, which
 | `missing_targets.json` | hand-edited | `test_ops_core.py` | `classify_skip`; `placement_cases` pin where a create or move lands |
 | `subtree_hash.json` | hand-edited | `test_subtree_hash.py` | `subtree_hash` |
 | `ops_acks.json` | hand-edited | `test_ops_idempotency.py` | the stored-ack-to-wire mapping and `SkipReason` |
+| `op_hashes.json` | hand-edited, never regenerated: a pin that moved would bless the break | `test_ops_idempotency.py` | `batch_request_hash` and `batch_replay_hash` for every op kind, bare and with every optional field set; which fields each leaves out (`HASHED_FIELDS`, `DROPPED_WHEN_UNSET`, `REPLAY_EXCLUDED`) |
 | `batch_limits.json` | hand-edited | `test_batch_limits_fixture.py` | `MAX_OPS_PER_BATCH`, `PRIVATE_BODY_MAX_BYTES` |
 | `outline_depth.json` | hand-edited | `test_outline_depth.py` | `MAX_OUTLINE_DEPTH`, equal to the web's `depthCap.ts` |
 | `draft_flush.json` | hand-edited | `test_ops_endpoint.py` | the op an editor draft flushes |

@@ -88,6 +88,7 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
       if (isPdfHref(seg.href)) {
         return (
           <PdfEmbed
+            key={seg.href}
             href={seg.href}
             label={pdfLabelFromHref(seg.href)}
             deferred={isDeferredPdfHref(seg.href)}
@@ -100,7 +101,10 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
       const goodlinksId = goodlinksIdFromHref(seg.href);
       if (goodlinksId !== null) return <GoodlinksLink linkId={goodlinksId} label={seg.text} />;
       if (isPdfHref(seg.href)) {
-        return <PdfEmbed href={seg.href} label={seg.text} deferred={isDeferredPdfHref(seg.href)} />;
+        return (
+          <PdfEmbed key={seg.href} href={seg.href} label={seg.text}
+                    deferred={isDeferredPdfHref(seg.href)} />
+        );
       }
       // A bare URL (text === href) asks for the embed; a labelled link
       // ([source](url)) is the author choosing a link, so it stays a link.

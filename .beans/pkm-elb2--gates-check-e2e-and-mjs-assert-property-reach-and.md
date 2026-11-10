@@ -14,7 +14,7 @@ Plan: docs/superpowers/plans/2026-11-09-maintainability-review-fixes.md § W17. 
 
 Task plan: docs/superpowers/plans/2026-11-10-w17-gates-and-tooling.md
 
-- [ ] T1 every server property file is marked or allowed
+- [x] T1 every server property file is marked or allowed
 - [ ] T2 server gate suites assert reach
 - [ ] T3 server teeth
 - [ ] T4 one web gate driver (gate.ts)
@@ -27,7 +27,7 @@ Task plan: docs/superpowers/plans/2026-11-10-w17-gates-and-tooling.md
 - [x] T11 one registry path matcher on both sides
 - [ ] T12 tooling .mjs type-checked and linted
 - [ ] T13 perf investigation toolkit gets its own port (or retires)
-- [ ] T14 orchestrator cleanups
-- [ ] T15 one regeneration command
-- [ ] T16 budgets carry one sentence per limit
+- [x] T14 orchestrator cleanups
+- [x] T15 one regeneration command
+- [x] T16 budgets carry one sentence per limit
 - [ ] T17 docs say what W17 made true

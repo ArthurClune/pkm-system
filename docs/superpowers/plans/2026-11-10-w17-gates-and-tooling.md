@@ -361,10 +361,11 @@ Machine-wide serial resources: port 8978 (any `proptest/check.sh web`: T4, T5, T
 | `perf/check.sh backend`, then `perf/check.sh frontend` | orchestrator, serially, on the branch before merge (T13, T14 and T12 touch the perf harness) |
 | `proptest/check.sh` in full, both sides | orchestrator, after T2 to T6 merge, and on the final branch |
 
-## Questions for Arthur
+## Decisions (Arthur, 2026-11-10)
 
-1. **`.mjs` to `.ts`?** W17 says JSDoc plus `checkJs`. Node 26 on this machine runs `.ts` by stripping types, so the plugin, `fcis*`, `genTypes*` and `perf/check.mjs`/`harness.mjs` could become `.ts`, with `erasableSyntaxOnly` and an `engines.node` floor. Recommendation: convert. That gives one type syntax across tooling, the existing `tooling/**/*.{ts,tsx}` lint glob covers the files with no config change, and JSDoc for the TypeScript compiler API is verbose. The plan defaults to W17's JSDoc route until you say otherwise.
-2. **Lint the tooling scripts as well as type-check them?** W17 names only `checkJs`. Recommendation: yes, under the same rules as `.ts` tooling, per "whole set, no exemptions". With conversion (Question 1) this comes free.
-3. **The e2e brand route.** Recommendation: e2e stays under the brand rules. Add a vitest-free test mint module, re-exported by `test-helpers.ts` and registered in `TEST_MINT_SITES`, one e2e JSON boundary file in `OPT_OUT_FILES` with a single opt-out line, and `web/e2e/` in `TEST_CODE`. The alternative, turning brand rules off for `e2e/**`, is an exemption for code agents copy.
-4. **Retire the perf investigation toolkit** (`perf.mjs`, `ws-probe`, `offline-probe`, `seed`, `summarize`; `baselines/` kept as the record), instead of moving it to 8976 and typing it? Recommendation: retire, unless you still run it. It is untested, unchanged since September, and accounts for about 140 tsc errors and 400 lint findings of Task 12. The plan defaults to W17's "keep, port 8976".
-5. **Floor measurement cost:** 30 unseeded runs of each gate suite is about 2¼ hours for the server side and 3¼ hours for the web side, serial, with port 8978 held throughout. Recommendation: accept it, run as one unattended job by the orchestrator. The alternative, floors only on the pure web suites (`assistant`, `journal`, `outline`, `draft`, `queue`), leaves `sync`'s "armed but never fired" signal advisory.
+These replace the defaults the tasks above name where they differ.
+
+1. **Tooling scripts become `.ts`** (Task 12 takes its "convert to `.ts`" route), and so are linted by the existing `tooling/**/*.{ts,tsx}` glob.
+2. **e2e stays under the brand rules** (Task 7): a vitest-free test mint module re-exported by `test-helpers.ts` and registered in `TEST_MINT_SITES`, one e2e JSON boundary file in `OPT_OUT_FILES` with a single opt-out line, and `web/e2e/` in `TEST_CODE`.
+3. **The perf investigation toolkit is retired** (Task 13 takes its "retire" route): `perf.mjs`, `ws-probe.mjs`, `offline-probe.mjs`, `seed.mjs` and `summarize.mjs` go, `baselines/` stays as the record, and no port 8976 row is added anywhere.
+4. **Floors come from the full measurement** (Tasks 2 and 5): 30 unseeded runs of every gate suite, run by the orchestrator as one unattended serial job.

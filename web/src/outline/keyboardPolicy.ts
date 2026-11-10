@@ -41,6 +41,8 @@ export interface EditorKeyInput {
   /** The IME owns this keystroke (useBlockDraft's imeOwns): it commits,
    * cancels or navigates a composition, so every key is "none". */
   composing: boolean;
+  /** The inline /date picker is open, and owns Escape. */
+  datePickerOpen: boolean;
 }
 
 export type KeyDecision =
@@ -48,6 +50,7 @@ export type KeyDecision =
   | { type: "ac-pick" }
   | { type: "ac-close" }
   | { type: "blur" }
+  | { type: "close-date-picker" }
   /** sidebar: Ctrl-Shift-O — open in the sidebar (same as shift-clicking a
    * wiki link) instead of navigating the main pane. */
   | { type: "navigate-ref"; title: NormalizedTitle; sidebar: boolean }
@@ -142,6 +145,9 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   const caretOnly = i.selStart === i.selEnd;
 
   if (i.composing) return NONE;
+  if (i.datePickerOpen && i.key === "Escape") {
+    return { type: "close-date-picker" };
+  }
   // Option/Alt+Arrow belongs to native text navigation. Catch every modifier
   // variant before autocomplete, Shift selection, or boundary-arrow handling
   // can claim it.

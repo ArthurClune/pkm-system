@@ -252,13 +252,6 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       ? measureCaretDisplayLine(el, el.selectionStart)?.first : undefined;
     const caretOnLastDisplayLine = plain && e.key === "ArrowDown"
       ? measureCaretDisplayLine(el, el.selectionEnd)?.last : undefined;
-    // The /date picker owns Escape while open; everything else falls
-    // through to the normal policy (typing closes the picker via onChange).
-    if (!composing && datePickerAt !== null && e.key === "Escape") {
-      e.preventDefault();
-      setDatePickerAt(null);
-      return;
-    }
     const decision = decideKey({
       key: e.key, code: e.code,
       metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey,
@@ -279,6 +272,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       selStart: el.selectionStart, selEnd: el.selectionEnd,
       draft: draft.text, readOnly,
       acRowsLength: acLive ? acRows.length : 0, acSelected,
+      datePickerOpen: datePickerAt !== null,
     });
   };
 
@@ -291,6 +285,10 @@ export function BlockInput({ node, cursor, handlers, readOnly,
         return;
       case "blur":
         el.blur();
+        return;
+      case "close-date-picker":
+        e.preventDefault();
+        setDatePickerAt(null);
         return;
       case "ac-move":
         e.preventDefault();

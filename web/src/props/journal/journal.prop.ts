@@ -6,11 +6,12 @@
 //
 // A failure prints the seed, the path, the shrunk example, every problem at
 // the first failing step and a replay line. The tally of what the examples
-// reached is printed once, after the file.
+// reached is printed after the reach run.
 import fc from "fast-check";
-import { afterAll, test } from "vitest";
+import { test } from "vitest";
 import { SEED } from "../env";
-import { checkGateProperty } from "../gate";
+import { checkGateProperty, EXAMPLES, judgeReach } from "../gate";
+import { bump, type Reach, showTally, type Tally } from "../reach";
 import { captureFaultWarnings } from "../warningsCapture";
 import { exampleArb, type Example } from "./arbitraries";
 import { runExample } from "./run";
@@ -22,15 +23,6 @@ captureFaultWarnings("journal");
  * a second. */
 export const NUM_RUNS = 60_000;
 const PROPERTY_LIMIT_MS = 40_000;
-
-const tally = new Map<string, number>();
-let examples = 0;
-
-afterAll(() => {
-  const rows = [...tally.entries()].sort(([a], [b]) => a.localeCompare(b))
-    .map(([label, n]) => `  ${label}: ${n} (${(100 * n / Math.max(1, examples)).toFixed(1)}%)`);
-  console.log(`journal reach over ${examples} examples:\n${rows.join("\n")}`);
-});
 
 const show = ([example]: [Example]): string =>
   `counterexample: serverDays ${example.serverDays}\nsteps\n${
@@ -47,11 +39,17 @@ test("journal paging property", async () => {
   });
 });
 
+/** Where each label must stay above its share of EXAMPLES. */
+const REACH: Reach = { per: EXAMPLES, floors: {} };
+
 // The tally is drawn from its own run of the same seed, so counting never
 // sits inside the property under test, where shrinking would recount.
 test("journal paging reach", async () => {
+  const tally: Tally = new Map();
   await fc.assert(fc.asyncProperty(exampleArb, async (example) => {
-    examples += 1;
-    for (const label of runExample(example).reached) tally.set(label, (tally.get(label) ?? 0) + 1);
+    bump(tally, EXAMPLES);
+    for (const label of runExample(example).reached) bump(tally, label);
   }), { numRuns: NUM_RUNS / 10, seed: SEED });
+  console.log(showTally("journal property", tally, EXAMPLES));
+  judgeReach("journal property", tally, REACH);
 });

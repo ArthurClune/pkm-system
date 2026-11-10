@@ -9,7 +9,8 @@
 // trace of it, the problems and a replay line. The tally of what the
 // examples reached is printed after the property.
 import { test } from "vitest";
-import { checkGateProperty } from "../gate";
+import { checkGateProperty, EXAMPLES } from "../gate";
+import type { Reach } from "../reach";
 import { captureFaultWarnings } from "../warningsCapture";
 import { actionsArb, type Action } from "./arbitraries";
 import { REAL, runActions, type Tally } from "./run";
@@ -23,6 +24,8 @@ export const NUM_RUNS = 1_300_000;
 const PROPERTY_LIMIT_MS = 60_000;
 
 const tally: Tally = new Map();
+/** Where each label must stay above its share of EXAMPLES. */
+const REACH: Reach = { per: EXAMPLES, floors: {} };
 
 const show = ([actions]: [Action[]]): string =>
   `actions:\n${actions.map((a, i) => `  ${i} ${JSON.stringify(a)}`).join("\n")}\n` +
@@ -35,6 +38,6 @@ test("assistant chat machine property", async () => {
       const { problems } = runActions(actions, REAL, tally);
       if (problems.length > 0) throw new Error(problems.join("\n"));
     },
-    numRuns: NUM_RUNS, limitMs: PROPERTY_LIMIT_MS, show, tally,
+    numRuns: NUM_RUNS, limitMs: PROPERTY_LIMIT_MS, show, tally, reach: REACH,
   });
 });

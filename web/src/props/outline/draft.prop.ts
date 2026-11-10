@@ -14,8 +14,8 @@
 //
 // A failure prints the seed, the path, the shrunk example and a replay line.
 import { test } from "vitest";
-import { checkGateProperty } from "../gate";
-import { bump, type Tally } from "../reach";
+import { checkGateProperty, EXAMPLES } from "../gate";
+import { bump, type Reach, type Tally } from "../reach";
 import { captureFaultWarnings } from "../warningsCapture";
 import { runDraftExample } from "./draftHarness";
 import { draftExampleArb, type DraftExample } from "./draftModel";
@@ -29,6 +29,8 @@ export const NUM_RUNS = 3_500;
 const PROPERTY_LIMIT_MS = 45_000;
 
 const tally: Tally = new Map();
+/** Where each label must stay above its share of EXAMPLES. */
+const REACH: Reach = { per: EXAMPLES, floors: {} };
 
 const show = ([example]: [DraftExample]): string =>
   `counterexample: start ${JSON.stringify(example.start)}\ncommands\n${
@@ -42,6 +44,6 @@ test("outline draft property", async () => {
       for (const label of run.labels) bump(tally, label);
       if (run.problems.length > 0) throw new Error(run.problems.join("\n"));
     },
-    numRuns: NUM_RUNS, limitMs: PROPERTY_LIMIT_MS, show, tally,
+    numRuns: NUM_RUNS, limitMs: PROPERTY_LIMIT_MS, show, tally, reach: REACH,
   });
 });

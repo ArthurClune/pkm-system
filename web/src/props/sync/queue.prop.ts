@@ -11,8 +11,8 @@
 // skipped by its precondition, and how often each named interleaving was
 // reached.
 import { afterEach, beforeEach, test, vi } from "vitest";
-import { checkGateProperty } from "../gate";
-import { bump, type Tally } from "../reach";
+import { checkGateProperty, EXAMPLES } from "../gate";
+import { bump, type Reach, type Tally } from "../reach";
 import { captureFaultWarnings } from "../warningsCapture";
 import { queueCommands, QueueReport } from "./queueArbitraries";
 import { type QueueCmd, runQueueExample, showCmd } from "./queueHarness";
@@ -23,6 +23,8 @@ const NUM_RUNS = 10_000;
 const PROPERTY_LIMIT_MS = 60_000;
 
 const tally: Tally = new Map();
+/** Where each label must stay above its share of EXAMPLES. */
+const REACH: Reach = { per: EXAMPLES, floors: {} };
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); });
 afterEach(() => { vi.useRealTimers(); });
@@ -38,7 +40,7 @@ test("the barrier holds for every owner, and the lane keeps enqueue order", asyn
           `drawn: ${cmds.map(showCmd).join("; ")}`);
       }
     },
-    numRuns: NUM_RUNS, limitMs: PROPERTY_LIMIT_MS, tally,
+    numRuns: NUM_RUNS, limitMs: PROPERTY_LIMIT_MS, tally, reach: REACH,
     show: ([cmds]) => `counterexample: ${cmds.map(showCmd).join("; ")}`,
   });
 });

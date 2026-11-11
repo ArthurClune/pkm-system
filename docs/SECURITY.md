@@ -74,7 +74,7 @@ can make GoodLinks fetch an uncached page.
 | Surface | What it reaches | Confinement | Owner |
 |---|---|---|---|
 | `/api/local/{path}`, `/api/local-check`, `/api/local-index` | files under `local_docs_root` on the host, read-only | `clean_relative` rejects `..` and absolute paths, and `is_within` refuses a symlink out. A path that escapes the root gets the same 404 as a missing file, so a response never confirms what exists outside it. Inside the root a session may read any file a clean relative path names, dotfiles included, and the index lists all but dotfiles. Only PDFs and raster images (`_INLINE_EXT`, `local_docs.py`) serve inline; everything else, HTML and SVG included, downloads with `nosniff` | [files-and-assets.md § Local documents](architecture/files-and-assets.md#local-documents) |
-| `GET /api/goodlinks/{link_id}` | HTML GoodLinks extracted from a web page: the only third-party HTML the app supplies as a document's source (`srcdoc`) | an `nh3` allowlist (`sanitize_article`), then a sandboxed `srcdoc` iframe with no script or origin access. Neither barrier may be loosened. Article images load from their original hosts, which see the reader's IP. `GoodlinksGateway.content` asks for the article's HTML without turning off GoodLinks' download of an uncached page, so opening the reader on such a link makes GoodLinks, on the PKM host, fetch the page from its site. | [files-and-assets.md § GoodLinks copies](architecture/files-and-assets.md#goodlinks-copies) |
+| `GET /api/goodlinks/{link_id}` | HTML GoodLinks extracted from a web page: the only third-party HTML the app supplies as a document's source (`srcdoc`) | an `nh3` allowlist (`sanitize_article`), then a sandboxed `srcdoc` iframe with no script or origin access. Neither barrier may be loosened. Article images load from their original hosts, which see the reader's IP. `GoodlinksGateway.content` asks for the article's HTML without turning off GoodLinks' download of an uncached page, so opening the reader on such a link makes GoodLinks, on the PKM host, fetch the page from its site. | [files-and-assets.md § Sanitising the article HTML](architecture/files-and-assets.md#sanitising-the-article-html) |
 | `POST /api/goodlinks/resolve` with `save: true` | any URL, fetched by GoodLinks on the PKM host, a loopback or LAN address included | nothing in PKM restricts the URL; the reader route then returns what GoodLinks extracted from it | [files-and-assets.md § The reader](architecture/files-and-assets.md#the-reader-and-the-goodlinks-command) |
 | uploaded assets | images, PDFs and documents under `assets_dir` | `max_upload_bytes`; a type allowlist (`ALLOWED_UPLOAD_MIME`, else `415`); lookup by digest, never by the requested filename; only `INLINE_MIME` types render inline, and SVG and other active types download with `nosniff` | [files-and-assets.md § Assets](architecture/files-and-assets.md#assets-and-the-file-browser) |
 | image descriptions | sends each eligible stored image to OpenAI: each upload, and every undescribed one on `POST /api/assets/scan` | the complete stored image goes, EXIF, GPS and any other embedded metadata included, but no note text or filename. On whenever an OpenAI key is present; `image_descriptions=false` in `config.json` turns it off, and `GET /api/assets/describe-status` says why it is off | [files-and-assets.md § Image descriptions](architecture/files-and-assets.md#image-descriptions) |
@@ -123,56 +123,28 @@ user's Claude login, and `glm` reads its key from `zai_api_key_file` or
 - **Prompt injection.** Note content is untrusted input to the model. A fully
   injected model can reach only the
   [`pkm-mcp` tools](architecture/cli-and-mcp.md#the-mcp-tool-surface) named
-  in `READ_TOOLS` and `WRITE_TOOLS` (`policy.py`). The harness starts
-  `pkm-mcp` with only those, so `upload_asset`, which reads a host path as
-  the service account, is not registered (`MCP_ONLY_TOOLS`); the
-  standalone `pkm-mcp` keeps it, running as whoever starts it. Every
-  built-in tool is disabled (no shell, filesystem or web),
-  `setting_sources=[]` ignores filesystem settings and `CLAUDE.md`, and
-  `--strict-mcp-config` keeps the account's claude.ai connectors out. A
-  reply can send note text out only through a link or media the user
+  in `READ_TOOLS` and `WRITE_TOOLS` (`policy.py`): no built-in tool (shell,
+  filesystem or web), no filesystem settings or `CLAUDE.md`, no claude.ai
+  connectors, and not `upload_asset`, which reads a host path as the service
+  account ([harness confinement](architecture/assistant.md#harness-confinement)).
+  A reply can send note text out only through a link or media the user
   clicks (see the rendering rules above). A write the user approves can do
   more: a Bluesky post URL it puts in a note fetches whenever the page is
   viewed (see [Known limitations](#known-limitations)).
 - **Write gating.** Every call to a tool in `WRITE_TOOLS` waits for the user
-  to allow or deny a card, and a denial reaches the model as a declined
-  action. The card is the only barrier between an injected model and the
-  notes ([assistant.md](architecture/assistant.md#the-write-approval-card)):
-  - the server builds it from the arguments the tool will receive, as the
-    tool's own argument model coerces them; input it cannot show is
-    refused without a card;
-  - every target and content value is shown whole: content past
-    `CONTENT_LIMIT_CHARS`, or a target past `TARGET_LIMIT_CHARS`, is
-    refused, never clipped;
-  - each block an update, move or delete names shows its current page and
-    a text excerpt with the full length, read just before the card; a
-    delete adds how many blocks go with it. A batch that deletes a subtree
-    an earlier write moves a block into, or reuses an `as` alias, is
-    refused;
-  - Allow arms after a delay, once both ends of the list have been in view;
-  - the browser renders only the keys each action may carry, with values
-    quoted, isolated left-to-right and their control characters escaped.
-
-  Allow applies only while every block the card shows keeps the text it showed:
-  for a delete, the same blocks under it with the same texts. The card's
-  hashes go server to server, out of reach of the browser and the model.
-  `/api/ops` refuses the write with `412` if a block was edited, a subtree to
-  delete changed, or a block appeared under a uid the card showed as missing.
-  Where a block sits is not checked, so one moved elsewhere since the card
-  still takes the write. A card built while another of the assistant's writes
-  could still land is marked stale. A new note, a create and a page rename
-  have no stored block to check, so they apply under the server's ordinary
-  rules.
+  to allow or deny a card, and the card is the only barrier between an
+  injected model and the notes. The server builds it from the arguments the
+  tool will receive and shows every target and content value whole, refusing
+  rather than clipping. Allow applies only while every block the card shows
+  keeps the text it showed; otherwise `/api/ops` refuses the write with
+  `412`. The hashes go server to server, out of reach of the browser and the
+  model. Not checked: where a block sits, and a new note, create or rename,
+  which have no stored block to compare. The rules and their reasons are in
+  [assistant.md § The write approval card](architecture/assistant.md#the-write-approval-card).
 - **Subprocess environment.** Neither subprocess inherits the service's
-  environment, so a proxy setting, `ANTHROPIC_BASE_URL` or another
-  service's API key in it reaches neither. The harness CLI starts through a
-  per-conversation launcher that `execve`s it with only the names
-  `harness_env_names` lists (`harness_env.py`: the host names the Claude
-  login needs, the variables the SDK sets, and the model's own, such as the
-  z.ai route for `glm`). No secret appears in any process's arguments.
-  `pkm-mcp` runs under `env -i` with only `PKM_CLI_CONFIG`, and ignores
-  `PKM_URL` while that is set (`load_mcp_config`), so the session token
-  goes only to the URL in its config file.
+  environment, so a proxy setting, `ANTHROPIC_BASE_URL` or another service's
+  API key in it reaches neither, and no secret appears in any process's
+  arguments ([harness confinement](architecture/assistant.md#harness-confinement)).
 - **Subprocess auth.** Each conversation mints an ordinary session token into
   a `0600` config file passed as `PKM_CLI_CONFIG`. Deleting the file on close
   does not revoke the token: it stays valid for `auth_core.YEAR_MS`, like

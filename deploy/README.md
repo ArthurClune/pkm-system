@@ -214,20 +214,15 @@ every device logs in once more.
 4. Verify with `deploy/smoke.sh` or a manual login.
 
 Never restore with a plain `cp`. The helper also gives the database a new
-`db_generation`. The restored journal reuses seqs that a device may already
-have pulled past, such as an iPad closed while the Mac kept writing. Without
-the new generation that device pulls from its old cursor: it never receives
-the restored rows in between, and it keeps rows the server no longer has.
-With it, every device rebuilds its local copy from the server on its next
-sync and keeps its unsent edits
-([sync-recovery.md § Rebootstrap triggers](../docs/architecture/sync-recovery.md#rebootstrap-triggers)).
+`db_generation`, so every device rebuilds its local copy from the server on
+its next sync and keeps its unsent edits. A copied file would leave a device
+that pulled past the snapshot missing the restored rows.
 
-`pkm.sqlite3-wal` and `-shm` beside a stopped database are normal: the
-nightly backup's read-only connection leaves them. The helper folds them in
-itself before the swap. If they stay, another connection still has the
-database open, and the helper refuses, since SQLite would replay that WAL
-over the restored file. The refusal is not a running-server check: an idle
-server holds no connection and passes, so step 1 is still needed.
+`pkm.sqlite3-wal` and `-shm` beside a stopped database are normal, and the
+helper folds them in. If it refuses with "Stop the server first", another
+connection still has the database open. An idle server holds no connection
+and passes the check, so step 1 is still needed. The mechanism is in
+[import-export-and-backup.md § Restore](../docs/architecture/import-export-and-backup.md#restore).
 
 ## Troubleshooting
 

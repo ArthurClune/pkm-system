@@ -3,12 +3,12 @@
 // WriteTicket settles when the active storage accepts a write, while drain()
 // reports whether every retained write reached the server.
 //
-// Every signal is a listener added after construction, and SyncProvider adds
-// them in effects, after the commit that built the queue. No event can precede
-// those subscriptions: every emission follows at least one await (persist runs
-// on persistChain, delivery waits on a POST), and React runs a commit's
-// passive effects in one synchronous flush. So no method here may emit
-// synchronously.
+// Every signal is a listener added after construction: the sync session
+// (session.ts) adds its own as it builds the queue, and starts no queue work
+// before its startup(), which SyncProvider reaches from an effect. No event can
+// precede those subscriptions, and none can reach a report during a render:
+// every emission follows at least one await (persist runs on persistChain,
+// delivery waits on a POST). So no method here may emit synchronously.
 import { ApiError } from "../api/client";
 import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
@@ -257,8 +257,9 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
   // INVARIANT: every writer of pendingCount publishes through here, via
   // setPendingCount below, and no subscriber may write its own copy of the
   // count from any other source (refreshPending is the door for an outside
-  // "re-read the durable table" — see SyncProvider). Suppressing a repeat is
-  // only sound while this cache is what the subscribers actually hold: a
+  // "re-read the durable table" — see the sync session's startup).
+  // Suppressing a repeat is only sound while this cache is what the
+  // subscribers actually hold: a
   // second writer moves them without moving `lastPending`, and every later
   // emit of that same number is then dropped as a no-op, leaving the count
   // stuck until it happens to change again.

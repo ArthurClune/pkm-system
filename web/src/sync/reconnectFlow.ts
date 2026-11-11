@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
-// The reconnect protocol SyncProvider's mount effect used to inline: after a
-// gap, flush the preserved ops first, then pull the changes feed, then bump
-// resyncGeneration so views refetch state that already reflects both
+// The reconnect protocol the sync session (session.ts) runs on a connect:
+// after a gap, flush the preserved ops first, then pull the changes feed,
+// then bump resyncGeneration so views refetch state that already reflects both
 // (flush -> pull -> resync, offline-editing-design.md §3/§6).
 //
 // The bump is conditional on the catch-up having moved local data, because a

@@ -5,9 +5,9 @@ import { computeEditability, transitionSync, type ReplicaMode, type SyncEvent,
          type SyncProblem, type SyncState, type SyncStatus } from "./syncState";
 import { pendingRowIdOf, batchIdOf, offType } from "../test-helpers";
 
-// Test-only: production code builds a SyncState inline (SyncProvider.tsx's
-// applySync does `{ problem: prev }`), so this constructor lives here rather
-// than as a production export.
+// Test-only: production code builds a SyncState inline (session.ts starts
+// from `{ problem: undefined }`), so this constructor lives here rather than
+// as a production export.
 const createSyncState = (): SyncState => ({ problem: undefined });
 
 const poison = (over: Partial<PoisonEvent> = {}): PoisonEvent => ({

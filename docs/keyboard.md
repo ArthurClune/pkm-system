@@ -131,8 +131,7 @@ list: `/py` narrows to the Python code block and `/query-o` to the OR query.
 | `/goodlinks` | Find the nearest web link: in this block, then its parent, then its previous sibling. Look it up in GoodLinks and insert a `Local copy::` link to the saved copy. A page GoodLinks does not have yet is saved there, marked read |
 
 Replace the `A` and `B` placeholders with `[[Page]]` links to run the query.
-Type `[[` to search for a page. The placeholders are plain text, so they never
-create pages named "A" or "B". The query shows an error until you fill them
+Type `[[` to search for a page. The query shows an error until you fill them
 in.
 
 ## While blocks are selected
@@ -176,7 +175,7 @@ Enter, Space, Shift+F10 or the context-menu key opens it too.
 | Link a local file | Backspace in an empty search | Go up one folder |
 | Link a local file | Escape | Close |
 | Confirmation dialog | Enter / Escape | Confirm / cancel |
-| Confirmation dialog opened from the page menu | Escape | Close the dialog; a second Escape closes the menu |
+| Confirmation dialog | Escape | Cancel the dialog only; the menu, expanded image or viewer beneath it stays open |
 | Expanded image | Escape | Close |
 | PDF viewer (expanded) | Escape | Close |
 | GoodLinks reader | Escape | Close |

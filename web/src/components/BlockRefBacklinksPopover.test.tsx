@@ -1,8 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { apiGet } from "../api/typedClient";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { uidOf } from "../test-helpers";
 import { BlockRefBacklinksPopover } from "./BlockRefBacklinksPopover";
 
@@ -22,7 +21,7 @@ function Probe() {
 
 function wrapper({ children }: { children: React.ReactNode }) {
   return (
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+    <MemoryRouter initialEntries={["/"]}>
       {children}
       <Probe />
     </MemoryRouter>

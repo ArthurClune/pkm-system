@@ -1,8 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { beforeEach, expect, test, vi } from "vitest";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { block, orderIdxOf } from "../test-helpers";
 import type { BlockNode } from "../api/payloads";
 import type { OutlineHandlers } from "../outline/handlers";
@@ -30,7 +29,7 @@ function Harness({ blocks }: { blocks: BlockNode[] }) {
   const [bumps, setBumps] = useState(0);
   const [shown, setShown] = useState(blocks);
   return (
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <button onClick={() => setBumps((n) => n + 1)}>bump {bumps}</button>
       <button onClick={() => setShown(rows(blocks.length))}>replace</button>
       <EditableBlockTree blocks={shown} focus={null} handlers={HANDLERS}

@@ -5,7 +5,7 @@
 // it, effects settle and the editor is checked against draftModel.ts.
 import { act, cleanup, createEvent, fireEvent, render,
          screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { vi } from "vitest";
 import type { CanonicalTitle } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
@@ -16,7 +16,6 @@ import { peekOutlineSession } from "../../outline/outlineSessions";
 import { resetHistory } from "../../outline/undoManager";
 import { imeClock } from "../../outline/useBlockDraft";
 import { useOutline, type Outline } from "../../outline/useOutline";
-import { ROUTER_FUTURE_FLAGS } from "../../router";
 import { SyncContext } from "../../sync/SyncProvider";
 import { block, canonicalTitleOf, clientIdOf, makeSync, orderIdxOf,
          uidOf, confirmYes } from "../../test-helpers";
@@ -90,7 +89,7 @@ export async function runDraftExample(example: DraftExample,
   try {
     render(
       <SyncContext.Provider value={sync}>
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <MemoryRouter>
           <Page title={title} seam={seam} outlineRef={outlineRef}
                 initial={[block(UID, example.start,
                                 { order_idx: orderIdxOf(0) })]} />

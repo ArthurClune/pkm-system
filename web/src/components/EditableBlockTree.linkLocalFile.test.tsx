@@ -1,14 +1,13 @@
 // onLinkLocalFile end to end in the outline: the picked file's attribute is
 // spliced at the recorded offset, and a vanished block is a no-op.
 import { act, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import type { OutlineHandlers } from "../outline/handlers";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, makeSync, orderIdxOf, canonicalTitleOf, uidOf, confirmYes } from "../test-helpers";
 import { useOutline } from "../outline/useOutline";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { EditableBlockTree } from "./EditableBlockTree";
 
 const FILE = { path: "Papers/notes.zip", href: "/api/local/Papers/notes.zip" };
@@ -29,7 +28,7 @@ function Page({ initial }: { initial: BlockNode[] }) {
 function renderPage(text: string) {
   render(
     <SyncContext.Provider value={makeSync()}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <Page initial={[block("tuid-a", text, { order_idx: orderIdxOf(0) })]} />
       </MemoryRouter>
     </SyncContext.Provider>);

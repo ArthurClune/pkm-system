@@ -7,8 +7,7 @@
 import { act, createEvent, fireEvent, render } from "@testing-library/react";
 import { memo, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter } from "react-router";
 import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider, useDnd } from "./DndContext";
 import { useDropZone, type Indicator } from "./useDropZone";
@@ -47,7 +46,7 @@ function startDrag() {
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <MemoryRouter>
           <EditablePage title={canonicalTitleOf("P")} initial={
             Array.from({ length: ROWS }, (_, i) =>
               block(`tuid-u${i + 1}`, `row ${i + 1}`, { order_idx: orderIdxOf(i) }))} />

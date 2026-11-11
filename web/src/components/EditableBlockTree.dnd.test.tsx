@@ -1,8 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
 import { expect, it } from "vitest";
-import { MemoryRouter } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter } from "react-router";
 import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { EditablePage } from "../views/EditablePage";
@@ -24,7 +23,7 @@ function renderPage(blocks = [
     <SyncContext.Provider value={sync}>
       <DndProvider>
         <Harness onReady={onDnd} />
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <MemoryRouter>
           <EditablePage title={canonicalTitleOf("P")} initial={blocks} />
         </MemoryRouter>
       </DndProvider>
@@ -150,7 +149,7 @@ it("an empty page accepts a top-level drop from another page", () => {
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <MemoryRouter>
           <EditablePage title={canonicalTitleOf("Src")} initial={[block("tuid-s1", "from src")]} />
           <EditablePage title={canonicalTitleOf("Empty")} initial={[]} />
         </MemoryRouter>
@@ -233,7 +232,7 @@ it("a fallback panel (title already active elsewhere) is excluded from DnD both 
     render(
       <SyncContext.Provider value={sync}>
         <DndProvider>
-          <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+          <MemoryRouter>
             <EditablePage title={canonicalTitleOf("Src")} initial={[block("tuid-s1", "from src")]} />
             <EditablePage title={canonicalTitleOf("P")} initial={[block("tuid-u1", "fallback block")]} />
           </MemoryRouter>
@@ -269,7 +268,7 @@ it("dragging is disabled when read-only", () => {
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <MemoryRouter>
           <EditablePage title={canonicalTitleOf("P")} initial={[block("tuid-u1", "x")]} />
         </MemoryRouter>
       </DndProvider>
@@ -286,7 +285,7 @@ it("hands DnD registration to the remaining same-title view", () => {
   const view = (includeFirst: boolean) => (
     <SyncContext.Provider value={sync}>
       <DndProvider>
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <MemoryRouter>
           {includeFirst && (
             <EditablePage key="first" title={canonicalTitleOf("P")} initial={blocks} />
           )}

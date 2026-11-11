@@ -1,7 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { canonicalTitleOf, uidOf } from "../test-helpers";
 import { useConfirm } from "./ConfirmDialog";
 import { DeleteBlockedDialog } from "./DeleteBlockedDialog";
@@ -20,7 +19,7 @@ afterEach(() => {
 
 function renderDialog(onClose = vi.fn()) {
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <button type="button">opener</button>
       <DeleteBlockedDialog heading="Can't delete" blockers={BLOCKERS}
                            onClose={onClose} />
@@ -71,7 +70,7 @@ it("a backdrop click closes and a click inside the card does not", () => {
 
 function Openable({ open }: { open: boolean }) {
   return (
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <button type="button">opener</button>
       {open && <DeleteBlockedDialog heading="Can't delete" blockers={BLOCKERS}
                                     onClose={() => {}} />}
@@ -96,7 +95,7 @@ it("locks body scrolling and returns focus to the element focused before it open
 function Nested({ onBlockedClose }: { onBlockedClose: () => void }) {
   const { confirm, dialog } = useConfirm();
   return (
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <button type="button" onClick={() => { void confirm("Sure?"); }}>
         ask
       </button>

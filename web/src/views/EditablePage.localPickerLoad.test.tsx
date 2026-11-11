@@ -2,10 +2,9 @@
 // with a notice in the page's notice slot, the next request retries, and
 // Escape cancels a pending open.
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { DndProvider } from "../dnd/DndContext";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { block, canonicalTitleOf, jsonResponse, makeSync, orderIdxOf } from "../test-helpers";
 import { SyncContext } from "../sync/SyncProvider";
 import { EditablePage } from "../views/EditablePage";
@@ -34,7 +33,7 @@ function mount() {
   render(
     <SyncContext.Provider value={makeSync()}>
       <DndProvider>
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <MemoryRouter>
           <EditablePage title={canonicalTitleOf("P")}
                         initial={[block("tuid-l1", "hello", { order_idx: orderIdxOf(0) })]} />
         </MemoryRouter>

@@ -1,13 +1,12 @@
 // The /upload pick gives up the block itself, so the uploaded
 // image renders even when the native dialog does not blur the textarea.
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { expect, it } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, makeSync, orderIdxOf, stubFetch, canonicalTitleOf, confirmYes } from "../test-helpers";
 import { useOutline } from "../outline/useOutline";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { EditableBlockTree } from "./EditableBlockTree";
 
 const INFO = { sha256: "ab".repeat(32), filename: "cat.png",
@@ -29,7 +28,7 @@ it("the /upload pick gives up the block itself, so the uploaded image "
   stubFetch([["/api/assets", INFO]]);
   const view = render(
     <SyncContext.Provider value={makeSync()}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <Page initial={[block("tuid-u1", "hello", { order_idx: orderIdxOf(0) })]} />
       </MemoryRouter>
     </SyncContext.Provider>);

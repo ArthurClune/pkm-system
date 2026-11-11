@@ -1,10 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { expect, it, vi } from "vitest";
 import type { ShownBacklinkGroup } from "./groups";
 import { SidebarContext } from "../contexts";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { pageIdOf, canonicalTitleOf, typeProbe, uidOf } from "../test-helpers";
 import { BacklinkGroupList } from "./BacklinkGroupList";
 
@@ -17,7 +16,7 @@ const group: ShownBacklinkGroup = {
 
 function mount(onNavigate?: OnNavigate, shown: ShownBacklinkGroup = group) {
   return render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+    <MemoryRouter initialEntries={["/"]}>
       <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
         <BacklinkGroupList groups={[shown]} onNavigate={onNavigate} />
       </SidebarContext.Provider>

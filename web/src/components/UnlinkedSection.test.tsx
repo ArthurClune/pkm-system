@@ -1,8 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import type { BlockGroup } from "../api/payloads";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import type { DeliveryOutcome, WriteOutcome, WriteTicket } from "../sync/opQueue";
 import { SyncContext, type Sync } from "../sync/SyncProvider";
 import {
@@ -43,7 +42,7 @@ function controlledSync() {
 function renderSection(sync: Sync) {
   render(
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <UnlinkedSection title={ACME} />
       </MemoryRouter>
     </SyncContext.Provider>,

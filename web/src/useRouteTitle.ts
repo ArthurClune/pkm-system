@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 import { useEffect } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import { documentTitleFor } from "./routeMeta";
 
 /** Sets document.title from the route table. Under /page/ the title is left

@@ -1,6 +1,5 @@
 import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { SidebarContext } from "../contexts";
 import { SyncContext } from "../sync/SyncProvider";
@@ -20,7 +19,7 @@ it("renders entries in the order returned by the API, as page links", async () =
   stubFetch([["/api/sidebar", { entries: [
     { id: 2, title: "AWS" }, { id: 1, title: "AI" },
   ] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  render(<MemoryRouter><SidebarNav /></MemoryRouter>);
   const links = await screen.findAllByRole("link");
   expect(links.map((l) => l.textContent)).toEqual(["AWS", "AI"]);
   expect(links[0]).toHaveAttribute("href", "/page/AWS");
@@ -28,7 +27,7 @@ it("renders entries in the order returned by the API, as page links", async () =
 
 it("renders nothing when there are no entries", async () => {
   stubFetch([["/api/sidebar", { entries: [] }]]);
-  const { container } = render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  const { container } = render(<MemoryRouter><SidebarNav /></MemoryRouter>);
   await Promise.resolve();
   expect(container.querySelector("ul")).toBeNull();
 });
@@ -38,7 +37,7 @@ it("marks the entry for the current route as active", async () => {
     { id: 1, title: "AWS" }, { id: 2, title: "AI" },
   ] }]]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/AWS"]}>
+    <MemoryRouter initialEntries={["/page/AWS"]}>
       <SidebarNav />
     </MemoryRouter>,
   );
@@ -50,7 +49,7 @@ it("marks the entry for the current route as active", async () => {
 it("calls onNavigate when an entry link is clicked", async () => {
   stubFetch([["/api/sidebar", { entries: [{ id: 1, title: "AI" }] }]]);
   const onNavigate = vi.fn();
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav onNavigate={onNavigate} /></MemoryRouter>);
+  render(<MemoryRouter><SidebarNav onNavigate={onNavigate} /></MemoryRouter>);
   fireEvent.click(await screen.findByRole("link", { name: "AI" }));
   expect(onNavigate).toHaveBeenCalledOnce();
 });
@@ -60,7 +59,7 @@ it("shift-clicking an entry opens it in the sidebar and suppresses the browser's
   const openInSidebar = vi.fn();
   const onNavigate = vi.fn();
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SidebarContext.Provider value={{ openInSidebar }}>
         <SidebarNav onNavigate={onNavigate} />
       </SidebarContext.Provider>
@@ -79,13 +78,13 @@ it("shift-clicking an entry opens it in the sidebar and suppresses the browser's
 
 it("shows a quiet error and no crash when the fetch fails", async () => {
   stubFetch([]); // unmatched -> 404
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  render(<MemoryRouter><SidebarNav /></MemoryRouter>);
   expect(await screen.findByText(/couldn.t load/i)).toBeInTheDocument();
 });
 
 it("hides add/remove/reorder controls until edit mode is toggled on", async () => {
   stubFetch([["/api/sidebar", { entries: [{ id: 1, title: "AWS" }] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  render(<MemoryRouter><SidebarNav /></MemoryRouter>);
   await screen.findByRole("link", { name: "AWS" });
 
   expect(screen.queryByPlaceholderText(/add page/i)).toBeNull();
@@ -118,7 +117,7 @@ it("adding an entry posts the title and refreshes the list", async () => {
   });
   vi.stubGlobal("fetch", mock);
 
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  render(<MemoryRouter><SidebarNav /></MemoryRouter>);
   await screen.findByRole("link", { name: "AWS" });
   fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
   fireEvent.change(screen.getByPlaceholderText(/add page/i), { target: { value: "Crypto" } });
@@ -146,7 +145,7 @@ it("removing an entry deletes it and refreshes the list", async () => {
   });
   vi.stubGlobal("fetch", mock);
 
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  render(<MemoryRouter><SidebarNav /></MemoryRouter>);
   await screen.findByRole("link", { name: "AWS" });
   fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
   fireEvent.click(screen.getByRole("button", { name: /remove aws/i }));
@@ -174,7 +173,7 @@ it("moving an entry down calls the reorder API with the new order", async () => 
   });
   vi.stubGlobal("fetch", mock);
 
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  render(<MemoryRouter><SidebarNav /></MemoryRouter>);
   await screen.findByRole("link", { name: "AWS" });
   fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
   fireEvent.click(screen.getByRole("button", { name: /move aws down/i }));
@@ -204,7 +203,7 @@ it("disables every mutating control while a reorder mutation and its refresh are
   });
   vi.stubGlobal("fetch", mock);
 
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  render(<MemoryRouter><SidebarNav /></MemoryRouter>);
   await screen.findByRole("link", { name: "AWS" });
   fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
   fireEvent.click(screen.getByRole("button", { name: /move aws down/i }));
@@ -231,7 +230,7 @@ it("catches a reorder failure without crashing and reports it", async () => {
   });
   vi.stubGlobal("fetch", mock);
 
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  render(<MemoryRouter><SidebarNav /></MemoryRouter>);
   await screen.findByRole("link", { name: "AWS" });
   fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
   fireEvent.click(screen.getByRole("button", { name: /move aws down/i }));
@@ -257,7 +256,7 @@ it("catches a remove failure, disables controls until settled, and allows a succ
   });
   vi.stubGlobal("fetch", mock);
 
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  render(<MemoryRouter><SidebarNav /></MemoryRouter>);
   await screen.findByRole("link", { name: "AWS" });
   fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
   fireEvent.click(screen.getByRole("button", { name: /remove aws/i }));
@@ -295,7 +294,7 @@ it("computes a reorder from the entries current when the lane begins, not when i
   });
   vi.stubGlobal("fetch", mock);
 
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  render(<MemoryRouter><SidebarNav /></MemoryRouter>);
   await screen.findByRole("link", { name: "AWS" });
   fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
   fireEvent.change(screen.getByPlaceholderText(/add page/i), { target: { value: "Crypto" } });
@@ -317,7 +316,7 @@ it("disables the up button on the first entry and the down button on the last", 
   stubFetch([["/api/sidebar", { entries: [
     { id: 1, title: "AWS" }, { id: 2, title: "AI" },
   ] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  render(<MemoryRouter><SidebarNav /></MemoryRouter>);
   await screen.findByRole("link", { name: "AWS" });
   fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
 
@@ -334,7 +333,7 @@ it("a resync refetches the entries", async () => {
   const tree = (generation: number) => (
     <SyncContext.Provider
       value={makeSync("connected", { resyncGeneration: generation })}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>
+      <MemoryRouter><SidebarNav /></MemoryRouter>
     </SyncContext.Provider>
   );
   const { rerender } = render(tree(0));

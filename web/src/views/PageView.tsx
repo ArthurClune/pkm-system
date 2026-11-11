@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 import { useCallback, useContext, useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import { BacklinksSection } from "../components/BacklinksSection";
 import { BlockRefProvider } from "../components/BlockRefProvider";
 import { PageTitle } from "../components/PageTitle";

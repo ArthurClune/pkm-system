@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { ApiError } from "../api/client";
 import { apiGet, apiPost } from "../api/typedClient";
 import type { BlockUid, RawTitle } from "../api/brands";
@@ -153,7 +153,7 @@ export function SearchBar() {
         return;
       }
       cancel();
-      navigate(pagePath(row.title));
+      void navigate(pagePath(row.title));
       return;
     }
     cancel();
@@ -161,7 +161,7 @@ export function SearchBar() {
     // matched block: the main pane reads it from the URL hash, the
     // sidebar panel takes it directly.
     if (sidebar) openInSidebar(row.title, row.uid);
-    else navigate(pagePath(row.title) + (row.uid ? `#${row.uid}` : ""));
+    else void navigate(pagePath(row.title) + (row.uid ? `#${row.uid}` : ""));
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {

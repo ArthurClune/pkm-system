@@ -8,7 +8,7 @@
 // is an exact match on the sha. No referencing block (or a failed lookup,
 // e.g. offline) falls back to opening the asset itself.
 import { useContext } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import type { Sha256Hex } from "../api/brands";
 import { apiGet } from "../api/typedClient";
 import { SidebarContext } from "../contexts";
@@ -29,7 +29,7 @@ export function AssetLink({ url, sha, filename }: {
       const hit = result.blocks[0];
       if (hit) {
         if (shiftKey) openInSidebar(hit.page_title, hit.uid);
-        else navigate(`${pagePath(hit.page_title)}#${hit.uid}`);
+        else void navigate(`${pagePath(hit.page_title)}#${hit.uid}`);
         return;
       }
     } catch {

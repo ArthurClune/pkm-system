@@ -2,10 +2,9 @@
 // useOutline's upload to the new blocks. Geometry and window behaviour are
 // covered in dnd/useDropZone.files.test.tsx.
 import { act, fireEvent, render } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { DndProvider } from "../dnd/DndContext";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, dragTransfer, jsonResponse, makeSync, orderIdxOf,
          canonicalTitleOf } from "../test-helpers";
@@ -23,7 +22,7 @@ function renderPage(initial: BlockNode[]) {
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <MemoryRouter>
           <EditablePage title={canonicalTitleOf("P")} initial={initial} />
         </MemoryRouter>
       </DndProvider>

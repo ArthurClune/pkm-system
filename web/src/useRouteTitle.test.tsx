@@ -1,19 +1,18 @@
 import { fireEvent, render } from "@testing-library/react";
-import { MemoryRouter, useNavigate } from "react-router-dom";
+import { MemoryRouter, useNavigate } from "react-router";
 import { expect, it } from "vitest";
 import { NOT_FOUND_TITLE } from "./routeMeta";
-import { ROUTER_FUTURE_FLAGS } from "./router";
 import { useRouteTitle } from "./useRouteTitle";
 
 function Probe() {
   useRouteTitle();
   const navigate = useNavigate();
-  return <button onClick={() => navigate("/settings")}>go to settings</button>;
+  return <button onClick={() => void navigate("/settings")}>go to settings</button>;
 }
 
 function renderAt(path: string) {
   return render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={[path]}>
+    <MemoryRouter initialEntries={[path]}>
       <Probe />
     </MemoryRouter>,
   );

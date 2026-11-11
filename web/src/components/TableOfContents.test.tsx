@@ -1,9 +1,8 @@
 // The rendered side of {{toc}}: a nested list of links to
 // #<uid>, which the page's existing hash scroll-and-flash consumes.
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { expect, it } from "vitest";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { TableOfContents } from "./TableOfContents";
 import { uidOf } from "../test-helpers";
 import type { TocEntry } from "./tocEntries";
@@ -15,7 +14,7 @@ function entry(entryUid: string, text: string, level: 1 | 2 | 3,
 
 function mount(entries: TocEntry[]) {
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Notes"]}>
+    <MemoryRouter initialEntries={["/page/Notes"]}>
       <TableOfContents entries={entries} />
     </MemoryRouter>);
   return container;

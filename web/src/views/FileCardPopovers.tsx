@@ -3,7 +3,7 @@
 // and its description / describe error. Chrome, clamping and dismissal come
 // from the shared Popover shell.
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { apiGet } from "../api/typedClient";
 import { BacklinkGroupList } from "../components/BacklinkGroupList";
 import { pagePath } from "../paths";
@@ -54,7 +54,7 @@ export function FileRefsPopover({ refs, x, y, onClose }: {
         <BacklinkGroupList groups={groups}
           onNavigate={(pageTitle, uid) => {
             onClose();
-            navigate(`${pagePath(pageTitle)}#${uid}`);
+            void navigate(`${pagePath(pageTitle)}#${uid}`);
           }} />
       )}
     </Popover>

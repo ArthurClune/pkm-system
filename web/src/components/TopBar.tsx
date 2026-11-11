@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 import { ApiError, OfflineError, apiDownload } from "../api/client";
 import type { RawTitle } from "../api/brands";
 import { apiDelete, apiGet } from "../api/typedClient";
@@ -111,7 +111,7 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
     }
     if (titleRef.current !== title) return;
     setMenuOpen(false);
-    navigate("/");
+    void navigate("/");
   };
 
   const handleExport = async () => {
@@ -166,7 +166,7 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
         <span className="top-bar-title">{barLabel}</span>
         <SearchBar />
         <button type="button" className="help-button" aria-label="help"
-                title="Keyboard shortcuts" onClick={() => navigate(ROUTES.help)}>
+                title="Keyboard shortcuts" onClick={() => void navigate(ROUTES.help)}>
           <HelpCircleIcon />
         </button>
         {title !== null && (

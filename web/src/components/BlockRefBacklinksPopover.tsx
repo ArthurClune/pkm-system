@@ -4,7 +4,7 @@
 // count is payload-fresh, this list is live truth — no reconciliation.
 // Chrome, clamping and dismissal come from the shared Popover shell.
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import type { BlockUid } from "../api/brands";
 import { apiGet } from "../api/typedClient";
 import { pagePath } from "../paths";
@@ -47,7 +47,7 @@ export function BlockRefBacklinksPopover({ uid, x, y, onClose }: {
             onClose();
             // same-page hash navigation may not unmount the tree, so close
             // explicitly first; PageView scrolls + flashes the hash target.
-            navigate(`${pagePath(pageTitle)}#${itemUid}`);
+            void navigate(`${pagePath(pageTitle)}#${itemUid}`);
           }} />
       )}
     </Popover>

@@ -1,6 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { READ_INIT, defer, jsonResponse, stubFetch } from "../test-helpers";
 import { tokenizeBlock } from "../grammar/tokenize";
@@ -17,7 +16,7 @@ const EXPR_B = "{and: [[Beta]]}";
 const ENC_B = new URLSearchParams({ expr: EXPR_B }).toString();
 
 function renderExpr(expr: string) {
-  return render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><QueryBlock expr={expr} /></MemoryRouter>);
+  return render(<MemoryRouter><QueryBlock expr={expr} /></MemoryRouter>);
 }
 
 it("renders more than seventy results from one request without show more", async () => {
@@ -45,7 +44,7 @@ it("renders more than seventy results from one request without show more", async
 it("InlineSegments renders query segments as live QueryBlocks", async () => {
   stubFetch([[`/api/query?${ENC}`, { groups: [], total: 0 }]]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <InlineSegments segments={tokenizeBlock(`{{[[query]]: ${EXPR}}}`)} />
     </MemoryRouter>,
   );
@@ -61,7 +60,7 @@ it("caps nested query recursion with an inert placeholder and no extra fetch", a
       total: 1,
     }],
   ]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><QueryBlock expr={EXPR} depth={1} /></MemoryRouter>);
+  render(<MemoryRouter><QueryBlock expr={EXPR} depth={1} /></MemoryRouter>);
   expect(await screen.findByText("1 result")).toBeInTheDocument();
   // The nested query inside the result item sits at the cap: inert, no fetch.
   expect(screen.getByText(`{{query: ${EXPR}}}`)).toBeInTheDocument();
@@ -92,7 +91,7 @@ it("clears the current error when a changed expression succeeds", async () => {
   expect(await screen.findByText(/500/)).toBeInTheDocument();
 
   rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <QueryBlock expr={EXPR_B} />
     </MemoryRouter>,
   );
@@ -104,7 +103,7 @@ it("clears the current error when a changed expression succeeds", async () => {
 it("shows the server's 400 as an error state", async () => {
   vi.stubGlobal("fetch", vi.fn(async () =>
     new Response(JSON.stringify({ detail: "bad query" }), { status: 400 })));
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><QueryBlock expr="{nonsense" /></MemoryRouter>);
+  render(<MemoryRouter><QueryBlock expr="{nonsense" /></MemoryRouter>);
   expect(await screen.findByText(/400/)).toBeInTheDocument();
 });
 
@@ -122,7 +121,7 @@ it("keeps only the current expr's results when a superseded expr resolves late",
   vi.stubGlobal("fetch", fetchMock);
 
   const { rerender } = renderExpr(EXPR_A);
-  rerender(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><QueryBlock expr={EXPR_B} /></MemoryRouter>);
+  rerender(<MemoryRouter><QueryBlock expr={EXPR_B} /></MemoryRouter>);
 
   // The obsolete expr's own fetch is still in flight when the current one
   // settles first.
@@ -155,7 +154,7 @@ it("ignores a stale generation's rejection while the current generation is still
   vi.stubGlobal("fetch", fetchMock);
 
   const { rerender } = renderExpr(EXPR_A);
-  rerender(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><QueryBlock expr={EXPR_B} /></MemoryRouter>);
+  rerender(<MemoryRouter><QueryBlock expr={EXPR_B} /></MemoryRouter>);
 
   // The obsolete expr's request fails while the current expr's own request is
   // still pending.

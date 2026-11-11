@@ -40,11 +40,11 @@ existing `config.json` or database.
    plists from the templates in this directory, loads them with
    `launchctl bootstrap`, and configures Tailscale Serve to forward HTTPS on
    the tailnet to the local server port.
-   Serve must proxy to `http://127.0.0.1:<port>`. Pointed at the Tailscale
-   IP, every Serve client shares one login-backoff bucket unless
-   `run.FORWARDED_ALLOW_IPS` changes with it; pointed at `[::1]` (or a
-   `localhost` resolving to it), it reaches nothing, since the server
-   listens on IPv4 only
+   Serve must proxy to `http://127.0.0.1:<port>`.
+   Pointed at the Tailscale IP, every Serve client shares one login-backoff
+   bucket unless `run.FORWARDED_ALLOW_IPS` changes with it.
+   Pointed at `[::1]` (or a `localhost` resolving to it), it reaches nothing,
+   because the server listens on IPv4 only
    ([backend.md § Login throttle](../docs/architecture/backend.md#login-throttle)).
 2. Build the web app (required before first startup):
    ```bash
@@ -99,8 +99,8 @@ without it pnpm aborts asking to purge `node_modules`.
 
 Verify the deploy rather than trusting the "updated to <sha>" line.
 `launchctl kickstart` silently does nothing when the service is unloaded, so
-check `launchctl list | grep pkm` and which process owns the production port,
-then grep the served bundle (under `/app-assets/`) for a string the change
+check `launchctl list | grep pkm` and which process owns the production port
+(`lsof -nP -iTCP:8974 -sTCP:LISTEN`), then grep the served bundle (under `/app-assets/`) for a string the change
 added.
 
 `update.sh` does not re-render the launchd plists. When an update changes a
@@ -126,7 +126,8 @@ a new client, and the consent prompt returns at the Mac's screen.
 reaches prod only through `install.sh --rebuild-launcher` followed by Allow.
 `install.sh` records the built source's SHA-256 in
 `$PKM_HOME/bin/pkm-server.source-sha256`, and `update.sh` warns when the
-deployed source no longer matches it. To re-grant, click Allow on the prompt, or use System Settings → Privacy &
+deployed source no longer matches it.
+To re-grant, click Allow on the prompt, or use System Settings → Privacy &
 Security → Files and Folders → pkm-server → iCloud Drive.
 
 ## Backups
@@ -168,10 +169,9 @@ file whose bytes contain the secret (a copy, a hard link, either hex case) is
 skipped. If `config.json` cannot be read or parsed as a JSON object it is not
 mirrored (the previous mirrored copy stays in the snapshot). Any of these
 makes the run print `PARTIAL`, say why on stderr and exit 1; the rest of the
-backup is still taken. A data file that contains the session secret is left out of the mirror, and
+backup is still taken.
+A data file that contains the session secret is left out of the mirror, and
 the run exits 1 each day until that file is deleted or the secret is rotated.
-Mirrors made by an earlier version hold the secret in
-their config copies: delete those copies and set a new `session_secret`.
 
 Restore the data dir as of a date into an empty folder. The matching
 `db/pkm-YYYY-MM-DD.sqlite3` goes into it through `pkm.backup.restore`, run

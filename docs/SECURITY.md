@@ -5,9 +5,8 @@ network security boundary. The application's own authentication protects
 against casual attackers on a local network or other reachable devices. It
 does not make the server safe to expose to the public Internet.
 
-The last security review was on 2026-10-23
-([findings](security-review-2026-10-23.md)). This document describes the
-system after the fixes that review led to.
+The last security review is recorded in
+[security-review-2026-10-23.md](security-review-2026-10-23.md).
 
 ## Deployment assumptions
 
@@ -112,7 +111,7 @@ These bounds hold for every authenticated client; the gaps are under
 | Block text: at most `MAX_BLOCK_TEXT_CHARS` code points and `MAX_LINK_NESTING` levels of `[[` | on every write path: ops, server-made rewrites and the importer. A stale edit whose replay would pass a limit lands as a conflict entry instead | [write-path.md § Work bounds under the write lock](architecture/write-path.md#work-bounds-under-the-write-lock) |
 | Page titles: at most `MAX_PAGE_TITLE_CHARS`, measured on the title's fold | for a new title, at creation, rename, move, sidebar pin and import; a page stored before the cap keeps its title | [backend.md § Refused titles](architecture/backend.md#refused-titles) |
 | Server history one batch replays: `MAX_BATCH_REPLAY_WORK`; a page delete's inlined copies: `MAX_DELETE_COPY_CHARS` | under the write lock; an edit past the budget lands as a conflict entry (the block keeps its text), a delete past it is refused | [write-path.md § Work bounds under the write lock](architecture/write-path.md#work-bounds-under-the-write-lock) |
-| No malformed or hostile input makes a route answer `500` | every route; a write racing a long batch can still get a `500` from a route without a busy branch ([write-path.md § The write lock](architecture/write-path.md#the-write-lock)) | [backend.md § Hostile input](architecture/backend.md#hostile-input) |
+| No malformed or hostile input makes a route answer `500` | every route; a lock-taking route answers `503` when the lock stays busy, but an asset upload racing a long batch can still get a `500`, because it commits outside `write_txn` ([write-path.md § The write lock](architecture/write-path.md#the-write-lock)) | [backend.md § Hostile input](architecture/backend.md#hostile-input) |
 
 ## Embedded assistant
 
@@ -191,7 +190,7 @@ broadening exposure.
 
 | Limitation | Consequence |
 |---|---|
-| Login backoff is per source, one password check in flight per source, with no lockout ([mechanism](architecture/backend.md#login-throttle)) | The source is the device's tailnet address, so each device has its own bucket and a guessing device does not put the others in backoff. A local process can choose its key; the throttle does not defend against a process that can read `config.json`. Concurrent guesses from one source wait their turn, so a burst costs one scrypt check per backoff window. Scrypt makes each guess expensive, but a weak password is open to patient guessing; use a strong one |
+| Login backoff is per source, one password check in flight per source, with no lockout ([mechanism](architecture/backend.md#login-throttle)) | The source is the device's tailnet address, so each device has its own bucket and a guessing device does not put the others in backoff. A local process can choose its key; the throttle does not defend against a process that can read `config.json`. Scrypt makes each guess expensive, but a weak password is open to patient guessing; use a strong one |
 | No logout and no per-session revocation | a copied cookie works until it expires or `session_secret` is rotated, which ends every session |
 | Each device keeps the full replica, its unsent outbox and recently viewed uploads (the service worker's `pkm-assets` cache, served without an auth check); nothing clears them on a `401` or a `session_secret` rotation | rotation ends sessions, not the copies on devices: a lost device still holds the notes it synced. Clear the site's data on the device |
 | A Bluesky post URL in a note embeds on render, with no click (`BlueskyEmbed` gates it only inside an assistant reply) | any view that renders the block (its page, a backlink, an unlinked reference, a query result, a transclusion) sends a handle lookup to Bluesky, whose servers resolve the handle's domain, and loads the embed from Bluesky. Whoever wrote the URL chose that domain, so any write that reaches the notes (an assistant write the user approved, an external `pkm-mcp` client's, an import) can carry note text, encoded into the handle's labels, to a domain an attacker controls |
@@ -201,7 +200,7 @@ broadening exposure.
 | `apply_batch` holds the write lock on the event loop until it commits ([bounds](architecture/write-path.md#work-bounds-under-the-write-lock)) | a large authenticated batch stalls every request, login and WebSockets included, while it applies; one near `PRIVATE_BODY_MAX_BYTES` takes tens of seconds. `post_ops` also takes the write lock on the event loop, so while a threadpool route (a rename, a page delete) holds it, the loop waits up to `BUSY_TIMEOUT_MS` before answering `503` |
 | A move or delete of a large subtree, and the stale-title load, are charged to no batch budget ([charges](architecture/write-path.md#work-bounds-under-the-write-lock)) | a small batch of such moves or deletes holds the write lock, and with it the server, for as long as that takes, and can repeat it with each batch. A batch that sends an old `seen_seq` makes the stale-title load read every page deleted since |
 | GoodLinks' local API listens on every interface (`*:9428`), not loopback only; this is GoodLinks' behaviour, outside PKM's control | anything that reaches the host on that port can call the API over plain HTTP, guarded only by its bearer token. PKM reaches it at `goodlinks_api_url`, loopback by default. Keep the host off untrusted networks or block the port at the host firewall |
-| Two react-router advisories (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg) stay open: they are fixed only in react-router 7 | judged unreachable: the app mounts `BrowserRouter`, with no data router and no server-side hydration, and builds page links, and the redirect that folds a title's spelling, with `pagePath`, which starts every target with `/page/` and percent-encodes each segment, so a backslash never reaches a router target. Every other production advisory the 2026-10-23 review listed is upgraded away; the dev and build tools (`pnpm audit` without `--prod`) still carry advisories, which touch building, testing and the dev server, not the shipped bundle ([review](security-review-2026-10-23.md#dependency-advisories)) |
+| Two react-router advisories (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg) stay open: they are fixed only in react-router 7 | judged unreachable: the app has no data router and no server-side hydration, and every router target comes from `pagePath`, which starts with `/page/` and percent-encodes each segment. The dev and build tools still carry advisories, which touch building and testing, not the shipped bundle. The [review](security-review-2026-10-23.md#dependency-advisories) covers the rest of the advisories |
 | `mermaidSafety.ts` restates mermaid internals (its secure keys, entity handling, CSS paths) | a mermaid upgrade can change what those rules must cover. mermaid is pinned to a patch range (`~`) in `web/package.json` so a minor release arrives only through a deliberate upgrade that re-checks them |
 
 ## Hardening priorities

@@ -32,7 +32,7 @@ For ALL code changes, use worktrees and branches to enable parallel sessions.
 `docs/architecture/` describes the system as it *is*; [overview.md](docs/architecture/overview.md) indexes it. A doc holds what the code and its checks cannot tell a reader: orientation, why a rule exists, which of two paths is authoritative, and invariants nothing enforces. Failures and the invariants their fixes installed go in `docs/troubleshooting.md`, keyed by symptom. Before finishing a feature, epic, or any change that alters the shape of the system, check whether the docs need updating and update them in the same branch. Triggers, in rough order of how often they are missed:
 
 - A new HTTP route, or new query params/response fields on an existing one -> one row in the API reference table in `backend.md`
-- A new SPA route -> the route list in `frontend.md`; a new module only if a newcomer needs it to find their way
+- A new SPA route -> a `STATIC_ROUTES` row in `web/src/routeMeta.ts`; the compiler then forces its entry in `App.tsx`'s `VIEWS`, so no doc row is owed. `frontend.md` changes only if the route carries a rule of its own. A new module needs a doc mention only if a newcomer needs it to find their way
 - A new design token, control class, or stylesheet invariant -> `styling.md`
 - A non-obvious rule someone could break without noticing (why a retry exists, why an order matters, what must never be rejected) -> the sentence stating it, with its reason, in the section that owns the mechanism; this is the highest-value kind of update
 - A bug fix -> one row in `docs/troubleshooting.md` (symptom, cause, owning section, bean id); the architecture doc changes only if the rule did
@@ -63,7 +63,8 @@ Traps around those commands:
 - Playwright serves the built SPA from `web/dist`. `pnpm verify` and `pnpm e2e` build first; running `tooling/runPlaywright.ts` directly tests whatever was last built. So when red-checking a fix by stashing it, stash its new unit tests under `src/` and its new specs under `e2e/` too (`pnpm build` typechecks both) and confirm the build exits 0: a failed build leaves the old `dist`, and the "unfixed" run passes against it.
 - A spec that fails when run alone but passes in the full suite is a suspected product bug, not a flake: cold-start races of this kind have been real data-loss and caret bugs. Call a failure a pre-existing flake only after reproducing it at the pre-branch commit.
 - Every e2e spec shares one server and one DB. A new spec imports `test` from `web/e2e/ownPage.ts`, whose `ownPage` fixture creates, opens and deletes a page (`scratch.open()` does the same after a spec's own login), and never writes to today's journal; a spec about the journal itself deletes what it wrote in `afterEach`. A spec that writes shared state gets a full-suite run before you report, not just a run of itself.
-- Parallel sessions: give a spec run its own `E2E_PORT`. Keep the full Playwright suite and `perf/check.sh` serial, and record perf baselines only on a quiet machine. The check refuses a busy one, but load moves timings both ways, so a baseline taken while other suites run makes the next quiet check read "unstable" or "stale-baseline".
+- Parallel sessions: give a spec run its own `E2E_PORT`. Keep the full Playwright suite, `proptest/check.sh` and `perf/check.sh` serial with each other, and record perf baselines only on a quiet machine. The check refuses a busy one, but load moves timings both ways, so a baseline taken while other suites run makes the next quiet check read "unstable" or "stale-baseline".
+- Run long gates in the foreground, not behind a background wait. A test with a time limit (a property suite, a lint run) fails on a loaded machine and passes alone, so rerun the failing one alone, with nothing else running, before calling it a flake or a product bug.
 - On `main` after a merge, `perf/check.sh` with no side finds no diff. Name the sides: `perf/check.sh backend`, then `perf/check.sh frontend`. There `main` is its own merge base, so a regression the merge brought reads as `stale-baseline`, and the suggested `--rebaseline` would record it. Run perf on the branch before merging, and explain a `stale-baseline` on `main` before rebaselining.
 - Any route, query param, response model or route docstring change stales `web/src/api/openapi.json` (docstrings feed the OpenAPI descriptions). Regenerate per the [generated artifacts table](docs/architecture/backend.md#generated-artifacts-and-parity-fixtures), and regenerate again on the merge result when two branches both touched the server contract or schema. Implementation-plan briefs should list the regen step explicitly.
 
@@ -79,7 +80,7 @@ Production runs on this machine: a launchd service serving `~/.config/pkm/app` o
 | 8978 | `proptest/check.sh web` sync server |
 | 8979 | `.claude/skills/ipad-simulator` simpad throwaway server |
 
-- Deploy only with `~/.config/pkm/app/deploy/update.sh` (it refuses to run from another checkout). It deploys `main` of the local checkout, so merge first; no push is needed. Run and verify it per [deploy/README.md § Updating](deploy/README.md#updating), which covers headless runs and confirming the deploy took effect.
+- Deploy only with `~/.config/pkm/app/deploy/update.sh` (it refuses to run from another checkout). It deploys `main` of the local checkout, so merge first; no push is needed. Verify the deploy instead of trusting its "updated to" line. [deploy/README.md § Updating](deploy/README.md#updating) has the recipe, including headless runs.
 - Stop servers you started by PID, never `pkill -f <pattern>`: other sessions run servers matching the same pattern.
 - Handover notes go in `docs/superpowers/handoffs/` (gitignored). Specs and plans are committed; handoffs never are.
 
@@ -108,6 +109,7 @@ For routine edits these rules are sufficient. Invoke the `howto-functional-vs-im
 
 ## Git
 
+- **A worktree's `web/node_modules` is an untracked symlink to the main checkout's.** Never stage it (stage by explicit path, not `git add -A`) and never run `pnpm add`, `install` or `update` through it, which would rewrite the main checkout's packages. A branch that changes web dependencies removes the link and runs `pnpm install --frozen-lockfile` in the worktree. The main checkout needs `pnpm install --frozen-lockfile` after that branch merges, until which its packages are stale.
 - **Use --no-ff when merging branches**: `git merge --no-ff branch-name` to preserve branch structure in history
 - **Check `git status -sb` immediately before every commit in the main checkout.** Parallel sessions share it and may have switched its branch since you last looked.
 - Use `git diff --no-ext-diff` when you need a patch to apply or stash through: this machine sets `GIT_EXTERNAL_DIFF=difft`, whose output is not a patch.

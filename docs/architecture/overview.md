@@ -31,7 +31,7 @@ approval and record the design as it was then.
 | [cli.md](../cli.md) | run the `pkm` CLI or MCP server, or the one-time title migration |
 | [SECURITY.md](../SECURITY.md) | change what the app defends against, or answer a security question |
 | [keyboard.md](../keyboard.md) | change a shortcut; it is also what `/help` renders |
-| [troubleshooting.md](../troubleshooting.md) | are chasing a symptom someone has seen before |
+| the beans: `beans list -S '<error text>'`, or grep `.beans/` | are chasing a symptom someone has seen before; a fixed bug's bean names the symptom, the cause and the section that now states the rule |
 
 ## System context
 

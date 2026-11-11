@@ -1,6 +1,6 @@
 ---
 name: check-arch-docs
-description: Use when asked to re-check or audit docs/architecture/ for drift — inline bean references creeping back into prose, incident stories outside docs/troubleshooting.md, emphasis inflation — or before merging a branch that reworked those docs. For the whole set (all of docs/, AGENTS.md and memory), use recheck-docs.
+description: Use when asked to re-check or audit docs/architecture/ for drift — inline bean references creeping back into prose, incident stories, emphasis inflation — or before merging a branch that reworked those docs. For the whole set (all of docs/, AGENTS.md and memory), use recheck-docs.
 ---
 
 # Check architecture docs
@@ -21,13 +21,13 @@ this check enforces; this file only sequences the audit.
    `server/tooling/commentlint`, nowhere else):
 
    ```bash
-   node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/*.md docs/troubleshooting.md
+   node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/*.md
    PYTHONPATH=server/tooling python3 -m commentlint.run --all
    ```
 
    A flagged bean id is a provenance tag — drop the tag, keep the sentence.
-   If the sentence only exists to name the bean, it is an incident: move it
-   to `docs/troubleshooting.md` or delete it. Also grep the directory for a
+   If the sentence only exists to name the bean, it is an incident: delete
+   it, after checking that the bean's summary names the symptom. Also grep the directory for a
    `## When something looks wrong` heading; one creeping back in is the same
    regression.
 
@@ -66,7 +66,6 @@ this check enforces; this file only sequences the audit.
 
 | Match | Why it stays |
 |---|---|
-| Bean id in the Ref column of `docs/troubleshooting.md` | that column is its designated home |
 | Bean id inside a linked spec/plan filename | filenames are identifiers, not provenance |
 | `pkm-replica`, `pkm-specific`, other product uses of "pkm-" | not bean ids — the id shape ends at a word boundary, so they never match; a genuine new false positive means extending `_NOT_BEAN_IDS` in `commentlint/core.py`, not ignoring the failure |
 | A "Known gap" paragraph describing a current, deliberate gap | the gap is an invariant; only the bean tag on it was provenance |

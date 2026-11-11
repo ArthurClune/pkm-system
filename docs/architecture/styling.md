@@ -1,8 +1,7 @@
 # Styling and theming (web/)
 
 All styling is plain CSS in a single file, `web/src/styles.css`, with no
-framework or CSS-in-JS. The app around it is in [frontend.md](frontend.md);
-failures are indexed by symptom in [troubleshooting.md](../troubleshooting.md).
+framework or CSS-in-JS. The app around it is in [frontend.md](frontend.md).
 
 `styles.css` is divided by `/* == Name == */` markers, with Tokens and themes
 first. Later rules win at equal specificity, so a responsive or variant

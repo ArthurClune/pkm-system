@@ -16,10 +16,10 @@ Each day entry has this shape:
 - One bullet per thematic change, however many beans it took: "Property testing extended to the web sync stack." A short clause each.
 - Bugs collapse into one bullet per area, naming the areas and not the mechanism: "Fixed bugs in title handling, file names containing parentheses, and CLI appends landing mid-list."
 - Name an epic id inline when an epic closes.
-- A commit that moves rules or lessons from agent memory into the repo (AGENTS.md, `docs/troubleshooting.md`, a skill) gets a bullet saying what moved and where.
+- A commit that moves rules or lessons from agent memory into the repo (AGENTS.md, a doc, a skill) gets a bullet saying what moved and where.
 - Repo housekeeping (symlinks, agent config, moving docs) gets none.
 
-Match the tone and length of the entries for 2026-07-12, 2026-08-27, and 2026-10-01. Mechanism detail and lessons belong in beans, `docs/troubleshooting.md`, or memory.
+Match the tone and length of the entries for 2026-07-12, 2026-08-27, and 2026-10-01. Mechanism detail and lessons belong in beans or memory.
 
 Before saving, reread what you wrote and rewrite any sentence that:
 

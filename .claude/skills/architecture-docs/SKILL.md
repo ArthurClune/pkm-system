@@ -22,19 +22,18 @@ Other material has a better home:
 |---|---|
 | a list the code already holds: a complete module inventory, a registry, the cases a lint or check handles, the suites or scenarios a gate runs, a constant's value | the code. The doc names the file or symbol that holds it (`MINT_SITES`, `RETRY_DELAYS`, `perf/baseline-backend.json`), in table or prose alike |
 | the case-by-case argument that a guard is needed | the test that pins it. The doc keeps the rule and its sharpest reason |
-| how something failed before a fix | a row in `docs/troubleshooting.md` |
+| how something failed before a fix | the bean that fixed it |
 | a count of things ("eleven routes", "four mutants") | nowhere; it goes stale |
 
 When a fix or feature lands, its doc change is: the sentence stating the rule it
-adds or alters, with its reason, in the section that owns the mechanism; a
-troubleshooting row if it fixed a failure that happened; and a link wherever
+adds or alters, with its reason, in the section that owns the mechanism, and a link wherever
 another doc's reader needs the pointer. A new check, route or module that a
 doc indexes in a table gets one row in that table; it gets prose only for a
 rule its row cannot carry.
 
 ## When to use
 
-Any edit under `docs/architecture/` or to `docs/troubleshooting.md`, including
+Any edit under `docs/architecture/`, including
 the triggers in `AGENTS.md` § Architecture docs; or when a section reads long, flat or repetitive, when
 ideas and small asides feel equally weighted, when a section's length is out
 of proportion to its subject, or when you are about to split, reflow or
@@ -139,7 +138,7 @@ remembers the pain; the reader needs the map.
 
 The test for any detail: does a contributor meet it in normal work, or only
 when something breaks? Normal work earns prose, placed as early as its
-altitude allows. Only-when-broken earns a row in `docs/troubleshooting.md`. Within a doc the same
+altitude allows. Only-when-broken belongs in the bean. Within a doc the same
 ownership rule applies as across docs: a mechanism note lands in the section
 that owns the mechanism, not in the section about the feature that shipped
 it.
@@ -149,15 +148,11 @@ it.
 Prose states the **current** invariant, plus why it exists where someone could
 break it without noticing. How it used to fail — bean ids, "it used to", "for
 years", since-deleted flags — is not architecture and does not live in this
-directory at all. It goes in `docs/troubleshooting.md`, one table per area,
-keyed by **what someone would observe**. That is how the content is queried,
-and it lets each invariant shrink to a sentence.
-
-Its columns are `| Symptom | Cause | Where | Ref |`. `Where` links the
-architecture section that owns the mechanism; `Ref` is the bean id, or the test
-that pins the behaviour, or an em dash. Architecture docs carry no symptom
-table of their own, only a one-line pointer to `troubleshooting.md` in the
-intro.
+directory at all. It lives in the bean that fixed it, whose summary names
+**what someone would observe** (the literal error string or banner), the
+cause, and the section that now states the rule. A debugger finds it with
+`beans list -S '<error text>'`, and each invariant shrinks to a sentence.
+Architecture docs carry no symptom table.
 
 **The test for whether something is an incident:** does it describe a state of
 the code that no longer exists, or a mechanism that is still true today? "Handlers
@@ -166,16 +161,9 @@ client disconnects" is the second, and stays — even though both read like war
 stories. Discovery context ("found in a live smoke test") does not make a
 rationale into an incident.
 
-Two more things are *not* incidents, and neither earns a row:
-
-- **Provenance.** A bean tag marking which work introduced a feature, with no
-  failure attached ("Block stamps (pkm-4ler) add three band tokens"), is not a
-  symptom. Drop the tag or leave it inline; don't invent a symptom for it.
-- **An incident already tabled under another area.** One row, once — the same
-  rule as for facts. A second row is a duplicate that will drift.
-
-**Never manufacture rows.** Four honest rows beat eight padded ones, and an
-area with little history should end up with a short table.
+Provenance is not an incident either. A bean tag marking which work
+introduced a feature, with no failure attached ("Block stamps (pkm-4ler) add
+three band tokens"), is not a symptom: drop the tag and keep the sentence.
 
 ## Keep the names
 
@@ -186,7 +174,7 @@ identifier — a name points into the code, a sentence copies it.
 ## Verify
 
 ```bash
-node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/<file>.md docs/troubleshooting.md
+node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/<file>.md
 ```
 
 Every mermaid block parses under the project's own mermaid. Links resolve,
@@ -198,7 +186,7 @@ a date-prefixed file) prints as a `note` and is left as written. Exit status is
 1 only for broken mermaid, a broken link, or a live anchor miss.
 
 A bean id in a `docs/architecture` line is the comment lint's to refuse on
-commit; its one home is the Ref column of `docs/troubleshooting.md`.
+commit.
 
 The first output line names the base the checker compares against: the merge
 base with `main`, or `HEAD` when you are on `main`. `--base <ref>` picks

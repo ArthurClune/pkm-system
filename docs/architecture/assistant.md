@@ -9,8 +9,7 @@ conflict handling, journalling and broadcasts as any client. The routes are in
 [backend.md](backend.md#http-api-reference), and the chat panel is in
 [frontend.md](frontend.md#the-assistant-panel). Design spec:
 [`docs/superpowers/specs/2026-07-26-pkm-wn2s-assistant-design.md`](../superpowers/specs/2026-07-26-pkm-wn2s-assistant-design.md);
-threat model: [`docs/SECURITY.md`](../SECURITY.md). Failures are indexed by
-symptom in [troubleshooting.md](../troubleshooting.md).
+threat model: [`docs/SECURITY.md`](../SECURITY.md).
 
 | File | Pattern | Role |
 |---|---|---|

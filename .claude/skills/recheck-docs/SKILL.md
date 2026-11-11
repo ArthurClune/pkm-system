@@ -23,7 +23,7 @@ step for that scope only.
 | The fact is | Its home |
 |---|---|
 | how the system is: orientation, an invariant, why a rule exists | the `docs/architecture/` doc that owns the mechanism |
-| a failure that happened | one row in `docs/troubleshooting.md` |
+| a failure that happened | the bean that fixed it, never a doc |
 | CLI syntax, for users | `docs/cli.md` |
 | a shortcut or slash command, for users, with no rationale | `docs/keyboard.md` |
 | the threat model | `docs/SECURITY.md` |
@@ -74,7 +74,6 @@ outside git, indexed by its `MEMORY.md`.
    | sync | the `sync-*` docs |
    | frontend | `frontend*.md` and `styling.md` |
    | rest | every other doc in `docs/architecture/`, `overview.md` first |
-   | troubleshooting | `docs/troubleshooting.md` |
    | user docs | `docs/cli.md`, `docs/keyboard.md`, `docs/SECURITY.md`, `README.md`, `deploy/README.md` |
    | agents and memory | `AGENTS.md`, the memory directory, and the skills they point to |
 
@@ -98,8 +97,7 @@ outside git, indexed by its `MEMORY.md`.
 
 6. **Adversarial final review**, whenever a doc was rewritten: two
    reviewers on the strongest model, one for the server-side docs and one
-   for the client side and troubleshooting, each with the final-review
-   brief. A fixer then applies their findings, verifying each against the
+   for the client side, each with the final-review brief. A fixer then applies their findings, verifying each against the
    code first.
 
 7. **Finish.** check-docs and commentlint pass. Commit messages say what was
@@ -128,7 +126,7 @@ With no findings and a clean sweep, the whole message is "No drift since
 
 | Match | Why it stays |
 |---|---|
-| A bean id in troubleshooting's Ref column, or in a linked spec filename | those are its homes |
+| A bean id in a linked spec filename | filenames are identifiers |
 | `node_type`, `originSessionId` or `modified` in a memory's frontmatter | the memory tooling writes them |
 | A ruling on the don't-re-propose list in the `pkm-standing-rulings` memory | Arthur already decided |
 | A cut catalogue, count or proof walk from an earlier re-check | cut on purpose; recommending it back is the finding to avoid |

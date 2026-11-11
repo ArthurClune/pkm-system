@@ -4,7 +4,6 @@ This doc follows an edit from a keystroke, through the browser's durable queue
 and replica, to the server, and back out to other clients. What each guard does
 when a hop fails is in [sync-recovery.md](sync-recovery.md). The server half of
 every hop is in [write-path.md](write-path.md) and [backend.md](backend.md).
-Failures are indexed by symptom in [troubleshooting.md](../troubleshooting.md).
 The design and its rejected alternatives are in
 [`docs/superpowers/specs/2026-07-12-offline-editing-design.md`](../superpowers/specs/2026-07-12-offline-editing-design.md).
 

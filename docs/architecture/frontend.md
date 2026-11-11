@@ -9,8 +9,7 @@ This doc covers the app shell. The outline editor is in
 [frontend-editor.md](frontend-editor.md), block text to DOM in
 [frontend-rendering.md](frontend-rendering.md), CSS in
 [styling.md](styling.md), and the sync engine and replica in
-[sync-and-offline.md](sync-and-offline.md). Failures are indexed by symptom in
-[troubleshooting.md](../troubleshooting.md).
+[sync-and-offline.md](sync-and-offline.md).
 
 ## Module map
 

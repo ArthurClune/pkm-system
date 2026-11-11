@@ -14,8 +14,7 @@ Uploaded images also get [LLM captions](#image-descriptions) that make their
 content searchable. The routes are in
 [backend.md](backend.md#http-api-reference) and the config keys in
 [backend.md § Configuration](backend.md#configuration-and-entrypoints).
-Operator setup is in [deploy/README.md](../../deploy/README.md). Failures are
-indexed by symptom in [troubleshooting.md](../troubleshooting.md).
+Operator setup is in [deploy/README.md](../../deploy/README.md).
 
 ## Assets and the file browser
 

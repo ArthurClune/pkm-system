@@ -105,7 +105,7 @@ test-data/  Synthetic graph and assets for tests and local development
 deploy/     launchd + Tailscale Serve deployment for a Mac (see deploy/README.md)
 perf/       Performance gate: counts and timings checked against baselines
 proptest/   Property-check gate for sync, ops and outline editing
-docs/       Architecture docs, troubleshooting, user docs (CLI, keyboard,
+docs/       Architecture docs, user docs (CLI, keyboard,
             security) and the specs and plans under superpowers/
 .claude/    Agent skills for this repo (verify, docs checks, and others)
 ```
@@ -236,7 +236,8 @@ and restore.
 
 - **[Architecture docs](docs/architecture/overview.md)**: how the codebase is
   organised, one file per area
-- **[Troubleshooting](docs/troubleshooting.md)**: known failures by symptom
+- **Past failures** live in the beans under `.beans/`: search by symptom
+  with `beans list -S '<error text>'`
 - **[Security](docs/SECURITY.md)**: the threat model, what a logged-in session
   can reach, and the known limits; read it before exposing the app beyond
   your own devices

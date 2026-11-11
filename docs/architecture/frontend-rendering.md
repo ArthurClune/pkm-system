@@ -2,8 +2,7 @@
 
 Block text is raw Roam-flavoured markdown; this doc follows it to the DOM. The
 app shell is in [frontend.md](frontend.md) and the editor that produces the
-text in [frontend-editor.md](frontend-editor.md). Failures are indexed by
-symptom in [troubleshooting.md](../troubleshooting.md).
+text in [frontend-editor.md](frontend-editor.md).
 
 ## The pipeline
 

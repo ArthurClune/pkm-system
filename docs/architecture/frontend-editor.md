@@ -2,8 +2,7 @@
 
 This doc covers the outline engine: the per-title sessions that own a block
 tree, and the editor that mutates one. [frontend.md](frontend.md) holds the
-app shell around it. Failures are indexed by symptom in
-[troubleshooting.md](../troubleshooting.md).
+app shell around it.
 
 ## Module map
 

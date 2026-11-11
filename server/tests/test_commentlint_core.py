@@ -38,7 +38,7 @@ def test_source_and_architecture_docs_are_scanned(path):
 
 @pytest.mark.parametrize("path", [
     "AGENTS.md",
-    "docs/troubleshooting.md",
+    "docs/cli.md",
     "docs/superpowers/specs/2026-07-12-offline-editing-design.md",
     "web/src/api/types.d.ts",
     "web/src/api/openapi.json",
@@ -298,7 +298,7 @@ def test_one_line_can_break_several_rules():
 
 
 def test_unscanned_path_has_no_violations():
-    assert check_text("docs/troubleshooting.md", "row for pkm-ab12 (line 3)") == []
+    assert check_text("docs/cli.md", "row for pkm-ab12 (line 3)") == []
 
 
 # -- line length

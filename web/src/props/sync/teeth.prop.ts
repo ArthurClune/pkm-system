@@ -3,7 +3,7 @@
 // make checkQuiescent fail with the invariant that exists to catch it; a clean
 // run and a correctly handled bad batch must pass. If a broken scenario passes,
 // the oracle is blind and the gate fails before the property runs.
-import { afterEach, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import type { BatchId } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import { FIXTURE_PAGE } from "./arbitraries";
@@ -328,6 +328,44 @@ test("a client's own edit after its lane write is not conflict noise", async () 
     ["[[conflict]] [[Proptest]] — overwritten by ((pt_seed_4))"]);
   const exp: Expectation = { good: new Map([["A", [a1, a2]]]), bad: new Set() };
   expect(await failures("lane", checkQuiescent([a], server, exp))).toEqual([]);
+});
+
+/** A edits pt_seed_4 offline, then loses the reply of a second edit to it,
+ * and its worker dies before either is delivered. Once the death latches,
+ * the drain sends only the lane, so the lost reply's unhashed lane copy
+ * lands first, and the next life's durable a1, hashed against the text
+ * before both edits, lands as a conflict. */
+async function overtakingLostReplyScenario(): Promise<{
+  a: HarnessClient; a1: BatchId; a2: BatchId;
+}> {
+  const a = await start("A");
+  a.offline();
+  const a1 = await a.edit(setText("pt_seed_4", "durable"));
+  a.loseNextReply();
+  const a2 = await a.edit(setText("pt_seed_4", "lost reply"));
+  // The worker stores the row after the reply has already failed.
+  await vi.waitFor(() => {
+    expect(a.db.select("SELECT COUNT(*) AS n FROM pending_ops", ["n"])[0].n).toBe(2);
+  });
+  a.killWorker();
+  await a.online();
+  await a.queue.drain();
+  expect((await server.applied()).map((r) => r.batch_id)).toEqual([a2]);
+  await a.reload();
+  await quiesce([a], server);
+  return { a, a1, a2 };
+}
+
+test("an earlier edit a death deferred behind a lost reply's lane copy is not conflict noise",
+     async () => {
+  const { a, a1, a2 } = await overtakingLostReplyScenario();
+  expect(a.laneBatches).toEqual([]);
+  expect((await server.applied()).map((r) => r.batch_id)).toEqual([a2, a1]);
+  expect((await server.conflicts()).map((c) => c.text)).toEqual(
+    ["[[conflict]] [[Proptest]] — overwritten by ((pt_seed_4))"]);
+  const exp: Expectation = { good: new Map([["A", [a1, a2]]]), bad: new Set() };
+  expect(await failures("overtaking lost reply", checkQuiescent([a], server, exp)))
+    .toEqual([]);
 });
 
 /** B deletes Second; A pulls the delete and only then creates on Second,

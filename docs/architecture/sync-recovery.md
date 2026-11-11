@@ -28,8 +28,8 @@ replica is a cache and the queue is the user's intent.
 
 ## A local write fails
 
-A failed replica RPC means "could not persist locally right now". **`opQueue`
-keeps the op unless the replica rejected the op itself.** The rule is a
+A failed replica RPC means "could not persist locally right now". `opQueue`
+keeps the op unless the replica rejected the op itself. The rule is a
 blocklist with one entry, `ReplicaError.rejected`, not a check on the
 availability type. A starved pool's `SQLITE_CANTOPEN` is neither `unusable` nor
 `unreachable`, so a type check would let it reach `onDesync`. That repair
@@ -57,7 +57,7 @@ one predicate, `headPrecedes` (`sync/outbox.ts`):
 | any other row: a previous session's, the shim's `create_page` | ahead of the lane |
 | none left (`nextBatch()` returns null) | the lane goes |
 
-**Every path that posts durable rows asks the queue first**, as the recovery
+Every path that posts durable rows asks the queue first, as the recovery
 flush does through `OpQueue.deliverLeased`. A path that skips it can post a
 move ahead of the create it depends on.
 
@@ -118,7 +118,7 @@ spare.
 
 ### Availability: two values, one owner
 
-**The worker owns the answer and latches it.** `db()` in
+The worker owns the answer and latches it. `db()` in
 `workerHandlers.ts` wraps the first `openDb()` failure in a
 `ReplicaUnusableError`, and every later handler call throws it. Only the
 `close` handler re-arms it, because lifting the barrier starts a drain against
@@ -137,30 +137,28 @@ whether a consumer may latch it: yes for everything but a bare timeout.
 
 ### What the UI shows
 
-`bannerForMode` (`sync/syncState.ts`) folds each mode report into a banner; `ready` clears a stalled one unless its reset is running:
+`bannerForMode` (`sync/syncState.ts`) folds each mode report into a banner.
+`ready` clears a stalled one unless its reset is running.
 
 | Mode report | Banner |
 |---|---|
-| `stalled` | `replica-stalled`: "Local sync is stuck", with Reset local data |
+| `stalled` | `replica-stalled`, with Reset local data |
 | `recovery-failed` | the same banner while the socket is connected; offline none, and `computeEditability` reads the mode as read-only |
-| `no-replica` | `replica-unusable`, below |
+| `no-replica` | `replica-unusable` |
 
-`OfflineIndicator` renders `replica-unusable` as "Working online only —
-offline editing is unavailable for now." It replaces a stalled banner, whose
-Reset cannot work on a replica that is gone, and never a delivery problem.
-`SyncState.replicaGone` remembers the report, so the banner returns when a
-delivery problem ends. The second sentence depends on connectivity:
+`replica-unusable` replaces a stalled banner, whose Reset cannot work on a
+replica that is gone, and never a delivery problem. `SyncState.replicaGone`
+remembers the report, so the banner returns when a delivery problem ends. Its
+action is Reload, not Retry, because the failed open is latched for the
+session.
 
-| State | Second sentence | Why |
-|---|---|---|
-| Connected | "Your changes are still being saved to the server." | the queue retains every write |
-| Offline, `unsentInMemory > 0` | N unsent changes exist only in memory and a reload discards them | they live only in the lane; durable rows (`pending` minus `unsentInMemory`) survive a reload and are not counted |
-| Offline, `unsentInMemory === 0` | none | nothing to lose |
+The banner and Reload's confirmation mention unsent changes only when
+`unsentInMemory > 0`. Those live only in the lane, so a reload discards them.
+Durable rows (`pending` minus `unsentInMemory`) survive a reload and are not
+counted. Wording is in `OfflineIndicator.tsx`.
 
-Its action is Reload, not Retry, because the failed open is latched for the
-session. Reload asks for confirmation only when `unsentInMemory > 0`. A
-replica that opens and then fails every write has no availability verdict, so
-no problem banner mounts; the offline `ConnectivityBanner` appends the same
+A replica that opens and then fails every write has no availability verdict, so
+no problem banner mounts. The offline `ConnectivityBanner` appends the same
 `memoryOnlySentence`.
 
 ## The recovery barrier
@@ -173,7 +171,7 @@ and `pause(owner)` and `resume(owner)` take one:
 | Owner | Claimed by | Released by |
 |---|---|---|
 | `startup` | `clientRuntime.startup()` | `continueStartup`, once discovery answers; on poisoned rows, after `repair()` has claimed `poison` |
-| `poison` | the queue's construction, when mark intents were retained; `rejectDurableBatch`, before the durable mark; `runRepair`, for rows startup found | `runRepair` on success; `continueStartup` when discovery finds nothing or the replica is unusable; `clientRuntime`'s unmatched-round listener and `discardPoisonIntents`, each only when no repair runs (and, for the listener, discovery has answered) |
+| `poison` | the queue's construction, when mark intents were retained; `rejectDurableBatch`, before the durable mark; `markRetainedPoison` (the startup and Retry mark round), before it marks; `runRepair`, for rows startup found | `runRepair` on success; `continueStartup` when discovery finds nothing or the replica is unusable; `clientRuntime`'s unmatched-round listener and `discardPoisonIntents`, each only when no repair runs (and, for the listener, discovery has answered) |
 | `recovery` | `runRecovery`, before its lease | the end of that run, whatever its outcome |
 | `lane` | a lane entry's 4xx (`deliverLaneHead`) | the first outline repair to become stable after it |
 
@@ -181,11 +179,8 @@ and `pause(owner)` and `resume(owner)` take one:
 `holds("poison")` as its `holdsPoison` dep
 ([below](#a-batch-the-server-rejects)). `OpQueue.onRelease` fires inside
 `resume` when it releases a held owner, so its listener acts before any other
-call can claim the owner again. A release listener therefore reports nothing
-synchronously. No emission may report during a render. Every `OpQueue`
-emission follows an await except `onRelease` and `settleCommitted`'s
-`onSkipped`, and both are reached only from effects and async paths
-(`opQueue.ts` header).
+call can claim the owner again. Its emission rule, and why none may report
+during a render, are in the `opQueue.ts` header.
 
 The drain checks the barrier again after each `nextBatch()` read, since a
 pause can land while the read waits on the worker's gate.
@@ -202,8 +197,8 @@ Retry is what lifts `poison`. The outline problem waits in `outlineBehind`
 ### Calls that arrive during a run
 
 `coalesce` (`sync/coalesce.ts`) holds the rule for the single-flight sites in
-the table: **a call that arrives during a run still gets a run that could have
-served it.** The call joins the run while the site's `joinable()` holds.
+the table: a call that arrives during a run still gets a run that could have
+served it. The call joins the run while the site's `joinable()` holds.
 Otherwise it is owed one run, started in the reaction that ends the current
 one. `coalesce.test.ts` pins the windows, the rejections and `idle()`.
 
@@ -379,7 +374,7 @@ await it, since `pullLoop` calls it from inside that pull; it runs through
 `recover()`, which turns a `rebase` failing on fresh corruption into a
 `reset`.
 
-**Within a session, a rebase never replays a batch its flush got an ack for.**
+Within a session, a rebase never replays a batch its flush got an ack for.
 The server's result can differ from the wire op. The next pull starts at the
 snapshot's seq, so nothing would correct a replay of the wire text.
 `flushBatches` holds each ack in `heldAcks` (`sync/opsAck.ts`), across runs
@@ -437,7 +432,7 @@ lane gets past them. Corruption elsewhere, such as the FTS index, leaves the
 queue readable and keeps its own repair. A discard that throws still drops
 the memoised handle, because it may already have closed it.
 
-**Corruption must reach `isCorruptionError` with its own message.** SQLite
+Corruption must reach `isCorruptionError` with its own message. SQLite
 rolls back by itself on `SQLITE_CORRUPT`, `IOERR` or `FULL`, and a later
 `ROLLBACK` then fails with "no transaction is active". `wrapSqlite`'s
 `transaction` and `rollbackToSavepoint` (`replica/db.ts`) raise the original

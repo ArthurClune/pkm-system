@@ -7,7 +7,14 @@
 // and a request that never got an answer throws the TypeError a failed
 // fetch throws. apiFetch's read deadline is not reproduced: the server is
 // local, and a hang would show as the property's own timeout.
-import { ApiError, type ApiFetchOptions } from "../../api/client";
+//
+// apiFetch's progress and stall bound are, for the answer as this transport
+// delivers it: `onProgress` once when a body arrives, or once per piece of a
+// paced one, and `stallMs` of silence in a paced answer rejects with
+// StalledReadError. The real exchange's own latency is not timed: the
+// harness scales the stall bound down with its lease, and the local server's
+// latency does not scale with it.
+import { ApiError, type ApiFetchOptions, StalledReadError } from "../../api/client";
 import type { BatchId } from "../../api/brands";
 import type { OpBatch, OpsAck } from "../../api/payloads";
 import { BASE_URL } from "./env";
@@ -17,12 +24,25 @@ import { seqOf } from "../../test-helpers";
 
 /** One-shot faults, each consumed by the next request of its kind. A
  * snapshot5xx answers the next snapshot fetch with a 503 the server never
- * saw. */
-export type Fault = "dropAck" | "duplicate" | "lostPull" | "snapshot5xx";
+ * saw. A slowSnapshot delivers the next snapshot answer in Pacing's pieces,
+ * outlasting the lease; a stalledSnapshot delivers one piece of it and then
+ * nothing more. */
+export type Fault = "dropAck" | "duplicate" | "lostPull" | "snapshot5xx"
+  | "slowSnapshot" | "stalledSnapshot";
 
 /** Deliberately wrong transports, for checking that the oracle notices. Each
- * acts once, on the first request it matches. */
-export type Broken = "dropBatch" | "reidBatch" | "holdBatch" | "skipWindow";
+ * acts once, on the first request it matches. starveProgress paces the first
+ * snapshot answer whose caller asks for progress as a slowSnapshot, but never
+ * reports a piece. */
+export type Broken = "dropBatch" | "reidBatch" | "holdBatch" | "skipWindow"
+  | "starveProgress";
+
+/** How a slow or stalled answer arrives: a piece every `pieceMs`, `pieces`
+ * of them for a slow one. */
+export interface Pacing {
+  pieceMs: number;
+  pieces: number;
+}
 
 export type FetchJson = (
   path: string, init?: RequestInit, opts?: ApiFetchOptions,
@@ -48,6 +68,10 @@ export interface Transport extends TransportLife {
   /** How many armed faults of this kind have fired: met a request and done
    * their damage (sent twice, or sent with the reply dropped). */
   fired(fault: Fault): number;
+  /** How many paced answers were abandoned with StalledReadError. */
+  stalls(): number;
+  /** Whether a paced answer is being delivered now. */
+  pacing(): boolean;
   /** Test-only: every request whose path starts with `pathPrefix` ("" for
    * all) waits, before it is sent, until the returned release is called. A
    * stall is not a fault: clearFaults leaves it in place. Never released, it
@@ -74,8 +98,11 @@ function kindOf(path: string, method: string): RequestKind {
   return "other";
 }
 
+const isSnapshot = (path: string): boolean => path.split("?")[0] === "/api/sync/snapshot";
+
 function faultMatches(fault: Fault, kind: RequestKind, path: string): boolean {
-  if (fault === "snapshot5xx") return path.split("?")[0] === "/api/sync/snapshot";
+  if (fault === "snapshot5xx" || fault === "slowSnapshot" ||
+      fault === "stalledSnapshot") return isSnapshot(path);
   return fault === "lostPull" ? kind === "pull" : kind === "ops";
 }
 
@@ -101,6 +128,8 @@ export interface TransportOptions {
    * surfaces as the network error a dead life gives, so the app sees an
    * ordinary failed request. */
   signal?: AbortSignal;
+  /** Needed only by the paced faults and starveProgress. */
+  pacing?: Pacing;
 }
 
 /** `path` with `limit=` appended when it is a changes-feed request. */
@@ -112,12 +141,15 @@ export function withWindowLimit(path: string, windowLimit?: number): string {
 }
 
 export function createTransport(server: ServerControl, broken?: Broken,
-                                { windowLimit, signal }: TransportOptions = {}): Transport {
+                                { windowLimit, signal, pacing }: TransportOptions = {}): Transport {
   let offline = false;
   let faults: Fault[] = [];
   const firedCounts: Record<Fault, number> = {
-    dropAck: 0, duplicate: 0, lostPull: 0, snapshot5xx: 0,
+    dropAck: 0, duplicate: 0, lostPull: 0, snapshot5xx: 0, slowSnapshot: 0, stalledSnapshot: 0,
   };
+  let stalled = 0;
+  let paced = 0;
+  let starved = false;
   let generation = 0;
   let brokenUsed = false;
   let lastSeq = seqOf(0);
@@ -232,10 +264,56 @@ export function createTransport(server: ServerControl, broken?: Broken,
     return send(path, init);
   };
 
+  /** Waits `ms`, or throws as the request in delivery would end: the
+   * caller aborts it (as fetch rejects), or its life, the network or the
+   * example ends (a network error). */
+  const pause = async (ms: number, live: () => boolean,
+                       caller: AbortSignal | null | undefined): Promise<void> => {
+    await new Promise<void>((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer);
+        caller?.removeEventListener("abort", done);
+        resolve();
+      };
+      const timer = setTimeout(done, ms);
+      caller?.addEventListener("abort", done);
+    });
+    if (caller?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+    if (offline || !live() || signal?.aborted) throw networkError();
+  };
+
+  /** Delivers an answer the server already gave in pieces, `onPiece` after
+   * each. Stalled, it delivers one piece and then nothing, until `stallMs`
+   * of silence rejects it, or for ever without one. */
+  const deliverPaced = async (
+    how: "slow" | "stalled", live: () => boolean, init: RequestInit | undefined,
+    opts: ApiFetchOptions | undefined, onPiece: () => void,
+  ): Promise<void> => {
+    if (pacing === undefined) throw new Error(`a ${how} answer needs the transport's pacing`);
+    paced += 1;
+    try {
+      const pieces = how === "slow" ? pacing.pieces : 1;
+      for (let i = 0; i < pieces; i += 1) {
+        await pause(pacing.pieceMs, live, init?.signal);
+        onPiece();
+      }
+      if (how === "slow") return;
+      for (let silent = 0; ; silent += pacing.pieceMs) {
+        if (opts?.stallMs !== undefined && silent >= opts.stallMs) {
+          stalled += 1;
+          throw new StalledReadError(opts.stallMs);
+        }
+        await pause(pacing.pieceMs, live, init?.signal);
+      }
+    } finally {
+      paced -= 1;
+    }
+  };
+
   /** A request on behalf of life `life` (null: the transport's own doors,
    * which no life change ends). */
   const request = async (
-    life: number | null, path: string, init?: RequestInit,
+    life: number | null, path: string, init?: RequestInit, opts?: ApiFetchOptions,
   ): Promise<unknown> => {
     const live = (): boolean => life === null || life === generation;
     if (offline || !live()) throw networkError();
@@ -261,6 +339,17 @@ export function createTransport(server: ServerControl, broken?: Broken,
     if (fault === "dropAck" || fault === "lostPull" || !live()) {
       throw networkError();
     }
+    const progress = opts?.onProgress ?? ((): void => undefined);
+    if (fault === "slowSnapshot" || fault === "stalledSnapshot") {
+      await deliverPaced(fault === "slowSnapshot" ? "slow" : "stalled", live, init, opts,
+                         progress);
+    } else if (broken === "starveProgress" && !starved && isSnapshot(path) &&
+               opts?.onProgress !== undefined) {
+      starved = true;
+      await deliverPaced("slow", live, init, opts, () => undefined);
+    } else {
+      progress();
+    }
     if (answer.status < 200 || answer.status >= 300) {
       throw new ApiError(answer.status, path, detailOf(answer.body));
     }
@@ -268,7 +357,7 @@ export function createTransport(server: ServerControl, broken?: Broken,
   };
 
   const doors = (life: number | null): TransportLife => ({
-    fetchJson: (path, init) => request(life, path, init),
+    fetchJson: (path, init, opts) => request(life, path, init, opts),
     post: async (body) => parseOpsAck(await request(life, "/api/ops", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -296,6 +385,8 @@ export function createTransport(server: ServerControl, broken?: Broken,
     committed,
     sends: (batchId) => sent.get(batchId) ?? 0,
     fired: (fault) => firedCounts[fault],
+    stalls: () => stalled,
+    pacing: () => paced > 0,
     newLife: () => {
       generation += 1;
       return doors(generation);

@@ -14,7 +14,8 @@ import logging
 from collections.abc import Sequence
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request, Response
+from pydantic import BaseModel
 
 from pkm.contracts.ops import NO_SEQ, BlockUid, PageId, SyncSeq
 from pkm.contracts.responses import (AppliedBatch, ChangesPayload, EntityKind,
@@ -27,6 +28,7 @@ from pkm.database import Db
 from pkm.rows import Row, heading_level
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db, read_txn
+from pkm.server.http_encoding import encode_body
 from pkm.server.logfmt import truncate_for_log
 from pkm.server.sync_core import (ChangeRow, chunk_ids, dedupe_window,
                                     hydrate_in_order, missing_parent_uids,
@@ -269,13 +271,29 @@ def _sidebar_payloads(db: Db,
     return hydrate_in_order(ids, by_id)
 
 
+def _encoded_json(request: Request, payload: BaseModel) -> Response:
+    """The payload rendered as FastAPI renders a response model (pydantic's
+    `dump_json`, by alias), gzipped when the client accepts it. Runs after
+    the read transaction has closed, in the route's worker thread: neither
+    the render nor the gzip holds a read snapshot or blocks the event loop."""
+    body, headers = encode_body(payload.model_dump_json(by_alias=True).encode(),
+                                request.headers.get("accept-encoding"))
+    return Response(body, media_type="application/json", headers=headers)
+
+
 @router.get("/api/sync/changes", response_model=ChangesPayload)
-def sync_changes(since: Annotated[SyncSeq, INT64_RANGE] = NO_SEQ,
+def sync_changes(request: Request,
+                 since: Annotated[SyncSeq, INT64_RANGE] = NO_SEQ,
                  limit: Int64 = 1000,
                  pending: PendingIds = None,
-                 db: Db = Depends(get_db)) -> ChangesPayload:
+                 db: Db = Depends(get_db)) -> Response:
     """One window of the change journal after `since`, hydrated to current
     rows, plus which of the `pending` batch ids that window already holds."""
+    return _encoded_json(request, changes_payload(db, since, limit, pending))
+
+
+def changes_payload(db: Db, since: SyncSeq = NO_SEQ, limit: int = 1000,
+                    pending: list[str] | None = None) -> ChangesPayload:
     limit = max(1, min(limit, MAX_LIMIT))
     with read_txn(db):  # one consistent read snapshot for scan + hydration
         generation = database_generation(db)
@@ -353,11 +371,15 @@ def sync_changes(since: Annotated[SyncSeq, INT64_RANGE] = NO_SEQ,
 
 
 @router.get("/api/sync/snapshot", response_model=SnapshotPayload)
-def sync_snapshot(pending: PendingIds = None,
-                  db: Db = Depends(get_db)
-                  ) -> SnapshotPayload:
+def sync_snapshot(request: Request, pending: PendingIds = None,
+                  db: Db = Depends(get_db)) -> Response:
     """The whole graph at one journal seq, plus which of the `pending` batch
     ids it already holds."""
+    return _encoded_json(request, snapshot_payload(db, pending))
+
+
+def snapshot_payload(db: Db,
+                     pending: list[str] | None = None) -> SnapshotPayload:
     with read_txn(db):
         seq = latest_seq(db)
         uids = [r["uid"] for r in db.select("SELECT uid FROM blocks")]

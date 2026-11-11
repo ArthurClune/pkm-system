@@ -183,6 +183,7 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
     localApi: async () => ({ handled: false as const }),
     prepareRecovery: async () => ({ token: "lease-1", batches: [] }),
     commitRecovery: async () => undefined,
+    renewRecovery: async () => undefined,
     abortRecovery: async () => undefined,
     diagnostics: async () => ({
       sqliteVersion: "fake", quickCheck: ["ok"],

@@ -12,7 +12,11 @@ import { createRpcClient, type PortLike } from "./rpc";
 /** Timeout budget for every recovery-adjacent worker RPC (prepareRecovery,
  * applySnapshot, commitRecovery, diagnostics): these can process a full local
  * database and share the same generous allowance. */
-const RECOVERY_TIMEOUT_MS = 120_000;
+const RECOVERY_RPC_TIMEOUT_MS = 120_000;
+
+/** How long the worker holds a recovery lease past its prepare or its last
+ * renewal before it frees the gate for a client that stopped running. */
+export const RECOVERY_LEASE_MS = 120_000;
 
 /** A `pending_ops` row id (SQLite AUTOINCREMENT), web-only: it never
  * crosses the wire, and it is not stable across a reset or a file
@@ -167,6 +171,10 @@ export interface Replica {
   prepareRecovery(): Promise<RecoveryLease>;
   /** Final durable-row comparison and authoritative rebuild/rebase. */
   commitRecovery(token: string, input: RecoveryCommit): Promise<void>;
+  /** Move the lease's deadline to `RECOVERY_LEASE_MS` from now, never
+   * earlier than it was. Refused once the lease has expired or its commit
+   * has begun. */
+  renewRecovery(token: string): Promise<void>;
   /** Release a prepared lease without destructive work. */
   abortRecovery(token: string): Promise<void>;
   /** Read-only self-report for the corruption path; never rejects for a
@@ -222,20 +230,30 @@ export type ReplicaRpc = {
     result: null;
   };
   /** result: null; the client method discards it. */
+  renewRecovery: { payload: { token: string; expiresAtMs: number }; result: null };
+  /** result: null; the client method discards it. */
   abortRecovery: { payload: string; result: null };
   diagnostics: { payload: undefined; result: ReplicaDiagnostics };
   /** result: null; nothing reads it -- `dispose()` discards it directly. */
   close: { payload: undefined; result: null };
 };
 
-export function createReplica(port: PortLike, terminate?: () => void): Replica {
+export interface ReplicaOptions {
+  /** RECOVERY_LEASE_MS unless a harness that runs on real timers shortens
+   * it, scaling the client's renewal and stall bounds with it. */
+  leaseMs?: number;
+}
+
+export function createReplica(port: PortLike, terminate?: () => void,
+                              opts: ReplicaOptions = {}): Replica {
   const rpc = createRpcClient<ReplicaRpc>(port);
+  const leaseMs = opts.leaseMs ?? RECOVERY_LEASE_MS;
   let disposing: Promise<void> | null = null;
   return {
     init: () => rpc.call("init"),
     applySnapshot: (snapshot, expectedPendingIds = []) =>
       rpc.call("applySnapshot", { snapshot, expectedPendingIds },
-               { timeoutMs: RECOVERY_TIMEOUT_MS }),
+               { timeoutMs: RECOVERY_RPC_TIMEOUT_MS }),
     applyChanges: (feed, expectedPendingIds = []) => rpc.call("applyChanges", {
       feed, expectedPendingIds,
     }),
@@ -251,14 +269,17 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
     localApi: (req) => rpc.call("localApi", req),
     prepareRecovery: () => rpc.call(
       "prepareRecovery",
-      { expiresAtMs: Date.now() + RECOVERY_TIMEOUT_MS },
-      { timeoutMs: RECOVERY_TIMEOUT_MS }),
+      { expiresAtMs: Date.now() + leaseMs },
+      { timeoutMs: RECOVERY_RPC_TIMEOUT_MS }),
     commitRecovery: (token, input) => rpc.call(
-      "commitRecovery", { token, input }, { timeoutMs: RECOVERY_TIMEOUT_MS },
+      "commitRecovery", { token, input }, { timeoutMs: RECOVERY_RPC_TIMEOUT_MS },
+    ).then(() => undefined),
+    renewRecovery: (token) => rpc.call(
+      "renewRecovery", { token, expiresAtMs: Date.now() + leaseMs },
     ).then(() => undefined),
     abortRecovery: (token) => rpc.call("abortRecovery", token).then(() => undefined),
     diagnostics: () =>
-      rpc.call("diagnostics", undefined, { timeoutMs: RECOVERY_TIMEOUT_MS }),
+      rpc.call("diagnostics", undefined, { timeoutMs: RECOVERY_RPC_TIMEOUT_MS }),
     dispose: () => (disposing ??= (async () => {
       try {
         await rpc.call("close");

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { BatchId, SyncSeq } from "../api/brands";
 import { applySnapshot, type Changes, type Snapshot } from "./apply";
 import { type PortLike, serveRpc } from "./rpc";
@@ -14,7 +14,7 @@ import { failingOnce, fakeCarryFiles, openRawTestDb, openTestDb,
          withDamagedFreelist, withUnreadableQueue } from "./testDb";
 import { setMeta } from "./meta";
 import { subtreeHash } from "./subtreeHash";
-import { buildHandlers, type WorkerDeps } from "./workerHandlers";
+import { buildHandlers, LEASE_EXPIRED, type WorkerDeps } from "./workerHandlers";
 import {
   batchIdOf, canonicalTitleOf, orderIdxOf, pageIdOf, pendingRowIdOf, rawTitleOf, seqOf, uidOf,
 } from "../test-helpers";
@@ -303,10 +303,249 @@ test("an acquired recovery lease expires if its client forgets the token", async
       pending: 1, batchId: "batch-after-expiry",
     });
     await expect(handlers.abortRecovery(lease.token))
-      .rejects.toThrow("invalid or inactive recovery token");
+      .rejects.toThrow(LEASE_EXPIRED);
   } finally {
     vi.useRealTimers();
   }
+});
+
+describe("a recovery lease renewed by its client", () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** A lease taken at clock 0 with deadline 100, and one enqueue queued
+   * behind it. `tick` moves the lease clock and the fake timers together;
+   * `deps.applySnapshot` runs inside a commit. */
+  const heldLease = async (deps: Partial<WorkerDeps> = {}) => {
+    let clock = 0;
+    const t = await openRawTestDb();
+    const handlers = buildHandlers({
+      openDb: async () => t.db,
+      clockMs: () => clock,
+      newRecoveryToken: () => "lease-a",
+      ...deps,
+    });
+    await handlers.init(undefined);
+    const { token } = await handlers.prepareRecovery({ expiresAtMs: 100 });
+    let settled = false;
+    const queued = handlers.enqueue({
+      ops: [{ op: "delete", uid: uidOf("uid_queued") }], batchId: bid("batch-q"),
+    }).finally(() => { settled = true; });
+    return {
+      handlers, token, queued,
+      settled: () => settled,
+      setClock: (to: number) => { clock = to; },
+      tick: async (to: number) => {
+        const by = to - clock;
+        clock = to;
+        await vi.advanceTimersByTimeAsync(by);
+      },
+    };
+  };
+
+  test("a renewed recovery lease holds the gate past its first deadline", async () => {
+    const l = await heldLease();
+    await l.tick(50);
+    await expect(l.handlers.renewRecovery({ token: l.token, expiresAtMs: 150 }))
+      .resolves.toBeNull();
+
+    await l.tick(100);
+    await l.tick(149);
+
+    expect(l.settled()).toBe(false);
+  });
+
+  test("a renewed lease expires a lease-length after its last renewal, and the queued write then runs",
+  async () => {
+    const l = await heldLease();
+    await l.tick(50);
+    await l.handlers.renewRecovery({ token: l.token, expiresAtMs: 150 });
+    await l.tick(149);
+    expect(l.settled()).toBe(false);
+
+    await l.tick(150);
+
+    await expect(l.queued).resolves.toEqual({ pending: 1, batchId: "batch-q" });
+  });
+
+  test("a renewal after the lease expired is refused as expired and takes nothing back",
+  async () => {
+    const l = await heldLease();
+    await l.tick(100);
+    await expect(l.queued).resolves.toMatchObject({ pending: 1 });
+
+    await expect(l.handlers.renewRecovery({ token: l.token, expiresAtMs: 300 }))
+      .rejects.toThrow(LEASE_EXPIRED);
+
+    await expect(l.handlers.enqueue({
+      ops: [{ op: "delete", uid: uidOf("uid_after") }], batchId: bid("batch-after"),
+    })).resolves.toEqual({ pending: 2, batchId: "batch-after" });
+  });
+
+  test("a renewal arriving once the deadline has passed is refused, even before the timer fires",
+  async () => {
+    const l = await heldLease();
+    l.setClock(100);
+
+    await expect(l.handlers.renewRecovery({ token: l.token, expiresAtMs: 300 }))
+      .rejects.toThrow(LEASE_EXPIRED);
+    await expect(l.queued).resolves.toMatchObject({ pending: 1 });
+  });
+
+  test("a commit after the lease expired is refused as expired", async () => {
+    const l = await heldLease();
+    await l.tick(100);
+
+    await expect(l.handlers.commitRecovery({
+      token: l.token, input: { kind: "reset", snapshot: SNAP },
+    })).rejects.toThrow(LEASE_EXPIRED);
+  });
+
+  test("an abort after the lease expired is refused as expired", async () => {
+    const l = await heldLease();
+    await l.tick(100);
+
+    await expect(l.handlers.abortRecovery(l.token)).rejects.toThrow(LEASE_EXPIRED);
+  });
+
+  test.each([Infinity, NaN])("a renewal to deadline %s is refused and the "
+    + "lease keeps its deadline", async (expiresAtMs) => {
+    const l = await heldLease();
+
+    await expect(l.handlers.renewRecovery({ token: l.token, expiresAtMs }))
+      .rejects.toThrow("invalid lease deadline");
+
+    await l.tick(99);
+    expect(l.settled()).toBe(false);
+    await l.tick(100);
+    await expect(l.queued).resolves.toMatchObject({ pending: 1 });
+  });
+
+  test("a prepare whose deadline passed while it queued behind a renewed lease "
+    + "is refused once the gate frees, and leaves the gate free", async () => {
+    const l = await heldLease();
+    const second = l.handlers.prepareRecovery({ expiresAtMs: 100 });
+    const outcome = second.then(() => "leased",
+      (e: unknown) => e instanceof Error ? e.message : String(e));
+    await l.tick(50);
+    await l.handlers.renewRecovery({ token: l.token, expiresAtMs: 250 });
+    await l.tick(200);
+    await l.handlers.abortRecovery(l.token);
+
+    expect(await outcome).toBe("recovery preparation expired");
+    await expect(l.handlers.enqueue({
+      ops: [{ op: "delete", uid: uidOf("uid_after") }], batchId: bid("batch-after"),
+    })).resolves.toEqual({ pending: 2, batchId: "batch-after" });
+  });
+
+  test("a renewal with a token never issued is refused as invalid", async () => {
+    const l = await heldLease();
+
+    await expect(l.handlers.renewRecovery({ token: "never-issued", expiresAtMs: 300 }))
+      .rejects.toThrow("invalid or inactive recovery token");
+
+    await l.tick(99);
+    expect(l.settled()).toBe(false);
+    await l.tick(100);
+    await expect(l.queued).resolves.toMatchObject({ pending: 1 });
+  });
+
+  test("a renewal carrying an earlier deadline does not shorten the lease", async () => {
+    const l = await heldLease();
+    await l.tick(10);
+    await l.handlers.renewRecovery({ token: l.token, expiresAtMs: 200 });
+    await l.handlers.renewRecovery({ token: l.token, expiresAtMs: 120 });
+
+    await l.tick(150);
+    await l.tick(199);
+    expect(l.settled()).toBe(false);
+    await l.tick(200);
+    await expect(l.queued).resolves.toMatchObject({ pending: 1 });
+  });
+
+  test("a renewal during a commit is refused and the commit completes", async () => {
+    let renewal: Promise<unknown> | null = null;
+    let renew: () => Promise<unknown> = async () => undefined;
+    const l = await heldLease({
+      applySnapshot: (db, snapshot, nowMs) => {
+        renewal = renew();
+        return applySnapshot(db, snapshot, nowMs);
+      },
+    });
+    renew = () => l.handlers.renewRecovery({ token: l.token, expiresAtMs: 900 })
+      .catch((error: unknown) => error);
+    await l.tick(50);
+
+    await expect(l.handlers.commitRecovery({
+      token: l.token, input: { kind: "reset", snapshot: SNAP },
+    })).resolves.toBeNull();
+
+    expect(renewal).not.toBeNull();
+    expect(await renewal).toMatchObject({
+      message: "invalid or inactive recovery token" });
+    await expect(l.queued).resolves.toMatchObject({ batchId: "batch-q" });
+  });
+
+  test("a lease deadline passing during a commit does not abort it", async () => {
+    let renewal: Promise<unknown> | null = null;
+    let pastDeadline: () => Promise<unknown> = async () => undefined;
+    const l = await heldLease({
+      applySnapshot: (db, snapshot, nowMs) => {
+        renewal = pastDeadline();
+        return applySnapshot(db, snapshot, nowMs);
+      },
+    });
+    pastDeadline = () => {
+      l.setClock(500);
+      vi.advanceTimersByTime(500);
+      return l.handlers.renewRecovery({ token: l.token, expiresAtMs: 900 })
+        .catch((error: unknown) => error);
+    };
+
+    await expect(l.handlers.commitRecovery({
+      token: l.token, input: { kind: "reset", snapshot: SNAP },
+    })).resolves.toBeNull();
+
+    await expect(l.queued).resolves.toMatchObject({ batchId: "batch-q" });
+    // committed, not expired
+    expect(await renewal).toMatchObject({
+      message: "invalid or inactive recovery token" });
+    await expect(l.handlers.abortRecovery(l.token))
+      .rejects.toThrow("invalid or inactive recovery token");
+  });
+
+  test("a stale timer after a renewal does not expire the lease", async () => {
+    const l = await heldLease();
+    await l.tick(50);
+    await l.handlers.renewRecovery({ token: l.token, expiresAtMs: 150 });
+
+    await l.tick(100);
+
+    expect(l.settled()).toBe(false);
+    await expect(l.handlers.renewRecovery({ token: l.token, expiresAtMs: 250 }))
+      .resolves.toBeNull();
+  });
+
+  test("a timer firing before the clock reaches the deadline re-arms instead of expiring",
+  async () => {
+    const l = await heldLease();
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(l.settled()).toBe(false);
+
+    await l.tick(100);
+    await expect(l.queued).resolves.toMatchObject({ pending: 1 });
+  });
+
+  test("a renewal replaces the lease's timer rather than adding one", async () => {
+    const l = await heldLease();
+    const timers = vi.getTimerCount();
+
+    await l.handlers.renewRecovery({ token: l.token, expiresAtMs: 150 });
+    await l.handlers.renewRecovery({ token: l.token, expiresAtMs: 200 });
+
+    expect(vi.getTimerCount()).toBe(timers);
+  });
 });
 
 test("a failed open stays latched: init's rejection must not re-arm the database",

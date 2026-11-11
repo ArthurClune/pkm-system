@@ -38,7 +38,7 @@ export type ClientPort = Pick<HarnessClient,
   | "nudge" | "failNextWrite" | "loseNextReply" | "lostReplyArmed" | "reload"
   | "connectLanded" | "cursor" | "killWorker" | "workerDead" | "canEdit" | "mode"
   | "appliedVersion" | "hasStarted" | "lastPullJoin">
-  & { readonly transport: Pick<Transport, "arm" | "fetchJson"> };
+  & { readonly transport: Pick<Transport, "arm" | "fetchJson" | "pacing"> };
 
 export interface World<C extends ClientPort = ClientPort> {
   server: ServerControl;
@@ -54,7 +54,7 @@ export interface World<C extends ClientPort = ClientPort> {
 }
 
 export type FaultKind = "dropAck" | "duplicate" | "lostPull" | "writeFails" | "lostReply"
-  | "snapshot5xx";
+  | "snapshot5xx" | "slowSnapshot" | "stalledSnapshot";
 export type NudgeKind = "latest" | "stale" | "duplicate" | "ahead";
 
 /** How far past the journal an "ahead" nudge points. */
@@ -168,6 +168,7 @@ export class Edit extends SyncCommand {
     }
     const dead = c.workerDead();
     if (dead) w.count("Edit with a dead worker");
+    if (c.transport.pacing()) w.count("Edit while a snapshot is paced");
     const id = await c.edit(ops);
     if (dead) w.modes.afterEdit(c);
     m.good.get(this.client)?.push(id);
@@ -547,6 +548,16 @@ export const offlineBack: fc.Arbitrary<OfflineBack> = fc.oneof(
 export const connectTiming: fc.Arbitrary<number | undefined> =
   fc.option(fc.integer({ min: 1, max: 7 }), { nil: undefined, freq: 2 });
 
+/** A Fault's kind. The paced snapshot faults are drawn less often than the
+ * rest: each one that fires holds its example for about two lease-lengths
+ * of real time (HARNESS_PACING). */
+export const faultKind: fc.Arbitrary<FaultKind> = fc.oneof(
+  { weight: 48, arbitrary: fc.constantFrom<FaultKind>(
+      "dropAck", "duplicate", "lostPull", "writeFails", "lostReply", "snapshot5xx") },
+  { weight: 2, arbitrary: fc.constant<FaultKind>("slowSnapshot") },
+  { weight: 3, arbitrary: fc.constant<FaultKind>("stalledSnapshot") },
+);
+
 /** Every command, naming only `names` (the clients the example starts), so no
  * draw is spent on a client the example lacks. Weighted as calibrated: Edit
  * 10, Pull 3, Nudge 3, Offline 3, Fault 3, Reload 2, BadBatch 1,
@@ -562,8 +573,7 @@ export function commandsFor(names: readonly string[]): fc.Arbitrary<SyncCommand>
         "latest", "stale", "duplicate", "ahead")).map(([c, k]) => new Nudge(c, k)) },
     { weight: 3, arbitrary: fc.tuple(client, offlineBack)
         .map(([c, back]) => new Offline(c, back)) },
-    { weight: 3, arbitrary: fc.tuple(client, fc.constantFrom<FaultKind>(
-        "dropAck", "duplicate", "lostPull", "writeFails", "lostReply", "snapshot5xx"))
+    { weight: 3, arbitrary: fc.tuple(client, faultKind)
         .map(([c, k]) => new Fault(c, k)) },
     { weight: 2, arbitrary: fc.tuple(client, connectTiming)
         .map(([c, at]) => new Reload(c, at)) },

@@ -24,8 +24,11 @@ import { pendingSetStillCovered } from "./pendingGuard";
 import { allBatches, deleteBatch, type DurablePendingRow, enqueueBatch,
          importPendingRows, markPoisoned, nextBatch, pendingCount,
          poisonedBatches, readPendingRows } from "./queue";
-import { createRecoveryGate } from "./recoveryGate";
+import { createRecoveryGate, INVALID_TOKEN } from "./recoveryGate";
 import type { RpcHandlers } from "./rpc";
+
+/** A renewal, commit or abort for a lease that expired before it arrived. */
+export const LEASE_EXPIRED = "the download paused too long to finish the repair";
 
 export interface WorkerDeps {
   openDb(): Promise<ReplicaDb>;
@@ -359,20 +362,59 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
   const applySnapshotToDb = deps.applySnapshot ?? applySnapshot;
   const gate = createRecoveryGate(
     deps.newRecoveryToken ?? (() => crypto.randomUUID()));
-  let preparedRows: {
+  /** The recovery lease the gate holds. The worker frees the gate once
+   * clockMs() reaches `deadline` (null: never) unless a commit has begun;
+   * every timer is cleared when the lease changes hands, so the one that
+   * fires is always this lease's. */
+  interface HeldLease {
     token: string;
     fingerprint: string;
+    deadline: number | null;
     expiryTimer: ReturnType<typeof setTimeout> | null;
-  } | null = null;
+    committing: boolean;
+  }
+  let preparedRows: HeldLease | null = null;
+  // Remembered so a late renewal, commit or abort can say why it is refused.
+  let expiredToken: string | null = null;
   const fingerprint = (rows: readonly DurablePendingRow[]): string =>
     JSON.stringify(rows);
+  const stopExpiry = (held: HeldLease): void => {
+    if (held.expiryTimer !== null) clearTimeout(held.expiryTimer);
+    held.expiryTimer = null;
+  };
   const clearPrepared = (token: string): void => {
     if (preparedRows?.token !== token) return;
-    if (preparedRows.expiryTimer !== null) {
-      clearTimeout(preparedRows.expiryTimer);
-    }
+    stopExpiry(preparedRows);
     preparedRows = null;
   };
+  const expire = (held: HeldLease): void => {
+    clearPrepared(held.token);
+    expiredToken = held.token;
+    void gate.abort(held.token).catch(() => undefined);
+  };
+  const armExpiry = (held: HeldLease): void => {
+    if (held.deadline === null) return;
+    held.expiryTimer = setTimeout(() => {
+      held.expiryTimer = null;
+      // A timer can fire before the deadline the clock reads.
+      if (held.deadline !== null && clockMs() < held.deadline) armExpiry(held);
+      else expire(held);
+    }, Math.max(0, held.deadline - clockMs()));
+  };
+  /** The lease `token` names while no commit has begun, or null. A lease
+   * whose deadline has passed is expired here first, so no call can revive
+   * it in the moment before its timer runs. */
+  const liveLease = (token: string): HeldLease | null => {
+    const held = preparedRows;
+    if (held !== null && !held.committing && held.deadline !== null
+        && clockMs() >= held.deadline) {
+      expire(held);
+    }
+    return preparedRows?.token === token && !preparedRows.committing
+      ? preparedRows : null;
+  };
+  const refusal = (token: string): Error =>
+    new Error(token === expiredToken ? LEASE_EXPIRED : INVALID_TOKEN);
   const rebuildSchema = (d: ReplicaDb, snapshot?: Snapshot): void => {
     // SQLite DDL is transactional. Keeping the active connection and doing the
     // logical rebuild in one transaction means schema or snapshot failure rolls
@@ -634,30 +676,37 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
       preparedRows = {
         token: prepared.token,
         fingerprint: prepared.value.fingerprint,
+        deadline: hasDeadline ? expiresAtMs : null,
         expiryTimer: null,
+        committing: false,
       };
-      if (hasDeadline) {
-        preparedRows.expiryTimer = setTimeout(() => {
-          void gate.abort(prepared.token)
-            .catch(() => undefined)
-            .finally(() => { clearPrepared(prepared.token); });
-        }, Math.max(0, expiresAtMs - clockMs()));
-      }
+      armExpiry(preparedRows);
       return { token: prepared.token, batches: prepared.value.batches };
     },
-    async commitRecovery({ token, input }) {
-      if (preparedRows?.token === token
-          && preparedRows.expiryTimer !== null) {
-        clearTimeout(preparedRows.expiryTimer);
-        preparedRows.expiryTimer = null;
+    async renewRecovery({ token, expiresAtMs }) {
+      if (!Number.isFinite(expiresAtMs)) {
+        throw new Error("invalid lease deadline");
       }
+      const held = liveLease(token);
+      if (held === null) throw refusal(token);
+      // The later deadline wins: a renewal delivered late never shortens it.
+      if (held.deadline !== null && expiresAtMs > held.deadline) {
+        held.deadline = expiresAtMs;
+        stopExpiry(held);
+        armExpiry(held);
+      }
+      return null;
+    },
+    async commitRecovery({ token, input }) {
+      const held = liveLease(token);
+      if (held === null) throw refusal(token);
+      // The commit is not under the lease: once it begins, nothing expires it.
+      held.committing = true;
+      stopExpiry(held);
       try {
         await gate.commit(token, async () => {
-          if (preparedRows?.token !== token) {
-            throw new Error("invalid or inactive recovery token");
-          }
           const current = readDurablePendingRows(await queueDb());
-          if (fingerprint(current) !== preparedRows.fingerprint) {
+          if (fingerprint(current) !== held.fingerprint) {
             throw new Error("pending rows changed during recovery");
           }
           if (input.kind === "reset") {
@@ -672,13 +721,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
       }
     },
     async abortRecovery(token) {
-      if (preparedRows?.token === token
-          && preparedRows.expiryTimer !== null) {
-        clearTimeout(preparedRows.expiryTimer);
-        preparedRows.expiryTimer = null;
-      }
-      await gate.abort(token);
+      if (liveLease(token) === null) throw refusal(token);
       clearPrepared(token);
+      await gate.abort(token);
       return null;
     },
     async diagnostics() {

@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { ApiError, OfflineError } from "../api/client";
+import { ApiError, OfflineError, type ApiFetchOptions } from "../api/client";
 import type { BatchId } from "../api/brands";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { BlockOp } from "../api/ops";
 import type { OpBatch, OpsAck, SkippedOp } from "../api/payloads";
 import type { DroppedBatch, PendingBatch, Replica, ReplicaInit, SnapshotApplyResult } from "../replica/client";
+import { RECOVERY_LEASE_MS } from "../replica/client";
+import { LEASE_EXPIRED } from "../replica/workerHandlers";
 import { ReplicaError, ReplicaUnusableError, RpcLifecycleError } from "../replica/errors";
 import {
   uidOf, clientIdOf, batchIdOf, seqOf, pendingRowIdOf, sentBatchId, sentBody, bodyBatchId,
@@ -14,8 +16,9 @@ import { memReplica } from "./memReplica";
 import { createOpQueue, type OpQueue } from "./opQueue";
 import type { BarrierOwner } from "./queueState";
 import {
-  createReplicaSync, PENDING_CHANGED_CAP, PENDING_IDS_CAP, ResetBlockedError, RETRY_BASE_MS,
-  RETRY_MAX_MS, STALL_AFTER_FAILURES, WINDOW_STRIKES, type ReplicaState,
+  createReplicaSync, LEASE_RENEW_EVERY_MS, PENDING_CHANGED_CAP, PENDING_IDS_CAP, ResetBlockedError,
+  RETRY_BASE_MS, RETRY_MAX_MS, SNAPSHOT_STALL_MS, STALL_AFTER_FAILURES, WINDOW_STRIKES,
+  type ReplicaState,
 } from "./replicaSync";
 import {
   plainSpaceTitleCanonicalizationNow as readFlag, resetPlainSpaceTitleCanonicalization,
@@ -70,6 +73,7 @@ function fakeReplica(over: Partial<Replica> = {},
       token: "lease-1", batches: init.pendingBatches ?? [],
     }),
     commitRecovery: () => rec("commitRecovery", undefined),
+    renewRecovery: () => rec("renewRecovery", undefined),
     abortRecovery: () => rec("abortRecovery", undefined),
     diagnostics: () => rec("diagnostics", {
       sqliteVersion: "fake", quickCheck: ["ok"],
@@ -141,6 +145,13 @@ const logged = (warn: ReturnType<typeof quietWarn>, text: string) =>
   warn.mock.calls.filter(([m]) => typeof m === "string" && m.includes(text)).length;
 afterEach(() => { vi.restoreAllMocks(); });
 
+/** A recovery's snapshot read: aborted by its lease keeper, untimed,
+ * stall-bounded, renewing on progress. */
+const RECOVERY_INIT: { signal: unknown } = { signal: expect.any(AbortSignal) };
+const RECOVERY_DOWNLOAD: { timeoutMs: null; stallMs: number; onProgress: unknown } = {
+  timeoutMs: null, stallMs: SNAPSHOT_STALL_MS, onProgress: expect.any(Function),
+};
+
 describe("start, bootstrap and feed pulls", () => {
   test("start on an empty replica bootstraps from the snapshot then is ready", async () => {
     const replica = fakeReplica({}, { empty: true, cursor: seqOf(0) });
@@ -154,7 +165,7 @@ describe("start, bootstrap and feed pulls", () => {
     // untimed: a cold-start whole-graph download on a slow link must not be
     // abandoned at the ordinary read deadline
     expect(fetchJson).toHaveBeenCalledWith(
-      "/api/sync/snapshot", undefined, { timeoutMs: null },
+      "/api/sync/snapshot", undefined, expect.objectContaining({ timeoutMs: null }),
     );
     expect(replica.calls).toContain("applySnapshot");
     expect(states.at(-1)).toEqual({ mode: "ready" });
@@ -626,7 +637,8 @@ describe("poison recovery ownership", () => {
     expect(replica.calls).toContain("prepareRecovery");
     expect(replica.calls).toContain("commitRecovery");
     expect(fetchJson).toHaveBeenCalledWith(
-      "/api/sync/snapshot", undefined, { timeoutMs: null },
+      "/api/sync/snapshot", RECOVERY_INIT,
+      expect.objectContaining(RECOVERY_DOWNLOAD),
     );
   });
 
@@ -2650,7 +2662,7 @@ describe("pending batches a payload already holds", () => {
       });
       await sync.start();
       expect(fetchJson).toHaveBeenCalledWith(
-        "/api/sync/snapshot?pending=b-1", undefined, { timeoutMs: null });
+        "/api/sync/snapshot?pending=b-1", undefined, expect.objectContaining({ timeoutMs: null }));
       expect(settled).toHaveBeenCalledWith(snap.applied_batches);
       expect(onSkipped).toHaveBeenCalledTimes(1);
     });
@@ -2670,7 +2682,8 @@ describe("pending batches a payload already holds", () => {
     await sync.start();
     await sync.rebaseAuthoritative("poison");
     expect(fetchJson).toHaveBeenCalledWith(
-      "/api/sync/snapshot", undefined, { timeoutMs: null });
+      "/api/sync/snapshot", RECOVERY_INIT,
+      expect.objectContaining(RECOVERY_DOWNLOAD));
   });
 
   test("a rebase whose flush got every ack names nothing", async () => {
@@ -2689,7 +2702,8 @@ describe("pending batches a payload already holds", () => {
     });
     await sync.start();
     expect(fetchJson).toHaveBeenCalledWith(
-      "/api/sync/snapshot", undefined, { timeoutMs: null });
+      "/api/sync/snapshot", RECOVERY_INIT,
+      expect.objectContaining(RECOVERY_DOWNLOAD));
   });
 });
 
@@ -3241,5 +3255,296 @@ describe("a pull left to a poison repair", () => {
     h.releasePoison();
     await h.sync.idle();
     expect(h.fetches()).toBe(3);
+  });
+});
+
+describe("the recovery lease's renewals", () => {
+  const leased = (id: number): PendingBatch => ({
+    id: pendingRowIdOf(id), batch_id: bid(`b-${id}`),
+    ops: [{ op: "delete", uid: uidOf(`tuid-uid_${id}`) }], poisoned: false,
+  });
+  const ACK = { ok: true, ts: 1, applied: 1, seq: 7 };
+  const after = <T>(ms: number, value: T): Promise<T> =>
+    new Promise((resolve) => { setTimeout(() => { resolve(value); }, ms); });
+
+  /** A snapshot download that reports a chunk after each gap, then answers
+   * SNAP, and rejects as aborted once `init.signal` aborts. */
+  function download(gaps: readonly number[]) {
+    const signals: AbortSignal[] = [];
+    const fetch = (init?: RequestInit, opts?: ApiFetchOptions) =>
+      new Promise<unknown>((resolve, reject) => {
+        const signal = init?.signal;
+        if (signal) signals.push(signal);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(new DOMException("aborted", "AbortError"));
+        });
+        const chunk = (i: number): void => {
+          if (i === gaps.length) { resolve(SNAP); return; }
+          timer = setTimeout(() => { opts?.onProgress?.(); chunk(i + 1); },
+                             gaps[i]);
+        };
+        chunk(0);
+      });
+    return { fetch, signals };
+  }
+
+  /** Times since `t0` at which each renewal was sent, with each renewal's
+   * answer taken from `answer` (default: granted at once). */
+  function renewals(t0: number,
+                    answer: (n: number) => Promise<void> = async () => undefined) {
+    const at: number[] = [];
+    return {
+      at,
+      renewRecovery: (_token: string) => {
+        at.push(Date.now() - t0);
+        return answer(at.length);
+      },
+    };
+  }
+
+  afterEach(() => { vi.useRealTimers(); });
+
+  test("the flush renews the lease after an ack once a renewal is due",
+  async () => {
+    vi.useFakeTimers();
+    const t0 = Date.now();
+    const renew = renewals(t0);
+    const replica = fakeReplica(
+      { renewRecovery: renew.renewRecovery },
+      { schemaMismatch: true, pendingBatches: [leased(1), leased(2), leased(3)] });
+    const fetchJson = vi.fn(async (path: string): Promise<unknown> => {
+      if (path === "/api/ops") return after(20_000, ACK);
+      return path === "/api/sync/snapshot" ? SNAP : feed();
+    });
+    const sync = createReplicaSync({
+      replica, fetchJson, onState: () => undefined,
+      queue: leasedQueue(fetchJson),
+    });
+    const started = sync.start();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await started;
+    expect(renew.at).toEqual([20_000, 40_000, 60_000]);
+  });
+
+  test("renewals start at most once per renewal interval and never two at once",
+  async () => {
+    vi.useFakeTimers();
+    const t0 = Date.now();
+    const held = defer<void>();
+    const renew = renewals(t0, (n) => n === 1 ? held.promise : Promise.resolve());
+    const replica = fakeReplica(
+      { renewRecovery: renew.renewRecovery }, { schemaMismatch: true });
+    const snapshot = download(Array<number>(60).fill(1_000));
+    const fetchJson = vi.fn(async (path: string, init?: RequestInit,
+                                   opts?: ApiFetchOptions): Promise<unknown> =>
+      path === "/api/sync/snapshot" ? snapshot.fetch(init, opts) : feed());
+    const sync = createReplicaSync({ replica, fetchJson, onState: () => undefined });
+    const started = sync.start();
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(renew.at).toEqual([15_000]);
+    held.resolve();
+    await vi.advanceTimersByTimeAsync(15_000);
+    await started;
+    expect(renew.at).toEqual([15_000, 46_000]);
+  });
+
+  test("a lease granted after a wait longer than the renewal interval is " +
+       "renewed at once, before any download progress", async () => {
+    vi.useFakeTimers();
+    const t0 = Date.now();
+    const renew = renewals(t0);
+    const progress: number[] = [];
+    const replica = fakeReplica({
+      renewRecovery: renew.renewRecovery,
+      prepareRecovery: () => after(LEASE_RENEW_EVERY_MS + 5_000,
+                                   { token: "lease-1", batches: [] }),
+    }, { schemaMismatch: true });
+    const snapshot = download([10_000]);
+    const fetchJson = vi.fn(async (path: string, init?: RequestInit,
+                                   opts?: ApiFetchOptions): Promise<unknown> =>
+      path === "/api/sync/snapshot"
+        ? snapshot.fetch(init, { ...opts, onProgress: () => {
+          progress.push(Date.now() - t0);
+          opts?.onProgress?.();
+        } })
+        : feed());
+    const sync = createReplicaSync({ replica, fetchJson, onState: () => undefined });
+    const started = sync.start();
+    await vi.advanceTimersByTimeAsync(LEASE_RENEW_EVERY_MS + 15_000);
+    await started;
+    expect(progress).toEqual([LEASE_RENEW_EVERY_MS + 15_000]);
+    expect(renew.at).toEqual([LEASE_RENEW_EVERY_MS + 5_000]);
+  });
+
+  test("the commit waits for the renewal in flight", async () => {
+    vi.useFakeTimers();
+    const events: string[] = [];
+    const held = defer<void>();
+    const replica = fakeReplica({
+      renewRecovery: async () => {
+        events.push("renew sent");
+        await held.promise;
+        events.push("renew settled");
+      },
+      commitRecovery: async () => { events.push("commit"); },
+    }, { schemaMismatch: true });
+    const snapshot = download([16_000, 1_000]);
+    const fetchJson = vi.fn(async (path: string, init?: RequestInit,
+                                   opts?: ApiFetchOptions): Promise<unknown> =>
+      path === "/api/sync/snapshot" ? snapshot.fetch(init, opts) : feed());
+    const sync = createReplicaSync({ replica, fetchJson, onState: () => undefined });
+    const started = sync.start();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(events).toEqual(["renew sent"]);
+    held.resolve();
+    await started;
+    expect(events).toEqual(["renew sent", "renew settled", "commit"]);
+  });
+
+  test("a renewal refused while the download finishes fails the run before " +
+       "its commit", async () => {
+    vi.useFakeTimers();
+    const held = defer<void>();
+    const replica = fakeReplica({
+      renewRecovery: () => held.promise,
+    }, { schemaMismatch: true });
+    const snapshot = download([16_000, 1_000]);
+    const fetchJson = vi.fn(async (path: string, init?: RequestInit,
+                                   opts?: ApiFetchOptions): Promise<unknown> =>
+      path === "/api/sync/snapshot" ? snapshot.fetch(init, opts) : feed());
+    const sync = createReplicaSync({ replica, fetchJson, onState: () => undefined });
+    const started = sync.start().then(() => null, (error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(30_000);
+    held.reject(new ReplicaError(LEASE_EXPIRED));
+    expect(await started).toMatchObject({ message: LEASE_EXPIRED });
+    expect(replica.calls).not.toContain("commitRecovery");
+  });
+
+  test("the first renewal is due an interval after prepareRecovery was " +
+       "called, not after it answered", async () => {
+    vi.useFakeTimers();
+    const t0 = Date.now();
+    const renew = renewals(t0);
+    const replica = fakeReplica({
+      renewRecovery: renew.renewRecovery,
+      // the gate wait counts against the lease the worker grants
+      prepareRecovery: () => after(10_000, { token: "lease-1", batches: [] }),
+    }, { schemaMismatch: true });
+    const snapshot = download([6_000, 1_000]);
+    const fetchJson = vi.fn(async (path: string, init?: RequestInit,
+                                   opts?: ApiFetchOptions): Promise<unknown> =>
+      path === "/api/sync/snapshot" ? snapshot.fetch(init, opts) : feed());
+    const sync = createReplicaSync({ replica, fetchJson, onState: () => undefined });
+    const started = sync.start();
+    await vi.advanceTimersByTimeAsync(20_000);
+    await started;
+    expect(renew.at).toEqual([16_000]);
+  });
+
+  test("a refused renewal stops a rebase's flush before its next post",
+  async () => {
+    vi.useFakeTimers();
+    const posts: string[] = [];
+    const renew = renewals(Date.now(), () =>
+      after(1_000, undefined).then(() => {
+        throw new ReplicaError(LEASE_EXPIRED);
+      }));
+    const replica = fakeReplica(
+      { renewRecovery: renew.renewRecovery },
+      { schemaMismatch: true, pendingBatches: [leased(1), leased(2), leased(3)] });
+    const fetchJson = vi.fn(async (path: string, init?: RequestInit): Promise<unknown> => {
+      if (path !== "/api/ops") return path === "/api/sync/snapshot" ? SNAP : feed();
+      posts.push(sentBatchId(init));
+      return after(20_000, ACK);
+    });
+    const sync = createReplicaSync({
+      replica, fetchJson, onState: () => undefined,
+      queue: leasedQueue(fetchJson),
+    });
+    const started = sync.start().then(() => null, (error: unknown) => error);
+    // b-2's ack lands at 40 s; the failed start's retry would post again
+    await vi.advanceTimersByTimeAsync(40_500);
+    sync.stop();
+    expect(await started).toMatchObject({ message: LEASE_EXPIRED });
+    expect(posts).toEqual(["b-1", "b-2"]);
+  });
+
+  test("a renewal that meets a dead worker ends the mode as no-replica",
+  async () => {
+    vi.useFakeTimers();
+    const dead = () => new RpcLifecycleError("worker-error", "replica worker failed");
+    let applyCall = 0;
+    const replica = fakeReplica({
+      applyChanges: async (window: Changes) => {
+        applyCall += 1;
+        return applyCall === 1
+          ? { status: "applied" as const, cursor: window.next_since }
+          : { status: "needs-bootstrap" as const };
+      },
+      renewRecovery: () => Promise.reject(dead()),
+      abortRecovery: () => Promise.reject(dead()),
+    });
+    const snapshot = download(Array<number>(30).fill(1_000));
+    const fetchJson = vi.fn(async (path: string, init?: RequestInit,
+                                   opts?: ApiFetchOptions): Promise<unknown> =>
+      path === "/api/sync/snapshot" ? snapshot.fetch(init, opts) : feed());
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, onState });
+    await sync.start();
+    sync.onSeq(seqOf(9));
+    await vi.advanceTimersByTimeAsync(30_000);
+    await sync.idle();
+    expect(snapshot.signals[0]?.aborted).toBe(true);
+    expect(replica.calls).not.toContain("commitRecovery");
+    expect(states).toEqual([
+      { mode: "ready" },
+      { mode: "no-replica", error: "replica worker failed" },
+    ]);
+  });
+
+  test("a lease lost during a blocking flush fails the reset as expired, " +
+       "not as undelivered changes, and posts nothing more", async () => {
+    vi.useFakeTimers();
+    const posts: string[] = [];
+    const renew = renewals(Date.now(), () =>
+      after(1_000, undefined).then(() => {
+        throw new ReplicaError(LEASE_EXPIRED);
+      }));
+    const replica = fakeReplica({
+      renewRecovery: renew.renewRecovery,
+      prepareRecovery: async () => ({
+        token: "lease-1", batches: [leased(1), leased(2), leased(3)],
+      }),
+    });
+    const fetchJson = vi.fn(async (path: string, init?: RequestInit): Promise<unknown> => {
+      if (path !== "/api/ops") return path === "/api/sync/snapshot" ? SNAP : feed();
+      posts.push(sentBatchId(init));
+      return after(20_000, ACK);
+    });
+    const sync = createReplicaSync({
+      replica, fetchJson, onState: () => undefined,
+      queue: leasedQueue(fetchJson),
+    });
+    const reset = sync.resetLocalData({ discardPending: false })
+      .then(() => null, (error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(60_000);
+    const error = await reset;
+    expect(error).not.toBeInstanceOf(ResetBlockedError);
+    expect(error).toMatchObject({ message: LEASE_EXPIRED });
+    // the refusal reached the run while the second batch was in flight
+    expect(posts).toEqual(["b-1", "b-2"]);
+    expect(fetchJson.mock.calls.some(
+      ([path]) => path.startsWith("/api/sync/snapshot"))).toBe(false);
+  });
+
+  test("a live client abandons a stalled download before the worker's lease " +
+       "expires: stall bound plus renewal interval is under the lease", () => {
+    // The last renewal can be up to one interval old when the download goes
+    // silent; the stall bound must then fire before the lease runs out, so a
+    // client that is still running gives the gate back itself.
+    expect(SNAPSHOT_STALL_MS + LEASE_RENEW_EVERY_MS)
+      .toBeLessThan(RECOVERY_LEASE_MS);
   });
 });

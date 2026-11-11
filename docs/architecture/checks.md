@@ -217,6 +217,11 @@ Rules a change to the gate must keep:
   provoke it.
 - A web example that depends on timing may not replay from its seed. It is
   still a finding: pin it as a fixed scenario, as `sync.prop.ts` does.
+- The sync harness runs the recovery lease on real timers, shortened to
+  `HARNESS_LEASE_MS` (`props/sync/harnessClient.ts`), with renewal and stall
+  scaled in the real constants' proportions. A `lease held` failure whose
+  counterexample has no paced fault is first a load question: rerun it alone
+  on a quiet machine.
 - A web property is an `fc.asyncProperty`. vitest fails the run when its
   worker leaves an RPC call unanswered for 60 seconds, even if every test
   passed, and a synchronous property blocks the worker for its whole run.

@@ -24,6 +24,7 @@ replica is a cache and the queue is the user's intent.
 | Schema, generation, cursor, FK, title, corruption or repeated window failure | `reset` or `rebase` through `runRecovery` | [Rebootstrap triggers](#rebootstrap-triggers) |
 | A rebuild meets page-level file damage, or `pending_ops` cannot be read | The file is replaced; the queue rides in the carry | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | Pending rows change while recovery runs | Recovery aborts before anything is destroyed | [Recovery never erases intent](#recovery-never-erases-intent) |
+| A recovery's snapshot download outlasts the lease, or goes silent | Progress renews the lease; `SNAPSHOT_STALL_MS` of silence abandons the download and frees the gate | [The recovery lease](#the-recovery-lease) |
 
 ## A local write fails
 
@@ -271,6 +272,7 @@ wait for the next reconnect, which on a desktop can be hours away.
 |---|---|---|
 | `ApiError`, `ReplicaError`, `PullStarvedError` | yes | the replica cannot make progress |
 | `OfflineError`, a raw `fetch` rejection | no | the offline banner owns network-down |
+| `StalledReadError` | no | the link went silent; the server refused nothing |
 | anything `availabilityOf()` classifies | no | `stalled` would take editing from a session already known to have no replica |
 
 `WINDOW_STRIKES` equals `STALL_AFTER_FAILURES` so that a window failing
@@ -327,24 +329,28 @@ rebootstrap:
 flowchart TD
     P["queue.pause('recovery')"] --> AW{"awaitInFlightPull?"}
     AW -->|yes| WP["await the start and the pull in flight"] --> L
-    AW -->|no| L["replica.prepareRecovery()<br/>gate held, pending rows fingerprinted"]
-    L --> F["flushLease: skip · preemptible · blocking<br/>each ack held as { id, batch_id, seq }"]
-    F --> S["GET /api/sync/snapshot"]
-    S --> C{"commitRecovery:<br/>pending rows unchanged?"}
-    C -->|"yes, reset"| RB["rebuildOrReplaceFile"]
-    C -->|"yes, rebase"| RS["rebaseOrReplaceFile<br/>acked rows deleted in the snapshot's transaction"]
+    AW -->|no| L
+    subgraph G["worker gate held: every other replica call waits"]
+        L["replica.prepareRecovery()<br/>pending rows fingerprinted<br/>deadline: call time + RECOVERY_LEASE_MS"]
+        L --> F["flushLease: skip · preemptible · blocking<br/>each ack held as { id, batch_id, seq }<br/>progress renews the lease"]
+        F --> S["GET /api/sync/snapshot<br/>progress renews the lease"]
+        S --> C{"commitRecovery:<br/>lease live, pending rows unchanged?"}
+        C -->|"yes, reset"| RB["rebuildOrReplaceFile"]
+        C -->|"yes, rebase"| RS["rebaseOrReplaceFile<br/>acked rows deleted in the snapshot's transaction"]
+    end
+    X(["no renewal for RECOVERY_LEASE_MS:<br/>the worker frees the gate"]) -.-> G
     RB --> OK["adoptCursor(snapshot.seq)"]
     RS --> OK
     C -.->|no| AB["abortRecovery(token), rethrow"]
-    F -.->|throws| AB
-    S -.->|throws| AB
+    F -.->|"throws, or a renewal was refused"| AB
+    S -.->|"SNAPSHOT_STALL_MS of silence,<br/>throws, or a renewal was refused"| AB
     OK --> R["finally: queue.resume('recovery')"]
     AB --> R
 ```
 
 | `RecoveryOptions` | schema / feed recovery | poison repair | manual reset |
 |---|---|---|---|
-| `flush` | `"preemptible"`: abandon if a poison mark claims recovery | `"skip"`: never post valid rows ahead of a refused batch | `"blocking"`: a failed flush raises `ResetBlockedError`; `"skip"` if the user discards pending changes |
+| `flush` | `"preemptible"`: abandon if a poison mark claims recovery | `"skip"`: never post valid rows ahead of a refused batch | `"blocking"`: a failed flush raises `ResetBlockedError`, unless the lease was lost, since discarding the queue would not win it back; `"skip"` if the user discards pending changes |
 | `reportReplicaFailure` | yes, mode `recovery-failed` | no | no |
 | `awaitInFlightPull` | no | yes | yes |
 | `forceReadyOnSuccess` | no | no | yes |
@@ -362,6 +368,37 @@ snapshot's seq, so nothing would correct a replay of the wire text.
 until a commit takes them. `splitAckedRows` (`replica/ackedRows.ts`) deletes
 the matching rows in the snapshot's transaction. Held acks are memory only, so
 after a reload the rows replay once and the stored ack deletes them.
+
+### The recovery lease
+
+The lease bounds the gate span in the diagram above. Its first deadline
+counts from the `prepareRecovery` call, so the wait for the gate counts
+against it. A run renews as soon as it is granted a lease whose wait
+outlasted `LEASE_RENEW_EVERY_MS`, so a recovery queued behind a long one
+starts with a whole lease. `keepLease` (`replicaSync.ts`) renews it through
+`renewRecovery`, at most once per `LEASE_RENEW_EVERY_MS`.
+
+**Renewal follows progress, never a timer.** A flush POST that hangs is never
+aborted, and a page that stops running sends nothing. Either stops renewing,
+and the worker frees the gate a lease-length later. A heartbeat would hold
+the gate for as long as a hung POST lasts.
+
+A download silent for `SNAPSHOT_STALL_MS` is abandoned by the client, which
+frees the gate itself. `SNAPSHOT_STALL_MS + LEASE_RENEW_EVERY_MS` stays
+under `RECOVERY_LEASE_MS`, so a live client gives the gate back before the
+worker has to. Expiry is left for a page that stopped running. The test "a
+live client abandons a stalled download before the worker's lease expires"
+(`replicaSync.test.ts`) pins the inequality.
+
+A lease call is refused once the lease has expired (`LEASE_EXPIRED`) or its
+commit has begun (`INVALID_TOKEN`). A begun commit stops the timer, so it is
+never expired. Expiry is decided at each lease call as well as by the timer
+(`liveLease`), so no call can revive a lease in the moment before its timer
+runs. `recoveryLease.props.test.ts` holds the cases.
+
+An edit made during the gate span waits behind it. Its enqueue times out into
+the [in-memory lane](#the-in-memory-fallback-lane), which the `recovery`
+barrier also holds, so the edit exists only in memory until the gate frees.
 
 ### Reset, rebase and file replacement
 
@@ -412,11 +449,11 @@ file.
 
 ## Recovery never erases intent
 
-Two guards keep a recovery from destroying an edit enqueued while it runs:
+These guards keep a recovery from destroying an edit enqueued while it runs:
 
 | Guard | Where |
 |---|---|
-| A worker-owned FIFO recovery gate that every database-mutating RPC passes, so no enqueue lands mid-rebuild | `recoveryGate.ts`, `workerHandlers.ts` |
+| A worker-owned FIFO recovery gate that every database-mutating RPC passes, so no enqueue lands mid-rebuild. A lease that expires frees the gate and its commit is refused | `recoveryGate.ts`, `workerHandlers.ts` |
 | `prepareRecovery` fingerprints the durable pending rows; `commitRecovery` re-reads them before the destructive step and aborts if they changed | `workerHandlers.ts` |
 
 The other guards that keep intent are where their mechanism lives: the

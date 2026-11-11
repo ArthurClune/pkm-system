@@ -5,7 +5,8 @@ import { expect, test, vi } from "vitest";
 import type { BatchId } from "../api/brands";
 import type { components } from "../api/types";
 import type { Snapshot } from "./apply";
-import { createReplica, type AckedBatch, type Replica, type ReplicaRpc } from "./client";
+import { createReplica, RECOVERY_LEASE_MS, type AckedBatch, type Replica,
+         type ReplicaRpc } from "./client";
 import { installSchema } from "./clientSchema";
 import { ReplicaUnusableError } from "./errors";
 import { setMeta } from "./meta";
@@ -262,6 +263,36 @@ test("snapshot and recovery RPCs use the long timeout; ordinary calls use the de
     await vi.advanceTimersByTimeAsync(90_000);
     await expect(snapshot).resolves.toMatchObject({ kind: "timeout" });
     await expect(prepare).resolves.toMatchObject({ kind: "timeout" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("renewRecovery sends a deadline a lease-length from now on the ordinary RPC timeout",
+async () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(1_000_000);
+    const ch = new MessageChannel();
+    const sent: unknown[] = [];
+    let answer = true;
+    const base = buildHandlers({ openDb: async () => (await openRawTestDb()).db });
+    serveRpc<ReplicaRpc>(toPortLike(ch.port2), {
+      ...base,
+      renewRecovery: async (payload) => {
+        sent.push(payload);
+        return answer ? null : new Promise<never>(() => undefined);
+      },
+    });
+    const replica = createReplica(toPortLike(ch.port1));
+
+    await expect(replica.renewRecovery("lease-a")).resolves.toBeUndefined();
+    expect(sent).toEqual([{ token: "lease-a", expiresAtMs: 1_000_000 + RECOVERY_LEASE_MS }]);
+
+    answer = false;
+    const unanswered = replica.renewRecovery("lease-a").catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(unanswered).resolves.toMatchObject({ kind: "timeout" });
   } finally {
     vi.useRealTimers();
   }

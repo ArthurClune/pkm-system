@@ -80,7 +80,7 @@ export function absentReplica(): Replica {
     enqueue: absent, nextBatch: absent, pendingBatches: absent,
     poisonedBatches: absent, deleteBatch: absent, markPoisoned: absent,
     pendingCount: absent, localApi: absent, prepareRecovery: absent,
-    commitRecovery: absent, abortRecovery: absent,
+    commitRecovery: absent, renewRecovery: absent, abortRecovery: absent,
     diagnostics: absent, dispose: absent,
   };
 }
@@ -116,6 +116,7 @@ export interface SyncSessionDeps {
   fetchJson: ReplicaSyncDeps["fetchJson"];
   queue?: Omit<OpQueueDeps, "clientId">;
   retryBaseMs?: number;
+  recoveryTiming?: ReplicaSyncDeps["recoveryTiming"];
   outlines: OutlineHooks;
   /** False between an unmount and its deferred dispose. */
   isMounted?: () => boolean;
@@ -199,6 +200,7 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
     isOffline: () => status === "reconnecting",
     onState: reportMode,
     retryBaseMs: deps.retryBaseMs,
+    recoveryTiming: deps.recoveryTiming,
   });
 
   // It subscribes the queue's poison signals itself.
@@ -367,7 +369,10 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
         if (e instanceof ResetBlockedError) {
           fold({ type: "reset-blocked", pending: e.pending });
         } else {
-          fold({ type: "reset-failed", error: String(e) });
+          fold({
+            type: "reset-failed",
+            error: e instanceof Error ? e.message : String(e),
+          });
         }
       }
     },

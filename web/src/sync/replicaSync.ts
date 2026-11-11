@@ -135,13 +135,15 @@ export const RETRY_MAX_MS = 60000;
  * lookup for 100 named batches cost about 0.3 ms. */
 export const PENDING_IDS_CAP = 100;
 
-/** The snapshot is the one read here that is exempt from the ordinary read
- * deadline: its size grows with the graph, so on a slow link a
- * cold-start bootstrap can legitimately outlast any deadline picked for small
- * reads, and aborting it only restarts the same download. A link that is dead
- * rather than slow is still caught -- by noteFailure's backoff for the pull
- * path, and by the recovery entrants' own error handling. */
-const UNTIMED: ApiFetchOptions = { timeoutMs: null };
+/** The least time between two renewals of a recovery lease. A renewal is
+ * sent only when the run shows progress (a flushed batch's ack, a chunk of
+ * the snapshot), so a run that stops advancing stops renewing and the worker
+ * frees the gate a lease-length later. */
+export const LEASE_RENEW_EVERY_MS = 15_000;
+/** How long a snapshot download may go without a byte, its headers included,
+ * before it is abandoned. Plus one renewal interval it stays under the lease,
+ * so a running client gives the gate back before the worker has to. */
+export const SNAPSHOT_STALL_MS = 30_000;
 
 export interface ReplicaSyncDeps {
   replica: Replica;
@@ -172,6 +174,21 @@ export interface ReplicaSyncDeps {
   /** The backoff's first delay; RETRY_BASE_MS unless a harness that cannot
    * fake timers needs a retry to land within one example. */
   retryBaseMs?: number;
+  /** LEASE_RENEW_EVERY_MS and SNAPSHOT_STALL_MS unless a harness running a
+   * shorter lease scales them with it. */
+  recoveryTiming?: { renewEveryMs: number; stallMs: number };
+}
+
+/** One recovery run's hold on the worker's lease. */
+interface LeaseKeeper {
+  /** Called on progress: renews when one is due and none is in flight. */
+  renewIfDue: () => void;
+  /** Throws the refused renewal's error once one has been refused. */
+  assertHeld: () => void;
+  /** Waits for the renewal in flight, then asserts the lease is held. */
+  settle: () => Promise<void>;
+  /** Aborted when a renewal is refused, to stop the snapshot download. */
+  signal: AbortSignal;
 }
 
 const errText = (e: unknown): string =>
@@ -289,6 +306,8 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   // ordinary successful pull -- only a pull that follows a reported failure
   // needs to clear it.
   const retryBase = deps.retryBaseMs ?? RETRY_BASE_MS;
+  const timing = deps.recoveryTiming ??
+    { renewEveryMs: LEASE_RENEW_EVERY_MS, stallMs: SNAPSHOT_STALL_MS };
   let consecutiveFailures = 0;
   let retryDelay = retryBase;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -394,14 +413,20 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     return run;
   };
 
-  /** `pending`: the batches the snapshot should say whether it holds. */
+  /** `pending`: the batches the snapshot should say whether it holds.
+   * `watch`: a recovery's progress callback and abort signal. The download
+   * has no total deadline, since its size grows with the graph and an abort
+   * only restarts it, but it is abandoned after `stallMs` of silence. */
   const fetchSnapshot = async (
     pending: readonly PendingBatch[] = [],
+    watch?: { onProgress: () => void; signal: AbortSignal },
   ): Promise<Snapshot> => {
     const query = pendingQuery(pending);
+    const opts: ApiFetchOptions = { timeoutMs: null, stallMs: timing.stallMs };
     const snapshot = snapshotOfWire(await fetchJson(
       query === "" ? "/api/sync/snapshot" : `/api/sync/snapshot?${query}`,
-      undefined, UNTIMED));
+      watch && { signal: watch.signal },
+      watch ? { ...opts, onProgress: watch.onProgress } : opts));
     setPlainSpaceTitleCanonicalization(
       snapshot.plain_space_title_canonicalization);
     return snapshot;
@@ -447,6 +472,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   const flushBatches = async (
     batches: PendingBatch[],
     beforePost: () => void,
+    afterAck: () => void,
   ): Promise<void> => {
     const deliverLeased = queue.deliverLeased;
     for (const b of batches) {
@@ -460,24 +486,31 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // beforePost runs again inside, after the lane ahead.
       const reading = await deliverLeased(b, beforePost);
       heldAcks.push({ id: b.id, batch_id: b.batch_id, seq: reading.seq ?? null });
+      afterAck();
     }
   };
 
   const flushLease = async (
-    lease: RecoveryLease, policy: FlushPolicy,
+    lease: RecoveryLease, policy: FlushPolicy, keeper: LeaseKeeper,
   ): Promise<void> => {
     if (policy === "skip") return;
     if (policy === "preemptible") {
-      assertNormalRecoveryStillOwnsFlush();
-      await flushBatches(
-        [...lease.batches], assertNormalRecoveryStillOwnsFlush,
-      );
+      const beforePost = (): void => {
+        assertNormalRecoveryStillOwnsFlush();
+        keeper.assertHeld();
+      };
+      beforePost();
+      await flushBatches([...lease.batches], beforePost, keeper.renewIfDue);
       return;
     }
     if (policy === "blocking") {
       try {
-        await flushBatches([...lease.batches], () => undefined);
+        await flushBatches(
+          [...lease.batches], keeper.assertHeld, keeper.renewIfDue);
       } catch (cause: unknown) {
+        // A lost lease is the run's failure, not a refusal of the flush:
+        // asking to discard the queue would not get the lease back.
+        keeper.assertHeld();
         throw new ResetBlockedError(
           lease.batches.filter((b) => !b.poisoned).length, { cause },
         );
@@ -486,6 +519,41 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     }
     const exhaustive: never = policy;
     throw new Error(`unhandled flush policy: ${String(exhaustive)}`);
+  };
+
+  /** Renewal follows progress, never the clock alone: a run that stops
+   * advancing (a hung POST, a page that stopped running) stops renewing, so
+   * the worker frees the gate a lease-length later. `origin` is read before
+   * prepareRecovery is sent, as the lease's first deadline is. */
+  const keepLease = (token: string, origin: number): LeaseKeeper => {
+    const lost = new AbortController();
+    let lastRenewal = origin;
+    let renewing: Promise<void> | null = null;
+    let refusal: { error: unknown } | null = null;
+    const assertHeld = (): void => {
+      if (refusal !== null) throw refusal.error;
+    };
+    return {
+      signal: lost.signal,
+      assertHeld,
+      renewIfDue: () => {
+        if (refusal !== null || renewing !== null) return;
+        const now = Date.now();
+        if (now - lastRenewal < timing.renewEveryMs) return;
+        lastRenewal = now;
+        renewing = replica.renewRecovery(token).then(() => {
+          renewing = null;
+        }, (error: unknown) => {
+          renewing = null;
+          refusal = { error };
+          lost.abort();
+        });
+      },
+      settle: async () => {
+        await renewing;
+        assertHeld();
+      },
+    };
   };
 
   /** The one recovery-lease lifecycle: barrier, lease, flush, snapshot,
@@ -502,9 +570,13 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         await startOnce.idle();
         await pullRun.idle();
       }
+      const origin = Date.now();
       const lease = await replica.prepareRecovery();
       token = lease.token;
-      await flushLease(lease, options.flush);
+      const keeper = keepLease(lease.token, origin);
+      // A wait at the gate spent part of the lease: renew now if it was long.
+      keeper.renewIfDue();
+      await flushLease(lease, options.flush, keeper);
       // Names no pending batch, unlike a pull or a bootstrap: no leased row
       // can be committed without an ack held in heldAcks, which the commit
       // deletes before its replay. A flushing rebase holds an ack for every
@@ -519,7 +591,17 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // Weakening either guard would let a flush post past a poisoned row
       // and this snapshot replay it twice.
       // A reset drops the queue and replays nothing.
-      const snapshot = await fetchSnapshot();
+      let snapshot: Snapshot;
+      try {
+        snapshot = await fetchSnapshot(
+          [], { onProgress: keeper.renewIfDue, signal: keeper.signal });
+      } catch (error: unknown) {
+        // a refused renewal aborted the download: report the refusal
+        keeper.assertHeld();
+        throw error;
+      }
+      // The commit is refused if a renewal still in flight is.
+      await keeper.settle();
       // Every commit takes the held acks. A reset drops the queue, so it
       // passes none; a commit that fails left the rows in place, so the acks
       // go back for the next one.

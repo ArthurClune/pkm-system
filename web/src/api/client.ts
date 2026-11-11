@@ -168,6 +168,57 @@ export interface ApiFetchOptions {
    * the same download on a slow link, forever. Only for callers that retry
    * with backoff, since nothing else will notice a dead link. */
   timeoutMs?: number | null;
+  /** Abandon the read when no byte of it, the headers included, arrives for
+   * this long, failing with StalledReadError. Unlike `timeoutMs` it bounds
+   * silence, not total time, so an untimed download that keeps arriving
+   * survives it. */
+  stallMs?: number;
+  /** Runs once per body chunk received. */
+  onProgress?: () => void;
+}
+
+/** A read that went silent for `stallMs`. Not an ApiError: the stall is the
+ * link's, so like a TypeError from `fetch` it never counts as the server
+ * refusing. */
+export class StalledReadError extends Error {
+  constructor(stallMs: number) {
+    super(`no data from the server for ${Math.round(stallMs / 1000)} seconds`);
+    this.name = "StalledReadError";
+  }
+}
+
+function watchStall(stallMs: number) {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let fired = false;
+  let fire!: (e: StalledReadError) => void;
+  /** Rejects with StalledReadError when the watch fires. */
+  const stalled = new Promise<never>((_resolve, reject) => { fire = reject; });
+  stalled.catch(() => undefined);
+  const rearm = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      fired = true;
+      controller.abort();
+      fire(new StalledReadError(stallMs));
+    }, stallMs);
+  };
+  rearm();
+  return {
+    signal: controller.signal, stalled, rearm,
+    fired: () => fired, clear: () => clearTimeout(timer),
+  };
+}
+
+/** The body parsed as JSON, calling `onChunk` for every chunk read. */
+function readCounted(res: Response, onChunk: () => void): Promise<unknown> {
+  if (res.body === null) return res.json();
+  return new Response(res.body.pipeThrough(new TransformStream({
+    transform(chunk, controller) {
+      onChunk();
+      controller.enqueue(chunk);
+    },
+  }))).json();
 }
 
 /** The timeout applies to reads only. A mutation that is aborted after the
@@ -200,25 +251,54 @@ export async function apiFetch<T>(
   if (gateway?.offline()) {
     return localFetch<T>(path, init);
   }
-  let res: Response;
-  const signal = readTimeoutSignal(init, opts);
+  const timeout = readTimeoutSignal(init, opts);
+  const stallMs = opts?.stallMs;
+  const watch = stallMs === undefined ? null : watchStall(stallMs);
+  const signals = [timeout, watch?.signal].filter((s) => s != null);
+  const signal = signals.length === 0 ? null
+    : AbortSignal.any(init?.signal ? [init.signal, ...signals] : signals);
+  const counting = watch !== null || opts?.onProgress !== undefined;
+  const onChunk = () => {
+    watch?.rearm();
+    opts?.onProgress?.();
+  };
+  const bounded = <V>(work: Promise<V>): Promise<V> =>
+    watch ? Promise.race([work, watch.stalled]) : work;
   try {
-    res = await fetch(path, signal ? { ...init, signal } : init);
+    let res: Response;
+    try {
+      res = await bounded(fetch(path, signal ? { ...init, signal } : init));
+    } catch (e: unknown) {
+      if (watch?.fired()) throw e;
+      // the socket status lags a just-dropped network by up to its reconnect
+      // timer; a failed fetch inside that window falls back to the shim
+      if (gateway) {
+        watch?.clear();
+        return await localFetch<T>(path, init);
+      }
+      throw e;
+    }
+    watch?.rearm();
+    if (res.status === 401) {
+      onUnauthorized();
+      throw await errorFor(res, path);
+    }
+    if (!res.ok) {
+      throw await errorFor(res, path);
+    }
+    // brand: untrusted -- an HTTP response body, typed by the caller's route
+    return (await bounded(counting ? readCounted(res, onChunk) : res.json())) as T;
   } catch (e: unknown) {
-    // the socket status lags a just-dropped network by up to its reconnect
-    // timer; a failed fetch inside that window falls back to the shim
-    if (gateway) return localFetch<T>(path, init);
+    // fetch's own rejection on abort is an AbortError whichever way the
+    // engine reports the reason; the stall is what caused it
+    if (watch?.fired() && stallMs !== undefined
+        && !(e instanceof StalledReadError)) {
+      throw new StalledReadError(stallMs);
+    }
     throw e;
+  } finally {
+    watch?.clear();
   }
-  if (res.status === 401) {
-    onUnauthorized();
-    throw await errorFor(res, path);
-  }
-  if (!res.ok) {
-    throw await errorFor(res, path);
-  }
-  // brand: untrusted -- an HTTP response body, typed by the caller's route
-  return (await res.json()) as T;
 }
 
 /** The filename a `Content-Disposition` header names, preferring the RFC 5987

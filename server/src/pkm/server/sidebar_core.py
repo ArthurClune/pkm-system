@@ -1,21 +1,9 @@
 # pattern: Functional Core
-"""Pure ordering logic for sidebar_entries rows: computing order_idx values
-for import and single-entry appends, and validating full-list reorders."""
+"""Pure ordering logic for sidebar_entries rows: the order_idx of an
+appended entry, and whether a full-list reorder is valid."""
 from __future__ import annotations
 
 from pkm.contracts.ops import SidebarEntryId, SidebarOrderIdx
-
-
-def missing_entry_rows(existing_titles: set[str], desired_titles: tuple[str, ...],
-                       start_order: int) -> list[tuple[str, int]]:
-    rows: list[tuple[str, int]] = []
-    order = start_order
-    for title in desired_titles:
-        if title in existing_titles:
-            continue
-        rows.append((title, order))
-        order += 1
-    return rows
 
 
 def next_order_idx(existing_order_idxs: list[SidebarOrderIdx]) -> SidebarOrderIdx:

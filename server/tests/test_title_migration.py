@@ -3,6 +3,7 @@ import sqlite3
 import pytest
 
 from rawread import read, table_rows, trace as rawread_trace
+from pkm.contracts.responses import TitleMigrationApplyResponse
 from pkm.database import Db, connect
 from pkm.schema import DDL
 from pkm.server.sync_meta import (
@@ -14,7 +15,6 @@ from pkm.server.title_migration import (
     AlreadyActiveTitleMigration,
     BlockedTitleMigration,
     StaleTitleMigration,
-    TitleMigrationOutcome,
     _inventory_title_migration,
     apply_title_migration,
     audit_title_migration,
@@ -285,7 +285,7 @@ def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transact
 
     outcome = apply_title_migration(db, plan.digest, now_ms=10_000)
 
-    assert outcome == TitleMigrationOutcome(
+    assert outcome == TitleMigrationApplyResponse(
         digest=plan.digest,
         groups_applied=3,
         pages_retitled=2,

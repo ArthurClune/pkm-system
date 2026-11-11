@@ -75,10 +75,6 @@ existing `config.json` or database.
 
 ## Updating
 
-An install that predates the Origin guard needs `serve_origins` in
-`data/config.json` (install step 4) before `update.sh`, or the server
-refuses every write from the Serve hostname.
-
 Run `$PKM_HOME/app/deploy/update.sh`. It refuses to run from any other
 checkout (set `PKM_UPDATE_FORCE=1` to override), because it would rebuild
 that checkout while restarting the prod service. It leaves the backup jobs
@@ -122,11 +118,7 @@ reaches prod only through `install.sh --rebuild-launcher` followed by Allow.
 `install.sh` records the built source's SHA-256 in
 `$PKM_HOME/bin/pkm-server.source-sha256`, and `update.sh` warns when the
 deployed source no longer matches it. To re-grant, click Allow on the prompt, or use System Settings → Privacy &
-Security → Files and Folders → pkm-server → iCloud Drive. Old `uv` entries in
-that pane can be removed.
-
-Cutover for an install that still runs under `uv run`: `update.sh`, then
-`$PKM_HOME/app/deploy/install.sh`, then Allow.
+Security → Files and Folders → pkm-server → iCloud Drive.
 
 ## Backups
 

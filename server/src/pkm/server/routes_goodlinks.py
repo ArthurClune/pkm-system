@@ -27,6 +27,7 @@ from pkm.goodlinks import (GOODLINKS_PREFIX, GoodlinksId, candidate_urls,
                            sanitize_article, search_match, search_query)
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
+from pkm.server.path_params import path_link_id
 from pkm.server.goodlinks_gateway import (GoodlinksGateway, GoodlinksRejected,
                                           GoodlinksUnauthorized, GoodlinksUnavailable)
 
@@ -131,20 +132,18 @@ def check_goodlinks_links(request: Request,
 
 
 @router.get("/api/goodlinks/{link_id}", response_model=GoodlinksArticle)
-def get_article(link_id: GoodlinksId, response: Response,
+def get_article(response: Response,
+                link_id: GoodlinksId = Depends(path_link_id),
                 gw: GoodlinksGateway = Depends(get_goodlinks)) -> GoodlinksArticle:
-    parsed_id = parse_link_id(link_id)
-    if parsed_id is None:
-        raise _NOT_FOUND
     try:
-        meta = gw.link(parsed_id)
+        meta = gw.link(link_id)
         if meta is None:
             raise _NOT_FOUND
         url = _required_str(meta, "url")
         # A known link with no reader copy (extraction failed, a paywall, a
         # PDF, a page saved seconds ago) still returns its metadata, so the
         # reader can offer the original link.
-        html = gw.content(parsed_id)
+        html = gw.content(link_id)
     except GoodlinksUnavailable as e:
         raise _unavailable("article", e) from None
     except GoodlinksUnauthorized as e:
@@ -152,6 +151,6 @@ def get_article(link_id: GoodlinksId, response: Response,
     # The article can change if it is re-saved, and GoodLinks is local and
     # fast, so nothing is cached.
     response.headers["Cache-Control"] = "private, no-store"
-    return GoodlinksArticle(id=parsed_id, article_title=str(meta.get("title") or ""), url=url,
+    return GoodlinksArticle(id=link_id, article_title=str(meta.get("title") or ""), url=url,
                             added_at=str(meta.get("addedAt") or ""),
                             html=sanitize_article(html) if html is not None else "")

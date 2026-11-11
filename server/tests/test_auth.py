@@ -19,7 +19,7 @@ from pkm.server.app import create_app
 
 import pkm.server.auth as auth_module
 import pkm.server.auth_gate as auth_gate_module
-from pkm.server.auth import MAX_CONCURRENT_SCRYPT, LoginThrottle
+from pkm.server.throttle import MAX_CONCURRENT_SCRYPT, LoginThrottle
 from pkm.server.auth_core import (hash_password, sign_session,
                                   verify_password, verify_session)
 from pkm.server.auth_gate_core import is_public
@@ -347,7 +347,7 @@ class TestLoginThrottle:
 
     def test_store_is_pruned_once_it_grows_past_the_tracked_source_cap(
             self, monkeypatch):
-        monkeypatch.setattr("pkm.server.auth.MAX_TRACKED_SOURCES", 1)
+        monkeypatch.setattr("pkm.server.throttle.MAX_TRACKED_SOURCES", 1)
         throttle = LoginThrottle()
         throttle.record_failure("lapsed", mono_ms=0)  # blocks until 1_000
         # now=2_000: "lapsed"'s backoff has already elapsed and the store
@@ -359,7 +359,7 @@ class TestLoginThrottle:
 
     def test_store_has_a_hard_cap_even_when_nothing_has_lapsed(
             self, monkeypatch):
-        monkeypatch.setattr("pkm.server.auth.MAX_TRACKED_SOURCES", 2)
+        monkeypatch.setattr("pkm.server.throttle.MAX_TRACKED_SOURCES", 2)
         throttle = LoginThrottle()
         # All three failures land at the same instant, so none of the
         # three sources' backoffs have lapsed by the time the third is
@@ -752,3 +752,7 @@ def test_the_route_walk_names_a_websocket_that_never_answers(
     answers = _anonymous_answers(app)
     assert answers[(WEBSOCKET, "/api/ws-silent")] == "hung"
     assert (WEBSOCKET, "/api/ws-silent") in _leaked(answers)
+
+
+def test_login_throttle_lives_beside_its_policy():
+    assert LoginThrottle.__module__ == "pkm.server.throttle"

@@ -220,9 +220,9 @@ def test_stream_to_temp_hashes_and_writes_incrementally(tmp_path):
 
 
 def test_overlong_filename_upload_then_export_succeeds(client, seeded_config, tmp_path):
-    # End-to-end regression for review finding 4: an asset row created via
-    # the HTTP API with an overlong filename used to make export_graph()
-    # raise OSError [Errno 63] File name too long on every nightly export.
+    # End-to-end regression: an asset row created via the HTTP API with an
+    # overlong filename used to make export_graph() raise OSError
+    # [Errno 63] File name too long on every nightly export.
     _upload(client, name="x" * 300 + ".png")
     db = open_db(seeded_config.db_path)
     try:

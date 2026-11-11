@@ -14,12 +14,12 @@ from pkm.contracts.responses import OkAck, SidebarNavEntry, SidebarNavPayload
 from pkm.contracts.titles import RawTitle
 from pkm.contracts.int64 import INT64_RANGE
 from pkm.database import Db
-from pkm.importer.sidebar_rows import next_order_idx, reorder_is_valid
 from pkm.refs import (describe_title_length, is_blank_title,
                       title_length_over, title_syntax_reason)
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db, write_txn
+from pkm.server.sidebar_core import next_order_idx, reorder_is_valid
 from pkm.server.store import insert_sidebar_entry
 from pkm.server.sync_meta import read_title
 

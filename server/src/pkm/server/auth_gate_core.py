@@ -1,25 +1,13 @@
 # pattern: Functional Core
-"""Which requests the auth gate lets through without a session.
+"""Which requests the auth gate lets through without a session, and the
+most body it lets each one carry.
 
-Decided by path shape, not by matching the route table: a read (`GET`,
-`HEAD`) outside `/api` and `/assets` is public (the login page, healthz,
-the SPA shell and its static files), as is `POST /api/login`. Everything
-else, every WebSocket handshake included, needs a session. The path is
-the one the router matches (`starlette.routing.get_route_path`).
-
-A public request may still carry a body (`POST /api/login`), and no
-session bounds it, so the gate caps it at `PUBLIC_BODY_MAX_BYTES` and
-reads it within `PUBLIC_BODY_READ_TIMEOUT_S`.
-
-An authenticated body is capped too, at `PRIVATE_BODY_MAX_BYTES`, because
-FastAPI reads and parses a whole body before the route's own limits run:
-a batch of hundreds of MiB would cost GiBs before `MAX_OPS_PER_BATCH`
-refused it. An upload (`UPLOAD_ROUTES`) is capped at the configured
-`max_upload_bytes` plus `UPLOAD_ENVELOPE_BYTES` instead, since a file may
-be larger than any JSON body. FastAPI parses the whole multipart form,
-spooling the file to disk and holding other fields in memory, before
-`upload_asset` checks the file's size, so without this cap the spool and
-those fields would grow without limit."""
+Public is decided by path shape, not by matching the route table: a read
+(`GET`, `HEAD`) outside `/api` and `/assets`, and `POST /api/login`. The
+path is the one the router matches (`starlette.routing.get_route_path`).
+Every body outside `SAFE_METHODS` is capped, because FastAPI reads and
+parses a whole body before the route's own limits run. Why each cap and
+deadline has its value: docs/architecture/backend.md#auth."""
 from __future__ import annotations
 
 from collections.abc import Iterable

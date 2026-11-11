@@ -1,6 +1,6 @@
 import asyncio
 import os
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 
 import httpx
@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from pkm.assistant.target_reader import db_block_reader
 from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
+from pkm.server.clock import now_ms
 from pkm.server.config import Config
 from pkm.server.db import init_db, open_db
 from pkm.contracts.responses import BlockNode
@@ -96,6 +97,14 @@ def client(anon_client) -> TestClient:
     r = anon_client.post("/api/login", json={"password": TEST_PASSWORD})
     assert r.status_code == 200
     return anon_client
+
+
+@pytest.fixture()
+def fixed_now(client) -> Callable[[int], None]:
+    """Fixes the epoch-ms clock `client`'s app reads."""
+    def fix(ms: int) -> None:
+        client.app.dependency_overrides[now_ms] = lambda: ms
+    return fix
 
 
 @pytest.fixture()

@@ -2615,7 +2615,7 @@ describe("reconnect pulls and resync", () => {
 });
 
 describe("the replica-stalled problem", () => {
-  // --- replica stall + manual reset (Fix A) ---
+  // --- replica stall + manual reset ---
 
   test("repeated pull failures surface a replica-stalled problem", async () => {
     vi.useFakeTimers();

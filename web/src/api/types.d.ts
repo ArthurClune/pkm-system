@@ -2566,9 +2566,7 @@ export interface operations {
     };
     get_current_work_api_current_work_get: {
         parameters: {
-            query?: {
-                now_ms?: number | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -2582,15 +2580,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CurrentWorkPayload"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -3133,8 +3122,8 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                sha256: Brands.Sha256Hex;
                 filename: string;
+                sha256: Brands.Sha256Hex;
             };
             cookie?: never;
         };

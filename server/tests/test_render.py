@@ -9,7 +9,7 @@ from pkm.render import (clip_depth, render_assets, render_backlinks,
                         render_backlinks_bounded, render_block_bounded,
                         render_changed_bounded, render_groups_bounded,
                         render_page,
-                        render_page_bounded, render_search,
+                        render_page_bounded, render_rename, render_search,
                         RenderError,
                         render_title_migration_apply,
                         render_title_migration_audit)
@@ -23,6 +23,7 @@ from pkm.contracts.responses import (AssetRef, AssetSearchItem,
                                      BlockNode, BlockPayload, BlockRefText,
                                      ChangedPayload, GroupsPayload, PageMeta,
                                      PagePayload, QueryPayload,
+                                     RenamePageResponse,
                                      SearchPayload, TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload,
                                      TitleMigrationSidebarRetitle)
@@ -966,3 +967,33 @@ def test_bounded_query_empty_result_keeps_ref_counts():
     full = render_groups(p)
     assert "per-ref block counts" in full
     assert render_groups_bounded(p, len(full), HINT) == full
+
+
+def test_render_rename_names_both_branches():
+    renamed = RenamePageResponse(result="renamed",
+                                 title=canonical_title_of("New"))
+    merged = RenamePageResponse(result="merged",
+                                title=canonical_title_of("Into"))
+    assert render_rename(raw_title_of("Old"), renamed) == 'renamed "Old" -> "New"'
+    assert render_rename(raw_title_of("Old"), merged) == 'merged "Old" into "Into"'
+
+
+def test_raw_page_is_defined_once():
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[1] / "src"
+    pattern = re.compile(r"def _raw_page\b|def raw_page\b")
+    hits = [line for p in src.rglob("*.py")
+            for line in p.read_text(encoding="utf-8").splitlines()
+            if pattern.search(line)]
+    assert len(hits) == 1, hits
+
+
+def test_count_label_picks_singular_only_at_one():
+    from pkm.render import count_label
+
+    assert count_label(1, "block") == "1 block"
+    assert count_label(0, "block") == "0 blocks"
+    assert count_label(2, "sidebar entry", "sidebar entries") == (
+        "2 sidebar entries")
+    assert count_label(1, "stored title is", "stored titles are") == (
+        "1 stored title is")

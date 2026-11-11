@@ -552,7 +552,7 @@ async function search(st: Session, name: string, term: string): Promise<void> {
 // a tail keystroke landing right on the debounce edge would otherwise turn
 // into a band; instead this waits for the full term's results and then for
 // network idle, so any late-firing debounce has already resolved before
-// the count is read (spec Determinism step 2).
+// the count is read.
 async function searchBurst(st: Session, name: string, term: string): Promise<void> {
   const { page, bag } = st;
   await page.goto(BASE + "/");

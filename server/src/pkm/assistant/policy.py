@@ -9,12 +9,11 @@ from collections.abc import Mapping, Sequence
 from typing import Literal
 
 from pkm.contracts.responses import AssistantModel
+from pkm.mcp.names import READ_TOOL_NAMES
 
 MCP_SERVER_NAME = "pkm"
 
-READ_TOOLS: tuple[str, ...] = ("get_page", "get_block", "search", "query",
-                               "backlinks", "todos", "changed_blocks",
-                               "search_assets")
+READ_TOOLS: tuple[str, ...] = READ_TOOL_NAMES
 WRITE_TOOLS: tuple[str, ...] = ("save_note", "update_block", "batch",
                                 "rename_page")
 # Verbs `pkm-mcp` serves that the in-app assistant never gets: its MCP

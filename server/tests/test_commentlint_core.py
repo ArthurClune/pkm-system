@@ -239,6 +239,29 @@ def test_orphan_pointer(comment):
 
 
 @pytest.mark.parametrize("comment", [
+    "// (backlinks: Task 5)",
+    "// Task 2/3/5 semantics",
+    "// Manual recovery (Fix A)",
+    "// regression for review finding 4",
+    "// Finding 2: the title stays blank",
+])
+def test_plan_pointer(comment):
+    assert rules_hit(comment) == ["orphan-pointer"]
+
+
+@pytest.mark.parametrize("comment", [
+    "// fix a race in the loop",
+    "// Step 1: navigate to the form",
+    "// check 1: the server holds the ack",
+    "// the task 3 queue drains first",
+    "// Task 3 of docs/superpowers/plans/x.md",
+    "// Fix A/B testing is out of scope",
+])
+def test_plan_pointer_lookalikes_are_not(comment):
+    assert rules_hit(comment) == []
+
+
+@pytest.mark.parametrize("comment", [
     "// Feed application (docs/superpowers/specs/2026-07-12-offline-editing-design.md §3)",
     "// per the spec (docs/architecture/sync-and-offline.md#feed)",
     "// Feed application (offline-editing-design.md §3)",

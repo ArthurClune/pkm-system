@@ -5,16 +5,9 @@ Each consecutive failure from a source doubles the wait before that
 source's next attempt is allowed (capped), so an attacker gets
 exponentially fewer scrypt computations over time while a user who
 mistypes once waits at most a second. A success clears the source's
-history. The caller must consult `is_throttled` *before* running the
-password check -- a throttled attempt is rejected at zero cost,
-including one that would have had the right password, because the
-whole point is to avoid spending scrypt work on it. Consulting is not
-enough on its own: the check and the recording of its verdict are
-separate steps, so the caller must also run one check per source at a
-time and consult again once its turn comes (`auth.LoginThrottle`'s
-`take_turn`). Otherwise every request of a concurrent burst passes
-before the first failure is recorded.
-"""
+history. The caller consults `is_throttled` before any password check,
+and again once its turn comes (`throttle.LoginThrottle.take_turn`):
+docs/architecture/backend.md#login-throttle."""
 from __future__ import annotations
 
 from dataclasses import dataclass

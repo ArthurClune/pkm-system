@@ -150,7 +150,7 @@ def test_every_mcp_tool_is_classified():
     in one of them is invisible to the assistant by accident rather than
     by decision."""
     from pkm.mcp import server as mcp_server
-    registered = {t.name for t in mcp_server.mcp._tool_manager.list_tools()}
+    registered = {t.name for t in mcp_server.build_server()._tool_manager.list_tools()}
     read, write, only = set(READ_TOOLS), set(WRITE_TOOLS), set(MCP_ONLY_TOOLS)
     assert registered == read | write | only
     assert not (read & write or read & only or write & only)

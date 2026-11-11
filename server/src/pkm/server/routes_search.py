@@ -1,5 +1,6 @@
 # pattern: Imperative Shell
-"""Full-text search (query evaluation joins in Task 8)."""
+"""Full-text search, query evaluation, title completion, todos and changed
+blocks."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -14,7 +15,7 @@ from pkm.contracts.int64 import Int64
 from pkm.database import Db
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
-from pkm.server.fts import escape_fts_query
+from pkm.server.fts import escape_fts_query, like_escape
 from pkm.server.grouping import ChangedRow, group_by_page, group_changed
 from pkm.refs import CanonicalTitle
 from pkm.server.query import (
@@ -84,9 +85,7 @@ def titles(q: str = "", limit: Int64 = 10,
     needle = q.strip()
     if not needle:
         return TitlesPayload(titles=[])
-    esc = (needle.replace("\\", "\\\\")
-                 .replace("%", "\\%")
-                 .replace("_", "\\_"))
+    esc = like_escape(needle)
     rows = db.select(
         r"""SELECT title FROM pages
              WHERE title LIKE ? ESCAPE '\'

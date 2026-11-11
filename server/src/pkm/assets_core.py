@@ -10,7 +10,10 @@ from __future__ import annotations
 import hashlib
 import re
 from array import array
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import PurePosixPath
+from types import MappingProxyType
 from urllib.parse import quote
 from typing import Literal
 
@@ -19,19 +22,60 @@ from pkm.filenames import fs_dedupe_key
 
 AssetCategory = Literal["image", "pdf", "document", "other"]
 
-# Office + JSON mimes that count as "document" alongside text/*. Keep in
-# step with ALLOWED_UPLOAD_MIME in routes_assets.py.
-_DOCUMENT_MIME = (
-    "application/json",
-    "application/msword", "application/vnd.ms-excel",
-    "application/vnd.ms-powerpoint",
-    "application/vnd.openxmlformats-officedocument"
-    ".wordprocessingml.document",
-    "application/vnd.openxmlformats-officedocument"
-    ".spreadsheetml.sheet",
-    "application/vnd.openxmlformats-officedocument"
-    ".presentationml.presentation",
-)
+
+@dataclass(frozen=True)
+class MimePolicy:
+    category: AssetCategory
+    inline: bool
+    """Served inline in the app's origin; otherwise it downloads."""
+    describable: bool
+    """Sent to the image-description model."""
+
+
+_OFFICE = "application/vnd.openxmlformats-officedocument"
+
+# Every type an upload may declare. `category` must be what mime_category
+# gives the row (tested).
+MIME_POLICY: Mapping[str, MimePolicy] = MappingProxyType({
+    "image/png": MimePolicy("image", inline=True, describable=True),
+    "image/jpeg": MimePolicy("image", inline=True, describable=True),
+    "image/gif": MimePolicy("image", inline=True, describable=True),
+    "image/webp": MimePolicy("image", inline=True, describable=True),
+    # The vision model does not accept HEIC, so it is never described.
+    "image/heic": MimePolicy("image", inline=True, describable=False),
+    # SVG can script, so it is never served inline in the app's origin: it
+    # downloads instead. Nor is it a raster the vision model accepts.
+    "image/svg+xml": MimePolicy("image", inline=False, describable=False),
+    "application/pdf": MimePolicy("pdf", inline=True, describable=False),
+    "text/plain": MimePolicy("document", inline=False, describable=False),
+    "text/markdown": MimePolicy("document", inline=False, describable=False),
+    "text/csv": MimePolicy("document", inline=False, describable=False),
+    "application/json": MimePolicy("document", inline=False,
+                                   describable=False),
+    "application/msword": MimePolicy("document", inline=False,
+                                     describable=False),
+    "application/vnd.ms-excel": MimePolicy("document", inline=False,
+                                           describable=False),
+    "application/vnd.ms-powerpoint": MimePolicy("document", inline=False,
+                                                describable=False),
+    f"{_OFFICE}.wordprocessingml.document": MimePolicy(
+        "document", inline=False, describable=False),
+    f"{_OFFICE}.spreadsheetml.sheet": MimePolicy(
+        "document", inline=False, describable=False),
+    f"{_OFFICE}.presentationml.presentation": MimePolicy(
+        "document", inline=False, describable=False),
+})
+
+ALLOWED_UPLOAD_MIME = frozenset(MIME_POLICY)
+INLINE_MIME = frozenset(m for m, p in MIME_POLICY.items() if p.inline)
+DESCRIBABLE_MIME = frozenset(
+    m for m, p in MIME_POLICY.items() if p.describable)
+
+# The documents mime_category cannot tell by their `text/` prefix, in table
+# order: type_where binds them as its IN list's parameters.
+_DOCUMENT_MIME = tuple(m for m, p in MIME_POLICY.items()
+                       if p.category == "document"
+                       and not m.startswith("text/"))
 
 
 def mime_category(mime: str) -> AssetCategory:

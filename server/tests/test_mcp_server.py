@@ -9,6 +9,7 @@ from pkm.planning import BuildError
 from pkm.client.core import ApiError
 from pkm.mcp import server as mcp_server
 from pkm.mcp import tools as mcp_tools
+from pkm.mcp.names import READ_TOOL_NAMES
 from pkm.contracts.ops import BatchId, BlockUid, text_hash
 from pkm.contracts.titles import RawTitle
 from pkm.render import RenderError
@@ -23,7 +24,7 @@ def tools(pkm_client, monkeypatch):
 
 
 def test_tools_are_registered(tools):
-    names = {t.name for t in mcp_server.mcp._tool_manager.list_tools()}
+    names = {t.name for t in mcp_server.build_server()._tool_manager.list_tools()}
     assert names == {"get_page", "get_block", "search", "query", "backlinks",
                      "todos", "changed_blocks", "save_note", "update_block",
                      "batch", "upload_asset", "search_assets", "rename_page"}
@@ -123,19 +124,24 @@ def test_get_block_refuses_a_block_whose_own_text_is_over_budget(
         tools.get_block("mcpoutot001")
 
 
-def test_read_tool_names_match_the_assistant_read_tools():
+def test_the_assistant_reads_the_mcp_read_tools():
     from pkm.assistant import policy
-    assert set(mcp_tools.READ_TOOL_NAMES) == set(policy.READ_TOOLS)
+    from pkm.mcp import names
+    assert policy.READ_TOOLS is names.READ_TOOL_NAMES
+
+
+def test_importing_the_mcp_server_builds_no_server():
+    assert not hasattr(mcp_server, "mcp")
 
 
 def test_every_read_tool_is_plain_text_with_the_declared_size():
     listed = {t.name: t
               for t in asyncio.run(mcp_server.build_server().list_tools())}
-    for name in mcp_tools.READ_TOOL_NAMES:
+    for name in READ_TOOL_NAMES:
         assert listed[name].outputSchema is None, name
         assert listed[name].meta == {
             "anthropic/maxResultSizeChars": mcp_tools.MAX_RESULT_CHARS}, name
-    for name in set(listed) - set(mcp_tools.READ_TOOL_NAMES):
+    for name in set(listed) - set(READ_TOOL_NAMES):
         assert listed[name].meta is None, name
 
 
@@ -628,7 +634,7 @@ def test_rename_page_propagates_the_title_length_refusal(tools, pkm_client):
 
 
 def test_mcp_title_arguments_keep_their_names(tools):
-    by_name = {t.name: t for t in mcp_server.mcp._tool_manager.list_tools()}
+    by_name = {t.name: t for t in mcp_server.build_server()._tool_manager.list_tools()}
     expected = {"get_page": ["title"], "backlinks": ["title"],
                 "rename_page": ["title", "new_title"]}
     for tool, names in expected.items():

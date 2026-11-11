@@ -540,26 +540,6 @@
       "get": {
         "summary": "Get Current Work",
         "operationId": "get_current_work_api_current_work_get",
-        "parameters": [
-          {
-            "name": "now_ms",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "maximum": 9223372036854775807,
-                  "minimum": -9223372036854775808
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Now Ms"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -567,16 +547,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CurrentWorkPayload"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -1490,6 +1460,15 @@
         "operationId": "get_asset_assets__sha256___filename__get",
         "parameters": [
           {
+            "name": "filename",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Filename"
+            }
+          },
+          {
             "name": "sha256",
             "in": "path",
             "required": true,
@@ -1497,15 +1476,6 @@
               "type": "string",
               "x-brand": "Sha256Hex",
               "title": "Sha256"
-            }
-          },
-          {
-            "name": "filename",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Filename"
             }
           }
         ],

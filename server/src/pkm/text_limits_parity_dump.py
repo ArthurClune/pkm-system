@@ -19,6 +19,7 @@ from collections.abc import Callable, Iterable
 from typing import TypedDict
 
 from pkm.contracts.ops import MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING
+from pkm.parity_corpus import parity_corpus, piece_soup
 from pkm.refs import (
     bracket_spans,
     iter_bracket_spans,
@@ -101,30 +102,24 @@ _PIECES = ["[[", "[[", "[[", "]]", "]]", "]]", "[", "]", "`", "```", "\n",
            "\U0001f600", "\ud800"]
 
 
+_LONG_SOUP = piece_soup(_PIECES, 0, 20)
+_SHORT_SOUP = piece_soup(_PIECES, 0, 4)
+
+
+def _draw(rng: random.Random) -> str:
+    # A backtick anywhere in a run's title drops the run, so a long soup
+    # seldom nests deep by chance: a chain of runs around a short soup,
+    # between two more, reaches depth without hiding the rest.
+    depth = rng.choice([0, 0, 1, 2, 3, 5])
+    opener = rng.choice(["[[", "#[[", "[[a//"])
+    return (_LONG_SOUP(rng) + opener * depth + _SHORT_SOUP(rng)
+            + "]]" * depth + _LONG_SOUP(rng))
+
+
 def generated_cases(
     seed: int = GENERATED_SEED, count: int = GENERATED_COUNT
 ) -> list[str]:
-    """`count` seeded bracket-soup texts, de-duplicated and stable across
-    runs and Python versions (random.Random is specified)."""
-    rng = random.Random(seed)
-
-    def soup(most: int) -> str:
-        return "".join(rng.choice(_PIECES) for _ in range(rng.randint(0, most)))
-
-    out: list[str] = []
-    seen: set[str] = set()
-    while len(out) < count:
-        # A backtick anywhere in a run's title drops the run, so a long
-        # soup seldom nests deep by chance: a chain of runs around a short
-        # soup, between two more, reaches depth without hiding the rest.
-        depth = rng.choice([0, 0, 1, 2, 3, 5])
-        opener = rng.choice(["[[", "#[[", "[[a//"])
-        text = (soup(20) + opener * depth + soup(4) + "]]" * depth
-                + soup(20))
-        if text and text not in seen:
-            seen.add(text)
-            out.append(text)
-    return out
+    return parity_corpus(_draw, seed=seed, count=count, exclude=("",))
 
 
 def _runs(text: str, source: str) -> int:
@@ -133,7 +128,7 @@ def _runs(text: str, source: str) -> int:
 
 # Each shape is judged on the text alone, not on the generator's choices,
 # so the tally says what the corpus actually contains.
-SHAPES: dict[str, Callable[[str], bool]] = {
+CORPUS_SHAPES: dict[str, Callable[[str], bool]] = {
     "deep": lambda t: link_nesting_depth(t) >= 3,
     "code hides brackets": lambda t: strip_code(t).count("[[") < t.count("[["),
     # The same pairing with every backtick erased from the source finds a
@@ -148,13 +143,6 @@ SHAPES: dict[str, Callable[[str], bool]] = {
     "fence closer followed by non-ASCII": lambda t: bool(
         re.search(r"```[^\x00-\x7f]", t)),
 }
-
-
-def shape_tally(texts: Iterable[str]) -> dict[str, int]:
-    """How many of `texts` show each shape."""
-    texts = list(texts)
-    return {name: sum(1 for t in texts if pred(t))
-            for name, pred in SHAPES.items()}
 
 
 def _verdict(text: str) -> dict[str, object] | None:

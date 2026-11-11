@@ -46,7 +46,7 @@ export interface SyncActions {
    * unmarked batch redelivers if the replica ever opens again, and the server
    * rejects it back into the normal poison → repair flow. */
   discardProblem(): Promise<void>;
-  /** Manual recovery for a stalled replica (Fix A): flushes pending writes
+  /** Manual recovery for a stalled replica: flushes pending writes
    * then rebuilds from a fresh snapshot. Pass discardPending=true to proceed
    * even when the flush cannot be delivered. */
   resetReplica(discardPending?: boolean): Promise<void>;

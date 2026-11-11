@@ -8,10 +8,9 @@ tests/test_refs_parity_fixture.py."""
 from __future__ import annotations
 
 import json
-import random
 import re
-from collections.abc import Iterable
 
+from pkm.parity_corpus import parity_corpus, piece_soup
 from pkm.refs import extract
 
 CASES = [
@@ -85,17 +84,8 @@ _PIECES = [
 def generated_cases(
     seed: int = GENERATED_SEED, count: int = GENERATED_COUNT
 ) -> list[str]:
-    """`count` seeded bracket-soup block texts, de-duplicated and stable
-    across runs and Python versions (random.Random is specified)."""
-    rng = random.Random(seed)
-    out: list[str] = []
-    seen = set(CASES)
-    while len(out) < count:
-        text = "".join(rng.choice(_PIECES) for _ in range(rng.randint(2, 9)))
-        if text not in seen:
-            seen.add(text)
-            out.append(text)
-    return out
+    return parity_corpus(piece_soup(_PIECES, 2, 9), seed=seed, count=count,
+                         exclude=CASES)
 
 
 def _max_depth(text: str) -> int:
@@ -116,7 +106,7 @@ def _max_depth(text: str) -> int:
 
 # Each shape is judged on the text alone, not on the generator's choices,
 # so the tally says what the corpus actually contains.
-SHAPES = {
+CORPUS_SHAPES = {
     "nested_brackets": lambda t: _max_depth(t) >= 2,
     "unclosed_open": lambda t: t.count("[[") > t.count("]]"),
     "stray_close": lambda t: t.count("]]") > t.count("[["),
@@ -136,13 +126,6 @@ SHAPES = {
     "nfd": lambda t: "\u0301" in t,
     "emoji": lambda t: any(ord(c) > 0xFFFF for c in t),
 }
-
-
-def shape_tally(texts: Iterable[str]) -> dict[str, int]:
-    """How many of `texts` show each interesting shape."""
-    texts = list(texts)
-    return {name: sum(1 for t in texts if pred(t))
-            for name, pred in SHAPES.items()}
 
 
 def fixture() -> dict[str, list[dict[str, object]]]:

@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Upl
 from fastapi.responses import FileResponse
 
 from pkm.assets_core import (
-    AssetCategory, asset_url, export_limit_violation, hasher_hex, parse_sha256,
+    ALLOWED_UPLOAD_MIME, INLINE_MIME, AssetCategory, asset_url, export_limit_violation, hasher_hex, parse_sha256,
     strip_asset_tokens, type_where, zip_arcnames)
 from pkm.contracts.ops import BlockUid, Sha256Hex
 from pkm.contracts.responses import (
@@ -46,27 +46,6 @@ logger = logging.getLogger("pkm.assets")
 # Read/write in bounded chunks rather than slurping the whole upload (up
 # to max_upload_bytes) into one bytes object.
 _CHUNK_SIZE = 1024 * 1024  # 1 MiB
-
-# Upload allowlist (spec: images, PDF, plain text, office docs). SVG upload
-# is allowed; serving forces it to download (see INLINE_MIME in Task 4).
-ALLOWED_UPLOAD_MIME = frozenset({
-    "image/png", "image/jpeg", "image/gif", "image/webp", "image/heic",
-    "image/svg+xml",
-    "application/pdf",
-    "text/plain", "text/markdown", "text/csv", "application/json",
-    "application/msword", "application/vnd.ms-excel",
-    "application/vnd.ms-powerpoint",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-})
-
-# Safe to render in the app's origin: raster images + PDF. SVG is
-# deliberately absent — it can script, so it downloads instead.
-INLINE_MIME = frozenset({
-    "image/png", "image/jpeg", "image/gif", "image/webp", "image/heic",
-    "application/pdf",
-})
 
 # Selected-asset export: proportionate limits for a personal,
 # single-user server -- generous enough that no real selection through

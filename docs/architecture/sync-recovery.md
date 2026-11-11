@@ -16,7 +16,7 @@ replica is a cache and the queue is the user's intent.
 | A replica write fails (`SQLITE_CANTOPEN`, `IOERR`, a dead worker) | The op is kept in the in-memory lane; only `ReplicaError.rejected` discards | [A local write fails](#a-local-write-fails) |
 | Lane entries and durable rows are both waiting | `headPrecedes` orders them by batch identity | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
 | The OPFS file cannot be opened | Up to the attempt limit, then `unusable` for the session | [When the replica cannot be opened](#when-the-replica-cannot-be-opened) |
-| The worker RPC breaks | `unreachable`: ops kept, barrier held; the next replica call, by the queue, `replicaSync` or `clientRuntime`, sets mode `no-replica` | [Availability](#availability), [Replica mode](#replica-mode) |
+| The worker RPC breaks | `unreachable`: ops kept, barrier held; the next replica call sets mode `no-replica` | [Availability](#availability), [Replica mode](#replica-mode) |
 | The replica opens, then fails every write | The offline banner says unsent changes exist only in memory | [What the UI shows](#what-the-ui-shows) |
 | A window was read before an ack deleted its row | Refetched; `PullStarvedError` after the cap | [Windows and the pending queue](sync-and-offline.md#windows-and-the-pending-queue) |
 | Two repairs or a recovery overlap | Each holds its own barrier owner and releases only that | [The recovery barrier](#the-recovery-barrier) |
@@ -73,11 +73,10 @@ without `seen_seq`, so it is never treated as stale.
 A terminal 4xx discards a lane entry and runs `onDesync`'s outline repair
 (`sync/outlineRepair.ts`).
 
-A reload destroys the lane, so `useUnloadGuard` arms from `onUnsentInMemory`,
-the lane's own length. Its `beforeunload` listener attaches only while the lane
-is non-empty, because a permanent one opts the page out of the back/forward
-cache. An iOS standalone PWA honours neither `beforeunload` nor
-`window.confirm`.
+A reload destroys the lane, so `useUnloadGuard` (`sync/unloadGuard.ts`) arms
+from `onUnsentInMemory`, the lane's own length. Its header says why it
+attaches only while the lane is non-empty, and why it does not hold in an iOS
+standalone PWA.
 
 ## When the replica cannot be opened
 
@@ -107,14 +106,10 @@ flowchart TD
     R -->|no| X
 ```
 
-`forceReinitIfPreviouslyFailed` must stay in `SAH_POOL_INSTALL_OPTIONS`,
-because sqlite-wasm memoises `installOpfsSAHPoolVfs` and otherwise re-awaits the
-cached rejection. The top-up to `MIN_POOL_CAPACITY` must run before the open,
-because nothing grows the pool later and every file SQLite keeps claims a slot.
-`MIN_POOL_CAPACITY` covers `PEAK_POOL_FILES` (the replica, the carry and
-their journals, the most a
-[file replacement](#reset-rebase-and-file-replacement) holds) with room to
-spare.
+`forceReinitIfPreviouslyFailed` must stay in `SAH_POOL_INSTALL_OPTIONS`, and
+the top-up to `MIN_POOL_CAPACITY` must run before the open; the comments on
+both constants say why. `MIN_POOL_CAPACITY` covers `PEAK_POOL_FILES`, the
+most a [file replacement](#reset-rebase-and-file-replacement) holds.
 
 ### Availability
 
@@ -137,30 +132,20 @@ whether a consumer may latch it: yes for everything but a bare timeout.
 
 ### What the UI shows
 
-`bannerForMode` (`sync/syncState.ts`) folds each mode report into a banner.
-`ready` clears a stalled one unless its reset is running.
+`bannerForMode` (`sync/syncState.ts`) folds each mode report into a banner;
+it and the transitions beside it say which banner each mode raises and what
+it may replace. Offline, `computeEditability` reads `recovery-failed` as
+read-only. `replica-unusable` replaces a stalled banner (`replica-stalled`)
+but never a delivery problem, and `SyncState.replicaGone` brings it back when
+that problem ends. Its action is Reload, not Retry, because the failed open is
+latched for the session.
 
-| Mode report | Banner |
-|---|---|
-| `stalled` | `replica-stalled`, with Reset local data |
-| `recovery-failed` | the same banner while the socket is connected; offline none, and `computeEditability` reads the mode as read-only |
-| `no-replica` | `replica-unusable` |
-
-`replica-unusable` replaces a stalled banner, whose Reset cannot work on a
-replica that is gone, and never a delivery problem. `SyncState.replicaGone`
-remembers the report, so the banner returns when a delivery problem ends. Its
-action is Reload, not Retry, because the failed open is latched for the
-session.
-
-Reload's confirmation names unsent changes when `unsentInMemory > 0`. The
-banner names them only offline; connected, it says they are still being saved.
-Those changes live only in the lane, so a reload discards them.
-Durable rows (`pending` minus `unsentInMemory`) survive a reload and are not
-counted. Wording is in `OfflineIndicator.tsx`.
-
-A replica that opens and then fails every write has no availability verdict, so
-no problem banner mounts. The offline `ConnectivityBanner` appends the same
-`memoryOnlySentence`.
+The memory-only warning (`memoryOnlySentence`) and Reload's confirmation,
+shown only when `unsentInMemory > 0`, count `unsentInMemory`, the lane's share
+of `pending`: a reload discards the lane, and durable rows survive it.
+`OfflineIndicator.tsx` holds the wording. A replica that opens and then fails
+every write has no availability verdict, so no problem banner mounts; the
+offline `ConnectivityBanner` gives the same warning.
 
 ## The recovery barrier
 
@@ -178,30 +163,26 @@ and `pause(owner)` and `resume(owner)` take one:
 
 `OpQueue.holds(owner)` reports a claim, and `replicaSync` reads
 `holds("poison")` as its `holdsPoison` dep
-([below](#a-batch-the-server-rejects)). `OpQueue.onRelease` fires inside
-`resume` when it releases a held owner, so its listener acts before any other
-call can claim the owner again. Its emission rule, and why none may report
-during a render, are in the `opQueue.ts` header.
+([below](#a-batch-the-server-rejects)). `OpQueue.onRelease` fires
+synchronously inside `resume`, for the reason the `opQueue.ts` header gives.
 
 The drain checks the barrier again after each `nextBatch()` read, since a
 pause can land while the read waits on the worker's gate.
 
 `onDesync` reports `{ error, lane }`. A local refusal (a text past a limit, a
 `ReplicaError.rejected` op) also desyncs, but it paused nothing, so its outline
-repair resumes nothing. `outlineRepair.ts` owes a `lane` resume across a failed
-run, so the retry that succeeds pays it.
+repair resumes nothing (`laneOwed` in `outlineRepair.ts`).
 
-A poison problem without its repair outranks an outline one in the banner: its
-Retry is what lifts `poison`. The outline problem waits in `outlineBehind`
-(`sync/syncState.ts`) and is shown once the poison problem ends.
+A poison problem without its repair outranks an outline one in the banner,
+because its Retry is what lifts `poison`; the outline problem waits in
+`outlineBehind` (`sync/syncState.ts`).
 
 ### Calls that arrive during a run
 
-`coalesce` (`sync/coalesce.ts`) holds the rule for the single-flight sites in
-the table: a call that arrives during a run still gets a run that could have
-served it. The call joins the run while the site's `joinable()` holds.
-Otherwise it is owed one run, started in the reaction that ends the current
-one. `coalesce.test.ts` pins the windows, the rejections and `idle()`.
+`coalesce` (`sync/coalesce.ts`, whose header states the rule) serves the
+single-flight sites in the table: a call that arrives during a run joins it
+while the site's `joinable()` holds, and is otherwise owed one run.
+`coalesce.test.ts` pins the windows, the rejections and `idle()`.
 
 | Site | A late call joins until | Then owed | Decided by |
 |---|---|---|---|
@@ -259,8 +240,7 @@ offline, so every socket connect retries it too:
 Only a connect retries, never a drain observed while connected, so a repair
 that fails again waits for the next connect instead of looping. The targets of
 a failed run carry into the next, merged by `orderedPoisonEvents`
-(`sync/poisonIntents.ts`): one event per row and batch id, the later group's
-copy winning, in row order.
+(`sync/poisonIntents.ts`).
 
 Mark intents live in `localStorage` (`sync/poisonIntentStore.ts`,
 `pkm.poison-mark-intents.v1`), so they survive an unopenable database. A failed
@@ -385,43 +365,33 @@ after a reload the rows replay once and the stored ack deletes them.
 
 ### Reset, rebase and file replacement
 
-A `reset` rebuilds the tables inside the file in one transaction, so a failure
-leaves the old database whole. Damage to the file itself, which `quick_check`
-reports and the FTS checks do not, survives that. On a corruption error
-`rebuildOrReplaceFile` (`replica/workerHandlers.ts`) calls `discardDbFile`,
-which unlinks the file and its `-journal`, and rebuilds on a fresh file.
+A `reset` rebuilds the tables inside the file in one transaction
+(`rebuildSchema`), so a failure leaves the old database whole. Damage to the
+file itself survives that, so on a corruption error `rebuildOrReplaceFile`
+(`replica/workerHandlers.ts`) unlinks the file (`discardDbFile`) and rebuilds
+on a fresh one.
 
 A `rebase` meets the same damage when its snapshot deletes rows.
 `rebaseOrReplaceFile` takes the same escape but keeps the queue. **The carry
 commits before the damaged file is unlinked.** The rows no ack covers travel
-verbatim to `/pkm-replica-carry.sqlite3`, ids and `poisoned` included, because
-the runtime deletes the poisoned row by id afterwards.
-
-| Step | Action | If the worker dies here, the rows are in |
-|---|---|---|
-| 1 | `carry.write(remaining)` (`carryStore.ts`) | the damaged file |
-| 2 | `discardDbFile` | the carry |
-| 3 | `rebuildSchema`, then `importPendingRows` (`INSERT OR IGNORE` by id) | the carry |
-| 4 | `carry.discard()` | the new file |
-| 5 | The snapshot applies and pending replays | the new file |
-
-The carry goes at step 4, not after the snapshot: a carry kept past a failed
-snapshot would be adopted later and bring back batches acked since.
+verbatim to `/pkm-replica-carry.sqlite3` (`carryStore.ts`), ids and
+`poisoned` included, because the runtime deletes the poisoned row by id
+afterwards. The new file imports them by id (`importPendingRows`), and the
+carry is discarded as soon as that import commits, before the snapshot
+applies: a carry kept past a failed snapshot would be adopted later and bring
+back batches acked since.
+`rebaseOrReplaceFile`'s docstring walks where the rows are at each step.
 
 Every queue handler reaches the database through `queueDb`, which adopts a
-leftover carry before serving. Adoption cannot wait for `init`: an edit can
-reach a restarted worker first, take the carried ids, and the by-id import
-would drop those rows. The recovery internals (`rebuildOrReplaceFile`,
-`rebaseOrReplaceFile`, `replaceUnreadableQueue`) use `db()` instead, because
-mid-replacement the carry is the rows' only copy and must not be adopted into a
-half-built file. `diagnostics` uses it too, so an adoption failure cannot sink
-its report.
-
-| Adoption meets | Outcome | Why no row is lost |
-|---|---|---|
-| A carry that reads as `SQLITE_CORRUPT*` or `SQLITE_NOTADB` (`isUnreadableFileMessage`) | discarded with a warning | a cut-short carry write rolls back on open, so an unreadable carry is storage damage; until step 2 the replica holds the rows |
-| A replica whose `installSchema` or `importPendingRows` throws | the carry's rows merge by id with every row the old file can still give (`mergeCarriedRows`, `carryMerge.ts`; the carry wins a clash), go back to the carry, and the file is replaced | rows are lost only if both files are damaged at once |
-| Any other error | the handler fails and the carry is kept | the carry is the rows' sure copy |
+leftover carry before serving: an edit reaching a restarted worker first
+would take the carried ids, and the by-id import would drop those rows. The
+recovery internals (`rebuildOrReplaceFile`, `rebaseOrReplaceFile`,
+`replaceUnreadableQueue`) and `diagnostics` use `db()` instead, because
+mid-replacement the carry is the rows' only copy. `adoptLeftoverCarry`'s
+docstring gives what adoption does with an unreadable carry
+(`isUnreadableFileMessage`), with a replica that cannot take the rows
+(`mergeCarriedRows`), and with any other error; no row is lost unless both
+files are damaged at once.
 
 A queue that cannot be read takes the same escape. `withQueue` treats a
 handler's corruption error as that case when a plain read of `pending_ops`
@@ -433,12 +403,11 @@ lane gets past them. Corruption elsewhere, such as the FTS index, leaves the
 queue readable and keeps its own repair. A discard that throws still drops
 the memoised handle, because it may already have closed it.
 
-Corruption must reach `isCorruptionError` with its own message. SQLite
-rolls back by itself on `SQLITE_CORRUPT`, `IOERR` or `FULL`, and a later
-`ROLLBACK` then fails with "no transaction is active". `wrapSqlite`'s
-`transaction` and `rollbackToSavepoint` (`replica/db.ts`) raise the original
-error instead. A masked message looks like an unappliable window, which earns
-a rebase over the same damaged file.
+Corruption must reach `isCorruptionError` with its own message, so
+`wrapSqlite`'s `transaction` and `rollbackToSavepoint` (`replica/db.ts`) raise
+the original error when SQLite has already rolled back. A masked message
+looks like an unappliable window, which earns a rebase over the same damaged
+file.
 
 ## Recovery never erases intent
 

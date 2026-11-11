@@ -798,8 +798,8 @@ describe("references popover", () => {
   test("shares .block-menu's layering and surface treatment", () => {
     const menu = ruleFor(".block-menu");
     const popover = ruleFor(".block-ref-popover");
-    expect(popover).toContain("z-index: 60;");
-    expect(menu).toContain("z-index: 60;");
+    expect(popover).toContain("z-index: var(--z-popover);");
+    expect(menu).toContain("z-index: var(--z-popover);");
     expect(popover).toContain("border-radius: var(--radius-panel);");
     expect(popover).toContain("box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15);");
     expect(menu).toContain("box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15);");
@@ -899,4 +899,51 @@ describe("the rule helpers", () => {
     () => {
       expect(() => ruleFor(".page-link")).toThrow(/Missing CSS rule/);
     });
+});
+
+describe("the z-index scale", () => {
+  const tokenValue = (token: string): number => {
+    const value = ruleFor(":root").match(
+      new RegExp(`${token}: (\\d+);`))?.[1];
+    if (value === undefined) throw new Error(`${token} is not on :root`);
+    return Number(value);
+  };
+
+  test("every z-index reads a --z token defined on :root", () => {
+    const values: string[] = [];
+    sheet.walkDecls("z-index", (decl) => {
+      values.push(decl.value);
+    });
+    expect(values.length).toBeGreaterThan(0);
+    for (const value of values) {
+      const token = value.match(/^var\((--z-[a-z-]+)\)$/)?.[1];
+      expect(token, value).toBeDefined();
+      if (token) tokenValue(token);
+    }
+  });
+
+  // Bottom to top. A token whose value breaks this order puts one layer
+  // over another that is meant to cover it.
+  test("the layers stack in this order", () => {
+    const layers = ["--z-drop-indicator", "--z-sidebar-overlay",
+      "--z-dropdown", "--z-phone-nav", "--z-hamburger", "--z-keyboard-bar",
+      "--z-editor-popup", "--z-popover", "--z-assistant", "--z-modal"];
+    const values = layers.map(tokenValue);
+    for (let i = 1; i < values.length; i++) {
+      expect(values[i], `${layers[i]} above ${layers[i - 1]}`)
+        .toBeGreaterThan(values[i - 1]);
+    }
+  });
+
+  test("the keyboard bar sits below the editor popups", () => {
+    expect(tokenValue("--z-keyboard-bar"))
+      .toBeLessThan(tokenValue("--z-editor-popup"));
+  });
+
+  test("the assistant panel sits between the popovers and the modals", () => {
+    expect(tokenValue("--z-assistant"))
+      .toBeGreaterThan(tokenValue("--z-popover"));
+    expect(tokenValue("--z-assistant"))
+      .toBeLessThan(tokenValue("--z-modal"));
+  });
 });

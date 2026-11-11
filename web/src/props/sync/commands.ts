@@ -22,11 +22,12 @@ import type { BlockOp } from "../../api/ops";
 import { ApiError } from "../../api/client";
 import { BAD_UID, editDrafts, FIXTURE_PAGE, PAGE_TITLES, pageTitle, resolveOps, showDraft,
          showOp, targetPool, type OpDraft } from "./arbitraries";
+import { repairRunning } from "./bannerModel";
 import type { ConnectLanding, HarnessClient } from "./harnessClient";
 import type { Transport } from "./transport";
 import { countDown, FALL_BACK, midnightCrossing, type MidnightDay, type OfflineBack,
          SPRING_FORWARD, type SyncModel } from "./model";
-import type { CursorWatch, ModeWatch } from "./oracle";
+import type { BannerWatch, CursorWatch, ModeWatch } from "./oracle";
 import { ExampleCancelled } from "./cancel";
 import type { ServerControl } from "./serverControl";
 import { uidOf, orderIdxOf, seqOf } from "../../test-helpers";
@@ -37,7 +38,9 @@ export type ClientPort = Pick<HarnessClient,
   "name" | "writeFailArmed" | "unsentInMemory" | "online" | "offline" | "edit" | "pull"
   | "nudge" | "failNextWrite" | "loseNextReply" | "lostReplyArmed" | "reload"
   | "connectLanded" | "cursor" | "killWorker" | "workerDead" | "canEdit" | "mode"
-  | "appliedVersion" | "hasStarted" | "lastPullJoin">
+  | "appliedVersion" | "hasStarted" | "lastPullJoin" | "problem" | "lifeEvents"
+  | "heldForPoison" | "failNextMark" | "unmatchNextMark" | "discard"
+  | "dieAtDiscovery">
   & { readonly transport: Pick<Transport, "arm" | "fetchJson" | "pacing"> };
 
 export interface World<C extends ClientPort = ClientPort> {
@@ -45,6 +48,7 @@ export interface World<C extends ClientPort = ClientPort> {
   clients: Map<string, C>;
   watch: Pick<CursorWatch, "observe">;
   modes: Pick<ModeWatch, "observe" | "afterPull" | "afterEdit">;
+  banners: Pick<BannerWatch, "observe" | "seen">;
   /** One resolved line per command run, for the failure report. */
   transcript: string[];
   /** Counts what ran, by name (see tally). */
@@ -55,6 +59,9 @@ export interface World<C extends ClientPort = ClientPort> {
 
 export type FaultKind = "dropAck" | "duplicate" | "lostPull" | "writeFails" | "lostReply"
   | "snapshot5xx" | "slowSnapshot" | "stalledSnapshot";
+/** How a BadBatch's rejection is marked: as usual, by a mark that fails
+ * (not session-fatal), or by a round that finds its row already gone. */
+export type MarkOutcome = "ok" | "fails" | "unmatched";
 export type NudgeKind = "latest" | "stale" | "duplicate" | "ahead";
 
 /** How far past the journal an "ahead" nudge points. */
@@ -127,6 +134,7 @@ export abstract class SyncCommand implements fc.AsyncCommand<SyncModel, World> {
     }
     w.watch.observe([...w.clients.values()]);
     w.modes.observe([...w.clients.values()]);
+    w.banners.observe([...w.clients.values()]);
     for (const [name, c] of w.clients) {
       // writeFails and lostReply stay armed until their enqueue has come
       // and the lane it pushed the ops into has drained.
@@ -183,10 +191,11 @@ export class Edit extends SyncCommand {
 /** A create of a uid live in every replica and on the server: the replica
  * keeps it as a replay, the server rejects it with a 400. Only on the
  * durable path: no armed write failure, nothing unsent in memory, and a live
- * worker. */
+ * worker. A mark outcome other than "ok" arms the client's next mark, which
+ * is this batch's unless another rejection is still being marked. */
 export class BadBatch extends SyncCommand {
   protected readonly kindName = "BadBatch";
-  constructor(readonly client: string) { super(); }
+  constructor(readonly client: string, readonly mark: MarkOutcome = "ok") { super(); }
 
   protected blocked(m: Readonly<SyncModel>): string | null {
     return notStarted(m, this.client) ??
@@ -202,12 +211,18 @@ export class BadBatch extends SyncCommand {
       parent_uid: null, order_idx: orderIdxOf(60), text: "a create of a live uid",
     }];
     w.count("BadBatch");
+    if (this.mark === "fails") c.failNextMark();
+    if (this.mark === "unmatched") c.unmatchNextMark();
+    if (this.mark !== "ok") w.count(`BadBatch, mark ${this.mark}`);
     const id = await c.edit(ops);
     m.bad.add(id);
-    return `BadBatch(${this.client}) ${id}`;
+    return `${this.toString()} ${id}`;
   }
 
-  toString(): string { return `BadBatch(${this.client})`; }
+  toString(): string {
+    return this.mark === "ok" ? `BadBatch(${this.client})`
+      : `BadBatch(${this.client}, mark ${this.mark})`;
+  }
 }
 
 /** The socket going down, and when it comes back: once `back` more
@@ -326,14 +341,42 @@ export class Nudge extends SyncCommand {
   toString(): string { return `Nudge(${this.client}, ${this.kind})`; }
 }
 
+/** The banner's "Discard rejected change". It acts only on a failed mark's
+ * banner; on any other it does nothing, as the button is not there. */
+export class Discard extends SyncCommand {
+  protected readonly kindName = "Discard";
+  constructor(readonly client: string) { super(); }
+
+  protected blocked(m: Readonly<SyncModel>): string | null {
+    return notStarted(m, this.client);
+  }
+
+  protected async act(_m: SyncModel, w: World): Promise<string> {
+    const c = clientOf(w, this.client);
+    const problem = c.problem();
+    if (problem?.kind !== "rejected-batch" || problem.repair !== "mark-failed") {
+      w.count("Discard: no failed mark shown");
+      return `${this.toString()}: no failed mark shown`;
+    }
+    const during = repairRunning(c.lifeEvents()) ? " during a repair" : "";
+    w.count(`Discard of a failed mark${during}${c.workerDead() ? ", worker dead" : ""}`);
+    await c.discard();
+    return `${this.toString()}${during}`;
+  }
+
+  toString(): string { return `Discard(${this.client})`; }
+}
+
 /** A page reload. Ops only in the in-memory lane die with the page by
  * design (the beforeunload guard's job), so it needs an empty lane and no
  * write failure armed to put anything there. An online client's new life
  * connects `connectAt` ticks into its startup, or once the startup has
- * finished when that is absent (HarnessClient.reload). */
+ * finished when that is absent (HarnessClient.reload). With `dies`, the new
+ * life's worker dies as its startup asks what is poisoned. */
 export class Reload extends SyncCommand {
   protected readonly kindName = "Reload";
-  constructor(readonly client: string, readonly connectAt?: number) { super(); }
+  constructor(readonly client: string, readonly connectAt?: number,
+              readonly dies = false) { super(); }
 
   protected blocked(m: Readonly<SyncModel>): string | null {
     return notStarted(m, this.client) ??
@@ -344,8 +387,15 @@ export class Reload extends SyncCommand {
     const c = clientOf(w, this.client);
     assertNoLane(this, c);
     w.count(m.dead[this.client] ? "Reload of a dead worker" : "Reload");
+    if (this.dies) c.dieAtDiscovery(true);
     await c.reload(this.connectAt);
-    m.dead[this.client] = false;
+    m.dead[this.client] = c.workerDead();
+    if (this.dies) {
+      // A startup whose mark round failed never asked.
+      c.dieAtDiscovery(false);
+      w.count(c.workerDead() ? "Reload, worker died at discovery"
+                             : "Reload, worker death armed for discovery unused");
+    }
     const landed = c.connectLanded();
     w.count(`Reload ${connectTally(this.connectAt, landed)}`);
     // An offline load ignores its timing; the report says so rather than
@@ -355,8 +405,9 @@ export class Reload extends SyncCommand {
   }
 
   toString(): string {
-    return this.connectAt === undefined ? `Reload(${this.client})`
-      : `Reload(${this.client}, connect at tick ${this.connectAt})`;
+    const dies = this.dies ? ", worker dies at discovery" : "";
+    return this.connectAt === undefined ? `Reload(${this.client}${dies})`
+      : `Reload(${this.client}, connect at tick ${this.connectAt}${dies})`;
   }
 }
 
@@ -380,7 +431,9 @@ export class WorkerDies extends SyncCommand {
   }
 
   protected act(m: SyncModel, w: World): Promise<string> {
-    clientOf(w, this.client).killWorker();
+    const c = clientOf(w, this.client);
+    if (repairRunning(c.lifeEvents())) w.count("WorkerDies during a poison repair");
+    c.killWorker();
     m.dead[this.client] = true;
     w.count(`WorkerDies ${m.online[this.client] ? "online" : "offline"}`);
     return Promise.resolve(this.toString());
@@ -558,12 +611,25 @@ export const faultKind: fc.Arbitrary<FaultKind> = fc.oneof(
   { weight: 3, arbitrary: fc.constant<FaultKind>("stalledSnapshot") },
 );
 
+/** A BadBatch's mark: one in four fails, one in eight finds no row. */
+export const markOutcome: fc.Arbitrary<MarkOutcome> = fc.oneof(
+  { weight: 5, arbitrary: fc.constant<MarkOutcome>("ok") },
+  { weight: 2, arbitrary: fc.constant<MarkOutcome>("fails") },
+  { weight: 1, arbitrary: fc.constant<MarkOutcome>("unmatched") },
+);
+
+/** One Reload in eight has its new worker die at startup discovery. */
+const reloadDies: fc.Arbitrary<boolean> = fc.oneof(
+  { weight: 7, arbitrary: fc.constant(false) },
+  { weight: 1, arbitrary: fc.constant(true) },
+);
+
 /** Every command, naming only `names` (the clients the example starts), so no
  * draw is spent on a client the example lacks. Weighted as calibrated: Edit
  * 10, Pull 3, Nudge 3, Offline 3, Fault 3, Reload 2, BadBatch 1,
  * RotateGeneration 1, CrossMidnight 1, Rename 1, DeletePage 1, WorkerDies 1,
- * so a BadBatch is about one command in thirty. An Offline's three units buy
- * a whole offline period, its return included. */
+ * Discard 1, so a BadBatch is about one command in thirty. An Offline's
+ * three units buy a whole offline period, its return included. */
 export function commandsFor(names: readonly string[]): fc.Arbitrary<SyncCommand>[] {
   const client = fc.constantFrom(...names);
   return [fc.oneof(
@@ -575,9 +641,10 @@ export function commandsFor(names: readonly string[]): fc.Arbitrary<SyncCommand>
         .map(([c, back]) => new Offline(c, back)) },
     { weight: 3, arbitrary: fc.tuple(client, faultKind)
         .map(([c, k]) => new Fault(c, k)) },
-    { weight: 2, arbitrary: fc.tuple(client, connectTiming)
-        .map(([c, at]) => new Reload(c, at)) },
-    { weight: 1, arbitrary: client.map((c) => new BadBatch(c)) },
+    { weight: 2, arbitrary: fc.tuple(client, connectTiming, reloadDies)
+        .map(([c, at, dies]) => new Reload(c, at, dies)) },
+    { weight: 1, arbitrary: fc.tuple(client, markOutcome)
+        .map(([c, mark]) => new BadBatch(c, mark)) },
     { weight: 1, arbitrary: fc.constant(null).map(() => new RotateGeneration()) },
     // One crossing in four lands on a BST/GMT changeover date.
     { weight: 1, arbitrary: fc.oneof(
@@ -589,5 +656,6 @@ export function commandsFor(names: readonly string[]): fc.Arbitrary<SyncCommand>
     { weight: 1, arbitrary: fc.tuple(client, fc.nat({ max: PAGE_TITLES.length - 1 }))
         .map(([c, t]) => new DeletePage(c, t)) },
     { weight: 1, arbitrary: client.map((c) => new WorkerDies(c)) },
+    { weight: 1, arbitrary: client.map((c) => new Discard(c)) },
   )];
 }

@@ -34,9 +34,10 @@ import { REPLAY_PATH } from "./env";
 import { type FirstStart, HARNESS_LEASE_MS, startClient,
          type HarnessClient } from "./harnessClient";
 import { initialModel, type SyncModel } from "./model";
-import { checkQuiescent, CursorWatch, ModeWatch } from "./oracle";
+import { BannerWatch, checkQuiescent, CursorWatch, ModeWatch } from "./oracle";
 import { quiesce, TIMED_OUT, within } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
+import { AwaitPoisonRepair, clientIn, HoldSnapshots, ReleaseSnapshots, waitUntil } from "./steps";
 import { checkGateProperty, EXAMPLES } from "../gate";
 import { bump, type Reach, type Tally } from "../reach";
 import { captureFaultWarnings } from "../warningsCapture";
@@ -67,6 +68,9 @@ const FIRST_START_WAIT_MS = 5_000;
 /** How long settleReplicas lets a dead worker's lane drain before its
  * reload. */
 const LANE_DRAIN_WAIT_MS = 5_000;
+/** How long settleReplicas lets a mark that failed before the faults
+ * stopped report itself: its failure is a few microtasks behind the call. */
+const MARK_REPORT_WAIT_MS = 20;
 
 type Commands = Iterable<fc.AsyncCommand<SyncModel, World, boolean>>;
 
@@ -154,9 +158,17 @@ const REACH: Reach = {
   //   "Reload connect timed, landed mid-startup"
   //   "start connect timed, landed after startup"
   //   "start connect timed, landed mid-startup"
-  // No floor, no rule checks the banner yet: the problem each client's
-  // session holds once quiesced, one count per client per example:
-  //   "Problem at settle: <kind>", "Problem at settle: none"
+  // The banner, mark, discard and discovery-death labels were floored the
+  // same rough way, from 6 unseeded runs on 2026-11-11: a quarter of the
+  // lowest share. No floor, under ten in some run: the rarer "Banner rule:"
+  // paths ("gone over failed", "gone over mark-failed", "gone over
+  // running", "gone over stalled", "gone, then failed", "gone, then
+  // mark-failed", "gone, then running"), "Discard of a failed mark" with or
+  // without a dead worker, "WorkerDies during a poison repair", "BadBatch,
+  // mark ... at startup" and "settle: first start held back by a poison
+  // claim". The fixed scenarios and bannerTeeth.prop.ts reach the stalled
+  // and running paths by construction. Never reached: a mark during a
+  // repair, so no Discard of a failed mark during one.
   // The eight paced-snapshot labels were floored roughly, from 6 unseeded
   // runs on 2026-11-11: a quarter of the lowest share for the four drawn
   // Fault labels, and for the Recovery labels, which the harness lease's
@@ -165,6 +177,29 @@ const REACH: Reach = {
     "BadBatch": 0.187,
     "BadBatch skipped: worker dead": 0.012,
     "BadBatch skipped: write failure armed or lane unsent": 0.022,
+    "BadBatch, mark fails": 0.021,
+    "BadBatch, mark fails at rest": 0.014,
+    "BadBatch, mark unmatched": 0.011,
+    "BadBatch, mark unmatched at rest": 0.007,
+    "Banner after a command: none": 0.24,
+    "Banner after a command: rejected-batch failed": 0.003,
+    "Banner after a command: rejected-batch mark-failed": 0.013,
+    "Banner after a command: rejected-batch repaired": 0.025,
+    "Banner after a command: rejected-batch running": 0.026,
+    "Banner after a command: replica-unusable": 0.064,
+    "Banner after a command: replica-unusable paused": 0.024,
+    "Banner after quiesce: none": 0.246,
+    "Banner after quiesce: rejected-batch repaired": 0.061,
+    "Banner rule: gone over none": 0.095,
+    "Banner rule: gone over repaired": 0.002,
+    "Banner rule: gone, a kept problem ended by poison-intents-discarded": 0.001,
+    "Banner rule: gone, then discovery": 0.023,
+    "Banner unmodelled: a stall report beside a poison problem": 0.005,
+    "Banner with its worker dead, after a Discard: replica-unusable": 0.001,
+    "Banner with its worker dead, before its reload: rejected-batch mark-failed": 0.001,
+    "Banner with its worker dead, before its reload: rejected-batch repaired": 0.002,
+    "Banner with its worker dead, before its reload: replica-unusable": 0.069,
+    "Banner with its worker dead, before its reload: replica-unusable paused": 0.021,
     "CrossMidnight 2026-03-29": 0.023,
     "CrossMidnight 2026-10-25": 0.026,
     "CrossMidnight model": 0.177,
@@ -172,6 +207,7 @@ const REACH: Reach = {
     "DeletePage failed offline": 0.033,
     "DeletePage refused 404": 0.091,
     "DeletePage refused 409": 0.005,
+    "Discard: no failed mark shown": 0.112,
     "Edit": 2.381,
     "Edit op create": 0.344,
     "Edit op create top of Fourth": 0.011,
@@ -225,6 +261,13 @@ const REACH: Reach = {
     "Online after 5": 0.065,
     "Online at quiesce": 0.15,
     "Online at quiesce, before its return": 0.081,
+    "Problem at settle, worker dead, after a Discard: replica-unusable": 0.001,
+    "Problem at settle, worker dead: rejected-batch mark-failed": 0.001,
+    "Problem at settle, worker dead: rejected-batch repaired": 0.002,
+    "Problem at settle, worker dead: replica-unusable": 0.078,
+    "Problem at settle, worker dead: replica-unusable paused": 0.022,
+    "Problem at settle: none": 0.546,
+    "Problem at settle: rejected-batch repaired": 0.069,
     "Pull": 0.608,
     "Pull alone": 0.576,
     "Pull joined": 0.024,
@@ -239,6 +282,7 @@ const REACH: Reach = {
     "Reload connect untimed": 0.203,
     "Reload of a dead worker": 0.028,
     "Reload skipped: write failure armed or lane unsent": 0.052,
+    "Reload, worker died at discovery": 0.024,
     "Rename failed offline": 0.033,
     "Rename refused 404": 0.09,
     "Rename refused 409": 0.042,
@@ -260,6 +304,7 @@ const REACH: Reach = {
     "examples with window limit 3": 0.034,
     "examples with window limit 4": 0.026,
     "examples with window limit 5": 0.024,
+    "settle: Retry of a failed mark": 0.007,
     "settle: dead worker never started": 0.017,
     "settle: dead worker online-only after a pull": 0.156,
     "settle: first start owed a retry": 0.064,
@@ -282,25 +327,33 @@ interface ExampleOptions {
   firstStart?: readonly FirstStart[];
 }
 
-/** Resolves once `ready()` holds, polling; TIMED_OUT after `ms`. */
-const waitUntil = (ready: () => boolean, ms: number): Promise<void | typeof TIMED_OUT> =>
-  within((async () => {
-    while (!ready()) await new Promise((resolve) => setTimeout(resolve, 5));
-  })(), ms);
-
 /** The replica-mode rules quiesce would hide, then the dead workers'
- * reloads. Faults stop first: a retried bootstrap is owed success only once
- * they have. Returns the lane batches a reload destroyed while they were
- * still unsent: they may never land. */
-async function settleReplicas(world: World<HarnessClient>, model: SyncModel):
-    Promise<Set<BatchId>> {
+ * reloads, each after its banner is checked. Faults stop first: a retried
+ * bootstrap is owed success only once they have. A failed mark waits for
+ * its banner's Retry or Discard, which nothing else gives it: a live client
+ * showing one gets the Retry here, a dead one the Discard before its
+ * reload. Returns the lane batches a reload destroyed while they were still
+ * unsent: they may never land. */
+async function settleReplicas(world: World<HarnessClient>, model: SyncModel,
+                              banners: BannerWatch): Promise<Set<BatchId>> {
   const dropped = new Set<BatchId>();
-  for (const c of world.clients.values()) c.transport.clearFaults();
+  for (const c of world.clients.values()) {
+    c.transport.clearFaults();
+    c.clearMarkFaults();
+    c.dieAtDiscovery(false);
+  }
   for (const [name, c] of world.clients) {
     // A start held back behind a failed poison repair waits for that
     // repair's own Retry or the next connect, as sync-recovery.md says.
     if (!model.online[name] || model.dead[name] || c.hasStarted() ||
         !c.startAttempted()) continue;
+    // So does a failed start whose retry a poison claim holds back: the
+    // reconnect's drain stops at the claim, which a failed mark keeps until
+    // its Retry below.
+    if (c.heldForPoison()) {
+      count("settle: first start held back by a poison claim");
+      continue;
+    }
     count("settle: first start owed a retry");
     const started = await waitUntil(() => c.hasStarted(), FIRST_START_WAIT_MS);
     if (started === TIMED_OUT) {
@@ -308,6 +361,15 @@ async function settleReplicas(world: World<HarnessClient>, model: SyncModel):
                       ` up and was not retried within ${FIRST_START_WAIT_MS}ms`);
     }
     world.transcript.push(`settle: ${name}'s first start retried by the backoff`);
+  }
+  await new Promise((resolve) => setTimeout(resolve, MARK_REPORT_WAIT_MS));
+  for (const [name, c] of world.clients) {
+    const problem = c.problem();
+    if (model.dead[name] || problem?.kind !== "rejected-batch" ||
+        problem.repair !== "mark-failed") continue;
+    count("settle: Retry of a failed mark");
+    world.transcript.push(`settle: Retry(${name}) of a failed mark`);
+    await c.retry();
   }
   for (const [name, c] of world.clients) {
     if (!model.dead[name]) continue;
@@ -319,6 +381,16 @@ async function settleReplicas(world: World<HarnessClient>, model: SyncModel):
                          : "settle: dead worker never started");
     if (await within(c.queue.drain(), LANE_DRAIN_WAIT_MS) === TIMED_OUT) {
       count("settle: dead worker's lane drain hung");
+    }
+    const shown = banners.check(c, "with its worker dead, before its reload");
+    count(`Problem at settle, worker dead: ${shown}`);
+    // The Discard a failed mark offers needs no worker, so the online-only
+    // banner must come back once it has run.
+    if (shown === "rejected-batch mark-failed") {
+      world.transcript.push(`settle: Discard(${name}) with its worker dead`);
+      await c.discard();
+      count(`Problem at settle, worker dead, after a Discard: ${
+        banners.check(c, "with its worker dead, after a Discard")}`);
     }
     const durable = new Set(c.db.select(
       "SELECT batch_id FROM pending_ops", ["batch_id"]).map((r) => r.batch_id));
@@ -424,9 +496,10 @@ async function runExample(names: readonly string[], cmds: Commands,
     transcript.push(`start ${started.join(", ")}` +
       (opts.windowLimit === undefined ? "" : `, window limit ${opts.windowLimit}`));
     const model = initialModel([...names]);
+    const banners = new BannerWatch();
     const world: World<HarnessClient> = {
       server: guard.server, clients, watch: new CursorWatch(), modes: new ModeWatch(),
-      transcript, count, cancelled: guard.cancelled,
+      banners, transcript, count, cancelled: guard.cancelled,
     };
     const all = (): HarnessClient[] => [...clients.values()];
     world.watch.observe(all());
@@ -440,7 +513,7 @@ async function runExample(names: readonly string[], cmds: Commands,
                                            : "Online at quiesce, before its return");
     }
     await opts.beforeQuiesce?.(world);
-    const dropped = await settleReplicas(world, model);
+    const dropped = await settleReplicas(world, model, banners);
     const fired = Object.entries(firedFaults(all())).filter(([, n]) => n > 0);
     if (fired.length > 0) {
       transcript.push(`faults fired: ${fired.map(([k, n]) => `${k} ${n}`).join(", ")}`);
@@ -448,7 +521,8 @@ async function runExample(names: readonly string[], cmds: Commands,
     transcript.push("quiesce");
     await quiesce(all(), guard.server, QUIESCE_LIMIT_MS);
     world.watch.observe(all());
-    for (const c of all()) count(`Problem at settle: ${c.problem()?.kind ?? "none"}`);
+    for (const c of all()) count(`Problem at settle: ${banners.check(c, "after quiesce")}`);
+    for (const label of banners.seen) count(label);
     const snap = await guard.server.snapshot();
     if (snap.blocks.some((b) => b.text.includes("[[conflict]]"))) count("examples with a conflict");
     if (model.bad.size > 0) count("examples with a rejected batch");
@@ -508,6 +582,9 @@ async function runExample(names: readonly string[], cmds: Commands,
     guard.cancel();
     for (const [kind, n] of Object.entries(firedFaults(clients.values()))) {
       if (n > 0) count(`Fault ${kind} fired`, n);
+    }
+    for (const c of clients.values()) {
+      for (const fired of c.markFaultsFired) count(`BadBatch, mark ${fired}`);
     }
     countRecoveries(clients.values());
     const disposeProblem = await disposeAll([...clients.values()]);
@@ -643,12 +720,6 @@ class Drained extends SyncCommand {
 /** The release of each client's held changes fetches (HoldPulls). */
 const heldPulls = new Map<string, () => void>();
 
-const clientIn = (w: World<HarnessClient>, name: string): HarnessClient => {
-  const c = w.clients.get(name);
-  if (!c) throw new Error(`no client ${name}`);
-  return c;
-};
-
 /** Holds the client's changes fetches until ReleasePulls, and arms its
  * worker to die at the next needs-bootstrap answer. A fixed scenario's
  * step, never drawn by the property. */
@@ -665,26 +736,6 @@ class HoldPulls extends SyncCommand {
     return Promise.resolve(this.toString());
   }
   toString(): string { return `HoldPulls(${this.client})`; }
-}
-
-/** Waits until the client's poison repair has started. */
-class AwaitPoisonRepair extends SyncCommand {
-  protected readonly kindName = "AwaitPoisonRepair";
-  constructor(readonly client: string) { super(); }
-  protected blocked(m: Readonly<SyncModel>): string | null {
-    return m.clients.includes(this.client) ? null : "client not in this example";
-  }
-  protected async act(_m: SyncModel, w: World<HarnessClient>): Promise<string> {
-    const c = clientIn(w, this.client);
-    const started = await within((async () => {
-      while (!c.syncEvents.some((e) => e.type === "repair-started")) {
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      }
-    })(), REPRO_WAIT_MS);
-    if (started === TIMED_OUT) throw new Error(`${this.client}'s poison repair never started`);
-    return this.toString();
-  }
-  toString(): string { return `AwaitPoisonRepair(${this.client})`; }
 }
 
 /** Lets the held fetches go and waits for the pull, which must have met a
@@ -1051,6 +1102,38 @@ const firstStart: fc.Arbitrary<FirstStart> = fc.oneof(
 );
 type FirstStarts = [FirstStart, FirstStart, FirstStart];
 const firstStarts: fc.Arbitrary<FirstStarts> = fc.tuple(firstStart, firstStart, firstStart);
+
+/** Fails the scenario unless the banner rules it is about were checked:
+ * the property draws them too rarely to floor. */
+const expectBannerRules = (rules: readonly string[]) =>
+  (world: World<HarnessClient>): Promise<void> => {
+    const missing = rules.filter((r) => !world.banners.seen.has(`Banner rule: ${r}`));
+    if (missing.length > 0) {
+      throw new Error(`the scenario never reached ${missing.join(", ")}; seen: ${
+        [...world.banners.seen].join(", ")}`);
+    }
+    return Promise.resolve();
+  };
+
+// A's feed recovery after the rotation meets a 503 snapshot while the socket
+// is up, which raises the stalled banner. Then A's worker dies: Reset needs
+// the replica, so the next pull's no-replica report replaces the banner.
+test("a stalled banner gives way to the online-only one when the worker dies", async () => {
+  await runExample(["A"], [
+    new Fault("A", "snapshot5xx"), new RotateGeneration(), new Pull("A"),
+    new WorkerDies("A"), new Pull("A"),
+  ], { beforeQuiesce: expectBannerRules(["gone over stalled"]) });
+});
+
+// A's poison repair is held at its snapshot while A's worker dies; let go,
+// the repair meets the dead worker. Its Retry cannot work without one, so
+// the online-only banner replaces it, paused while the poison claim holds.
+test("a poison repair the worker dies under gives way to the online-only banner", async () => {
+  await runExample(["A"], [
+    new HoldSnapshots("A"), new BadBatch("A"), new AwaitPoisonRepair("A"),
+    new WorkerDies("A"), new ReleaseSnapshots("A"),
+  ], { beforeQuiesce: expectBannerRules(["gone over running"]) });
+});
 
 /** Two or three clients, equally often. Each branch draws its commands
  * from its own clients alone, so no draw names a client the example lacks.

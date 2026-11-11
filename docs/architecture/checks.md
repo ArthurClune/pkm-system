@@ -177,7 +177,7 @@ over. An overrun reports as a budget problem, never as a finding.
 | `test_planner_props.py` | sibling order matches `positions_after` |
 | `test_unlink_props.py` | no rewritten source references the page; a second pass is inert |
 | `test_assistant_turn_props.py` | each turn shows only its own events and sends one interrupt at most, only a user-stopped turn ends on `TurnStopped`, and retirement matches [the turn phase](assistant.md#the-turn-phase). It runs on a virtual clock (`props/virtual_loop.py`) |
-| `sync/` | the invariants in the header of `sync/oracle.ts`, over clients that run `createSyncSession`; `queue.prop.ts` holds those in the header of `sync/queueModel.ts`, without a server |
+| `sync/` | the invariants in the header of `sync/oracle.ts`, over clients that run `createSyncSession`, among them the banner each session shows against `sync/bannerModel.ts`, a model of [What the UI shows](sync-recovery.md#what-the-ui-shows); `queue.prop.ts` holds those in the header of `sync/queueModel.ts`, without a server |
 | `outline/` | `checks.ts`: rows match a reading-view model; history undoes to the start. The runner composes commands through `command.ts`, the code `useOutline.run` and the undo dispatch run, and models the commands the editor refuses (a refusal check, and `unguardedBatches` for the ops suite) |
 | `outline/draft.prop.ts` | the real editor in jsdom (`draftHarness.tsx`) agrees with `draftModel.ts`; the invariants are in the file header |
 | `ops/` | the replica and the in-memory trees store what the server stores; `enqueueBatch` refuses a batch for title syntax or a text limit exactly when the server does |

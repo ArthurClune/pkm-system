@@ -1,5 +1,6 @@
 // pattern: Imperative Shell
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ComponentType, createElement, useEffect, useLayoutEffect, useMemo, useRef,
+         useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import type { BlockUid, RawTitle } from "./api/brands";
 import { asRawTitle } from "./replica/titles";
@@ -21,7 +22,8 @@ import { normalizeRefTitle } from "./grammar/scan";
 import { pagePath, titleFromPathname } from "./paths";
 import { BLOCK_STAMPS_STORAGE_KEY, BLOCK_STAMPS_VALUES, SIDEBAR_STORAGE_KEY,
          SIDEBAR_VALUES } from "./prefKeys";
-import { PAGE_ROUTE_PREFIX, ROUTES } from "./routeMeta";
+import { PAGE_ROUTE_PREFIX, ROUTES, STATIC_ROUTES,
+         type StaticRouteId } from "./routeMeta";
 import { SyncProvider } from "./sync/SyncProvider";
 import { useRouteTitle } from "./useRouteTitle";
 import { useStoredToggle } from "./useStoredToggle";
@@ -50,6 +52,14 @@ function NotFound() {
   );
 }
 
+const VIEWS: Record<StaticRouteId, ComponentType> = {
+  journal: Journal,
+  currentWork: CurrentWork,
+  help: Help,
+  files: Files,
+  settings: Settings,
+};
+
 /** The /page/ URL a title the fold changes (a hand-typed %0A, a double
  * space, an NBSP) folds to, or null when the fold leaves it as it is. */
 function foldedPagePath(pathname: string): string | null {
@@ -69,12 +79,10 @@ export function MainRoutes() {
   if (pathname.startsWith(PAGE_ROUTE_PREFIX)) return <PageView />;
   return (
     <Routes>
-      <Route path={ROUTES.journal} element={<Journal />} />
-      <Route path={ROUTES.currentWork} element={<CurrentWork />} />
-      <Route path={ROUTES.help} element={<Help />} />
-      <Route path={ROUTES.files} element={<Files />} />
-      <Route path={ROUTES.settings} element={<Settings />} />
-      <Route path={ROUTES.notFound} element={<NotFound />} />
+      {STATIC_ROUTES.map((r) => (
+        <Route key={r.id} path={r.path} element={createElement(VIEWS[r.id])} />
+      ))}
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 }

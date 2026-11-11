@@ -20,14 +20,15 @@ export function pagePath(title: RawTitle): string {
 }
 
 export function titleFromPathname(pathname: string): RawTitle {
-  return asRawTitle(pathname
-    .replace(/^\/page\//, "")
+  const rest = pathname.startsWith(PAGE_ROUTE_PREFIX)
+    ? pathname.slice(PAGE_ROUTE_PREFIX.length) : pathname;
+  return asRawTitle(rest
     .split("/")
     .map((segment) => {
       try {
         return decodeURIComponent(segment);
       } catch {
-        // Malformed percent-encoding (e.g. a hand-typed "/page/100%") would
+        // Malformed percent-encoding (e.g. a hand-typed title "100%") would
         // otherwise throw a URIError during render; fall back to the raw
         // segment rather than crashing the whole app.
         return segment;

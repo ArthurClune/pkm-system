@@ -18,7 +18,8 @@ const isoDate = (d: Date): string =>
   `${String(d.getDate()).padStart(2, "0")}`;
 
 // Identical SQL to the server's _NONEMPTY_DAILY_SQL so both engines agree
-// byte-for-byte on which days are non-empty (offline-editing-design.md §7).
+// byte-for-byte on which days are non-empty (docs/architecture/backend.md
+// § Generated artifacts and parity fixtures).
 const NONEMPTY_DAILY_SQL =
   "SELECT title FROM pages WHERE EXISTS ("
   + " SELECT 1 FROM blocks b WHERE b.page_id = pages.id"

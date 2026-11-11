@@ -1,5 +1,6 @@
 """batch_id dedup: a committed-but-unacknowledged batch retried by the
-durable client queue must not double-apply (offline-editing-design.md §1)."""
+durable client queue must not double-apply (docs/architecture/write-path.md
+§ Planning, Idempotency)."""
 import json
 from pathlib import Path
 from typing import assert_type, get_args

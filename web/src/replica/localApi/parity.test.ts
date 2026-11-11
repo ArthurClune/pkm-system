@@ -1,7 +1,8 @@
 // @vitest-environment node
-// Shim parity (offline-editing-design.md §7): every recorded request in
-// shared/fixtures/shim_parity.json must produce byte-identical JSON from
-// the local handlers running over a replica loaded with the same seed.
+// Shim parity (docs/architecture/backend.md § Generated artifacts and parity
+// fixtures): every recorded request in shared/fixtures/shim_parity.json must
+// produce byte-identical JSON from the local handlers running over a replica
+// loaded with the same seed.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "vitest";

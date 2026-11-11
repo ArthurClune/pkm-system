@@ -1,11 +1,11 @@
 ---
 # pkm-wqnv
 title: 'Server write path: replay_core split, one outcome, required context fields, op-hash pins'
-status: todo
+status: completed
 type: task
 priority: normal
 created_at: 2026-11-09T21:39:24Z
-updated_at: 2026-11-09T21:39:24Z
+updated_at: 2026-11-11T02:11:40Z
 parent: pkm-4gda
 ---
 

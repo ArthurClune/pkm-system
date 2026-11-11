@@ -1,12 +1,11 @@
 // pattern: Functional Core
-// The deterministic sync policy SyncProvider used to hold inline: whether
-// editing is allowed (and why not), whether a replica turning ready while the
-// socket is down must force a resync, and the delivery-health "problem"
-// lifecycle (rejected-batch repair phases, legacy repair, poison discovery).
-// The provider still owns all I/O — sockets, the queue, the replica, React
-// state, async single-flight, and mounted guards — and dispatches events here,
-// then executes the returned problem value and effects. Behaviour is unchanged
-// (Task 2/3/5 semantics).
+// The deterministic sync policy: whether editing is allowed (and why not),
+// whether a replica turning ready while the socket is down must force a
+// resync, and the delivery-health "problem" lifecycle (rejected-batch repair
+// phases, legacy repair, poison discovery, replica stalls). The sync session
+// (session.ts) owns the I/O — the queue, the replica, async single-flight and
+// liveness — and folds events here, then reports the returned problem and
+// executes the effects.
 import type { PoisonEvent } from "./opQueue";
 import type { ReplicaState } from "./replicaSync";
 

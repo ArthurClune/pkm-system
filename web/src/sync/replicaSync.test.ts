@@ -1218,7 +1218,7 @@ describe("pull retries and the stall report", () => {
     // rescheduling for the whole offline session even though nothing but the
     // reconnect flow's own start() call could ever make it succeed. isOffline
     // is the connectivity signal replicaSync is handed (mirrors the offline
-    // gateway's own `statusRef.current === "reconnecting"` predicate).
+    // gateway's own `session.status() === "reconnecting"` predicate).
     vi.useFakeTimers();
     try {
       const replica = fakeReplica();
@@ -1715,7 +1715,7 @@ describe("resetLocalData", () => {
     expect(replica.calls).toContain("abortRecovery");
     expect(replica.calls).not.toContain("commitRecovery");
     expect(queue.resume.mock.calls).toEqual([["recovery"]]);
-    // A manual reset reports through its own caller (SyncProvider's
+    // A manual reset reports through its own caller (the session's
     // reset-failed), never through the coordinator's recovery-failed mode:
     // otherwise a reset the user asked for would also raise a stall banner.
     expect(states.length).toBe(statesAfterStart);

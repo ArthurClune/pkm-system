@@ -4,8 +4,8 @@
 // the barrier's "lane" owner, or a local refusal (a text limit, a
 // replica-rejected op), which paused nothing. It forces every active outline
 // through an authoritative read, then resumes "lane" if a lane rejection is
-// owed it, and never otherwise. SyncProvider creates one per mount; the sync
-// property harness drives the same module over its own transport.
+// owed it, and never otherwise. The sync session (session.ts) creates one
+// per session; the queue property harness wires one by hand.
 //
 // It mirrors the client runtime's poison repair (clientRuntime.ts): a run is
 // single-flight, and a reconnect reruns one whose last attempt failed, since
@@ -18,7 +18,7 @@ export interface LegacyRepairDeps {
   /** repairActiveOutlineSessions in the app: calls onStable once delivery
    * may resume, and rejects when the repair failed. */
   repairSessions: (onStable: () => void) => Promise<void>;
-  /** The legacy-repair-* sync events; SyncProvider passes applySync. */
+  /** The legacy-repair-* sync events; the session passes its fold. */
   onEvent: (event: SyncEvent) => void;
   /** Releases the queue's "lane" barrier owner. */
   resume: () => void;

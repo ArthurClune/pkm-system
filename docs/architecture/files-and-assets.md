@@ -263,8 +263,8 @@ Lookup runs before save so an archived link's read date is never bumped.
 
 ### The reader and the /goodlinks command
 
-`GoodlinksReader` is a full-screen overlay that shares `useOverlayDismiss` with
-`ImageOverlay`. Escape stops closing it once focus is inside the iframe,
+`GoodlinksReader` is a full-screen overlay on `useModal` with a pinned Tab, as
+`ImageOverlay` is: a cycling Tab would be swallowed by the iframe. Escape stops closing it once focus is inside the iframe,
 because the frame runs no script and its keydown never reaches the app's
 `window` listener. The Close button still works. Fixing Escape would need
 `allow-scripts`, which barrier 2 forbids.
@@ -281,7 +281,7 @@ offset and blurs the block before any network work. `useOutline.onGoodlinks`
 takes the first URL `goodlinksCandidates` finds in the block's own text, then
 its parent, then its previous sibling. It resolves with `save: true` and
 splices the `Local copy::` link in through `spliceUploadedMarkdown`. Its
-notices (`goodlinksNotice`) go to the page-level `.editor-notice` slot.
+notices (the `goodlinks` notice) go to the page-level `.editor-notice` line.
 
 | Case | Server | Reader | `/goodlinks` |
 |---|---|---|---|

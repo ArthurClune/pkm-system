@@ -434,14 +434,14 @@ Not blocking any merge above. Each entry is added by the package that makes the 
 
 | Machine | Converted in | Suite |
 |---|---|---|
-| Files paging reducer (`filesPaging.ts`) | W15 | new `props/files/` |
-| Backlinks paging reducer (`backlinksPaging.ts`) | W15 | new `props/backlinks/` |
-| Unlinked-item lifecycle map | W15 | with backlinks |
+| Files paging reducer (`views/filesPaging.ts`) | W15 | new `props/files/` |
+| Backlinks paging reducer (`components/backlinksPaging.ts`) | W15 | new `props/backlinks/` |
+| Unlinked-item lifecycle map (`components/unlinkedStatus.ts`, `withStatus`) | W15 | with backlinks |
 | Banner under `replica-state` events (`transitionSync`) | W8 | extend `props/sync/`: the harness's clients already run the fold, `session.problem()` is the read, and `sync.prop.ts`'s `Problem at settle: <kind>` tally is the reach data; the offline-reload first connect is reached (a scratch mutant forcing `needsBootstrap` false failed the sync property on both seeds tried) |
 | Acknowledged stop (`postStop`, `turn_stopped`, the fallback timer) | W3 | already in the assistant suites (W3 updates them); listed so the shell half is covered with the row below |
 | Chat driver shell: DELETE only after the stream settles (`createChatDriver`) | W14 | extend `props/assistant/` to drive the driver, settling stream and DELETE as separate actions |
 | Confirm answer state (`PendingConfirm.answer`) | W14 | extend the assistant model's confirm invariant |
-| `useModal` focus trap | W15 | judge when written whether a property earns its cost over the unit table |
+| `useModal`: focus trap and the modal stack (topmost-only keys, overflow held until the last modal closes, restore only from the topmost) | W15 | judge when written whether a property earns its cost over the unit table |
 
 ## Not in this plan
 

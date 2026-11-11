@@ -176,6 +176,7 @@ Enter, Space, Shift+F10 or the context-menu key opens it too.
 | Link a local file | Backspace in an empty search | Go up one folder |
 | Link a local file | Escape | Close |
 | Confirmation dialog | Enter / Escape | Confirm / cancel |
+| Confirmation dialog opened from the page menu | Escape | Close the dialog; a second Escape closes the menu |
 | Expanded image | Escape | Close |
 | PDF viewer (expanded) | Escape | Close |
 | GoodLinks reader | Escape | Close |

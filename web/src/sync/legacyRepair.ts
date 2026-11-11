@@ -7,11 +7,13 @@
 // owed it, and never otherwise. The sync session (session.ts) creates one
 // per session; the queue property harness wires one by hand.
 //
-// It mirrors the client runtime's poison repair (clientRuntime.ts): a run is
-// single-flight, and a reconnect reruns one whose last attempt failed, since
-// a failed authoritative read is most often the network going away and
-// nothing else retries it. Without that retry every later edit waits behind
-// the paused queue for a click on Retry or a reload.
+// It mirrors the client runtime's poison repair (clientRuntime.ts): runs are
+// coalesced (coalesce.ts), a rejection joining a run until its onStable, and
+// a reconnect reruns one whose last attempt failed, since a failed
+// authoritative read is most often the network going away and nothing else
+// retries it. Without that retry every later edit waits behind the paused
+// queue for a click on Retry or a reload.
+import { coalesce } from "./coalesce";
 import type { SyncEvent } from "./syncState";
 
 export interface LegacyRepairDeps {
@@ -28,9 +30,10 @@ export interface LegacyRepairDeps {
 
 export interface LegacyRepair {
   /** Repair after this rejection. `lane` says the queue paused the "lane"
-   * owner for it. Joins a repair still reading, which then reports under the
-   * newer error; a repair already past its stable point read too early for
-   * this one, so a fresh run follows it. */
+   * owner for it. Joins a repair still reading, whose events keep the error
+   * it started with while rejected() takes the newer one; a repair already
+   * past its stable point read too early for this one, so a fresh run
+   * follows it. */
   run(error: unknown, desync?: { lane: boolean }): Promise<void>;
   /** A socket reconnect: rerun a repair whose last attempt failed, exactly
    * as the banner's Retry does; otherwise nothing. A repair still running is
@@ -50,27 +53,29 @@ export function createLegacyRepair(deps: LegacyRepairDeps): LegacyRepair {
     if (deps.isMounted()) deps.onEvent(event);
   };
   let rejectedError: unknown;
-  let repairRun: { stable: boolean; done: Promise<void> } | null = null;
+  // The running repair has passed onStable: its read is too early for a
+  // later rejection, which is owed a run of its own.
+  let stable = false;
   // The last attempt failed and no run has started since.
   let repairFailed = false;
   // A lane rejection paused the queue and no stable repair has resumed it
   // yet. Outlives a failed run, so the retry that succeeds resumes it.
   let laneOwed = false;
 
-  const run = (error: unknown, desync?: { lane: boolean }): Promise<void> => {
-    rejectedError = error;
-    if (desync?.lane === true) laneOwed = true;
-    if (repairRun?.stable === false) return repairRun.done;
-    if (repairRun) {
-      return repairRun.done.then(() => run(rejectedError));
+  const runRepair = (error: unknown): Promise<void> => {
+    stable = false;
+    // As the runtime's runRepair: a run owed past unmount does not start,
+    // and stays failed for a StrictMode replay's connect to rerun.
+    if (!deps.isMounted()) {
+      repairFailed = true;
+      return Promise.resolve();
     }
     repairFailed = false;
     const message = messageOf(error);
     emit({ type: "legacy-repair-started", error: message });
-    const current = { stable: false, done: Promise.resolve() };
-    const attempt = deps.repairSessions(() => {
+    return deps.repairSessions(() => {
         if (!deps.isMounted()) return;
-        current.stable = true;
+        stable = true;
         emit({ type: "legacy-repair-succeeded", error: message });
         if (laneOwed) {
           laneOwed = false;
@@ -84,9 +89,15 @@ export function createLegacyRepair(deps: LegacyRepairDeps): LegacyRepair {
           repairError: messageOf(repairError),
         });
       });
-    current.done = attempt.finally(() => { repairRun = null; });
-    repairRun = current;
-    return current.done;
+  };
+  const repairOnce = coalesce(runRepair, {
+    merge: (_, next) => next, joinable: () => !stable,
+  });
+
+  const run = (error: unknown, desync?: { lane: boolean }): Promise<void> => {
+    rejectedError = error;
+    if (desync?.lane === true) laneOwed = true;
+    return repairOnce(error);
   };
 
   return {
@@ -95,7 +106,7 @@ export function createLegacyRepair(deps: LegacyRepairDeps): LegacyRepair {
       // As the runtime's retryFailedRepair: a connect that arrives mid-repair
       // waits for it, and a rerun clears the flag as it starts, so of several
       // connects waiting on one failed attempt only the first retries it.
-      await (repairRun?.done ?? Promise.resolve());
+      await repairOnce.idle();
       if (!deps.isMounted() || !repairFailed) return;
       await run(rejectedError);
     },

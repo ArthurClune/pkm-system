@@ -18,7 +18,7 @@
 // views read the server before any of this session's catch-up ran — which is
 // why `begin({ viewsAreStale: true })` exists and skips the comparison.
 //
-// Two entrants share ONE completion (the single-flight `finishRun`):
+// Two entrants share ONE completion (`completion`, a coalesce run):
 //   * `begin()` — a socket (re)connect, which drains first;
 //   * `observeDrain()` — the queue's own drain observer, so a drain that
 //     completes out of band (an automatic retry after a blocked flush) still
@@ -37,7 +37,9 @@
 // survives it. The join asks the run for one more pull (`trailing`): the run
 // may be past its pull already, and the server sends no seq frame on
 // connect, so nothing else would fetch the changes made during the second
-// gap.
+// gap. Once the run has left its pull loop to decide, a connect can no longer
+// be served by it, and coalesce owes it a completion of its own.
+import { coalesce } from "./coalesce";
 import type { DrainOutcome, OpQueue } from "./opQueue";
 import type { ReplicaSync } from "./replicaSync";
 
@@ -68,40 +70,50 @@ export function createReconnectFlow(deps: {
   // out of band must still resync unconditionally when observeDrain finishes
   // it.
   let staleViews = false;
-  let finishRun: Promise<void> | null = null;
   // A connect joined the running completion: pull once more before it
   // decides whether to resync.
   let trailing = false;
+  // Set in the step the pull loop exits, so no connect joins a run that has
+  // stopped reading `trailing`.
+  let deciding = false;
+
+  const completion = coalesce(async () => {
+    deciding = false;
+    if (!deps.isMounted()) return;
+    const before = deps.replicaSync?.appliedVersion() ?? null;
+    do {
+      trailing = false;
+      await deps.replicaSync?.start();
+      await deps.replicaSync?.idle();
+    } while (trailing && deps.isMounted());
+    deciding = true;
+    const after = deps.replicaSync?.appliedVersion() ?? null;
+    // Read at the decision, not at the start of the run, so a stale-views
+    // connect that JOINED this completion is still honoured by it.
+    const unconditional = staleViews;
+    staleViews = false;
+    // Refetch only when the catch-up actually moved local data.
+    // `null` on either side is "cannot tell" — no replica, or one this
+    // session can never use — and must count as moved, or an online-only
+    // session would stop refreshing its views altogether.
+    const moved = unconditional ||
+      before === null || after === null || before !== after;
+    if (deps.isMounted() && moved) deps.onResync();
+  }, { merge: () => undefined, joinable: () => !deciding });
+
+  // The promise the last entrant got, so a connect whose intent another
+  // entrant took shares that completion's outcome, its failure included.
+  let lastCompletion: Promise<void> = Promise.resolve();
 
   const finish = (): Promise<void> => {
     if (!deps.isMounted()) return Promise.resolve();
-    if (!intent) return finishRun ?? Promise.resolve();
-    intent = false;
-    if (finishRun) {
-      trailing = true;
-      return finishRun;
+    if (!intent) {
+      return completion.running() ? lastCompletion : Promise.resolve();
     }
-    finishRun = (async () => {
-      const before = deps.replicaSync?.appliedVersion() ?? null;
-      do {
-        trailing = false;
-        await deps.replicaSync?.start();
-        await deps.replicaSync?.idle();
-      } while (trailing && deps.isMounted());
-      const after = deps.replicaSync?.appliedVersion() ?? null;
-      // Read at the decision, not at the start of the run, so a stale-views
-      // connect that JOINED this completion is still honoured by it.
-      const unconditional = staleViews;
-      staleViews = false;
-      // Refetch only when the catch-up actually moved local data.
-      // `null` on either side is "cannot tell" — no replica, or one this
-      // session can never use — and must count as moved, or an online-only
-      // session would stop refreshing its views altogether.
-      const moved = unconditional ||
-        before === null || after === null || before !== after;
-      if (deps.isMounted() && moved) deps.onResync();
-    })().finally(() => { finishRun = null; });
-    return finishRun;
+    intent = false;
+    trailing = true;
+    lastCompletion = completion(undefined);
+    return lastCompletion;
   };
 
   return {

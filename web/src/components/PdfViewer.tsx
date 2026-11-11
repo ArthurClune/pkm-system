@@ -220,49 +220,20 @@ export function PdfViewer({ href, label, onClose }:
   const [currentPage, setCurrentPage] = useState(1);
   const expandRef = useRef<HTMLButtonElement>(null);
 
-  // Generation guard + per-document state reset, both done synchronously
-  // during render rather than in an effect. A new href is a new document:
-  // the previous one's metadata, failure, expansion, and page state must
-  // not survive the switch, and a slow completion from the old document
-  // must not be able to write into the new one's state once it does
-  // switch. An effect can't safely do the reset here: effects fire
-  // child-before-parent, so a same-tick synchronous load completion in the
-  // Document child (as in this component's own tests, and possibly a
-  // cached real load) would run *before* a reset effect in this parent and
-  // get wiped out again. Resetting inline during render sidesteps that
-  // ordering hazard entirely -- this is React's documented pattern for
-  // "adjusting state when a prop changes" (it re-renders once, before
-  // commit, so the Document child never observes the stale state).
-  const genRef = useRef(0);
-  const prevHrefRef = useRef(href);
-  if (prevHrefRef.current !== href) {
-    prevHrefRef.current = href;
-    genRef.current += 1;
-    setDoc(null);
-    setFailure(null);
-    setExpanded(false);
-    setCurrentPage(1);
-  }
-  const gen = genRef.current;
-
   const onLoadSuccess = (pdf: LoadedPdf) => {
-    if (gen !== genRef.current) return; // stale: href moved on before this load finished
     setDoc({ numPages: pdf.numPages, aspect: null });
     pdf.getPage(1).then(
       (page) => {
-        if (gen !== genRef.current) return; // stale: href moved on while getPage(1) was in flight
         const v = page.getViewport({ scale: 1 });
         setDoc({ numPages: pdf.numPages, aspect: v.height / v.width });
       },
       () => {
-        // keep the default aspect; placeholders are approximate anyway --
-        // no gen guard needed here since this branch never calls setState
+        // keep the default aspect; placeholders are approximate anyway
       },
     );
   };
 
   const onLoadError = (err: unknown) => {
-    if (gen !== genRef.current) return; // stale: href moved on before this load failed
     setFailure(failureNote(err));
   };
 

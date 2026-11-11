@@ -1,12 +1,16 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 
-// The real PdfViewer drags react-pdf/pdfjs into jsdom; substitute a marker.
+const viewerMounts = vi.hoisted(() => ({ count: 0 }));
+
+// The real PdfViewer drags react-pdf/pdfjs into jsdom; substitute a marker
+// that numbers its instances.
 vi.mock("./PdfViewer", () => ({
-  PdfViewer: ({ href, label }: { href: string; label: string }) => (
-    <div data-testid="pdf-viewer">{label}:{href}</div>
-  ),
+  PdfViewer: function MockViewer({ href, label }: { href: string; label: string }) {
+    const [mount] = useState(() => ++viewerMounts.count);
+    return <div data-testid="pdf-viewer" data-mount={mount}>{label}:{href}</div>;
+  },
 }));
 
 import { InlineSegments } from "./InlineSegments";
@@ -43,6 +47,17 @@ it("keeps the link fallback with a note when the viewer chunk fails", async () =
   expect(screen.getByRole("link", { name: "Notes" })).toHaveAttribute("href", href);
   vi.doUnmock("./PdfViewer");
   vi.resetModules();
+});
+
+it("an href change mounts a new viewer", async () => {
+  const other = `/assets/${"cd".repeat(32)}/other.pdf`;
+  const view = render(<PdfEmbed href={href} label="Notes" />);
+  const first = await screen.findByTestId("pdf-viewer");
+  const firstMount = first.dataset.mount;
+  view.rerender(<PdfEmbed href={other} label="Notes" />);
+  await waitFor(() =>
+    expect(screen.getByTestId("pdf-viewer")).toHaveTextContent(`Notes:${other}`));
+  expect(screen.getByTestId("pdf-viewer").dataset.mount).not.toBe(firstMount);
 });
 
 it("deferred: shows the link and an Open button, mounting nothing until clicked", async () => {

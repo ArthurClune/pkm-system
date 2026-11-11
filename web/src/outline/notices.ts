@@ -15,7 +15,10 @@ export type NoticeKind =
    * limit, a keystroke the editor refused, a refused draft, or an undo or
    * redo that could not apply. One slot: the latest refusal is the one to
    * tell. The next command that applies clears it. */
-  | "edit";
+  | "edit"
+  /** The last refused clipboard copy, with the text to copy by hand. Cleared
+   * when the next copy starts. */
+  | "copy";
 
 export interface OutlineNotice {
   readonly kind: NoticeKind;
@@ -26,9 +29,10 @@ export interface OutlineNotice {
 export type NoticeSlots = Readonly<Record<NoticeKind, string | null>>;
 
 export const NO_NOTICES: NoticeSlots = { upload: null, goodlinks: null,
-                                         edit: null };
+                                         edit: null, copy: null };
 
-const ORDER: readonly NoticeKind[] = ["upload", "goodlinks", "edit"];
+const ORDER: readonly NoticeKind[] = ["upload", "goodlinks", "edit",
+                                    "copy"];
 
 /** The same object when the slot already holds `text`. */
 export function withNotice(slots: NoticeSlots, kind: NoticeKind,
@@ -42,13 +46,19 @@ export function clearNoticeIf(slots: NoticeSlots, kind: NoticeKind,
   return slots[kind] === text ? withNotice(slots, kind, null) : slots;
 }
 
-/** In render order: upload, goodlinks, edit. */
+/** The copy notice's text; the copied text is never truncated. */
+export function copyFailedNotice(text: string): string {
+  return `Copying failed. Select and copy it: ${text}`;
+}
+
+/** In render order: upload, goodlinks, edit, copy. */
 export function noticeList(slots: NoticeSlots): readonly OutlineNotice[] {
   const list: OutlineNotice[] = [];
   for (const kind of ORDER) {
     const text = slots[kind];
     if (text === null) continue;
-    list.push({ kind, tone: kind === "upload" ? "error" : "status", text });
+    list.push({ kind, tone: kind === "upload" || kind === "copy" ? "error"
+                                                      : "status", text });
   }
   return list;
 }

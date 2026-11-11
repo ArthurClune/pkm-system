@@ -128,6 +128,7 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
          {...(ownsEditor && !outline.readOnly ? zoneProps : {})}>
       {ownsEditor && outline.notices.map((notice) => (
         <DismissibleNotice key={notice.kind} tone={notice.tone}
+                           className={notice.kind === "copy" ? "copy-notice" : undefined}
                            onDismiss={() => outline.dismissNotice(notice.kind)}>
           {notice.text}
         </DismissibleNotice>

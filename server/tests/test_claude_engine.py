@@ -450,7 +450,7 @@ def test_write_tool_emits_confirm_and_blocks(tmp_path):
         stream = conv.send("save it")
         ev1 = await asyncio.wait_for(anext(stream), timeout=5)  # ConfirmRequest via the queue
         assert isinstance(ev1, ConfirmRequest)
-        assert "save_note" in ev1.ops_preview
+        assert "save_note" in ev1.preview.summary
         conv.resolve_confirm(ev1.confirm_id, True)
         await asyncio.wait_for(task, timeout=5)
         rest = [ev async for ev in stream]
@@ -1024,13 +1024,13 @@ def test_turn_mapper_emits_tool_finished_from_tool_result():
 
     user_msg = UserMessage(content=[ToolResultBlock(tool_use_id="t1", content="ok")])
     assert mapper.map(user_msg) == [
-        ToolFinished(tool_use_id="t1", name="search")]
+        ToolFinished(tool_use_id="t1")]
 
-    # an unrecognised tool_use_id (e.g. mapper created fresh mid-turn) falls
-    # back to "tool"
+    # an unrecognised tool_use_id (e.g. mapper created fresh mid-turn) is
+    # finished as a read: no error or warning to show
     unknown_msg = UserMessage(content=[ToolResultBlock(tool_use_id="unknown", content="ok")])
     assert mapper.map(unknown_msg) == [
-        ToolFinished(tool_use_id="unknown", name="tool")]
+        ToolFinished(tool_use_id="unknown")]
 
     # a plain string UserMessage (no tool results) maps to nothing
     assert mapper.map(UserMessage(content="hi")) == []
@@ -1059,8 +1059,8 @@ def test_concurrent_confirms_resolve_only_their_own_card(tmp_path):
     async def scenario():
         conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
         ta, tb, card_a, card_b = await _two_parked_writes(conv)
-        assert "AAA" in card_a.ops_preview
-        assert "BBB" in card_b.ops_preview
+        assert "AAA" in card_a.preview.summary
+        assert "BBB" in card_b.preview.summary
         assert card_a.confirm_id != card_b.confirm_id
 
         conv.resolve_confirm(confirm_id_of("confirm-99"), True)
@@ -1187,7 +1187,6 @@ def test_confirm_request_carries_structured_preview(tmp_path):
 
     card = asyncio.run(scenario())
     assert card.preview.ops[0].targets[0] == ("uid", "VICTIMUID01")
-    assert card.ops_preview == card.preview.summary
 
 
 def test_confirm_card_shows_the_blocks_current_text(tmp_path):
@@ -1696,25 +1695,25 @@ def test_turn_mapper_carries_a_write_tools_error():
     mapper = TurnMapper()
     mapper.map(_use("t1"))
     assert mapper.map(_result("t1", True)) == [ToolFinished(
-        tool_use_id="t1", name="update_block", error=_REASON)]
+        tool_use_id="t1", error=_REASON)]
 
 
 def test_turn_mapper_ignores_read_errors_and_write_successes():
     mapper = TurnMapper()
     mapper.map(_use("r1", "mcp__pkm__search"))
     assert mapper.map(_result("r1", True)) == [
-        ToolFinished(tool_use_id="r1", name="search")]
+        ToolFinished(tool_use_id="r1")]
     for tool_id, flag in (("w1", None), ("w2", False)):
         mapper.map(_use(tool_id))
         assert mapper.map(_result(tool_id, flag)) == [
-            ToolFinished(tool_use_id=tool_id, name="update_block")]
+            ToolFinished(tool_use_id=tool_id)]
 
 
 def test_turn_mappers_sharing_a_map_carry_a_write_across_turns():
     tools: dict[str, str] = {}
     TurnMapper(tools).map(_use("t1"))
     assert TurnMapper(tools).map(_result("t1", True)) == [ToolFinished(
-        tool_use_id="t1", name="update_block", error=_REASON)]
+        tool_use_id="t1", error=_REASON)]
     assert tools == {}  # the result popped its id
 
 
@@ -1726,7 +1725,7 @@ def test_turn_mapper_carries_a_skipped_batch_warning_first_line():
     mapper = TurnMapper()
     mapper.map(_use("t1"))
     assert mapper.map(_result("t1", False, _SKIPPED)) == [ToolFinished(
-        tool_use_id="t1", name="update_block",
+        tool_use_id="t1",
         warning="warning: skipped 1 of 3 ops; the rest were applied")]
 
 
@@ -1748,17 +1747,17 @@ def test_turn_mapper_clips_a_long_warning_like_an_error_reason():
     text = "warning: " + "x" * 400
     clipped = text[:300] + f"… ({len(text):,} characters)"
     assert mapper.map(_result("t1", None, text)) == [ToolFinished(
-        tool_use_id="t1", name="update_block", warning=clipped)]
+        tool_use_id="t1", warning=clipped)]
 
 
 def test_turn_mapper_leaves_warning_unset_without_the_prefix_or_on_reads():
     mapper = TurnMapper()
     mapper.map(_use("w1"))
     assert mapper.map(_result("w1", False, "ok: applied 3 ops")) == [
-        ToolFinished(tool_use_id="w1", name="update_block")]
+        ToolFinished(tool_use_id="w1")]
     mapper.map(_use("r1", "mcp__pkm__search"))
     assert mapper.map(_result("r1", False, _SKIPPED)) == [
-        ToolFinished(tool_use_id="r1", name="search")]
+        ToolFinished(tool_use_id="r1")]
 
 
 def test_turn_mapper_marks_a_declined_write_not_failed():
@@ -1766,9 +1765,7 @@ def test_turn_mapper_marks_a_declined_write_not_failed():
     mapper = TurnMapper(tools, declined={"t1"})
     mapper.map(_use("t1"))
     assert mapper.map(_result("t1", True, "The user declined this action.")
-                      ) == [ToolFinished(tool_use_id="t1",
-                                         name="update_block",
-                                         declined=True)]
+                      ) == [ToolFinished(tool_use_id="t1", declined=True)]
 
 
 def test_a_decline_is_recorded_per_call_by_the_conversation(tmp_path):
@@ -1793,8 +1790,8 @@ def test_a_decline_is_recorded_per_call_by_the_conversation(tmp_path):
     finished = [e for e in asyncio.run(scenario())
                 if isinstance(e, ToolFinished)]
     assert finished == [
-        ToolFinished(tool_use_id="t1", name="update_block", declined=True),
-        ToolFinished(tool_use_id="t2", name="update_block", error=_REASON)]
+        ToolFinished(tool_use_id="t1", declined=True),
+        ToolFinished(tool_use_id="t2", error=_REASON)]
 
 
 def test_a_stopped_turns_refused_write_shows_its_error_next_turn(tmp_path):
@@ -1818,4 +1815,4 @@ def test_a_stopped_turns_refused_write_shows_its_error_next_turn(tmp_path):
         return finished
 
     assert asyncio.run(scenario()) == ToolFinished(
-        tool_use_id="t1", name="update_block", error=_REASON)
+        tool_use_id="t1", error=_REASON)

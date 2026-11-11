@@ -133,7 +133,7 @@ class FakeConversation:
             decisions = [await fut for fut in futs]
             for tool_use_id, allowed in zip(ids, decisions):
                 yield ToolFinished(tool_use_id=tool_use_id,
-                                   name="save_note", declined=not allowed)
+                                   declined=not allowed)
             if all(decisions):
                 yield TextDelta(text="Saved 2.")
             else:
@@ -160,11 +160,10 @@ class FakeConversation:
             yield card
             allowed = await fut
             if allowed:
-                yield ToolFinished(tool_use_id=tool_use_id, name="save_note")
+                yield ToolFinished(tool_use_id=tool_use_id)
                 yield TextDelta(text="Saved.")
             else:
-                yield ToolFinished(tool_use_id=tool_use_id, name="save_note",
-                                   declined=True)
+                yield ToolFinished(tool_use_id=tool_use_id, declined=True)
                 yield TextDelta(text="Okay, not saving.")
             yield TurnDone(usage={"input_tokens": 1})
             return
@@ -190,13 +189,11 @@ class FakeConversation:
             failure = await self._run(approved)
             error = None if failure is None else tool_error_reason(
                 f"Error executing tool update_block: {failure}")
-            yield ToolFinished(tool_use_id=tool_use_id, name="update_block",
-                               error=error)
+            yield ToolFinished(tool_use_id=tool_use_id, error=error)
             yield TextDelta(text="Updated." if failure is None or misreport
                             else f"Not updated: {failure}")
         else:
-            yield ToolFinished(tool_use_id=tool_use_id, name="update_block",
-                               declined=True)
+            yield ToolFinished(tool_use_id=tool_use_id, declined=True)
             yield TextDelta(text="Not updating.")
         yield TurnDone(usage={"input_tokens": 1})
 
@@ -241,8 +238,7 @@ class FakeConversation:
         confirm_id = confirm_id_of(f"fake-confirm-{self._confirm_seq}")
         fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         self._decisions[confirm_id] = fut
-        card = ConfirmRequest(confirm_id=confirm_id,
-                              ops_preview=preview.summary, preview=preview)
+        card = ConfirmRequest(confirm_id=confirm_id, preview=preview)
         return card, fut, approval.tool_input
 
     def _undecided(self) -> bool:

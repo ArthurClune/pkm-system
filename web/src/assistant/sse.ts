@@ -1,34 +1,10 @@
 // pattern: Functional Core
 // Incremental parser for the assistant's SSE stream (event:/data: frames).
 import type { ConfirmId } from "../api/brands";
-import { parseWritePreview, type WritePreview } from "./writePreview";
+import { EVENT_TYPES, type AssistantEvent } from "./events.gen";
+import { parseWritePreview } from "./writePreview";
 
-export type AssistantEvent =
-  | { type: "text_delta"; text: string }
-  | { type: "tool_started"; tool_use_id: string; name: string;
-      summary: string }
-  | { type: "tool_finished"; tool_use_id: string; name: string;
-      error: string | null; declined: boolean;
-      warning?: string | null }
-  | { type: "phase"; label: string }
-  | { type: "confirm_request"; confirm_id: ConfirmId; ops_preview: string;
-      preview: WritePreview | null }
-  | { type: "turn_done"; usage: Record<string, unknown> | null }
-  | { type: "error"; message: string }
-  // the last event of a turn the user stopped, once the server can take
-  // the next one
-  | { type: "turn_stopped" };
-
-const EVENT_TYPES = new Set([
-  "text_delta",
-  "tool_started",
-  "tool_finished",
-  "phase",
-  "confirm_request",
-  "turn_done",
-  "error",
-  "turn_stopped",
-]);
+export type { AssistantEvent };
 
 function parseFrame(frame: string): AssistantEvent | null {
   let eventName = "";
@@ -46,7 +22,6 @@ function parseFrame(frame: string): AssistantEvent | null {
       return {
         type: eventName,
         confirm_id: payload.confirm_id as ConfirmId,
-        ops_preview: payload.ops_preview as string,
         preview: parseWritePreview(payload.preview),
       };
     }

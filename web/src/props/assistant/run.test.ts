@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { StepFn } from "../../assistant/chatMachine";
+import { answerFailed, type StepFn } from "../../assistant/chatMachine";
 import type { Action } from "./arbitraries";
 import { REAL, runActions, type Tally } from "./run";
 
@@ -9,6 +9,12 @@ const stop: Action = { a: "stop" };
 const resolve: Action = { a: "server", pick: 0, outcome: 0 };
 const notFound: Action = { a: "server", pick: 0, outcome: 80 };
 const confirmEvent: Action = { a: "server", pick: 0, outcome: 4 };
+const allow: Action = { a: "answer", allow: true, stale: false };
+const deny: Action = { a: "answer", allow: false, stale: false };
+// the stream is the first request and the confirm POST the second; outcome
+// 70 fails the POST without a 404
+const confirmFails: Action = { a: "server", pick: 1, outcome: 70 };
+const allowFails = [send, resolve, confirmEvent, allow, confirmFails];
 
 function reached(actions: Action[]): Tally {
   const tally: Tally = new Map();
@@ -75,6 +81,61 @@ describe("assistant property runner", () => {
   test("send, the models list with another default, then the create resolves", () => {
     const tally = reached([send, { a: "modelsLoaded", default: "haiku" }, resolve]);
     expect(tally.get("create resolves after a default landed meanwhile")).toBe(1);
+  });
+
+  test("an Allow fails, then a Deny posts nothing and the Allow goes again", () => {
+    const actions = [...allowFails, deny, allow, allow];
+    const tally = reached(actions);
+    expect(tally.get("answer changed after a failure")).toBe(1);
+    expect(tally.get("answer repeated after a failure")).toBe(1);
+    expect(tally.get("answer while posting")).toBe(1);
+    const answers = runActions(actions).trace.filter((t) => t.startsWith('{"type":"answer"'))
+      .map((t) => t.slice(t.indexOf(" -> ") + 4));
+    expect(answers.map((effects) => effects !== "[]")).toEqual([true, false, true, false]);
+  });
+
+  test("a mutant that lets a failed answer change is caught by `confirm`", () => {
+    const step: StepFn = (s, e) => {
+      const head = s.confirms[0];
+      if (e.type !== "answer" || head === undefined || !answerFailed(head)
+          || head.answer.allow === e.allow) return REAL.step(s, e);
+      return REAL.step({ ...s, confirms: [{ ...head, answer: null }, ...s.confirms.slice(1)] }, e);
+    };
+    const { problems } = runActions([...allowFails, deny], { ...REAL, step });
+    expect(problems.some((p) => p.startsWith("confirm: "))).toBe(true);
+  });
+
+  test("a mutant that drops every answer is caught by `confirm`", () => {
+    const step: StepFn = (s, e) => (e.type === "answer" ? { state: s, effects: [] } : REAL.step(s, e));
+    const { problems } = runActions([send, resolve, confirmEvent, allow], { ...REAL, step });
+    expect(problems.some((p) => p.startsWith("confirm: "))).toBe(true);
+  });
+
+  test("a mutant whose Retry after a failure posts nothing is caught by `confirm`", () => {
+    const step: StepFn = (s, e) => {
+      const head = s.confirms[0];
+      return e.type === "answer" && head !== undefined && answerFailed(head)
+        && head.answer.allow === e.allow ? { state: s, effects: [] } : REAL.step(s, e);
+    };
+    const { problems } = runActions([...allowFails, allow], { ...REAL, step });
+    expect(problems.some((p) => p.startsWith("confirm: "))).toBe(true);
+  });
+
+  test("a mutant that leaves a failed card posting is caught by `confirm`", () => {
+    const step: StepFn = (s, e) => (e.type === "confirmFailed" && !e.notFound
+      ? { state: { ...s, error: e.message }, effects: [] } : REAL.step(s, e));
+    const { problems } = runActions(allowFails, { ...REAL, step });
+    expect(problems.some((p) => p.startsWith("confirm: "))).toBe(true);
+  });
+
+  test("a view that hides Stop once an answer failed is caught by `stoppable`", () => {
+    const view: typeof REAL.view = (s) => {
+      const head = s.confirms[0];
+      return head !== undefined && answerFailed(head)
+        ? { ...REAL.view(s), stoppable: false } : REAL.view(s);
+    };
+    const { problems } = runActions(allowFails, { ...REAL, view });
+    expect(problems.some((p) => p.startsWith("stoppable: "))).toBe(true);
   });
 
   test("a mutant that ignores Stop while creating is caught by `start`", () => {

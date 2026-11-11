@@ -302,13 +302,17 @@ list comes from `GET /api/assistant/models` on first open, with a hardcoded
 fallback (`FALLBACK_MODELS` in `chatMachine.ts`).
 
 - `client.ts::streamMessage` feeds the response body through `sse.ts`, a pure
-  frame parser, into `useAssistant.ts`. It bypasses `apiFetch`, which reads
-  the body as JSON, and replicates its 401 handling.
-- `sse.ts` drops a frame whose `event:` name is not in `EVENT_TYPES`. That
-  hides keepalives, and also drops a new event type until it is added.
+  frame parser, into the chat driver's dispatch (`chatDriver.ts`). It
+  bypasses `apiFetch`, which reads the body as JSON, and replicates its 401
+  handling.
+- `sse.ts` drops a frame whose `event:` name is not in `EVENT_TYPES`, which
+  is generated with the `AssistantEvent` union ([assistant.md § The stream
+  contract](assistant.md#the-stream-contract), which owns the tolerance rule).
+  That hides keepalives, and also drops a new event type until the web is
+  regenerated.
 - After `STREAM_STALL_TIMEOUT_MS` with nothing received the turn errors, with
-  an error that is not an `AbortError`: `useAssistant` reports an
-  `AbortError` as `aborted`, and `step` shows no error for it.
+  an error that is not an `AbortError`: the driver's `streamFailure`
+  reports an `AbortError` as `aborted`, and `step` shows no error for it.
 - The busy clock (`elapsed.ts::elapsedLabel`) restarts on each phase label,
   tool start and confirm resume, so a parked approval does not inflate it.
 - A tool line pairs with its `tool_finished` by `tool_use_id`, across turns,
@@ -329,8 +333,11 @@ fallback (`FALLBACK_MODELS` in `chatMachine.ts`).
 
 `assistant/chatMachine.ts` (Core) holds the whole chat as one reducer:
 `step(state, event)` returns the next state and the effects to run.
-`useAssistant.ts` only dispatches the user's actions and each request's
-result, and starts the requests the effects name. The conversation is
+`useAssistant.ts` only dispatches the user's actions; the driver in
+`chatDriver.ts` (`createChatDriver(publish, client)`, which takes the client
+functions rather than importing them) feeds each request's result back and
+starts the requests the effects name. Stop is offered per `canStop`, which
+holds while a card's answer posts or has failed. The conversation is
 `none`, `creating` or `open`; the turn moves like this:
 
 ```mermaid
@@ -365,9 +372,9 @@ which the server may still be draining; `streamWithBusyRetry` absorbs that.
 | Every request's result names its turn, and changes nothing on screen unless that turn is busy and not stopping. That includes a failed confirm POST | New chat clears the transcript at once, so a superseded turn's events must not fold into the new one. After Stop no card is left to answer again |
 | A stream's 404 re-creates the conversation once, with the same model, in the same turn. A second 404 fails the turn | The server retires a reaped, evicted or dead conversation, and a lost harness ends its turn with `HARNESS_LOST`. The next send to it gets a 404 |
 | The picker shows the model of the conversation that is creating or open, as the create returned it, and is locked exactly then. The models list's default applies only while there is none and the user has not picked | A conversation keeps the model it was created with, so the picker shows that one |
-| The hook posts the stop only once the stream's response has opened, and retries no 409 after Stop. A stream that settles first posts nothing | `POST …/stop` names no turn. An opened response means the server has reserved this turn, so the stop cannot reach another |
+| The driver posts the stop only once the stream's response has opened, and retries no 409 after Stop. A stream that settles first posts nothing | `POST …/stop` names no turn. An opened response means the server has reserved this turn, so the stop cannot reach another |
 | A stopped turn ends only once its stop POST has settled (`stopSettled`) | The server acts on a stop before it answers, so a settled POST cannot stop a later turn |
-| If the POST fails, or the turn has not ended within `STOP_ACK_TIMEOUT_MS` (`useAssistant.ts`), the hook aborts the stream and the POST | The server's own bound is `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S` once it hears the stop; past it the panel must still be freed. An aborted POST can still reach the server later and stop the next turn |
+| If the POST fails, or the turn has not ended within `STOP_ACK_TIMEOUT_MS` (`chatDriver.ts`), the driver aborts the stream and the POST | The server's own bound is `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S` once it hears the stop; past it the panel must still be freed. An aborted POST can still reach the server later and stop the next turn |
 | A `turn_stopped` for a turn that did not stop ends it with `UNASKED_STOP_MESSAGE` | That is a stop meant for an earlier turn: the user is told the reply was cut short, never left without one |
 | New chat aborts the stream, a stopping turn's included, and sends the DELETE only after that stream settles. A conversation created for a superseded turn is deleted | The server sees the dropped connection and ends the turn before it closes the conversation |
 

@@ -2,7 +2,7 @@
 // failed local persistence, and the connectivity/backoff/recovery policy every
 // drain obeys. The fake Replica it drives lives in ./memReplica.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { defaultUnauthorizedHandler, setUnauthorizedHandler } from "../api/client";
+import { ApiError, defaultUnauthorizedHandler, setUnauthorizedHandler } from "../api/client";
 import type { BatchId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { OpBatch, OpsAck, SkippedOp } from "../api/payloads";
@@ -1556,6 +1556,38 @@ describe("deliverLeased", () => {
     ]);
     expect(outcome).toBe("pending");
     expect(replica.rows.map((r) => r.batch_id)).toEqual([leased.batch_id]);
+  });
+
+  test("deliverLeased posts while the lane claim holds, and the claim and " +
+       "the row's ticket stay as they were", async () => {
+    const { q, replica, bodies, durable, leased } = await laneThenDurable(
+      (body) => {
+        if (JSON.stringify(body.ops) === JSON.stringify([op("tuid-lane")])) {
+          throw new ApiError(400, "/api/ops", "bad op");
+        }
+        return { ok: true, ts: 1, applied: 1, seq: seqOf(7) };
+      });
+    q.setOnline(true);
+    await q.drain();
+    expect(q.holds("lane")).toBe(true);
+    expect(bodies.map((b) => b.ops)).toEqual([[op("tuid-lane")]]);
+
+    const reading = await q.deliverLeased(leased, () => undefined);
+
+    expect(reading).toEqual({ seq: 7, skipped: [] });
+    expect(bodies.map((b) => b.ops))
+      .toEqual([[op("tuid-lane")], [op("tuid-leased")]]);
+    expect(q.holds("lane")).toBe(true);
+    const outcome = await Promise.race([
+      durable.delivered.then(() => "settled"), Promise.resolve("pending"),
+    ]);
+    expect(outcome).toBe("pending");
+
+    // the recovery's commit deletes the row; the drain then finds it gone
+    replica.rows.length = 0;
+    q.resume("lane");
+    await q.drain();
+    await expect(durable.delivered).resolves.toEqual({ status: "delivered" });
   });
 
   test("settleCommitted with a batch whose stored ack skipped an op emits " +

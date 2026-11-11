@@ -27,9 +27,8 @@ _PREVIEW = WritePreview(
 def test_event_names():
     assert event_name(TextDelta(text="hi")) == "text_delta"
     assert event_name(ToolStarted(tool_use_id="t1", name="search", summary='searching "x"')) == "tool_started"
-    assert event_name(ToolFinished(tool_use_id="t1", name="search")) == "tool_finished"
-    card = ConfirmRequest(confirm_id=confirm_id_of("c1"),
-                          ops_preview=_PREVIEW.summary, preview=_PREVIEW)
+    assert event_name(ToolFinished(tool_use_id="t1")) == "tool_finished"
+    card = ConfirmRequest(confirm_id=confirm_id_of("c1"), preview=_PREVIEW)
     assert event_name(card) == "confirm_request"
     assert event_name(TurnDone(usage=None)) == "turn_done"
     assert event_name(ErrorEvent(message="boom")) == "error"
@@ -63,13 +62,11 @@ def test_turn_done_usage_serialized():
 def test_confirm_request_sse_shape():
     # The web card parses exactly this shape: tuples arrive as arrays.
     out = encode_sse(ConfirmRequest(confirm_id=confirm_id_of("c1"),
-                                    ops_preview=_PREVIEW.summary,
                                     preview=_PREVIEW))
     head, data, *_ = out.split("\n")
     assert head == "event: confirm_request"
     assert json.loads(data[len("data: "):]) == {
         "confirm_id": "c1",
-        "ops_preview": 'update_block: uid="U1"',
         "preview": {
             "ops": [{"action": "update block",
                      "targets": [["uid", "U1"]],
@@ -88,7 +85,7 @@ def _sse_current(current):
     op = PreviewOp(action="a", targets=[], content=[], warnings=[],
                    current=current)
     out = encode_sse(ConfirmRequest(
-        confirm_id=confirm_id_of("c1"), ops_preview="s",
+        confirm_id=confirm_id_of("c1"),
         preview=WritePreview(ops=[op], summary="s")))
     data = json.loads(out.split("\n")[1][len("data: "):])
     return data["preview"]["ops"][0]["current"]
@@ -187,17 +184,14 @@ def test_tool_error_reason_empty_and_clipped():
 
 
 def test_tool_finished_encodes_its_error_and_decline():
-    frame = encode_sse(ToolFinished(tool_use_id="t1", name="update_block",
-                                    error="nope"))
+    frame = encode_sse(ToolFinished(tool_use_id="t1", error="nope"))
     assert '"tool_use_id": "t1"' in frame and '"error": "nope"' in frame
     assert '"declined": false' in frame
-    bare = encode_sse(ToolFinished(tool_use_id="t1", name="search"))
+    bare = encode_sse(ToolFinished(tool_use_id="t1"))
     assert '"error": null' in bare
-    declined = encode_sse(ToolFinished(tool_use_id="t1", name="update_block",
-                                       declined=True))
+    declined = encode_sse(ToolFinished(tool_use_id="t1", declined=True))
     assert '"declined": true' in declined and '"error": null' in declined
     assert '"warning": null' in bare
     warned = encode_sse(ToolFinished(
-        tool_use_id="t1", name="batch",
-        warning="warning: skipped 1 of 3 ops"))
+        tool_use_id="t1", warning="warning: skipped 1 of 3 ops"))
     assert '"warning": "warning: skipped 1 of 3 ops"' in warned

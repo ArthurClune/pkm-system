@@ -1190,7 +1190,8 @@ def test_uid_specs_the_card_reads_are_the_uids_planned(command, spec):
     a block this batch creates (nothing stored to guard), or carries a uid
     no block can have, which `ops_core.impossible_uid_reason` refuses with
     400 before anything is written."""
-    from pkm.assistant.write_preview import Refusal, _target_uid, _validate
+    from pkm.assistant.write_preview import (CheckedWrite, _target_uid,
+                                             check_write)
     from pkm.contracts.ops import UID_RE
 
     params: dict[str, object] = {"uid": spec}
@@ -1202,8 +1203,8 @@ def test_uid_specs_the_card_reads_are_the_uids_planned(command, spec):
         {"command": "create", "params": {"page": "Machine Learning",
                                          "text": "x", "as": "x"}},
         {"command": command, "params": params}]
-    checked = _validate("batch", {"commands": commands})
-    assert not isinstance(checked, Refusal), checked
+    checked = check_write("batch", {"commands": commands})
+    assert isinstance(checked, CheckedWrite), checked
     guarded = {_target_uid(entry, validated)
                for entry, validated in checked.ops} - {None}
     ops = plan_batch(commands, {"Machine Learning": BLOCKS}, uid_gen())

@@ -50,8 +50,8 @@ export type GoodlinksId = string & { readonly __brand: "GoodlinksId" };
 
 // The embedded assistant's conversation id, minted server-side
 // (AssistantService.create) and opaque to the web, which only ever carries
-// one around (assistant/useAssistant.ts). Crosses HTTP through
-// AssistantConversation.id.
+// one around (assistant/chatMachine.ts state, assistant/chatDriver.ts
+// requests). Crosses HTTP through AssistantConversation.id.
 export type ConversationId = string & { readonly __brand: "ConversationId" };
 // A pending tool confirmation's id, minted server-side per confirm
 // (ClaudeConversation.can_use_tool) -- not the Claude Agent SDK's own

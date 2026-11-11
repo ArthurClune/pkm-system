@@ -13,18 +13,18 @@ from pydantic.fields import FieldInfo
 
 from pkm import batch as batch_module
 from pkm.assistant import write_preview as wp_module
-from pkm.assistant.policy import (GATE_FIELDS, GUARDED_TOOLS,
+from pkm.assistant.policy import (CURRENT_TEXT_ENTRIES, GATE_FIELDS,
+                                  GUARDED_TOOLS, SUBTREE_DELETE_ENTRIES,
                                   WRITE_PREVIEW_FIELDS, WRITE_TOOLS)
 from pkm.assistant.write_preview import (CONTENT_LIMIT_CHARS,
                                          CURRENT_EXCERPT_CHARS,
-                                         TARGET_LIMIT_CHARS,
+                                         TARGET_LIMIT_CHARS, CheckedWrite,
                                          CreatedInBatch, FoundBlock,
                                          MissingBlock, PreviewOp, Refusal,
                                          StoredBlock, WritePreview,
                                          ancestor_uids, approved_input,
-                                         build_write_preview,
-                                         delete_target_uids, shown_blocks,
-                                         write_target_uids)
+                                         build_write_preview, check_write,
+                                         shown_blocks, target_uids)
 from pkm.contracts.ops import BlockUid, ExpectedBlock, text_hash
 from pkm.contracts.titles import RawTitle
 from pkm.mcp import server as mcp_server
@@ -33,18 +33,41 @@ from pkm.test_data.ids import (canonical_title_of, malformed_uid,
                                raw_title_of, sha_of, uid_of)
 
 
+def _checked(short: str, raw: Mapping[str, object]) -> CheckedWrite:
+    out = check_write(short, raw)
+    assert isinstance(out, CheckedWrite), out
+    return out
+
+
+def _outcome(short: str, raw: Mapping[str, object],
+             blocks: Mapping[BlockUid, StoredBlock] = {}
+             ) -> WritePreview | Refusal:
+    checked = check_write(short, raw)
+    if isinstance(checked, Refusal):
+        return checked
+    return build_write_preview(checked, blocks)
+
+
 def _preview(short: str, raw: Mapping[str, object],
              blocks: Mapping[BlockUid, StoredBlock] = {}) -> WritePreview:
-    out = build_write_preview(short, raw, blocks)
+    out = _outcome(short, raw, blocks)
     assert isinstance(out, WritePreview), out
     return out
 
 
 def _refusal(short: str, raw: Mapping[str, object],
              blocks: Mapping[BlockUid, StoredBlock] = {}) -> Refusal:
-    out = build_write_preview(short, raw, blocks)
+    out = _outcome(short, raw, blocks)
     assert isinstance(out, Refusal), out
     return out
+
+
+def _write_targets(short: str, raw: Mapping[str, object]) -> list[BlockUid]:
+    return target_uids(_checked(short, raw), CURRENT_TEXT_ENTRIES)
+
+
+def _delete_targets(short: str, raw: Mapping[str, object]) -> list[BlockUid]:
+    return target_uids(_checked(short, raw), SUBTREE_DELETE_ENTRIES)
 
 
 def test_targets_come_first_and_content_is_sent_in_full():
@@ -224,10 +247,9 @@ def test_a_declared_alias_is_not_unknown(monkeypatch):
                         ("stub", ("json",), ("text",)))
     monkeypatch.setitem(write_preview._ARG_MODELS, "stub",
                         func_metadata(_stub_tool))
-    assert isinstance(build_write_preview("stub", {"text": "t", "json": "P"}, {}),
+    assert isinstance(_outcome("stub", {"text": "t", "json": "P"}),
                       WritePreview)
-    assert isinstance(build_write_preview("stub", {"text": "t",
-                                                   "field_json": "P"}, {}),
+    assert isinstance(_outcome("stub", {"text": "t", "field_json": "P"}),
                       WritePreview)
 
 
@@ -334,6 +356,39 @@ def test_the_parent_warnings_match_the_planner():
         plan_save([], raw_title_of("Inbox"), "{{x}}", "b", False, uids=uids)
 
 
+_GONE_UID = "GONEGONE01"
+
+
+@pytest.mark.parametrize("command", [
+    pytest.param({"command": "update",
+                  "params": {"uid": _GONE_UID, "text": text}},
+                 id=f"update {text!r}")
+    for text in ["t", "# t", "", "  ", "# "]] + [
+    pytest.param({"command": "move",
+                  "params": {"uid": _GONE_UID, "page": "P"}}, id="move")])
+def test_the_missing_uid_warning_matches_classify_skip(command):
+    """The warning describes what the server does with each op the planner
+    makes for the command when no block has its uid: `classify_skip` lands
+    an `update_text`'s text only when it is not blank, and a note for the
+    `set_heading` a batch update always adds, or for a move."""
+    from pkm.batch import plan_batch
+    from pkm.server.ops_core import classify_skip
+    uids = iter(uid_of(f"NEWUID{i:04d}") for i in range(10))
+    ops = plan_batch([command], {"P": []}, uids=uids)
+    skips = [classify_skip(op, block_exists=False, parent_exists=True)
+             for op in ops]
+    landed = {s.kind for s in skips
+              if s is not None and s.landing_uid is not None}
+    assert landed <= {"orphan_edit", "orphan_structural"}
+    assert landed, "every case lands the text or a note"
+    (warning,) = _preview("batch", {"commands": [command]}).ops[0].warnings
+    assert warning.startswith(f'if no block has uid "{_GONE_UID}", ')
+    assert ("the text is added to today's daily note" in warning) \
+        == ("orphan_edit" in landed)
+    assert ("a note saying so is added to today's daily note" in warning) \
+        == ("orphan_edit" not in landed)
+
+
 def test_outline_items_render_as_indented_text():
     p = _preview("batch", {"commands": [
         {"command": "outline",
@@ -353,9 +408,8 @@ def test_deep_outline_nest_is_refused_not_raised(caplog):
     items: list[object] = ["leaf"]
     for _ in range(sys.getrecursionlimit() + 50):
         items = [items]
-    r = build_write_preview("batch", {"commands": [
-        {"command": "outline", "params": {"page": "P", "items": items}}]},
-        {})
+    r = _outcome("batch", {"commands": [
+        {"command": "outline", "params": {"page": "P", "items": items}}]})
     assert r == Refusal("batch: input could not be previewed")
 
 
@@ -366,7 +420,7 @@ def test_a_preview_failure_logs_its_type_only(monkeypatch, caplog):
         raise KeyError("attacker\ntext")
     monkeypatch.setattr(write_preview, "_op", boom)
     with caplog.at_level("WARNING", logger="pkm.assistant"):
-        r = build_write_preview("save_note", {"text": "t"}, {})
+        r = _outcome("save_note", {"text": "t"})
     assert r == Refusal("save_note: input could not be previewed")
     assert [rec.levelname for rec in caplog.records] == ["WARNING"]
     assert "KeyError" in caplog.text
@@ -395,8 +449,7 @@ def test_a_target_over_the_limit_is_refused(short, raw, message):
 
 
 def test_unknown_tool_is_refused():
-    assert isinstance(build_write_preview("get_page", {"title": "x"}, {}),
-                      Refusal)
+    assert isinstance(_outcome("get_page", {"title": "x"}), Refusal)
 
 
 @pytest.mark.parametrize("brk", ["\n", "\r", "\u2028", "\u2029", "\x85"])
@@ -619,7 +672,7 @@ def test_a_callers_expect_is_refused(short, value):
     raw = dict(_hostile_inputs()[short], expect=value)
     assert _refusal(short, raw).message == (
         f"{short}: expect is set by the approval card, never by the caller")
-    assert write_target_uids(short, raw) == []
+    assert isinstance(check_write(short, raw), Refusal)
 
 
 # -- the current text of the block a write replaces, moves or deletes ------
@@ -659,7 +712,7 @@ def test_a_uid_no_block_has_is_missing():
 
 def test_a_malformed_uid_is_missing_and_never_read():
     raw = {"commands": [{"command": "delete", "params": {"uid": "((abc))"}}]}
-    assert write_target_uids("batch", raw) == []
+    assert _write_targets("batch", raw) == []
     # a block stored under the raw spec must not be found by it
     p = _preview("batch", raw,
                  {malformed_uid("((abc))"): StoredBlock(_INBOX, "t")})
@@ -686,23 +739,23 @@ def test_one_uid_updated_moved_and_deleted_shows_one_text():
         {"command": "update", "params": {"uid": _A, "text": "t"}},
         {"command": "move", "params": {"uid": _A, "page": "P"}},
         {"command": "delete", "params": {"uid": _A}}]}
-    assert write_target_uids("batch", raw) == [_A]
+    assert _write_targets("batch", raw) == [_A]
     p = _preview("batch", raw, {_A: StoredBlock(_INBOX, "old")})
     found = FoundBlock(_INBOX, "old", 3)
     assert [op.current for op in p.ops] == [found, found, found]
 
 
-def test_write_target_uids_skips_parents_and_creates():
+def test_target_uids_skip_parents_and_creates():
     raw = {"commands": [
         {"command": "update", "params": {"uid": _A, "text": "t"}},
         {"command": "move", "params": {"uid": _B, "page": "P",
                                        "parent": "((CCCCCC))"}},
         {"command": "delete", "params": {"uid": _A}},
         {"command": "create", "params": {"page": "P", "text": "t"}}]}
-    assert write_target_uids("batch", raw) == [_A, _B]
+    assert _write_targets("batch", raw) == [_A, _B]
 
 
-def test_delete_target_uids_names_only_deletes():
+def test_delete_targets_are_only_deletes():
     raw = {"commands": [
         {"command": "update", "params": {"uid": _A, "text": "t"}},
         {"command": "move", "params": {"uid": _A, "page": "P"}},
@@ -712,21 +765,10 @@ def test_delete_target_uids_names_only_deletes():
         {"command": "create", "params": {"page": "P", "text": "t",
                                          "as": "n"}},
         {"command": "delete", "params": {"uid": "{{n}}"}}]}
-    assert delete_target_uids("batch", raw) == [_B]
-    assert set(delete_target_uids("batch", raw)) <= set(
-        write_target_uids("batch", raw))
-    assert delete_target_uids("update_block", {"uid": _A, "text": "t"}) == []
-    assert delete_target_uids("batch", {"commands": "nope"}) == []
-
-
-def test_delete_target_uids_never_raises(monkeypatch):
-    from pkm.assistant import write_preview
-
-    def boom(*_args):
-        raise KeyError("x")
-    monkeypatch.setattr(write_preview, "_validate", boom)
-    raw = {"commands": [{"command": "delete", "params": {"uid": _A}}]}
-    assert delete_target_uids("batch", raw) == []
+    assert _delete_targets("batch", raw) == [_B]
+    assert set(_delete_targets("batch", raw)) <= set(
+        _write_targets("batch", raw))
+    assert _delete_targets("update_block", {"uid": _A, "text": "t"}) == []
 
 
 def test_a_delete_shows_how_many_blocks_go_with_it():
@@ -747,29 +789,38 @@ def test_update_block_never_shows_a_count():
     assert p.ops[0].current == FoundBlock(_INBOX, "old", 3)
 
 
-def test_write_target_uids_of_update_block():
-    assert write_target_uids("update_block",
-                             {"uid": _VICTIM, "text": "t"}) == [_VICTIM]
+def test_write_targets_of_update_block():
+    assert _write_targets("update_block",
+                          {"uid": _VICTIM, "text": "t"}) == [_VICTIM]
 
 
 @pytest.mark.parametrize(("short", "raw"), [
     ("batch", {"commands": "nope"}),
     ("update_block", {"uid": _VICTIM, "text": "t", "extra": "z"}),
-    ("rename_page", {"title": "Inbox", "new_title": "Projects"}),
     ("get_page", {"title": "Inbox"}),
 ])
-def test_write_target_uids_of_refused_input_is_empty(short, raw):
-    assert write_target_uids(short, raw) == []
+def test_refused_input_is_never_checked(short, raw):
+    # so it names no target to read
+    assert isinstance(check_write(short, raw), Refusal)
 
 
-def test_write_target_uids_never_raises(monkeypatch):
+def test_a_rename_names_no_write_target():
+    assert _write_targets("rename_page",
+                          {"title": "Inbox", "new_title": "Projects"}) == []
+
+
+@pytest.mark.parametrize("error", [RecursionError, ValueError, KeyError])
+def test_check_write_never_raises(monkeypatch, caplog, error):
     from pkm.assistant import write_preview
 
     def boom(*_args):
-        raise KeyError("x")
+        raise error("attacker text")
     monkeypatch.setattr(write_preview, "_validate", boom)
-    assert write_target_uids("update_block",
-                             {"uid": _VICTIM, "text": "t"}) == []
+    with caplog.at_level("WARNING", logger="pkm.assistant"):
+        r = check_write("update_block", {"uid": _VICTIM, "text": "t"})
+    assert r == Refusal("update_block: input could not be previewed")
+    assert error.__name__ in caplog.text
+    assert "attacker" not in caplog.text
 
 
 def test_ops_that_touch_no_existing_block_have_no_current():
@@ -814,7 +865,7 @@ def test_a_uid_outside_the_current_text_entries_is_not_read(monkeypatch):
                         ("stub", ("uid",), ()))
     monkeypatch.setitem(write_preview._ARG_MODELS, "stub",
                         func_metadata(_uid_stub_tool))
-    assert write_target_uids("stub", {"uid": _A}) == []
+    assert _write_targets("stub", {"uid": _A}) == []
     p = _preview("stub", {"uid": _A}, {_A: StoredBlock(_INBOX, "old")})
     assert p.ops[0].current is None
 
@@ -902,7 +953,7 @@ def _size(short: str, raw: Mapping[str, object],
           blocks: Mapping[BlockUid, StoredBlock] = {}) -> int:
     """The size the card for this call counts, read off the refusal a
     zero limit gives every card."""
-    out = build_write_preview(short, raw, blocks)
+    out = _outcome(short, raw, blocks)
     assert isinstance(out, Refusal), out
     prefix = f"{short}: the card would hold "
     assert out.message.startswith(prefix), out.message
@@ -1125,7 +1176,7 @@ def test_ancestor_uids_are_the_parents_a_move_before_a_delete_needs():
                         _move(_MOVED, f"(({_ELSE}))"),
                         _move(_MOVED, "{{c}}"), _move(_MOVED, "## H"),
                         _move(_MOVED, "((no good))"), _delete(_T)]}
-    assert ancestor_uids("batch", raw) == [_KID, _TOP, _ELSE]
+    assert ancestor_uids(_checked("batch", raw)) == [_KID, _TOP, _ELSE]
 
 
 @pytest.mark.parametrize("commands", [
@@ -1134,12 +1185,12 @@ def test_ancestor_uids_are_the_parents_a_move_before_a_delete_needs():
     [_create("c", f"(({_KID}))"), _delete(_T)],
 ])
 def test_ancestor_uids_are_none_without_a_move_before_a_delete(commands):
-    assert ancestor_uids("batch", {"commands": commands}) == []
+    assert ancestor_uids(_checked("batch", {"commands": commands})) == []
 
 
-def test_ancestor_uids_never_raise():
-    assert ancestor_uids("batch", {"commands": "nope"}) == []
-    assert ancestor_uids("update_block", {"uid": _A, "text": "t"}) == []
+def test_ancestor_uids_are_none_outside_a_batch():
+    assert ancestor_uids(_checked("update_block",
+                                  {"uid": _A, "text": "t"})) == []
 
 
 # -- what Allow checks the write against ---------------------------------
@@ -1157,7 +1208,8 @@ def test_shown_blocks_hash_the_full_text_not_the_excerpt():
     # still refuse
     long = "y" * 1000
     raw = {"uid": _A, "text": "t"}
-    got = shown_blocks("update_block", raw, {_A: StoredBlock(_INBOX, long)})
+    got = shown_blocks(_checked("update_block", raw),
+                       {_A: StoredBlock(_INBOX, long)})
     assert got == [ExpectedBlock(uid=_A, kind="text",
                                  shown_hash=text_hash(long))]
     assert got[0].shown_hash != text_hash("y" * CURRENT_EXCERPT_CHARS)
@@ -1165,14 +1217,15 @@ def test_shown_blocks_hash_the_full_text_not_the_excerpt():
 
 def test_shown_blocks_hash_a_lone_surrogate_as_the_store_holds_it():
     # the contract stores it as U+FFFD, the text the server check hashes
-    (shown,) = shown_blocks("update_block", {"uid": _A, "text": "t"},
+    (shown,) = shown_blocks(_checked("update_block",
+                                     {"uid": _A, "text": "t"}),
                             {_A: StoredBlock(_INBOX, "a\ud800b")})
     assert shown.shown_hash == text_hash("a\ufffdb")
 
 
 def test_a_missing_block_is_expected_absent():
     raw = {"commands": [_cmd("update", uid=_A, text="t")]}
-    assert shown_blocks("batch", raw, {}) == [
+    assert shown_blocks(_checked("batch", raw), {}) == [
         ExpectedBlock(uid=_A, kind="absent")]
 
 
@@ -1182,7 +1235,8 @@ def test_a_malformed_uid_and_an_alias_expect_nothing():
         _cmd("update", uid="{{x}}", text="t"),
         _cmd("move", uid="((AAAAAAAA))", page="P"),
         _cmd("delete", uid=" AAAAAAAA")]}
-    assert shown_blocks("batch", raw, {_A: StoredBlock(_INBOX, "a")}) == []
+    assert shown_blocks(_checked("batch", raw),
+                        {_A: StoredBlock(_INBOX, "a")}) == []
 
 
 @pytest.mark.parametrize("order", list(itertools.permutations(
@@ -1193,7 +1247,7 @@ def test_one_uid_updated_moved_and_deleted_expects_its_subtree(order):
     params = {"update": {"text": "t"}, "move": {"page": "P"}, "delete": {}}
     raw = {"commands": [_cmd(c, uid=_A, **params[c]) for c in order]}
     blocks = {_A: StoredBlock(_INBOX, "a", 2, subtree_hash=_SUB)}
-    assert shown_blocks("batch", raw, blocks) == [
+    assert shown_blocks(_checked("batch", raw), blocks) == [
         ExpectedBlock(uid=_A, kind="subtree", shown_hash=_SUB)]
 
 
@@ -1203,7 +1257,7 @@ def test_shown_blocks_keep_first_seen_order():
                         _cmd("delete", uid=_C)]}
     blocks = {_A: StoredBlock(_INBOX, "a"), _B: StoredBlock(_INBOX, "b"),
               _C: StoredBlock(_INBOX, "c", 0, subtree_hash=_SUB)}
-    assert shown_blocks("batch", raw, blocks) == [
+    assert shown_blocks(_checked("batch", raw), blocks) == [
         ExpectedBlock(uid=_A, kind="text", shown_hash=text_hash("a")),
         ExpectedBlock(uid=_B, kind="text", shown_hash=text_hash("b")),
         ExpectedBlock(uid=_C, kind="subtree", shown_hash=_SUB)]
@@ -1212,23 +1266,39 @@ def test_shown_blocks_keep_first_seen_order():
 def test_a_delete_target_without_a_subtree_hash_raises():
     raw = {"commands": [_cmd("delete", uid=_A)]}
     with pytest.raises(ValueError):
-        shown_blocks("batch", raw, {_A: StoredBlock(_INBOX, "a", 0)})
-
-
-def test_shown_blocks_of_input_the_card_refuses_raise():
-    # never an empty guard for input the card did not show
-    with pytest.raises(ValueError):
-        shown_blocks("batch", {"commands": "nope"}, {})
+        shown_blocks(_checked("batch", raw), {_A: StoredBlock(_INBOX, "a", 0)})
 
 
 def test_approved_input():
     note = {"text": "t", "page": "P"}
-    assert approved_input("save_note", note, {}) == note
-    assert "expect" not in approved_input("save_note", note, {})
+    assert approved_input(_checked("save_note", note), {}) == note
+    assert "expect" not in approved_input(_checked("save_note", note), {})
     creates = {"commands": [_cmd("create", page="P", text="x")]}
-    assert approved_input("batch", creates, {}) == {**creates, "expect": []}
+    assert approved_input(_checked("batch", creates), {}) == {
+        **creates, "expect": []}
     update = {"uid": _A, "text": "new"}
     assert approved_input(
-        "update_block", update, {_A: StoredBlock(_INBOX, "old")}) == {
+        _checked("update_block", update), {_A: StoredBlock(_INBOX, "old")}) == {
         **update, "expect": [{"uid": _A, "kind": "text",
                               "shown_hash": text_hash("old")}]}
+
+
+def test_approved_input_runs_the_checked_copy():
+    raw: dict[str, object] = {"uid": _A, "text": "original"}
+    checked = _checked("update_block", raw)
+    raw["text"] = "swapped"
+    raw["uid"] = _B
+    assert approved_input(checked, {}) == {
+        "uid": _A, "text": "original",
+        "expect": [{"uid": _A, "kind": "absent", "shown_hash": None}]}
+
+
+def test_approved_input_runs_the_checked_copy_of_nested_input():
+    params: dict[str, object] = {"uid": _A, "text": "original"}
+    raw: dict[str, object] = {"commands": [
+        {"command": "update", "params": params}]}
+    checked = _checked("batch", raw)
+    params["uid"] = _B
+    params["text"] = "swapped"
+    assert approved_input(checked, {})["commands"] == [
+        {"command": "update", "params": {"uid": _A, "text": "original"}}]

@@ -6,6 +6,7 @@ import { BlockRefProvider } from "../components/BlockRefProvider";
 import { InlineSegments } from "../components/InlineSegments";
 import { UntrustedContentContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
+import { answerFailed } from "./chatMachine";
 import { confirmHint, placeOf, type MarkerState } from "./confirmHint";
 import { elapsedLabel } from "./elapsed";
 import { stripCaretBlockRefs } from "./normalizeRefs";
@@ -170,17 +171,15 @@ function PreviewOps({ preview, endRef }: {
 function ConfirmCard({
   pending,
   count,
-  answering,
   onAnswer,
   scrollerRef,
 }: {
   pending: PendingConfirm;
   count: number;
-  answering: boolean;
   onAnswer: (allow: boolean) => void;
   scrollerRef: RefObject<HTMLDivElement>;
 }) {
-  const { preview, sentDecision, allowedAhead } = pending;
+  const { preview, allowedAhead } = pending;
   const cardRef = useRef<HTMLDivElement>(null);
   const startRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -236,10 +235,8 @@ function ConfirmCard({
       scroller?.removeEventListener("scroll", measure, { capture: true });
     };
   }, [scrollerRef]);
-  // The machine sets sentDecision when the answer is given and `answering`
-  // while the post is in flight; the head stays after a failed post, so a
-  // sent decision that is not in flight failed.
-  const failed = sentDecision !== null && !answering;
+  const posting = pending.answer?.state === "posting";
+  const retry = answerFailed(pending) ? pending.answer.allow : null;
   const n = preview?.ops.length ?? 0;
   const position = count > 1 ? ` (1 of ${count})` : "";
   const writes = n === 1 ? "write" : "writes";
@@ -271,15 +268,15 @@ function ConfirmCard({
       ) : (
         <div className="assistant-error">The write preview could not be read.</div>
       )}
-      {preview && hint && !failed && <div className="assistant-confirm-hint">{hint}</div>}
+      {preview && hint && retry === null && <div className="assistant-confirm-hint">{hint}</div>}
       <div className="assistant-confirm-actions">
-        {failed ? (
+        {retry !== null ? (
           <button
             type="button"
-            className={sentDecision ? "btn-secondary" : "btn-danger"}
-            onClick={() => onAnswer(sentDecision)}
+            className={retry ? "btn-secondary" : "btn-danger"}
+            onClick={() => onAnswer(retry)}
           >
-            {sentDecision ? "Retry Allow" : "Retry Deny"}
+            {retry ? "Retry Allow" : "Retry Deny"}
           </button>
         ) : (
           <>
@@ -287,7 +284,7 @@ function ConfirmCard({
               <button
                 type="button"
                 className="btn-secondary"
-                disabled={!armed || start !== "seen" || end !== "seen" || answering}
+                disabled={!armed || start !== "seen" || end !== "seen" || posting}
                 onClick={() => onAnswer(true)}
               >
                 Allow
@@ -296,7 +293,7 @@ function ConfirmCard({
             <button
               type="button"
               className="btn-danger"
-              disabled={answering}
+              disabled={posting}
               onClick={() => onAnswer(false)}
             >
               Deny
@@ -423,7 +420,6 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
             key={assistant.pendingConfirm.confirmId}
             pending={assistant.pendingConfirm}
             count={assistant.pendingConfirmCount}
-            answering={assistant.answering}
             onAnswer={(allow) => void assistant.respondConfirm(allow)}
             scrollerRef={listRef}
           />
@@ -452,10 +448,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
             }
           }}
         />
-        {/* while an answer posts, or after its post failed and the card
-          * offers only a retry, Stop is the way out of the confirm */}
-        {assistant.status === "busy" || assistant.answering
-          || (assistant.pendingConfirm?.sentDecision ?? null) !== null ? (
+        {assistant.canStop ? (
           <button type="button" className="btn-secondary" onClick={() => assistant.stop()}>
             Stop
           </button>

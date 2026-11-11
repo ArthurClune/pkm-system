@@ -40,7 +40,25 @@ test("journal paging property", async () => {
 });
 
 /** Where each label must stay above its share of EXAMPLES. */
-const REACH: Reach = { per: EXAMPLES, floors: {} };
+const REACH: Reach = {
+  per: EXAMPLES,
+  // Floors: half the lowest share over 30 unseeded gate runs, 2026-11-10.
+  // No floor, under ten in some run, so half of it is noise:
+  //   "resync over the server cap"
+  floors: {
+    "fail after fail": 0.111,
+    "failed reload, then an older load lands": 0.033,
+    "older ignored in flight": 0.428,
+    "past exhausted": 0.224,
+    "remount with requests outstanding": 0.304,
+    "respond with nothing pending": 0.436,
+    "resync reload fails": 0.168,
+    "resync supersedes a load in flight": 0.367,
+    "stale answer": 0.367,
+    "strict replay with a load in flight": 0.285,
+    "success clears an error": 0.281,
+  },
+};
 
 // The tally is drawn from its own run of the same seed, so counting never
 // sits inside the property under test, where shrinking would recount.

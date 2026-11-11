@@ -174,6 +174,24 @@ describe("connectSocket reconnect policy", () => {
     expect(created()).toBe(1);
   });
 
+  it("a closed handle reports nothing when its socket's close lands later", () => {
+    connect();
+    latest().open();
+    handle?.close();
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(statuses).toEqual([true]);
+    expect(created()).toBe(1);
+  });
+
+  it("an unexpected close still reports offline and reconnects", () => {
+    connect();
+    latest().open();
+    latest().drop();
+    expect(statuses).toEqual([true, false]);
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
+    expect(created()).toBe(2);
+  });
+
   describe("frozen-socket resume heuristic", () => {
     it("closes a nominally-open socket that has been hidden for RESUME_STALE_MS", () => {
       connect();

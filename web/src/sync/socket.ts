@@ -197,7 +197,14 @@ export function connectSocket(opts: {
       if (pingTimer) clearInterval(pingTimer);
       clearReconnectTimer();
       clearStableTimer();
-      ws?.close();
+      if (ws !== null) {
+        // The close event lands later; without this it would report offline
+        // for a socket the app already replaced.
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onclose = null;
+        ws.close();
+      }
     },
   };
 }

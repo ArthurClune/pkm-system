@@ -229,6 +229,41 @@ describe("retryFailed", () => {
     expect(h.state.resumes).toBe(1);
   });
 
+  test("a reconnect during a stable run waits for the owed run and retries it once if it fails",
+       async () => {
+    const reading = deferred();
+    const tail = deferred();
+    const state = { resumes: 0, attempts: 0 };
+    const repair = createLegacyRepair({
+      repairSessions: async (onStable) => {
+        state.attempts += 1;
+        if (state.attempts === 1) {
+          await reading.promise;
+          onStable();
+          await tail.promise;
+          return;
+        }
+        if (state.attempts === 2) throw new TypeError("fetch failed");
+        onStable();
+      },
+      onEvent: () => undefined,
+      resume: () => { state.resumes += 1; },
+      isMounted: () => true,
+    });
+    const first = repair.run(new Error("over limit"), { lane: false });
+    reading.resolve();
+    await flush();
+    // Past the first run's onStable: owed a run of its own.
+    const owed = repair.run(new Error("bad op"), LANE);
+    const retry = repair.retryFailed();
+    tail.resolve();
+    await first;
+    await owed;
+    await retry;
+    expect(state.attempts).toBe(3);
+    expect(state.resumes).toBe(1);
+  });
+
   test("waits for an in-flight repair and does not rerun it if it succeeds", async () => {
     const h = setup();
     void h.repair.run(new Error("bad op"), LANE);
@@ -271,6 +306,62 @@ describe("retryFailed", () => {
     expect(h.attempts).toHaveLength(3);
     h.attempts[2].resolve();
     await next;
+    expect(h.state.resumes).toBe(1);
+  });
+
+  /** A first run held after its onStable, so a later run() is owed. */
+  const heldPastStable = (mounted: { value: boolean }) => {
+    const reading = deferred();
+    const tail = deferred();
+    const state = { resumes: 0, attempts: 0 };
+    const repair = createLegacyRepair({
+      repairSessions: async (onStable) => {
+        state.attempts += 1;
+        if (state.attempts === 1) {
+          await reading.promise;
+          onStable();
+          await tail.promise;
+          return;
+        }
+        onStable();
+      },
+      onEvent: () => undefined,
+      resume: () => { state.resumes += 1; },
+      isMounted: () => mounted.value,
+    });
+    return { repair, reading, tail, state };
+  };
+
+  test("a run owed when the owner unmounts never starts", async () => {
+    const mounted = { value: true };
+    const h = heldPastStable(mounted);
+    const first = h.repair.run(new Error("over limit"), { lane: false });
+    h.reading.resolve();
+    await flush();
+    const owed = h.repair.run(new Error("bad op"), LANE);
+    mounted.value = false;
+    h.tail.resolve();
+    await first;
+    await owed;
+    expect(h.state.attempts).toBe(1);
+  });
+
+  test("a run owed across an unmount gap is rerun by the next connect",
+       async () => {
+    const mounted = { value: true };
+    const h = heldPastStable(mounted);
+    const first = h.repair.run(new Error("over limit"), { lane: false });
+    h.reading.resolve();
+    await flush();
+    const owed = h.repair.run(new Error("bad op"), LANE);
+    // A StrictMode replay: unmounted for a moment, then live again.
+    mounted.value = false;
+    h.tail.resolve();
+    await first;
+    await owed;
+    mounted.value = true;
+    await h.repair.retryFailed();
+    expect(h.state.attempts).toBe(2);
     expect(h.state.resumes).toBe(1);
   });
 

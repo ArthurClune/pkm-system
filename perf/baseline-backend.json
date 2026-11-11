@@ -1,5 +1,5 @@
 {
-  "commit": "e99ae74f",
+  "commit": "019b1135",
   "env": {
     "python": "3.12.10",
     "sqlite": "3.47.1"
@@ -87,7 +87,7 @@
     "block/backlinks": {
       "bytes": {
         "class": "exact",
-        "value": 296177
+        "value": 284758
       },
       "full_scans": {
         "class": "exact",
@@ -503,7 +503,7 @@
     "page/deep-backlinks": {
       "bytes": {
         "class": "exact",
-        "value": 25159
+        "value": 22964
       },
       "full_scans": {
         "class": "exact",
@@ -529,7 +529,7 @@
     "page/hub": {
       "bytes": {
         "class": "exact",
-        "value": 33396
+        "value": 32695
       },
       "full_scans": {
         "class": "exact",
@@ -555,7 +555,7 @@
     "page/hub-deep": {
       "bytes": {
         "class": "exact",
-        "value": 18665
+        "value": 18223
       },
       "full_scans": {
         "class": "exact",

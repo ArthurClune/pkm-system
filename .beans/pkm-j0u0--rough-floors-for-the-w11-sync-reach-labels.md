@@ -1,11 +1,11 @@
 ---
 # pkm-j0u0
 title: Rough floors for the W11 sync reach labels
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-11-11T12:49:54Z
-updated_at: 2026-11-11T12:49:54Z
+updated_at: 2026-11-11T13:19:57Z
 parent: pkm-4gda
 ---
 
@@ -13,4 +13,4 @@ The sync property suite tallies eight labels W11 added with no floor: Fault slow
 
 - [ ] Run the suite a few times unseeded on a quiet machine
 - [ ] Set floors for the eight labels; show each reaches and fails when broken
-- [ ] Add the unrun mutants to the W19 table (pkm-ygyx)
+- [x] Add the unrun mutants to the W19 table (pkm-ygyx)

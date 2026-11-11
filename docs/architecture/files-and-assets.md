@@ -22,15 +22,17 @@ indexed by symptom in [troubleshooting.md](../troubleshooting.md).
 Uploads stream in chunks (`_CHUNK_SIZE`) with a running size cap (413 over
 `max_upload_bytes`), MIME-sniffed from the first chunk (`mime_sniff.py`).
 Files are stored at `<assets_dir>/<sha256[:2]>/<sha256>` and deduplicated by
-digest; the `assets` row keeps the display filename, MIME and size. Raster
-images and PDFs serve inline (`INLINE_MIME`). Everything else downloads with
+digest; the `assets` row keeps the display filename, MIME and size.
+`assets_core.MIME_POLICY` has one row per type an upload may declare, and
+`ALLOWED_UPLOAD_MIME`, `INLINE_MIME` and `DESCRIBABLE_MIME` derive from it.
+Raster images and PDFs serve inline. Everything else downloads with
 `nosniff`, including SVG, which can script.
 
 An asset digest is `Sha256Hex` (`contracts/ops.py`), not a plain string.
-`routes_assets.py` checks every sha256 path parameter against `SHA256_HEX_RE`
-before minting one, and `assets_core.py` mints from `hashlib`. On the web the
-only mint point is the `/assets/<sha>/<name>` autolink rule in
-`grammar/tokenize.ts`. Anything its capture group rejects renders as plain text
+`path_params.path_sha256` parses every sha256 path parameter against
+`SHA256_HEX_RE` (404 when malformed), and `assets_core.py` mints from
+`hashlib`. On the web the only mint point is the `/assets/<sha>/<name>`
+autolink rule in `grammar/tokenize.ts`. Anything its capture group rejects renders as plain text
 or a generic link.
 
 The upload response's `existing` says whether the row was already there (a
@@ -81,9 +83,9 @@ column) is refused with 413 rather than truncated.
 
 ## Image descriptions
 
-An LLM captions each uploaded raster image (`image/png`, `image/jpeg`,
-`image/webp`, `image/gif`) with a transcription of its visible text and a
-sentence or two of description. The result lands in the `assets` columns
+An LLM captions each uploaded image whose type is in `DESCRIBABLE_MIME`
+with a transcription of its visible text and a sentence or two of
+description. The result lands in the `assets` columns
 `description`, `described_at` and `describe_error`. Eligibility is MIME-only:
 HEIC and SVG are not described, and every GIF is.
 

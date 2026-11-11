@@ -19,7 +19,8 @@ from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
                                      BlockPayload, BlockRefText, ChangedPayload,
                                      GoodlinksCheckPayload, GroupsPayload,
                                      LocalCheckPayload, OpsAck, PagePayload,
-                                     QueryPayload, SkipReason,
+                                     QueryPayload, RenamePageResponse,
+                                     SkipReason,
                                      SearchPayload, TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload,
                                      TitleMigrationBlocker,
@@ -414,7 +415,7 @@ def _title_migration_state(payload: TitleMigrationAuditPayload) -> str:
     return f"active, {state}" if payload.active else state
 
 
-def _count_label(n: int, singular: str, plural: str | None = None) -> str:
+def count_label(n: int, singular: str, plural: str | None = None) -> str:
     plural = plural or f"{singular}s"
     label = singular if n == 1 else plural
     return f"{n} {label}"
@@ -478,9 +479,9 @@ def render_title_migration_audit(payload: TitleMigrationAuditPayload) -> str:
             lines.extend([
                 f"has clean twin: {'yes' if group.has_clean_twin else 'no'}",
                 "counts: "
-                f"{_count_label(group.block_count, 'block')}, "
-                f"{_count_label(group.inbound_ref_count, 'inbound ref')}, "
-                f"{_count_label(group.sidebar_count, 'sidebar entry', 'sidebar entries')}",
+                f"{count_label(group.block_count, 'block')}, "
+                f"{count_label(group.inbound_ref_count, 'inbound ref')}, "
+                f"{count_label(group.sidebar_count, 'sidebar entry', 'sidebar entries')}",
                 "merge order:",
             ])
             lines.extend(
@@ -525,6 +526,12 @@ def render_title_migration_apply(payload: TitleMigrationApplyResponse) -> str:
         f"generation: {payload.generation}",
     ]
     return "\n".join(lines) + "\n"
+
+
+def render_rename(old_title: RawTitle, result: RenamePageResponse) -> str:
+    if result.result == "merged":
+        return f'merged "{old_title}" into "{result.title}"'
+    return f'renamed "{old_title}" -> "{result.title}"'
 
 
 def select_section(blocks: Sequence[BlockNode],

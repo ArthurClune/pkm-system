@@ -124,9 +124,9 @@ def validate_export_uids(export: Export) -> None:
 
     for page in export.pages:
         for child in page.children:
-            visit(child, as_raw_title(page.title))
+            visit(child, page.title)
     for orphan in export.orphan_blocks:
-        visit(orphan, as_raw_title(RECOVERY_PAGE_TITLE))
+        visit(orphan, RECOVERY_PAGE_TITLE)
 
     if invalid:
         raise ImportUidError(tuple(invalid))
@@ -160,9 +160,9 @@ def validate_export_depth(
     RECOVERY_PAGE_TITLE, where to_rows lands them. Walks with an explicit
     stack: an over-deep chain is the input this check exists to survive."""
     roots: list[tuple[RawTitle, tuple[Block, ...]]] = [
-        (as_raw_title(page.title), page.children) for page in export.pages
+        (page.title, page.children) for page in export.pages
     ]
-    roots.append((as_raw_title(RECOVERY_PAGE_TITLE), export.orphan_blocks))
+    roots.append((RECOVERY_PAGE_TITLE, export.orphan_blocks))
     for page_title, top_level in roots:
         stack = [(block, 1) for block in reversed(top_level)]
         while stack:

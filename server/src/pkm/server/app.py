@@ -21,7 +21,7 @@ from pkm.describe.core import enabled_reason
 from pkm.describe.openai_client import OpenAIDescriber
 from pkm.describe.routes import router as describe_router
 from pkm.describe.service import DescribeService
-from pkm.server.auth import LoginThrottle, require_auth, router as auth_router
+from pkm.server.auth import require_auth, router as auth_router
 from pkm.server.auth_gate import AuthGateMiddleware
 from pkm.server.config import Config
 from pkm.server.db import init_db
@@ -40,6 +40,7 @@ from pkm.server.routes_search import router as search_router
 from pkm.server.routes_sidebar import router as sidebar_router
 from pkm.server.routes_sync import router as sync_router
 from pkm.server.security_headers import SecurityHeadersMiddleware
+from pkm.server.throttle import LoginThrottle
 from pkm.server.title_migration import check_titles_at_startup
 from pkm.server.validation_echo import echo_errors
 from pkm.server import wholepath  # noqa: F401 -- registers {full_path:wholepath}
@@ -123,9 +124,7 @@ def create_app(
     # IF-NOT-EXISTS base schema, see schema.py), so calling it here makes
     # WAL mode + a working schema un-forgettable for any entrypoint or
     # direct create_app(config) call that serves DB routes -- including a
-    # brand-new data dir that never had an import run against it
-    # -- rather than relying on every caller remembering to run
-    # it first (run.py used to be the only such call).
+    # brand-new data dir that never had an import run against it.
     init_db(config.db_path)
     app = FastAPI(
         title="pkm", docs_url=None, redoc_url=None, openapi_url=None,

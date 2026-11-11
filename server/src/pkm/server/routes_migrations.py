@@ -10,10 +10,6 @@ from pkm.contracts.responses import (
     TitleMigrationApplyRequest,
     TitleMigrationApplyResponse,
     TitleMigrationAuditPayload,
-    TitleMigrationBlocker,
-    TitleMigrationGroup,
-    TitleMigrationPage,
-    TitleMigrationSidebarRetitle,
 )
 from pkm.database import Db
 from pkm.server import notify
@@ -36,40 +32,9 @@ def _audit_payload(plan: TitleMigrationPlan) -> TitleMigrationAuditPayload:
     return TitleMigrationAuditPayload(
         active=plan.active,
         digest=plan.digest,
-        groups=[
-            TitleMigrationGroup(
-                canonical_title=group.canonical_title,
-                survivor=TitleMigrationPage(
-                    page_id=group.survivor.page_id,
-                    title=group.survivor.title,
-                ),
-                sources=[
-                    TitleMigrationPage(page_id=page.page_id, title=page.title)
-                    for page in group.sources
-                ],
-                has_clean_twin=group.has_clean_twin,
-                block_count=group.block_count,
-                inbound_ref_count=group.inbound_ref_count,
-                sidebar_count=group.sidebar_count,
-            )
-            for group in plan.groups
-        ],
-        blockers=[
-            TitleMigrationBlocker(
-                page_id=blocker.page_id,
-                title=blocker.title,
-                reason=blocker.reason,
-            )
-            for blocker in plan.blockers
-        ],
-        sidebar_retitles=[
-            TitleMigrationSidebarRetitle(
-                sidebar_id=retitle.sidebar_id,
-                title=retitle.title,
-                canonical_title=retitle.canonical_title,
-            )
-            for retitle in plan.sidebar_retitles
-        ],
+        groups=list(plan.groups),
+        blockers=list(plan.blockers),
+        sidebar_retitles=list(plan.sidebar_retitles),
     )
 
 
@@ -111,13 +76,4 @@ def apply_title_canonicalization(
         force=True,
         generation=outcome.generation,
     )
-    return TitleMigrationApplyResponse(
-        digest=outcome.digest,
-        groups_applied=outcome.groups_applied,
-        pages_retitled=outcome.pages_retitled,
-        pages_merged=outcome.pages_merged,
-        blocks_moved=outcome.blocks_moved,
-        blocks_rewritten=outcome.blocks_rewritten,
-        sidebars_retitled=outcome.sidebars_retitled,
-        generation=outcome.generation,
-    )
+    return outcome

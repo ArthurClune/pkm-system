@@ -24,7 +24,7 @@ from pkm.batch import (BatchCommand, delete_uids, page_keys, plan_batch,
                        referenced_pages, title_flag_needed, validate_batch)
 from pkm.client.api import PkmClient
 from pkm.client.core import ApiError
-from pkm.contracts.titles import RawTitle
+from pkm.contracts.titles import RawTitle, as_raw_title
 from pkm.refs import canonical_daily_title
 from pkm.contracts.ops import (BatchId, BlockOp, BlockUid, CreateOp,
                                ExpectedBlock, new_uid)
@@ -48,6 +48,11 @@ def default_page_title(page: RawTitle | None) -> RawTitle:
     explicit page."""
     return (page if page is not None
             else canonical_daily_title(date.today()))
+
+
+def raw_page(page: str | None) -> RawTitle | None:
+    """A `--page` or tool `page` argument: typed text, so a raw title."""
+    return None if page is None else as_raw_title(page)
 
 
 @dataclass(frozen=True)

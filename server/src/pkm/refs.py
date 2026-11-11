@@ -123,7 +123,7 @@ def canonical_daily_title(day: date) -> CanonicalTitle:
 
 def target_canonical_title(text: str) -> CanonicalTitle:
     """The title's identity once plain-space canonicalization is active --
-    what the one-time title migration (`pkm/title_migration.py`,
+    what the one-time title migration (`pkm/title_migration_core.py`,
     `server/title_migration.py`) plans and applies against, independent of
     this database's live flag. The one deliberate exception to minting
     `CanonicalTitle` from the live flag: everywhere else, use

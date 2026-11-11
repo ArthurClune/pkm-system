@@ -3,19 +3,20 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from pathlib import Path
 
 from pkm.contracts.ops import Sha256Hex
+from pkm.contracts.responses import (TitleMigrationApplyResponse,
+                                     TitleMigrationBlocker)
 from pkm.database import Db
 from pkm.contracts.titles import RawTitle
+from pkm.render import count_label
 from pkm.refs import target_canonical_title, title_syntax_reason
-from pkm.title_migration import (
+from pkm.title_migration_core import (
     InventoryBlock,
     InventoryPage,
     InventoryRef,
     InventorySidebar,
-    TitleMigrationBlocker,
     TitleMigrationInventory,
     TitleMigrationPlan,
     build_title_migration_plan,
@@ -39,18 +40,6 @@ logger = logging.getLogger("pkm.titles")
 
 # How many offending titles the startup report names; the count covers all.
 _REPORTED_TITLE_SAMPLE = 20
-
-
-@dataclass(frozen=True)
-class TitleMigrationOutcome:
-    digest: Sha256Hex
-    groups_applied: int
-    pages_retitled: int
-    pages_merged: int
-    blocks_moved: int
-    blocks_rewritten: int
-    sidebars_retitled: int
-    generation: str
 
 
 class StaleTitleMigration(RuntimeError):
@@ -180,7 +169,7 @@ def audit_title_migration(db: Db) -> TitleMigrationPlan:
 
 def apply_title_migration(
     db: Db, expected_digest: Sha256Hex, now_ms: int
-) -> TitleMigrationOutcome:
+) -> TitleMigrationApplyResponse:
     """Re-audit, migrate, activate, and rotate generation in one write
     transaction. A rewritten block over a text limit raises
     store.RewriteTextLimitError and rolls the whole transaction back."""
@@ -263,7 +252,7 @@ def apply_title_migration(
         )
         set_plain_space_title_canonicalization(db, active=True)
         generation = rotate_database_generation(db)
-        outcome = TitleMigrationOutcome(
+        outcome = TitleMigrationApplyResponse(
             digest=plan.digest,
             groups_applied=len(plan.groups),
             pages_retitled=pages_retitled,
@@ -274,10 +263,6 @@ def apply_title_migration(
             generation=generation,
         )
     return outcome
-
-
-def _counted(n: int, singular: str, plural: str) -> str:
-    return f"{n} {singular if n == 1 else plural}"
 
 
 def report_noncanonical_titles(db_path: Path) -> int:
@@ -315,9 +300,9 @@ def report_noncanonical_titles(db_path: Path) -> int:
             " Run `pkm migrate-titles` to audit them, then apply its digest."
             " docs/cli.md, Rows the migration cannot fix, covers rows it"
             " cannot.",
-            _counted(total, "stored title is", "stored titles are"),
-            _counted(len(pages), "page title", "page titles"),
-            _counted(len(sidebars), "sidebar entry", "sidebar entries"),
+            count_label(total, "stored title is", "stored titles are"),
+            count_label(len(pages), "page title", "page titles"),
+            count_label(len(sidebars), "sidebar entry", "sidebar entries"),
             sample,
             f" and {more} more" if more > 0 else "",
         )

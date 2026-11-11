@@ -1,5 +1,7 @@
 # pattern: Imperative Shell
-"""Page read routes: page tree, block-ref resolution (backlinks: Task 5)."""
+"""Page routes: read, create, delete (with its preview) and rename;
+unlinked references; block and block-ref reads; the journal and its
+cleanup; current work."""
 from __future__ import annotations
 
 import time
@@ -13,7 +15,6 @@ from pkm.contracts.text import WellFormedModel
 
 from pkm.contracts.daily import date_for_title
 from pkm.contracts.ops import BlockUid, PageId
-from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
     Backlinks, BlockBacklinksPayload, BlockPayload, BlockRefsPayload, BlockRefText, CurrentWorkPayload,
     CurrentWorkPage, CurrentWorkSection, DeleteBlockerModel, DeletePreview,
@@ -30,8 +31,10 @@ from pkm.server.auth import require_auth
 from pkm.server.grouping import group_backlinks, group_by_page
 from pkm.server.daily import (is_page_empty, past_week_dates,
                               select_journal_days)
+from pkm.server.clock import now_ms
 from pkm.server.db import get_db, write_txn
 from pkm.server.fts import phrase_query
+from pkm.server.path_params import path_uid
 from pkm.server.store import (BlankTitleError, DeleteBlockedError,
                               ForbiddenTitleError, delete_page_rows,
                               delete_page_unlinking, fetch_page,
@@ -40,16 +43,12 @@ from pkm.server.store import (BlankTitleError, DeleteBlockedError,
                               RewriteTextLimitError)
 from pkm.server.sync_core import chunk_ids
 from pkm.server.sync_meta import read_title, title_reader
-from pkm.server.tree import (Ancestors, ancestors_of, build_tree,
+from pkm.server.tree import (BLOCK_COLS, Ancestors, ancestors_of, build_tree,
                              collect_block_ref_uids, find_node)
 from pkm.server import wholepath  # noqa: F401 -- registers {title:wholepath}
 from pkm.unlink import DeleteBlocker
 
 router = APIRouter(dependencies=[Depends(require_auth)])
-
-_BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
-               " created_at, updated_at, view_type")
-
 
 class CreatePageRequest(WellFormedModel):
     title: RawTitle = Field(min_length=1)
@@ -58,10 +57,6 @@ class CreatePageRequest(WellFormedModel):
 class RenamePageRequest(WellFormedModel):
     new_title: RawTitle = Field(min_length=1)
     allow_merge: bool = False
-
-
-def _daily_title(d: date) -> CanonicalTitle:
-    return canonical_daily_title(d)
 
 
 def _block_ref_texts(db: Db,
@@ -209,13 +204,11 @@ def get_block_refs(uids: str,  # brand: untrusted -- comma-separated query
 
 
 @router.get("/api/block/{uid}/backlinks", response_model=BlockBacklinksPayload)
-def get_block_backlinks(uid: BlockUid,
+def get_block_backlinks(uid: BlockUid = Depends(path_uid),
                         db: Db = Depends(get_db)) -> BlockBacklinksPayload:
     """The ((uid)) badge's popover read: who references this
     block. Same group shape and ordering as page backlinks; the count badge
     itself rides the page/journal payloads (block_ref_counts)."""
-    if not _UID_RE.fullmatch(uid):
-        raise HTTPException(status_code=422, detail=f"malformed uid: {uid!r}")
     if db.select_one("SELECT uid FROM blocks WHERE uid = ?",
                      (uid,)) is None:
         raise HTTPException(status_code=404, detail="block not found")
@@ -233,11 +226,10 @@ def get_block_backlinks(uid: BlockUid,
 
 
 @router.get("/api/block/{uid}", response_model=BlockPayload)
-def get_block(uid: BlockUid, db: Db = Depends(get_db)) -> BlockPayload:
+def get_block(uid: BlockUid = Depends(path_uid),
+              db: Db = Depends(get_db)) -> BlockPayload:
     """One block's subtree plus its page and ancestor texts (the CLI/MCP
     `get <uid>` read; pages remain the only other read unit)."""
-    if not _UID_RE.fullmatch(uid):
-        raise HTTPException(status_code=422, detail=f"malformed uid: {uid!r}")
     row = db.select_one(
         "SELECT p.id AS page_id, p.title, p.created_at, p.updated_at"
         "  FROM blocks b JOIN pages p ON p.id = b.page_id WHERE b.uid = ?",
@@ -245,7 +237,7 @@ def get_block(uid: BlockUid, db: Db = Depends(get_db)) -> BlockPayload:
     if row is None:
         raise HTTPException(status_code=404, detail="block not found")
     blocks = db.select(
-        f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
+        f"SELECT {BLOCK_COLS} FROM blocks WHERE page_id = ?",
         (row["page_id"],))
     node = find_node(build_tree(blocks), uid)
     assert node is not None  # the block row exists on this page
@@ -280,7 +272,7 @@ def get_page(request: Request, title: RawTitle, bl_offset: Int64 = 0, bl_limit: 
         if created:
             notify.nudge_threadpool(request, db)
     blocks = db.select(
-        f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
+        f"SELECT {BLOCK_COLS} FROM blocks WHERE page_id = ?",
         (page["page_id"],))
     backlinks, bl_texts = _backlinks(db, page["page_id"], bl_offset, bl_limit)
     return PagePayload(
@@ -486,13 +478,13 @@ _CURRENT_WORK_SECTIONS = [
 
 
 @router.get("/api/current-work", response_model=CurrentWorkPayload)
-def get_current_work(now_ms: Int64 | None = None,
+def get_current_work(now: int = Depends(now_ms),
                      db: Db = Depends(get_db)) -> CurrentWorkPayload:
-    now = now_ms if now_ms is not None else int(time.time() * 1000)
     sections: list[CurrentWorkSection] = []
     for section_id, heading, min_age, max_age in _CURRENT_WORK_SECTIONS:
-        # `now` is any int64, so the window bounds can leave the range
-        # SQLite binds; clamping keeps the comparison's meaning.
+        # A test's clock override can be any int64, so the window bounds can
+        # leave the range SQLite binds; clamping keeps the comparison's
+        # meaning.
         newer_than = max(INT64_MIN, now - max_age)
         older_than = max(INT64_MIN, now - min_age)
         lower_operator = ">=" if max_age == 7 * 24 * _HOUR_MS else ">"
@@ -565,12 +557,12 @@ def get_journal(request: Request, before: str | None = None, days: Int64 = 7,
         except ValueError:
             raise HTTPException(status_code=400, detail="invalid before date")
     today = date.today()
-    if cursor is None and fetch_page(db, _daily_title(today)) is None:
+    if cursor is None and fetch_page(db, canonical_daily_title(today)) is None:
         with write_txn(db):
-            created = fetch_page(db, _daily_title(today)) is None
+            created = fetch_page(db, canonical_daily_title(today)) is None
             if created:
                 get_or_create_page(
-                    db, _daily_title(today), int(time.time() * 1000))
+                    db, canonical_daily_title(today), int(time.time() * 1000))
         if created:
             notify.nudge_threadpool(request, db)
     nonempty: set[date] = set()
@@ -586,11 +578,11 @@ def get_journal(request: Request, before: str | None = None, days: Int64 = 7,
     texts: list[str] = []
     uids: list[BlockUid] = []
     for d in select_journal_days(nonempty, today, cursor, days):
-        page = fetch_page(db, _daily_title(d))
+        page = fetch_page(db, canonical_daily_title(d))
         if page is None:  # pragma: no cover - selected days exist
             continue
         blocks = db.select(
-            f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
+            f"SELECT {BLOCK_COLS} FROM blocks WHERE page_id = ?",
             (page["page_id"],))
         backlinks, bl_texts = _backlinks(
             db, page["page_id"], 0, JOURNAL_BACKLINK_PREVIEW)
@@ -635,7 +627,7 @@ def cleanup_journal(request: Request,
     deleted: list[CanonicalTitle] = []
     with write_txn(db):
         for d in past_week_dates(date.today()):
-            title = _daily_title(d)
+            title = canonical_daily_title(d)
             page = fetch_page(db, title)
             if page is None:
                 continue

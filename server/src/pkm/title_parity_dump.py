@@ -12,10 +12,9 @@ web/src/replica/titleParity.test.ts."""
 from __future__ import annotations
 
 import json
-import random
-from collections.abc import Iterable
 
 from pkm.contracts.titles import TITLE_WHITESPACE
+from pkm.parity_corpus import parity_corpus, piece_soup
 from pkm.refs import (extract, has_unreachable_segment, is_blank_title,
                       normalize_title, target_canonical_title,
                       title_syntax_reason)
@@ -56,17 +55,7 @@ _PIECES = [
 def generated_cases(
     seed: int = GENERATED_SEED, count: int = GENERATED_COUNT
 ) -> list[str]:
-    """`count` seeded titles, de-duplicated and stable across runs and
-    Python versions (random.Random is specified)."""
-    rng = random.Random(seed)
-    out: list[str] = []
-    seen: set[str] = set()
-    while len(out) < count:
-        text = "".join(rng.choice(_PIECES) for _ in range(rng.randint(1, 7)))
-        if text not in seen:
-            seen.add(text)
-            out.append(text)
-    return out
+    return parity_corpus(piece_soup(_PIECES, 1, 7), seed=seed, count=count)
 
 
 def _boundary(text: str, chars: str) -> bool:
@@ -75,7 +64,7 @@ def _boundary(text: str, chars: str) -> bool:
 
 # Judged on the title alone, not on the generator's choices, so the tally
 # says what the corpus actually contains.
-SHAPES = {
+CORPUS_SHAPES = {
     "control_space": lambda t: any(c in t for c in CONTROL_SPACE),
     "plain_padding": lambda t: _boundary(t, " "),
     "padding_only_canonical_drops": lambda t: (
@@ -101,13 +90,6 @@ SHAPES = {
     "unreachable_segment": has_unreachable_segment,
     "dot_segment_free_dots": lambda t: "." in t and not has_unreachable_segment(t),
 }
-
-
-def shape_tally(titles: Iterable[str]) -> dict[str, int]:
-    """How many of `titles` show each interesting shape."""
-    titles = list(titles)
-    return {name: sum(1 for t in titles if pred(t))
-            for name, pred in SHAPES.items()}
 
 
 def _refs(text: str) -> list[dict[str, str]]:

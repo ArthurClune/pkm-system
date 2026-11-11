@@ -1,8 +1,16 @@
 # pattern: Functional Core
-"""Escape untrusted text into FTS5 MATCH expressions."""
+"""Escape untrusted text into FTS5 MATCH expressions and LIKE patterns."""
 from __future__ import annotations
 
 import re
+
+
+def like_escape(text: str) -> str:
+    """`text` matched literally by `LIKE ? ESCAPE '\\'`: the escape
+    character and both wildcards are escaped."""
+    return (text.replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_"))
 
 
 def _quote(term: str) -> str:

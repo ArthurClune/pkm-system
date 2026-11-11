@@ -19,17 +19,18 @@ from pkm.changed import ChangedWindowError, local_tz, resolve_day
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient
 from pkm.client.core import ApiError, CliConfig, ConfigError
-from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
-                                  upload_and_link)
+from pkm.client.workflows import (apply_batch, edit_block, raw_page,
+                                  save_blocks, upload_and_link)
 from pkm.contracts.ops import UID_RE
 from pkm.contracts.responses import BlockPayload, PagePayload
-from pkm.contracts.titles import RawTitle, as_raw_title
+from pkm.contracts.titles import as_raw_title
 from pkm.planning import BuildError
 from pkm.refs import canonical_daily_title
 from pkm.render import (RenderError, clip_depth, render_assets,
                         render_backlinks, render_block, render_changed,
                         render_goodlinks_check, render_groups,
                         render_local_check, render_ops_ack, render_page,
+                        render_rename,
                         render_search,
                         render_title_migration_apply,
                         render_title_migration_audit, select_section)
@@ -507,14 +508,9 @@ def _read_text_arg(text: str | None) -> str:
     return text
 
 
-def _raw_page(page: str | None) -> RawTitle | None:
-    """A `--page` argument: typed text, so a raw title."""
-    return None if page is None else as_raw_title(page)
-
-
 def cmd_save(args: argparse.Namespace, client: PkmClient) -> int:
     save_ops = save_blocks(client, _read_text_arg(args.text),
-                           page=_raw_page(args.page),
+                           page=raw_page(args.page),
                            parent=args.parent, todo=args.todo)
     for op in save_ops:
         print(f"created ^{op.uid}")
@@ -542,7 +538,7 @@ def cmd_upload(args: argparse.Namespace, client: PkmClient) -> int:
         print(client.upload(Path(args.file)).url)
         return 0
     linked = upload_and_link(client, Path(args.file),
-                             page=_raw_page(args.page),
+                             page=raw_page(args.page),
                              parent=args.parent)
     print(linked.url)
     print(f"created ^{linked.uid}")
@@ -630,11 +626,7 @@ def cmd_rename(args: argparse.Namespace, client: PkmClient) -> int:
                  " existing page", file=sys.stderr)
             return 1
         raise
-    if payload.result == "merged":
-        rendered = f'merged "{args.title}" into "{payload.title}"\n'
-    else:
-        rendered = f'renamed "{args.title}" -> "{payload.title}"\n'
-    _emit(payload, rendered, args.json)
+    _emit(payload, render_rename(as_raw_title(args.title), payload) + "\n", args.json)
     return 0
 
 

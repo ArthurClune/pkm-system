@@ -85,7 +85,7 @@ from pkm.contracts.ops import Sha256Hex
 from pkm.database import Db
 from pkm.export.markdown import page_filename, render_page
 from pkm.filenames import safe_filename
-from pkm.server.tree import build_tree, collect_block_ref_uids
+from pkm.server.tree import BLOCK_COLS, build_tree, collect_block_ref_uids
 
 logger = logging.getLogger("pkm.export")
 
@@ -189,8 +189,7 @@ def export_graph(db: Db, live_assets_dir: Path,
     for page in db.select(
             "SELECT id AS page_id, title FROM pages ORDER BY title"):
         rows = db.select(
-            "SELECT uid, parent_uid, order_idx, text, heading, collapsed,"
-            " created_at, updated_at, view_type FROM blocks WHERE page_id = ?",
+            f"SELECT {BLOCK_COLS} FROM blocks WHERE page_id = ?",
             (page["page_id"],))
         body = render_page(page["title"], build_tree(rows), uid_to_text)
         day = date_for_title(page["title"])

@@ -176,3 +176,45 @@ def test_report_bounds_the_logged_sample(seeded_config, caplog):
     assert "25" in message
     named = [n for n in range(25) if repr(f"T{n:02d}  x") in message]
     assert named == list(range(20))
+
+
+def test_report_noncanonical_titles_pluralises(seeded_config, caplog):
+    """The counts in the message take the singular at one and the plural
+    otherwise, for each of the three nouns."""
+    _set_flag(seeded_config.db_path, "1")
+    _insert_page(seeded_config.db_path, 90, "A  B")
+    _insert_sidebar(seeded_config.db_path, "C  D")
+
+    with caplog.at_level(logging.INFO, logger="pkm.titles"):
+        report_noncanonical_titles(seeded_config.db_path)
+    [one] = _title_records(caplog)
+    assert one.getMessage().startswith(
+        "2 stored titles are not canonical (1 page title, which no lookup"
+        " reaches, and 1 sidebar entry): ")
+
+    caplog.clear()
+    _insert_page(seeded_config.db_path, 91, "E  F")
+    _insert_page(seeded_config.db_path, 92, "G  H")
+    _set_flag(seeded_config.db_path, "1")
+    con = connect(seeded_config.db_path)
+    con.execute("DELETE FROM sidebar_entries WHERE id=90")
+    con.commit()
+    con.close()
+    with caplog.at_level(logging.INFO, logger="pkm.titles"):
+        report_noncanonical_titles(seeded_config.db_path)
+    [two] = _title_records(caplog)
+    assert two.getMessage().startswith(
+        "3 stored titles are not canonical (3 page titles, which no lookup"
+        " reaches, and 0 sidebar entries): ")
+
+    caplog.clear()
+    con = connect(seeded_config.db_path)
+    con.execute("DELETE FROM pages WHERE id IN (91, 92)")
+    con.commit()
+    con.close()
+    with caplog.at_level(logging.INFO, logger="pkm.titles"):
+        report_noncanonical_titles(seeded_config.db_path)
+    [single] = _title_records(caplog)
+    assert single.getMessage().startswith(
+        "1 stored title is not canonical (1 page title, which no lookup"
+        " reaches, and 0 sidebar entries): ")

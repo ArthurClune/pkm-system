@@ -21,14 +21,10 @@ from pkm.server.http_protocol import DeadlineH11Protocol
 from pkm.server.logfmt import uvicorn_log_config
 
 # The only peer whose X-Forwarded-For uvicorn believes: Tailscale Serve's
-# upstream connection, which install.sh's `serve` line points at
-# http://127.0.0.1:<port>. Serve replaces any X-Forwarded-For the client
-# sent, so on loopback request.client.host (the login throttle's key) is
-# the connecting device's tailnet address; peers on the Tailscale-IP
-# listener are never trusted, so a forged header there is ignored. Passed
-# explicitly because otherwise uvicorn takes the FORWARDED_ALLOW_IPS
-# environment variable, and `*` there would key on the left-most entry,
-# which the client chooses. Must change if Serve's upstream ever does.
+# loopback upstream, so the login throttle keys each device by its tailnet
+# address. Passed explicitly, never left to the FORWARDED_ALLOW_IPS
+# environment variable. It must follow Serve's upstream if that moves:
+# docs/architecture/backend.md#login-throttle.
 FORWARDED_ALLOW_IPS = "127.0.0.1"
 
 

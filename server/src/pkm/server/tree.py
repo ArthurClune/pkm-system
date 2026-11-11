@@ -11,6 +11,10 @@ from pkm.contracts.responses import BlockNode
 from pkm.refs import extract
 from pkm.rows import Row, heading_level
 
+# The blocks columns build_tree reads: `SELECT {BLOCK_COLS} FROM blocks`.
+BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
+              " created_at, updated_at, view_type")
+
 
 def build_tree(rows: Sequence[Row]) -> list[BlockNode]:
     known = {r["uid"] for r in rows}

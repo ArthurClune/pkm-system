@@ -280,7 +280,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   // lint's only-throw-error rule accepts -- the identity check is what matters.
   const poisonPreempted = new Error("poison preempted normal recovery");
 
-  // Stall detection + backoff retry (Fix A): pullLoop errors used to be
+  // Stall detection + backoff retry: pullLoop errors used to be
   // swallowed outright, so a wedged replica had zero surfaced symptoms. A run
   // of consecutive failed pull attempts is now reported and retried with
   // growing backoff; `reportedNonReady` avoids re-announcing "ready" on every

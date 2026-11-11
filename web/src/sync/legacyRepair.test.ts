@@ -229,6 +229,41 @@ describe("retryFailed", () => {
     expect(h.state.resumes).toBe(1);
   });
 
+  test("a reconnect during a stable run waits for the owed run and retries it once if it fails",
+       async () => {
+    const reading = deferred();
+    const tail = deferred();
+    const state = { resumes: 0, attempts: 0 };
+    const repair = createLegacyRepair({
+      repairSessions: async (onStable) => {
+        state.attempts += 1;
+        if (state.attempts === 1) {
+          await reading.promise;
+          onStable();
+          await tail.promise;
+          return;
+        }
+        if (state.attempts === 2) throw new TypeError("fetch failed");
+        onStable();
+      },
+      onEvent: () => undefined,
+      resume: () => { state.resumes += 1; },
+      isMounted: () => true,
+    });
+    const first = repair.run(new Error("over limit"), { lane: false });
+    reading.resolve();
+    await flush();
+    // Past the first run's onStable: owed a run of its own.
+    const owed = repair.run(new Error("bad op"), LANE);
+    const retry = repair.retryFailed();
+    tail.resolve();
+    await first;
+    await owed;
+    await retry;
+    expect(state.attempts).toBe(3);
+    expect(state.resumes).toBe(1);
+  });
+
   test("waits for an in-flight repair and does not rerun it if it succeeds", async () => {
     const h = setup();
     void h.repair.run(new Error("bad op"), LANE);

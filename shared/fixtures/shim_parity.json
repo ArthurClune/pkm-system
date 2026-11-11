@@ -308,8 +308,7 @@
               "items": [
                 {
                   "uid": "uid_b5",
-                  "text": "Studying [[Machine Learning]] today",
-                  "breadcrumbs": []
+                  "text": "Studying [[Machine Learning]] today"
                 }
               ]
             }
@@ -366,20 +365,15 @@
               "items": [
                 {
                   "uid": "uid_b1",
-                  "text": "Tags:: #AI",
-                  "breadcrumbs": []
+                  "text": "Tags:: #AI"
                 },
                 {
                   "uid": "uid_b1",
-                  "text": "Tags:: #AI",
-                  "breadcrumbs": []
+                  "text": "Tags:: #AI"
                 },
                 {
                   "uid": "uid_b4",
                   "text": "deep child mentioning [[AI]]",
-                  "breadcrumbs": [
-                    "…"
-                  ],
                   "ancestors": [
                     0,
                     1
@@ -575,8 +569,7 @@
                   "items": [
                     {
                       "uid": "uid_b9",
-                      "text": "Remind me on [[July 9th, 2026]] to check this",
-                      "breadcrumbs": []
+                      "text": "Remind me on [[July 9th, 2026]] to check this"
                     }
                   ]
                 }
@@ -616,8 +609,7 @@
                   "items": [
                     {
                       "uid": "uid_b9",
-                      "text": "Remind me on [[July 9th, 2026]] to check this",
-                      "breadcrumbs": []
+                      "text": "Remind me on [[July 9th, 2026]] to check this"
                     }
                   ]
                 }
@@ -684,8 +676,7 @@
             "items": [
               {
                 "uid": "uid_b10",
-                "text": "Follow-up to ((uid_b3)) findings",
-                "breadcrumbs": []
+                "text": "Follow-up to ((uid_b3)) findings"
               }
             ]
           },
@@ -695,8 +686,7 @@
             "items": [
               {
                 "uid": "uid_b6",
-                "text": "See ((uid_b3)) for details",
-                "breadcrumbs": []
+                "text": "See ((uid_b3)) for details"
               }
             ]
           }

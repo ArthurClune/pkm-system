@@ -402,9 +402,10 @@ def test_a_replayed_batch_is_not_rechecked(client):
 
 # Recorded once from the code, never regenerated: a stored batch's hash
 # must survive every deploy, so a pin that moved would bless the break.
-OP_HASH_CASES = json.loads(
+_OP_HASHES = json.loads(
     (Path(__file__).parents[2] / "shared" / "fixtures" / "op_hashes.json")
-    .read_text())["cases"]
+    .read_text())
+OP_HASH_CASES = _OP_HASHES["cases"]
 
 # Fields `_canonical_op` always hashes, None included.
 HASHED_FIELDS: dict[str, frozenset[str]] = {
@@ -423,11 +424,11 @@ DROPPED_WHEN_UNSET: dict[str, frozenset[str]] = {
     "update_text": frozenset({"page_title"}),
     "delete": frozenset({"base_subtree_hash"}),
 }
-# Fields the worker fills into the durable copy of a batch only.
+# Fields the worker fills into the durable copy of a batch only; the web
+# test replica/opHashesParity.test.ts pins its fill set to the same list.
 REPLAY_EXCLUDED: dict[str, frozenset[str]] = {
-    "update_text": frozenset({"base_text_hash", "page_title"}),
-    "delete": frozenset({"base_subtree_hash"}),
-}
+    kind: frozenset(fields)
+    for kind, fields in _OP_HASHES["replay_excluded"].items()}
 
 
 def _op_members() -> dict[str, type[BaseModel]]:

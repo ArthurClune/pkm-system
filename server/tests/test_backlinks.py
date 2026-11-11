@@ -84,17 +84,12 @@ def test_deep_chain_backlinks_send_each_ancestor_once(client):
         == texts[:-1]
 
 
-def test_a_bundle_from_before_ancestors_reads_breadcrumbs_it_can_render(
-        client):
-    """A tab still running a bundle built before `ancestors` existed reads
-    `breadcrumbs` off every item and throws on a missing one, to the root
-    error screen. Every item keeps the field: an elision mark where the
-    trail is, empty where there is none, never the texts themselves."""
-    [group] = client.get("/api/page/Paper").json()["backlinks"]["groups"]
-    assert group["items"][0]["breadcrumbs"] == ["…"]
-    [group] = client.get(
-        "/api/page/Machine Learning").json()["backlinks"]["groups"]
-    assert group["items"][0]["breadcrumbs"] == []
+def test_backlink_items_carry_no_breadcrumbs_key(client):
+    """The trail is `ancestors` into the group's `ancestor_texts`; items
+    have no `breadcrumbs` field, with or without a trail."""
+    for title in ("Paper", "Machine Learning"):
+        [group] = client.get(f"/api/page/{title}").json()["backlinks"]["groups"]
+        assert all("breadcrumbs" not in i for i in group["items"])
 
 
 def test_a_trailless_backlink_is_sent_as_before_ancestors(client):
@@ -103,4 +98,4 @@ def test_a_trailless_backlink_is_sent_as_before_ancestors(client):
     [group] = client.get(
         "/api/page/Machine Learning").json()["backlinks"]["groups"]
     assert "ancestor_texts" not in group
-    assert set(group["items"][0]) == {"uid", "text", "breadcrumbs"}
+    assert set(group["items"][0]) == {"uid", "text"}

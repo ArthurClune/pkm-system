@@ -194,12 +194,6 @@ linked-references filter reads its refs, so an excerpt is no substitute.
 positions mean nothing outside their group. `GET /api/block/{uid}` has one
 trail and keeps it as texts in `breadcrumbs`.
 
-Every `BacklinkItem` also carries `breadcrumbs`, for tabs running a bundle
-built before `ancestors`. Such a bundle reads it off every item and throws
-to the root error screen when it is missing. It holds
-`STALE_BUNDLE_CRUMB` (`…`) where the item has a trail and nothing
-otherwise, never the texts.
-
 The single-chain walks stop a cycle with a path string, spelled once in
 `ops_apply._unvisited`. Each walk has a replica mirror; change a pair
 together. None caps depth, so a chain deeper than `MAX_OUTLINE_DEPTH` from
@@ -804,7 +798,7 @@ below, in the order its `STEPS` table holds; add a dump to that table, which
 | `missing_targets.json` | hand-edited | `test_ops_core.py` | `classify_skip`; `placement_cases` pin where a create or move lands |
 | `subtree_hash.json` | hand-edited | `test_subtree_hash.py` | `subtree_hash` |
 | `ops_acks.json` | hand-edited | `test_ops_idempotency.py` | the stored-ack-to-wire mapping and `SkipReason` |
-| `op_hashes.json` | hand-edited, never regenerated: a pin that moved would bless the break | `test_ops_idempotency.py` | `batch_request_hash` and `batch_replay_hash` for every op kind, bare and with every optional field set; which fields each leaves out (`HASHED_FIELDS`, `DROPPED_WHEN_UNSET`, `REPLAY_EXCLUDED`) |
+| `op_hashes.json` | hand-edited, never regenerated: a pin that moved would bless the break | `test_ops_idempotency.py` | `batch_request_hash` and `batch_replay_hash` for every op kind, bare and with every optional field set; which fields each leaves out (`HASHED_FIELDS`, `DROPPED_WHEN_UNSET`, `REPLAY_EXCLUDED`, the last read from the fixture and also checked by the web `opHashesParity.test.ts`) |
 | `batch_limits.json` | hand-edited | `test_batch_limits_fixture.py` | `MAX_OPS_PER_BATCH`, `PRIVATE_BODY_MAX_BYTES` |
 | `outline_depth.json` | hand-edited | `test_outline_depth.py` | `MAX_OUTLINE_DEPTH`, equal to the web's `depthCap.ts` |
 | `draft_flush.json` | hand-edited | `test_ops_endpoint.py` | the op an editor draft flushes |

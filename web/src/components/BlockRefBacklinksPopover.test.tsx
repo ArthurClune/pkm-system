@@ -67,7 +67,7 @@ it("keeps an in-viewport anchor position unchanged", async () => {
 it("fetches and renders referencing blocks", async () => {
   mockApiGet.mockResolvedValueOnce({ groups: [{
     page_id: 2, page_title: "Source Page",
-    items: [{ uid: "uid_s1", text: "see ((uid_t1))", breadcrumbs: ["…"], ancestors: [0] }],
+    items: [{ uid: "uid_s1", text: "see ((uid_t1))", ancestors: [0] }],
     ancestor_texts: ["Parent"],
   }] });
   render(<BlockRefBacklinksPopover uid={UID} x={10} y={20}
@@ -115,7 +115,7 @@ it("outside mousedown closes", async () => {
 it("navigates on Enter when the item itself is focused", async () => {
   mockApiGet.mockResolvedValueOnce({ groups: [{
     page_id: 2, page_title: "Source Page",
-    items: [{ uid: "uid_s1", text: "mentions it here", breadcrumbs: [] }],
+    items: [{ uid: "uid_s1", text: "mentions it here" }],
   }] });
   const onClose = vi.fn();
   render(<BlockRefBacklinksPopover uid={UID} x={0} y={0}
@@ -129,7 +129,7 @@ it("navigates on Enter when the item itself is focused", async () => {
 it("navigates to the referencing page and hash on click, and closes", async () => {
   mockApiGet.mockResolvedValueOnce({ groups: [{
     page_id: 2, page_title: "Source Page",
-    items: [{ uid: "uid_s1", text: "mentions it here", breadcrumbs: [] }],
+    items: [{ uid: "uid_s1", text: "mentions it here" }],
   }] });
   const onClose = vi.fn();
   render(<BlockRefBacklinksPopover uid={UID} x={0} y={0}

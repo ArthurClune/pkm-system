@@ -42,8 +42,7 @@ const initial: Backlinks = {
   groups: [{
     page_id: pageIdOf(3),
     page_title: canonicalTitleOf("July 7th, 2026"),
-    items: [{ uid: uidOf("uid_b4"), text: "Studying [[Machine Learning]] today",
-              breadcrumbs: ["…"], ancestors: [0, 1] }],
+    items: [{ uid: uidOf("uid_b4"), text: "Studying [[Machine Learning]] today", ancestors: [0, 1] }],
     ancestor_texts: ["Morning", "Reading"],
   }],
   total_pages: 2,
@@ -69,7 +68,7 @@ it("renders backlink groups with breadcrumbs and loads more on demand", async ()
   const more = pagePayload(canonicalTitleOf("Machine Learning"), [], {
     backlinks: {
       groups: [{ page_id: pageIdOf(9), page_title: canonicalTitleOf("AI"), items: [
-        { uid: uidOf("uid_b9"), text: "more [[Machine Learning]]", breadcrumbs: ["…"],
+        { uid: uidOf("uid_b9"), text: "more [[Machine Learning]]",
           ancestors: [0] }],
         ancestor_texts: ["Evening notes"] }],
       total_pages: 2, offset: 1, limit: 20,
@@ -98,11 +97,11 @@ it("renders backlink groups with breadcrumbs and loads more on demand", async ()
 it("backlinks show-more merges batches from the same source page", async () => {
   const groupA = {
     page_id: pageIdOf(9), page_title: canonicalTitleOf("Src"),
-    items: [{ uid: uidOf("tuid-s1"), text: "one", breadcrumbs: [] }],
+    items: [{ uid: uidOf("tuid-s1"), text: "one" }],
   };
   const groupAmore = {
     page_id: pageIdOf(9), page_title: canonicalTitleOf("Src"),
-    items: [{ uid: uidOf("tuid-s2"), text: "two", breadcrumbs: [] }],
+    items: [{ uid: uidOf("tuid-s2"), text: "two" }],
   };
   const backlinksInitial: Backlinks =
     { groups: [groupA], total_pages: 2, offset: 0, limit: 1 };
@@ -138,7 +137,7 @@ it("refresh generation replaces the first backlink batch", async () => {
   const refreshed = pagePayload(canonicalTitleOf("ACME"), [], {
     backlinks: {
       groups: [{ page_id: pageIdOf(8), page_title: canonicalTitleOf("Fresh Source"), items: [
-        { uid: uidOf("tuid-fresh"), text: "[[ACME]] now linked", breadcrumbs: [] },
+        { uid: uidOf("tuid-fresh"), text: "[[ACME]] now linked" },
       ] }],
       total_pages: 1, offset: 0, limit: 20,
     },
@@ -163,7 +162,7 @@ it("refresh with an open filter panel refetches from offset 0 at limit 100 until
     ["/api/page/Claude?bl_offset=1&bl_limit=100", pagePayload(canonicalTitleOf("Claude"), [], {
       backlinks: {
         groups: [{ page_id: pageIdOf(12), page_title: canonicalTitleOf("Fresh B"), items: [
-          { uid: uidOf("fresh-b"), text: "beta [[Claude]] #Idea", breadcrumbs: [] },
+          { uid: uidOf("fresh-b"), text: "beta [[Claude]] #Idea" },
         ] }],
         total_pages: 2, offset: 1, limit: 100,
       },
@@ -171,7 +170,7 @@ it("refresh with an open filter panel refetches from offset 0 at limit 100 until
     ["/api/page/Claude?bl_offset=0&bl_limit=100", pagePayload(canonicalTitleOf("Claude"), [], {
       backlinks: {
         groups: [{ page_id: pageIdOf(11), page_title: canonicalTitleOf("Fresh A"), items: [
-          { uid: uidOf("fresh-a"), text: "alpha [[Claude]] #Paper", breadcrumbs: [] },
+          { uid: uidOf("fresh-a"), text: "alpha [[Claude]] #Paper" },
         ] }],
         total_pages: 2, offset: 0, limit: 100,
       },
@@ -206,10 +205,10 @@ it("refresh preserves filter selections and panel state while replacing groups",
     backlinks: {
       groups: [
         { page_id: pageIdOf(11), page_title: canonicalTitleOf("Fresh Visible"), items: [
-          { uid: uidOf("fresh-visible"), text: "clean [[Claude]] #Idea", breadcrumbs: [] },
+          { uid: uidOf("fresh-visible"), text: "clean [[Claude]] #Idea" },
         ] },
         { page_id: pageIdOf(12), page_title: canonicalTitleOf("Fresh Hidden"), items: [
-          { uid: uidOf("fresh-hidden"), text: "blocked [[Claude]] #Paper #Idea", breadcrumbs: [] },
+          { uid: uidOf("fresh-hidden"), text: "blocked [[Claude]] #Paper #Idea" },
         ] },
       ],
       total_pages: 2, offset: 0, limit: 100,
@@ -251,7 +250,7 @@ it("failed refresh keeps old groups and offers retry refresh", async () => {
       return jsonResponse(pagePayload(canonicalTitleOf("ACME"), [], {
         backlinks: {
           groups: [{ page_id: pageIdOf(10), page_title: canonicalTitleOf("Recovered Source"), items: [
-            { uid: uidOf("recovered"), text: "[[ACME]] linked", breadcrumbs: [] },
+            { uid: uidOf("recovered"), text: "[[ACME]] linked" },
           ] }],
           total_pages: 1, offset: 0, limit: 20,
         },
@@ -307,7 +306,7 @@ it("ignores an older refresh response that resolves after a newer generation", a
     newer.resolve(jsonResponse(pagePayload(canonicalTitleOf("ACME"), [], {
       backlinks: {
         groups: [{ page_id: pageIdOf(11), page_title: canonicalTitleOf("Newest Source"), items: [
-          { uid: uidOf("newest"), text: "[[ACME]] newest", breadcrumbs: [] },
+          { uid: uidOf("newest"), text: "[[ACME]] newest" },
         ] }],
         total_pages: 1, offset: 0, limit: 20,
       },
@@ -320,7 +319,7 @@ it("ignores an older refresh response that resolves after a newer generation", a
     older.resolve(jsonResponse(pagePayload(canonicalTitleOf("ACME"), [], {
       backlinks: {
         groups: [{ page_id: pageIdOf(12), page_title: canonicalTitleOf("Stale Source"), items: [
-          { uid: uidOf("tuid-stale"), text: "[[ACME]] stale", breadcrumbs: [] },
+          { uid: uidOf("tuid-stale"), text: "[[ACME]] stale" },
         ] }],
         total_pages: 1, offset: 0, limit: 20,
       },
@@ -341,7 +340,7 @@ it("disables show-more during refresh so stale pagination cannot start", async (
       return Promise.resolve(jsonResponse(pagePayload(canonicalTitleOf("ACME"), [], {
         backlinks: {
           groups: [{ page_id: pageIdOf(11), page_title: canonicalTitleOf("Stale Page"), items: [
-            { uid: uidOf("stale-more"), text: "[[ACME]] stale page", breadcrumbs: [] },
+            { uid: uidOf("stale-more"), text: "[[ACME]] stale page" },
           ] }],
           total_pages: 2, offset: 1, limit: 20,
         },
@@ -370,7 +369,7 @@ it("disables show-more during refresh so stale pagination cannot start", async (
     refresh.resolve(jsonResponse(pagePayload(canonicalTitleOf("ACME"), [], {
       backlinks: {
         groups: [{ page_id: pageIdOf(10), page_title: canonicalTitleOf("Fresh Source"), items: [
-          { uid: uidOf("tuid-fresh"), text: "[[ACME]] refreshed", breadcrumbs: [] },
+          { uid: uidOf("tuid-fresh"), text: "[[ACME]] refreshed" },
         ] }],
         total_pages: 1, offset: 0, limit: 20,
       },
@@ -395,10 +394,8 @@ it("a concurrent loadAll's groups survive a loadMore that started from a stale s
       return Promise.resolve(jsonResponse(pagePayload(canonicalTitleOf("T"), [], {
         backlinks: {
           groups: [
-            { page_id: pageIdOf(2), page_title: canonicalTitleOf("B"), items: [{ uid: uidOf("tuid-b1"), text: "b",
-              breadcrumbs: [] }] },
-            { page_id: pageIdOf(3), page_title: canonicalTitleOf("C"), items: [{ uid: uidOf("tuid-c1"), text: "c",
-              breadcrumbs: [] }] },
+            { page_id: pageIdOf(2), page_title: canonicalTitleOf("B"), items: [{ uid: uidOf("tuid-b1"), text: "b" }] },
+            { page_id: pageIdOf(3), page_title: canonicalTitleOf("C"), items: [{ uid: uidOf("tuid-c1"), text: "c" }] },
           ],
           total_pages: 3, offset: 1, limit: 100,
         },
@@ -409,8 +406,8 @@ it("a concurrent loadAll's groups survive a loadMore that started from a stale s
   vi.stubGlobal("fetch", fetchMock);
 
   const raceInitial: Backlinks = {
-    groups: [{ page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-a1"), text: "a",
-      breadcrumbs: [] }] }],
+    groups: [{ page_id: pageIdOf(1), page_title: canonicalTitleOf("A"),
+      items: [{ uid: uidOf("tuid-a1"), text: "a" }] }],
     total_pages: 3, offset: 0, limit: 1,
   };
   render(
@@ -432,8 +429,7 @@ it("a concurrent loadAll's groups survive a loadMore that started from a stale s
     loadMoreBatch.resolve(jsonResponse(pagePayload(canonicalTitleOf("T"), [], {
       backlinks: {
         groups: [
-          { page_id: pageIdOf(2), page_title: canonicalTitleOf("B"), items: [{ uid: uidOf("tuid-b1"), text: "b",
-            breadcrumbs: [] }] },
+          { page_id: pageIdOf(2), page_title: canonicalTitleOf("B"), items: [{ uid: uidOf("tuid-b1"), text: "b" }] },
         ],
         total_pages: 3, offset: 1, limit: 1,
       },
@@ -461,7 +457,7 @@ it("prevents opening the filter panel during refresh so stale load-all cannot st
       return Promise.resolve(jsonResponse(pagePayload(canonicalTitleOf("Claude"), [], {
         backlinks: {
           groups: [{ page_id: pageIdOf(2), page_title: canonicalTitleOf("Daily B"), items: [
-            { uid: uidOf("stale-load-all"), text: "gamma [[Claude]]", breadcrumbs: ["…"],
+            { uid: uidOf("stale-load-all"), text: "gamma [[Claude]]",
               ancestors: [0] },
           ], ancestor_texts: ["reading #Paper"] }],
           total_pages: 2, offset: 1, limit: 100,
@@ -496,7 +492,7 @@ it("prevents opening the filter panel during refresh so stale load-all cannot st
     refresh.resolve(jsonResponse(pagePayload(canonicalTitleOf("Claude"), [], {
       backlinks: {
         groups: [{ page_id: pageIdOf(10), page_title: canonicalTitleOf("Fresh Visible"), items: [
-          { uid: uidOf("fresh-visible"), text: "clean [[Claude]] #Idea", breadcrumbs: [] },
+          { uid: uidOf("fresh-visible"), text: "clean [[Claude]] #Idea" },
         ] }],
         total_pages: 1, offset: 0, limit: 20,
       },
@@ -869,10 +865,10 @@ it("show-more buttons carry the shared secondary-button style", () => {
 const filterInitial: Backlinks = {
   groups: [
     { page_id: pageIdOf(1), page_title: canonicalTitleOf("Daily A"), items: [
-      { uid: uidOf("tuid-f1"), text: "alpha [[Claude]] #Paper", breadcrumbs: [] },
-      { uid: uidOf("tuid-f2"), text: "beta [[Claude]] #Idea", breadcrumbs: [] }] },
+      { uid: uidOf("tuid-f1"), text: "alpha [[Claude]] #Paper" },
+      { uid: uidOf("tuid-f2"), text: "beta [[Claude]] #Idea" }] },
     { page_id: pageIdOf(2), page_title: canonicalTitleOf("Daily B"), items: [
-      { uid: uidOf("tuid-f3"), text: "gamma [[Claude]]", breadcrumbs: ["…"], ancestors: [0] }],
+      { uid: uidOf("tuid-f3"), text: "gamma [[Claude]]", ancestors: [0] }],
       ancestor_texts: ["reading #Paper"] },
   ],
   total_pages: 2, offset: 0, limit: 20,
@@ -917,7 +913,7 @@ it("opening the filter panel loads all remaining backlinks first", async () => {
   const rest = pagePayload(canonicalTitleOf("Claude"), [], {
     backlinks: {
       groups: [{ page_id: pageIdOf(5), page_title: canonicalTitleOf("Daily C"), items: [
-        { uid: uidOf("tuid-f9"), text: "delta [[Claude]] #Paper", breadcrumbs: [] }] }],
+        { uid: uidOf("tuid-f9"), text: "delta [[Claude]] #Paper" }] }],
       total_pages: 2, offset: 1, limit: 100,
     },
   });
@@ -940,7 +936,7 @@ it("opening the filter panel loads all remaining backlinks first", async () => {
 it("filter panel reaches loaded state when the backlink total shrinks server-side", async () => {
   const shrinkInitial: Backlinks = {
     groups: [{ page_id: pageIdOf(1), page_title: canonicalTitleOf("Daily A"), items: [
-      { uid: uidOf("tuid-f1"), text: "alpha", breadcrumbs: [] }] }],
+      { uid: uidOf("tuid-f1"), text: "alpha" }] }],
     // stale total_pages=3 frozen at mount; server now only has 1 page.
     total_pages: 3, offset: 0, limit: 20,
   };

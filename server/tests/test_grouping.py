@@ -79,7 +79,7 @@ def test_group_backlinks_pure():
     assert [i.ancestors for i in groups[0].items] == [[0], [0, 1]]
     assert groups[1].model_dump(mode="json") == {
         "page_id": 9, "page_title": "P2",
-        "items": [{"uid": "tuid-y1", "text": "t3", "breadcrumbs": []}]}
+        "items": [{"uid": "tuid-y1", "text": "t3"}]}
 
 
 def test_group_changed_pure():

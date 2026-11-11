@@ -76,7 +76,7 @@ it("links with the canonical payload title and refreshes backlinks", async () =>
   const sync = makeSync();
   const refreshed = pagePayload(canonicalTitleOf("ACME"), [], { backlinks: {
     groups: [{ page_id: pageIdOf(9), page_title: canonicalTitleOf("Source"), items: [{
-      uid: uidOf("uid_unlinked"), text: "[[ACME]] mention", breadcrumbs: [],
+      uid: uidOf("uid_unlinked"), text: "[[ACME]] mention",
     }] }],
     total_pages: 1, offset: 0, limit: 20,
   } });

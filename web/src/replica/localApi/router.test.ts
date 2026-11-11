@@ -270,7 +270,7 @@ describe("block backlinks", () => {
     expect(call("GET", "/api/block/uid_t1/backlinks")).toEqual({
       handled: true, status: 200, body: { groups: [{
         page_id: 2, page_title: "Source",
-        items: [{ uid: "uid_s1", text: "see ((uid_t1))", breadcrumbs: [] }],
+        items: [{ uid: "uid_s1", text: "see ((uid_t1))" }],
       }] },
     });
     expect(call("GET", "/api/block/uid_nope99/backlinks")).toEqual({

@@ -2528,13 +2528,6 @@
             "type": "string",
             "title": "Text"
           },
-          "breadcrumbs": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Breadcrumbs"
-          },
           "ancestors": {
             "items": {
               "type": "integer"
@@ -2546,11 +2539,10 @@
         "type": "object",
         "required": [
           "uid",
-          "text",
-          "breadcrumbs"
+          "text"
         ],
         "title": "BacklinkItem",
-        "description": "A block linking the page (or block). `ancestors` is its breadcrumb\ntrail, root first, as positions in its group's `ancestor_texts`; left\nout when the block has no parent.\n\n`breadcrumbs` is for bundles built before `ancestors`, which read it\noff every item and throw on a missing one: `[STALE_BUNDLE_CRUMB]` where\nthe item has a trail, else empty. Nothing current reads it."
+        "description": "A block linking the page (or block). `ancestors` is its breadcrumb\ntrail, root first, as positions in its group's `ancestor_texts`; left\nout when the block has no parent."
       },
       "Backlinks": {
         "properties": {

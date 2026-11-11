@@ -1,13 +1,12 @@
 // A refused clipboard write shows the text to copy by hand in the outline's
 // copy notice; the next copy clears it.
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, makeSync, orderIdxOf, canonicalTitleOf, confirmYes, uidOf } from "../test-helpers";
 import { useOutline, type Outline } from "../outline/useOutline";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { EditableBlockTree } from "./EditableBlockTree";
 import { noticeOf } from "../outline/notices";
 
@@ -36,7 +35,7 @@ function tree() {
 function mount(readOnly = false) {
   const view = render(
     <SyncContext.Provider value={makeSync()}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <Page initial={tree()} readOnly={readOnly} />
       </MemoryRouter>
     </SyncContext.Provider>);

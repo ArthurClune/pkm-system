@@ -25,7 +25,7 @@ import type { BatchId } from "../../api/brands";
 import { extractRefs } from "../../grammar/refs";
 import { EDIT_TARGETS, type OpDraft, PAGE_TITLES } from "./arbitraries";
 import { cancellable, ExampleCancelled } from "./cancel";
-import { conflictNoise, overwrittenTarget } from "./conflictNoise";
+import { conflictLane, conflictNoise, overwrittenTarget } from "./conflictNoise";
 import { staleNamers } from "./deleteWins";
 import { BadBatch, commandsFor, connectTally, connectTiming, countSkipsWith, Edit,
          Fault, type FaultKind, NAMES, Nudge, Offline, Pull, Reload, Rename,
@@ -126,6 +126,7 @@ const REACH: Reach = {
   //   "Edit refused: read-only, mode stalled"
   //   "Pull joined under poison"
   //   "examples with an overwritten conflict on a lane write"
+  //   "examples with an overwritten conflict behind an overtaking lost reply"
   // No floor, under ten in some run, so half of it is noise:
   //   "CrossMidnight fell back to model date"
   //   "settle: dead worker's reload drops lane batches"
@@ -435,9 +436,13 @@ async function runExample(names: readonly string[], cmds: Commands,
     // one single-device cause the invariant allows.
     const noise = { applied, conflicts,
                     committedBy: new Map(all().map((c) => [c.name, c.transport.committed])) };
-    if (conflictNoise({ ...noise, lane: new Set() }).length >
-        conflictNoise({ ...noise, lane: new Set(all().flatMap((c) => c.laneBatches)) }).length) {
+    const laneOnly = conflictNoise({ ...noise, lane: new Set(all().flatMap((c) => c.laneBatches)) });
+    if (conflictNoise({ ...noise, lane: new Set() }).length > laneOnly.length) {
       count("examples with an overwritten conflict on a lane write");
+    }
+    if (laneOnly.length >
+        conflictNoise({ ...noise, lane: conflictLane(all(), applied, model.good) }).length) {
+      count("examples with an overwritten conflict behind an overtaking lost reply");
     }
     if ([...committed.values()].some((body) => leadsWithAttribute(body))) {
       count("examples with a leading attribute");

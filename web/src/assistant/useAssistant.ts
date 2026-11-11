@@ -4,7 +4,16 @@
 // clicks into its events.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { closeConversationBeacon, fetchModels, type AssistantModel } from "./client";
+import {
+  closeConversationBeacon,
+  confirmTool,
+  createConversation,
+  deleteConversation,
+  fetchModels,
+  stopTurn,
+  streamMessage,
+  type AssistantModel,
+} from "./client";
 import { createChatDriver } from "./chatDriver";
 import { canStop, chatStatus, initialChat, modelLocked, shownModel, type ChatState } from "./chatMachine";
 
@@ -13,7 +22,9 @@ export type { ChatItem, PendingConfirm, PhaseInfo } from "./chatMachine";
 
 export function useAssistant() {
   const [chat, setChat] = useState<ChatState>(initialChat);
-  const [driver] = useState(() => createChatDriver(setChat));
+  const [driver] = useState(() => createChatDriver(setChat, {
+    createConversation, streamMessage, stopTurn, deleteConversation, confirmTool,
+  }));
   const modelsRequested = useRef(false);
   const pendingConfirm = chat.confirms[0] ?? null;
 

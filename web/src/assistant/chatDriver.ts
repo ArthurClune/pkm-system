@@ -1,11 +1,12 @@
 // pattern: Imperative Shell
 // Runs the assistant panel's chat machine (chatMachine.ts): dispatches each
 // event into it, publishes the new state, and starts the requests its
-// effects name, whose results come back as events.
+// effects name through the client it is given, whose results come back as
+// events.
 
 import { ApiError } from "../api/client";
 import type { ConversationId } from "../api/brands";
-import {
+import type {
   confirmTool,
   createConversation,
   deleteConversation,
@@ -52,6 +53,7 @@ const BUSY_RETRY_ATTEMPTS = 5;
 const BUSY_RETRY_DELAY_MS = 60;
 
 async function streamWithBusyRetry(
+  stream: ChatClient["streamMessage"],
   id: ConversationId,
   text: string,
   onEvent: (ev: AssistantEvent) => void,
@@ -61,7 +63,7 @@ async function streamWithBusyRetry(
 ): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     try {
-      await streamMessage(id, text, onEvent, signal, onOpen);
+      await stream(id, text, onEvent, signal, onOpen);
       return;
     } catch (err) {
       if (attempt >= BUSY_RETRY_ATTEMPTS || !isBusyError(err) || !keepTrying()) throw err;
@@ -86,11 +88,27 @@ function streamFailure(err: unknown): StreamFailure {
   return { kind: "failed", message: friendlyMessage(err) };
 }
 
+/** The requests the driver makes; the hook passes the client module's. */
+export type ChatClient = {
+  createConversation: typeof createConversation;
+  streamMessage: typeof streamMessage;
+  stopTurn: typeof stopTurn;
+  deleteConversation: typeof deleteConversation;
+  confirmTool: typeof confirmTool;
+};
+
+export type ChatDriver = {
+  dispatch(event: ChatEvent): Promise<void>;
+  turnEnded(turn: TurnId): Promise<void>;
+  current(): ChatState;
+};
+
 /** Runs the machine: each event goes through `step`, the new state is
  * published, and its effects start requests whose results come back as
  * events. Effects run after the state is stored, because a stream can call
  * back into dispatch before the request that started it returns. */
-export function createChatDriver(publish: (state: ChatState) => void) {
+export function createChatDriver(publish: (state: ChatState) => void,
+                                 client: ChatClient): ChatDriver {
   let state = initialChat();
   // the request each turn has in flight: its abort handle (streams only), a
   // promise that settles, never rejecting, once its result is dispatched,
@@ -130,7 +148,7 @@ export function createChatDriver(publish: (state: ChatState) => void) {
     switch (effect.kind) {
       case "create": {
         const { turn } = effect;
-        return track(turn, null, () => createConversation(effect.model).then(
+        return track(turn, null, () => client.createConversation(effect.model).then(
           (c) => { void dispatch({ type: "created", turn, id: c.id, model: c.model }); },
           (err: unknown) => {
             void dispatch({ type: "createFailed", turn, message: friendlyMessage(err) });
@@ -143,7 +161,7 @@ export function createChatDriver(publish: (state: ChatState) => void) {
         let markOpened!: () => void;
         const opened = new Promise<void>((resolve) => { markOpened = resolve; });
         return track(turn, controller, () => streamWithBusyRetry(
-          effect.conversation, effect.text,
+          client.streamMessage, effect.conversation, effect.text,
           (ev) => { void dispatch({ type: "streamEvent", turn, event: ev, at: Date.now() }); },
           controller.signal, markOpened,
           () => state.turn.phase === "streaming" && state.turn.id === turn,
@@ -181,7 +199,7 @@ export function createChatDriver(publish: (state: ChatState) => void) {
           ]);
           if (!open) return;
           try {
-            await stopTurn(conversation, post.signal);
+            await client.stopTurn(conversation, post.signal);
           } catch {
             abort();
           }
@@ -194,7 +212,7 @@ export function createChatDriver(publish: (state: ChatState) => void) {
         return (async () => {
           await before;
           try {
-            await deleteConversation(effect.conversation);
+            await client.deleteConversation(effect.conversation);
           } catch {
             // the server may have reaped it already; idle reaping cleans up
             // whatever this misses
@@ -203,7 +221,7 @@ export function createChatDriver(publish: (state: ChatState) => void) {
       }
       case "confirm": {
         const { turn, conversation, confirmId, allow } = effect;
-        return confirmTool(conversation, confirmId, allow).then(
+        return client.confirmTool(conversation, confirmId, allow).then(
           () => {
             void dispatch({ type: "confirmPosted", turn, conversation, confirmId, allow,
                             at: Date.now() });

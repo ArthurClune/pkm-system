@@ -342,7 +342,7 @@ export function Files() {
           {items.length} of {total} files
         </span>
         <button type="button" className="btn-secondary"
-                disabled={busy || phase !== "ready"}
+                disabled={busy || phase !== "ready" || paging.more !== null}
                 onClick={() => void selectAll()}>
           Select all
         </button>

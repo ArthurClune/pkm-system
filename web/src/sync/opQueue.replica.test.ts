@@ -1079,6 +1079,22 @@ describe("barrier claims", () => {
     q.dispose();
   });
 
+  test("onBarrier fires when a pause or resume changes the holders, with " +
+       "holds() already updated", () => {
+    const q = createOpQueue(memReplica());
+    const seen: string[] = [];
+    q.onBarrier(() => seen.push(`${q.holds("poison")}/${q.holds("lane")}`));
+    q.resume("poison");
+    q.pause("poison");
+    q.pause("poison");
+    q.pause("lane");
+    q.resume("poison");
+    q.resume("poison");
+    q.resume("lane");
+    expect(seen).toEqual(["true/false", "true/true", "false/true", "false/false"]);
+    q.dispose();
+  });
+
   test("onRelease runs after the release, so holds() is already false inside it",
   () => {
     const q = createOpQueue(memReplica());

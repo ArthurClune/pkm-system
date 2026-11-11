@@ -165,7 +165,7 @@ describe("settleCommitted", () => {
       await second.settled;
       // the replica dropped the first row: a sync window named its batch
       replica.rows.splice(0, 1);
-      q.settleCommitted([bid("batch-1")]);
+      q.settleCommitted([{ batch_id: bid("batch-1"), skipped: [] }]);
       await expect(first.delivered).resolves.toEqual({ status: "delivered" });
       await vi.waitFor(() => { expect(pending.at(-1)).toBe(1); });
       let secondSettled = false;
@@ -173,7 +173,8 @@ describe("settleCommitted", () => {
       await Promise.resolve();
       expect(secondSettled).toBe(false);
       // a later settle, or one for a batch it never held, is a no-op
-      q.settleCommitted([bid("batch-1"), bid("never-held")]);
+      q.settleCommitted([{ batch_id: bid("batch-1"), skipped: [] },
+                         { batch_id: bid("never-held"), skipped: [] }]);
       q.dispose();
     });
 
@@ -202,7 +203,7 @@ describe("settleCommitted", () => {
 
         // a pull's window named batch-1 as applied and the replica dropped it
         replica.rows.splice(0, 1);
-        q.settleCommitted([bid("batch-1")]);
+        q.settleCommitted([{ batch_id: bid("batch-1"), skipped: [] }]);
         // microtasks only: vi.waitFor would advance the fake retry timer
         for (let i = 0; i < 50 && sent.length < 2; i += 1) await Promise.resolve();
         expect(sent).toEqual(["batch-1", "batch-2"]);

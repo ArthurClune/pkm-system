@@ -685,6 +685,39 @@ describe("replica mode", () => {
   });
 });
 
+describe("skipped ops", () => {
+  test("a recovery flush whose ack skips an op bumps resync once", async () => {
+    let needsBootstrap = false;
+    const replica = loggingReplica({
+      applyChanges: async (changes) => {
+        if (!needsBootstrap) return { status: "applied", cursor: changes.next_since };
+        needsBootstrap = false;
+        return { status: "needs-bootstrap" };
+      },
+      prepareRecovery: async () => ({ token: "lease-1", batches: [leftover(7)] }),
+    });
+    const { session, reported, server } = rig({
+      replica,
+      answer: (body) => ({
+        ok: true, ts: 1, applied: body.ops.length, seq: seqOf(6),
+        skipped: [{ index: 0, op: "delete", uid: uidOf("bbbbbbbb"),
+                    reason: "block_not_found", note_page: null }],
+      }),
+    });
+    await session.startup();
+    await session.onSocketStatus(true);
+    const resyncs = reported.resyncs;
+
+    needsBootstrap = true;
+    session.onSeq({ type: "seq", seq: seqOf(99) });
+    await replicaSyncOf(session).idle();
+
+    expect(server.posts.map((b) => b.batch_id)).toEqual([batchIdOf("left-7")]);
+    expect(reported.events.filter((e) => e.type === "ops-skipped")).toHaveLength(1);
+    expect(reported.resyncs - resyncs).toBe(1);
+  });
+});
+
 describe("the actions", () => {
   test("an own echo reaches no subscriber", () => {
     const { session } = rig();

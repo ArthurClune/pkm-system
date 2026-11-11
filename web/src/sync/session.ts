@@ -229,9 +229,10 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
     queue.onDesync((desync) => {
       if (live()) void outlineRepair.run(desync.error, desync);
     }),
-    // Either delivery path's ack named a skipped op: a replica-backed tab's
-    // own feed tombstones the row, but nothing else bumps resync for it, so
-    // this refetches regardless. Never a desync: the batch committed.
+    // An ack named a skipped op, whichever POST or settled payload it came
+    // with: a replica-backed tab's own feed tombstones the row, but nothing
+    // else bumps resync for it, so this refetches regardless. Never a
+    // desync: the batch committed.
     queue.onSkipped(() => fold({ type: "ops-skipped" })),
     queue.onPending((n) => { if (live()) report.pending(n); }),
     queue.onUnsentInMemory((n) => { if (live()) report.unsentInMemory(n); }),
@@ -243,10 +244,6 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
     // keeps the session must still know the replica is gone. The report
     // itself is guarded in reportMode.
     queue.onUnavailable((error) => replicaSync?.noteUnavailable(error)),
-    // The recovery flush is a third POST path outside the queue's own
-    // lane/drain, and its ack can name a skip too.
-    ...(replicaSync === null ? []
-      : [replicaSync.onSkipped(() => fold({ type: "ops-skipped" }))]),
   ];
 
   let startupRun: Promise<void> | null = null;

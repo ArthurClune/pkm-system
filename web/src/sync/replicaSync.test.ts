@@ -2,13 +2,16 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { ApiError, OfflineError } from "../api/client";
 import type { BatchId } from "../api/brands";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
-import type { SkippedOp } from "../api/payloads";
+import type { BlockOp } from "../api/ops";
+import type { OpBatch, OpsAck, SkippedOp } from "../api/payloads";
 import type { DroppedBatch, PendingBatch, Replica, ReplicaInit, SnapshotApplyResult } from "../replica/client";
 import { ReplicaError, ReplicaUnusableError, RpcLifecycleError } from "../replica/errors";
 import {
   uidOf, clientIdOf, batchIdOf, seqOf, pendingRowIdOf, sentBatchId, sentBody, bodyBatchId,
   ANY_STRING, defer,
 } from "../test-helpers";
+import { memReplica } from "./memReplica";
+import { createOpQueue, type OpQueue } from "./opQueue";
 import type { BarrierOwner } from "./queueState";
 import {
   createReplicaSync, PENDING_CHANGED_CAP, PENDING_IDS_CAP, ResetBlockedError, RETRY_BASE_MS,
@@ -17,6 +20,7 @@ import {
 import {
   plainSpaceTitleCanonicalizationNow as readFlag, resetPlainSpaceTitleCanonicalization,
 } from "./titleCanonicalization";
+import { opsAckOfWire } from "./wire";
 
 // Every test here picks an arbitrary id/batch-id string, same shape as the
 // production mint; these mint the brand once rather than at every call.
@@ -104,6 +108,29 @@ function fakeClaim() {
       held = false;
       released.forEach((fn) => fn("poison"));
     },
+  };
+}
+
+/** A real queue for the recovery flush to post through. Its `post` sends
+ * each body to the test's own `fetchJson("/api/ops", ...)`, the request the
+ * flush once made itself, so a test reads what was posted where it always
+ * has. `over` stands in for the queue's barrier calls. */
+function leasedQueue(
+  fetchJson: (path: string, init?: RequestInit) => Promise<unknown>,
+  over: Partial<Pick<OpQueue, "pause" | "resume" | "onRelease">> = {},
+) {
+  const real = createOpQueue(memReplica(), {
+    clientId: CID,
+    poisonStore: { read: () => [], write: () => undefined },
+    post: async (body) => opsAckOfWire(await fetchJson("/api/ops", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })),
+  });
+  return {
+    pause: () => undefined, resume: () => undefined,
+    deliverLeased: real.deliverLeased, settleCommitted: real.settleCommitted,
+    onSkipped: real.onSkipped, ...over,
   };
 }
 
@@ -638,6 +665,88 @@ describe("poison recovery ownership", () => {
   });
 });
 
+describe("a recovery flush through the real queue", () => {
+  const del = (raw: string): BlockOp => ({ op: "delete", uid: uidOf(raw) });
+
+  /** A real queue holding two durable rows, each behind a lane entry, and
+   * one trace of every POST and snapshot fetch, whichever door sent it.
+   * Batches are minted q-1 (lane), q-2 (durable), q-3 (lane), q-4 (durable). */
+  async function laneAndLease(heldId?: string) {
+    const trace: string[] = [];
+    const held = defer<void>();
+    const post = async (body: OpBatch): Promise<OpsAck> => {
+      trace.push(`post ${body.batch_id}`);
+      if (body.batch_id === heldId) await held.promise;
+      return { ok: true, ts: 1, applied: 1, seq: seqOf(7) };
+    };
+    let minted = 0;
+    const local = memReplica();
+    const durable = local.enqueue.bind(local);
+    const fail = async (): Promise<never> => {
+      throw new Error("SQLITE_CANTOPEN");
+    };
+    const queue = createOpQueue(local, {
+      post, clientId: CID, poisonStore: { read: () => [], write: () => undefined },
+      newBatchId: () => bid(`q-${++minted}`),
+    });
+    queue.setOnline(false);
+    for (const [uid, persists] of [["uid_lane1", false], ["uid_a1", true],
+                                   ["uid_lane2", false], ["uid_a2", true]] as const) {
+      local.enqueue = persists ? durable : fail;
+      queue.enqueue([del(uid)]);
+      await queue.settled();
+    }
+    const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/ops") {
+        trace.push(`post ${sentBatchId(init)}`);
+        return { ok: true, ts: 1, applied: 1, seq: 7 };
+      }
+      if (path.startsWith("/api/sync/snapshot")) {
+        trace.push("snapshot");
+        return SNAP;
+      }
+      return feed();
+    });
+    return { trace, held, queue, lease: [...local.rows], fetchJson };
+  }
+
+  test("each leased batch posts after the lane entries it follows, then the " +
+       "snapshot is fetched", async () => {
+    const { trace, queue, lease, fetchJson } = await laneAndLease();
+    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: lease });
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, onState: () => undefined, queue,
+      holdsPoison: () => queue.holds("poison"),
+    });
+    await sync.start();
+    expect(trace).toEqual([
+      "post q-1", "post q-2", "post q-3", "post q-4", "snapshot",
+    ]);
+    queue.dispose();
+  });
+
+  test("a poison claim landing while the lane ahead is delivered posts no " +
+       "leased batch", async () => {
+    const { trace, held, queue, lease, fetchJson } =
+      await laneAndLease("q-1");
+    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: lease });
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, onState: () => undefined, queue,
+      holdsPoison: () => queue.holds("poison"),
+    });
+    const started = sync.start().catch(() => undefined);
+    await vi.waitFor(() => expect(trace).toEqual(["post q-1"]));
+    queue.pause("poison");
+    held.resolve();
+    await started;
+    sync.stop();
+    expect(trace).toEqual(["post q-1"]);
+    expect(replica.calls).toContain("abortRecovery");
+    expect(replica.calls).not.toContain("commitRecovery");
+    queue.dispose();
+  });
+});
+
 describe("recovery flushes and the shared coordinator", () => {
   test("a recovery flush posts seen_seq when the batch has one and omits the key otherwise", async () => {
     const posted: Record<string, unknown>[] = [];
@@ -659,7 +768,10 @@ describe("recovery flushes and the shared coordinator", () => {
       if (path === "/api/sync/snapshot") return SNAP;
       return feed();
     });
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState: () => undefined });
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, onState: () => undefined,
+      queue: leasedQueue(fetchJson),
+    });
     await sync.start();
     expect(posted.map((b) => "seen_seq" in b)).toEqual([true, false]);
     expect(posted[0].seen_seq).toBe(4);
@@ -683,103 +795,15 @@ describe("recovery flushes and the shared coordinator", () => {
       return feed();
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, onState,
+      queue: leasedQueue(fetchJson),
+    });
     await sync.start();
     // poisoned batch b-2 is NOT retried; the others flush oldest-first
     expect(posted.map((b) => bodyBatchId(b))).toEqual(["b-1", "b-3"]);
     expect(replica.calls).toContain("commitRecovery");
     expect(states.at(-1)).toEqual({ mode: "ready" });
-  });
-
-  test("the recovery flush delivers each batch's lane-ahead entries before posting it",
-  async () => {
-    // flushBatches posts leased durable rows on its own, knowing nothing about
-    // the fallback lane — a second overtaking path distinct from ordinary
-    // drain ordering. It must ask the queue's deliverLaneAhead for each batch
-    // before posting it, so a lane entry the batch follows still goes out
-    // first. A fake queue recording call order is enough to pin this: the
-    // queue's own contract for deliverLaneAhead is tested at the opQueue level.
-    const trace: string[] = [];
-    const batches: PendingBatch[] = [
-      { id: pendingRowIdOf(1), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
-      { id: pendingRowIdOf(2), batch_id: bid("b-2"), ops: [{ op: "delete", uid: uidOf("uid_a2") }], poisoned: false },
-    ];
-    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
-    const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
-      if (path === "/api/ops") {
-        trace.push(`flush ${sentBatchId(init)}`);
-        return { ok: true };
-      }
-      if (path === "/api/sync/snapshot") return SNAP;
-      return feed();
-    });
-    const queue = {
-      pause: () => undefined,
-      resume: () => undefined,
-      deliverLaneAhead: async (batchId: BatchId) => {
-        trace.push(`deliver lane ahead of ${batchId}`);
-      },
-    };
-    const { onState } = collector();
-    const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
-    });
-
-    await sync.start();
-
-    expect(trace).toEqual([
-      "deliver lane ahead of b-1",
-      "flush b-1",
-      "deliver lane ahead of b-2",
-      "flush b-2",
-    ]);
-  });
-
-  test("a recovery flush whose ack names a skipped op calls onSkipped once",
-  async () => {
-    const batches: PendingBatch[] = [
-      { id: pendingRowIdOf(1), batch_id: bid("b-1"),
-       ops: [{ op: "update_text", uid: uidOf("uid_a1"), text: "x" }], poisoned: false },
-    ];
-    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
-    const fetchJson = vi.fn(async (path: string) => {
-      if (path === "/api/ops") {
-        return { ok: true, ts: 1, applied: 1, seq: 7,
-                skipped: [{ index: 0, op: "update_text", uid: "uid_a1",
-                           reason: "block_not_found", note_page: null }] };
-      }
-      if (path === "/api/sync/snapshot") return SNAP;
-      return feed();
-    });
-    const { onState } = collector();
-    const skips: void[] = [];
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
-    sync.onSkipped(() => skips.push(undefined));
-
-    await sync.start();
-
-    expect(skips).toHaveLength(1);
-  });
-
-  test("a recovery flush whose ack names no skipped op does not call onSkipped",
-  async () => {
-    const batches: PendingBatch[] = [
-      { id: pendingRowIdOf(1), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
-    ];
-    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
-    const fetchJson = vi.fn(async (path: string) => {
-      if (path === "/api/ops") return { ok: true, ts: 1, applied: 1, seq: 7, skipped: [] };
-      if (path === "/api/sync/snapshot") return SNAP;
-      return feed();
-    });
-    const { onState } = collector();
-    const skips: void[] = [];
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
-    sync.onSkipped(() => skips.push(undefined));
-
-    await sync.start();
-
-    expect(skips).toEqual([]);
   });
 
   test("a failed recovery flush keeps the database and reports the failure", async () => {
@@ -794,7 +818,10 @@ describe("recovery flushes and the shared coordinator", () => {
       return SNAP;
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, onState,
+      queue: leasedQueue(fetchJson),
+    });
     // a failed start: rejected, and retried on the backoff
     await expect(sync.start()).rejects.toThrow("network down");
     sync.stop();
@@ -817,7 +844,10 @@ describe("recovery flushes and the shared coordinator", () => {
       return feed();
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, onState,
+      queue: leasedQueue(fetchJson),
+    });
 
     await expect(sync.start()).rejects.toThrow("snapshot offline");
     sync.stop();
@@ -843,7 +873,10 @@ describe("recovery flushes and the shared coordinator", () => {
       return feed();
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, onState,
+      queue: leasedQueue(fetchJson),
+    });
 
     await sync.start();
 
@@ -884,10 +917,10 @@ describe("recovery flushes and the shared coordinator", () => {
       }
       return feed();
     });
-    const queue = {
+    const queue = leasedQueue(fetchJson, {
       pause: () => { trace.push("pause queue"); },
       resume: () => { trace.push("resume queue"); },
-    };
+    });
     const { onState } = collector();
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState, queue,
@@ -937,10 +970,10 @@ describe("recovery flushes and the shared coordinator", () => {
       }
       return feed();
     });
-    const queue = {
+    const queue = leasedQueue(fetchJson, {
       pause: () => { trace.push("pause queue"); },
       resume: () => { trace.push("resume queue"); },
-    };
+    });
     const { onState } = collector();
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState, queue,
@@ -981,10 +1014,10 @@ describe("recovery flushes and the shared coordinator", () => {
       if (path === "/api/sync/snapshot") return SNAP;
       return feed();
     });
-    const queue = {
+    const queue = leasedQueue(fetchJson, {
       pause: () => { trace.push("pause"); },
       resume: () => { trace.push("resume"); },
-    };
+    });
     const { states, onState } = collector();
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState, queue,
@@ -1494,7 +1527,10 @@ describe("resetLocalData", () => {
       return feed();
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, onState,
+      queue: leasedQueue(fetchJson),
+    });
     await sync.start();
 
     await sync.resetLocalData({ discardPending: false });
@@ -1517,7 +1553,8 @@ describe("resetLocalData", () => {
       if (path === "/api/sync/snapshot") { snapshotCalls += 1; return SNAP; }
       return feed();
     });
-    const queue = { pause: vi.fn(), resume: vi.fn() };
+    const resume = vi.fn();
+    const queue = leasedQueue(fetchJson, { pause: vi.fn(), resume });
     const { onState } = collector();
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState, queue,
@@ -1544,7 +1581,7 @@ describe("resetLocalData", () => {
     // A blocked reset is a refusal, not an outage: the database is intact and
     // delivery must be handed back so the flush the user is being asked about
     // can still succeed on its own.
-    expect(queue.resume.mock.calls).toEqual([["recovery"]]);
+    expect(resume.mock.calls).toEqual([["recovery"]]);
   });
 
   test("resetLocalData succeeding after a failed doStart reports ready and re-enables pulls", async () => {
@@ -1565,7 +1602,10 @@ describe("resetLocalData", () => {
       return feed();
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, onState,
+      queue: leasedQueue(fetchJson),
+    });
 
     await expect(sync.start()).rejects.toThrow("snapshot offline");
     expect(states.at(-1)).toEqual({ mode: "recovery-failed", error: "snapshot offline" });
@@ -1603,7 +1643,10 @@ describe("resetLocalData", () => {
       return feed();
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, onState,
+      queue: leasedQueue(fetchJson),
+    });
 
     await sync.start();
     expect(states.at(-1)).toEqual({ mode: "recovery-failed", error: "feed flush offline" });
@@ -1691,10 +1734,10 @@ describe("resetLocalData", () => {
       }
       return feed();
     });
-    const queue = {
+    const queue = leasedQueue(fetchJson, {
       pause: () => { trace.push("pause queue"); },
       resume: () => { trace.push("resume queue"); },
-    };
+    });
     const { states, onState } = collector();
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState, queue,
@@ -2336,6 +2379,7 @@ describe("acks held across a flush and rebase", () => {
     });
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState: collector().onState,
+      queue: leasedQueue(fetchJson),
     });
 
     await sync.start();
@@ -2359,7 +2403,6 @@ describe("acks held across a flush and rebase", () => {
       abortRecovery,
     });
     const claim = fakeClaim();
-    const { queue } = claim;
     const posted: string[] = [];
     const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === "/api/ops") {
@@ -2371,6 +2414,7 @@ describe("acks held across a flush and rebase", () => {
       if (path === "/api/sync/snapshot") return SNAP;
       return feed();
     });
+    const queue = leasedQueue(fetchJson, claim.queue);
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState: collector().onState, queue,
       holdsPoison: claim.holdsPoison,
@@ -2403,6 +2447,7 @@ describe("acks held across a flush and rebase", () => {
     });
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState: collector().onState,
+      queue: leasedQueue(fetchJson),
     });
 
     await sync.start();
@@ -2431,6 +2476,7 @@ describe("acks held across a flush and rebase", () => {
     });
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState: collector().onState,
+      queue: leasedQueue(fetchJson),
     });
 
     await sync.start();
@@ -2455,9 +2501,17 @@ describe("pending batches a payload already holds", () => {
     index: 0, op: "delete", uid: uidOf("tuid-uid_1"), reason: "block_not_found",
     note_page: null,
   };
-  const queueSpy = () => ({
-    pause: vi.fn(), resume: vi.fn(), settleCommitted: vi.fn(),
-  });
+  /** A real queue with settleCommitted spied and onSkipped counted. */
+  const queueSpy = (
+    fetchJson: (path: string, init?: RequestInit) => Promise<unknown> =
+      async () => ({ ok: true }),
+  ) => {
+    const queue = leasedQueue(fetchJson, { pause: vi.fn(), resume: vi.fn() });
+    const settled = vi.spyOn(queue, "settleCommitted");
+    const onSkipped = vi.fn();
+    queue.onSkipped(onSkipped);
+    return { queue, settled, onSkipped };
+  };
 
   test("a pull names the head of its non-poisoned pending batches", async () => {
     const replica = fakeReplica({
@@ -2501,16 +2555,14 @@ describe("pending batches a payload already holds", () => {
         status: "applied", cursor: seqOf(5), dropped: [dropped(1)],
       }),
     });
-    const queue = queueSpy();
-    const onSkipped = vi.fn();
+    const { queue, settled, onSkipped } = queueSpy();
     const sync = createReplicaSync({
       replica, fetchJson: vi.fn(async () => feed()), clientId: CID, queue,
       onState: collector().onState,
     });
-    sync.onSkipped(onSkipped);
     await sync.start();
     expect(replica.applyChanges).toHaveBeenCalledWith(feed(), [1, 2]);
-    expect(queue.settleCommitted).toHaveBeenCalledWith([bid("b-1")]);
+    expect(settled).toHaveBeenCalledWith([dropped(1)]);
     expect(onSkipped).not.toHaveBeenCalled();
   });
 
@@ -2521,12 +2573,11 @@ describe("pending batches a payload already holds", () => {
         dropped: [dropped(1, [SKIP]), dropped(2, [SKIP])],
       }),
     });
-    const onSkipped = vi.fn();
+    const { queue, onSkipped } = queueSpy();
     const sync = createReplicaSync({
       replica, fetchJson: vi.fn(async () => feed()), clientId: CID,
-      queue: queueSpy(), onState: collector().onState,
+      queue, onState: collector().onState,
     });
-    sync.onSkipped(onSkipped);
     await sync.start();
     expect(onSkipped).toHaveBeenCalledTimes(1);
   });
@@ -2541,16 +2592,14 @@ describe("pending batches a payload already holds", () => {
       };
       const fetchJson = vi.fn(async (path: string) =>
         path.startsWith("/api/sync/snapshot") ? snap : feed());
-      const queue = queueSpy();
-      const onSkipped = vi.fn();
+      const { queue, settled, onSkipped } = queueSpy();
       const sync = createReplicaSync({
         replica, fetchJson, clientId: CID, queue, onState: collector().onState,
       });
-      sync.onSkipped(onSkipped);
       await sync.start();
       expect(fetchJson).toHaveBeenCalledWith(
         "/api/sync/snapshot?pending=b-1", undefined, { timeoutMs: null });
-      expect(queue.settleCommitted).toHaveBeenCalledWith([bid("b-1")]);
+      expect(settled).toHaveBeenCalledWith(snap.applied_batches);
       expect(onSkipped).toHaveBeenCalledTimes(1);
     });
 
@@ -2563,7 +2612,7 @@ describe("pending batches a payload already holds", () => {
     const fetchJson = vi.fn(async (path: string) =>
       path.startsWith("/api/sync/snapshot") ? SNAP : feed());
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, queue: queueSpy(),
+      replica, fetchJson, clientId: CID, queue: queueSpy().queue,
       onState: collector().onState,
     });
     await sync.start();
@@ -2583,7 +2632,8 @@ describe("pending batches a payload already holds", () => {
       return feed();
     });
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, queue: queueSpy(), onState: collector().onState,
+      replica, fetchJson, clientId: CID, queue: queueSpy(fetchJson).queue,
+      onState: collector().onState,
     });
     await sync.start();
     expect(fetchJson).toHaveBeenCalledWith(

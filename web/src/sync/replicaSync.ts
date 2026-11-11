@@ -19,11 +19,9 @@ import { asSessionFatal, isSessionFatal,
          type SessionFatalError } from "../replica/errors";
 import { INITIAL_SEQ } from "../ids";
 import { coalesce } from "./coalesce";
-import { listeners } from "./listeners";
 import type { OpQueue } from "./opQueue";
-import { readOpsAck } from "./opsAck";
 import { setPlainSpaceTitleCanonicalization } from "./titleCanonicalization";
-import { changesOfWire, opsAckOfWire, snapshotOfWire } from "./wire";
+import { changesOfWire, snapshotOfWire } from "./wire";
 import { isFreshCorruption, isStallShaped, isWindowFailure, PullStarvedError } from "./syncFailures";
 
 export type ReplicaState =
@@ -93,12 +91,6 @@ export interface ReplicaSync {
    * component; an in-flight pull may still finish after stop() but will not
    * reschedule another retry, nor start the pass a nudge owed it. */
   stop(): void;
-  /** The recovery flush's ack named a skipped op, or a sync payload named a
-   * pending batch as already applied whose stored ack did -- the same signal
-   * as the queue's own onSkipped, for the paths outside the queue's drain:
-   * the active view is stale and must refetch. Never a desync: the batch
-   * committed. */
-  onSkipped(fn: () => void): () => void;
 }
 
 /** Thrown by resetLocalData when discardPending is false and the pending-batch
@@ -154,13 +146,12 @@ export interface ReplicaSyncDeps {
   clientId: ClientId;
   onState: (s: ReplicaState) => void;
   /** Delivery is paused while the worker recovery lease owns the database.
-   * `deliverLaneAhead` is how the recovery flush below gets the drain's own
-   * lane-ordering guarantee: this flush posts leased durable rows
-   * on its own, knowing nothing about the lane, so flushBatches asks the
-   * queue to deliver whatever the lane holds ahead of each one first.
-   * `onRelease` of "poison" pays the pull a poison repair left owed. */
+   * The recovery flush posts each leased batch through `deliverLeased`, so
+   * it goes out after the lane entries it follows, and every POST and
+   * skipped-op signal is the queue's. `onRelease` of "poison" pays the pull
+   * a poison repair left owed. A flush without `deliverLeased` throws. */
   queue?: Pick<OpQueue, "pause" | "resume"> &
-    Partial<Pick<OpQueue, "onRelease" | "deliverLaneAhead" | "settleCommitted">>;
+    Partial<Pick<OpQueue, "onRelease" | "deliverLeased" | "settleCommitted">>;
   /** Whether the queue's barrier holds "poison": a poison repair, or a
    * rejected row still waiting for one, owns recovery, so a normal recovery
    * must neither start nor post past it. Defaults to never. */
@@ -247,8 +238,7 @@ const clientInfo = (): Record<string, unknown> => {
 };
 
 export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
-  const { replica, fetchJson, clientId, onState } = deps;
-  const skipped = listeners<void>();
+  const { replica, fetchJson, onState } = deps;
   const queue = deps.queue ?? {
     pause: () => undefined,
     resume: () => undefined,
@@ -406,15 +396,12 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   };
 
   /** Batches a payload named as already applied, whose rows the replica
-   * dropped instead of replaying: settled as their acks would have settled
-   * them. Their deliveries resolve through the queue, and a stored ack that
-   * skipped an op bumps resync, as the drain does for a live one. */
+   * dropped instead of replaying: the queue settles them as their acks
+   * would have, a stored ack's skipped op included. */
   const settleApplied = (
     batches: readonly { batch_id: BatchId; skipped: readonly SkippedOp[] }[],
   ): void => {
-    if (batches.length === 0) return;
-    if (batches.some((b) => b.skipped.length > 0)) skipped.emit(undefined);
-    queue.settleCommitted?.(batches.map((b) => b.batch_id));
+    queue.settleCommitted?.(batches);
   };
 
   /** `pending`: the rows init read, which a database queued into before its
@@ -449,33 +436,17 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     batches: PendingBatch[],
     beforePost: () => void,
   ): Promise<void> => {
+    const deliverLeased = queue.deliverLeased;
     for (const b of batches) {
       // poisoned batches were already rejected by the server; retrying
       // them forever would wedge recovery (offline-editing-design.md §6)
       if (b.poisoned) continue;
       beforePost();
-      // This flush knows nothing about the lane on its own: ask
-      // the queue for the same ordering guarantee the drain enforces on
-      // itself before posting a batch it pulls. Checked again after, since
-      // deliverLaneAhead can take a while and a poison repair may claim
-      // recovery during it.
-      await queue.deliverLaneAhead?.(b.batch_id);
-      beforePost();
-      const ack = opsAckOfWire(await fetchJson("/api/ops", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          client_id: clientId, batch_id: b.batch_id, ops: b.ops,
-          ...(b.seen_seq !== undefined ? { seen_seq: b.seen_seq } : {}),
-        }),
-      }));
-      const reading = readOpsAck(ack);
-      // This batch committed (skipped ops are not a rejection), same as the
-      // lane and the durable drain: the view is told so it can refetch the
-      // ghost this batch's skip leaves behind.
-      if (reading.skipped.length > 0) {
-        skipped.emit(undefined);
+      if (deliverLeased === undefined) {
+        throw new Error("no queue to deliver a leased batch");
       }
+      // beforePost runs again inside, after the lane ahead.
+      const reading = await deliverLeased(b, beforePost);
       heldAcks.push({ id: b.id, batch_id: b.batch_id, seq: reading.seq ?? null });
     }
   };
@@ -953,6 +924,5 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       stopped = true;
       if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
     },
-    onSkipped: skipped.add,
   };
 }

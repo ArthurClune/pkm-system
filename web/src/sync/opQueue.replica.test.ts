@@ -5,14 +5,14 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { defaultUnauthorizedHandler, setUnauthorizedHandler } from "../api/client";
 import type { BatchId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
-import type { OpsAck } from "../api/payloads";
+import type { OpBatch, OpsAck, SkippedOp } from "../api/payloads";
 import { MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING } from "../grammar/textLimits";
 import type { Replica } from "../replica/client";
 import { ReplicaError, ReplicaUnusableError,
          RpcLifecycleError } from "../replica/errors";
 import {
   jsonResponse, canonicalTitleOf, uidOf, batchIdOf, pendingRowIdOf, seqOf, bodyBatchId, jsonRecord,
-  objectContaining, sentBody,
+  objectContaining, sentBody, clientIdOf,
 } from "../test-helpers";
 import { memReplica } from "./memReplica";
 import { clientId, createOpQueue, type PoisonEvent } from "./opQueue";
@@ -1439,9 +1439,117 @@ describe("fallback lane ordering against durable batches", () => {
   });
 });
 
-describe("deliverLaneAhead", () => {
-  test("deliverLaneAhead posts exactly the lane entries a batch follows, in order",
+describe("deliverLeased", () => {
+  const CID = clientIdOf("c-leased");
+  const SKIP = {
+    index: 0, op: "update_text", uid: uidOf("tuid-u1"),
+    reason: "block_not_found", note_page: null,
+  } satisfies SkippedOp;
+
+  /** A queue posting through a recording `post`, with one lane entry and a
+   * durable row behind it: the row is what a recovery lease hands out. */
+  async function laneThenDurable(answer: (body: OpBatch) => OpsAck =
+    () => ({ ok: true, ts: 1, applied: 1, seq: seqOf(7) })) {
+    const bodies: OpBatch[] = [];
+    const post = vi.fn(async (body: OpBatch) => {
+      bodies.push(body);
+      return answer(body);
+    });
+    const replica = memReplica();
+    const durableEnqueue = replica.enqueue.bind(replica);
+    const q = createOpQueue(replica, { post, clientId: CID });
+    q.setOnline(false);
+    replica.enqueue = async () => { throw new Error(CANTOPEN); };
+    const lane = q.enqueue([op("tuid-lane")]);
+    await q.settled();
+    replica.enqueue = durableEnqueue;
+    const durable = q.enqueue([op("tuid-leased")]);
+    await q.settled();
+    return { q, replica, bodies, post, lane, durable, leased: replica.rows[0] };
+  }
+
+  test("deliverLeased delivers the lane entries the batch follows, then posts " +
+       "the batch, and returns its reading", async () => {
+    const { q, bodies, lane, leased } = await laneThenDurable();
+    const first = await q.deliverLeased({ ...leased, seen_seq: seqOf(4) },
+                                        () => undefined);
+    const second = await q.deliverLeased(leased, () => undefined);
+    expect(bodies).toEqual([
+      { client_id: CID, batch_id: bodies[0].batch_id, ops: [op("tuid-lane")] },
+      { client_id: CID, batch_id: leased.batch_id, ops: [op("tuid-leased")],
+        seen_seq: 4 },
+      { client_id: CID, batch_id: leased.batch_id, ops: [op("tuid-leased")] },
+    ]);
+    expect("seen_seq" in bodies[2]).toBe(false);
+    expect(first).toEqual({ seq: 7, skipped: [] });
+    expect(second).toEqual({ seq: 7, skipped: [] });
+    await expect(lane.delivered).resolves.toEqual({ status: "delivered" });
+  });
+
+  test("deliverLeased checks beforePost after the lane ahead and posts nothing " +
+       "when it throws", async () => {
+    const { q, bodies, leased } = await laneThenDurable();
+    const claimed = new Error("poison claimed recovery");
+    const checks: number[] = [];
+    await expect(q.deliverLeased(leased, () => {
+      checks.push(bodies.length);
+      throw claimed;
+    })).rejects.toBe(claimed);
+    // checked once, after the lane entry went out
+    expect(checks).toEqual([1]);
+    expect(bodies.map((b) => b.ops)).toEqual([[op("tuid-lane")]]);
+  });
+
+  test("deliverLeased's ack naming a skipped op reaches onSkipped once", async () => {
+    const { q, leased } = await laneThenDurable((body) => ({
+      ok: true, ts: 1, applied: 1,
+      skipped: JSON.stringify(body.ops) === JSON.stringify([op("tuid-leased")])
+        ? [SKIP] : [],
+    }));
+    const skips: void[] = [];
+    q.onSkipped(() => skips.push(undefined));
+    const reading = await q.deliverLeased(leased, () => undefined);
+    expect(reading.skipped).toEqual([SKIP]);
+    expect(skips).toHaveLength(1);
+  });
+
+  test("deliverLeased throws once disposed and posts nothing", async () => {
+    const { q, bodies, leased } = await laneThenDurable();
+    q.dispose();
+    await expect(q.deliverLeased(leased, () => undefined))
+      .rejects.toThrow("disposed");
+    expect(bodies).toEqual([]);
+  });
+
+  test("deliverLeased leaves the batch's ticket and lane mark to the commit",
   async () => {
+    const { q, replica, durable, leased } = await laneThenDurable();
+    await q.deliverLeased(leased, () => undefined);
+    const outcome = await Promise.race([
+      durable.delivered.then(() => "settled"), Promise.resolve("pending"),
+    ]);
+    expect(outcome).toBe("pending");
+    expect(replica.rows.map((r) => r.batch_id)).toEqual([leased.batch_id]);
+  });
+
+  test("settleCommitted with a batch whose stored ack skipped an op emits " +
+       "onSkipped once", () => {
+    const q = createOpQueue(memReplica(), { post: vi.fn() });
+    const skips: void[] = [];
+    q.onSkipped(() => skips.push(undefined));
+    q.settleCommitted([
+      { batch_id: bid("b-1"), skipped: [SKIP] },
+      { batch_id: bid("b-2"), skipped: [SKIP] },
+    ]);
+    q.settleCommitted([{ batch_id: bid("b-3"), skipped: [] }]);
+    expect(skips).toHaveLength(1);
+    q.dispose();
+  });
+});
+
+describe("deliverLeased's lane ahead", () => {
+  test("deliverLeased posts exactly the lane entries a batch follows, in order, " +
+       "then the batch", async () => {
     const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
     const replica = memReplica();
     const durableEnqueue = replica.enqueue.bind(replica);
@@ -1459,18 +1567,17 @@ describe("deliverLaneAhead", () => {
     await q.settled();
     const leasedId = replica.enqueued[0];
 
-    await q.deliverLaneAhead(leasedId);
+    await q.deliverLeased(replica.rows[0], () => undefined);
 
     expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops))
-      .toEqual([[op("tuid-first")], [op("tuid-second")]]);
+      .toEqual([[op("tuid-first")], [op("tuid-second")], [op("tuid-leased")]]);
     await expect(first.delivered).resolves.toEqual({ status: "delivered" });
     await expect(second.delivered).resolves.toEqual({ status: "delivered" });
-    // deliverLaneAhead never touches the durable batch itself: it is left for
-    // the caller (replicaSync.flushBatches) to POST.
+    // The leased row itself stays: the recovery commit deletes it.
     expect(replica.rows.map((r) => r.batch_id)).toEqual([leasedId]);
   });
 
-  test("deliverLaneAhead throws and keeps the entry when its POST fails",
+  test("deliverLeased throws and keeps the lane entry when its POST fails",
   async () => {
     const replica = memReplica();
     const durableEnqueue = replica.enqueue.bind(replica);
@@ -1485,24 +1592,28 @@ describe("deliverLaneAhead", () => {
     replica.enqueue = durableEnqueue;
     q.enqueue([op("tuid-leased")]);
     await q.settled();
-    const leasedId = replica.enqueued[0];
     expect(unsent.at(-1)).toBe(1);
 
-    fetchSeq([() => { throw new Error("network down"); }]);
-    await expect(q.deliverLaneAhead(leasedId)).rejects.toThrow("network down");
+    const { bodies } = fetchSeq([() => { throw new Error("network down"); }]);
+    await expect(q.deliverLeased(replica.rows[0], () => undefined))
+      .rejects.toThrow("network down");
+    expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops))
+      .toEqual([[op("tuid-held")]]);
     expect(unsent.at(-1)).toBe(1); // still retained, not dropped
     await expect(Promise.race([entry.delivered.then(() => "settled"),
                                Promise.resolve("pending")]))
       .resolves.toBe("pending");
   });
 
-  test("deliverLaneAhead throws once the queue is disposed", async () => {
+  test("deliverLeased throws once the queue is disposed", async () => {
     const q = createOpQueue(memReplica());
     q.dispose();
-    await expect(q.deliverLaneAhead(bid("whatever"))).rejects.toThrow("disposed");
+    await expect(q.deliverLeased({
+      id: pendingRowIdOf(1), batch_id: bid("whatever"), ops: [], poisoned: false,
+    }, () => undefined)).rejects.toThrow("disposed");
   });
 
-  test("two concurrent deliverLaneAhead calls racing the same head shift it once and do not lose the next entry",
+  test("two concurrent deliverLeased calls racing the same head shift it once and do not lose the next entry",
   async () => {
     // What a drain and a concurrent recovery flush (replicaSync.flushBatches)
     // each attempting to deliver the same lane head looks like: a duplicate
@@ -1525,8 +1636,9 @@ describe("deliverLaneAhead", () => {
     await q.settled();
     const durableId = replica.enqueued[0];
 
-    const first = q.deliverLaneAhead(durableId);
-    const second = q.deliverLaneAhead(durableId);
+    const leased = replica.rows.find((r) => r.batch_id === durableId)!;
+    const first = q.deliverLeased(leased, () => undefined);
+    const second = q.deliverLeased(leased, () => undefined);
     await Promise.all([first, second]);
 
     expect(bodies.filter((body) =>
@@ -1535,19 +1647,24 @@ describe("deliverLaneAhead", () => {
     expect(bodies.some((body) =>
       JSON.stringify((body.body as { ops: unknown[] }).ops) ===
         JSON.stringify([op("tuid-b")]))).toBe(true);
+    // each call posts the leased batch once, a replay the server dedupes
+    expect(bodies.filter((body) =>
+      JSON.stringify((body.body as { ops: unknown[] }).ops) ===
+        JSON.stringify([op("tuid-durable")])).length).toBe(2);
     await expect(a.delivered).resolves.toEqual({ status: "delivered" });
     await expect(b.delivered).resolves.toEqual({ status: "delivered" });
     // the lane is fully empty: only the untouched durable row remains pending.
     await expect(q.refreshPending()).resolves.toBe(1);
   });
 
-  test("deliverLaneAhead calls onSkipped once when the lane entry's ack names a skipped op",
+  test("deliverLeased calls onSkipped once when the lane entry's ack names a skipped op",
   async () => {
     fetchSeq([() => jsonResponse({
       ok: true, ts: 1, applied: 1,
       skipped: [{ index: 0, op: "update_text", uid: uidOf("tuid-u1"),
                   reason: "block_not_found", note_page: canonicalTitleOf("2026-09-29") }],
-    } satisfies OpsAck)]);
+    } satisfies OpsAck), () => jsonResponse(
+      { ok: true, ts: 1, applied: 1, skipped: [] } satisfies OpsAck)]);
     const replica = memReplica();
     const durableEnqueue = replica.enqueue.bind(replica);
     const failEnqueue = async (): Promise<never> => { throw new Error(CANTOPEN); };
@@ -1562,15 +1679,13 @@ describe("deliverLaneAhead", () => {
     replica.enqueue = durableEnqueue;
     q.enqueue([op("tuid-durable")]); // follows the lane entry
     await q.settled();
-    const durableId = replica.enqueued[0];
-
-    await q.deliverLaneAhead(durableId);
+    await q.deliverLeased(replica.rows[0], () => undefined);
 
     expect(skips).toHaveLength(1);
     await expect(lane.delivered).resolves.toEqual({ status: "delivered" });
   });
 
-  test("deliverLaneAhead does not call onSkipped for a clean ack", async () => {
+  test("deliverLeased does not call onSkipped for a clean ack", async () => {
     fetchSeq([() => jsonResponse(
       { ok: true, ts: 1, applied: 1, skipped: [] } satisfies OpsAck)]);
     const replica = memReplica();
@@ -1587,9 +1702,8 @@ describe("deliverLaneAhead", () => {
     replica.enqueue = durableEnqueue;
     q.enqueue([op("tuid-durable")]);
     await q.settled();
-    const durableId = replica.enqueued[0];
 
-    await q.deliverLaneAhead(durableId);
+    await q.deliverLeased(replica.rows[0], () => undefined);
 
     expect(skips).toEqual([]);
   });

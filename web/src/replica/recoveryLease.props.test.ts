@@ -1,8 +1,8 @@
 // @vitest-environment node
 // The worker's recovery lease, driven through buildHandlers by drawn commands
 // and checked against a model of the lease's contract (sync-recovery.md
-// § runRecovery): the client sends a deadline and may move it later by
-// renewing; once the clock reaches the deadline the lease is expired, the
+// § The recovery lease): the client sends a deadline and may move it later
+// by renewing; once the clock reaches the deadline the lease is expired, the
 // gate is freed and the token is refused, unless a commit has begun. A lease
 // call that finds the deadline passed expires the lease itself, whether or
 // not the timer has run. The clock is the injected one; the timers keep pace

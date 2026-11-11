@@ -408,6 +408,36 @@ describe("a recovery lease renewed by its client", () => {
     await expect(l.handlers.abortRecovery(l.token)).rejects.toThrow(LEASE_EXPIRED);
   });
 
+  test.each([Infinity, NaN])("a renewal to deadline %s is refused and the "
+    + "lease keeps its deadline", async (expiresAtMs) => {
+    const l = await heldLease();
+
+    await expect(l.handlers.renewRecovery({ token: l.token, expiresAtMs }))
+      .rejects.toThrow("invalid lease deadline");
+
+    await l.tick(99);
+    expect(l.settled()).toBe(false);
+    await l.tick(100);
+    await expect(l.queued).resolves.toMatchObject({ pending: 1 });
+  });
+
+  test("a prepare whose deadline passed while it queued behind a renewed lease "
+    + "is refused once the gate frees, and leaves the gate free", async () => {
+    const l = await heldLease();
+    const second = l.handlers.prepareRecovery({ expiresAtMs: 100 });
+    const outcome = second.then(() => "leased",
+      (e: unknown) => e instanceof Error ? e.message : String(e));
+    await l.tick(50);
+    await l.handlers.renewRecovery({ token: l.token, expiresAtMs: 250 });
+    await l.tick(200);
+    await l.handlers.abortRecovery(l.token);
+
+    expect(await outcome).toBe("recovery preparation expired");
+    await expect(l.handlers.enqueue({
+      ops: [{ op: "delete", uid: uidOf("uid_after") }], batchId: bid("batch-after"),
+    })).resolves.toEqual({ pending: 2, batchId: "batch-after" });
+  });
+
   test("a renewal with a token never issued is refused as invalid", async () => {
     const l = await heldLease();
 

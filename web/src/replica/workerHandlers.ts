@@ -684,6 +684,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers<ReplicaRpc> {
       return { token: prepared.token, batches: prepared.value.batches };
     },
     async renewRecovery({ token, expiresAtMs }) {
+      if (!Number.isFinite(expiresAtMs)) {
+        throw new Error("invalid lease deadline");
+      }
       const held = liveLease(token);
       if (held === null) throw refusal(token);
       // The later deadline wins: a renewal delivered late never shortens it.

@@ -272,9 +272,13 @@ export async function apiFetch<T>(
       if (watch?.fired()) throw e;
       // the socket status lags a just-dropped network by up to its reconnect
       // timer; a failed fetch inside that window falls back to the shim
-      if (gateway) return await localFetch<T>(path, init);
+      if (gateway) {
+        watch?.clear();
+        return await localFetch<T>(path, init);
+      }
       throw e;
     }
+    watch?.rearm();
     if (res.status === 401) {
       onUnauthorized();
       throw await errorFor(res, path);

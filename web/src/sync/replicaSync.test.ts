@@ -145,6 +145,13 @@ const logged = (warn: ReturnType<typeof quietWarn>, text: string) =>
   warn.mock.calls.filter(([m]) => typeof m === "string" && m.includes(text)).length;
 afterEach(() => { vi.restoreAllMocks(); });
 
+/** A recovery's snapshot read: aborted by its lease keeper, untimed,
+ * stall-bounded, renewing on progress. */
+const RECOVERY_INIT: { signal: unknown } = { signal: expect.any(AbortSignal) };
+const RECOVERY_DOWNLOAD: { timeoutMs: null; stallMs: number; onProgress: unknown } = {
+  timeoutMs: null, stallMs: SNAPSHOT_STALL_MS, onProgress: expect.any(Function),
+};
+
 describe("start, bootstrap and feed pulls", () => {
   test("start on an empty replica bootstraps from the snapshot then is ready", async () => {
     const replica = fakeReplica({}, { empty: true, cursor: seqOf(0) });
@@ -630,7 +637,8 @@ describe("poison recovery ownership", () => {
     expect(replica.calls).toContain("prepareRecovery");
     expect(replica.calls).toContain("commitRecovery");
     expect(fetchJson).toHaveBeenCalledWith(
-      "/api/sync/snapshot", expect.anything(), expect.objectContaining({ timeoutMs: null }),
+      "/api/sync/snapshot", RECOVERY_INIT,
+      expect.objectContaining(RECOVERY_DOWNLOAD),
     );
   });
 
@@ -2674,7 +2682,8 @@ describe("pending batches a payload already holds", () => {
     await sync.start();
     await sync.rebaseAuthoritative("poison");
     expect(fetchJson).toHaveBeenCalledWith(
-      "/api/sync/snapshot", expect.anything(), expect.objectContaining({ timeoutMs: null }));
+      "/api/sync/snapshot", RECOVERY_INIT,
+      expect.objectContaining(RECOVERY_DOWNLOAD));
   });
 
   test("a rebase whose flush got every ack names nothing", async () => {
@@ -2693,7 +2702,8 @@ describe("pending batches a payload already holds", () => {
     });
     await sync.start();
     expect(fetchJson).toHaveBeenCalledWith(
-      "/api/sync/snapshot", expect.anything(), expect.objectContaining({ timeoutMs: null }));
+      "/api/sync/snapshot", RECOVERY_INIT,
+      expect.objectContaining(RECOVERY_DOWNLOAD));
   });
 });
 
@@ -3340,6 +3350,34 @@ describe("the recovery lease's renewals", () => {
     expect(renew.at).toEqual([15_000, 46_000]);
   });
 
+  test("a lease granted after a wait longer than the renewal interval is " +
+       "renewed at once, before any download progress", async () => {
+    vi.useFakeTimers();
+    const t0 = Date.now();
+    const renew = renewals(t0);
+    const progress: number[] = [];
+    const replica = fakeReplica({
+      renewRecovery: renew.renewRecovery,
+      prepareRecovery: () => after(LEASE_RENEW_EVERY_MS + 5_000,
+                                   { token: "lease-1", batches: [] }),
+    }, { schemaMismatch: true });
+    const snapshot = download([10_000]);
+    const fetchJson = vi.fn(async (path: string, init?: RequestInit,
+                                   opts?: ApiFetchOptions): Promise<unknown> =>
+      path === "/api/sync/snapshot"
+        ? snapshot.fetch(init, { ...opts, onProgress: () => {
+          progress.push(Date.now() - t0);
+          opts?.onProgress?.();
+        } })
+        : feed());
+    const sync = createReplicaSync({ replica, fetchJson, onState: () => undefined });
+    const started = sync.start();
+    await vi.advanceTimersByTimeAsync(LEASE_RENEW_EVERY_MS + 15_000);
+    await started;
+    expect(progress).toEqual([LEASE_RENEW_EVERY_MS + 15_000]);
+    expect(renew.at).toEqual([LEASE_RENEW_EVERY_MS + 5_000]);
+  });
+
   test("the commit waits for the renewal in flight", async () => {
     vi.useFakeTimers();
     const events: string[] = [];
@@ -3497,8 +3535,8 @@ describe("the recovery lease's renewals", () => {
     expect(error).toMatchObject({ message: LEASE_EXPIRED });
     // the refusal reached the run while the second batch was in flight
     expect(posts).toEqual(["b-1", "b-2"]);
-    expect(fetchJson).not.toHaveBeenCalledWith(
-      "/api/sync/snapshot", expect.anything(), expect.anything());
+    expect(fetchJson.mock.calls.some(
+      ([path]) => path.startsWith("/api/sync/snapshot"))).toBe(false);
   });
 
   test("a live client abandons a stalled download before the worker's lease " +

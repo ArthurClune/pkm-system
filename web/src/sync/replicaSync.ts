@@ -574,6 +574,8 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       const lease = await replica.prepareRecovery();
       token = lease.token;
       const keeper = keepLease(lease.token, origin);
+      // A wait at the gate spent part of the lease: renew now if it was long.
+      keeper.renewIfDue();
       await flushLease(lease, options.flush, keeper);
       // Names no pending batch, unlike a pull or a bootstrap: no leased row
       // can be committed without an ack held in heldAcks, which the commit

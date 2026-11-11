@@ -185,6 +185,12 @@ class Turn:
                                            - self.interrupts_before)
 
 
+def at_most_one_interrupt(turn: Turn, how: str) -> None:
+    """A turn's stop sent the CLI at most one interrupt."""
+    assert turn.interrupts() <= 1, (
+        f"turn {turn.prompt} sent {turn.interrupts()} interrupts ({how})")
+
+
 def assert_of(prompt: str, events: list[AssistantEvent]) -> None:
     """Every event a turn showed belongs to its own prompt."""
     for ev in events:
@@ -303,8 +309,7 @@ class TurnMachine(RuleBasedStateMachine):
         assert turn is not None
         assert turn.task.done(), f"turn {turn.prompt} did not end ({how})"
         assert_of(turn.prompt, turn.events)
-        assert turn.interrupts() <= 1, (
-            f"turn {turn.prompt} sent {turn.interrupts()} interrupts ({how})")
+        at_most_one_interrupt(turn, how)
         stopped = [ev for ev in turn.events if isinstance(ev, TurnStopped)]
         if how.startswith("user stop"):
             assert stopped == [turn.events[-1]], (how, turn.events)

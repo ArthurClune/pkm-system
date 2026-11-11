@@ -33,7 +33,7 @@ from props.harness import (DAILY_TITLE, FROZEN_NOW, FreshApp,
                            assert_unique_keys, assert_well_formed, examples,
                            fresh_app, merge_floors, read_db, seed_ops,
                            template_db_path)
-from props.model import MBlock, Model
+from props.model import MBlock, Model, Outcome
 from props.limit_texts import (AT_NESTING_LIMIT, COPIES_PAST_CAP, EMOJI_AT_CAP,
                                LONG_WITHIN_CAP, NEST_IN_CODE, PAST_LIMIT_TEXTS)
 from props.strategies import PAGES, batch_for, seed_tree, texts, uid_pool
@@ -111,6 +111,11 @@ class ClippedOps(list):
                    f" ({len(op['text'])} characters)"}
                   if len(op.get("text", "")) > CLIP_OVER else op
                   for op in self])
+
+
+def status_matches_model(r: Response, outcome: Outcome) -> None:
+    """The server's status for a batch is the one the model predicts."""
+    assert r.status_code == outcome.status, r.text
 
 
 def _snapshot(app: FreshApp) -> tuple[Any, ...]:
@@ -373,7 +378,7 @@ class OpsMachine(RuleBasedStateMachine):
             event(path)
         before = _snapshot(self.app)
         r = self._post(payload)
-        assert r.status_code == outcome.status, r.text
+        status_matches_model(r, outcome)
         event(f"status: {r.status_code}")
         if r.status_code != 200:
             assert _snapshot(self.app) == before

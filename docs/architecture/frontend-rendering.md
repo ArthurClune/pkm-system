@@ -86,7 +86,7 @@ and the only place a segment becomes a component.
 | anything else | plain text |
 
 A `depth` prop rides the recursive cases: `BlockRef` renders the raw `((uid))`
-at its `MAX_DEPTH` of 3, and `QueryBlock` stops at 2. `EditableBlockTree`
+at its own `MAX_DEPTH`, and `QueryBlock` stops at its own. `EditableBlockTree`
 resolves two block-level shapes before this dispatch, `{{toc}}` (`TocBlock`,
 `tocEntries.ts`, `isTocMacro`) and a table macro (`roamTableRows`), both only
 while the row is unfocused.
@@ -125,7 +125,7 @@ one way to read either.
 The payload wins where both have the uid. The store keeps per-uid listener sets
 read through `useSyncExternalStore`, so a resolved batch wakes only its own
 refs. Requests from one render pass batch into one call, chunked at the
-server's 50-uid cap. `claimRequest` is the fetch-once guard, and keeps claims
+server's per-request cap (`CHUNK` in `BlockRefProvider.tsx`). `claimRequest` is the fetch-once guard, and keeps claims
 only for uids the server could not resolve.
 
 ## Mermaid

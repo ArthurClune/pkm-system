@@ -290,8 +290,8 @@ def get_page(request: Request, title: RawTitle, bl_offset: Int64 = 0, bl_limit: 
 def create_page(request: Request, body: CreatePageRequest,
                 db: Db = Depends(get_db)) -> PageMeta:
     """Idempotent: creating an existing page returns its row, not an error.
-    A title longer than 1,000 characters (`MAX_PAGE_TITLE_CHARS`) is a 422,
-    even for a page stored before the cap."""
+    A title over `MAX_PAGE_TITLE_CHARS` is a 422, even for a page stored
+    before the cap."""
     # Judged on the title as sent, before the store looks it up: the store
     # refuses only creating a long page, and this route refuses the title.
     measured = title_length_over(body.title)
@@ -383,8 +383,8 @@ def rename_page(request: Request, title: RawTitle, body: RenamePageRequest,
     top-level blocks appended after the target's, referencing text
     rewritten to the target, source page row dropped) -- a confirm-gated
     merge, not a silent overwrite. Case-sensitive throughout, like
-    pages.title itself. 422 when the new title is blank, refused or longer
-    than 1,000 characters, or when the rewrite would carry a block over the
+    pages.title itself. 422 when the new title is blank, refused or over
+    `MAX_PAGE_TITLE_CHARS`, or when the rewrite would carry a block over the
     text length cap or nest its `[[` past the cap (a longer title lengthens
     every link to it); the detail names the block, and nothing changes."""
     # The write lock is taken before the first read the decision rests on

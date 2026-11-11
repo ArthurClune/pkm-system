@@ -47,11 +47,14 @@ route whose decision rests on what it reads joins them.
 
 **Every one takes the lock through `pkm.server.db.write_txn`.** A lock the
 busy timeout could not take is a 503 with `Retry-After`. The helper rolls
-back on any raise and commits on a clean exit, a `return` included. The nudge follows the `with` block
-([Post-commit nudges](#post-commit-nudges)). `test_write_txn.py` scans
-`server/src` and fails on a `begin_immediate` call outside the helper, and on
-a `.commit()` in `pkm/server` outside it (`upload_asset` alone is allow-listed:
-`assets` is not journalled).
+back on any raise and commits on a clean exit, a `return` included. The nudge
+follows the `with` block ([Post-commit nudges](#post-commit-nudges)).
+
+`test_write_txn.py` scans `server/src` and fails on a `begin_immediate` call
+outside the helper, and on a `.commit()` in `pkm/server` outside it.
+`upload_asset` alone is allow-listed: `assets` is not journalled, so it
+takes no write lock and has no busy branch. Its `INSERT` waits for the lock
+implicitly, and a lock held past the busy timeout reaches the client as a 500.
 
 A read of several statements, such as a sync payload or the assistant's
 card, takes one snapshot through `db.read_txn`, without the write lock. A
@@ -127,17 +130,18 @@ client's queue over a server bug.
 - **Text limits.** `ops_core.judge_batch` judges every op's text against
   the [text limits](#work-bounds-under-the-write-lock), a skipped one
   included, before the title check, so `extract` never scans an over-long
-  text. The route runs it in the threadpool before `BEGIN IMMEDIATE`:
-  judging a large batch takes seconds, and the judges must hold neither the
-  single writer nor the event loop. `apply_batch` takes a `JudgedBatch`, and
-  only `judge_batch` makes one. That is a convention, not a check: the
-  dataclass is public. A refused batch is looked up in `applied_batches`
-  without the lock before its 400, and one already applied replays its
-  stored ack. A deploy that tightens a limit can therefore never turn the
-  retry of a batch whose ack was lost into a 400, which the client treats
-  as terminal and discards. Length is judged before nesting, so the nesting
-  measure never reads past the cap. What a replay may build, and the budget
-  a batch's replays share, are in the same section.
+  text. Length is judged before nesting, so the nesting measure never reads
+  past the cap. The route runs it in the threadpool before `BEGIN
+  IMMEDIATE`: judging a large batch takes seconds, and the judges must hold
+  neither the single writer nor the event loop. `apply_batch` takes a
+  `JudgedBatch`, and only `judge_batch` makes one. That is a convention, not
+  a check: the dataclass is public. A refused batch is looked up in
+  `applied_batches` without the lock before its 400, and one already applied
+  replays its stored ack. A deploy that tightens a limit can therefore never
+  turn the retry of a batch whose ack was lost into a 400, which the client
+  treats as terminal and discards. A client's text is refused whole, and
+  server-made text never is
+  ([Work bounds](#work-bounds-under-the-write-lock)).
 - **Title reader.** `apply_batch` reads the title flag once
   (`title_reader`) and passes that one reader to every title the batch
   resolves, every replay and every landing. The replay must match titles
@@ -146,157 +150,6 @@ client's queue over a server bug.
   `Old`, and left linked it re-creates it. A step derives its canonical
   titles once per batch, so asking it under a second reader is an
   `AssertionError` (`replay_core._derived`).
-
-## Work bounds under the write lock
-
-`apply_batch` runs on the event loop and holds the write lock until the
-commit, so its work stalls every other request. Its work is a constant, plus
-work linear in the request, plus work linear in the rows and subtrees of the
-blocks the batch touches. What it derives from the server's history rather
-than from the request is charged to the batch's replay budget. The routes
-that rewrite stored text judge each block they rewrite, and a page delete
-also bounds the copies it builds.
-
-| Bound | Constant | Judged in | Past it |
-|---|---|---|---|
-| a request body | `PRIVATE_BODY_MAX_BYTES` (`auth_gate_core.py`) | `auth_gate_core.private_body_cap`, applied by `AuthGateMiddleware` before the app reads the body | 413 ([backend.md § Auth](backend.md#auth)) |
-| ops in a batch | `MAX_OPS_PER_BATCH` (`contracts/ops.py`) | `OpBatch.ops`, as FastAPI validates the body | 422 |
-| a client's block text | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` (`contracts/ops.py`) | `ops_core.find_op_text_limit_violation` over `text_limits.text_limit_violation`, from `judge_batch` ([Planning](#planning), Text limits) | the whole batch is a 400, unless `applied_batches` holds it, which replays its ack |
-| a page title a `create`, `create_page` or `move` names, or a ref title in a text | `MAX_PAGE_TITLE_CHARS` (`contracts/titles.py`) | `refs.title_length_over`, from `ops_core.find_op_title_violation` in `judge_batch` | as for a block's text |
-| where a client's create or move puts a block | `MAX_OUTLINE_DEPTH` (`contracts/ops.py`) | `ops_core._check_depth`, from `plan_op` | the whole batch is a 400 |
-| where a conflict entry or a diverged delete's copy lands | `MAX_OUTLINE_DEPTH` | `ops_apply._conflict_landing`, `ops_core.descendant_copy_effects` | never refused. `_conflict_landing` reuses today's header only above the cap, else opens a fresh top-level one; `descendant_copy_effects` lands every copy below the cap at it, in document order |
-| a conflict header or skip note naming a page | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` | `conflict_notes._fitted` | the name becomes `LONG_TITLE_LABEL`. The rest stays, so a hint naming no page still says `(page not found)` |
-| one replay step | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING`, `MAX_UNLINK_WORK` (`text_limits.py`) | `replay_core._replay_step`, from the spans before it splices (`spans.spliced_length`, `text_limits.unlink_refused`); then `classify_text_edit` judges the result with `text_limit_violation` | the edit lands `over_limit` |
-| a batch's replays | `MAX_BATCH_REPLAY_WORK`, `ROW_CHARS` (`replay_core.py`) | `ops_apply.BatchReplay._spend`, from `BatchReplay._read` and `BatchReplay.charge` | the edit lands `over_limit`, and its step spends what is left, so every later step of the batch stops before splicing |
-| a rename's or merge's rewrite of stored text | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` | `text_limits.rewrite_text_limit_violation`, from `store.rewrite_snapshotted_blocks` (`RewriteTextLimitError`) | 422 `rename refused: block <uid> on <page>: …`, before any block is written |
-| the title migration's rewrite | the same | the same | 409 `title migration refused: …` |
-| an asset delete's strip | the same | `rewrite_text_limit_violation`, from `routes_assets._strip_references` | 409 `{message, blockers}`, each `limit` ([files-and-assets.md](files-and-assets.md#assets-and-the-file-browser)) |
-| a page delete's copy of one page block | `MAX_BLOCK_TEXT_CHARS`; on the spliced copy, `MAX_LINK_NESTING` and `MAX_UNLINK_WORK` | `unlink._Copies.projected`, then `unlink_refused` in `unlink._Copies.get` | every source referring to it is refused, blocker `limit` |
-| a page delete's source with its copies in | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING`, `MAX_UNLINK_WORK` | `unlink._copy_length`, `unlink_refused` and `rewrite_text_limit_violation`, in `unlink.plan_page_delete` | that source is refused, blocker `limit`, on the delete and its preview alike |
-| copy text over all of a delete's sources | `MAX_DELETE_COPY_CHARS` (`unlink.py`) | `unlink.plan_page_delete`, in source order | each source that would carry the total past it is refused, blocker `limit` |
-
-The text limits exist because export holds a whole block in memory and the
-web tokenizer recurses once per nested run. The depth cap exists because the
-page, block and journal reads answer 500 on an outline 255 levels deep:
-pydantic-core's serialiser has a fixed recursion guard, so one bound on
-writes protects every reader.
-
-A 400 is only ever over what the client sent. A client's own text,
-titles and placements are refused whole. Text and placement the server
-makes are never refused, because a 400 makes the client discard its whole
-offline batch over something it did not send. That covers a replay, a
-stale unlink, a conflict header and a diverged delete's copies.
-
-Server-made text passes a limit only by backticks. A header or note is
-`_fitted`, and text the planner copies from a stored row, such as an
-overwritten edit or a diverged delete's copies, is level with that row. An
-unlink only shortens text, bar two additions. `unlink.defuse_attribute`
-adds two backticks fencing a leading attribute that names a deleted page,
-and `unlink.unlink_stale_refs` two per link the unlink's passes leave
-([Stale batches](#stale-batches)). So a text at the cap
-whose leading attribute names a deleted page is stored at
-`MAX_BLOCK_TEXT_CHARS` + 2
-(`test_a_stale_defuse_at_the_cap_stores_at_most_two_more`). Every spelling
-that stops it indexing and keeps the user's text adds characters.
-
-A stored row over a limit may stay level or improve, never get worse. Only
-the text an op sends is judged: a move, `set_*` op or delete of such a row
-goes through, and an edit that brings it under is accepted. A server
-rewrite asks `rewrite_text_limit_violation(before, after)`, which judges
-each limit on its own. It refuses `after` only when it is over the length
-cap and longer than `before`, or nested past the cap and deeper than
-`before`. `unlink_refused` allows level on both its rules too. So the page
-a legacy row links stays renamable and deletable. Depth is stricter: a
-move is judged by where it puts blocks, so one that leaves a legacy subtree
-past the cap is refused, though the rows stay readable below the readers'
-limit and their text stays editable.
-
-An `over_limit` edit leaves the block's text as it was, lands as a conflict
-entry, and is listed in the ack's `skipped` as `text_limit`. The entry is the
-edit as sent, with every title the replay's chain deleted or renamed away
-made plain (`replay_core.over_limit_landing_text`); left linked, it would
-re-create those pages. The chain is walked past the step that stopped the
-replay, so a later step's titles count too. A step is judged from its spans
-before it splices, because each link grows by up to the title's growth. A
-title may be `MAX_PAGE_TITLE_CHARS` long, a legacy one longer, so the text
-could be orders of magnitude past the cap before it was built.
-
-The replay budget is counted in characters. A block can hold millions of
-rows, so without it a batch of tiny edits could hold the write lock for
-minutes. It charges, and leaves uncharged:
-
-| Work | Charge |
-|---|---|
-| reading the rows from one base hash (`ops_apply._rewrites_within`) | each row's old and new text in bytes, plus `ROW_CHARS`, measured with `octet_length` through `idx_block_rewrites_uid` before any text loads (`test_the_charge_sizes_rows_without_reading_their_text`) |
-| an unlink | what the capped unlink can read (`unlink.unlink_reads`) |
-| a rename | the text it scans plus the text it splices, since a longer title grows every link |
-| the [rows](#conflicts) an op records for a step that changed its text (`replay_core._charged`) | each row's old and new text, plus `ROW_CHARS`; an inline row's new text is its copy |
-| a move or delete of a large subtree, which rewrites or hashes every descendant | nothing |
-| the stale-title load (`store.stale_titles`), once per batch | nothing; it is linear in the pages deleted since the batch's `seen_seq`, which the client sends |
-
-The uncharged costs grow with the server's data, not the request. A
-request bounds only how many such ops it carries, so a batch can repeat
-them; [SECURITY.md § Known limitations](../SECURITY.md#known-limitations)
-states the consequence.
-
-A step a cap or the budget stops pays for what it scanned or built
-(`replay_core._spent`). A stopped step is not kept, so one that paid
-nothing would be done again by every op of the batch. Nothing an op does
-beyond its charge may grow with the block's rows or a step's titles.
-Otherwise one stale edit linking many deleted titles makes every later edit
-of the block pay for all of them. So a block's rows are read one base hash
-at a time, only when an edit's walk reaches that hash (`BatchReplay.walk`,
-`RewriteHistory.next_unread`), and the batch keeps what it reads and
-records. A hash too costly to read stops the walk blind: the edit lands as
-sent, with every link made plain, since any could name a page the unread
-chain deleted. The rewrite rows look up the classification's steps by what
-`_replay_step` depends on (`replay_core._step_key`) instead of replaying
-them (`test_an_edit_pays_for_its_replay_once`).
-
-A page delete judges length before it builds anything, and builds a page
-block's copy only when a source refers to it (`unlink._Copies`). Every
-judgement counts a copy at its projected length (`spans.spliced_length` of
-the refs it holds), before deeper refs are blanked and links unlinked. A
-copy that blanks down to `""` still costs that length to build.
-`_Copies.projected` finds each block's projection once
-(`test_many_referrers_to_one_ref_heavy_block_cost_one_projection`). Copies
-that each nest within the cap can join into one deep link, and the unlink
-peels one layer per pass over the whole text. So the spliced text is judged
-before unlinking, for nesting and for depth times length
-(`test_copies_joined_into_one_deep_link_are_refused_before_unlinking`). The
-rest of a delete's work grows with the page's text, the referrers' own text
-and the copy text counted, times the unlink's passes: the depth plus
-`unlink.PASSES_PAST_DEPTH` per text, each text held to `MAX_UNLINK_WORK` in
-depth times length. A source refused for its depth keeps
-its copy text counted against `MAX_DELETE_COPY_CHARS`, since its copies
-were built.
-
-A source is judged before unlinking, and the passes that shorten it can
-remove any amount of text, so a delete whose final text would fit can
-still be refused. `MAX_DELETE_COPY_CHARS` sits far above what a page
-written by hand needs; it trades such a delete for a bound on the work. A
-projected `limit` comes ahead of `attribute` and `residual`, so the delete
-dialog names the length first.
-
-`plan_op` judges a create by its own level and a move by the level its
-subtree's deepest block lands at; a top-level block is level 1. Each op
-sees the batch's earlier ops applied. A skipped op places none of the
-client's blocks, so it is not judged.
-
-**Depth rejects the batch rather than skipping the op like `move_cycle`.**
-A skip would need its own note, journal rows and replica mirror, for a case
-that needs an outline near the cap, far deeper than any in use. The cost,
-accepted in the [design](../superpowers/specs/2026-10-24-outline-depth-cap-design.md),
-is a web offline batch [discarded](sync-recovery.md#a-batch-the-server-rejects)
-when two devices' edits, each legal alone, stack past the cap. The web
-refuses what it can see first ([frontend-editor.md](frontend-editor.md#rules-an-edit-must-not-break)).
-
-Server-made landings are bounded instead. Left unbounded, they stack: a
-diverged delete of a top-level block copies its subtree one level deeper,
-under a new header, and a client may send any `base_subtree_hash`.
-Deleting each new header in turn then adds a level per batch. At the cap
-no text is lost, only nesting below it. A client can move an emptied
-header to the cap; only a legacy row sits deeper.
 
 ## Conflicts
 
@@ -351,26 +204,20 @@ So `ops_core.rewrite_effects` plans a `block_rewrites` chain
 
 The chain's stale-unlink rows name each stale title whose own unlink would
 change the sent text, and never one that only another title's unlink
-exposes. `replay_core.stale_titles_linked` finds them in one pass that
-matches nothing and records every title the unlink asks about
-(`unlink.linked_titles`), then intersects those with the stale set
-(`test_one_pass_finds_the_stale_titles_probing_each_found`). Its work
-follows the text's titles, not the titles deleted since `seen_seq`, whose
-number the client picks
-(`test_naming_the_stale_titles_walks_the_text_not_the_deletions`).
+exposes. `replay_core.stale_titles_linked` finds them in one pass over the
+text's titles, not over the titles deleted since `seen_seq`, whose number the
+client picks (`test_naming_the_stale_titles_walks_the_text_not_the_deletions`).
 
 A replayed step is recorded whole (`replay_core._step_records`): every
 title, rename and copy it holds, not only what the sent text moved. The
 client's next queued edit is hashed on the sent text and replays these
-rows. A ref it adds back must still get its copy, and a link it adds back
-must still be unlinked even in a batch without `seen_seq`, where no stale
-unlink catches it. That makes recording a step of many titles cost each
-edit it changes, so the rows are [charged](#work-bounds-under-the-write-lock). A
-row identical to one already stored under its base hash is not written
-again (`ops_apply.BatchReplay.recorded`): one stale edit posted again
-would otherwise multiply its rows. Under a hash too costly to read for
-that comparison every row is written, since a row a later edit needs must
-never be dropped.
+rows, so a ref it adds back still gets its copy, and a link it adds back is
+still unlinked in a batch without `seen_seq`. Recording is
+[charged](#work-bounds-under-the-write-lock). A row identical to one already
+stored under its base hash is not written again
+(`ops_apply.BatchReplay.recorded`), or one stale edit posted again would
+multiply its rows. Under a hash too costly to read for that comparison every
+row is written, since a row a later edit needs must never be dropped.
 
 `delete` may carry `base_subtree_hash` over the uid and text of the block
 and every descendant ([canonical form](sync-and-offline.md#conflicts-at-push-time)).
@@ -525,6 +372,134 @@ points, and `text_length` in code points, never the whole text
 `cleanup_journal` spares any daily note with an incoming link, so a link to a
 journal day cannot dangle. `POST /api/sidebar` is its own path under the
 [write lock](#the-write-lock).
+
+## Work bounds under the write lock
+
+`apply_batch` runs on the event loop and holds the write lock until the
+commit, so its work stalls every other request. Its work is a constant, plus
+work linear in the request, plus work linear in the rows and subtrees of the
+blocks the batch touches. What it derives from the server's history rather
+than from the request is charged to the batch's replay budget. The routes
+that rewrite stored text judge each block they rewrite, and a page delete
+also bounds the copies it builds.
+
+| Bound | Constant | Judged in | Past it |
+|---|---|---|---|
+| a request body | `PRIVATE_BODY_MAX_BYTES` (`auth_gate_core.py`) | `auth_gate_core.private_body_cap`, applied by `AuthGateMiddleware` before the app reads the body | 413 ([backend.md § Auth](backend.md#auth)) |
+| ops in a batch | `MAX_OPS_PER_BATCH` (`contracts/ops.py`) | `OpBatch.ops`, as FastAPI validates the body | 422 |
+| a client's block text | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` (`contracts/ops.py`) | `ops_core.find_op_text_limit_violation` over `text_limits.text_limit_violation`, from `judge_batch` ([Planning](#planning), Text limits) | the whole batch is a 400, unless `applied_batches` holds it, which replays its ack |
+| a page title a `create`, `create_page` or `move` names, or a ref title in a text | `MAX_PAGE_TITLE_CHARS` (`contracts/titles.py`) | `refs.title_length_over`, from `ops_core.find_op_title_violation` in `judge_batch` | as for a block's text |
+| where a client's create or move puts a block | `MAX_OUTLINE_DEPTH` (`contracts/ops.py`) | `ops_core._check_depth`, from `plan_op` | the whole batch is a 400 |
+| where a conflict entry or a diverged delete's copy lands | `MAX_OUTLINE_DEPTH` | `ops_apply._conflict_landing`, `ops_core.descendant_copy_effects` | never refused. `_conflict_landing` reuses today's header only while its level is below the cap, else opens a fresh top-level one; `descendant_copy_effects` lands every copy below the cap at it, in document order |
+| a conflict header or skip note naming a page | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` | `conflict_notes._fitted` | the name becomes `LONG_TITLE_LABEL`. The rest stays, so a hint naming no page still says `(page not found)` |
+| one replay step | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING`, `MAX_UNLINK_WORK` (`text_limits.py`) | `replay_core._replay_step`, from the spans before it splices (`spans.spliced_length`, `text_limits.unlink_refused`); then `classify_text_edit` judges the result with `text_limit_violation` | the edit lands `over_limit` |
+| a batch's replays | `MAX_BATCH_REPLAY_WORK`, `ROW_CHARS` (`replay_core.py`) | `ops_apply.BatchReplay._spend`, from `BatchReplay._read` and `BatchReplay.charge` | the edit lands `over_limit`, and its step spends what is left, so every later step of the batch stops before splicing |
+| a route's rewrite of stored text: rename, merge, title migration, asset strip | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` | `text_limits.rewrite_text_limit_violation`, from `store.rewrite_snapshotted_blocks` (`RewriteTextLimitError`) and `routes_assets._strip_references` | before any block is written: 422 for a rename or merge, 409 for the migration, 409 `{message, blockers}` for the strip, each blocker `limit` ([files-and-assets.md](files-and-assets.md#assets-and-the-file-browser)) |
+| a page delete's copies: one page block, a source with its copies in, the total over all sources | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING`, `MAX_UNLINK_WORK`; the total, `MAX_DELETE_COPY_CHARS` (`unlink.py`) | `unlink._Copies.projected` and `unlink._Copies.get`, then `unlink._copy_length` and `unlink.plan_page_delete`, in source order | each source that would pass a bound is refused, blocker `limit`, on the delete and its preview alike |
+
+The text limits exist because export holds a whole block in memory and the
+web tokenizer recurses once per nested run. The depth cap exists because the
+page, block and journal reads answer 500 on an outline 255 levels deep:
+pydantic-core's serialiser has a fixed recursion guard, so one bound on
+writes protects every reader.
+
+A 400 is only ever over what the client sent. A client's own text, titles and
+placements are refused whole. Text and placement the server makes are never
+refused, because a 400 makes the client discard its whole offline batch over
+something it did not send. That covers a replay, a stale unlink, a conflict
+header and a diverged delete's copies.
+
+Server-made text passes a limit only by backticks. A header or note is
+`_fitted`, and text the planner copies from a stored row is level with that
+row. An unlink only shortens text, bar two additions: `unlink.defuse_attribute`
+fences a leading attribute that names a deleted page, and
+`unlink.unlink_stale_refs` fences each link the unlink's passes leave
+([Stale batches](#stale-batches)). Each adds two backticks, so a text at the
+cap can be stored at `MAX_BLOCK_TEXT_CHARS` + 2
+(`test_a_stale_defuse_at_the_cap_stores_at_most_two_more`).
+
+A stored row over a limit may stay level or improve, never get worse. Only
+the text an op sends is judged: a move, `set_*` op or delete of such a row
+goes through, and an edit that brings it under is accepted. A server rewrite
+asks `rewrite_text_limit_violation(before, after)`, which refuses `after`
+only when it is over the length cap and longer than `before`, or nested past
+the cap and deeper than `before`. `unlink_refused` allows level on both its
+rules too, so the page a legacy row links stays renamable and deletable.
+Depth is stricter: a move is judged by where it puts blocks, so one that
+leaves a legacy subtree past the cap is refused.
+
+An `over_limit` edit leaves the block's text as it was, lands as a conflict
+entry, and is listed in the ack's `skipped` as `text_limit`. The entry is the
+edit as sent, with every title the replay's chain deleted or renamed away,
+including those past the step that stopped it, made plain
+(`replay_core.over_limit_landing_text`); left linked, it would re-create
+those pages. A step is judged from its spans before it splices, because a
+title may be `MAX_PAGE_TITLE_CHARS` long, a legacy one longer, and each link
+grows by up to the title's growth.
+
+The replay budget is counted in characters. A block can hold millions of
+rows, so without it a batch of tiny edits could hold the write lock for
+minutes. It charges, and leaves uncharged:
+
+| Work | Charge |
+|---|---|
+| reading the rows from one base hash (`ops_apply._rewrites_within`) | each row's old and new text in bytes, plus `ROW_CHARS`, measured with `octet_length` through `idx_block_rewrites_uid` before any text loads (`test_the_charge_sizes_rows_without_reading_their_text`) |
+| an unlink | what the capped unlink can read (`unlink.unlink_reads`) |
+| a rename | the text it scans plus the text it splices, since a longer title grows every link |
+| the [rows](#conflicts) an op records for a step that changed its text (`replay_core._charged`) | each row's old and new text, plus `ROW_CHARS`; an inline row's new text is its copy |
+| a move or delete of a large subtree, which rewrites or hashes every descendant | nothing |
+| the stale-title load (`store.stale_titles`), once per batch | nothing; it is linear in the pages deleted since the batch's `seen_seq`, which the client sends |
+
+The uncharged costs grow with the server's data, not the request. A
+request bounds only how many such ops it carries, so a batch can repeat
+them; [SECURITY.md § Known limitations](../SECURITY.md#known-limitations)
+states the consequence.
+
+A step a cap or the budget stops pays for what it scanned or built
+(`replay_core._spent`), or every later op of the batch would repeat it.
+Nothing an op does beyond its charge may grow with the block's rows or a
+step's titles, so a block's rows are read one base hash at a time, only when
+an edit's walk reaches that hash (`BatchReplay.walk`). A hash too costly to
+read stops the walk blind: the edit lands as sent, with every link made
+plain, since any could name a page the unread chain deleted. The rewrite rows
+look up the classification's steps by `replay_core._step_key` instead of
+replaying them (`test_an_edit_pays_for_its_replay_once`).
+
+A page delete judges a copy's projected length (`spans.spliced_length` of
+the refs it holds) before building it, and builds a page block's copy only
+when a source refers to it (`unlink._Copies`). A copy that blanks down to
+`""` still costs that length to build
+(`test_many_referrers_to_one_ref_heavy_block_cost_one_projection`). Copies
+that each nest within the cap can join into one deep link, and the unlink
+peels one layer per pass, so the spliced text is judged before unlinking
+(`test_copies_joined_into_one_deep_link_are_refused_before_unlinking`). A
+source refused for its depth keeps its copy text counted against
+`MAX_DELETE_COPY_CHARS`, since its copies were built. A source is judged
+before unlinking, and the passes can remove any amount of text, so a delete
+whose final text would fit can still be refused: `MAX_DELETE_COPY_CHARS`
+trades such a delete for a bound on the work. A projected `limit` comes ahead
+of `attribute` and `residual`, so the delete dialog names the length first.
+
+`plan_op` judges a create by its own level and a move by the level its
+subtree's deepest block lands at; a top-level block is level 1. Each op
+sees the batch's earlier ops applied. A skipped op places none of the
+client's blocks, so it is not judged.
+
+**Depth rejects the batch rather than skipping the op like `move_cycle`.**
+A skip would need its own note, journal rows and replica mirror, for a case
+that needs an outline near the cap, far deeper than any in use. The cost,
+accepted in the [design](../superpowers/specs/2026-10-24-outline-depth-cap-design.md),
+is a web offline batch
+[discarded](sync-recovery.md#a-batch-the-server-rejects) when two devices'
+edits, each legal alone, stack past the cap. The web refuses what it can see
+first ([frontend-editor.md](frontend-editor.md#rules-an-edit-must-not-break)).
+
+Server-made landings are bounded instead. Left unbounded, they stack: a
+diverged delete of a top-level block copies its subtree one level deeper,
+under a new header, and a client may send any `base_subtree_hash`.
+Deleting each new header in turn then adds a level per batch. At the cap
+no text is lost, only nesting below it. A client can move an emptied
+header to the cap; only a legacy row sits deeper.
 
 ## Post-commit nudges
 

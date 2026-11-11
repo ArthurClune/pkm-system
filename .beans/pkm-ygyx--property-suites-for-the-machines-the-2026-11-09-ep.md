@@ -3,9 +3,9 @@
 title: Property suites for the machines the 2026-11-09 epic converts
 status: todo
 type: task
-priority: deferred
+priority: normal
 created_at: 2026-11-09T21:39:24Z
-updated_at: 2026-11-11T13:19:57Z
+updated_at: 2026-11-11T13:24:12Z
 parent: pkm-4gda
 ---
 

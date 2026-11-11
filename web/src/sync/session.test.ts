@@ -258,10 +258,12 @@ describe("the first connect", () => {
     server.offline = true;
     await session.startup();
     expect(replicaSyncOf(session).hasStarted()).toBe(false);
+    const start = vi.spyOn(replicaSyncOf(session), "start");
 
     server.offline = false;
     await session.onSocketStatus(true);
 
+    expect(start).toHaveBeenCalledTimes(1);
     expect(replicaSyncOf(session).hasStarted()).toBe(true);
     expect(session.replicaState()).toEqual({ mode: "ready" });
   });

@@ -35,6 +35,8 @@ _cached_client: PkmClient | None = None
 # refuses one from the model; a call without it means the card's input
 # never reached this tool, so it is refused rather than run unguarded.
 _require_expect = False
+# Also stays under Claude Code's default MCP token cap on its `chars / 4`
+# estimate, for a pkm-mcp started without --max-chars.
 DEFAULT_MAX_CHARS = 45_000
 # The result size every read tool (`READ_TOOL_NAMES`) declares to Claude Code
 # through its `anthropic/maxResultSizeChars` meta. Claude Code saves a longer

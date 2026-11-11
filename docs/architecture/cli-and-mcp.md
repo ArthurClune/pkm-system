@@ -1,4 +1,4 @@
-# CLI and MCP server (`pkm/cli/`, `pkm/mcp/`, `pkm/client/` + the shared planners)
+# CLI and MCP server
 
 `pkm` (CLI) and `pkm-mcp` (FastMCP stdio server) are thin shells over the same
 HTTP client. They talk to the running server's API, never to SQLite, so they get
@@ -10,13 +10,17 @@ client. [docs/cli.md](../cli.md) owns the user-facing syntax and output,
 |---|---|---|
 | `cli/main.py` | Shell | argparse verbs (`cmd_*`), exit codes |
 | `mcp/tools.py` | Shell | The MCP tool functions and their LLM-facing docstrings |
-| `mcp/server.py` | Shell | `build_server()` registers `TOOLS` on a `FastMCP`, or the subset `--tools` names. Only `pkm-mcp` calls it: constructing a `FastMCP` configures the root logger, and the web server imports the tool signatures for the assistant's write preview |
+| `mcp/server.py` | Shell | `build_server()` registers `TOOLS` on a `FastMCP`, or the subset `--tools` names |
 | `client/api.py` | Shell | `PkmClient`: config, session cookie, every HTTP call |
 | `client/core.py` | Core | Config format, cookie header, error-message shaping |
 | `client/workflows.py` | Shell | The write workflows both shells call, so an ordering fix lands once |
 | `planning.py` | Core | Plans one write (`plan_save`, `plan_update`, `plan_mark`); `Planner` models live siblings |
 | `batch.py` | Core | The `pkm batch` command language on top of `planning.py` |
 | `render.py` | Core | API payloads → terminal markdown with `^uid` markers |
+
+Only `pkm-mcp` calls `build_server()`. Constructing a `FastMCP` configures the
+root logger, and the web server imports the tool signatures for the
+assistant's write preview.
 
 ## The MCP tool surface
 
@@ -32,10 +36,10 @@ annotated with `^uid` markers that the write tools accept. The assistant's
 | `get_page` | read | a page as a `^uid`-annotated markdown outline; past the character budget, a shallower outline instead |
 | `get_block` | read | one block's subtree with page + breadcrumb context; outlined past the budget as `get_page` is |
 | `search` | read | full-text over page titles and block text |
-| `query` | read | structured block query (`{and: [[A]] [[B]]}`, Roam syntax); a partial list past the budget |
-| `backlinks` | read | everything referencing `[[title]]`, grouped by source page; a partial list past the budget |
-| `todos` | read | open `{{TODO}}` blocks, grouped by page; a partial list past the budget |
-| `changed_blocks` | read | blocks edited/created in a `since`/`until` window, grouped by page, tagged new/edited; a partial list past the budget |
+| `query` | read | structured block query (`{and: [[A]] [[B]]}`, Roam syntax) |
+| `backlinks` | read | everything referencing `[[title]]`, grouped by source page |
+| `todos` | read | open `{{TODO}}` blocks, grouped by page |
+| `changed_blocks` | read | blocks edited/created in a `since`/`until` window, grouped by page, tagged new/edited |
 | `search_assets` | read | uploads by image description or filename |
 | `save_note` | write | create block(s); multi-line text becomes an outline, default page is today's daily note |
 | `update_block` | write | replace a block's text or set its task marker; `expect` is set by the assistant's [approval card](assistant.md#the-write-approval-card) |
@@ -53,25 +57,18 @@ only its children, because no other tool returns that text.
 `query`, `backlinks`, `todos` and `changed_blocks` render through
 `render_groups_bounded`, `render_backlinks_bounded` and
 `render_changed_bounded`. A list that fits is the CLI's output unchanged. A
-longer one keeps whole items in payload order, clips each item's text at
-`OUTLINE_TEXT_CHARS` and ends every line `  ^{uid}`. It opens with a
-`(Partial list: ...)` note giving the shown and total counts, the full size and
-a hint on narrowing the call, and how to read a clipped line (its full text is
-`get_block(uid)`), so the assistant knows the result is cut and how to ask
-again. The CLI keeps the unbounded renderers.
+longer one keeps whole items in payload order and clips each item's text at
+`OUTLINE_TEXT_CHARS`. It opens with a `(Partial list: ...)` note saying it is
+partial and how to fetch the rest. The CLI keeps the unbounded renderers.
 
 Every tool in `READ_TOOL_NAMES` returns plain text rather than FastMCP's
 `{"result": ...}` structured content (`structured_output=False`), whose JSON
 escaping would make the result Claude Code measures longer than the budget.
 Claude Code saves a result over 50,000 characters to a file, so each of them
 declares `MAX_RESULT_CHARS` in its `anthropic/maxResultSizeChars` meta and
-`--max-chars` refuses anything above it. `DEFAULT_MAX_CHARS` also passes Claude
-Code's default token cap on its `chars / 4` estimate. The assistant raises both
+`--max-chars` refuses anything above it. The assistant raises both
 the budget and its token cap
 ([assistant.md § Harness confinement](assistant.md#harness-confinement)).
-
-The operator checks `pkm local check` and `pkm goodlinks check` have no MCP
-counterpart ([docs/cli.md](../cli.md#reading)).
 
 ## The shared client
 
@@ -87,13 +84,6 @@ httpx). The read tools are auto-approved, so a title such as
 `../sync/snapshot` must not become a dot segment that httpx normalises onto
 another route. The server decodes the path before routing, so namespaced
 titles still match `{title:wholepath}`.
-
-## Shared write workflows
-
-`upload_and_link` validates the destination page and parent before
-`POST /api/assets`. If the linking `/api/ops` write then fails, it deletes the
-asset only when the upload's `existing` was `false`, since a dedup hit may
-already be referenced elsewhere ([the asset store](files-and-assets.md#assets-and-the-file-browser)).
 
 ## Writes, uids and missing pages
 
@@ -112,23 +102,25 @@ same way.
 | batch `delete` of an `{{alias}}` | nothing | none | — (the batch created it) |
 | batch `delete` of a malformed uid | the fetch 422s | — | the whole batch is refused, nothing sent |
 
-`_delete_subtrees` scales with pages, not deletes. A uid on a page the batch
-already fetched costs nothing; otherwise `GET /api/block/{uid}` names its page,
-which is fetched once for every later delete on it.
+`_delete_subtrees` fetches each page once, however many deletes it holds.
 
 `contracts/ops.py::new_uid` and `web/src/uid.ts::newUid` mint uids starting
 with an alphanumeric. `UID_RE` still accepts a leading `-` or `_`, so older
-blocks stay addressable; tighten only the minters, never `UID_RE`.
+blocks stay addressable: tighten only the minters, never `UID_RE`.
 
-A page a write targets is never created by a separate request, with one
-exception: the default target is today's daily note, and `GET /api/page`
-creates today on read, so `get_page_blocks` can create it before the batch
-is sent. No other title is created by a read.
-`PkmClient.get_page_blocks` reports a missing one as `([], True)`, and the
-workflow prepends a `create_page` op (`planning.create_page_ops`) to the same
-`OpBatch`, so a batch that fails validation leaves neither behind. The lookup
-uses `refs.normalize_title`, because pages are stored only under the
-normalized spelling.
+A write's target page is created in the same `OpBatch` as the write.
+`PkmClient.get_page_blocks` reports a missing page as `([], True)`, and the
+workflow prepends a `create_page` op (`planning.create_page_ops`), so a batch
+that fails validation leaves neither behind. The exception is today's daily
+note, the default target: `GET /api/page` creates it on read, so
+`get_page_blocks` creates it before the batch is sent. No other title is
+created by a read. The lookup uses `refs.normalize_title`, because pages are
+stored only under the normalized spelling.
+
+`upload_and_link` validates the destination page and parent before
+`POST /api/assets`. If the linking `/api/ops` write then fails, it deletes the
+asset only when the upload's `existing` was `false`, since a dedup hit may
+already be referenced elsewhere ([the asset store](files-and-assets.md#assets-and-the-file-browser)).
 
 `PkmClient.get_backlinks` follows `bl_offset`/`bl_limit` to the end, because
 no output in this project truncates silently. When a concurrent write shifts a
@@ -144,10 +136,10 @@ source between pages (`_fetch_backlinks_once`), it restarts, up to
 `validate_batch` checks the envelope against strict (`extra="forbid"`) params
 models before anything else, so a malformed batch fetches and creates nothing.
 It also runs `batch_aliases`, which refuses an `{{alias}}` used before (or by)
-the command that makes it and an `as` name given twice; `plan_batch` runs it
-too, so a caller that skips `validate_batch` gets the same error. Checks that
-need the fetched pages, such as a missing move-target heading, stay in the
-planner.
+the command that makes it, and an `as` name given twice. `plan_batch` runs
+`batch_aliases` too, so a caller that skips `validate_batch` gets the same
+error. Checks that need the fetched pages, such as a missing move-target
+heading, stay in the planner.
 
 Two spellings of one page share one fetch and one sibling model (`page_keys`),
 or each would append from the same blocks and collide. Only the server's
@@ -177,30 +169,23 @@ the last sibling's key. `Planner` keeps a live sibling list per (page, parent).
 The batch `index` param is a position, not a key, counted against the page as
 fetched and then as earlier commands left it. A move's position counts the
 destination's children without the moving block, and a position past the end
-appends. `order_idx_at_position` is the
-only place a position becomes an `OrderIdx`. The model does not simulate an op
-the server will skip, so a later position in that op's groups can be off (see
-the `Planner` docstring).
+appends. Only `order_idx_at_position` turns a position into an `OrderIdx`.
+The model does not simulate an op the server will skip, so a later position
+in that op's groups can be off (see the `Planner` docstring).
 
 ## Section selection
 
 `pkm get --section SPEC` (`render.py::select_section`) picks its mode from
-the spec's syntax.
-
-| Spec | Selects |
-|---|---|
-| marked (`## Notes`) | the first block whose heading level and text both match |
-| bare (`Notes`) | the first block with that exact text at any level, plain blocks included |
-
-A marked spec uses the same rule as `--parent`, so the two agree on which
-`Notes` they mean. `_SECTION_MARKER` (`render.py`) and `planning._HEADING_SPEC`
-both allow one to three `#`, the app's whole heading domain (`HEADING_COMMANDS`
-in `web/src/outline/slashCommands.ts`), so `####` is bare text.
+the spec's syntax ([docs/cli.md](../cli.md#command-reference) has both forms).
+A marked spec (`## Notes`) uses the same rule as `--parent`, so the two agree
+on which `Notes` they mean. `_SECTION_MARKER` (`render.py`) and
+`planning._HEADING_SPEC` both allow one to three `#`, the app's whole heading
+domain (`HEADING_COMMANDS` in `web/src/outline/slashCommands.ts`), so `####` is
+bare text.
 
 ## Heading round trip
 
-Text is the source of truth for a block's heading level on every CLI and MCP
-write. `split_heading` runs in `Planner._one` and `plan_update`, so `## X` is
+Every CLI and MCP write takes a block's heading level from its text. `split_heading` runs in `Planner._one` and `plan_update`, so `## X` is
 never stored as literal text and `render_page` output reads back as a heading.
 The exclusions are in [docs/cli.md](../cli.md#writing).
 

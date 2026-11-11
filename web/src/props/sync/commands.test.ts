@@ -35,7 +35,7 @@ const stubClient = (over: Partial<ClientPort> = {}): ClientPort => ({
   appliedVersion: unstubbed("appliedVersion"),
   hasStarted: () => true,
   lastPullJoin: () => "alone",
-  transport: { arm: unstubbed("arm"), fetchJson: unstubbed("fetchJson") },
+  transport: { arm: unstubbed("arm"), fetchJson: unstubbed("fetchJson"), pacing: () => false },
   ...over,
 });
 
@@ -121,6 +121,7 @@ describe("DeletePage", () => {
           if (error !== null) throw error;
           return {};
         },
+        pacing: () => false,
       },
     });
     const w: World = { ...stubWorld([]), clients: new Map([["A", client]]),
@@ -196,7 +197,7 @@ function stubWorld(events: string[], cancelled = false): World {
     offline: () => { events.push("offline"); },
     online: () => { events.push("online"); return Promise.resolve(); },
     transport: { arm: (kind) => { events.push(`arm ${kind}`); },
-                 fetchJson: unstubbed("fetchJson") },
+                 fetchJson: unstubbed("fetchJson"), pacing: () => false },
   });
   return {
     server: stubServer(),

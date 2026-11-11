@@ -18,6 +18,12 @@
 //   conflict noise    every "overwritten" conflict header is about a block
 //                     at least two clients wrote, or is the one a client's
 //                     lane write causes (conflictNoise.ts)
+//   lease held        no recovery's renewal, commit or abort was refused as
+//                     expired, unless its life had ended or its worker had
+//                     died: progress renews the lease, however slow the
+//                     download, and a stalled one is abandoned by the client,
+//                     which gives the gate back itself before the worker
+//                     would (sync-recovery.md § runRecovery)
 //   serial replay     replaying the recorded bodies in commit order, each at
 //                     its applied_at, with every page rename and delete put
 //                     back after the batch it followed, at the clock it ran
@@ -43,7 +49,7 @@ import type { ConflictRecord, DeleteRecord, RenameRecord,
 
 export type Invariant =
   | "convergence" | "accounting" | "per-client order" | "desync/poison"
-  | "delete wins" | "conflict noise" | "serial replay";
+  | "delete wins" | "conflict noise" | "lease held" | "serial replay";
 
 export class OracleError extends Error {
   override name = "OracleError";
@@ -161,6 +167,17 @@ function desyncPoison(clients: HarnessClient[], exp: Expectation): Findings {
   ]);
 }
 
+type LeaseClient = Pick<HarnessClient, "name" | "leaseRefusals">;
+
+/** Only a page that stopped running may lose a lease: in the harness, a
+ * life a reload ended or whose worker died. */
+export function leaseHeld(clients: readonly LeaseClient[]): Findings {
+  return clients.flatMap((c) => c.leaseRefusals
+    .filter((r) => !r.ended && !r.workerDead)
+    .map((r) => `client ${c.name} life ${r.life}: the worker refused the run's` +
+                ` ${r.call} as expired while the page was running`));
+}
+
 type Faulted = Awaited<ReturnType<ServerControl["snapshot"]>>;
 
 /** A rename or a delete: no batch, so each goes back between the two
@@ -263,6 +280,7 @@ export async function checkQuiescent(clients: HarnessClient[], server: ServerCon
       committedBy: new Map(clients.map((c) => [c.name, c.transport.committed])),
       lane: conflictLane(clients, applied, exp.good),
     }))],
+    ["lease held", await evaluate(() => leaseHeld(clients))],
     ["serial replay", await evaluate(() =>
       serialReplay(server, applied, faulted, committed, renames, deletes))],
   ];

@@ -237,8 +237,16 @@ export type ReplicaRpc = {
   close: { payload: undefined; result: null };
 };
 
-export function createReplica(port: PortLike, terminate?: () => void): Replica {
+export interface ReplicaOptions {
+  /** RECOVERY_LEASE_MS unless a harness that runs on real timers shortens
+   * it, scaling the client's renewal and stall bounds with it. */
+  leaseMs?: number;
+}
+
+export function createReplica(port: PortLike, terminate?: () => void,
+                              opts: ReplicaOptions = {}): Replica {
   const rpc = createRpcClient<ReplicaRpc>(port);
+  const leaseMs = opts.leaseMs ?? RECOVERY_LEASE_MS;
   let disposing: Promise<void> | null = null;
   return {
     init: () => rpc.call("init"),
@@ -260,13 +268,13 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
     localApi: (req) => rpc.call("localApi", req),
     prepareRecovery: () => rpc.call(
       "prepareRecovery",
-      { expiresAtMs: Date.now() + RECOVERY_LEASE_MS },
+      { expiresAtMs: Date.now() + leaseMs },
       { timeoutMs: RECOVERY_RPC_TIMEOUT_MS }),
     commitRecovery: (token, input) => rpc.call(
       "commitRecovery", { token, input }, { timeoutMs: RECOVERY_RPC_TIMEOUT_MS },
     ).then(() => undefined),
     renewRecovery: (token) => rpc.call(
-      "renewRecovery", { token, expiresAtMs: Date.now() + RECOVERY_LEASE_MS },
+      "renewRecovery", { token, expiresAtMs: Date.now() + leaseMs },
     ).then(() => undefined),
     abortRecovery: (token) => rpc.call("abortRecovery", token).then(() => undefined),
     diagnostics: () =>

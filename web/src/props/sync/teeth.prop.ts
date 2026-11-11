@@ -125,6 +125,36 @@ test("a tampered committed body trips serial replay", async () => {
     .toContain("serial replay");
 });
 
+/** A edits and its batch lands; the generation rotates, so A's next pull
+ * rebases through a snapshot download that a slow fault, or a starved
+ * transport, stretches past the lease. */
+async function slowRebaseScenario(broken?: Broken): Promise<{
+  a: HarnessClient; b: HarnessClient; exp: Expectation;
+}> {
+  const a = await start("A", broken);
+  const b = await start("B");
+  if (broken === undefined) a.transport.arm("slowSnapshot");
+  const a1 = await a.edit(setText("pt_seed_1", "before the rotation"));
+  await a.queue.drain();
+  await server.rotateGeneration();
+  await a.pull();
+  await quiesce([a, b], server);
+  return { a, b, exp: { good: new Map([["A", [a1]], ["B", []]]), bad: new Set() } };
+}
+
+test("a rebase whose download outlasts the lease while it progresses passes", async () => {
+  const { a, b, exp } = await slowRebaseScenario();
+  expect(a.recoveries.some((r) => r.renewals > 0 && r.committedAt !== null)).toBe(true);
+  expect(await failures("slow rebase", checkQuiescent([a, b], server, exp))).toEqual([]);
+});
+
+test("starveProgress trips lease held", async () => {
+  const { a, b, exp } = await slowRebaseScenario("starveProgress");
+  expect(a.recoveries.every((r) => r.renewals === 0)).toBe(true);
+  expect(await failures("starveProgress", checkQuiescent([a, b], server, exp)))
+    .toContain("lease held");
+});
+
 /** A renames Second to Third between two of its batches, pulls it, and the
  * second batch creates on Second, which the server then get_or_creates
  * afresh: where the rename falls among the batches decides which page the

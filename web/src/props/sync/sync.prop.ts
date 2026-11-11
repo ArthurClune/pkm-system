@@ -31,7 +31,8 @@ import { BadBatch, commandsFor, connectTally, connectTiming, countSkipsWith, Edi
          Fault, type FaultKind, NAMES, Nudge, Offline, Pull, Reload, Rename,
          RotateGeneration, SyncCommand, WorkerDies, type World } from "./commands";
 import { REPLAY_PATH } from "./env";
-import { type FirstStart, startClient, type HarnessClient } from "./harnessClient";
+import { type FirstStart, HARNESS_LEASE_MS, startClient,
+         type HarnessClient } from "./harnessClient";
 import { initialModel, type SyncModel } from "./model";
 import { checkQuiescent, CursorWatch, ModeWatch } from "./oracle";
 import { quiesce, TIMED_OUT, within } from "./quiesce";
@@ -75,7 +76,8 @@ const count = (key: string, n = 1): void => { bump(tally, key, n); };
 countSkipsWith(count);
 
 const FAULT_KINDS: readonly FaultKind[] = [
-  "dropAck", "duplicate", "lostPull", "writeFails", "lostReply", "snapshot5xx"];
+  "dropAck", "duplicate", "lostPull", "writeFails", "lostReply", "snapshot5xx",
+  "slowSnapshot", "stalledSnapshot"];
 
 /** How many of each fault kind fired across these clients: transport faults
  * that met a request, and failed local writes that pushed a batch into the
@@ -83,12 +85,15 @@ const FAULT_KINDS: readonly FaultKind[] = [
 const firedFaults = (clients: Iterable<HarnessClient>): Record<FaultKind, number> => {
   const fired: Record<FaultKind, number> = {
     dropAck: 0, duplicate: 0, lostPull: 0, writeFails: 0, lostReply: 0, snapshot5xx: 0,
+    slowSnapshot: 0, stalledSnapshot: 0,
   };
   for (const c of clients) {
     fired.dropAck += c.transport.fired("dropAck");
     fired.duplicate += c.transport.fired("duplicate");
     fired.lostPull += c.transport.fired("lostPull");
     fired.snapshot5xx += c.transport.fired("snapshot5xx");
+    fired.slowSnapshot += c.transport.fired("slowSnapshot");
+    fired.stalledSnapshot += c.transport.fired("stalledSnapshot");
     fired.writeFails += c.lanePushes() - c.lostReplies() - c.deathLanePushes();
     fired.lostReply += c.lostReplies();
   }
@@ -101,6 +106,19 @@ beforeAll(async () => {
   server = await connectServer();
 });
 
+/** Counts how each recovery run that got a lease went with it. */
+function countRecoveries(clients: Iterable<HarnessClient>): void {
+  for (const c of clients) {
+    for (const r of c.recoveries) {
+      if (r.renewals > 0) count("Recovery renewed");
+      if (r.committedAt !== null && r.committedAt - r.calledAt > HARNESS_LEASE_MS) {
+        count("Recovery committed past its first deadline");
+      }
+      if (r.abandonedOnStall) count("Recovery abandoned on a stall");
+    }
+  }
+}
+
 /** Fault rows read armed and fired side by side; everything else is one
  * count per key. */
 function showSyncTally(t: Tally): string {
@@ -108,7 +126,7 @@ function showSyncTally(t: Tally): string {
   const rest = [...t].filter(([k]) => !isFault(k));
   const width = Math.max(0, ...rest.map(([k]) => k.length));
   const faults = FAULT_KINDS.map((kind) =>
-    `  Fault ${kind.padEnd(10)}  armed ${String(t.get(`Fault ${kind}`) ?? 0).padStart(6)}` +
+    `  Fault ${kind.padEnd(15)}  armed ${String(t.get(`Fault ${kind}`) ?? 0).padStart(6)}` +
     `  fired ${String(t.get(`Fault ${kind} fired`) ?? 0).padStart(6)}`);
   return `sync property tally (the property's examples):\n${
     rest.sort(([a], [b]) => a.localeCompare(b))
@@ -138,6 +156,12 @@ const REACH: Reach = {
   // No floor, no rule checks the banner yet: the problem each client's
   // session holds once quiesced, one count per client per example:
   //   "Problem at settle: <kind>", "Problem at settle: none"
+  // No floor yet, added with the paced snapshot faults and not yet measured
+  // over unseeded runs:
+  //   "Fault slowSnapshot", "Fault slowSnapshot fired",
+  //   "Fault stalledSnapshot", "Fault stalledSnapshot fired",
+  //   "Recovery renewed", "Recovery committed past its first deadline",
+  //   "Recovery abandoned on a stall", "Edit while a snapshot is paced"
   floors: {
     "BadBatch": 0.187,
     "BadBatch skipped: worker dead": 0.012,
@@ -479,6 +503,7 @@ async function runExample(names: readonly string[], cmds: Commands,
     for (const [kind, n] of Object.entries(firedFaults(clients.values()))) {
       if (n > 0) count(`Fault ${kind} fired`, n);
     }
+    countRecoveries(clients.values());
     const disposeProblem = await disposeAll([...clients.values()]);
     if (failure === null && disposeProblem === null) return;
     const head = failure === null ? `the example passed, but ${disposeProblem}`

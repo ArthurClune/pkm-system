@@ -27,6 +27,13 @@
 // while the requests it had already received finish as a crash just after
 // them would leave the file. Only a reload brings a new worker.
 //
+// The recovery lease runs on real timers, so the harness shortens it
+// (HARNESS_LEASE_MS) and scales the client's renewal interval and stall bound
+// with it, keeping the rule the real constants keep: a live client abandons a
+// stalled download and gives the gate back before the worker's lease would
+// expire. Every LEASE_EXPIRED refusal of a renewal, commit or abort is
+// recorded with the life's state at the time, for the oracle's lease held.
+//
 // A page load's first connect comes, by default, once the startup has
 // finished. In the app it need not: the socket's onStatus is a macrotask
 // that can land at any await inside runtime.startup(), and the session's
@@ -43,15 +50,48 @@ import type { ReplicaDb } from "../../replica/db";
 import { getMeta } from "../../replica/meta";
 import { serveRpc, toPortLike } from "../../replica/rpc";
 import { failingOnce, openRawTestDb } from "../../replica/testDb";
-import { buildHandlers } from "../../replica/workerHandlers";
+import { buildHandlers, LEASE_EXPIRED } from "../../replica/workerHandlers";
 import type { OpQueue, PoisonEvent } from "../../sync/opQueue";
 import type { ReplicaSync } from "../../sync/replicaSync";
 import { createSyncSession, type SyncSession } from "../../sync/session";
 import { BAD_UID } from "./arbitraries";
 import type { ServerControl } from "./serverControl";
-import { createTransport, type Broken, type Transport, type TransportOptions,
+import { createTransport, type Broken, type Pacing, type Transport, type TransportOptions,
          type TransportLife } from "./transport";
 import { clientIdOf, batchIdOf, seqOf } from "../../test-helpers";
+
+/** The worker's recovery lease in the harness, and the client's renewal
+ * interval and stall bound, in the real constants' proportions. */
+export const HARNESS_LEASE_MS = 400;
+export const HARNESS_RECOVERY_TIMING = { renewEveryMs: 50, stallMs: 100 };
+if (HARNESS_RECOVERY_TIMING.stallMs + HARNESS_RECOVERY_TIMING.renewEveryMs >= HARNESS_LEASE_MS) {
+  throw new Error("the harness's stall bound plus its renewal interval must be under its lease");
+}
+/** A slow answer's pieces come well inside the stall bound and outlast the
+ * lease about two and a half times over. */
+export const HARNESS_PACING: Pacing = { pieceMs: 50, pieces: 20 };
+
+/** A renewal, commit or abort the worker refused as expired, and whether
+ * the life had ended (a reload) or its worker had died at the time. */
+export interface LeaseRefusal {
+  call: "renew" | "commit" | "abort";
+  life: number;
+  ended: boolean;
+  workerDead: boolean;
+}
+
+/** One recovery run that got its lease. */
+export interface RecoveryRecord {
+  /** When its prepareRecovery was called: the lease's first deadline is a
+   * lease-length after it. */
+  calledAt: number;
+  /** Renewals the worker accepted. */
+  renewals: number;
+  committedAt: number | null;
+  /** The run gave its lease back after one of this transport's paced
+   * answers stalled. */
+  abandonedOnStall: boolean;
+}
 
 export interface HarnessClient {
   readonly name: string;
@@ -71,6 +111,10 @@ export interface HarnessClient {
   readonly desyncs: unknown[];
   /** Every event the session folds, in order, across lives. */
   readonly syncEvents: SyncEvent[];
+  /** Every recovery run's lease refused as expired, across lives. */
+  readonly leaseRefusals: readonly LeaseRefusal[];
+  /** Every recovery run that got a lease, across lives. */
+  readonly recoveries: readonly RecoveryRecord[];
   /** Entries in the queue's in-memory lane (lost by a reload). */
   unsentInMemory(): number;
   /** The socket coming up. */
@@ -244,11 +288,14 @@ export async function startClient(
 ): Promise<HarnessClient> {
   const raw = await openRawTestDb();
   const db = raw.db;
-  const transport = createTransport(server, broken, transportOptions);
+  const transport = createTransport(server, broken,
+                                    { pacing: HARNESS_PACING, ...transportOptions });
   const enqueued: BatchId[] = [];
   const poisoned: BatchId[] = [];
   const desyncs: unknown[] = [];
   const syncEvents: SyncEvent[] = [];
+  const leaseRefusals: LeaseRefusal[] = [];
+  const recoveries: RecoveryRecord[] = [];
   // Stands in for the localStorage poison-intent store, and outlives a
   // reload as localStorage does.
   let poisonIntents: PoisonEvent[] = [];
@@ -290,7 +337,18 @@ export async function startClient(
     const replica = createReplica(toPortLike(channel.port1), () => {
       channel.port1.close();
       channel.port2.close();
-    });
+    }, { leaseMs: HARNESS_LEASE_MS });
+    const life = lives;
+    /** Each lease's run, and the transport's stall count when it began. */
+    const recoveryOf = new Map<string, { record: RecoveryRecord; stallsBefore: number }>();
+    /** `sent`, with a refusal as expired recorded before it rejects. */
+    const leaseCall = <T>(call: LeaseRefusal["call"], sent: Promise<T>): Promise<T> =>
+      sent.catch((error: unknown) => {
+        if (error instanceof Error && error.message === LEASE_EXPIRED) {
+          leaseRefusals.push({ call, life, ended: state.ended, workerDead: state.workerDead });
+        }
+        throw error;
+      });
     // A dead worker's enqueue goes to the lane unhashed, as a failed write
     // does; one in flight at the death may also have stored its row.
     const deadLane = <T>(batchId: BatchId, sent: Promise<T>): Promise<T> =>
@@ -302,8 +360,9 @@ export async function startClient(
         throw error;
       });
     // The session's replica. Each override has one caller: only the queue
-    // enqueues, only replicaSync calls init, applyChanges and applySnapshot,
-    // and only the runtime asks for poisonedBatches.
+    // enqueues, only replicaSync calls init, applyChanges, applySnapshot and
+    // the recovery lease's calls, and only the runtime asks for
+    // poisonedBatches.
     const sessionReplica: Replica = {
       ...replica,
       // A lost reply rejects on this side while the worker's write goes on.
@@ -340,6 +399,32 @@ export async function startClient(
         return Promise.reject(new RpcLifecycleError(
           "timeout", "proptest: replica RPC applySnapshot timed out"));
       },
+      prepareRecovery: async () => {
+        const calledAt = Date.now();
+        const stallsBefore = transport.stalls();
+        const lease = await replica.prepareRecovery();
+        const record: RecoveryRecord = {
+          calledAt, renewals: 0, committedAt: null, abandonedOnStall: false,
+        };
+        recoveries.push(record);
+        recoveryOf.set(lease.token, { record, stallsBefore });
+        return lease;
+      },
+      renewRecovery: async (token) => {
+        await leaseCall("renew", replica.renewRecovery(token));
+        const run = recoveryOf.get(token);
+        if (run) run.record.renewals += 1;
+      },
+      commitRecovery: async (token, input) => {
+        await leaseCall("commit", replica.commitRecovery(token, input));
+        const run = recoveryOf.get(token);
+        if (run) run.record.committedAt = Date.now();
+      },
+      abortRecovery: async (token) => {
+        await leaseCall("abort", replica.abortRecovery(token));
+        const run = recoveryOf.get(token);
+        if (run) run.record.abandonedOnStall = transport.stalls() > run.stallsBefore;
+      },
       // Startup discovery. A rejection whose onPoison died with the page
       // load before (its mark landed while that life was being torn down)
       // is found here, surfaced and repaired by this one.
@@ -371,6 +456,7 @@ export async function startClient(
         },
       },
       retryBaseMs,
+      recoveryTiming: HARNESS_RECOVERY_TIMING,
       outlines: {
         track: () => undefined,
         attachReplay: () => undefined,
@@ -488,6 +574,8 @@ export async function startClient(
     poisoned,
     desyncs,
     syncEvents,
+    leaseRefusals,
+    recoveries,
     unsentInMemory: () => life.state.unsentInMemory,
     online: () => goOnline(life),
     offline: () => goOffline(life),

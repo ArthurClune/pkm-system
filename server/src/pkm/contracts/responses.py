@@ -587,10 +587,13 @@ class TitleMigrationPage(StrictModel):
     title: CanonicalTitle
 
 
+TitleMigrationBlockerReason = Literal["all_space", "forbidden_syntax"]
+
+
 class TitleMigrationBlocker(StrictModel):
     page_id: PageId
     title: CanonicalTitle
-    reason: Literal["all_space", "forbidden_syntax"]
+    reason: TitleMigrationBlockerReason
 
 
 class TitleMigrationGroup(StrictModel):

@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from pathlib import Path
 
 from pkm.contracts.ops import Sha256Hex
+from pkm.contracts.responses import (TitleMigrationApplyResponse,
+                                     TitleMigrationBlocker)
 from pkm.database import Db
 from pkm.contracts.titles import RawTitle
 from pkm.refs import target_canonical_title, title_syntax_reason
-from pkm.title_migration import (
+from pkm.title_migration_core import (
     InventoryBlock,
     InventoryPage,
     InventoryRef,
     InventorySidebar,
-    TitleMigrationBlocker,
     TitleMigrationInventory,
     TitleMigrationPlan,
     build_title_migration_plan,
@@ -39,18 +39,6 @@ logger = logging.getLogger("pkm.titles")
 
 # How many offending titles the startup report names; the count covers all.
 _REPORTED_TITLE_SAMPLE = 20
-
-
-@dataclass(frozen=True)
-class TitleMigrationOutcome:
-    digest: Sha256Hex
-    groups_applied: int
-    pages_retitled: int
-    pages_merged: int
-    blocks_moved: int
-    blocks_rewritten: int
-    sidebars_retitled: int
-    generation: str
 
 
 class StaleTitleMigration(RuntimeError):
@@ -180,7 +168,7 @@ def audit_title_migration(db: Db) -> TitleMigrationPlan:
 
 def apply_title_migration(
     db: Db, expected_digest: Sha256Hex, now_ms: int
-) -> TitleMigrationOutcome:
+) -> TitleMigrationApplyResponse:
     """Re-audit, migrate, activate, and rotate generation in one write
     transaction. A rewritten block over a text limit raises
     store.RewriteTextLimitError and rolls the whole transaction back."""
@@ -263,7 +251,7 @@ def apply_title_migration(
         )
         set_plain_space_title_canonicalization(db, active=True)
         generation = rotate_database_generation(db)
-        outcome = TitleMigrationOutcome(
+        outcome = TitleMigrationApplyResponse(
             digest=plan.digest,
             groups_applied=len(plan.groups),
             pages_retitled=pages_retitled,

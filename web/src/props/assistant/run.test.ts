@@ -105,6 +105,22 @@ describe("assistant property runner", () => {
     expect(problems.some((p) => p.startsWith("confirm: "))).toBe(true);
   });
 
+  test("a mutant that drops every answer is caught by `confirm`", () => {
+    const step: StepFn = (s, e) => (e.type === "answer" ? { state: s, effects: [] } : REAL.step(s, e));
+    const { problems } = runActions([send, resolve, confirmEvent, allow], { ...REAL, step });
+    expect(problems.some((p) => p.startsWith("confirm: "))).toBe(true);
+  });
+
+  test("a mutant whose Retry after a failure posts nothing is caught by `confirm`", () => {
+    const step: StepFn = (s, e) => {
+      const head = s.confirms[0];
+      return e.type === "answer" && head !== undefined && answerFailed(head)
+        && head.answer.allow === e.allow ? { state: s, effects: [] } : REAL.step(s, e);
+    };
+    const { problems } = runActions([...allowFails, allow], { ...REAL, step });
+    expect(problems.some((p) => p.startsWith("confirm: "))).toBe(true);
+  });
+
   test("a mutant that leaves a failed card posting is caught by `confirm`", () => {
     const step: StepFn = (s, e) => (e.type === "confirmFailed" && !e.notFound
       ? { state: { ...s, error: e.message }, effects: [] } : REAL.step(s, e));

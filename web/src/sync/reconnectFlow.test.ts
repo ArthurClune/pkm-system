@@ -189,6 +189,32 @@ async () => {
   });
 });
 
+test("a start failure during a reconnect rejects begin() though the drain observer took the intent",
+async () => {
+  const holder: { flow?: ReconnectFlow } = {};
+  const { flow, trace } = harness({
+    // As the queue does: observers hear the drain before drain() resolves.
+    drain: async () => {
+      trace.push("drain");
+      holder.flow?.observeDrain({ status: "drained" });
+      return { status: "drained" };
+    },
+    replicaSync: (t) => ({
+      start: async () => {
+        t.push("start");
+        await Promise.resolve();
+        throw new Error("start failed");
+      },
+      idle: async () => { t.push("idle"); },
+      appliedVersion: () => 7,
+    }),
+  });
+  holder.flow = flow;
+
+  await expect(flow.begin()).rejects.toThrow("start failed");
+  expect(trace).toEqual(["drain", "start"]);
+});
+
 test("a trailing pull that moves data resyncs a run that found nothing", async () => {
   const feed = gate();
   let version = 7;

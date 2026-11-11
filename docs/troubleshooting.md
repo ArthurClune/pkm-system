@@ -274,6 +274,7 @@ Owner: [frontend.md](architecture/frontend.md)
 
 | Symptom | Cause | Where | Ref |
 |---|---|---|---|
+| Every PDF shows "Couldn't render this PDF" in a fresh build, and the build warns that `pdfjs-dist/build/pdf.worker.min.mjs` "doesn't exist at build time" | A pnpm script run in a worktree installed through the `node_modules` symlink and pointed the main checkout's package links through that worktree; removing the worktree broke them. `verifyDepsBeforeRun: false` stops the install; `pnpm install --frozen-lockfile` in the main checkout repairs the links | [frontend.md § Build notes](architecture/frontend.md#build-notes-viteconfigts) | pkm-35w1 |
 | A `/page/` URL with `%0A` or another control character in the title renders an empty main pane | react-router compiles `/page/*` to a `.*` that matches no newline (`MainRoutes`) | [frontend.md § Views and navigation](architecture/frontend.md#views-and-navigation) | pkm-u4rw |
 | Shift-clicking a left-nav page link opens a second browser window, not the sidebar | react-router ignores modified clicks, so a bare `NavLink` left it to the browser | [frontend.md § Navigation chrome](architecture/frontend.md#navigation-chrome) | pkm-10ah |
 | The left nav keeps stale entries after a reconnect or resync | `SidebarNav` fetched once on mount and did not subscribe to `useResync` | [frontend.md § State management](architecture/frontend.md#state-management) | pkm-t6xh |

@@ -509,6 +509,11 @@ fails on, and `AGENTS.md` § Testing says how to run them.
   backend's (`devProxyOrigin` in `web/tooling/devProxyOrigin.ts`). Any other
   origin goes upstream unchanged and is refused there. Rewriting every origin
   would let any page on `localhost` write to the backend through the proxy.
+- `web/pnpm-workspace.yaml` turns off pnpm's stale-dependency check
+  (`verifyDepsBeforeRun`). The check keys on the project path, and a
+  worktree shares the main checkout's `node_modules` through a symlink. With
+  the check on, a script run in a worktree installs through the link and
+  repoints the main checkout's packages at that worktree.
 - `@sqlite.org/sqlite-wasm` stays in `optimizeDeps.exclude`, because its wasm
   URL resolution breaks under dep optimization.
 - Hashed bundles go under `app-assets/`. The server sends `index.html` with

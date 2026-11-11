@@ -298,11 +298,10 @@ class World {
       case "text": return { type: "text_delta", text: "x" };
       case "toolStarted": return { type: "tool_started", tool_use_id: "t1", name: "search", summary: "s" };
       case "toolFinished":
-        return { type: "tool_finished", tool_use_id: "t1", name: "search", error: null, declined: false };
+        return { type: "tool_finished", tool_use_id: "t1", error: null, declined: false };
       case "phase": return { type: "phase", label: "reasoning" };
       case "confirm":
-        return { type: "confirm_request", confirm_id: confirmIdOf(this.fresh("k")),
-                 ops_preview: "save_note(...)", preview: null };
+        return { type: "confirm_request", confirm_id: confirmIdOf(this.fresh("k")), preview: null };
       case "turnDone": return { type: "turn_done", usage: null };
       case "error": return { type: "error", message: "boom" };
     }

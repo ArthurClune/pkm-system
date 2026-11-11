@@ -41,7 +41,6 @@ class ToolFinished:
     """
 
     tool_use_id: str
-    name: str
     error: str | None = None
     declined: bool = False
     warning: str | None = None
@@ -50,8 +49,6 @@ class ToolFinished:
 @dataclass(frozen=True)
 class ConfirmRequest:
     confirm_id: ConfirmId
-    # preview.summary: one line for logs and transcripts.
-    ops_preview: str
     # What the approval card renders.
     preview: WritePreview
 

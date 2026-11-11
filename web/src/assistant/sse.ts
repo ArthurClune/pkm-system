@@ -22,7 +22,6 @@ function parseFrame(frame: string): AssistantEvent | null {
       return {
         type: eventName,
         confirm_id: payload.confirm_id as ConfirmId,
-        ops_preview: payload.ops_preview as string,
         preview: parseWritePreview(payload.preview),
       };
     }

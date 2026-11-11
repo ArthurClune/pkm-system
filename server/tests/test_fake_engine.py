@@ -53,9 +53,8 @@ def test_confirm_flow_allow():
     assert isinstance(preview, WritePreview)
     assert events[1] == ConfirmRequest(
         confirm_id=confirm_id_of("fake-confirm-1"),
-        ops_preview=preview.summary,
         preview=replace(preview, writes_in_flight=False))
-    assert ToolFinished(tool_use_id="fake-tool-1", name="save_note") in events
+    assert ToolFinished(tool_use_id="fake-tool-1") in events
     assert TextDelta(text="Saved.") in events
     assert isinstance(events[-1], TurnDone)
 
@@ -73,9 +72,8 @@ def test_confirm_flow_deny():
 
     events = asyncio.run(scenario())
     assert TextDelta(text="Okay, not saving.") in events
-    assert ToolFinished(tool_use_id="fake-tool-1", name="save_note") not in events
-    assert ToolFinished(tool_use_id="fake-tool-1", name="save_note",
-                        declined=True) in events
+    assert ToolFinished(tool_use_id="fake-tool-1") not in events
+    assert ToolFinished(tool_use_id="fake-tool-1", declined=True) in events
 
 
 def test_hang_scenario_parks_until_cancelled():
@@ -155,9 +153,8 @@ def test_write_twice_queues_both_confirms_before_either_answer():
     texts = [e.text for e in rest if isinstance(e, TextDelta)]
     assert texts == ["Saved 1.", "Not saving 2."]
     assert [e for e in rest if isinstance(e, ToolFinished)] == [
-        ToolFinished(tool_use_id="fake-tool-1", name="save_note"),
-        ToolFinished(tool_use_id="fake-tool-2", name="save_note",
-                     declined=True)]
+        ToolFinished(tool_use_id="fake-tool-1"),
+        ToolFinished(tool_use_id="fake-tool-2", declined=True)]
     assert isinstance(rest[-1], TurnDone)
 
 
@@ -176,8 +173,8 @@ def test_write_twice_both_allowed_says_saved_two():
     texts = [e.text for e in events if isinstance(e, TextDelta)]
     assert texts == ["Saved 2."]
     assert [e for e in events if isinstance(e, ToolFinished)] == [
-        ToolFinished(tool_use_id="fake-tool-1", name="save_note"),
-        ToolFinished(tool_use_id="fake-tool-2", name="save_note")]
+        ToolFinished(tool_use_id="fake-tool-1"),
+        ToolFinished(tool_use_id="fake-tool-2")]
 
 
 def _update_turn(text: str, allow: bool, read_blocks=None):
@@ -216,7 +213,7 @@ def test_update_trigger_parks_a_card_with_the_blocks_current_text():
     assert card.preview.ops[0].targets[0] == ("uid", _VICTIM)
     assert card.preview.ops[0].content == [("text", "Replaced.", 9)]
     assert card.preview.ops[0].current == FoundBlock(_INBOX, "old", 3)
-    assert ToolFinished(tool_use_id="fake-tool-1", name="update_block") in events
+    assert ToolFinished(tool_use_id="fake-tool-1") in events
     assert TextDelta(text="Updated.") in events
     assert isinstance(events[-1], TurnDone)
 
@@ -224,9 +221,8 @@ def test_update_trigger_parks_a_card_with_the_blocks_current_text():
 def test_update_trigger_deny():
     events = _update_turn(f"please update {_VICTIM}", False)
     assert TextDelta(text="Not updating.") in events
-    assert ToolFinished(tool_use_id="fake-tool-1", name="update_block",
-                        declined=True) in events
-    assert ToolFinished(tool_use_id="fake-tool-1", name="update_block") not in events
+    assert ToolFinished(tool_use_id="fake-tool-1", declined=True) in events
+    assert ToolFinished(tool_use_id="fake-tool-1") not in events
     # no database: no block has the uid
     card = events[1]
     assert isinstance(card, ConfirmRequest)
@@ -274,7 +270,7 @@ def test_please_update_runs_the_tool_on_allow():
     assert calls == [("update_block", {
         "uid": _VICTIM, "text": "Replaced.",
         "expect": [{"uid": _VICTIM, "kind": "absent", "shown_hash": None}]})]
-    assert ToolFinished(tool_use_id="fake-tool-1", name="update_block") in events
+    assert ToolFinished(tool_use_id="fake-tool-1") in events
     assert [e.text for e in events if isinstance(e, TextDelta)] == ["Updated."]
 
     def raising(short: str, tool_input: Mapping[str, object]) -> str:

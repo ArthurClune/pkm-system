@@ -62,8 +62,7 @@ function feed(events: AssistantEvent[]) {
 }
 
 function confirmEvent(id: string): AssistantEvent {
-  return { type: "confirm_request", confirm_id: confirmIdOf(id),
-    ops_preview: "save_note(...)", preview: null };
+  return { type: "confirm_request", confirm_id: confirmIdOf(id), preview: null };
 }
 
 function deferredValue<T>() {

@@ -18,7 +18,6 @@ export type AssistantEvent =
   | {
     type: "tool_finished";
     tool_use_id: string;
-    name: string;
     error?: string | null;
     declined?: boolean;
     warning?: string | null;
@@ -30,7 +29,6 @@ export type AssistantEvent =
   | {
     type: "confirm_request";
     confirm_id: ConfirmId;
-    ops_preview: string;
     preview: WritePreview | null;
   }
   | {

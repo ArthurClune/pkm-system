@@ -197,18 +197,16 @@ class TurnMapper:
         full_name = self._tools.pop(tool_use_id, None)
         declined = tool_use_id in self._declined
         self._declined.discard(tool_use_id)
-        name = short_tool_name(full_name) if full_name else "tool"
         # Only a write's error or warning is shown: reads fail routinely while
         # the model probes, and its reply reports them.
         if full_name is None or classify_tool(full_name) != "write":
-            return ToolFinished(tool_use_id=tool_use_id, name=name)
+            return ToolFinished(tool_use_id=tool_use_id)
         if block.is_error is not True:
-            return ToolFinished(tool_use_id=tool_use_id, name=name,
+            return ToolFinished(tool_use_id=tool_use_id,
                                 warning=tool_warning(block.content))
         if declined:
-            return ToolFinished(tool_use_id=tool_use_id, name=name,
-                                declined=True)
-        return ToolFinished(tool_use_id=tool_use_id, name=name,
+            return ToolFinished(tool_use_id=tool_use_id, declined=True)
+        return ToolFinished(tool_use_id=tool_use_id,
                             error=tool_error_reason(block.content))
 
 
@@ -312,8 +310,7 @@ class ClaudeConversation:
         self._pending[confirm_id] = fut
         self._write_events += 1
         self._queue.put_nowait(
-            ConfirmRequest(confirm_id=confirm_id, ops_preview=preview.summary,
-                           preview=preview)
+            ConfirmRequest(confirm_id=confirm_id, preview=preview)
         )
         try:
             allowed = await fut

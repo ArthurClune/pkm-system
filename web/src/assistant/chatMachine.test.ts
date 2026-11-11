@@ -36,8 +36,7 @@ const turnDone = (turn: TurnId = 1): ChatEvent[] =>
   [streamed({ type: "turn_done", usage: null }, turn), { type: "streamEnded", turn }];
 
 function confirmEvent(id: string): AssistantEvent {
-  return { type: "confirm_request", confirm_id: confirmIdOf(id),
-    ops_preview: "save_note(...)", preview: null };
+  return { type: "confirm_request", confirm_id: confirmIdOf(id), preview: null };
 }
 
 const answer = (id: string, allow: boolean): ChatEvent =>
@@ -227,8 +226,7 @@ describe("chatMachine stream events", () => {
   test("tool events render as tool items", () => {
     const { state } = run([...firstTurn("find x"),
       streamed({ type: "tool_started", tool_use_id: "t1", name: "search", summary: 'searching "x"' }),
-      streamed({ type: "tool_finished", tool_use_id: "t1", name: "search", error: null,
-                 declined: false }),
+      streamed({ type: "tool_finished", tool_use_id: "t1", error: null, declined: false }),
       streamed({ type: "text_delta", text: "found" }),
       ...turnDone()]);
     expect(state.items).toEqual([
@@ -243,8 +241,7 @@ describe("chatMachine stream events", () => {
     const { state } = run([...firstTurn("edit"),
       streamed({ type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" }),
       streamed({ type: "tool_started", tool_use_id: "t2", name: "update_block", summary: "update_block" }),
-      streamed({ type: "tool_finished", tool_use_id: "t2", name: "update_block",
-                 error: "nope", declined: false }),
+      streamed({ type: "tool_finished", tool_use_id: "t2", error: "nope", declined: false }),
       ...turnDone()]);
     expect(state.items).toEqual([
       { kind: "user", text: "edit" },
@@ -258,8 +255,8 @@ describe("chatMachine stream events", () => {
   test("a skipped batch's warning lands on its tool line", () => {
     const { state } = run([...firstTurn("edit"),
       streamed({ type: "tool_started", tool_use_id: "t1", name: "batch", summary: "batch" }),
-      streamed({ type: "tool_finished", tool_use_id: "t1", name: "batch",
-                 error: null, declined: false, warning: "warning: skipped 1 of 3 ops" }),
+      streamed({ type: "tool_finished", tool_use_id: "t1", error: null, declined: false,
+                 warning: "warning: skipped 1 of 3 ops" }),
       ...turnDone()]);
     expect(state.items[1]).toEqual({
       kind: "tool", toolUseId: "t1", name: "batch", summary: "batch",
@@ -270,8 +267,7 @@ describe("chatMachine stream events", () => {
   test("a declined write's line is done, with no error", () => {
     const { state } = run([...firstTurn("edit"),
       streamed({ type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" }),
-      streamed({ type: "tool_finished", tool_use_id: "t1", name: "update_block",
-                 error: null, declined: true }),
+      streamed({ type: "tool_finished", tool_use_id: "t1", error: null, declined: true }),
       ...turnDone()]);
     expect(state.items[1]).toEqual(
       { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
@@ -283,8 +279,7 @@ describe("chatMachine stream events", () => {
       streamed({ type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" }),
       ...turnDone(),
       { type: "send", text: "two", at: 2 },
-      streamed({ type: "tool_finished", tool_use_id: "t1", name: "update_block",
-                 error: "nope", declined: false }, 2),
+      streamed({ type: "tool_finished", tool_use_id: "t1", error: "nope", declined: false }, 2),
       ...turnDone(2)]);
     expect(state.items[1]).toEqual(
       { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
@@ -294,11 +289,9 @@ describe("chatMachine stream events", () => {
   test("a reused id marks the line not yet done, never a finished one", () => {
     const { state } = run([...firstTurn("edit"),
       streamed({ type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" }),
-      streamed({ type: "tool_finished", tool_use_id: "t1", name: "update_block",
-                 error: "nope", declined: false }),
+      streamed({ type: "tool_finished", tool_use_id: "t1", error: "nope", declined: false }),
       streamed({ type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" }),
-      streamed({ type: "tool_finished", tool_use_id: "t1", name: "update_block",
-                 error: null, declined: false }),
+      streamed({ type: "tool_finished", tool_use_id: "t1", error: null, declined: false }),
       ...turnDone()]);
     expect(state.items.slice(1)).toEqual([
       { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
@@ -339,8 +332,7 @@ describe("chatMachine stream events", () => {
   test("a tool_finished with an unknown id changes no line", () => {
     const { state } = run([...firstTurn("edit"),
       streamed({ type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" }),
-      streamed({ type: "tool_finished", tool_use_id: "tX", name: "update_block",
-                 error: "nope", declined: false }),
+      streamed({ type: "tool_finished", tool_use_id: "tX", error: "nope", declined: false }),
       ...turnDone()]);
     expect(state.items).toEqual([
       { kind: "user", text: "edit" },

@@ -32,27 +32,24 @@ describe("createSseParser", () => {
   test("tool_finished carries its id, error and declined flag", () => {
     const p = createSseParser();
     expect(p.push(
-      'event: tool_finished\ndata: {"tool_use_id": "t1", "name": "update_block", '
+      'event: tool_finished\ndata: {"tool_use_id": "t1", '
         + '"error": "nope", "declined": false}\n\n'
-        + 'event: tool_finished\ndata: {"tool_use_id": "t2", "name": "update_block", '
+        + 'event: tool_finished\ndata: {"tool_use_id": "t2", '
         + '"error": null, "declined": true}\n\n',
     )).toEqual([
-      { type: "tool_finished", tool_use_id: "t1", name: "update_block",
-        error: "nope", declined: false },
-      { type: "tool_finished", tool_use_id: "t2", name: "update_block",
-        error: null, declined: true },
+      { type: "tool_finished", tool_use_id: "t1", error: "nope", declined: false },
+      { type: "tool_finished", tool_use_id: "t2", error: null, declined: true },
     ]);
   });
 
   test("tool_finished keeps a warning", () => {
     const p = createSseParser();
     expect(p.push(
-      'event: tool_finished\ndata: {"tool_use_id": "t1", "name": "batch", '
+      'event: tool_finished\ndata: {"tool_use_id": "t1", '
         + '"error": null, "declined": false, '
         + '"warning": "warning: skipped 1 of 3 ops"}\n\n',
     )).toEqual([
-      { type: "tool_finished", tool_use_id: "t1", name: "batch",
-        error: null, declined: false,
+      { type: "tool_finished", tool_use_id: "t1", error: null, declined: false,
         warning: "warning: skipped 1 of 3 ops" },
     ]);
   });
@@ -93,11 +90,9 @@ describe("createSseParser", () => {
       summary: "update_block(uid='VICTIMUID01')",
       writes_in_flight: true,
     };
-    const data = JSON.stringify({
-      confirm_id: "c1", ops_preview: preview.summary, preview });
+    const data = JSON.stringify({ confirm_id: "c1", preview });
     expect(p.push(`event: confirm_request\ndata: ${data}\n\n`)).toEqual([
-      { type: "confirm_request", confirm_id: "c1",
-        ops_preview: preview.summary, preview },
+      { type: "confirm_request", confirm_id: "c1", preview },
     ]);
   });
 
@@ -106,11 +101,11 @@ describe("createSseParser", () => {
   test("a confirm_request with a malformed preview carries preview null", () => {
     const p = createSseParser();
     expect(
-      p.push('event: confirm_request\ndata: {"confirm_id": "c1", "ops_preview": "x", "preview": 42}\n\n'),
-    ).toEqual([{ type: "confirm_request", confirm_id: "c1", ops_preview: "x", preview: null }]);
+      p.push('event: confirm_request\ndata: {"confirm_id": "c1", "preview": 42}\n\n'),
+    ).toEqual([{ type: "confirm_request", confirm_id: "c1", preview: null }]);
     expect(
-      p.push('event: confirm_request\ndata: {"confirm_id": "c2", "ops_preview": "x"}\n\n'),
-    ).toEqual([{ type: "confirm_request", confirm_id: "c2", ops_preview: "x", preview: null }]);
+      p.push('event: confirm_request\ndata: {"confirm_id": "c2"}\n\n'),
+    ).toEqual([{ type: "confirm_request", confirm_id: "c2", preview: null }]);
   });
 
   // A tab keeps its bundle across a deploy, so a bundle may meet a server

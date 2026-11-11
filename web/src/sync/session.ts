@@ -116,6 +116,7 @@ export interface SyncSessionDeps {
   fetchJson: ReplicaSyncDeps["fetchJson"];
   queue?: Omit<OpQueueDeps, "clientId">;
   retryBaseMs?: number;
+  recoveryTiming?: ReplicaSyncDeps["recoveryTiming"];
   outlines: OutlineHooks;
   /** False between an unmount and its deferred dispose. */
   isMounted?: () => boolean;
@@ -199,6 +200,7 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
     isOffline: () => status === "reconnecting",
     onState: reportMode,
     retryBaseMs: deps.retryBaseMs,
+    recoveryTiming: deps.recoveryTiming,
   });
 
   // It subscribes the queue's poison signals itself.

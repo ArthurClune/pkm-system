@@ -5,10 +5,12 @@ import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import type { BatchId } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import { BAD_UID, FIXTURE_PAGE } from "./arbitraries";
-import { startClient, type HarnessClient } from "./harnessClient";
+import { HARNESS_LEASE_MS, HARNESS_PACING, HARNESS_RECOVERY_TIMING, startClient,
+         type HarnessClient } from "./harnessClient";
 import { quiesce } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
 import { createTransport, withWindowLimit } from "./transport";
+import { StalledReadError } from "../../api/client";
 import { captureFaultWarnings } from "../warningsCapture";
 import { uidOf, orderIdxOf, clientIdOf, batchIdOf } from "../../test-helpers";
 
@@ -294,4 +296,101 @@ test("dropBatch fakes an ack without sending", async () => {
   expect(ack.ok).toBe(true);
   expect(await appliedIds()).not.toContain(body.batch_id);
   expect(t.committed.has(body.batch_id)).toBe(false);
+});
+
+/** A transport with the harness's pacing, and a snapshot fetch through it
+ * that counts its reported progress. */
+function pacedSnapshot(broken?: "starveProgress") {
+  const t = createTransport(server, broken, { pacing: HARNESS_PACING });
+  let progress = 0;
+  const fetch = (init?: RequestInit, stallMs?: number): Promise<unknown> =>
+    t.fetchJson("/api/sync/snapshot", init,
+                { timeoutMs: null, stallMs, onProgress: () => { progress += 1; } });
+  return { t, fetch, progress: () => progress };
+}
+
+test("a plain answer reports its body's arrival once", async () => {
+  const { fetch, progress } = pacedSnapshot();
+  await expect(fetch()).resolves.toBeTruthy();
+  expect(progress()).toBe(1);
+});
+
+test("slowSnapshot reports every piece and outlasts the lease", async () => {
+  const { t, fetch, progress } = pacedSnapshot();
+  t.arm("slowSnapshot");
+  const started = Date.now();
+  const answer = fetch(undefined, HARNESS_RECOVERY_TIMING.stallMs);
+  await new Promise((resolve) => setTimeout(resolve, HARNESS_PACING.pieceMs * 3));
+  expect(t.pacing()).toBe(true);
+  await expect(answer).resolves.toBeTruthy();
+  expect(Date.now() - started).toBeGreaterThan(HARNESS_LEASE_MS * 1.5);
+  expect(progress()).toBe(HARNESS_PACING.pieces);
+  expect(t.fired("slowSnapshot")).toBe(1);
+  expect(t.pacing()).toBe(false);
+});
+
+test("stalledSnapshot reports one piece, then rejects after the stall bound", async () => {
+  const { t, fetch, progress } = pacedSnapshot();
+  t.arm("stalledSnapshot");
+  const started = Date.now();
+  await expect(fetch(undefined, HARNESS_RECOVERY_TIMING.stallMs))
+    .rejects.toBeInstanceOf(StalledReadError);
+  expect(Date.now() - started)
+    .toBeGreaterThanOrEqual(HARNESS_PACING.pieceMs + HARNESS_RECOVERY_TIMING.stallMs);
+  expect(progress()).toBe(1);
+  expect(t.stalls()).toBe(1);
+});
+
+test("a paced answer stops when its caller aborts, or its life ends", async () => {
+  const { t, fetch, progress } = pacedSnapshot();
+  t.arm("slowSnapshot");
+  const caller = new AbortController();
+  const aborted = fetch({ signal: caller.signal }, HARNESS_RECOVERY_TIMING.stallMs);
+  setTimeout(() => caller.abort(), HARNESS_PACING.pieceMs * 2.5);
+  await expect(aborted).rejects.toMatchObject({ name: "AbortError" });
+  expect(progress()).toBeLessThan(HARNESS_PACING.pieces);
+  const life = t.newLife();
+  t.arm("stalledSnapshot");
+  const ending = life.fetchJson("/api/sync/snapshot", undefined, { timeoutMs: null });
+  setTimeout(() => t.newLife(), HARNESS_PACING.pieceMs * 2.5);
+  await expect(ending).rejects.toThrow(TypeError);
+});
+
+test("starveProgress paces the first answer asking for progress, reporting none", async () => {
+  const { t, fetch, progress } = pacedSnapshot("starveProgress");
+  await expect(t.fetchJson("/api/sync/snapshot")).resolves.toBeTruthy();
+  const started = Date.now();
+  await expect(fetch(undefined, HARNESS_RECOVERY_TIMING.stallMs)).resolves.toBeTruthy();
+  expect(Date.now() - started).toBeGreaterThan(HARNESS_LEASE_MS * 1.5);
+  expect(progress()).toBe(0);
+  await expect(fetch()).resolves.toBeTruthy();
+  expect(progress()).toBe(1);
+});
+
+test("a rebase through a slow snapshot renews its lease and commits", async () => {
+  const a = await start("A");
+  a.transport.arm("slowSnapshot");
+  await server.rotateGeneration();
+  await a.pull();
+  expect(a.transport.fired("slowSnapshot")).toBe(1);
+  const [run] = a.recoveries;
+  expect(run.renewals).toBeGreaterThan(0);
+  expect((run.committedAt ?? 0) - run.calledAt).toBeGreaterThan(HARNESS_LEASE_MS);
+  expect(a.leaseRefusals).toEqual([]);
+});
+
+test("a rebase whose snapshot stalls gives its lease back, and the next commits", async () => {
+  const a = await start("A");
+  a.transport.arm("stalledSnapshot");
+  await server.rotateGeneration();
+  await a.pull();
+  expect(a.recoveries.map((r) => r.abandonedOnStall)).toEqual([true]);
+  // The gate is back: a write goes through before any lease could expire.
+  const started = Date.now();
+  const id = await a.edit(setText("pt_seed_1", "after the stall"));
+  expect(Date.now() - started).toBeLessThan(HARNESS_LEASE_MS);
+  await settle([a]);
+  expect(a.recoveries.some((r) => r.committedAt !== null)).toBe(true);
+  expect(await appliedIds()).toContain(id);
+  expect(a.leaseRefusals).toEqual([]);
 });

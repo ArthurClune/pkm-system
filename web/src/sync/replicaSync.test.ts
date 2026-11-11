@@ -2708,6 +2708,39 @@ describe("replica mode exits", () => {
     }
   });
 
+  test("a start in flight when the replica goes reports nothing after no-replica",
+  async () => {
+    const init = defer<ReplicaInit>();
+    const replica = fakeReplica({ init: () => init.promise });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({
+      replica, fetchJson: async () => feed(), clientId: CID, onState,
+    });
+    const started = sync.start();
+    sync.noteUnavailable(deadWorker());
+    init.resolve({
+      empty: false, cursor: seqOf(5), schemaMismatch: false,
+      plainSpaceTitleCanonicalization: false, pendingBatches: [],
+    });
+    await started;
+    expect(states).toEqual([
+      { mode: "no-replica", error: "replica worker failed" },
+    ]);
+  });
+
+  test("a start after noteUnavailable calls nothing", async () => {
+    const replica = fakeReplica();
+    const fetchJson = vi.fn(async () => feed());
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, onState: () => undefined,
+    });
+    sync.noteUnavailable(deadWorker());
+    await sync.start();
+    expect(replica.calls).toEqual([]);
+    expect(fetchJson).not.toHaveBeenCalled();
+    expect(sync.hasStarted()).toBe(false);
+  });
+
   test("a pass that fails after noteUnavailable reports nothing and arms no retry",
   async () => {
     vi.useFakeTimers();

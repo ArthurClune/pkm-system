@@ -63,7 +63,7 @@ export interface ReplicaSync {
    * a usable snapshot, whether this call's start() bootstrapped it just now
    * or it was already populated (this session, or persisted from a previous
    * one). False for a mount that has never completed a bootstrap -- the
-   * offline-cold-start gap useSocketLifecycle's first-connect gate closes:
+   * offline-cold-start gap the sync session's first-connect gate closes:
    * a failed start() while offline leaves this false, so the
    * first connect once online still knows to run the reconnect protocol even
    * with an empty durable queue. A failed start() while online is retried
@@ -156,7 +156,7 @@ export interface ReplicaSyncDeps {
     Partial<Pick<OpQueue, "onPoisonPending" | "onPoisonMarkUnmatched" |
                           "deliverLaneAhead" | "settleCommitted">>;
   /** True while the socket is down (mirrors the offline gateway's own
-   * `statusRef.current === "reconnecting"` predicate). A failed pull's retry
+   * `session.status() === "reconnecting"` predicate). A failed pull's retry
    * is pointless here -- every retry while offline just reproduces the same
    * `OfflineError` -- and the reconnect flow already calls `start()` (hence
    * `pull()`) the moment the socket comes back up, so nothing is lost by not
@@ -932,7 +932,8 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       await runRecovery("reset", {
         // discarding is the user answering the ResetBlockedError question
         flush: discardPending ? "skip" : "blocking",
-        // SyncProvider turns this rejection into its own reset-failed banner
+        // the session's resetReplica turns this rejection into its own
+        // reset-failed banner
         reportReplicaFailure: false,
         awaitInFlightPull: true,
         forceReadyOnSuccess: true,

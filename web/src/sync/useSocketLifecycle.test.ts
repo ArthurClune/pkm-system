@@ -1,227 +1,92 @@
 import { act, renderHook } from "@testing-library/react";
+import { createElement, StrictMode, type ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { FakeWebSocket } from "../test-helpers";
-import type { OpQueue } from "./opQueue";
-import type { ReplicaSync } from "./replicaSync";
-import type { SyncStatus } from "./syncState";
-import { useSocketLifecycle, type SocketLifecycleDeps } from "./useSocketLifecycle";
+import { clientIdOf, FakeWebSocket } from "../test-helpers";
+import { createSyncSession, type SyncSession } from "./session";
+import { useSocketLifecycle } from "./useSocketLifecycle";
 
 function lastWs(): FakeWebSocket {
   return FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
 }
 
-const unstubbed = (what: string) => (): never => {
-  throw new Error(`fake queue: ${what} was not stubbed`);
-};
-
-/** A queue whose drain always reports success at once — the reconnect flow
- * under test needs nothing more than that to reach replicaSync.start(). Every
- * other member throws. */
-function fakeQueue(): OpQueue {
-  return {
-    enqueue: unstubbed("enqueue"),
-    settled: unstubbed("settled"),
-    drain: async () => ({ status: "drained" }),
-    setOnline: () => undefined,
-    pause: unstubbed("pause"),
-    resume: unstubbed("resume"),
-    dispose: () => undefined,
-    onDesync: unstubbed("onDesync"),
-    onDrain: () => () => undefined,
-    onSkipped: unstubbed("onSkipped"),
-    onPending: unstubbed("onPending"),
-    refreshPending: unstubbed("refreshPending"),
-    onUnsentInMemory: unstubbed("onUnsentInMemory"),
-    onPoisonPending: unstubbed("onPoisonPending"),
-    onPoisonMarkFailed: unstubbed("onPoisonMarkFailed"),
-    onPoison: unstubbed("onPoison"),
-    onPoisonMarkUnmatched: unstubbed("onPoisonMarkUnmatched"),
-    poisonMarkIntents: unstubbed("poisonMarkIntents"),
-    retryPoisonMarks: unstubbed("retryPoisonMarks"),
-    discardPoisonIntents: unstubbed("discardPoisonIntents"),
-    deliverLaneAhead: unstubbed("deliverLaneAhead"),
-    settleCommitted: unstubbed("settleCommitted"),
-  };
+/** A session with no replica, started: the hook only hands it the socket. */
+function startedSession(): SyncSession {
+  const session = createSyncSession({
+    replica: null,
+    clientId: clientIdOf("lifecycle-test"),
+    fetchJson: async (path) => { throw new Error(`unexpected fetch ${path}`); },
+    outlines: {
+      track: () => undefined,
+      attachReplay: () => undefined,
+      repairSessions: async () => undefined,
+    },
+    report: {
+      status: () => undefined, replicaState: () => undefined,
+      problem: () => undefined, resync: () => undefined,
+      pending: () => undefined, unsentInMemory: () => undefined,
+    },
+  });
+  void session.startup();
+  return session;
 }
 
-function fakeDeps(over: Partial<SocketLifecycleDeps> = {}): SocketLifecycleDeps {
-  return {
-    queue: fakeQueue(),
-    replicaSync: null,
-    readInitialPending: async () => 0,
-    startupRun: async () => undefined,
-    retryFailedRepair: async () => undefined,
-    mountedRef: { current: true },
-    statusRef: { current: "connecting" as SyncStatus },
-    onBatch: () => undefined,
-    onSeq: () => undefined,
-    onStatus: () => undefined,
-    onResync: () => undefined,
-    disposeOwned: () => undefined,
-    ...over,
-  };
-}
+const strict = ({ children }: { children: ReactNode }) =>
+  createElement(StrictMode, null, children);
 
 afterEach(() => { vi.restoreAllMocks(); });
 
-test("a first-connect reconnect().begin() rejection is logged, not left unhandled",
+test("a socket status reaches the session", async () => {
+  const session = startedSession();
+  const onSocketStatus = vi.spyOn(session, "onSocketStatus");
+  renderHook(() => useSocketLifecycle({
+    session, mountedRef: { current: false }, disposeOwned: () => undefined,
+  }));
+
+  await act(async () => { lastWs().open(); });
+  expect(onSocketStatus.mock.calls).toEqual([[true]]);
+  expect(session.status()).toBe("connected");
+
+  await act(async () => { lastWs().drop(); });
+  expect(onSocketStatus.mock.calls).toEqual([[true], [false]]);
+  expect(session.status()).toBe("reconnecting");
+});
+
+test("a real unmount disposes the session, then the owned replica, once",
 async () => {
-  // reconnectFlow's begin() does not swallow (unlike observeDrain, which
-  // wraps its own finish() in a .catch). A non-empty durable queue on first
-  // connect drives begin({ viewsAreStale: true }) through
-  // useSocketLifecycle.ts's initialPending chain; if replicaSync.start()
-  // throws, that must not become an unhandled rejection.
-  const boom = new Error("replica start failed");
-  const replicaSync = {
-    start: async () => { throw boom; },
-    idle: async () => undefined,
-    appliedVersion: () => null,
-    hasStarted: () => true,
-    stop: () => undefined,
-  } as unknown as ReplicaSync;
-  const logged: unknown[][] = [];
-  vi.spyOn(console, "error")
-    .mockImplementation((...args: unknown[]) => { logged.push(args); });
+  const session = startedSession();
+  const order: string[] = [];
+  vi.spyOn(session, "dispose").mockImplementation(() => { order.push("session"); });
+  const mountedRef = { current: false };
+  const { unmount } = renderHook(() => useSocketLifecycle({
+    session, mountedRef, disposeOwned: () => { order.push("owned"); },
+  }));
+  expect(mountedRef.current).toBe(true);
 
-  renderHook(() => useSocketLifecycle(fakeDeps({
-    replicaSync,
-    readInitialPending: async () => 1, // leftover durable rows: begin() runs
-  })));
+  unmount();
+  expect(mountedRef.current).toBe(false);
+  expect(order).toEqual([]);
+  await act(async () => { await Promise.resolve(); });
+  await act(async () => { await Promise.resolve(); });
 
-  await act(async () => {
-    lastWs().open();
-    // Flush the initialPending -> startupRun -> begin -> drain -> finish ->
-    // replicaSync.start() microtask chain without relying on fake timers.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  expect(logged.some((args) => args.includes(boom))).toBe(true);
+  expect(order).toEqual(["session", "owned"]);
+  expect(lastWs().closedByApp).toBe(true);
 });
 
-test("a reconnect's begin() rejection is logged, not left unhandled", async () => {
-  const boom = new Error("replica start failed");
-  const replicaSync = {
-    start: async () => { throw boom; },
-    idle: async () => undefined,
-    appliedVersion: () => null,
-    hasStarted: () => true,
-    stop: () => undefined,
-  } as unknown as ReplicaSync;
-  const logged: unknown[][] = [];
-  vi.spyOn(console, "error")
-    .mockImplementation((...args: unknown[]) => { logged.push(args); });
+test("a StrictMode replay keeps the session", async () => {
+  const session = startedSession();
+  const dispose = vi.spyOn(session, "dispose");
+  const disposeOwned = vi.fn();
+  const mountedRef = { current: false };
+  renderHook(() => useSocketLifecycle({ session, mountedRef, disposeOwned }),
+             { wrapper: strict });
+  // Past the microtask a deferred dispose would run in, and past the
+  // closed first socket's onclose.
+  await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 
-  renderHook(() => useSocketLifecycle(fakeDeps({ replicaSync })));
-
-  // First connect: an empty durable queue skips begin() entirely (see the
-  // other test), so this establishes everConnectedRef without tripping it.
-  await act(async () => {
-    lastWs().open();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-  expect(logged).toEqual([]);
-
-  // A genuine reconnect (drop, then a fresh open) takes the unconditional
-  // `void reconnect.begin()` branch.
-  await act(async () => {
-    lastWs().drop();
-    lastWs().open();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  expect(logged.some((args) => args.includes(boom))).toBe(true);
-});
-
-test("offline cold start with an empty queue still bootstraps once online",
-async () => {
-  // The mount-time startupRun() already tried replicaSync.start() before the
-  // first connect (SyncProvider.tsx's own effect); while offline that attempt's
-  // snapshot fetch fails and the failure is swallowed upstream, leaving the
-  // replica un-started with an empty durable queue. The old gate
-  // (`n > 0` alone) then never called begin() at all, so nothing retried the
-  // bootstrap once connectivity returned -- views stayed empty until a reload.
-  let started = false;
-  const startCalls: number[] = [];
-  const replicaSync = {
-    start: async () => { startCalls.push(startCalls.length); started = true; },
-    idle: async () => undefined,
-    appliedVersion: () => (started ? 1 : 0),
-    hasStarted: () => started,
-    stop: () => undefined,
-  } as unknown as ReplicaSync;
-
-  renderHook(() => useSocketLifecycle(fakeDeps({
-    replicaSync,
-    readInitialPending: async () => 0, // empty durable queue
-  })));
-
-  await act(async () => {
-    lastWs().open(); // connectivity returns: the socket's first "up"
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  expect(startCalls.length).toBe(1);
-});
-
-test("online cold start with an already-bootstrapped replica and empty queue " +
-"stays quiet", async () => {
-  // Widening the gate must not make every first connect redundantly re-run
-  // the reconnect protocol: a replica that mount-time startupRun() already
-  // got to "ready" (this session, or reading data persisted from a previous
-  // one) has nothing left for begin() to do when the queue is empty.
-  const startCalls: number[] = [];
-  const replicaSync = {
-    start: async () => { startCalls.push(startCalls.length); },
-    idle: async () => undefined,
-    appliedVersion: () => 0,
-    hasStarted: () => true,
-    stop: () => undefined,
-  } as unknown as ReplicaSync;
-
-  renderHook(() => useSocketLifecycle(fakeDeps({
-    replicaSync,
-    readInitialPending: async () => 0,
-  })));
-
-  await act(async () => {
-    lastWs().open();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  expect(startCalls.length).toBe(0);
-});
-
-test("each connect retries a failed repair, the first after the startup gate",
-async () => {
-  // A startup repair that failed offline leaves the replica un-started, so
-  // the first connect runs the reconnect protocol; it must not ask the
-  // runtime until startup has answered.
-  const trace: string[] = [];
-  const replicaSync = {
-    start: async () => { trace.push("start"); },
-    idle: async () => undefined,
-    appliedVersion: () => 0,
-    hasStarted: () => false,
-    stop: () => undefined,
-  } as unknown as ReplicaSync;
-
-  renderHook(() => useSocketLifecycle(fakeDeps({
-    replicaSync,
-    startupRun: async () => { trace.push("startupRun"); },
-    retryFailedRepair: async () => { trace.push("retryFailedRepair"); },
-  })));
-
-  await act(async () => {
-    lastWs().open();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-  expect(trace).toEqual(["startupRun", "retryFailedRepair", "start"]);
-
-  trace.length = 0;
-  await act(async () => {
-    lastWs().drop();
-    lastWs().open();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-  expect(trace).toEqual(["retryFailedRepair", "start"]);
+  expect(dispose).not.toHaveBeenCalled();
+  expect(disposeOwned).not.toHaveBeenCalled();
+  expect(mountedRef.current).toBe(true);
+  // The replayed setup's socket is the one that drives the session.
+  await act(async () => { lastWs().open(); });
+  expect(session.status()).toBe("connected");
 });

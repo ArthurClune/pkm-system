@@ -1,9 +1,9 @@
 // @vitest-environment node
-// The queue's recovery barrier with its owners composed as SyncProvider
-// composes them: the real queue, the client runtime's poison repair and the
-// legacy repair, over an in-memory replica and a recording POST. Each test
-// leaves one owner's claim standing while another owner lets go of its own,
-// and reads back what reached the server.
+// The queue's recovery barrier with its owners composed as the sync session
+// (session.ts) composes them: the real queue, the client runtime's poison
+// repair and the legacy repair, over an in-memory replica and a recording
+// POST. Each test leaves one owner's claim standing while another owner lets
+// go of its own, and reads back what reached the server.
 import { describe, expect, test } from "vitest";
 import { ApiError } from "../api/client";
 import type { BatchId } from "../api/brands";

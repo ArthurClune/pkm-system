@@ -5,13 +5,13 @@
 // A cleared cookie is not simulated with context.setOffline: the websocket
 // only re-checks auth at its own handshake, not per frame, and the queue's
 // HTTP delivery is gated on that socket's "connected" status (see
-// useSocketLifecycle.ts) -- taking the whole network down would also kill
-// the socket and its reconnect would then itself 403 on the cleared cookie,
-// so the queue would never come back online to attempt the POST that is
-// supposed to 401. Blocking only /api/ops leaves the socket (and therefore
-// queue.setOnline) untouched, matching how a session really expires: the
-// already-open socket stays up while the next HTTP POST's cookie re-check
-// fails.
+// onSocketStatus in sync/session.ts) -- taking the whole network down would
+// also kill the socket and its reconnect would then itself 403 on the
+// cleared cookie, so the queue would never come back online to attempt the
+// POST that is supposed to 401. Blocking only /api/ops leaves the socket
+// (and therefore queue.setOnline) untouched, matching how a session really
+// expires: the already-open socket stays up while the next HTTP POST's
+// cookie re-check fails.
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";

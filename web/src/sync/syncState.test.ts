@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { PoisonEvent } from "./opQueue";
-import { computeEditability, transitionSync, type SyncEvent, type SyncProblem,
-         type SyncState } from "./syncState";
+import type { ReplicaState } from "./replicaSync";
+import { computeEditability, transitionSync, type ReplicaMode, type SyncEvent,
+         type SyncProblem, type SyncState, type SyncStatus } from "./syncState";
 import { pendingRowIdOf, batchIdOf, offType } from "../test-helpers";
 
-// Test-only: production code builds a SyncState inline (SyncProvider.tsx's
-// applySync does `{ problem: prev }`), so this constructor lives here rather
-// than as a production export.
+// Test-only: production code builds a SyncState inline (session.ts starts
+// from `{ problem: undefined }`), so this constructor lives here rather than
+// as a production export.
 const createSyncState = (): SyncState => ({ problem: undefined });
 
 const poison = (over: Partial<PoisonEvent> = {}): PoisonEvent => ({
@@ -19,6 +20,13 @@ const poison = (over: Partial<PoisonEvent> = {}): PoisonEvent => ({
 });
 
 const withProblem = (problem: SyncProblem | undefined) => ({ problem });
+
+const modeReport = (
+  state: ReplicaState, status: SyncStatus = "connected",
+  prev: ReplicaMode = "starting",
+): SyncEvent => ({ type: "replica-state", prev, state, status });
+
+const STATUSES: readonly SyncStatus[] = ["connecting", "connected", "reconnecting"];
 
 describe("computeEditability", () => {
   it("allows editing while connected", () => {
@@ -67,27 +75,125 @@ describe("computeEditability", () => {
 
 describe("transitionSync mode-ready resync", () => {
   it("bumps resync when the replica becomes ready while the socket is down", () => {
-    const t = transitionSync(createSyncState(), {
-      type: "mode-ready-check", prevMode: "starting", mode: "ready",
-      status: "reconnecting",
-    });
+    const t = transitionSync(createSyncState(),
+      modeReport({ mode: "ready" }, "reconnecting", "starting"));
     expect(t.effects).toEqual([{ type: "bump-resync" }]);
   });
 
   it("does not bump when already connected", () => {
-    const t = transitionSync(createSyncState(), {
-      type: "mode-ready-check", prevMode: "starting", mode: "ready",
-      status: "connected",
-    });
+    const t = transitionSync(createSyncState(),
+      modeReport({ mode: "ready" }, "connected", "starting"));
     expect(t.effects).toEqual([]);
   });
 
   it("does not bump when the mode was already ready", () => {
-    const t = transitionSync(createSyncState(), {
-      type: "mode-ready-check", prevMode: "ready", mode: "ready",
-      status: "reconnecting",
+    const t = transitionSync(createSyncState(),
+      modeReport({ mode: "ready" }, "reconnecting", "ready"));
+    expect(t.effects).toEqual([]);
+  });
+});
+
+describe("transitionSync replica-state", () => {
+  it.each(STATUSES)("stalled raises replica-stalled whatever the socket (%s)",
+    (status) => {
+      const t = transitionSync(createSyncState(),
+        modeReport({ mode: "stalled", error: "db locked" }, status));
+      expect(t.state.problem).toEqual({
+        kind: "replica-stalled", error: "db locked", reset: "idle",
+      });
+      expect(t.effects).toEqual([]);
+    });
+
+  it("recovery-failed raises replica-stalled only while connected", () => {
+    const failed: ReplicaState = { mode: "recovery-failed", error: "boom" };
+    const connected = transitionSync(createSyncState(),
+      modeReport(failed, "connected"));
+    expect(connected.state.problem).toEqual({
+      kind: "replica-stalled", error: "boom", reset: "idle",
+    });
+    for (const status of ["connecting", "reconnecting"] as const) {
+      const before = createSyncState();
+      const t = transitionSync(before, modeReport(failed, status));
+      expect(t.state).toBe(before);
+      expect(t.effects).toEqual([]);
+    }
+  });
+
+  it("ready clears an idle stalled problem", () => {
+    const t = transitionSync(withProblem({
+      kind: "replica-stalled", error: "x", reset: "idle",
+    }), modeReport({ mode: "ready" }, "connected", "stalled"));
+    expect(t.state.problem).toBeUndefined();
+    expect(t.effects).toEqual([]);
+  });
+
+  it("ready keeps a stalled problem whose reset is running", () => {
+    const running: SyncProblem = {
+      kind: "replica-stalled", error: "x", reset: "running",
+    };
+    const t = transitionSync(withProblem(running),
+      modeReport({ mode: "ready" }, "connected", "stalled"));
+    expect(t.state.problem).toEqual(running);
+  });
+
+  it("no-replica with an error raises replica-unusable", () => {
+    const t = transitionSync(createSyncState(),
+      modeReport({ mode: "no-replica", error: "worker died" }, "connected", "ready"));
+    expect(t.state.problem).toEqual({
+      kind: "replica-unusable", error: "worker died",
     });
     expect(t.effects).toEqual([]);
+  });
+
+  it("no-replica without an error changes nothing", () => {
+    for (const status of STATUSES) {
+      const before = createSyncState();
+      const t = transitionSync(before, modeReport({ mode: "no-replica" }, status));
+      expect(t.state).toBe(before);
+      expect(t.effects).toEqual([]);
+    }
+  });
+
+  it("starting changes nothing", () => {
+    const stalled = withProblem({
+      kind: "replica-stalled", error: "x", reset: "idle",
+    });
+    for (const status of STATUSES) {
+      const t = transitionSync(stalled,
+        modeReport({ mode: "starting" }, status, "ready"));
+      expect(t.state).toBe(stalled);
+      expect(t.effects).toEqual([]);
+    }
+  });
+
+  it.each(["connecting", "reconnecting"] as const)(
+    "turning ready while disconnected bumps resync (%s)", (status) => {
+      const t = transitionSync(createSyncState(),
+        modeReport({ mode: "ready" }, status, "starting"));
+      expect(t.state.problem).toBeUndefined();
+      expect(t.effects).toEqual([{ type: "bump-resync" }]);
+    });
+
+  it("turning ready while disconnected clears an idle stall and bumps", () => {
+    const t = transitionSync(withProblem({
+      kind: "replica-stalled", error: "x", reset: "idle",
+    }), modeReport({ mode: "ready" }, "reconnecting", "stalled"));
+    expect(t.state.problem).toBeUndefined();
+    expect(t.effects).toEqual([{ type: "bump-resync" }]);
+  });
+
+  it("turning ready while connected does not bump", () => {
+    const t = transitionSync(createSyncState(),
+      modeReport({ mode: "ready" }, "connected", "starting"));
+    expect(t.effects).toEqual([]);
+  });
+
+  it("a ready re-report does not bump", () => {
+    for (const status of STATUSES) {
+      const t = transitionSync(createSyncState(),
+        modeReport({ mode: "ready" }, status, "ready"));
+      expect(t.effects).toEqual([]);
+    }
   });
 });
 
@@ -314,9 +420,8 @@ describe("transitionSync legacy repair", () => {
 
 describe("transitionSync replica-stalled lifecycle", () => {
   it("sets a stalled problem with reset idle", () => {
-    const t = transitionSync(createSyncState(), {
-      type: "replica-stalled", error: "replica db locked",
-    });
+    const t = transitionSync(createSyncState(),
+      modeReport({ mode: "stalled", error: "replica db locked" }));
     expect(t.state.problem).toEqual({
       kind: "replica-stalled", error: "replica db locked", reset: "idle",
     });
@@ -327,9 +432,8 @@ describe("transitionSync replica-stalled lifecycle", () => {
     const existing: SyncProblem = {
       kind: "rejected-batch", event: poison(), repair: "running",
     };
-    const t = transitionSync(withProblem(existing), {
-      type: "replica-stalled", error: "replica db locked",
-    });
+    const t = transitionSync(withProblem(existing),
+      modeReport({ mode: "stalled", error: "replica db locked" }));
     expect(t.state.problem).toEqual(existing);
     expect(t.effects).toEqual([]);
   });
@@ -338,9 +442,8 @@ describe("transitionSync replica-stalled lifecycle", () => {
     const running = withProblem({
       kind: "replica-stalled", error: "old error", reset: "running",
     });
-    const t = transitionSync(running, {
-      type: "replica-stalled", error: "new error",
-    });
+    const t = transitionSync(running,
+      modeReport({ mode: "stalled", error: "new error" }, "connected", "stalled"));
     expect(t.state.problem).toEqual({
       kind: "replica-stalled", error: "new error", reset: "running",
     });
@@ -350,9 +453,8 @@ describe("transitionSync replica-stalled lifecycle", () => {
     const blocked = withProblem({
       kind: "replica-stalled", error: "old error", reset: "blocked", pending: 3,
     });
-    const t = transitionSync(blocked, {
-      type: "replica-stalled", error: "new error",
-    });
+    const t = transitionSync(blocked,
+      modeReport({ mode: "stalled", error: "new error" }, "connected", "stalled"));
     expect(t.state.problem).toEqual({
       kind: "replica-stalled", error: "new error", reset: "blocked", pending: 3,
     });
@@ -361,7 +463,7 @@ describe("transitionSync replica-stalled lifecycle", () => {
   it("clears a replica-stalled problem on unstall when not mid-reset", () => {
     const t = transitionSync(withProblem({
       kind: "replica-stalled", error: "x", reset: "idle",
-    }), { type: "replica-unstalled" });
+    }), modeReport({ mode: "ready" }, "connected", "stalled"));
     expect(t.state.problem).toBeUndefined();
   });
 
@@ -369,18 +471,21 @@ describe("transitionSync replica-stalled lifecycle", () => {
     const running: SyncProblem = {
       kind: "replica-stalled", error: "x", reset: "running",
     };
-    const t = transitionSync(withProblem(running), { type: "replica-unstalled" });
+    const t = transitionSync(withProblem(running),
+      modeReport({ mode: "ready" }, "connected", "stalled"));
     expect(t.state.problem).toEqual(running);
   });
 
   it("leaves other problem kinds alone on unstall", () => {
     const other: SyncProblem = { kind: "poison-discovery", error: "y" };
-    const t = transitionSync(withProblem(other), { type: "replica-unstalled" });
+    const t = transitionSync(withProblem(other),
+      modeReport({ mode: "ready" }, "connected", "stalled"));
     expect(t.state.problem).toEqual(other);
   });
 
   it("does nothing on unstall when there is no problem", () => {
-    const t = transitionSync(createSyncState(), { type: "replica-unstalled" });
+    const t = transitionSync(createSyncState(),
+      modeReport({ mode: "ready" }, "connected", "stalled"));
     expect(t.state.problem).toBeUndefined();
     expect(t.effects).toEqual([]);
   });

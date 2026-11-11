@@ -1,8 +1,10 @@
 // pattern: Imperative Shell
 // The queue property's world: the real op queue, client runtime and legacy
-// repair, wired as SyncProvider wires them, around stand-ins the property
-// steps one command at a time. Every stand-in is a part of the app's
-// surroundings, never of the code under test:
+// repair, wired by hand as createSyncSession (sync/session.ts) wires them,
+// around stand-ins the property steps one command at a time. A session
+// would bring the real replicaSync, whose repair snapshot and recovery the
+// stand-ins below replace so that a command can step them. Every stand-in
+// is a part of the app's surroundings, never of the code under test:
 //   worker    a FIFO of replica calls behind a gate, as the replica worker's
 //             recovery gate runs them; a held gate keeps every later call
 //             waiting, a timed-out enqueue's write included

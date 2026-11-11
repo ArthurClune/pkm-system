@@ -26,8 +26,8 @@ import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
 import { clientId, createOpQueue } from "./opQueue";
 import { RETRY_BASE_MS } from "./replicaSync";
-import { SyncProvider, useResyncGeneration, useSyncActions, useSyncEditability,
-         useSyncHealth, type Sync } from "./SyncProvider";
+import { SyncProvider, useResync, useResyncGeneration, useSyncActions,
+         useSyncEditability, useSyncHealth, type Sync } from "./SyncProvider";
 
 /** Every slice at once. The app has no such consumer — a component that only
  * writes must not wake for a pending tick — but these tests assert on the
@@ -1980,7 +1980,7 @@ describe("the poison gate and repair problems", () => {
     expect(posts).toEqual(["bad-batch", "good-batch"]);
   });
 
-  test("applySync reads the freshest problem for same-tick dispatches: a dismiss " +
+  test("the session reads the freshest problem for same-tick dispatches: a dismiss " +
   "racing a new repair-started must not erase it", async () => {
     let snapshotCalls = 0;
     const posts: BatchId[] = [];
@@ -2198,6 +2198,34 @@ describe("offline and cold start", () => {
     expect(screen.getByTestId("s").textContent).toBe("ready:1:true");
   });
 
+  test("cold start offline: a refetch after the resync bump is served " +
+  "through the shim", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
+    const replica = fakeReplicaForProvider();
+    replica.init = async () => ({ empty: false, cursor: seqOf(5),
+                                  schemaMismatch: false,
+      plainSpaceTitleCanonicalization: false, pendingBatches: [] });
+    const served: string[] = [];
+    replica.localApi = async (req) => {
+      served.push(req.path);
+      return { handled: true, status: 200, body: { local: true } };
+    };
+    const refetched: unknown[] = [];
+    function Consumer() {
+      useResync(() => {
+        void apiFetch("/api/probe").then((r) => refetched.push(r));
+      });
+      return null;
+    }
+    const { unmount } = render(
+      <SyncProvider replica={replica}><Consumer /></SyncProvider>);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(served).toEqual(["/api/probe"]);
+    expect(refetched).toEqual([{ local: true }]);
+    unmount();
+  });
+
   test("offline without a replica stays read-only with a reason", async () => {
     stubFetch([["/api/ops", { ok: true }]]);
     let sync!: Sync;
@@ -2282,12 +2310,12 @@ describe("ownership and StrictMode lifecycle", () => {
   });
 
   test("StrictMode effect replay leaves exactly one live connect lifecycle", async () => {
-    // The replayed setup builds a second socket and a second reconnect flow;
-    // the first mount's cleanup must have detached its own (mountedRef false,
-    // drain observer cleared, socket closed) or a reconnect would finish twice
-    // and bump resyncGeneration twice. Deliberately paired with "StrictMode
-    // effect replay keeps the queue live": that one pins what replay must NOT
-    // tear down, this one pins what it must not leave running.
+    // The replay builds a second socket over the one session. Only the
+    // replayed socket may drive it: if the first mount's socket stayed
+    // attached, a reconnect would finish twice and bump resyncGeneration
+    // twice. Deliberately paired with "StrictMode effect replay keeps the
+    // queue live": that one pins what replay must NOT tear down, this one
+    // pins what it must not leave running.
     vi.useFakeTimers();
     try {
       let sync!: Sync;

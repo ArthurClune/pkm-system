@@ -10,6 +10,7 @@ import { selectionDragUids } from "../outline/blockSelection";
 import { subtreeHeight } from "../outline/depthCap";
 import { findNode, hidingAncestors } from "../outline/tree";
 import { useConfirm } from "../components/ConfirmDialog";
+import { DismissibleNotice } from "../components/DismissibleNotice";
 import { useOutline } from "../outline/useOutline";
 
 /** One editable outline (a page body or a journal day).
@@ -126,25 +127,15 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
          style={ownsEditor ? { position: "relative" } : undefined}
          {...(ownsEditor && !outline.readOnly ? zoneProps : {})}>
       {ownsEditor && outline.notices.map((notice) => (
-        <p key={notice.kind}
-           className={notice.tone === "error" ? "error upload-error"
-                                              : "editor-notice"}
-           role={notice.tone === "error" ? "alert" : "status"}>
+        <DismissibleNotice key={notice.kind} tone={notice.tone}
+                           onDismiss={() => outline.dismissNotice(notice.kind)}>
           {notice.text}
-          <button type="button" className="btn-secondary"
-                  onClick={() => outline.dismissNotice(notice.kind)}>
-            Dismiss
-          </button>
-        </p>
+        </DismissibleNotice>
       ))}
       {ownsEditor && pickerNotice && (
-        <p className="editor-notice" role="status">
+        <DismissibleNotice tone="status" onDismiss={() => setPickerNotice(null)}>
           {pickerNotice}
-          <button type="button" className="btn-secondary"
-                  onClick={() => setPickerNotice(null)}>
-            Dismiss
-          </button>
-        </p>
+        </DismissibleNotice>
       )}
       {outline.blocks.length === 0 && ownsEditor ? (
         <div className="empty-drop-zone">

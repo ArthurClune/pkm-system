@@ -2,9 +2,9 @@
 // Picker for the /link-local-file command, portalled to body like
 // ImageOverlay. One fetch of GET /api/local-index on mount, then either a
 // folder browser (empty query) or fzf search over the whole tree. Keyboard
-// handling stays on the search input because useOverlayDismiss pins Tab
-// there; Backspace on an empty query goes up a folder, and Cancel is for
-// touch. The list is a listbox driven by aria-activedescendant.
+// handling stays on the search input because useModal pins Tab there;
+// Backspace on an empty query goes up a folder, and Cancel is for touch. The
+// list is a listbox driven by aria-activedescendant.
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ApiError } from "../api/client";
@@ -16,7 +16,7 @@ import {
   type LocalFile,
 } from "../outline/localFiles";
 import { searchLocalFiles } from "../outline/localSearch";
-import { useOverlayDismiss } from "./useOverlayDismiss";
+import { useModal } from "../useModal";
 
 type IndexState =
   | { status: "loading" }
@@ -77,12 +77,13 @@ export function LocalFilePicker({ onPick, onClose }: {
   onClose: () => void;
 }) {
   const searchRef = useRef<HTMLInputElement>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<IndexState>({ status: "loading" });
   const [query, setQuery] = useState("");
   const [folder, setFolder] = useState("");
   const [selected, setSelected] = useState(0);
-  useOverlayDismiss(searchRef, onClose);
+  useModal({ surfaceRef, initialFocusRef: searchRef, onClose, trap: "pin" });
 
   useEffect(() => {
     let alive = true;
@@ -153,6 +154,7 @@ export function LocalFilePicker({ onPick, onClose }: {
       role="dialog"
       aria-modal="true"
       aria-label="Link a local file"
+      ref={surfaceRef}
       onClick={(event) => {
         event.stopPropagation();
         if (event.target === event.currentTarget) onClose();

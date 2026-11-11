@@ -3,6 +3,7 @@ import { useRef } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { useDismiss } from "../useDismiss";
 import { useConfirm } from "./ConfirmDialog";
+import { ImageOverlay } from "./ImageOverlay";
 
 afterEach(() => {
   document.body.style.overflow = "";
@@ -231,4 +232,34 @@ it("a second confirm() refocuses the confirm button", () => {
   fireEvent.click(screen.getByText("second"));
   expect(screen.getByText("Second?")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Yes" })).toHaveFocus();
+});
+
+it("a confirm over the image overlay answers Escape alone; scrolling stays locked until both close", () => {
+  document.body.style.overflow = "auto";
+  const onOverlayClose = vi.fn();
+  function OverImage() {
+    const { confirm, dialog } = useConfirm();
+    return (
+      <>
+        <button type="button" onClick={() => { void confirm("Sure?"); }}>
+          ask
+        </button>
+        <ImageOverlay src="/assets/a/p.png" alt="p" onClose={onOverlayClose}
+                      onError={() => {}} />
+        {dialog}
+      </>
+    );
+  }
+  const view = render(<OverImage />);
+  fireEvent.click(screen.getByText("ask"));
+  fireEvent.keyDown(screen.getByRole("button", { name: "OK" }),
+                    { key: "Escape" });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(onOverlayClose).not.toHaveBeenCalled();
+  expect(document.body.style.overflow).toBe("hidden");
+
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(onOverlayClose).toHaveBeenCalledTimes(1);
+  view.unmount();
+  expect(document.body.style.overflow).toBe("auto");
 });

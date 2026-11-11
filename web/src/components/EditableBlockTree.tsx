@@ -140,7 +140,6 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
       },
     );
   }, [onPickerNotice]);
-  // Stable, so the picker's dismissal hook does not re-run on tree renders.
   const closeLocalFile = useCallback(() => {
     localFileRequest.current++;
     setLocalFileTarget(null);

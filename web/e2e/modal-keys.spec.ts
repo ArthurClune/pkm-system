@@ -2,9 +2,12 @@
 // has no layout, so the trap, the scroll lock and the focus restore are only
 // proven here. Each test works on its own page and leaves it in place for the
 // fixture to delete.
-import { type Page } from "@playwright/test";
+import { type Locator, type Page } from "@playwright/test";
 import { expect, test } from "./ownPage";
+import { waitForServerText } from "./server-state";
 import { rawTitleOf } from "../src/test-mint";
+
+const input = (page: Page) => page.locator("textarea.block-input");
 
 const insideDialog = (page: Page, role: "alertdialog" | "dialog") =>
   page.evaluate((r) =>
@@ -12,6 +15,17 @@ const insideDialog = (page: Page, role: "alertdialog" | "dialog") =>
 
 const bodyOverflow = (page: Page) =>
   page.evaluate(() => document.body.style.overflow);
+
+const bodyHasFocus = (page: Page) =>
+  page.evaluate(() => document.activeElement === document.body);
+
+/** Tab and Shift+Tab, twice each, leave focus on `pinned`. */
+async function expectTabPinned(page: Page, pinned: Locator) {
+  for (const key of ["Tab", "Tab", "Shift+Tab", "Shift+Tab"]) {
+    await page.keyboard.press(key);
+    await expect(pinned).toBeFocused();
+  }
+}
 
 test("the delete confirm keeps Tab inside, locks scrolling and gives both back on Escape",
      async ({ page, ownPage }) => {
@@ -95,4 +109,85 @@ test("the blocked-delete dialog cycles Tab through its links and Close",
   } finally {
     await page.request.delete(`/api/page/${encodeURIComponent(blockerTitle)}`);
   }
+});
+
+// The same one-pixel PNG image-expansion.spec.ts uploads, so the asset store
+// gains nothing new.
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",  // noqa: E501
+  "base64",
+);
+
+test("the image overlay pins Tab on Close and gives focus back to its trigger",
+     async ({ page, ownPage }) => {
+  const response = await page.request.post("/api/assets", {
+    multipart: { file: { name: "pic.png", mimeType: "image/png", buffer: PNG } },
+  });
+  expect(response.ok()).toBe(true);
+  const { url } = await response.json() as { url: string };
+  await page.getByText("Click to start writing…").click();
+  await input(page).fill(`![pic](${url})`);
+  await input(page).press("Escape");
+  await waitForServerText(page, ownPage.title, `![pic](${url})`);
+
+  const trigger = page.getByRole("button", { name: "Expand image: pic" });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "Expanded image: pic" });
+  const close = dialog.getByRole("button", { name: "Close" });
+  await expect(close).toBeFocused();
+  expect(await bodyOverflow(page)).toBe("hidden");
+  await expectTabPinned(page, close);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  expect(await bodyOverflow(page)).toBe("");
+});
+
+// server/tests/fake_goodlinks_server.py's seeded article.
+const ARTICLE_HREF = "/api/goodlinks/0123456789abcdef0123456789abcdef";
+
+test("the GoodLinks reader pins Tab on Close and gives focus back to its link",
+     async ({ page, ownPage }) => {
+  const text = `Local copy:: [Goodlinks](${ARTICLE_HREF})`;
+  await page.getByText("Click to start writing…").click();
+  await input(page).fill(text);
+  await input(page).press("Escape");
+  await waitForServerText(page, ownPage.title, text);
+
+  const open = page.getByRole("button", { name: "Goodlinks", exact: true });
+  await open.click();
+  const dialog = page.getByRole("dialog", { name: "E2E Article" });
+  await expect(dialog.locator("iframe.goodlinks-reader-frame")).toBeVisible();
+  const close = dialog.getByRole("button", { name: "Close" });
+  await expect(close).toBeFocused();
+  expect(await bodyOverflow(page)).toBe("hidden");
+  await expectTabPinned(page, close);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(open).toBeFocused();
+  expect(await bodyOverflow(page)).toBe("");
+});
+
+// ownPage is requested for the page it opens, not for its title.
+test("the local-file picker pins Tab on its search box and closes on Escape",
+     async ({ page, ownPage: _ownPage }) => {
+  await page.getByText("Click to start writing…").click();
+  await input(page).fill("/link-local-file");
+  await page.getByRole("option", { name: "link to local file…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Link a local file" });
+  const search = dialog.getByRole("combobox", { name: "Search local files" });
+  await expect(search).toBeFocused();
+  await expect(dialog.getByRole("option", { name: "Papers" })).toBeVisible();
+  expect(await bodyOverflow(page)).toBe("hidden");
+  await expectTabPinned(page, search);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  expect(await bodyOverflow(page)).toBe("");
+  // The command gave the block up before the picker opened, so there is
+  // nothing to go back to.
+  expect(await bodyHasFocus(page)).toBe(true);
+  await expect(input(page)).toHaveCount(0);
 });

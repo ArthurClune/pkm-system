@@ -11,12 +11,16 @@ neither accepts is refused rather than previewed, and so is a key the
 argument model does not declare: the tool drops it, so a card row for it
 could only be a decoy beside the real target.
 
+`check_write` makes that check once per call. Everything after it takes
+the `CheckedWrite` it returns, so the uids the shell reads, the card and
+the input Allow runs all come from the one validated call.
+
 A write that replaces, moves or deletes an existing block also shows that
 block's current text and page, which the shell reads for the uids
-`write_target_uids` names and passes in: a uid alone does not tell the
-user what they are approving away. A delete removes the block's subtree
-too, so for the uids `delete_target_uids` names the shell also counts the
-blocks under it and hashes the subtree.
+`target_uids` names with CURRENT_TEXT_ENTRIES and passes in: a uid alone
+does not tell the user what they are approving away. A delete removes the
+block's subtree too, so for the uids it names with SUBTREE_DELETE_ENTRIES
+the shell also counts the blocks under it and hashes the subtree.
 
 That count is of the store as read, so a batch delete must not take a
 block an earlier write of the same batch moved under it: the count would
@@ -89,8 +93,8 @@ class StoredBlock:
     """What the shell read for one uid."""
     page_title: CanonicalTitle
     text: str
-    # How many blocks sit under it: counted only for a uid
-    # `delete_target_uids` names, else None.
+    # How many blocks sit under it: counted only for a delete target,
+    # else None.
     descendants: int | None = None
     # The blocks above it, its parent first: read only for a uid
     # `ancestor_uids` names, else None.
@@ -168,10 +172,15 @@ class Approval:
 
 
 @dataclass(frozen=True)
-class _Checked:
-    """A call the tool accepts: each op's `WRITE_PREVIEW_FIELDS` key with
-    its params as validated, in order, and each batch alias mapped to the
-    index of the op that creates it (empty outside a batch)."""
+class CheckedWrite:
+    """A call write tool `short` accepts; only `check_write` makes one, so
+    none exists for input the tool would refuse. `tool_input` is the input
+    as passed, which Allow runs; `ops` holds each op's
+    `WRITE_PREVIEW_FIELDS` key with its params as validated, in order, and
+    `aliases` maps each batch alias to the index of the op that creates it
+    (empty outside a batch)."""
+    short: str
+    tool_input: dict[str, object]
     ops: list[tuple[str, dict[str, Any]]]
     aliases: dict[str, int]
 
@@ -495,31 +504,47 @@ def _unknown_key(meta: FuncMetadata, tool_input: Mapping[str, object]
     return next((k for k in tool_input if k not in declared), None)
 
 
-def write_target_uids(short: str, tool_input: Mapping[str, object]
-                      ) -> list[BlockUid]:
-    """The existing blocks the card for this call shows, in first-seen
-    order, for the shell to read before `build_write_preview`. Input the
-    preview refuses names none, and so does input it cannot handle: like
-    `build_write_preview`, this never raises."""
-    return _targets(short, tool_input, CURRENT_TEXT_ENTRIES)
+def check_write(short: str, tool_input: Mapping[str, object]
+                ) -> CheckedWrite | Refusal:
+    """`tool_input` as write tool `short` receives it, or why the tool would
+    not run it as sent. An input the check cannot handle (an outline nested
+    past pydantic's depth limit, say) is refused too: raised out of
+    `can_use_tool`, it would reach the SDK as a control error instead of a
+    reason the model can act on. Never raises."""
+    try:
+        checked = _validate(short, tool_input)
+    except Exception as exc:
+        # The type only: the message can quote the attacker's input.
+        logger.warning("checking the input of %s failed: %s", short,
+                       type(exc).__name__)
+        return Refusal(f"{short}: input could not be previewed")
+    return _bounded(checked) if isinstance(checked, Refusal) else checked
 
 
-def delete_target_uids(short: str, tool_input: Mapping[str, object]
-                       ) -> list[BlockUid]:
-    """Those of `write_target_uids` this call deletes, each with the blocks
-    under it, for the shell to count them. Never raises."""
-    return _targets(short, tool_input, SUBTREE_DELETE_ENTRIES)
+def _bounded(refusal: Refusal) -> Refusal:
+    if len(refusal.message) <= REFUSAL_LIMIT_CHARS:
+        return refusal
+    return Refusal(refusal.message[:REFUSAL_LIMIT_CHARS]
+                   + f"… ({len(refusal.message):,} characters)")
 
 
-def ancestor_uids(short: str, tool_input: Mapping[str, object]
-                  ) -> list[BlockUid]:
+def target_uids(checked: CheckedWrite, entries: frozenset[str]
+                ) -> list[BlockUid]:
+    """The existing blocks the ops in `entries` name, first-seen and
+    deduped, for the shell to read before `build_write_preview`: with
+    CURRENT_TEXT_ENTRIES, every block the card shows; with
+    SUBTREE_DELETE_ENTRIES, those the call deletes, each with the blocks
+    under it, for the shell to count and hash."""
+    uids = (_target_uid(entry, validated) for entry, validated in checked.ops
+            if entry in entries)
+    return list(dict.fromkeys(uid for uid in uids if uid is not None))
+
+
+def ancestor_uids(checked: CheckedWrite) -> list[BlockUid]:
     """The `((uid))` parents of a batch's moves and aliased creates, when
     a move comes before a delete, for the shell to read their ancestors:
     without them the card cannot tell whether the move lands inside the
-    deleted subtree. Never raises."""
-    checked = _accepted(short, tool_input)
-    if checked is None:
-        return []
+    deleted subtree."""
     entries = [entry for entry, _ in checked.ops]
     if "batch:move" not in entries or "batch:delete" not in entries[
             entries.index("batch:move"):]:
@@ -531,32 +556,7 @@ def ancestor_uids(short: str, tool_input: Mapping[str, object]
                               if isinstance(place, _Existing)))
 
 
-def _accepted(short: str, tool_input: Mapping[str, object]
-              ) -> _Checked | None:
-    """`_validate`'s result; None for input the preview refuses or cannot
-    handle."""
-    try:
-        checked = _validate(short, tool_input)
-    except Exception as exc:
-        logger.warning("write targets of %s failed: %s", short,
-                       type(exc).__name__)
-        return None
-    return None if isinstance(checked, Refusal) else checked
-
-
-def _targets(short: str, tool_input: Mapping[str, object],
-             entries: frozenset[str]) -> list[BlockUid]:
-    """The uids the ops in `entries` name, first-seen and deduped; none for
-    input the preview refuses or cannot handle."""
-    checked = _accepted(short, tool_input)
-    if checked is None:
-        return []
-    uids = (_target_uid(entry, validated) for entry, validated in checked.ops
-            if entry in entries)
-    return list(dict.fromkeys(uid for uid in uids if uid is not None))
-
-
-def shown_blocks(short: str, tool_input: Mapping[str, object],
+def shown_blocks(checked: CheckedWrite,
                  blocks: Mapping[BlockUid, StoredBlock]
                  ) -> list[ExpectedBlock]:
     """One expectation per existing block the card for this call shows,
@@ -566,11 +566,8 @@ def shown_blocks(short: str, tool_input: Mapping[str, object],
     covers its own text too), or `absent` for a uid no block had. An alias
     or malformed spec names no stored block, so it expects nothing.
 
-    Raises ValueError rather than return a weaker guard: for input the
-    card refuses, and for a delete target read without its subtree hash."""
-    checked = _validate(short, tool_input)
-    if isinstance(checked, Refusal):
-        raise ValueError("the card refuses this input")
+    Raises ValueError rather than return a weaker guard for a delete
+    target read without its subtree hash."""
     kinds: dict[BlockUid, ExpectKind] = {}
     for entry, validated in checked.ops:
         uid = _target_uid(entry, validated)
@@ -597,48 +594,41 @@ def shown_blocks(short: str, tool_input: Mapping[str, object],
     return out
 
 
-def approved_input(short: str, tool_input: Mapping[str, object],
+def approved_input(checked: CheckedWrite,
                    blocks: Mapping[BlockUid, StoredBlock]
                    ) -> dict[str, object]:
-    """The input write tool `short` runs with once the user allows the card
-    built from `tool_input` and `blocks`: that input, and for a tool in
-    GUARDED_TOOLS the `shown_blocks` as its `expect`, `[]` when the call
+    """The input the write tool runs with once the user allows the card
+    built from `checked` and `blocks`: `checked.tool_input`, and for a tool
+    in GUARDED_TOOLS the `shown_blocks` as its `expect`, `[]` when the call
     names no stored block (the tool then knows the card set it). Raises
     as `shown_blocks` does."""
-    if short not in GUARDED_TOOLS:
-        return dict(tool_input)
-    return {**tool_input,
+    if checked.short not in GUARDED_TOOLS:
+        return dict(checked.tool_input)
+    return {**checked.tool_input,
             "expect": [e.model_dump(mode="json")
-                       for e in shown_blocks(short, tool_input, blocks)]}
+                       for e in shown_blocks(checked, blocks)]}
 
 
-def build_write_preview(short: str, tool_input: Mapping[str, object],
+def build_write_preview(checked: CheckedWrite,
                         blocks: Mapping[BlockUid, StoredBlock]
                         ) -> WritePreview | Refusal:
-    """The card for write tool `short` called with `tool_input`, given the
-    `blocks` the shell read for `write_target_uids` and `ancestor_uids`,
-    or why the call must be refused instead. An input the builder cannot
-    handle (an outline nested past pydantic's depth limit, say) is refused
-    too: raised out of `can_use_tool`, it would reach the SDK as a control
-    error instead of a reason the model can act on."""
+    """The card for `checked`, given the `blocks` the shell read for
+    `target_uids` and `ancestor_uids`, or why the call must be refused
+    instead. A call the builder cannot handle is refused, as in
+    `check_write`."""
     try:
-        out = _build(short, tool_input, blocks)
+        out = _build(checked, blocks)
     except Exception as exc:
         # The type only: the message can quote the attacker's input.
-        logger.warning("write preview of %s failed: %s", short,
+        logger.warning("write preview of %s failed: %s", checked.short,
                        type(exc).__name__)
-        return Refusal(f"{short}: input could not be previewed")
-    if isinstance(out, Refusal) and len(out.message) > REFUSAL_LIMIT_CHARS:
-        return Refusal(out.message[:REFUSAL_LIMIT_CHARS]
-                       + f"… ({len(out.message):,} characters)")
-    return out
+        return Refusal(f"{checked.short}: input could not be previewed")
+    return _bounded(out) if isinstance(out, Refusal) else out
 
 
 def _validate(short: str, tool_input: Mapping[str, object]
-              ) -> _Checked | Refusal:
-    """`tool_input` as write tool `short` receives it, or why the tool
-    would not run it as sent: the one check both public functions make,
-    so the blocks read are those of the call the card shows."""
+              ) -> CheckedWrite | Refusal:
+    """`check_write`'s check, which may raise."""
     meta = _ARG_MODELS.get(short)
     if meta is None:
         return Refusal(f"{short} is not a write tool")
@@ -657,7 +647,8 @@ def _validate(short: str, tool_input: Mapping[str, object]
     validated = {k: v for k, v in model.model_dump(
         mode="json", by_alias=True).items() if k not in GATE_FIELDS}
     if short != "batch":
-        return _Checked(ops=[(short, validated)], aliases={})
+        return CheckedWrite(short=short, tool_input=dict(tool_input),
+                            ops=[(short, validated)], aliases={})
     commands = validated["commands"]
     if not commands:
         return Refusal("batch: no commands to apply")
@@ -669,18 +660,17 @@ def _validate(short: str, tool_input: Mapping[str, object]
         aliases = batch_aliases(parsed)
     except BatchItemError as exc:
         return Refusal(f"batch item {exc.index}: {exc.problem}")
-    return _Checked(
+    return CheckedWrite(
+        short=short, tool_input=dict(tool_input),
         ops=[(f"batch:{c.command}",
               c.params.model_dump(mode="json", by_alias=True))
              for c in parsed],
         aliases=aliases)
 
 
-def _build(short: str, tool_input: Mapping[str, object],
+def _build(checked: CheckedWrite,
            blocks: Mapping[BlockUid, StoredBlock]) -> WritePreview | Refusal:
-    checked = _validate(short, tool_input)
-    if isinstance(checked, Refusal):
-        return checked
+    short = checked.short
     moved_in = _moved_into_delete(checked.ops, blocks)
     if moved_in is not None:
         return moved_in

@@ -5,8 +5,9 @@ approval card from them, with the input Allow runs: the same call, plus
 what the card showed for the server to check it against.
 
 The uids read, the card and that input come from one deep copy of the
-tool input, so a caller mutating its dict mid-read or before Allow cannot
-pair one call's card with another's blocks or another's write. A block
+tool input, validated once, so a caller mutating its dict mid-read or
+before Allow cannot pair one call's card with another's blocks or
+another's write. A block
 the reader returns no entry for has no row: a failed read is a refusal,
 never a card that shows the block missing.
 
@@ -23,11 +24,11 @@ import logging
 from collections.abc import Callable, Collection, Mapping, Sequence
 from pathlib import Path
 
+from pkm.assistant.policy import CURRENT_TEXT_ENTRIES, SUBTREE_DELETE_ENTRIES
 from pkm.assistant.write_preview import (Approval, Refusal, StoredBlock,
                                          ancestor_uids, approved_input,
-                                         build_write_preview,
-                                         delete_target_uids,
-                                         write_target_uids)
+                                         build_write_preview, check_write,
+                                         target_uids)
 from pkm.contracts.ops import BlockUid, subtree_hash
 from pkm.server.db import open_db, read_txn
 from pkm.server.ops_apply import parent_chain, subtree_rows
@@ -101,28 +102,40 @@ async def preview_write(short: str, tool_input: Mapping[str, object],
     each block it replaces, moves or deletes, and the ancestors of each
     parent `ancestor_uids` names, read off the event loop, and the input
     Allow runs (`approved_input`); or why the call is refused. Returns
-    only `build_write_preview`'s refusal or fixed text, so every refusal
-    that quotes input leaves through that function's length cut."""
+    only `check_write`'s or `build_write_preview`'s refusal or fixed text,
+    so every refusal that quotes input leaves through their length cut.
+
+    The input is checked before the read's `try`, so input the check
+    cannot handle reads nothing and is refused as not previewable, never
+    as unreadable."""
     try:
         snapshot = copy.deepcopy(dict(tool_input))
-        parents = ancestor_uids(short, snapshot)
+    except Exception as exc:
+        logger.warning("reading the targets of %s failed: %s", short,
+                       type(exc).__name__)
+        return _unreadable(short)
+    checked = check_write(short, snapshot)
+    if isinstance(checked, Refusal):
+        return checked
+    try:
+        parents = ancestor_uids(checked)
         uids = list(dict.fromkeys(
-            [*write_target_uids(short, snapshot), *parents]))
+            [*target_uids(checked, CURRENT_TEXT_ENTRIES), *parents]))
         blocks: Mapping[BlockUid, StoredBlock] = {}
         if uids:
             blocks = await asyncio.to_thread(
-                read_blocks, uids, delete_target_uids(short, snapshot),
-                parents)
+                read_blocks, uids,
+                target_uids(checked, SUBTREE_DELETE_ENTRIES), parents)
     except Exception as exc:
         # The type only: a database error can name paths and quote SQL.
         logger.warning("reading the targets of %s failed: %s", short,
                        type(exc).__name__)
         return _unreadable(short)
-    preview = build_write_preview(short, snapshot, blocks)
+    preview = build_write_preview(checked, blocks)
     if isinstance(preview, Refusal):
         return preview
     try:
-        approved = approved_input(short, snapshot, blocks)
+        approved = approved_input(checked, blocks)
     except Exception as exc:
         # Never a card whose Allow would carry a weaker guard than it shows.
         logger.warning("the expectations of %s failed: %s", short,

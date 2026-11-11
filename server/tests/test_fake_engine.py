@@ -6,9 +6,10 @@ from fake_engine import FakeEngine
 from pkm.assistant.engine import AgentEngine
 from pkm.assistant.events import ConfirmRequest, TextDelta, ToolFinished, ToolStarted, TurnDone
 from pkm.assistant.policy import SYSTEM_PROMPT
-from pkm.assistant.write_preview import (FoundBlock, MissingBlock,
-                                         StoredBlock, WritePreview,
-                                         build_write_preview)
+from pkm.assistant.write_preview import (CheckedWrite, FoundBlock,
+                                         MissingBlock, StoredBlock,
+                                         WritePreview, build_write_preview,
+                                         check_write)
 from pkm.contracts.ops import BlockUid
 from pkm.test_data.ids import canonical_title_of, confirm_id_of, uid_of
 
@@ -46,9 +47,9 @@ def test_confirm_flow_allow():
     events = asyncio.run(scenario())
     assert events[0] == ToolStarted(tool_use_id="fake-tool-1", name="save_note",
                                     summary="saving a note")
-    preview = build_write_preview("save_note",
-                                  {"text": "Demo", "page": "Demo"},
-                                  blocks={})
+    checked = check_write("save_note", {"text": "Demo", "page": "Demo"})
+    assert isinstance(checked, CheckedWrite)
+    preview = build_write_preview(checked, blocks={})
     assert isinstance(preview, WritePreview)
     assert events[1] == ConfirmRequest(
         confirm_id=confirm_id_of("fake-confirm-1"),

@@ -1,15 +1,16 @@
 import asyncio
 import logging
 import sqlite3
+import sys
 from collections.abc import Collection, Mapping, Sequence
 
 from conftest import SEED_BLOCKS, SEED_PAGES
 
+from pkm.assistant.policy import CURRENT_TEXT_ENTRIES, SUBTREE_DELETE_ENTRIES
 from pkm.assistant.target_reader import db_block_reader, preview_write
-from pkm.assistant.write_preview import (Approval, FoundBlock,
+from pkm.assistant.write_preview import (Approval, CheckedWrite, FoundBlock,
                                          MissingBlock, Refusal, StoredBlock,
-                                         delete_target_uids,
-                                         write_target_uids)
+                                         check_write, target_uids)
 from pkm.contracts.ops import (BlockUid, ExpectedBlock, subtree_hash,
                                text_hash)
 from pkm.database import connect
@@ -179,13 +180,21 @@ _BATCH = {"commands": [
                                      "parent": "((DDDDDD))"}}]}
 
 
+def _checked(short: str, raw: Mapping[str, object]) -> CheckedWrite:
+    out = check_write(short, raw)
+    assert isinstance(out, CheckedWrite), out
+    return out
+
+
 def test_preview_write_reads_only_what_the_card_shows():
     reader = _Recording({_A: StoredBlock(_INBOX, "old"),
                          _B: StoredBlock(_INBOX, "gone", 2,
                                          subtree_hash=sha_of("b" * 64))})
     out = asyncio.run(preview_write("batch", _BATCH, reader))
-    assert reader.calls == [(write_target_uids("batch", _BATCH),
-                             delete_target_uids("batch", _BATCH), [])]
+    checked = _checked("batch", _BATCH)
+    assert reader.calls == [(target_uids(checked, CURRENT_TEXT_ENTRIES),
+                             target_uids(checked, SUBTREE_DELETE_ENTRIES),
+                             [])]
     assert reader.calls == [([_A, _B], [_B], [])]
     assert isinstance(out, Approval)
     assert [op.current for op in out.preview.ops] == [
@@ -217,6 +226,80 @@ def test_preview_write_of_refused_input_reads_nothing():
     out = asyncio.run(preview_write("batch", {"commands": "nope"}, reader))
     assert reader.calls == []
     assert isinstance(out, Refusal)
+
+
+def test_input_that_raises_in_validation_is_not_previewable_and_reads_nothing(
+        monkeypatch):
+    from pkm.assistant import write_preview
+
+    def boom(*_args):
+        raise ValueError("x")
+    monkeypatch.setattr(write_preview, "_validate", boom)
+    reader = _Recording({})
+    out = asyncio.run(preview_write("update_block", {"uid": _A, "text": "t"},
+                                    reader))
+    assert out == Refusal("update_block: input could not be previewed")
+    assert reader.calls == []
+
+
+def test_a_long_validation_refusal_through_preview_write_is_cut(monkeypatch):
+    # every refusal validation builds today echoes input already bounded,
+    # so a stand-in shows the cut still applies to one that is not
+    from pkm.assistant import write_preview
+    monkeypatch.setattr(write_preview, "_validate",
+                        lambda *_args: Refusal("x" * 10_000))
+    reader = _Recording({})
+    out = asyncio.run(preview_write("save_note", {"text": "t"}, reader))
+    assert out == Refusal("x" * 500 + "… (10,000 characters)")
+    assert reader.calls == []
+
+
+def _nested_outline(depth: int) -> dict[str, object]:
+    items: list[object] = ["leaf"]
+    for _ in range(depth):
+        items = [items]
+    return {"commands": [{"command": "outline",
+                          "params": {"page": "P", "items": items}}]}
+
+
+def test_a_deep_outline_through_preview_write_is_refused_not_raised():
+    # past pydantic's dump depth, so validation itself raises
+    reader = _Recording({})
+    out = asyncio.run(preview_write("batch", _nested_outline(300), reader))
+    assert out == Refusal("batch: input could not be previewed")
+    assert reader.calls == []
+    # past the interpreter's recursion limit the deep copy fails first
+    out = asyncio.run(preview_write(
+        "batch", _nested_outline(sys.getrecursionlimit() + 50), reader))
+    assert out == Refusal(
+        "batch: the blocks this write changes could not be read")
+    assert reader.calls == []
+
+
+def test_a_preview_validates_its_call_once(monkeypatch):
+    from pkm.assistant import write_preview
+
+    calls: list[str] = []
+    real = write_preview._validate
+
+    def counting(short, tool_input):
+        calls.append(short)
+        return real(short, tool_input)
+    monkeypatch.setattr(write_preview, "_validate", counting)
+    parent = uid_of("PARENT01")
+    raw = {"commands": [
+        {"command": "update", "params": {"uid": _A, "text": "t"}},
+        {"command": "move", "params": {"uid": _A, "page": "P",
+                                       "parent": f"(({parent}))"}},
+        {"command": "delete", "params": {"uid": _B}}]}
+    reader = _Recording({
+        _A: StoredBlock(_INBOX, "a"),
+        _B: StoredBlock(_INBOX, "b", 0, subtree_hash=sha_of("b" * 64)),
+        parent: StoredBlock(_INBOX, "p", ancestors=())})
+    out = asyncio.run(preview_write("batch", raw, reader))
+    assert isinstance(out, Approval)
+    assert reader.calls == [([_A, _B, parent], [_B], [parent])]
+    assert calls == ["batch"]
 
 
 def test_a_failing_read_is_a_refusal_not_a_raise(caplog):

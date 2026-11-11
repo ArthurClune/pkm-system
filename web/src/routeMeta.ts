@@ -40,13 +40,16 @@ export const ROUTES = Object.fromEntries(
 
 export const NOT_FOUND_TITLE = "Page not found — pkm";
 
+/** The router matches paths case-insensitively, so this does too: /Files
+ * renders the Files view and must title it as such. */
 export function routeMetaFor(pathname: string): StaticRoute | undefined {
-  const canonical = pathname === "/" ? pathname : pathname.replace(/\/+$/, "");
+  const canonical = (pathname === "/" ? pathname : pathname.replace(/\/+$/, ""))
+    .toLowerCase();
   return STATIC_ROUTES.find((r) => r.path === canonical);
 }
 
 /** null under PAGE_ROUTE_PREFIX: PageView sets its own title. */
 export function documentTitleFor(pathname: string): string | null {
-  if (pathname.startsWith(PAGE_ROUTE_PREFIX)) return null;
+  if (pathname.toLowerCase().startsWith(PAGE_ROUTE_PREFIX)) return null;
   return routeMetaFor(pathname)?.documentTitle ?? NOT_FOUND_TITLE;
 }

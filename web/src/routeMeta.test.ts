@@ -12,6 +12,12 @@ describe("routeMetaFor", () => {
       .toMatchObject({ label, documentTitle });
   });
 
+  it("matches case-insensitively, as the router does", () => {
+    expect(routeMetaFor("/Files")).toMatchObject({ label: "Files" });
+    expect(documentTitleFor("/HELP/")).toBe("Keyboard shortcuts — pkm");
+    expect(documentTitleFor("/Page/Paper")).toBeNull();
+  });
+
   it("keeps root canonical and dynamic/unmatched paths undefined", () => {
     expect(routeMetaFor("/")).toMatchObject({ path: ROUTES.journal });
     expect(routeMetaFor("/page/Paper/")).toBeUndefined();

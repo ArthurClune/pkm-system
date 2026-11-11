@@ -179,11 +179,9 @@ const poisonDetails = (error: string | null): Pick<PoisonedBatch,
       if (typeof parsed.status === "number" && typeof parsed.message === "string") {
         return { status: parsed.status, message: parsed.message };
       }
-    } catch { /* rows from older builds stored the display string directly */ }
+    } catch { /* not the stored shape: read as the generic rejection */ }
   }
-  const message = error ?? "rejected batch from a previous session";
-  const match = message.match(/request failed:\s*(\d+)/);
-  return { status: match ? Number(match[1]) : 400, message };
+  return { status: 400, message: "rejected batch from a previous session" };
 };
 
 /** Rejected rows are queried separately from allBatches so the

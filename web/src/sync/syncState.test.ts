@@ -145,12 +145,60 @@ describe("transitionSync replica-state", () => {
     expect(t.effects).toEqual([]);
   });
 
-  it("no-replica without an error changes nothing", () => {
-    for (const status of STATUSES) {
-      const before = createSyncState();
-      const t = transitionSync(before, modeReport({ mode: "no-replica" }, status));
-      expect(t.state).toBe(before);
-      expect(t.effects).toEqual([]);
+  it("a no-replica report replaces a stalled banner", () => {
+    // Reset local data cannot work on a replica that is gone: the stalled
+    // banner's Reset gives way to the online-only banner's Reload.
+    for (const reset of ["idle", "running", "blocked", "failed"] as const) {
+      const t = transitionSync(withProblem({
+        kind: "replica-stalled", error: "x", reset,
+      }), modeReport({ mode: "no-replica", error: "worker died" },
+                     "connected", "stalled"));
+      expect(t.state.problem).toEqual({
+        kind: "replica-unusable", error: "worker died",
+      });
+    }
+  });
+
+  it("a delivery problem that ends after a no-replica report gives way to " +
+     "the online-only banner", () => {
+    // The replica's death is reported once, so a banner held off by a
+    // delivery problem must come back when that problem ends.
+    const gone = modeReport({ mode: "no-replica", error: "worker died" });
+    const unusable = { kind: "replica-unusable", error: "worker died" };
+    const ends: [SyncProblem, SyncEvent][] = [
+      [{ kind: "rejected-batch", event: poison(), repair: "mark-failed",
+         error: "e" }, { type: "poison-intents-discarded" }],
+      [{ kind: "poison-discovery", error: "e" },
+       { type: "poison-discovery-cleared" }],
+      [{ kind: "outline-rejected", repair: "repaired", error: "e" },
+       { type: "dismiss" }],
+    ];
+    for (const [current, end] of ends) {
+      const held = transitionSync(withProblem(current), gone).state;
+      expect(held.problem).toEqual(current);
+      expect(transitionSync(held, end).state.problem).toEqual(unusable);
+    }
+  });
+
+  it("the online-only banner keeps its identity across unrelated events", () => {
+    const shown = transitionSync(createSyncState(),
+      modeReport({ mode: "no-replica", error: "worker died" })).state;
+    const after = transitionSync(shown, { type: "ops-skipped" });
+    expect(after.state.problem).toBe(shown.problem);
+    expect(after.effects).toEqual([{ type: "bump-resync" }]);
+  });
+
+  it("a no-replica report keeps a delivery problem", () => {
+    const kept: SyncProblem[] = [
+      { kind: "rejected-batch", event: poison(), repair: "failed", error: "e" },
+      { kind: "poison-discovery", error: "read failed" },
+      { kind: "outline-rejected", repair: "failed", error: "e",
+        repairError: "r" },
+    ];
+    for (const current of kept) {
+      const t = transitionSync(withProblem(current),
+        modeReport({ mode: "no-replica", error: "worker died" }, "connected"));
+      expect(t.state.problem).toEqual(current);
     }
   });
 
@@ -291,9 +339,9 @@ describe("transitionSync poison discovery", () => {
   it("reports a session committed to online-only", () => {
     // This state must not be silent. The user has lost offline
     // editing for the session and needs to know, and to have a way out.
-    const t = transitionSync(createSyncState(), {
-      type: "replica-unusable", error: "Access Handles cannot be created",
-    });
+    const t = transitionSync(createSyncState(), modeReport({
+      mode: "no-replica", error: "Access Handles cannot be created",
+    }));
     expect(t.state.problem).toEqual({
       kind: "replica-unusable",
       error: "Access Handles cannot be created",
@@ -302,15 +350,15 @@ describe("transitionSync poison discovery", () => {
 
   it("online-only never stomps a delivery problem the user can act on", () => {
     // replica-unusable needs a precedence rule: without one it would
-    // overwrite a failed legacy repair — and with it the Retry that reaches
-    // the legacy repair (legacyRepair.ts), stranding that repair.
+    // overwrite a failed outline repair — and with it the Retry that reaches
+    // the outline repair (outlineRepair.ts), stranding that repair.
     const failed: SyncProblem = {
-      kind: "legacy-rejected", repair: "failed",
+      kind: "outline-rejected", repair: "failed",
       error: "rejected", repairError: "snapshot unavailable",
     };
-    const t = transitionSync(withProblem(failed), {
-      type: "replica-unusable", error: "Access Handles cannot be created",
-    });
+    const t = transitionSync(withProblem(failed), modeReport({
+      mode: "no-replica", error: "Access Handles cannot be created",
+    }));
     expect(t.state.problem).toEqual(failed);
   });
 
@@ -321,7 +369,7 @@ describe("transitionSync poison discovery", () => {
     expect(cleared.state.problem).toBeUndefined();
 
     const other: SyncProblem = {
-      kind: "legacy-rejected", repair: "running", error: "y",
+      kind: "outline-rejected", repair: "running", error: "y",
     };
     const kept = transitionSync(withProblem(other), {
       type: "poison-discovery-cleared",
@@ -330,28 +378,28 @@ describe("transitionSync poison discovery", () => {
   });
 });
 
-describe("transitionSync legacy repair", () => {
+describe("transitionSync outline repair", () => {
   it("runs, succeeds (bumping resync), and fails", () => {
     const running = transitionSync(createSyncState(), {
-      type: "legacy-repair-started", error: "reject",
+      type: "outline-repair-started", error: "reject",
     });
     expect(running.state.problem).toEqual({
-      kind: "legacy-rejected", repair: "running", error: "reject",
+      kind: "outline-rejected", repair: "running", error: "reject",
     });
 
     const done = transitionSync(running.state, {
-      type: "legacy-repair-succeeded", error: "reject",
+      type: "outline-repair-succeeded", error: "reject",
     });
     expect(done.state.problem).toEqual({
-      kind: "legacy-rejected", repair: "repaired", error: "reject",
+      kind: "outline-rejected", repair: "repaired", error: "reject",
     });
     expect(done.effects).toEqual([{ type: "bump-resync" }]);
 
     const failed = transitionSync(running.state, {
-      type: "legacy-repair-failed", error: "reject", repairError: "still bad",
+      type: "outline-repair-failed", error: "reject", repairError: "still bad",
     });
     expect(failed.state.problem).toEqual({
-      kind: "legacy-rejected", repair: "failed", error: "reject",
+      kind: "outline-rejected", repair: "failed", error: "reject",
       repairError: "still bad",
     });
   });
@@ -361,22 +409,22 @@ describe("transitionSync legacy repair", () => {
       kind: "rejected-batch", event: poison(), repair: "failed", error: "boom",
     };
     const started = transitionSync(withProblem(failed), {
-      type: "legacy-repair-started", error: "over limit",
+      type: "outline-repair-started", error: "over limit",
     });
     expect(started.state.problem).toEqual(failed);
     const succeeded = transitionSync(started.state, {
-      type: "legacy-repair-succeeded", error: "over limit",
+      type: "outline-repair-succeeded", error: "over limit",
     });
     expect(succeeded.state.problem).toEqual(failed);
     expect(succeeded.effects).toEqual([{ type: "bump-resync" }]);
   });
 
-  it("shows a hidden legacy failure once the rejected batch is repaired", () => {
+  it("shows a hidden outline failure once the rejected batch is repaired", () => {
     const failed: SyncProblem = {
       kind: "rejected-batch", event: poison(), repair: "failed", error: "boom",
     };
     const hidden = transitionSync(withProblem(failed), {
-      type: "legacy-repair-failed", error: "reject", repairError: "still bad",
+      type: "outline-repair-failed", error: "reject", repairError: "still bad",
     });
     const running = transitionSync(hidden.state, {
       type: "repair-started", event: poison(),
@@ -388,17 +436,17 @@ describe("transitionSync legacy repair", () => {
       type: "repair-succeeded", event: poison(),
     });
     expect(repaired.state.problem).toEqual({
-      kind: "legacy-rejected", repair: "failed", error: "reject",
+      kind: "outline-rejected", repair: "failed", error: "reject",
       repairError: "still bad",
     });
   });
 
-  it("moves an unrepaired legacy problem behind a rejected batch", () => {
-    const legacy: SyncProblem = {
-      kind: "legacy-rejected", repair: "failed", error: "reject",
+  it("moves an unrepaired outline problem behind a rejected batch", () => {
+    const outline: SyncProblem = {
+      kind: "outline-rejected", repair: "failed", error: "reject",
       repairError: "still bad",
     };
-    const marked = transitionSync(withProblem(legacy), {
+    const marked = transitionSync(withProblem(outline), {
       type: "poison-mark-failed", event: poison(), error: "io",
     });
     expect(marked.state.problem).toMatchObject({
@@ -407,12 +455,12 @@ describe("transitionSync legacy repair", () => {
     const discarded = transitionSync(marked.state, {
       type: "poison-intents-discarded",
     });
-    expect(discarded.state.problem).toEqual(legacy);
+    expect(discarded.state.problem).toEqual(outline);
   });
 
-  it("dismisses a repaired legacy problem", () => {
+  it("dismisses a repaired outline problem", () => {
     const t = transitionSync(withProblem({
-      kind: "legacy-rejected", repair: "repaired", error: "reject",
+      kind: "outline-rejected", repair: "repaired", error: "reject",
     }), { type: "dismiss" });
     expect(t.state.problem).toBeUndefined();
   });

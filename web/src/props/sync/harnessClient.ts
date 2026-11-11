@@ -5,7 +5,7 @@
 // harness drives the socket status itself where the app's socket would.
 //
 // Two things are stood in for. The open outline editors: the harness mounts
-// none, so the legacy repair's repairSessions is one authoritative read
+// none, so the outline repair's repairSessions is one authoritative read
 // through this client's transport, of pt_seed_6's block: live for the whole
 // example, so the read succeeds online whatever a Rename has done to page
 // titles. It fails while the client is offline, as the real repair's does,
@@ -177,16 +177,6 @@ const PENDING_INSERT = /^\s*INSERT INTO pending_ops/i;
 export type ConnectLanding = "mid-startup" | "after startup";
 
 export type PullJoin = "alone" | "joined" | "joined under poison";
-
-const POISON_EVENTS = new Set<SyncEvent["type"]>([
-  "repair-started", "repair-failed", "poison-mark-failed", "repair-succeeded",
-  "poison-intents-discarded"]);
-/** Whether a poison repair owns recovery, read from the runtime's events. */
-const poisonOwns = (events: readonly SyncEvent[]): boolean => {
-  const last = [...events].reverse().find((e) => POISON_EVENTS.has(e.type));
-  return last !== undefined && last.type !== "repair-succeeded" &&
-    last.type !== "poison-intents-discarded";
-};
 
 /** How the client's first bootstrap goes. "fails": its first two snapshot
  * fetches answer 503. "timesOut": its first snapshot fetch answers 503 and
@@ -522,7 +512,7 @@ export async function startClient(
       // idle() hands out the one in-flight pull, or a fresh resolved promise
       const inFlight = replicaSync.idle() === replicaSync.idle();
       lastJoin = !inFlight ? "alone"
-        : poisonOwns(syncEvents) ? "joined under poison" : "joined";
+        : l.session.queue.holds("poison") ? "joined under poison" : "joined";
       // Forced: a rotated generation keeps the journal's seq, and a pull must
       // still run to find it.
       replicaSync.onSeq(latest, true);

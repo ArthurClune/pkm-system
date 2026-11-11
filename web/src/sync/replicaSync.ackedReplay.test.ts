@@ -10,7 +10,10 @@ import { createReplica } from "../replica/client";
 import { serveRpc, toPortLike } from "../replica/rpc";
 import { openRawTestDb } from "../replica/testDb";
 import { buildHandlers } from "../replica/workerHandlers";
-import { createReplicaSync } from "./replicaSync";
+import { memReplica } from "./memReplica";
+import { createOpQueue } from "./opQueue";
+import { createReplicaSync, type ReplicaSyncDeps } from "./replicaSync";
+import { opsAckOfWire } from "./wire";
 import {
   orderIdxOf, pageIdOf, canonicalTitleOf, uidOf, seqOf, clientIdOf, batchIdOf, sentBatchId,
 } from "../test-helpers";
@@ -44,22 +47,28 @@ test("a batch the recovery flush got an ack for is not replayed over the snapsho
   const replica = createReplica(toPortLike(ch.port1));
   const posted: string[] = [];
   const changesPaths: string[] = [];
-  const sync = createReplicaSync({
-    replica,
-    fetchJson: async (path, init) => {
-      if (path === "/api/ops") {
-        posted.push(
-          sentBatchId(init));
-        return { ok: true, ts: 1, applied: 1, seq: 7, skipped: [] };
-      }
-      if (path === "/api/sync/snapshot") return AFTER;
-      if (path.startsWith("/api/sync/changes")) {
-        changesPaths.push(path);
-        return FEED;
-      }
-      throw new Error(`unexpected fetch ${path}`);
-    },
+  const fetchJson: ReplicaSyncDeps["fetchJson"] = async (path, init) => {
+    if (path === "/api/ops") {
+      posted.push(sentBatchId(init));
+      return { ok: true, ts: 1, applied: 1, seq: 7, skipped: [] };
+    }
+    if (path === "/api/sync/snapshot") return AFTER;
+    if (path.startsWith("/api/sync/changes")) {
+      changesPaths.push(path);
+      return FEED;
+    }
+    throw new Error(`unexpected fetch ${path}`);
+  };
+  // The flush posts through the queue, whose POST lands in fetchJson above.
+  const queue = createOpQueue(memReplica(), {
     clientId: clientIdOf("c1"),
+    poisonStore: { read: () => [], write: () => undefined },
+    post: async (body) => opsAckOfWire(await fetchJson("/api/ops", {
+      method: "POST", body: JSON.stringify(body),
+    })),
+  });
+  const sync = createReplicaSync({
+    replica, fetchJson, queue,
     onState: () => {},
   });
 

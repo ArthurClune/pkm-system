@@ -1,9 +1,9 @@
 // pattern: Imperative Shell
 // The repair epoch: one global pass that forces every live outline through a
-// post-settlement authoritative read before legacy delivery resumes. At most
-// one epoch runs at a time, and while it runs it owns every session's reads —
-// sessions ask `isRepairActive()` before starting one of their own and join
-// `activeRepairCompletion()` instead.
+// post-settlement authoritative read before delivery held by a lane rejection
+// resumes. At most one epoch runs at a time, and while it runs it owns every
+// session's reads — sessions ask `isRepairActive()` before starting one of
+// their own and join `activeRepairCompletion()` instead.
 //
 // The epoch is a fixed-point loop, not a single pass: a session whose state
 // moved while its own read was in flight (a remote batch, a later write) is

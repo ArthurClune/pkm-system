@@ -2,13 +2,17 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { ApiError, OfflineError } from "../api/client";
 import type { BatchId } from "../api/brands";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
-import type { SkippedOp } from "../api/payloads";
+import type { BlockOp } from "../api/ops";
+import type { OpBatch, OpsAck, SkippedOp } from "../api/payloads";
 import type { DroppedBatch, PendingBatch, Replica, ReplicaInit, SnapshotApplyResult } from "../replica/client";
 import { ReplicaError, ReplicaUnusableError, RpcLifecycleError } from "../replica/errors";
 import {
   uidOf, clientIdOf, batchIdOf, seqOf, pendingRowIdOf, sentBatchId, sentBody, bodyBatchId,
-  ANY_STRING,
+  ANY_STRING, defer,
 } from "../test-helpers";
+import { memReplica } from "./memReplica";
+import { createOpQueue, type OpQueue } from "./opQueue";
+import type { BarrierOwner } from "./queueState";
 import {
   createReplicaSync, PENDING_CHANGED_CAP, PENDING_IDS_CAP, ResetBlockedError, RETRY_BASE_MS,
   RETRY_MAX_MS, STALL_AFTER_FAILURES, WINDOW_STRIKES, type ReplicaState,
@@ -16,6 +20,7 @@ import {
 import {
   plainSpaceTitleCanonicalizationNow as readFlag, resetPlainSpaceTitleCanonicalization,
 } from "./titleCanonicalization";
+import { opsAckOfWire } from "./wire";
 
 // Every test here picks an arbitrary id/batch-id string, same shape as the
 // production mint; these mint the brand once rather than at every call.
@@ -83,6 +88,52 @@ function collector() {
   return { states, onState: (s: ReplicaState) => { states.push(s); } };
 }
 
+/** The queue's barrier as replicaSync reads it: pause and resume recorded,
+ * and the poison claim in the test's hand, its release heard by onRelease
+ * as the queue's resume of "poison" would be. */
+function fakeClaim() {
+  const released = new Set<(owner: BarrierOwner) => void>();
+  let held = false;
+  return {
+    queue: {
+      pause: vi.fn(), resume: vi.fn(),
+      onRelease: (fn: (owner: BarrierOwner) => void) => {
+        released.add(fn);
+        return () => { released.delete(fn); };
+      },
+    },
+    holdsPoison: () => held,
+    claim: () => { held = true; },
+    release: () => {
+      held = false;
+      released.forEach((fn) => fn("poison"));
+    },
+  };
+}
+
+/** A real queue for the recovery flush to post through. Its `post` sends
+ * each body to the test's own `fetchJson("/api/ops", ...)`, the request the
+ * flush once made itself, so a test reads what was posted where it always
+ * has. `over` stands in for the queue's barrier calls. */
+function leasedQueue(
+  fetchJson: (path: string, init?: RequestInit) => Promise<unknown>,
+  over: Partial<Pick<OpQueue, "pause" | "resume" | "onRelease">> = {},
+) {
+  const real = createOpQueue(memReplica(), {
+    clientId: CID,
+    poisonStore: { read: () => [], write: () => undefined },
+    post: async (body) => opsAckOfWire(await fetchJson("/api/ops", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })),
+  });
+  return {
+    pause: () => undefined, resume: () => undefined,
+    deliverLeased: real.deliverLeased, settleCommitted: real.settleCommitted,
+    onSkipped: real.onSkipped, ...over,
+  };
+}
+
 // Tests that drive a failure path on purpose spy on console.warn and assert
 // the recovery log they provoke; `logged` counts lines containing `text`.
 const quietWarn = () => vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -98,7 +149,7 @@ describe("start, bootstrap and feed pulls", () => {
       return feed();
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
     await sync.start();
     // untimed: a cold-start whole-graph download on a slow link must not be
     // abandoned at the ordinary read deadline
@@ -118,7 +169,7 @@ describe("start, bootstrap and feed pulls", () => {
     });
     const { onState } = collector();
     try {
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
       await sync.start();
       expect(mark).toHaveBeenCalledWith("pkm:replica-ready");
     } finally {
@@ -130,7 +181,7 @@ describe("start, bootstrap and feed pulls", () => {
     const replica = fakeReplica();
     const fetchJson = vi.fn(async () => feed({ next_since: seqOf(9), latest_seq: seqOf(9) }));
     const { onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
     await sync.start();
     expect(fetchJson).toHaveBeenCalledWith("/api/sync/changes?since=5");
     expect(fetchJson).not.toHaveBeenCalledWith("/api/sync/snapshot");
@@ -149,7 +200,7 @@ describe("start, bootstrap and feed pulls", () => {
     const stale = feed({ next_since: seqOf(6), latest_seq: seqOf(6) });
     const fetchJson = vi.fn(async (_path: string) => stale);
     const { onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
 
     await sync.start();
 
@@ -172,7 +223,7 @@ describe("start, bootstrap and feed pulls", () => {
       const { onState } = collector();
       const sync = createReplicaSync({
         replica, fetchJson: async (path: string) => fetchJson(path),
-        clientId: CID, onState });
+        onState });
       await sync.start();
     };
 
@@ -182,7 +233,7 @@ describe("start, bootstrap and feed pulls", () => {
         init: () => Promise.reject(new ReplicaUnusableError("no database")),
       });
       const { onState } = collector();
-      await createReplicaSync({ replica, fetchJson, clientId: CID, onState }).start();
+      await createReplicaSync({ replica, fetchJson, onState }).start();
       expect(readFlag()).toBe(false);
     });
 
@@ -219,7 +270,7 @@ describe("start, bootstrap and feed pulls", () => {
     });
     const fetchJson = vi.fn();
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
     await sync.start();
     expect(states.at(-1)).toEqual({ mode: "no-replica", error: "OPFS is not available" });
     expect(fetchJson).not.toHaveBeenCalled();
@@ -241,14 +292,13 @@ describe("start, bootstrap and feed pulls", () => {
         if (path.startsWith("/api/sync/changes")) feeds.push(path);
         return EMPTY_FEED;
       },
-      clientId: CID,
       onState: (s) => states.push(s),
     });
     await sync.start();
     await sync.start();
     await sync.start();
     expect(feeds).toEqual([]);
-    expect(states.map((s) => s.mode)).toEqual(["no-replica", "no-replica", "no-replica"]);
+    expect(states.map((s) => s.mode)).toEqual(["no-replica"]);
   });
 
   test("appliedVersion answers 'cannot tell' only for a database that is gone, "
@@ -267,7 +317,7 @@ describe("start, bootstrap and feed pulls", () => {
       },
     });
     const sync = createReplicaSync({
-      replica, fetchJson: async () => EMPTY_FEED, clientId: CID,
+      replica, fetchJson: async () => EMPTY_FEED,
       onState: () => undefined,
     });
     await sync.start();
@@ -305,7 +355,6 @@ describe("start, bootstrap and feed pulls", () => {
         if (path.startsWith("/api/sync/changes")) feeds.push(path);
         return EMPTY_FEED;
       },
-      clientId: CID,
       onState: () => undefined,
     });
     await sync.start();
@@ -320,7 +369,7 @@ describe("start, bootstrap and feed pulls", () => {
     const replica = fakeReplica();
     const fetchJson = vi.fn(async () => { throw new TypeError("offline"); });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
     await sync.start(); // catch-up pull fails quietly; readiness is local
     expect(states.at(-1)).toEqual({ mode: "ready" });
   });
@@ -332,7 +381,7 @@ describe("start, bootstrap and feed pulls", () => {
     const fetchJson = vi.fn(async (path: string) =>
       path === "/api/sync/snapshot" ? SNAP : feed());
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
     await Promise.all([sync.start(), sync.start()]);
     expect(replica.calls.filter((c) => c === "init")).toHaveLength(1);
     expect(replica.calls.filter((c) => c === "applySnapshot")).toHaveLength(1);
@@ -346,7 +395,7 @@ describe("start, bootstrap and feed pulls", () => {
       .mockImplementation(async (path: string) =>
         path === "/api/sync/snapshot" ? SNAP : feed());
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
     await expect(sync.start()).rejects.toThrow("offline");
     await sync.start(); // reconnect: succeeds this time
     expect(states.at(-1)).toEqual({ mode: "ready" });
@@ -365,7 +414,7 @@ describe("start, bootstrap and feed pulls", () => {
       throw new Error(`unexpected ${path}`);
     });
     const { onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
     await sync.start(); // catches up to 9 (two windows)
     const callsAfterStart = fetchJson.mock.calls.length;
     sync.onSeq(seqOf(3)); // stale nudge: cursor is already 9
@@ -396,7 +445,7 @@ describe("poison recovery ownership", () => {
     const queue = { pause: vi.fn(), resume: vi.fn() };
     const { onState } = collector();
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
+      replica, fetchJson, onState, queue,
     });
     await sync.start();
 
@@ -464,15 +513,18 @@ describe("poison recovery ownership", () => {
       if (changesCall === 2) await heldFeed;
       return feed({ next_since: seqOf(6), latest_seq: seqOf(6) });
     });
-    const queue = { pause: vi.fn(), resume: vi.fn() };
+    const claim = fakeClaim();
+    const { queue } = claim;
     const { onState } = collector();
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
+      replica, fetchJson, onState, queue,
+      holdsPoison: claim.holdsPoison,
     });
     await sync.start();
 
     sync.onSeq(seqOf(9));
     await vi.waitFor(() => { expect(changesCall).toBe(2); });
+    claim.claim();
     const firstRepair = sync.rebaseAuthoritative("poison")
       .then(() => null, (error: unknown) => error);
     releaseHeldFeed();
@@ -501,8 +553,7 @@ describe("poison recovery ownership", () => {
     expect(resumesBeforeRetryCommit).toEqual([["recovery"]]);
     expect(queue.resume).not.toHaveBeenCalledWith("poison");
     expect(snapshotCalls).toBe(2); // failed poison snapshot + successful Retry
-    expect(sync.completeAuthoritativeRepair).toBeTypeOf("function");
-    sync.completeAuthoritativeRepair("poison");
+    claim.release();
   });
 
   test("poison preempts a normal recovery lease before its stale flush starts", async () => {
@@ -541,24 +592,18 @@ describe("poison recovery ownership", () => {
       if (path === "/api/sync/snapshot") return { ...SNAP, seq: 10 };
       return feed({ next_since: seqOf(6), latest_seq: seqOf(6) });
     });
-    let signalPoisonPending: () => void = () => undefined;
-    const queue = {
-      pause: vi.fn(),
-      resume: vi.fn(),
-      onPoisonPending: (listener: () => void) => {
-        signalPoisonPending = listener;
-        return () => undefined;
-      },
-    };
+    const claim = fakeClaim();
+    const { queue } = claim;
     const { onState } = collector();
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
+      replica, fetchJson, onState, queue,
+      holdsPoison: claim.holdsPoison,
     });
     await sync.start();
 
     sync.onSeq(seqOf(9));
     await acquired; // normal recovery owns a stale pre-mark lease snapshot
-    signalPoisonPending(); // 4xx observed; markPoisoned is blocked by that lease
+    claim.claim(); // 4xx observed; markPoisoned is blocked by that lease
     releaseLease();
     await sync.idle();
 
@@ -576,7 +621,7 @@ describe("poison recovery ownership", () => {
     const fetchJson = vi.fn(async (path: string) =>
       path === "/api/sync/snapshot" ? SNAP : feed());
     const { onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
     await sync.start();
     expect(replica.calls).toContain("prepareRecovery");
     expect(replica.calls).toContain("commitRecovery");
@@ -585,7 +630,7 @@ describe("poison recovery ownership", () => {
     );
   });
 
-  test("an unmatched poison round releases ownership so a later needs-bootstrap pull can rebootstrap",
+  test("a released poison claim lets a later needs-bootstrap pull rebootstrap",
   async () => {
     let applyCall = 0;
     const replica = fakeReplica({
@@ -598,40 +643,125 @@ describe("poison recovery ownership", () => {
     });
     const fetchJson = vi.fn(async (path: string) =>
       path === "/api/sync/snapshot" ? SNAP : feed());
-    let signalPoisonPending: () => void = () => undefined;
-    let signalUnmatched: () => void = () => undefined;
-    const queue = {
-      pause: vi.fn(),
-      resume: vi.fn(),
-      onPoisonPending: (listener: () => void) => {
-        signalPoisonPending = listener;
-        return () => undefined;
-      },
-      onPoisonMarkUnmatched: (listener: () => void) => {
-        signalUnmatched = listener;
-        return () => undefined;
-      },
-    };
+    const claim = fakeClaim();
+    const { queue } = claim;
     const { onState } = collector();
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
+      replica, fetchJson, onState, queue,
+      holdsPoison: claim.holdsPoison,
     });
     await sync.start(); // consumes applyCall #1 ("applied"), nothing poison-related yet
 
-    // Calling the unmatched signal with no claim held is a no-op: nothing to
-    // release, so resume must not fire yet.
-    signalUnmatched();
-    expect(queue.resume).not.toHaveBeenCalled();
-
-    signalPoisonPending(); // claims ownership, as rejectDurableBatch would
-    signalUnmatched(); // the marking round matched nothing
-    expect(queue.resume.mock.calls).toEqual([["poison"]]);
+    claim.claim(); // as rejectDurableBatch would
+    claim.release(); // the runtime's release: the marking round matched nothing
 
     sync.onSeq(seqOf(9));
     await sync.idle(); // drives applyCall #2 ("needs-bootstrap")
 
     expect(replica.calls).toContain("prepareRecovery"); // rebase actually ran
     expect(replica.calls).toContain("commitRecovery");
+  });
+});
+
+describe("a recovery flush through the real queue", () => {
+  const del = (raw: string): BlockOp => ({ op: "delete", uid: uidOf(raw) });
+
+  /** A real queue holding two durable rows, each behind a lane entry, and
+   * one trace of every POST and snapshot fetch, whichever door sent it.
+   * Batches are minted q-1 (lane), q-2 (durable), q-3 (lane), q-4 (durable). */
+  async function laneAndLease(heldId?: string) {
+    const trace: string[] = [];
+    const held = defer<void>();
+    const post = async (body: OpBatch): Promise<OpsAck> => {
+      trace.push(`post ${body.batch_id}`);
+      if (body.batch_id === heldId) await held.promise;
+      return { ok: true, ts: 1, applied: 1, seq: seqOf(7) };
+    };
+    let minted = 0;
+    const local = memReplica();
+    const durable = local.enqueue.bind(local);
+    const fail = async (): Promise<never> => {
+      throw new Error("SQLITE_CANTOPEN");
+    };
+    const queue = createOpQueue(local, {
+      post, clientId: CID, poisonStore: { read: () => [], write: () => undefined },
+      newBatchId: () => bid(`q-${++minted}`),
+    });
+    queue.setOnline(false);
+    for (const [uid, persists] of [["uid_lane1", false], ["uid_a1", true],
+                                   ["uid_lane2", false], ["uid_a2", true]] as const) {
+      local.enqueue = persists ? durable : fail;
+      queue.enqueue([del(uid)]);
+      await queue.settled();
+    }
+    const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/ops") {
+        trace.push(`post ${sentBatchId(init)}`);
+        return { ok: true, ts: 1, applied: 1, seq: 7 };
+      }
+      if (path.startsWith("/api/sync/snapshot")) {
+        trace.push("snapshot");
+        return SNAP;
+      }
+      return feed();
+    });
+    return { trace, held, queue, lease: [...local.rows], fetchJson };
+  }
+
+  test("each leased batch posts after the lane entries it follows, then the " +
+       "snapshot is fetched", async () => {
+    const { trace, queue, lease, fetchJson } = await laneAndLease();
+    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: lease });
+    const sync = createReplicaSync({
+      replica, fetchJson, onState: () => undefined, queue,
+      holdsPoison: () => queue.holds("poison"),
+    });
+    await sync.start();
+    expect(trace).toEqual([
+      "post q-1", "post q-2", "post q-3", "post q-4", "snapshot",
+    ]);
+    queue.dispose();
+  });
+
+  test("a poison claim landing while the lane ahead is delivered posts no " +
+       "leased batch", async () => {
+    const { trace, held, queue, lease, fetchJson } =
+      await laneAndLease("q-1");
+    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: lease });
+    const sync = createReplicaSync({
+      replica, fetchJson, onState: () => undefined, queue,
+      holdsPoison: () => queue.holds("poison"),
+    });
+    const started = sync.start().catch(() => undefined);
+    await vi.waitFor(() => expect(trace).toEqual(["post q-1"]));
+    queue.pause("poison");
+    held.resolve();
+    await started;
+    sync.stop();
+    expect(trace).toEqual(["post q-1"]);
+    expect(replica.calls).toContain("abortRecovery");
+    expect(replica.calls).not.toContain("commitRecovery");
+    queue.dispose();
+  });
+
+  test("a poison claim landing during a leased POST posts nothing more, the " +
+       "next batch's lane ahead included", async () => {
+    const { trace, held, queue, lease, fetchJson } = await laneAndLease("q-2");
+    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: lease });
+    const sync = createReplicaSync({
+      replica, fetchJson, onState: () => undefined, queue,
+      holdsPoison: () => queue.holds("poison"),
+    });
+    const started = sync.start().catch(() => undefined);
+    await vi.waitFor(() => expect(trace).toEqual(["post q-1", "post q-2"]));
+    queue.pause("poison");
+    held.resolve();
+    await started;
+    sync.stop();
+    expect(trace).toEqual(["post q-1", "post q-2"]);
+    expect(replica.calls).toContain("abortRecovery");
+    expect(replica.calls).not.toContain("commitRecovery");
+    queue.dispose();
   });
 });
 
@@ -656,7 +786,10 @@ describe("recovery flushes and the shared coordinator", () => {
       if (path === "/api/sync/snapshot") return SNAP;
       return feed();
     });
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState: () => undefined });
+    const sync = createReplicaSync({
+      replica, fetchJson, onState: () => undefined,
+      queue: leasedQueue(fetchJson),
+    });
     await sync.start();
     expect(posted.map((b) => "seen_seq" in b)).toEqual([true, false]);
     expect(posted[0].seen_seq).toBe(4);
@@ -680,103 +813,15 @@ describe("recovery flushes and the shared coordinator", () => {
       return feed();
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({
+      replica, fetchJson, onState,
+      queue: leasedQueue(fetchJson),
+    });
     await sync.start();
     // poisoned batch b-2 is NOT retried; the others flush oldest-first
     expect(posted.map((b) => bodyBatchId(b))).toEqual(["b-1", "b-3"]);
     expect(replica.calls).toContain("commitRecovery");
     expect(states.at(-1)).toEqual({ mode: "ready" });
-  });
-
-  test("the recovery flush delivers each batch's lane-ahead entries before posting it",
-  async () => {
-    // flushBatches posts leased durable rows on its own, knowing nothing about
-    // the fallback lane — a second overtaking path distinct from ordinary
-    // drain ordering. It must ask the queue's deliverLaneAhead for each batch
-    // before posting it, so a lane entry the batch follows still goes out
-    // first. A fake queue recording call order is enough to pin this: the
-    // queue's own contract for deliverLaneAhead is tested at the opQueue level.
-    const trace: string[] = [];
-    const batches: PendingBatch[] = [
-      { id: pendingRowIdOf(1), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
-      { id: pendingRowIdOf(2), batch_id: bid("b-2"), ops: [{ op: "delete", uid: uidOf("uid_a2") }], poisoned: false },
-    ];
-    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
-    const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
-      if (path === "/api/ops") {
-        trace.push(`flush ${sentBatchId(init)}`);
-        return { ok: true };
-      }
-      if (path === "/api/sync/snapshot") return SNAP;
-      return feed();
-    });
-    const queue = {
-      pause: () => undefined,
-      resume: () => undefined,
-      deliverLaneAhead: async (batchId: BatchId) => {
-        trace.push(`deliver lane ahead of ${batchId}`);
-      },
-    };
-    const { onState } = collector();
-    const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
-    });
-
-    await sync.start();
-
-    expect(trace).toEqual([
-      "deliver lane ahead of b-1",
-      "flush b-1",
-      "deliver lane ahead of b-2",
-      "flush b-2",
-    ]);
-  });
-
-  test("a recovery flush whose ack names a skipped op calls onSkipped once",
-  async () => {
-    const batches: PendingBatch[] = [
-      { id: pendingRowIdOf(1), batch_id: bid("b-1"),
-       ops: [{ op: "update_text", uid: uidOf("uid_a1"), text: "x" }], poisoned: false },
-    ];
-    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
-    const fetchJson = vi.fn(async (path: string) => {
-      if (path === "/api/ops") {
-        return { ok: true, ts: 1, applied: 1, seq: 7,
-                skipped: [{ index: 0, op: "update_text", uid: "uid_a1",
-                           reason: "block_not_found", note_page: null }] };
-      }
-      if (path === "/api/sync/snapshot") return SNAP;
-      return feed();
-    });
-    const { onState } = collector();
-    const skips: void[] = [];
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
-    sync.onSkipped(() => skips.push(undefined));
-
-    await sync.start();
-
-    expect(skips).toHaveLength(1);
-  });
-
-  test("a recovery flush whose ack names no skipped op does not call onSkipped",
-  async () => {
-    const batches: PendingBatch[] = [
-      { id: pendingRowIdOf(1), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false },
-    ];
-    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
-    const fetchJson = vi.fn(async (path: string) => {
-      if (path === "/api/ops") return { ok: true, ts: 1, applied: 1, seq: 7, skipped: [] };
-      if (path === "/api/sync/snapshot") return SNAP;
-      return feed();
-    });
-    const { onState } = collector();
-    const skips: void[] = [];
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
-    sync.onSkipped(() => skips.push(undefined));
-
-    await sync.start();
-
-    expect(skips).toEqual([]);
   });
 
   test("a failed recovery flush keeps the database and reports the failure", async () => {
@@ -791,7 +836,10 @@ describe("recovery flushes and the shared coordinator", () => {
       return SNAP;
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({
+      replica, fetchJson, onState,
+      queue: leasedQueue(fetchJson),
+    });
     // a failed start: rejected, and retried on the backoff
     await expect(sync.start()).rejects.toThrow("network down");
     sync.stop();
@@ -814,7 +862,10 @@ describe("recovery flushes and the shared coordinator", () => {
       return feed();
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({
+      replica, fetchJson, onState,
+      queue: leasedQueue(fetchJson),
+    });
 
     await expect(sync.start()).rejects.toThrow("snapshot offline");
     sync.stop();
@@ -840,7 +891,10 @@ describe("recovery flushes and the shared coordinator", () => {
       return feed();
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({
+      replica, fetchJson, onState,
+      queue: leasedQueue(fetchJson),
+    });
 
     await sync.start();
 
@@ -881,13 +935,13 @@ describe("recovery flushes and the shared coordinator", () => {
       }
       return feed();
     });
-    const queue = {
+    const queue = leasedQueue(fetchJson, {
       pause: () => { trace.push("pause queue"); },
       resume: () => { trace.push("resume queue"); },
-    };
+    });
     const { onState } = collector();
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
+      replica, fetchJson, onState, queue,
     });
 
     await sync.start();
@@ -934,13 +988,13 @@ describe("recovery flushes and the shared coordinator", () => {
       }
       return feed();
     });
-    const queue = {
+    const queue = leasedQueue(fetchJson, {
       pause: () => { trace.push("pause queue"); },
       resume: () => { trace.push("resume queue"); },
-    };
+    });
     const { onState } = collector();
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
+      replica, fetchJson, onState, queue,
     });
 
     await sync.start();
@@ -978,13 +1032,13 @@ describe("recovery flushes and the shared coordinator", () => {
       if (path === "/api/sync/snapshot") return SNAP;
       return feed();
     });
-    const queue = {
+    const queue = leasedQueue(fetchJson, {
       pause: () => { trace.push("pause"); },
       resume: () => { trace.push("resume"); },
-    };
+    });
     const { states, onState } = collector();
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
+      replica, fetchJson, onState, queue,
     });
 
     await expect(sync.start()).rejects.toThrow("pending rows changed");
@@ -1007,7 +1061,7 @@ describe("pull retries and the stall report", () => {
       .mockImplementationOnce(async () => gate)               // start's catch-up pull
       .mockImplementation(async () => feed({ next_since: seqOf(20), latest_seq: seqOf(20) }));
     const { onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
     const started = sync.start();
     while (fetchJson.mock.calls.length === 0) await Promise.resolve();
     sync.onSeq(seqOf(15));
@@ -1031,7 +1085,7 @@ describe("pull retries and the stall report", () => {
         throw new ApiError(503, "/api/sync/changes");
       });
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start(); // pull 1 fails (not yet stalled)
       expect(states.at(-1)).toEqual({ mode: "ready" });
@@ -1061,7 +1115,7 @@ describe("pull retries and the stall report", () => {
         return feed();
       });
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start(); // failure 1
       await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); // failure 2
@@ -1108,7 +1162,7 @@ describe("pull retries and the stall report", () => {
         }
         states.push(s);
       };
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start(); // failure 1
       await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); // failure 2
@@ -1138,7 +1192,7 @@ describe("pull retries and the stall report", () => {
       });
       const fetchJson = vi.fn(async () => feed());
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start();
       await sync.idle();
@@ -1164,7 +1218,7 @@ describe("pull retries and the stall report", () => {
     const replica = fakeReplica({ applyChanges });
     const fetchJson = vi.fn(async () => feed());
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
 
     await sync.start();
 
@@ -1194,7 +1248,7 @@ describe("pull retries and the stall report", () => {
       return feed({ next_since: seqOf(next), latest_seq: seqOf(windows) });
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
 
     await sync.start();
 
@@ -1209,7 +1263,7 @@ describe("pull retries and the stall report", () => {
       const replica = fakeReplica();
       const fetchJson = vi.fn(async () => { throw new TypeError("Failed to fetch"); });
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start(); // failure 1: ready is still reported by doStart
       expect(states.at(-1)).toEqual({ mode: "ready" });
@@ -1237,7 +1291,7 @@ describe("pull retries and the stall report", () => {
         throw new ReplicaError("replica rpc failed", {});
       });
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start(); // failure 1
       expect(states.some((s) => s.mode === "stalled")).toBe(false);
@@ -1267,7 +1321,7 @@ describe("pull retries and the stall report", () => {
       const replica = fakeReplica();
       const fetchJson = vi.fn(async (path: string) => { throw new OfflineError(path); });
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start(); // failure 1
       expect(states.some((s) => s.mode === "stalled")).toBe(false);
@@ -1300,7 +1354,7 @@ describe("pull retries and the stall report", () => {
       });
       const { states, onState } = collector();
       const sync = createReplicaSync({
-        replica, fetchJson, clientId: CID, onState, isOffline: () => offline,
+        replica, fetchJson, onState, isOffline: () => offline,
       });
       await sync.start(); // failure 1, while offline
       const callsWhileOffline = fetchJson.mock.calls.length;
@@ -1334,7 +1388,7 @@ describe("pull retries and the stall report", () => {
       Promise.reject(new ReplicaUnusableError("no openable database"));
     const fetchJson = vi.fn(async () => feed());
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID,
+      replica, fetchJson,
       onState: (s) => states.push(s),
     });
     await sync.start();
@@ -1359,7 +1413,7 @@ describe("pull retries and the stall report", () => {
       let call = 0;
       const fetchJson = vi.fn(async () => { throw errors[Math.min(call++, errors.length - 1)]; });
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start(); // network failure 1/2 (not counted)
       expect(states.some((s) => s.mode === "stalled")).toBe(false);
@@ -1397,7 +1451,7 @@ describe("pull retries and the stall report", () => {
         return feed();
       });
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start(); // recovery failure 1/3
       expect(states.some((s) => s.mode === "stalled")).toBe(false);
@@ -1423,7 +1477,7 @@ describe("pull retries and the stall report", () => {
         return feed();
       });
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start(); // recovery failure 1
 
@@ -1458,7 +1512,7 @@ describe("pull retries and the stall report", () => {
       return feed();
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
 
     await sync.start();
     expect(states.at(-1)).toEqual({ mode: "recovery-failed", error: "snapshot offline" });
@@ -1491,7 +1545,10 @@ describe("resetLocalData", () => {
       return feed();
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({
+      replica, fetchJson, onState,
+      queue: leasedQueue(fetchJson),
+    });
     await sync.start();
 
     await sync.resetLocalData({ discardPending: false });
@@ -1514,10 +1571,11 @@ describe("resetLocalData", () => {
       if (path === "/api/sync/snapshot") { snapshotCalls += 1; return SNAP; }
       return feed();
     });
-    const queue = { pause: vi.fn(), resume: vi.fn() };
+    const resume = vi.fn();
+    const queue = leasedQueue(fetchJson, { pause: vi.fn(), resume });
     const { onState } = collector();
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
+      replica, fetchJson, onState, queue,
     });
     await sync.start();
 
@@ -1541,7 +1599,7 @@ describe("resetLocalData", () => {
     // A blocked reset is a refusal, not an outage: the database is intact and
     // delivery must be handed back so the flush the user is being asked about
     // can still succeed on its own.
-    expect(queue.resume.mock.calls).toEqual([["recovery"]]);
+    expect(resume.mock.calls).toEqual([["recovery"]]);
   });
 
   test("resetLocalData succeeding after a failed doStart reports ready and re-enables pulls", async () => {
@@ -1562,7 +1620,10 @@ describe("resetLocalData", () => {
       return feed();
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({
+      replica, fetchJson, onState,
+      queue: leasedQueue(fetchJson),
+    });
 
     await expect(sync.start()).rejects.toThrow("snapshot offline");
     expect(states.at(-1)).toEqual({ mode: "recovery-failed", error: "snapshot offline" });
@@ -1600,7 +1661,10 @@ describe("resetLocalData", () => {
       return feed();
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({
+      replica, fetchJson, onState,
+      queue: leasedQueue(fetchJson),
+    });
 
     await sync.start();
     expect(states.at(-1)).toEqual({ mode: "recovery-failed", error: "feed flush offline" });
@@ -1614,22 +1678,16 @@ describe("resetLocalData", () => {
   test("resetLocalData rejects immediately when poison "
     + "owns recovery, without touching the queue or lease", async () => {
     const replica = fakeReplica();
-    let signalPoisonPending: () => void = () => undefined;
-    const queue = {
-      pause: vi.fn(),
-      resume: vi.fn(),
-      onPoisonPending: (listener: () => void) => {
-        signalPoisonPending = listener;
-        return () => undefined;
-      },
-    };
+    const claim = fakeClaim();
+    const { queue } = claim;
     const fetchJson = vi.fn(async () => feed());
     const { onState } = collector();
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
+      replica, fetchJson, onState, queue,
+      holdsPoison: claim.holdsPoison,
     });
     await sync.start();
-    signalPoisonPending();
+    claim.claim();
 
     await expect(sync.resetLocalData({ discardPending: true }))
       .rejects.toThrow("rejected-batch repair in progress");
@@ -1641,26 +1699,20 @@ describe("resetLocalData", () => {
   test("resetLocalData releases only its own claim when poison now owns recovery",
        async () => {
     const replica = fakeReplica();
-    let signalPoisonPending: () => void = () => undefined;
-    const queue = {
-      pause: vi.fn(),
-      resume: vi.fn(),
-      onPoisonPending: (listener: () => void) => {
-        signalPoisonPending = listener;
-        return () => undefined;
-      },
-    };
+    const claim = fakeClaim();
+    const { queue } = claim;
     const fetchJson = vi.fn(async (path: string) => {
       if (path === "/api/sync/snapshot") {
         // poison observed mid-reset, after the entry guard already passed
-        signalPoisonPending();
+        claim.claim();
         return SNAP;
       }
       return feed();
     });
     const { onState } = collector();
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
+      replica, fetchJson, onState, queue,
+      holdsPoison: claim.holdsPoison,
     });
     await sync.start();
 
@@ -1700,13 +1752,13 @@ describe("resetLocalData", () => {
       }
       return feed();
     });
-    const queue = {
+    const queue = leasedQueue(fetchJson, {
       pause: () => { trace.push("pause queue"); },
       resume: () => { trace.push("resume queue"); },
-    };
+    });
     const { states, onState } = collector();
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
+      replica, fetchJson, onState, queue,
     });
     await sync.start();
     trace.length = 0; // start's own catch-up is not what this test pins
@@ -1747,7 +1799,7 @@ describe("resetLocalData", () => {
       return feed({ next_since: seqOf(6), latest_seq: seqOf(6) });
     });
     const { onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
     await sync.start();
 
     sync.onSeq(seqOf(9));
@@ -1774,7 +1826,7 @@ describe("resetLocalData", () => {
     const queue = { pause: vi.fn(), resume: vi.fn() };
     const { states, onState } = collector();
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
+      replica, fetchJson, onState, queue,
     });
     await sync.start();
     const statesAfterStart = states.length;
@@ -1812,7 +1864,7 @@ describe("resetLocalData", () => {
     };
     const { onState } = collector();
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
+      replica, fetchJson, onState, queue,
     });
     await sync.start();
     trace.length = 0;
@@ -1860,7 +1912,7 @@ describe("the delivery barrier", () => {
     const queue = { pause: vi.fn(), resume: vi.fn() };
     const { onState } = collector();
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState, queue,
+      replica, fetchJson, onState, queue,
     });
     // a schema recovery whose snapshot fails is a failed start
     await sync.start().catch(() => undefined);
@@ -1893,7 +1945,7 @@ describe("stop()", () => {
       const replica = fakeReplica();
       const fetchJson = vi.fn(async () => { throw new Error("changes offline"); });
       const { onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start(); // failure 1: a retry timer is now scheduled
       const callsBeforeStop = fetchJson.mock.calls.length;
@@ -1915,7 +1967,7 @@ describe("stop()", () => {
       .mockImplementationOnce(async () => gate)
       .mockImplementation(async () => EMPTY_FEED);
     const { onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
     const started = sync.start();
     while (fetchJson.mock.calls.length === 0) await Promise.resolve();
     sync.onSeq(seqOf(15));
@@ -1948,7 +2000,7 @@ describe("corruption rebuilds", () => {
     const fetchJson = vi.fn(async (path: string) =>
       path === "/api/sync/snapshot" ? snap : feed({ next_since: seqOf(9), latest_seq: seqOf(9) }));
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
 
     await sync.start();
 
@@ -1971,7 +2023,7 @@ describe("corruption rebuilds", () => {
       const fetchJson = vi.fn(async (path: string) =>
         path === "/api/sync/snapshot" ? SNAP : feed({ next_since: seqOf(9), latest_seq: seqOf(9) }));
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start();
       await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * (STALL_AFTER_FAILURES + 1));
@@ -2003,7 +2055,7 @@ describe("corruption rebuilds", () => {
     const fetchJson = vi.fn(async (path: string) =>
       path === "/api/sync/snapshot" ? SNAP : feed({ next_since: seqOf(9), latest_seq: seqOf(9) }));
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
 
     await sync.start();
 
@@ -2037,7 +2089,7 @@ describe("corruption rebuilds", () => {
       return path === "/api/sync/snapshot" ? SNAP : feed({ next_since: seqOf(9), latest_seq: seqOf(9) });
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson, onState });
 
     await sync.start();
     await Promise.resolve(); // let the fire-and-forget POST settle
@@ -2081,7 +2133,7 @@ describe("corruption rebuilds", () => {
         return feed({ next_since: seqOf(9), latest_seq: seqOf(9) });
       });
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start(); // corruption -> reset attempt -> snapshot fails -> retry armed
       await vi.advanceTimersByTimeAsync(RETRY_BASE_MS);
@@ -2135,7 +2187,7 @@ describe("window strikes", () => {
           ? SNAP : feed({ next_since: seqOf(9), latest_seq: seqOf(9) });
       });
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start(); // failure 1
       await vi.advanceTimersByTimeAsync(RETRY_MAX_MS); // failures 2..N, then the rebase
@@ -2164,6 +2216,40 @@ describe("window strikes", () => {
     }
   });
 
+  test("a dead worker met gathering diagnostics reports no-replica, though "
+    + "the window is left to a poison repair", async () => {
+    const warn = quietWarn();
+    vi.useFakeTimers();
+    try {
+      const failure = new RpcLifecycleError("worker-error", "replica worker failed");
+      const replica = fakeReplica({
+        applyChanges: failingApply(WINDOW_STRIKES, UNAPPLIABLE),
+        diagnostics: () => Promise.reject(failure),
+      });
+      const claim = fakeClaim();
+      const fetchJson = vi.fn(async () =>
+        feed({ next_since: seqOf(9), latest_seq: seqOf(9) }));
+      const { states, onState } = collector();
+      const sync = createReplicaSync({
+        replica, fetchJson, onState, queue: claim.queue,
+        holdsPoison: claim.holdsPoison,
+      });
+      claim.claim();
+
+      await sync.start();
+      await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * (WINDOW_STRIKES + 2));
+
+      expect(logged(warn, "could not gather diagnostics")).toBe(1);
+      expect(replica.calls).not.toContain("prepareRecovery");
+      expect(states.filter((s) => s.mode === "no-replica")).toEqual([
+        { mode: "no-replica", error: "replica worker failed" }]);
+      expect(states.at(-1)?.mode).toBe("no-replica");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("window failures with different messages never accumulate into a rebase", async () => {
     const warn = quietWarn();
     vi.useFakeTimers();
@@ -2178,7 +2264,7 @@ describe("window strikes", () => {
       const fetchJson = vi.fn(async (path: string) =>
         path === "/api/sync/snapshot" ? SNAP : feed({ next_since: seqOf(9), latest_seq: seqOf(9) }));
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start();
       await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * (STALL_AFTER_FAILURES + 2));
@@ -2217,7 +2303,7 @@ describe("window strikes", () => {
         return feed({ next_since: seqOf(since + 1), latest_seq: seqOf(999) });
       });
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start();
       await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * (STALL_AFTER_FAILURES + 2));
@@ -2237,7 +2323,7 @@ describe("window strikes", () => {
         throw new ApiError(503, "/api/sync/changes");
       });
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start();
       await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * (WINDOW_STRIKES + 2));
@@ -2261,7 +2347,7 @@ describe("window strikes", () => {
       const fetchJson = vi.fn(async (path: string) =>
         path === "/api/sync/snapshot" ? SNAP : feed());
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start();
       await vi.advanceTimersByTimeAsync(RETRY_MAX_MS); // strikes -> one rebase -> clean window
@@ -2303,7 +2389,7 @@ describe("window strikes", () => {
           ? undefined : feed({ next_since: seqOf(9), latest_seq: seqOf(9) });
       });
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
 
       await sync.start();
       await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * (WINDOW_STRIKES + 2));
@@ -2344,7 +2430,8 @@ describe("acks held across a flush and rebase", () => {
       return feed();
     });
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState: collector().onState,
+      replica, fetchJson, onState: collector().onState,
+      queue: leasedQueue(fetchJson),
     });
 
     await sync.start();
@@ -2367,28 +2454,22 @@ describe("acks held across a flush and rebase", () => {
       commitRecovery,
       abortRecovery,
     });
-    let signalPoisonPending: () => void = () => undefined;
-    const queue = {
-      pause: vi.fn(),
-      resume: vi.fn(),
-      onPoisonPending: (listener: () => void) => {
-        signalPoisonPending = listener;
-        return () => undefined;
-      },
-    };
+    const claim = fakeClaim();
     const posted: string[] = [];
     const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === "/api/ops") {
         posted.push(sentBatchId(init));
         // a later batch's rejection lands while this one is in flight
-        signalPoisonPending();
+        claim.claim();
         return { ok: true, ts: 1, applied: 1, seq: 8 };
       }
       if (path === "/api/sync/snapshot") return SNAP;
       return feed();
     });
+    const queue = leasedQueue(fetchJson, claim.queue);
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState: collector().onState, queue,
+      replica, fetchJson, onState: collector().onState, queue,
+      holdsPoison: claim.holdsPoison,
     });
 
     await sync.start();
@@ -2417,7 +2498,8 @@ describe("acks held across a flush and rebase", () => {
       return feed();
     });
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState: collector().onState,
+      replica, fetchJson, onState: collector().onState,
+      queue: leasedQueue(fetchJson),
     });
 
     await sync.start();
@@ -2445,7 +2527,8 @@ describe("acks held across a flush and rebase", () => {
       return feed();
     });
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState: collector().onState,
+      replica, fetchJson, onState: collector().onState,
+      queue: leasedQueue(fetchJson),
     });
 
     await sync.start();
@@ -2470,9 +2553,17 @@ describe("pending batches a payload already holds", () => {
     index: 0, op: "delete", uid: uidOf("tuid-uid_1"), reason: "block_not_found",
     note_page: null,
   };
-  const queueSpy = () => ({
-    pause: vi.fn(), resume: vi.fn(), settleCommitted: vi.fn(),
-  });
+  /** A real queue with settleCommitted spied and onSkipped counted. */
+  const queueSpy = (
+    fetchJson: (path: string, init?: RequestInit) => Promise<unknown> =
+      async () => ({ ok: true }),
+  ) => {
+    const queue = leasedQueue(fetchJson, { pause: vi.fn(), resume: vi.fn() });
+    const settled = vi.spyOn(queue, "settleCommitted");
+    const onSkipped = vi.fn();
+    queue.onSkipped(onSkipped);
+    return { queue, settled, onSkipped };
+  };
 
   test("a pull names the head of its non-poisoned pending batches", async () => {
     const replica = fakeReplica({
@@ -2480,7 +2571,7 @@ describe("pending batches a payload already holds", () => {
     });
     const fetchJson = vi.fn(async () => feed());
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState: collector().onState,
+      replica, fetchJson, onState: collector().onState,
     });
     await sync.start();
     expect(fetchJson).toHaveBeenCalledWith(
@@ -2492,7 +2583,7 @@ describe("pending batches a payload already holds", () => {
     const replica = fakeReplica({ pendingBatches: async () => rows });
     const fetchJson = vi.fn(async (_path: string) => feed());
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState: collector().onState,
+      replica, fetchJson, onState: collector().onState,
     });
     await sync.start();
     const path = fetchJson.mock.calls[0][0];
@@ -2503,7 +2594,7 @@ describe("pending batches a payload already holds", () => {
   test("an empty queue names nothing", async () => {
     const fetchJson = vi.fn(async () => feed());
     const sync = createReplicaSync({
-      replica: fakeReplica(), fetchJson, clientId: CID, onState: collector().onState,
+      replica: fakeReplica(), fetchJson, onState: collector().onState,
     });
     await sync.start();
     expect(fetchJson).toHaveBeenCalledWith("/api/sync/changes?since=5");
@@ -2516,16 +2607,14 @@ describe("pending batches a payload already holds", () => {
         status: "applied", cursor: seqOf(5), dropped: [dropped(1)],
       }),
     });
-    const queue = queueSpy();
-    const onSkipped = vi.fn();
+    const { queue, settled, onSkipped } = queueSpy();
     const sync = createReplicaSync({
-      replica, fetchJson: vi.fn(async () => feed()), clientId: CID, queue,
+      replica, fetchJson: vi.fn(async () => feed()), queue,
       onState: collector().onState,
     });
-    sync.onSkipped(onSkipped);
     await sync.start();
     expect(replica.applyChanges).toHaveBeenCalledWith(feed(), [1, 2]);
-    expect(queue.settleCommitted).toHaveBeenCalledWith([bid("b-1")]);
+    expect(settled).toHaveBeenCalledWith([dropped(1)]);
     expect(onSkipped).not.toHaveBeenCalled();
   });
 
@@ -2536,12 +2625,11 @@ describe("pending batches a payload already holds", () => {
         dropped: [dropped(1, [SKIP]), dropped(2, [SKIP])],
       }),
     });
-    const onSkipped = vi.fn();
+    const { queue, onSkipped } = queueSpy();
     const sync = createReplicaSync({
-      replica, fetchJson: vi.fn(async () => feed()), clientId: CID,
-      queue: queueSpy(), onState: collector().onState,
+      replica, fetchJson: vi.fn(async () => feed()),
+      queue, onState: collector().onState,
     });
-    sync.onSkipped(onSkipped);
     await sync.start();
     expect(onSkipped).toHaveBeenCalledTimes(1);
   });
@@ -2556,16 +2644,14 @@ describe("pending batches a payload already holds", () => {
       };
       const fetchJson = vi.fn(async (path: string) =>
         path.startsWith("/api/sync/snapshot") ? snap : feed());
-      const queue = queueSpy();
-      const onSkipped = vi.fn();
+      const { queue, settled, onSkipped } = queueSpy();
       const sync = createReplicaSync({
-        replica, fetchJson, clientId: CID, queue, onState: collector().onState,
+        replica, fetchJson, queue, onState: collector().onState,
       });
-      sync.onSkipped(onSkipped);
       await sync.start();
       expect(fetchJson).toHaveBeenCalledWith(
         "/api/sync/snapshot?pending=b-1", undefined, { timeoutMs: null });
-      expect(queue.settleCommitted).toHaveBeenCalledWith([bid("b-1")]);
+      expect(settled).toHaveBeenCalledWith(snap.applied_batches);
       expect(onSkipped).toHaveBeenCalledTimes(1);
     });
 
@@ -2578,7 +2664,7 @@ describe("pending batches a payload already holds", () => {
     const fetchJson = vi.fn(async (path: string) =>
       path.startsWith("/api/sync/snapshot") ? SNAP : feed());
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, queue: queueSpy(),
+      replica, fetchJson, queue: queueSpy().queue,
       onState: collector().onState,
     });
     await sync.start();
@@ -2598,7 +2684,8 @@ describe("pending batches a payload already holds", () => {
       return feed();
     });
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, queue: queueSpy(), onState: collector().onState,
+      replica, fetchJson, queue: queueSpy(fetchJson).queue,
+      onState: collector().onState,
     });
     await sync.start();
     expect(fetchJson).toHaveBeenCalledWith(
@@ -2623,7 +2710,7 @@ describe("replica mode exits", () => {
       });
       const fetchJson = vi.fn(async () => feed());
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
       await sync.start();
       expect(states.at(-1)).toEqual({ mode: "ready" });
 
@@ -2646,6 +2733,256 @@ describe("replica mode exits", () => {
     }
   });
 
+  test("a recovery that meets a dead worker reports no-replica and never recovery-failed",
+  async () => {
+    // A recovery-failed report first would raise the stalled banner and its
+    // Reset, and no-replica never replaces it: Reset cannot work on a dead
+    // worker, so the session would end on a way out that is not one.
+    let applyCall = 0;
+    const replica = fakeReplica({
+      applyChanges: async (window: Changes) => {
+        applyCall += 1;
+        return applyCall === 1
+          ? { status: "applied" as const, cursor: window.next_since }
+          : { status: "needs-bootstrap" as const };
+      },
+      prepareRecovery: () => Promise.reject(deadWorker()),
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({
+      replica, fetchJson: async () => feed(), onState,
+    });
+    await sync.start();
+    sync.onSeq(seqOf(9));
+    await sync.idle();
+    expect(states).toEqual([
+      { mode: "ready" },
+      { mode: "no-replica", error: "replica worker failed" },
+    ]);
+  });
+
+  test("a recovery whose abort meets a dead worker reports no-replica and never recovery-failed",
+  async () => {
+    let applyCall = 0;
+    const replica = fakeReplica({
+      applyChanges: async (window: Changes) => {
+        applyCall += 1;
+        return applyCall === 1
+          ? { status: "applied" as const, cursor: window.next_since }
+          : { status: "needs-bootstrap" as const };
+      },
+      abortRecovery: () => Promise.reject(deadWorker()),
+    });
+    const fetchJson = vi.fn(async (path: string) => {
+      if (path.startsWith("/api/sync/snapshot")) throw new ApiError(503, path);
+      return feed();
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, onState });
+    await sync.start();
+    sync.onSeq(seqOf(9));
+    await sync.idle();
+    expect(states).toEqual([
+      { mode: "ready" },
+      { mode: "no-replica", error: "replica worker failed" },
+    ]);
+  });
+
+  test("a reset from stalled that meets a dead worker reports no-replica once and disarms the retry",
+  async () => {
+    vi.useFakeTimers();
+    try {
+      let dead = false;
+      const replica = fakeReplica();
+      const fetchJson = vi.fn(async (path: string) => {
+        if (!dead) throw new ApiError(503, path);
+        return feed();
+      });
+      const { states, onState } = collector();
+      const sync = createReplicaSync({ replica, fetchJson, onState });
+      await sync.start();
+      await vi.advanceTimersByTimeAsync(RETRY_BASE_MS);
+      await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2);
+      expect(states.at(-1)?.mode).toBe("stalled");
+      expect(vi.getTimerCount()).toBe(1);
+
+      dead = true;
+      const failure = deadWorker();
+      replica.prepareRecovery = () => Promise.reject(failure);
+      // the session's resetReplica raises reset-failed from this rejection
+      await expect(sync.resetLocalData({ discardPending: true }))
+        .rejects.toBe(failure);
+
+      expect(states.filter((s) => s.mode === "no-replica")).toEqual([
+        { mode: "no-replica", error: "replica worker failed" }]);
+      expect(states.at(-1)?.mode).toBe("no-replica");
+      expect(sync.appliedVersion()).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+
+      const reported = states.length;
+      await sync.start();
+      sync.onSeq(seqOf(99), true);
+      await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * 4);
+      expect(states.length).toBe(reported);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a poison repair that meets a dead worker reports no-replica once",
+  async () => {
+    vi.useFakeTimers();
+    try {
+      const replica = fakeReplica();
+      const claim = fakeClaim();
+      const fetchJson = vi.fn(async () => feed());
+      const { states, onState } = collector();
+      const sync = createReplicaSync({
+        replica, fetchJson, onState, queue: claim.queue,
+        holdsPoison: claim.holdsPoison,
+      });
+      await sync.start();
+      expect(states).toEqual([{ mode: "ready" }]);
+
+      claim.claim();
+      const failure = deadWorker();
+      replica.prepareRecovery = () => Promise.reject(failure);
+      // the caller's repair-failed banner comes from this rejection
+      await expect(sync.rebaseAuthoritative("poison")).rejects.toBe(failure);
+
+      expect(states).toEqual([
+        { mode: "ready" },
+        { mode: "no-replica", error: "replica worker failed" },
+      ]);
+      expect(sync.appliedVersion()).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+
+      claim.release();
+      await sync.start();
+      sync.onSeq(seqOf(99), true);
+      await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * 4);
+      expect(states).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("noteUnavailable reports no-replica once, and nothing is reported or called after it",
+  async () => {
+    vi.useFakeTimers();
+    try {
+      const changes = defer<Changes>();
+      let held = false;
+      const replica = fakeReplica();
+      const fetchJson = vi.fn(async (path: string) => {
+        if (held && path.startsWith("/api/sync/changes")) {
+          held = false;
+          return changes.promise;
+        }
+        return feed();
+      });
+      const { states, onState } = collector();
+      const sync = createReplicaSync({ replica, fetchJson, onState });
+      await sync.start();
+
+      // A pass in flight, and one owed behind it.
+      held = true;
+      sync.onSeq(seqOf(99), true);
+      await vi.waitFor(() => expect(held).toBe(false));
+      sync.onSeq(seqOf(100), true);
+
+      sync.noteUnavailable(deadWorker());
+      sync.noteUnavailable(deadWorker());
+      const callsAt = replica.calls.length;
+      const fetchesAt = fetchJson.mock.calls.length;
+
+      changes.resolve(feed());
+      await sync.idle();
+      await sync.start();
+      sync.onSeq(seqOf(101), true);
+      await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * 4);
+
+      expect(states).toEqual([
+        { mode: "ready" },
+        { mode: "no-replica", error: "replica worker failed" },
+      ]);
+      // The pass in flight applies its window; the owed one never starts.
+      expect(replica.calls.slice(callsAt)).toEqual(["applyChanges"]);
+      expect(fetchJson.mock.calls.length).toBe(fetchesAt);
+      expect(sync.appliedVersion()).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a start in flight when the replica goes reports nothing after no-replica",
+  async () => {
+    const init = defer<ReplicaInit>();
+    const replica = fakeReplica({ init: () => init.promise });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({
+      replica, fetchJson: async () => feed(), onState,
+    });
+    const started = sync.start();
+    sync.noteUnavailable(deadWorker());
+    init.resolve({
+      empty: false, cursor: seqOf(5), schemaMismatch: false,
+      plainSpaceTitleCanonicalization: false, pendingBatches: [],
+    });
+    await started;
+    expect(states).toEqual([
+      { mode: "no-replica", error: "replica worker failed" },
+    ]);
+  });
+
+  test("a start after noteUnavailable calls nothing", async () => {
+    const replica = fakeReplica();
+    const fetchJson = vi.fn(async () => feed());
+    const sync = createReplicaSync({
+      replica, fetchJson, onState: () => undefined,
+    });
+    sync.noteUnavailable(deadWorker());
+    await sync.start();
+    expect(replica.calls).toEqual([]);
+    expect(fetchJson).not.toHaveBeenCalled();
+    expect(sync.hasStarted()).toBe(false);
+  });
+
+  test("a pass that fails after noteUnavailable reports nothing and arms no retry",
+  async () => {
+    vi.useFakeTimers();
+    try {
+      const changes = defer<Changes>();
+      let held = false;
+      const replica = fakeReplica();
+      const fetchJson = vi.fn(async (path: string) => {
+        if (held && path.startsWith("/api/sync/changes")) {
+          held = false;
+          return changes.promise;
+        }
+        return feed();
+      });
+      const { states, onState } = collector();
+      const sync = createReplicaSync({
+        replica, fetchJson, onState,
+      });
+      await sync.start();
+      held = true;
+      sync.onSeq(seqOf(99), true);
+      await vi.waitFor(() => expect(held).toBe(false));
+
+      sync.noteUnavailable(deadWorker());
+      changes.reject(new ApiError(503, "/api/sync/changes"));
+      await sync.idle();
+
+      expect(states.map((s) => s.mode)).toEqual(["ready", "no-replica"]);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("a timed-out pull RPC is not fatal: the mode stays ready and it retries",
   async () => {
     vi.useFakeTimers();
@@ -2662,7 +2999,7 @@ describe("replica mode exits", () => {
       });
       const fetchJson = vi.fn(async () => feed());
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
       await sync.start();
       await vi.advanceTimersByTimeAsync(RETRY_BASE_MS);
       expect(fetchJson).toHaveBeenCalled();
@@ -2678,7 +3015,7 @@ describe("replica mode exits", () => {
       init: () => Promise.reject(deadWorker()),
     });
     const { states, onState } = collector();
-    const sync = createReplicaSync({ replica, fetchJson: vi.fn(), clientId: CID, onState });
+    const sync = createReplicaSync({ replica, fetchJson: vi.fn(), onState });
     await sync.start();
     expect(states).toEqual([{ mode: "no-replica", error: "replica worker failed" }]);
     expect(sync.appliedVersion()).toBeNull();
@@ -2701,7 +3038,7 @@ describe("replica mode exits", () => {
         return feed();
       });
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
       await expect(sync.start()).rejects.toBeInstanceOf(ApiError);
       expect(sync.hasStarted()).toBe(false);
 
@@ -2731,7 +3068,7 @@ describe("replica mode exits", () => {
         return feed();
       });
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
       await expect(sync.start()).rejects.toBeInstanceOf(ApiError);
       await vi.advanceTimersByTimeAsync(RETRY_BASE_MS);
       await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2);
@@ -2763,7 +3100,7 @@ describe("replica mode exits", () => {
       const fetchJson = vi.fn(async (path: string) =>
         path === "/api/sync/snapshot" ? SNAP : feed());
       const { states, onState } = collector();
-      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      const sync = createReplicaSync({ replica, fetchJson, onState });
       await expect(sync.start()).rejects.toThrow("bootstrap starved");
       await vi.advanceTimersByTimeAsync(RETRY_BASE_MS);
       expect(states.at(-1)).toEqual({ mode: "ready" });
@@ -2784,7 +3121,7 @@ describe("replica mode exits", () => {
       });
       const { states, onState } = collector();
       const sync = createReplicaSync({
-        replica, fetchJson, clientId: CID, onState, isOffline: () => offline,
+        replica, fetchJson, onState, isOffline: () => offline,
       });
       await expect(sync.start()).rejects.toBeInstanceOf(OfflineError);
       const calls = fetchJson.mock.calls.length;
@@ -2807,7 +3144,7 @@ describe("a dead worker under a poison repair", () => {
     // feed rebase is under way, and the worker dies before its lease. The
     // poison deferral must not swallow a session-fatal error.
     let applyCall = 0;
-    let signalPoisonPending: () => void = () => undefined;
+    const claim = fakeClaim();
     const replica = fakeReplica({
       applyChanges: async (window: Changes) => {
         applyCall += 1;
@@ -2816,20 +3153,15 @@ describe("a dead worker under a poison repair", () => {
           : { status: "needs-bootstrap" as const };
       },
       prepareRecovery: async () => {
-        signalPoisonPending();
+        claim.claim();
         throw new RpcLifecycleError("worker-error", "replica worker failed");
       },
     });
-    const queue = {
-      pause: vi.fn(), resume: vi.fn(),
-      onPoisonPending: (listener: () => void) => {
-        signalPoisonPending = listener;
-        return () => undefined;
-      },
-    };
+    const { queue } = claim;
     const { states, onState } = collector();
     const sync = createReplicaSync({
-      replica, fetchJson: async () => feed(), clientId: CID, onState, queue,
+      replica, fetchJson: async () => feed(), onState, queue,
+      holdsPoison: claim.holdsPoison,
     });
     await sync.start();
     sync.onSeq(seqOf(9));
@@ -2865,16 +3197,11 @@ describe("a pull left to a poison repair", () => {
       }
       return path === "/api/sync/snapshot" ? SNAP : feed();
     });
-    let signalPoisonPending: () => void = () => undefined;
-    const queue = {
-      pause: vi.fn(), resume: vi.fn(),
-      onPoisonPending: (listener: () => void) => {
-        signalPoisonPending = listener;
-        return () => undefined;
-      },
-    };
+    const claim = fakeClaim();
+    const { queue } = claim;
     const sync = createReplicaSync({
-      replica, fetchJson, clientId: CID, onState: () => undefined, queue,
+      replica, fetchJson, onState: () => undefined, queue,
+      holdsPoison: claim.holdsPoison,
     });
     await sync.start();
     held = true;
@@ -2883,7 +3210,8 @@ describe("a pull left to a poison repair", () => {
     await vi.waitFor(() => { expect(fetches).toBe(2); });
     return {
       sync, replica, fetches: () => fetches, applyCalls: () => applyCall,
-      claimPoison: () => { signalPoisonPending(); },
+      claimPoison: () => { claim.claim(); },
+      releasePoison: () => { claim.release(); },
       releaseFetch: () => { releaseFetch(); },
     };
   }
@@ -2910,7 +3238,7 @@ describe("a pull left to a poison repair", () => {
     expect(h.fetches()).toBe(2);
     expect(h.replica.calls).not.toContain("prepareRecovery");
 
-    h.sync.completeAuthoritativeRepair("poison");
+    h.releasePoison();
     await h.sync.idle();
     expect(h.fetches()).toBe(3);
   });

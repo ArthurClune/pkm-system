@@ -362,8 +362,8 @@ describe("replica bootstrap and nudges", () => {
   });
 });
 
-describe("legacy repair of a rejected batch", () => {
-  test("empty legacy repair resumes a wholly later ticket after drain handoff", async () => {
+describe("outline repair of a rejected batch", () => {
+  test("empty outline repair resumes a wholly later ticket after drain handoff", async () => {
     let postCount = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
@@ -393,7 +393,7 @@ describe("legacy repair of a rejected batch", () => {
     }
   });
 
-  test("legacy repair rebases an unmounted cross-page target before resuming its move", async () => {
+  test("outline repair rebases an unmounted cross-page target before resuming its move", async () => {
     const sourceTitle = canonicalTitleOf("Unmounted replay source");
     const targetTitle = canonicalTitleOf("Unmounted replay target");
     const moved = block("tuid-moved", "moved", {
@@ -491,7 +491,7 @@ describe("legacy repair of a rejected batch", () => {
     }
   });
 
-  test("legacy rejection resumes later delivery only after active outline repair", async () => {
+  test("outline rejection resumes later delivery only after active outline repair", async () => {
     let postCount = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
@@ -502,7 +502,7 @@ describe("legacy repair of a rejected batch", () => {
     }));
     let releaseRepair!: () => void;
     const repairGate = new Promise<void>((done) => { releaseRepair = done; });
-    const session = acquireOutlineSession(canonicalTitleOf("Legacy repair target"), []);
+    const session = acquireOutlineSession(canonicalTitleOf("Outline repair target"), []);
     const load = vi.fn(async () => {
       await repairGate;
       return [];
@@ -511,13 +511,13 @@ describe("legacy repair of a rejected batch", () => {
     let sync!: Sync;
     function Grab() {
       sync = useSyncWhole();
-      return <div data-testid="legacy-resync">{sync.resyncGeneration}</div>;
+      return <div data-testid="outline-resync">{sync.resyncGeneration}</div>;
     }
 
     const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
     const rejected = sync.enqueue(
-      [{ op: "delete", uid: uidOf("tuid-bad") }], ["page", "Legacy repair target"],
+      [{ op: "delete", uid: uidOf("tuid-bad") }], ["page", "Outline repair target"],
     );
     session.applyLocal(rejected, [{ op: "delete", uid: uidOf("tuid-bad") }]);
     await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
@@ -526,13 +526,13 @@ describe("legacy repair of a rejected batch", () => {
     const later = sync.enqueue([{ op: "delete", uid: uidOf("tuid-later") }]);
     await Promise.resolve();
     expect(postCount).toBe(1);
-    expect(screen.getByTestId("legacy-resync")).toHaveTextContent("0");
+    expect(screen.getByTestId("outline-resync")).toHaveTextContent("0");
 
     releaseRepair();
     await expect(later.delivered).resolves.toEqual({ status: "delivered" });
     expect(postCount).toBe(2);
     await vi.waitFor(() => {
-      expect(screen.getByTestId("legacy-resync")).toHaveTextContent("1");
+      expect(screen.getByTestId("outline-resync")).toHaveTextContent("1");
     });
 
     view.unmount();
@@ -540,7 +540,7 @@ describe("legacy repair of a rejected batch", () => {
     session.release();
   });
 
-  test("legacy repair waits for a forced read after an existing stale automatic read", async () => {
+  test("outline repair waits for a forced read after an existing stale automatic read", async () => {
     let postCount = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
@@ -564,7 +564,7 @@ describe("legacy repair of a rejected batch", () => {
       return { promise, resolve };
     })();
     const session = acquireOutlineSession(
-      canonicalTitleOf("Legacy forced target"), [block("tuid-u1", "optimistic")],
+      canonicalTitleOf("Outline forced target"), [block("tuid-u1", "optimistic")],
     );
     const loadForced = vi.fn(() => forced.promise);
     const removeLoader = session.setAuthoritativeLoader("editable", loadForced);
@@ -572,7 +572,7 @@ describe("legacy repair of a rejected batch", () => {
     function Grab() {
       sync = useSyncWhole();
       return <div data-testid="forced-repair">{
-        sync.problem?.kind === "legacy-rejected" ? sync.problem.repair : "none"
+        sync.problem?.kind === "outline-rejected" ? sync.problem.repair : "none"
       }</div>;
     }
     const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
@@ -580,13 +580,13 @@ describe("legacy repair of a rejected batch", () => {
     try {
       await act(async () => { lastWs().open(); });
       const rejected = sync.enqueue(
-        [{ op: "delete", uid: uidOf("tuid-bad") }], ["page", "Legacy forced target"],
+        [{ op: "delete", uid: uidOf("tuid-bad") }], ["page", "Outline forced target"],
       );
       session.applyLocal(rejected, []);
       const existing = session.requestAuthoritative(() => stale.promise);
       await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
       later = sync.enqueue(
-        [{ op: "delete", uid: uidOf("tuid-later") }], ["page", "Legacy forced target"],
+        [{ op: "delete", uid: uidOf("tuid-later") }], ["page", "Outline forced target"],
       );
       session.applyLocal(later, []);
 
@@ -608,7 +608,7 @@ describe("legacy repair of a rejected batch", () => {
     }
   });
 
-  test("legacy repair enrolls a session opened before queue resume", async () => {
+  test("outline repair enrolls a session opened before queue resume", async () => {
     let postCount = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
@@ -724,7 +724,7 @@ describe("legacy repair of a rejected batch", () => {
     }
   });
 
-  test("failed legacy outline repair stays visible and Retry releases delivery", async () => {
+  test("failed outline repair stays visible and Retry releases delivery", async () => {
     let postCount = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
@@ -733,7 +733,7 @@ describe("legacy repair of a rejected batch", () => {
         ? jsonResponse({ detail: "bad op" }, 400)
         : jsonResponse({ ok: true });
     }));
-    const session = acquireOutlineSession(canonicalTitleOf("Retry legacy repair"), []);
+    const session = acquireOutlineSession(canonicalTitleOf("Retry outline repair"), []);
     let loadCount = 0;
     const removeLoader = session.setAuthoritativeLoader("editable", async () => {
       loadCount += 1;
@@ -743,8 +743,8 @@ describe("legacy repair of a rejected batch", () => {
     let sync!: Sync;
     function Grab() {
       sync = useSyncWhole();
-      return <div data-testid="legacy-problem">{
-        sync.problem?.kind === "legacy-rejected" ? sync.problem.repair : "none"
+      return <div data-testid="outline-problem">{
+        sync.problem?.kind === "outline-rejected" ? sync.problem.repair : "none"
       }</div>;
     }
 
@@ -753,7 +753,7 @@ describe("legacy repair of a rejected batch", () => {
     const rejected = sync.enqueue([{ op: "delete", uid: uidOf("tuid-bad") }]);
     await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
     await vi.waitFor(() => {
-      expect(screen.getByTestId("legacy-problem")).toHaveTextContent("failed");
+      expect(screen.getByTestId("outline-problem")).toHaveTextContent("failed");
     });
 
     const later = sync.enqueue([{ op: "delete", uid: uidOf("tuid-later") }]);
@@ -768,7 +768,7 @@ describe("legacy repair of a rejected batch", () => {
     session.release();
   });
 
-  test("a failed legacy outline repair is retried by the next reconnect", async () => {
+  test("a failed outline repair is retried by the next reconnect", async () => {
     let postCount = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
@@ -777,7 +777,7 @@ describe("legacy repair of a rejected batch", () => {
         ? jsonResponse({ detail: "bad op" }, 400)
         : jsonResponse({ ok: true });
     }));
-    const session = acquireOutlineSession(canonicalTitleOf("Reconnect legacy repair"), []);
+    const session = acquireOutlineSession(canonicalTitleOf("Reconnect outline repair"), []);
     let loadCount = 0;
     const removeLoader = session.setAuthoritativeLoader("editable", async () => {
       loadCount += 1;
@@ -789,8 +789,8 @@ describe("legacy repair of a rejected batch", () => {
     let sync!: Sync;
     function Grab() {
       sync = useSyncWhole();
-      return <div data-testid="legacy-problem">{
-        sync.problem?.kind === "legacy-rejected" ? sync.problem.repair : "none"
+      return <div data-testid="outline-problem">{
+        sync.problem?.kind === "outline-rejected" ? sync.problem.repair : "none"
       }</div>;
     }
 
@@ -800,7 +800,7 @@ describe("legacy repair of a rejected batch", () => {
       const rejected = sync.enqueue([{ op: "delete", uid: uidOf("tuid-bad") }]);
       await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
       await vi.waitFor(() => {
-        expect(screen.getByTestId("legacy-problem")).toHaveTextContent("failed");
+        expect(screen.getByTestId("outline-problem")).toHaveTextContent("failed");
       });
       await act(async () => { lastWs().drop(); });
       const later = sync.enqueue([{ op: "delete", uid: uidOf("tuid-later") }]);
@@ -811,7 +811,7 @@ describe("legacy repair of a rejected batch", () => {
       await expect(later.delivered).resolves.toEqual({ status: "delivered" });
       expect(loadCount).toBe(2);
       expect(postCount).toBe(2);
-      expect(screen.getByTestId("legacy-problem")).toHaveTextContent("repaired");
+      expect(screen.getByTestId("outline-problem")).toHaveTextContent("repaired");
     } finally {
       view.unmount();
       removeLoader();

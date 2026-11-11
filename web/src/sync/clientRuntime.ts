@@ -11,35 +11,23 @@
 // holds until a repair of them succeeds. Which Retry a click
 // means is decided by retryPolicy.ts; runRetry only executes that decision.
 import type { Replica } from "../replica/client";
-import { availabilityOf } from "../replica/errors";
+import { asSessionFatal, ReplicaUnusableError } from "../replica/errors";
 import { coalesce } from "./coalesce";
 import type { OpQueue, PoisonEvent } from "./opQueue";
-import type { ReplicaState, ReplicaSync } from "./replicaSync";
+import { orderedPoisonEvents } from "./poisonIntents";
+import type { ReplicaSync } from "./replicaSync";
 import type { RetryPlan } from "./retryPolicy";
 import type { SyncEvent } from "./syncState";
 
-/** Every retained or discovered poison event once, in row order. */
-export const mergePoisonEvents = (
-  ...groups: ReadonlyArray<readonly PoisonEvent[]>
-): PoisonEvent[] => {
-  const merged = new Map<string, PoisonEvent>();
-  groups.flat().forEach((event) => {
-    merged.set(`${event.id}\u0000${event.batch_id}`, event);
-  });
-  return [...merged.values()].sort((a, b) =>
-    a.id - b.id || a.batch_id.localeCompare(b.batch_id));
-};
-
 export interface ClientRuntimeDeps {
   queue: Pick<OpQueue, "setOnline" | "pause" | "resume" | "retryPoisonMarks" |
-    "refreshPending" | "discardPoisonIntents" | "onPoison" | "onPoisonMarkFailed">;
+    "refreshPending" | "discardPoisonIntents" | "onPoison" | "onPoisonMarkFailed" |
+    "onPoisonMarkUnmatched">;
   replica: Pick<Replica, "poisonedBatches" | "deleteBatch">;
   replicaSync: Pick<ReplicaSync, "start" | "rebaseAuthoritative" |
-    "completeAuthoritativeRepair">;
+    "noteUnavailable">;
   /** The session passes its fold over transitionSync. */
   onSyncEvent: (event: SyncEvent) => void;
-  /** The startup "no-replica" report for a replica that proved unusable. */
-  onReplicaState: (state: ReplicaState) => void;
   /** An owner whose teardown lags its unmount: the session passes its
    * liveness, which turns false synchronously at SyncProvider's unmount,
    * while dispose() waits a microtask so a StrictMode effect replay can keep
@@ -48,7 +36,7 @@ export interface ClientRuntimeDeps {
   isMounted?: () => boolean;
 }
 
-export type PoisonRetryPlan = Exclude<RetryPlan, { kind: "legacy-repair" }>;
+export type PoisonRetryPlan = Exclude<RetryPlan, { kind: "outline-repair" }>;
 
 export interface ClientRuntime {
   /** The startup effect's body: setOnline(false), pause, retryPoisonMarks,
@@ -65,8 +53,8 @@ export interface ClientRuntime {
    * yet begun deleting, which the call widens. With no rows, resolves at
    * once with whether the last repair succeeded. */
   repair(events: readonly PoisonEvent[]): Promise<boolean>;
-  /** Execute a planRetry() result for the poison-side plans; "legacy-repair"
-   * stays with the session's legacy repair. */
+  /** Execute a planRetry() result for the poison-side plans; "outline-repair"
+   * stays with the session's outline repair. */
   runRetry(plan: PoisonRetryPlan): Promise<void>;
   /** A socket reconnect: rerun a repair whose last attempt failed, exactly as
    * the banner's "repair-targets" Retry does; otherwise nothing. A repair
@@ -80,7 +68,7 @@ export interface ClientRuntime {
   clearRepairTargets(): void;
   /** True until startup discovery has run to a definite answer. */
   discoveringPoison(): boolean;
-  /** Unsubscribes onPoison / onPoisonMarkFailed; afterwards no callback
+  /** Unsubscribes the queue's poison signals; afterwards no callback
    * fires, no repair starts, and no queue.resume or replicaSync.start is
    * called. */
   dispose(): void;
@@ -109,11 +97,20 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
   let repairFailed = false;
   let discovering = true;
 
+  /** The queue's latch hears only the queue's own replica calls, so a
+   * session-fatal error met by one of the runtime's is reported here. Not
+   * live-guarded, like the latch: the session guards the report itself. */
+  const noteIfFatal = (error: unknown): void => {
+    const fatal = asSessionFatal(error);
+    if (fatal !== null) replicaSync.noteUnavailable(fatal);
+  };
+
   const runRepair = async (events: readonly PoisonEvent[]): Promise<boolean> => {
     deleting = false;
     // A failed repair's rows are still poisoned, so a later run takes them
     // too: its success releases "poison".
-    repairTargets = mergePoisonEvents(repairFailed ? repairTargets : [], events);
+    repairTargets = orderedPoisonEvents(
+      repairFailed ? repairTargets : [], events);
     repairSucceeded = false;
     // A run owed past dispose() or an unmount must not start, yet counts as
     // failed: after a StrictMode replay the session lives on, and its
@@ -142,24 +139,24 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
         void queue.refreshPending();
         emit({ type: "repair-succeeded", event });
       }
-      replicaSync.completeAuthoritativeRepair("poison");
       if (live()) queue.resume("poison");
       repairSucceeded = true;
     } catch (error: unknown) {
       repairFailed = true;
+      noteIfFatal(error);
       emit({ type: "repair-failed", event, error: messageOf(error) });
     }
     return repairSucceeded;
   };
   const repairOnce = coalesce<readonly PoisonEvent[], boolean>(runRepair, {
-    merge: mergePoisonEvents, joinable: () => !deleting,
+    merge: orderedPoisonEvents, joinable: () => !deleting,
   });
 
   const repair = (events: readonly PoisonEvent[]): Promise<boolean> => {
     if (events.length === 0) return Promise.resolve(repairSucceeded);
     // A joined call's rows reach the running repair through this list; a
     // starting or owed run rebuilds it from its own arguments.
-    repairTargets = mergePoisonEvents(repairTargets, events);
+    repairTargets = orderedPoisonEvents(repairTargets, events);
     return repairOnce(events);
   };
 
@@ -168,6 +165,7 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
     try {
       discovered = await replica.poisonedBatches();
     } catch (error: unknown) {
+      noteIfFatal(error);
       if (marked.length === 0) {
         // Discovery reaching the database and failing may simply mean there is
         // no openable database at all — and the worker is the one party that
@@ -183,31 +181,24 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
         // banner rather than delivering past unread poison. Every branch here
         // must resolve to a definite availability state; none may leave
         // downstream unable to tell what happened.
-        const message = messageOf(error);
-        if (availabilityOf(error) === "unusable") {
+        if (error instanceof ReplicaUnusableError) {
           discovering = false;
-          // Report the mode directly, exactly as the session's startup does
-          // with no replica. There is nothing to "mark": the worker has
-          // latched the fact, and every later replica call — including the
-          // start() a reconnect triggers — replays it.
+          // There is nothing to "mark": the worker has latched the fact, and
+          // every later replica call replays it. The mode's report raises
+          // the online-only banner.
           if (live()) {
-            deps.onReplicaState({ mode: "no-replica" });
             queue.resume("poison");
             queue.resume("startup");
           }
-          // Not silent: the user has lost offline editing for the session and
-          // gets no other signal, since "no-replica" raises no banner of its
-          // own.
-          emit({ type: "replica-unusable", error: message });
           return;
         }
-        emit({ type: "poison-discovery-failed", error: message });
+        emit({ type: "poison-discovery-failed", error: messageOf(error) });
         return;
       }
       // Returned mark evidence is sufficient to repair those rows safely;
       // never discard it merely because the broader discovery read failed.
     }
-    const repairable = mergePoisonEvents(marked, discovered);
+    const repairable = orderedPoisonEvents(marked, discovered);
     discovering = false;
     if (repairable.length > 0) {
       // repair() claims "poison" before it returns, so the barrier never
@@ -277,6 +268,14 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
       repairFailed = false;
       emit({ type: "poison-mark-failed", event, error: messageOf(error) });
     }),
+    // A marking round that matched no row leaves no repair to release the
+    // claim the rejection took. Under the discard's rule: during discovery
+    // continueStartup releases it, and a running repair keeps it.
+    queue.onPoisonMarkUnmatched(() => {
+      if (live() && !discovering && !repairOnce.running()) {
+        queue.resume("poison");
+      }
+    }),
   ];
 
   return {
@@ -317,13 +316,9 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
     discardPoisonIntents: () => {
       queue.discardPoisonIntents();
       emit({ type: "poison-intents-discarded" });
-      // Releases a claim this session may be holding from a rejection that
-      // has not yet re-entered rejectDurableBatch; harmless when no claim is
-      // held (completeAuthoritativeRepair only clears its own matching
-      // reason).
-      replicaSync.completeAuthoritativeRepair("poison");
       // The intents' claim on "poison" goes with them. A repair still
-      // running owns that claim too, and releases it when it succeeds.
+      // running owns that claim too, and releases it when it succeeds: the
+      // claim is one set entry, so releasing it now would free the repair's.
       // Mid-session the still-unmarked durable row is then handed out again:
       // the server rejects it again and the flow re-enters
       // rejectDurableBatch, whose per-batch effects are idempotent across

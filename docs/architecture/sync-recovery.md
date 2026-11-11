@@ -16,7 +16,7 @@ replica is a cache and the queue is the user's intent.
 | A replica write fails (`SQLITE_CANTOPEN`, `IOERR`, a dead worker) | The op is kept in the in-memory lane; only `ReplicaError.rejected` discards | [A local write fails](#a-local-write-fails) |
 | Lane entries and durable rows are both waiting | `headPrecedes` orders them by batch identity | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
 | The OPFS file cannot be opened | Up to the attempt limit, then `unusable` for the session | [When the replica cannot be opened](#when-the-replica-cannot-be-opened) |
-| The worker RPC breaks | `unreachable`: ops kept, barrier held; the next pull sets mode `no-replica` | [Availability](#availability-two-values-one-owner), [Replica mode](#replica-mode) |
+| The worker RPC breaks | `unreachable`: ops kept, barrier held; the next replica call, by the queue, `replicaSync` or `clientRuntime`, sets mode `no-replica` | [Availability](#availability-two-values-one-owner), [Replica mode](#replica-mode) |
 | The replica opens, then fails every write | The offline banner says unsent changes exist only in memory | [What the UI shows](#what-the-ui-shows) |
 | A window was read before an ack deleted its row | Refetched; `PullStarvedError` after the cap | [Windows and the pending queue](sync-and-offline.md#windows-and-the-pending-queue) |
 | Two repairs or a recovery overlap | Each holds its own barrier owner and releases only that | [The recovery barrier](#the-recovery-barrier) |
@@ -58,7 +58,7 @@ one predicate, `headPrecedes` (`sync/outbox.ts`):
 | none left (`nextBatch()` returns null) | the lane goes |
 
 **Every path that posts durable rows asks the queue first**, as the recovery
-flush does with `deliverLaneAhead(batch_id)`. A path that skips it can post a
+flush does through `OpQueue.deliverLeased`. A path that skips it can post a
 move ahead of the create it depends on.
 
 `opQueue.enqueue` mints the `batch_id` and sets the `follows` mark before the
@@ -71,7 +71,7 @@ second replays. The worker fills hashes into the durable copy only;
 without `seen_seq`, so it is never treated as stale.
 
 A terminal 4xx discards a lane entry and runs `onDesync`'s outline repair
-(`sync/legacyRepair.ts`).
+(`sync/outlineRepair.ts`).
 
 A reload destroys the lane, so `useUnloadGuard` arms from `onUnsentInMemory`,
 the lane's own length. Its `beforeunload` listener attaches only while the lane
@@ -137,9 +137,21 @@ whether a consumer may latch it: yes for everything but a bare timeout.
 
 ### What the UI shows
 
-An `unusable` replica raises `replica-unusable`, and `OfflineIndicator` renders
-"Working online only — offline editing is unavailable for now." The second
-sentence depends on connectivity:
+`bannerForMode` (`sync/syncState.ts`) folds each mode report into a banner; `ready` clears a stalled one unless its reset is running:
+
+| Mode report | Banner |
+|---|---|
+| `stalled` | `replica-stalled`: "Local sync is stuck", with Reset local data |
+| `recovery-failed` | the same banner while the socket is connected; offline none, and `computeEditability` reads the mode as read-only |
+| `no-replica` | `replica-unusable`, below |
+
+Every `no-replica` report raises `replica-unusable`, and `OfflineIndicator`
+renders "Working online only — offline editing is unavailable for now." It
+replaces a stalled banner, whose Reset cannot work on a replica that is gone,
+and never a delivery problem. `SyncState.replicaGone` remembers the report, so
+the banner returns when a delivery problem ends. A session with no replica
+(`runtime === null`) shows it too. The second sentence depends on
+connectivity:
 
 | State | Second sentence | Why |
 |---|---|---|
@@ -160,23 +172,36 @@ releases only its own claim**, so one repair finishing never lifts a barrier
 another still needs. `BarrierOwner` (`sync/queueState.ts`) is a closed union,
 and `pause(owner)` and `resume(owner)` take one:
 
-| Owner | Claimed | Released |
+| Owner | Claimed by | Released by |
 |---|---|---|
-| `startup` | `clientRuntime.startup()` | discovery answers; on poisoned rows, after `poison` is claimed |
-| `poison` | a durable 4xx (`rejectDurableBatch`), a reload's retained mark intents, or a repair of rows startup found | the repair succeeds; marking matched no row; the intents are discarded |
+| `startup` | `clientRuntime.startup()` | `continueStartup`, once discovery answers; on poisoned rows, after `repair()` has claimed `poison` |
+| `poison` | the queue's construction, when mark intents were retained; `rejectDurableBatch`, before the durable mark; `runRepair`, for rows startup found | `runRepair` on success; `continueStartup` when discovery finds nothing or the replica is unusable; `clientRuntime`'s unmatched-round listener and `discardPoisonIntents`, each only when no repair runs (and, for the listener, discovery has answered) |
 | `recovery` | `runRecovery`, before its lease | the end of that run, whatever its outcome |
-| `lane` | a lane entry's 4xx (`deliverLaneHead`) | the first legacy outline repair to become stable after it |
+| `lane` | a lane entry's 4xx (`deliverLaneHead`) | the first outline repair to become stable after it |
+
+`OpQueue.holds(owner)` reports a claim. `replicaSync` reads `holds("poison")`
+(its `holdsPoison` dep, wired in `session.ts`) as the poison repair's claim on
+recovery: a normal recovery abandons its flush, and a pass that needs one is
+left to the repair. `OpQueue.onRelease` fires after `resume` releases a held
+owner, and `replicaSync` uses it to pay the pull a `poison` repair left owed.
+
+Every `OpQueue` emission follows an await except `onRelease` and
+`settleCommitted`'s `onSkipped`. No emission may report during a render, and
+both exceptions are reached only from effects, event handlers and async paths.
+`onRelease` is synchronous so that its listener acts before any other call can
+claim the owner again, which needs that listener to report nothing
+synchronously.
 
 The drain checks the barrier again after each `nextBatch()` read, since a
 pause can land while the read waits on the worker's gate.
 
 `onDesync` reports `{ error, lane }`. A local refusal (a text past a limit, a
-`ReplicaError.rejected` op) also desyncs, but it paused nothing, so its legacy
-repair resumes nothing. `legacyRepair.ts` owes a `lane` resume across a failed
+`ReplicaError.rejected` op) also desyncs, but it paused nothing, so its outline
+repair resumes nothing. `outlineRepair.ts` owes a `lane` resume across a failed
 run, so the retry that succeeds pays it.
 
-A poison problem without its repair outranks a legacy one in the banner: its
-Retry is what lifts `poison`. The legacy problem waits in `legacyBehind`
+A poison problem without its repair outranks an outline one in the banner: its
+Retry is what lifts `poison`. The outline problem waits in `outlineBehind`
 (`sync/syncState.ts`) and is shown once the poison problem ends.
 
 ### Calls that arrive during a run
@@ -195,7 +220,7 @@ owed behind it. `idle()` settles after the owed runs and never rejects.
 | `pull` (`replicaSync.ts`) | never: a pass may be past its fetch | a pass of its own | `joinable` omitted |
 | reconnect completion (`reconnectFlow.ts`) | the resync decision | a completion of its own | `deciding` |
 | poison repair (`clientRuntime.ts`) | the delete loop reads its targets | a repair, with the events merged | `deleting` |
-| legacy outline repair (`legacyRepair.ts`) | `onStable`: a later run read too early | a run, under the latest error | `stable` |
+| outline repair (`outlineRepair.ts`) | `onStable`: a later run read too early | a run, under the latest error | `stable` |
 
 The flag that decides must flip in the same step as the read it guards, or the
 gap moves instead of closing. A site whose calls can be owed checks its owner
@@ -216,12 +241,9 @@ never over an armed retry, which `coalesce` does not express.
 | 5xx, network failure, `OfflineError` | no | retained under backoff |
 
 A batch the editor planned can still meet a 400 for a reason its replica
-could not see. The [depth cap](backend.md#missing-targets) is one: each
-device refuses a block past `MAX_OUTLINE_DEPTH` in the tree it holds, but
-two devices' edits, each legal alone, can stack past it, as when one
-indents a subtree while the other, offline, adds levels under it. The
-server refuses the whole batch, so the rebase below drops its valid ops
-with the deep one.
+could not see: two devices' edits, each legal alone, can stack past the
+[depth cap](backend.md#missing-targets). The server refuses the whole batch,
+so the rebase below drops its valid ops with the deep one.
 
 A poisoned row pauses delivery, and `clientRuntime.ts` runs
 `rebaseAuthoritative`: a `rebase` with flush `"skip"` over a fresh snapshot,
@@ -234,7 +256,7 @@ rebase would replay those rows over their commits:
 
 | Guard | Where |
 |---|---|
-| `onPoisonPending` sets `authoritativeRepair = "poison"` synchronously, before the durable mark, and `assertNormalRecoveryStillOwnsFlush` runs before every post | `replicaSync.ts`, `opQueue.ts::rejectDurableBatch` |
+| `rejectDurableBatch` pauses `poison` before the durable mark. The flush's `beforePost` reads `holdsPoison()` before every leased batch, and `deliverLeased` reads it again after the lane ahead | `opQueue.ts`, `replicaSync.ts` |
 | Startup repairs poisoned rows left by an earlier page load before `replicaSync.start()` | `clientRuntime.ts` |
 
 A failed repair keeps the barrier and a Retry banner. It usually failed
@@ -243,33 +265,27 @@ offline, so every socket connect retries it too:
 | Repair | Retried by | Banner |
 |---|---|---|
 | Poison repair | Retry (`retryPolicy.ts::planRetry`'s `repair-targets`), and each connect's `clientRuntime.retryFailedRepair()` | rejected-batch |
-| Lane batch's outline repair | Retry, and each connect's `legacyRepair.retryFailed()` | `legacy-rejected` |
+| Lane batch's outline repair | Retry, and each connect's `outlineRepair.retryFailed()` | `outline-rejected` |
 
 Only a connect retries, never a drain observed while connected, so a repair
-that fails again waits for the next connect instead of looping.
+that fails again waits for the next connect instead of looping. The targets of
+a failed run carry into the next, merged by `orderedPoisonEvents`
+(`sync/poisonIntents.ts`): one event per row and batch id, the later group's
+copy winning, in row order.
 
 Mark intents live in `localStorage` (`sync/poisonIntentStore.ts`,
 `pkm.poison-mark-intents.v1`), so they survive an unopenable database. A failed
 `retryPoisonMarks()` keeps the barrier, with Retry and "Discard rejected
 change" (`Sync.discardProblem()`).
 
-`replicaSync`'s `authoritativeRepair` flag claims recovery for the poison
-repair, so a normal recovery abandons its flush. It moves with the `poison`
-owner:
-
-| Ownership | When |
-|---|---|
-| Claimed | `rejectDurableBatch` emits `poisonPending`, before the durable mark |
-| Released, repaired | a successful `markPoisoned` fires `onPoison`, whose repair succeeds |
-| Released, unmatched | `markRetainedPoison`'s `markPoisoned` matches no row |
-| Released, discarded | `Sync.discardProblem()` drops the intents |
-
-A mark RPC that fails holds the claim, because the row is still unmarked.
+A successful `markPoisoned` fires `onPoison`, which starts the repair. A mark
+RPC that fails holds the `poison` claim, because the row is still unmarked. Discarding the intents while a repair runs keeps it until the repair
+succeeds, so a reset or a pass needing recovery still waits for the repair.
 
 While the claim is held, a pull pass that needs a recovery leaves it to the
-repair. That pass ends, and a pull owed behind it gets its own run. One more
-pull is owed for when the claim is released, because a repair that fails
-applies no snapshot and so covers nothing.
+repair, and a pull owed behind that pass gets its own run. One more pull is
+owed for the release of `poison`, because a repair that fails applies no
+snapshot. On a release the drain kick comes before that pull.
 
 ## A pull that keeps failing
 
@@ -302,17 +318,22 @@ the replica.
 | `starting` | the provider mounts | `start()` succeeds (`ready`); a failed start is retried on the backoff and may stall |
 | `ready` | `start()` succeeds, or a pull or reset succeeds after a report | a report below |
 | `stalled` | `STALL_AFTER_FAILURES` counted failures of a pull or a start | a later pull or start succeeds, or Reset local data |
-| `recovery-failed` | a `runRecovery` that reports (`reportReplicaFailure`) throws | as `stalled` |
-| `no-replica` | an error `isSessionFatal()` accepts, from init, a pull or a failed `start()` (`noteFailure`); a latched failed open met by startup discovery; the session when there is no replica (`runtime === null`) | never: only a reload brings a new worker |
+| `recovery-failed` | a `runRecovery` that reports (`reportReplicaFailure`) throws, unless the error is session-fatal (that is `no-replica`) | as `stalled` |
+| `no-replica` | `replicaSync.noteUnavailable(error)`, called wherever a replica call of `replicaSync` or `clientRuntime` meets a session-fatal error, and by the session's `queue.onUnavailable` latch; or the session's own report when there is no replica (`runtime === null`) | never: only a reload brings a new worker |
 
 **A session-fatal error ends replica mode for the session.** A dead worker
 leaves its RPC client terminal and a failed open is latched, so every later
-call fails the same way. `noteFailure` then reports `no-replica` with the
-error, arms no retry, and `appliedVersion()` reads null so every reconnect
-refetches views. `transitionSync` raises the `replica-unusable` banner from the `replica-state` report,
-whose Reload is the way out. Nothing reports the death before the next
-replica call from `replicaSync`, so until then an offline edit still goes to
-the lane under the offline banner's memory-only sentence.
+call fails the same way. `noteUnavailable` is the one writer of `no-replica`
+and of `usable = false`. It reports once and arms no retry, `setMode` drops
+every later mode, and `start()`, a new pull and an owed pass return without a
+replica call. A pass already in flight runs on until it fails or ends.
+`appliedVersion()` reads null, so every reconnect refetches views.
+
+The death is reported at the next replica call, whoever makes it. The queue's
+calls trip the latch `noteReplicaFailure` sets, emitted as `onUnavailable`;
+`replicaSync` and `clientRuntime` call `noteUnavailable` for their own calls,
+which the latch does not see. `computeEditability` then refuses offline edits,
+and the banner is [above](#what-the-ui-shows).
 
 ## Rebootstraps
 
@@ -328,7 +349,7 @@ the lane under the offline banner's memory-only sentence.
 | Corruption (`SQLITE_CORRUPT`, `SQLITE_CORRUPT_VTAB`) applying a window or snapshot | `isCorruptionError`, once per session, after posting `replica.diagnostics()` to `POST /api/client/diagnostics` | `reset`: a rebase would replay through the same corrupt FTS index |
 | One cursor fails `WINDOW_STRIKES` times with one message | `isWindowFailure`, which counts only a `ReplicaError` that is neither corruption nor availability; posted as `window-unappliable` | `rebase`, which keeps the queue |
 
-The authoritative repair and the user's Reset local data also rebootstrap.
+The poison repair and the user's Reset local data also rebootstrap.
 
 ### runRecovery
 

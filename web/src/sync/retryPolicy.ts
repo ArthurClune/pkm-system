@@ -12,8 +12,8 @@
 import type { SyncProblem } from "./syncState";
 
 export type RetryPlan =
-  /** Re-run the legacy active-outline repair for the retained rejection. */
-  | { kind: "legacy-repair" }
+  /** Re-run the active-outline repair for the retained rejection. */
+  | { kind: "outline-repair" }
   /** Retry durable poison marking only; never an /api/ops POST. When
    * `continueStartup`, the returned marks feed startup's discovery gate,
    * otherwise the in-flight repair is awaited and the replica restarted. */
@@ -31,9 +31,9 @@ export function planRetry(
 ): RetryPlan {
   if (problem === undefined) return { kind: "none" };
   switch (problem.kind) {
-    case "legacy-rejected":
+    case "outline-rejected":
       return problem.repair === "failed"
-        ? { kind: "legacy-repair" } : { kind: "none" };
+        ? { kind: "outline-repair" } : { kind: "none" };
     case "rejected-batch":
       if (problem.repair === "mark-failed") {
         return { kind: "retry-poison-marks",

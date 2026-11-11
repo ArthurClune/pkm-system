@@ -348,13 +348,27 @@ describe("queue reads and lifecycle", () => {
       message: "request failed: 422 /api/ops",
     }]);
 
-    // Rows written before typed poison metadata shipped stored Error#toString.
-    t.db.exec("UPDATE pending_ops SET error = ? WHERE id = ?", [
-      "ApiError: request failed: 409 /api/ops", rejected.id,
-    ]);
-    expect(poisonedBatches(t.db)[0]).toMatchObject({
-      status: 409, message: "ApiError: request failed: 409 /api/ops",
-    });
+  });
+
+  test("a poisoned row whose error is not the stored JSON reads as a generic rejection", () => {
+    enqueueBatch(t.db, [{ op: "update_text", uid: uidOf("uid_q1"), text: "bad" }],
+                 99, bid("batch-rejected"));
+    const rejected = nextBatch(t.db)!;
+    markPoisoned(t.db, rejected.id, "x", bid("batch-rejected"));
+    const generic = { status: 400, message: "rejected batch from a previous session" };
+    for (const error of [
+      "request failed: 409 conflict",
+      "ApiError: request failed: 409 /api/ops",
+      "{not json",
+      "null",
+      "[]",
+      JSON.stringify({ status: "422", message: "x" }),
+      JSON.stringify({ status: 422 }),
+      null,
+    ]) {
+      t.db.exec("UPDATE pending_ops SET error = ? WHERE id = ?", [error, rejected.id]);
+      expect(queue.poisonedBatches(t.db)[0], String(error)).toMatchObject(generic);
+    }
   });
 });
 

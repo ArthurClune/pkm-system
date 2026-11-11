@@ -15,7 +15,7 @@ import { failingOnce, fakeCarryFiles, openRawTestDb, withDamagedFreelist }
 import { buildHandlers, type WorkerDeps } from "../replica/workerHandlers";
 import { createReplicaSync } from "./replicaSync";
 import {
-  orderIdxOf, pageIdOf, canonicalTitleOf, uidOf, seqOf, clientIdOf, batchIdOf, pendingRowIdOf,
+  orderIdxOf, pageIdOf, canonicalTitleOf, uidOf, seqOf, batchIdOf, pendingRowIdOf,
 } from "../test-helpers";
 
 const SNAP: Snapshot = {
@@ -64,7 +64,6 @@ test("a poison repair whose file replacement fails keeps every queued row for it
       if (path === "/api/sync/snapshot") return SNAP;
       throw new Error(`unexpected fetch ${path}`);
     },
-    clientId: clientIdOf("c1"),
     onState: () => {},
   });
 

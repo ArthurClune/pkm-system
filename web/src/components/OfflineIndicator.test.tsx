@@ -373,11 +373,11 @@ it("failed startup poison discovery is visible and offers Retry", () => {
   expect(retryProblem).toHaveBeenCalledTimes(1);
 });
 
-it("failed legacy authoritative repair is visible and offers Retry", () => {
+it("failed outline authoritative repair is visible and offers Retry", () => {
   const retryProblem = vi.fn(async () => undefined);
   renderWith({
     problem: {
-      kind: "legacy-rejected", repair: "failed",
+      kind: "outline-rejected", repair: "failed",
       error: "request failed: 400 /api/ops", repairError: "page read failed",
     },
     retryProblem,
@@ -478,10 +478,10 @@ it("uses the singular for one unsent blocked change", () => {
     .toHaveTextContent("1 unsent change could not be delivered.");
 });
 
-it("reports a running legacy repair as a status, with no action offered", () => {
+it("reports a running outline repair as a status, with no action offered", () => {
   renderWith({
     problem: {
-      kind: "legacy-rejected", repair: "running",
+      kind: "outline-rejected", repair: "running",
       error: "request failed: 400 /api/ops",
     },
   });
@@ -490,11 +490,11 @@ it("reports a running legacy repair as a status, with no action offered", () => 
   expect(screen.queryByRole("button")).toBeNull();
 });
 
-it("a repaired legacy rejection keeps its note until Dismiss", () => {
+it("a repaired outline rejection keeps its note until Dismiss", () => {
   const dismissProblem = vi.fn();
   renderWith({
     problem: {
-      kind: "legacy-rejected", repair: "repaired",
+      kind: "outline-rejected", repair: "repaired",
       error: "request failed: 400 /api/ops",
     },
     dismissProblem,
@@ -516,15 +516,15 @@ const matrix: Array<[string, SyncProblem, "alert" | "status", string[], string]>
    { kind: "replica-unusable", error: "no access handles" },
    "status", ["Reload"],
    "Working online only — offline editing is unavailable for now."],
-  ["legacy-rejected/running",
-   { kind: "legacy-rejected", repair: "running", error: "400" },
+  ["outline-rejected/running",
+   { kind: "outline-rejected", repair: "running", error: "400" },
    "status", [], "Repairing active outlines…"],
-  ["legacy-rejected/failed",
-   { kind: "legacy-rejected", repair: "failed", error: "400",
+  ["outline-rejected/failed",
+   { kind: "outline-rejected", repair: "failed", error: "400",
      repairError: "page read failed" },
    "alert", ["Retry"], "Authoritative repair failed: page read failed"],
-  ["legacy-rejected/repaired",
-   { kind: "legacy-rejected", repair: "repaired", error: "400" },
+  ["outline-rejected/repaired",
+   { kind: "outline-rejected", repair: "repaired", error: "400" },
    "status", ["Dismiss"], "Active outlines repaired."],
   ["rejected-batch/running",
    { kind: "rejected-batch", event: rejected.event, repair: "running" },

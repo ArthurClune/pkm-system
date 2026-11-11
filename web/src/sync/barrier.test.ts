@@ -1,7 +1,7 @@
 // @vitest-environment node
 // The queue's recovery barrier with its owners composed as the sync session
 // (session.ts) composes them: the real queue, the client runtime's poison
-// repair and the legacy repair, over an in-memory replica and a recording
+// repair and the outline repair, over an in-memory replica and a recording
 // POST. Each test leaves one owner's claim standing while another owner lets
 // go of its own, and reads back what reached the server.
 import { describe, expect, test } from "vitest";
@@ -10,11 +10,13 @@ import type { BatchId } from "../api/brands";
 import type { BlockOp } from "../api/ops";
 import type { OpBatch, OpsAck } from "../api/payloads";
 import { MAX_BLOCK_TEXT_CHARS } from "../grammar/textLimits";
+import type { Replica } from "../replica/client";
 import { batchIdOf, seqOf, uidOf } from "../test-helpers";
 import { createClientRuntime } from "./clientRuntime";
-import { createLegacyRepair } from "./legacyRepair";
+import { createOutlineRepair } from "./outlineRepair";
 import { memReplica } from "./memReplica";
 import { createOpQueue } from "./opQueue";
+import { createReplicaSync, type ReplicaSyncDeps } from "./replicaSync";
 import type { SyncEvent } from "./syncState";
 
 const op = (rawUid: string): BlockOp => ({ op: "delete", uid: uidOf(rawUid) });
@@ -46,7 +48,7 @@ function recordingPost(bad: Set<BatchId>) {
 }
 
 describe("one owner's resume leaves another's claim standing", () => {
-  test("a local refusal's legacy repair does not lift the poison repair's barrier",
+  test("a local refusal's outline repair does not lift the poison repair's barrier",
        async () => {
     const bad = new Set<BatchId>();
     const { posted, post } = recordingPost(bad);
@@ -60,18 +62,17 @@ describe("one owner's resume leaves another's claim standing", () => {
         start: async () => undefined,
         // The poison repair's snapshot fetch fails: its Retry banner stays.
         rebaseAuthoritative: async () => { throw new TypeError("fetch failed"); },
-        completeAuthoritativeRepair: () => undefined,
+        noteUnavailable: () => undefined,
       },
       onSyncEvent: (event) => { events.push(event); },
-      onReplicaState: () => undefined,
     });
-    const legacy = createLegacyRepair({
+    const outline = createOutlineRepair({
       repairSessions: async (onStable) => { onStable(); },
       onEvent: (event) => { events.push(event); },
       resume: () => queue.resume("lane"),
       isMounted: () => true,
     });
-    queue.onDesync((desync) => { void legacy.run(desync.error, desync); });
+    queue.onDesync((desync) => { void outline.run(desync.error, desync); });
     await runtime.startup();
     queue.setOnline(true);
 
@@ -112,13 +113,13 @@ describe("one owner's resume leaves another's claim standing", () => {
       },
     });
     const reading = deferred();
-    const legacy = createLegacyRepair({
+    const outline = createOutlineRepair({
       repairSessions: async (onStable) => { await reading.promise; onStable(); },
       onEvent: () => undefined,
       resume: () => queue.resume("lane"),
       isMounted: () => true,
     });
-    queue.onDesync((desync) => { void legacy.run(desync.error, desync); });
+    queue.onDesync((desync) => { void outline.run(desync.error, desync); });
 
     queue.enqueue([op("tuid-a")]);
     queue.enqueue([op("tuid-b")]);
@@ -129,7 +130,7 @@ describe("one owner's resume leaves another's claim standing", () => {
     expect(posted).toEqual([ids[0]]);
 
     // A normal recovery (replicaSync's runRecovery) runs and ends while the
-    // legacy repair is still reading.
+    // outline repair is still reading.
     queue.pause("recovery");
     queue.resume("recovery");
     await queue.drain();
@@ -140,5 +141,75 @@ describe("one owner's resume leaves another's claim standing", () => {
     await flush();
     await queue.drain();
     expect(posted).toEqual([ids[0], ids[1]]);
+  });
+});
+
+describe("the poison claim under a discard", () => {
+  const SNAPSHOT = { generation: "g1", seq: 5, pages: [], blocks: [], sidebar: [] };
+  const feed = (latest: number) => ({
+    reset: false, generation: "g1", next_since: latest, latest_seq: latest,
+    pages: [], blocks: [], sidebar: [], tombstones: [],
+  });
+  const fetchJson: ReplicaSyncDeps["fetchJson"] = async (path) =>
+    path.startsWith("/api/sync/snapshot") ? SNAPSHOT : feed(5);
+
+  /** The queue, the replica sync and the runtime, wired as the session
+   * wires them. */
+  function wire(replica: Replica, post: (body: OpBatch) => Promise<OpsAck>) {
+    const queue = createOpQueue(replica, { post });
+    const replicaSync = createReplicaSync({
+      replica, fetchJson, queue,
+      holdsPoison: () => queue.holds("poison"),
+      onState: () => undefined,
+    });
+    const runtime = createClientRuntime({
+      queue, replica, replicaSync,
+      onSyncEvent: () => undefined,
+    });
+    return { queue, replicaSync, runtime };
+  }
+
+  test("a reset and a pass needing recovery wait for a repair whose change " +
+       "was discarded", async () => {
+    const bad = new Set<BatchId>();
+    const { post } = recordingPost(bad);
+    const lease = deferred();
+    let leases = 0;
+    let needsBootstrap = false;
+    const base = memReplica();
+    const replica = memReplica({
+      prepareRecovery: async () => {
+        leases += 1;
+        if (leases === 1) await lease.promise;
+        return base.prepareRecovery();
+      },
+      applyChanges: async (window) => needsBootstrap
+        ? { status: "needs-bootstrap" }
+        : { status: "applied", cursor: window.next_since },
+    });
+    const { queue, replicaSync, runtime } = wire(replica, post);
+    await runtime.startup();
+    queue.setOnline(true);
+
+    queue.enqueue([op("tuid-a")]);
+    await queue.settled();
+    bad.add(replica.enqueued[0]);
+    await queue.drain();
+    await flush();
+    expect(leases).toBe(1);
+
+    await runtime.discardPoisonIntents();
+    await expect(replicaSync.resetLocalData({ discardPending: true }))
+      .rejects.toThrow("rejected-batch repair in progress");
+    needsBootstrap = true;
+    replicaSync.onSeq(seqOf(9));
+    await flush();
+    expect(leases).toBe(1);
+
+    lease.resolve();
+    await flush();
+    await replicaSync.idle();
+    expect(leases).toBe(2);
+    expect(queue.holds("poison")).toBe(false);
   });
 });

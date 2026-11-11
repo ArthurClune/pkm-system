@@ -23,7 +23,7 @@ import { handleLocalApi } from "./localApi/router";
 import { pendingSetStillCovered } from "./pendingGuard";
 import { allBatches, deleteBatch, type DurablePendingRow, enqueueBatch,
          importPendingRows, markPoisoned, nextBatch, pendingCount,
-         poisonedBatches } from "./queue";
+         poisonedBatches, readPendingRows } from "./queue";
 import { createRecoveryGate } from "./recoveryGate";
 import type { RpcHandlers } from "./rpc";
 
@@ -96,14 +96,7 @@ const ensureClientTables = (d: ReplicaDb, ensured: WeakSet<ReplicaDb>): void => 
 
 function readDurablePendingRows(db: ReplicaDb): DurablePendingRow[] {
   if (!tableExists(db, "pending_ops")) return [];
-  return db.select(
-    "SELECT id AS pending_row_id, batch_id, ops_json, poisoned," +
-    " error AS pending_error FROM pending_ops ORDER BY id",
-      ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"],
-  ).map((r) => ({
-    id: r.pending_row_id, batch_id: r.batch_id, ops_json: r.ops_json,
-    poisoned: r.poisoned, error: r.pending_error,
-  }));
+  return readPendingRows(db);
 }
 
 const messageOf = (error: unknown): string =>
@@ -131,16 +124,10 @@ function salvagePendingRows(db: ReplicaDb): DurablePendingRow[] {
   if (whole !== null) return whole;
   const rows: DurablePendingRow[] = [];
   for (;;) {
-    const after = rows.at(-1)?.id ?? -1;
-    const next = probe(() => db.select(
-      "SELECT id AS pending_row_id, batch_id, ops_json, poisoned," +
-      " error AS pending_error FROM pending_ops WHERE id > ? ORDER BY id LIMIT 1",
-      ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"], [after],
-    ), () => []);
+    const next = probe(() => readPendingRows(db, rows.at(-1)?.id ?? null), () => []);
     const r = next[0];
     if (r === undefined) return rows;
-    rows.push({ id: r.pending_row_id, batch_id: r.batch_id, ops_json: r.ops_json,
-                poisoned: r.poisoned, error: r.pending_error });
+    rows.push(r);
   }
 }
 

@@ -768,8 +768,8 @@ export function isOutlineSessionActive(title: RawTitle): boolean {
 }
 
 /** Force every active outline through a post-settlement authoritative read,
- * rebase wholly later unresolved writes, and only then release legacy
- * delivery. */
+ * rebase wholly later unresolved writes, and only then call `onStable`, where
+ * the outline repair resumes the queue's "lane" owner. */
 export function repairActiveOutlineSessions(
   onStable?: () => void,
 ): Promise<void> {

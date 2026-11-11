@@ -17,15 +17,6 @@ export interface ReplicaErrorFlags {
   rejected?: boolean;
 }
 
-/** There was a `quota` flag here too, meant to mark "local storage refused the
- * write for want of space" and to drive a read-only mode. NOTHING could ever
- * set it: the app runs on sqlite-wasm's opfs-sahpool VFS, whose
- * `xWrite` catches the `QuotaExceededError` DOMException from
- * `SyncAccessHandle.write()`, stores it on the pool's private `$error` and
- * returns `SQLITE_IOERR` — so what reaches this module is a bare "disk I/O
- * error", indistinguishable from any other write failure. Storage exhaustion
- * is therefore handled the same way as every other failure to persist: the op
- * is retained in the fallback lane and delivered online. */
 export class ReplicaError extends Error {
   readonly rejected: boolean;
 
@@ -94,8 +85,20 @@ export function availabilityOf(error: unknown): ReplicaAvailability | null {
  * leaves the client usable. Retention does not need this distinction (every
  * level retains); latching a state does. */
 export function isSessionFatal(error: unknown): boolean {
-  if (error instanceof ReplicaUnusableError) return true;
-  return error instanceof RpcLifecycleError && error.kind !== "timeout";
+  return asSessionFatal(error) !== null;
+}
+
+/** The errors isSessionFatal accepts. Not every RpcLifecycleError is one: a
+ * timeout is not, so a value of this type is narrowed by asSessionFatal,
+ * never by the union's members alone. */
+export type SessionFatalError = ReplicaUnusableError | RpcLifecycleError;
+
+export function asSessionFatal(error: unknown): SessionFatalError | null {
+  if (error instanceof ReplicaUnusableError) return error;
+  if (error instanceof RpcLifecycleError && error.kind !== "timeout") {
+    return error;
+  }
+  return null;
 }
 
 /** SQLite saying the database it opened is internally inconsistent: result

@@ -185,18 +185,18 @@ test("a lane rejection whose repair fails offline is retried on reconnect", asyn
   a.offline();
   release();
   const repairOutcomes = (): string[] => a.syncEvents
-    .filter((e) => e.type === "legacy-repair-failed" ||
-                   e.type === "legacy-repair-succeeded")
+    .filter((e) => e.type === "outline-repair-failed" ||
+                   e.type === "outline-repair-succeeded")
     .map((e) => e.type);
   await vi.waitFor(() => {
-    expect(repairOutcomes()).toEqual(["legacy-repair-failed"]);
+    expect(repairOutcomes()).toEqual(["outline-repair-failed"]);
   });
   const later = await a.edit(setText("pt_seed_1", "behind the failed repair"));
 
   // The reconnect alone reruns the repair and releases the later edit;
   // quiesce's own online() would be a second reconnect.
   await a.online();
-  expect(repairOutcomes()).toEqual(["legacy-repair-failed", "legacy-repair-succeeded"]);
+  expect(repairOutcomes()).toEqual(["outline-repair-failed", "outline-repair-succeeded"]);
   await a.queue.drain();
   expect(await appliedIds()).toContain(later);
   expect(await appliedIds()).not.toContain(bad);

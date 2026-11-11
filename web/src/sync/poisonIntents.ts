@@ -17,9 +17,12 @@ export function validPoisonEvent(value: unknown): value is PoisonEvent {
 const keyOf = (event: PoisonEvent): string =>
   `${event.id}\u0000${event.batch_id}`;
 
-function ordered(events: Iterable<PoisonEvent>): PoisonEvent[] {
+/** Every event of the groups once, in row order. */
+export function orderedPoisonEvents(
+  ...groups: ReadonlyArray<readonly PoisonEvent[]>
+): PoisonEvent[] {
   const unique = new Map<string, PoisonEvent>();
-  for (const event of events) unique.set(keyOf(event), event);
+  for (const event of groups.flat()) unique.set(keyOf(event), event);
   return [...unique.values()].sort((a, b) =>
     a.id - b.id || a.batch_id.localeCompare(b.batch_id));
 }
@@ -34,7 +37,8 @@ export function parseStoredIntents(
   try {
     const parsed = JSON.parse(raw) as { version?: unknown; intents?: unknown };
     if (parsed.version !== 1 || !Array.isArray(parsed.intents)) return [];
-    return ordered((parsed.intents as unknown[]).filter(validPoisonEvent));
+    return orderedPoisonEvents(
+      (parsed.intents as unknown[]).filter(validPoisonEvent));
   } catch {
     // The stored value can come from a damaged write.
     return [];
@@ -48,5 +52,5 @@ export function serialiseIntents(intents: readonly PoisonEvent[]): string {
 export function withIntent(
   intents: readonly PoisonEvent[], event: PoisonEvent,
 ): PoisonEvent[] {
-  return ordered([...intents, event]);
+  return orderedPoisonEvents(intents, [event]);
 }

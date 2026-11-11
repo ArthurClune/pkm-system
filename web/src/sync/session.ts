@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 // The one composition of the sync parts, without React: the op queue, the
 // replica sync, the client runtime (startup poison gate and poison repair),
-// the legacy outline repair and the reconnect flow, with the socket status,
+// the outline repair and the reconnect flow, with the socket status,
 // the first-connect gate and the delivery-health fold over transitionSync.
 // SyncProvider runs it and publishes what it reports; the sync property
 // harness runs the same session over its own transport.
@@ -18,7 +18,7 @@ import type { OutlineReplayAction } from "../outline/outlineState";
 import type { Replica } from "../replica/client";
 import { ReplicaUnusableError } from "../replica/errors";
 import { createClientRuntime } from "./clientRuntime";
-import { createLegacyRepair } from "./legacyRepair";
+import { createOutlineRepair } from "./outlineRepair";
 import { createOpQueue, type OpQueue, type OpQueueDeps,
          type WriteTicket } from "./opQueue";
 import { createReconnectFlow } from "./reconnectFlow";
@@ -59,6 +59,10 @@ export interface SyncActions {
   settled(): Promise<void>;
 }
 
+/** What a session without a replica reports, as its mode's error and as
+ * absentReplica()'s every call. */
+const NO_REPLICA = "no replica in this environment";
+
 /** The queue always has a Replica; where there is none, this reports the same
  * permanent unavailability the worker reports for a database it could not open.
  * The queue latches that once and answers it by delivering online-only through
@@ -69,7 +73,7 @@ export interface SyncActions {
  * defaultReplica). */
 export function absentReplica(): Replica {
   const absent = async (): Promise<never> => {
-    throw new ReplicaUnusableError("no replica in this environment");
+    throw new ReplicaUnusableError(NO_REPLICA);
   };
   return {
     init: absent, applySnapshot: absent, applyChanges: absent,
@@ -86,7 +90,7 @@ export interface OutlineHooks {
   track(ticket: WriteTicket, ops: readonly BlockOp[]): void;
   attachReplay(ticket: WriteTicket, title: RawTitle,
                replay: readonly OutlineReplayAction[]): void;
-  /** legacyRepair's repairSessions. */
+  /** outlineRepair's repairSessions. */
   repairSessions(onStable: () => void): Promise<void>;
 }
 
@@ -177,7 +181,7 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
   const queue = createOpQueue(replica ?? absentReplica(),
                               { ...deps.queue, clientId });
 
-  const legacyRepair = createLegacyRepair({
+  const outlineRepair = createOutlineRepair({
     repairSessions: (onStable) => outlines.repairSessions(onStable),
     onEvent: fold,
     resume: () => queue.resume("lane"),
@@ -187,8 +191,8 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
   const replicaSync = replica === null ? null : createReplicaSync({
     replica,
     fetchJson: deps.fetchJson,
-    clientId,
     queue,
+    holdsPoison: () => queue.holds("poison"),
     // Same predicate as SyncProvider's offline gateway: a failed pull's retry
     // is pointless while the socket is down, and the reconnect's own start()
     // resumes it once the status flips back.
@@ -204,7 +208,6 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
       replica,
       replicaSync,
       onSyncEvent: fold,
-      onReplicaState: reportMode,
       isMounted: live,
     });
 
@@ -217,17 +220,18 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
     // repair goes first: it holds the durable queue's recovery barrier.
     retryFailedRepair: async () => {
       await (runtime?.retryFailedRepair() ?? Promise.resolve());
-      await legacyRepair.retryFailed();
+      await outlineRepair.retryFailed();
     },
   });
 
   const offs = [
     queue.onDesync((desync) => {
-      if (live()) void legacyRepair.run(desync.error, desync);
+      if (live()) void outlineRepair.run(desync.error, desync);
     }),
-    // Either delivery path's ack named a skipped op: a replica-backed tab's
-    // own feed tombstones the row, but nothing else bumps resync for it, so
-    // this refetches regardless. Never a desync: the batch committed.
+    // An ack named a skipped op, whichever POST or settled payload it came
+    // with: a replica-backed tab's own feed tombstones the row, but nothing
+    // else bumps resync for it, so this refetches regardless. Never a
+    // desync: the batch committed.
     queue.onSkipped(() => fold({ type: "ops-skipped" })),
     queue.onPending((n) => { if (live()) report.pending(n); }),
     queue.onUnsentInMemory((n) => { if (live()) report.unsentInMemory(n); }),
@@ -235,10 +239,10 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
     queue.onDrain((outcome) => {
       if (live()) reconnect.observeDrain(outcome);
     }),
-    // The recovery flush is a third POST path outside the queue's own
-    // lane/drain, and its ack can name a skip too.
-    ...(replicaSync === null ? []
-      : [replicaSync.onSkipped(() => fold({ type: "ops-skipped" }))]),
+    // Not live-guarded: the latch emits once, and a StrictMode replay that
+    // keeps the session must still know the replica is gone. The report
+    // itself is guarded in reportMode.
+    queue.onUnavailable((error) => replicaSync?.noteUnavailable(error)),
   ];
 
   let startupRun: Promise<void> | null = null;
@@ -254,7 +258,7 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
     // (see opQueue's emitPending).
     if (replica !== null) void queue.refreshPending();
     if (runtime === null) {
-      reportMode({ mode: "no-replica" });
+      reportMode({ mode: "no-replica", error: NO_REPLICA });
       startupRun = Promise.resolve();
     } else {
       startupRun = runtime.startup();
@@ -321,14 +325,14 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
   const actions: SyncActions = {
     retryProblem: () => {
       // Which recovery this click means is a pure decision (retryPolicy.ts);
-      // its execution belongs to the runtime, except the legacy outline
+      // its execution belongs to the runtime, except the outline
       // repair. With no runtime, startup never ran, so its gate still counts
       // as up.
       const plan = planRetry(syncState.problem, {
         startupDiscoveringPoison: runtime?.discoveringPoison() ?? true,
       });
-      if (plan.kind === "legacy-repair") {
-        return legacyRepair.run(legacyRepair.rejected());
+      if (plan.kind === "outline-repair") {
+        return outlineRepair.run(outlineRepair.rejected());
       }
       return runtime?.runRetry(plan) ?? Promise.resolve();
     },
@@ -340,8 +344,8 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
     },
     dismissProblem: () => {
       const current = syncState.problem;
-      if (current?.kind === "legacy-rejected" && current.repair === "repaired") {
-        legacyRepair.clear();
+      if (current?.kind === "outline-rejected" && current.repair === "repaired") {
+        outlineRepair.clear();
       } else if (current?.kind === "rejected-batch" &&
           current.repair === "repaired") {
         runtime?.clearRepairTargets();

@@ -29,8 +29,8 @@
 // and every other invariant runs first; afterwards the server holds the
 // replay's state.
 // CursorWatch is the eighth check, run after every command rather than here,
-// and ModeWatch the ninth, run after every command and after each pull of a
-// client whose worker died.
+// and ModeWatch the ninth, run after every command and after each pull or
+// edit of a client whose worker died.
 import type { BatchId, SyncSeq } from "../../api/brands";
 import { computeEditability } from "../../sync/syncState";
 import { conflictNoise } from "./conflictNoise";
@@ -299,8 +299,9 @@ type ModeClient = Pick<HarnessClient,
  * pull makes the session online-only: mode no-replica, no answer to "what
  * moved" for a reconnect to trust, and no editing while offline. A pull
  * that joins one in flight gets a pass of its own, so it calls the worker
- * too. Run after every command (observe) and after each forced pull of a
- * client whose worker died (afterPull). */
+ * too. An edit does the same through the queue's call, started or not.
+ * Run after every command (observe), and after each forced pull (afterPull)
+ * or edit (afterEdit) of a client whose worker died. */
 export class ModeWatch {
   observe(clients: readonly ModeClient[]): void {
     for (const c of clients) {
@@ -312,6 +313,15 @@ export class ModeWatch {
 
   afterPull(c: ModeClient): void {
     if (!c.workerDead() || !c.hasStarted()) return;
+    ModeWatch.online(c, "a pull");
+  }
+
+  afterEdit(c: ModeClient): void {
+    if (!c.workerDead()) return;
+    ModeWatch.online(c, "an edit");
+  }
+
+  private static online(c: ModeClient, what: string): void {
     const problems = [
       ...(c.mode() === "no-replica" ? [] : [`mode is ${c.mode()}`]),
       ...(c.appliedVersion() === null ? [] : [`appliedVersion is ${c.appliedVersion()}`]),
@@ -319,7 +329,7 @@ export class ModeWatch {
         ? ["it could still edit offline"] : []),
     ];
     if (problems.length > 0) {
-      throw new Error(`replica mode: ${c.name}'s worker died and a pull has run, ` +
+      throw new Error(`replica mode: ${c.name}'s worker died and ${what} has run, ` +
                       `but ${problems.join(", ")}`);
     }
   }

@@ -4,6 +4,7 @@ import type { BlockOp } from "../api/ops";
 import type { OpBatch, OpsAck } from "../api/payloads";
 import { MAX_BLOCK_TEXT_CHARS } from "../grammar/textLimits";
 import type { PendingBatch, Replica } from "../replica/client";
+import { ReplicaUnusableError, RpcLifecycleError } from "../replica/errors";
 import { batchIdOf, clientIdOf, defer, pendingRowIdOf, rawTitleOf, seqOf,
          uidOf } from "../test-helpers";
 import type { ClientRuntime, ClientRuntimeDeps } from "./clientRuntime";
@@ -114,6 +115,8 @@ interface RigOptions {
   isMounted?: () => boolean;
   retryBaseMs?: number;
   repairSessions?: OutlineHooks["repairSessions"];
+  /** The mark intents a previous page load left; none by default. */
+  retained?: readonly PoisonEvent[];
 }
 
 const sessions: SyncSession[] = [];
@@ -157,7 +160,7 @@ function rig(options: RigOptions = {}) {
     fetchJson,
     queue: {
       post,
-      poisonStore: { read: () => [], write: () => undefined },
+      poisonStore: { read: () => [...(options.retained ?? [])], write: () => undefined },
       newBatchId: () => { minted += 1; return batchIdOf(`batch-${minted}`); },
     },
     retryBaseMs: options.retryBaseMs,
@@ -357,8 +360,75 @@ describe("the first connect", () => {
   });
 });
 
+describe("a reload's retained poison mark", () => {
+  test("a connect while a reload's poison mark keeps failing leaves recovery " +
+       "to the poison claim", async () => {
+    const replica = loggingReplica({
+      markPoisoned: async () => { throw new Error("mark rpc failed"); },
+      applyChanges: async () => {
+        trace.log.push("applyChanges");
+        return { status: "needs-bootstrap" };
+      },
+      prepareRecovery: async () => {
+        trace.log.push("prepareRecovery");
+        return { token: "lease", batches: [...replica.rows] };
+      },
+    });
+    const rejected = leftover(1);
+    replica.rows.push(rejected, leftover(2));
+    const { session, server, reported } = rig({
+      replica,
+      retained: [{ id: rejected.id, batch_id: rejected.batch_id,
+                   ops: rejected.ops, status: 400, message: "rejected" }],
+    });
+    await session.startup();
+    await session.onSocketStatus(true);
+    await turns();
+
+    expect(trace.log).not.toContain("prepareRecovery");
+    expect(server.posts).toEqual([]);
+    expect(reported.modes.map((m) => m.mode)).not.toContain("recovery-failed");
+  });
+});
+
+describe("the poison claim", () => {
+  test("a pass needing recovery during a poison repair waits for the repair, " +
+       "then runs", async () => {
+    const lease = defer<void>();
+    let leases = 0;
+    let needsBootstrap = false;
+    const replica = loggingReplica({
+      applyChanges: async (changes) => needsBootstrap
+        ? { status: "needs-bootstrap" }
+        : { status: "applied", cursor: changes.next_since },
+      prepareRecovery: async () => {
+        leases += 1;
+        if (leases === 1) await lease.promise;
+        return { token: `lease-${leases}`, batches: [...replica.rows] };
+      },
+    });
+    const { session } = rig({
+      replica,
+      answer: () => { throw new ApiError(400, "/api/ops", "rejected"); },
+    });
+    await session.startup();
+    await session.onSocketStatus(true);
+    session.actions.enqueue([op("cccccccc")]);
+    await vi.waitFor(() => { expect(leases).toBe(1); });
+
+    needsBootstrap = true;
+    session.onSeq({ type: "seq", seq: seqOf(9) });
+    await turns();
+    expect(leases).toBe(1);
+
+    lease.resolve();
+    await vi.waitFor(() => { expect(leases).toBe(2); });
+    expect(session.queue.holds("poison")).toBe(false);
+  });
+});
+
 describe("later connects", () => {
-  test("a later connect retries the poison repair, then the legacy repair, then drains",
+  test("a later connect retries the poison repair, then the outline repair, then drains",
   async () => {
     let failNext = true;
     const { session, reported } = rig({
@@ -375,7 +445,7 @@ describe("later connects", () => {
     await session.onSocketStatus(true);
     await session.actions.enqueue([overLimit()]).settled;
     await vi.waitFor(() => expect(session.problem()).toMatchObject({
-      kind: "legacy-rejected", repair: "failed",
+      kind: "outline-rejected", repair: "failed",
     }));
     const queue = session.queue;
     const realDrain = queue.drain;
@@ -391,7 +461,7 @@ describe("later connects", () => {
     expect(only(["runtime.retryFailedRepair", "repairSessions", "drain"]))
       .toEqual(["runtime.retryFailedRepair", "repairSessions", "drain"]);
     expect(reported.problems.at(-1)).toMatchObject({
-      kind: "legacy-rejected", repair: "repaired",
+      kind: "outline-rejected", repair: "repaired",
     });
   });
 });
@@ -420,9 +490,12 @@ describe("startup", () => {
     const { session, server, reported } = rig({ replica: null });
     expect(session.replicaSync).toBeNull();
     await session.startup();
-    expect(reported.modes).toEqual([{ mode: "no-replica" }]);
-    expect(session.replicaState()).toEqual({ mode: "no-replica" });
-    expect(session.problem()).toBeUndefined();
+    const absent = { mode: "no-replica", error: "no replica in this environment" };
+    expect(reported.modes).toEqual([absent]);
+    expect(session.replicaState()).toEqual(absent);
+    expect(session.problem()).toEqual({
+      kind: "replica-unusable", error: "no replica in this environment",
+    });
 
     await session.onSocketStatus(true);
     const ticket = session.actions.enqueue([op("cccccccc")]);
@@ -514,6 +587,137 @@ describe("the problem fold", () => {
   });
 });
 
+describe("replica mode", () => {
+  const deadWorker = (): RpcLifecycleError =>
+    new RpcLifecycleError("worker-error", "replica worker failed");
+  const online = { mode: "no-replica", error: "replica worker failed" };
+
+  test("a queue RPC that meets a dead worker reports no-replica before any pull",
+  async () => {
+    let dead = false;
+    const replica = loggingReplica();
+    const { enqueue } = replica;
+    replica.enqueue = (ops, batchId) =>
+      dead ? Promise.reject(deadWorker()) : enqueue(ops, batchId);
+    const { session, reported } = rig({ replica });
+    await session.startup();
+    await session.onSocketStatus(true);
+    trace.log.length = 0;
+
+    dead = true;
+    await session.actions.enqueue([op("cccccccc")]).settled;
+
+    expect(session.replicaState()).toEqual(online);
+    expect(reported.modes.at(-1)).toEqual(online);
+    expect(session.problem()).toEqual({
+      kind: "replica-unusable", error: "replica worker failed",
+    });
+    expect(replicaSyncOf(session).appliedVersion()).toBeNull();
+    expect(only(["fetch /api/sync/changes"])).toEqual([]);
+  });
+
+  test("a replica startup finds unusable answers appliedVersion null and " +
+       "reports its mode once", async () => {
+    const unusable = new ReplicaUnusableError("no opfs");
+    const replica = loggingReplica({
+      pendingCount: () => Promise.reject(unusable),
+      poisonedBatches: () => Promise.reject(unusable),
+      init: () => Promise.reject(unusable),
+    });
+    const { session, reported } = rig({ replica });
+    await session.startup();
+    expect(replicaSyncOf(session).appliedVersion()).toBeNull();
+
+    await session.onSocketStatus(true);
+    await turns();
+
+    expect(reported.modes).toEqual([{ mode: "no-replica", error: "no opfs" }]);
+    expect(session.problem()).toEqual({
+      kind: "replica-unusable", error: "no opfs",
+    });
+  });
+
+  test("a recovery that meets a dead worker ends on the online-only banner",
+  async () => {
+    let needsBootstrap = false;
+    const replica = loggingReplica({
+      applyChanges: async (changes) => needsBootstrap
+        ? { status: "needs-bootstrap" }
+        : { status: "applied", cursor: changes.next_since },
+      prepareRecovery: () => Promise.reject(deadWorker()),
+    });
+    const { session } = rig({ replica });
+    await session.startup();
+    await session.onSocketStatus(true);
+
+    needsBootstrap = true;
+    session.onSeq({ type: "seq", seq: seqOf(99) });
+    await replicaSyncOf(session).idle();
+
+    expect(session.replicaState()).toEqual(online);
+    expect(session.problem()).toEqual({
+      kind: "replica-unusable", error: "replica worker failed",
+    });
+  });
+
+  test("a stall followed by a worker death ends on the online-only banner",
+  async () => {
+    let dead = false;
+    const replica = loggingReplica();
+    const { pendingBatches } = replica;
+    replica.pendingBatches = () =>
+      dead ? Promise.reject(deadWorker()) : pendingBatches();
+    const { session, server } = rig({ replica, retryBaseMs: 1 });
+    await session.startup();
+    await session.onSocketStatus(true);
+    server.changesFail = true;
+
+    session.onSeq({ type: "seq", seq: seqOf(99) });
+    await vi.waitFor(() => expect(session.problem()).toMatchObject({
+      kind: "replica-stalled",
+    }));
+    dead = true;
+
+    await vi.waitFor(() => expect(session.problem()).toEqual({
+      kind: "replica-unusable", error: "replica worker failed",
+    }));
+    expect(session.replicaState()).toEqual(online);
+  });
+});
+
+describe("skipped ops", () => {
+  test("a recovery flush whose ack skips an op bumps resync once", async () => {
+    let needsBootstrap = false;
+    const replica = loggingReplica({
+      applyChanges: async (changes) => {
+        if (!needsBootstrap) return { status: "applied", cursor: changes.next_since };
+        needsBootstrap = false;
+        return { status: "needs-bootstrap" };
+      },
+      prepareRecovery: async () => ({ token: "lease-1", batches: [leftover(7)] }),
+    });
+    const { session, reported, server } = rig({
+      replica,
+      answer: (body) => ({
+        ok: true, ts: 1, applied: body.ops.length, seq: seqOf(6),
+        skipped: [{ index: 0, op: "delete", uid: uidOf("bbbbbbbb"),
+                    reason: "block_not_found", note_page: null }],
+      }),
+    });
+    await session.startup();
+    await session.onSocketStatus(true);
+    const resyncs = reported.resyncs;
+
+    needsBootstrap = true;
+    session.onSeq({ type: "seq", seq: seqOf(99) });
+    await replicaSyncOf(session).idle();
+
+    expect(server.posts.map((b) => b.batch_id)).toEqual([batchIdOf("left-7")]);
+    expect(reported.events.filter((e) => e.type === "ops-skipped")).toHaveLength(1);
+    expect(reported.resyncs - resyncs).toBe(1);
+  });
+});
+
 describe("the actions", () => {
   test("an own echo reaches no subscriber", () => {
     const { session } = rig();
@@ -542,7 +746,7 @@ describe("the actions", () => {
     await session.actions.settled();
   });
 
-  test("retryProblem reruns a failed legacy repair, and dismiss clears it once repaired",
+  test("retryProblem reruns a failed outline repair, and dismiss clears it once repaired",
   async () => {
     let failNext = true;
     const { session, reported } = rig({
@@ -558,13 +762,13 @@ describe("the actions", () => {
     await session.onSocketStatus(true);
     await session.actions.enqueue([overLimit()]).settled;
     await vi.waitFor(() => expect(session.problem()).toMatchObject({
-      kind: "legacy-rejected", repair: "failed",
+      kind: "outline-rejected", repair: "failed",
     }));
     const resyncs = reported.resyncs;
 
     await session.actions.retryProblem();
     expect(session.problem()).toMatchObject({
-      kind: "legacy-rejected", repair: "repaired",
+      kind: "outline-rejected", repair: "repaired",
     });
     expect(reported.resyncs).toBe(resyncs + 1);
 
@@ -575,9 +779,10 @@ describe("the actions", () => {
   test("retryProblem with no runtime and nothing to retry does nothing", async () => {
     const { session } = rig({ replica: null });
     await session.startup();
+    const before = session.problem();
     await session.actions.retryProblem();
     await session.actions.discardProblem();
-    expect(session.problem()).toBeUndefined();
+    expect(session.problem()).toBe(before);
   });
 
   test("discardProblem only acts on a mark-failed rejected batch", async () => {

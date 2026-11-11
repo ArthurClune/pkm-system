@@ -5,20 +5,27 @@
 //
 // Every signal is a listener added after construction: the sync session
 // (session.ts) adds its own as it builds the queue, and starts no queue work
-// before its startup(), which SyncProvider reaches from an effect. No event can
-// precede those subscriptions, and none can reach a report during a render:
-// every emission follows at least one await (persist runs on persistChain,
-// delivery waits on a POST). So no method here may emit synchronously.
+// before its startup(), which SyncProvider reaches from an effect. No event may
+// precede those subscriptions, and none may reach a report during a render.
+// Every emission but two follows at least one await (persist runs on
+// persistChain, delivery waits on a POST). resume emits onRelease
+// synchronously, so its listener acts on the release before any other call
+// can claim the owner again; that also needs a release listener to report
+// nothing synchronously. settleCommitted emits onSkipped synchronously, for
+// a sync payload replicaSync has just applied. Both are sound only because
+// the method is reached from effects and async paths, never from a render.
+// Any other synchronous emission needs the same check.
 import { ApiError } from "../api/client";
 import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
-import type { OpBatch, OpsAck } from "../api/payloads";
+import type { OpBatch, OpsAck, SkippedOp } from "../api/payloads";
 import { describeTextLimit, findOpTextLimitViolation } from "../grammar/textLimits";
 import { apiPost } from "../api/typedClient";
 import type { PendingBatch, Replica } from "../replica/client";
 import { wellFormedOps } from "../replica/wellFormed";
-import { availabilityOf, isSessionFatal, ReplicaError,
-         type ReplicaAvailability } from "../replica/errors";
+import { asSessionFatal, availabilityOf, ReplicaError,
+         type ReplicaAvailability,
+         type SessionFatalError } from "../replica/errors";
 import { mintTicketId } from "../ids";
 import { newBatchId as freshBatchId, newClientId } from "../uid";
 import { listeners } from "./listeners";
@@ -90,6 +97,12 @@ export interface OpQueue {
   pause(owner: BarrierOwner): void;
   /** Release `owner`'s claim, and only that one. */
   resume(owner: BarrierOwner): void;
+  /** Whether `owner` holds the recovery barrier now. */
+  holds(owner: BarrierOwner): boolean;
+  /** resume released `owner`'s claim; holds(owner) is already false. Emitted
+   * synchronously inside resume (see the header), and never for an owner
+   * that held nothing. */
+  onRelease(fn: (owner: BarrierOwner) => void): () => void;
   dispose(): void;
   /** The replica refused an op on its merits, an op is past a text limit, or
    * the server terminally rejected a lane entry: the active outline must be
@@ -97,10 +110,10 @@ export interface OpQueue {
   onDesync(fn: (desync: Desync) => void): () => void;
   /** Every drain run's outcome, however it was started. */
   onDrain(fn: (outcome: DrainOutcome) => void): () => void;
-  /** Either delivery path's ack named a skipped op (see deliverLaneHead and
-   * the durable batch loop in runDrain) -- the active view is stale and must
-   * refetch. Never a desync: the batch committed, so nothing here is retried
-   * or discarded. */
+  /** An ack named a skipped op -- the drain's, the lane's, a leased
+   * batch's (deliverLeased), or the stored ack of a batch settleCommitted
+   * settles -- so the active view is stale and must refetch. Never a
+   * desync: the batch committed, so nothing here is retried or discarded. */
   onSkipped(fn: () => void): () => void;
   onPending(fn: (n: number) => void): () => void;
   /** Re-read the durable count and publish it through onPending. The ONLY way
@@ -116,9 +129,11 @@ export interface OpQueue {
    * gating on it would interrupt an ordinary offline reload that risks
    * nothing. */
   onUnsentInMemory(fn: (n: number) => void): () => void;
-  /** Internal recovery ownership signal. Unlike onPoison, this fires before
-   * the durable poison mark so a recovery lease cannot flush a stale row. */
-  onPoisonPending(fn: () => void): () => void;
+  /** One of this queue's own replica calls met a session-fatal error: the
+   * replica is gone for the session. Emitted once, when the availability
+   * latch sets, so the death is heard at the queue's first failed call
+   * rather than at the next pull. */
+  onUnavailable(fn: (error: SessionFatalError) => void): () => void;
   onPoisonMarkFailed(fn: (failure: PoisonMarkFailure) => void): () => void;
   onPoison(fn: (event: PoisonEvent) => void): () => void;
   /** Fires once per markRetainedPoison call in which intents existed and NONE
@@ -135,23 +150,27 @@ export interface OpQueue {
    * the replica later opens, the unmarked batch redelivers, the server
    * rejects it again, and the normal poison → repair flow handles it then. */
   discardPoisonIntents(): void;
-  /** Deliver every lane entry that a durable batch (named by its batch_id)
-   * follows, in order, before that batch may itself be POSTed. This is how
-   * the recovery flush (replicaSync.flushBatches) — which posts leased
-   * durable rows on its own, knowing nothing about the lane — gets the same
-   * ordering guarantee the drain enforces on itself: call it
-   * before every batch that flush posts. A no-op when nothing in the lane
-   * precedes `batchId`. Throws, and leaves the entry retained, on a POST
-   * failure — a discard is the drain's decision alone, never this door's —
-   * and throws if the queue is disposed. */
-  deliverLaneAhead(batchId: BatchId): Promise<void>;
+  /** POST one batch a recovery lease holds (replicaSync's flush), after the
+   * lane entries it follows, as the drain orders its own. Runs under the
+   * caller's "recovery" claim, so the barrier is not consulted; `beforePost`
+   * is, between the lane ahead and the POST, since a poison claim can land
+   * while the lane goes out. Returns the ack's reading. Settles no ticket
+   * and no lane mark: the recovery commit deletes the row, and the drain or
+   * settleCommitted settles it as for any row deleted out of band. Throws,
+   * leaving a lane entry retained, on a POST failure, and throws once the
+   * queue is disposed. */
+  deliverLeased(batch: PendingBatch, beforePost: () => void):
+    Promise<OpsAckReading>;
   /** Durable batches the server holds that no ack of this queue's settled: a
    * sync payload named them as already applied and the replica dropped their
    * rows (replicaSync). Each delivery resolves "delivered" and its lane mark
    * goes, the backoff resets and the drain runs on, as on the drain's ack;
-   * the durable count is re-read. A batch already settled, or never this
+   * the durable count is re-read. A stored ack that skipped an op emits
+   * onSkipped, once per call. A batch already settled, or never this
    * queue's, settles nothing. */
-  settleCommitted(batchIds: readonly BatchId[]): void;
+  settleCommitted(
+    batches: readonly { batch_id: BatchId; skipped: readonly SkippedOp[] }[],
+  ): void;
 }
 
 let nextTicket = 1;
@@ -212,10 +231,11 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
   const skipped = listeners<void>();
   const pending = listeners<number>();
   const unsentInMemory = listeners<number>();
-  const poisonPending = listeners<void>();
   const poisonMarkFailed = listeners<PoisonMarkFailure>();
   const poison = listeners<PoisonEvent>();
   const poisonMarkUnmatched = listeners<void>();
+  const released = listeners<BarrierOwner>();
+  const unavailable = listeners<SessionFatalError>();
   const deliveries = new Map<BatchId, (outcome: DeliveryOutcome) => void>();
   // The in-memory lane: enqueues whose ops could not be persisted locally (a
   // full disk, OPFS access-handle contention, an exhausted SAH pool),
@@ -234,8 +254,10 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
   // evidence and belongs to startup.
   let availability: ReplicaAvailability | null = null;
   const noteReplicaFailure = (error: unknown): void => {
-    if (availability === null && isSessionFatal(error)) {
-      availability = availabilityOf(error);
+    const fatal = asSessionFatal(error);
+    if (availability === null && fatal !== null) {
+      availability = availabilityOf(fatal);
+      unavailable.emit(fatal);
     }
   };
 
@@ -299,8 +321,9 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
     emitPending();
   };
 
-  /** Read a committed batch's ack — the one place the three delivery sites
-   * (lane head, durable batch, deliverLaneAhead) do so. Skipped ops are not a
+  /** Read a committed batch's ack — the one place the delivery sites (lane
+   * head, durable batch, the lane ahead of a leased batch, the leased batch)
+   * do so. Skipped ops are not a
    * rejection: the batch committed, so nothing is retried or discarded. The
    * skipped list is consulted regardless of `availability`: a replica-backed
    * tab's own feed tombstones the replica row, but no resync event follows
@@ -433,6 +456,17 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
     return matchedIntents;
   };
 
+  /** Deliver every lane entry `batchId` follows, in order. Left retained on
+   * any error: a discard is the drain's decision alone. */
+  const deliverLaneAhead = async (batchId: BatchId): Promise<void> => {
+    while (headPrecedes(outbox, batchId)) {
+      const head = laneHead(outbox)!;
+      const ack = await postOps(head.ops, head.batchId);
+      noteCommitted(ack);
+      settleLaneHead(head, { status: "delivered" });
+    }
+  };
+
   /** Deliver the retained head — the drain's own caller has already checked
    * headPrecedes, so this only posts and settles. Returns the outcome the
    * drain must report, or null to keep looping. */
@@ -479,10 +513,9 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
     };
     // Claim the shared recovery barrier as soon as the server rejects
     // the batch. markPoisoned may wait behind a recovery lease whose
-    // snapshot still says this row is valid; that lease must learn it
-    // is stale before it begins its next POST.
+    // snapshot still says this row is valid; that lease reads this claim
+    // (holds("poison")) before each POST, so it learns it is stale first.
     dispatch({ type: "pause", owner: "poison" });
-    poisonPending.emit(undefined);
     rememberPoisonMark(event);
     finishDelivery(batch.batch_id, { status: "failed", error });
     // Terminal for this batch: it is never POSTed again (the barrier holds
@@ -766,12 +799,6 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
           // than lost, and must not rebase the outline. The one-item
           // blocklist above (`rejected === true`) is the only case allowed
           // to bypass that.
-          //
-          // A `quota` flag was also emitted here, to drive an offline
-          // read-only mode. Nothing could ever set it — the opfs-sahpool VFS
-          // reports an exhausted disk as a bare SQLITE_IOERR — so
-          // storage exhaustion arrives, correctly, as one more "could not
-          // persist locally right now" and is retained like the rest.
           noteReplicaFailure(error);
           if (qstate.disposed) {
             resolveDelivery({
@@ -802,8 +829,12 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
       dispatch({ type: "pause", owner });
     },
     resume(owner) {
+      const held = qstate.holders.has(owner);
       dispatch({ type: "resume", owner });
+      if (held) released.emit(owner);
     },
+    holds: (owner) => qstate.holders.has(owner),
+    onRelease: released.add,
     dispose() {
       if (qstate.disposed) return;
       dispatch({ type: "dispose" });
@@ -828,7 +859,7 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
       return totalPending();
     },
     onUnsentInMemory: unsentInMemory.add,
-    onPoisonPending: poisonPending.add,
+    onUnavailable: unavailable.add,
     onPoisonMarkFailed: poisonMarkFailed.add,
     onPoison: poison.add,
     onPoisonMarkUnmatched: poisonMarkUnmatched.add,
@@ -838,9 +869,10 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
       poisonMarkIntents = [];
       poisonStore.write(poisonMarkIntents);
     },
-    settleCommitted(batchIds) {
-      if (batchIds.length === 0) return;
-      for (const batchId of batchIds) {
+    settleCommitted(batches) {
+      if (batches.length === 0) return;
+      if (batches.some((b) => b.skipped.length > 0)) skipped.emit(undefined);
+      for (const { batch_id: batchId } of batches) {
         finishDelivery(batchId, { status: "delivered" });
         outbox = forget(outbox, batchId);
       }
@@ -851,16 +883,13 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
       dispatch({ type: "batch-succeeded" });
       if (!qstate.disposed) kick();
     },
-    async deliverLaneAhead(batchId) {
+    async deliverLeased(batch, beforePost) {
       if (qstate.disposed) throw new Error("op queue disposed");
-      while (headPrecedes(outbox, batchId)) {
-        const head = laneHead(outbox)!;
-        // Left retained on any error — a discard is the drain's decision
-        // alone, and this door never makes it.
-        const ack = await postOps(head.ops, head.batchId);
-        noteCommitted(ack);
-        settleLaneHead(head, { status: "delivered" });
-      }
+      await deliverLaneAhead(batch.batch_id);
+      beforePost();
+      if (qstate.disposed) throw new Error("op queue disposed");
+      return noteCommitted(
+        await postOps(batch.ops, batch.batch_id, batch.seen_seq));
     },
   };
 }

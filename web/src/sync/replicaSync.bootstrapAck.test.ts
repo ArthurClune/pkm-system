@@ -15,7 +15,7 @@ import { buildHandlers } from "../replica/workerHandlers";
 import { createReplicaSync, PENDING_CHANGED_CAP } from "./replicaSync";
 import { PullStarvedError } from "./syncFailures";
 import {
-  orderIdxOf, pageIdOf, canonicalTitleOf, uidOf, seqOf, pendingRowIdOf, clientIdOf, batchIdOf,
+  orderIdxOf, pageIdOf, canonicalTitleOf, uidOf, seqOf, pendingRowIdOf, batchIdOf,
 } from "../test-helpers";
 
 const snapshotAt = (at: number, text: string): Snapshot => ({
@@ -54,7 +54,6 @@ async function setup(
       if (path.startsWith("/api/sync/changes")) return EMPTY_FEED;
       throw new Error(`unexpected fetch ${path}`);
     },
-    clientId: clientIdOf("c1"),
     onState: () => {},
   });
   await replica.init();

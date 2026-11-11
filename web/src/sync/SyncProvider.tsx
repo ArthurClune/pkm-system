@@ -23,7 +23,7 @@ import { clientId, createOpQueue, type WriteTicket } from "./opQueue";
 import { createReplicaSync, ResetBlockedError, type ReplicaState } from "./replicaSync";
 import { planRetry } from "./retryPolicy";
 import type { WsBatch } from "./socket";
-import { computeEditability, transitionSync,
+import { computeEditability, transitionSync, type ReplicaMode,
          type SyncEvent, type SyncState, type SyncStatus,
          type SyncProblem } from "./syncState";
 import { useSocketLifecycle } from "./useSocketLifecycle";
@@ -263,6 +263,21 @@ export function SyncProvider({ children, replica }: {
     }
   }, []);
 
+  // Every mode writer reports here, so each report is folded with the mode it
+  // replaces and the socket status of that moment. The mode is the last one
+  // reported, not the rendered one: two reports in one tick each see their
+  // own predecessor.
+  const reportedModeRef = useRef<ReplicaMode>(replicaState.mode);
+  const reportReplicaState = useCallback((next: ReplicaState): void => {
+    if (!mountedRef.current) return;
+    setReplicaState(next);
+    applySync({
+      type: "replica-state", prev: reportedModeRef.current, state: next,
+      status: statusRef.current,
+    });
+    reportedModeRef.current = next.mode;
+  }, [applySync]);
+
   const replicaRef = useRef<Replica | null | undefined>(undefined);
   const ownedReplicaRef = useRef<OwnedReplica | null>(null);
   if (replicaRef.current === undefined) {
@@ -322,32 +337,11 @@ export function SyncProvider({ children, replica }: {
       // is pointless while the socket is down, and reconnect's
       // own start() call resumes it once statusRef flips back.
       isOffline: () => statusRef.current === "reconnecting",
-      onState: (next) => {
-        if (mountedRef.current) setReplicaState(next);
-        // Delivery health (Fix A): a wedged replica or a failed recovery
-        // while the socket is up both need the same stalled banner + reset
-        // action; recovery-failed while offline keeps its existing
-        // read-only-reason behavior instead (computeEditability). statusRef
-        // (not the `status` state closed over at memo-creation time) is the
-        // current socket status: this callback fires long after this memo
-        // was built.
-        if (next.mode === "stalled") {
-          applySync({ type: "replica-stalled", error: next.error });
-        } else if (next.mode === "ready") {
-          applySync({ type: "replica-unstalled" });
-        } else if (next.mode === "recovery-failed" &&
-                   statusRef.current === "connected") {
-          applySync({ type: "replica-stalled", error: next.error });
-        } else if (next.mode === "no-replica" && next.error !== undefined) {
-          // A worker that died mid-session: the same online-only banner and
-          // Reload as a replica that never opened.
-          applySync({ type: "replica-unusable", error: next.error });
-        }
-      },
+      onState: reportReplicaState,
     }) : null;
-    // queue and applySync are both mount-stable; listing them keeps this
-    // memo honest without changing that replicaSync is created exactly once.
-  }, [applySync, queue]);
+    // queue and reportReplicaState are both mount-stable; listing them keeps
+    // this memo honest without changing that replicaSync is created once.
+  }, [reportReplicaState, queue]);
   // The same skip handling the queue's listener has above: the recovery
   // flush is a third POST path outside the queue's own lane/drain, and its
   // ack can name a skip too.
@@ -364,31 +358,17 @@ export function SyncProvider({ children, replica }: {
     replica: replicaRef.current!,
     replicaSync,
     onSyncEvent: applySync,
-    onReplicaState: (next) => { if (mountedRef.current) setReplicaState(next); },
+    onReplicaState: reportReplicaState,
     isMounted: () => mountedRef.current,
-  }), [applySync, queue, replicaSync]);
+  }), [applySync, reportReplicaState, queue, replicaSync]);
 
   useEffect(() => {
     if (runtime === null) {
-      setReplicaState({ mode: "no-replica" });
+      reportReplicaState({ mode: "no-replica" });
       return;
     }
     void runtime.startup();
-  }, [runtime]);
-
-  // Views that fetched while the replica was still starting got online-only
-  // errors (or stale server state); once it turns ready with the socket
-  // still down, only a resync bump can make them refetch through the shim.
-  const prevModeRef = useRef(replicaState.mode);
-  useEffect(() => {
-    const was = prevModeRef.current;
-    prevModeRef.current = replicaState.mode;
-    // statusRef is a ref on purpose: this must react to MODE changes only
-    applySync({
-      type: "mode-ready-check", prevMode: was, mode: replicaState.mode,
-      status: statusRef.current,
-    });
-  }, [applySync, replicaState.mode]);
+  }, [reportReplicaState, runtime]);
 
   // Offline routing (offline-editing-design.md §4): while the socket is down,
   // apiFetch serves shimmed reads (and page create) from the replica.

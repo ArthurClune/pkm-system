@@ -39,7 +39,9 @@ export interface SyncState {
 }
 
 export type SyncEvent =
-  | { type: "mode-ready-check"; prevMode: ReplicaMode; mode: ReplicaMode;
+  /** Every replica mode report, with the mode it replaces and the socket
+   * status at the moment of the report. */
+  | { type: "replica-state"; prev: ReplicaMode; state: ReplicaState;
       status: SyncStatus }
   | { type: "poison-mark-failed"; event: PoisonEvent; error: string }
   | { type: "repair-started"; event: PoisonEvent }
@@ -52,8 +54,6 @@ export type SyncEvent =
   | { type: "legacy-repair-started"; error: string }
   | { type: "legacy-repair-succeeded"; error: string }
   | { type: "legacy-repair-failed"; error: string; repairError: string }
-  | { type: "replica-stalled"; error: string }
-  | { type: "replica-unstalled" }
   | { type: "reset-started" }
   | { type: "reset-blocked"; pending: number }
   | { type: "reset-failed"; error: string }
@@ -150,8 +150,8 @@ const legacy = (
  * a different kind takes precedence over a reset event, so those cases must
  * leave the state untouched (undefined signals that). Otherwise returns the
  * replica-stalled problem to update in place, creating a fresh idle one if
- * none exists yet — the reset events can arrive before any "replica-stalled"
- * event has, e.g. in tests that drive reset-started directly. */
+ * none exists yet — the reset events can arrive before any stalled mode
+ * report has, e.g. in tests that drive reset-started directly. */
 function stalledBaseOrDeferred(state: SyncState): StalledProblem | undefined {
   const current = state.problem;
   if (current && current.kind !== "replica-stalled") return undefined;
@@ -159,18 +159,75 @@ function stalledBaseOrDeferred(state: SyncState): StalledProblem | undefined {
     ? current : { kind: "replica-stalled", error: "", reset: "idle" };
 }
 
+const unchanged = (state: SyncState): SyncTransition => ({ state, effects: [] });
+
+function replicaUnusable(state: SyncState, error: string): SyncTransition {
+  // A background "this session is online-only" report must not stomp a
+  // delivery problem the user can act on — overwriting a failed
+  // legacy-rejected repair would take its Retry with it, and retryProblem
+  // would no longer reach that repair at all. Same precedence shape as
+  // replicaStalled below.
+  const current = state.problem;
+  if (current && current.kind !== "replica-unusable") return unchanged(state);
+  return problem(state, { kind: "replica-unusable", error });
+}
+
+function replicaStalled(state: SyncState, error: string): SyncTransition {
+  const current = state.problem;
+  // Delivery problems (a different kind) take precedence over a
+  // background replica-stalled report — leave the state untouched.
+  if (current && current.kind !== "replica-stalled") return unchanged(state);
+  // A re-report (the engine re-emits stalled on every retry) must not stomp
+  // an in-flight reset the user is already watching.
+  return problem(state, current?.kind === "replica-stalled"
+    ? { ...current, error }
+    : { kind: "replica-stalled", error, reset: "idle" });
+}
+
+function replicaUnstalled(state: SyncState): SyncTransition {
+  const current = state.problem;
+  return current?.kind === "replica-stalled" && current.reset !== "running"
+    ? problem(state, undefined) : unchanged(state);
+}
+
+/** The banner a mode report raises or clears. A wedged replica and a failed
+ * recovery while the socket is up both need the stalled banner and its reset;
+ * a failed recovery offline keeps its read-only reason instead
+ * (computeEditability). */
+function bannerForMode(state: SyncState, next: ReplicaState,
+                       status: SyncStatus): SyncTransition {
+  switch (next.mode) {
+    case "stalled":
+      return replicaStalled(state, next.error);
+    case "ready":
+      return replicaUnstalled(state);
+    case "recovery-failed":
+      return status === "connected"
+        ? replicaStalled(state, next.error) : unchanged(state);
+    case "no-replica":
+      // A worker that died mid-session: the same online-only banner and
+      // Reload as a replica that never opened.
+      return next.error === undefined
+        ? unchanged(state) : replicaUnusable(state, next.error);
+    case "starting":
+      return unchanged(state);
+  }
+}
+
 export function transitionSync(state: SyncState, event: SyncEvent): SyncTransition {
   switch (event.type) {
-    case "mode-ready-check":
+    case "replica-state": {
+      const banner = bannerForMode(state, event.state, event.status);
       // Views that fetched while the replica was still starting only refetch
       // through the shim once a resync bump fires; force one when the replica
       // turns ready but the socket has not (re)connected.
-      return {
-        state,
-        effects: event.prevMode !== "ready" && event.mode === "ready"
-          && event.status !== "connected"
-          ? [{ type: "bump-resync" }] : [],
-      };
+      const turnedReadyOffline = event.prev !== "ready"
+        && event.state.mode === "ready" && event.status !== "connected";
+      return turnedReadyOffline
+        ? { state: banner.state,
+            effects: [...banner.effects, { type: "bump-resync" }] }
+        : banner;
+    }
     case "poison-mark-failed":
       return poisonProblem(state, {
         kind: "rejected-batch", event: event.event, repair: "mark-failed",
@@ -199,20 +256,8 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
       return state.problem?.kind === "rejected-batch"
           && state.problem.repair === "mark-failed"
         ? poisonEnded(state, undefined) : { state, effects: [] };
-    case "replica-unusable": {
-      // A background "this session is online-only" report must not stomp a
-      // delivery problem the user can act on — overwriting a failed
-      // legacy-rejected repair would take its Retry with it, and retryProblem
-      // would no longer reach that repair at all. Same
-      // precedence shape as replica-stalled below.
-      const current = state.problem;
-      if (current && current.kind !== "replica-unusable") {
-        return { state, effects: [] };
-      }
-      return problem(state, {
-        kind: "replica-unusable", error: event.error,
-      });
-    }
+    case "replica-unusable":
+      return replicaUnusable(state, event.error);
     case "poison-discovery-cleared":
       return state.problem?.kind === "poison-discovery"
         ? poisonEnded(state, undefined) : { state, effects: [] };
@@ -229,22 +274,6 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
         kind: "legacy-rejected", repair: "failed", error: event.error,
         repairError: event.repairError,
       });
-    case "replica-stalled": {
-      const current = state.problem;
-      // Delivery problems (a different kind) take precedence over a
-      // background replica-stalled report — leave the state untouched.
-      if (current && current.kind !== "replica-stalled") return { state, effects: [] };
-      // A re-report (Task 6's engine re-emits stalled on every retry) must
-      // not stomp an in-flight reset the user is already watching.
-      return problem(state, current?.kind === "replica-stalled"
-        ? { ...current, error: event.error }
-        : { kind: "replica-stalled", error: event.error, reset: "idle" });
-    }
-    case "replica-unstalled": {
-      const current = state.problem;
-      return current?.kind === "replica-stalled" && current.reset !== "running"
-        ? problem(state, undefined) : { state, effects: [] };
-    }
     case "reset-started": {
       const base = stalledBaseOrDeferred(state);
       if (!base) return { state, effects: [] };
@@ -279,7 +308,7 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
       // A stalled replica's idle/running states are the only signal a user
       // has that local data is broken — only an acknowledged blocked/failed
       // reset outcome may be dismissed. A later re-report re-raises the
-      // banner as a fresh idle problem (see the "replica-stalled" case).
+      // banner as a fresh idle problem (see replicaStalled).
       const acknowledgedReset = current?.kind === "replica-stalled"
         && (current.reset === "blocked" || current.reset === "failed");
       return repaired || acknowledgedReset

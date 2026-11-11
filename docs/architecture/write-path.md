@@ -114,7 +114,7 @@ that would poison the client's queue over a server bug.
   `op_hashes.json` pins both hashes for every op kind, on the server and the
   web, and its `replay_excluded` list names the fields the worker fills.
 - **Well-formed text.** `WellFormedModel` turns lone surrogates into U+FFFD
-  ([Hostile input](backend.md#hostile-input)). The rule is to normalise,
+  ([Hostile input](request-boundary.md#hostile-input)). The rule is to normalise,
   never reject: SQLite cannot bind a surrogate, a 5xx is retried forever and
   a 4xx poisons the batch. `text_hash` hashes the well-formed form, as the
   web does.
@@ -151,7 +151,7 @@ the same header.
 | Block exists, hash mismatch | `` [[conflict]] [[Page]] — overwritten by ((uid)) `` |
 | Block gone, hint names an existing page | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
 | Block gone, hint names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
-| Block gone, hint missing, blank or [refused](backend.md#refused-titles) | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
+| Block gone, hint missing, blank or [refused](titles-and-refs.md#refused-titles) | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
 | Block exists, move target gone or inside it, or a replayed edit over a text limit | `` [[conflict]] [[Page]] — ((uid)) `` |
 | Guarded `delete` whose subtree changed | `` [[conflict]] [[Page]] — deleted while edited elsewhere `` |
 | Any of these, when the page's name would put the header past a [text limit](#work-bounds-under-the-write-lock) | the name replaced by `(page title too long)` (`LONG_TITLE_LABEL`) |
@@ -305,7 +305,7 @@ derives from the server's history is charged to the batch's replay budget.
 
 | Bound | Constant | Judged in | Past it |
 |---|---|---|---|
-| a request body | `PRIVATE_BODY_MAX_BYTES` (`auth_gate_core.py`) | `auth_gate_core.private_body_cap`, in `AuthGateMiddleware` | 413 ([backend.md § Auth](backend.md#auth)) |
+| a request body | `PRIVATE_BODY_MAX_BYTES` (`auth_gate_core.py`) | `auth_gate_core.private_body_cap`, in `AuthGateMiddleware` | 413 ([request-boundary.md § Auth](request-boundary.md#auth)) |
 | ops in a batch | `MAX_OPS_PER_BATCH` (`contracts/ops.py`) | `OpBatch.ops`, as FastAPI validates the body | 422 |
 | a client's block text | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` (`contracts/ops.py`) | `ops_core.find_op_text_limit_violation` over `text_limits.text_limit_violation`, from `judge_batch` ([Planning](#planning), Text limits) | the whole batch is a 400, unless already applied |
 | a page title a `create`, `create_page` or `move` names, or a ref title in a text | `MAX_PAGE_TITLE_CHARS` (`contracts/titles.py`) | `refs.title_length_over`, from `ops_core.find_op_title_violation` in `judge_batch` | as for a block's text |

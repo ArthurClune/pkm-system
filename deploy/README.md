@@ -45,7 +45,7 @@ existing `config.json` or database.
    bucket unless `run.FORWARDED_ALLOW_IPS` changes with it.
    Pointed at `[::1]` (or a `localhost` resolving to it), it reaches nothing,
    because the server listens on IPv4 only
-   ([backend.md § Login throttle](../docs/architecture/backend.md#login-throttle)).
+   ([request-boundary.md § Login throttle](../docs/architecture/request-boundary.md#login-throttle)).
 2. Build the web app (required before first startup):
    ```bash
    cd "$PKM_HOME/app/web" && pnpm install --frozen-lockfile && pnpm build
@@ -66,7 +66,7 @@ existing `config.json` or database.
    ```
    Without `serve_origins` the server refuses every write and live-update
    connection from the Serve hostname as a foreign origin
-   ([backend.md § Auth](../docs/architecture/backend.md#auth)).
+   ([request-boundary.md § Auth](../docs/architecture/request-boundary.md#auth)).
 5. Restart the server so it picks up the new config:
    `launchctl kickstart -k "gui/$UID/com.$USER.pkm.server"`.
 6. After the first start, open a Local copy file (or run `pkm local check`)

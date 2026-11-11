@@ -3,7 +3,7 @@
 and capping the bodies FastAPI would otherwise parse whole before any
 dependency or route limit runs. `auth_gate_core` decides which requests are
 public and how large each body may be; the rules and their reasons are in
-docs/architecture/backend.md#auth.
+docs/architecture/request-boundary.md#auth.
 
 A 401 or 413 leaves the connection open: closing with a body still in
 flight resets the connection, and a client still sending could lose the

@@ -194,7 +194,7 @@ cannot emit the batch, so its hidden target stays hidden.
   (`depthCap.ts`);
 - hold a text past a [text limit](write-path.md#work-bounds-under-the-write-lock);
 - hold a ref (link, tag or attribute) to a
-  [refused title](backend.md#refused-titles);
+  [refused title](titles-and-refs.md#refused-titles);
 - exceed `MAX_OPS_PER_BATCH` or the body cap (`findBatchSizeViolation`).
 
 `useBlockDraft.admit` also judges a draft's text limit and refs as it is typed

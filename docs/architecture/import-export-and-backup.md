@@ -55,8 +55,8 @@ are rewritten byte-identically, so a nightly git diff is minimal.
 `/api/export.zip` runs the same `export_graph()` into a temp directory.
 
 It calls `refs.extract()` once per block (`collect_block_ref_uids`), which is
-one reason the scanner must stay linear ([backend.md § Ref
-grammar](backend.md#ref-grammar)).
+one reason the scanner must stay linear ([titles-and-refs.md § Ref
+grammar](titles-and-refs.md#ref-grammar)).
 
 Page filenames and asset zip arcnames dedupe by `filenames.fs_dedupe_key`,
 which compares names as APFS does (Unicode-normalised, case-folded). A key

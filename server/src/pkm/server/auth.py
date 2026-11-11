@@ -91,8 +91,8 @@ async def login(body: LoginBody, request: Request, response: Response,
                 config: Config = Depends(get_config)) -> OkAck:
     throttle: LoginThrottle = request.app.state.login_throttle
     # The device's tailnet address for every tailnet client, which holds
-    # only while run.FORWARDED_ALLOW_IPS trusts loopback alone; see
-    # docs/architecture/backend.md#login-throttle for each listener's key.
+    # only while run.FORWARDED_ALLOW_IPS trusts loopback alone. Each
+    # listener's key: docs/architecture/request-boundary.md#login-throttle.
     # X-Real-IP, Forwarded and Tailscale-User-* are never read for it:
     # Serve passes X-Real-IP through from the client, and Tailscale-User-*
     # is forgeable on the direct listeners.
@@ -102,7 +102,8 @@ async def login(body: LoginBody, request: Request, response: Response,
         raise _wrong_password()
     # One check in flight per source, or a concurrent burst all passes the
     # check above before the first failure is recorded. The turn's holder
-    # re-checks the backoff; docs/architecture/backend.md#login-throttle.
+    # re-checks the backoff:
+    # docs/architecture/request-boundary.md#login-throttle.
     if not await throttle.take_turn(source):
         raise _wrong_password()
     if throttle.is_throttled(source, throttle.now_ms()):

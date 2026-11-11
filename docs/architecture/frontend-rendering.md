@@ -19,7 +19,7 @@ inline code and TODO markers. Ref extraction (`grammar/refs.ts`,
 `replica/refs.ts`), caret lookup (`outline/refAtCaret.ts`), TODO toggling and
 slash commands adapt its token stream rather than scanning privately.
 `server/src/pkm/refs.py` owns the grammar and `scan.ts` mirrors it
-([backend.md § Ref grammar](backend.md#ref-grammar)).
+([titles-and-refs.md § Ref grammar](titles-and-refs.md#ref-grammar)).
 `shared/fixtures/ref_grammar.json` pins the two together, and both sides' tests
 replay it ([generated artifacts and parity
 fixtures](backend.md#generated-artifacts-and-parity-fixtures)).

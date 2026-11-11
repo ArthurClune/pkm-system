@@ -265,7 +265,7 @@ the queue.
 the server would always refuse: a
 [text limit](write-path.md#work-bounds-under-the-write-lock)
 (`findOpTextLimitViolation`) or a
-[forbidden or over-long title](backend.md#refused-titles)
+[forbidden or over-long title](titles-and-refs.md#refused-titles)
 (`findOpTitleViolation`), in the server's order. It throws `LocalOpError`,
 whose `rejected` flag makes `opQueue` treat it as the server's refusal
 ([sync-recovery.md § A local write fails](sync-recovery.md#a-local-write-fails)).
@@ -407,7 +407,7 @@ hashes, both `Sha256Hex`, minted only by `text_hash` / `subtree_hash`
 
 The server flag `plain_space_title_canonicalization` rides in every snapshot
 and changes payload beside `generation`.
-[backend.md § Title integrity and one-time activation](backend.md#title-integrity-and-one-time-activation)
+[titles-and-refs.md § Title integrity and one-time activation](titles-and-refs.md#title-integrity-and-one-time-activation)
 owns its server meaning and the audited apply. The replica persists it, and
 `canonicalizeTitle` strips boundary U+0020 only while it is set.
 `normalizeRefTitle` (`grammar/scan.ts`) folds by the generated
@@ -415,7 +415,7 @@ owns its server meaning and the audited apply. The replica persists it, and
 the page the server will (`stripLikePython` for blankness and attribute
 names). `title_parity.json` replays the server's verdicts.
 
-A [forbidden title](backend.md#refused-titles) is refused on enqueue
+A [forbidden title](titles-and-refs.md#refused-titles) is refused on enqueue
 ([above](#offline-editing-and-reconnect)), but snapshot and feed payloads are
 always accepted, because rejecting one would wedge the queue.
 

@@ -136,7 +136,7 @@ the index, the check and the file route's 503s do report what is there.
 segment, a control character or a backslash. `is_within` then re-checks the
 resolved path against the resolved root, so a symlink out is a 404 too. The
 file route's parameter arrives decoded once through the
-[`wholepath` convertor](backend.md#title-integrity-and-one-time-activation).
+[`wholepath` convertor](titles-and-refs.md#title-integrity-and-one-time-activation).
 `/api/local-check` starts from a raw href in block text, so it uses
 `resolve_relative`, which unquotes once.
 
@@ -271,7 +271,7 @@ notices (the `goodlinks` notice) go to the page-level `.editor-notice` line.
 | Case | Server | Reader | `/goodlinks` |
 |---|---|---|---|
 | Not configured (no API key): `app.state.goodlinks` is `None` | `get_goodlinks` 404s every route except `check`, which answers `enabled: false` | "No longer in Goodlinks" | "Not in Goodlinks" |
-| GoodLinks app not running, or a 2xx that is not a usable link ([hostile input](backend.md#hostile-input)) | `GoodlinksUnavailable`: 503 `Goodlinks is not running on the host` | "Goodlinks is not running on the Mac" | "Goodlinks is not running" |
+| GoodLinks app not running, or a 2xx that is not a usable link ([hostile input](request-boundary.md#hostile-input)) | `GoodlinksUnavailable`: 503 `Goodlinks is not running on the host` | "Goodlinks is not running on the Mac" | "Goodlinks is not running" |
 | Token refused (401/403) | `GoodlinksUnauthorized`: 503 `Goodlinks rejected the API token` | that detail | that detail |
 | Link no longer in GoodLinks | GoodLinks' 404 passes through | "No longer in Goodlinks" | "Not in Goodlinks" |
 | Link known, no reader copy (a paywall, a PDF, a fresh save) | 200, empty `html` | "Goodlinks has no reader copy of this page", full bar | — |

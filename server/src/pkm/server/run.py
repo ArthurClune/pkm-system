@@ -24,7 +24,7 @@ from pkm.server.logfmt import uvicorn_log_config
 # loopback upstream, so the login throttle keys each device by its tailnet
 # address. Passed explicitly, never left to the FORWARDED_ALLOW_IPS
 # environment variable. It must follow Serve's upstream if that moves:
-# docs/architecture/backend.md#login-throttle.
+# docs/architecture/request-boundary.md#login-throttle.
 FORWARDED_ALLOW_IPS = "127.0.0.1"
 
 

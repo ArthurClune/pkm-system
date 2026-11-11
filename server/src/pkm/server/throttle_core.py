@@ -7,7 +7,7 @@ exponentially fewer scrypt computations over time while a user who
 mistypes once waits at most a second. A success clears the source's
 history. The caller consults `is_throttled` before any password check,
 and again once its turn comes (`throttle.LoginThrottle.take_turn`):
-docs/architecture/backend.md#login-throttle."""
+docs/architecture/request-boundary.md#login-throttle."""
 from __future__ import annotations
 
 from dataclasses import dataclass

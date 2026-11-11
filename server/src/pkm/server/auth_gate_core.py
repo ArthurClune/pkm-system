@@ -7,7 +7,7 @@ Public is decided by path shape, not by matching the route table: a read
 path is the one the router matches (`starlette.routing.get_route_path`).
 Every body outside `SAFE_METHODS` is capped, because FastAPI reads and
 parses a whole body before the route's own limits run. Why each cap and
-deadline has its value: docs/architecture/backend.md#auth."""
+deadline has its value: docs/architecture/request-boundary.md#auth."""
 from __future__ import annotations
 
 from collections.abc import Iterable

@@ -15,7 +15,9 @@ approval and record the design as it was then.
 | Doc | Read when you |
 |---|---|
 | this file | are new: the system picture, the core idea and the decisions behind it, the stack |
-| [backend.md](backend.md) | change a route, the schema, the ref grammar, titles, auth or config |
+| [backend.md](backend.md) | change a route, the schema, a wire model, a generated artifact or config |
+| [titles-and-refs.md](titles-and-refs.md) | change the ref grammar, how titles are canonicalised and looked up, or which titles are refused |
+| [request-boundary.md](request-boundary.md) | change auth, the origin guard, body caps, deadlines, the login throttle or a hostile-input guard |
 | [write-path.md](write-path.md) | change an op, planning, conflicts, the write lock or a page mutation |
 | [sync-and-offline.md](sync-and-offline.md) | change how an edit travels from the editor to the server and back |
 | [sync-recovery.md](sync-recovery.md) | change what happens when a sync hop fails: banners, repairs, resets |

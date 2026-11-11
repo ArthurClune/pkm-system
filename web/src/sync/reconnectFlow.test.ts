@@ -2,7 +2,7 @@ import { expect, test, vi } from "vitest";
 import type { Changes } from "../replica/apply";
 import { ReplicaUnusableError } from "../replica/errors";
 import { memReplica } from "./memReplica";
-import { createReconnectFlow } from "./reconnectFlow";
+import { createReconnectFlow, type ReconnectFlow } from "./reconnectFlow";
 import { createReplicaSync } from "./replicaSync";
 import type { DrainOutcome } from "./opQueue";
 import { seqOf, clientIdOf } from "../test-helpers";
@@ -52,6 +52,8 @@ function harness(opts: {
   /** Built from the harness's own trace so every step lands in one order. */
   replicaSync?: ((trace: string[]) => FakeReplicaSync) | null;
   mounted?: () => boolean;
+  /** Runs after the resync is traced, inside the completion's decision. */
+  onResync?: (flow: ReconnectFlow) => void;
 } = {}) {
   const trace: string[] = [];
   const drain = opts.drain ?? (async () => {
@@ -61,11 +63,14 @@ function harness(opts: {
   const replicaSync = opts.replicaSync === undefined
     ? movingReplica(trace)
     : opts.replicaSync?.(trace) ?? null;
-  const flow = createReconnectFlow({
+  const flow: ReconnectFlow = createReconnectFlow({
     queue: { drain: () => drain() },
     replicaSync,
     isMounted: opts.mounted ?? (() => true),
-    onResync: () => { trace.push("resync"); },
+    onResync: () => {
+      trace.push("resync");
+      opts.onResync?.(flow);
+    },
     retryFailedRepair: async () => undefined,
   });
   return { flow, trace };
@@ -158,6 +163,56 @@ async () => {
   flow.observeDrain({ status: "drained" });
   await Promise.resolve();
   expect(trace.filter((step) => step === "resync")).toHaveLength(1);
+});
+
+test("a connect finished while the completion decides gets its own pull",
+async () => {
+  let reentered = false;
+  let second: Promise<void> | null = null;
+  const { flow, trace } = harness({
+    onResync: (f) => {
+      if (reentered) return;
+      reentered = true;
+      // Past the trailing check: this connect's gap holds changes only a
+      // pull of its own can find.
+      second = f.begin();
+      f.observeDrain({ status: "drained" });
+    },
+  });
+
+  await flow.begin();
+  await second;
+  await vi.waitFor(() => {
+    expect(trace).toEqual([
+      "drain", "start", "idle", "resync", "drain", "start", "idle", "resync",
+    ]);
+  });
+});
+
+test("a start failure during a reconnect rejects begin() though the drain observer took the intent",
+async () => {
+  const holder: { flow?: ReconnectFlow } = {};
+  const { flow, trace } = harness({
+    // As the queue does: observers hear the drain before drain() resolves.
+    drain: async () => {
+      trace.push("drain");
+      holder.flow?.observeDrain({ status: "drained" });
+      return { status: "drained" };
+    },
+    replicaSync: (t) => ({
+      start: async () => {
+        t.push("start");
+        await Promise.resolve();
+        throw new Error("start failed");
+      },
+      idle: async () => { t.push("idle"); },
+      appliedVersion: () => 7,
+    }),
+  });
+  holder.flow = flow;
+
+  await expect(flow.begin()).rejects.toThrow("start failed");
+  expect(trace).toEqual(["drain", "start"]);
 });
 
 test("a trailing pull that moves data resyncs a run that found nothing", async () => {

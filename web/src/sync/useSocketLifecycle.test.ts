@@ -90,3 +90,21 @@ test("a StrictMode replay keeps the session", async () => {
   await act(async () => { lastWs().open(); });
   expect(session.status()).toBe("connected");
 });
+
+test("a StrictMode replay's first socket closing late leaves the session connected",
+async () => {
+  const session = startedSession();
+  renderHook(() => useSocketLifecycle({
+    session, mountedRef: { current: false }, disposeOwned: () => undefined,
+  }), { wrapper: strict });
+  const [first, replayed] = FakeWebSocket.instances.slice(-2);
+  expect(first.closedByApp).toBe(true);
+
+  // Synchronous: an awaited act would let the first socket's close land.
+  act(() => { replayed.open(); });
+  expect(session.status()).toBe("connected");
+  // The first socket's close event arrives only now.
+  await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+  expect(session.status()).toBe("connected");
+});

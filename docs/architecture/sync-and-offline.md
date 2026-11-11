@@ -390,8 +390,14 @@ offline edits. A socket reconnect and the queue's `onDrain`
 (`reconnect.observeDrain`) share one completion. A connect that joins a
 running completion gets one more pull before the resync decision. The
 running one may be past its pull, and the server sends no seq frame on
-connect. Before its drain, a connect
-retries a failed rejected-batch repair, then a failed lane repair
+connect. A connect after the decision gets a completion of its own
+([sync-recovery.md § Calls that arrive during a run](sync-recovery.md#calls-that-arrive-during-a-run)).
+A failed completion rejects the `begin()` waiting on it, which the session
+logs. A failed `start()` also reaches `replicaSync`'s `noteFailure`, which
+takes the pull's stall accounting and backoff
+([sync-recovery.md § A pull that keeps failing](sync-recovery.md#a-pull-that-keeps-failing)).
+Before its drain, a connect retries a failed rejected-batch repair, then a
+failed lane repair
 (`retryFailedRepair`), whose barrier would block the drain
 ([sync-recovery.md § A batch the server rejects](sync-recovery.md#a-batch-the-server-rejects)).
 
@@ -470,7 +476,10 @@ unresolved, so no consumer may treat it as the block's page.
   (`reconnectBackoff.ts`), resetting only on a received frame or `STABLE_MS`
   open. Attempts wait while `document.hidden`. On return to
   visibility after `RESUME_STALE_MS` hidden, a socket still reporting `OPEN`
-  is closed, because iPadOS may have frozen it.
+  is closed, because iPadOS may have frozen it, and its handlers stay
+  attached so the close reconnects. `close()` from the owner detaches them
+  first: under a development StrictMode replay the replaced socket's late close
+  would otherwise report offline over the open one.
 - **Online-only features** degrade explicitly rather than queueing: asset
   upload, sidebar edits, page deletion and `{{[[query]]}}` say "online only";
   `/files` and the assistant are unavailable (no shim for `/api/assets/*` or

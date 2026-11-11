@@ -1,54 +1,72 @@
 // @vitest-environment node
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import postcss, { type Rule } from "postcss";
 import { describe, expect, test } from "vitest";
 
 const stylesPath = fileURLToPath(new URL("./styles.css", import.meta.url));
 const styles = readFileSync(stylesPath, "utf8");
+const sheet = postcss.parse(styles, { from: stylesPath });
 
+const normalise = (text: string) => text.replace(/\s+/g, " ").trim();
+
+// A rule answers for a selector when its whole selector list is that text or
+// one member of the list is, so a grouped rule answers for each member alone.
+function matches(rule: Rule, selector: string): boolean {
+  const wanted = normalise(selector);
+  return normalise(rule.selector) === wanted
+    || rule.selectors.some((member) => normalise(member) === wanted);
+}
+
+const isWhole = (rule: Rule, selector: string) =>
+  normalise(rule.selector) === normalise(selector);
+
+// The text between the rule's own braces, as written, so assertions read the
+// declarations exactly as they appear in styles.css.
+function bodyOf(rule: Rule): string {
+  const start = rule.source?.start?.offset;
+  const end = rule.source?.end?.offset;
+  if (start === undefined || end === undefined) {
+    throw new Error(`No source position for ${rule.selector}`);
+  }
+  return styles.slice(styles.indexOf("{", start) + 1, end - 1);
+}
+
+// Every rule in document order, at any depth.
+const allRules: Rule[] = [];
+sheet.walkRules((rule) => {
+  allRules.push(rule);
+});
+
+// The first rule, including inside @media, written for this selector alone;
+// failing that, the first grouped rule that lists it. `.roam-table th` means
+// its own rule, not the one it shares with `td`.
 function ruleFor(selector: string): string {
-  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = styles.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`));
-  if (!match) throw new Error(`Missing CSS rule for ${selector}`);
-  return match[1];
+  const rule = allRules.find((candidate) => isWhole(candidate, selector))
+    ?? allRules.find((candidate) => matches(candidate, selector));
+  if (!rule) throw new Error(`Missing CSS rule for ${selector}`);
+  return bodyOf(rule);
 }
 
 // A class's declarations can live in more than one rule -- .search-field-input
 // carries the colours it shares with .input-control in one rule and its own
-// geometry in another. ruleFor returns only the first match, so collect every
-// rule whose selector text names this one.
+// geometry in another -- so collect every rule that answers for it.
 function rulesFor(selector: string): string {
-  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const bodies = [...styles.matchAll(
-    new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`, "g"))].map((m) => m[1]);
+  const bodies = allRules.filter((rule) => matches(rule, selector)).map(bodyOf);
   if (bodies.length === 0) throw new Error(`Missing CSS rule for ${selector}`);
   return bodies.join("\n");
 }
 
-// Rules inside an @media block are invisible to ruleFor/rulesFor: both stop at
-// the first "}", which is the end of the block's first nested rule. Slice the
-// query's blocks out by balancing braces, then match rules within that text.
 function mediaRulesFor(query: string, selector: string): string {
-  const marker = `@media ${query} {`;
-  const blocks: string[] = [];
-  for (let from = 0; ; ) {
-    const start = styles.indexOf(marker, from);
-    if (start === -1) break;
-    let depth = 1;
-    let end = start + marker.length;
-    while (end < styles.length && depth > 0) {
-      if (styles[end] === "{") depth++;
-      else if (styles[end] === "}") depth--;
-      end++;
-    }
-    blocks.push(styles.slice(start + marker.length, end - 1));
-    from = end;
-  }
-  if (blocks.length === 0) throw new Error(`Missing @media ${query}`);
-  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`, "g");
-  const bodies = blocks.flatMap(
-    (block) => [...block.matchAll(pattern)].map((m) => m[1]));
+  const rules: Rule[] = [];
+  sheet.walkAtRules("media", (media) => {
+    if (normalise(media.params) !== normalise(query)) return;
+    media.walkRules((rule) => {
+      rules.push(rule);
+    });
+  });
+  if (rules.length === 0) throw new Error(`Missing @media ${query}`);
+  const bodies = rules.filter((rule) => matches(rule, selector)).map(bodyOf);
   if (bodies.length === 0) {
     throw new Error(`Missing CSS rule for ${selector} in @media ${query}`);
   }
@@ -135,7 +153,8 @@ describe("top bar cohesion", () => {
       ".top-bar-search-input:not(:placeholder-shown) + .top-bar-search-hint",
     );
     expect(hidden).toContain("display: none;");
-    expect(styles).toContain(".top-bar-search-input:focus + .top-bar-search-hint,");
+    expect(ruleFor(".top-bar-search-input:focus + .top-bar-search-hint"))
+      .toContain("display: none;");
   });
 
   test("top-bar buttons share one ghost style", () => {
@@ -241,7 +260,9 @@ describe("visual consistency", () => {
     expect(root).toContain("--radius-control: 4px;");
     expect(root).toContain("--radius-card: 6px;");
     expect(root).toContain("--radius-panel: 8px;");
-    expect(styles).not.toContain("border-radius: 3px;");
+    sheet.walkDecls("border-radius", (decl) => {
+      expect(decl.value).not.toBe("3px");
+    });
   });
 
   test("controls, cards, and panels use the radius tokens", () => {
@@ -309,7 +330,8 @@ describe("form control tokens", () => {
 
 describe("shared Files styling", () => {
   test("settings-note styling is available outside Settings sections", () => {
-    expect(styles).toContain("\np.settings-note {");
+    expect(sheet.nodes.some((node) => node.type === "rule"
+      && isWhole(node, "p.settings-note"))).toBe(true);
     expect(styles).not.toContain(".settings-section p.settings-note");
 
     const note = ruleFor("p.settings-note");
@@ -321,7 +343,7 @@ describe("shared Files styling", () => {
   test("disabled danger buttons match secondary disabled feedback", () => {
     expect(ruleFor(".btn-danger:hover:not(:disabled)"))
       .toContain("opacity: 0.9;");
-    expect(styles).not.toContain(".btn-danger:hover {");
+    expect(() => rulesFor(".btn-danger:hover")).toThrow(/Missing CSS rule/);
 
     const disabled = ruleFor(".btn-danger:disabled");
     expect(disabled).toContain("opacity: 0.35;");
@@ -441,7 +463,8 @@ describe("control polish", () => {
     expect(input).toContain("border-radius: var(--radius-pill);");
     expect(input).toContain("padding: 4px 12px 4px 30px;");
     // both searches share the field colours
-    expect(styles).toContain(".input-control, .search-field-input {");
+    expect(ruleFor(".input-control, .search-field-input"))
+      .toContain("background: var(--color-bg-subtle);");
   });
 
   test("the top bar keeps only its own width behaviour", () => {
@@ -452,7 +475,8 @@ describe("control polish", () => {
     expect(ruleFor(".top-bar-search-input:focus")).toContain("width: 320px;");
     // The hint chip hides via an adjacent-sibling selector, so the
     // kbd must stay immediately after the input
-    expect(styles).toContain(".top-bar-search-input:focus + .top-bar-search-hint,");
+    expect(ruleFor(".top-bar-search-input:focus + .top-bar-search-hint"))
+      .toContain("display: none;");
   });
 
   test("ghost icon buttons get a round hover chip", () => {
@@ -695,8 +719,15 @@ describe("block stamps", () => {
   // only genuinely recent-ish material should carry a tint. This must stay
   // true even if someone reaches for a fourth token again later.
   test("the older band is deliberately left untinted", () => {
-    expect(styles).not.toMatch(/--color-stamp-older\s*:/);
-    expect(styles).not.toMatch(/\.block-stamp-older\s*\{[^}]*background\s*:/);
+    sheet.walkDecls("--color-stamp-older", (decl) => {
+      throw new Error(`--color-stamp-older is declared in ${decl.parent}`);
+    });
+    for (const rule of allRules) {
+      if (!matches(rule, ".block-stamp-older")) continue;
+      rule.walkDecls(/^background/, (decl) => {
+        throw new Error(`.block-stamp-older sets ${decl.prop}`);
+      });
+    }
     // .block-stamp's own body is what makes an unstyled older cell render
     // with no fill at all.
     expect(rulesFor(".block-stamp")).toContain("background: none;");
@@ -801,8 +832,14 @@ describe("PDF frame contributes no baseline", () => {
   test("nothing position:fixed is declared for the frame's own content", () => {
     // the containment invariant in styling.md: the overlay is portalled to
     // body, so the frame must not gain a fixed-position descendant rule
-    expect(rulesFor(".pdf-frame")).not.toMatch(/position:\s*fixed/);
-    expect(rulesFor(".pdf-page-slot")).not.toMatch(/position:\s*fixed/);
+    const framed = /\.pdf-(frame|page-slot)(?![\w-])/;
+    for (const rule of allRules) {
+      if (!rule.selectors.some((member) => framed.test(member))) continue;
+      rule.walkDecls("position", (decl) => {
+        expect(`${rule.selector} { position: ${decl.value} }`)
+          .not.toMatch(/fixed/);
+      });
+    }
   });
 });
 
@@ -817,15 +854,6 @@ describe("namespace link colours", () => {
     "--color-link-work": ["project", "uos"],
     "--color-link-reading": ["paper", "book", "article"],
   };
-
-  // Selector lists share one body, so ruleFor's "selector then {" shape
-  // misses every entry but the last; match from the entry to the next "{".
-  function nsRule(ns: string): string {
-    const m = styles.match(
-      new RegExp(`a\\.page-link\\[data-ns="${ns}"\\][^{]*\\{([^}]*)\\}`));
-    if (!m) throw new Error(`Missing CSS rule for data-ns="${ns}"`);
-    return m[1];
-  }
 
   test("each group token is defined in light and both dark blocks", () => {
     for (const token of TOKENS) {
@@ -847,7 +875,8 @@ describe("namespace link colours", () => {
   test("every namespace in a group is coloured with that group's token", () => {
     for (const [token, namespaces] of Object.entries(GROUPS)) {
       for (const ns of namespaces) {
-        expect(nsRule(ns)).toContain(`color: var(${token});`);
+        expect(ruleFor(`a.page-link[data-ns="${ns}"]`))
+          .toContain(`color: var(${token});`);
       }
     }
   });
@@ -855,7 +884,19 @@ describe("namespace link colours", () => {
   test("attribute names stay muted even when their page is namespaced", () => {
     // .attribute a (0,1,1) would lose to a.page-link[data-ns=..] (0,2,1);
     // the attribute rule must name the attribute selector to keep winning.
-    expect(styles).toMatch(
-      /\.attribute a\.page-link\[data-ns\][^{]*\{[^}]*color: var\(--color-text-muted\);/);
+    expect(ruleFor(".attribute a.page-link[data-ns]"))
+      .toContain("color: var(--color-text-muted);");
   });
+});
+
+describe("the rule helpers", () => {
+  test("ruleFor finds the first member of a grouped selector", () => {
+    expect(ruleFor(".btn-secondary:focus-visible"))
+      .toContain("outline: 2px solid var(--color-link);");
+  });
+
+  test("ruleFor does not match a longer selector that ends with the argument",
+    () => {
+      expect(() => ruleFor(".page-link")).toThrow(/Missing CSS rule/);
+    });
 });

@@ -8,20 +8,17 @@
 // pending ops -> pull feed -> resync bump (offline-editing-design.md §3/§6).
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef,
          useState, type ReactNode } from "react";
-import type { RawTitle } from "../api/brands";
-import type { BlockOp } from "../api/ops";
 import { apiFetch, setOfflineGateway } from "../api/client";
 import { attachActiveOutlineWriteReplay, repairActiveOutlineSessions,
          trackActiveOutlineWrite } from "../outline/outlineSessions";
-import type { OutlineReplayAction } from "../outline/outlineState";
 import { createReplica, type Replica } from "../replica/client";
-import { ReplicaUnusableError } from "../replica/errors";
 import { toPortLike } from "../replica/rpc";
 import { createClientRuntime } from "./clientRuntime";
 import { createLegacyRepair } from "./legacyRepair";
-import { clientId, createOpQueue, type WriteTicket } from "./opQueue";
+import { clientId, createOpQueue } from "./opQueue";
 import { createReplicaSync, ResetBlockedError, type ReplicaState } from "./replicaSync";
 import { planRetry } from "./retryPolicy";
+import { absentReplica, type SyncActions } from "./session";
 import type { WsBatch } from "./socket";
 import { computeEditability, transitionSync, type ReplicaMode,
          type SyncEvent, type SyncState, type SyncStatus,
@@ -30,6 +27,7 @@ import { useSocketLifecycle } from "./useSocketLifecycle";
 import { useUnloadGuard } from "./unloadGuard";
 
 export type { SyncStatus, SyncProblem } from "./syncState";
+export type { SyncActions } from "./session";
 
 /** Connectivity and delivery health: the half that churns. `pending` moves at
  * least twice per flushed edit, so it must not share an identity with the
@@ -61,36 +59,6 @@ export interface SyncEditability {
   canEdit: boolean;
   /** Why editing is blocked, when it is. */
   readOnlyReason?: string;
-}
-
-/** Everything callable. One object for the provider's whole lifetime: every
- * outline keeps it in the dependencies of its handlers, its edit runner and
- * its DnD api, so a new identity here re-renders every mounted Journal day.
- * Each method reads the freshest state through a ref rather than
- * closing over rendered state, which is what makes that possible. */
-export interface SyncActions {
-  /** Retry the retained rejected-batch repair, if it failed. */
-  retryProblem(): Promise<void>;
-  /** Clear repaired details. Failed/running problems cannot be dismissed. */
-  dismissProblem(): void;
-  /** Give up on a mark-failed rejected batch: drop its retained intents and
-   * release the recovery barrier they held. The escape from a
-   * profile whose replica can never open — without it the intent can never
-   * clear and every future session boots wedged. Safe to give up because the
-   * unmarked batch redelivers if the replica ever opens again, and the server
-   * rejects it back into the normal poison → repair flow. */
-  discardProblem(): Promise<void>;
-  /** Manual recovery for a stalled replica (Fix A): flushes pending writes
-   * then rebuilds from a fresh snapshot. Pass discardPending=true to proceed
-   * even when the flush cannot be delivered. */
-  resetReplica(discardPending?: boolean): Promise<void>;
-  enqueue(ops: BlockOp[], scope?: readonly string[]): WriteTicket;
-  attachOutlineReplay(ticket: WriteTicket, title: RawTitle,
-                      replay: readonly OutlineReplayAction[]): void;
-  /** Remote batches only — own echoes are filtered out here. */
-  subscribe(fn: (batch: WsBatch) => void): () => void;
-  /** Resolves when all accepted writes have finished persistence. */
-  settled(): Promise<void>;
 }
 
 /** The whole surface in one object. No component takes it — each reads the
@@ -183,27 +151,6 @@ function defaultReplica(): OwnedReplica | null {
   return {
     worker,
     replica: createReplica(toPortLike(worker), () => worker.terminate()),
-  };
-}
-
-/** The queue always has a Replica; where there is none, this reports the same
- * permanent unavailability the worker reports for a database it could not open.
- * The queue latches that once and answers it by delivering online-only through
- * its in-memory lane — which is what a browser with no usable OPFS
- * already does, so "no replica at all" needs no second delivery path. Reachable
- * only where `Worker` is undefined (jsdom) or a test passes `replica={null}`; a
- * real browser always builds the worker-backed replica above. */
-function absentReplica(): Replica {
-  const absent = async (): Promise<never> => {
-    throw new ReplicaUnusableError("no replica in this environment");
-  };
-  return {
-    init: absent, applySnapshot: absent, applyChanges: absent,
-    enqueue: absent, nextBatch: absent, pendingBatches: absent,
-    poisonedBatches: absent, deleteBatch: absent, markPoisoned: absent,
-    pendingCount: absent, localApi: absent, prepareRecovery: absent,
-    commitRecovery: absent, abortRecovery: absent,
-    diagnostics: absent, dispose: absent,
   };
 }
 

@@ -15,7 +15,7 @@ export interface RecoveryGate {
   abort(token: string): Promise<void>;
 }
 
-const INVALID_TOKEN = "invalid or inactive recovery token";
+export const INVALID_TOKEN = "invalid or inactive recovery token";
 
 export function createRecoveryGate(newToken: () => string): RecoveryGate {
   let tail = Promise.resolve();

@@ -80,7 +80,7 @@ export function absentReplica(): Replica {
     enqueue: absent, nextBatch: absent, pendingBatches: absent,
     poisonedBatches: absent, deleteBatch: absent, markPoisoned: absent,
     pendingCount: absent, localApi: absent, prepareRecovery: absent,
-    commitRecovery: absent, abortRecovery: absent,
+    commitRecovery: absent, renewRecovery: absent, abortRecovery: absent,
     diagnostics: absent, dispose: absent,
   };
 }

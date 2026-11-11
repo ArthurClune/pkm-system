@@ -350,7 +350,7 @@ def prune_worktrees(repo: Path, root: Path, keep: Path) -> None:
     for name in stale_entries(used, time.time(), {keep.name}, UNUSED_FOR_S):
         try:
             git(repo, "worktree", "remove", "--force", str(root / name))
-        except subprocess.CalledProcessError:  # half-created, or another clone's
+        except GitError:  # half-created, or another clone's
             shutil.rmtree(root / name, ignore_errors=True)
     git(repo, "worktree", "prune")
 

@@ -2,6 +2,7 @@
 // check.ts runs the letters of a group in one shared browser context, and
 // the committed counts were recorded in that company, so asking for one
 // letter runs its whole group.
+export const LETTERS = "H,W,A,B,F,J,I,K,S,R";
 export const CONTEXT_GROUPS = ["HW", "ABFI", "JKS", "R"];
 
 /** The letters `--only` runs: each requested letter plus its group. A letter

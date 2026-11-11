@@ -137,6 +137,10 @@ const rules = {
     testHelpersDynamicBan, testFixturesDynamicBan, templateSourceBan],
 };
 
+const E2E_HELPERS_MESSAGE =
+  "test-helpers imports vitest, which Playwright cannot load; mint from "
+  + "src/test-mint";
+
 export default tseslint.config(
   {
     // Global ignores (config object with only `ignores`): skipped entirely by
@@ -232,13 +236,22 @@ export default tseslint.config(
   },
   {
     // test-helpers imports vitest, which fails to load under Playwright.
+    // The static import, import() and a template-literal source are all
+    // closed.
     files: ["e2e/**/*.{ts,mjs}"],
     rules: {
       "no-restricted-imports": ["error", { patterns: [apiFetchBan, {
         group: ["**/test-helpers*"],
-        message: "test-helpers imports vitest, which Playwright cannot "
-          + "load; mint from src/test-mint",
+        message: E2E_HELPERS_MESSAGE,
       }] }],
+      "no-restricted-syntax": ["error", {
+        selector: "ImportExpression[source.value=/test-helpers/]",
+        message: E2E_HELPERS_MESSAGE,
+      }, {
+        selector: "ImportExpression > TemplateLiteral > "
+          + "TemplateElement[value.raw=/test-helpers/]",
+        message: E2E_HELPERS_MESSAGE,
+      }],
     },
   },
 );

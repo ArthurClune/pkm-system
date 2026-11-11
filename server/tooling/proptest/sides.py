@@ -15,6 +15,7 @@ _SIDES = (("server", lambda p: p.startswith("server/")),
            or p.startswith("server/src/")
            or p == "server/tooling/proptest/sync_server.py"))
 
+
 def sides_for(paths: Iterable[str]) -> list[str]:
     paths = list(paths)
     return [side for side, touches in _SIDES if any(touches(p) for p in paths)]

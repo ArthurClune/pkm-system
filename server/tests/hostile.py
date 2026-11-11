@@ -73,8 +73,11 @@ def with_floors(floors: dict[str, float], per: str):
     because a run's examples are correlated: a label fell under a
     twentieth of its median in one run of sixty, so a floor near the
     typical share, or set from a few runs, fails with nothing wrong. A
-    label whose lowest count was under about five events has no floor,
-    since half of so few is noise. A category the generator chooses (a
+    label whose lowest count was under about ten events has no floor,
+    since half of so few is noise: one whose lowest was nine fell to two
+    in a gate run. Nor does a label whose lowest run sits far below the
+    rest, or one that a real server's timing decides rather than the
+    draws, since machine load moves it. A category the generator chooses (a
     flag state, a mode) is a pytest parameter instead, so it is reached by
     construction; otherwise the generator is changed to draw the label
     more often, or it stays an `event`."""

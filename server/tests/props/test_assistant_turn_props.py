@@ -185,6 +185,12 @@ class Turn:
                                            - self.interrupts_before)
 
 
+def at_most_one_interrupt(turn: Turn, how: str) -> None:
+    """A turn's stop sent the CLI at most one interrupt."""
+    assert turn.interrupts() <= 1, (
+        f"turn {turn.prompt} sent {turn.interrupts()} interrupts ({how})")
+
+
 def assert_of(prompt: str, events: list[AssistantEvent]) -> None:
     """Every event a turn showed belongs to its own prompt."""
     for ev in events:
@@ -303,8 +309,7 @@ class TurnMachine(RuleBasedStateMachine):
         assert turn is not None
         assert turn.task.done(), f"turn {turn.prompt} did not end ({how})"
         assert_of(turn.prompt, turn.events)
-        assert turn.interrupts() <= 1, (
-            f"turn {turn.prompt} sent {turn.interrupts()} interrupts ({how})")
+        at_most_one_interrupt(turn, how)
         stopped = [ev for ev in turn.events if isinstance(ev, TurnStopped)]
         if how.startswith("user stop"):
             assert stopped == [turn.events[-1]], (how, turn.events)
@@ -728,7 +733,107 @@ class TurnMachine(RuleBasedStateMachine):
             assert (self.cid in self.service._entries) == self.alive
 
 
-@merge_floors({}, "example")
+# Floors: half the lowest share over 30 unseeded merge runs, 2026-11-10.
+# No floor, under five events in some run:
+#   "disconnect stop with the stall's interrupt draining (after_ack)"
+#   "disconnect stop with the stall's interrupt draining (never)"
+#   "disconnect stop with the stall's interrupt pending (before_ack)"
+#   "disconnect stop with the stall's interrupt pending (never)"
+#   "disconnect stop with the stall's interrupt pending (raises)"
+#   "send after: stall before_ack, then a user stop"
+#   "send after: stall raises, then a user stop"
+#   "user stop with the stall's interrupt draining (after_ack)"
+#   "user stop with the stall's interrupt draining (never)"
+#   "user stop with the stall's interrupt pending (after_ack)"
+#   "user stop with the stall's interrupt pending (never)"
+#   "user stop with the stall's interrupt pending (raises)"
+# No floor, under ten in some run, so half of it is noise:
+#   "disconnect stop after_ack (turn closed)"
+#   "disconnect stop with the stall's interrupt pending (after_ack)"
+#   "disconnect stop with the stall's interrupt pending (unacked)"
+#   "send after: stall after_ack, then a user stop"
+#   "send after: stall never, then a user stop"
+#   "send after: stall unacked, then a user stop"
+#   "stop with an allowed write running"
+#   "user stop before_ack (turn closed)"
+#   "user stop never (turn closed)"
+#   "user stop with the stall's interrupt pending (before_ack)"
+#   "user stop with the stall's interrupt pending (unacked)"
+# No floor, a run under half the lowest share is too likely:
+#   "disconnect stop never (turn closed)"
+#   "send after: stop before_ack"
+@merge_floors({
+    "consumer cancelled while query() is pending": 0.136,
+    "disconnect stop after_ack": 0.011,
+    "disconnect stop before_ack": 0.005,
+    "disconnect stop before_ack (turn closed)": 0.004,
+    "disconnect stop never": 0.005,
+    "disconnect stop raises": 0.011,
+    "disconnect stop unacked": 0.015,
+    "disconnect stop's interrupt held past the stall deadline": 0.027,
+    "harness dies between turns": 0.044,
+    "harness dies mid-turn": 0.049,
+    "harness eof between turns": 0.027,
+    "harness eof mid-turn": 0.026,
+    "send after a stop whose result came after the ack": 0.04,
+    "send after: finished": 0.08,
+    "send after: finished as a user stop landed": 0.008,
+    "send after: lost dies": 0.048,
+    "send after: lost eof": 0.025,
+    "send after: none": 0.16,
+    "send after: query cancelled": 0.09,
+    "send after: refused": 0.04,
+    "send after: stall after_ack": 0.045,
+    "send after: stall before_ack": 0.02,
+    "send after: stall never": 0.042,
+    "send after: stall raises": 0.042,
+    "send after: stall unacked": 0.039,
+    "send after: stop": 0.006,
+    "send after: stop after_ack": 0.005,
+    "send after: stop never": 0.012,
+    "send after: stop raises": 0.019,
+    "send after: stop unacked": 0.02,
+    "send after: user stop after_ack": 0.024,
+    "send after: user stop before it started": 0.1,
+    "send after: user stop before_ack": 0.01,
+    "send after: user stop never": 0.023,
+    "send after: user stop raises": 0.03,
+    "send after: user stop unacked": 0.03,
+    "send to a harness that died between turns": 0.04,
+    "split stall after_ack": 0.022,
+    "split stall before_ack": 0.009,
+    "split stall never": 0.007,
+    "split stall raises": 0.012,
+    "split stall unacked": 0.006,
+    "stall after_ack": 0.056,
+    "stall before_ack": 0.027,
+    "stall drain open": 0.019,
+    "stall interrupt pending": 0.164,
+    "stall never": 0.027,
+    "stall raises": 0.024,
+    "stall suspended by a parked confirm": 0.07,
+    "stall unacked": 0.021,
+    "stop as the harness finished the turn": 0.039,
+    "stop with a parked confirm": 0.046,
+    "turn finished": 0.167,
+    "user stop after_ack": 0.026,
+    "user stop after_ack (turn closed)": 0.004,
+    "user stop as the harness finished: the turn's own result": 0.014,
+    "user stop before the reserved turn starts": 0.699,
+    "user stop before_ack": 0.009,
+    "user stop never": 0.011,
+    "user stop raises": 0.018,
+    "user stop unacked": 0.017,
+    "user stop while query() is pending (after_ack)": 0.017,
+    "user stop while query() is pending (before_ack)": 0.016,
+    "user stop while query() is pending (never)": 0.009,
+    "user stop while query() is pending (raises)": 0.015,
+    "user stop while query() is pending (unacked)": 0.015,
+    "user stop with no turn open": 1.059,
+    "user stop's interrupt held past the stall deadline": 0.024,
+    "write allowed": 0.025,
+    "write declined": 0.058,
+}, "example")
 def test_turn_phase() -> None:
     run_state_machine_as_test(TurnMachine, settings=settings(
         max_examples=examples("assistant_turn"), stateful_step_count=30))

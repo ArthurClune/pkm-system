@@ -12,7 +12,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { expandOnly } from "./contextGroups.ts";
+import { expandOnly, LETTERS } from "./contextGroups.ts";
 import { BASE, BIG_PAGE, INIT, REACT_INIT, sleep, attachCounters, freshBag,
          resetBag, login } from "./harness.ts";
 import type { Bag } from "./harness.ts";
@@ -24,7 +24,6 @@ function arg(name: string, dflt?: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : dflt;
 }
 const OUT_ARG = arg("--out");
-const LETTERS = "H,W,A,B,F,J,I,K,S,R";
 const REQUESTED = arg("--only", LETTERS).split(",");
 {
   const valid = new Set(LETTERS.split(","));

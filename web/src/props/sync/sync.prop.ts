@@ -118,7 +118,122 @@ function showSyncTally(t: Tally): string {
 /** Where each label must stay above its share of EXAMPLES. The reach
  * signal is each `Fault <kind> fired`: a fault armed far more often than
  * it fired is the case a floor must catch. */
-const REACH: Reach = { per: EXAMPLES, floors: {} };
+const REACH: Reach = {
+  per: EXAMPLES,
+  // Floors: half the lowest share over 30 unseeded gate runs, 2026-11-10.
+  // No floor, under five events in some run:
+  //   "Edit refused: read-only, mode recovery-failed"
+  //   "Edit refused: read-only, mode stalled"
+  //   "Pull joined under poison"
+  //   "examples with an overwritten conflict on a lane write"
+  // No floor, under ten in some run, so half of it is noise:
+  //   "CrossMidnight fell back to model date"
+  //   "settle: dead worker's reload drops lane batches"
+  // No floor, server timing, not a draw, decides when the connect lands:
+  //   "Reload connect timed, landed after startup"
+  //   "Reload connect timed, landed mid-startup"
+  //   "start connect timed, landed after startup"
+  //   "start connect timed, landed mid-startup"
+  floors: {
+    "BadBatch": 0.187,
+    "BadBatch skipped: worker dead": 0.012,
+    "BadBatch skipped: write failure armed or lane unsent": 0.022,
+    "CrossMidnight 2026-03-29": 0.023,
+    "CrossMidnight 2026-10-25": 0.026,
+    "CrossMidnight model": 0.177,
+    "DeletePage deleted": 0.096,
+    "DeletePage failed offline": 0.033,
+    "DeletePage refused 404": 0.091,
+    "DeletePage refused 409": 0.005,
+    "Edit": 2.381,
+    "Edit op create": 0.344,
+    "Edit op create top of Fourth": 0.011,
+    "Edit op create top of Proptest": 0.067,
+    "Edit op create top of Second": 0.011,
+    "Edit op create top of Third": 0.012,
+    "Edit op delete": 1.378,
+    "Edit op move": 1.39,
+    "Edit op move top of Fourth": 0.052,
+    "Edit op move top of Proptest": 0.051,
+    "Edit op move top of Second": 0.053,
+    "Edit op move top of Third": 0.051,
+    "Edit op move top untitled": 0.223,
+    "Edit op set_collapsed": 1.393,
+    "Edit op update_text": 1.37,
+    "Edit refused: read-only, mode no-replica": 0.007,
+    "Edit refused: read-only, mode starting": 0.036,
+    "Edit with a dead worker": 0.225,
+    "Fault dropAck": 0.117,
+    "Fault dropAck fired": 0.058,
+    "Fault duplicate": 0.109,
+    "Fault duplicate fired": 0.056,
+    "Fault lostPull": 0.115,
+    "Fault lostPull fired": 0.05,
+    "Fault lostReply": 0.103,
+    "Fault lostReply fired": 0.057,
+    "Fault lostReply skipped: worker dead": 0.007,
+    "Fault snapshot5xx": 0.477,
+    "Fault snapshot5xx fired": 0.381,
+    "Fault writeFails": 0.091,
+    "Fault writeFails fired": 0.052,
+    "Fault writeFails skipped: worker dead": 0.006,
+    "Fault writeFails skipped: write failure armed or lane unsent": 0.01,
+    "Nudge ahead": 0.147,
+    "Nudge ahead skipped: offline": 0.025,
+    "Nudge duplicate": 0.145,
+    "Nudge duplicate skipped: offline": 0.024,
+    "Nudge latest": 0.146,
+    "Nudge latest skipped: offline": 0.025,
+    "Nudge stale": 0.143,
+    "Nudge stale skipped: offline": 0.024,
+    "Offline": 0.596,
+    "Offline skipped: already offline": 0.11,
+    "Online after 1": 0.102,
+    "Online after 2": 0.091,
+    "Online after 3": 0.083,
+    "Online after 5": 0.065,
+    "Online at quiesce": 0.15,
+    "Online at quiesce, before its return": 0.081,
+    "Pull": 0.608,
+    "Pull alone": 0.576,
+    "Pull joined": 0.024,
+    "Pull skipped: offline": 0.106,
+    "Pull with a dead worker": 0.045,
+    "Pull with a dead worker, never started": 0.005,
+    "Reload": 0.389,
+    "Reload connect timed, offline": 0.028,
+    "Reload connect untimed": 0.203,
+    "Reload of a dead worker": 0.028,
+    "Reload skipped: write failure armed or lane unsent": 0.052,
+    "Rename failed offline": 0.033,
+    "Rename refused 404": 0.09,
+    "Rename refused 409": 0.042,
+    "Rename renamed": 0.055,
+    "RotateGeneration": 0.239,
+    "WorkerDies offline": 0.029,
+    "WorkerDies online": 0.175,
+    "WorkerDies skipped: already dead": 0.019,
+    "examples with 2 clients": 0.237,
+    "examples with 3 clients": 0.237,
+    "examples with a conflict": 0.31,
+    "examples with a leading attribute": 0.191,
+    "examples with a rejected batch": 0.15,
+    "examples with a stale batch naming a deleted page": 0.039,
+    "examples with an overwritten conflict": 0.036,
+    "examples with no window limit": 0.324,
+    "examples with window limit 1": 0.028,
+    "examples with window limit 2": 0.029,
+    "examples with window limit 3": 0.034,
+    "examples with window limit 4": 0.026,
+    "examples with window limit 5": 0.024,
+    "settle: dead worker never started": 0.017,
+    "settle: dead worker online-only after a pull": 0.156,
+    "settle: first start owed a retry": 0.064,
+    "start connect untimed": 0.608,
+    "start first bootstrap fails, not started by it": 0.116,
+    "start first bootstrap timesOut, not started by it": 0.11,
+  },
+};
 
 interface ExampleOptions {
   /** Runs after the commands, before quiescence. */

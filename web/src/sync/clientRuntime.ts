@@ -12,6 +12,7 @@
 // means is decided by retryPolicy.ts; runRetry only executes that decision.
 import type { Replica } from "../replica/client";
 import { availabilityOf } from "../replica/errors";
+import { coalesce } from "./coalesce";
 import type { OpQueue, PoisonEvent } from "./opQueue";
 import type { ReplicaState, ReplicaSync } from "./replicaSync";
 import type { RetryPlan } from "./retryPolicy";
@@ -59,8 +60,11 @@ export interface ClientRuntime {
   /** Discovery after marking: repair every marked or discovered poison row,
    * or resume delivery when there is none, then start the replica sync. */
   continueStartup(marked: readonly PoisonEvent[]): Promise<void>;
-  /** Repair these poison rows; joins (and widens) a repair already running. */
-  repair(events: readonly PoisonEvent[]): Promise<void>;
+  /** Repair these poison rows. Resolves with whether the repair that served
+   * them succeeded: one that started after the call, or one that had not
+   * yet begun deleting, which the call widens. With no rows, resolves at
+   * once with whether the last repair succeeded. */
+  repair(events: readonly PoisonEvent[]): Promise<boolean>;
   /** Execute a planRetry() result for the poison-side plans; "legacy-repair"
    * stays with the session's legacy repair. */
   runRetry(plan: PoisonRetryPlan): Promise<void>;
@@ -92,8 +96,10 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
     error instanceof Error ? error.message : String(error);
 
   let startupRunPromise: Promise<void> = Promise.resolve();
-  let repairRun: Promise<void> | null = null;
   let repairTargets: readonly PoisonEvent[] = [];
+  // Set in the step the run reads its targets, so no call joins a run that
+  // will not delete its rows.
+  let deleting = false;
   let repairSucceeded = false;
   // The last repair attempt failed and nothing has superseded it. A failed
   // snapshot fetch is most often the network going away, and nothing else
@@ -102,13 +108,11 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
   let repairFailed = false;
   let discovering = true;
 
-  const repair = (events: readonly PoisonEvent[]): Promise<void> => {
-    if (events.length === 0) return Promise.resolve();
-    if (repairRun) {
-      repairTargets = mergePoisonEvents(repairTargets, events);
-      return repairRun;
-    }
-    repairTargets = mergePoisonEvents(events);
+  const runRepair = async (events: readonly PoisonEvent[]): Promise<boolean> => {
+    deleting = false;
+    // A failed repair's rows are still poisoned, so a later run takes them
+    // too: its success releases "poison".
+    repairTargets = mergePoisonEvents(repairFailed ? repairTargets : [], events);
     repairSucceeded = false;
     repairFailed = false;
     // Held already when the rejection came this session; a row found by
@@ -116,29 +120,39 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
     queue.pause("poison");
     const event = repairTargets[0];
     emit({ type: "repair-started", event });
-    const run = (async () => {
-      try {
-        await replicaSync.rebaseAuthoritative("poison");
-        for (const poisonEvent of repairTargets) {
-          await replica.deleteBatch(poisonEvent.id, poisonEvent.batch_id);
-        }
-        if (live()) {
-          // The queue is the only publisher of the pending count;
-          // refreshPending is the door for an outside re-read of the durable
-          // table (see opQueue's emitPending).
-          void queue.refreshPending();
-          emit({ type: "repair-succeeded", event });
-        }
-        replicaSync.completeAuthoritativeRepair("poison");
-        if (live()) queue.resume("poison");
-        repairSucceeded = true;
-      } catch (error: unknown) {
-        repairFailed = true;
-        emit({ type: "repair-failed", event, error: messageOf(error) });
+    try {
+      await replicaSync.rebaseAuthoritative("poison");
+      deleting = true;
+      const targets = repairTargets;
+      for (const poisonEvent of targets) {
+        await replica.deleteBatch(poisonEvent.id, poisonEvent.batch_id);
       }
-    })();
-    repairRun = run.finally(() => { repairRun = null; });
-    return repairRun;
+      if (live()) {
+        // The queue is the only publisher of the pending count;
+        // refreshPending is the door for an outside re-read of the durable
+        // table (see opQueue's emitPending).
+        void queue.refreshPending();
+        emit({ type: "repair-succeeded", event });
+      }
+      replicaSync.completeAuthoritativeRepair("poison");
+      if (live()) queue.resume("poison");
+      repairSucceeded = true;
+    } catch (error: unknown) {
+      repairFailed = true;
+      emit({ type: "repair-failed", event, error: messageOf(error) });
+    }
+    return repairSucceeded;
+  };
+  const repairOnce = coalesce<readonly PoisonEvent[], boolean>(runRepair, {
+    merge: mergePoisonEvents, joinable: () => !deleting,
+  });
+
+  const repair = (events: readonly PoisonEvent[]): Promise<boolean> => {
+    if (events.length === 0) return Promise.resolve(repairSucceeded);
+    // A joined call's rows reach the running repair through this list; a
+    // starting or owed run rebuilds it from its own arguments.
+    repairTargets = mergePoisonEvents(repairTargets, events);
+    return repairOnce(events);
   };
 
   const continueStartup = async (marked: readonly PoisonEvent[]): Promise<void> => {
@@ -192,8 +206,8 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
       // lifts between the two owners.
       const run = repair(repairable);
       if (live()) queue.resume("startup");
-      await run;
-      if (!repairSucceeded) return;
+      // This repair's own result: an owed one may have started since.
+      if (!(await run)) return;
     } else {
       emit({ type: "poison-discovery-cleared" });
       // Nothing is poisoned: a reload's retained intents that matched no row
@@ -226,13 +240,15 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
           } catch {
             return;
           }
-          await (repairRun ?? Promise.resolve());
+          await repairOnce.idle();
           await restartAfterRepair();
         })();
       case "continue-startup":
         return continueStartup([]);
       case "repair-targets":
-        return repair(repairTargets).then(restartAfterRepair);
+        return repair(repairTargets).then(async (ok) => {
+          if (ok && live()) await replicaSync.start();
+        });
       case "none":
         return Promise.resolve();
     }
@@ -286,7 +302,7 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
       // discovery has answered, so the flag also keeps this off the startup
       // gate. A retry clears the flag as it starts, so of several connects
       // waiting on one failed attempt only the first retries it.
-      await (repairRun ?? Promise.resolve());
+      await repairOnce.idle();
       if (!live() || !repairFailed) return;
       await runRetry({ kind: "repair-targets" });
     },
@@ -304,7 +320,7 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
       // the server rejects it again and the flow re-enters
       // rejectDurableBatch, whose per-batch effects are idempotent across
       // repeats (rememberPoisonMark).
-      if (live() && repairRun === null) queue.resume("poison");
+      if (live() && !repairOnce.running()) queue.resume("poison");
       if (discovering) {
         // Rejoin the normal startup: discovery runs against the replica,
         // and an unopenable one falls into the online-only fallback.

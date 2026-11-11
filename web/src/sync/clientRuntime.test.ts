@@ -32,6 +32,8 @@ interface SetupOptions {
   marks?: () => Promise<readonly PoisonEvent[]>;
   poisoned?: () => Promise<PoisonEvent[]>;
   rebase?: () => Promise<void>;
+  /** Runs inside each deleteBatch, after the call is recorded. */
+  deleteBatch?: () => Promise<void>;
   isMounted?: () => boolean;
 }
 
@@ -64,6 +66,7 @@ function setup(opts: SetupOptions = {}) {
     },
     deleteBatch: async (id, batchId) => {
       calls.push(`deleteBatch(${id},${batchId})`);
+      await opts.deleteBatch?.();
       return { pending: 0 };
     },
   });
@@ -192,7 +195,71 @@ describe("clientRuntime startup", () => {
   });
 });
 
+/** Holds the first deleteBatch until `release()`; later ones pass. */
+const holdFirstDelete = () => {
+  const held = deferred<void>();
+  let first = true;
+  return {
+    deleteBatch: (): Promise<void> => {
+      if (!first) return Promise.resolve();
+      first = false;
+      return held.promise;
+    },
+    release: () => { held.resolve(); },
+  };
+};
+
 describe("clientRuntime repair and retry", () => {
+  test("a poison event after the repair began deleting gets a repair of its own", async () => {
+    const hold = holdFirstDelete();
+    const h = setup({ deleteBatch: hold.deleteBatch });
+    await h.runtime.startup();
+    h.calls.length = 0;
+    h.emitPoison(poisonEvent(1, "b-1"));
+    await flush();
+    expect(h.calls.at(-1)).toBe("deleteBatch(1,b-1)");
+    h.emitPoison(poisonEvent(2, "b-2"));
+    hold.release();
+    await flush();
+    expect(h.calls.filter((c) => c === "rebaseAuthoritative(poison)"))
+      .toHaveLength(2);
+    expect(h.calls.filter((c) => c.startsWith("deleteBatch")))
+      .toEqual(["deleteBatch(1,b-1)", "deleteBatch(2,b-2)"]);
+  });
+
+  test("a repair after a failed one keeps the failed targets", async () => {
+    let fail = true;
+    const h = setup({
+      rebase: async () => { if (fail) throw new Error("snapshot 500"); },
+    });
+    await h.runtime.startup();
+    h.emitPoison(poisonEvent(1, "b-1"));
+    await flush();
+    expect(h.events.at(-1)).toMatchObject({ type: "repair-failed" });
+    fail = false;
+    h.calls.length = 0;
+    h.emitPoison(poisonEvent(2, "b-2"));
+    await flush();
+    expect(h.calls.filter((c) => c.startsWith("deleteBatch")))
+      .toEqual(["deleteBatch(1,b-1)", "deleteBatch(2,b-2)"]);
+  });
+
+  test("continueStartup starts the replica when its own repair succeeded, though another is owed",
+  async () => {
+    const hold = holdFirstDelete();
+    const h = setup({
+      poisoned: async () => [poisonEvent(3, "b-3")],
+      deleteBatch: hold.deleteBatch,
+    });
+    const run = h.runtime.startup();
+    await flush();
+    expect(h.calls.at(-1)).toBe("deleteBatch(3,b-3)");
+    h.emitPoison(poisonEvent(4, "b-4"));
+    hold.release();
+    await run;
+    expect(h.calls).toContain("start");
+  });
+
   test("a failed repair reports and does not start", async () => {
     const event = poisonEvent(4, "b-4");
     const h = setup({

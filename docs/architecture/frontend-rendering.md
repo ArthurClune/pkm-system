@@ -25,13 +25,11 @@ replay it ([generated artifacts and parity
 fixtures](backend.md#generated-artifacts-and-parity-fixtures)).
 
 A block whose `[[` runs nest past `MAX_LINK_NESTING` gets no run tokens from
-`scanGrammar`. Its brackets render as text, and `extractRefs` reports none of
-its links, though its hashtags and `((uid))` refs survive. Only a row stored
-before the [limit](write-path.md#work-bounds-under-the-write-lock) reaches
-this, because every write refuses such a text. The server's `refs.extract`
-still reports those links, yet nothing diverges: the replica takes a pulled
-block's `refs` rows from the server, derives only `block_refs` itself, and
-refuses a local op whose text nests that deep.
+`scanGrammar`: its brackets render as text, and `extractRefs` reports none of
+its links, though its hashtags and `((uid))` refs survive. Every write refuses such a text, so only a row stored before the
+[limit](write-path.md#work-bounds-under-the-write-lock) reaches this. The
+server's `refs.extract` still reports those links; the replica takes pulled
+blocks' `refs` rows from the server, so the two sides agree.
 
 **Grammar code stays linear in the text, and never spreads a token array
 into a call (`push(...xs)`).** A block at `MAX_BLOCK_TEXT_CHARS` holds
@@ -47,14 +45,13 @@ bare-URL autolinking (including bare `/assets/<sha256>/`), emphasis,
 
 A hashtag, page ref or attribute whose title `isRefTitle` rejects renders as
 source text and is no Ctrl-O target. A rejected title is blank, or has a `.`,
-`..` or empty `/` segment. `extractRefs` gives the same verdict, so what
-renders as a link is what counts as a ref.
+`..` or empty `/` segment. `extractRefs` gives the same verdict, so rendered
+links and extracted refs match.
 
-`grammar/markdown.ts` scans markdown links and images. Older uploads' URLs hold
-the raw file name, so a destination may contain spaces and nested parentheses.
-It closes at the first `)` not matched on its line, or at the first `)` of all
-when the parentheses never balance. A new upload's label swaps `[` and `]` for
-`(` and `)` (`sync/assetNames.ts`), so it cannot open `[[` or close early.
+`grammar/markdown.ts` scans markdown links and images, whose destinations may
+hold spaces and nested parentheses from older uploads' raw file names (`closesOf`
+gives the closing rule). A new upload's label swaps `[` and `]` for `(`
+and `)` (`sync/assetNames.ts`), so it cannot open `[[` or close early.
 
 ## Segment dispatch
 
@@ -112,8 +109,8 @@ cached. Highlighted HTML, KaTeX HTML and mermaid SVG reach the DOM through
 
 ## Resolving `((uid))` texts
 
-A `((uid))` reaches its text through two channels, and `useBlockRefText` is the
-one way to read either.
+Read a `((uid))` text only through `useBlockRefText`, which merges these
+channels:
 
 | Channel | Source | Carrier | Wakes |
 |---|---|---|---|
@@ -134,11 +131,12 @@ Diagrams render through beautiful-mermaid first (the chunk is named by the
 failure. The fallback must stay: it carries gantt, pie, mindmap and the other
 families beautiful-mermaid lacks. It is held to the no-fetch rule in
 [§ Link safety and external media](#link-safety-and-external-media), and in
-replies it waits for a click. `mermaidTheme.ts` maps the design tokens onto
-both theming surfaces (`beautifulMermaidOptions`, base-theme
-`themeVariables`); beautiful-mermaid re-renders on a theme flip
-(`useEffectiveTheme`), and the stock fallback keeps its initialize-time
-snapshot. Every render uses its instance's own id. Only the cached copy is
+replies it waits for a click.
+
+`mermaidTheme.ts` maps the design tokens onto both theming surfaces
+(`beautifulMermaidOptions`, base-theme `themeVariables`). beautiful-mermaid
+re-renders on a theme flip (`useEffectiveTheme`); the stock fallback keeps
+its initialize-time snapshot. Every render uses its instance's own id. Only the cached copy is
 normalised to `MERMAID_CACHE_RENDER_ID`, which `withRenderId` swaps back on
 each read.
 
@@ -157,20 +155,18 @@ is not provably an upload defers to a click: `isDeferredPdfHref` is
 `!isUploadedAsset`.
 
 Deferral keeps a page of `Local copy::` papers from pulling each PDF from iCloud
-on the host. A file the host does not serve becomes a note, not a saved error
-body: `pdfViewerCore.hostFailureNote` maps the status to the note, which the
-viewer reads through `failureNote` because pdf.js exposes the status and not
-the body. A tap on a deferred link's download first asks for one byte
-(`Range: bytes=0-0`; the route has no HEAD), and only a success starts the
-native download.
+on the host. A file the host does not serve becomes a note
+(`pdfViewerCore.hostFailureNote`), not a saved error body. A deferred link's
+download first asks for one byte (`Range: bytes=0-0`; the route has no HEAD),
+and only a success starts the native download.
 
 `InlineSegments` keys each `PdfEmbed` by its href, so an embed's click-to-load
 state (`armed`) never survives an href change. Reusing the instance would load
 a deferred PDF without its click.
 
 In `PdfViewer`, a new `href` resets its state and bumps a generation counter
-synchronously in render, and every load callback checks the generation it
-captured. A reset effect would run after a `Document` child's `onLoadSuccess`.
+synchronously in render, since an effect would run after a `Document` child's
+`onLoadSuccess`. Every load callback checks the generation it captured.
 The viewer mounts only pages near the viewport, plus `MOUNT_RADIUS` either side
 (`mountedPageWindow`). An unmounted page keeps its `rendered` entry
 (`retainPages`) and a `placeholderHeight` slot, since a zero-height slot would
@@ -185,17 +181,14 @@ It rejects control characters outright, since browsers strip tab, CR and LF
 before parsing a URL, and a second leading `/` or `\`, which would escape to
 another origin.
 
-A rendered URL is an outbound channel: the browser fetches it with no click and
-no write approval, so whoever can write the markdown, the assistant included,
-can send note text to any host. Only `/assets/` uploads (`isUploadedAsset`)
-load on render. A src the URL parser would turn into another same-origin path
-is not an upload, because `/assets/../api/export.zip` would run an export on
-render. `isPathUnder` refuses a `..` segment (literal or `%2e`) between any
-separator the browser or a path-cleaning proxy reads: `/`, `\`, `%2f` or
-`%5c`. It first drops tabs, CR and LF anywhere, and C0 controls and spaces at
-the end, as the parser does. A backslash with no `..` beside it climbs
-nowhere, so an upload whose name is quoted with `%5C` stays an upload.
-Everything else waits behind `ClickToLoad`, the one gate:
+The browser fetches a rendered URL with no click and no write approval, so
+whoever can write the markdown, the assistant included, could send note text
+to any host. Only `/assets/` uploads (`isUploadedAsset`) load on render. A src
+the URL parser would turn into another same-origin path is not an upload,
+because `/assets/../api/export.zip` would run an export on render.
+`isPathUnder` refuses a `..` segment in every encoding a browser or
+path-cleaning proxy reads (`externalMedia.ts` lists them). All other external
+media renders through `ClickToLoad`:
 
 | Media | Gated where | Placeholder |
 |---|---|---|
@@ -206,18 +199,26 @@ Everything else waits behind `ClickToLoad`, the one gate:
 `ClickToLoad` keeps its children unmounted until the click, because the fetch
 starts at commit. It compares the revealed key with the current one during
 render, so a new key never commits its media (an `<img>`, an iframe) without
-its own click. A "was clicked" flag would not do: reset in an effect, it
-commits one frame of the new key first. The click stops propagating, so it
-never reaches edit mode or ref navigation. A reveal from the focused button
-moves focus to the revealed media's wrapper. Inside `InertMediaContext` the
-placeholder is plain text.
+its own click. The click stops propagating, so it never reaches edit mode or
+ref navigation. A reveal from the focused button moves focus to the revealed
+media's wrapper.
+
+A row that navigates (`BacklinkGroupList` with `onNavigate`, as in
+`BlockRefBacklinksPopover`) provides `InertMediaContext`, so the whole row is
+the click target. Inside it an uploaded image gets no expand trigger, and
+`ClickToLoad`'s placeholder is plain text.
+
+`AssetImage`'s img (an upload, or an external image once clicked), the
+`/files` grid and `BlueskyEmbed`'s iframe carry `loading="lazy"`. Without it a
+page of Bluesky embeds opens one scripted document per embed on mount.
+`BlueskyEmbed` sizes itself from the embed page's `postMessage`.
 
 **No diagram fetches, in a note or a reply** (`mermaidSafety.ts`).
 beautiful-mermaid escapes labels, but its SVG opens with a Google Fonts
 `@import`, which `stripCssImports` removes before the SVG is cached. Stock
-mermaid's `securityLevel` strict is not enough (`mermaidSafety.test.ts` pins
-what it lets through). `mermaid.render` lays the diagram out in the live
-document, so a fetch starts before the SVG returns, and cleaning the output
+mermaid's `securityLevel: strict` still lets some fetches through
+(`mermaidSafety.test.ts` lists them). `mermaid.render` lays the diagram out
+in the live document, so a fetch starts before the SVG returns, and cleaning the output
 would be too late. Before render, the app therefore:
 
 - secures the CSS-bearing config keys (`STOCK_MERMAID_SECURE`);
@@ -228,9 +229,3 @@ would be too late. Before render, the app therefore:
 
 A stock render cached from a note still waits for the click in a reply.
 
-## Lazy loading
-
-`AssetImage`'s img (an upload, or an external image once clicked), the
-`/files` grid and `BlueskyEmbed`'s iframe carry `loading="lazy"`; without
-it a page of Bluesky embeds opens one scripted document per embed on mount.
-`BlueskyEmbed` sizes itself from the embed page's `postMessage`.

@@ -566,7 +566,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       }
       throw error;
     } finally {
-      // Only this run's own claim: a poison repair or a outline lane repair
+      // Only this run's own claim: a poison repair or an outline lane repair
       // still running holds the barrier under its own owner.
       queue.resume("recovery");
     }

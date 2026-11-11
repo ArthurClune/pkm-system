@@ -33,7 +33,7 @@ type OutlineProblem = Extract<SyncProblem, { kind: "outline-rejected" }>;
 
 export interface SyncState {
   problem: SyncProblem | undefined;
-  /** A outline repair's problem held back while a rejected durable batch's
+  /** An outline repair's problem held back while a rejected durable batch's
    * outranks it (see outline). It is shown once that problem ends. */
   outlineBehind?: OutlineProblem;
   /** The error of the session's no-replica report, which comes once: the
@@ -100,7 +100,7 @@ type StalledProblem = Extract<SyncProblem, { kind: "replica-stalled" }>;
 
 /** A rejected durable batch not yet repaired, or a discovery that could not
  * say whether there is one. Its banner carries the Retry that lifts the
- * poison owner's barrier, so a outline repair's banner waits behind it rather
+ * poison owner's barrier, so an outline repair's banner waits behind it rather
  * than taking that Retry away. */
 const poisonUnresolved = (current: SyncProblem | undefined): boolean =>
   (current?.kind === "rejected-batch" && current.repair !== "repaired")
@@ -120,7 +120,7 @@ const poisonProblem = (
   };
 };
 
-/** The poison-side problem ended: a outline problem held behind it, if any,
+/** The poison-side problem ended: an outline problem held behind it, if any,
  * takes its place, else `next`. */
 const poisonEnded = (
   state: SyncState, next: SyncProblem | undefined,
@@ -132,7 +132,7 @@ const poisonEnded = (
   return { state: { problem: shown }, effects };
 };
 
-/** A outline repair's phase: shown, or held behind an unresolved poison
+/** An outline repair's phase: shown, or held behind an unresolved poison
  * problem. Its effects apply either way. */
 const outline = (
   state: SyncState, next: OutlineProblem, effects: readonly SyncEffect[] = [],

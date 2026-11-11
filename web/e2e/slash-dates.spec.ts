@@ -27,7 +27,7 @@ test("/today inserts a link to today's daily note", async ({ page }) => {
   // Give the client's background replica sync a beat to catch up with
   // today's page before referencing it from elsewhere (journal-references.
   // spec.ts precedent; editing/referencing a page the local
-  // replica hasn't hydrated yet can trip a outline-rejected repair that
+  // replica hasn't hydrated yet can trip an outline-rejected repair that
   // discards the in-flight edit -- SyncProvider.tsx's outline-rejected
   // handling is live, not dead code).
   await page.waitForTimeout(1500);

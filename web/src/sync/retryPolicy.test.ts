@@ -15,7 +15,7 @@ const closed = { startupDiscoveringPoison: false };
 const cases: Array<[string, SyncProblem | undefined,
                     { startupDiscoveringPoison: boolean }, RetryPlan]> = [
   ["no problem at all", undefined, closed, { kind: "none" }],
-  ["a outline repair still running",
+  ["an outline repair still running",
    { kind: "outline-rejected", repair: "running", error: "400" }, closed,
    { kind: "none" }],
   ["a repaired outline rejection (Dismiss, not Retry)",

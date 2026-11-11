@@ -8,7 +8,7 @@ import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, canonicalTitleOf, jsonResponse, makeSync, malformedUid,
-         orderIdxOf, type SyncFake, uidOf } from "../test-helpers";
+         orderIdxOf, type SyncFake, uidOf, confirmYes } from "../test-helpers";
 import type { DropTarget } from "./dnd";
 import { DEPTH_NOTICE } from "./depthCap";
 import type { BlockOp } from "../api/ops";
@@ -31,7 +31,7 @@ function Harness({ initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf(PAGE), initial);
+  const outline = useOutline(canonicalTitleOf(PAGE), initial, confirmYes);
   useEffect(() => onReady(outline));
   // top-level blocks only: enough DOM for the scroll-to-new-block effect
   return <>{outline.blocks.map((b) => <div key={b.uid} data-uid={b.uid} />)}</>;
@@ -86,7 +86,7 @@ it("a refused indent still ships and applies the block's draft", () => {
   const sync = makeSync();
   const outline = setup(sync);
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-d100b"), 5));
-  act(() => outline().handlers.onDraftStart(uidOf("tuid-d100b"), "d100b"));
+  act(() => { outline().handlers.onDraftStart(uidOf("tuid-d100b"), "d100b"); });
   act(() => outline().handlers.onDraftChange(uidOf("tuid-d100b"), "typed"));
 
   act(() => outline().handlers.onIndent(uidOf("tuid-d100b")));
@@ -252,8 +252,7 @@ it("an /upload past the depth cap releases the files, reports no insert",
   let inserted: boolean | void = undefined;
 
   await act(async () => {
-    inserted = await outline().handlers.onFiles(
-      uidOf("tuid-d101"), 0, [png("one.png")]);
+    inserted = await outline().handlers.onFiles(uidOf("tuid-d101"), [png("one.png")]);
   });
 
   expect(inserted).toBe(false);
@@ -355,7 +354,7 @@ describe("a page holding rows past the cap", () => {
     const outline = setup(sync, legacyTree());
     const deep = uidOf("tuid-L120");
     act(() => outline().handlers.onFocusBlock(deep, 4));
-    act(() => outline().handlers.onDraftStart(deep, "L120"));
+    act(() => { outline().handlers.onDraftStart(deep, "L120"); });
     act(() => outline().handlers.onDraftChange(deep, "deep edit"));
     act(() => { outline().handlers.onFlushDraft(); });
     expect(sync.sent).toEqual([[

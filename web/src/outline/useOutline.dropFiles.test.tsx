@@ -14,8 +14,7 @@ import {
   orderIdxOf,
   shaOf,
   uidOf,
-  type SyncFake,
-} from "../test-helpers";
+  type SyncFake, confirmYes} from "../test-helpers";
 import type { DropTarget } from "./dnd";
 import { resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
@@ -23,7 +22,7 @@ import { useOutline, type Outline } from "./useOutline";
 function Harness({ initial, onReady }: {
   initial: BlockNode[]; onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf("Page"), initial);
+  const outline = useOutline(canonicalTitleOf("Page"), initial, confirmYes);
   useEffect(() => onReady(outline));
   return (
     <div>{outline.blocks.map((b) => <div key={b.uid} data-uid={b.uid} />)}</div>);

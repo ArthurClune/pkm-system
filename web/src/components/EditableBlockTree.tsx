@@ -104,9 +104,9 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   // change event would never dispatch. This one input is shared across every
   // block, with the pending target recorded here.
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const uploadTargetRef = useRef<{ uid: BlockUid; at: number } | null>(null);
-  const requestUpload = useCallback((uid: BlockUid, at: number) => {
-    uploadTargetRef.current = { uid, at };
+  const uploadTargetRef = useRef<BlockUid | null>(null);
+  const requestUpload = useCallback((uid: BlockUid) => {
+    uploadTargetRef.current = uid;
     fileInputRef.current?.click();
   }, []);
   const onPickUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -115,7 +115,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     const target = uploadTargetRef.current;
     uploadTargetRef.current = null;
     if (files.length === 0 || !target) return;
-    void handlers.onFiles(target.uid, target.at, files);
+    void handlers.onFiles(target, files);
   };
   // The /link-local-file picker: tree-owned for the same reason as the upload
   // input (the pick blurs, and so unmounts, the block's BlockInput). State,
@@ -413,9 +413,9 @@ const EditableBlock = memo(function EditableBlock(
   focusChain: ReadonlySet<BlockUid>;
   handlers: OutlineHandlers; readOnly: boolean; fallback: boolean;
   /** Click the tree-owned upload input for `uid` once files are
-   * chosen (`at` is unused by uploads) — see EditableBlockTree for why the
-   * input can't live in BlockInput itself. */
-  onRequestUpload: (uid: BlockUid, at: number) => void;
+   * chosen — see EditableBlockTree for why the input can't live in
+   * BlockInput itself. */
+  onRequestUpload: (uid: BlockUid) => void;
   /** Open the tree-owned local file picker for `uid`, splicing at `at`. */
   onRequestLocalFile: (uid: BlockUid, at: number) => void;
   viewMode: EffectiveBlockView;

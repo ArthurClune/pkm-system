@@ -7,7 +7,7 @@ import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { BATCH_TOO_LARGE_NOTICE } from "../sync/batchLimits";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, orderIdxOf, type SyncFake, canonicalTitleOf, uidOf } from "../test-helpers";
+import { block, makeSync, orderIdxOf, type SyncFake, canonicalTitleOf, uidOf, confirmYes } from "../test-helpers";
 import { resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -24,7 +24,7 @@ function Harness({ titleText, initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf(titleText), initial);
+  const outline = useOutline(canonicalTitleOf(titleText), initial, confirmYes);
   useEffect(() => onReady(outline));
   return null;
 }

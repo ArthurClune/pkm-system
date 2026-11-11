@@ -14,8 +14,3 @@ export function goodlinksIdFromHref(href: string): GoodlinksId | null {
   const m = GOODLINKS_HREF_RE.exec(href);
   return m ? m[1] as GoodlinksId : null;
 }
-
-// The server's 503 detail for a refused API token. The reader and the
-// /goodlinks notice each word the ordinary 503 ("not running") their own
-// way, and show only this one detail exactly as the server sent it.
-export const UNAUTHORIZED_DETAIL = "Goodlinks rejected the API token";

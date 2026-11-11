@@ -150,7 +150,7 @@ it("pins a token-based authoritative read across release and reacquire", () => {
   const first = acquireOutlineSession(
     rawTitleOf("Pinned manual read"), [block("tuid-u1", "before read")],
   );
-  const token = first.beginAuthoritativeRead("parent");
+  const token = first.beginAuthoritativeRead();
   first.release();
 
   const reopened = acquireOutlineSession(
@@ -167,7 +167,7 @@ it("cancels a failed token-based read so the session can be collected", () => {
   const first = acquireOutlineSession(
     rawTitleOf("Cancelled manual read"), [block("tuid-u1", "before read")],
   );
-  const token = first.beginAuthoritativeRead("parent");
+  const token = first.beginAuthoritativeRead();
   first.cancelAuthoritativeRead(token);
   first.release();
 
@@ -251,8 +251,8 @@ it("a newer manual read expires an older handle reservation", () => {
     rawTitleOf("Manual supersession"), [block("tuid-u1", "old")],
   );
   const second = acquireOutlineSession(rawTitleOf("Manual supersession"), null);
-  const oldToken = first.beginAuthoritativeRead("parent");
-  const newToken = second.beginAuthoritativeRead("resync");
+  const oldToken = first.beginAuthoritativeRead();
+  const newToken = second.beginAuthoritativeRead();
   second.receiveAuthoritative(newToken, [block("tuid-u1", "new")]);
   first.release();
   second.release();
@@ -271,8 +271,8 @@ it("an expired unbootstrapped parent cannot reset the newer manual read", () => 
   const title = rawTitleOf("Overlapping empty parents");
   const older = acquireOutlineSession(title, null);
   const newer = acquireOutlineSession(title, null);
-  const olderToken = older.beginAuthoritativeRead("parent");
-  const newerToken = newer.beginAuthoritativeRead("parent");
+  const olderToken = older.beginAuthoritativeRead();
+  const newerToken = newer.beginAuthoritativeRead();
 
   const olderAccepted = older.receiveAuthoritative(
     olderToken, [block("tuid-old", "expired")],
@@ -328,12 +328,12 @@ it("an existing-session bootstrap cannot overwrite an unresolved local write", a
 it("a genuine later bootstrap preserves monotonic manual request ids", () => {
   const title = rawTitleOf("Bootstrap request identity");
   const first = acquireOutlineSession(title, null);
-  const cancelled = first.beginAuthoritativeRead("parent");
+  const cancelled = first.beginAuthoritativeRead();
   first.cancelAuthoritativeRead(cancelled);
   const bootstrapped = acquireOutlineSession(
     title, [block("server", "genuine bootstrap")],
   );
-  const next = bootstrapped.beginAuthoritativeRead("parent");
+  const next = bootstrapped.beginAuthoritativeRead();
   const observed = {
     text: bootstrapped.getSnapshot().blocks[0]?.text,
     cancelledRequestId: cancelled.requestId,
@@ -353,7 +353,7 @@ it("an automatic read expires an older manual reservation", async () => {
   const session = acquireOutlineSession(
     rawTitleOf("Automatic supersession"), [block("tuid-u1", "old")],
   );
-  const oldToken = session.beginAuthoritativeRead("parent");
+  const oldToken = session.beginAuthoritativeRead();
   await session.requestAuthoritative(async () => [block("tuid-u1", "automatic")]);
   session.release();
 
@@ -381,9 +381,9 @@ it("routes a cross-page ticket to source and fallback target but not another tit
     id: ticketIdOf("cross-page"), scope: ["page", "Source", "Target"],
     settled: settled.promise, delivered: delivered.promise,
   }, []);
-  const sourceToken = source.beginAuthoritativeRead("parent");
-  const targetToken = target.beginAuthoritativeRead("parent");
-  const otherToken = other.beginAuthoritativeRead("parent");
+  const sourceToken = source.beginAuthoritativeRead();
+  const targetToken = target.beginAuthoritativeRead();
+  const otherToken = other.beginAuthoritativeRead();
 
   source.receiveAuthoritative(sourceToken, [block("tuid-s", "new source")]);
   target.receiveAuthoritative(targetToken, [block("tuid-t", "new target")]);
@@ -423,7 +423,7 @@ it("attaches an unresolved scoped ticket when its target session opens later", a
   );
   const loadTarget = vi.fn(async () => [block("tuid-u1", "post-delivery target")]);
   const removeLoader = target.setAuthoritativeLoader("editable", loadTarget);
-  const staleToken = target.beginAuthoritativeRead("cross-page-move");
+  const staleToken = target.beginAuthoritativeRead();
   target.receiveAuthoritative(staleToken, [block("tuid-u1", "pre-POST target")]);
 
   expect(target.getSnapshot().blocks[0].text).toBe("opened optimistic target");

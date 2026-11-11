@@ -6,7 +6,7 @@ import { expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import type { OutlineHandlers } from "../outline/handlers";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, orderIdxOf, canonicalTitleOf, uidOf } from "../test-helpers";
+import { block, makeSync, orderIdxOf, canonicalTitleOf, uidOf, confirmYes } from "../test-helpers";
 import { useOutline } from "../outline/useOutline";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { EditableBlockTree } from "./EditableBlockTree";
@@ -17,7 +17,7 @@ let handlers!: OutlineHandlers;
 let outline!: ReturnType<typeof useOutline>;
 
 function Page({ initial }: { initial: BlockNode[] }) {
-  const o = useOutline(canonicalTitleOf("Page"), initial);
+  const o = useOutline(canonicalTitleOf("Page"), initial, confirmYes);
   outline = o;
   handlers = o.handlers;
   return (

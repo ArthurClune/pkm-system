@@ -1,8 +1,11 @@
 // pattern: Functional Core
 // The suite's properties, stated over what the runner recorded. Each problem
 // names its property first (valid, meaning, silent, undoable, focus,
-// undo-stack, undo-all, redo-all) so a failing run says which one broke.
+// refusal, undo-stack, undo-all, redo-all) so a failing run says which one
+// broke.
 import type { BlockNode } from "../../api/payloads";
+import { textLimitViolation } from "../../grammar/textLimits";
+import { linkedTitleRefusal } from "../../replica/titles";
 import { takeRedo, takeUndo, type HistoryState } from "../../outline/history";
 import { applyOpsWithChange, blocksEqual } from "../../outline/tree";
 import { PAGE_TITLE } from "./arbitraries";
@@ -35,6 +38,11 @@ function changedProblems(step: Step): string[] {
     : "silent: its ops change nothing on the tree they ran on, but the tree after differs"];
 }
 
+/** A text the server refuses to store: past a text limit, or holding a
+ * ref to a title it refuses. */
+const refusable = (text: string): boolean =>
+  textLimitViolation(text) !== null || linkedTitleRefusal(text) !== null;
+
 /** A returned focus names a row that is shown, with its caret inside the
  * text. */
 function focusProblems(step: Step, afterRows: readonly Row[]): string[] {
@@ -64,7 +72,19 @@ export function stepProblems(step: Step): string[] {
 
   // A command with no visible row to act on is a noop.
   const baseRows = readingRows(step.base);
-  const expected = step.resolved ? expectedRows(baseRows, step.resolved) : { kind: "noop" as const };
+  const modelled = step.resolved ? expectedRows(baseRows, step.resolved) : { kind: "noop" as const };
+  // A refused command is a noop, but only when what the model expects it to
+  // store holds a text the server refuses that the command writes: a judge
+  // that refused more would otherwise turn every check of the command into
+  // a noop's.
+  const unchanged = new Set(baseRows.map((r) => `${r.uid}\n${r.text}`));
+  if (step.refused !== undefined
+      && !(modelled.kind === "rows"
+        && modelled.rows.some((r) => refusable(r.text) && !unchanged.has(`${r.uid}\n${r.text}`)))) {
+    problems.push(`refusal: refused (${step.refused}), but the model expects nothing the` +
+                  " server refuses");
+  }
+  const expected = step.refused === undefined ? modelled : { kind: "noop" as const };
   const diff = rowsDiff(expected.kind === "noop" ? baseRows : expected.rows, afterRows);
   if (diff) problems.push(`meaning: ${diff}`);
 

@@ -3,10 +3,12 @@
 // legal, and what move op a (boundary, depth) resolves to. The DOM shell
 // (useDropZone) only measures pixels and calls in here.
 import type { BlockUid, OrderIdx, CanonicalTitle } from "../api/brands";
+import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { MAX_OUTLINE_DEPTH } from "./depthCap";
 import { groupMoveOps } from "./edits";
-import { FIRST_ORDER_IDX, orderIdxAfter } from "./orderIdx";
+import { FIRST_ORDER_IDX, orderIdxAfter, orderIdxPlus } from "./orderIdx";
+import type { OutlineReplayAction } from "./outlineState";
 import { applyOps, locate } from "./tree";
 
 export const INDENT_PX = 30; // .block-children: 22px margin-left + 8px padding
@@ -157,4 +159,52 @@ export function resolveDrop(blocks: BlockNode[], pageTitle: CanonicalTitle,
     if (shape(after) === shape(blocks)) return null;
   }
   return target;
+}
+
+export interface OutlineDndApi {
+  /** Move a group of blocks (a multi-block selection's roots, document
+   * order; a plain drag passes one uid) to the target as a contiguous run. */
+  moveTo(uids: BlockUid[], target: DropTarget): void;
+  /** Save the outline's pending draft; false when it may not be saved,
+   * and the drop must then move nothing out of that outline. */
+  flushDraft(): boolean;
+  removeSubtreeLocal(uid: BlockUid): BlockNode | null;
+  insertSubtreeLocal(node: BlockNode, target: DropTarget): void;
+  /** Show why a drop into or out of this outline was refused. */
+  refuse(notice: string): void;
+}
+
+/** Where one dragged block lands in another page. */
+export interface DropSlot { uid: BlockUid; target: DropTarget }
+
+/** The move ops for a drop onto another page, and the slot each block takes:
+ * block k lands before whatever then sits at order_idx + k, which keeps the
+ * run in selection order. */
+export function planCrossPageDrop(
+  uids: readonly BlockUid[], target: DropTarget,
+): { ops: BlockOp[]; slots: DropSlot[] } {
+  const slots = uids.map((uid, k) => ({
+    uid, target: { ...target, order_idx: orderIdxPlus(target.order_idx, k) },
+  }));
+  const ops = slots.map((s): BlockOp => ({
+    op: "move", uid: s.uid, parent_uid: s.target.parent_uid,
+    order_idx: s.target.order_idx, page_title: s.target.page_title,
+  }));
+  return { ops, slots };
+}
+
+/** The inserts that repair the target outline if the move's write is rolled
+ * back and re-read. A block the source outline did not hold (not mounted)
+ * has nothing to replay. */
+export function crossPageReplays(
+  slots: readonly DropSlot[], removed: ReadonlyMap<BlockUid, BlockNode>,
+): OutlineReplayAction[] {
+  const replays: OutlineReplayAction[] = [];
+  for (const { uid, target } of slots) {
+    const node = removed.get(uid);
+    if (node === undefined) continue;
+    replays.push({ type: "insert-subtree", node,
+                   parentUid: target.parent_uid, orderIdx: target.order_idx });
+  }
+  return replays;
 }

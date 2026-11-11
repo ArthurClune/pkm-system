@@ -30,9 +30,6 @@ export const SLASH_COMMANDS = [
   { name: "shell", label: "shell code block" },
   { name: "javascript", label: "javascript code block" },
   { name: "mermaid", label: "mermaid diagram" },
-  // "upload" has no text transform: picking it strips the trigger and opens a
-  // file picker (handled in BlockInput), then puts each upload in its own
-  // block.
   { name: "upload", label: "upload file…" },
   { name: "h1", label: "heading 1" },
   { name: "h2", label: "heading 2" },
@@ -46,23 +43,13 @@ export const SLASH_COMMANDS = [
   // calls new Date() itself).
   { name: "today", label: "link to today" },
   { name: "tomorrow", label: "link to tomorrow" },
-  // "date" has no text transform: picking it strips the trigger and opens
-  // the inline date picker (handled in BlockInput), which then splices the
-  // [[daily-note]] link at the recorded offset.
   { name: "date", label: "link to a date…" },
-  // "goodlinks" has no text transform: picking it strips the trigger, blurs
-  // the block like /upload, and asks useOutline to resolve the nearest URL
-  // against GoodLinks (saving it there if absent) and splice the attribute.
   { name: "goodlinks", label: "link to goodlinks copy" },
-  // "link-local-file" has no text transform either: picking it strips the
-  // trigger, blurs the block like /upload, and opens the tree-owned local
-  // file picker, whose choice is spliced in as a `Local copy::` attribute.
   { name: "link-local-file", label: "link to local file…" },
 ] as const;
 
-/** Every command name SLASH_COMMANDS lists. HEADING_COMMANDS' keys are
- * checked against it; applySlashCommand and BlockInput's pick match bare
- * strings, so the compiler does not check their cases. */
+/** Every command name SLASH_COMMANDS lists. applySlashCommand's switch and
+ * planPick take it, so the compiler checks their cases. */
 export type SlashCommandName = (typeof SLASH_COMMANDS)[number]["name"];
 
 export interface SlashCommand {
@@ -80,15 +67,12 @@ const HEADING_COMMANDS: Partial<Record<SlashCommandName, HeadingLevel | null>> =
 
 /** What heading a /hN or /normal pick should set, given the block's current
  * heading. Returns undefined for commands that aren't heading commands (the
- * caller should fall back to a plain text transform). `command` is a bare
- * string, not SlashCommandName: it comes from the generic autocomplete row
- * (AcRow.command), shared with ref/tag rows that aren't slash commands at
- * all. */
+ * caller should fall back to a plain text transform). */
 export function resolveHeading(
-  command: string, current: HeadingLevel | null,
+  command: SlashCommandName, current: HeadingLevel | null,
 ): HeadingLevel | null | undefined {
-  if (!(command in HEADING_COMMANDS)) return undefined;
-  const target = HEADING_COMMANDS[command as SlashCommandName] as HeadingLevel | null;
+  const target = HEADING_COMMANDS[command];
+  if (target === undefined) return undefined;
   return target === null ? null : current === target ? null : target;
 }
 
@@ -125,13 +109,14 @@ function applyTodoPrefix(content: string): { text: string; cursor: number } {
  * {{query: ...}} the user might type by hand. The clause skeleton itself
  * must still match the server's parse_query grammar (server/src/pkm/server/
  * query.py) once real [[Page]] operands are dropped in. */
-const QUERY_EXPRESSIONS: Record<string, string> = {
+type QueryCommand = "query-and" | "query-or" | "query-and-not";
+const QUERY_EXPRESSIONS: Record<QueryCommand, string> = {
   "query-and": "{and: A B}",
   "query-or": "{or: A B}",
   "query-and-not": "{and: A {not: B}}",
 };
 
-function queryPlaceholder(command: string, content: string): { text: string; cursor: number } {
+function queryPlaceholder(command: QueryCommand, content: string): { text: string; cursor: number } {
   if (content.trim()) return { text: content, cursor: content.length };
   const text = "{{query: " + QUERY_EXPRESSIONS[command] + "}}";
   return { text, cursor: text.length };
@@ -172,11 +157,12 @@ export function stripTrigger(text: string, caret: number,
 
 /** Remove the "/query" trigger and apply `command`'s transform to what's
  * left. Heading commands (h1/h2/h3/normal) have no text transform of their
- * own — they fall through to the default (trigger stripped, nothing else)
- * because the heading field itself is set separately via resolveHeading
- * and a SetHeadingOp. */
+ * own: the heading field itself is set separately via resolveHeading and a
+ * SetHeadingOp. The commands that hand off to a picker (upload, date,
+ * goodlinks, link-local-file) leave only the stripped text. */
 export function applySlashCommand(
-  text: string, cursor: number, ctx: AcContext, command: string, now: Date,
+  text: string, cursor: number, ctx: AcContext, command: SlashCommandName,
+  now: Date,
 ): { text: string; cursor: number } {
   const content = stripTrigger(text, cursor, ctx).text;
   switch (command) {
@@ -192,6 +178,40 @@ export function applySlashCommand(
     case "tomorrow":
       return dailyLink(content, ctx.start - 1,
         new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
-    default: return { text: content, cursor: content.length };
+    case "h1": case "h2": case "h3": case "normal":
+    case "upload": case "date": case "goodlinks": case "link-local-file":
+      return { text: content, cursor: content.length };
+    default: {
+      const exhaustive: never = command;
+      return exhaustive;
+    }
+  }
+}
+
+/** What picking a command row does to the block. `text` is a transform (and,
+ * for a heading command, `heading` is the level to set; undefined when the
+ * command is not a heading command). The others strip the trigger and leave
+ * the rest to a picker the shell opens, in the order the shell runs them. */
+export type SlashPick =
+  | { kind: "text"; text: string; cursor: number;
+      heading: HeadingLevel | null | undefined }
+  | { kind: "date-picker"; text: string; at: number }
+  | { kind: "hand-off"; text: string; at: number;
+      to: "upload" | "goodlinks" | "local-file" };
+
+export function planPick(
+  command: SlashCommandName, text: string, caret: number, ctx: AcContext,
+  heading: HeadingLevel | null, now: Date,
+): SlashPick {
+  switch (command) {
+    case "upload": return { kind: "hand-off", ...stripTrigger(text, caret, ctx), to: "upload" };
+    case "goodlinks":
+      return { kind: "hand-off", ...stripTrigger(text, caret, ctx), to: "goodlinks" };
+    case "link-local-file":
+      return { kind: "hand-off", ...stripTrigger(text, caret, ctx), to: "local-file" };
+    case "date": return { kind: "date-picker", ...stripTrigger(text, caret, ctx) };
+    default:
+      return { kind: "text", ...applySlashCommand(text, caret, ctx, command, now),
+               heading: resolveHeading(command, heading) };
   }
 }

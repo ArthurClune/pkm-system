@@ -12,8 +12,7 @@ import {
   orderIdxOf,
   type SyncFake,
   canonicalTitleOf,
-  uidOf,
-} from "../test-helpers";
+  uidOf, confirmYes} from "../test-helpers";
 import type { DropTarget } from "./dnd";
 import * as undoManager from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
@@ -21,7 +20,7 @@ import { useOutline, type Outline } from "./useOutline";
 function Harness({ initial, onReady }: {
   initial: BlockNode[]; onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf("Page"), initial);
+  const outline = useOutline(canonicalTitleOf("Page"), initial, confirmYes);
   useEffect(() => onReady(outline));
   return null;
 }
@@ -61,7 +60,7 @@ function recorded() {
 it("/upload of a fresh file records its sha", async () => {
   const seen = recorded();
   const o = setup(makeSync(), AB());
-  await act(async () => { await o().handlers.onFiles(uidOf("tuid-a"), 5, [png("cat.png")]); });
+  await act(async () => { await o().handlers.onFiles(uidOf("tuid-a"), [png("cat.png")]); });
   expect(seen()).toEqual([[digestOf("cat.png")]]);
 });
 
@@ -69,7 +68,7 @@ it("a mixed batch records only the fresh sha", async () => {
   const seen = recorded();
   const o = setup(makeSync(), AB());
   await act(async () => {
-    await o().handlers.onFiles(uidOf("tuid-a"), 5, [png("old.png"), png("new.png")]);
+    await o().handlers.onFiles(uidOf("tuid-a"), [png("old.png"), png("new.png")]);
   });
   expect(seen()).toEqual([[digestOf("new.png")]]);
 });
@@ -77,7 +76,7 @@ it("a mixed batch records only the fresh sha", async () => {
 it("a dedup-only upload records no fresh assets", async () => {
   const seen = recorded();
   const o = setup(makeSync(), AB());
-  await act(async () => { await o().handlers.onFiles(uidOf("tuid-a"), 5, [png("old.png")]); });
+  await act(async () => { await o().handlers.onFiles(uidOf("tuid-a"), [png("old.png")]); });
   expect(seen()).toEqual([[]]);
 });
 

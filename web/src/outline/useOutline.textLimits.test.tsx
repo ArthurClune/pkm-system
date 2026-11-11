@@ -14,7 +14,7 @@ import { TITLE_SYNTAX_NOTICE } from "../replica/titles";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, canonicalTitleOf, makeSync, orderIdxOf, type SyncFake,
-         uidOf } from "../test-helpers";
+         uidOf, confirmYes } from "../test-helpers";
 import { findNode } from "./tree";
 import { performUndo, resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
@@ -39,7 +39,7 @@ function Harness({ initial, onReady }: {
   initial: BlockNode[];
   onReady: (o: Outline) => void;
 }) {
-  const outline = useOutline(canonicalTitleOf(PAGE), initial);
+  const outline = useOutline(canonicalTitleOf(PAGE), initial, confirmYes);
   useEffect(() => onReady(outline));
   return null;
 }
@@ -140,7 +140,7 @@ it("a refused command still ships and applies the block's draft", () => {
   const sync = makeSync();
   const outline = setup(sync);
   act(() => outline().handlers.onFocusBlock(uidOf("tuid-big2"), 0));
-  act(() => outline().handlers.onDraftStart(uidOf("tuid-big2"), HALF));
+  act(() => { outline().handlers.onDraftStart(uidOf("tuid-big2"), HALF); });
   act(() => outline().handlers.onDraftChange(uidOf("tuid-big2"), `${HALF}!`));
 
   act(() => outline().handlers.onBackspaceAtStart(uidOf("tuid-big2")));

@@ -12,8 +12,10 @@ web/src/outline/
 ├── handlers.ts              —      OutlineHandlers, the command port (types only)
 ├── useOutline.ts            Shell  Implements OutlineHandlers: drafts, run(), uploads
 ├── outlineSessions.ts       Shell  Per-title shared sessions and loader election
-├── outlineState.ts          Core   transitionOutline, the session reducer; the draft
-│                                   core (PendingDraft, captureDraft, pendingTextOps)
+├── outlineState.ts          Core   transitionOutline, the session reducer
+├── draft.ts                 Core   PendingDraft, openDraft, pendingTextOps
+├── command.ts               Core   planCommand, planReplay: what useOutline.run and
+│                                   the undo dispatch compose, and the property runner too
 ├── droppedDrafts.ts         Shell  Refused drafts kept for the app-level notice
 ├── depthCap.ts              Core   MAX_OUTLINE_DEPTH and findDepthViolation
 ├── parentReadElection.ts,   Shell  Who starts a title's next parent read; the
@@ -147,8 +149,11 @@ second click on one entry jumps again.
 
 Everything the UI can ask the editor to do is the `OutlineHandlers` port in
 `outline/handlers.ts`. `useOutline` implements it; `EditableBlockTree`,
-`EditableBlock` and `BlockInput` only call it, so the engine never imports a
-type from UI code.
+`EditableBlock` and `BlockInput` only call it, so the engine never imports
+UI code. An eslint ban on `src/outline/**` keeps that true, so a type the
+engine needs from a component moves into `outline/`. The large-selection
+delete confirm is passed into `useOutline`; `EditablePage` owns `useConfirm`
+and renders its dialog.
 
 No component holds block-tree state. The most any owns is `BlockInput`'s draft
 of one block, which `outline/useBlockDraft.ts` tracks with IME composition and
@@ -227,7 +232,7 @@ half-typed `[[ref` or `#tag`, so autosave cannot create a page from a partial
 title.
 
 **A draft's `base` is the text the textarea showed, and a flush hashes `base`,
-never the tree.** A `PendingDraft` (`outline/outlineState.ts`) is
+never the tree.** A `PendingDraft` (`outline/draft.ts`) is
 `{ uid, text, base }`. A remote batch can reach the tree before the textarea
 adopts it, and a dirty textarea never adopts it. Hashing `base` lets the server keep
 both texts when another device edited from the same base.
@@ -241,8 +246,8 @@ sends nothing leaves the tree's text unchanged and gives it no other cue.
 
 | When | Rule |
 |---|---|
-| A clean draft's first edit | `onDraftStart` reports the shown text, which `captureDraft` keeps as `base` |
-| Undo, redo, or an upload that fills the focused (empty) block | `BlockInput` calls `settle()`, so the draft adopts the tree's text. An undo or redo that a refused draft stopped (`onUndo` returns false) does not settle |
+| A clean draft's first edit | `onDraftStart` opens the draft on the shown text, its `base`, unless another block's refused draft stays, and then it returns false and `useBlockDraft` drops the edit instead of showing it. `onDraftChange` only changes `text`, and records nothing when no draft is open for its block |
+| Undo, redo, or an upload that fills the focused (empty) block | the textarea adopts the tree's text whenever no draft is pending, so the tree's new text lands. When a draft was pending, its end (`subscribeDraftEnd`) re-runs adoption even if the tree's text ends where it started. An undo or redo that a refused draft stopped (`onUndo` returns false) leaves the draft open |
 | Focus or a new draft moves to another block | the old draft flushes first. A block a remote batch removes unmounts with no blur, so nothing else would flush it. A refused draft is the exception (below) |
 | A remote batch reparents the block or an ancestor | the textarea remounts with no blur. `BlockInput` reads `handlers.pendingDraft(uid)` at mount and resumes it dirty with its base, and restores the selection the old textarea reported (`onInputUnmount`) |
 | A parent passes a new `initial` | the draft flushes first, so the parent tree waits for that write |
@@ -254,7 +259,6 @@ sends nothing leaves the tree's text unchanged and gives it no other cue.
 | `text === base`, or the tree already holds `text` | nothing |
 | block in the tree, text changed | `update_text` with `base_text_hash` of `base`, plus `page_title` |
 | block gone (remote delete, cross-page move) | the same op. The server applies it on the block's new page, or lands an edit to a deleted block on today's daily note |
-| `base` is `null` | `update_text` with `page_title`; `stampBaseTextHashes` hashes it like any op |
 
 A held draft has no armed timer, and React delivers no blur for a node it
 removes. So `useOutline` flushes on unmount, for navigation the editor never
@@ -399,7 +403,8 @@ legacy subtree too tall for any depth: it still gets the shallowest, which
 `run()` or the server refuses. The subtree's height travels in
 `BlockDragSource.height`, measured at drag start, so a drop on another
 page needs no source tree. That is the only depth check a cross-page drop
-meets, since `DndProvider` moves it without `run()`.
+meets. `DndProvider` plans it with `planCrossPageDrop`, judges it with
+`editRefusal`, and does not record it in history.
 
 | Files drag | Rule |
 |---|---|

@@ -2,15 +2,12 @@
 // Causality for one title's shared outline. The shell supplies ticket ids,
 // read tokens, and I/O; this module only decides whether a tree is safe to
 // adopt and whether settlement requires a fresh authoritative read.
-import type { BlockUid, OrderIdx, CanonicalTitle, RawTitle } from "../api/brands";
+import type { BlockUid, OrderIdx, RawTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
-import type { BlockOp, UpdateTextOp } from "../api/ops";
-import { sha256Hex } from "../replica/sha256";
+import type { BlockOp } from "../api/ops";
 import type { TicketId } from "../sync/opQueue";
-import { clampCaret, type FocusTarget } from "./edits";
-import { snapCaret, type TextSelection } from "./keyEdits";
-import { ancestorChain, applyOps, applyOpsWithChange, blocksEqual, findNode,
-         hidesChildren, insertSubtree } from "./tree";
+import { applyOps, applyOpsWithChange, blocksEqual, findNode,
+         insertSubtree } from "./tree";
 import { bumpedUids } from "./blockStamps";
 
 // Distinct web-only brands for ReadToken's two same-typed counters. Both are
@@ -338,107 +335,4 @@ export function transitionOutline(
       throw new Error(`unhandled outline event: ${String(exhaustive)}`);
     }
   }
-}
-
-/** The focus this tree can show: null when the block is gone; its nearest
- * visible ancestor (the outermost one that hides its children), caret at the
- * end of its text, when the block is hidden; otherwise the same block with
- * its caret clamped to the text and moved off the middle of a surrogate pair.
- * A focus that already holds comes back as the same object. */
-export function validateOutlineFocus(
-  focus: FocusTarget | null,
-  blocks: BlockNode[],
-): FocusTarget | null {
-  if (!focus) return null;
-  let siblings = blocks;
-  for (const uid of ancestorChain(blocks, focus.uid)) {
-    // The chain is a root-to-block path through this tree, so each uid is
-    // among the children of the one before it.
-    const node = siblings.find((n) => n.uid === uid)!;
-    if (uid === focus.uid) {
-      // Snapped as well as clamped: a caret kept across a remote edit or
-      // restored by undo can land inside a surrogate pair, where typing
-      // would leave both halves lone (saved as U+FFFD).
-      const cursor = snapCaret(node.text, clampCaret(focus.cursor, node.text.length));
-      return cursor === focus.cursor ? focus : { uid, cursor };
-    }
-    if (hidesChildren(node)) return { uid, cursor: node.text.length };
-    siblings = node.children;
-  }
-  return null;
-}
-
-/** An editor draft: the text typed into one block, and the text that block
- * held when typing started (`null` when the tree lacked the block then). */
-export interface PendingDraft {
-  uid: BlockUid;
-  text: string;
-  base: string | null;
-}
-
-/** The text an editor showed for a block when its user typed over it. It can
- * differ from the tree's text: a remote batch reaches the tree before the
- * textarea adopts it, and a dirty textarea never adopts it at all. */
-export interface ShownText {
-  uid: BlockUid;
-  base: string;
-}
-
-/** Record a draft change. The base is captured on the draft's first change
- * and kept across later keystrokes, even when a remote batch has since
- * changed the tree under it; a change to a different block starts over. A
- * new draft's base is the text the editor showed for that block when one is
- * known, since that is the text the user typed over; the tree's text is the
- * fallback. */
-export function captureDraft(
-  prev: PendingDraft | null,
-  uid: BlockUid,
-  text: string,
-  blocks: BlockNode[],
-  shown: ShownText | null = null,
-): PendingDraft {
-  if (prev?.uid === uid) return { uid, text, base: prev.base };
-  if (shown?.uid === uid) return { uid, text, base: shown.base };
-  return { uid, text, base: findNode(blocks, uid)?.text ?? null };
-}
-
-/** The text op a draft flushes. It carries the hash of the text the draft was
- * typed over (its base), not of whatever the tree holds now, so a remote edit
- * that landed under the draft forks a conflict copy instead of being
- * overwritten. It ships even when the block has left this tree (a remote
- * delete or cross-page move): the server applies it wherever the block now
- * lives, and lands an edit to a deleted block on today's daily note. Empty
- * only when nothing changed (the text equals the base) or the tree already
- * holds the text. A draft with no base carries just page_title, and
- * stampBaseTextHashes hashes it as it would any op. */
-export function pendingTextOps(
-  pending: PendingDraft | null,
-  blocks: BlockNode[],
-  pageTitle: CanonicalTitle,
-): UpdateTextOp[] {
-  if (!pending) return [];
-  const { uid, text, base } = pending;
-  if (text === base) return [];
-  const node = findNode(blocks, uid);
-  if (node && node.text === text) return [];
-  return [{
-    op: "update_text", uid, text,
-    ...(base !== null ? { base_text_hash: sha256Hex(base) } : {}),
-    page_title: pageTitle,
-  }];
-}
-
-/** Splice markdown (a /goodlinks or /link-local-file attribute) into a block's
- * text at the recorded caret, clamped to the current length (the user may have
- * kept typing during a slow upload). Returns the new text plus the caret
- * placed after the insertion. */
-export function spliceUploadedMarkdown(
-  text: string,
-  requestedOffset: number,
-  markdown: string,
-): TextSelection {
-  const at = snapCaret(text, Math.min(requestedOffset, text.length));
-  const spliced = text.slice(0, at) + markdown + text.slice(at);
-  const caret = at + markdown.length;
-  return { text: spliced, selStart: caret, selEnd: caret };
 }

@@ -9,6 +9,7 @@ import type { DropTarget } from "../outline/dnd";
 import { selectionDragUids } from "../outline/blockSelection";
 import { subtreeHeight } from "../outline/depthCap";
 import { findNode, hidingAncestors } from "../outline/tree";
+import { useConfirm } from "../components/ConfirmDialog";
 import { useOutline } from "../outline/useOutline";
 
 /** One editable outline (a page body or a journal day).
@@ -44,7 +45,8 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
   // useOutline acquires and claims in one layout effect. That keeps render
   // pure, makes the initial render a safe fallback, and avoids an intermediate
   // committed fallback DOM after the lease is already available.
-  const outline = useOutline(title, initial, ownerRef.current);
+  const { confirm, dialog } = useConfirm();
+  const outline = useOutline(title, initial, confirm, ownerRef.current);
   const ownsEditor = outline.ownsEditor;
   // Set by the tree when the /link-local-file picker chunk fails to load.
   const [pickerNotice, setPickerNotice] = useState<string | null>(null);
@@ -178,7 +180,7 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
         <div className="drop-indicator"
              style={{ top: indicator.top, left: indicator.left }} />
       )}
-      {outline.dialog}
+      {dialog}
     </div>
   );
 }

@@ -2,8 +2,10 @@ import { describe, expect, test } from "vitest";
 import { extractRefs } from "../grammar/refs";
 import { toggleTodo } from "../grammar/todo";
 import { tokenizeBlock } from "../grammar/tokenize";
-import { applySlashCommand, matchSlashCommands, resolveHeading,
-         SLASH_COMMANDS } from "./slashCommands";
+import { typeProbe } from "../test-helpers";
+import type { AcContext } from "./autocomplete";
+import { applySlashCommand, matchSlashCommands, planPick, resolveHeading,
+         SLASH_COMMANDS, type SlashCommandName } from "./slashCommands";
 
 const NOW = new Date(2026, 6, 29);
 
@@ -138,7 +140,7 @@ describe("query", () => {
   // merely from picking the command. The user is expected to replace them
   // with real [[Page]] links.
   test("query placeholders never contain a real [[...]] page-ref", () => {
-    for (const command of ["query-and", "query-or", "query-and-not"]) {
+    for (const command of ["query-and", "query-or", "query-and-not"] as const) {
       const { text } = applySlashCommand(`/${command}`, command.length + 1,
         { kind: "command", start: 1, query: command }, command, NOW);
       expect(extractRefs(text).refs).toEqual([]);
@@ -291,4 +293,44 @@ test("/link-local-file is the last command and matches by prefix", () => {
   expect(SLASH_COMMANDS[SLASH_COMMANDS.length - 1]).toEqual(command);
   expect(matchSlashCommands("link")).toEqual([command]);
   expect(matchSlashCommands("good")).toEqual([{ name: "goodlinks", label: "link to goodlinks copy" }]);
+});
+
+describe("planPick", () => {
+  const ctxOf = (command: string): AcContext =>
+    ({ kind: "command", start: 1, query: command });
+  const pick = (command: SlashCommandName, heading: 1 | 2 | 3 | null = null) =>
+    planPick(command, `/${command}`, command.length + 1, ctxOf(command),
+             heading, NOW);
+
+  test.each([
+    ["upload", "upload"],
+    ["goodlinks", "goodlinks"],
+    ["link-local-file", "local-file"],
+  ] as const)("/%s hands off to %s with the trigger stripped", (command, to) => {
+    expect(pick(command)).toEqual({ kind: "hand-off", text: "", at: 0, to });
+  });
+
+  test("/date opens the picker where the trigger was", () => {
+    expect(planPick("date", "on /date", 8,
+             { kind: "command", start: 4, query: "date" }, null, NOW))
+      .toEqual({ kind: "date-picker", text: "on ", at: 3 });
+  });
+
+  test("a heading command on a block already at that level clears it", () => {
+    expect(pick("h2", 2)).toEqual({ kind: "text", text: "", cursor: 0, heading: null });
+  });
+
+  test("a heading command on another level sets it", () => {
+    expect(pick("h1", 2)).toMatchObject({ kind: "text", heading: 1 });
+  });
+
+  test("a command that is not a heading leaves the heading alone", () => {
+    expect(pick("todo")).toEqual(
+      { kind: "text", text: "{{TODO}} ", cursor: 9, heading: undefined });
+  });
+
+  typeProbe(() => {
+    // @ts-expect-error -- not a command
+    planPick("nope", "/nope", 5, ctxOf("nope"), null, NOW);
+  });
 });

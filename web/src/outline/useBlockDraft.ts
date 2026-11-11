@@ -80,8 +80,9 @@ export interface BlockDraftOptions {
    * half-typed title. */
   onEdit(text: string, holdFlush: boolean): void;
   /** Called before the first onEdit of a clean draft with the text the
-   * textarea showed until then: the text the user is typing over. */
-  onDirty(shown: string): void;
+   * textarea showed until then: the text the user is typing over. False
+   * when the outline did not open a draft; the edit is then dropped. */
+  onDirty(shown: string): boolean;
   /** Called when committed text is adopted over the draft: the replacement
    * text invalidates any offset into the old text the caller remembered. */
   onAdopt(): void;
@@ -117,12 +118,6 @@ export interface BlockDraft {
    * alone: one sent mid-composition, or the keystroke that ended one. Call
    * it once per keydown, since it consumes the composition just ended. */
   imeOwns(e: ImeKeydown): boolean;
-  /** The draft has been committed and the tree has since changed this block
-   * for the user (undo, redo, an upload filling it): adopt the tree's text
-   * once it has rendered. Without it, the textarea would keep showing the old
-   * text, and the next draft would be typed over text the tree no longer
-   * holds. */
-  settle(): void;
 }
 
 export function useBlockDraft(
@@ -224,8 +219,8 @@ export function useBlockDraft(
     onAdoptRef.current();
     setDraft(text);
   };
-  // settle() and the end of the pending draft bump this so adoption also runs
-  // when the tree's text for this block ends up where it started (an undo of
+  // The end of the pending draft bumps this so adoption also runs when the
+  // tree's text for this block ends up where it started (an undo of
   // a draft that had not yet reached the tree, or a flush that sent nothing
   // while remote text landed under the draft), which leaves `text` unchanged.
   const [settled, setSettled] = useState(0);
@@ -252,9 +247,7 @@ export function useBlockDraft(
   // draftRef, not the tree's text: until the adoption effect has run, the
   // textarea still shows the text before a remote change, and that is what
   // the user is typing over.
-  const markDirty = () => {
-    if (!dirty()) onDirty(draftRef.current);
-  };
+  const markDirty = (): boolean => dirty() || onDirty(draftRef.current);
 
   const admit = (next: string, heldCaret: number | null): boolean => {
     // The text limits first: the ref scan must never read past them.
@@ -280,7 +273,7 @@ export function useBlockDraft(
     text: draft,
     admit,
     typed: (next, holdFlush) => {
-      markDirty();
+      if (!markDirty()) return;
       setDraft(next);
       onEdit(next, holdFlush);
     },
@@ -289,7 +282,7 @@ export function useBlockDraft(
           && !admit(next, holdFlush ? selEnd : null)) {
         return false;
       }
-      markDirty();
+      if (!markDirty()) return false;
       const el = ref.current;
       if (el && el.value === next) {
         // Selection-only edit (skipping over an auto-inserted closer): there
@@ -317,6 +310,5 @@ export function useBlockDraft(
       return e.keyCode === 229 && endedAt !== null
         && imeClock.now() - endedAt < IME_COMMIT_WINDOW_MS;
     },
-    settle: () => setSettled((n) => n + 1),
   };
 }

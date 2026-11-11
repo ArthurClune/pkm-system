@@ -9,11 +9,11 @@
 import type { BlockUid, CanonicalTitle, OrderIdx } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, SetHeadingOp, SetViewTypeOp } from "../api/ops";
-import { type CaretOffset, snapCaret } from "./keyEdits";
+import { type CaretOffset, snapCaret, type TextSelection } from "./keyEdits";
 import { FIRST_ORDER_IDX, orderIdxAfter, orderIdxAfterLast,
          orderIdxPlus } from "./orderIdx";
-import { applyOps, findNode, hidingAncestors, locate, selectionRoots,
-         visibleNeighbor } from "./tree";
+import { ancestorChain, applyOps, findNode, hidesChildren, hidingAncestors,
+         locate, selectionRoots, visibleNeighbor } from "./tree";
 
 export interface FocusTarget {
   uid: BlockUid;
@@ -542,4 +542,47 @@ export function setViewType(blocks: BlockNode[], pageTitle: CanonicalTitle,
   if (!node || (node.view_type ?? "document") === viewType) return noop(blocks);
   return done(blocks, pageTitle,
               [{ op: "set_view_type", uid, view_type: viewType }], null);
+}
+
+/** The focus this tree can show: null when the block is gone; its nearest
+ * visible ancestor (the outermost one that hides its children), caret at the
+ * end of its text, when the block is hidden; otherwise the same block with
+ * its caret clamped to the text and moved off the middle of a surrogate pair.
+ * A focus that already holds comes back as the same object. */
+export function validateOutlineFocus(
+  focus: FocusTarget | null,
+  blocks: BlockNode[],
+): FocusTarget | null {
+  if (!focus) return null;
+  let siblings = blocks;
+  for (const uid of ancestorChain(blocks, focus.uid)) {
+    // The chain is a root-to-block path through this tree, so each uid is
+    // among the children of the one before it.
+    const node = siblings.find((n) => n.uid === uid)!;
+    if (uid === focus.uid) {
+      // Snapped as well as clamped: a caret kept across a remote edit or
+      // restored by undo can land inside a surrogate pair, where typing
+      // would leave both halves lone (saved as U+FFFD).
+      const cursor = snapCaret(node.text, clampCaret(focus.cursor, node.text.length));
+      return cursor === focus.cursor ? focus : { uid, cursor };
+    }
+    if (hidesChildren(node)) return { uid, cursor: node.text.length };
+    siblings = node.children;
+  }
+  return null;
+}
+
+/** Splice markdown (a /goodlinks or /link-local-file attribute) into a block's
+ * text at the recorded caret, clamped to the current length (the user may have
+ * kept typing during a slow upload). Returns the new text plus the caret
+ * placed after the insertion. */
+export function spliceUploadedMarkdown(
+  text: string,
+  requestedOffset: number,
+  markdown: string,
+): TextSelection {
+  const at = snapCaret(text, Math.min(requestedOffset, text.length));
+  const spliced = text.slice(0, at) + markdown + text.slice(at);
+  const caret = at + markdown.length;
+  return { text: spliced, selStart: caret, selEnd: caret };
 }

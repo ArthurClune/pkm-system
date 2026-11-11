@@ -1,19 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
-import { sha256Hex } from "../replica/sha256";
 import {
   block, orderIdxOf, uidOf, requestIdOf, ticketIdOf, typeProbe, rawTitleOf,
-  canonicalTitleOf,
 } from "../test-helpers";
 import {
   beginAuthoritativeRead,
-  captureDraft,
   createOutlineState,
-  pendingTextOps,
-  spliceUploadedMarkdown,
   transitionOutline,
-  validateOutlineFocus,
   type ReadToken,
 } from "./outlineState";
 import { findNode } from "./tree";
@@ -202,72 +196,6 @@ describe("outline causality", () => {
     expect(result.state.deferredAuthoritative).toBeNull();
   });
 
-  it("invalidates focus when an adopted tree no longer contains its uid", () => {
-    expect(validateOutlineFocus(
-      { uid: uidOf("tuid-gone"), cursor: 2 }, [block("tuid-kept", "text")],
-    )).toBeNull();
-    expect(validateOutlineFocus(
-      { uid: uidOf("tuid-kept"), cursor: 2 }, [block("tuid-kept", "text")],
-    )).toEqual({ uid: "tuid-kept", cursor: 2 });
-  });
-
-  it("keeps a valid focus as the same object", () => {
-    const focus = { uid: uidOf("tuid-kept"), cursor: 2 };
-    expect(validateOutlineFocus(focus, [block("tuid-kept", "text")])).toBe(focus);
-  });
-
-  it("snaps a caret off the middle of a surrogate pair", () => {
-    // `a😀b` is a, \uD83D, \uDE00, b: offset 2 splits the emoji, and text
-    // typed there would leave both halves lone (saved as U+FFFD).
-    expect(validateOutlineFocus(
-      { uid: uidOf("tuid-e"), cursor: 2 }, [block("tuid-e", "a\u{1F600}b")],
-    )).toEqual({ uid: "tuid-e", cursor: 1 });
-  });
-
-  it("clamps a caret past the end of the block's text", () => {
-    // Undo restores focus recorded on "x y" (caret 3) over the text "ab".
-    expect(validateOutlineFocus(
-      { uid: uidOf("tuid-u"), cursor: 3 }, [block("tuid-u", "ab")],
-    )).toEqual({ uid: "tuid-u", cursor: 2 });
-  });
-
-  it("moves focus hidden under a collapsed ancestor to that ancestor's end", () => {
-    // Split child c of p, collapse p, undo: focusBefore names c, now hidden.
-    const tree = [block("tuid-p", "parent", { collapsed: true, children: [
-      block("tuid-c", "child", { order_idx: orderIdxOf(0) }),
-    ] })];
-    expect(validateOutlineFocus({ uid: uidOf("tuid-c"), cursor: 1 }, tree))
-      .toEqual({ uid: "tuid-p", cursor: 6 });
-  });
-
-  it("moves hidden focus to the outermost collapsed ancestor, the one on screen", () => {
-    const tree = [block("tuid-g", "grand", { collapsed: true, children: [
-      block("tuid-p", "parent", { order_idx: orderIdxOf(0), collapsed: true, children: [
-        block("tuid-c", "child", { order_idx: orderIdxOf(0) }),
-      ] }),
-    ] })];
-    expect(validateOutlineFocus({ uid: uidOf("tuid-c"), cursor: 0 }, tree))
-      .toEqual({ uid: "tuid-g", cursor: 5 });
-  });
-
-  it("keeps focus in a cell of a collapsed Roam table: its rows stay on screen", () => {
-    const tree = [block("tuid-t", "{{[[table]]}}", { collapsed: true, children: [
-      block("tuid-r1", "a", { order_idx: orderIdxOf(0), children: [
-        block("tuid-r1b", "b", { order_idx: orderIdxOf(0) }),
-      ] }),
-    ] })];
-    const focus = { uid: uidOf("tuid-r1b"), cursor: 1 };
-    expect(validateOutlineFocus(focus, tree)).toBe(focus);
-  });
-
-  it("keeps focus on a collapsed block itself: only its children are hidden", () => {
-    const tree = [block("tuid-p", "parent", { collapsed: true, children: [
-      block("tuid-c", "child", { order_idx: orderIdxOf(0) }),
-    ] })];
-    expect(validateOutlineFocus({ uid: uidOf("tuid-p"), cursor: 2 }, tree))
-      .toEqual({ uid: "tuid-p", cursor: 2 });
-  });
-
   it("requests one fresh read instead of adopting a pre-edit candidate", () => {
     const started = beginAuthoritativeRead(
       createOutlineState(rawTitleOf("Page"), [block("tuid-u1", "old")]),
@@ -399,81 +327,6 @@ describe("outline causality", () => {
     expect(repaired.state.blocks.map((node) => node.uid)).toEqual(["target"]);
     expect(repaired.state.blocks[0].children.map((node) => node.uid))
       .toEqual(["tuid-moved"]);
-  });
-
-  it("flushes a changed pending draft before a structural op", () => {
-    const ops = pendingTextOps(
-      { uid: uidOf("tuid-u1"), text: "typed", base: "old" }, [block("tuid-u1", "old")], canonicalTitleOf("Page"),
-    );
-    expect(ops).toEqual([{
-      op: "update_text", uid: "tuid-u1", text: "typed",
-      base_text_hash: sha256Hex("old"), page_title: "Page",
-    }]);
-  });
-
-  it("drops a no-op pending draft whose text is unchanged", () => {
-    expect(pendingTextOps(
-      { uid: uidOf("tuid-u1"), text: "same", base: "same" }, [block("tuid-u1", "same")], canonicalTitleOf("Page"),
-    )).toEqual([]);
-  });
-
-  it("flushes a draft whose block a remote batch deleted, stamped with its base", () => {
-    expect(pendingTextOps(
-      { uid: uidOf("tuid-gone"), text: "typed", base: "old" }, [block("tuid-u1", "old")], canonicalTitleOf("Page"),
-    )).toEqual([{
-      op: "update_text", uid: "tuid-gone", text: "typed",
-      base_text_hash: sha256Hex("old"), page_title: "Page",
-    }]);
-  });
-
-  it("has nothing to flush without a pending draft", () => {
-    expect(pendingTextOps(null, [block("tuid-u1", "old")], canonicalTitleOf("Page"))).toEqual([]);
-  });
-
-  it("stamps the base, not the tree, when a remote edit landed under the draft", () => {
-    const ops = pendingTextOps(
-      { uid: uidOf("tuid-u1"), text: "typed", base: "old" }, [block("tuid-u1", "remote")], canonicalTitleOf("Page"),
-    );
-    expect(ops).toEqual([{
-      op: "update_text", uid: "tuid-u1", text: "typed",
-      base_text_hash: sha256Hex("old"), page_title: "Page",
-    }]);
-  });
-
-  it("drops a draft typed back to its base, even over a remote edit", () => {
-    expect(pendingTextOps(
-      { uid: uidOf("tuid-u1"), text: "old", base: "old" }, [block("tuid-u1", "remote")], canonicalTitleOf("Page"),
-    )).toEqual([]);
-  });
-
-  it("drops a draft a remote edit already made", () => {
-    expect(pendingTextOps(
-      { uid: uidOf("tuid-u1"), text: "same", base: "old" }, [block("tuid-u1", "same")], canonicalTitleOf("Page"),
-    )).toEqual([]);
-  });
-
-  it("a draft with no captured base carries page_title and no hash", () => {
-    const ops = pendingTextOps(
-      { uid: uidOf("tuid-gone"), text: "typed", base: null }, [], canonicalTitleOf("Page"),
-    );
-    expect(ops).toEqual([
-      { op: "update_text", uid: "tuid-gone", text: "typed", page_title: "Page" },
-    ]);
-    expect(ops[0]).not.toHaveProperty("base_text_hash");
-  });
-
-  it("clamps an upload splice offset past intervening typing", () => {
-    // The user kept typing during a slow upload; the pre-paste offset now sits
-    // beyond the (shortened) text and must clamp to its end.
-    expect(spliceUploadedMarkdown("hi", 10, "[img](x)")).toEqual({
-      text: "hi[img](x)", selStart: 10, selEnd: 10,
-    });
-  });
-
-  it("splices uploaded markdown at the requested offset", () => {
-    expect(spliceUploadedMarkdown("ab", 1, "X")).toEqual({
-      text: "aXb", selStart: 2, selEnd: 2,
-    });
   });
 
   // `local-ops` records a ticket's replay, and the delivery
@@ -762,46 +615,3 @@ function watchFieldReads(nodes: BlockNode[], onRead: () => void): BlockNode[] {
     return watched;
   });
 }
-
-describe("captureDraft", () => {
-  it("captures the tree text as base on the first change", () => {
-    expect(captureDraft(null, uidOf("tuid-u1"), "a", [block("tuid-u1", "old")]))
-      .toEqual({ uid: "tuid-u1", text: "a", base: "old" });
-  });
-
-  it("keeps the base across later changes even when the tree moved on", () => {
-    expect(captureDraft(
-      { uid: uidOf("tuid-u1"), text: "a", base: "old" }, uidOf("tuid-u1"), "ab", [block("tuid-u1", "remote")],
-    )).toEqual({ uid: "tuid-u1", text: "ab", base: "old" });
-  });
-
-  it("recaptures for a different block", () => {
-    expect(captureDraft(
-      { uid: uidOf("tuid-u1"), text: "a", base: "old" }, uidOf("tuid-u2"), "x",
-      [block("tuid-u1", "old"), block("tuid-u2", "two")],
-    )).toEqual({ uid: "tuid-u2", text: "x", base: "two" });
-  });
-
-  it("starts from the text the editor showed, not the tree, when given one", () => {
-    expect(captureDraft(null, uidOf("tuid-u1"), "firstX", [block("tuid-u1", "remote")],
-                        { uid: uidOf("tuid-u1"), base: "first" }))
-      .toEqual({ uid: "tuid-u1", text: "firstX", base: "first" });
-  });
-
-  it("ignores a shown text recorded for another block", () => {
-    expect(captureDraft(null, uidOf("tuid-u2"), "x", [block("tuid-u2", "two")],
-                        { uid: uidOf("tuid-u1"), base: "first" }))
-      .toEqual({ uid: "tuid-u2", text: "x", base: "two" });
-  });
-
-  it("keeps the draft's own base over a later shown text", () => {
-    expect(captureDraft({ uid: uidOf("tuid-u1"), text: "a", base: "old" }, uidOf("tuid-u1"), "ab",
-                        [block("tuid-u1", "old")], { uid: uidOf("tuid-u1"), base: "a" }))
-      .toEqual({ uid: "tuid-u1", text: "ab", base: "old" });
-  });
-
-  it("records a null base for a block the tree lacks", () => {
-    expect(captureDraft(null, uidOf("tuid-gone"), "x", []))
-      .toEqual({ uid: "tuid-gone", text: "x", base: null });
-  });
-});

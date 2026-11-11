@@ -196,6 +196,20 @@ export default tseslint.config(
     },
   },
   {
+    // The outline engine sits below the UI: a type it needs from a
+    // component lives in outline/. Replaces the base bans, so repeats them.
+    files: ["src/outline/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": ["error", {
+        patterns: [apiFetchBan, testHelpersBan, testFixturesBan, {
+          group: ["**/components/*", "**/views/*", "**/dnd/*"],
+          message: "the outline engine imports no UI code; put the type "
+            + "in outline/",
+        }],
+      }],
+    },
+  },
+  {
     // Tests by name and by location (the brand registry's testCode) may
     // import the test mint module. After the product blocks, so none of
     // them takes that back; a transport-layer test that needs apiFetch, and

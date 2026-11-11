@@ -20,11 +20,14 @@ export interface OutlineHandlers {
    * must not clear the new focus (the hook checks the uid). */
   onBlurBlock(uid: BlockUid): void;
   /** The first edit of a clean draft is about to be reported: `shown` is the
-   * text the textarea showed, which the user is typing over. It becomes the
-   * new draft's base, so its flush hashes what the user saw rather than a
-   * remote text the tree took before the textarea could show it. */
-  onDraftStart(uid: BlockUid, shown: string): void;
-  /** holdFlush: the caret sits mid [[ref / #tag token, so the
+   * text the textarea showed, which the user is typing over. It opens the
+   * draft with `shown` as its base, so its flush hashes what the user saw
+   * rather than a remote text the tree took before the textarea could show
+   * it. No draft opens while another block's draft cannot be saved: false,
+   * and the textarea then drops the edit. */
+  onDraftStart(uid: BlockUid, shown: string): boolean;
+  /** Changes the open draft's text; with no draft open on `uid` it records
+   * nothing. holdFlush: the caret sits mid [[ref / #tag token, so the
    * debounced autosave must wait — flushing now would create a page from the
    * half-typed title. Blur/structural commits flush held drafts regardless. */
   onDraftChange(uid: BlockUid, text: string, holdFlush?: boolean): void;
@@ -64,9 +67,8 @@ export interface OutlineHandlers {
   /** Resolves once the uploads have finished: true when something landed
    * (each upload as its own block after `uid`, or in `uid` when it was
    * empty), false when nothing did (every upload failed, or the command was
-   * refused). `cursor` is unused
-   * by the planner. */
-  onFiles(uid: BlockUid, cursor: number, files: File[]): Promise<boolean>;
+   * refused). */
+  onFiles(uid: BlockUid, files: File[]): Promise<boolean>;
   /** /goodlinks (see outline/goodlinks.ts): resolve the nearest URL against
    * GoodLinks and splice the `Local copy::` attribute at `cursor` in `uid`.
    * The block has already been blurred by the pick, like /upload. */

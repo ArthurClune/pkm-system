@@ -10,7 +10,7 @@ import { EditableBlockTree } from "./EditableBlockTree";
 
 function handlers(): OutlineHandlers {
   return {
-    onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftStart: vi.fn(),
+    onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftStart: vi.fn(() => true),
     onDraftChange: vi.fn(),
     onFlushDraft: vi.fn(() => true),
     pendingDraft: vi.fn(() => null), onInputUnmount: vi.fn(),
@@ -266,7 +266,7 @@ test("/upload strips the trigger and hands picked files to onFiles", () => {
   const input = screen.getByLabelText("Upload file") as HTMLInputElement;
   const file = new File(["x"], "pic.png", { type: "image/png" });
   fireEvent.change(input, { target: { files: [file] } });
-  expect(h.onFiles).toHaveBeenCalledWith("tuid-u1", 0, [file]);
+  expect(h.onFiles).toHaveBeenCalledWith("tuid-u1", [file]);
 });
 
 test("the upload input survives the block blurring while the native picker is "
@@ -291,7 +291,7 @@ test("the upload input survives the block blurring while the native picker is "
   const input = screen.getByLabelText("Upload file") as HTMLInputElement;
   const file = new File(["x"], "pic.png", { type: "image/png" });
   fireEvent.change(input, { target: { files: [file] } });
-  expect(h.onFiles).toHaveBeenCalledWith("tuid-u1", 0, [file]);
+  expect(h.onFiles).toHaveBeenCalledWith("tuid-u1", [file]);
 });
 
 test("only one upload input exists in the tree regardless of block count", () => {

@@ -6,7 +6,8 @@ import { SyncContext, type Sync } from "../sync/SyncProvider";
 import { block, makeSync, orderIdxOf, uidOf, canonicalTitleOf } from "../test-helpers";
 import { BATCH_TOO_LARGE_NOTICE,
          MAX_OPS_PER_BATCH } from "../sync/batchLimits";
-import { DndProvider, useDnd, type OutlineDndApi } from "./DndContext";
+import type { OutlineDndApi } from "../outline/dnd";
+import { DndProvider, useDnd } from "./DndContext";
 
 function Harness({ onReady }: { onReady: (dnd: ReturnType<typeof useDnd>) => void }) {
   const dnd = useDnd();

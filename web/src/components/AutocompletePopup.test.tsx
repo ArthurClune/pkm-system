@@ -12,7 +12,7 @@ const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync
 
 function handlers(): OutlineHandlers {
   return {
-    onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftStart: vi.fn(),
+    onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftStart: vi.fn(() => true),
     onDraftChange: vi.fn(),
     onFlushDraft: vi.fn(() => true),
     pendingDraft: vi.fn(() => null), onInputUnmount: vi.fn(),

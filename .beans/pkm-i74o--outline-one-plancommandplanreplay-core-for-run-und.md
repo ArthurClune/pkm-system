@@ -1,11 +1,11 @@
 ---
 # pkm-i74o
 title: 'Outline: one planCommand/planReplay core for run(), undo and the property runner'
-status: todo
+status: completed
 type: task
 priority: normal
 created_at: 2026-11-09T21:39:23Z
-updated_at: 2026-11-09T21:44:04Z
+updated_at: 2026-11-11T02:11:40Z
 parent: pkm-4gda
 blocked_by:
     - pkm-ey0s

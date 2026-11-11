@@ -24,7 +24,8 @@
 //              word for word); a command batch both refuse for the
 //              same guard is tallied and ends the example (the editor's
 //              run() refuses it before enqueue), and any other refusal of
-//              one is a failure. A seed the server refuses for a text limit
+//              one is a failure, as is the server applying one the
+//              editor refused. A seed the server refuses for a text limit
 //              that enqueueBatch's judge takes is a rejection too.
 // The only exclusions are the spec's: rows the server minted (1, 3 and R),
 // a page whose echo the session would reload instead of applying (1), and
@@ -52,7 +53,7 @@ import { allBatches, deleteBatch, enqueueBatch } from "../../replica/queue";
 import { openTestDb } from "../../replica/testDb";
 import { findOpTextLimitViolation } from "../../grammar/textLimits";
 import { findOpTitleViolation } from "../../replica/titles";
-import { runSequence } from "../outline/run";
+import { runSequence, unguardedBatches } from "../outline/run";
 import { diffGraphs, fromReplica, fromSnapshot, type NormalGraph } from "../sync/normalise";
 import type { ServerControl } from "../sync/serverControl";
 import { AT_CAP_TEXT, type Example, OPS_PAGES, type RawDraft, rawUidMinter, resolveRaw, seedOps,
@@ -415,10 +416,13 @@ export async function runExample(server: ServerControl, ex: Example,
                               // Two digits at least: a uid needs six
                               // characters.
                               { mintPrefix: "opsn0" });
-      for (const b of run.batches) learn(b.ops);
+      // A batch the editor refuses goes out as a client without its guard
+      // would send it, so both judges' verdicts can be compared.
+      const sends = unguardedBatches(run);
+      for (const b of sends) learn(b.ops);
       const others = TITLE_POOL.filter((t) => t !== "Outline Props");
-      for (const [i, batch] of run.batches.entries()) {
-        const header = `at command batch ${i + 1} of ${run.batches.length}`;
+      for (const [i, batch] of sends.entries()) {
+        const header = `at command batch ${i + 1} of ${sends.length}`;
         for (const op of batch.ops) bump(tally.opKinds, op.op);
         const batchId = nextBatchId();
         const problems: string[] = [];
@@ -462,6 +466,11 @@ export async function runExample(server: ServerControl, ex: Example,
         }
         if (refused !== null) {
           problems.push(`rejection: enqueueBatch refused a command batch (${refused.message})` +
+                        " but the server applied it");
+          return fail(header, problems);
+        }
+        if (batch.refused !== undefined) {
+          problems.push(`rejection: the editor refused a command batch (${batch.refused})` +
                         " but the server applied it");
           return fail(header, problems);
         }

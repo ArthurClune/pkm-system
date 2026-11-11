@@ -11,7 +11,9 @@ import { EditableBlockTree } from "./EditableBlockTree";
 
 afterEach(() => vi.unstubAllGlobals());
 
-const handlers = (): OutlineHandlers => new Proxy({}, { get: () => vi.fn() }) as OutlineHandlers;
+const handlers = (): OutlineHandlers => new Proxy({}, {
+  get: (_, name) => vi.fn(name === "onDraftStart" ? () => true : () => undefined),
+}) as OutlineHandlers;
 const blocks = () => [block("tuid-p1", "hello", { order_idx: orderIdxOf(0) })];
 
 function tree(h: OutlineHandlers, readOnly: boolean, focus: Parameters<typeof EditableBlockTree>[0]["focus"] = null) {

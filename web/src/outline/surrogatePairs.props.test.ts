@@ -10,10 +10,9 @@ import { describe, expect, test } from "vitest";
 import { wellFormed } from "../replica/wellFormed";
 import { block, canonicalTitleOf, rawTitleOf, uidOf } from "../test-helpers";
 import { applyCompletion, detectAutocomplete } from "./autocomplete";
-import { backspaceAtStart, splitBlock } from "./edits";
+import { backspaceAtStart, spliceUploadedMarkdown, splitBlock } from "./edits";
 import { insertTypedChar } from "./keyboardBar";
 import { autoPairBracket, snapCaret, toggleEmphasis, wrapLink } from "./keyEdits";
-import { spliceUploadedMarkdown } from "./outlineState";
 import { planOutlinePaste } from "./paste";
 import { applySlashCommand, SLASH_COMMANDS, stripTrigger } from "./slashCommands";
 

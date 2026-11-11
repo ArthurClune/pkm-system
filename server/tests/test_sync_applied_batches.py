@@ -6,7 +6,8 @@ import json
 
 from rawread import trace
 from pkm.server.db import open_db
-from pkm.server.routes_sync import sync_changes, sync_snapshot
+from pkm.server.routes_sync import changes_payload as sync_changes
+from pkm.server.routes_sync import snapshot_payload as sync_snapshot
 from pkm.test_data.ids import batch_id_of, seq_of
 from pkm.contracts.ops import BatchId, OpBatch
 from pkm.server.ops_hash import batch_replay_hash

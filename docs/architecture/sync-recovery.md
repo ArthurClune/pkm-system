@@ -2,8 +2,7 @@
 
 This doc covers what each guard on the sync path does when a hop fails. The
 normal path, including how a window is applied over pending edits, is in
-[sync-and-offline.md](sync-and-offline.md). Failures are indexed by what
-someone would observe in [troubleshooting.md](../troubleshooting.md).
+[sync-and-offline.md](sync-and-offline.md).
 
 Every guard here follows from one rule in
 [sync-and-offline.md § The replica](sync-and-offline.md#the-replica): the

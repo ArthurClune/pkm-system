@@ -74,7 +74,7 @@ def test_judges_the_staged_content_not_the_working_tree(repo: Path):
 
 def test_unstaged_and_unscanned_files_are_ignored(repo: Path):
     write(repo, "web/src/a.ts", "// see line 40\n")
-    write(repo, "docs/troubleshooting.md", "row for pkm-ab12\n")
+    write(repo, "docs/cli.md", "row for pkm-ab12\n")
     git(repo, "add", "docs")
     assert main([], repo) == 0
 

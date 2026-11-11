@@ -6,7 +6,7 @@ elsewhere by bean id, by position or by a document's nickname goes stale
 without anyone noticing. Three rules, applied to comment text only (and to
 every line of an architecture doc, which is all prose):
 
-- bean-id: history lives in git, the beans and docs/troubleshooting.md.
+- bean-id: history lives in git and the beans.
 - line-number: a position moves on every edit above it; name the symbol.
 - orphan-pointer: a spec or plan named by section number or nickname
   cannot be followed, and neither can a plan's task, fix or review-finding
@@ -45,8 +45,7 @@ CODE_WIDTH = 120
 NOQA = "noqa: E501"
 
 RULES = {
-    "bean-id": "bean ids: state the rule the comment enforces; the history is in git, the bean and "
-               "docs/troubleshooting.md",
+    "bean-id": "bean ids: state the rule the comment enforces; the history is in git and the bean",
     "line-number": "line numbers: they move on every edit above them; name the function, selector or "
                    "constant instead",
     "orphan-pointer": "spec/plan pointers: name the document by path (docs/...) so the reference can be "

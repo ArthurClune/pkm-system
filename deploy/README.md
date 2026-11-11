@@ -248,12 +248,20 @@ server holds no connection and passes, so step 1 is still needed.
   click Allow on the iCloud consent prompt ([The launcher](#the-launcher)) at
   the Mac. Files that then read `unchecked`, or answer `too many file opens are
   in flight`, mean probes are still blocked on the prompt: grant it or restart
-  the server. Symptom and cause: the `Local copy` row under Deployment and
-  host in
-  [docs/troubleshooting.md](../docs/troubleshooting.md#deployment-and-host).
+  the server. The log shows `local open probe … timed out` while the prompt
+  is pending. Full Disk Access is the wrong setting: the grant follows the
+  launcher's path and code hash.
 
-Known failures are listed by symptom in
-[docs/troubleshooting.md](../docs/troubleshooting.md).
+Known symptoms and their fixes:
+
+| Symptom | Fix |
+|---|---|
+| The server restarts every 10 s; `server.err.log` says `cannot run …/.venv/bin/python` | The venv's uv-managed interpreter was removed. `uv sync` in `$PKM_HOME/app/server`, then `launchctl kickstart -k` the server |
+| The server crash-loops with `OSError 49` after Tailscale is reinstalled | The node's Tailscale IP changed: update `bind_hosts`, and re-run the `tailscale serve` line from `install.sh` |
+| `install.sh` stops at `Bootstrap failed: 5: Input/output error` and leaves the server unloaded | Re-run the `launchctl bootstrap` line |
+| HTTPS over the tailnet connects but the TLS handshake hangs on a recreated node | Serve is waiting on a new Let's Encrypt certificate. Retry patiently; Let's Encrypt allows five failed validations per hostname per hour |
+| On the Serve hostname, live updates never connect and edits stay queued; `access.log` shows `403` on `POST /api/ops` | The origin is missing from `serve_origins` (step 4 of [First install](#first-install)) |
+| After a deploy, an open tab can't load the PDF viewer, a diagram or formula, or shows `…` breadcrumbs | The tab runs the old bundle. Reload it |
 
 ## Image descriptions (optional)
 

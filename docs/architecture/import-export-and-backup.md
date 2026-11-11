@@ -5,8 +5,7 @@ snapshot, `pkm.export` renders a database to markdown, and `pkm.importer`
 builds a fresh database from a Roam EDN export. None is on a request path; the
 two exports are also downloads over HTTP. The server is in
 [backend.md](backend.md), the schedule and restore steps in
-[deploy/README.md](../../deploy/README.md#backups). Failures are indexed by
-symptom in [troubleshooting.md](../troubleshooting.md).
+[deploy/README.md](../../deploy/README.md#backups).
 
 ## Backup job
 

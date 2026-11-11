@@ -14,8 +14,7 @@ path from `POST /api/ops` to the post-commit nudge
 ([cli-and-mcp.md](cli-and-mcp.md)), import, export and backup
 ([import-export-and-backup.md](import-export-and-backup.md)), the assistant
 ([assistant.md](assistant.md)), and assets, local documents and GoodLinks copies
-([files-and-assets.md](files-and-assets.md)). Failures are indexed by symptom
-in [troubleshooting.md](../troubleshooting.md).
+([files-and-assets.md](files-and-assets.md)).
 
 ## Module map
 

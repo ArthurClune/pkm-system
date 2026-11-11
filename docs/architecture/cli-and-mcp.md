@@ -4,8 +4,7 @@
 HTTP client. They talk to the running server's API, never to SQLite, so they get
 the same validation, conflict handling, journalling and broadcasts as the web
 client. [docs/cli.md](../cli.md) owns the user-facing syntax and output,
-[backend.md](backend.md#http-api-reference) the API they call. Failures are
-indexed by symptom in [troubleshooting.md](../troubleshooting.md).
+[backend.md](backend.md#http-api-reference) the API they call.
 
 | File | Pattern | Role |
 |---|---|---|

@@ -37,7 +37,7 @@ Report paths go in the session scratchpad: `review-<area>.md`,
 > 3. **Wrong home**: material another doc, AGENTS.md, a skill or the code
 >    owns. Name both places and which keeps it.
 > 4. **Bloat**: narration of readable code, case-by-case proofs, lists the
->    code holds, counts, incident stories outside troubleshooting, sections
+>    code holds, counts, incident stories, sections
 >    placed in ship order rather than reader order.
 > 5. **Broken pointers** check-docs cannot see: a link that lands on a
 >    section that no longer states the thing; a code comment citing a section
@@ -89,7 +89,7 @@ Report paths go in the session scratchpad: `review-<area>.md`,
 >    needs the pointer.
 > 3. Is it a sequence, a state machine or a branch? A diagram or decision
 >    table replaces the prose.
-> 4. Is it how something used to fail? It belongs in troubleshooting, once.
+> 4. Is it how something used to fail? It belongs in the bean; cut it here.
 > 5. Is it a proof? Keep the invariant and its sharpest reason.
 >
 > Run check-docs on every file you touched, read its dropped-identifier list
@@ -114,20 +114,17 @@ Report paths go in the session scratchpad: `review-<area>.md`,
 > grep all of `docs/`, `AGENTS.md` and `.claude/skills/` before calling
 > anything lost.
 >
-> Scope: <server side | client side and troubleshooting>. Hunt, in order:
+> Scope: <server side | client side>. Hunt, in order:
 > 1. **Lost rules.** Old text stating a rule or its reason that (a) is in no
 >    doc on the branch, (b) is not evident from reading the code it concerns
 >    (open it), and (c) could be broken without a test failing. Quote it,
 >    name the code, say what would break, and propose the one sentence to
 >    restore and where.
-> 2. **Lost incidents.** An old troubleshooting row whose incident no row
->    now finds; a merged row whose symptom no longer matches one of its
->    incidents.
-> 3. **Wrong claims** the code contradicts, above all in tables rebuilt from
+> 2. **Wrong claims** the code contradicts, above all in tables rebuilt from
 >    prose and in claims the fixers say they corrected.
-> 4. **Misleading pointers**: a link that resolves to a section that no
+> 3. **Misleading pointers**: a link that resolves to a section that no
 >    longer states the thing; a code comment citing a moved section.
-> 5. **Surviving style**: a few examples at most.
+> 4. **Surviving style**: a few examples at most.
 >
 > Assume the cut lost something and try to find it, but grade honestly: a
 > finding that fails test (b) or (c) is not a lost rule. Rank most severe

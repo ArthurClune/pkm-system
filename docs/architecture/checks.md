@@ -3,10 +3,7 @@
 What fails mechanically in this repo, when, and what a maintainer of each
 check could break without noticing. Each check's code holds its rules,
 scenarios and suites. [`AGENTS.md` § Testing](../../AGENTS.md#testing) says
-how to run each gate and what to do with its verdicts. Failures of the gates
-themselves are in troubleshooting.md, under
-[Property checks](../troubleshooting.md#property-checks) and
-[Performance checks](../troubleshooting.md#performance-checks).
+how to run each gate and what to do with its verdicts.
 Anything not listed here, such as the server-side FCIS boundary, is
 convention plus review.
 

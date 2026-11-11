@@ -5,8 +5,7 @@ after it. It covers the ops a batch carries, the lock every write route takes,
 how an op is planned, and what a batch meets when the tree changed after the
 client planned it. The routes, the schema, the ref grammar, titles and auth
 are in [backend.md](backend.md); how a client queues, pushes and pulls is in
-[sync-and-offline.md](sync-and-offline.md). Failures are indexed by symptom in
-[troubleshooting.md](../troubleshooting.md).
+[sync-and-offline.md](sync-and-offline.md).
 
 `POST /api/ops` applies an `OpBatch`. `OpBatch.expect`, which only the
 assistant's approval card sets

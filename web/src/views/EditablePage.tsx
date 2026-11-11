@@ -125,33 +125,18 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
          className={ownsEditor ? "outline-drop-zone" : undefined}
          style={ownsEditor ? { position: "relative" } : undefined}
          {...(ownsEditor && !outline.readOnly ? zoneProps : {})}>
-      {ownsEditor && outline.uploadError && (
-        <p className="error upload-error" role="alert">
-          {outline.uploadError}
+      {ownsEditor && outline.notices.map((notice) => (
+        <p key={notice.kind}
+           className={notice.tone === "error" ? "error upload-error"
+                                              : "editor-notice"}
+           role={notice.tone === "error" ? "alert" : "status"}>
+          {notice.text}
           <button type="button" className="btn-secondary"
-                  onClick={outline.dismissUploadError}>
+                  onClick={() => outline.dismissNotice(notice.kind)}>
             Dismiss
           </button>
         </p>
-      )}
-      {ownsEditor && outline.goodlinksNotice && (
-        <p className="editor-notice" role="status">
-          {outline.goodlinksNotice}
-          <button type="button" className="btn-secondary"
-                  onClick={outline.dismissGoodlinksNotice}>
-            Dismiss
-          </button>
-        </p>
-      )}
-      {ownsEditor && outline.editNotice && (
-        <p className="editor-notice" role="status">
-          {outline.editNotice}
-          <button type="button" className="btn-secondary"
-                  onClick={outline.dismissEditNotice}>
-            Dismiss
-          </button>
-        </p>
-      )}
+      ))}
       {ownsEditor && pickerNotice && (
         <p className="editor-notice" role="status">
           {pickerNotice}

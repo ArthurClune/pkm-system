@@ -268,11 +268,11 @@ def test_a_deep_outline_through_preview_write_is_refused_not_raised():
     out = asyncio.run(preview_write("batch", _nested_outline(300), reader))
     assert out == Refusal("batch: input could not be previewed")
     assert reader.calls == []
-    # past the interpreter's recursion limit the deep copy fails first
+    # past the interpreter's recursion limit `check_write`'s deep copy
+    # fails first: still nothing was read, so it is not "could not be read"
     out = asyncio.run(preview_write(
         "batch", _nested_outline(sys.getrecursionlimit() + 50), reader))
-    assert out == Refusal(
-        "batch: the blocks this write changes could not be read")
+    assert out == Refusal("batch: input could not be previewed")
     assert reader.calls == []
 
 

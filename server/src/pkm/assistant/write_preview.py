@@ -41,6 +41,7 @@ constructing the server's `FastMCP` configures the root logger and reads
 `FASTMCP_*` settings, and the web server imports this module."""
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from collections.abc import Mapping, Sequence
@@ -174,8 +175,9 @@ class Approval:
 @dataclass(frozen=True)
 class CheckedWrite:
     """A call write tool `short` accepts; only `check_write` makes one, so
-    none exists for input the tool would refuse. `tool_input` is the input
-    as passed, which Allow runs; `ops` holds each op's
+    none exists for input the tool would refuse. `tool_input` is a deep
+    copy of the input as passed, which Allow runs, so a caller's later
+    change to its own input never reaches it; `ops` holds each op's
     `WRITE_PREVIEW_FIELDS` key with its params as validated, in order, and
     `aliases` maps each batch alias to the index of the op that creates it
     (empty outside a batch)."""
@@ -520,7 +522,7 @@ def check_write(short: str, tool_input: Mapping[str, object]
     `can_use_tool`, it would reach the SDK as a control error instead of a
     reason the model can act on. Never raises."""
     try:
-        checked = _validate(short, tool_input)
+        checked = _validate(short, copy.deepcopy(dict(tool_input)))
     except Exception as exc:
         # The type only: the message can quote the attacker's input.
         logger.warning("checking the input of %s failed: %s", short,

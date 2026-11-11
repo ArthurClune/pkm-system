@@ -4,12 +4,12 @@ the parents a batch moves blocks under before a delete, and builds its
 approval card from them, with the input Allow runs: the same call, plus
 what the card showed for the server to check it against.
 
-The uids read, the card and that input come from one deep copy of the
-tool input, validated once, so a caller mutating its dict mid-read or
-before Allow cannot pair one call's card with another's blocks or
-another's write. A block
-the reader returns no entry for has no row: a failed read is a refusal,
-never a card that shows the block missing.
+The uids read, the card and that input come from the one `CheckedWrite`
+`check_write` makes, which owns a deep copy of the tool input, so a caller
+mutating its dict mid-read or before Allow cannot pair one call's card
+with another's blocks or another's write. A block the reader returns no
+entry for has no row: a failed read is a refusal, never a card that shows
+the block missing.
 
 A delete target's subtree is walked by `ops_apply.subtree_rows`, the walk
 the server's check runs, so the card's count and hash agree with what the
@@ -19,7 +19,6 @@ cycle check."""
 from __future__ import annotations
 
 import asyncio
-import copy
 import logging
 from collections.abc import Callable, Collection, Mapping, Sequence
 from pathlib import Path
@@ -108,13 +107,7 @@ async def preview_write(short: str, tool_input: Mapping[str, object],
     The input is checked before the read's `try`, so input the check
     cannot handle reads nothing and is refused as not previewable, never
     as unreadable."""
-    try:
-        snapshot = copy.deepcopy(dict(tool_input))
-    except Exception as exc:
-        logger.warning("reading the targets of %s failed: %s", short,
-                       type(exc).__name__)
-        return _unreadable(short)
-    checked = check_write(short, snapshot)
+    checked = check_write(short, tool_input)
     if isinstance(checked, Refusal):
         return checked
     try:

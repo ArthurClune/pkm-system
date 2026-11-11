@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { confirmIdOf, conversationIdOf } from "../test-helpers";
 import {
-  chatStatus, initialChat, modelLocked, shownModel, step, UNASKED_STOP_MESSAGE,
+  answerFailed, canStop, chatStatus, initialChat, modelLocked, shownModel, step,
+  UNASKED_STOP_MESSAGE,
   type ChatEvent, type ChatState, type TurnId,
 } from "./chatMachine";
 import type { AssistantEvent } from "./sse";
@@ -459,17 +460,17 @@ describe("chatMachine confirm cards", () => {
   });
 
   // Advancing before the POST settles would let a failure swap the card
-  // back under the cursor, so the answered card stays, marked answering.
+  // back under the cursor, so the answered card stays, marked posting.
   test("the answered card stays until its answer is posted", () => {
     const parked = run(twoCards).state;
-    expect(parked.answering).toBe(false);
-    const answering = run([answer("c1", true)], parked).state;
-    expect(answering.answering).toBe(true);
-    expect(answering.confirms[0]?.confirmId).toBe("c1");
-    expect(answering.confirms).toHaveLength(2);
-    expect(chatStatus(answering)).toBe("confirm");
-    const next = run([posted("c1", true)], answering).state;
-    expect(next.answering).toBe(false);
+    expect(parked.confirms[0]?.answer).toBeNull();
+    const inFlight = run([answer("c1", true)], parked).state;
+    expect(inFlight.confirms[0]?.answer).toEqual({ allow: true, state: "posting" });
+    expect(inFlight.confirms[0]?.confirmId).toBe("c1");
+    expect(inFlight.confirms).toHaveLength(2);
+    expect(chatStatus(inFlight)).toBe("confirm");
+    const next = run([posted("c1", true)], inFlight).state;
+    expect(next.confirms[0]?.answer).toBeNull();
     expect(next.confirms[0]?.confirmId).toBe("c2");
     expect(next.confirms).toHaveLength(1);
   });
@@ -477,27 +478,27 @@ describe("chatMachine confirm cards", () => {
   // A second click, from a fresh render, while the first answer is in
   // flight must not answer anything: not c1 again, and not c2 behind it.
   test("an answer while one is in flight posts nothing", () => {
-    const answering = run([...twoCards, answer("c1", true)]).state;
-    expect(step(answering, answer("c1", true)).effects).toEqual([]);
-    const { state, effects } = run([answer("c1", true), posted("c1", true)], answering);
+    const inFlight = run([...twoCards, answer("c1", true)]).state;
+    expect(step(inFlight, answer("c1", true)).effects).toEqual([]);
+    const { state, effects } = run([answer("c1", true), posted("c1", true)], inFlight);
     expect(effects).toEqual([]);
     expect(state.confirms[0]?.confirmId).toBe("c2");
     expect(chatStatus(state)).toBe("confirm");
   });
 
   test("a failed answer leaves the same card showing, not the next", () => {
-    const answering = run([...twoCards, answer("c1", false)]);
-    expect(answering.state.confirms[0]?.confirmId).toBe("c1");
-    const failed = run([postFailed("c1")], answering.state).state;
+    const inFlight = run([...twoCards, answer("c1", false)]);
+    expect(inFlight.state.confirms[0]?.confirmId).toBe("c1");
+    const failed = run([postFailed("c1")], inFlight.state).state;
     expect(failed.confirms[0]?.confirmId).toBe("c1");
     expect(failed.confirms).toHaveLength(2);
-    expect(failed.answering).toBe(false);
+    expect(failed.confirms[0]?.answer).toEqual({ allow: false, state: "failed" });
     expect(chatStatus(failed)).toBe("confirm");
     expect(failed.error).toBe("network down");
 
     // the user can answer the same card again
     const again = run([answer("c1", false), posted("c1", false)], failed);
-    expect([...answering.effects, ...again.effects].filter((e) => e.kind === "confirm"))
+    expect([...inFlight.effects, ...again.effects].filter((e) => e.kind === "confirm"))
       .toEqual([confirmEffect("c1", false), confirmEffect("c1", false)]);
     expect(again.state.confirms[0]?.confirmId).toBe("c2");
   });
@@ -507,12 +508,12 @@ describe("chatMachine confirm cards", () => {
   // again, however often the card remounts.
   test("the head records the decision once it is posted", () => {
     const parked = run(twoCards).state;
-    expect(parked.confirms[0]?.sentDecision).toBeNull();
-    const answering = run([answer("c1", true)], parked).state;
-    expect(answering.confirms[0]?.sentDecision).toBe(true);
-    const failed = run([postFailed("c1")], answering).state;
+    expect(parked.confirms[0]?.answer).toBeNull();
+    const inFlight = run([answer("c1", true)], parked).state;
+    expect(inFlight.confirms[0]?.answer?.allow).toBe(true);
+    const failed = run([postFailed("c1")], inFlight).state;
     expect(failed.confirms[0]?.confirmId).toBe("c1");
-    expect(failed.confirms[0]?.sentDecision).toBe(true);
+    expect(failed.confirms[0]?.answer?.allow).toBe(true);
 
     // a changed answer posts nothing; the same one goes again
     expect(step(failed, answer("c1", false)).effects).toEqual([]);
@@ -520,14 +521,14 @@ describe("chatMachine confirm cards", () => {
     expect(retried.effects).toEqual([confirmEffect("c1", true)]);
     const next = run([posted("c1", true)], retried.state).state;
     expect(next.confirms[0]?.confirmId).toBe("c2");
-    expect(next.confirms[0]?.sentDecision).toBeNull();
+    expect(next.confirms[0]?.answer).toBeNull();
   });
 
   test("an answer refused while one posts records nothing", () => {
-    const answering = run([...twoCards, answer("c1", true)]).state;
-    const refused = step(answering, answer("c1", false));
+    const inFlight = run([...twoCards, answer("c1", true)]).state;
+    const refused = step(inFlight, answer("c1", false));
     expect(refused.effects).toEqual([]);
-    expect(refused.state.confirms[0]?.sentDecision).toBe(true);
+    expect(refused.state.confirms[0]?.answer).toEqual({ allow: true, state: "posting" });
   });
 
   // The server can finish the turn before the answer's POST returns; the
@@ -535,7 +536,8 @@ describe("chatMachine confirm cards", () => {
   test("a turn that ends while an answer is in flight leaves the next answerable", () => {
     const ended = run([...firstTurn("please write", conv1), streamed(confirmEvent("c1")),
       answer("c1", true), { type: "streamEnded", turn: 1 }]).state;
-    expect(ended.answering).toBe(false);
+    expect(ended.confirms).toEqual([]);
+    expect(canStop(ended)).toBe(false);
     const { state, effects } = run([{ type: "send", text: "and again", at: 2 },
       streamed(confirmEvent("c3"), 2), answer("c3", true)], ended);
     expect(state.confirms[0]?.confirmId).toBe("c3");
@@ -548,6 +550,83 @@ describe("chatMachine confirm cards", () => {
     expect(state.confirms).toEqual([]);
     expect(chatStatus(state)).toBe("idle");
     expect(state.error).toMatch(/expired/);
+  });
+});
+
+describe("chatMachine confirm answer", () => {
+  const posting = (allow: boolean) => ({ allow, state: "posting" });
+  const failedWith = (allow: boolean) => ({ allow, state: "failed" });
+
+  test("an answer marks the head posting and posts it", () => {
+    const { state, effects } = step(run(twoCards).state, answer("c1", false));
+    expect(state.confirms[0]?.answer).toEqual(posting(false));
+    expect(state.confirms[1]?.answer).toBeNull();
+    expect(effects).toEqual([confirmEffect("c1", false)]);
+  });
+
+  test("a second answer while the head posts posts nothing", () => {
+    const inFlight = run([...twoCards, answer("c1", true)]).state;
+    for (const allow of [true, false]) {
+      expect(step(inFlight, answer("c1", allow))).toEqual({ state: inFlight, effects: [] });
+    }
+  });
+
+  test("a failed post marks the head failed and keeps it at the head", () => {
+    const { state } = run([...twoCards, answer("c1", true), postFailed("c1")]);
+    expect(state.confirms.map((c) => c.confirmId)).toEqual(["c1", "c2"]);
+    expect(state.confirms[0]?.answer).toEqual(failedWith(true));
+    expect(state.error).toBe("network down");
+  });
+
+  // The server may already hold the failed POST's answer and ignores a
+  // changed one, so only the same answer may go again.
+  test("after a failure only the same answer posts again", () => {
+    const failed = run([...twoCards, answer("c1", true), postFailed("c1")]).state;
+    expect(step(failed, answer("c1", false))).toEqual({ state: failed, effects: [] });
+    const retried = step(failed, answer("c1", true));
+    expect(retried.effects).toEqual([confirmEffect("c1", true)]);
+    expect(retried.state.confirms[0]?.answer).toEqual(posting(true));
+  });
+
+  test("a posted answer removes the head", () => {
+    const { state } = run([...twoCards, answer("c1", true), postFailed("c1"),
+      answer("c1", true), posted("c1", true)]);
+    expect(state.confirms.map((c) => c.confirmId)).toEqual(["c2"]);
+    expect(state.confirms[0]?.answer).toBeNull();
+  });
+
+  // After a 404 re-creates the conversation mid-turn, the old card's POST
+  // can still fail while a new card heads the queue.
+  test("a confirmFailed for a card that is not the head marks nothing", () => {
+    const recreated = run([...firstTurn("please write", conv1), streamed(confirmEvent("c1")),
+      answer("c1", true),
+      { type: "streamFailed", turn: 1, failure: { kind: "notFound", message: "gone" } },
+      { type: "created", turn: 1, id: conv2, model: "sonnet" },
+      streamed(confirmEvent("c2"))]).state;
+    const waiting = step(recreated, postFailed("c1")).state;
+    expect(waiting.confirms[0]?.answer).toBeNull();
+    const inFlight = run([answer("c2", false)], recreated).state;
+    const stillPosting = step(inFlight, postFailed("c1")).state;
+    expect(stillPosting.confirms[0]?.answer).toEqual(posting(false));
+  });
+
+  test.each([
+    ["idle", false, []],
+    ["busy with no card", true, firstTurn("hi")],
+    ["a card waiting unanswered", false, twoCards],
+    ["answer posting", true, [...twoCards, answer("c1", true)]],
+    ["answer failed", true, [...twoCards, answer("c1", true), postFailed("c1")]],
+    ["stopping", true, [...twoCards, { type: "stop", at: 2 }]],
+  ] as const)("canStop when %s: %s", (_name, stoppable, events) => {
+    expect(canStop(run([...events]).state)).toBe(stoppable);
+  });
+
+  test("answerFailed only for a failed answer", () => {
+    const parked = run(twoCards).state;
+    const inFlight = run([answer("c1", true)], parked).state;
+    const failed = run([postFailed("c1")], inFlight).state;
+    expect([parked, inFlight, failed].map((s) => answerFailed(s.confirms[0]!)))
+      .toEqual([false, false, true]);
   });
 });
 

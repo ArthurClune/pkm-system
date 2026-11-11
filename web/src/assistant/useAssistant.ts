@@ -17,6 +17,7 @@ import {
   type AssistantModel,
 } from "./client";
 import {
+  canStop,
   chatStatus,
   initialChat,
   modelLocked,
@@ -318,7 +319,7 @@ export function useAssistant() {
     modelLocked: modelLocked(chat),
     pendingConfirm,
     pendingConfirmCount: chat.confirms.length,
-    answering: chat.answering,
+    canStop: canStop(chat),
     send,
     stop,
     respondConfirm,

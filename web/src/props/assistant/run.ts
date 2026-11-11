@@ -20,11 +20,16 @@
 //   error   a failure of the busy turn shows; a send clears the line
 //   leak    every conversation the server made is open, deleted or retired
 //   confirm an answer posts at most once at a time, for the head card of the
-//           busy, unstopped turn's open conversation
+//           busy, unstopped turn's open conversation; after a failed post it
+//           posts only the failed answer again. The head card shows the
+//           answer its requests imply (posting until the POST settles, then
+//           failed unless it landed), and a card behind it shows none
+//   stoppable Stop is offered while the busy turn has no card, or its head
+//           card's answer is posting or failed
 import type { ConfirmId, ConversationId } from "../../api/brands";
 import {
-  chatStatus, initialChat, modelLocked, shownModel, step as realStep,
-  type ChatEffect, type ChatEvent, type ChatState, type StepFn,
+  canStop, chatStatus, initialChat, modelLocked, shownModel, step as realStep,
+  type ChatEffect, type ChatEvent, type ChatState, type ConfirmAnswer, type StepFn,
 } from "../../assistant/chatMachine";
 import type { AssistantModel } from "../../assistant/client";
 import type { AssistantEvent } from "../../assistant/sse";
@@ -37,8 +42,9 @@ export type View = {
   locked: boolean;
   status: "idle" | "busy" | "confirm";
   items: readonly unknown[];
-  confirms: readonly { confirmId: ConfirmId }[];
+  confirms: readonly { confirmId: ConfirmId; answer: ConfirmAnswer | null }[];
   error: string | null;
+  stoppable: boolean;
 };
 
 /** The seam teeth.prop.ts swaps mutants through. */
@@ -48,7 +54,7 @@ export const REAL: Machine = {
   step: realStep,
   view: (s) => ({
     model: shownModel(s), locked: modelLocked(s), status: chatStatus(s),
-    items: s.items, confirms: s.confirms, error: s.error,
+    items: s.items, confirms: s.confirms, error: s.error, stoppable: canStop(s),
   }),
 };
 
@@ -67,7 +73,8 @@ type Req = { key: number } & (
   // turn's last event (turn_stopped or an error), so the stream can only end
   | { kind: "stream"; turn: number; conversation: ConversationId; aborted: boolean;
       lost: boolean; started: boolean; stopPosted: boolean; over: boolean }
-  | { kind: "confirm"; turn: number; conversation: ConversationId; confirmId: ConfirmId }
+  | { kind: "confirm"; turn: number; conversation: ConversationId; confirmId: ConfirmId;
+      allow: boolean }
   // a stop POST: the hook reports its settling, however it settled, and
   // only once the turn's stream has opened; it may settle long after the
   // stream has ended
@@ -83,6 +90,10 @@ function sameEntries(a: readonly unknown[], b: readonly unknown[]): boolean {
   return a.length === b.length && a.every((x, i) => x === b[i]);
 }
 
+function sameAnswer(a: ConfirmAnswer | null, b: ConfirmAnswer | null): boolean {
+  return a === null || b === null ? a === b : a.allow === b.allow && a.state === b.state;
+}
+
 class World {
   state: ChatState = initialChat();
   doc: Doc = START;
@@ -96,6 +107,11 @@ class World {
   nextId = 0;
   /** a models list with another default arrived while a create was out */
   defaultLanded = false;
+  /** Each card's answer as its requests imply it, never read off the
+   * reducer: posting from its confirm effect until the POST settles, then
+   * failed unless it landed or 404'd. A card that left keeps its record,
+   * which no head reads again. */
+  answers = new Map<ConfirmId, ConfirmAnswer>();
   problems: string[] = [];
   trace: string[] = [];
 
@@ -201,8 +217,14 @@ class World {
           if (head === undefined || e.confirmId !== head) {
             this.problems.push(`confirm: posted ${e.confirmId}, the head card is ${String(head)}`);
           }
+          const prior = this.answers.get(e.confirmId);
+          if (prior?.state === "failed" && prior.allow !== e.allow) {
+            this.problems.push(`confirm: posted allow=${e.allow} for ${e.confirmId}, whose` +
+              ` allow=${prior.allow} failed`);
+          }
+          this.answers.set(e.confirmId, { allow: e.allow, state: "posting" });
           this.reqs.push({ key: this.nextId++, kind: "confirm", turn: e.turn, conversation: e.conversation,
-                           confirmId: e.confirmId });
+                           confirmId: e.confirmId, allow: e.allow });
           break;
         }
       }
@@ -238,6 +260,21 @@ class World {
     }
     if (doc.busy?.stopped && after.confirms.length > 0) {
       this.problems.push("silent: a card shows after Stop");
+    }
+    after.confirms.forEach((card, i) => {
+      const want = i === 0 ? this.answers.get(card.confirmId) ?? null : null;
+      if (!sameAnswer(card.answer, want)) {
+        this.problems.push(`confirm: card ${card.confirmId} at ${i} shows the answer` +
+          ` ${JSON.stringify(card.answer)}, its requests imply ${JSON.stringify(want)}`);
+      }
+    });
+    const head = after.confirms[0];
+    const stoppable = doc.busy !== null
+      && (head === undefined || this.answers.has(head.confirmId));
+    if (after.stoppable !== stoppable) {
+      this.problems.push(`stoppable: Stop offered=${after.stoppable} with the turn` +
+        ` ${JSON.stringify(doc.busy)} and the head card's answer` +
+        ` ${JSON.stringify(head === undefined ? "none" : this.answers.get(head.confirmId) ?? null)}`);
     }
     const live = this.reqs.filter((r) => (r.kind === "create" && r.turn === doc.busy?.turn)
       || (r.kind === "stream" && !r.aborted && !r.over));
@@ -405,14 +442,17 @@ class World {
   settleConfirm(r: Extract<Req, { kind: "confirm" }>, outcome: number, at: number): void {
     this.settle(r);
     if (!this.gone(r.conversation) && outcome < 65) {
+      this.answers.delete(r.confirmId);
       this.count(`confirm posts${this.relation(r.turn)}`);
       this.feed({ type: "confirmPosted", turn: r.turn, conversation: r.conversation,
-                  confirmId: r.confirmId, allow: true, at },
+                  confirmId: r.confirmId, allow: r.allow, at },
                 { k: "confirmPosted", turn: r.turn });
       return;
     }
     if (!this.gone(r.conversation) && outcome >= 85) this.retire(r.conversation);
     const notFound = this.gone(r.conversation);
+    if (notFound) this.answers.delete(r.confirmId);
+    else this.answers.set(r.confirmId, { allow: r.allow, state: "failed" });
     this.count(`confirm ${notFound ? "404" : "fails"}${this.relation(r.turn)}`);
     this.feed({ type: "confirmFailed", turn: r.turn, confirmId: r.confirmId, notFound,
                 message: notFound ? "unknown conversation" : "network down" },
@@ -459,6 +499,12 @@ class World {
       case "answer": {
         const head = this.machine.view(this.state).confirms[0]?.confirmId;
         if (head === undefined) return false;
+        const prior = this.answers.get(head);
+        if (!a.stale && prior !== undefined) {
+          this.count(prior.state === "posting" ? "answer while posting"
+            : prior.allow === a.allow ? "answer repeated after a failure"
+              : "answer changed after a failure");
+        }
         this.feed({ type: "answer", confirmId: a.stale ? confirmIdOf("stale") : head, allow: a.allow },
                   { k: "answer" });
         return true;

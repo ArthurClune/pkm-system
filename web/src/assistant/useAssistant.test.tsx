@@ -159,8 +159,7 @@ describe("useAssistant", () => {
     });
     expect(latest.status).toBe("confirm");
     expect(latest.pendingConfirm).toEqual(
-      { confirmId: "t1", opsPreview: "save_note(...)", preview: null,
-        sentDecision: null, allowedAhead: 0 });
+      { confirmId: "t1", preview: null, answer: null, allowedAhead: 0 });
     await act(async () => {
       await latest.respondConfirm(true);
       release();
@@ -186,12 +185,11 @@ describe("useAssistant", () => {
       await Promise.resolve();
     });
     expect(latest.pendingConfirm).toEqual(
-      { confirmId: "t1", opsPreview: "save_note(...)", preview: null,
-        sentDecision: null, allowedAhead: 0 });
+      { confirmId: "t1", preview: null, answer: null, allowedAhead: 0 });
     await act(() => latest.respondConfirm(true));
     expect(latest.pendingConfirm).toEqual(
-      { confirmId: "t1", opsPreview: "save_note(...)", preview: null,
-        sentDecision: true, allowedAhead: 0 });
+      { confirmId: "t1", preview: null, answer: { allow: true, state: "failed" },
+        allowedAhead: 0 });
     expect(latest.status).toBe("confirm");
     expect(latest.error).toBe("network down");
   });
@@ -797,18 +795,18 @@ describe("useAssistant", () => {
     });
     expect(latest.status).toBe("confirm");
 
-    let answering!: Promise<void>;
-    act(() => { answering = latest.respondConfirm(true); });
+    let inFlight!: Promise<void>;
+    act(() => { inFlight = latest.respondConfirm(true); });
     await act(() => latest.newChat());
     await act(async () => {
       confirmCall.reject(new ApiError(404, "/api/assistant/conversations/c1/confirm"));
-      await answering;
+      await inFlight;
     });
     // the 404 branch resets conversationId and sets an explanatory error;
     // neither may touch the chat that replaced it
     expect(latest.error).toBeNull();
     expect(latest.pendingConfirm).toBeNull();
-    expect(latest.answering).toBe(false);
+    expect(latest.canStop).toBe(false);
     expect(latest.status).toBe("idle");
   });
 
@@ -898,7 +896,7 @@ describe("useAssistant", () => {
       await answered;
     });
     expect(latest.error).toBeNull();
-    expect(latest.answering).toBe(false);
+    expect(latest.canStop).toBe(false);
     expect(latest.status).toBe("idle");
   });
 

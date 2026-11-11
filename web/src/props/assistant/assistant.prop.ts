@@ -41,6 +41,10 @@ const REACH: Reach = {
   //   "harness lost after stop while re-creating"
   //   "stop's fallback aborts after stop while re-creating"
   //   "stream fails after stop while re-creating"
+  // No floor yet, not measured:
+  //   "answer changed after a failure"
+  //   "answer repeated after a failure"
+  //   "answer while posting"
   floors: {
     "abort lands after stop": 0.012,
     "abort lands for a finished or superseded turn": 0.051,

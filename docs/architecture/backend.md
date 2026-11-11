@@ -98,15 +98,16 @@ take locks that conflict with another connection's open write transaction.
 Each request gets a fresh `Db` from `open_db()`, with `foreign_keys=ON`,
 `recursive_triggers=ON` and `BUSY_TIMEOUT_MS`.
 
-The server requires SQLite 3.43 or newer (`db_core.MIN_SQLITE_VERSION`), and
-`init_db()` refuses to start on an older library, naming both versions. The
-replay charge sizes rewrite rows with `octet_length`, which 3.43 added and
-which reads a value's size from the record header without loading its text.
+`init_db()` refuses to start on a SQLite older than
+`db_core.MIN_SQLITE_VERSION`, naming both versions. That version added
+`octet_length`, which the
+[replay charge](write-path.md#work-bounds-under-the-write-lock) sizes
+rewrite rows with.
 
-An `IN (...)` list built from a set the data can grow without bound (a page's
-block uids, a block's referrers, a `((ref))` set) goes through
-`sync_core.chunk_ids`, because SQLite refuses a statement that binds more
-variables than its limit and the route would answer 500. The offline shim
+An `IN (...)` list built from a set the data can grow without bound, such as
+a page's block uids, goes through `sync_core.chunk_ids`. SQLite refuses a
+statement that binds more variables than its limit, and the route would
+answer 500. The offline shim
 (`replica/localApi/`) meets the same limit in the wasm build. It binds such a
 set whole as one JSON array, `IN (SELECT value FROM json_each(?))`, which
 needs one variable at any size and keeps one statement per read.
@@ -225,7 +226,7 @@ A backlinks payload sends each ancestor's text once. Each `BacklinkGroup`
 lists its ancestors' texts in `ancestor_texts`, and each item names its
 trail, root first, as positions in that list (`ancestors`). Texts on every
 item would repeat a deep chain's shared ancestors about `depth²/2` times,
-so a few MB stored became hundreds of MB per read. An ancestor is always
+so a few MB stored would cost hundreds of MB per read. An ancestor is always
 on its item's page, so a per-group list holds each once. Both fields are
 left out when empty. The web shows each ancestor's full text and the
 linked-references filter reads its refs, so an excerpt is no substitute.
@@ -233,7 +234,7 @@ linked-references filter reads its refs, so an excerpt is no substitute.
 positions mean nothing outside their group. `GET /api/block/{uid}` has one
 trail and keeps it as texts in `breadcrumbs`.
 
-Every `BacklinkItem` still carries `breadcrumbs`, for tabs running a bundle
+Every `BacklinkItem` also carries `breadcrumbs`, for tabs running a bundle
 built before `ancestors`. Such a bundle reads it off every item and throws
 to the root error screen when it is missing. It holds
 `STALE_BUNDLE_CRUMB` (`…`) where the item has a trail and nothing
@@ -279,8 +280,7 @@ from the key of its name is read under an alias:
 `brand_registry.COLUMN_KEYS` lists the aliases and `SHAPES` each brand's
 regex; `CLIENT_KEYS` and `CLIENT_LITERALS` cover the replica's own tables.
 With `PKM_ROW_CHECK=1`, `select` checks each row with `row_problems` and
-raises `RowCheckError` on an unregistered column, a NULL in a non-null key, a
-wrong type, a value outside a `Literal` or a brand-shape failure. Tests, e2e
+raises `RowCheckError` on any problem it finds. Tests, e2e
 and the proptest sync server turn it on; `perfcheck` turns it off. Fix a
 `RowCheckError` in the query (alias, `COALESCE`) or the data, never by
 loosening `row_problems`. A key admits every value its column stores,
@@ -473,7 +473,7 @@ refusal is a crash loop. It never repairs either, because a merge is
 irreversible and stays a digest-confirmed operator action. A failure inside
 the check is logged and the server serves on.
 
-Two reported rows have no migration remedy, and
+Some reported rows have no migration remedy, and
 [docs/cli.md](../cli.md#rows-the-migration-cannot-fix) gives each one's fix:
 
 | Row | Why the migration leaves it |
@@ -510,7 +510,7 @@ migration audit, which only shortens a title. In block text a link, tag or
 attribute to such a title fails the batch with a 400. The fold is measured
 on the title as sent, before the flag's edge strip: it is the longest a
 stored title can be under either flag, and the pure ops check never knows
-the flag. So ` t…t ` with single-space edges is refused at 1,002. Length is
+the flag (`title_length.json` pins single-space edges counting). Length is
 judged before syntax (`refs.title_refusal`), so a refusal names the length
 and never echoes the title.
 
@@ -616,7 +616,7 @@ The write deadline measures progress, not paused time: one large JSON
 message keeps writing paused until nearly all of it has left. The kernel
 takes bytes from the transport in steps of its socket buffer (a few
 hundred KiB), so the rule is in effect a minimum read rate of one step
-per window, about 1 KiB/s at 300 s: far below any usable link, and the
+per `WRITE_STALL_TIMEOUT_S`. That is far below any usable link, and the
 accepted cost of a bound that needs no kernel queries. The kernel may also
 take a few KiB just after the client stops reading, so a client that stops
 is cut one or two windows later.
@@ -666,12 +666,11 @@ serves on. A refused HTTP request gets 403
 HTTP 403. The guard runs before the auth gate, so an anonymous handshake
 from a foreign origin sees 4403, not 4401.
 
-Two tests pin rules that would lock the app out if broken:
 `Origin: null` is refused, because a sibling page can produce it
-(`test_origin_allowed`, `test_ws_refuses_a_foreign_origin`), and the web
-treats 403 as retry-later (`RETRY_LATER_STATUSES` in
-`web/src/sync/rejection.ts`, pinned by `rejection.test.ts`), so a wrong
-`serve_origins` queues edits instead of discarding them.
+(`test_origin_allowed`, `test_ws_refuses_a_foreign_origin`). The web treats
+403 as retry-later (`RETRY_LATER_STATUSES` in `web/src/sync/rejection.ts`,
+pinned by `rejection.test.ts`), so a wrong `serve_origins` queues edits
+instead of discarding them.
 
 Nothing enforces these rules:
 
@@ -806,13 +805,13 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/login` *(public)* | Password → session cookie; a body past `PUBLIC_BODY_MAX_BYTES` gets 413 ([Auth](#auth)) |
+| POST | `/api/login` *(public)* | Password → session cookie ([Auth](#auth)) |
 | GET | `/login` *(public)* | HTML login form |
 | GET | `/healthz` *(public)* | Liveness check; answers `{"ok": true}` and nothing else |
 | GET | `/{path}` *(public)* | SPA fallback; hashed bundles under `/app-assets/` |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |
-| POST | `/api/ops` | Apply an `OpBatch` ([The write path](write-path.md)); `applied` counts skipped ops too; 400 for the whole batch past a [text limit](write-path.md#work-bounds-under-the-write-lock) or naming a [refused title](#refused-titles); 412 when an `expect` entry no longer holds, unless the judges refuse the batch: they run first, before the lock, so that is a 400; 413 for a body past `PRIVATE_BODY_MAX_BYTES` ([Auth](#auth)) |
+| POST | `/api/ops` | Apply an `OpBatch` ([The write path](write-path.md)); `applied` counts skipped ops too; 400 for the whole batch past a [text limit](write-path.md#work-bounds-under-the-write-lock) or naming a [refused title](#refused-titles); 412 when an `expect` entry no longer holds, unless the judges refuse the batch: they run first, before the lock, so that is a 400 |
 | **Pages & blocks** | | |
 | GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree, paginated backlinks (not from the page itself) with [`ancestor_texts`](#breadcrumbs-and-recursive-traversal) per group, `block_ref_counts`; daily pages auto-created |
 | GET | `/api/block/{uid}` | One block subtree with its page and [breadcrumbs](#breadcrumbs-and-recursive-traversal) |
@@ -840,7 +839,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | **Sync** ([sync-and-offline.md](sync-and-offline.md)) | | |
 | GET | `/api/sync/snapshot?pending` | Full bootstrap with `seq`, `generation`, the title flag and `applied_batches` |
 | GET | `/api/sync/changes?since&limit&pending` | Windowed incremental feed with the same metadata |
-| POST | `/api/client/diagnostics` | A replica's self-report before a rebuild; one `pkm.sync` warning cut at `_MAX_DIAGNOSTICS_LOG_CHARS` with a marker naming the full length, nothing stored |
+| POST | `/api/client/diagnostics` | A replica's self-report before a rebuild, logged as one `pkm.sync` warning cut at `_MAX_DIAGNOSTICS_LOG_CHARS` |
 | WS | `/api/ws` | [Post-commit nudges](write-path.md#post-commit-nudges) and op echoes |
 | **Assistant** ([assistant.md](assistant.md)) | | |
 | GET | `/api/assistant/models` | Models on offer and the default |
@@ -848,10 +847,10 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | POST | `/api/assistant/conversations/{id}` | Beacon close (`navigator.sendBeacon`) |
 | POST | `/api/assistant/conversations/{id}/messages` | One turn → SSE stream; 409 while a turn runs |
 | POST | `/api/assistant/conversations/{id}/confirm` | Answer a write confirmation |
-| POST | `/api/assistant/conversations/{id}/stop` | Stop the reserved turn, started or not; answers at once, and the turn's stream ends with `turn_stopped`. Names no turn: a no-op when none is reserved, and it stops whichever turn is reserved when it lands |
+| POST | `/api/assistant/conversations/{id}/stop` | Stop the reserved turn, started or not; its stream ends with `turn_stopped` |
 | DELETE | `/api/assistant/conversations/{id}` | Close the conversation |
 | **Assets** ([files-and-assets.md](files-and-assets.md)) | | |
-| POST | `/api/assets` | Multipart upload; 413 `upload too large` past `max_upload_bytes`, and 413 `request body too large` for a body past that plus `UPLOAD_ENVELOPE_BYTES` ([Auth](#auth)) |
+| POST | `/api/assets` | Multipart upload; 413 past `max_upload_bytes` ([Auth](#auth)) |
 | GET | `/assets/{sha256}/{filename}` | Serve by digest; the name segment is ignored |
 | GET | `/api/assets/describe-status` | Whether image descriptions are on, and why not |
 | POST | `/api/assets/scan?force` | Enqueue undescribed images |
@@ -873,8 +872,8 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 ### Hostile input
 
 **No client input, and no row the importer writes, makes a route answer
-500.** A test that walks `app.routes` keeps the first two guards on every
-route.
+500.** Tests that walk `app.routes` keep the surrogate and int64 guards on
+every route.
 
 | Input | Guard | Kept by |
 |---|---|---|
@@ -882,7 +881,7 @@ route.
 | An int past 64 bits | Int parameters are `Int64` or carry `INT64_RANGE`; `WellFormedModel` refuses one in a body | `test_every_int_parameter_is_bounded_to_sqlite_range` |
 | A 422 echoing a surrogate, NaN or deep nesting | `validation_echo.echo_errors`, cut at `MAX_ECHO_DEPTH` | `test_validation_echo.py` |
 | A NUL, an over-long component or a link loop in an SPA path | The catch-all treats a path `resolve()` or `is_file()` rejects as naming no file, and serves the shell | `test_spa.py` |
-| A request body of any size | `AuthGateMiddleware` refuses an anonymous one before the app reads it, caps a public one at `PUBLIC_BODY_MAX_BYTES`, an upload at `max_upload_bytes` plus `UPLOAD_ENVELOPE_BYTES` and any other authenticated one at `PRIVATE_BODY_MAX_BYTES`; rule in [Auth](#auth) | `test_auth_gate.py` |
+| A request body of any size | `AuthGateMiddleware` refuses an anonymous one unread and caps every other; rule in [Auth](#auth) | `test_auth_gate.py` |
 | A session cookie signature that is not ASCII | `verify_session` refuses it before `hmac.compare_digest`, which raises on non-ASCII | `test_hostile_requests.py` |
 | A NUL in a search term | `fts.py` makes it a space: FTS5 reads a C string | `test_hostile_requests.py` |
 | A GoodLinks or OpenAI body that is not JSON, nests too deep, or holds a surrogate | An unusable answer (503, `DescribeError`); decoded strings made well-formed | `test_no_500_upstream_props.py` |
@@ -950,34 +949,34 @@ on random batches.
 ## Configuration and entrypoints
 
 `config.json` lives in the data directory, never in git;
-`python -m pkm.server.setup` writes it mode 0600. `Config` holds every
-default, and `load_config` passes only the keys the file sets. Path keys,
-key-file defaults included, resolve relative to `config.json`'s directory, so
-the data directory moves as a unit.
+`python -m pkm.server.setup` writes it mode 0600. `Config` (`config.py`)
+holds every default, and `load_config` passes only the keys the file sets.
+Path keys, key-file defaults included, resolve relative to `config.json`'s
+directory, so the data directory moves as a unit.
 
-| Key | Default | Meaning |
-|---|---|---|
-| `db_file` | required | SQLite database path |
-| `assets_dir` | required | Content-addressed asset store |
-| `password_salt`, `password_hash` | required | scrypt password check (hex) |
-| `session_secret` | required | HMAC key for session cookies (hex) |
-| `cookie_secure` | `true` | `Secure` flag on the session cookie |
-| `web_dist` | unset | Built SPA directory; unset serves the API only |
-| `bind_hosts` | `["127.0.0.1"]` | Interfaces to listen on |
-| `serve_origins` | `[]` | Origins browsers use to reach the server through Tailscale Serve, e.g. `["https://<machine>.<tailnet>.ts.net"]`; loopback and `bind_hosts` listeners are always allowed ([Auth](#auth)) |
-| `max_upload_bytes` | 150 MB | Upload size cap |
-| `image_descriptions` | `true` | Master switch for image captions |
-| `image_description_model` | `gpt-4o-mini` | Vision model |
-| `openai_api_key_file` | `../openai_key` | Key for image captions; else `OPENAI_API_KEY` |
-| `zai_api_key_file` | `../zai_key` | Key that enables the assistant's `glm` model; else `ZAI_API_KEY` |
-| `local_docs_root` | unset | Tree served under `/api/local/`; unset disables it |
-| `goodlinks_api_key_file` | `../goodlinks_key` | GoodLinks token; else `GOODLINKS_API_KEY`. With neither, every GoodLinks route but `check` 404s |
-| `goodlinks_api_url` | `http://localhost:9428/api/v1` | Where the GoodLinks app listens |
+| Key | Meaning |
+|---|---|
+| `db_file` | Required. SQLite database path |
+| `assets_dir` | Required. Content-addressed asset store |
+| `password_salt`, `password_hash` | Required. scrypt password check (hex) |
+| `session_secret` | Required. HMAC key for session cookies (hex) |
+| `cookie_secure` | `Secure` flag on the session cookie |
+| `web_dist` | Built SPA directory; unset serves the API only |
+| `bind_hosts` | Interfaces to listen on |
+| `serve_origins` | Origins browsers use to reach the server through Tailscale Serve, e.g. `["https://<machine>.<tailnet>.ts.net"]`; loopback and `bind_hosts` listeners are always allowed ([Auth](#auth)) |
+| `max_upload_bytes` | Upload size cap |
+| `image_descriptions` | Master switch for image captions |
+| `image_description_model` | Vision model |
+| `openai_api_key_file` | Key for image captions; else `OPENAI_API_KEY` |
+| `zai_api_key_file` | Key that enables the assistant's `glm` model; else `ZAI_API_KEY` |
+| `local_docs_root` | Tree served under `/api/local/`; unset disables it |
+| `goodlinks_api_key_file` | GoodLinks token; else `GOODLINKS_API_KEY`. With neither, every GoodLinks route but `check` 404s |
+| `goodlinks_api_url` | Where the GoodLinks app listens |
 
 A key file wins over its environment variable. Key files default to one
 level above the data directory, outside anything servable or exportable.
 
-`python -m pkm.server.run` serves port 8974 on `bind_hosts`. Its `--host`
+`python -m pkm.server.run` serves its `--port` on `bind_hosts`. Its `--host`
 flags replace `bind_hosts`, for the listeners and for the origin guard's
 allowed set alike. launchd runs it
 through `$PKM_HOME/bin/pkm-server`, which stays the Python process's parent,
@@ -988,7 +987,7 @@ runs `init_db()`, so every entrypoint works on a new data directory.
 ## Logging and observability
 
 There is no metrics stack; the logs answer what the server was doing when it
-was slow. `logfmt.uvicorn_log_config()` routes three loggers to two handlers.
+was slow. `logfmt.uvicorn_log_config()` routes each logger to a handler.
 
 | Logger | Handler | Line |
 |---|---|---|
@@ -998,11 +997,11 @@ was slow. `logfmt.uvicorn_log_config()` routes three loggers to two handlers.
 
       <client> "GET /api/page/Foo?bl_limit=20" 200 4ms
 
-`request_line` escapes each non-printable character in the client, method and
-path (query included) as `\xNN`, `\uNNNN` or `\UNNNNNNNN`, and backslash-escapes
-backslashes and double quotes. The path is attacker-chosen: a raw newline or
-U+2028 would forge a log line, and a quote would close the request field
-early and fake the status.
+`request_line` passes the client, method and path (query included) through
+`escape_controls`, which escapes every non-printable character, backslash
+and double quote. The path is
+attacker-chosen: a raw newline or U+2028 would forge a log line, and a quote
+would close the request field early and fake the status.
 The default handler applies the same `escape_controls` to the rendered
 message of every `pkm.*` record (`logfmt.EscapePkmMessages`), at the handler
 rather than per call site, because any `pkm` logger may carry a requested
@@ -1033,8 +1032,8 @@ checks every `pkm.*` logger reaches a handler.
   enforced. AGENTS.md says how to run the gates;
   [checks.md](checks.md) says what fails, including the
   [comment lint](checks.md#comment-and-regex-lint).
-- `conftest.py` provides a seeded temp database (five pages, daily page
-  "July 7th, 2026"), an authenticated `TestClient` and an in-process
+- `conftest.py` provides a temp database seeded from `SEED_PAGES` and
+  `SEED_BLOCKS`, an authenticated `TestClient` and an in-process
   `PkmClient`.
 - A path with a literal `%` goes through `asgi_get_all` or `single_decode_get`,
   not `TestClient`, which decodes the path twice: a file named `%41` would be

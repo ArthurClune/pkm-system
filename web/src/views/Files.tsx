@@ -58,8 +58,8 @@ function FileCard({ item, checked, onToggle, onCopy }: {
     setExpanded(false);
     setBroken(true);
   }, []);
-  // ImageOverlay restores focus via triggerRef; the PDF overlay leaves it to
-  // its parent, so restore the thumb's focus here.
+  // Safari does not focus a button on click, so the modal had no focused
+  // element to restore at open; refocus the thumb explicitly.
   const closePdf = useCallback(() => {
     setExpanded(false);
     thumbRef.current?.focus();

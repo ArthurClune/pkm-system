@@ -2,7 +2,8 @@
 // Drives the replica from the server (docs/architecture/sync-and-offline.md
 // § The changes feed): snapshot bootstrap, nudge-driven windowed pulls, and
 // the guarded re-bootstrap paths (feed reset / generation flip /
-// schema-version mismatch, docs/architecture/sync-recovery.md § Rebootstraps).
+// schema-version mismatch, docs/architecture/sync-recovery.md
+// § Rebootstrap triggers).
 // The guardrail: a re-bootstrap NEVER tears down a database whose pending queue
 // is non-empty — queued batches are flushed to the server first (batch_id dedup
 // makes replayed flushes safe), and a failed flush keeps the old database:

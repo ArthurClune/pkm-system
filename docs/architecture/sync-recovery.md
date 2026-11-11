@@ -16,7 +16,7 @@ replica is a cache and the queue is the user's intent.
 | A replica write fails (`SQLITE_CANTOPEN`, `IOERR`, a dead worker) | The op is kept in the in-memory lane; only `ReplicaError.rejected` discards | [A local write fails](#a-local-write-fails) |
 | Lane entries and durable rows are both waiting | `headPrecedes` orders them by batch identity | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
 | The OPFS file cannot be opened | Up to the attempt limit, then `unusable` for the session | [When the replica cannot be opened](#when-the-replica-cannot-be-opened) |
-| The worker RPC breaks | `unreachable`: ops kept, barrier held; the next replica call, by the queue, `replicaSync` or `clientRuntime`, sets mode `no-replica` | [Availability](#availability-two-values-one-owner), [Replica mode](#replica-mode) |
+| The worker RPC breaks | `unreachable`: ops kept, barrier held; the next replica call, by the queue, `replicaSync` or `clientRuntime`, sets mode `no-replica` | [Availability](#availability), [Replica mode](#replica-mode) |
 | The replica opens, then fails every write | The offline banner says unsent changes exist only in memory | [What the UI shows](#what-the-ui-shows) |
 | A window was read before an ack deleted its row | Refetched; `PullStarvedError` after the cap | [Windows and the pending queue](sync-and-offline.md#windows-and-the-pending-queue) |
 | Two repairs or a recovery overlap | Each holds its own barrier owner and releases only that | [The recovery barrier](#the-recovery-barrier) |
@@ -116,7 +116,7 @@ their journals, the most a
 [file replacement](#reset-rebase-and-file-replacement) holds) with room to
 spare.
 
-### Availability: two values, one owner
+### Availability
 
 The worker owns the answer and latches it. `db()` in
 `workerHandlers.ts` wraps the first `openDb()` failure in a

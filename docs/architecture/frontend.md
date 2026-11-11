@@ -204,8 +204,14 @@ on the server's WS echo, so a `CanonicalTitle` is assignable to it.
 
 ## Views and navigation
 
-The routes are `STATIC_ROUTES` ([below](#one-table-for-route-metadata)) plus
-`/page/*`, one page in `PageView`; any other path renders `NotFound`. `/help`
+The routes are `STATIC_ROUTES` plus `/page/*`, one page in `PageView`; any other
+path renders `NotFound`. `STATIC_ROUTES` in `routeMeta.ts` holds the id, path,
+top-bar label and browser title of every static route. `App.tsx` maps each id
+to its view through `VIEWS`, a `Record<StaticRouteId, ComponentType>` the
+compiler checks for completeness. TopBar and `useRouteTitle.ts` read the same
+array, so a route cannot be labelled in one place and not another. `/page/*`
+has no entry, and `PageView.tsx` sets its title. `documentTitleFor` returns
+`NOT_FOUND_TITLE` for any other path. `/help`
 renders `docs/keyboard.md` (bundled with `?raw`) through
 `help/parseHelpMarkdown.ts`, which knows only headings, paragraphs, pipe
 tables and code spans: a list or link there renders literally.
@@ -216,16 +222,6 @@ the fold changes (a hand-typed `%0A`, a double space, an NBSP) is first
 redirected to the title it folds to (`normalizeRefTitle`). PageView, a sidebar
 panel and the Journal key their outline session by the page's stored title,
 whatever spelling opened them (`outline/titleKeys.props.test.tsx`).
-
-### One table for route metadata
-
-`STATIC_ROUTES` in `routeMeta.ts` holds the id, path, top-bar label and browser
-title of every static route. `App.tsx` maps each id to its view through
-`VIEWS`, a `Record<StaticRouteId, ComponentType>` the compiler checks for
-completeness. TopBar and `useRouteTitle.ts` read the same array, so a route
-cannot be labelled in one place and not another. `/page/*` has no entry, and
-`PageView.tsx` sets its title. `documentTitleFor` returns `NOT_FOUND_TITLE`
-for any other path.
 
 ### Navigation chrome
 
@@ -250,7 +246,18 @@ only because `BlockInput` never calls `stopPropagation` on keydown. The
 deliver keydowns the real OS would swallow, so confirm a new chord in the
 running app.
 
-### The Journal
+### Paged lists
+
+Each list pages through a reducer of its own, and each exists for one rule:
+
+| List | State lives in | The rule |
+|---|---|---|
+| Journal days | `views/journalPaging.ts` | One load in flight; a failed load keeps the days and their cursor ([The Journal](#the-journal)) |
+| `/files` | `views/filesPaging.ts` | A filter change bumps the generation at the keystroke; Select all and Load more start only from a list loaded under the current generation ([The `/files` browser](#the-files-browser)) |
+| Linked references | `components/backlinksPaging.ts` | Show more and the filter panel's load-all are walks and several can be in flight, so the section is loading until every walk settles; a sync refresh replaces the groups from offset 0, and while one is in flight no walk starts and the panel stays closed, since either would page on from groups about to be replaced |
+| Unlinked references | `components/unlinkedStatus.ts` (Link lifecycle) | The server drops a block from `/api/unlinked` once it references the page, so a delivered Link takes its block out of the loaded list and one off `total`, and Show more asks from the count of loaded blocks still listed: counting an undelivered Link as gone only re-fetches a block, which `mergeGroups` drops, while counting a gone one as listed skips the next block |
+
+#### The Journal
 
 Each day's linked references arrive with the day in `/api/journal`'s payload
 and render inline (`JournalDayReferences`, reusing `BacklinksSection`). A day on
@@ -276,6 +283,21 @@ load failed: any success clears it. A result that answers a superseded load
 changes nothing. A batch shorter than asked for means the past is exhausted.
 A resync over more than `SERVER_MAX_DAYS` days drops the oldest off, since the
 server clamps `days`; scrolling loads them back.
+
+#### The `/files` browser
+
+`/files` is a table over `/api/assets/search`; the store is in
+[files-and-assets.md](files-and-assets.md). Image and PDF thumbs open in-app
+(`ImageOverlay`, `PdfViewer`'s overlay-only mode). The refs popover renders
+through `BacklinkGroupList`, which provides `InertMediaContext` itself
+whenever `onNavigate` is set, so media in a navigable row is inert and the
+whole row is the click target. `AssetRefGroup` has
+no `page_id`, which keeps asset refs out of `mergeGroups`. `filesPaging.ts`
+owns the list's fetch state. A filter change bumps the generation and clears
+the selection at the keystroke, not when the debounced reload fires. Select
+all and Load more start only from a list loaded under the current generation,
+since until then `items` and `total` belong to the old filter and a Delete
+would remove files outside the new one.
 
 ### Popovers and menus
 
@@ -335,40 +357,6 @@ roles (`tone: "error"` an alert, `"status"` a status) are what `styles.css`
 and the e2e locators select on. `useOutline` exposes one `notices` list
 (`outline/notices.ts`: one slot per `NoticeKind`, listed by `noticeList`),
 which `EditablePage` maps.
-
-### The `/files` browser
-
-`/files` is a table over `/api/assets/search`; the store is in
-[files-and-assets.md](files-and-assets.md). Image and PDF thumbs open in-app
-(`ImageOverlay`, `PdfViewer`'s overlay-only mode). The refs popover renders
-through `BacklinkGroupList`, which provides `InertMediaContext` itself
-whenever `onNavigate` is set, so media in a navigable row is inert and the
-whole row is the click target. `AssetRefGroup` has
-no `page_id`, which keeps asset refs out of `mergeGroups`. `filesPaging.ts`
-owns the list's fetch state. A filter change bumps the generation and clears
-the selection at the keystroke, not when the debounced reload fires. Select
-all and Load more start only from a list loaded under the current generation,
-since until then `items` and `total` belong to the old filter and a Delete
-would remove files outside the new one.
-
-### Linked references
-
-`BacklinksSection` shows the groups in `backlinksPaging.ts`. Show more and the
-filter panel's load-all are walks, and several can be in flight together, so
-the section counts as loading until every walk has settled. A sync-driven
-refresh replaces the groups from offset 0; a walk cannot start, and the panel
-cannot open, while one is in flight, since either would page on from groups
-the refresh is about to replace.
-
-### Unlinked references
-
-`UnlinkedSection` keeps each block's Link status in `unlinkedStatus.ts`, which
-owns the lifecycle. It pages `/api/unlinked` by `offset`, and the server drops
-a block from that list once it references the page. So a delivered Link takes
-its block out of the loaded list and one off `total`, and Show more asks from
-the count of loaded blocks still listed. Counting a block whose Link is not
-yet delivered as gone can only re-fetch it, which `mergeGroups` drops;
-counting a gone one as listed skips the next block.
 
 ## iOS and phone behaviour
 
@@ -480,8 +468,7 @@ fails on, and `AGENTS.md` § Testing says how to run them.
   run are in [checks.md](checks.md#every-check). `src/test-setup.ts` fails
   whichever test is running when a `console.warn` or `console.error` lands, so
   a stray timer's message surfaces in a later test: read the message, not the
-  test name. `src/test-guards.ts` also starts `orphanWatchdog.ts`, which kills
-  a vitest worker whose parent has gone. Traps that make a test pass without
+  test name. Traps that make a test pass without
   proving anything:
 
   | Trap | Instead |

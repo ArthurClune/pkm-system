@@ -56,7 +56,7 @@ export interface ReplicaInit {
   cursor: SyncSeq;
   /** stored schema_version differs from this build's: recovery required
    * (flush pendingBatches first — docs/architecture/sync-recovery.md
-   * § Rebootstraps) */
+   * § runRecovery) */
   schemaMismatch: boolean;
   /** read BEFORE any teardown, per the epic guardrail */
   pendingBatches: PendingBatch[];

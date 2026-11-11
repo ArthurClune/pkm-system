@@ -116,7 +116,7 @@ explains the deferral.
 | Layer | Choices |
 |---|---|
 | Backend | Python ≥ 3.12, FastAPI, Pydantic v2, raw `sqlite3` (WAL + FTS5, no ORM), uvicorn + `websockets`, `uv` (hatchling build) |
-| Frontend | Versions in [frontend.md](frontend.md#tech-stack) |
+| Frontend | Versions in `web/package.json`; the choices it does not show (Vite and pnpm overrides, OPFS SQLite, lazy loading) are in [frontend.md](frontend.md#tech-stack) |
 | Agent access | `pkm` CLI + `pkm-mcp` stdio server (httpx2; FastMCP from the `mcp` SDK) over the same HTTP API |
 | Embedded assistant | Claude Agent SDK harness, server-side; SSE chat in the SPA |
 | Ops | launchd services, Tailscale Serve (HTTPS) |

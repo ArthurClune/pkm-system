@@ -64,9 +64,10 @@ const tableExists = (db: ReplicaDb, name: string): boolean =>
             [name]).length > 0;
 
 function readPendingBatches(db: ReplicaDb): PendingBatch[] {
-  // Guardrail (docs/architecture/sync-recovery.md § Rebootstraps): runs BEFORE
-  // any teardown decision, and reads only the migration-stable columns so a
-  // newer client can always extract wire-format JSON from an older database.
+  // Guardrail (docs/architecture/sync-recovery.md § Recovery never erases
+  // intent): runs BEFORE any teardown decision, and reads only the
+  // migration-stable columns so a newer client can always extract wire-format
+  // JSON from an older database.
   if (!tableExists(db, "pending_ops")) return [];
   const batches = allBatches(db);
   // The cursor is read separately and only when its table exists: an older

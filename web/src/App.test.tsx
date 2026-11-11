@@ -290,7 +290,8 @@ it("ctrl-cmd-d is no longer bound", async () => {
 });
 
 // Ctrl-Shift-T, not Cmd-T: the browser owns Cmd-T for a new tab and never
-// delivers the keydown to the page. See docs/architecture/frontend.md.
+// delivers the keydown to the page. See docs/architecture/frontend.md
+// § Navigation chrome.
 it("ctrl-shift-t shows the block-stamp column; pressing it again hides it", async () => {
   stubFetch([
     ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],

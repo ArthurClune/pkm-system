@@ -315,15 +315,15 @@ client that vanished without a clean close. Thinking content is not streamed;
 `TurnMapper.map` turns each `content_block_start` into a `phase` event
 ("reasoning", "preparing `<tool>`", "replying") for the panel's busy line.
 
-The SDK's model request has no first-token timeout, so on a dead network a
-turn would wait forever and only the user's patience would end it. The stall
-watchdog treats total SDK silence as that network, since real reasoning emits
-a steady stream of events. After `STALL_TIMEOUT_S` with no
-SDK message, the pump interrupts the harness and drains the aborted result
-as Stop does ([the turn phase](#the-turn-phase)), then reports an in-band
-`error`. The interrupt and drain go first because the error ends the
-consumer's loop, which cancels the pump. The deadline is suspended while a
-confirm is parked, because that silence is the user's. The client's own guard is in
+The SDK's model request has no first-token timeout, so on a dead network a turn
+would wait forever and only the user's patience would end it. The stall watchdog
+treats total SDK silence as that network, since real reasoning emits a steady
+stream of events. After `STALL_TIMEOUT_S` with no SDK message, the pump
+interrupts the harness and drains the aborted result as Stop does
+([the turn phase](#the-turn-phase)), then reports an in-band `error`. The
+interrupt and drain go first because the error ends the consumer's loop, which
+cancels the pump. The deadline is suspended while a confirm is parked, because
+that silence is the user's. The client's own guard is in
 [frontend.md](frontend.md#the-assistant-panel).
 
 ## Testing

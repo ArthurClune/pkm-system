@@ -100,8 +100,8 @@ without it pnpm aborts asking to purge `node_modules`.
 Verify the deploy rather than trusting the "updated to <sha>" line.
 `launchctl kickstart` silently does nothing when the service is unloaded, so
 check `launchctl list | grep pkm` and which process owns the production port
-(`lsof -nP -iTCP:8974 -sTCP:LISTEN`), then grep the served bundle (under `/app-assets/`) for a string the change
-added.
+(`lsof -nP -iTCP:8974 -sTCP:LISTEN`), then grep the served bundle (under
+`/app-assets/`) for a string the change added.
 
 `update.sh` does not re-render the launchd plists. When an update changes a
 `*.plist.template`, run `$PKM_HOME/app/deploy/install.sh` after it, which
@@ -248,7 +248,8 @@ server holds no connection and passes, so step 1 is still needed.
   click Allow on the iCloud consent prompt ([The launcher](#the-launcher)) at
   the Mac. Files that then read `unchecked`, or answer `too many file opens are
   in flight`, mean probes are still blocked on the prompt: grant it or restart
-  the server. Symptom and cause: the first row under Deployment and host in
+  the server. Symptom and cause: the `Local copy` row under Deployment and
+  host in
   [docs/troubleshooting.md](../docs/troubleshooting.md#deployment-and-host).
 
 Known failures are listed by symptom in

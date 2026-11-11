@@ -648,7 +648,7 @@ class Model:
             # join into a deeper link and only the length cap can be
             # reached (code: replay_core._replay_step judges each step's
             # splice on both, and on the depth times the length).
-            # § Planning, "Replayed text": the landing has every title
+            # § Work bounds under the write lock: the landing has every title
             # the chain deleted or renamed away made plain, the steps past
             # the one over the cap included (code:
             # replay_core.over_limit_landing_text). The machine draws no

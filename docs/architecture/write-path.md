@@ -53,8 +53,11 @@ follows the `with` block ([Post-commit nudges](#post-commit-nudges)).
 `test_write_txn.py` scans `server/src` and fails on a `begin_immediate` call
 outside the helper, and on a `.commit()` in `pkm/server` outside it.
 `upload_asset` alone is allow-listed: `assets` is not journalled, so it
-takes no write lock and has no busy branch. Its `INSERT` waits for the lock
-implicitly, and a lock held past the busy timeout reaches the client as a 500.
+skips `write_txn` (no `BEGIN IMMEDIATE`) and has no busy branch. Its `INSERT`
+takes the lock implicitly, and a lock held past `BUSY_TIMEOUT_MS` reaches the
+client as a 500. The route is `async`, so that wait also blocks the event
+loop. Only a threadpool route can be the holder, since `post_ops` never yields
+the loop while it holds the lock.
 
 A read of several statements, such as a sync payload or the assistant's
 card, takes one snapshot through `db.read_txn`, without the write lock. A
@@ -414,8 +417,9 @@ Server-made text passes a limit only by backticks. A header or note is
 row. An unlink only shortens text, bar two additions: `unlink.defuse_attribute`
 fences a leading attribute that names a deleted page, and
 `unlink.unlink_stale_refs` fences each link the unlink's passes leave
-([Stale batches](#stale-batches)). Each adds two backticks, so a text at the
-cap can be stored at `MAX_BLOCK_TEXT_CHARS` + 2
+([Stale batches](#stale-batches)). Each fence adds two backticks. A text at
+the cap whose leading attribute names a deleted page is stored at
+`MAX_BLOCK_TEXT_CHARS` + 2
 (`test_a_stale_defuse_at_the_cap_stores_at_most_two_more`).
 
 A stored row over a limit may stay level or improve, never get worse. Only
@@ -467,9 +471,9 @@ replaying them (`test_an_edit_pays_for_its_replay_once`).
 
 A page delete judges a copy's projected length (`spans.spliced_length` of
 the refs it holds) before building it, and builds a page block's copy only
-when a source refers to it (`unlink._Copies`). A copy that blanks down to
-`""` still costs that length to build
-(`test_many_referrers_to_one_ref_heavy_block_cost_one_projection`). Copies
+when a source refers to it (`unlink._Copies`), projecting each block once
+(`test_many_referrers_to_one_ref_heavy_block_cost_one_projection`). A copy
+that blanks down to `""` still costs that length to build. Copies
 that each nest within the cap can join into one deep link, and the unlink
 peels one layer per pass, so the spliced text is judged before unlinking
 (`test_copies_joined_into_one_deep_link_are_refused_before_unlinking`). A

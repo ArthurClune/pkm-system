@@ -30,9 +30,9 @@ Raster images and PDFs serve inline. Everything else downloads with
 
 An asset digest is `Sha256Hex` (`contracts/ops.py`), not a plain string.
 `path_params.path_sha256` parses every sha256 path parameter against
-`SHA256_HEX_RE` (404 when malformed), and `assets_core.py` mints from
-`hashlib`. On the web the only mint point is the `/assets/<sha>/<name>`
-autolink rule in `grammar/tokenize.ts`. Anything its capture group rejects renders as plain text
+`SHA256_HEX_RE` (404 when malformed), and `assets_core.py` mints from `hashlib`.
+On the web the only mint point is the `/assets/<sha>/<name>` autolink rule in
+`grammar/tokenize.ts`. Anything its capture group rejects renders as plain text
 or a generic link.
 
 The upload response's `existing` says whether the row was already there (a
@@ -59,9 +59,9 @@ The stripping rules:
 - Each removed token takes one adjacent space; every other character stays.
 - A token between `[` and `[` keeps them apart, so a strip can nest a block
   deeper or past a text limit, or create a link: with the token gone, `[` and
-  `[Foo]]` become `[[Foo]]`, which links and creates `Foo`. A strip that makes
-  a block worse on a limit refuses the whole delete before any write: 409 with `blockers` in page
-  delete's shape, reason `limit`
+  `[Foo]]` become `[[Foo]]`, which links and creates `Foo`. A strip that makes a
+  block worse on a limit refuses the whole delete before any write: 409 with
+  `blockers` in page delete's shape, reason `limit`
   ([write-path.md § Work bounds under the write lock](write-path.md#work-bounds-under-the-write-lock)).
   `/files` shows them in `DeleteBlockedDialog`.
 - A block left empty and childless is deleted. An emptied parent is kept,
@@ -265,10 +265,10 @@ Lookup runs before save so an archived link's read date is never bumped.
 ### The reader and the /goodlinks command
 
 `GoodlinksReader` is a full-screen overlay on `useModal` with a pinned Tab, as
-`ImageOverlay` is: a cycling Tab would be swallowed by the iframe. Escape
-stops closing it once focus is inside the iframe, because the frame runs no
-script and its keydown never reaches the app's `window` listener. The Close button still works. Fixing Escape would need
-`allow-scripts`, which barrier 2 forbids.
+`ImageOverlay` is: a cycling Tab would be swallowed by the iframe. Escape stops
+closing it once focus is inside the iframe, because the frame runs no script and
+its keydown never reaches the app's `window` listener. The Close button still
+works. Fixing Escape would need `allow-scripts`, which barrier 2 forbids.
 
 The original URL arrives only with the article, so on failure the bar has no
 link, and only a note and Close are guaranteed.

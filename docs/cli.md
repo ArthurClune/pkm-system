@@ -262,14 +262,15 @@ digest, each canonical group with its survivor, sources, counts and merge
 order, each sidebar entry it would retitle, and every blocker with an
 `all_space` or `forbidden_syntax` reason. Review it before applying.
 
-`--apply` requires that exact digest:
+`--apply` requires that exact digest. The first condition that holds
+decides:
 
 | Condition | Result |
 |---|---|
 | database changes since the audit have altered the plan | refused |
 | the audit lists blockers | refused |
 | the migration is already active and the audit lists no group and no sidebar entry | refused |
-| the migration is not yet active | applied, and it activates the rule, even when run only to merge the pages the startup check named |
+| none of the above | applied; a migration not yet active is activated, even when run only to merge the pages the startup check named |
 
 A successful apply runs in one transaction. It retitles and merges pages,
 rewrites inbound references and sidebar entries, activates the new title

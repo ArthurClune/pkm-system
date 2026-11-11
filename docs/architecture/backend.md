@@ -765,11 +765,12 @@ worker thread cannot be stopped, so a turn that ended with the request would
 let the next one start a second check before the first one's failure was
 recorded.
 
-The waits are bounded by two timeouts plus one scrypt check
-(`SCRYPT_ACQUIRE_TIMEOUT_S` for `take_turn` and again for `scrypt_slot()`
-on the worker thread), so concurrent logins cannot starve the threadpool
-every sync route shares. A right password that times out in the queue gets
-the uniform 401.
+`take_turn` waits on the event loop, holding no worker thread, so each
+source holds at most one thread. `scrypt_slot()` waits on that thread for up
+to `SCRYPT_ACQUIRE_TIMEOUT_S`, which bounds what many sources can hold, so
+concurrent logins cannot starve the threadpool every sync route shares. A
+login waits at most two such timeouts plus one scrypt check. A right password
+that times out in the queue gets the uniform 401.
 
 ## HTTP API reference
 
@@ -865,12 +866,13 @@ Path and query values cannot carry a lone surrogate, because the server
 decodes them from bytes. The `test_no_500_*_props.py`
 [properties](checks.md#property-gate) send generated input through every route.
 
-The other bounds are owned where their mechanism is, each with its test
-beside it: body size ([Auth](#auth)), block text, nesting and outline depth
+The other bounds are owned where their mechanism is: body size
+([Auth](#auth)), block text, nesting and outline depth
 ([Work bounds](write-path.md#work-bounds-under-the-write-lock)), title length
-([Refused titles](#refused-titles)), deeply nested `[[` ([Ref grammar](#ref-grammar)),
-query nesting (the `/api/query` row), unbounded id sets ([Database](#database))
-and export fan-out ([Single-page export](import-export-and-backup.md#single-page-export)).
+([Refused titles](#refused-titles)), deeply nested `[[`
+([Ref grammar](#ref-grammar)), query nesting (the `/api/query` row),
+unbounded id sets ([Database](#database)) and export fan-out
+([Single-page export](import-export-and-backup.md#single-page-export)).
 
 ## Generated artifacts and parity fixtures
 

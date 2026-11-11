@@ -211,6 +211,9 @@ function PdfOverlay({ href, label, page, onClose, triggerRef, children }: {
  * card opens in-app on every surface -- in the iOS standalone PWA a plain
  * same-origin navigation would take over the app with no way back. In that
  * mode Close/Escape call `onClose`; the parent owns unmounting.
+ *
+ * Renders one document: its state is not reset when `href` changes, so a
+ * caller must key it by href (PdfEmbed does).
  */
 export function PdfViewer({ href, label, onClose }:
     { href: string; label: string; onClose?: () => void }) {

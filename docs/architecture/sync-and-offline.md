@@ -317,7 +317,7 @@ the queue.
 
 `enqueueBatch` first refuses, whole and before anything is stored, a batch
 the server would always refuse. That is a text past a
-[text limit](write-path.md#planning) (`findOpTextLimitViolation`), judged before
+[text limit](write-path.md#work-bounds-under-the-write-lock) (`findOpTextLimitViolation`), judged before
 titles as the server judges it, or a [forbidden title](#title-activation-across-online-and-offline-paths)
 or one past the [length cap](backend.md#refused-titles)
 (`findOpTitleViolation`, which judges length first).

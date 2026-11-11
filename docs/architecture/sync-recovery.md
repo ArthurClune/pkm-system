@@ -242,7 +242,7 @@ never over an armed retry, which `coalesce` does not express.
 
 A batch the editor planned can still meet a 400 for a reason its replica
 could not see: two devices' edits, each legal alone, can stack past the
-[depth cap](write-path.md#missing-targets). The server refuses the whole batch,
+[depth cap](write-path.md#work-bounds-under-the-write-lock). The server refuses the whole batch,
 so the rebase below drops its valid ops with the deep one.
 
 A poisoned row pauses delivery, and `clientRuntime.ts` runs

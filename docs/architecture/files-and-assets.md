@@ -61,7 +61,7 @@ The stripping rules:
   deeper or past a text limit. A strip that makes a block worse on a limit
   refuses the whole delete before any write: 409 with `blockers` in page
   delete's shape, reason `limit`
-  ([write-path.md § Page mutations and the sidebar](write-path.md#page-mutations-and-the-sidebar)).
+  ([write-path.md § Work bounds under the write lock](write-path.md#work-bounds-under-the-write-lock)).
   `/files` shows them in `DeleteBlockedDialog`.
 - A block left empty and childless is deleted. An emptied parent is kept,
   because asset deletion must never cascade away real content.

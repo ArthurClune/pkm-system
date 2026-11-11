@@ -368,7 +368,7 @@ def test_delete_page_judges_the_length_before_the_rewrite_s_own_blockers():
     assert m.delete_page(raw_title_of("Alpha"), {}, seq_of(9)).blockers == {B: "limit"}
 
 
-# --- write-path.md § Planning (text limits) -----------------------------------
+# --- write-path.md § Work bounds under the write lock -------------------------
 
 @pytest.mark.parametrize("text", PAST_LIMIT_TEXTS)
 def test_a_text_past_a_limit_refuses_the_batch(text):

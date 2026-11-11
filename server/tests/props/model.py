@@ -6,10 +6,11 @@ real server against. It must never import `pkm.server.*` or
 `pkm.planning` (a test pins that), or it would agree with the server by
 construction.
 
-The rules come from write-path.md § Planning (Ordering), § Conflicts,
-§ Missing targets, § Stale batches, § Concurrent structure edits and § Page
-mutations and the sidebar. Each rule below names the row it encodes. Where
-the docs are silent the rule follows the code, and says so.
+The rules come from write-path.md § Planning (Ordering), § Work bounds
+under the write lock, § Conflicts, § Missing targets, § Stale batches,
+§ Concurrent structure edits and § Page mutations and the sidebar. Each rule
+below names the row it encodes. Where the docs are silent the rule follows
+the code, and says so.
 
 Ops are plain dicts in the wire shape of `pkm.contracts.ops`. The model
 tracks only the blocks the ops address; the conflict headers and copies
@@ -110,11 +111,12 @@ def _title_violation(ops: Sequence[Op]) -> bool:
 
 
 def _limit_violation(ops: Sequence[Op]) -> bool:
-    """write-path.md § Planning (text limits): a create's or edit's text
-    longer than 1,000,000 code points, or with `[[` runs nested deeper
-    than 32 outside code, is a 400 for the whole batch. Judged over the
-    whole batch before titles, an op the server would skip included; no
-    other op's text is judged. Of the texts the strategies draw, exactly
+    """write-path.md § Work bounds under the write lock, and § Planning
+    (text limits) for the order: a create's or edit's text longer than
+    1,000,000 code points, or with `[[` runs nested deeper than 32 outside
+    code, is a 400 for the whole batch. Judged over the whole batch before
+    titles, an op the server would skip included; no other op's text is
+    judged. Of the texts the strategies draw, exactly
     `PAST_LIMIT_TEXTS` are past a limit (props/limit_texts.py).
 
     That holds only while every other drawn text stays well inside both
@@ -265,9 +267,9 @@ class PageDelete:
                for r in extract(text).refs):
             return "used_as_attribute"
         new, _, applied = self.rewrite(text)
-        # write-path.md § Page mutations and the sidebar: the copies inlined may
-        # not carry a text past the length cap, nor further past it, judged on
-        # the inlined text before unlinking and ahead of the rewrite's own
+        # write-path.md § Work bounds under the write lock: the copies inlined
+        # may not carry a text past the length cap, nor further past it, judged
+        # on the inlined text before unlinking and ahead of the rewrite's own
         # blockers. Unlinking only shortens, so the unlinked text needs no
         # second length judgement. The code judges the nesting there too, since
         # copies that open runs and copies that close them join into one deep

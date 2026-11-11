@@ -61,7 +61,7 @@ from pkm.contracts.ops import (MAX_OPS_PER_BATCH, BlockUid, ExpectedBlock,
 from pkm.contracts.titles import CanonicalTitle
 from pkm.echo import echo, loc_text
 from pkm.mcp import tools as mcp_tools
-from pkm.planning import parse_uid_spec
+from pkm.planning import parse_uid_spec, split_heading
 from pkm.refs import parse_block_uid
 
 # The card sends every content value whole, so [show] can reveal all of
@@ -242,18 +242,25 @@ def _parent_warning(entry: str, parent: object,
     return []
 
 
-def _missing_uid_warning(entry: str, spec: object) -> list[str]:
+def _missing_uid_warning(entry: str, spec: object,
+                         text: object) -> list[str]:
     """A batch update or move sends its uid unchecked; the server skips
-    one that names no block (`ops_core.classify_skip`: orphan_edit,
-    orphan_structural) and lands the text, or a note, on today's daily
-    note. An alias names a block this batch creates, so it exists."""
+    one that names no block (`ops_core.classify_skip`) and lands the text,
+    or a note, on today's daily note. A batch update plans an
+    `update_text` of the text less its heading hashes, whose text lands
+    only when that body is not blank (orphan_edit), and always a
+    `set_heading`, whose note lands either way (orphan_structural). An
+    alias names a block this batch creates, so it exists."""
     if not isinstance(spec, str) or alias_name(spec) is not None:
         return []
-    if entry == "batch:update":
+    if entry != "batch:update":
+        return [f"if no block has uid {_quoted(spec)}, nothing moves and a "
+                "note saying so is added to today's daily note"]
+    if isinstance(text, str) and split_heading(text)[0].strip():
         return [f"if no block has uid {_quoted(spec)}, nothing is updated "
                 "and the text is added to today's daily note instead"]
-    return [f"if no block has uid {_quoted(spec)}, nothing moves and a note "
-            "saying so is added to today's daily note"]
+    return [f"if no block has uid {_quoted(spec)}, nothing is updated and a "
+            "note saying so is added to today's daily note"]
 
 
 def _warnings(entry: str, validated: Mapping[str, Any],
@@ -263,7 +270,8 @@ def _warnings(entry: str, validated: Mapping[str, Any],
     out = _merge_warning(validated) if entry == "rename_page" else []
     out += _parent_warning(entry, validated.get("parent"), aliases)
     if entry in ("batch:update", "batch:move"):
-        out += _missing_uid_warning(entry, validated.get("uid"))
+        out += _missing_uid_warning(entry, validated.get("uid"),
+                                    validated.get("text"))
     return out
 
 

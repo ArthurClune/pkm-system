@@ -356,6 +356,39 @@ def test_the_parent_warnings_match_the_planner():
         plan_save([], raw_title_of("Inbox"), "{{x}}", "b", False, uids=uids)
 
 
+_GONE_UID = "GONEGONE01"
+
+
+@pytest.mark.parametrize("command", [
+    pytest.param({"command": "update",
+                  "params": {"uid": _GONE_UID, "text": text}},
+                 id=f"update {text!r}")
+    for text in ["t", "# t", "", "  ", "# "]] + [
+    pytest.param({"command": "move",
+                  "params": {"uid": _GONE_UID, "page": "P"}}, id="move")])
+def test_the_missing_uid_warning_matches_classify_skip(command):
+    """The warning describes what the server does with each op the planner
+    makes for the command when no block has its uid: `classify_skip` lands
+    an `update_text`'s text only when it is not blank, and a note for the
+    `set_heading` a batch update always adds, or for a move."""
+    from pkm.batch import plan_batch
+    from pkm.server.ops_core import classify_skip
+    uids = iter(uid_of(f"NEWUID{i:04d}") for i in range(10))
+    ops = plan_batch([command], {"P": []}, uids=uids)
+    skips = [classify_skip(op, block_exists=False, parent_exists=True)
+             for op in ops]
+    landed = {s.kind for s in skips
+              if s is not None and s.landing_uid is not None}
+    assert landed <= {"orphan_edit", "orphan_structural"}
+    assert landed, "every case lands the text or a note"
+    (warning,) = _preview("batch", {"commands": [command]}).ops[0].warnings
+    assert warning.startswith(f'if no block has uid "{_GONE_UID}", ')
+    assert ("the text is added to today's daily note" in warning) \
+        == ("orphan_edit" in landed)
+    assert ("a note saying so is added to today's daily note" in warning) \
+        == ("orphan_edit" not in landed)
+
+
 def test_outline_items_render_as_indented_text():
     p = _preview("batch", {"commands": [
         {"command": "outline",

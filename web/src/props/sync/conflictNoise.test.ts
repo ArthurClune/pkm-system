@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { BatchId } from "../../api/brands";
-import { conflictNoise, type ConflictNoiseRun, overwrittenTarget,
-         textEditors } from "./conflictNoise";
+import { conflictLane, conflictNoise, type ConflictNoiseRun, type LaneClient,
+         overwrittenTarget, textEditors } from "./conflictNoise";
 import { batchIdOf, uidOf } from "../../test-helpers";
 
 const id = (s: string): BatchId => batchIdOf(s);
@@ -61,6 +61,46 @@ describe("textEditors", () => {
   test("a batch that never applied edits nothing", () => {
     const editors = textEditors(run({ applied: [{ batch_id: id("a1") }] }));
     expect([...editors.get(uidOf("pt_seed_1")) ?? []]).toEqual(["A"]);
+  });
+});
+
+describe("conflictLane", () => {
+  // A enqueued a1, a2, a3; a2's enqueue reply was lost.
+  const enqueued = new Map([["A", [id("a1"), id("a2"), id("a3")]]]);
+  const client = (over: Partial<LaneClient> = {}): LaneClient => ({
+    name: "A", laneBatches: [], lostReplyBatches: [id("a2")],
+    undeliveredAtDeath: new Set(), ...over,
+  });
+  const landed = (...ids: string[]): { batch_id: BatchId }[] =>
+    ids.map((s) => ({ batch_id: id(s) }));
+
+  test("holds a lost reply whose lane copy overtook a batch a death deferred", () => {
+    const c = client({ undeliveredAtDeath: new Set([id("a1"), id("a2")]) });
+    expect([...conflictLane([c], landed("a2", "a1", "a3"), enqueued)]).toEqual([id("a2")]);
+  });
+
+  test("not a lost reply that landed in order", () => {
+    const c = client({ undeliveredAtDeath: new Set([id("a1"), id("a2")]) });
+    expect([...conflictLane([c], landed("a1", "a2", "a3"), enqueued)]).toEqual([]);
+  });
+
+  test("not a lost reply that overtook a batch no death deferred", () => {
+    expect([...conflictLane([client()], landed("a2", "a1", "a3"), enqueued)]).toEqual([]);
+  });
+
+  test("not a lost reply that landed only ahead of later batches", () => {
+    const c = client({ undeliveredAtDeath: new Set([id("a3")]) });
+    expect([...conflictLane([c], landed("a1", "a2", "a3"), enqueued)]).toEqual([]);
+  });
+
+  test("not a lost reply ahead of a deferred batch that was itself a lane batch", () => {
+    const c = client({ laneBatches: [id("a1")], undeliveredAtDeath: new Set([id("a1")]) });
+    expect([...conflictLane([c], landed("a2", "a1", "a3"), enqueued)]).toEqual([id("a1")]);
+  });
+
+  test("holds every lane batch, landed or not", () => {
+    const c = client({ laneBatches: [id("a3")], lostReplyBatches: [] });
+    expect([...conflictLane([c], landed("a1"), enqueued)]).toEqual([id("a3")]);
   });
 });
 

@@ -41,7 +41,8 @@ export interface ReplicaSync {
   /** WS nudge: pull if the journal moved past our cursor, or unconditionally
    * for a committed metadata/generation frame whose real seq may be equal. */
   onSeq(seq: SyncSeq, force?: boolean): void;
-  /** Resolves when no pull is in flight (tests, reconnect ordering). */
+  /** Resolves when no pull is in flight or owed (tests, reconnect
+   * ordering). */
   idle(): Promise<void>;
   /** Monotonic count of the moments local data actually moved: a changes
    * window that advanced the cursor, a snapshot bootstrap, or a recovery
@@ -259,8 +260,6 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   let rebasedForUnappliableWindow = false;
   let windowFailure: { cursor: SyncSeq; message: string; count: number } | null
     = null;
-  let pulling: Promise<void> | null = null;
-  let again = false;
   let authoritativeRepair: "poison" | null = null;
   // A pull pass left work to a poison repair; see owePoisonPull.
   let owedAfterPoison = false;
@@ -513,7 +512,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       if (options.awaitInFlightPull) {
         // a failed start is reported by its own catch
         await startOnce.idle();
-        await (pulling ?? Promise.resolve());
+        await pullRun.idle();
       }
       const lease = await replica.prepareRecovery();
       token = lease.token;
@@ -687,10 +686,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     });
   };
 
-  /** Work a poison repair now owns is left to it: the pass ends, a joiner's
-   * `again` still gets its own pass, and one more pull is owed for when the
-   * repair releases recovery, since the repair may fail and its snapshot
-   * then covers nothing. */
+  /** Work a poison repair now owns is left to it: the pass ends, and one
+   * more pull is owed for when the repair releases recovery, since the
+   * repair may fail and its snapshot then covers nothing. */
   const owePoisonPull = (): void => { owedAfterPoison = true; };
   const payPoisonPull = (): void => {
     if (!owedAfterPoison || authoritativeRepair === "poison") return;
@@ -706,115 +704,118 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
 
   const pullLoop = async (): Promise<void> => {
     // Counts consecutive "pending-changed" refetches since the last applied
-    // window (including across an `again`-triggered restart). A feed that
-    // never stops racing the local queue never applies a window, so a run of
-    // them must be treated as a failed pull attempt rather than spin forever;
-    // a window that applies is progress, so it clears the run.
+    // window. A feed that never stops racing the local queue never applies a
+    // window, so a run of them must be treated as a failed pull attempt
+    // rather than spin forever; a window that applies is progress, so it
+    // clears the run.
     let pendingChangedRetries = 0;
-    do {
-      again = false;
-      let done = false;
-      while (!done) {
-        let feed: Changes;
-        let res: ApplyResult;
-        try {
-          // One read serves both: the ids named to the server come from the
-          // rows this window may drop, so a row queued after it can't be.
-          const pending = await replica.pendingBatches();
-          const expectedPendingIds = pending.map((batch) => batch.id);
-          const query = pendingQuery(pending);
-          feed = changesOfWire(await fetchJson(
-            `/api/sync/changes?since=${cursor}` +
-            (query === "" ? "" : `&${query}`)));
-          setPlainSpaceTitleCanonicalization(
-            feed.plain_space_title_canonicalization);
-          res = await replica.applyChanges(feed, expectedPendingIds);
-        } catch (error: unknown) {
-          // Corruption first: it is the one window failure whose repair must
-          // be a `reset`, and its own once-per-session budget gates it. A
-          // fetch failure is not a ReplicaError and falls through unchanged.
-          if (isFreshCorruption(error, rebuiltForCorruption)) {
-            // Same ownership rule as the needs-bootstrap branch below: a
-            // poison repair holds the recovery lease; leave the corruption
-            // for the pull that follows it.
-            if (authoritativeRepair === "poison") { owePoisonPull(); break; }
-            const rebuilt = await rebuildForCorruption(error);
-            if (!rebuilt.ok) {
-              if (leftToPoison(rebuilt.error)) { owePoisonPull(); break; }
-              throw rebuilt.error;
-            }
-            // The snapshot moved the cursor to its own seq; one more pull
-            // confirms nothing landed since and costs an empty window at most.
-            continue;
-          }
-          // Any other refusal of the window itself: apply.ts still throws for
-          // everything its needs-bootstrap whitelist does not name, so the
-          // decision about a window that keeps throwing lives here. A run of
-          // WINDOW_STRIKES identical failures at the same cursor means the
-          // feed will keep handing us rows this replica will keep refusing --
-          // the shape that used to refetch forever behind the stall banner
-          // until a manual "Reset local data".
-          if (!isWindowFailure(error) ||
-              noteWindowFailure(error) < WINDOW_STRIKES ||
-              // The budget is spent: a SECOND run in the same session is a
-              // feed bug the user should see, not something to hide behind
-              // another resync.
-              rebasedForUnappliableWindow) {
-            throw error;
-          }
-          const rebased = await rebaseForUnappliableWindow(error);
-          if (rebased === "deferred") { owePoisonPull(); break; }
-          if (!rebased.ok) {
-            if (leftToPoison(rebased.error)) { owePoisonPull(); break; }
-            throw rebased.error;
-          }
-          continue;
-        }
-        if (res.status === "pending-changed") {
-          pendingChangedRetries += 1;
-          if (pendingChangedRetries >= PENDING_CHANGED_CAP) {
-            throw new PullStarvedError(
-              "pull starved: pending batches kept changing");
-          }
-          continue;
-        }
-        if (res.status === "needs-bootstrap") {
-          // A rejected batch owns recovery until the provider has deleted its
-          // durable row and scheduled resync. Normal recovery would flush
-          // later valid rows, breaking poison's stronger ordering.
+    let done = false;
+    while (!done) {
+      let feed: Changes;
+      let res: ApplyResult;
+      try {
+        // One read serves both: the ids named to the server come from the
+        // rows this window may drop, so a row queued after it can't be.
+        const pending = await replica.pendingBatches();
+        const expectedPendingIds = pending.map((batch) => batch.id);
+        const query = pendingQuery(pending);
+        feed = changesOfWire(await fetchJson(
+          `/api/sync/changes?since=${cursor}` +
+          (query === "" ? "" : `&${query}`)));
+        setPlainSpaceTitleCanonicalization(
+          feed.plain_space_title_canonicalization);
+        res = await replica.applyChanges(feed, expectedPendingIds);
+      } catch (error: unknown) {
+        // Corruption first: it is the one window failure whose repair must
+        // be a `reset`, and its own once-per-session budget gates it. A
+        // fetch failure is not a ReplicaError and falls through unchanged.
+        if (isFreshCorruption(error, rebuiltForCorruption)) {
+          // Same ownership rule as the needs-bootstrap branch below: a
+          // poison repair holds the recovery lease; leave the corruption
+          // for the pull that follows it.
           if (authoritativeRepair === "poison") { owePoisonPull(); break; }
-          const rebased = await recover("rebase");
-          if (!rebased.ok) {
-            // A poison signal that arrived mid-recovery (flush-time
-            // preemption) is already reported/retried by its own owner and
-            // must stay silent here too; any other recovery failure is a
-            // genuine failed pull attempt -- rethrow the real error so
-            // isStallShaped classifies it correctly instead of a
-            // synthetic stand-in that always looked network-shaped.
-            if (leftToPoison(rebased.error)) { owePoisonPull(); break; }
-            throw rebased.error;
+          const rebuilt = await rebuildForCorruption(error);
+          if (!rebuilt.ok) {
+            if (leftToPoison(rebuilt.error)) { owePoisonPull(); break; }
+            throw rebuilt.error;
           }
-          done = feed.latest_seq <= cursor;
-        } else {
-          adoptCursor(res.cursor, "window");
-          pendingChangedRetries = 0;
-          settleApplied(res.dropped ?? []);
-          done = feed.next_since >= feed.latest_seq;
+          // The snapshot moved the cursor to its own seq; one more pull
+          // confirms nothing landed since and costs an empty window at most.
+          continue;
         }
+        // Any other refusal of the window itself: apply.ts still throws for
+        // everything its needs-bootstrap whitelist does not name, so the
+        // decision about a window that keeps throwing lives here. A run of
+        // WINDOW_STRIKES identical failures at the same cursor means the
+        // feed will keep handing us rows this replica will keep refusing --
+        // the shape that used to refetch forever behind the stall banner
+        // until a manual "Reset local data".
+        if (!isWindowFailure(error) ||
+            noteWindowFailure(error) < WINDOW_STRIKES ||
+            // The budget is spent: a SECOND run in the same session is a
+            // feed bug the user should see, not something to hide behind
+            // another resync.
+            rebasedForUnappliableWindow) {
+          throw error;
+        }
+        const rebased = await rebaseForUnappliableWindow(error);
+        if (rebased === "deferred") { owePoisonPull(); break; }
+        if (!rebased.ok) {
+          if (leftToPoison(rebased.error)) { owePoisonPull(); break; }
+          throw rebased.error;
+        }
+        continue;
       }
-    } while (again);
+      if (res.status === "pending-changed") {
+        pendingChangedRetries += 1;
+        if (pendingChangedRetries >= PENDING_CHANGED_CAP) {
+          throw new PullStarvedError(
+            "pull starved: pending batches kept changing");
+        }
+        continue;
+      }
+      if (res.status === "needs-bootstrap") {
+        // A rejected batch owns recovery until the provider has deleted its
+        // durable row and scheduled resync. Normal recovery would flush
+        // later valid rows, breaking poison's stronger ordering.
+        if (authoritativeRepair === "poison") { owePoisonPull(); break; }
+        const rebased = await recover("rebase");
+        if (!rebased.ok) {
+          // A poison signal that arrived mid-recovery (flush-time
+          // preemption) is already reported/retried by its own owner and
+          // must stay silent here too; any other recovery failure is a
+          // genuine failed pull attempt -- rethrow the real error so
+          // isStallShaped classifies it correctly instead of a
+          // synthetic stand-in that always looked network-shaped.
+          if (leftToPoison(rebased.error)) { owePoisonPull(); break; }
+          throw rebased.error;
+        }
+        done = feed.latest_seq <= cursor;
+      } else {
+        adoptCursor(res.cursor, "window");
+        pendingChangedRetries = 0;
+        settleApplied(res.dropped ?? []);
+        done = feed.next_since >= feed.latest_seq;
+      }
+    }
   };
+
+  // One run is one pass. A pass in flight may be past its fetch, so a call
+  // during it never joins: it is owed a run of its own, and a pass that fails
+  // drops what it owed to noteFailure's backoff retry.
+  const pullRun = coalesce(async () => {
+    try {
+      await pullLoop();
+    } catch (error: unknown) {
+      noteFailure(error);
+      throw error;
+    }
+    noteSuccess();
+  }, { merge: () => undefined });
 
   const pull = (): Promise<void> => {
     if (!started || !usable) return Promise.resolve();
-    if (pulling) {
-      again = true;
-      return pulling;
-    }
-    pulling = pullLoop()
-      .then(() => noteSuccess(), (error: unknown) => noteFailure(error))
-      .finally(() => { pulling = null; });
-    return pulling;
+    return pullRun(undefined).catch(() => undefined);
   };
 
   const doStart = async (): Promise<void> => {
@@ -875,18 +876,18 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   return {
     start,
     onSeq(seq, force = false) {
-      if (pulling) {
+      if (pullRun.running()) {
         // a window is in flight; its server-side latest_seq or metadata may
         // predate this nudge, so ask for one trailing pull instead of dropping
         // it
-        again = true;
+        void pull();
         return;
       }
       if (!started || (!force && seq <= cursor)) return;
       void pull();
     },
     idle() {
-      return pulling ?? Promise.resolve();
+      return pullRun.idle();
     },
     appliedVersion() {
       return usable ? appliedVersion : null;

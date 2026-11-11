@@ -1089,6 +1089,76 @@ describe("pull retries and the stall report", () => {
     }
   });
 
+  test("a nudge from the ready report that ends a stall gets a pull of its own", async () => {
+    vi.useFakeTimers();
+    try {
+      const replica = fakeReplica();
+      let failing = true;
+      const fetchJson = vi.fn(async () => {
+        if (failing) throw new ApiError(503, "/api/sync/changes");
+        return feed();
+      });
+      const states: ReplicaState[] = [];
+      let nudged = false;
+      const onState = (s: ReplicaState): void => {
+        // Reported from the finished pass's success, after its last check.
+        if (!nudged && s.mode === "ready" && states.at(-1)?.mode === "stalled") {
+          nudged = true;
+          sync.onSeq(seqOf(9999));
+        }
+        states.push(s);
+      };
+      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+
+      await sync.start(); // failure 1
+      await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); // failure 2
+      await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); // failure 3 -> stalled
+      expect(states.at(-1)).toEqual({ mode: "stalled", error: ANY_STRING });
+
+      failing = false;
+      const before = fetchJson.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 4);
+      await sync.idle();
+      expect(nudged).toBe(true);
+      // the retry's own fetch, then the nudge's
+      expect(fetchJson.mock.calls.length).toBe(before + 2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a pull whose pending batches keep changing stops at the cap, whatever nudges land", async () => {
+    vi.useFakeTimers();
+    try {
+      const replica = fakeReplica({
+        applyChanges: async () => {
+          sync.onSeq(seqOf(9999));
+          return { status: "pending-changed" as const };
+        },
+      });
+      const fetchJson = vi.fn(async () => feed());
+      const { states, onState } = collector();
+      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+
+      await sync.start();
+      await sync.idle();
+      expect(fetchJson.mock.calls.length).toBe(PENDING_CHANGED_CAP);
+      expect(states.some((s) => s.mode === "stalled")).toBe(false);
+
+      // Each backoff retry is one more starved pull and one more failure.
+      await vi.advanceTimersByTimeAsync(RETRY_BASE_MS);
+      await sync.idle();
+      expect(fetchJson.mock.calls.length).toBe(2 * PENDING_CHANGED_CAP);
+      expect(states.some((s) => s.mode === "stalled")).toBe(false);
+      await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2);
+      await sync.idle();
+      expect(fetchJson.mock.calls.length).toBe(STALL_AFTER_FAILURES * PENDING_CHANGED_CAP);
+      expect(states.at(-1)).toEqual({ mode: "stalled", error: ANY_STRING });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("caps pending-changed retries per pull", async () => {
     const applyChanges = vi.fn(async () => ({ status: "pending-changed" as const }));
     const replica = fakeReplica({ applyChanges });

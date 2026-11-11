@@ -22,7 +22,7 @@ function gate() {
 }
 
 interface FakeReplicaSync {
-  start: () => Promise<void>;
+  start: () => Promise<boolean>;
   idle: () => Promise<void>;
   appliedVersion: () => number | null;
 }
@@ -32,7 +32,7 @@ interface FakeReplicaSync {
 function movingReplica(trace: string[]): FakeReplicaSync {
   let version = 7; // not 0: nothing may key off the counter's absolute value
   return {
-    start: async () => { trace.push("start"); version += 1; },
+    start: async () => { trace.push("start"); version += 1; return true; },
     idle: async () => { trace.push("idle"); },
     appliedVersion: () => version,
   };
@@ -41,7 +41,7 @@ function movingReplica(trace: string[]): FakeReplicaSync {
 /** A catch-up that finds nothing: one changes pull, cursor unmoved. */
 function unmovedReplica(trace: string[]): FakeReplicaSync {
   return {
-    start: async () => { trace.push("start"); },
+    start: async () => { trace.push("start"); return true; },
     idle: async () => { trace.push("idle"); },
     appliedVersion: () => 7,
   };
@@ -136,7 +136,7 @@ async () => {
   let version = 7;
   const { flow, trace } = harness({
     replicaSync: (t) => ({
-      start: async () => { t.push("start"); },
+      start: async () => { t.push("start"); return true; },
       idle: async () => { t.push("idle"); await feed.promise; },
       appliedVersion: () => version,
     }),
@@ -225,6 +225,7 @@ test("a trailing pull that moves data resyncs a run that found nothing", async (
         t.push("start");
         pulls += 1;
         if (pulls === 2) version += 1;
+        return true;
       },
       idle: async () => { t.push("idle"); await feed.promise; },
       appliedVersion: () => version,
@@ -316,7 +317,7 @@ test("a replica that cannot say whether anything moved still resyncs",
   // online-only session would never refresh its views again.
   const { flow, trace } = harness({
     replicaSync: (t) => ({
-      start: async () => { t.push("start"); },
+      start: async () => { t.push("start"); return true; },
       idle: async () => { t.push("idle"); },
       appliedVersion: () => null,
     }),
@@ -347,7 +348,7 @@ test("a reconnect resyncs once a pull reports the replica has become unusable",
   });
   const { flow, trace } = harness({
     replicaSync: (t) => ({
-      start: async () => { t.push("start"); await sync.start(); },
+      start: async () => { t.push("start"); return sync.start(); },
       idle: async () => { t.push("idle"); await sync.idle(); },
       appliedVersion: () => sync.appliedVersion(),
     }),
@@ -364,6 +365,98 @@ test("a reconnect resyncs once a pull reports the replica has become unusable",
     "drain", "start", "idle", "drain", "start", "idle", "resync",
   ]);
   sync.stop(); // the failed pull scheduled a backoff retry
+});
+
+/** The real replicaSync over a memReplica, its changes fetch answered by
+ * `fetch`, wrapped so its start and idle land in the flow's trace. */
+function realSyncHarness(fetch: (n: number) => Promise<Changes>) {
+  let fetches = 0;
+  const sync = createReplicaSync({
+    replica: memReplica(),
+    fetchJson: async () => { fetches += 1; return fetch(fetches); },
+    onState: () => undefined,
+  });
+  const { flow, trace } = harness({
+    replicaSync: (t) => ({
+      start: async () => { t.push("start"); return sync.start(); },
+      idle: async () => { t.push("idle"); await sync.idle(); },
+      appliedVersion: () => sync.appliedVersion(),
+    }),
+  });
+  return { sync, flow, trace, fetches: () => fetches };
+}
+
+test("a reconnect whose pull was owed behind a pass that fails still resyncs",
+   async () => {
+  // A pass started before the drop has its fetch hung on the dying
+  // connection; it fails only after the reconnect asked for its own pull.
+  const hung = gate();
+  const { sync, flow, trace, fetches } = realSyncHarness(async (n) => {
+    if (n === 2) {
+      await hung.promise;
+      throw new TypeError("Failed to fetch");
+    }
+    return QUIET_FEED;
+  });
+  await sync.start();
+  sync.onSeq(seqOf(1));
+  await vi.waitFor(() => { expect(fetches()).toBe(2); });
+
+  const reconnect = flow.begin();
+  await vi.waitFor(() => { expect(trace).toContain("start"); });
+  hung.release();
+  await reconnect;
+
+  // No third fetch: the reconnect's pull was owed, never run.
+  expect(fetches()).toBe(2);
+  expect(trace).toEqual(["drain", "start", "idle", "resync"]);
+  sync.stop(); // the failed pass scheduled a backoff retry
+});
+
+test("a reconnect whose own pull fails still resyncs", async () => {
+  // The backoff retry applies the gap later and nothing resyncs for it, so
+  // the reconnect cannot wait for a pull that may never be its own.
+  let failing = false;
+  const { sync, flow, trace } = realSyncHarness(async () => {
+    if (failing) throw new TypeError("Failed to fetch");
+    return QUIET_FEED;
+  });
+  await sync.start();
+
+  failing = true;
+  await flow.begin();
+
+  expect(trace).toEqual(["drain", "start", "idle", "resync"]);
+  sync.stop();
+});
+
+test("a served trailing pull decides alone after an unserved one", async () => {
+  // The trailing pull read from the cursor the failed one left, so the
+  // unchanged version is a true answer for the whole run.
+  const feed = gate();
+  let pulls = 0;
+  const { flow, trace } = harness({
+    replicaSync: (t) => ({
+      start: async () => {
+        t.push("start");
+        pulls += 1;
+        return pulls === 2;
+      },
+      idle: async () => { t.push("idle"); await feed.promise; },
+      appliedVersion: () => 7,
+    }),
+  });
+
+  const first = flow.begin();
+  await vi.waitFor(() => { expect(trace).toContain("idle"); });
+  const second = flow.begin();
+  await vi.waitFor(() => {
+    expect(trace.filter((step) => step === "drain")).toHaveLength(2);
+  });
+  feed.release();
+  await Promise.all([first, second]);
+
+  expect(trace).toEqual(["drain", "start", "idle", "drain", "start", "idle"]);
 });
 
 test("a reconnect retries a failed repair before it drains", async () => {

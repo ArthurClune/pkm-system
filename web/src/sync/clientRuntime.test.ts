@@ -409,6 +409,45 @@ describe("clientRuntime repair and retry", () => {
     expect(h.calls).not.toContain("start");
   });
 
+  test("a repair owed when the runtime is disposed does no work", async () => {
+    const hold = holdFirstDelete();
+    const h = setup({ deleteBatch: hold.deleteBatch });
+    await h.runtime.startup();
+    h.emitPoison(poisonEvent(1, "b-1"));
+    await flush();
+    expect(h.calls.at(-1)).toBe("deleteBatch(1,b-1)");
+    h.emitPoison(poisonEvent(2, "b-2"));
+    h.runtime.dispose();
+    h.calls.length = 0;
+    hold.release();
+    await flush();
+    expect(h.calls).toEqual(["completeAuthoritativeRepair(poison)"]);
+  });
+
+  test("a repair owed across an unmount gap is left to the next connect",
+       async () => {
+    let mounted = true;
+    const hold = holdFirstDelete();
+    const h = setup({ deleteBatch: hold.deleteBatch, isMounted: () => mounted });
+    await h.runtime.startup();
+    h.emitPoison(poisonEvent(1, "b-1"));
+    await flush();
+    h.emitPoison(poisonEvent(2, "b-2"));
+    // A StrictMode replay: unmounted for a moment, then live again.
+    mounted = false;
+    hold.release();
+    await flush();
+    expect(h.calls).not.toContain("deleteBatch(2,b-2)");
+    mounted = true;
+    h.calls.length = 0;
+    await h.runtime.retryFailedRepair();
+    expect(h.calls).toEqual([
+      "pause(poison)", "rebaseAuthoritative(poison)", "deleteBatch(2,b-2)",
+      "refreshPending", "completeAuthoritativeRepair(poison)",
+      "resume(poison)", "start",
+    ]);
+  });
+
   test("an owner's unmount stops work before dispose runs", async () => {
     let mounted = true;
     const h = setup({

@@ -63,6 +63,12 @@ export function createLegacyRepair(deps: LegacyRepairDeps): LegacyRepair {
 
   const runRepair = (error: unknown): Promise<void> => {
     stable = false;
+    // As the runtime's runRepair: a run owed past unmount does not start,
+    // and stays failed for a StrictMode replay's connect to rerun.
+    if (!deps.isMounted()) {
+      repairFailed = true;
+      return Promise.resolve();
+    }
     repairFailed = false;
     const message = messageOf(error);
     emit({ type: "legacy-repair-started", error: message });

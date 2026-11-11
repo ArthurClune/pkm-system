@@ -309,6 +309,62 @@ describe("retryFailed", () => {
     expect(h.state.resumes).toBe(1);
   });
 
+  /** A first run held after its onStable, so a later run() is owed. */
+  const heldPastStable = (mounted: { value: boolean }) => {
+    const reading = deferred();
+    const tail = deferred();
+    const state = { resumes: 0, attempts: 0 };
+    const repair = createLegacyRepair({
+      repairSessions: async (onStable) => {
+        state.attempts += 1;
+        if (state.attempts === 1) {
+          await reading.promise;
+          onStable();
+          await tail.promise;
+          return;
+        }
+        onStable();
+      },
+      onEvent: () => undefined,
+      resume: () => { state.resumes += 1; },
+      isMounted: () => mounted.value,
+    });
+    return { repair, reading, tail, state };
+  };
+
+  test("a run owed when the owner unmounts never starts", async () => {
+    const mounted = { value: true };
+    const h = heldPastStable(mounted);
+    const first = h.repair.run(new Error("over limit"), { lane: false });
+    h.reading.resolve();
+    await flush();
+    const owed = h.repair.run(new Error("bad op"), LANE);
+    mounted.value = false;
+    h.tail.resolve();
+    await first;
+    await owed;
+    expect(h.state.attempts).toBe(1);
+  });
+
+  test("a run owed across an unmount gap is rerun by the next connect",
+       async () => {
+    const mounted = { value: true };
+    const h = heldPastStable(mounted);
+    const first = h.repair.run(new Error("over limit"), { lane: false });
+    h.reading.resolve();
+    await flush();
+    const owed = h.repair.run(new Error("bad op"), LANE);
+    // A StrictMode replay: unmounted for a moment, then live again.
+    mounted.value = false;
+    h.tail.resolve();
+    await first;
+    await owed;
+    mounted.value = true;
+    await h.repair.retryFailed();
+    expect(h.state.attempts).toBe(2);
+    expect(h.state.resumes).toBe(1);
+  });
+
   test("does not rerun after unmount", async () => {
     const h = setup();
     const run = h.repair.run(new Error("bad op"), LANE);

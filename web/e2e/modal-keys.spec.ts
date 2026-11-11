@@ -64,6 +64,23 @@ test("the delete confirm keeps Tab inside, locks scrolling and gives both back o
   expect(res.status()).toBe(200);
 });
 
+test("confirming the delete with Enter closes the menu, so no second confirm opens",
+     async ({ page, ownPage }) => {
+  await page.getByRole("button", { name: "Page menu" }).click();
+  await page.getByRole("menuitem", { name: "Delete page…" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await page.waitForURL("**/");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  const res = await page.request.get(
+    `/api/page/${encodeURIComponent(ownPage.title)}`);
+  expect(res.status()).toBe(404);
+});
+
 test("the blocked-delete dialog cycles Tab through its links and Close",
      async ({ page, ownPage }) => {
   // A query naming the page on a second page blocks the delete.

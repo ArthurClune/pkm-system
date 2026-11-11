@@ -82,6 +82,9 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
       ? plainDeleteMessage(title) : deleteConfirmMessage(title, preview);
     const ok = await confirm(message, { confirmLabel: "Delete", danger: true });
     if (!ok || titleRef.current !== title) return;
+    // The confirm's focus restore lands on this menu's item; with the menu
+    // open a second Enter would start another delete while this one runs.
+    setMenuOpen(false);
     // Clear any error from a previous attempt as this one starts, so a
     // retry never leaves a stale message sitting alongside (or instead of)
     // the new outcome.

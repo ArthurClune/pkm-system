@@ -179,11 +179,9 @@ const poisonDetails = (error: string | null): Pick<PoisonedBatch,
       if (typeof parsed.status === "number" && typeof parsed.message === "string") {
         return { status: parsed.status, message: parsed.message };
       }
-    } catch { /* rows from older builds stored the display string directly */ }
+    } catch { /* not the stored shape: read as the generic rejection */ }
   }
-  const message = error ?? "rejected batch from a previous session";
-  const match = message.match(/request failed:\s*(\d+)/);
-  return { status: match ? Number(match[1]) : 400, message };
+  return { status: 400, message: "rejected batch from a previous session" };
 };
 
 /** Rejected rows are queried separately from allBatches so the
@@ -239,6 +237,25 @@ export interface DurablePendingRow {
   ops_json: string;
   poisoned: number;
   error: string | null;
+}
+
+/** Every pending_ops row exactly as stored, in id order. With `after` (null
+ * for "before the first row"), only the one row that follows it, so a walk
+ * that hits a damaged row stops with the prefix it already read. */
+export function readPendingRows(
+  db: ReplicaDb, after?: PendingRowId | null,
+): DurablePendingRow[] {
+  const bound = after === undefined ? "" : " WHERE id > ?";
+  const limit = after === undefined ? "" : " LIMIT 1";
+  return db.select(
+    "SELECT id AS pending_row_id, batch_id, ops_json, poisoned," +
+    ` error AS pending_error FROM pending_ops${bound} ORDER BY id${limit}`,
+    ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"],
+    after === undefined ? [] : [after ?? -1],
+  ).map((r) => ({
+    id: r.pending_row_id, batch_id: r.batch_id, ops_json: r.ops_json,
+    poisoned: r.poisoned, error: r.pending_error,
+  }));
 }
 
 /** Insert `rows` verbatim, ids included, in one transaction. Ids are kept

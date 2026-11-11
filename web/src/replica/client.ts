@@ -133,7 +133,7 @@ export interface Replica {
                 expectedPendingIds?: readonly PendingRowId[]): Promise<SnapshotApplyResult>;
   applyChanges(feed: Changes,
                expectedPendingIds?: readonly PendingRowId[]): Promise<ApplyResult>;
-  /** su05: persist + optimistically apply; returns pending count. The caller
+  /** Persist + optimistically apply; returns pending count. The caller
    * ALWAYS mints batchId BEFORE this call: if the reply is lost after the row
    * was persisted, the copy the caller retains still shares the row's id, so
    * a duplicate delivery hits the server's replay dedup instead of a

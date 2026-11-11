@@ -182,7 +182,7 @@ Each suite states its invariants in its module docstring or file header.
 | `outline/` | a reading-view model and undo to the start (`checks.ts`). Commands go through `command.ts`, as `useOutline.run` and the undo dispatch do, and the commands the editor refuses are modelled too (`unguardedBatches` for the ops suite) |
 | `outline/draft.prop.ts` | `draftModel.ts`, driving the real editor in jsdom (`draftHarness.tsx`) |
 | `ops/` | what the server stores, in the replica and the in-memory trees; `enqueueBatch` refuses a batch exactly when the server does |
-| `assistant/` | [the chat machine](frontend.md#the-chat-machine) (`assistant/run.ts`) |
+| `assistant/` | [the chat machine](frontend.md#the-chat-machine) (`assistant/run.ts`); `driver.prop.ts` runs the real `createChatDriver` on a fake client and fake timers, against the machine and that section's I/O rules (`driverRun.ts`) |
 | `journal/` | [the Journal's paging](frontend.md#the-journal) (`journalPaging`) |
 | `files/` | [the `/files` browser](frontend.md#the-files-browser)'s generation rules (`filesPaging`) |
 | `backlinks/` | `backlinksPaging`'s epoch and walk rules (`backlinks.prop.ts`); `withStatus` against the Link lifecycle table in `unlinkedStatus.ts` (`unlinked.prop.ts`) |

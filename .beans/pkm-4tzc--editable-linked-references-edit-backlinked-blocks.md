@@ -1,11 +1,11 @@
 ---
 # pkm-4tzc
 title: Editable linked references (edit backlinked blocks in place)
-status: todo
+status: scrapped
 type: feature
 priority: deferred
 created_at: 2026-09-24T13:31:11Z
-updated_at: 2026-09-24T13:31:11Z
+updated_at: 2026-11-11T13:34:37Z
 ---
 
 ## Want
@@ -39,3 +39,8 @@ Arthur's preference if built: the **full outliner** (Roam/Logseq style), which b
 ## Suggested path if revived
 
 Build tier 1, then tier 2, as stepping stones: they're useful alone and create the write path tier 3 needs. Then design lease-on-focus and projected trees as their own spec.
+
+
+## Reasons for Scrapping
+
+Not wanted. Arthur closed even the TODO-toggle-only first step. The findings above stay here if it is ever revived. (Arthur, 2026-11-11.)

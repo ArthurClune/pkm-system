@@ -1,30 +1,35 @@
 ---
 # pkm-go73
-title: 'Undo history: redo pressed while an undo awaits a slow page read duplicates the entry if the undo is refused'
+title: Undo replay to a page that mounts during its page read skips applyLocal
 status: todo
 type: bug
-priority: deferred
+priority: normal
 created_at: 2026-10-25T12:48:05Z
-updated_at: 2026-10-27T10:29:48Z
+updated_at: 2026-11-11T13:34:46Z
 ---
 
-From the pkm-pgod review (2026-10-25). Pre-existing. If an undo waits on a slow page read and the user presses redo, the redo takes the same entry; if the undo is then refused, the entry ends up twice on the undo stack and the queued redo replays it a second time (mirror: redo pending then undo duplicates on the redo stack). No silent data loss found; history and replays stop matching the page.
+## Symptom
 
-- [ ] Red unit test for both orders
-- [ ] Serialise or lock the entry while its replay is pending
-- [ ] A property that reaches restoreEntry/performUndo interleavings (web/src/props has none today)
+An undo or redo that queues behind a slow page read can land on a page whose
+outline mounts while the read is in flight. The mounted tree then shows the
+pre-undo text until the write is delivered (offline: until reconnect).
 
+## Cause
 
-## Deferred (2026-10-27)
+`web/src/outline/undoManager.ts`: `dispatch` peeks for the page's outline
+session once, finds none, and awaits `dispatchUnmounted`. That awaits
+`loadPage` and then checks only `stale()`. If an earlier step's `settle()`
+navigated to the page, React mounts its session during the read, so the
+replay is enqueued without `handle.applyLocal`.
 
-Arthur's ruling: pre-existing, needs a slow page read plus a redo mid-undo plus a refused undo, and loses no data. Revisit if it is ever seen. Removed from the security epic.
+## Fix
 
-## Related path (state-machine review, 2026-11-07)
+- [ ] Red unit test: a session mounts while `dispatchUnmounted` awaits the read; the replay must reach that session's tree
+- [ ] After the await, peek the session again; if one exists, go through `dispatchWithSession` (re-planning against the session's tree, not the read)
+- [ ] `proptest/check.sh web` (undo history) before merge
 
-Same chain, same slow-read window: `undoManager.ts` `dispatch` peeks for a
-session once, then awaits `dispatchUnmounted`; after `await loadPage` it
-checks only `stale()`. If the first step's `settle()` navigates to the page,
-React mounts its session after step 2's peek, so the replay is enqueued
-without `applyLocal`, and the newly mounted tree shows stale text until
-delivery (offline: until reconnect). Fix with this bean: re-peek the session
-after the await.
+## Out of scope (ruled 2026-11-11)
+
+A redo pressed while an undo awaits a slow read, followed by a refused undo,
+duplicates the entry on a stack (and the mirror case). It needs a rare
+three-way race and loses no data. Revisit only if seen.

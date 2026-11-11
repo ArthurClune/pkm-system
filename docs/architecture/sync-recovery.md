@@ -222,6 +222,9 @@ queued op, so a row's outcome is the same posted then or later. A repair that
 began to do so would be bypassed by a leased flush during the hold. A leased POST settles no ticket, so
 the repair still replays the write it covers. Only `poison` stops the flush,
 because a rebase that posts nothing would replay posted rows over its commit.
+This rests on the outline repair (`outlineRepair.ts`) leaving queued ops
+alone: its only hold on the queue is `resume("lane")`. A repair that cancelled
+or rewrote a queued op would need the flush to stop for `lane` too.
 
 `OpQueue.holds(owner)` reports a claim, and `replicaSync` reads
 `holds("poison")` as its `holdsPoison` dep

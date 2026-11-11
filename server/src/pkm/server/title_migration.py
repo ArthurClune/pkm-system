@@ -10,6 +10,7 @@ from pkm.contracts.responses import (TitleMigrationApplyResponse,
                                      TitleMigrationBlocker)
 from pkm.database import Db
 from pkm.contracts.titles import RawTitle
+from pkm.render import count_label
 from pkm.refs import target_canonical_title, title_syntax_reason
 from pkm.title_migration_core import (
     InventoryBlock,
@@ -264,10 +265,6 @@ def apply_title_migration(
     return outcome
 
 
-def _counted(n: int, singular: str, plural: str) -> str:
-    return f"{n} {singular if n == 1 else plural}"
-
-
 def report_noncanonical_titles(db_path: Path) -> int:
     """Log one ERROR naming the stored page and sidebar titles the live
     rule would change, and return how many there are.
@@ -303,9 +300,9 @@ def report_noncanonical_titles(db_path: Path) -> int:
             " Run `pkm migrate-titles` to audit them, then apply its digest."
             " docs/cli.md, Rows the migration cannot fix, covers rows it"
             " cannot.",
-            _counted(total, "stored title is", "stored titles are"),
-            _counted(len(pages), "page title", "page titles"),
-            _counted(len(sidebars), "sidebar entry", "sidebar entries"),
+            count_label(total, "stored title is", "stored titles are"),
+            count_label(len(pages), "page title", "page titles"),
+            count_label(len(sidebars), "sidebar entry", "sidebar entries"),
             sample,
             f" and {more} more" if more > 0 else "",
         )

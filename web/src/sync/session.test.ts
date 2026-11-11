@@ -390,6 +390,42 @@ describe("a reload's retained poison mark", () => {
   });
 });
 
+describe("the poison claim", () => {
+  test("a pass needing recovery during a poison repair waits for the repair, " +
+       "then runs", async () => {
+    const lease = defer<void>();
+    let leases = 0;
+    let needsBootstrap = false;
+    const replica = loggingReplica({
+      applyChanges: async (changes) => needsBootstrap
+        ? { status: "needs-bootstrap" }
+        : { status: "applied", cursor: changes.next_since },
+      prepareRecovery: async () => {
+        leases += 1;
+        if (leases === 1) await lease.promise;
+        return { token: `lease-${leases}`, batches: [...replica.rows] };
+      },
+    });
+    const { session } = rig({
+      replica,
+      answer: () => { throw new ApiError(400, "/api/ops", "rejected"); },
+    });
+    await session.startup();
+    await session.onSocketStatus(true);
+    session.actions.enqueue([op("cccccccc")]);
+    await vi.waitFor(() => { expect(leases).toBe(1); });
+
+    needsBootstrap = true;
+    session.onSeq({ type: "seq", seq: seqOf(9) });
+    await turns();
+    expect(leases).toBe(1);
+
+    lease.resolve();
+    await vi.waitFor(() => { expect(leases).toBe(2); });
+    expect(session.queue.holds("poison")).toBe(false);
+  });
+});
+
 describe("later connects", () => {
   test("a later connect retries the poison repair, then the outline repair, then drains",
   async () => {

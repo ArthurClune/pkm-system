@@ -307,8 +307,9 @@ from these models, and `PkmClient` validates every response against them.
 
 The [brand lint](checks.md#brand-rules) enforces both;
 `brand_registry.MINT_SITES` lists where each brand may be minted.
-A branded path parameter comes from its dependency in `path_params.py`, so a
-handler only receives the checked brand. A malformed segment keeps its
+A path parameter whose brand has a parser (`BlockUid`, `Sha256Hex`,
+`GoodlinksId`) comes from its dependency in `path_params.py`, so a handler
+only receives the checked brand. A malformed segment keeps its
 brand's status: 422 for a uid, 404 for a sha256 or a GoodLinks id.
 
 | Brand | Base | Declared in | Note |

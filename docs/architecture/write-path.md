@@ -8,9 +8,8 @@ are in [backend.md](backend.md); how a client queues, pushes and pulls is in
 [sync-and-offline.md](sync-and-offline.md). Failures are indexed by symptom in
 [troubleshooting.md](../troubleshooting.md).
 
-`POST /api/ops` applies an `OpBatch` of at least one op and at most
-`MAX_OPS_PER_BATCH`. `batch_id` is required (a 422 without it), because an
-id-less batch cannot be deduplicated.
+`POST /api/ops` applies an `OpBatch`. `batch_id` is required (a 422 without
+it), because an id-less batch cannot be deduplicated.
 `OpBatch.expect`, which only the assistant's approval card sets
 ([assistant.md](assistant.md#the-write-approval-card)), is checked after the
 dedupe read and before any op runs: an entry that no longer holds refuses the
@@ -81,8 +80,8 @@ would stall and then 503. The same scan fails on an `await` inside a
 `with write_txn` body, and on a `commit` or `rollback` there, which the
 helper owns.
 
-`apply_batch` itself runs on the event loop and holds the lock until the
-commit; [Work bounds under the write lock](#work-bounds-under-the-write-lock)
+`apply_batch` holds the lock on the event loop;
+[Work bounds under the write lock](#work-bounds-under-the-write-lock)
 states what bounds its work.
 
 ## Planning
@@ -192,10 +191,9 @@ Server-made text passes a limit only by backticks. A header or note is
 `_fitted`, and text the planner copies from a stored row, such as an
 overwritten edit or a diverged delete's copies, is level with that row. An
 unlink only shortens text, bar two additions. `unlink.defuse_attribute`
-fences a leading attribute that names a deleted page, adding two
-backticks, and `unlink.unlink_stale_refs` fences each link the unlink's
-passes leave, adding two more per link. Only a legacy title ending in `[`,
-or a code span that moves as links go, leaves one. So a text at the cap
+adds two backticks fencing a leading attribute that names a deleted page,
+and `unlink.unlink_stale_refs` two per link the unlink's passes leave
+([Stale batches](#stale-batches)). So a text at the cap
 whose leading attribute names a deleted page is stored at
 `MAX_BLOCK_TEXT_CHARS` + 2
 (`test_a_stale_defuse_at_the_cap_stores_at_most_two_more`). Every spelling
@@ -352,14 +350,14 @@ So `ops_core.rewrite_effects` plans a `block_rewrites` chain
 (`RecordRewrite`) from the sent text's hash to the written one.
 
 The chain's stale-unlink rows name each stale title whose own unlink would
-change the sent text. `replay_core.stale_titles_linked` finds them in one pass
-that matches nothing and records every title the unlink asks about
-(`unlink.linked_titles`). It then intersects those with the stale set,
-which walks the text's titles, not the deletions. Probing each title with
-its own unlink cost one pass per title deleted since `seen_seq`, and the
-client picks that number. Recording what the full-set unlink matched would
-instead name a title that only another's unlink exposes (`[[z [[y]]]]` with
-`y` and `z y` deleted), which the rows must not.
+change the sent text, and never one that only another title's unlink
+exposes. `replay_core.stale_titles_linked` finds them in one pass that
+matches nothing and records every title the unlink asks about
+(`unlink.linked_titles`), then intersects those with the stale set
+(`test_one_pass_finds_the_stale_titles_probing_each_found`). Its work
+follows the text's titles, not the titles deleted since `seen_seq`, whose
+number the client picks
+(`test_naming_the_stale_titles_walks_the_text_not_the_deletions`).
 
 A replayed step is recorded whole (`replay_core._step_records`): every
 title, rename and copy it holds, not only what the sent text moved. The
@@ -509,18 +507,15 @@ links, and the two cover a tag an unlink exposes (`##[[T]]`,
 `[[\n#T\n]]#T`). A title ending in `[` (legacy only), or a code span that
 moves as links go, can need more. A delete then finds the link the passes
 left and reports the source `residual`. A link's alias label is found by
-looking back to the last `[` only (`unlink._alias_label`); a search from
-the text's start per link made the unlink quadratic in its links. Rewritten blocks get `unlink` and `inline`
-rows and a reindex, and the title goes into `page_deletions`. The replay of
+looking back to the last `[` only (`unlink._alias_label`). Rewritten
+blocks get `unlink` and `inline` rows and a reindex, and the title goes into `page_deletions`. The replay of
 an `unlink` row matches titles through the same `title_reader`, or a stale
 padded `[[ Title ]]` would survive and recreate the page.
 
 A rewrite the server makes of stored text can grow it: a longer title per
 link, a copy per `((uid))`, a stripped asset token that joins `[` to `[`.
-Each path judges every block it rewrites before any write, and a page
-delete also bounds the copies it builds.
 [Work bounds under the write lock](#work-bounds-under-the-write-lock)
-states the rules and each refusal.
+states how each path bounds it, and each refusal.
 
 A blocker carries `excerpt`, the block's first `BLOCKER_EXCERPT_CHARS` code
 points, and `text_length` in code points, never the whole text
@@ -560,7 +555,6 @@ flowchart LR
 neither the write path nor other clients. Each connection's `_drain` task is
 the sole consumer of its `asyncio.Queue`, and `broadcast()`'s loop has no
 `await`, so a client receives frames in `broadcast()` call order; a second
-consumer or another queue would break that silently. A client is dropped at
-`QUEUE_SIZE` queued frames or a send past `SEND_TIMEOUT`. Dropping closes the
-socket (`_safe_close`), because otherwise `onclose` never fires and the
-client never resyncs.
+consumer or another queue would break that silently. Dropping a client at
+`QUEUE_SIZE` or `SEND_TIMEOUT` closes the socket (`_safe_close`), because
+otherwise `onclose` never fires and the client never resyncs.

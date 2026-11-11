@@ -9,14 +9,14 @@ titles; the shape tally below keeps it from going vacuous."""
 import json
 from pathlib import Path
 
+from pkm.parity_corpus import shape_tally
 from pkm.title_parity_dump import (
+    CORPUS_SHAPES,
     GENERATED_COUNT,
-    SHAPES,
     fixture,
     generated_cases,
     main,
     render,
-    shape_tally,
 )
 
 FIXTURE = (Path(__file__).resolve().parents[2]
@@ -41,8 +41,8 @@ def test_generated_corpus_reaches_every_shape():
     generated = generated_cases()
     assert len(generated) == GENERATED_COUNT
     assert len(set(generated)) == len(generated)
-    tally = shape_tally(generated)
-    assert set(tally) == set(SHAPES)
+    tally = shape_tally(generated, CORPUS_SHAPES)
+    assert set(tally) == set(CORPUS_SHAPES)
     starved = {name: n for name, n in tally.items() if n < MIN_REACH}
     assert not starved, tally
 
@@ -51,6 +51,6 @@ def test_generated_corpus_draws_the_title_fold_inside_a_title():
     """A run of plain spaces and a listed non-U+0020 character strictly
     inside a title are what the fold changes there; the replay must see
     both."""
-    tally = shape_tally(generated_cases())
+    tally = shape_tally(generated_cases(), CORPUS_SHAPES)
     assert tally["internal_space_run"] > 0
     assert tally["listed_space_inside"] > 0

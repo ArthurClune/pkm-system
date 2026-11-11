@@ -793,6 +793,7 @@ below, in the order its `STEPS` table holds; add a dump to that table, which
 | `shared/fixtures/refs_parity.json` | `pkm.regen` | `test_refs_parity_fixture.py` | `refs.extract` |
 | `shared/fixtures/title_parity.json` | `pkm.regen` | `test_title_parity_fixture.py` | `normalize_title`, `target_canonical_title`, `title_syntax_reason`, `is_blank_title`, `extract` |
 | `shared/fixtures/text_limits_parity.json` | `pkm.regen` | `test_text_limits_parity_fixture.py` | `text_limit_violation`, `link_nesting_depth`, `describe_text_limit`, `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` |
+| `shared/fixtures/mime_parity.json` | `pkm.regen` | `test_mime_parity_fixture.py`; `filesCore.test.ts` replays it | `assets_core.mime_category` over every `MIME_POLICY` type, to the web Files view's `mimeCategory` and its own `DOCUMENT_MIME` list |
 | `shared/fixtures/shim_parity.json` | `pkm.regen` | `test_shim_parity_fixture.py` | the offline shim (`replica/localApi/`) to the read routes' JSON |
 | `shared/fixtures/text_hash_parity.json` | `pkm.regen` (vitest with `UPDATE_TEXT_HASH_FIXTURE=1`) | `textHashParity.test.ts` | `text_hash`, `subtree_hash`, `well_formed` |
 | `shared/fixtures/local_links_parity.json` | `pkm.regen` (vitest with `UPDATE_LOCAL_LINKS_FIXTURE=1`) | `localLinksParity.test.ts` | `local_docs.extract_local_hrefs` |

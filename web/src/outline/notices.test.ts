@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { clearNoticeIf, NO_NOTICES, noticeList, noticeOf,
-         withNotice } from "./notices";
+import { clearNoticeIf, copyFailedNotice, NO_NOTICES, noticeList,
+         noticeOf, withNotice } from "./notices";
 
 describe("withNotice", () => {
   it("returns the same slots when the slot already holds that value", () => {
@@ -12,7 +12,7 @@ describe("withNotice", () => {
   it("sets one slot and leaves the others", () => {
     const shown = withNotice(NO_NOTICES, "goodlinks", "No URL nearby");
     expect(shown).toEqual({ upload: null, goodlinks: "No URL nearby",
-                            edit: null });
+                            edit: null, copy: null });
     expect(NO_NOTICES.goodlinks).toBeNull();
     expect(withNotice(shown, "goodlinks", null)).toEqual(NO_NOTICES);
   });
@@ -31,15 +31,17 @@ describe("clearNoticeIf", () => {
   });
 });
 
-it("noticeList orders upload, goodlinks, edit and tones upload as error", () => {
+it("noticeList orders upload, goodlinks, edit, copy; upload and copy are errors", () => {
   expect(noticeList(NO_NOTICES)).toEqual([]);
   let slots = withNotice(NO_NOTICES, "edit", "e");
   slots = withNotice(slots, "goodlinks", "g");
   slots = withNotice(slots, "upload", "u");
+  slots = withNotice(slots, "copy", "c");
   expect(noticeList(slots)).toEqual([
     { kind: "upload", tone: "error", text: "u" },
     { kind: "goodlinks", tone: "status", text: "g" },
     { kind: "edit", tone: "status", text: "e" },
+    { kind: "copy", tone: "error", text: "c" },
   ]);
 });
 
@@ -47,4 +49,9 @@ it("noticeOf reads a kind or null", () => {
   const list = noticeList(withNotice(NO_NOTICES, "edit", "e"));
   expect(noticeOf(list, "edit")).toBe("e");
   expect(noticeOf(list, "upload")).toBeNull();
+});
+
+it("copyFailedNotice keeps the whole text, line breaks included", () => {
+  expect(copyFailedNotice("a\nb")).toBe(
+    "Copying failed. Select and copy it: a\nb");
 });

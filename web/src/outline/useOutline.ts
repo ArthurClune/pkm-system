@@ -27,7 +27,7 @@ import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          spliceUploadedMarkdown, validateOutlineFocus, type EditResult,
          type FocusTarget } from "./edits";
 import { goodlinksAttribute, goodlinksCandidates, goodlinksNotice } from "./goodlinks";
-import { clearNoticeIf, NO_NOTICES, noticeList, type NoticeKind,
+import { clearNoticeIf, copyFailedNotice, NO_NOTICES, noticeList, type NoticeKind,
          type NoticeSlots, type OutlineNotice, withNotice } from "./notices";
 import type { OutlineHandlers } from "./handlers";
 import { localCopyAttribute } from "./localFiles";
@@ -656,6 +656,8 @@ export function useOutline(
       return true;
     },
     onRefusedEdit: (notice) => setNotice("edit", notice),
+    onCopyNotice: (text) => setNotice(
+      "copy", text === null ? null : copyFailedNotice(text)),
   }), [run, flushNow, flushOtherDraft, markRefusedPending, pageTitle,
       selection, sync, confirm, uploadAndPlace, setNotice]);
 

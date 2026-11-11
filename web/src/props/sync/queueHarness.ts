@@ -208,7 +208,7 @@ export async function runQueueExample(
   const runtime = createClientRuntime({
     queue, replica,
     replicaSync: {
-      start: async () => undefined,
+      start: async () => true,
       rebaseAuthoritative: () => new Promise<void>((resolve, reject) => {
         rebases.push({ resolve, reject });
       }),

@@ -397,6 +397,9 @@ A failed completion rejects the `begin()` waiting on it, which the session
 logs. A failed `start()` also reaches `replicaSync`'s `noteFailure`, which
 takes the pull's stall accounting and backoff
 ([sync-recovery.md § A pull that keeps failing](sync-recovery.md#a-pull-that-keeps-failing)).
+A pull that no pass served, its own or one it was owed behind having failed,
+counts as moved. The backoff retry that later applies the gap bumps no
+resync, so the reconnect's decision is the views' only refetch.
 Before its drain, a connect retries a failed rejected-batch repair, then a
 failed lane repair
 (`retryFailedRepair`), whose barrier would block the drain
@@ -410,7 +413,7 @@ the outline repair epoch, so pending edits elsewhere on a page survive a bump.
 
 | Trigger | Bumps when | Where |
 |---|---|---|
-| A reconnect completes | its catch-up moved data (`replicaSync.appliedVersion()`), or there is no usable replica | `reconnectFlow.ts` |
+| A reconnect completes | its catch-up moved data (`replicaSync.appliedVersion()`), no pass served its last pull (`start()` resolved false), or there is no usable replica | `reconnectFlow.ts` |
 | A first connect | `begin({ viewsAreStale: true })`: the queue holds an earlier page load's rows, or `replicaSync.hasStarted()` is false | `session.ts` |
 | An ack lists skipped ops | always, whatever the replica state | `opQueue.ts` alone: the drain, the lane, `deliverLeased`, `settleCommitted` (`onSkipped`, folded as `ops-skipped` by `session.ts`) |
 | A repair or reset succeeds | always | `syncState.ts` |

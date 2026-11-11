@@ -79,7 +79,7 @@ function setup(opts: SetupOptions = {}) {
     },
   });
   const replicaSync: ClientRuntimeDeps["replicaSync"] = {
-    start: async () => { calls.push("start"); },
+    start: async () => { calls.push("start"); return true; },
     rebaseAuthoritative: async (reason) => {
       calls.push(`rebaseAuthoritative(${reason})`);
       await opts.rebase?.();

@@ -59,7 +59,7 @@ describe("one owner's resume leaves another's claim standing", () => {
       queue,
       replica,
       replicaSync: {
-        start: async () => undefined,
+        start: async () => true,
         // The poison repair's snapshot fetch fails: its Retry banner stays.
         rebaseAuthoritative: async () => { throw new TypeError("fetch failed"); },
         noteUnavailable: () => undefined,

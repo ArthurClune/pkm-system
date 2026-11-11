@@ -1906,6 +1906,26 @@ describe("stop()", () => {
       vi.useRealTimers();
     }
   });
+
+  test("a pass owed when stop() runs never starts", async () => {
+    const replica = fakeReplica();
+    let release!: (v: Changes) => void;
+    const gate = new Promise<Changes>((r) => { release = r; });
+    const fetchJson = vi.fn()
+      .mockImplementationOnce(async () => gate)
+      .mockImplementation(async () => EMPTY_FEED);
+    const { onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+    const started = sync.start();
+    while (fetchJson.mock.calls.length === 0) await Promise.resolve();
+    sync.onSeq(seqOf(15));
+    sync.stop();
+    release(EMPTY_FEED);
+    await started;
+    await sync.idle();
+    expect(fetchJson).toHaveBeenCalledTimes(1);
+    expect(replica.calls.filter((c) => c === "pendingBatches")).toHaveLength(1);
+  });
 });
 
 describe("corruption rebuilds", () => {

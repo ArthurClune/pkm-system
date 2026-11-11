@@ -87,7 +87,7 @@ export interface ReplicaSync {
    * clears any pending retry timer. The provider must call this on teardown
    * (unmount) so a stopped instance doesn't leak a timer that outlives its
    * component; an in-flight pull may still finish after stop() but will not
-   * reschedule another retry. */
+   * reschedule another retry, nor start the pass a nudge owed it. */
   stop(): void;
   /** The recovery flush's ack named a skipped op, or a sync payload named a
    * pending batch as already applied whose stored ack did -- the same signal
@@ -802,8 +802,10 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
 
   // One run is one pass. A pass in flight may be past its fetch, so a call
   // during it never joins: it is owed a run of its own, and a pass that fails
-  // drops what it owed to noteFailure's backoff retry.
+  // drops what it owed to noteFailure's backoff retry. A pass owed when
+  // stop() runs never starts.
   const pullRun = coalesce(async () => {
+    if (stopped) return;
     try {
       await pullLoop();
     } catch (error: unknown) {

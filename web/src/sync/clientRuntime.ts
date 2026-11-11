@@ -81,7 +81,8 @@ export interface ClientRuntime {
   /** True until startup discovery has run to a definite answer. */
   discoveringPoison(): boolean;
   /** Unsubscribes onPoison / onPoisonMarkFailed; afterwards no callback
-   * fires and no queue.resume or replicaSync.start is called. */
+   * fires, no repair starts, and no queue.resume or replicaSync.start is
+   * called. */
   dispose(): void;
 }
 
@@ -114,6 +115,13 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
     // too: its success releases "poison".
     repairTargets = mergePoisonEvents(repairFailed ? repairTargets : [], events);
     repairSucceeded = false;
+    // A run owed past dispose() or an unmount must not start, yet counts as
+    // failed: after a StrictMode replay the session lives on, and its
+    // connect's retryFailedRepair repairs these rows.
+    if (!live()) {
+      repairFailed = true;
+      return false;
+    }
     repairFailed = false;
     // Held already when the rejection came this session; a row found by
     // startup discovery is claimed here.

@@ -1,10 +1,11 @@
 // pattern: Imperative Shell
 // One rule for an async operation that callers may ask for while it runs:
-// every call settles only after a run that could have served it. A call
-// during a run joins it while `joinable()` holds; after that it is owed one
-// run that starts when this one ends, in the same reaction that settles
-// this run's callers, so no call can land in a gap between the run's last
-// step and the moment it stops counting as in flight.
+// every call settles only after a run that could have served it, or with
+// the failure of the run it was owed behind. A call during a run joins it
+// while `joinable()` holds; after that it is owed one run that starts when
+// this one ends, in the same reaction that settles this run's callers, so
+// no call can land in a gap between the run's last step and the moment it
+// stops counting as in flight.
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -29,11 +30,12 @@ const deferred = <T>(): Deferred<T> => {
   return { promise, resolve, reject };
 };
 
-/** Every call settles only after a run that could have served it: one that
+/** Every call settles after a run that could have served it (one that
  * started after the call, or one that had not yet passed `joinable()` when
- * the call arrived. A run that rejects rejects every call waiting on it or
- * owed behind it. Omitting `joinable` means a call during a run never joins
- * it. */
+ * the call arrived), or, if it was owed behind a run that rejects, with that
+ * rejection and no run of its own. A run that rejects rejects every call
+ * waiting on it too. Omitting `joinable` means a call during a run never
+ * joins it. */
 export function coalesce<A, R>(
   run: (args: A) => Promise<R>,
   opts: { merge: (pending: A, next: A) => A; joinable?: () => boolean },

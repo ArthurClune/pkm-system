@@ -745,6 +745,26 @@ describe("a recovery flush through the real queue", () => {
     expect(replica.calls).not.toContain("commitRecovery");
     queue.dispose();
   });
+
+  test("a poison claim landing during a leased POST posts nothing more, the " +
+       "next batch's lane ahead included", async () => {
+    const { trace, held, queue, lease, fetchJson } = await laneAndLease("q-2");
+    const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: lease });
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: CID, onState: () => undefined, queue,
+      holdsPoison: () => queue.holds("poison"),
+    });
+    const started = sync.start().catch(() => undefined);
+    await vi.waitFor(() => expect(trace).toEqual(["post q-1", "post q-2"]));
+    queue.pause("poison");
+    held.resolve();
+    await started;
+    sync.stop();
+    expect(trace).toEqual(["post q-1", "post q-2"]);
+    expect(replica.calls).toContain("abortRecovery");
+    expect(replica.calls).not.toContain("commitRecovery");
+    queue.dispose();
+  });
 });
 
 describe("recovery flushes and the shared coordinator", () => {

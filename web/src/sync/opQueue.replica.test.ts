@@ -1521,6 +1521,16 @@ describe("deliverLeased", () => {
     expect(bodies).toEqual([]);
   });
 
+  test("a queue disposed while deliverLeased delivers the lane ahead posts no " +
+       "leased batch", async () => {
+    const { q, bodies, leased } = await laneThenDurable();
+    // The lane entry's POST is in flight when the queue goes.
+    const delivering = q.deliverLeased(leased, () => undefined);
+    q.dispose();
+    await expect(delivering).rejects.toThrow("disposed");
+    expect(bodies.map((b) => b.ops)).toEqual([[op("tuid-lane")]]);
+  });
+
   test("deliverLeased leaves the batch's ticket and lane mark to the commit",
   async () => {
     const { q, replica, durable, leased } = await laneThenDurable();

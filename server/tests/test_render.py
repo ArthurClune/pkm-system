@@ -9,7 +9,7 @@ from pkm.render import (clip_depth, render_assets, render_backlinks,
                         render_backlinks_bounded, render_block_bounded,
                         render_changed_bounded, render_groups_bounded,
                         render_page,
-                        render_page_bounded, render_search,
+                        render_page_bounded, render_rename, render_search,
                         RenderError,
                         render_title_migration_apply,
                         render_title_migration_audit)
@@ -23,6 +23,7 @@ from pkm.contracts.responses import (AssetRef, AssetSearchItem,
                                      BlockNode, BlockPayload, BlockRefText,
                                      ChangedPayload, GroupsPayload, PageMeta,
                                      PagePayload, QueryPayload,
+                                     RenamePageResponse,
                                      SearchPayload, TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload,
                                      TitleMigrationSidebarRetitle)
@@ -966,3 +967,20 @@ def test_bounded_query_empty_result_keeps_ref_counts():
     full = render_groups(p)
     assert "per-ref block counts" in full
     assert render_groups_bounded(p, len(full), HINT) == full
+
+
+def test_render_rename_names_both_branches():
+    renamed = RenamePageResponse(result="renamed",
+                                 title=canonical_title_of("New"))
+    merged = RenamePageResponse(result="merged",
+                                title=canonical_title_of("Into"))
+    assert render_rename(raw_title_of("Old"), renamed) == 'renamed "Old" -> "New"'
+    assert render_rename(raw_title_of("Old"), merged) == 'merged "Old" into "Into"'
+
+
+def test_raw_page_is_defined_once():
+    import subprocess
+    hits = subprocess.run(
+        ["git", "grep", "-n", r"def _raw_page\|def raw_page", "--",
+         "src"], capture_output=True, text=True, check=True).stdout
+    assert len(hits.splitlines()) == 1, hits

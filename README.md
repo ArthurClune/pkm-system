@@ -4,7 +4,7 @@ A self-hosted personal knowledge management app modelled on
 [Roam Research](https://roamresearch.com/). It runs on your own Mac, and your
 other devices reach it over [Tailscale](https://tailscale.com/).
 
-## What
+## Features
 
 An outliner-style notes app:
 
@@ -58,9 +58,8 @@ why.
 ## Assistant
 
 `Cmd/Ctrl+J` opens a chat panel backed by a Claude agent. Pick a model
-(any of `MODELS` in `server/src/pkm/assistant/policy.py`, `glm` only when a
-z.ai key is configured; the default is `glm` when available, otherwise
-`sonnet`) and ask it to find, summarise or write notes.
+(`MODELS` in `server/src/pkm/assistant/policy.py`) and ask it to find,
+summarise or write notes.
 
 The agent runs on the server. Its only tools are the `pkm` verbs, which reach
 your graph through the same HTTP API as every other client. Reads run without
@@ -73,7 +72,7 @@ the server. Without one, the assistant reports an error in the chat and the
 rest of the app works as normal. Setup is in
 [deploy/README.md](deploy/README.md#assistant-prerequisites).
 
-## Why
+## Why self-hosted
 
 Notes last decades, so the app holding them should not be a subscription
 service that can disappear, slow down, or lock the data in. This project
@@ -83,14 +82,11 @@ exchange for:
 - **Ownership**: everything lives in one SQLite file plus an assets directory
   on a machine you control. The nightly export is a plain-markdown copy you
   can leave with.
-- **Simplicity**: server-authoritative block ops, no CRDTs. Per-block
-  last-write-wins is enough for one person.
-- **Longevity**: FastAPI, SQLite and React. Block text is stored as
-  unmodified Roam-flavoured markdown.
-
-The **[architecture overview](docs/architecture/overview.md)** covers the
-system picture and the key decisions behind it, with links to the detailed
-specs.
+- **Simplicity**: the server is authoritative and applies block ops, with
+  no CRDTs. Per-block last-write-wins is enough for one person.
+- **Longevity**: block text is stored as unmodified Roam-flavoured markdown,
+  and the stack (FastAPI, SQLite, React) is mainstream enough to stay
+  maintained.
 
 ## Repository layout
 
@@ -140,8 +136,7 @@ cookie settings.
 ### 2. Importing your Roam graph (optional)
 
 To replace the synthetic data with your Roam graph, export it as **EDN** (a
-markdown export loses uids and structure) and download the linked files. Stop
-the server, then:
+markdown export loses uids and structure) and download the linked files. Then:
 
 ```bash
 cd server
@@ -149,20 +144,12 @@ uv run python -m pkm.importer.run /path/to/export.edn \
   --files /path/to/linked-files --out ../data
 ```
 
-Each run builds a fresh database and atomically swaps it in, so re-running is
-safe once the server is stopped. SQLite would replay a running server's
-`pkm.sqlite3-wal` over the new file, so the importer refuses while another
-connection holds the database open. Leftover WAL files from a stopped server
-are folded in first. An idle server holds no connection, so stopping it is
-still your step. The run ends with a report of everything imported and
-anything unrecognised.
-
-The importer cleans up titles. It removes balanced `[[`/`]]` and `#` markers
-from page and ref-derived titles and merges any resulting collisions; the
-report lists every changed spelling and merge. Malformed marker syntax, or a
-title left blank by the cleanup, aborts the import before any output is
-written. Imported databases have title canonicalization already active (see
-[docs/cli.md](docs/cli.md#one-time-title-canonicalization)).
+Stop the server first. Each run builds a fresh database and swaps it in, so
+re-running is safe. The importer refuses while another connection holds the
+database open, but an idle server holds none, so it cannot tell that one is
+running. The run ends with a report of everything imported, every title it
+cleaned up or merged, and anything unrecognised
+([importer](docs/architecture/import-export-and-backup.md#importer-roam-edn--fresh-database)).
 
 ### Regenerating the local data
 
@@ -196,8 +183,7 @@ pnpm test          # Vitest unit tests
 pnpm test:coverage # unit tests with enforced coverage thresholds
 pnpm typecheck     # tsc over the app, tooling, perf and e2e code
 pnpm e2e           # build, then Playwright end-to-end tests
-pnpm verify        # the whole web gate; AGENTS.md § Testing says why it, not
-                   # typecheck plus unit tests, is what merge requires
+pnpm verify        # the whole web gate that merge requires (AGENTS.md § Testing)
 pnpm build         # production build to web/dist
 pnpm gen-types     # regenerate TS API types from the server's OpenAPI schema
 ```

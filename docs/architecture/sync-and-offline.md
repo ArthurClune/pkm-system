@@ -35,16 +35,12 @@ at push time.
 | React shell | `sync/SyncProvider.tsx`, `useSocketLifecycle.ts` | State, contexts, the owned worker and the offline gateway; the socket and the deferred teardown |
 | Offline API shim | `replica/localApi/` | Serves the read API's JSON shapes from the replica |
 
-The session is built during render, so construction must report nothing, and
-a listener added after construction (the sync property harness's, a test's)
-must still hear every emission. `opQueue.replica.test.ts` pins the second;
-`session.test.ts` pins that building reports nothing. The two emissions that
-are synchronous, and why that is sound, are in
+The session is built during render, so building it reports nothing
+(`session.test.ts`), and a listener added after construction still hears every
+emission (`opQueue.replica.test.ts`). The two synchronous emissions are in
 [sync-recovery.md § The recovery barrier](sync-recovery.md#the-recovery-barrier).
-
-The session's listeners stay subscribed until `dispose()`, which runs a
-microtask after the effect cleanup and which a StrictMode replay cancels. Each
-listener and report therefore checks liveness first.
+A StrictMode replay may cancel the deferred `dispose()`, so every listener and
+report checks `live()` first.
 
 ## The replica
 
@@ -67,8 +63,7 @@ A second file, `/pkm-replica-carry.sqlite3`, holds the queue during a
 
 A commit is atomic across the worker's death, because the next read plays back
 the hot `-journal` a killed worker left. The opfs-sahpool VFS does this only
-from `@sqlite.org/sqlite-wasm` 3.54.1: earlier builds reported a RESERVED lock
-on every file, so SQLite never saw a journal as hot.
+from `@sqlite.org/sqlite-wasm` 3.54.1, and
 `web/e2e/replica-hot-journal.spec.ts` fails on a build without it.
 
 `ReplicaRpc` (`replica/client.ts`) types every worker RPC with the branded
@@ -243,10 +238,9 @@ transaction. It needs one because the queue resumes before
 flight.
 
 An acked removal is safe because `sync_changes` reads `latest_seq` in the
-window's read transaction. It is the common case: the nudge starts a pull while
-the batch is still pending. Every held ack is checked, not only the removed
-rows'. A batch queued and acked during the fetch leaves the ids unchanged, and
-step 8 would rewind it to its pre-images.
+window's read transaction, so a window at or past the ack's `seq` carries the
+batch. `pendingGuard.test.ts` pins each row, including a batch queued and acked
+during the fetch, which leaves the ids unchanged.
 
 The worker keeps acked seqs in memory (`ackedSeqs`) by row id and clears them
 on a schema rebuild, which restarts the ids. For the same reason every delete
@@ -316,21 +310,19 @@ own SAVEPOINT; an op that cannot apply locally is skipped, never dropped from
 the queue.
 
 `enqueueBatch` first refuses, whole and before anything is stored, a batch
-the server would always refuse. That is a text past a
-[text limit](write-path.md#work-bounds-under-the-write-lock) (`findOpTextLimitViolation`), judged before
-titles as the server judges it, or a [forbidden title](#title-activation-across-online-and-offline-paths)
-or one past the [length cap](backend.md#refused-titles)
-(`findOpTitleViolation`, which judges length first).
-It throws `LocalOpError`, whose `rejected` flag makes `opQueue` treat it as
-the server's refusal rather than retain the op
+the server would always refuse. It judges a
+[text limit](write-path.md#work-bounds-under-the-write-lock)
+(`findOpTextLimitViolation`) before titles, as the server does, then a
+[forbidden or over-long title](backend.md#refused-titles)
+(`findOpTitleViolation`, which judges length first). It throws `LocalOpError`,
+whose `rejected` flag makes `opQueue` treat it as the server's refusal
 ([sync-recovery.md § A local write fails](sync-recovery.md#a-local-write-fails)).
 The editor refuses such an edit earlier, with a notice
 ([frontend-editor.md](frontend-editor.md#rules-an-edit-must-not-break)), so
 this is the backstop for a producer that missed it. `opQueue.enqueue` judges
-text limits too, before the replica, because a session without a usable
-replica never reaches `enqueueBatch`: it retains the ops and posts them. A
-refusal there takes the same terminal path as a `rejected` one, a failed
-delivery and a desync, since the outline has already applied the ops.
+text limits too, because a session without a usable replica never reaches
+`enqueueBatch`. Its refusal fails the delivery and desyncs, since the outline
+has already applied the ops.
 
 The optimistic apply mirrors the server's rules as well as its rows: for
 example `set_collapsed` leaves `updated_at` alone. Local `refs` resolve titles
@@ -388,17 +380,14 @@ sequenceDiagram
 
 `reconnectFlow.ts` drains before it pulls, so the pull sees this client's
 offline edits. A socket reconnect and the queue's `onDrain`
-(`reconnect.observeDrain`) share one completion. A connect that joins a
-running completion gets one more pull before the resync decision. The
-running one may be past its pull, and the server sends no seq frame on
-connect. A connect after the decision gets a completion of its own
-([sync-recovery.md § Calls that arrive during a run](sync-recovery.md#calls-that-arrive-during-a-run)).
-A failed completion rejects the `begin()` waiting on it, which the session
-logs. A failed `start()` also reaches `replicaSync`'s `noteFailure`, which
-takes the pull's stall accounting and backoff
-([sync-recovery.md § A pull that keeps failing](sync-recovery.md#a-pull-that-keeps-failing)).
-Before its drain, a connect retries a failed rejected-batch repair, then a
-failed lane repair
+(`reconnect.observeDrain`) share one completion, under the late-caller rule in
+[sync-recovery.md § Calls that arrive during a run](sync-recovery.md#calls-that-arrive-during-a-run).
+A connect that joins it gets one more pull before the resync decision, because
+the running one may be past its pull and the server sends no seq frame on
+connect. A failed completion rejects the `begin()` waiting on it, which the
+session logs; a failed `start()` takes
+[`noteFailure`'s backoff](sync-recovery.md#a-pull-that-keeps-failing). Before
+its drain, a connect retries a failed poison repair, then a failed lane repair
 (`retryFailedRepair`), whose barrier would block the drain
 ([sync-recovery.md § A batch the server rejects](sync-recovery.md#a-batch-the-server-rejects)).
 
@@ -412,14 +401,14 @@ the outline repair epoch, so pending edits elsewhere on a page survive a bump.
 |---|---|---|
 | A reconnect completes | its catch-up moved data (`replicaSync.appliedVersion()`), or there is no usable replica | `reconnectFlow.ts` |
 | A first connect | `begin({ viewsAreStale: true })`: the queue holds an earlier page load's rows, or `replicaSync.hasStarted()` is false | `session.ts` |
-| An ack lists skipped ops | always, whatever the replica state | `opQueue.ts` alone: the drain, the lane, `deliverLeased`, `settleCommitted` (`onSkipped`, folded as `ops-skipped` by `session.ts`) |
+| An ack lists skipped ops | always, whatever the replica state | `opQueue.ts` alone, through `readOpsAck`: the drain, the lane, `deliverLeased`, `settleCommitted` (`onSkipped`, folded as `ops-skipped` by `session.ts`) |
 | A repair or reset succeeds | always | `syncState.ts` |
 | The replica turns ready while disconnected | always, at the mode report, reading the socket status then | `syncState.ts` (`replica-state`) |
 
-Every POST of `/api/ops` is the queue's, so each reads its ack through
-`readOpsAck` and signals a skip the same way. A tab with no replica gets no tombstone for the ghost block, and
-a replica tombstone raises no resync. Without the bump the ghost stays on
-screen, and each flush into it lands another daily-note entry.
+A skip bumps whatever the replica state, because a tab with no replica gets no
+tombstone for the ghost block, and a replica tombstone raises no resync.
+Without the bump the ghost stays on screen, and each flush into it lands
+another daily-note entry.
 
 ### Conflicts at push time
 
@@ -438,9 +427,8 @@ hashes, both `Sha256Hex`, minted only by `text_hash` / `subtree_hash`
   ([frontend-editor.md § Drafts and commit points](frontend-editor.md#drafts-and-commit-points)),
   so of two concurrent edits from one base the later wins and the earlier
   becomes the conflict copy.
-- The subtree hash is the sha256 of one `{uid} {text_hash(text)}` line per
-  block, sorted by uid and joined by newlines. `subtree_hash.json` and
-  `text_hash_parity.json` (lone surrogates read as U+FFFD) pin both sides.
+- `subtree_hash.json` and `text_hash_parity.json` pin both hashes across the
+  two sides; a lone surrogate reads as U+FFFD.
 
 ## Title activation across online and offline paths
 
@@ -455,10 +443,9 @@ create files a title under the page the server will. Blankness and
 attribute-name edges use Python's `str.strip()` set instead
 (`stripLikePython`). `title_parity.json` replays the server's verdicts.
 
-`findOpTitleViolation()` refuses a gesture on a
-[forbidden title](backend.md#refused-titles) before any optimistic mutation,
-and `enqueueBatch()` repeats the check. Snapshot and feed payloads are always
-accepted, because rejecting one would wedge the queue.
+A [forbidden title](backend.md#refused-titles) is refused on enqueue
+([above](#offline-editing-and-reconnect)), but snapshot and feed payloads are
+always accepted, because rejecting one would wedge the queue.
 
 The replica persists the flag in the payload's own transaction. Activation then
 moves negative-id pages made under the old rule onto a matching server page,

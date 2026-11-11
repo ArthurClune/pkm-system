@@ -1,16 +1,15 @@
 // Page links carry their title namespace as data-ns so the stylesheet can
 // colour whole trees ([[AWS/...]], [[Claude/...]]) differently.
 import { render } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { expect, it, vi } from "vitest";
 import { SidebarContext } from "../contexts";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { rawTitleOf } from "../test-helpers";
 import { PageLink } from "./PageLink";
 
 function mount(titleText: string, tag = false) {
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+    <MemoryRouter initialEntries={["/"]}>
       <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
         <PageLink title={rawTitleOf(titleText)} tag={tag} />
       </SidebarContext.Provider>

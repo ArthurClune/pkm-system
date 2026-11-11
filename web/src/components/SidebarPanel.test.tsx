@@ -1,7 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
-import { MemoryRouter } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { SyncContext } from "../sync/SyncProvider";
@@ -26,7 +25,7 @@ function renderPanel(titleText: string) {
     <SyncContext.Provider value={sync}>
       <DndProvider>
         <Harness onReady={(d) => { dnd = d; }} />
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <MemoryRouter>
           <SidebarPanel title={rawTitleOf(titleText)} onClose={() => undefined} />
         </MemoryRouter>
       </DndProvider>
@@ -40,7 +39,7 @@ it("fetches its page and renders title plus block tree, no backlinks", async () 
       { uid: uidOf("uid_b3"), text: "should not render", breadcrumbs: [] }] }],
       total_pages: 1, offset: 0, limit: 20 },
   })]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+  render(<MemoryRouter>
     <SidebarPanel title={rawTitleOf("Paper")} onClose={() => undefined} />
   </MemoryRouter>);
   expect(await screen.findByText("a paper block")).toBeInTheDocument();
@@ -51,7 +50,7 @@ it("fetches its page and renders title plus block tree, no backlinks", async () 
 it("close button fires onClose", async () => {
   stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [])]]);
   const onClose = vi.fn();
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+  render(<MemoryRouter>
     <SidebarPanel title={rawTitleOf("Paper")} onClose={onClose} />
   </MemoryRouter>);
   fireEvent.click(await screen.findByRole("button", { name: "close panel" }));
@@ -77,7 +76,7 @@ it("dragging is disabled while disconnected (writes paused invariant)", async ()
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <MemoryRouter>
           <SidebarPanel title={rawTitleOf("Paper")} onClose={() => undefined} />
         </MemoryRouter>
       </DndProvider>

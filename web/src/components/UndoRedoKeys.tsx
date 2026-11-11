@@ -7,7 +7,7 @@
 // Also registers router navigation so undoing an edit on an unmounted page
 // can bring the user to it.
 import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { performRedo, performUndo,
          setHistoryNavigator } from "../outline/undoManager";
 import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
@@ -23,7 +23,7 @@ export function UndoRedoKeys() {
   const { canEdit } = useSyncEditability();
   const navigate = useNavigate();
 
-  useEffect(() => setHistoryNavigator(navigate), [navigate]);
+  useEffect(() => setHistoryNavigator((path) => { void navigate(path); }), [navigate]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

@@ -1,11 +1,10 @@
 // Every main-pane route as users reach it: the view a path renders, its
 // top-bar label and its browser title. Literal strings throughout.
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { expect, it, vi } from "vitest";
 import { MainRoutes } from "./App";
 import { routeMetaFor } from "./routeMeta";
-import { ROUTER_FUTURE_FLAGS } from "./router";
 import { useRouteTitle } from "./useRouteTitle";
 
 vi.mock("./views/Journal", () => ({ Journal: () => <p>view:journal</p> }));
@@ -23,7 +22,7 @@ function Main() {
 
 function renderAt(path: string) {
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={[path]}>
+    <MemoryRouter initialEntries={[path]}>
       <Main />
     </MemoryRouter>);
 }

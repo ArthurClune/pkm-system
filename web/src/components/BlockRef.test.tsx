@@ -1,10 +1,9 @@
 // Click-to-navigate on resolved ((block refs)).
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router";
 import { expect, it, vi } from "vitest";
 import type { BlockRefText } from "../api/payloads";
 import { BlockRefContext, SidebarContext } from "../contexts";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { BlockRef } from "./BlockRef";
 import { canonicalTitleOf, uidOf } from "../test-helpers";
 
@@ -16,7 +15,7 @@ function Probe() {
 function mount(refTexts: Record<string, BlockRefText>,
                openInSidebar = vi.fn()) {
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+    <MemoryRouter initialEntries={["/"]}>
       <SidebarContext.Provider value={{ openInSidebar }}>
         <BlockRefContext.Provider value={refTexts}>
           <BlockRef uid={uidOf("ref_aa1")} depth={0} />

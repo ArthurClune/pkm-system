@@ -1,6 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter } from "react-router";
 import { expect, test, vi } from "vitest";
 import { block, orderIdxOf, uidOf } from "../test-helpers";
 import type { BlockUid } from "../api/brands";
@@ -40,7 +39,7 @@ const BLOCKS = [
 function mount(h: OutlineHandlers, focus: { uid: BlockUid; cursor: number } | null,
                readOnly = false) {
   return render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={BLOCKS} focus={focus} handlers={h}
                          readOnly={readOnly} />
     </MemoryRouter>);
@@ -63,7 +62,7 @@ test("quoted display hides the prefix while editing exposes the raw source", () 
   const quoted = [block("tuid-q1", "> **hello** [[World]]")];
   const h = handlers();
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={quoted} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
@@ -73,7 +72,7 @@ test("quoted display hides the prefix while editing exposes the raw source", () 
   expect(display).not.toHaveTextContent("> ");
 
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={quoted} focus={{ uid: uidOf("tuid-q1"), cursor: 0 }}
                          handlers={h} readOnly={false} />
     </MemoryRouter>);
@@ -83,7 +82,7 @@ test("quoted display hides the prefix while editing exposes the raw source", () 
 test("a TODO inside a quote remains interactive", () => {
   const h = handlers();
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={[block("tuid-q1", "> {{[[TODO]]}} task")]}
                          focus={null} handlers={h} readOnly={false} />
     </MemoryRouter>);
@@ -94,13 +93,13 @@ test("a TODO inside a quote remains interactive", () => {
 test("removing the quote prefix removes quote presentation", () => {
   const h = handlers();
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={[block("tuid-q1", "> hello")]} focus={null}
                          handlers={h} readOnly={false} />
     </MemoryRouter>);
   expect(view.container.querySelector('[data-uid="tuid-q1"] .quote-block')).not.toBeNull();
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={[block("tuid-q1", "hello")]} focus={null}
                          handlers={h} readOnly={false} />
     </MemoryRouter>);
@@ -114,7 +113,7 @@ test("bullet shows the closed ring only when collapsed with children", () => {
     block("tuid-p2", "collapsed leaf", { collapsed: true, order_idx: orderIdxOf(1) }),
   ];
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={blocks} focus={null} handlers={handlers()}
                          readOnly={false} />
     </MemoryRouter>);
@@ -128,7 +127,7 @@ test("chevron toggles collapse via handler; todo checkbox toggles via handler", 
     order_idx: orderIdxOf(0), children: [block("tuid-k", "kid", { order_idx: orderIdxOf(0) })],
   })];
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={withKids} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
@@ -155,7 +154,7 @@ test("chevron is disabled on a childless block; enabled on a block with children
     order_idx: orderIdxOf(0), children: [block("tuid-k", "kid", { order_idx: orderIdxOf(0) })],
   })];
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={t} focus={null} handlers={h} readOnly={false} />
     </MemoryRouter>);
   const [parentChevron, kidChevron] =
@@ -175,7 +174,7 @@ test("readOnly disables the chevron (even with children) and the todo checkbox",
     block("tuid-u2", "{{[[TODO]]}} task", { order_idx: orderIdxOf(1) }),
   ];
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={t} focus={null} handlers={h} readOnly={true} />
     </MemoryRouter>);
   const parentChevron =
@@ -193,7 +192,7 @@ test("readOnly disables the chevron (even with children) and the todo checkbox",
 test("fallback renders nested rich text but exposes no editor controls", () => {
   const h = handlers();
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree
         blocks={[block("parent", "Papers", {
           heading: 2,
@@ -222,7 +221,7 @@ test("an emptied (previously-written) block still renders a clickable, focusable
   const h = handlers();
   const emptied = [block("tuid-u1", "", { order_idx: orderIdxOf(0) })];
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={emptied} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
@@ -241,7 +240,7 @@ test("collapsed children are hidden", () => {
     children: [block("tuid-k", "hidden kid", { order_idx: orderIdxOf(0) })],
   })];
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={t} focus={null} handlers={h} readOnly={false} />
     </MemoryRouter>);
   expect(screen.queryByText("hidden kid")).toBeNull();
@@ -282,7 +281,7 @@ test("the upload input survives the block blurring while the native picker is "
   // onBlurBlock -> setFocus(null) unmounts BlockInput while the picker is
   // still open. Simulate that focus loss here.
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={BLOCKS} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
@@ -310,7 +309,7 @@ function mountSelected(
   readOnly = false,
 ) {
   return render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={BLOCKS} focus={null} selection={selection}
                          handlers={h} readOnly={readOnly} />
     </MemoryRouter>);
@@ -466,7 +465,7 @@ test("a selection made while editable is safe once sync turns the outline read-o
   const h = handlers();
   const selection = { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") };
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={BLOCKS} focus={null} selection={selection}
                          handlers={h} readOnly={false} />
     </MemoryRouter>);
@@ -474,7 +473,7 @@ test("a selection made while editable is safe once sync turns the outline read-o
 
   // the socket drops / storage fills: the same live selection is now read-only
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={BLOCKS} focus={null} selection={selection}
                          handlers={h} readOnly />
     </MemoryRouter>);
@@ -609,7 +608,7 @@ test("block menu marks current heading/view and dispatches both control groups",
     children: [block("tuid-u2", "child")],
   })];
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={blocks} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
@@ -633,7 +632,7 @@ test("block menu exposes all heading choices; unset view shows document", () => 
     block("tuid-child", "child", { heading: null, children: [block("tuid-leaf", "leaf")] }),
   ] })];
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={blocks} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
@@ -671,7 +670,7 @@ test("editable rendering numbers direct children only", () => {
       children: [block("tuid-b1", "B1")] }),
   ] })];
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={blocks} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
@@ -689,7 +688,7 @@ test("a rendered Roam table focuses its macro and reveals raw editable blocks", 
     block("tuid-row", "Claude", { children: [block("tuid-row-2", "$5")] }),
   ] });
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={[macro]} focus={null} handlers={h} readOnly={false} />
     </MemoryRouter>,
   );
@@ -698,7 +697,7 @@ test("a rendered Roam table focuses its macro and reveals raw editable blocks", 
   expect(h.onFocusBlock).toHaveBeenCalledWith("tuid-table", "{{[[table]]}}".length);
 
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={[macro]} focus={{ uid: uidOf("tuid-table"), cursor: 0 }}
                          handlers={h} readOnly={false} />
     </MemoryRouter>,
@@ -717,14 +716,14 @@ test("a rendered Roam table stays in raw mode when focus moves to a revealed des
     block("tuid-row", "Claude", { children: [block("tuid-row-2", "$5")] }),
   ] });
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={[macro]} focus={null} handlers={h} readOnly={false} />
     </MemoryRouter>,
   );
 
   fireEvent.click(screen.getByRole("table"));
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={[macro]} focus={{ uid: uidOf("tuid-table"), cursor: 0 }}
                          handlers={h} readOnly={false} />
     </MemoryRouter>,
@@ -732,7 +731,7 @@ test("a rendered Roam table stays in raw mode when focus moves to a revealed des
   expect(focusedTextarea()).toHaveValue("{{[[table]]}}");
 
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={[macro]} focus={{ uid: uidOf("tuid-row-2"), cursor: 1 }}
                          handlers={h} readOnly={false} />
     </MemoryRouter>,
@@ -759,7 +758,7 @@ test("an unfocused valid Roam table with a heading renders inside div.block-text
     ],
   });
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={[macro]} focus={null} handlers={h} readOnly={false} />
     </MemoryRouter>,
   );
@@ -777,7 +776,7 @@ const DAY = 24 * 60 * 60 * 1000;
 
 function mountStamped(blocks: BlockNode[], stamps: boolean) {
   return render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={blocks} focus={null} handlers={handlers()}
                          readOnly={false} stamps={stamps} />
     </MemoryRouter>);
@@ -844,7 +843,7 @@ test("stamps nested rows too, as the last child of their own row", () => {
 test("the stamp stays the row's last child while the block is focused", () => {
   const now = Date.now();
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={[block("tuid-s1", "text", { updated_at: now })]}
                          focus={{ uid: uidOf("tuid-s1"), cursor: 0 }} handlers={handlers()}
                          readOnly={false} stamps />
@@ -860,7 +859,7 @@ test("the stamp stays the row's last child while the block is focused", () => {
 test("blocks with incoming refs show a count badge; others none", () => {
   const h = handlers();
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={BLOCKS} focus={null} handlers={h}
                          readOnly={false} refCounts={{ [BLOCKS[0].uid]: 3 }} />
     </MemoryRouter>);
@@ -873,7 +872,7 @@ test("blocks with incoming refs show a count badge; others none", () => {
 test("badge click does not focus the block", () => {
   const h = handlers();
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={BLOCKS} focus={null} handlers={h}
                          readOnly={false} refCounts={{ [BLOCKS[0].uid]: 1 }} />
     </MemoryRouter>);
@@ -898,7 +897,7 @@ function mountToc(blocks: BlockNode[], h: OutlineHandlers,
                   focus: { uid: BlockUid; cursor: number } | null = null,
                   fallback = false) {
   return render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={blocks} focus={focus} handlers={h}
                          readOnly={false} fallback={fallback} />
     </MemoryRouter>);
@@ -930,7 +929,7 @@ test("the toc follows heading edits and additions on the next render", () => {
     block("tuid-h4", "Appendix", { heading: 2 }),
   ];
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={edited} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);

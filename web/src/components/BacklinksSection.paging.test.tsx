@@ -1,8 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import type { Backlinks } from "../api/payloads";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import {
   canonicalTitleOf, defer, jsonResponse, pageIdOf, pagePayload, uidOf,
 } from "../test-helpers";
@@ -28,7 +27,7 @@ const failure = () =>
 
 function section(refreshGeneration = 0) {
   return (
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={T} initial={initial}
                         refreshGeneration={refreshGeneration} />
     </MemoryRouter>

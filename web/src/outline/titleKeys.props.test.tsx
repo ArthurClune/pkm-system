@@ -11,14 +11,13 @@
 // shared/fixtures/title_parity.json pins to the server's.
 import { cleanup, render, renderHook, type RenderResult, waitFor } from "@testing-library/react";
 import fc from "fast-check";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { MainRoutes } from "../App";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
 import { TITLE_WHITESPACE } from "../grammar/titleWhitespace.gen";
 import { pagePath } from "../paths";
 import { canonicalizeTitle, titleSyntaxReason } from "../replica/titles";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import {
   block, canonicalTitleOf, jsonResponse, makeSync, pagePayload, rawTitleOf,
@@ -266,7 +265,7 @@ describe("a variant title keys the outline by the canonical title", () => {
     await forEachCell(async (c) => {
       serve(c);
       const view = render(
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <MemoryRouter>
           <SyncContext.Provider value={makeSync()}>
             <EditableSidebarPanel title={rawTitleOf(c.variant)} />
           </SyncContext.Provider>
@@ -287,7 +286,7 @@ describe("a variant title keys the outline by the canonical title", () => {
       const warn = refused(c)
         ? vi.spyOn(console, "warn").mockImplementation(() => {}) : null;
       const view = render(
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+        <MemoryRouter
                       initialEntries={[pagePath(rawTitleOf(c.variant))]}>
           <SyncContext.Provider value={makeSync()}>
             <MainRoutes />

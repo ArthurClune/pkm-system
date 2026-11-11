@@ -4,12 +4,11 @@
 // can drift alone.
 import { cleanup, render } from "@testing-library/react";
 import fc from "fast-check";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { describe, expect, test } from "vitest";
 import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { EditableBlockTree } from "../components/EditableBlockTree";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { uidOf } from "../test-helpers";
 import type { OutlineHandlers } from "./handlers";
 import { selectableUids, visibleUids } from "./tree";
@@ -19,7 +18,7 @@ const handlers = new Proxy({}, { get: () => () => undefined }) as OutlineHandler
 
 function renderedRows(blocks: BlockNode[], focus: BlockUid | null): BlockUid[] {
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={blocks} handlers={handlers} readOnly={false}
                          focus={focus ? { uid: focus, cursor: 0 } : null} />
     </MemoryRouter>,

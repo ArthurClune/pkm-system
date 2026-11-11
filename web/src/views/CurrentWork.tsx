@@ -5,7 +5,7 @@ import type { CurrentWorkPayload } from "../api/payloads";
 import { pagePath } from "../paths";
 import { useResync } from "../sync/SyncProvider";
 import { useStaleGuard } from "../useStaleGuard";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 export function CurrentWork() {
   const [payload, setPayload] = useState<CurrentWorkPayload | null>(null);

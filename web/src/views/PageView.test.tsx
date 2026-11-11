@@ -1,6 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { Link, MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   acquireOutlineSession,
@@ -21,7 +20,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 function renderAt(path: string) {
   return render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={[path]}>
+    <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/page/*" element={<PageView />} />
       </Routes>
@@ -96,7 +95,7 @@ it("links with the canonical payload title and refreshes backlinks", async () =>
 
   render(
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/acme"]}>
+      <MemoryRouter initialEntries={["/page/acme"]}>
         <Routes><Route path="/page/*" element={<PageView />} /></Routes>
       </MemoryRouter>
     </SyncContext.Provider>,
@@ -156,7 +155,7 @@ it("an expired same-title parent response cannot publish an empty child", async 
   vi.stubGlobal("fetch", fetchMock);
   const view = render(
     <SyncContext.Provider value={makeSync()}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+      <MemoryRouter
                     initialEntries={["/page/Paper"]}>
         <Routes>
           <Route path="/page/*" element={<PageView />} />
@@ -205,7 +204,7 @@ it("a losing failed parent renders the accepted same-title winner without error"
   vi.stubGlobal("fetch", fetchMock);
   const view = render(
     <SyncContext.Provider value={makeSync()}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+      <MemoryRouter
                     initialEntries={["/page/Paper"]}>
         <Routes>
           <Route path="/page/*" element={<PageView />} />
@@ -266,7 +265,7 @@ it("a failed newer parent elects one fresh controller for both panes", async () 
   vi.stubGlobal("fetch", fetchMock);
   const view = render(
     <SyncContext.Provider value={makeSync()}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+      <MemoryRouter
                     initialEntries={["/page/Paper"]}>
         <Routes>
           <Route path="/page/*" element={<PageView />} />
@@ -328,7 +327,7 @@ it("unmounting the newer parent elects one surviving controller", async () => {
   const sync = makeSync();
   const tree = (showSidebar: boolean) => (
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+      <MemoryRouter
                     initialEntries={["/page/Paper"]}>
         <Routes>
           <Route path="/page/*" element={<PageView />} />
@@ -389,7 +388,7 @@ it("unmounting the newer parent recovers while the older transport still hangs",
   const sync = makeSync();
   const tree = (showSidebar: boolean) => (
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+      <MemoryRouter
                     initialEntries={["/page/Paper"]}>
         <Routes>
           <Route path="/page/*" element={<PageView />} />
@@ -461,7 +460,7 @@ it("an automatic read superseding elected recovery permits one replacement paren
   vi.stubGlobal("fetch", fetchMock);
   const view = render(
     <SyncContext.Provider value={makeSync()}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+      <MemoryRouter
                     initialEntries={["/page/Paper"]}>
         <Routes>
           <Route path="/page/*" element={<PageView />} />
@@ -566,7 +565,7 @@ it("a hung automatic read cannot strand eager full-parent readiness", async () =
   vi.stubGlobal("fetch", fetchMock);
   const view = render(
     <SyncContext.Provider value={makeSync()}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+      <MemoryRouter
                     initialEntries={["/page/Hung%20Automatic%20Paper"]}>
         <Routes>
           <Route path="/page/*" element={<PageView />} />
@@ -659,7 +658,7 @@ it("a repair superseding elected recovery permits one post-repair parent", async
   vi.stubGlobal("fetch", fetchMock);
   const view = render(
     <SyncContext.Provider value={makeSync()}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+      <MemoryRouter
                     initialEntries={["/page/Paper"]}>
         <Routes>
           <Route path="/page/*" element={<PageView />} />
@@ -758,7 +757,7 @@ it("canceling elected recovery does not start a second recovery", async () => {
   const sync = makeSync();
   const tree = (showSidebar: boolean) => (
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+      <MemoryRouter
                     initialEntries={["/page/Paper"]}>
         <Routes>
           <Route path="/page/*" element={<PageView />} />
@@ -839,7 +838,7 @@ it("a captured Journal response superseding recovery elects one full parent", as
   const sync = makeSync();
   const tree = (showJournal: boolean) => (
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+      <MemoryRouter
                     initialEntries={["/page/Captured%20Paper"]}>
         <Routes>
           <Route path="/page/*" element={<PageView />} />
@@ -964,7 +963,7 @@ it("a dormant Journal capture cannot strand parent recovery", async () => {
   const sync = makeSync();
   const tree = (showJournal: boolean) => (
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+      <MemoryRouter
                     initialEntries={["/page/Dormant%20Capture%20Paper"]}>
         <Routes>
           <Route path="/page/*" element={<PageView />} />
@@ -1091,7 +1090,7 @@ it("unmounting Journal releases a hung capture before parent recovery", async ()
   const sync = makeSync();
   const tree = (showJournal: boolean) => (
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+      <MemoryRouter
                     initialEntries={["/page/Unmount%20Capture%20Paper"]}>
         <Routes>
           <Route path="/page/*" element={<PageView />} />
@@ -1197,7 +1196,7 @@ it("a superseded resync failure cannot replace a newer parent winner with error"
   const sync = makeSync();
   const tree = (resyncGeneration: number, showSidebar: boolean) => (
     <SyncContext.Provider value={{ ...sync, resyncGeneration }}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+      <MemoryRouter
                     initialEntries={["/page/Resync%20Paper"]}>
         <Routes>
           <Route path="/page/*" element={<PageView />} />
@@ -1280,7 +1279,7 @@ describe("a hash naming a block inside a collapsed subtree", () => {
     servePageApplyingSent(sync, canonicalTitleOf("Paper"), collapsedPaper());
     const view = render(
       <SyncContext.Provider value={sync}>
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+        <MemoryRouter
                       initialEntries={["/page/Paper#uid_t1"]}>
           <Link to="/page/Paper#uid_t1">again</Link>
           <Routes><Route path="/page/*" element={<PageView />} /></Routes>
@@ -1368,7 +1367,7 @@ it("a parent resync response dispatched before a local split cannot erase it", a
   const sync = makeSync();
   const view = (resyncGeneration: number) => (
     <SyncContext.Provider value={{ ...sync, resyncGeneration }}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+      <MemoryRouter
                     initialEntries={["/page/Paper"]}>
         <Routes>
           <Route path="/page/*" element={<PageView />} />
@@ -1423,7 +1422,7 @@ it("shows the stamp column on a page but not in the journal or a sidebar panel",
   const stampsOn = { stamps: true, toggle: vi.fn() };
 
   const page = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Stamps"]}>
+    <MemoryRouter initialEntries={["/page/Stamps"]}>
       <SyncContext.Provider value={makeSync()}>
         <BlockStampsContext.Provider value={stampsOn}>
           <Routes><Route path="/page/*" element={<PageView />} /></Routes>
@@ -1438,7 +1437,7 @@ it("shows the stamp column on a page but not in the journal or a sidebar panel",
   // Same preference, same page: the sidebar panel and the journal scroll
   // mount EditablePage WITHOUT the flag, so they stay bare by construction.
   const panel = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={makeSync()}>
         <BlockStampsContext.Provider value={stampsOn}>
           <EditableSidebarPanel title={rawTitleOf("Stamps")} />
@@ -1451,7 +1450,7 @@ it("shows the stamp column on a page but not in the journal or a sidebar panel",
   panel.unmount();
 
   const journal = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={makeSync()}>
         <BlockStampsContext.Provider value={stampsOn}>
           <Journal />

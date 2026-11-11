@@ -2,9 +2,8 @@
 // Literal strings throughout, never the constants: a build that reads or
 // writes other strings silently resets every user's choice.
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { ROUTER_FUTURE_FLAGS } from "./router";
 import { block, canonicalTitleOf, pagePayload, stubFetch } from "./test-helpers";
 import { App } from "./App";
 
@@ -28,7 +27,7 @@ async function renderPage() {
                                     [block("uid_s1", "paper body")])],
   ]);
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+    <MemoryRouter
                   initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
   expect(await screen.findByText("paper body")).toBeInTheDocument();
   return view;

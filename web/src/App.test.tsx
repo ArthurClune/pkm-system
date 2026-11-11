@@ -1,6 +1,5 @@
 import { createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "./router";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SIDEBAR_STORAGE_KEY } from "./prefKeys";
 import { block, canonicalTitleOf, pagePayload, stubFetch } from "./test-helpers";
@@ -28,7 +27,7 @@ it("shift-click stacks sidebar panels newest-first; close removes one", async ()
       block("uid_m1", "see [[Paper]] and [[AI]]")])],
   ]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%20Learning"]}>
+    <MemoryRouter initialEntries={["/page/Machine%20Learning"]}>
       <App />
     </MemoryRouter>,
   );
@@ -51,7 +50,7 @@ it("shift-clicking the nav's TODO link opens it in the sidebar, not a new window
     ["/api/sidebar", { entries: [] }],
     ["/api/page/TODO", pagePayload(canonicalTitleOf("TODO"), [block("uid_t1", "todo body")])],
   ]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
   const link = screen.getByRole("link", { name: "TODO" });
   const event = createEvent.click(link, { shiftKey: true });
   fireEvent(link, event);
@@ -63,7 +62,7 @@ it("traps shift-click as a no-op on nav destinations that aren't pages", async (
   stubFetch([["/api/current-work", { sections: [
     { id: "last-24-hours", heading: "Last 24 hours", pages: [] },
   ] }], ["/api/sidebar", { entries: [] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/current-work"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/current-work"]}><App /></MemoryRouter>);
   await screen.findByRole("heading", { name: "Current Work" });
 
   // No page sits behind these routes, so a sidebar panel has nothing to show
@@ -83,7 +82,7 @@ it("traps shift-click as a no-op on nav destinations that aren't pages", async (
 it("a trapped shift-click leaves the phone drawer open, having done nothing", async () => {
   stubFetch([["/api/journal", { days: [] }], ["/api/sidebar", { entries: [] }]]);
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+    <MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
   fireEvent.click(screen.getByRole("button", { name: "menu" }));
   expect(container.querySelector(".left-nav")).toHaveClass("open");
 
@@ -95,14 +94,14 @@ it("a trapped shift-click leaves the phone drawer open, having done nothing", as
 
 it("cmd-u focuses the top bar's search bar", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
   fireEvent.keyDown(window, { key: "u", metaKey: true });
   expect(screen.getByPlaceholderText("Search…")).toHaveFocus();
 });
 
 it("ctrl-u focuses the top bar's search bar", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
   fireEvent.keyDown(window, { key: "u", ctrlKey: true });
   expect(screen.getByPlaceholderText("Search…")).toHaveFocus();
 });
@@ -113,7 +112,7 @@ it("links to Current Work under Daily Notes and renders the route", async () => 
     { id: "24-to-48-hours", heading: "24–48 hours", pages: [] },
     { id: "48-hours-to-7-days", heading: "48 hours–7 days", pages: [] },
   ] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/current-work"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/current-work"]}><App /></MemoryRouter>);
 
   const links = screen.getAllByRole("link").map((link) => link.textContent);
   expect(links.slice(0, 2)).toEqual(["Daily Notes", "Current Work"]);
@@ -128,7 +127,7 @@ it("Daily Notes and Current Work are both primary links, whatever the route", as
     { id: "24-to-48-hours", heading: "24–48 hours", pages: [] },
     { id: "48-hours-to-7-days", heading: "48 hours–7 days", pages: [] },
   ] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/current-work"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/current-work"]}><App /></MemoryRouter>);
 
   // both carry the always-highlighted variant even though only /current-work
   // is the active route
@@ -138,7 +137,7 @@ it("Daily Notes and Current Work are both primary links, whatever the route", as
 
 it("links to TODO under Daily Notes and Current Work", async () => {
   stubFetch([["/api/page/TODO", pagePayload(canonicalTitleOf("TODO"), [block("uid_t1", "todo body")])]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/TODO"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/page/TODO"]}><App /></MemoryRouter>);
 
   const links = screen.getAllByRole("link").map((link) => link.textContent);
   expect(links.slice(0, 3)).toEqual(["Daily Notes", "Current Work", "TODO"]);
@@ -148,7 +147,7 @@ it("links to TODO under Daily Notes and Current Work", async () => {
 
 it("the TODO nav link is a primary link and reflects the active route", async () => {
   stubFetch([["/api/page/TODO", pagePayload(canonicalTitleOf("TODO"), [block("uid_t1", "todo body")])]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/TODO"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/page/TODO"]}><App /></MemoryRouter>);
 
   const link = screen.getByRole("link", { name: "TODO" });
   expect(link.className).toContain("primary");
@@ -157,7 +156,7 @@ it("the TODO nav link is a primary link and reflects the active route", async ()
 
 it("the top bar has a focusable search bar; the left nav has no search entry", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
   expect(screen.queryByRole("button", { name: "Page menu" })).toBeNull(); // journal: no page menu
   const input = screen.getByPlaceholderText("Search…");
   input.focus();
@@ -166,7 +165,7 @@ it("the top bar has a focusable search bar; the left nav has no search entry", a
 
 it("the top bar's page menu opens 'Open in sidebar', which stacks the current page", async () => {
   stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
   await screen.findByRole("heading", { name: "Paper" });
 
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
@@ -178,7 +177,7 @@ it("the top bar's page menu opens 'Open in sidebar', which stacks the current pa
 
 it("cmd-k does not focus the search bar", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
   fireEvent.keyDown(window, { key: "k", metaKey: true });
   expect(screen.getByPlaceholderText("Search…")).not.toHaveFocus();
 });
@@ -190,7 +189,7 @@ it("cmd-/ hides the stacked right sidebar; pressing it again shows it", async ()
       block("uid_m1", "see [[Paper]]")])],
   ]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%20Learning"]}>
+    <MemoryRouter initialEntries={["/page/Machine%20Learning"]}>
       <App />
     </MemoryRouter>,
   );
@@ -212,7 +211,7 @@ it("ctrl-/ also toggles the right sidebar", async () => {
       block("uid_m1", "see [[Paper]]")])],
   ]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%20Learning"]}>
+    <MemoryRouter initialEntries={["/page/Machine%20Learning"]}>
       <App />
     </MemoryRouter>,
   );
@@ -231,7 +230,7 @@ it("opening a page in the sidebar reveals a hidden right sidebar", async () => {
       block("uid_m1", "see [[Paper]] and [[AI]]")])],
   ]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%20Learning"]}>
+    <MemoryRouter initialEntries={["/page/Machine%20Learning"]}>
       <App />
     </MemoryRouter>,
   );
@@ -253,7 +252,7 @@ it("plain '/' with no modifier does not hide the right sidebar", async () => {
       block("uid_m1", "see [[Paper]]")])],
   ]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%20Learning"]}>
+    <MemoryRouter initialEntries={["/page/Machine%20Learning"]}>
       <App />
     </MemoryRouter>,
   );
@@ -271,7 +270,7 @@ it("ctrl-shift-d navigates to the home page", async () => {
     ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
     ["/api/journal", { days: [] }],
   ]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
   expect(await screen.findByRole("heading", { name: "Paper" })).toBeInTheDocument();
   fireEvent.keyDown(window, { key: "d", ctrlKey: true, shiftKey: true });
   await waitFor(() => {
@@ -283,7 +282,7 @@ it("ctrl-cmd-d is no longer bound", async () => {
   stubFetch([
     ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
   ]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
   expect(await screen.findByRole("heading", { name: "Paper" })).toBeInTheDocument();
   fireEvent.keyDown(window, { key: "d", ctrlKey: true, metaKey: true });
   expect(screen.getByRole("heading", { name: "Paper" })).toBeInTheDocument();
@@ -297,7 +296,7 @@ it("ctrl-shift-t shows the block-stamp column; pressing it again hides it", asyn
     ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
   ]);
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
+    <MemoryRouter initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
   expect(await screen.findByText("paper body")).toBeInTheDocument();
   expect(container.querySelector(".block-stamp")).toBeNull();
 
@@ -316,7 +315,7 @@ it("ctrl-shift-t works while a block is being edited", async () => {
     ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
   ]);
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
+    <MemoryRouter initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
   expect(await screen.findByText("paper body")).toBeInTheDocument();
   fireEvent.click(container.querySelector('.block-row[data-uid="uid_s1"] .block-text')!);
   const textarea = await waitFor(() => {
@@ -335,7 +334,7 @@ it("ctrl-cmd-t does not toggle the block-stamp column", async () => {
     ["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "paper body")])],
   ]);
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
+    <MemoryRouter initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
   expect(await screen.findByText("paper body")).toBeInTheDocument();
   fireEvent.keyDown(window, { key: "t", ctrlKey: true, metaKey: true });
   expect(container.querySelector(".block-stamp")).toBeNull();
@@ -344,7 +343,7 @@ it("ctrl-cmd-t does not toggle the block-stamp column", async () => {
 it("clicking the sidebar toggle collapses the left nav "
   + "and persists the choice; clicking again restores it", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
   const nav = screen.getByRole("navigation");
   expect(nav).not.toHaveClass("collapsed");
 
@@ -360,7 +359,7 @@ it("clicking the sidebar toggle collapses the left nav "
 it("honours a persisted 'collapsed' sidebar preference on initial render", async () => {
   localStorage.setItem(SIDEBAR_STORAGE_KEY, "collapsed");
   stubFetch([["/api/journal", { days: [] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
   expect(screen.getByRole("navigation")).toHaveClass("collapsed");
   expect(screen.getByRole("button", { name: "Show sidebar" })).toBeInTheDocument();
 });
@@ -368,7 +367,7 @@ it("honours a persisted 'collapsed' sidebar preference on initial render", async
 it("search stays reachable via the top bar when the sidebar is collapsed", async () => {
   localStorage.setItem(SIDEBAR_STORAGE_KEY, "collapsed");
   stubFetch([["/api/journal", { days: [] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
   const input = screen.getByPlaceholderText("Search…");
   input.focus();
   expect(input).toHaveFocus();
@@ -381,7 +380,7 @@ it("search stays reachable via the top bar when the sidebar is collapsed", async
 it("the .app container has no-sidebar by default (no stack, no left collapse)", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>,
+    <MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>,
   );
   await screen.findByPlaceholderText("Search…");
   const app = container.querySelector(".app");
@@ -396,7 +395,7 @@ it("opening a page in the sidebar drops the no-sidebar class from .app", async (
       block("uid_m1", "see [[Paper]]")])],
   ]);
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%20Learning"]}>
+    <MemoryRouter initialEntries={["/page/Machine%20Learning"]}>
       <App />
     </MemoryRouter>,
   );
@@ -415,7 +414,7 @@ it("hiding the stacked sidebar (Cmd-/) restores the no-sidebar class on .app", a
       block("uid_m1", "see [[Paper]]")])],
   ]);
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%20Learning"]}>
+    <MemoryRouter initialEntries={["/page/Machine%20Learning"]}>
       <App />
     </MemoryRouter>,
   );
@@ -432,7 +431,7 @@ it("hiding the stacked sidebar (Cmd-/) restores the no-sidebar class on .app", a
 it("collapsing the left nav adds nav-collapsed to .app; restoring it removes it", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>,
+    <MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>,
   );
   const app = container.querySelector(".app");
   expect(app).not.toHaveClass("nav-collapsed");
@@ -447,7 +446,7 @@ it("collapsing the left nav adds nav-collapsed to .app; restoring it removes it"
 it("both a collapsed left nav and an absent right sidebar apply both classes together", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>,
+    <MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>,
   );
   const app = container.querySelector(".app");
   fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
@@ -458,7 +457,7 @@ it("both a collapsed left nav and an absent right sidebar apply both classes tog
 it("unknown route renders the not-found view", () => {
   stubFetch([]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/definitely/not/a/route"]}>
+    <MemoryRouter initialEntries={["/definitely/not/a/route"]}>
       <App />
     </MemoryRouter>,
   );
@@ -469,7 +468,7 @@ it("unknown route renders the not-found view", () => {
 it("Settings nav link sits below the user-editable favourites but is styled primary", () => {
   stubFetch([["/api/journal", { days: [] }]]);
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>,
+    <MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>,
   );
   const nav = container.querySelector(".left-nav");
   // Role "link" only catches <a>/NavLink elements, not the ThemeToggle or
@@ -484,7 +483,7 @@ it("Settings nav link sits below the user-editable favourites but is styled prim
 
 it("Assistant link opens a new section below the pinned pages", () => {
   stubFetch([["/api/journal", { days: [] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
   // The pinned list draws its own upper rule; this class draws the lower one,
   // so the user's entries are fenced on both sides.
   expect(screen.getByRole("button", { name: "Assistant" })).toHaveClass("nav-section-start");
@@ -492,7 +491,7 @@ it("Assistant link opens a new section below the pinned pages", () => {
 
 it("Settings nav link navigates to /settings", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
   fireEvent.click(screen.getByRole("link", { name: "Settings" }));
   expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
 });
@@ -501,7 +500,7 @@ it("renders the Files view at /files", async () => {
   // the suite's global fetch stub 404s /api/assets/search, so the view
   // lands in its error state, which still renders the heading.
   stubFetch([]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/files"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/files"]}><App /></MemoryRouter>);
   expect(
     await screen.findByRole("heading", { name: "Files" }),
   ).toBeInTheDocument();
@@ -513,7 +512,7 @@ it("renders the Files view at /files", async () => {
 // itself wasn't dropped.
 it("sets the browser title from the centralized route table as App navigates between static routes", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
   await screen.findByPlaceholderText("Search…");
   expect(document.title).toBe("Daily Notes — pkm");
 
@@ -525,7 +524,7 @@ it("sets the browser title from the centralized route table as App navigates bet
 it("the hamburger exposes the drawer's expanded state and what it controls", () => {
   stubFetch([["/api/journal", { days: [] }]]);
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>,
+    <MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>,
   );
   const hamburger = screen.getByRole("button", { name: "menu" });
   const nav = container.querySelector(".left-nav") as HTMLElement;
@@ -544,7 +543,7 @@ it("the hamburger exposes the drawer's expanded state and what it controls", () 
 
 it("closing the nav drawer returns focus to the hamburger", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
   const hamburger = screen.getByRole("button", { name: "menu" });
 
   // closed by the hamburger itself
@@ -564,7 +563,7 @@ it("closing the nav drawer returns focus to the hamburger", async () => {
 
 it("a never-opened drawer does not steal focus on mount or navigation", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
   const hamburger = screen.getByRole("button", { name: "menu" });
   expect(hamburger).not.toHaveFocus();
   // every NavLink calls setNavOpen(false) unconditionally; on desktop, where
@@ -580,7 +579,7 @@ it("a /page/ URL whose title holds a newline opens the one-line title's page", a
   stubFetch([["/api/page/Machine%20Learning", pagePayload(
     canonicalTitleOf("Machine Learning"), [block("uid_m1", "the ML page")])]]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%0ALearning%09"]}>
+    <MemoryRouter initialEntries={["/page/Machine%0ALearning%09"]}>
       <App />
     </MemoryRouter>,
   );
@@ -593,7 +592,7 @@ it.each(["/page/A%20%20B", "/page/A%C2%A0B"])(
     stubFetch([["/api/page/A%20B", pagePayload(
       canonicalTitleOf("A B"), [block("uid_ab1", "the A B page")])]]);
     render(
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={[url]}>
+      <MemoryRouter initialEntries={[url]}>
         <App />
       </MemoryRouter>,
     );
@@ -606,7 +605,7 @@ it("a /page/ URL whose title holds U+2028 opens the folded title's page", async 
   stubFetch([["/api/page/a%20b", pagePayload(
     canonicalTitleOf("a b"), [block("uid_ls1", "the line-separator page")])]]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/a%E2%80%A8b"]}>
+    <MemoryRouter initialEntries={["/page/a%E2%80%A8b"]}>
       <App />
     </MemoryRouter>,
   );

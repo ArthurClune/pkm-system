@@ -2,10 +2,9 @@
 // re-renders without re-running its dismissal hook, and it does not come
 // back by itself after a read-only spell.
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import type { OutlineHandlers } from "../outline/handlers";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { block, jsonResponse, orderIdxOf, uidOf } from "../test-helpers";
 import { EditableBlockTree } from "./EditableBlockTree";
 
@@ -18,7 +17,7 @@ const blocks = () => [block("tuid-p1", "hello", { order_idx: orderIdxOf(0) })];
 
 function tree(h: OutlineHandlers, readOnly: boolean, focus: Parameters<typeof EditableBlockTree>[0]["focus"] = null) {
   return (
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={blocks()} focus={focus} handlers={h} readOnly={readOnly} />
     </MemoryRouter>
   );

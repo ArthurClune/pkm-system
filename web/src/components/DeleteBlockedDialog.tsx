@@ -4,7 +4,7 @@
 // for the blocks it would break. Same overlay and classes as ConfirmDialog.
 import { useRef } from "react";
 import { createPortal } from "react-dom";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { pagePath } from "../paths";
 import { useModal } from "../useModal";
 import {

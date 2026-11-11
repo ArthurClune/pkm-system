@@ -1,6 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, expect, test, vi } from "vitest";
 import {
   isOutlineEditorActive,
@@ -38,7 +37,7 @@ function mount(sync = makeSync(), titleText = "Paper",
                blocks = [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })]) {
   stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf(titleText), blocks)]]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={sync}>
         <EditableSidebarPanel title={rawTitleOf(titleText)} />
       </SyncContext.Provider>
@@ -66,7 +65,7 @@ test("a title change cannot mount the previous payload under the new title", asy
   vi.stubGlobal("fetch", fetchMock);
   const sync = makeSync();
   const tree = (titleText: string) => (
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={sync}>
         <EditableSidebarPanel title={rawTitleOf(titleText)} />
       </SyncContext.Provider>
@@ -135,7 +134,7 @@ test("a non-canonical requested title keys the outline by the payload's title", 
   stubFetch([["/api/page/", pagePayload(canonicalTitleOf("Paper"),
     [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })])]]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={sync}>
         <EditableSidebarPanel title={rawTitleOf("  Paper  ")} />
       </SyncContext.Provider>
@@ -174,7 +173,7 @@ test("main-first same-title mounts keep one editor and one live fallback", async
   const blocks = [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })];
   stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), blocks)]]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={makeSync()}>
         <EditablePage title={canonicalTitleOf("Paper")} initial={blocks} />
         <EditableSidebarPanel title={rawTitleOf("Paper")} />
@@ -192,7 +191,7 @@ test("sidebar-first same-title mounts preserve its editor when main joins", asyn
   stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), blocks)]]);
   const sync = makeSync();
   const view = (showMain: boolean) => (
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={sync}>
         <EditableSidebarPanel title={rawTitleOf("Paper")} />
         {showMain && <EditablePage title={canonicalTitleOf("Paper")} initial={blocks} />}
@@ -216,7 +215,7 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
   vi.stubGlobal("fetch", fetchMock);
   const view = render(
     <SyncContext.Provider value={makeSync()}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+      <MemoryRouter
                     initialEntries={["/page/Paper"]}>
         <EditableSidebarPanel title={rawTitleOf("Paper")} />
         <Routes>
@@ -267,7 +266,7 @@ const MISSING_DAILY = rawTitleOf("June 3rd, 2026");
 
 const missingDailyTree = (surface: "main" | "sidebar") => (
   <SyncContext.Provider value={makeSync()}>
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+    <MemoryRouter
                   initialEntries={["/page/June%203rd%2C%202026"]}>
       {surface === "main"
         ? <Routes><Route path="/page/*" element={<PageView />} /></Routes>
@@ -296,7 +295,7 @@ for (const surface of ["main", "sidebar"] as const) {
 test("shows the fetch error", async () => {
   stubFetch([]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={makeSync()}>
         <EditableSidebarPanel title={rawTitleOf("Missing")} />
       </SyncContext.Provider>
@@ -312,7 +311,7 @@ test("a uid prop scrolls to and flashes that block within the panel's own contai
     block("uid_s1", "target block"),
   ])]]);
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={makeSync()}>
         <EditableSidebarPanel title={rawTitleOf("Paper")} uid={uidOf("uid_s1")} />
       </SyncContext.Provider>
@@ -337,7 +336,7 @@ test("a uid under a collapsed ancestor is expanded, then scrolled to and flashed
   const sync = makeSync();
   servePageApplyingSent(sync, canonicalTitleOf("Paper"), collapsedPaper());
   const { container } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={sync}>
         <EditableSidebarPanel title={rawTitleOf("Paper")} uid={uidOf("uid_s1")} />
       </SyncContext.Provider>
@@ -361,7 +360,7 @@ test("a uid under a collapsed ancestor stays hidden when the page is open elsewh
   const release = reserveOutlineEditor(canonicalTitleOf("Paper"));
   try {
     render(
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <SyncContext.Provider value={sync}>
           <EditableSidebarPanel title={rawTitleOf("Paper")} uid={uidOf("uid_s1")} />
         </SyncContext.Provider>
@@ -380,7 +379,7 @@ test("no uid prop: no scroll/flash side effect", async () => {
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   stubFetch([["/api/page/Paper", pagePayload(canonicalTitleOf("Paper"), [block("uid_s1", "target block")])]]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={makeSync()}>
         <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </SyncContext.Provider>
@@ -401,7 +400,7 @@ test("a ((uid)) ref missing from the seed map resolves live in the panel", async
     }],
   ]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={makeSync()}>
         <EditableSidebarPanel title={rawTitleOf("Paper")} />
       </SyncContext.Provider>
@@ -417,7 +416,7 @@ test("a ((uid)) ref missing from the seed map resolves live in the panel", async
 test("releases a failed parent read when the panel unmounts", async () => {
   stubFetch([]);
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={makeSync()}>
         <EditableSidebarPanel title={rawTitleOf("Failed sidebar read")} />
       </SyncContext.Provider>
@@ -435,7 +434,7 @@ test("a padded title ends with one session, under the canonical key", async () =
                 [block("uid_s1", "a paper block", { order_idx: orderIdxOf(0) })]))));
   vi.stubGlobal("fetch", fetchMock);
   const { unmount } = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={makeSync()}>
         <EditableSidebarPanel title={rawTitleOf("Paper ")} />
       </SyncContext.Provider>

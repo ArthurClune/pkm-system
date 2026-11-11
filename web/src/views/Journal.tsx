@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import type { CanonicalTitle } from "../api/brands";
 import { apiGet, apiPost } from "../api/typedClient";
 import type { BlockRefText, JournalDay, PagePayload } from "../api/payloads";

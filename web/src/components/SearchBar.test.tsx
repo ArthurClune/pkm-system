@@ -1,7 +1,6 @@
 import type { ContextType } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { jsonResponse, stubFetch } from "../test-helpers";
 import { SidebarContext } from "../contexts";
@@ -25,7 +24,7 @@ function LocationProbe() {
 
 function renderBar(openInSidebar: SidebarApi["openInSidebar"] = () => undefined) {
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+    <MemoryRouter initialEntries={["/"]}>
       <SidebarContext.Provider value={{ openInSidebar }}>
         <SearchBar />
         <LocationProbe />

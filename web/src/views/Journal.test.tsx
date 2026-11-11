@@ -1,6 +1,5 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { JournalDay } from "../api/payloads";
 import {
@@ -79,7 +78,7 @@ it("renders the first batch newest-first and loads older days on intersect", asy
       day("2026-07-04", "July 4th, 2026"),
     ] }],
   ]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
+  render(<MemoryRouter><Journal /></MemoryRouter>);
   expect(await screen.findByRole("link", { name: "July 8th, 2026" }))
     .toHaveAttribute("href", "/page/July%208th%2C%202026");
   expect(screen.getByText("entry 2026-07-06")).toBeInTheDocument();
@@ -105,7 +104,7 @@ it("keeps today visible for composing even when its page does not exist yet", as
       day("2026-07-07", "July 7th, 2026", [], false),
     ] }],
   ]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
+  render(<MemoryRouter><Journal /></MemoryRouter>);
 
   expect(await screen.findByRole("link", { name: "July 8th, 2026" }))
     .toHaveAttribute("href", "/page/July%208th%2C%202026");
@@ -131,7 +130,7 @@ it("resolves ((block refs)) from every batch's block_ref_texts", async () => {
       block_ref_texts: { ref_aaaa: { text: "resolved alpha", page_title: "A" } },
     }],
   ]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
+  render(<MemoryRouter><Journal /></MemoryRouter>);
   expect(await screen.findByText("resolved alpha")).toBeInTheDocument();
 
   intersect();
@@ -162,7 +161,7 @@ it("discards a stale in-flight load when a resync resets the journal", async () 
   const sync = makeSync();
   const inSync = (s: typeof sync) => (
     <SyncContext.Provider value={s}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>
+      <MemoryRouter><Journal /></MemoryRouter>
     </SyncContext.Provider>
   );
   const { rerender } = render(inSync(sync));
@@ -203,7 +202,7 @@ it("keeps day sections mounted across a resync (no remount churn)", async () => 
   const sync = makeSync();
   const inSync = (s: typeof sync) => (
     <SyncContext.Provider value={s}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>
+      <MemoryRouter><Journal /></MemoryRouter>
     </SyncContext.Provider>
   );
   const { rerender } = render(inSync(sync));
@@ -233,7 +232,7 @@ it("does not adopt a journal payload over an active session changed in flight", 
   vi.stubGlobal("fetch", fetchMock);
   const active = acquireOutlineSession(title, [block("tuid-u1", "before")]);
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
+    <MemoryRouter><Journal /></MemoryRouter>,
   );
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
     "/api/journal?days=5", READ_INIT,
@@ -276,7 +275,7 @@ it("does not adopt an old journal payload into a session created mid-flight", as
   });
   vi.stubGlobal("fetch", fetchMock);
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
+    <MemoryRouter><Journal /></MemoryRouter>,
   );
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
     "/api/journal?days=5", READ_INIT,
@@ -321,7 +320,7 @@ it("does not create a session from a response received after unmount", async () 
   });
   vi.stubGlobal("fetch", fetchMock);
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
+    <MemoryRouter><Journal /></MemoryRouter>,
   );
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
     "/api/journal?days=5", READ_INIT,
@@ -356,7 +355,7 @@ it("releases captured session reservations when unmounted in flight", async () =
   vi.stubGlobal("fetch", fetchMock);
   const active = acquireOutlineSession(title, [block("active", "active")]);
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
+    <MemoryRouter><Journal /></MemoryRouter>,
   );
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
     "/api/journal?days=5", READ_INIT,
@@ -385,7 +384,7 @@ it("stops auto-loading when a batch comes back short (journal exhausted)", async
       day("2026-07-04", "July 4th, 2026"),
     ] }],
   ]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
+  render(<MemoryRouter><Journal /></MemoryRouter>);
   await screen.findByRole("link", { name: "July 8th, 2026" });
   intersect();
   expect(await screen.findByRole("link", { name: "June 20th, 2026" }))
@@ -423,7 +422,7 @@ it("a resync reloads the whole scrolled window, not just the head batch",
   const sync = makeSync();
   const inSync = (s: typeof sync) => (
     <SyncContext.Provider value={s}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>
+      <MemoryRouter><Journal /></MemoryRouter>
     </SyncContext.Provider>
   );
   const { rerender } = render(inSync(sync));
@@ -455,7 +454,7 @@ async () => {
     ["/api/journal?days=5&before=2026-07-18", { days: older }],
     ["/api/journal?days=5", { days: head }],
   ]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
+  render(<MemoryRouter><Journal /></MemoryRouter>);
   await screen.findByRole("link", { name: "Day 2026-07-22" });
   intersect();
   await screen.findByRole("link", { name: "Day 2026-07-13" });
@@ -477,7 +476,7 @@ async () => {
   const sync = makeSync();
   const inSync = (s: typeof sync) => (
     <SyncContext.Provider value={s}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>
+      <MemoryRouter><Journal /></MemoryRouter>
     </SyncContext.Provider>
   );
   const { rerender } = render(inSync(sync));
@@ -509,7 +508,7 @@ it("treats a 404 on an active session's authoritative refetch as an empty day, "
   });
   vi.stubGlobal("fetch", fetchMock);
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
+    <MemoryRouter><Journal /></MemoryRouter>,
   );
   let active: ReturnType<typeof acquireOutlineSession> | null = null;
   try {
@@ -565,7 +564,7 @@ it("a repair-triggered day reload treats a 404 as an empty day", async () => {
   });
   vi.stubGlobal("fetch", fetchMock);
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
+    <MemoryRouter><Journal /></MemoryRouter>,
   );
   try {
     expect(await screen.findByText("entry 2026-07-08")).toBeInTheDocument();
@@ -596,7 +595,7 @@ it("shows a day's linked references from the journal payload, but not for a " +
       day("2026-07-07", "July 7th, 2026"),
     ] }],
   ]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
+  render(<MemoryRouter><Journal /></MemoryRouter>);
   // Not findByRole("link", ...): the reference's own "[[July 8th, 2026]]"
   // renders as a second link with the same name once the day is on screen.
   const daySection = (titleText: string) => [...document.querySelectorAll(".journal-day")]
@@ -630,7 +629,7 @@ async () => {
       },
     }],
   ]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
+  render(<MemoryRouter><Journal /></MemoryRouter>);
 
   expect(await screen.findByText("resolved gamma")).toBeInTheDocument();
 });
@@ -640,7 +639,7 @@ it("fires the empty-daily cleanup once on mount", async () => {
     ["/api/journal/cleanup", { deleted: [] }],
     ["/api/journal?days=5", { days: [day("2026-07-08", "July 8th, 2026")] }],
   ]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
+  render(<MemoryRouter><Journal /></MemoryRouter>);
   await screen.findByRole("link", { name: "July 8th, 2026" });
 
   const cleanups = fetchMock.mock.calls.filter(
@@ -669,7 +668,7 @@ it("clears a load error once a later load succeeds", async () => {
     if (url.startsWith("/api/journal?days=5")) return jsonResponse({ days: head });
     return jsonResponse({ detail: "not found" }, 404);
   }));
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
+  render(<MemoryRouter><Journal /></MemoryRouter>);
   await screen.findByRole("link", { name: "July 8th, 2026" });
   intersect();
   const retry = await screen.findByRole("button", { name: /load older days/i });
@@ -715,7 +714,7 @@ it("a failed resync reload keeps the window, so Load older days continues " +
   const sync = makeSync();
   const inSync = (s: typeof sync) => (
     <SyncContext.Provider value={s}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>
+      <MemoryRouter><Journal /></MemoryRouter>
     </SyncContext.Provider>
   );
   const { rerender } = render(inSync(sync));

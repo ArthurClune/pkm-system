@@ -4,7 +4,7 @@
 // useScrollFlashTarget, which scrolls the block into view and flashes it,
 // exactly as an incoming ((uid)) link does.
 import { useContext } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import type { BlockUid } from "../api/brands";
 import { RootBlocksContext } from "../contexts";
 import { tocEntries, type TocEntry } from "./tocEntries";

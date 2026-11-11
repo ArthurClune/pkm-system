@@ -2,6 +2,7 @@
 // has no layout, so the trap, the scroll lock and the focus restore are only
 // proven here. Each test works on its own page and leaves it in place for the
 // fixture to delete.
+import { readFileSync } from "node:fs";
 import { type Locator, type Page } from "@playwright/test";
 import { expect, test } from "./ownPage";
 import { waitForServerText } from "./server-state";
@@ -170,9 +171,9 @@ test("the GoodLinks reader pins Tab on Close and gives focus back to its link",
   expect(await bodyOverflow(page)).toBe("");
 });
 
-// ownPage is requested for the page it opens, not for its title.
 test("the local-file picker pins Tab on its search box and closes on Escape",
-     async ({ page, ownPage: _ownPage }) => {
+     async ({ page, ownPage }) => {
+  void ownPage;
   await page.getByText("Click to start writing…").click();
   await input(page).fill("/link-local-file");
   await page.getByRole("option", { name: "link to local file…" }).click();
@@ -190,4 +191,75 @@ test("the local-file picker pins Tab on its search box and closes on Escape",
   // nothing to go back to.
   expect(await bodyHasFocus(page)).toBe(true);
   await expect(input(page)).toHaveCount(0);
+});
+
+test("the PDF overlay cycles Tab both ways and gives focus back to Expand",
+     async ({ page, ownPage }) => {
+  const text = "Local copy:: [sample.pdf](/api/local/Papers/sample.pdf)";
+  await page.getByText("Click to start writing…").click();
+  await input(page).fill(text);
+  await input(page).press("Escape");
+  await waitForServerText(page, ownPage.title, text);
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+
+  const expand = page.getByRole("button", { name: "Expand", exact: true });
+  await expand.click();
+  const overlay = page.getByRole("dialog", { name: "sample.pdf" });
+  await expect(overlay.locator("canvas").first()).toBeVisible();
+  const close = overlay.getByRole("button", { name: "Close" });
+  const download = overlay.getByRole("link", { name: "Download" });
+  const frame = overlay.locator(".pdf-frame");
+  await expect(close).toBeFocused();
+  expect(await bodyOverflow(page)).toBe("hidden");
+
+  await page.keyboard.press("Shift+Tab");
+  await expect(download).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(frame).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(download).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(overlay).toHaveCount(0);
+  await expect(expand).toBeFocused();
+  expect(await bodyOverflow(page)).toBe("");
+});
+
+// The upload pdf.spec.ts makes, so the asset store gains nothing new.
+const samplePdf = readFileSync(
+  new URL("../../test-data/assets/sample.pdf", import.meta.url),
+);
+
+test("the /files PDF overlay traps Tab and gives focus back to its card",
+     async ({ page, ownPage }) => {
+  void ownPage;
+  const res = await page.request.post("/api/assets", {
+    multipart: {
+      file: { name: "sample.pdf", mimeType: "application/pdf",
+              buffer: samplePdf },
+    },
+  });
+  expect(res.ok()).toBe(true);
+
+  await page.goto("/files");
+  await page.getByLabel("Search names & descriptions").fill("sample.pdf");
+  const thumb = page.getByRole("button", { name: "Open PDF: sample.pdf" })
+    .first();
+  await thumb.click();
+  const overlay = page.getByRole("dialog", { name: "sample.pdf" });
+  await expect(overlay.locator("canvas").first()).toBeVisible();
+  const close = overlay.getByRole("button", { name: "Close" });
+  await expect(close).toBeFocused();
+  expect(await bodyOverflow(page)).toBe("hidden");
+
+  await page.keyboard.press("Tab");
+  await expect(overlay.locator(".pdf-frame")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(overlay.getByRole("link", { name: "Download" }))
+    .toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(overlay).toHaveCount(0);
+  await expect(thumb).toBeFocused();
+  expect(await bodyOverflow(page)).toBe("");
 });

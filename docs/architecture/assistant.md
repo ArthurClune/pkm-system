@@ -62,7 +62,7 @@ user who has had the chance to read all of it.
 
 | Rule | Reason |
 |---|---|
-| Targets come first, and every value reaches the card whole; [Bounds](#bounds) refuses a card too large to render | A long value ahead of a `uid` or `title` would hide which block or page is written |
+| Targets come first, and targets and content values reach the card whole; [Bounds](#bounds) refuses a card too large to render | A long value ahead of a `uid` or `title` would hide which block or page is written |
 | A key the tool's FastMCP argument model does not declare is a `Refusal` (for `batch`, anything beside `commands`) | The tool drops such a key, so its row could only be a decoy beside the real target |
 | A declared field `WRITE_PREVIEW_FIELDS` does not name still shows as a target | A new argument is shown, never hidden (`test_every_tool_field_is_classified`) |
 | `check_write()` validates with the tool's own FastMCP argument model and, for `batch`, the schema `apply_batch` applies; input they reject is a `Refusal` | FastMCP coerces arguments, so the card must show the coerced value. `test_preview_matches_what_the_tool_receives` pins the parity |

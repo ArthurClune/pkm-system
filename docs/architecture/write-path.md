@@ -66,8 +66,9 @@ while it holds the lock.
 A read of several statements, such as a sync payload or the assistant's
 card, takes one snapshot through `db.read_txn`, without the write lock, so
 a write committed between its statements cannot reach half of the payload.
-The same test file fails on a bare `BEGIN` outside `db.py` and on a write
-inside a `with read_txn` body.
+The same test file fails on a bare `BEGIN` in `pkm/server` or
+`pkm/assistant` outside `db.py`, and on a write, commit or rollback inside
+a `with read_txn` body.
 
 | Route | Lock taken before |
 |---|---|
@@ -102,7 +103,9 @@ not fit its op is an `AssertionError`: a 500 the client retries, never a
   leaves. A move onto its own slot still bumps every later sibling, because
   `ShiftSiblings` cannot tell staying put from moving there.
 - **Refs.** Every text change emits `ReindexRefs`
-  (`store.reindex_refs_for_text`, the only way `refs` changes). The schema's
+  (`store.reindex_refs_for_text`, the only way a server write path changes
+  `refs`; the one-off `importer/migrate_mermaid_blocks.py` deletes its own
+  rows). The schema's
   triggers keep `blocks_fts` and `changes` current but never `refs`, so a
   direct SQL `UPDATE blocks SET text` that adds or changes a link leaves
   backlinks stale. Edit linking text through the ops path (`pkm batch`).
@@ -165,6 +168,8 @@ the same header.
 The `page_title` hint never changes whether or where an op applies, and
 `find_op_title_violation` never reads it. A header never links a page that
 does not exist, or the ref indexer would create it (`conflict_notes.py`).
+A page that exists is named by its stored title, never the hint's
+spelling (`conflict_notes.existing_page_label`).
 
 `replay_core.classify_text_edit` sorts a hashed `update_text` on a live block,
 checking in this order:
@@ -186,6 +191,13 @@ So `ops_core.rewrite_effects` plans a `block_rewrites` chain
 (`RecordRewrite`) from the sent text's hash to the written one. Each
 replayed step is recorded whole, so that next edit replays all of it
 (`replay_core.rewrite_chain`).
+
+The stale-unlink rows name only titles whose own unlink changes the sent
+text, found in one pass over the text rather than over the titles deleted
+since `seen_seq`, whose number the client picks
+(`replay_core.stale_titles_linked`). A row already stored under its base
+hash is not written again (`ops_apply.BatchReplay.recorded`), or a
+reposted stale edit would multiply its rows.
 
 `delete` may carry `base_subtree_hash` over the uid and text of the block
 and every descendant ([canonical form](sync-and-offline.md#conflicts-at-push-time)).
@@ -228,7 +240,9 @@ them, `ops_apply._destination_siblings` journals them. The replica's
 [replay log](sync-and-offline.md#the-replay-log) does not rely on these rows.
 
 Other planning errors stay 400s: an invalid or taken uid, and title syntax,
-which `find_op_title_violation` checks over every op before any applies. A
+which `find_op_title_violation` checks before any op applies, in a
+`create`, `create_page` or `move` `page_title` and in every ref a text
+holds. A
 skipped op whose own uid fails `UID_RE` is still a 400
 (`ops_core.impossible_uid_reason`), which keeps arbitrary strings out of the
 journal. So is the gone parent of a diverted create or of a move whose block
@@ -287,7 +301,11 @@ before any write:
 
 `unlink_title_refs` repeats until the text is stable, because a nested
 legacy link loses one layer per pass. A link the passes leave makes the
-source `residual` (`unlink.unlink_settled`). Rewritten
+source `residual` (`unlink.unlink_settled`). The passes stop after the
+text's `[[` depth plus `PASSES_PAST_DEPTH`, because a legacy title ending
+in `[` re-forms a link after each one. An alias label is found by looking
+back to the last `[` only (`unlink._alias_label`); a search from the
+text's start makes the unlink quadratic in its links. Rewritten
 blocks get `unlink` and `inline` rows and a reindex, and the title goes
 into `page_deletions`.
 
@@ -332,14 +350,18 @@ A 400 is only ever over what the client sent. A client's own text, titles and
 placements are refused whole. Text and placement the server makes are never
 refused, because a 400 makes the client discard its whole offline batch over
 something it did not send. That covers a replay, a stale unlink, a conflict
-header and a diverged delete's copies. Such text passes a limit only by the
-two backticks of each fence an unlink adds
+header and a diverged delete's copies. A header or note is `_fitted`. Text
+copied from a stored row, an overwritten text or a diverged delete's copy,
+is level with that row, so a row stored over a limit before the limits
+existed is copied past it by its own excess. Other server-made text passes
+a limit only by the two backticks of each fence an unlink adds
 ([Stale batches](#stale-batches),
 `test_a_stale_defuse_at_the_cap_stores_at_most_two_more`).
 
 A stored row over a limit may stay level or improve, never get worse. Only
 the text an op sends is judged, so a move, `set_*` op or delete of such a row
-goes through. A server rewrite asks
+goes through, and an edit is accepted only when its text is under the
+limit. A server rewrite asks
 `rewrite_text_limit_violation(before, after)`, and an unlink
 `unlink_refused`; both allow level, so the page a legacy row links stays
 renamable and deletable. Depth is stricter: a move is judged by where it

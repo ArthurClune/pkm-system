@@ -538,7 +538,8 @@ checks `Origin` on every `/api/ws` handshake and on every HTTP method
 outside `SAFE_METHODS`, because the `Lax` cookie rides along on a sibling
 tailnet host's handshake and simple POSTs
 ([SECURITY.md § Authentication](../SECURITY.md#authentication)). A request
-with no `Origin` passes, because only non-browser clients omit it. A
+with no `Origin` passes, because browsers send one on every request the
+guard checks; only non-browser clients omit it. A
 request with exactly one `Origin`, in the allowed set, passes. Anything
 else is refused.
 

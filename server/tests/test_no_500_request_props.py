@@ -11,6 +11,7 @@ exception, and after a 2xx every table still passes the row check.
 Requests run through tests/asgi_harness.py, which restores the seeded
 database before every example."""
 import json
+import typing
 from urllib.parse import quote
 
 import httpx
@@ -43,7 +44,22 @@ def _path(route: APIRoute, values: dict[str, object]) -> str:
     path = route.path_format
     for name, value in values.items():
         path = path.replace("{" + name + "}", encode_segment(value))
+    assert "{" not in path, path
     return path
+
+
+def _path_types(route: APIRoute) -> dict[str, object]:
+    """Each path segment's name and the type its value is drawn as. A
+    segment a `path_params` dependency parses is drawn as the brand the
+    dependency returns, so real uids and shas still reach the handler."""
+    types: dict[str, object] = {p.alias: p.field_info.annotation
+                                for p in route.dependant.path_params}
+    for dep in route.dependant.dependencies:
+        if dep.path_params:
+            assert dep.call is not None
+            brand = typing.get_type_hints(dep.call)["return"]
+            types.update({p.alias: brand for p in dep.path_params})
+    return types
 
 
 def _query(values: dict[str, object]) -> str:
@@ -97,9 +113,8 @@ def requests(draw, routes: st.SearchStrategy[APIRoute],
     method = draw(st.sampled_from(sorted(route.methods or ())))
     loose = draw(st.integers(1, loose_in)) == 2
     dependant = route.dependant
-    path_values = {p.name: draw(for_annotation(p.field_info.annotation,
-                                               loose=loose))
-                   for p in dependant.path_params}
+    path_values = {name: draw(for_annotation(annotation, loose=loose))
+                   for name, annotation in _path_types(route).items()}
     query_values: dict[str, object] = {}
     for p in dependant.query_params:
         if p.field_info.is_required() or draw(st.booleans()):
@@ -282,8 +297,8 @@ def surrogate_twins(draw, routes: list[APIRoute]
     route = draw(st.sampled_from(routes))
     method = draw(st.sampled_from(sorted(route.methods or ())))
     dependant = route.dependant
-    url = _path(route, {p.name: draw(for_annotation(
-        p.field_info.annotation, loose=False)) for p in dependant.path_params})
+    url = _path(route, {name: draw(for_annotation(annotation, loose=False))
+                        for name, annotation in _path_types(route).items()})
     (body_param,) = dependant.body_params
     body = draw(for_annotation(body_param.field_info.annotation, loose=False))
     leaves = _str_leaves(body)

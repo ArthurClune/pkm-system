@@ -13,7 +13,6 @@ from pkm.contracts.text import WellFormedModel
 
 from pkm.contracts.daily import date_for_title
 from pkm.contracts.ops import BlockUid, PageId
-from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
     Backlinks, BlockBacklinksPayload, BlockPayload, BlockRefsPayload, BlockRefText, CurrentWorkPayload,
     CurrentWorkPage, CurrentWorkSection, DeleteBlockerModel, DeletePreview,
@@ -32,6 +31,7 @@ from pkm.server.daily import (is_page_empty, past_week_dates,
                               select_journal_days)
 from pkm.server.db import get_db, write_txn
 from pkm.server.fts import phrase_query
+from pkm.server.path_params import path_uid
 from pkm.server.store import (BlankTitleError, DeleteBlockedError,
                               ForbiddenTitleError, delete_page_rows,
                               delete_page_unlinking, fetch_page,
@@ -209,13 +209,11 @@ def get_block_refs(uids: str,  # brand: untrusted -- comma-separated query
 
 
 @router.get("/api/block/{uid}/backlinks", response_model=BlockBacklinksPayload)
-def get_block_backlinks(uid: BlockUid,
+def get_block_backlinks(uid: BlockUid = Depends(path_uid),
                         db: Db = Depends(get_db)) -> BlockBacklinksPayload:
     """The ((uid)) badge's popover read: who references this
     block. Same group shape and ordering as page backlinks; the count badge
     itself rides the page/journal payloads (block_ref_counts)."""
-    if not _UID_RE.fullmatch(uid):
-        raise HTTPException(status_code=422, detail=f"malformed uid: {uid!r}")
     if db.select_one("SELECT uid FROM blocks WHERE uid = ?",
                      (uid,)) is None:
         raise HTTPException(status_code=404, detail="block not found")
@@ -233,11 +231,10 @@ def get_block_backlinks(uid: BlockUid,
 
 
 @router.get("/api/block/{uid}", response_model=BlockPayload)
-def get_block(uid: BlockUid, db: Db = Depends(get_db)) -> BlockPayload:
+def get_block(uid: BlockUid = Depends(path_uid),
+              db: Db = Depends(get_db)) -> BlockPayload:
     """One block's subtree plus its page and ancestor texts (the CLI/MCP
     `get <uid>` read; pages remain the only other read unit)."""
-    if not _UID_RE.fullmatch(uid):
-        raise HTTPException(status_code=422, detail=f"malformed uid: {uid!r}")
     row = db.select_one(
         "SELECT p.id AS page_id, p.title, p.created_at, p.updated_at"
         "  FROM blocks b JOIN pages p ON p.id = b.page_id WHERE b.uid = ?",

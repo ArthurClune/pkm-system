@@ -3133,8 +3133,8 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                sha256: Brands.Sha256Hex;
                 filename: string;
+                sha256: Brands.Sha256Hex;
             };
             cookie?: never;
         };

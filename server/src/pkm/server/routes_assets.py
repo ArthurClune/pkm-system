@@ -33,6 +33,7 @@ from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db, write_txn
 from pkm.server.fts import phrase_query
+from pkm.server.path_params import path_sha256
 from pkm.server.mime_sniff import resolve_stored_mime, sniff_mime
 from pkm.server.store import reindex_refs_for_text
 from pkm.server.tempfile_response import CleanupFileResponse
@@ -204,7 +205,7 @@ def _strip_references(db: Db, sha: Sha256Hex) -> int:
 
 
 @router.delete("/api/assets/{sha256}", response_model=AssetDeleteAck)
-def delete_asset(request: Request, sha256: Sha256Hex,
+def delete_asset(request: Request, sha: Sha256Hex = Depends(path_sha256),
                  if_unreferenced: bool = False,
                  db: Db = Depends(get_db),
                  config: Config = Depends(get_config)) -> AssetDeleteAck:
@@ -228,9 +229,6 @@ def delete_asset(request: Request, sha256: Sha256Hex,
     The reference check and the delete share one write transaction, so a
     block that starts referencing the asset cannot slip in between. Undo
     history is its caller, releasing an upload once redo is gone."""
-    sha = parse_sha256(sha256)
-    if sha is None:
-        raise HTTPException(status_code=404, detail="asset not found")
     # The write lock precedes every read: no batch can commit between the
     # strip's read of a block and its rewrite, nor a new reference slip in
     # between the unreferenced check and the delete.
@@ -315,12 +313,9 @@ def export_assets(sha256s: list[str] = Form(default=[]),
 
 
 @router.get("/assets/{sha256}/{filename}")
-def get_asset(sha256: Sha256Hex, filename: str,
+def get_asset(filename: str, sha: Sha256Hex = Depends(path_sha256),
               db: Db = Depends(get_db),
               config: Config = Depends(get_config)) -> FileResponse:
-    sha = parse_sha256(sha256)
-    if sha is None:
-        raise HTTPException(status_code=404, detail="asset not found")
     row = db.select_one("SELECT mime, filename FROM assets WHERE sha256 = ?",
                         (sha,))
     path = config.assets_dir / sha[:2] / sha

@@ -32,14 +32,10 @@ convention plus review.
 | architecture docs | mermaid parses; links and anchors resolve | by hand | `.claude/skills/architecture-docs/check-docs.mjs` | |
 
 Node runs the scripts under `web/tooling` as `.ts` by type stripping, with
-no build step. Stripping rewrites nothing, so `tsconfig.node.json` checks the
-scripts node loads as it loads them. Imports carry their `.ts` extension,
-type-only imports say `type`, and syntax that needs a transform (an enum, a
-parameter property) is refused. The plain tooling pass would accept all three,
-and node would then fail at run time. The perf payloads `instrument.js` and
+no build step, so `tsconfig.node.json` checks them as node loads them; its
+`//` comment says what that refuses. The perf payloads `instrument.js` and
 `react-commits.js` stay JavaScript, because `harness.ts` hands their text to
-the browser. `tsconfig.payload.json` checks their JSDoc against DOM types
-alone.
+the browser; `tsconfig.payload.json` checks their JSDoc.
 
 ## Comment and regex lint
 
@@ -78,10 +74,10 @@ the Playwright specs mint there; `test-helpers.ts` re-exports it, and imports
 vitest, so the specs may not import it.
 
 The one opt-out is `brand: untrusted -- <reason>` in a comment, allowed only
-in `OPT_OUT_FILES`: route modules on the server, and on the web the HTTP
-response boundary `api/client.ts`, its Playwright twin `e2e/wireJson.ts`,
-and a few harness files. It covers one
-site, the leftmost on its line, and one that covers nothing is reported.
+in the files `OPT_OUT_FILES` lists with their reasons (route modules, and the
+web's HTTP response boundary `api/client.ts` and its Playwright twin). It
+covers one site, the leftmost on its line, and one that covers nothing is
+reported.
 
 The rules and their messages are `RULES` in `brandlint/core.py` and the
 header of each rule module under `eslint-plugin-brands/`.
@@ -175,13 +171,13 @@ specs: [server](../superpowers/specs/2026-10-02-property-checks-server-design.md
 | `test_ops_state.py` | blocks, pages, rewrite rows and acks match `props/model.py`, title and text-limit refusals included, and an over-limit replay's landing, with its deleted titles plain; replay is inert |
 | `test_planner_props.py` | sibling order matches `positions_after` |
 | `test_unlink_props.py` | no rewritten source references the page; a second pass is inert |
-| `test_assistant_turn_props.py` | each turn shows only its own events and sends one interrupt at most, only a user-stopped turn ends on `TurnStopped`, and retirement matches [the turn phase](assistant.md#the-turn-phase). The rules draw every interrupt order, a Stop held past the stall deadline, a Stop before the reserved turn's first step and a query cut short. It runs on a virtual clock (`props/virtual_loop.py`) |
+| `test_assistant_turn_props.py` | each turn shows only its own events and sends one interrupt at most, only a user-stopped turn ends on `TurnStopped`, and retirement matches [the turn phase](assistant.md#the-turn-phase). It runs on a virtual clock (`props/virtual_loop.py`) |
 | `sync/` | the invariants in the header of `sync/oracle.ts`, over clients that run `createSyncSession`; `queue.prop.ts` holds those in the header of `sync/queueModel.ts`, without a server |
 | `outline/` | `checks.ts`: rows match a reading-view model; history undoes to the start. The runner composes commands through `command.ts`, the code `useOutline.run` and the undo dispatch run, and models the commands the editor refuses (a refusal check, and `unguardedBatches` for the ops suite) |
 | `outline/draft.prop.ts` | the real editor in jsdom (`draftHarness.tsx`) holds a pending draft exactly when `draftModel.ts` does; the textarea shows it or else the tree, and adopts nothing mid-composition; each flush hashes its draft's base; a keydown the IME owns sends nothing |
 | `ops/` | the replica and the in-memory trees store what the server stores; `enqueueBatch` refuses a batch for title syntax or a text limit exactly when the server does |
-| `assistant/` | the panel's chat machine keeps [the chat machine](frontend.md#the-chat-machine)'s rules (the invariants in the header of `assistant/run.ts`), with Stop, New chat and the models list landing inside a create, a 404 re-create and a turn. Pure; `PROPERTY_LIMIT_MS` in `assistant.prop.ts` cuts it off |
-| `journal/` | `journalPaging` matches a model of [the Journal's paging](frontend.md#the-journal) through loads, resyncs, answers in any order, StrictMode replays and remounts. Pure; `PROPERTY_LIMIT_MS` in `journal.prop.ts` cuts it off |
+| `assistant/` | the panel's chat machine keeps [the chat machine](frontend.md#the-chat-machine)'s rules (the invariants in the header of `assistant/run.ts`). Pure; `PROPERTY_LIMIT_MS` in `assistant.prop.ts` cuts it off |
+| `journal/` | `journalPaging` matches a model of [the Journal's paging](frontend.md#the-journal). Pure; `PROPERTY_LIMIT_MS` in `journal.prop.ts` cuts it off |
 
 Rules a change to the gate must keep:
 
@@ -194,9 +190,9 @@ Rules a change to the gate must keep:
   share of an example count that a label must exceed. A property that stopped
   drawing a case would otherwise stay green on the cases it still draws.
   - Server: `merge_floors` (`tests/props/harness.py`) arms `with_floors`
-    (`tests/hostile.py`) only under the `merge` profile, because every other
-    profile caps a run at 20 examples, too few for any floor. Labels come from
-    `hostile.event`, not Hypothesis's own.
+    (`tests/hostile.py`) only under the `merge` profile, because `examples`
+    caps every other profile's run below what any floor needs. Labels come
+    from `hostile.event`, not Hypothesis's own.
   - Web: `checkGateProperty` (`props/gate.ts`) judges a `Reach`
     (`props/reach.ts`) on the tally after a passing run. A replayed path is
     neither logged nor judged, since its tally counts one counterexample.

@@ -38,7 +38,6 @@ def test_path_param_statuses_ask_for_login_first(anon_client, method, path,
     assert anon_client.request(method, path).status_code == 401
 
 
-
 _BRANDED = {"uid": "path_uid", "sha256": "path_sha256",
             "link_id": "path_link_id"}
 

@@ -40,6 +40,7 @@ SCRYPT_ACQUIRE_TIMEOUT_S = 2.0
 # source is still inside its backoff window.
 MAX_TRACKED_SOURCES = 10_000
 
+
 def _monotonic_ms() -> int:
     return int(time.monotonic() * 1000)
 

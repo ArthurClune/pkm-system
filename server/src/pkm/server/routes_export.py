@@ -57,6 +57,7 @@ from pkm.server import wholepath  # noqa: F401 -- registers {title:wholepath}
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
+
 def _run_query(db: Db, expr: str, budget: GatherBudget,
                item_depth: int) -> QueryResult | None:
     """Execute one {{query: ...}} expression, reshaped for the resolved

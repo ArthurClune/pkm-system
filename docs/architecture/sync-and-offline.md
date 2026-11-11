@@ -35,10 +35,11 @@ at push time.
 | React shell | `sync/SyncProvider.tsx`, `useSocketLifecycle.ts` | State, contexts, the owned worker and the offline gateway; the socket and the deferred teardown |
 | Offline API shim | `replica/localApi/` | Serves the read API's JSON shapes from the replica |
 
-No `OpQueue` method may emit synchronously. The session subscribes as it
-builds the queue, during render, and starts no work before `startup()`, which
-`SyncProvider` calls from an effect after the commit. A synchronous emission
-would reach a report during render. `opQueue.replica.test.ts` pins this.
+No `OpQueue` method may emit synchronously. The session is built during
+render, so construction must report nothing, and a listener added after
+construction (the sync property harness's, a test's) must still hear every
+emission. `opQueue.replica.test.ts` pins the second; `session.test.ts` pins
+that building reports nothing.
 
 The session's listeners stay subscribed until `dispose()`, which runs a
 microtask after the effect cleanup and which a StrictMode replay cancels. Each

@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import type { ConversationId } from "../api/brands";
+import { ApiError } from "../api/client";
 import { conversationIdOf } from "../test-helpers";
 import { createChatDriver, type ChatClient } from "./chatDriver";
 
@@ -49,5 +50,30 @@ describe("createChatDriver", () => {
     release();
     await reset;
     expect(deleted).toEqual([c1]);
+  });
+
+  // The back-off chose to retry before Stop landed; the retry would reach
+  // the server after Stop.
+  test("a Stop during a 409's back-off sends no retry", async () => {
+    vi.useFakeTimers();
+    try {
+      const sent: string[] = [];
+      const driver = createChatDriver(() => {}, fakeClient({
+        streamMessage: (_id, text) => {
+          sent.push(text);
+          return Promise.reject(new ApiError(409, "/messages", "conversation busy"));
+        },
+      }));
+      void driver.dispatch({ type: "send", text: "hi", at: 0 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(sent).toEqual(["hi"]);
+
+      void driver.dispatch({ type: "stop", at: 0 });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(sent).toEqual(["hi"]);
+      expect(driver.current().turn.phase).toBe("idle");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

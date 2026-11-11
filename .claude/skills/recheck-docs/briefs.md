@@ -95,8 +95,9 @@ Report paths go in the session scratchpad: `review-<area>.md`,
 > Run check-docs on every file you touched, read its dropped-identifier list
 > and make sure each drop is safe, and fix inbound links and code-comment
 > citations to any heading you renamed or removed. Commit with a message
-> whose first line contains "re-check" and whose body separates corrected,
-> restructured and moved. Report: before/after words per file, each finding
+> whose body separates corrected, restructured and moved. Do not write
+> `last-recheck` or a `Docs-Recheck:` trailer; the run's final
+> commit does. Report: before/after words per file, each finding
 > applied or skipped (why), dropped identifiers, and cuts you were unsure
 > of.
 

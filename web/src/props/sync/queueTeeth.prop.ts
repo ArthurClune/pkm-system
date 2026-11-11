@@ -5,6 +5,8 @@
 //   resume clears all    the barrier as one boolean: any owner's resume
 //                        lifts every claim (barrier, or claim when no POST
 //                        follows before the property sees the lost claim)
+//   drain past holders   the drain reads the barrier as clear while
+//                        holds() still answers truly (barrier alone)
 //   mark after the RPC   a batch marked as following the lane only once its
 //                        persist reply arrives, so a lost reply leaves its
 //                        durable row unmarked (order)
@@ -24,6 +26,7 @@ captureFaultWarnings("sync queue teeth");
 
 const mutants = vi.hoisted(() => ({
   resumeClearsAll: false,
+  drainIgnoresHolders: false,
   markAfterRpc: false,
   holdsNothing: false,
   keepPoison: false,
@@ -38,6 +41,8 @@ vi.mock("../../sync/queueState", async (importOriginal) => {
       mutants.resumeClearsAll && event.type === "resume" && state.holders.has(event.owner)
         ? { state: { ...state, holders: new Set() }, effects: [{ type: "kick" }] }
         : real.transitionQueue(state, event),
+    terminalReason: (...[state]: Parameters<typeof real.terminalReason>) =>
+      real.terminalReason(mutants.drainIgnoresHolders ? { ...state, holders: new Set() } : state),
   };
 });
 
@@ -83,6 +88,7 @@ afterEach(() => { vi.useRealTimers(); });
 
 const disarm = (): void => {
   mutants.resumeClearsAll = false;
+  mutants.drainIgnoresHolders = false;
   mutants.markAfterRpc = false;
   mutants.holdsNothing = false;
   mutants.keepPoison = false;
@@ -94,6 +100,10 @@ expectMutantsCaught({
     "a resume that clears every owner breaks the barrier": {
       catches: ["barrier", "claim"], disarm,
       arm: () => { mutants.resumeClearsAll = true; },
+    },
+    "a drain that posts past the holders breaks the barrier": {
+      catches: ["barrier"], disarm,
+      arm: () => { mutants.drainIgnoresHolders = true; },
     },
     "marking a batch only after its persist reply breaks the order": {
       catches: ["order"], disarm,

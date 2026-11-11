@@ -11,7 +11,7 @@
 // holds until a repair of them succeeds. Which Retry a click
 // means is decided by retryPolicy.ts; runRetry only executes that decision.
 import type { Replica } from "../replica/client";
-import { ReplicaUnusableError } from "../replica/errors";
+import { asSessionFatal, ReplicaUnusableError } from "../replica/errors";
 import { coalesce } from "./coalesce";
 import type { OpQueue, PoisonEvent } from "./opQueue";
 import { orderedPoisonEvents } from "./poisonIntents";
@@ -97,6 +97,14 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
   let repairFailed = false;
   let discovering = true;
 
+  /** The queue's latch hears only the queue's own replica calls, so a
+   * session-fatal error met by one of the runtime's is reported here. Not
+   * live-guarded, like the latch: the session guards the report itself. */
+  const noteIfFatal = (error: unknown): void => {
+    const fatal = asSessionFatal(error);
+    if (fatal !== null) replicaSync.noteUnavailable(fatal);
+  };
+
   const runRepair = async (events: readonly PoisonEvent[]): Promise<boolean> => {
     deleting = false;
     // A failed repair's rows are still poisoned, so a later run takes them
@@ -135,6 +143,7 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
       repairSucceeded = true;
     } catch (error: unknown) {
       repairFailed = true;
+      noteIfFatal(error);
       emit({ type: "repair-failed", event, error: messageOf(error) });
     }
     return repairSucceeded;
@@ -156,6 +165,7 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
     try {
       discovered = await replica.poisonedBatches();
     } catch (error: unknown) {
+      noteIfFatal(error);
       if (marked.length === 0) {
         // Discovery reaching the database and failing may simply mean there is
         // no openable database at all — and the worker is the one party that
@@ -177,7 +187,6 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
           // every later replica call replays it. The mode's report raises
           // the online-only banner.
           if (live()) {
-            replicaSync.noteUnavailable(error);
             queue.resume("poison");
             queue.resume("startup");
           }

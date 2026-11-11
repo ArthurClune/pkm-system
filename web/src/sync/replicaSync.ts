@@ -324,6 +324,13 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     onState({ mode: "no-replica", error: errText(error) });
   };
 
+  /** For a replica call whose error would otherwise be swallowed, or would
+   * reach no pass's noteFailure. */
+  const noteIfSessionFatal = (error: unknown): void => {
+    const fatal = asSessionFatal(error);
+    if (fatal !== null) noteUnavailable(fatal);
+  };
+
   /** A failed pull, or a failed start: both retry on one backoff, and both
    * count towards the stall report. The retry runs whichever of the two is
    * still owed. */
@@ -528,12 +535,25 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         noteSuccess({ force: true });
       }
     } catch (error: unknown) {
+      if (token !== null) {
+        // Commit failures release in the worker; abort is still attempted so
+        // transport failures cannot leave a known lease held. Double-token
+        // rejection is deliberately ignored in favor of the original error,
+        // but a dead worker is not: it ends the mode before any report.
+        try {
+          await replica.abortRecovery(token);
+        } catch (abortError: unknown) {
+          noteIfSessionFatal(abortError);
+        }
+      }
       const poisonOwnsRecovery = holdsPoison() ||
         error === poisonPreempted;
       // A rebase that hit corruption is about to be retried as a reset by
       // recover(); reporting it here would flash a recovery-failed banner
       // over a repair that is still in progress. A session-fatal error is
-      // not a failed recovery: it reaches noteFailure, which ends the mode.
+      // not a failed recovery: it ends the mode here, since a reset or a
+      // poison repair calls this directly, with no pass to report it.
+      noteIfSessionFatal(error);
       if (options.reportReplicaFailure && !poisonOwnsRecovery &&
           !wouldEscalateCorruption(kind, error) && !isSessionFatal(error)) {
         // Without this, a recovery-failed report that never crosses the
@@ -544,15 +564,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         reportedNonReady = true;
         setMode({ mode: "recovery-failed", error: errText(error) });
       }
-      if (token !== null) {
-        // Commit failures release in the worker; abort is still attempted so
-        // transport failures cannot leave a known lease held. Double-token
-        // rejection is deliberately ignored in favor of the original error.
-        try { await replica.abortRecovery(token); } catch { /* already released */ }
-      }
       throw error;
     } finally {
-      // Only this run's own claim: a poison repair or a outline lane repair
+      // Only this run's own claim: a poison repair or an outline lane repair
       // still running holds the barrier under its own owner.
       queue.resume("recovery");
     }
@@ -645,6 +659,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       report = await replica.diagnostics();
     } catch (diagError: unknown) {
       console.warn("replica: could not gather diagnostics", diagError);
+      // A pass left to a poison repair ends after this with no further
+      // replica call to report the death.
+      noteIfSessionFatal(diagError);
       return;
     }
     const body = {
@@ -675,7 +692,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
 
   /** A failed recovery a poison repair now owns is left to that repair,
    * unless its error is session-fatal: that is about the database, not the
-   * recovery, and noteFailure must hear it or the mode stays ready. */
+   * recovery, so the pass fails with it rather than owing a pull. */
   const leftToPoison = (error: unknown): boolean =>
     holdsPoison() && !isSessionFatal(error);
 

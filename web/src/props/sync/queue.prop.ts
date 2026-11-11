@@ -3,7 +3,7 @@
 // driven one command at a time through queueHarness.ts and judged by
 // queueModel.ts. No server: the stand-ins answer, so thousands of
 // interleavings run in seconds. The alphabet splits every rule another actor
-// can land inside: a POST and its answer, a repair and its success, a outline
+// can land inside: a POST and its answer, a repair and its success, an outline
 // read and its stable point, a lost enqueue reply and the write behind a
 // held gate.
 //
@@ -36,7 +36,7 @@ const REACH: Reach = {
     "holdGate": 0.222,
     "holdGate skipped": 0.049,
     "lane batch rejected": 0.031,
-    "lane rejected after a outline repair's onStable": 0.003,
+    "lane rejected after an outline repair's onStable": 0.003,
     "lane released, others held": 0.003,
     "outline repair fails": 0.044,
     "outline stable: lane owed": 0.015,

@@ -272,7 +272,7 @@ export async function runQueueExample(
           } else {
             count("lane batch rejected");
             if (reads.some((r) => r.stable)) {
-              count("lane rejected after a outline repair's onStable");
+              count("lane rejected after an outline repair's onStable");
             }
             laneWaiting.delete(p.batchId);
             model.lane = true;

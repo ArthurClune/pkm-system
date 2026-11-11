@@ -103,7 +103,11 @@ shared/     Fixtures that pin the Python and TypeScript implementations
             (ref grammar, title syntax, replica parity) to identical behaviour
 test-data/  Synthetic graph and assets for tests and local development
 deploy/     launchd + Tailscale Serve deployment for a Mac (see deploy/README.md)
-docs/       Design docs and implementation plans
+perf/       Performance gate: counts and timings checked against baselines
+proptest/   Property-check gate for sync, ops and outline editing
+docs/       Architecture docs, troubleshooting, user docs (CLI, keyboard,
+            security) and the specs and plans under superpowers/
+.claude/    Agent skills for this repo (verify, docs checks, and others)
 ```
 
 The codebase follows the **functional-core / imperative-shell** pattern: pure
@@ -190,12 +194,17 @@ Other web scripts:
 ```bash
 pnpm test          # Vitest unit tests
 pnpm test:coverage # unit tests with enforced coverage thresholds
-pnpm typecheck     # tsc, then a second pass over the generated API types
+pnpm typecheck     # tsc over the app, tooling, perf and e2e code
 pnpm e2e           # build, then Playwright end-to-end tests
-pnpm verify        # typecheck + lint + FCIS check + coverage + Playwright
+pnpm verify        # the whole web gate; AGENTS.md § Testing says why it, not
+                   # typecheck plus unit tests, is what merge requires
 pnpm build         # production build to web/dist
 pnpm gen-types     # regenerate TS API types from the server's OpenAPI schema
 ```
+
+`gen-types` is one step of several. After a server contract change, run
+`uv run python -m pkm.regen` from `server/`; see
+[backend.md](docs/architecture/backend.md#generated-artifacts-and-parity-fixtures).
 
 To serve the built SPA from the backend without Vite, build it and set
 `web_dist` in `config.json` (the setup script's `--web-dist` flag does this).
@@ -228,6 +237,11 @@ and restore.
 - **[Architecture docs](docs/architecture/overview.md)**: how the codebase is
   organised, one file per area
 - **[Troubleshooting](docs/troubleshooting.md)**: known failures by symptom
+- **[Security](docs/SECURITY.md)**: the threat model, what a logged-in session
+  can reach, and the known limits; read it before exposing the app beyond
+  your own devices
+- **[Keyboard shortcuts](docs/keyboard.md)**: shortcuts and slash commands,
+  also shown in the app at `/help`
 - **Specs and plans** in `docs/superpowers/`: per-feature designs, their
   rejected alternatives, and how each was built
 - **[CLI and MCP reference](docs/cli.md)**: every `pkm` verb, the batch

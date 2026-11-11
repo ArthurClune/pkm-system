@@ -292,9 +292,9 @@ target.
 
 Every clipboard write goes through `copyText`, which resolves `false` instead
 of throwing when the Clipboard API is missing or the write is refused.
-`Files` and `DroppedDraftNotice` then show the text to copy by hand. The block
-menu's Copy block reference and Cmd/Ctrl+C on a block selection
-(`EditableBlockTree`) ignore the result, so their failure shows nothing.
+`Files` and `DroppedDraftNotice` then show the text to copy by hand, as do
+`EditableBlockTree`'s two copies (Copy block reference, Cmd/Ctrl+C on a block
+selection), whose text appears in the outline's copy notice.
 
 Every confirmation goes through `useConfirm` (`components/ConfirmDialog.tsx`),
 never `window.confirm` ([below](#ios-and-phone-behaviour)). A hook with a

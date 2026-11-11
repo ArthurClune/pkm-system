@@ -77,6 +77,9 @@ export interface OutlineHandlers {
    * `Local copy::` attribute at `cursor` in `uid`. Synchronous; a block that
    * no longer exists is a no-op. */
   onLinkLocalFile(uid: BlockUid, cursor: number, file: LocalFile): void;
+  /** Reports a clipboard copy: null as a copy starts, the text when the write
+   * was refused so the outline can show it to copy by hand. */
+  onCopyNotice(text: string | null): void;
   /** Shift-Cmd-V outline paste: parse the clipboard's
    * indentation into real blocks anchored at the caret. Plain Cmd-V and
    * single-line clipboards stay native. */

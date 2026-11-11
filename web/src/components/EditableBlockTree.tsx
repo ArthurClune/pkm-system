@@ -249,7 +249,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
         handlers.onExtendBlockSelection(decision.dir);
         return;
       case "copy-selection":
-        void copyText(selectionText(blocks, selection));
+        void copyAndReport(handlers, selectionText(blocks, selection));
         return;
       case "clear-selection":
         handlers.onClearBlockSelection();
@@ -317,6 +317,11 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   );
 }
 
+async function copyAndReport(handlers: OutlineHandlers, text: string) {
+  handlers.onCopyNotice(null);
+  if (!(await copyText(text))) handlers.onCopyNotice(text);
+}
+
 const EMPTY_SET: ReadonlySet<BlockUid> = new Set();
 
 function blockMenuItems(
@@ -344,7 +349,7 @@ function blockMenuItems(
     {
       label: "Copy block reference",
       // Copying is read-only-safe (same rationale as multi-block copy).
-      action: () => void copyText(`((${uid}))`),
+      action: () => void copyAndReport(handlers, `((${uid}))`),
     },
     headingItem("Plain text", null),
     headingItem("Heading 1", 1),

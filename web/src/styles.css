@@ -445,6 +445,8 @@ button { font: inherit; }
 /* /upload, paste, drag-drop failures: inline, dismissible, next
  * to the outline they failed in rather than a page-global banner. */
 .upload-error { display: flex; align-items: center; gap: 8px; }
+/* the copy notice carries the copied text, whose line breaks must show */
+.copy-notice { white-space: pre-wrap; }
 .editor-notice { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px;
   color: var(--color-text-secondary); font-size: 14px; }
 

@@ -31,9 +31,9 @@ def _stored_ack(db: Db, batch: OpBatch) -> OpsAck | None:
         " WHERE batch_id = ?", (batch.batch_id,))
     if row is None:
         return None
-    # request_hash holds one of two kinds: the strict hash,
-    # for a row written before this change (a pre-deploy retry must
-    # still replay it), or the replay hash, for one written after
+    # request_hash holds one of two kinds: the strict hash, for a row
+    # stored before applied_batches held the replay hash (a pre-deploy
+    # retry must still replay it), or the replay hash, for one stored after
     # (tolerant of base_text_hash/page_title the worker fills into only
     # one copy of a batch when a lost enqueue reply leaves the client
     # retrying with the other). Either match means "same intent,

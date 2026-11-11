@@ -23,9 +23,10 @@ from test_text_limits_rewrites import _page_exists, _seed, _text
 from pkm import refs, spans, text_limits, unlink
 from pkm.contracts.ops import MAX_LINK_NESTING, BlockUid, SyncSeq, text_hash
 from pkm.refs import extract, link_nesting_depth, normalize_title
-from pkm.server import ops_core
+from pkm.server import ops_core, replay_core
+from pkm.server.replay_core import (BlockRewrite, TextEditOutcome,
+                                    classify_text_edit)
 from pkm.server.db import open_db
-from pkm.server.ops_core import BlockRewrite, TextEditOutcome, classify_text_edit
 from pkm.test_data.ids import (batch_id_of, canonical_title_of, client_id_of,
                                order_idx_of, seq_of, uid_of)
 from pkm.unlink import (SourceBlock, plan_page_delete, unlink_stale_refs,
@@ -37,7 +38,7 @@ SRC = uid_of("ub_src_001")
 COPY_BLK = uid_of("ub_copy_01")
 OPEN_BLK = uid_of("ub_open_01")
 SHUT_BLK = uid_of("ub_shut_01")
-MODULES = (unlink, refs, spans, ops_core, text_limits)
+MODULES = (unlink, refs, spans, ops_core, replay_core, text_limits)
 _batch_counter = 0
 
 
@@ -363,7 +364,7 @@ def test_a_replay_judges_depth_times_length_before_unlinking():
                   for uid, copy in copies.items()))
         out: list[TextEditOutcome] = []
         work = loop_steps(MODULES, lambda: out.append(
-            classify_text_edit(edit, base, "T", rows)))
+            classify_text_edit(edit, base, "T", rows, normalize_title)))
         return work, out[0].kind
 
     deep_work, deep, shallow_work, shallow = _work_at(1000, run)

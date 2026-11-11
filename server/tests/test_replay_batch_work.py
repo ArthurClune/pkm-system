@@ -29,14 +29,14 @@ from pkm import refs, spans, text_limits, unlink
 from pkm.contracts.ops import BlockUid, UpdateTextOp, text_hash
 from pkm.contracts.titles import as_raw_title
 from pkm.refs import CanonicalTitle, normalize_title
-from pkm.server import ops_apply, ops_core
-from pkm.server.ops_core import MAX_REPLAYED_REWRITES
+from pkm.server import ops_apply, ops_core, replay_core
+from pkm.server.replay_core import MAX_REPLAYED_REWRITES
 from pkm.server.db import open_db
 from pkm.test_data.ids import (batch_id_of, canonical_title_of, client_id_of,
                                order_idx_of, seq_of, uid_of)
 from pkm.unlink import unlink_stale_refs
 
-MODULES = (unlink, refs, spans, ops_core, text_limits)
+MODULES = (unlink, refs, spans, ops_core, replay_core, text_limits)
 SRC = uid_of("rbw_src_001")
 COPY = uid_of("rbw_copy_01")
 SENT = f"(({COPY})) [[T]] edited offline"
@@ -98,8 +98,8 @@ def test_an_edit_pays_for_its_replay_once(client, seeded_config):
             (SRC,)))
     finally:
         con.close()
-    once = loop_steps(MODULES, lambda: ops_core.classify_text_edit(
-        SENT, text_hash(original), "current", rows))
+    once = loop_steps(MODULES, lambda: replay_core.classify_text_edit(
+        SENT, text_hash(original), "current", rows, normalize_title))
     got = []
     route = loop_steps(MODULES, lambda: got.append(
         _post(client, [_stale_edit(original)])))
@@ -234,33 +234,43 @@ def test_a_batch_of_renamed_edits_stops_at_its_work_budget(
     assert skipped.count("text_limit") > 8
 
 
+def _charged_for(charge: int, work: int,
+                 step: replay_core.RewriteStep) -> None:
+    """`charge` covers `work`, what the step scanned and built, and is no
+    more than that and the rows an op records for the step: an overcharge
+    runs a batch's budget out early and lands ordinary stale edits as
+    sent."""
+    records = replay_core._step_records(step).chars
+    assert work <= charge <= work + records, (work, charge, records)
+
+
 def test_a_rename_step_is_charged_what_it_scans_and_splices():
-    # The text it scans and the text it builds, and the row it leaves;
-    # past what is left it stops and spends all of it, as an unlink does.
-    # A step that renames and unlinks leaves its unlink only what the
-    # rename did not spend.
+    # The text it scans and the text it builds, and no more than those and
+    # the rows it leaves; it fits an allowance of its own cost, and past
+    # what is left it stops and spends all of it, as an unlink does. A
+    # step that renames and unlinks pays for the unlink's reads on top of
+    # the rename.
     text = "[[A]] " * 10
     renamed = "[[Bbbbbbbbbb]] " * 10
-    step = ops_core.RewriteStep(text_hash("a"), text_hash("b"),
+    step = replay_core.RewriteStep(text_hash("a"), text_hash("b"),
                                 {"A": as_raw_title("Bbbbbbbbbb")}, set(), {})
-    retitle_row = ops_core.ROW_CHARS + len("A") + len("Bbbbbbbbbb")
-    cost = len(text) + len(renamed) + retitle_row
-    assert ops_core._replay_step(text, step, normalize_title) == \
+    built, cost = replay_core._replay_step(text, step, normalize_title)
+    assert built == renamed
+    _charged_for(cost, len(text) + len(renamed), step)
+    assert replay_core._replay_step(text, step, normalize_title, cost) == \
         (renamed, cost)
-    assert ops_core._replay_step(text, step, normalize_title, cost) == \
-        (renamed, cost)
-    assert ops_core._replay_step(text, step, normalize_title, cost - 1) == \
+    assert replay_core._replay_step(text, step, normalize_title, cost - 1) == \
         (None, cost - 1)
-    both = ops_core.RewriteStep(text_hash("a"), text_hash("b"),
+    both = replay_core.RewriteStep(text_hash("a"), text_hash("b"),
                                 {"A": as_raw_title("Bbbbbbbbbb")},
                                 {"Bbbbbbbbbb"}, {})
-    plain, reads = ops_core._replay_step(text, both, normalize_title)
+    plain, reads = replay_core._replay_step(text, both, normalize_title)
     assert plain == "Bbbbbbbbbb " * 10
-    assert reads == cost + unlink.unlink_reads(renamed) + \
-        ops_core.ROW_CHARS + len("Bbbbbbbbbb")
-    assert ops_core._replay_step(text, both, normalize_title, reads) == \
+    _charged_for(reads, len(text) + len(renamed)
+                 + unlink.unlink_reads(renamed), both)
+    assert replay_core._replay_step(text, both, normalize_title, reads) == \
         (plain, reads)
-    assert ops_core._replay_step(text, both, normalize_title, reads - 1) == \
+    assert replay_core._replay_step(text, both, normalize_title, reads - 1) == \
         (None, reads - 1)
 
 
@@ -385,7 +395,7 @@ def test_naming_the_stale_titles_walks_the_text_not_the_deletions():
                       for i in range(1_000_000))
     started = time.perf_counter()
     for _ in range(200):
-        assert ops_core.stale_titles_linked(
+        assert replay_core.stale_titles_linked(
             "[[gone0]] y [[kept]]", stale, normalize_title) == ("gone0",)
     elapsed = time.perf_counter() - started
     assert elapsed < 0.5, elapsed
@@ -393,16 +403,17 @@ def test_naming_the_stale_titles_walks_the_text_not_the_deletions():
 _COPY_UID = uid_of("rbw_copy_02")
 
 
-def _over_limit_batch(text: str, rows: tuple[ops_core.BlockRewrite, ...],
+def _over_limit_batch(text: str, rows: tuple[replay_core.BlockRewrite, ...],
                       ops: int) -> int:
     """Loop steps of `ops` copies of one stale edit, the batch's budget
     threaded through them as `apply_batch` threads it. Each lands
     `over_limit`, and the budget never goes below 0."""
     def run() -> None:
-        allowance = ops_core.MAX_BATCH_REPLAY_WORK
+        allowance = replay_core.MAX_BATCH_REPLAY_WORK
         for _ in range(ops):
-            outcome = ops_core.classify_text_edit(
-                text, text_hash(text), "current", rows, allowance=allowance)
+            outcome = replay_core.classify_text_edit(
+                text, text_hash(text), "current", rows, normalize_title,
+                allowance=allowance)
             assert outcome.kind == "over_limit"
             allowance -= outcome.reads
             assert allowance >= 0
@@ -416,7 +427,7 @@ def test_a_step_refused_its_unlink_pays_for_the_splice_it_measured():
     # step is not kept, so every op in a batch did it again.
     copy = "[[[[a]]]] " * 70_000
     text = f"[[x (({_COPY_UID}))]]"
-    rows = (ops_core.BlockRewrite(text_hash(text), text_hash("after"),
+    rows = (replay_core.BlockRewrite(text_hash(text), text_hash("after"),
                                   _COPY_UID, copy, "inline"),)
     small, large = _over_limit_batch(text, rows, 8), \
         _over_limit_batch(text, rows, 32)
@@ -431,8 +442,8 @@ def test_a_rename_then_a_copy_too_long_pays_for_the_rename(monkeypatch):
     # the megabyte is built in C, so the count is the characters spliced.
     text = "[[A]] " * 1_000 + f"(({_COPY_UID}))"
     hashes = (text_hash(text), text_hash("after"))
-    rows = (ops_core.BlockRewrite(*hashes, "A", "t" * 990, "retitle"),
-            ops_core.BlockRewrite(*hashes, _COPY_UID, "c" * 10_000,
+    rows = (replay_core.BlockRewrite(*hashes, "A", "t" * 990, "retitle"),
+            replay_core.BlockRewrite(*hashes, _COPY_UID, "c" * 10_000,
                                   "inline"))
     built = [0]
 
@@ -441,7 +452,7 @@ def test_a_rename_then_a_copy_too_long_pays_for_the_rename(monkeypatch):
         built[0] += len(out)
         return out
 
-    monkeypatch.setattr(ops_core, "splice", counted)
+    monkeypatch.setattr(replay_core, "splice", counted)
 
     def chars(ops: int) -> int:
         built[0] = 0
@@ -453,44 +464,47 @@ def test_a_rename_then_a_copy_too_long_pays_for_the_rename(monkeypatch):
     assert large < 2 * small, (small, large)
 
 
+def _stops(text: str, step: replay_core.RewriteStep, work: int) -> None:
+    """The step stops, charged for `work`, what it scanned and built
+    before stopping (`_charged_for`); given less than that, it spends
+    exactly what it was given."""
+    stopped, charge = replay_core._replay_step(text, step, normalize_title)
+    assert stopped is None
+    _charged_for(charge, work, step)
+    for allowance in (5, charge - 1):
+        assert replay_core._replay_step(text, step, normalize_title,
+                                        allowance) == (None, allowance)
+
+
 def test_every_exit_of_a_step_charges_what_it_scanned_or_built():
     # A rename over the cap scanned the text; a copy over the cap after a
     # rename scanned the renamed text too; a refused unlink spliced and
     # measured. None charges more than the batch has left.
-    renaming = ops_core.RewriteStep(
+    renaming = replay_core.RewriteStep(
         text_hash("a"), text_hash("b"), {"A": as_raw_title("t" * 990)},
         set(), {})
     long_text = "[[A]] " * 2_000
-    assert ops_core._replay_step(long_text, renaming, normalize_title) == \
-        (None, len(long_text))
-    assert ops_core._replay_step(long_text, renaming, normalize_title,
-                                 5) == (None, 5)
+    _stops(long_text, renaming, len(long_text))
     text = "[[A]] " * 1_000 + f"(({_COPY_UID}))"
-    both = ops_core.RewriteStep(
+    both = replay_core.RewriteStep(
         text_hash("a"), text_hash("b"), {"A": as_raw_title("t" * 990)},
         set(), {_COPY_UID: "c" * 10_000})
     renamed = "[[" + "t" * 990 + "]] "
     built = len(renamed) * 1_000 + len(f"(({_COPY_UID}))")
-    rename_cost = len(text) + built
-    assert ops_core._replay_step(text, both, normalize_title) == \
-        (None, rename_cost + built)
-    assert ops_core._replay_step(text, both, normalize_title,
-                                 rename_cost + 7) == (None, rename_cost + 7)
+    _stops(text, both, len(text) + 2 * built)
     copy = "[[[[a]]]] " * 70_000
     refused_text = f"[[x (({_COPY_UID}))]]"
-    refusing = ops_core.RewriteStep(text_hash("a"), text_hash("b"), {},
+    refusing = replay_core.RewriteStep(text_hash("a"), text_hash("b"), {},
                                     set(), {_COPY_UID: copy})
     spliced = f"[[x {copy}]]"
     assert text_limits.unlink_refused(refused_text, spliced)
-    assert ops_core._replay_step(refused_text, refusing, normalize_title) \
-        == (None, unlink.unlink_reads(spliced))
-    renaming_too = ops_core.RewriteStep(
+    _stops(refused_text, refusing, unlink.unlink_reads(spliced))
+    renaming_too = replay_core.RewriteStep(
         text_hash("a"), text_hash("b"), {"A": as_raw_title("Bb")}, set(),
         {_COPY_UID: copy})
-    assert ops_core._replay_step(f"[[A]] {refused_text}", renaming_too,
-                                 normalize_title) == \
-        (None, len(f"[[A]] {refused_text}") + len(f"[[Bb]] {refused_text}")
-         + unlink.unlink_reads(f"[[Bb]] {spliced}"))
+    _stops(f"[[A]] {refused_text}", renaming_too,
+           len(f"[[A]] {refused_text}") + len(f"[[Bb]] {refused_text}")
+           + unlink.unlink_reads(f"[[Bb]] {spliced}"))
 
 _UID = "uid_u0000002"
 _STEPS = [("retitle", "A", "B"), ("retitle", "B", "C d"), ("unlink", "A", ""),
@@ -517,7 +531,7 @@ def test_the_rows_reuse_the_replay_and_record_the_same(
     stale = {canonical_title_of(t) for t in stale_titles}
     hashes = [text_hash(f"t{i}") for i in range(len(chain) + 1)]
     rewrites = tuple(
-        ops_core.BlockRewrite(hashes[i], hashes[i + 1], old, new, kind)
+        replay_core.BlockRewrite(hashes[i], hashes[i + 1], old, new, kind)
         for i, records in reversed(list(enumerate(chain)))
         for kind, old, new in records)
     sent = UpdateTextOp(op="update_text", uid=uid_of("uid_u0000001"),
@@ -526,14 +540,14 @@ def test_the_rows_reuse_the_replay_and_record_the_same(
         sent_text, lambda raw: canonical_title_of(normalize_title(raw))
         in stale)
     current = "elsewhere" if conflicting else "unused"
-    outcome = ops_core.classify_text_edit(unlinked, hashes[0], current,
-                                          rewrites)
+    outcome = replay_core.classify_text_edit(unlinked, hashes[0], current,
+                                             rewrites, normalize_title)
     if outcome.kind == "over_limit":
         return
     # the replay itself, against one that keeps nothing
     plain = unlinked
     for step in outcome.replayed:
-        stepped, _ = ops_core._replay_step(plain, step, normalize_title)
+        stepped, _ = replay_core._replay_step(plain, step, normalize_title)
         assert stepped is not None
         plain = stepped
     assert outcome.text == plain
@@ -549,7 +563,7 @@ def test_the_rows_reuse_the_replay_and_record_the_same(
     if len(stale) > 1:
         event("several stale titles, rows" if reused
               else "several stale titles, no rows")
-    named = ops_core.stale_titles_linked(sent_text, stale, normalize_title)
+    named = replay_core.stale_titles_linked(sent_text, stale, normalize_title)
     if unlink_stale_refs(
             sent_text, lambda raw: normalize_title(raw) in named) != unlinked:
         event("the titles named unlink less than all")
@@ -589,14 +603,14 @@ def test_one_pass_finds_the_stale_titles_probing_each_found(
 
     stale = {canonical(t) for t in titles}
     probed = _probed_titles(text, stale, canonical)
-    assert ops_core.stale_titles_linked(text, stale, canonical) == probed
+    assert replay_core.stale_titles_linked(text, stale, canonical) == probed
     written = unlink_stale_refs(
         text, lambda raw: canonical(normalize_title(raw)) in stale)
     sent = UpdateTextOp(op="update_text", uid=uid_of("uid_u0000001"),
                         text=text, base_text_hash=text_hash("base"))
     planned = (ops_core.UpdateText(sent.uid, written),)
     rows = ops_core.rewrite_effects(sent, planned, stale, canonical)
-    expected = ops_core._rewrite_chain(text, written, probed, (), canonical) \
+    expected = replay_core.rewrite_chain(text, written, probed, (), canonical) \
         if probed and written != text else ()
     assert rows == ((ops_core.RecordRewrite(sent.uid, expected),)
                     if expected else ())

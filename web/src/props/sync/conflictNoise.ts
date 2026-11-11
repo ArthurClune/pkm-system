@@ -1,7 +1,8 @@
 // pattern: Functional Core
 // The "conflict noise" invariant. A hashed update_text whose base no longer
 // matches the block lands the text it overwrote under a daily-note header
-// `[[conflict]] … — overwritten by ((uid))` (check 5). That is the server's
+// `[[conflict]] … — overwritten by ((uid))` (a `conflict` outcome of
+// `ops_core.plan_op`). That is the server's
 // answer to two devices editing one block concurrently; a device's own edit
 // chain must never meet it, whatever renames, deletes and faults ran in
 // between. So every such header must be about a block whose text at least
@@ -24,7 +25,7 @@ import { record } from "./wire";
 
 const OVERWRITTEN = / — overwritten by \(\(([^()\s]+)\)\)$/;
 
-/** The block an overwritten (check 5) header is about, or null for any
+/** The block an overwritten-by header is about, or null for any
  * other header. */
 export function overwrittenTarget(header: string): BlockUid | null {
   const target = OVERWRITTEN.exec(header)?.[1];

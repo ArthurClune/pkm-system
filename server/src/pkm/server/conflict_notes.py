@@ -54,9 +54,10 @@ def existing_page_label(title: RawTitle) -> str:
 
 def conflict_label(page_title: RawTitle | None,
                    hint_page: CanonicalTitle | None) -> str:
-    """Label for check 1's client page-title hint (offline-editing-design.md
-    §2). It never fails the op, and it must not produce a `[[link]]` to a
-    page that does not exist, or the ref indexer creates one:
+    """Label for an orphan edit's client page-title hint
+    (offline-editing-design.md §2). It never fails the op, and it must not
+    produce a `[[link]]` to a page that does not exist, or the ref indexer
+    creates one:
 
     - unusable (missing, blank, or syntactically invalid): the generic label
     - names a page (`hint_page`, its stored title): `existing_page_label`
@@ -83,7 +84,7 @@ def missing_page_code_span(page_title: RawTitle | None) -> str | None:
 
 
 def overwritten_header_text(page_title: CanonicalTitle, uid: BlockUid) -> str:
-    """Header for check 5: the live block's own page, read straight from
+    """Header for a conflict: the live block's own page, read straight from
     its row -- always a real title, never a client-supplied hint."""
     return _fitted(existing_page_label(page_title),
                    lambda label: f"[[conflict]] {label}"
@@ -103,7 +104,7 @@ def deleted_header_text(page_title: CanonicalTitle) -> str:
 
 def orphan_header_text(page_title: RawTitle | None,
                        hint_page: CanonicalTitle | None) -> str:
-    """Header for check 1: page_title is the client's op.page_title hint,
+    """Header for an orphan edit: page_title is the client's op.page_title hint,
     which may be missing, unusable, or stale (naming a page the store no
     longer has); hint_page, the page it names, is resolved by the shell.
     Also heads every other entry grouped under a missing block's uid (see
@@ -123,7 +124,7 @@ def orphan_header_text(page_title: RawTitle | None,
 def live_block_header_text(page_title: CanonicalTitle, uid: BlockUid) -> str:
     """Header for a change to a live block that could not be applied (a
     move whose target parent is gone): names the block's own page, read
-    from its row like check 5's, and embeds the block itself."""
+    from its row like a conflict's, and embeds the block itself."""
     return _fitted(existing_page_label(page_title),
                    lambda label: f"[[conflict]] {label} — (({uid}))")
 

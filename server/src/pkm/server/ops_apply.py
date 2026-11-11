@@ -21,67 +21,73 @@ from pkm.contracts.titles import UNTITLED_PAGE_TITLE, RawTitle
 from pkm.refs import (CanonicalTitle, canonical_daily_title, is_blank_title,
                       normalize_title)
 from pkm.rows import Row
-from pkm.server.ops_core import (MAX_BATCH_REPLAY_WORK, ROW_CHARS,
-                                 SKIPPED_CONTEXTS,
+from pkm.server.ops_core import (HASHED_EDIT_CONTEXTS, SKIPPED_CONTEXTS,
                                  BlockContext, BlockInfo,
-                                 BlockRewrite, ConflictLanding, CreateContext,
+                                 ConflictLanding, CreateContext,
                                  DeleteBlocks, DeleteConflictContext,
                                  DeleteContext, Effect,
                                  ExistingHeader, FreshHeader, InsertBlock,
                                  JournalBlock, LandedSkipContext, MoveContext,
                                  JudgedBatch, OpContext, PageContext,
                                  RecordConflictHeader, RecordRewrite,
-                                 RewriteHistory, RewriteStep, ReindexRefs,
+                                 ReindexRefs,
                                  SetCollapsed, SetHeading, SetPageId,
                                  SetParent, SetViewType, ShiftSiblings, Skip,
                                  SkipContext, SkippedContext,
-                                 StepKey, StuckMoveContext,
+                                 StuckMoveContext,
                                  SubtreeRow,
                                  ReplayOverLimitContext,
                                  TextConflictContext,
                                  TextEditContext, TouchPage, UpdateText,
-                                 classify_skip, classify_text_edit,
+                                 classify_skip,
                                  delete_diverged, plan_op,
-                                 skip_report, rewrite_effects,
-                                 unlink_stale_text)
+                                 skip_report, rewrite_effects)
+from pkm.server.replay_core import (MAX_BATCH_REPLAY_WORK, ROW_CHARS,
+                                    BlockRewrite, RewriteHistory, RewriteStep,
+                                    StepKey, TextEditOutcome,
+                                    classify_text_edit, unlink_stale_text)
 from pkm.server.store import (BlankTitleError, fetch_page,
-                              get_or_create_page, reindex_refs_for_text,
-                              stale_titles)
-from pkm.server.sync_meta import read_title, title_reader
+                              get_or_create_page, insert_block_rewrites,
+                              reindex_refs_for_text, stale_titles)
+from pkm.server.sync_meta import title_reader
 from pkm.unlink import TitleMatch
 
 # Every op that addresses a block by uid: BlockOp minus create_page.
 _AddressedOp = Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
                      SetCollapsedOp, SetHeadingOp, SetViewTypeOp]
-# Fallback title for an op's page_title that normalizes to "" (e.g. a
-# whitespace-only string -- pydantic's min_length=1 lets that through). The
-# ops path must never reject a batch over this (an offline client
-# replays queued batches, and a rejected one wedges its queue permanently),
-# so instead of raising BlankTitleError up to the caller it resolves to this
-# fixed, always-valid title -- get_or_create semantics, so repeated blank
-# titles all land on the same page rather than minting one each.
+
+# The batch's one title reader (`sync_meta.title_reader`), which every
+# title the batch resolves goes through.
+_Canonical = Callable[[str], CanonicalTitle]
 
 
-def _resolve_page(db: Db, title: RawTitle,
-                  now_ms: int) -> Row:
+def _resolve_page(db: Db, title: RawTitle, now_ms: int, *,
+                  canonical: _Canonical) -> Row:
     """get_or_create_page for op page_title fields: falls back to
-    UNTITLED_PAGE_TITLE rather than propagating BlankTitleError (see
-    module docstring above)."""
+    UNTITLED_PAGE_TITLE rather than propagating BlankTitleError.
+
+    A page_title that normalizes to "" (a whitespace-only string passes
+    pydantic's min_length=1) must never reject a batch: an offline client
+    replays queued batches, and a rejected one wedges its queue
+    permanently. Get-or-create semantics put every blank title on the same
+    page rather than minting one each."""
     try:
-        return get_or_create_page(db, title, now_ms)
+        return get_or_create_page(db, title, now_ms, canonical=canonical)
     except BlankTitleError:
-        return get_or_create_page(db, UNTITLED_PAGE_TITLE, now_ms)
+        return get_or_create_page(db, UNTITLED_PAGE_TITLE, now_ms,
+                                  canonical=canonical)
 
 
-def _hint_page(db: Db, page_title: RawTitle | None) -> CanonicalTitle | None:
-    """The stored title of the page check 1's page_title hint names now, or
-    None. Canonicalized the way get_or_create_page looks pages up. A hint
-    whose page was renamed or deleted since the client saw it simply names
-    none: block_rewrites can't map it to the new title, being keyed by
+def _hint_page(db: Db, page_title: RawTitle | None,
+               canonical: _Canonical) -> CanonicalTitle | None:
+    """The stored title of the page an orphan edit's page_title hint names
+    now, or None. Canonicalized the way get_or_create_page looks pages up.
+    A hint whose page was renamed or deleted since the client saw it simply
+    names none: block_rewrites can't map it to the new title, being keyed by
     referencing block, with rows only where some block referenced the page."""
     if page_title is None:
         return None
-    page = fetch_page(db, read_title(db, page_title))
+    page = fetch_page(db, canonical(page_title))
     return page["title"] if page is not None else None
 
 
@@ -94,19 +100,26 @@ def _block_info(db: Db, uid: BlockUid) -> BlockInfo | None:
     return BlockInfo(row["uid"], row["page_id"], row["parent_uid"])
 
 
+def _unvisited(path_col: str, uid_col: str) -> str:
+    """The recursive walks' guard, as SQL text over two column expressions:
+    the uid is not yet on the comma-delimited path. Exact as a membership
+    test because UID_RE admits no comma."""
+    return f"instr({path_col}, ',' || {uid_col} || ',') = 0"
+
+
 def _block_with_depth(db: Db,
                       uid: BlockUid) -> tuple[BlockInfo | None, int]:
     """The block and the level it sits at (1 at top level), in one query;
-    (None, 0) when it is gone. The level counts _parent_chain's walk, under
+    (None, 0) when it is gone. The level counts parent_chain's walk, under
     the same visited-path guard, and comes back as `n`."""
     row = db.select_one(
-        """WITH RECURSIVE chain(uid, parent_uid, path) AS (
+        f"""WITH RECURSIVE chain(uid, parent_uid, path) AS (
               SELECT uid, parent_uid, ',' || uid || ',' FROM blocks
                WHERE uid = ?
               UNION ALL
               SELECT b.uid, b.parent_uid, c.path || b.uid || ','
                 FROM chain c JOIN blocks b ON b.uid = c.parent_uid
-               WHERE instr(c.path, ',' || b.uid || ',') = 0
+               WHERE {_unvisited('c.path', 'b.uid')}
             ) SELECT b.uid, b.page_id, b.parent_uid,
                      (SELECT COUNT(*) FROM chain) AS n
                 FROM blocks b WHERE b.uid = ?""", (uid, uid))
@@ -132,7 +145,7 @@ def _rewrites_of(rows: Sequence[Row]) -> tuple[BlockRewrite, ...]:
 # The titles load only when the sum fits: past it the join's seek key is
 # NULL and finds none. With no rows joined, one row of placeholders
 # carries `n` alone. Newest first, by rowid: the order
-# `ops_core.replay_title_rewrites` walks the chain in, and a row a batch
+# `replay_core.replay` walks the chain in, and a row a batch
 # writes is always newest, as its history keeps it
 # (`RewriteHistory.record`), even after the clock steps back.
 _CHARGED_REWRITES = """
@@ -180,22 +193,29 @@ def _rewrites_within(
     return (_rewrites_of(rows) if cost else ()), cost
 
 
-def _parent_chain(db: Db, uid: BlockUid) -> tuple[BlockUid, ...]:
-    """uid and every ancestor above it, root last. Each block has exactly one
-    parent, so this is a single path -- but a corrupted DB could already
-    contain a cycle, so recursion is guarded by a visited-path check (`path`)
-    rather than a depth cap: it stops the instant a uid reappears, however
-    deep the real hierarchy runs, instead of silently truncating it. The
-    comma-delimited path only works as a membership test because UID_RE
-    (ops_core.py) bars commas from ever appearing in a uid."""
+def parent_chain(db: Db, uid: BlockUid) -> tuple[BlockUid, ...]:
+    """uid, then each ancestor above it nearest first, root last. Callers
+    rely on that order: the assistant card's ancestors are this less uid,
+    and `write_preview._ends_under` walks them up and stops at the first
+    it knows. The query has no ORDER BY: SQLite's recursive CTE runs its
+    queue first-in first-out, so a single path comes out in walk order,
+    and a test pins it.
+
+    Each block has exactly one parent, so this is a single path -- but a
+    corrupted DB could already contain a cycle, so recursion is guarded by
+    a visited-path check (`path`) rather than a depth cap: it stops the
+    instant a uid reappears, however deep the real hierarchy runs, instead
+    of silently truncating it. The comma-delimited path only works as a
+    membership test because UID_RE (ops_core.py) bars commas from ever
+    appearing in a uid."""
     rows = db.select(
-        """WITH RECURSIVE chain(uid, parent_uid, path) AS (
+        f"""WITH RECURSIVE chain(uid, parent_uid, path) AS (
               SELECT uid, parent_uid, ',' || uid || ',' FROM blocks
                WHERE uid = ?
               UNION ALL
               SELECT b.uid, b.parent_uid, c.path || b.uid || ','
                 FROM chain c JOIN blocks b ON b.uid = c.parent_uid
-               WHERE instr(c.path, ',' || b.uid || ',') = 0
+               WHERE {_unvisited('c.path', 'b.uid')}
             ) SELECT uid FROM chain""", (uid,))
     return tuple(r["uid"] for r in rows)
 
@@ -205,16 +225,16 @@ def _subtree_with_height(db: Db, uid: BlockUid
     """uid and every descendant, deepest first (children before parents, as
     DeleteBlocks and SetPageId both require), and the subtree's height: how
     many levels its deepest block sits below uid, 0 for a leaf. Same
-    visited-path guard as _parent_chain: a proper tree can't revisit a uid,
+    visited-path guard as parent_chain: a proper tree can't revisit a uid,
     so the guard only ever fires on already-corrupted data, and otherwise
     traverses to full depth. Each row's depth comes back as `n`."""
     rows = db.select(
-        """WITH RECURSIVE sub(uid, path, depth) AS (
+        f"""WITH RECURSIVE sub(uid, path, depth) AS (
               SELECT uid, ',' || uid || ',', 0 FROM blocks WHERE uid = ?
               UNION ALL
               SELECT b.uid, s.path || b.uid || ',', s.depth + 1
                 FROM sub s JOIN blocks b ON b.parent_uid = s.uid
-               WHERE instr(s.path, ',' || b.uid || ',') = 0
+               WHERE {_unvisited('s.path', 'b.uid')}
             ) SELECT uid, depth AS n FROM sub ORDER BY depth DESC""", (uid,))
     return tuple(r["uid"] for r in rows), rows[0]["n"] if rows else 0
 
@@ -235,7 +255,7 @@ def subtree_rows(db: Db,
     holds, and the guard refuses a uid already on the path. Every row
     DeleteBlocks removes is therefore one the copies can reach."""
     rows = db.select(
-        """WITH RECURSIVE sub(uid, parent_uid, order_idx, text, path, depth)
+        f"""WITH RECURSIVE sub(uid, parent_uid, order_idx, text, path, depth)
             AS (
               SELECT uid, parent_uid, order_idx, text, ',' || uid || ',', 0
                 FROM blocks WHERE uid = ?
@@ -243,7 +263,7 @@ def subtree_rows(db: Db,
               SELECT b.uid, b.parent_uid, b.order_idx, b.text,
                      s.path || b.uid || ',', s.depth + 1
                 FROM sub s JOIN blocks b ON b.parent_uid = s.uid
-               WHERE instr(s.path, ',' || b.uid || ',') = 0
+               WHERE {_unvisited('s.path', 'b.uid')}
             ) SELECT uid, parent_uid, order_idx, text FROM sub
                ORDER BY depth DESC""", (uid,))
     return tuple(SubtreeRow(r["uid"], r["parent_uid"], r["order_idx"],
@@ -255,10 +275,10 @@ def _conflict_header(db: Db, target_uid: BlockUid, day: str,
     """Today's conflict header for target_uid, with the next child order_idx
     under it and its level, or None when there is none or the user has
     deleted it (or moved it off the daily page) since it was recorded. The
-    level is _parent_chain's walk counted, under the same visited-path
+    level is parent_chain's walk counted, under the same visited-path
     guard, in the query that finds the header (`n`)."""
     row = db.select_one(
-        """WITH RECURSIVE chain(uid, parent_uid, path, header_uid) AS (
+        f"""WITH RECURSIVE chain(uid, parent_uid, path, header_uid) AS (
               SELECT b.uid, b.parent_uid, ',' || b.uid || ',', b.uid
                 FROM conflict_headers h JOIN blocks b ON b.uid = h.header_uid
                WHERE h.target_uid = ? AND h.day = ? AND b.page_id = ?
@@ -266,7 +286,7 @@ def _conflict_header(db: Db, target_uid: BlockUid, day: str,
               SELECT b.uid, b.parent_uid, c.path || b.uid || ',',
                      c.header_uid
                 FROM chain c JOIN blocks b ON b.uid = c.parent_uid
-               WHERE instr(c.path, ',' || b.uid || ',') = 0
+               WHERE {_unvisited('c.path', 'b.uid')}
             ) SELECT header_uid, COUNT(*) AS n FROM chain
                GROUP BY header_uid""",
         (target_uid, day, daily_page_id))
@@ -282,7 +302,8 @@ def _conflict_header(db: Db, target_uid: BlockUid, day: str,
 
 def _conflict_landing(db: Db, target_uid: BlockUid,
                       now_ms: int,
-                      exclude: Collection[str] = ()) -> ConflictLanding:
+                      exclude: Collection[str] = (), *,
+                      canonical: _Canonical) -> ConflictLanding:
     """Where text that could not apply to target_uid lands: today's daily
     page, under its existing header for the block or at a fresh top-level
     slot. The day key is the local date (server timezone) of the batch's own
@@ -298,7 +319,7 @@ def _conflict_landing(db: Db, target_uid: BlockUid,
     local_day = datetime.fromtimestamp(now_ms / 1000).date()
     day = title_for_date(local_day)
     daily_title = canonical_daily_title(local_day)
-    daily = get_or_create_page(db, daily_title, now_ms)
+    daily = get_or_create_page(db, daily_title, now_ms, canonical=canonical)
     daily_page_id = daily["page_id"]
     next_top = db.select_one(
         "SELECT COALESCE(MAX(order_idx) + 1, 0) AS next_order_idx"
@@ -318,13 +339,14 @@ def _conflict_landing(db: Db, target_uid: BlockUid,
                            entry_uid=new_uid(), header=header)
 
 
-def _existing_page_id(db: Db, title: RawTitle) -> PageId | None:
+def _existing_page_id(db: Db, title: RawTitle,
+                      canonical: _Canonical) -> PageId | None:
     """The page `_resolve_page` would return for title, if it exists
     already; never creates one."""
-    canonical = read_title(db, title)
-    if is_blank_title(canonical):
-        canonical = read_title(db, UNTITLED_PAGE_TITLE)
-    page = fetch_page(db, canonical)
+    stored = canonical(title)
+    if is_blank_title(stored):
+        stored = canonical(UNTITLED_PAGE_TITLE)
+    page = fetch_page(db, stored)
     return page["page_id"] if page is not None else None
 
 
@@ -341,7 +363,8 @@ def _deleted_block_page(db: Db, uid: BlockUid) -> PageId | None:
 
 
 def _destination_siblings(db: Db, op: _AddressedOp, skip: Skip,
-                          parent_exists: bool) -> tuple[BlockUid, ...]:
+                          parent_exists: bool,
+                          canonical: _Canonical) -> tuple[BlockUid, ...]:
     """The live blocks of a skipped create's or move's destination sibling
     group, where the client's local apply placed the op (placement.ts),
     when only these journal rows would re-ship them: the orphan move of a
@@ -364,7 +387,7 @@ def _destination_siblings(db: Db, op: _AddressedOp, skip: Skip,
             "SELECT uid FROM blocks WHERE parent_uid = ?"
             " ORDER BY order_idx, uid", (op.parent_uid,))
     else:
-        page_id = (_existing_page_id(db, op.page_title)
+        page_id = (_existing_page_id(db, op.page_title, canonical)
                    if op.page_title is not None
                    else _deleted_block_page(db, op.uid))
         if page_id is None:
@@ -375,7 +398,7 @@ def _destination_siblings(db: Db, op: _AddressedOp, skip: Skip,
     return tuple(r["uid"] for r in rows)
 
 
-def _diverted_create_page(db: Db, op: CreateOp
+def _diverted_create_page(db: Db, op: CreateOp, canonical: _Canonical
                           ) -> tuple[CanonicalTitle | None, PageId | None]:
     """(the stored title of the page op.page_title names now, the page the
     client placed the diverted block on). The client placed it on its
@@ -384,7 +407,7 @@ def _diverted_create_page(db: Db, op: CreateOp
     A title that names no page (renamed since, or blank) falls back to the
     page the parent's own delete row recorded; None when neither is
     known."""
-    hint = fetch_page(db, read_title(db, op.page_title))
+    hint = fetch_page(db, canonical(op.page_title))
     if hint is not None:
         return hint["title"], hint["page_id"]
     assert op.parent_uid is not None  # a diverted create names its parent
@@ -393,34 +416,42 @@ def _diverted_create_page(db: Db, op: CreateOp
 
 def _skip_context(db: Db, op: _AddressedOp, skip: Skip,
                   block: BlockInfo | None, parent_exists: bool,
-                  now_ms: int) -> SkippedContext:
+                  now_ms: int, *, canonical: _Canonical) -> SkippedContext:
     """Context for an op classify_skip flagged. Resolves no op page_title
     (get_or_create would create a page for an op that isn't applied), and
     pays for today's daily page only when an entry lands."""
     hint_page: CanonicalTitle | None = None
     ghost_page: PageId | None = None
     if skip.kind == "diverted_create" and isinstance(op, CreateOp):
-        hint_page, ghost_page = _diverted_create_page(db, op)
+        hint_page, ghost_page = _diverted_create_page(db, op, canonical)
     if skip.landing_uid is None:
         return SkipContext(skip, ghost_page)
     if isinstance(op, UpdateTextOp):
-        hint_page = _hint_page(db, op.page_title)
+        hint_page = _hint_page(db, op.page_title, canonical)
     if skip.kind == "stale_page" and isinstance(op, CreateOp):
         # the header names the deleted page as a code span even when a
         # newer batch has re-created it since
         return LandedSkipContext(
-            skip, _conflict_landing(db, skip.landing_uid, now_ms), None,
-            _destination_siblings(db, op, skip, parent_exists), ghost_page)
+            skip,
+            _conflict_landing(db, skip.landing_uid, now_ms,
+                              canonical=canonical),
+            None,
+            _destination_siblings(db, op, skip, parent_exists, canonical),
+            ghost_page)
     if skip.kind in ("move_parent_missing", "move_cycle", "stale_page"):
         assert block is not None  # the block exists; its target does not fit
         page_title = _require_page_title(db, block.page_id)
         subtree = _subtree_deepest_first(db, op.uid)
         return StuckMoveContext(
-            skip, _conflict_landing(db, skip.landing_uid, now_ms),
+            skip,
+            _conflict_landing(db, skip.landing_uid, now_ms,
+                              canonical=canonical),
             page_title, subtree)
     return LandedSkipContext(
-        skip, _conflict_landing(db, skip.landing_uid, now_ms),
-        hint_page, _destination_siblings(db, op, skip, parent_exists),
+        skip,
+        _conflict_landing(db, skip.landing_uid, now_ms, canonical=canonical),
+        hint_page,
+        _destination_siblings(db, op, skip, parent_exists, canonical),
         ghost_page)
 
 
@@ -428,25 +459,15 @@ def _skip_context(db: Db, op: _AddressedOp, skip: Skip,
 class BatchReplay:
     """What one batch's hashed edits share as it applies:
     - `allowance`, what its replays may still spend
-      (`ops_core.MAX_BATCH_REPLAY_WORK`), the rows they read included;
-    - `reader`, its one title canonicalisation, the stale titles' when it
-      has them, else read on first use. One function for the whole batch,
-      so what a step derives under it (`ops_core.StepTitles`) is reused
-      by every op;
+      (`replay_core.MAX_BATCH_REPLAY_WORK`), the rows they read included;
     - `histories`, each block's rewrite steps, read one base hash at a
       time as a walk reaches it (`walk`) and kept as the batch records
       more (`recorded`). A block can hold millions of rows, and many ops
       can edit one block, so each op reads only the hashes its walk
       reaches, and pays for them."""
     allowance: int
-    reader: Callable[[str], str] | None = None
     histories: dict[BlockUid, RewriteHistory] = dataclasses.field(
         default_factory=dict)
-
-    def canonical(self, db: Db) -> Callable[[str], str]:
-        if self.reader is None:
-            self.reader = title_reader(db)
-        return self.reader
 
     def history(self, uid: BlockUid) -> RewriteHistory:
         return self.histories.setdefault(uid, RewriteHistory.lazy())
@@ -467,12 +488,21 @@ class BatchReplay:
         rest, as a replay step past the budget does."""
         read = _rewrites_within(db, uid, base_hash, self.allowance)
         if read is None:
-            self.allowance = 0
+            self._spend(self.allowance)
             history.add_unread(base_hash)
             return
         rows, cost = read
-        self.allowance -= cost
+        self._spend(cost)
         history.add_read(base_hash, rows)
+
+    def charge(self, outcome: TextEditOutcome) -> None:
+        """Debit what a hashed edit's replay spent (`outcome.reads`), once
+        it is planned and before its effects record anything."""
+        self._spend(outcome.reads)
+
+    def _spend(self, cost: int) -> None:
+        """The one place `allowance` falls."""
+        self.allowance -= cost
 
     def recorded(self, db: Db, uid: BlockUid,
                  rows: Sequence[BlockRewrite]) -> tuple[BlockRewrite, ...]:
@@ -500,14 +530,15 @@ class BatchReplay:
 
 def _context_for(db: Db, op: BlockOp, now_ms: int,
                  is_stale: TitleMatch | None = None, *,
-                 replay: BatchReplay) -> OpContext:
+                 replay: BatchReplay, canonical: _Canonical) -> OpContext:
     """Read what `op` needs, classify it once (classify_skip, then
     classify_text_edit for a hashed edit), and return the context type
     that classification calls for. `is_stale` matches the titles of pages
     deleted after the batch's `seen_seq`; None when there are none.
-    `replay` is what the batch's hashed edits share (`BatchReplay`)."""
+    `replay` is what the batch's hashed edits share (`BatchReplay`), and
+    `canonical` the batch's title reader."""
     if isinstance(op, CreatePageOp):
-        page = _resolve_page(db, op.page_title, now_ms)
+        page = _resolve_page(db, op.page_title, now_ms, canonical=canonical)
         return PageContext(page["page_id"])
     block = _block_info(db, op.uid)
     parent_uid = (op.parent_uid if isinstance(op, (CreateOp, MoveOp))
@@ -520,7 +551,7 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
         parent = _block_info(db, parent_uid) if parent_uid else None
         parent_depth = 0
     # a move's target chain: what classify_skip's cycle test reads
-    chain = (_parent_chain(db, parent.uid)
+    chain = (parent_chain(db, parent.uid)
              if isinstance(op, MoveOp) and block is not None
              and parent is not None else ())
     # only a top-level create / move places by page_title
@@ -532,20 +563,22 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
                          page_stale)
     if skip is not None:
         return _skip_context(db, op, skip, block, parent is not None,
-                             now_ms)
+                             now_ms, canonical=canonical)
     if isinstance(op, CreateOp):
         # Under a live parent the block lands on the parent's page, so the
         # op's page_title is never resolved: a title gone stale since
         # another device moved the parent would get_or_create an empty
         # page. It places only a top-level create.
         page_id = (parent.page_id if parent is not None
-                   else _resolve_page(db, op.page_title, now_ms)["page_id"])
+                   else _resolve_page(db, op.page_title, now_ms,
+                                      canonical=canonical)["page_id"])
         return CreateContext(uid_taken=block is not None, page_id=page_id,
                              depth=parent_depth + 1)
     assert block is not None  # classify_skip covered its absence
     if isinstance(op, MoveOp):
         # same rule as create: page_title places only a top-level move
-        page_id = (_resolve_page(db, op.page_title, now_ms)["page_id"]
+        page_id = (_resolve_page(db, op.page_title, now_ms,
+                                 canonical=canonical)["page_id"]
                    if op.page_title is not None and parent is None
                    else None)
         subtree, height = _subtree_with_height(db, op.uid)
@@ -565,7 +598,8 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
         # inside the subtree being deleted (a block on today's daily page
         # can hold its own earlier header): that header gets a fresh one.
         landing = _conflict_landing(db, op.uid, now_ms,
-                                    exclude={r.uid for r in rows})
+                                    exclude={r.uid for r in rows},
+                                    canonical=canonical)
         copy_uids = {r.uid: new_uid() for r in rows if r.uid != op.uid}
         return DeleteConflictContext(
             block, rows, _require_page_title(db, block.page_id), landing,
@@ -580,32 +614,28 @@ def _context_for(db: Db, op: BlockOp, now_ms: int,
         history = replay.walk(db, op.uid, base)
         # a replay matches titles the way the rename or delete did: under
         # plain-space titles `[[ Old ]]` is the page Old, and left linked
-        # it re-creates the page. The flag is read only for an edit with a
-        # rewrite row to replay.
-        if not (history.is_unread(base)
-                or history.newest(base, frozenset()) is not None):
-            canonical: Callable[[str], str] = normalize_title
-        else:
-            canonical = replay.canonical(db)
+        # it re-creates the page
         outcome = classify_text_edit(
             op.text, op.base_text_hash, row["text"], history, canonical,
             replay.allowance)
         if outcome.kind == "over_limit":
             return ReplayOverLimitContext(
-                block, row["title"], _conflict_landing(db, op.uid, now_ms),
-                outcome.replayed, canonical, outcome.reads, outcome.blind)
+                block, row["title"],
+                _conflict_landing(db, op.uid, now_ms, canonical=canonical),
+                outcome)
         if outcome.kind != "conflict":
             return TextEditContext(block, outcome)
         # only a real conflict pays for today's daily page and its extra
         # queries
         return TextConflictContext(
-            block, outcome.text, row["text"], row["title"],
-            _conflict_landing(db, op.uid, now_ms), outcome.replayed,
-            canonical, outcome.known, outcome.reads)
+            block, row["text"], row["title"],
+            _conflict_landing(db, op.uid, now_ms, canonical=canonical),
+            outcome)
     return BlockContext(block)
 
 
-def _execute(db: Db, eff: Effect, now_ms: int) -> None:
+def _execute(db: Db, eff: Effect, now_ms: int, *,
+             canonical: _Canonical) -> None:
     if isinstance(eff, ShiftSiblings):
         db.execute(
             "UPDATE blocks SET order_idx = order_idx + 1"
@@ -644,7 +674,8 @@ def _execute(db: Db, eff: Effect, now_ms: int) -> None:
             "UPDATE blocks SET view_type = ?, updated_at = ? WHERE uid = ?",
             (eff.view_type, now_ms, eff.uid))
     elif isinstance(eff, ReindexRefs):
-        reindex_refs_for_text(db, eff.uid, eff.text, now_ms)
+        reindex_refs_for_text(db, eff.uid, eff.text, now_ms,
+                              canonical=canonical)
     elif isinstance(eff, TouchPage):
         db.execute("UPDATE pages SET updated_at = ? WHERE id = ?",
                    (now_ms, eff.page_id))
@@ -659,11 +690,7 @@ def _execute(db: Db, eff: Effect, now_ms: int) -> None:
             " header_uid) VALUES (?,?,?)",
             (eff.target_uid, eff.day, eff.header_uid))
     elif isinstance(eff, RecordRewrite):
-        db.executemany(
-            "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
-            " new_title, created_at, kind) VALUES (?,?,?,?,?,?,?)",
-            [(eff.uid, r.base_hash, r.after_hash, r.old_text, r.new_text,
-              now_ms, r.kind) for r in eff.rewrites])
+        insert_block_rewrites(db, eff.uid, eff.rewrites, now_ms)
     elif isinstance(eff, JournalBlock):
         # the same row the blocks triggers write (schema.py SERVER_DDL)
         db.execute(
@@ -722,7 +749,7 @@ def _broadcast_op(db: Db, op: BlockOp,
 
 
 @dataclasses.dataclass(frozen=True)
-class AppliedBatch:
+class BatchEffects:
     """What apply_batch did: the applied ops as they should be broadcast
     (see _broadcast_op), and one `ops_core.skip_report` per op the shell
     classified as skipped. A skipped op is not echoed as if it were applied; its
@@ -751,7 +778,7 @@ def expected_now(db: Db, expect: Sequence[ExpectedBlock]
 
 
 def apply_batch(db: Db, judged: JudgedBatch,
-                now_ms: int) -> AppliedBatch:
+                now_ms: int) -> BatchEffects:
     """Apply a batch inside the caller's transaction. The text and title
     judges have run already (`ops_core.judge_batch`), before the caller
     took the write lock; nothing here judges them again. Planning can
@@ -760,14 +787,18 @@ def apply_batch(db: Db, judged: JudgedBatch,
     batch = judged.batch
     broadcast_ops: list[dict[str, object]] = []
     skipped: list[SkippedOp] = []
+    # One reader for the whole batch: every title it resolves, and every
+    # step a replay derives (`replay_core.StepTitles`), uses this function.
+    canonical = title_reader(db)
+    # proptest/sync_server.py replaces this through this module global, so
+    # call it by its bare name.
     stale = stale_titles(db, batch.seen_seq)
     is_stale: TitleMatch | None = None
-    stale_canonical = title_reader(db) if stale else None
-    if stale_canonical is not None:
+    if stale:
 
         def is_stale(raw: str) -> bool:
-            return stale_canonical(normalize_title(raw)) in stale
-    replay = BatchReplay(MAX_BATCH_REPLAY_WORK, stale_canonical)
+            return canonical(normalize_title(raw)) in stale
+    replay = BatchReplay(MAX_BATCH_REPLAY_WORK)
     for index, op in enumerate(batch.ops):
         sent = op
         if is_stale is not None:
@@ -775,36 +806,31 @@ def apply_batch(db: Db, judged: JudgedBatch,
                 # the replica's local page goes through dropStrandedLocalPages
                 continue
             op = unlink_stale_text(op, is_stale)
-        ctx = _context_for(db, op, now_ms, is_stale, replay=replay)
+        ctx = _context_for(db, op, now_ms, is_stale, replay=replay,
+                           canonical=canonical)
         effects = plan_op(index, op, ctx)
         replayed: tuple[RewriteStep, ...] = ()
-        replay_canonical = normalize_title
         known: Mapping[StepKey, str] = {}
-        if isinstance(ctx, TextEditContext):
-            replayed = ctx.outcome.replayed
-            replay_canonical = ctx.outcome.canonical
-            known = ctx.outcome.known
-            replay.allowance -= ctx.outcome.reads
-        elif isinstance(ctx, TextConflictContext):
-            replayed = ctx.replayed
-            replay_canonical = ctx.canonical
-            known = ctx.known
-            replay.allowance -= ctx.reads
-        elif isinstance(ctx, ReplayOverLimitContext):
-            replay.allowance -= ctx.reads
+        if isinstance(ctx, HASHED_EDIT_CONTEXTS):
+            replay.charge(ctx.outcome)
+            # an over_limit edit lands as sent: no replayed text to record
+            if ctx.outcome.kind != "over_limit":
+                replayed = ctx.outcome.replayed
+                known = ctx.outcome.known
         if replayed or (is_stale is not None and op is not sent):
+            # proptest/sync_server.py replaces this through this module
+            # global, so call it by its bare name.
             effects += rewrite_effects(
-                sent, effects, stale, stale_canonical or replay_canonical,
-                replayed,
+                sent, effects, stale, canonical, replayed,
                 ctx.outcome.text if isinstance(ctx, TextEditContext) else None,
                 known)
         for eff in effects:
             if isinstance(eff, RecordRewrite):
                 eff = RecordRewrite(eff.uid,
                                     replay.recorded(db, eff.uid, eff.rewrites))
-            _execute(db, eff, now_ms)
+            _execute(db, eff, now_ms, canonical=canonical)
         if isinstance(ctx, (*SKIPPED_CONTEXTS, ReplayOverLimitContext)):
             skipped.append(skip_report(index, op, ctx))
         else:
             broadcast_ops.append(_broadcast_op(db, op, ctx))
-    return AppliedBatch(broadcast_ops, skipped)
+    return BatchEffects(broadcast_ops, skipped)

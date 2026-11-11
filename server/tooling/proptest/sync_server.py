@@ -54,10 +54,10 @@ from pkm.server.config import Config
 from pkm.server.db import init_db, open_db
 from pkm.server.notify import Frame, OpsFrame
 from pkm.server.ops_apply import apply_batch
-from pkm.server.ops_core import (Effect, OpTextLimitViolation, RewriteStep,
-                                 StepKey,
+from pkm.server.ops_core import (Effect, OpTextLimitViolation,
                                  find_op_text_limit_violation, judge_batch,
                                  rewrite_effects)
+from pkm.server.replay_core import RewriteStep, StepKey
 from pkm.server.run import serve as serve_as_production
 from pkm.server.store import stale_titles
 from pkm.text_limits import TextLimitViolation

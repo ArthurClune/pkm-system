@@ -21,7 +21,7 @@ from pkm.title_migration import (
     build_title_migration_plan,
     noncanonical_titles,
 )
-from pkm.server.db import open_db, write_txn
+from pkm.server.db import open_db, read_txn, write_txn
 from pkm.server.store import (
     append_page_without_rewrite,
     retitle_page_without_rewrite,
@@ -174,11 +174,8 @@ def audit_title_migration(db: Db) -> TitleMigrationPlan:
     transaction."""
     if db.in_transaction:
         raise RuntimeError("title migration audit cannot run inside a caller transaction")
-    db.execute("BEGIN")
-    try:
+    with read_txn(db):
         return build_title_migration_plan(_inventory_title_migration(db))
-    finally:
-        db.rollback()
 
 
 def apply_title_migration(

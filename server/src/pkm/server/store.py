@@ -16,6 +16,7 @@ from pkm.refs import (CanonicalTitle, NormalizedTitle, describe_title_length,
                       title_length_over, title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map, spelled_or_canonical
 from pkm.rows import Row
+from pkm.server.replay_core import BlockRewrite
 from pkm.server.sync_meta import read_title, title_reader
 from pkm.text_limits import (TextLimitViolation, describe_text_limit,
                              rewrite_text_limit_violation)
@@ -75,8 +76,10 @@ def fetch_page(db: Db, title: CanonicalTitle) -> Row | None:
         " WHERE title = ?", (title,))
 
 
-def get_or_create_page(db: Db, title: RawTitle,
-                       now_ms: int) -> Row:
+def get_or_create_page(
+    db: Db, title: RawTitle, now_ms: int, *,
+    canonical: Callable[[str], CanonicalTitle] | None = None,
+) -> Row:
     """Canonicalize at the choke point shared by every creation path.
 
     Whitespace runs always fold (refs.normalize_title), because a lookup
@@ -89,8 +92,12 @@ def get_or_create_page(db: Db, title: RawTitle,
     Blankness remains a separate policy: a title that is all whitespace is
     refused with BlankTitleError. Interactive routes translate that to 422;
     offline-replayed ops substitute their fixed fallback rather than wedging
-    the durable queue."""
-    canonical_title = read_title(db, title)
+    the durable queue.
+
+    `canonical` is the caller's `title_reader`, for a caller that resolves
+    many titles; None reads the flag here."""
+    canonical_title = (read_title(db, title) if canonical is None
+                       else canonical(title))
     if is_blank_title(canonical_title):
         raise BlankTitleError(canonical_title)
     if title_syntax_reason(canonical_title) is not None:
@@ -115,7 +122,9 @@ def get_or_create_page(db: Db, title: RawTitle,
 
 
 def index_ref(db: Db, src_uid: BlockUid,
-             ref_title: NormalizedTitle, ref_kind: str, now_ms: int) -> None:
+              ref_title: NormalizedTitle, ref_kind: str, now_ms: int, *,
+              canonical: Callable[[str], CanonicalTitle] | None = None,
+              ) -> None:
     """Resolve one extracted Ref onto a page and record it in `refs`.
 
     refs.extract() now filters blank titles itself, including plain-space
@@ -129,9 +138,10 @@ def index_ref(db: Db, src_uid: BlockUid,
     MAX_PAGE_TITLE_CHARS is skipped too, so a server-made text never
     creates a page past the cap and never fails for one; a page stored
     before the cap is found, not created, so it keeps its backlink.
+    `canonical` is as on get_or_create_page.
     """
     try:
-        page = get_or_create_page(db, ref_title, now_ms)
+        page = get_or_create_page(db, ref_title, now_ms, canonical=canonical)
     except (BlankTitleError, ForbiddenTitleError, TitleTooLongError):
         return
     db.execute("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
@@ -148,8 +158,10 @@ def reindex_block_refs(db: Db, src_uid: BlockUid,
                    [(src_uid, t) for t in targets])
 
 
-def reindex_refs_for_text(db: Db, src_uid: BlockUid, text: str,
-                          now_ms: int) -> None:
+def reindex_refs_for_text(
+    db: Db, src_uid: BlockUid, text: str, now_ms: int, *,
+    canonical: Callable[[str], CanonicalTitle] | None = None,
+) -> None:
     """Rebuild one block's whole outgoing ref index from its text.
 
     The invariant every write path shares: `refs` and `block_refs` are
@@ -158,13 +170,15 @@ def reindex_refs_for_text(db: Db, src_uid: BlockUid, text: str,
     application (ops_apply's ReindexRefs effect) and snapshot rewriting
     (rewrite_snapshotted_blocks, i.e. rename/merge and the title migration) --
     go through here, so the ritual stays in lockstep with the extractor and
-    the schema. `now_ms` only stamps pages that a `[[link]]` creates. Never
-    commits: the caller owns the transaction.
+    the schema. `now_ms` only stamps pages that a `[[link]]` creates;
+    `canonical` is as on get_or_create_page. Never commits: the caller owns
+    the transaction.
     """
     parsed = extract(text)
     db.execute("DELETE FROM refs WHERE src_block_uid = ?", (src_uid,))
     for ref in parsed.refs:
-        index_ref(db, src_uid, ref.title, ref.kind, now_ms)
+        index_ref(db, src_uid, ref.title, ref.kind, now_ms,
+                  canonical=canonical)
     reindex_block_refs(db, src_uid, parsed.block_refs)
 
 
@@ -192,6 +206,19 @@ def _snapshot_referencing_blocks(
     return tuple((row["uid"], row["text"]) for row in rows)
 
 
+def insert_block_rewrites(
+    db: Db, uid: BlockUid, rows: Iterable[BlockRewrite], now_ms: int,
+) -> None:
+    """The one writer of `block_rewrites`. Rows land in the order given:
+    replay reads a hash's rows newest first by rowid, and an older row's
+    copy of a key wins."""
+    db.executemany(
+        "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
+        " new_title, created_at, kind) VALUES (?,?,?,?,?,?,?)",
+        [(uid, r.base_hash, r.after_hash, r.old_text, r.new_text,
+          now_ms, r.kind) for r in rows])
+
+
 def _record_block_rewrite(
     db: Db,
     uid: BlockUid,
@@ -206,24 +233,21 @@ def _record_block_rewrite(
     One row per title that actually moved in *this* block's text -- a pair
     whose key it never mentioned is not a rewrite of it -- and every row
     carries the before/after hashes of the whole rewrite. That is what lets
-    `ops_core.replay_title_rewrites` reassemble the map this call applied
+    `replay_core.replay` reassemble the map this call applied
     (the title migration rewrites several titles in one pass, and applying
     them one at a time would not reproduce it) without a second table.
     """
-    db.executemany(
-        "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
-        " new_title, created_at, kind) VALUES (?,?,?,?,?,?,'retitle')",
-        [
-            (uid, text_hash(original_text), text_hash(new_text),
-             old_title, new_title, now_ms)
-            for old_title, new_title in replacements.items()
-            if rewrite_title_refs_map(
-                original_text, {old_title: new_title},
-                normalize=spelled_or_canonical(
-                    canonical, {old_title: new_title}),
-            ) != original_text
-        ],
-    )
+    before, after = text_hash(original_text), text_hash(new_text)
+    insert_block_rewrites(
+        db, uid,
+        [BlockRewrite(before, after, old_title, new_title, "retitle")
+         for old_title, new_title in replacements.items()
+         if rewrite_title_refs_map(
+             original_text, {old_title: new_title},
+             normalize=spelled_or_canonical(
+                 canonical, {old_title: new_title}),
+         ) != original_text],
+        now_ms)
 
 
 def _prune_block_rewrites(db: Db, now_ms: int) -> None:
@@ -297,16 +321,6 @@ def rewrite_snapshotted_blocks(
         reindex_refs_for_text(db, uid, new_text, now_ms)
     _prune_block_rewrites(db, now_ms)
     return rewritten
-
-
-def rewrite_referencing_blocks(db: Db, page_id: PageId,
-                               old_title: CanonicalTitle,
-                               new_title: CanonicalTitle,
-                               now_ms: int) -> None:
-    """Preserved single-page rewrite helper. Never commits."""
-    snapshots = _snapshot_referencing_blocks(db, page_id)
-    rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms,
-                               title_reader(db))
 
 
 def insert_sidebar_entry(db: Db, title: CanonicalTitle,
@@ -460,17 +474,12 @@ def _record_delete_rewrite(
     title, and one `inline` row per block ref copied in. Every row carries
     the before/after hashes of the whole rewrite."""
     base, after = text_hash(original_text), text_hash(new_text)
-    rows: list[tuple[str, str, str]] = []
+    rows: list[BlockRewrite] = []
     if uid in plan.unlinked:
-        rows.append(("unlink", title, ""))
-    rows.extend(("inline", target, copy)
+        rows.append(BlockRewrite(base, after, title, "", "unlink"))
+    rows.extend(BlockRewrite(base, after, target, copy, "inline")
                 for target, copy in plan.inlined.get(uid, {}).items())
-    db.executemany(
-        "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
-        " new_title, created_at, kind) VALUES (?,?,?,?,?,?,?)",
-        [(uid, base, after, old, new, now_ms, kind)
-         for kind, old, new in rows],
-    )
+    insert_block_rewrites(db, uid, rows, now_ms)
 
 
 def delete_page_unlinking(db: Db, page_id: PageId,

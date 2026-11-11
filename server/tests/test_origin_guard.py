@@ -134,7 +134,7 @@ def test_ws_refuses_a_foreign_origin(guarded_client, guarded_app, origin):
                 "/api/ws", headers={"Origin": origin}):
             pass
     assert exc.value.code == 4403
-    assert guarded_app.state.hub._conns == set()
+    assert set(guarded_app.state.hub._clients) == set()
 
 
 def test_ws_refuses_a_foreign_origin_before_the_cookie_check(guarded_anon):

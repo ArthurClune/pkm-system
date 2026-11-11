@@ -302,7 +302,7 @@ def replay_chain(steps: Sequence[Rewrite], text: str,
                  base: str) -> tuple[str, str, list[Rewrite]]:
     """Replay `steps` (newest first) onto an edit's `text`, following the
     chain from its `base` hash: at most ten steps, each used once (code:
-    ops_core.MAX_REPLAYED_REWRITES). Returns the text, the hash the edit
+    replay_core.MAX_REPLAYED_REWRITES). Returns the text, the hash the edit
     now counts as based on, and the steps used, in order."""
     left = list(steps)
     used: list[Rewrite] = []
@@ -424,7 +424,8 @@ class Model:
     def _record(self, uid: BlockUid, step: Rewrite) -> None:
         """Record a rewrite as the newest. Rows sharing its hash pair with
         an older rewrite of the block replay as one step with it (code:
-        ops_core._rewrite_steps), where the older row's copy of a uid wins."""
+        replay_core._rewrite_steps), where the older row's copy of a uid
+        wins."""
         steps = self.rewrites.setdefault(uid, [])
         old = next((s for s in steps if (s.base_hash, s.after_hash)
                     == (step.base_hash, step.after_hash)), None)
@@ -453,7 +454,7 @@ class Model:
         that changed the text, chained by hash: the unlink of the stale
         titles that changed it, then each replayed step. A chain that does
         not reproduce the written text is not recorded (code:
-        ops_core._rewrite_chain)."""
+        replay_core.rewrite_chain)."""
         titles = frozenset(t for t in stale if unlink_stale(sent, {t}) != sent)
         if written == sent or not (titles or replayed):
             return
@@ -643,12 +644,12 @@ class Model:
             # limit. The edit lands, the block keeps its text. Every
             # drawn text closes the runs it opens, so its copies cannot
             # join into a deeper link and only the length cap can be
-            # reached (code: ops_core._replay_step judges each step's
+            # reached (code: replay_core._replay_step judges each step's
             # splice on both, and on the depth times the length).
             # § Planning, "Replayed text": the landing has every title
             # the chain deleted or renamed away made plain, the steps past
             # the one over the cap included (code:
-            # ops_core.over_limit_landing_text). The machine draws no
+            # replay_core.over_limit_landing_text). The machine draws no
             # rename, so a `Rewrite` carries no retitles and `gone` is the
             # deleted titles alone; a rename rule must add the old titles.
             # The retitle half is pinned in test_text_limits_ops.py by
@@ -677,7 +678,7 @@ class Model:
             # Row "Incoming text equals current": no-op, whatever the hash.
             # Code, not docs: this is tested before the hash, so an
             # identical edit with a stale hash keeps nothing
-            # (ops_core.classify_text_edit).
+            # (replay_core.classify_text_edit).
             self._record_written(block.uid, sent, text, stale, replayed)
             return
         if text_hash(block.text) != base:

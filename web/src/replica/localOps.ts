@@ -131,7 +131,7 @@ const blockInfo = (db: ReplicaDb, uid: BlockUid): BlockInfo | null => {
 };
 
 /** uid and every ancestor above it; the visited-path guard stops on a
- * loop already in the replica, as ops_apply._parent_chain does. */
+ * loop already in the replica, as ops_apply.parent_chain does. */
 const parentChain = (db: ReplicaDb, uid: BlockUid): BlockUid[] =>
   db.select(
     `WITH RECURSIVE chain(uid, parent_uid, path) AS (

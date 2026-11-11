@@ -1,4 +1,7 @@
+import ast
+import re
 import secrets
+from pathlib import Path
 from datetime import datetime
 from typing import get_args
 
@@ -10,11 +13,12 @@ from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (MAX_OUTLINE_DEPTH, BlockUid, CreateOp, CreatePageOp, DeleteOp, MoveOp, OpBatch,
                                SetCollapsedOp, SetHeadingOp, SetViewTypeOp, subtree_hash,
                                SyncSeq, text_hash, UpdateTextOp)
-from pkm.server import ops_apply, ops_core
+from pkm.server import ops_apply, ops_core, replay_core
 from pkm.server.db import open_db
-from pkm.server.ops_apply import (_parent_chain, _subtree_deepest_first,
+from pkm.server.ops_apply import (_subtree_deepest_first, parent_chain,
                                   subtree_rows, apply_batch)
 from pkm.server.ops_core import DeleteBlocks, OpError, SubtreeRow, judge_batch
+from pkm.server.sync_meta import title_reader
 from pkm.test_data.ids import batch_id_of, client_id_of, order_idx_of, raw_title_of, sha_of, uid_of
 
 NOW = 1_800_000_000_000
@@ -22,7 +26,7 @@ NOW_DAY = title_for_date(datetime.fromtimestamp(NOW / 1000).date())
 
 
 def _replay():
-    return ops_apply.BatchReplay(ops_core.MAX_BATCH_REPLAY_WORK)
+    return ops_apply.BatchReplay(replay_core.MAX_BATCH_REPLAY_WORK)
 
 
 @pytest.fixture()
@@ -321,10 +325,10 @@ def test_delete_removes_entire_deep_subtree(db, depth, hashed, monkeypatch):
     deletes = []
     execute = ops_apply._execute
 
-    def recording_execute(db, eff, now_ms):
+    def recording_execute(db, eff, now_ms, **kwargs):
         if isinstance(eff, DeleteBlocks):
             deletes.append(eff.uids)
-        return execute(db, eff, now_ms)
+        return execute(db, eff, now_ms, **kwargs)
 
     monkeypatch.setattr(ops_apply, "_execute", recording_execute)
     op = {"op": "delete", "uid": "level0"}
@@ -339,6 +343,16 @@ def test_delete_removes_entire_deep_subtree(db, depth, hashed, monkeypatch):
     remaining = read(db,
         "SELECT count(*) FROM blocks WHERE uid LIKE 'level%'").fetchone()[0]
     assert remaining == 0
+
+
+def test_parent_chain_lists_the_block_then_its_ancestors_nearest_first(db):
+    # The assistant card walks a block's ancestors up from its parent and
+    # stops at the first it knows, so the order is part of the contract.
+    apply_batch(db, judge_batch(_batch(*_linear_chain("Machine Learning", 5,
+                                                      prefix="chain"))), NOW)
+    db.commit()
+    assert parent_chain(db, uid_of("chain4")) == tuple(
+        uid_of(f"chain{i}") for i in range(4, -1, -1))
 
 
 def test_parent_chain_and_subtree_terminate_on_preexisting_cycle(db):
@@ -358,7 +372,7 @@ def test_parent_chain_and_subtree_terminate_on_preexisting_cycle(db):
     db.commit()
     expected = {"cycle0", "cycle1", "cycle2", "cycle3", "cycle4"}
 
-    chain = _parent_chain(db, uid_of("cycle4"))
+    chain = parent_chain(db, uid_of("cycle4"))
     assert set(chain) == expected
     assert len(chain) == len(expected)          # no duplicate re-walks
 
@@ -438,7 +452,8 @@ def test_diverged_delete_mints_header_then_root_then_descendants(
                         lambda n: next(minted))
     op = DeleteOp(op="delete", uid=uid_of("uid_b2"),
                   base_subtree_hash=sha_of("0" * 64))
-    ctx = ops_apply._context_for(db, op, NOW, replay=_replay())
+    ctx = ops_apply._context_for(db, op, NOW, replay=_replay(),
+                                 canonical=title_reader(db))
     assert isinstance(ctx, ops_core.DeleteConflictContext)
     assert isinstance(ctx.landing.header, ops_core.FreshHeader)
     assert ctx.landing.header.uid == "hdrmint00001"
@@ -615,14 +630,14 @@ def test_op_error_index_reports_failing_op(db):
 # --- replaying recorded rename/merge rewrites ------------------------------
 
 
-def _rewrite_chain(steps: int) -> tuple[ops_core.BlockRewrite, ...]:
+def _rewrite_chain(steps: int) -> tuple[replay_core.BlockRewrite, ...]:
     """Records for `steps` successive renames of one block's only ref:
     "[[T0]]" -> "[[T1]]" -> ... Newest first, as the shell orders them."""
     records = []
     text = "[[T0]]"
     for i in range(steps):
         after = f"[[T{i + 1}]]"
-        records.append(ops_core.BlockRewrite(
+        records.append(replay_core.BlockRewrite(
             base_hash=text_hash(text), after_hash=text_hash(after),
             old_text=f"T{i}", new_text=f"T{i + 1}"))
         text = after
@@ -630,43 +645,45 @@ def _rewrite_chain(steps: int) -> tuple[ops_core.BlockRewrite, ...]:
 
 
 def test_replay_follows_a_chain_of_records_up_to_the_cap():
-    text, base = ops_core.replay_title_rewrites(
-        "[[T0]] edited", text_hash("[[T0]]"), _rewrite_chain(12))
+    replayed = replay_core.replay(
+        "[[T0]] edited", text_hash("[[T0]]"), _rewrite_chain(12),
+        normalize_title)
 
-    cap = ops_core.MAX_REPLAYED_REWRITES
-    assert text == f"[[T{cap}]] edited"
-    assert base == text_hash(f"[[T{cap}]]")
+    cap = replay_core.MAX_REPLAYED_REWRITES
+    assert replayed.text == f"[[T{cap}]] edited"
+    assert replayed.base_hash == text_hash(f"[[T{cap}]]")
 
 
 def test_replay_rewrites_a_padded_spelling_that_canonicalises_to_the_old_title():
-    rewrites = (ops_core.BlockRewrite(
+    rewrites = (replay_core.BlockRewrite(
         base_hash=text_hash("[[Old]]"), after_hash=text_hash("[[New]]"),
         old_text="Old", new_text="New"),)
 
-    text, _ = ops_core.replay_title_rewrites(
+    replayed = replay_core.replay(
         "[[ Old ]] edited", text_hash("[[Old]]"), rewrites,
         lambda raw: normalize_title(raw).strip(" "))
 
-    assert text == "[[New]] edited"
+    assert replayed.text == "[[New]] edited"
 
 
 def test_replay_leaves_an_unrecorded_base_hash_untouched():
     stale = text_hash("never rewritten")
 
-    assert ops_core.replay_title_rewrites(
-        "[[T0]] edited", stale, _rewrite_chain(3)) == ("[[T0]] edited", stale)
-    assert ops_core.replay_title_rewrites(
-        "[[T0]] edited", stale, ()) == ("[[T0]] edited", stale)
+    for rows in (_rewrite_chain(3), ()):
+        replayed = replay_core.replay(
+            "[[T0]] edited", stale, rows, normalize_title)
+        assert (replayed.text, replayed.base_hash) == ("[[T0]] edited", stale)
 
 
 def test_replay_ignores_an_inline_record_whose_key_is_no_uid():
     before, after = "[[Gone]] ((abc123def))", "Gone copy"
-    record = ops_core.BlockRewrite(
+    record = replay_core.BlockRewrite(
         base_hash=text_hash(before), after_hash=text_hash(after),
         old_text="not a uid", new_text="copy", kind="inline")
 
-    assert ops_core.replay_title_rewrites(
-        before, text_hash(before), (record,)) == (before, text_hash(after))
+    replayed = replay_core.replay(
+        before, text_hash(before), (record,), normalize_title)
+    assert (replayed.text, replayed.base_hash) == (before, text_hash(after))
 
 
 def test_clean_edit_with_block_rewrites_does_not_create_daily_page(db):
@@ -705,6 +722,41 @@ def _flag_reads(db, op) -> int:
     return sum("sync_meta" in sql and "SELECT" in sql for sql in seen)
 
 
+def _title_flag_reads(db, *ops) -> int:
+    seen: list[str] = []
+    trace(db, seen.append)
+    apply_batch(db, judge_batch(_batch(*ops)), NOW)
+    trace(db, None)
+    return sum("plain_space_title_canonicalization" in sql
+               and "SELECT" in sql for sql in seen)
+
+
+def test_a_batch_reads_the_title_flag_once(db):
+    # A new page, two links to index, a conflict landing on today's daily
+    # page with its header's links, and an orphan edit's page hint: every
+    # title the batch resolves goes through the one reader it took first.
+    reads = _title_flag_reads(
+        db,
+        {"op": "create", "uid": "flag_c1", "page_title": "Flag Once Page",
+         "order_idx": 0, "text": "[[Flag A]] and [[Flag B]]"},
+        {"op": "update_text", "uid": "uid_b6", "text": "mine",
+         "base_text_hash": text_hash("stale")},
+        {"op": "update_text", "uid": "flag_gone1", "text": "lost",
+         "page_title": "Machine Learning"})
+    db.commit()
+    assert db.select_one(
+        "SELECT count(*) AS n FROM pages WHERE title = ?", (NOW_DAY,)
+    )["n"] == 1
+    assert reads == 1
+
+
+def test_a_batch_that_resolves_no_title_reads_the_flag_once(db):
+    # The reader is taken before the first op, so a batch that resolves no
+    # title pays one indexed read for it too.
+    assert _title_flag_reads(db, {"op": "set_collapsed", "uid": "uid_b1",
+                                  "collapsed": True}) == 1
+
+
 def _rewritten_block(db, uid: BlockUid, kind, t0, t1):
     db.execute(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
@@ -736,7 +788,7 @@ def test_replay_reads_the_title_flag_no_more_often_for_a_delete_than_a_rename(
 
 def test_stale_hash_identical_text_does_not_create_daily_page(db):
     # Device 2 pushes text device 1 already synced, under a stale base
-    # hash -- check 2 (identical), never a conflict, so no daily page gets
+    # hash -- identical, never a conflict, so no daily page gets
     # created for it.
     apply_batch(db, judge_batch(_batch(
         {"op": "update_text", "uid": "uid_b1", "text": "Tags:: #AI",
@@ -790,12 +842,13 @@ def test_replay_applies_one_multi_title_rewrite_as_a_single_step():
     applied one at a time, the second would no longer match."""
     before, after = "[[A]] and [[B]]", "[[A2]] and [[B2]]"
     records = tuple(
-        ops_core.BlockRewrite(text_hash(before), text_hash(after), old, new)
+        replay_core.BlockRewrite(text_hash(before), text_hash(after), old, new)
         for old, new in (("A", "A2"), ("B", "B2")))
 
-    assert ops_core.replay_title_rewrites(
-        "[[A]] and [[B]] edited", text_hash(before), records) == (
-            "[[A2]] and [[B2]] edited", text_hash(after))
+    replayed = replay_core.replay(
+        "[[A]] and [[B]] edited", text_hash(before), records, normalize_title)
+    assert (replayed.text, replayed.base_hash) == (
+        "[[A2]] and [[B2]] edited", text_hash(after))
 
 
 # --- ops on missing blocks ---------------------------------------------------
@@ -986,7 +1039,8 @@ def _move(uid: BlockUid, parent: BlockUid | None) -> MoveOp:
     (_edit(uid_of("uid_b6"), "plain"), "BlockContext", None),
     (_edit(uid_of("uid_b6"), "clean", base=_B6_TEXT), "TextEditContext", "clean"),
     (_edit(uid_of("uid_b6"), _B6_TEXT, base="stale"), "TextEditContext", "identical"),
-    (_edit(uid_of("uid_b6"), "mine", base="stale"), "TextConflictContext", None),
+    (_edit(uid_of("uid_b6"), "mine", base="stale"), "TextConflictContext",
+     "conflict"),
     (_edit(_GHOST, "lost"), "LandedSkipContext", "orphan_edit"),
     (_edit(_GHOST, " "), "SkipContext", "orphan_edit"),
 ])
@@ -996,11 +1050,12 @@ def test_context_for_picks_the_context_its_classification_calls_for(
     # it for every way an op can plan. `detail` is the skip kind, the text
     # edit outcome, or whether a create's uid is taken.
     parsed = _batch(op).ops[0]
-    ctx = ops_apply._context_for(db, parsed, NOW, replay=_replay())
+    ctx = ops_apply._context_for(db, parsed, NOW, replay=_replay(),
+                                 canonical=title_reader(db))
     assert type(ctx).__name__ == context
     if isinstance(ctx, ops_core.SKIPPED_CONTEXTS):
         assert ctx.skip.kind == detail
-    elif isinstance(ctx, ops_core.TextEditContext):
+    elif isinstance(ctx, ops_core.HASHED_EDIT_CONTEXTS):
         assert ctx.outcome.kind == detail
     elif isinstance(ctx, ops_core.CreateContext):
         assert ctx.uid_taken is detail
@@ -1010,6 +1065,45 @@ def test_skipped_contexts_are_exactly_the_skipped_context_union():
     # apply_batch reports an op as skipped by isinstance against this tuple;
     # a Union member missing from it would be broadcast as applied instead
     assert set(ops_core.SKIPPED_CONTEXTS) == set(get_args(ops_core.SkippedContext))
+
+
+def test_hashed_edit_contexts_are_exactly_the_hashed_edit_union():
+    # apply_batch charges an op's replay by isinstance against this tuple;
+    # a Union member missing from it would replay for free
+    assert set(ops_core.HASHED_EDIT_CONTEXTS) == set(
+        get_args(ops_core.HashedEditContext))
+
+
+def test_the_replay_allowance_falls_in_one_place():
+    # Every debit of a batch's replay budget goes through
+    # `BatchReplay._spend`, so what a batch is charged is read in one place.
+    tree = ast.parse(Path(ops_apply.__file__).read_text())
+    owners: dict[int, str] = {}
+    for cls in ast.walk(tree):
+        if isinstance(cls, ast.ClassDef):
+            for fn in cls.body:
+                if isinstance(fn, ast.FunctionDef):
+                    for node in ast.walk(fn):
+                        owners[id(node)] = f"{cls.name}.{fn.name}"
+    for fn in ast.walk(tree):
+        if isinstance(fn, ast.FunctionDef):
+            for node in ast.walk(fn):
+                owners.setdefault(id(node), fn.name)
+    debits = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+            targets = [node.target]
+        else:
+            continue
+        for target in targets:
+            for part in ast.walk(target):
+                if isinstance(part, ast.Attribute) and part.attr == "allowance":
+                    debits.append(
+                        f"{owners.get(id(node), '<module>')}:{node.lineno}")
+    assert debits and all(d.startswith("BatchReplay._spend:")
+                          for d in debits), debits
 
 
 def test_conflict_landing_uses_the_batch_clock(db):
@@ -1036,3 +1130,23 @@ def test_conflict_landing_uses_the_batch_clock(db):
                       (landed["page_id"],)).fetchone() is not None
     assert db.select_one("SELECT id AS page_id FROM pages WHERE title = ?", (
         title_for_date(morning.date()),)) is None
+
+
+def test_block_rewrites_has_one_writer():
+    from pathlib import Path
+    src = Path(ops_apply.__file__).parents[2]
+    writers = sorted(
+        str(p.relative_to(src)) for p in src.rglob("*.py")
+        for _ in range(p.read_text().count("INTO block_rewrites")))
+    assert writers == ["pkm/server/store.py"]
+
+
+def test_the_visited_path_guard_is_written_once() -> None:
+    src = Path(__file__).resolve().parents[1] / "src" / "pkm"
+    guard = re.compile(r"instr\(\{?\w*\.?path")
+    hits = [f"{path.relative_to(src)}:{n}"
+            for sub in ("server", "assistant")
+            for path in sorted((src / sub).glob("*.py"))
+            for n, line in enumerate(path.read_text().splitlines(), 1)
+            if guard.search(line)]
+    assert len(hits) == 1 and hits[0].startswith("server/ops_apply.py"), hits

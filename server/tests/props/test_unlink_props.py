@@ -18,7 +18,7 @@ from hypothesis import given, settings, strategies as st
 from hostile import count, event
 from pkm.contracts.ops import BlockUid, text_hash
 from pkm.refs import extract, normalize_title, strip_code
-from pkm.server.ops_core import BlockRewrite, replay_title_rewrites
+from pkm.server.replay_core import BlockRewrite, replay
 from pkm.unlink import (DeletePlan, SourceBlock, apply_delete_rewrite,
                         plan_page_delete, unlink_stale_refs)
 from props.harness import examples, merge_floors
@@ -200,9 +200,10 @@ def replay_reproduces(original: str, new: str, uid: BlockUid,
                       plan: DeletePlan) -> None:
     rows = _rows(original, new, uid, plan)
     assert rows, (original, new)
-    assert replay_title_rewrites(
-        original, text_hash(original), rows[::-1]
-    ) == (new, text_hash(new)), (original, new)
+    replayed = replay(
+        original, text_hash(original), rows[::-1], normalize_title)
+    assert (replayed.text, replayed.base_hash) == (new, text_hash(new)), (
+        original, new)
 
 
 def delete_rewrite_properties(

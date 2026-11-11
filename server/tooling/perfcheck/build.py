@@ -142,7 +142,7 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
         # Seeded once, directly through the store function a real rename
         # uses (rename is a route, not an op batch): leaves a block_rewrites
         # row for ops/edit-rename-replay (perfcheck.backend) to exercise
-        # ops_core.replay_title_rewrites.
+        # replay_core.replay.
         canonical = title_reader(con)
         rename_source_title = canonical(RENAME_SOURCE_TITLE)
         rename_target_title = canonical(RENAME_TARGET_TITLE)

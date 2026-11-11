@@ -12,7 +12,9 @@ never a card that shows the block missing.
 
 A delete target's subtree is walked by `ops_apply.subtree_rows`, the walk
 the server's check runs, so the card's count and hash agree with what the
-check finds when nothing changed, even on a corrupted parent chain."""
+check finds when nothing changed, even on a corrupted parent chain. The
+ancestors use `ops_apply.parent_chain`, the same walk as the server's
+cycle check."""
 from __future__ import annotations
 
 import asyncio
@@ -27,8 +29,8 @@ from pkm.assistant.write_preview import (Approval, Refusal, StoredBlock,
                                          delete_target_uids,
                                          write_target_uids)
 from pkm.contracts.ops import BlockUid, subtree_hash
-from pkm.server.db import open_db
-from pkm.server.ops_apply import subtree_rows
+from pkm.server.db import open_db, read_txn
+from pkm.server.ops_apply import parent_chain, subtree_rows
 
 logger = logging.getLogger("pkm.assistant")
 
@@ -37,21 +39,6 @@ logger = logging.getLogger("pkm.assistant")
 BlockReader = Callable[[Sequence[BlockUid], Collection[BlockUid],
                         Collection[BlockUid]],
                        Mapping[BlockUid, StoredBlock]]
-
-# The walk up, parent first, with the visited-path guard `subtree_rows`
-# uses on the way down: it stops before a uid it has passed, so a parent
-# cycle lists each block on it once. Commas never occur in a uid.
-_ANCESTORS_SQL = """WITH RECURSIVE up(uid, depth, path) AS (
-      SELECT parent_uid, 1, ',' || uid || ',' || parent_uid || ','
-        FROM blocks WHERE uid = ? AND parent_uid IS NOT NULL
-         AND parent_uid <> uid
-      UNION ALL
-      SELECT b.parent_uid, up.depth + 1, up.path || b.parent_uid || ','
-        FROM up JOIN blocks b ON b.uid = up.uid
-       WHERE b.parent_uid IS NOT NULL
-         AND instr(up.path, ',' || b.parent_uid || ',') = 0
-    ) SELECT uid FROM up ORDER BY depth"""
-
 
 def db_block_reader(db_path: Path) -> BlockReader:
     """A reader over the database at `db_path`: every uid's text and page,
@@ -68,42 +55,41 @@ def db_block_reader(db_path: Path) -> BlockReader:
             return {}
         db = open_db(db_path)
         try:
-            db.execute("BEGIN")  # one snapshot for texts, pages and counts
-            marks = ",".join("?" * len(uids))
-            rows = db.select(
-                "SELECT uid, text, page_id FROM blocks"
-                f" WHERE uid IN ({marks})", tuple(uids))
-            if not rows:
-                return {}
-            page_ids = list(dict.fromkeys(row["page_id"] for row in rows))
-            titles = {page["page_id"]: page["page_title"]
-                      for page in db.select(
-                          "SELECT id AS page_id, title AS page_title"
-                          " FROM pages WHERE id IN"
-                          f" ({','.join('?' * len(page_ids))})",
-                          tuple(page_ids))}
-            out: dict[BlockUid, StoredBlock] = {}
-            for row in rows:
-                uid = row["uid"]
-                if row["page_id"] not in titles:
-                    raise LookupError("a target block's page row is missing")
-                descendants = hashed = None
-                if uid in count_under:
-                    # the row was just read in this snapshot, so the walk
-                    # holds at least the block itself
-                    sub = subtree_rows(db, uid)
-                    descendants = len(sub) - 1
-                    hashed = subtree_hash((r.uid, r.text) for r in sub)
-                ancestors = None
-                if uid in ancestors_of:
-                    ancestors = tuple(
-                        up["uid"] for up in db.select(_ANCESTORS_SQL, (uid,)))
-                out[uid] = StoredBlock(page_title=titles[row["page_id"]],
-                                       text=row["text"],
-                                       descendants=descendants,
-                                       ancestors=ancestors,
-                                       subtree_hash=hashed)
-            return out
+            with read_txn(db):  # one snapshot for texts, pages and counts
+                marks = ",".join("?" * len(uids))
+                rows = db.select(
+                    "SELECT uid, text, page_id FROM blocks"
+                    f" WHERE uid IN ({marks})", tuple(uids))
+                if not rows:
+                    return {}
+                page_ids = list(dict.fromkeys(row["page_id"] for row in rows))
+                titles = {page["page_id"]: page["page_title"]
+                          for page in db.select(
+                              "SELECT id AS page_id, title AS page_title"
+                              " FROM pages WHERE id IN"
+                              f" ({','.join('?' * len(page_ids))})",
+                              tuple(page_ids))}
+                out: dict[BlockUid, StoredBlock] = {}
+                for row in rows:
+                    uid = row["uid"]
+                    if row["page_id"] not in titles:
+                        raise LookupError("a target block's page row is missing")
+                    descendants = hashed = None
+                    if uid in count_under:
+                        # the row was just read in this snapshot, so the walk
+                        # holds at least the block itself
+                        sub = subtree_rows(db, uid)
+                        descendants = len(sub) - 1
+                        hashed = subtree_hash((r.uid, r.text) for r in sub)
+                    ancestors = None
+                    if uid in ancestors_of:
+                        ancestors = parent_chain(db, uid)[1:]
+                    out[uid] = StoredBlock(page_title=titles[row["page_id"]],
+                                           text=row["text"],
+                                           descendants=descendants,
+                                           ancestors=ancestors,
+                                           subtree_hash=hashed)
+                return out
         finally:
             db.close()
     return read

@@ -12,7 +12,7 @@ const setText = (rawUid: string): unknown =>
   ({ op: "update_text", uid: rawUid, text: "t" });
 
 describe("overwrittenTarget", () => {
-  test("names the block of a check-5 header, whatever names its page", () => {
+  test("names the block of an overwritten-by header, whatever names its page", () => {
     expect(overwrittenTarget("[[conflict]] [[Proptest]] — overwritten by ((pt_seed_1))"))
       .toBe("pt_seed_1");
     expect(overwrittenTarget("[[conflict]] `Second` — overwritten by ((pt_A_2))")).toBe("pt_A_2");

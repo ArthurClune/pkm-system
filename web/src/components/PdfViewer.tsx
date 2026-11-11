@@ -13,11 +13,12 @@
 // same-origin emitted build asset (precached by the service worker), so
 // rendering works offline whenever the PDF asset itself is in the runtime
 // asset cache.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Document, Page, pdfjs } from "react-pdf";
+import { useModal } from "../useModal";
 import { PdfFallbackLink } from "./PdfFallbackLink";
-import { currentPageFromRatios, failureNote, focusWrapTarget, mountedPageWindow,
+import { currentPageFromRatios, failureNote, mountedPageWindow,
          placeholderHeight, retainPages } from "./pdfViewerCore";
 
 /** How many pages either side of one the mount observer reports near the
@@ -159,11 +160,49 @@ function PdfPages({ numPages, aspect, onCurrentPage, scrollRegionLabel }: {
   );
 }
 
-/** Everything the overlay's focus trap can land on. Scoped to what this
- * overlay actually contains (links, buttons, the tabindexed scroll frame) --
- * extend it before adding other control types (inputs, contenteditable) to
- * the overlay chrome. */
-const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
+/** The fullscreen reading dialog of both modes. Portalled to document.body,
+ * but React portals propagate synthetic events through the REACT tree, not
+ * the DOM tree, so it is still a descendant of `.block-text` for bubbling
+ * and stops its own clicks (see the .pdf-embed handler for the hazard). */
+function PdfOverlay({ href, label, page, onClose, triggerRef, children }: {
+  href: string;
+  label: string;
+  page: { current: number; total: number } | null;
+  onClose: () => void;
+  triggerRef?: RefObject<HTMLElement | null>;
+  children: ReactNode;
+}) {
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useModal({
+    surfaceRef, initialFocusRef: closeRef, onClose, triggerRef, trap: "cycle",
+  });
+  return createPortal(
+    <div
+      className="pdf-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={label || "PDF"}
+      ref={surfaceRef}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="pdf-overlay-bar">
+        <span className="pdf-overlay-title">{label || "PDF"}</span>
+        {page !== null && (
+          <span className="pdf-page-indicator">
+            Page {page.current} of {page.total}
+          </span>
+        )}
+        <a href={href} download className="pdf-download">Download</a>
+        <button type="button" className="btn-secondary" ref={closeRef} onClick={onClose}>
+          Close
+        </button>
+      </div>
+      {children}
+    </div>,
+    document.body,
+  );
+}
 
 /**
  * Inline-then-expand viewer for PDF embeds in block content. With `onClose`
@@ -179,123 +218,33 @@ export function PdfViewer({ href, label, onClose }:
   const [failure, setFailure] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const overlayRef = useRef<HTMLDivElement>(null);
   const expandRef = useRef<HTMLButtonElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
-
-  // Generation guard + per-document state reset, both done synchronously
-  // during render rather than in an effect. A new href is a new document:
-  // the previous one's metadata, failure, expansion, and page state must
-  // not survive the switch, and a slow completion from the old document
-  // must not be able to write into the new one's state once it does
-  // switch. An effect can't safely do the reset here: effects fire
-  // child-before-parent, so a same-tick synchronous load completion in the
-  // Document child (as in this component's own tests, and possibly a
-  // cached real load) would run *before* a reset effect in this parent and
-  // get wiped out again. Resetting inline during render sidesteps that
-  // ordering hazard entirely -- this is React's documented pattern for
-  // "adjusting state when a prop changes" (it re-renders once, before
-  // commit, so the Document child never observes the stale state).
-  const genRef = useRef(0);
-  const prevHrefRef = useRef(href);
-  if (prevHrefRef.current !== href) {
-    prevHrefRef.current = href;
-    genRef.current += 1;
-    setDoc(null);
-    setFailure(null);
-    setExpanded(false);
-    setCurrentPage(1);
-  }
-  const gen = genRef.current;
-
-  // Overlay-only mode never renders the inline frame, so its dialog is
-  // "open" for the component's whole lifetime.
-  const overlayOpen = onClose !== undefined || expanded;
-  // Latest dismiss action for the modal-behaviour effect, held in a ref so
-  // an unstable onClose prop can't re-run the effect (which would re-steal
-  // focus to Close on every parent render).
-  const dismissRef = useRef<() => void>(() => {});
-  dismissRef.current = onClose ?? (() => setExpanded(false));
-
-  // Modal behaviour while the overlay is open: focus moves into the dialog
-  // (and back to Expand on close, when Expand exists), Tab is trapped inside
-  // it, Escape dismisses it, and the page behind can't scroll. The listener
-  // lives on window because clicks on non-focusable overlay content can drop
-  // focus to <body>, where a dialog-scoped handler would miss the next Tab.
-  useEffect(() => {
-    if (!overlayOpen) return;
-    const expandButton = expandRef.current;
-    closeRef.current?.focus();
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        dismissRef.current();
-        return;
-      }
-      if (e.key !== "Tab" || !overlayRef.current) return;
-      const focusables = Array.from(overlayRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
-      const target = focusWrapTarget(
-        focusables,
-        document.activeElement as HTMLElement | null,
-        e.shiftKey,
-      );
-      if (target) {
-        e.preventDefault();
-        target.focus();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-      expandButton?.focus();
-    };
-  }, [overlayOpen]);
 
   const onLoadSuccess = (pdf: LoadedPdf) => {
-    if (gen !== genRef.current) return; // stale: href moved on before this load finished
     setDoc({ numPages: pdf.numPages, aspect: null });
     pdf.getPage(1).then(
       (page) => {
-        if (gen !== genRef.current) return; // stale: href moved on while getPage(1) was in flight
         const v = page.getViewport({ scale: 1 });
         setDoc({ numPages: pdf.numPages, aspect: v.height / v.width });
       },
       () => {
-        // keep the default aspect; placeholders are approximate anyway --
-        // no gen guard needed here since this branch never calls setState
+        // keep the default aspect; placeholders are approximate anyway
       },
     );
   };
 
   const onLoadError = (err: unknown) => {
-    if (gen !== genRef.current) return; // stale: href moved on before this load failed
     setFailure(failureNote(err));
   };
 
   if (onClose !== undefined) {
-    return createPortal(
-      <div
-        className="pdf-overlay"
-        role="dialog"
-        aria-modal="true"
-        aria-label={label || "PDF"}
-        ref={overlayRef}
-        onClick={(e) => e.stopPropagation()}
+    return (
+      <PdfOverlay
+        href={href}
+        label={label}
+        page={doc && { current: currentPage, total: doc.numPages }}
+        onClose={onClose}
       >
-        <div className="pdf-overlay-bar">
-          <span className="pdf-overlay-title">{label || "PDF"}</span>
-          {doc !== null && (
-            <span className="pdf-page-indicator">
-              Page {currentPage} of {doc.numPages}
-            </span>
-          )}
-          <a href={href} download className="pdf-download">Download</a>
-          <button type="button" className="btn-secondary" ref={closeRef} onClick={onClose}>
-            Close
-          </button>
-        </div>
         {failure !== null ? (
           <PdfFallbackLink href={href} label={label} note={failure} />
         ) : (
@@ -315,8 +264,7 @@ export function PdfViewer({ href, label, onClose }:
             )}
           </Document>
         )}
-      </div>,
-      document.body,
+      </PdfOverlay>
     );
   }
 
@@ -360,43 +308,21 @@ export function PdfViewer({ href, label, onClose }:
             </button>
           </span>
         )}
-        {doc !== null && expanded && createPortal(
-          // Portalled to document.body, but React portals propagate
-          // synthetic events through the REACT tree, not the DOM tree -- so
-          // this is still a descendant of `.block-text` for bubbling
-          // purposes and needs its own containment (see the .pdf-embed
-          // handler above for the full hazard).
-          <div
-            className="pdf-overlay"
-            role="dialog"
-            aria-modal="true"
-            aria-label={label || "PDF"}
-            ref={overlayRef}
-            onClick={(e) => e.stopPropagation()}
+        {doc !== null && expanded && (
+          <PdfOverlay
+            href={href}
+            label={label}
+            page={{ current: currentPage, total: doc.numPages }}
+            onClose={() => setExpanded(false)}
+            triggerRef={expandRef}
           >
-            <div className="pdf-overlay-bar">
-              <span className="pdf-overlay-title">{label || "PDF"}</span>
-              <span className="pdf-page-indicator">
-                Page {currentPage} of {doc.numPages}
-              </span>
-              <a href={href} download className="pdf-download">Download</a>
-              <button
-                type="button"
-                className="btn-secondary"
-                ref={closeRef}
-                onClick={() => setExpanded(false)}
-              >
-                Close
-              </button>
-            </div>
             <PdfPages
               numPages={doc.numPages}
               aspect={doc.aspect}
               onCurrentPage={setCurrentPage}
               scrollRegionLabel={label || "PDF"}
             />
-          </div>,
-          document.body,
+          </PdfOverlay>
         )}
       </Document>
     </span>

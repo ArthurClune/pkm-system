@@ -1,6 +1,13 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { expect, it, vi } from "vitest";
+import { useRef } from "react";
+import { afterEach, expect, it, vi } from "vitest";
+import { useDismiss } from "../useDismiss";
 import { useConfirm } from "./ConfirmDialog";
+import { ImageOverlay } from "./ImageOverlay";
+
+afterEach(() => {
+  document.body.style.overflow = "";
+});
 
 /** Small harness: exposes a button that opens the dialog and records the
  * resolved answer, standing in for a real caller like TopBar/PageTitle. */
@@ -142,4 +149,117 @@ it("a second confirm() settles the pending one as false", async () => {
   fireEvent.click(screen.getByRole("button", { name: "OK" }));
   await waitFor(() =>
     expect(answers).toEqual(["first:false", "second:true"]));
+});
+
+it("Tab from the confirm button wraps to Cancel and Shift+Tab back", () => {
+  render(<Harness onSettle={vi.fn()} />);
+  fireEvent.click(screen.getByText("open"));
+  const confirmButton = screen.getByRole("button", { name: "Delete" });
+  const cancel = screen.getByRole("button", { name: "Cancel" });
+  expect(confirmButton).toHaveFocus();
+  expect(fireEvent.keyDown(window, { key: "Tab" })).toBe(false);
+  expect(cancel).toHaveFocus();
+  expect(fireEvent.keyDown(window, { key: "Tab", shiftKey: true }))
+    .toBe(false);
+  expect(confirmButton).toHaveFocus();
+});
+
+it("locks body scrolling while open and restores it after", async () => {
+  document.body.style.overflow = "auto";
+  const onSettle = vi.fn();
+  render(<Harness onSettle={onSettle} />);
+  fireEvent.click(screen.getByText("open"));
+  expect(document.body.style.overflow).toBe("hidden");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(onSettle).toHaveBeenCalledWith(false));
+  expect(document.body.style.overflow).toBe("auto");
+});
+
+it("returns focus to the element focused before it opened", async () => {
+  const onSettle = vi.fn();
+  render(<Harness onSettle={onSettle} />);
+  const opener = screen.getByText("open");
+  opener.focus();
+  fireEvent.click(opener);
+  expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus();
+  fireEvent.keyDown(window, { key: "Escape" });
+  await waitFor(() => expect(onSettle).toHaveBeenCalledWith(false));
+  expect(opener).toHaveFocus();
+});
+
+/** A transient surface under the dialog, closed by useDismiss's
+ * document-level Escape. */
+function DismissibleBelow({ onDismiss }: { onDismiss: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useDismiss(ref, onDismiss);
+  return <div ref={ref}>menu</div>;
+}
+
+it("Escape does not reach a document-level useDismiss listener", async () => {
+  const onSettle = vi.fn();
+  const onDismiss = vi.fn();
+  render(
+    <>
+      <DismissibleBelow onDismiss={onDismiss} />
+      <Harness onSettle={onSettle} />
+    </>,
+  );
+  fireEvent.click(screen.getByText("open"));
+  fireEvent.keyDown(screen.getByRole("button", { name: "Delete" }),
+                    { key: "Escape" });
+  await waitFor(() => expect(onSettle).toHaveBeenCalledWith(false));
+  expect(onDismiss).not.toHaveBeenCalled();
+});
+
+it("a second confirm() refocuses the confirm button", () => {
+  function Twice() {
+    const { confirm, dialog } = useConfirm();
+    return (
+      <>
+        <button type="button" onClick={() => { void confirm("First?"); }}>
+          first
+        </button>
+        <button type="button" onClick={() => {
+          void confirm("Second?", { confirmLabel: "Yes" });
+        }}>second</button>
+        {dialog}
+      </>
+    );
+  }
+  render(<Twice />);
+  fireEvent.click(screen.getByText("first"));
+  screen.getByRole("button", { name: "Cancel" }).focus();
+  fireEvent.click(screen.getByText("second"));
+  expect(screen.getByText("Second?")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Yes" })).toHaveFocus();
+});
+
+it("a confirm over the image overlay answers Escape alone; scrolling stays locked until both close", () => {
+  document.body.style.overflow = "auto";
+  const onOverlayClose = vi.fn();
+  function OverImage() {
+    const { confirm, dialog } = useConfirm();
+    return (
+      <>
+        <button type="button" onClick={() => { void confirm("Sure?"); }}>
+          ask
+        </button>
+        <ImageOverlay src="/assets/a/p.png" alt="p" onClose={onOverlayClose}
+                      onError={() => {}} />
+        {dialog}
+      </>
+    );
+  }
+  const view = render(<OverImage />);
+  fireEvent.click(screen.getByText("ask"));
+  fireEvent.keyDown(screen.getByRole("button", { name: "OK" }),
+                    { key: "Escape" });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(onOverlayClose).not.toHaveBeenCalled();
+  expect(document.body.style.overflow).toBe("hidden");
+
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(onOverlayClose).toHaveBeenCalledTimes(1);
+  view.unmount();
+  expect(document.body.style.overflow).toBe("auto");
 });

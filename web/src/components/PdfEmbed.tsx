@@ -126,5 +126,7 @@ export function PdfEmbed({ href, label, onClose, deferred = false }: EmbedProps)
     return <PdfFallbackLink href={href} label={label} note="Couldn't load the PDF viewer." />;
   }
   const { Viewer } = state;
-  return <Viewer href={href} label={label} onClose={onClose} />;
+  // A new href is a new document: remounting drops the old one's state and
+  // any load still in flight for it.
+  return <Viewer key={href} href={href} label={label} onClose={onClose} />;
 }

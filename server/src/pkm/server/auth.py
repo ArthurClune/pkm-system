@@ -93,6 +93,9 @@ async def login(body: LoginBody, request: Request, response: Response,
     # The device's tailnet address for every tailnet client, which holds
     # only while run.FORWARDED_ALLOW_IPS trusts loopback alone; see
     # docs/architecture/backend.md#login-throttle for each listener's key.
+    # X-Real-IP, Forwarded and Tailscale-User-* are never read for it:
+    # Serve passes X-Real-IP through from the client, and Tailscale-User-*
+    # is forgeable on the direct listeners.
     source = request.client.host if request.client else "unknown"
     # The wrong-password 401, before any scrypt work runs.
     if throttle.is_throttled(source, throttle.now_ms()):

@@ -32,7 +32,8 @@ MAX_CONCURRENT_SCRYPT = 4
 # MAX_CONCURRENT_SCRYPT actually computing, freezing the whole app, not
 # just login. The per-source turn bounds each source to one such thread
 # (its other requests wait on the event loop, holding none); this
-# timeout bounds what many sources can hold.
+# timeout bounds what many sources can hold. A login waits at most two of
+# these (`take_turn`, then `scrypt_slot()`) plus one scrypt check.
 SCRYPT_ACQUIRE_TIMEOUT_S = 2.0
 # Hard cap on tracked sources: record_failure prunes lapsed entries first
 # and, if that alone didn't free room, evicts the least-recently-touched

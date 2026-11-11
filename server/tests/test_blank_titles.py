@@ -170,7 +170,7 @@ def test_get_or_create_page_allows_generated_daily_title(tmp_path):
 
 
 def test_get_or_create_page_raises_on_spaces_only_title(tmp_path):
-    """Finding 2 (review round 1): normalize_title() alone leaves a
+    """normalize_title() alone leaves a
     spaces-only string untouched (no control char to trigger collapsing),
     so get_or_create_page must strip before its emptiness check or this
     creates a real page literally titled "   "."""
@@ -214,7 +214,7 @@ def test_create_page_op_with_whitespace_only_title_does_not_wedge(
 
 def test_create_page_op_with_spaces_only_title_does_not_wedge(
         client, seeded_config):
-    """Finding 2: SPACES_ONLY has no control char, so normalize_title()
+    """SPACES_ONLY has no control char, so normalize_title()
     alone would leave it as "   " -- a real, visually-blank, unlinkable
     page. Must fall back the same as a control-whitespace-only title."""
     r = _post_ops(client, {"op": "create_page", "page_title": SPACES_ONLY})

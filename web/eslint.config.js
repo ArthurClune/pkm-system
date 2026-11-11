@@ -3,8 +3,7 @@
 // tests and tooling alike:
 //   * React Hooks correctness (rules-of-hooks, exhaustive-deps) so hook
 //     dependency arrays cannot silently drift out of sync with the effect
-//     body -- this is what lets Task 10 delete every exhaustive-deps
-//     suppression rather than hide behind it.
+//     body, so no exhaustive-deps suppression is needed or accepted.
 //   * A small set of type-aware promise/error rules that catch the classes
 //     of bug the offline sync + concurrency shells are most exposed to:
 //     floated promises, promise-valued void callbacks (e.g. React event

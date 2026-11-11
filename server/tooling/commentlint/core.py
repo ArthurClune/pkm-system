@@ -9,8 +9,9 @@ every line of an architecture doc, which is all prose):
 - bean-id: history lives in git, the beans and docs/troubleshooting.md.
 - line-number: a position moves on every edit above it; name the symbol.
 - orphan-pointer: a spec or plan named by section number or nickname
-  cannot be followed; the pointer is a `docs/` path or a `.md` filename,
-  which also exempts the line.
+  cannot be followed, and neither can a plan's task, fix or review-finding
+  numbering (`Task 5`, `Fix A`, `finding 2`); the pointer is a `docs/` path
+  or a `.md` filename, which also exempts the line.
 
 A fourth rule, line-length, applies to every line of a scanned source
 file (not markdown, whose tables cannot wrap): a comment line -- one where
@@ -71,6 +72,8 @@ _ORPHAN_POINTER = re.compile(
     r"|\bsee (?:the )?(?:spec|plan)\b"
     r"|\bdesign docs?\b",
     re.IGNORECASE)
+# Case-sensitive: under IGNORECASE `Fix [A-Z]` would flag "fix a race".
+_PLAN_POINTER = re.compile(r"\bTask \d+[a-z]?\b|\bFix [A-Z]\b(?![\w/])|\b[Ff]inding \d+\b")
 _PATH_POINTER = re.compile(r"\bdocs/|\b[\w-]+\.md\b")
 
 _HASH_COMMENT = re.compile(r"(?:^|(?<=\s))#(.*)")
@@ -243,7 +246,7 @@ def _rules_broken(comment: str) -> list[str]:
         broken.append("bean-id")
     if _LINE_NUMBER.search(comment):
         broken.append("line-number")
-    if _ORPHAN_POINTER.search(comment) and not _PATH_POINTER.search(comment):
+    if (_ORPHAN_POINTER.search(comment) or _PLAN_POINTER.search(comment)) and not _PATH_POINTER.search(comment):
         broken.append("orphan-pointer")
     return broken
 

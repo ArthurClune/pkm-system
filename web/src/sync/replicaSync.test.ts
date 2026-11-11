@@ -479,7 +479,7 @@ describe("poison recovery ownership", () => {
     const firstError = await firstRepair;
 
     // A failed poison snapshot retains recovery ownership. Another feed that
-    // needs bootstrap must not enter normal Task 2 flush/resume while Retry is
+    // needs bootstrap must not enter normal flush/resume while Retry is
     // still pending.
     snapshotPhase = "between";
     sync.onSeq(seqOf(9));
@@ -1026,7 +1026,7 @@ describe("pull retries and the stall report", () => {
       const replica = fakeReplica();
       // replica-shaped failure (an HTTP error surfaced as ApiError): this is
       // what "the replica can't make progress" looks like, as opposed to a
-      // dropped connection -- see the finding 2 tests below.
+      // dropped connection.
       const fetchJson = vi.fn(async () => {
         throw new ApiError(503, "/api/sync/changes");
       });

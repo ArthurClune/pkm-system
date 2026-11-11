@@ -186,8 +186,8 @@ const poisonDetails = (error: string | null): Pick<PoisonedBatch,
   return { status: match ? Number(match[1]) : 400, message };
 };
 
-/** Rejected rows are queried separately from allBatches so Task 2's
- * schema-mismatch recovery read remains limited to migration-stable columns. */
+/** Rejected rows are queried separately from allBatches so the
+ * schema-mismatch recovery read stays limited to migration-stable columns. */
 export function poisonedBatches(db: ReplicaDb): PoisonedBatch[] {
   return db.select(
     "SELECT id AS pending_row_id, batch_id, ops_json, error AS pending_error"

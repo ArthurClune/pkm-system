@@ -540,26 +540,6 @@
       "get": {
         "summary": "Get Current Work",
         "operationId": "get_current_work_api_current_work_get",
-        "parameters": [
-          {
-            "name": "now_ms",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "maximum": 9223372036854775807,
-                  "minimum": -9223372036854775808
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Now Ms"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -567,16 +547,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CurrentWorkPayload"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }

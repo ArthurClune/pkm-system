@@ -363,8 +363,9 @@ def test_changed_limit_is_clamped_at_int64_max(client, seeded_config):
 
 
 @pytest.mark.parametrize("now_ms", _INT64_EXTREMES)
-def test_current_work_answers_at_int64_extremes(client, now_ms):
-    r = client.get("/api/current-work", params={"now_ms": now_ms})
+def test_current_work_answers_at_int64_extremes(client, fixed_now, now_ms):
+    fixed_now(now_ms)
+    r = client.get("/api/current-work")
     assert r.status_code < 500, r.text[:200]
 
 

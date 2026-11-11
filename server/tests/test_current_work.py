@@ -1,7 +1,9 @@
+from pkm.server.app import create_app
 from pkm.server.db import open_db
 
 
-def test_current_work_groups_pages_into_exclusive_windows(client, seeded_config):
+def test_current_work_groups_pages_into_exclusive_windows(client, seeded_config,
+                                                         fixed_now):
     con = open_db(seeded_config.db_path)
     now = 1_800_000_000_000
     hour = 60 * 60 * 1000
@@ -19,7 +21,8 @@ def test_current_work_groups_pages_into_exclusive_windows(client, seeded_config)
     con.commit()
     con.close()
 
-    body = client.get("/api/current-work", params={"now_ms": now}).json()
+    fixed_now(now)
+    body = client.get("/api/current-work").json()
 
     assert body["sections"][0]["heading"] == "Last 24 hours"
     assert [section["id"] for section in body["sections"]] == [
@@ -35,7 +38,8 @@ def test_current_work_groups_pages_into_exclusive_windows(client, seeded_config)
     assert [page["title"] for page in body["sections"][2]["pages"]] == ["Two Days"]
 
 
-def test_current_work_excludes_boundary_from_newer_bucket(client, seeded_config):
+def test_current_work_excludes_boundary_from_newer_bucket(client, seeded_config,
+                                                         fixed_now):
     con = open_db(seeded_config.db_path)
     now = 1_800_000_000_000
     hour = 60 * 60 * 1000
@@ -50,7 +54,8 @@ def test_current_work_excludes_boundary_from_newer_bucket(client, seeded_config)
     con.commit()
     con.close()
 
-    body = client.get("/api/current-work", params={"now_ms": now}).json()
+    fixed_now(now)
+    body = client.get("/api/current-work").json()
 
     assert "Exactly 24h" not in [p["title"] for p in body["sections"][0]["pages"]]
     assert "Exactly 24h" in [p["title"] for p in body["sections"][1]["pages"]]
@@ -63,7 +68,13 @@ def test_current_work_requires_auth(anon_client):
     assert anon_client.get("/api/current-work").status_code == 401
 
 
-def test_current_work_survives_the_int64_extremes(client):
+def test_current_work_survives_the_int64_extremes(client, fixed_now):
     for now in (-(2 ** 63), 2 ** 63 - 1):
-        response = client.get("/api/current-work", params={"now_ms": now})
+        fixed_now(now)
+        response = client.get("/api/current-work")
         assert response.status_code == 200, now
+
+
+def test_current_work_takes_no_query_parameters(seeded_config):
+    schema = create_app(seeded_config).openapi()
+    assert "parameters" not in schema["paths"]["/api/current-work"]["get"]

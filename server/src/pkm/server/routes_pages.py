@@ -29,6 +29,7 @@ from pkm.server.auth import require_auth
 from pkm.server.grouping import group_backlinks, group_by_page
 from pkm.server.daily import (is_page_empty, past_week_dates,
                               select_journal_days)
+from pkm.server.clock import now_ms
 from pkm.server.db import get_db, write_txn
 from pkm.server.fts import phrase_query
 from pkm.server.path_params import path_uid
@@ -483,13 +484,13 @@ _CURRENT_WORK_SECTIONS = [
 
 
 @router.get("/api/current-work", response_model=CurrentWorkPayload)
-def get_current_work(now_ms: Int64 | None = None,
+def get_current_work(now: int = Depends(now_ms),
                      db: Db = Depends(get_db)) -> CurrentWorkPayload:
-    now = now_ms if now_ms is not None else int(time.time() * 1000)
     sections: list[CurrentWorkSection] = []
     for section_id, heading, min_age, max_age in _CURRENT_WORK_SECTIONS:
-        # `now` is any int64, so the window bounds can leave the range
-        # SQLite binds; clamping keeps the comparison's meaning.
+        # A test's clock override can be any int64, so the window bounds can
+        # leave the range SQLite binds; clamping keeps the comparison's
+        # meaning.
         newer_than = max(INT64_MIN, now - max_age)
         older_than = max(INT64_MIN, now - min_age)
         lower_operator = ">=" if max_age == 7 * 24 * _HOUR_MS else ">"

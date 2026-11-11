@@ -144,9 +144,8 @@ export default defineConfig({
     setupFiles: ["src/test-guards.ts", "src/test-setup.ts"],
     globals: false,
     exclude: ["e2e/**", "node_modules/**"],
-    // Only a hang guard: the slowest unit test takes about a second on a
-    // quiet machine, and several agents' suites at once stretch that many
-    // times over. Vitest's 5s default failed tests that were merely slow.
+    // Only a hang guard: a test that is merely slow under load must not
+    // fail on vitest's 5s default.
     testTimeout: 30_000,
     coverage: {
       provider: "v8",

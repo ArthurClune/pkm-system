@@ -67,22 +67,20 @@ export interface paths {
         put?: never;
         /**
          * Post Ops
-         * @description One SQLite transaction covers the batch_id dedupe check through the
-         *     commit, so a concurrent delete_page/rename_page/cleanup_journal commit
-         *     (their own connections, on the threadpool) can no longer land between
-         *     the dedupe read and this batch's writes. A write lock the busy timeout
-         *     could not take (a concurrent writer already holds it) returns 503 with
-         *     Retry-After rather than surfacing the raw sqlite3.OperationalError. The
-         *     batch applies only if every `expect` entry still holds, checked in the
-         *     same transaction after the dedupe, else 412 and nothing is written.
+         * @description One SQLite transaction covers the `batch_id` dedupe check through the
+         *     commit, so no commit from another connection lands between the dedupe
+         *     read and this batch's writes. A write lock the busy timeout could not
+         *     take is a 503 with Retry-After, never the raw sqlite3.OperationalError.
+         *     The batch applies only if every `expect` entry still holds, checked in
+         *     the same transaction after the dedupe, else 412 and nothing is written.
          *
          *     The text-limit and title judges (`judge_batch`) run first, in the
          *     threadpool: off the write lock, so one large batch's refusal never
          *     holds every other write, and off the event loop. A refused batch is
          *     looked up before its 400, without the write lock (a committed row is
-         *     visible to a plain read). One already applied, whose ack was lost and
-         *     which a deploy has since put over a limit, replays its stored ack: a
-         *     400 would make the client discard edits the server holds.
+         *     visible to a plain read). One already applied replays its stored ack,
+         *     even if a limit has tightened since: a 400 would make the client
+         *     discard edits the server holds.
          */
         post: operations["post_ops_api_ops_post"];
         delete?: never;
@@ -196,8 +194,8 @@ export interface paths {
         /**
          * Create Page
          * @description Idempotent: creating an existing page returns its row, not an error.
-         *     A title longer than 1,000 characters (`MAX_PAGE_TITLE_CHARS`) is a 422,
-         *     even for a page stored before the cap.
+         *     A title over `MAX_PAGE_TITLE_CHARS` is a 422, even for a page stored
+         *     before the cap.
          */
         post: operations["create_page_api_pages_post"];
         delete?: never;
@@ -250,8 +248,8 @@ export interface paths {
          *     top-level blocks appended after the target's, referencing text
          *     rewritten to the target, source page row dropped) -- a confirm-gated
          *     merge, not a silent overwrite. Case-sensitive throughout, like
-         *     pages.title itself. 422 when the new title is blank, refused or longer
-         *     than 1,000 characters, or when the rewrite would carry a block over the
+         *     pages.title itself. 422 when the new title is blank, refused or over
+         *     `MAX_PAGE_TITLE_CHARS`, or when the rewrite would carry a block over the
          *     text length cap or nest its `[[` past the cap (a longer title lengthens
          *     every link to it); the detail names the block, and nothing changes.
          */
@@ -1408,10 +1406,9 @@ export interface components {
         };
         /**
          * CreatePageOp
-         * @description Durable push path for offline page creation (offline-editing-design.md
-         *     §1): an empty page created offline has no block op to carry its title, so
-         *     page creation is itself an op -- get_or_create semantics, safely
-         *     replayable.
+         * @description Durable push path for offline page creation: an empty page created
+         *     offline has no block op to carry its title, so page creation is itself an
+         *     op -- get_or_create semantics, safely replayable.
          */
         CreatePageOp: {
             /**

@@ -9,12 +9,14 @@ as an installable PWA.
 This directory is the "get up to speed" layer. It describes the system as it
 is. The system-wide *why* is in [Key decisions](#key-decisions); per-feature
 designs and their rejected alternatives are in the specs under
-[`docs/superpowers/specs/`](../superpowers/specs/).
+[`docs/superpowers/specs/`](../superpowers/specs/), which are frozen at
+approval and record the design as it was then.
 
 | Doc | Read when you |
 |---|---|
 | this file | are new: the system picture, the core idea and the decisions behind it, the stack |
-| [backend.md](backend.md) | change a route, the schema, an op, the ref grammar, titles or config |
+| [backend.md](backend.md) | change a route, the schema, the ref grammar, titles, auth or config |
+| [write-path.md](write-path.md) | change an op, planning, conflicts, the write lock or a page mutation |
 | [sync-and-offline.md](sync-and-offline.md) | change how an edit travels from the editor to the server and back |
 | [sync-recovery.md](sync-recovery.md) | change what happens when a sync hop fails: banners, repairs, resets |
 | [frontend.md](frontend.md) | add a view, route or module to the SPA, or touch the API layer or assistant panel |
@@ -65,7 +67,7 @@ flowchart LR
 One server process, one SQLite file, one assets directory. Browser, CLI and
 MCP all speak the same HTTP API with the same session-cookie auth. Block
 content changes go through `POST /api/ops`
-([the write path](backend.md#the-write-path)); pages, the sidebar and assets
+([the write path](write-path.md)); pages, the sidebar and assets
 have their own routes ([API reference](backend.md#http-api-reference)).
 The embedded assistant is one more client: a harness subprocess per
 conversation, confined to the
@@ -114,7 +116,7 @@ explains the deferral.
 | Layer | Choices |
 |---|---|
 | Backend | Python ≥ 3.12, FastAPI, Pydantic v2, raw `sqlite3` (WAL + FTS5, no ORM), uvicorn + `websockets`, `uv` (hatchling build) |
-| Frontend | Versions in [frontend.md](frontend.md#tech-stack) |
+| Frontend | Versions in `web/package.json`; the choices it does not show (Vite and pnpm overrides, OPFS SQLite, lazy loading) are in [frontend.md](frontend.md#tech-stack) |
 | Agent access | `pkm` CLI + `pkm-mcp` stdio server (httpx2; FastMCP from the `mcp` SDK) over the same HTTP API |
 | Embedded assistant | Claude Agent SDK harness, server-side; SSE chat in the SPA |
 | Ops | launchd services, Tailscale Serve (HTTPS) |
@@ -138,7 +140,7 @@ On the web the boundary is machine-checked: `pnpm check:fcis`
 (`web/tooling/fcis.ts`) fails on any Functional-Core → Shell or Mixed import,
 type-only imports excepted. On the server it is convention plus review. The write path
 is the clearest case: a pure planner (`ops_core.plan_op`) between two thin
-shells ([backend.md](backend.md#the-write-path)). The rules and escape hatches
+shells ([write-path.md](write-path.md)). The rules and escape hatches
 are in `AGENTS.md`.
 
 ### One grammar, two languages, pinned by fixtures

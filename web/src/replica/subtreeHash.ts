@@ -1,7 +1,8 @@
 // pattern: Functional Core
-// Canonical hash of a subtree's (uid, text) pairs (offline-editing-design.md
-// §1), order-independent. Its server twin is `subtree_hash` in
-// pkm.contracts.ops; shared/fixtures/subtree_hash.json pins both.
+// Canonical hash of a subtree's (uid, text) pairs, order-independent
+// (docs/architecture/sync-and-offline.md § Conflicts at push time). Its
+// server twin is `subtree_hash` in pkm.contracts.ops;
+// shared/fixtures/subtree_hash.json pins both.
 
 import { sha256Hex, type Sha256Hex } from "./sha256";
 

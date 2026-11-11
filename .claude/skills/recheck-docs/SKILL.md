@@ -40,9 +40,11 @@ outside git, indexed by its `MEMORY.md`.
 ## The run
 
 1. **Set up.** Make a worktree and branch `docs/recheck-<date>`. Record the
-   start SHA and `wc -w` of every doc. Find the last re-check with
-   `git log --oneline -i --grep='re-check' -- docs AGENTS.md`; on a first
-   run there is none, and the start SHA stands in for it. A re-check gets no
+   start SHA and `wc -w` of every doc. The last re-check is the SHA on the
+   first line of `.claude/skills/recheck-docs/last-recheck`; confirm it with
+   `git log -1 --format=%H --grep='^Docs-Recheck:'`. Ordinary commits can
+   mention a re-check, so never search for the word. On a first run neither
+   exists, and the start SHA stands in for it. A re-check gets no
    bean; a code bug it uncovers gets its own.
 
 2. **Mechanical sweep**, inline, before any agent starts:
@@ -68,7 +70,7 @@ outside git, indexed by its `MEMORY.md`.
 
    | Reviewer | Scope |
    |---|---|
-   | backend | `backend.md` |
+   | backend | `backend.md` and `write-path.md` |
    | sync | the `sync-*` docs |
    | frontend | `frontend*.md` and `styling.md` |
    | rest | every other doc in `docs/architecture/`, `overview.md` first |
@@ -102,8 +104,12 @@ outside git, indexed by its `MEMORY.md`.
 
 7. **Finish.** check-docs and commentlint pass. Commit messages say what was
    corrected (a claim was wrong), restructured (no claim changed) and moved
-   (with its destination); the first line contains "re-check", so the next
-   run finds it. Merge with `--no-ff`, remove the worktree, and push only
+   (with its destination). The run's final commit, made after the last fix
+   commit, writes the SHA of that fix commit as the one line of
+   `.claude/skills/recheck-docs/last-recheck`, and ends with a
+   `Docs-Recheck: <that sha>` trailer in the same block as `Co-Authored-By`.
+   That file is what `check-docs.mjs` sizes against; the trailer is what step
+   1 confirms. Merge with `--no-ff`, remove the worktree, and push only
    when Arthur says to.
 
 ## The report to Arthur at the end

@@ -50,7 +50,7 @@ export interface SyncHealth {
 export interface SyncEditability {
   /** Editing allowed: always when connected; offline only when the replica
    * is ready and local storage can still persist edits
-   * (offline-editing-design.md §6). */
+   * (docs/architecture/sync-recovery.md § What the UI shows). */
   canEdit: boolean;
   /** Why editing is blocked, when it is. */
   readOnlyReason?: string;
@@ -205,8 +205,9 @@ export function SyncProvider({ children, replica }: {
   // Declared above useSocketLifecycle: a socket status before startup throws.
   useEffect(() => { void session.startup(); }, [session]);
 
-  // Offline routing (offline-editing-design.md §4): while the socket is down,
-  // apiFetch serves shimmed reads (and page create) from the replica.
+  // Offline routing (docs/architecture/frontend.md § How reads and writes
+  // flow): while the socket is down, apiFetch serves shimmed reads (and page
+  // create) from the replica.
   useEffect(() => {
     const r = replicaRef.current;
     if (!r) return;
@@ -251,8 +252,7 @@ export function SyncProvider({ children, replica }: {
 
   // Connected: editing always allowed (server-authoritative, as before).
   // Offline: allowed only with a ready replica, otherwise the editor is frozen
-  // with a reason (offline-editing-design.md §6). The rule lives in the
-  // syncState core.
+  // with a reason. The rule lives in the syncState core.
   const { canEdit, readOnlyReason } =
     computeEditability(status, replicaState.mode);
 

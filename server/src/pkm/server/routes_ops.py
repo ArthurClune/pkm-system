@@ -57,22 +57,20 @@ def _stored_ack(db: Db, batch: OpBatch) -> OpsAck | None:
 async def post_ops(request: Request,
                    batch: OpBatch,
                    db: Db = Depends(get_db)) -> OpsAck:
-    """One SQLite transaction covers the batch_id dedupe check through the
-    commit, so a concurrent delete_page/rename_page/cleanup_journal commit
-    (their own connections, on the threadpool) can no longer land between
-    the dedupe read and this batch's writes. A write lock the busy timeout
-    could not take (a concurrent writer already holds it) returns 503 with
-    Retry-After rather than surfacing the raw sqlite3.OperationalError. The
-    batch applies only if every `expect` entry still holds, checked in the
-    same transaction after the dedupe, else 412 and nothing is written.
+    """One SQLite transaction covers the `batch_id` dedupe check through the
+    commit, so no commit from another connection lands between the dedupe
+    read and this batch's writes. A write lock the busy timeout could not
+    take is a 503 with Retry-After, never the raw sqlite3.OperationalError.
+    The batch applies only if every `expect` entry still holds, checked in
+    the same transaction after the dedupe, else 412 and nothing is written.
 
     The text-limit and title judges (`judge_batch`) run first, in the
     threadpool: off the write lock, so one large batch's refusal never
     holds every other write, and off the event loop. A refused batch is
     looked up before its 400, without the write lock (a committed row is
-    visible to a plain read). One already applied, whose ack was lost and
-    which a deploy has since put over a limit, replays its stored ack: a
-    400 would make the client discard edits the server holds."""
+    visible to a plain read). One already applied replays its stored ack,
+    even if a limit has tightened since: a 400 would make the client
+    discard edits the server holds."""
     try:
         judged = await run_in_threadpool(judge_batch, batch)
     except OpError as e:

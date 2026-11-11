@@ -224,13 +224,15 @@ class MoveOp(WellFormedModel):
 class DeleteOp(WellFormedModel):
     op: Literal["delete"]
     uid: BlockUid
-    # sha256 of the subtree this delete was based on (offline-editing-design.md
-    # §1): the (uid, text) pairs of the block and its descendants, as of the
-    # tree the deleting device last saw. Absent => legacy client or a uid the
-    # batch itself created, LWW-apply as always (plain delete, no conflict
-    # copy). Present => the server compares against its own current subtree; on
-    # a mismatch the delete still wins, but first the subtree's texts land as a
-    # conflict copy on today's daily page, so text another device wrote is never
+    # sha256 of the subtree this delete was based on (docs/architecture/
+    # write-path.md § Conflicts): the (uid, text) pairs of the block and its
+    # descendants, as of the tree the deleting device last saw. Absent => a
+    # legacy client, or a uid the editor's tree did not know (the batch
+    # creates it, or it is on another page): a plain delete, no conflict
+    # copy. Present => the server hashes its own current subtree; on a
+    # mismatch the delete still wins, but first every descendant's text
+    # lands, nested with fresh uids, under a conflict header on the daily
+    # page of the batch's day, so text another device wrote is never
     # silently destroyed.
     base_subtree_hash: Sha256Hex | None = Field(default=None, min_length=64,
                                                  max_length=64)
@@ -255,10 +257,9 @@ class SetViewTypeOp(WellFormedModel):
 
 
 class CreatePageOp(WellFormedModel):
-    """Durable push path for offline page creation (offline-editing-design.md
-    §1): an empty page created offline has no block op to carry its title, so
-    page creation is itself an op -- get_or_create semantics, safely
-    replayable."""
+    """Durable push path for offline page creation: an empty page created
+    offline has no block op to carry its title, so page creation is itself an
+    op -- get_or_create semantics, safely replayable."""
     op: Literal["create_page"]
     page_title: RawTitle = Field(min_length=1)
 
@@ -328,9 +329,10 @@ def text_hash(text: str) -> Sha256Hex:
 
 def subtree_hash(pairs: Iterable[tuple[str, str]]) -> Sha256Hex:
     """Canonical hash of a subtree's (uid, text) pairs, order-independent
-    (offline-editing-design.md §1). Each text is hashed on its own rather than
-    JSON-encoding the pairs, because Python and JS escape JSON strings
-    differently -- text_hash / sha256Hex already agree. Uids are ASCII
-    (UID_RE), so both languages' default sorts agree too."""
+    (docs/architecture/sync-and-offline.md § Conflicts at push time). Each
+    text is hashed on its own rather than JSON-encoding the pairs, because
+    Python and JS escape JSON strings differently -- text_hash / sha256Hex
+    already agree. Uids are ASCII (UID_RE), so both languages' default sorts
+    agree too."""
     canon = "\n".join(f"{uid} {text_hash(text)}" for uid, text in sorted(pairs))
     return Sha256Hex(hashlib.sha256(well_formed(canon).encode()).hexdigest())

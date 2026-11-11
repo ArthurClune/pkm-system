@@ -14,6 +14,50 @@ This doc covers the app shell. The outline editor is in
 [sync-and-offline.md](sync-and-offline.md). Failures are indexed by symptom in
 [troubleshooting.md](../troubleshooting.md).
 
+## Module map
+
+An orientation map, not an inventory. `outline/` is mapped in
+[frontend-editor.md](frontend-editor.md#module-map), and `sync/` and
+`replica/` in [sync-and-offline.md](sync-and-offline.md#key-pieces).
+
+```
+web/src/
+├── main.tsx, App.tsx         Shell  Entry; providers; routes; the global chords
+├── routeMeta.ts              Core   Path, label and browser title per route
+├── Popover.tsx               Shell  Anchored-popover chrome
+├── useDismiss.ts             Shell  Outside-mousedown and Escape dismissal
+├── useScrollFlashTarget.ts   Shell  Scroll a data-uid into view, flash and pin it
+├── externalLink.ts           Core   iOS-standalone check; the x-safari rewrite
+├── uid.ts                    Shell  Mints uids, ClientId and BatchId
+├── ids.ts                    Core   Parses an untrusted string into an id brand
+├── paths.ts                  Core   Page title to URL path and back
+├── contexts.ts               Shell  The app's React contexts
+├── useStaleGuard.ts          Shell  The stale-response idiom for async reads
+├── useReducerRef.ts          Shell  A reducer whose handler reads its own dispatch's state
+├── useModal.ts, focusWrap.ts Shell  Modal keys, scroll lock and focus; the Tab wrap (Core)
+├── useStoredToggle.ts        Shell  A two-valued localStorage preference (keys: prefKeys.ts)
+├── theme.ts, useTheme.ts,    —      The theme preference and the theme it resolves to
+│   useEffectiveTheme.ts
+├── test-helpers.ts           —      Unit-test fixtures; re-exports test-mint.ts
+├── test-mint.ts              —      Checked brand mints for unit and e2e tests
+├── styles.css                —      All styling (styling.md)
+├── api/                      Shell  apiFetch, the typed client, brands.ts, the
+│                                    generated openapi.json and types.d.ts
+├── views/                    Shell  One file per route. EditablePage is one editable
+│                                    outline, shared by PageView and sidebar panels
+├── components/               Shell  Editor views (EditableBlockTree, BlockInput),
+│                                    inline renderers and chrome; each pure half
+│                                    sits beside its component (pdfViewerCore …)
+├── assistant/                Shell  The chat panel; chatMachine.ts (Core) is its
+│                                    state, sse.ts (Core) parses frames
+├── help/                     Core   parseHelpMarkdown.ts, the /help renderer
+├── dnd/                      Shell  Drag context and drop zones; dropGeometry.ts (Core)
+├── grammar/                  Core   Block grammar (frontend-rendering.md)
+├── outline/                  —      The editor engine (frontend-editor.md)
+└── sync/, replica/           —      Delivery and the offline engine
+                                     (sync-and-offline.md)
+```
+
 ## How reads and writes flow
 
 ```mermaid
@@ -26,7 +70,7 @@ flowchart LR
     end
     subgraph Writes
         ED["useOutline command"] --> SES["outline session<br/>applyLocal → applyOps"]
-        ED --> ENQ["SyncProvider.enqueue<br/>→ OpQueue"]
+        ED --> ENQ["session.actions.enqueue<br/>(via useSyncActions) → OpQueue"]
         ENQ --> ROW["replica: pending_ops row<br/>+ optimistic local apply"]
         ROW --> POST["POST /api/ops<br/>(FIFO drain)"]
         ENQ -.->|replica unusable| LANE["in-memory lane"]
@@ -39,9 +83,9 @@ flowchart LR
   negative ids, remapped by `replica/reconcile.ts`.
 - `SyncProvider` registers the offline gateway (`setOfflineGateway`). It
   serves only once the replica is ready, and treats only a dropped socket as
-  offline; a cold start reaches it through a failed fetch. The shim answers with the server's JSON shapes
-  (`shared/fixtures/shim_parity.json`). An unshimmed route throws
-  `OfflineError`, and its UI says "online only".
+  offline; a cold start reaches it through a failed fetch. The shim answers
+  with the server's JSON shapes (`shared/fixtures/shim_parity.json`). An
+  unshimmed route throws `OfflineError`, and its UI says "online only".
 - Views refetch when `resyncGeneration` bumps
   ([sync-and-offline.md](sync-and-offline.md#when-views-refetch)).
 - `OfflineIndicator`'s wording states what is true of unsent work, so it is
@@ -53,8 +97,9 @@ flowchart LR
 
 There is no Redux or Zustand. A view holds the payload it fetched and refetches
 through `useResync(fn)`. `sync/session.ts` holds the queue and
-connectivity; `sync/SyncProvider.tsx` publishes them. `outline/outlineSessions.ts` holds one shared block tree per
-title ([frontend-editor.md](frontend-editor.md#per-title-outline-sessions)).
+connectivity; `sync/SyncProvider.tsx` publishes them.
+`outline/outlineSessions.ts` holds one shared block tree per title
+([frontend-editor.md](frontend-editor.md#per-title-outline-sessions)).
 
 `SyncProvider` publishes four contexts, one per rate of change:
 
@@ -84,7 +129,7 @@ use depends on how many requests of the same kind can be live:
 | Situation | Idiom | Because |
 |---|---|---|
 | One request live at a time (a debounced search, a popup, `CurrentWork`) | `useStaleGuard`: `begin()` per request, commit only if `!isStale(token)`, `cancel()` when the surface empties | a later input supersedes the earlier one, even when the offline gateway ignores an abort |
-| One request tied to one effect (`SidebarNav`, `BlockRefBacklinksPopover`) | a `cancelled` flag local to the effect, set by its cleanup | the effect re-runs or unmounts exactly when the answer stops mattering |
+| One request tied to one effect (`SidebarNav`, `BlockRefBacklinksPopover`) | a `cancelled` flag local to the effect, set by its cleanup | the effect re-runs or unmounts when the answer stops mattering |
 | Several loads of one list that must stay valid together | a Core reducer whose events carry the load id they answer, driven through `useReducerRef`: `journalPaging.ts`, `filesPaging.ts`, `backlinksPaging.ts` | `useStaleGuard` has a single live token; these loads join one generation |
 
 `useReducerRef` exists because a handler reads the state its own dispatch
@@ -92,14 +137,15 @@ made: a second click before React re-renders must see the first click's lock,
 and a fetch must read the load id it just started. A plain `useReducer`'s
 state in a handler is the last render's. A reducer that returns the same
 object sets no state, so a refused event costs no render. `unlinkedStatus.ts`
-uses it without load ids, as a double-click guard: a second Link click sees
-the first's `pending` status before React re-renders.
+uses it without load ids, as a double-click guard on Link.
 
 An async handler in chrome that outlives a route, such as `TopBar`'s, checks
 after each `await` that the route is still the one it started on (`titleRef`).
 Otherwise a slow answer opens a dialog or navigates over the page the user has
-moved to. A `mounted` ref is set `true` in its effect's body, not only by
-`useRef(true)`: StrictMode's dev replay runs the cleanup and then the body
+moved to.
+
+A `mounted` ref is set `true` in its effect's body, not only by
+`useRef(true)`. StrictMode's dev replay runs the cleanup and then the body
 again, so a ref set once stays `false`.
 
 ## API layer
@@ -144,15 +190,10 @@ brand back into `string`.
 
 Where a brand may be minted is `MINT_SITES` in
 `server/src/pkm/brand_registry.py`, enforced on the web by
-`brands/no-brand-assertion` ([checks.md § Brand rules](checks.md#brand-rules)).
-Tests mint through the checked helpers in `test-mint.ts`, which
-`test-helpers.ts` re-exports. `sync/wire.ts`
-reads network bodies, tombstone ids (`tombstoneIdOfWire`) and WebSocket frames
-(`wsFrameOfWire`) as the contract's types; `ReplicaDb.select` does the same for
+`brands/no-brand-assertion` ([checks.md § Brand rules](checks.md#brand-rules)
+says where tests mint). The web's readers of untrusted data are mint sites:
+`sync/wire.ts` for network bodies and WebSocket frames, `ReplicaDb.select` for
 replica rows ([sync-and-offline.md](sync-and-offline.md#reading-rows)).
-`assistant/writePreview.ts` mints the `CanonicalTitle` of an approval card's
-current page where it parses the preview: the server sends the stored
-`pages.title`, which is canonical.
 
 A title no check has run on is a `RawTitle`: request bodies, `paths.ts`'s
 `titleFromPathname`, and the op `page_title`. That op field is canonical only
@@ -163,32 +204,24 @@ on the server's WS echo, so a `CanonicalTitle` is assignable to it.
 
 ## Views and navigation
 
-| Route | View |
-|---|---|
-| `/` | Journal, an infinite scroll of daily pages |
-| `/page/*` | PageView, one page |
-| `/current-work` | Recently edited pages |
-| `/files` | The asset browser |
-| `/settings` | Whole-database export, image-description status |
-| `/help` | `docs/keyboard.md` (bundled with `?raw`), rendered by `help/parseHelpMarkdown.ts`, which knows only headings, paragraphs, pipe tables and code spans: a list or link there renders literally |
-| `*` | NotFound |
+The routes are `STATIC_ROUTES` plus `/page/*`, one page in `PageView`; any other
+path renders `NotFound`. `STATIC_ROUTES` in `routeMeta.ts` holds the id, path,
+top-bar label and browser title of every static route. `App.tsx` maps each id
+to its view through `VIEWS`, a `Record<StaticRouteId, ComponentType>` the
+compiler checks for completeness. TopBar and `useRouteTitle.ts` read the same
+array, so a route cannot be labelled in one place and not another. `/page/*`
+has no entry, and `PageView.tsx` sets its title. `documentTitleFor` returns
+`NOT_FOUND_TITLE` for any other path. `/help`
+renders `docs/keyboard.md` (bundled with `?raw`) through
+`help/parseHelpMarkdown.ts`, which knows only headings, paragraphs, pipe
+tables and code spans: a list or link there renders literally.
 
 Every pathname under `/page/` renders PageView directly, because react-router
 compiles `*` to a `.*` that matches no newline, U+2028 or U+2029. A title
 the fold changes (a hand-typed `%0A`, a double space, an NBSP) is first
-redirected to the title it folds to (`normalizeRefTitle`). PageView, a sidebar panel and the Journal key their
-outline session by the page's stored title, whatever spelling opened them
-(`outline/titleKeys.props.test.tsx`).
-
-### One table for route metadata
-
-`STATIC_ROUTES` in `routeMeta.ts` holds the id, path, top-bar label and browser
-title of every static route. `App.tsx` maps each id to its view through
-`VIEWS`, a `Record<StaticRouteId, ComponentType>` the compiler checks for
-completeness. TopBar and `useRouteTitle.ts` read the same array, so a route
-cannot be labelled in one place and not another. `/page/*` has no entry;
-`PageView.tsx` sets its title. The catch-all renders `NotFound`, and
-`NOT_FOUND_TITLE` is its title.
+redirected to the title it folds to (`normalizeRefTitle`). PageView, a sidebar
+panel and the Journal key their outline session by the page's stored title,
+whatever spelling opened them (`outline/titleKeys.props.test.tsx`).
 
 ### Navigation chrome
 
@@ -196,7 +229,7 @@ The left nav holds pinned pages (`/api/sidebar`), app destinations and the
 theme toggle. The right sidebar is a session-only stack: shift-clicking a page
 link or ref pushes a `SidebarPanel`.
 
-**No link in the left nav may leave shift-click to the browser.** react-router
+No link in the left nav may leave shift-click to the browser. react-router
 ignores modified clicks (`shouldProcessLinkClick` bails on `shiftKey`), so a
 nav link is never a bare `NavLink`:
 
@@ -209,17 +242,29 @@ The global chords ([keyboard.md](../keyboard.md#anywhere-in-the-app)) share one
 `window` keydown listener in `App.tsx`. They fire while a block is edited
 only because `BlockInput` never calls `stopPropagation` on keydown. The
 `Ctrl+Shift` forms exist because the page gets no keydown for the Cmd forms
-(macOS reserves `Ctrl+Cmd+D`, the browser owns `Cmd+T`). jsdom and Playwright deliver keydowns
-the real OS would swallow, so confirm a new chord in the running app.
+(macOS reserves `Ctrl+Cmd+D`, the browser owns `Cmd+T`). jsdom and Playwright
+deliver keydowns the real OS would swallow, so confirm a new chord in the
+running app.
 
-### The Journal
+### Paged lists
+
+Each list exists for one rule:
+
+| List | State lives in | The rule |
+|---|---|---|
+| Journal days | `views/journalPaging.ts` | One load in flight; a failed load keeps the days and their cursor ([The Journal](#the-journal)) |
+| `/files` | `views/filesPaging.ts` | A filter change bumps the generation at the keystroke; Select all and Load more start only from a list loaded under the current generation ([The `/files` browser](#the-files-browser)) |
+| Linked references | `components/backlinksPaging.ts` | Show more and the filter panel's load-all are walks and several can be in flight, so the section is loading until every walk settles; a sync refresh replaces the groups from offset 0, and while one is in flight no walk starts and the panel stays closed, since either would page on from groups about to be replaced |
+| Unlinked references | paging in `components/UnlinkedSection.tsx`; each Link's status in `components/unlinkedStatus.ts` | The server drops a block from `/api/unlinked` once it references the page, so a delivered Link takes its block out of the loaded list and one off `total`, and Show more asks from the count of loaded blocks still listed: counting an undelivered Link as gone only re-fetches a block, which `mergeGroups` drops, while counting a gone one as listed skips the next block |
+
+#### The Journal
 
 Each day's linked references arrive with the day in `/api/journal`'s payload
 and render inline (`JournalDayReferences`, reusing `BacklinksSection`). A day on
 screen keeps the list it first rendered: `BacklinksSection` snapshots `initial`
 into state, and a resync replaces day objects in place under stable keys.
 Nothing unmounts a loaded day, so each mounted outline and its `useDismiss`
-listener last for the session (perf scenarios `I` and `J`).
+listener last for the session (the perf gate's journal scenarios).
 
 The days on screen are a contiguous, newest-first run of the non-empty days
 `/api/journal` serves, starting at today. Paging state lives in one reducer,
@@ -238,6 +283,21 @@ load failed: any success clears it. A result that answers a superseded load
 changes nothing. A batch shorter than asked for means the past is exhausted.
 A resync over more than `SERVER_MAX_DAYS` days drops the oldest off, since the
 server clamps `days`; scrolling loads them back.
+
+#### The `/files` browser
+
+`/files` is a table over `/api/assets/search`; the store is in
+[files-and-assets.md](files-and-assets.md). Image and PDF thumbs open in-app
+(`ImageOverlay`, `PdfViewer`'s overlay-only mode). The refs popover renders
+through `BacklinkGroupList`, which provides `InertMediaContext` itself
+whenever `onNavigate` is set, so media in a navigable row is inert and the
+whole row is the click target. `AssetRefGroup` has
+no `page_id`, which keeps asset refs out of `mergeGroups`. `filesPaging.ts`
+owns the list's fetch state. A filter change bumps the generation and clears
+the selection at the keystroke, not when the debounced reload fires. Select
+all and Load more start only from a list loaded under the current generation,
+since until then `items` and `total` belong to the old filter and a Delete
+would remove files outside the new one.
 
 ### Popovers and menus
 
@@ -259,32 +319,32 @@ node, not the React node, so a portalled surface stops its own clicks.
 | `AutocompletePopup`, `DatePickerPopup` | none: `BlockInput` owns their keys |
 
 A modal surface (one that traps focus, locks scrolling or answers keys beyond
-Escape) uses `useModal` and nothing hand-rolled. Only the topmost modal
-answers keys, because every modal's capture listener on `window` runs
-whatever `stopPropagation` says. The body stays locked until the last modal
-closes. Focus goes back to `triggerRef` if given, else to whatever held it
-when the modal opened, and only from the topmost modal. A surface whose keys
-another component owns hand-rolls its dismissal.
+Escape) uses `useModal` and nothing hand-rolled; a surface whose keys another
+component owns hand-rolls its dismissal. `useModal` keeps a stack, and
+`useModal.test.tsx` pins it: only the topmost modal answers keys, the body
+stays locked until the last one closes, and focus goes back (to `triggerRef`,
+else to what held it) only from the topmost.
 
 The topmost modal stops Escape in the capture phase at `window`, so nothing
-beneath it closes on the same keypress: not the page menu, not the assistant
-panel's `onKeyDown`, not a `useDismiss` listener. A non-modal popover inside a
-modal therefore cannot answer Escape and must itself be a `useModal`. Keys
-are ignored while an IME composes (`isComposing` or `keyCode` 229).
+beneath it closes on the same keypress, whether a menu, the assistant panel's
+`onKeyDown` or a `useDismiss` listener. A non-modal popover inside a modal
+therefore cannot answer Escape and must itself be a `useModal`.
 
-`"cycle"` wraps Tab and Shift+Tab inside the surface (`focusWrap.ts`), as in
-the confirm and blocked dialogs; every modal also locks body scroll and
-restores focus on close. The three pinned
-surfaces keep Tab on one element: `LocalFilePicker` is driven from its search
+`"cycle"` wraps Tab and Shift+Tab inside the surface (`focusWrap.ts`).
+`"pin"` keeps Tab on one element: `LocalFilePicker` is driven from its search
 box, and `GoodlinksReader`'s sandboxed iframe would swallow a cycling Tab,
 since its keydowns never reach the app
 ([files-and-assets.md](files-and-assets.md#the-reader-and-the-goodlinks-command)).
-A confirm opened from the page menu closes first on Escape; a second Escape
-closes the menu.
 
 A row's `RefCountBadge` opens `BlockRefBacklinksPopover`, which fetches
 `GET /api/block/{uid}/backlinks` at open, so the list is live while the count
 is as fresh as the page payload.
+
+Every clipboard write goes through `copyText`, which resolves `false` instead
+of throwing when the Clipboard API is missing or the write is refused.
+`Files` and `DroppedDraftNotice` then show the text to copy by hand. The block
+menu's Copy block reference and Cmd/Ctrl+C on a block selection
+(`EditableBlockTree`) ignore the result, so their failure shows nothing.
 
 Every confirmation goes through `useConfirm` (`components/ConfirmDialog.tsx`),
 never `window.confirm` ([below](#ios-and-phone-behaviour)). The owning
@@ -294,46 +354,11 @@ hook with a confirm-backed handler takes `confirm` as an argument, as
 batches can land while a dialog is open, so a handler re-derives its target
 after the await.
 
-Dismissible notice lines render through `DismissibleNotice`: `tone: "error"`
-is an alert, `"status"` a status. `useOutline` exposes one `notices` list
-(`outline/notices.ts`: one slot per `NoticeKind`, listed by `noticeList`) and
-`EditablePage` maps it; `EditablePage`'s picker notice and `TopBar`'s menu
-error use the component directly. The classes and roles are what `styles.css`
-and the e2e locators select on.
-
-### The `/files` browser
-
-`/files` is a table over `/api/assets/search`; the store is in
-[files-and-assets.md](files-and-assets.md). Image and PDF thumbs open in-app
-(`ImageOverlay`, `PdfViewer`'s overlay-only mode). The refs popover renders
-through `BacklinkGroupList`, which provides `InertMediaContext` itself
-whenever `onNavigate` is set, so media in a navigable row is inert and the
-whole row is the click target. `AssetRefGroup` has
-no `page_id`, which keeps asset refs out of `mergeGroups`. `filesPaging.ts`
-owns the list's fetch state. A filter change bumps the generation and clears
-the selection at the keystroke, not when the debounced reload fires. Select
-all and Load more start only from a list loaded under the current generation,
-since until then `items` and `total` belong to the old filter and a Delete
-would remove files outside the new one.
-
-### Linked references
-
-`BacklinksSection` shows the groups in `backlinksPaging.ts`. Show more and the
-filter panel's load-all are walks, and several can be in flight together, so
-the section counts as loading until every walk has settled. A sync-driven
-refresh replaces the groups from offset 0; a walk cannot start, and the panel
-cannot open, while one is in flight, since either would page on from groups
-the refresh is about to replace.
-
-### Unlinked references
-
-`UnlinkedSection` keeps each block's Link status in `unlinkedStatus.ts`, which
-owns the lifecycle, and pages `/api/unlinked` by `offset`, and the server drops a
-block from that list once it references the page. So a delivered Link takes
-its block out of the loaded list and one off `total`, and Show more asks from
-the count of loaded blocks still listed. Counting a block whose Link is not
-yet delivered as gone can only re-fetch it, which `mergeGroups` drops;
-counting a gone one as listed skips the next block.
+Dismissible notice lines render through `DismissibleNotice`, whose classes and
+roles (`tone: "error"` an alert, `"status"` a status) are what `styles.css`
+and the e2e locators select on. `useOutline` exposes one `notices` list
+(`outline/notices.ts`: one slot per `NoticeKind`, listed by `noticeList`),
+which `EditablePage` maps.
 
 ## iOS and phone behaviour
 
@@ -360,25 +385,22 @@ list comes from `GET /api/assistant/models` on first open, with a hardcoded
 fallback (`FALLBACK_MODELS` in `chatMachine.ts`).
 
 - `client.ts::streamMessage` feeds the response body through `sse.ts`, a pure
-  frame parser, into the chat driver's dispatch (`chatDriver.ts`). It
-  bypasses `apiFetch`, which reads the body as JSON, and replicates its 401
-  handling.
+  frame parser, into the chat driver (`chatDriver.ts`). It bypasses `apiFetch`,
+  which reads the body as JSON, and replicates its 401 handling.
 - `sse.ts` drops a frame whose `event:` name is not in `EVENT_TYPES`, which
   is generated with the `AssistantEvent` union ([assistant.md § The stream
   contract](assistant.md#the-stream-contract), which owns the tolerance rule).
   That hides keepalives, and also drops a new event type until the web is
   regenerated.
-- After `STREAM_STALL_TIMEOUT_MS` with nothing received the turn errors, with
-  an error that is not an `AbortError`: the driver's `streamFailure`
-  reports an `AbortError` as `aborted`, and `step` shows no error for it.
-- The busy clock (`elapsed.ts::elapsedLabel`) restarts on each phase label,
-  tool start and confirm resume, so a parked approval does not inflate it.
+- A stalled stream (`STREAM_STALL_TIMEOUT_MS`) errors with something that is
+  not an `AbortError`: the driver's `streamFailure` reports an `AbortError` as
+  `aborted`, and `step` shows no error for it.
 - A tool line pairs with its `tool_finished` by `tool_use_id`, across turns,
   so a stopped turn's write still resolves in the next. Only a line not yet
   done pairs, so a reused id cannot turn a finished line's `✗` into `✓`.
-  `.assistant-tool-failed` and `.assistant-tool-warning` are text nodes, never
-  `tokenizeBlock`: a tool result is untrusted text, and a failure reason can
-  echo model-chosen input.
+- A tool result is untrusted text, and a failure reason can echo model-chosen
+  input, so `.assistant-tool-failed` and `.assistant-tool-warning` are text
+  nodes, never `tokenizeBlock`.
 - `stripCaretBlockRefs` (`assistant/normalizeRefs.ts`) runs before
   `tokenizeBlock`, because some models copy the `^uid` marker into citations
   and the grammar rejects `((^uid))`.
@@ -415,21 +437,20 @@ stateDiagram-v2
     stopping --> idle: New chat
 ```
 
-**Stop is a move from every busy phase.** After it, no output of that turn
+Stop is a move from every busy phase. After it, no output of that turn
 reaches the panel. A create cannot be called back, so Stop in `creating`
 keeps the conversation the create returns but starts no stream from it.
-Stop in `streaming` asks the server (`postStop`). The turn stays
-`stopping` until its stream is over (`turn_stopped`, an `error` event, or
-the stream's end) and its stop POST has settled, so the panel is idle only
-once the server is ([turn phase](assistant.md#the-turn-phase)). The
-exceptions are an aborted stream, from Stop's fallback or New chat, after
-which the server may still be draining; `streamWithBusyRetry` absorbs that.
+Stop in `streaming` asks the server (`postStop`), and the rules below keep the
+panel busy until the server's turn is over
+([turn phase](assistant.md#the-turn-phase)). After an aborted stream, from
+Stop's fallback or New chat, the server may still be draining;
+`streamWithBusyRetry` retries the 409 that a send meets then.
 
 | Rule | Reason |
 |---|---|
 | Every request's result names its turn, and changes nothing on screen unless that turn is busy and not stopping. That includes a failed confirm POST | New chat clears the transcript at once, so a superseded turn's events must not fold into the new one. After Stop no card is left to answer again |
 | A stream's 404 re-creates the conversation once, with the same model, in the same turn. A second 404 fails the turn | The server retires a reaped, evicted or dead conversation, and a lost harness ends its turn with `HARNESS_LOST`. The next send to it gets a 404 |
-| The picker shows the model of the conversation that is creating or open, as the create returned it, and is locked exactly then. The models list's default applies only while there is none and the user has not picked | A conversation keeps the model it was created with, so the picker shows that one |
+| The picker shows the model of the conversation that is creating or open, as the create returned it, and is locked then. The models list's default applies only while there is none and the user has not picked | A conversation keeps the model it was created with, so the picker shows that one |
 | The driver posts the stop only once the stream's response has opened, and retries no 409 after Stop. A stream that settles first posts nothing | `POST …/stop` names no turn. An opened response means the server has reserved this turn, so the stop cannot reach another |
 | A stopped turn ends only once its stop POST has settled (`stopSettled`) | The server acts on a stop before it answers, so a settled POST cannot stop a later turn |
 | If the POST fails, or the turn has not ended within `STOP_ACK_TIMEOUT_MS` (`chatDriver.ts`), the driver aborts the stream and the POST | The server's own bound is `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S` once it hears the stop; past it the panel must still be freed. An aborted POST can still reach the server later and stop the next turn |
@@ -446,10 +467,17 @@ this section ([checks.md § Property gate](checks.md#property-gate)).
 fails on, and `AGENTS.md` § Testing says how to run them.
 
 - **Unit** (Vitest + jsdom): co-located `*.test.ts(x)`. `src/test-setup.ts`
-  fails any unsilenced `console.warn`/`console.error`. `src/test-guards.ts`,
-  shared with the property suite, caps fast-check filters and starts
-  `orphanWatchdog.ts`, which kills a vitest worker whose parent has gone.
-  Coverage thresholds are in `vite.config.ts`.
+  fails whichever test is running when a `console.warn` or `console.error`
+  lands, or the file when it lands after the last test. So a stray timer's
+  message surfaces in a later test: read the message, not the test name. Traps
+  that make a test pass without proving anything:
+
+  | Trap | Instead |
+  |---|---|
+  | `fireEvent.click` in jsdom moves no focus, and the op queue posts nothing | call `focus()` yourself; assert writes through `SyncFake` (`test-helpers.ts`) |
+  | A bubble listener never sees a click inside an interactive island, which stops propagation | to prove a click was not prevented, read `defaultPrevented` in a `document` listener added with `capture: true` |
+  | A fixture that derives a daily-page title from the real date collides with a seeded page on some days | pin the date, as `router.test.ts` and `parity.test.ts` pin `nowMs` |
+  | A hidden `<input type=file>` inside a component that unmounts on blur loses the pick, because `change` fires after the unmount (no `POST /api/assets` in the logs) | keep it in a stable ancestor, as `EditableBlockTree` does with `.upload-input` |
 - **E2E** (Playwright, `web/e2e/`): any HTTP 5xx fails the run (`fixtures.ts`),
   and a server-side exception fails teardown.
   `e2e/server-state.ts::waitForServerText` waits for a write to reach the
@@ -466,11 +494,6 @@ fails on, and `AGENTS.md` § Testing says how to run them.
   | `.journal-day.last()` moves as days are added | locate a seeded day by its title |
   | jsdom has no popups | prove a click opens no window with `context.on("page")` |
   | "element is not stable" or "detached" retries for 30 s | something bumped `resyncGeneration` and remounted the tree |
-- **Lint**: `web/eslint.config.js`'s header names its rule families;
-  `tooling/lintConfig.test.ts` proves each rule fires.
-- **Budgets** (`web/tooling/budgets.json`, `viteBudgetPlugin.ts`): the build
-  fails when the entry, largest asset, total, service-worker precache or a
-  library's owned bytes (mermaid, pdfjs, katex) exceed their caps.
 - **Perf**: `web/tooling/perf/check.ts` is the frontend half of
   `perf/check.sh` ([checks.md § Performance gate](checks.md#performance-gate)); its
   [README](../../web/tooling/perf/README.md) lists the files and the measurement caveats.
@@ -486,11 +509,21 @@ fails on, and `AGENTS.md` § Testing says how to run them.
   backend's (`devProxyOrigin` in `web/tooling/devProxyOrigin.ts`). Any other
   origin goes upstream unchanged and is refused there. Rewriting every origin
   would let any page on `localhost` write to the backend through the proxy.
+- `web/pnpm-workspace.yaml` turns off pnpm's stale-dependency check
+  (`verifyDepsBeforeRun`). The check keys on the project path, and a
+  worktree shares the main checkout's `node_modules` through a symlink. With
+  the check on, a script run in a worktree installs through the link and
+  repoints the main checkout's packages at that worktree.
 - `@sqlite.org/sqlite-wasm` stays in `optimizeDeps.exclude`, because its wasm
   URL resolution breaks under dep optimization.
 - Hashed bundles go under `app-assets/`. The server sends `index.html` with
   `Cache-Control: no-cache`, so a reload after a deploy fetches the new shell
   and its chunk names.
+- `server.fs.allow` lists the repo root so `?raw` can import `docs/keyboard.md`
+  from above `web/`; without it vitest fails with "Denied ID".
+- A build over budget throws in `generateBundle`, before the output is written,
+  so measure a size with the limits in `budgets.json` raised. Attribute a
+  budget delta against the commit just before the merge.
 - The service worker (`vite-plugin-pwa`, `autoUpdate`) precaches what
   `globPatterns` lists: the app shell, every emitted chunk, the sqlite wasm,
   the pdf.js worker and the core KaTeX fonts. A cold offline start therefore
@@ -499,54 +532,10 @@ fails on, and `AGENTS.md` § Testing says how to run them.
 
 ## Tech stack
 
-| Concern | Choice (major versions) |
+Versions are in `web/package.json`. What the code does not say:
+
+| Concern | Choice |
 |---|---|
-| UI | React 18, react-router-dom 6 (v7 future flags), TypeScript 5 |
-| Build | Vite 6, `vite-plugin-pwa`, pnpm. Overrides go in `pnpm-workspace.yaml`, since pnpm 11 ignores `package.json` overrides |
+| Build | Vite with `vite-plugin-pwa` and pnpm. Overrides go in `pnpm-workspace.yaml`, since pnpm 11 ignores `package.json` overrides |
 | Offline | `@sqlite.org/sqlite-wasm` in a Web Worker on the OPFS SAHPool VFS |
 | Lazy-loaded | KaTeX, beautiful-mermaid with a stock Mermaid fallback, react-pdf/pdf.js, highlight.js, fzf |
-| Tests | Vitest + jsdom, Playwright, Testing Library, type-aware ESLint |
-
-## Module map
-
-An orientation map, not an inventory. `outline/` is mapped in
-[frontend-editor.md](frontend-editor.md#module-map), and `sync/` and
-`replica/` in [sync-and-offline.md](sync-and-offline.md#key-pieces).
-
-```
-web/src/
-├── main.tsx, App.tsx         Shell  Entry; providers; routes; the global chords
-├── routeMeta.ts              Core   Path, label and browser title per route
-├── Popover.tsx               Shell  Anchored-popover chrome
-├── useDismiss.ts             Shell  Outside-mousedown and Escape dismissal
-├── useScrollFlashTarget.ts   Shell  Scroll a data-uid into view, flash and pin it
-├── externalLink.ts           Core   iOS-standalone check; the x-safari rewrite
-├── uid.ts                    Shell  Mints uids, ClientId and BatchId
-├── ids.ts                    Core   Parses an untrusted string into an id brand
-├── paths.ts                  Core   Page title to URL path and back
-├── contexts.ts               Shell  The app's React contexts
-├── useStaleGuard.ts          Shell  The stale-response idiom for async reads
-├── useReducerRef.ts          Shell  A reducer whose handler reads its own dispatch's state
-├── useModal.ts, focusWrap.ts Shell  Modal keys, scroll lock and focus; the Tab wrap (Core)
-├── useStoredToggle.ts        Shell  A two-valued localStorage preference (keys: prefKeys.ts)
-├── theme.ts, useTheme.ts,    —      The theme preference and the theme it resolves to
-│   useEffectiveTheme.ts
-├── test-helpers.ts           —      Unit-test fixtures; re-exports test-mint.ts
-├── test-mint.ts              —      Checked brand mints for unit and e2e tests
-├── styles.css                —      All styling (styling.md)
-├── api/                      Shell  apiFetch, the typed client, brands.ts, the
-│                                    generated openapi.json and types.d.ts
-├── views/                    Shell  One file per route. EditablePage is one editable
-│                                    outline, shared by PageView and sidebar panels
-├── components/               Shell  Editor views (EditableBlockTree, BlockInput),
-│                                    inline renderers and chrome; each pure half
-│                                    sits beside its component (pdfViewerCore …)
-├── assistant/                Shell  The chat panel; chatMachine.ts (Core) is its
-│                                    state, sse.ts (Core) parses frames
-├── help/                     Core   parseHelpMarkdown.ts, the /help renderer
-├── dnd/                      Shell  Drag context and drop zones; dropGeometry.ts (Core)
-├── grammar/                  Core   Block grammar (frontend-rendering.md)
-├── outline/                  —      The editor engine (frontend-editor.md)
-└── sync/, replica/           —      Delivery and the offline engine
-                                     (sync-and-offline.md)
-```

@@ -79,7 +79,7 @@ Mount order must not decide which fetch runs.
 
 | Kind | Registered by | Missing-page policy |
 |---|---|---|
-| `page` | `useOutlinePageLoad` | its surface's |
+| `page` | `useOutlinePageLoad` (`PageView`, `EditableSidebarPanel`) | `substituteMissingDaily` |
 | `day` | `Journal` | `substituteMissingDay` |
 | `editable` | `useOutline` (every `EditablePage`) | `substituteMissingDaily` |
 
@@ -118,7 +118,7 @@ to the input, and only a changed batch advances `transitionOutline`'s
 
 ## The editor
 
-**Only the focused block is editable.** It is an auto-growing `<textarea>`
+Only the focused block is editable. It is an auto-growing `<textarea>`
 holding raw markdown; every other block is rendered HTML (`EditableBlockTree` →
 `EditableBlock` → `BlockInput`). There is no `contenteditable`.
 
@@ -168,7 +168,7 @@ flowchart LR
     KP -->|plain typing| D["draft (debounced)"]
     D -->|flush| OPS
     OPS --> S["outline session: optimistic applyOps (Core)"]
-    S --> Q["SyncProvider.enqueue → durable op queue"]
+    S --> Q["session.actions.enqueue (useSyncActions) → durable op queue"]
     Q --> API["POST /api/ops"]
 ```
 
@@ -192,36 +192,29 @@ flowchart LR
 | An offset transform, and a caret the editor places, snaps with `snapCaret` (`keyEdits.ts`); `outline/surrogatePairs.props.test.ts` covers each | a slice between surrogate halves stores two U+FFFD |
 | `set_collapsed` does not stamp (`opBumpsUpdatedAt`, which `replica/localOps.test.ts` pins for the replica) | collapsing re-dates the block |
 | No create or move lands a block past `MAX_OUTLINE_DEPTH`. `run()` and `undoManager`'s dispatch judge each by its subtree in the tree the ops leave (`depthCap.ts`), and refuse the whole command | the server refuses the batch whole, and the offline queue's [rebase](sync-recovery.md#a-batch-the-server-rejects) drops its other ops with it |
-| No edit queues a text past a [text limit](backend.md#planning), or a ref (link, tag or attribute) to a [refused title](backend.md#refused-titles): past `MAX_PAGE_TITLE_CHARS`, or holding `#` or other forbidden syntax. `useBlockDraft.admit` judges a draft's text limits and refs as it is typed or pasted, leaving out the title the caret is still inside; `run()` judges a saved draft's refs again (`draftRefusal`, [below](#drafts-and-commit-points)) and a command's ops, and `undoManager`'s dispatch a replay. As on the server, every ref a text holds is judged (`linkedTitleRefusal` shares `findOpTitleViolation`'s loop), so a block holding a refused one refuses edits that keep it. `UnlinkedSection` judges a Link's text limits only | the same: the server's 400 poisons the batch, and the repair drops its other ops with it |
-| No command queues a batch past `MAX_OPS_PER_BATCH` or the private body cap (`findBatchSizeViolation`, `batchLimits.ts`). `run()` judges the draft's text ops together with the command's, for the reason it judges depth. An undo or redo replay (`undoManager.ts`) and a cross-page drop (`DndProvider.drop`) ask the same judge, `editRefusal` (`editRefusal.ts`): an inverse can be far larger than the op it undoes, since deleting a subtree is one op and restoring it is one `create` per block. A refused replay keeps its entry on its stack; a refused drop moves nothing | the server refuses the batch whole, and a queued refusal discards it |
+| No edit queues a text past a [text limit](write-path.md#work-bounds-under-the-write-lock), or a ref (link, tag or attribute) to a [refused title](backend.md#refused-titles): past `MAX_PAGE_TITLE_CHARS`, or holding `#` or other forbidden syntax. `useBlockDraft.admit` judges a draft as it is typed or pasted ([below](#drafts-and-commit-points)); `run()` judges a saved draft's refs again (`draftRefusal`). As on the server, every ref a text holds is judged (`linkedTitleRefusal` shares `findOpTitleViolation`'s loop), so a block already holding a refused one refuses edits that keep it | the server's 400 poisons the batch, and the repair drops its other ops with it |
+| No command queues a batch past `MAX_OPS_PER_BATCH` or the private body cap (`findBatchSizeViolation`, `batchLimits.ts`). `run()`, `undoManager`'s replays and a cross-page drop (`DndProvider.drop`, `dnd/DndContext.tsx`) all ask `editRefusal` (`editRefusal.ts`). An inverse can be far larger than the op it undoes: deleting a subtree is one op, and restoring it is one `create` per block | the server refuses the batch whole, and a queued refusal discards it |
 
-A depth refusal (`DEPTH_NOTICE`), a text-limit one (`textLimitNotice`), a
-title one (`TITLE_LENGTH_NOTICE`, `TITLE_SYNTAX_NOTICE`) or a size one
-(`BATCH_TOO_LARGE_NOTICE`) shows in the one `edit` notice `EditablePage` renders. The next command
-that applies, or Dismiss, clears it, and a refused draft's notice also
-clears once the draft saves. A refused keystroke leaves the textarea
-as it was, with the caret where the refused insertion began
-(`refusedEditCaret`). A refused paste is prevented, so its caret and
-selection are untouched. The draft's own text still ships, unless its own
-titles are refused ([below](#drafts-and-commit-points)), and a refused undo or
-redo keeps its entry for a retry. The entry goes back as though refused at the
-keypress (`restoreEntry`), because an unmounted page's read can take long
-enough for a new edit to be recorded meanwhile. A refused undo goes back below
-every edit recorded during its read, so the next undo still takes the newest
-edit first. A refused redo whose take a newer edit followed is dropped, since
-that edit cleared redo.
+A refusal (depth, text limit, title or size; each check carries its own notice
+text) shows in the one `edit` notice `EditablePage` renders. The next command that applies, or
+Dismiss, clears it, and a refused draft's notice also clears once the draft
+saves. A refused keystroke leaves the textarea as it was, with the caret where
+the refused insertion began (`refusedEditCaret`). The draft's own text still
+ships, unless its own titles are refused ([below](#drafts-and-commit-points)).
+A refused undo or redo keeps
+its entry for a retry (`restoreEntry`; `history.test.ts` pins where it goes
+back).
+
 Code can hide a nest: a split inside a fence can cut off its closing
 backticks, so the first half exposes the nest and is refused, here and by the
 server.
 
-Where the web cannot see the tree, it sends and the server decides. An undo
-for an unmounted page whose read fails is judged for the text limits and
-the titles only, and a cross-page drop meets only `allowedDepths`
-([below](#drag-and-drop)).
-Refusing there would block an edit the web cannot check, for a case that
-needs an outline near the cap. A cross-page drop meets no title judge
-either: a drop onto a page whose title was stored past the cap is refused
-by the replica's queue or the server, not by the outline.
+Where the web cannot see the tree, the server decides the depth. An undo for
+an unmounted page whose read fails, and a cross-page drop, reach
+`editRefusal` with no tree, so it judges them for everything but depth; the
+drop's depth meets only `allowedDepths` ([below](#drag-and-drop)). Refusing
+there would block an edit the web cannot check, for a case that needs an
+outline near the cap.
 
 ### Drafts and commit points
 
@@ -234,8 +227,8 @@ title.
 **A draft's `base` is the text the textarea showed, and a flush hashes `base`,
 never the tree.** A `PendingDraft` (`outline/draft.ts`) is
 `{ uid, text, base }`. A remote batch can reach the tree before the textarea
-adopts it, and a dirty textarea never adopts it. Hashing `base` lets the server keep
-both texts when another device edited from the same base.
+adopts it, and a dirty textarea never adopts it. Hashing `base` lets the
+server keep both texts when another device edited from the same base.
 
 The pending draft is the only record of a dirty textarea. `useBlockDraft`
 asks `handlers.pendingDraft(uid)` and keeps no flag of its own, so a draft a
@@ -266,16 +259,16 @@ sees (the `Ctrl-Shift-D` chord, back/forward); its callback sits in a ref so
 the effect runs only then. The flush is a layout cleanup declared before the
 session effect's, which releases the handle and editor lease. React runs
 them in that order, so another surface of the page (a sidebar panel) takes
-the lease already showing the last edit. `ensureRefPageThenOpen` (`Ctrl-O` over a `[[ref]]`)
-flushes before `POST /api/pages`. Tab hide and reload are covered by the
-`visibilitychange` flush, a refused draft excepted (below).
+the lease already showing the last edit. `ensureRefPageThenOpen` (`Ctrl-O` over
+a `[[ref]]`) flushes before `POST /api/pages`. Tab hide and reload are covered
+by the `visibilitychange` flush, a refused draft excepted (below).
 
-Typing leaves out the title the caret is in while the draft is held
-(`linkedTitleRefusal`'s `heldCaret`). The user is still typing that title,
-and one the server accepts can pass through one it refuses: `[[a [b] c]]`
-passes through `[[a []]]`, whose title ends in `[`. `run()` judges the whole draft's refs when it saves it, and
-`admit` has judged its text limits and refs, so no path ships an unjudged text. A draft it refuses is never sent. It stays on
-screen to be fixed while its block can show it:
+`admit` leaves out the title the caret is in (`linkedTitleRefusal`'s
+`heldCaret`), because the user is still typing it, and one the server accepts
+can pass through one it refuses: `[[a [b] c]]` passes through `[[a []]]`,
+whose title ends in `[`. `run()` judges the whole draft's refs when it saves
+it, so no path ships an unjudged text. A draft it refuses is never sent. It
+stays on screen to be fixed while its block can show it:
 
 | With a refused draft on a shown block | What happens |
 |---|---|
@@ -291,11 +284,10 @@ flush drop it from the outline into `droppedDrafts.ts`. That happens when
 the outline unmounts, or when its block leaves the tree or goes under a
 collapsed ancestor (a remote batch, a cross-page move, a parent `initial`).
 `DroppedDraftNotice`, in the app shell's banner stack, outlives the outline.
-It shows the text and copies the whole of it; a clipped preview says so. The
-command or focus change that met the draft then goes ahead, so the outline
-never stays pinned to a block nobody can see. A refused draft, pending or
-in the notice, is lost only to a killed tab or a reload: one the user
-confirms on desktop, any reload on iPad Safari, which does not ask.
+The command or focus change that met the draft then goes ahead, so the outline
+never stays pinned to a block nobody can see. A refused draft, pending or in
+the notice, is lost only to a killed tab or a reload: one the user confirms on
+desktop, any reload on iPad Safari, which does not ask.
 
 ### Keyboard policy
 
@@ -355,15 +347,16 @@ no edit to reset it.
 Plain Cmd-V is native, unless its result would be past a text limit:
 `BlockInput` judges it first and prevents it. `Shift-Cmd-V` arms an outline
 paste, which `paste.ts` plans as one batch, comparing indent widths
-ordinally so 2-space, 4-space and tab clipboards all work. `ClipboardEvent` carries no modifiers, so the chord is
-recorded on keydown without `preventDefault`, and the next `paste` consumes it.
+ordinally so 2-space, 4-space and tab clipboards all work. `ClipboardEvent`
+carries no modifiers, so the chord is recorded on keydown without
+`preventDefault`, and the next `paste` consumes it.
 
 ### Slash commands
 
 [keyboard.md](../keyboard.md#slash-commands) lists them, and
 `help/slashCommandsDocumented.test.ts` fails on an undocumented one. `/upload`,
-`/goodlinks` ([files-and-assets.md](files-and-assets.md#goodlinks-copies)) and `/link-local-file` give up the
-block before their picker opens. `LocalFilePicker` is a cached `import()`
+`/goodlinks` ([files-and-assets.md](files-and-assets.md#goodlinks-copies)) and
+`/link-local-file` give up the block before their picker opens. `LocalFilePicker` is a cached `import()`
 chunk, which keeps fzf out of the entry.
 
 ### The bullet and the block menu

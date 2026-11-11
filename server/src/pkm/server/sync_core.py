@@ -3,7 +3,7 @@
 journal rows -- next_since is the last row scanned, not the last distinct
 entity -- so a client can never skip an entity whose older journal row
 fell inside a window that also contained a newer row for something else
-(offline-editing-design.md §1, the A@1/B@2/A@100 case).
+(docs/architecture/sync-and-offline.md § The changes feed).
 
 Also the chunking/reordering helpers hydration uses to replace a
 per-entity query with bounded `WHERE x IN (...)` set queries:

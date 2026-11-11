@@ -80,7 +80,7 @@
     "/api/ops": {
       "post": {
         "summary": "Post Ops",
-        "description": "One SQLite transaction covers the batch_id dedupe check through the\ncommit, so a concurrent delete_page/rename_page/cleanup_journal commit\n(their own connections, on the threadpool) can no longer land between\nthe dedupe read and this batch's writes. A write lock the busy timeout\ncould not take (a concurrent writer already holds it) returns 503 with\nRetry-After rather than surfacing the raw sqlite3.OperationalError. The\nbatch applies only if every `expect` entry still holds, checked in the\nsame transaction after the dedupe, else 412 and nothing is written.\n\nThe text-limit and title judges (`judge_batch`) run first, in the\nthreadpool: off the write lock, so one large batch's refusal never\nholds every other write, and off the event loop. A refused batch is\nlooked up before its 400, without the write lock (a committed row is\nvisible to a plain read). One already applied, whose ack was lost and\nwhich a deploy has since put over a limit, replays its stored ack: a\n400 would make the client discard edits the server holds.",
+        "description": "One SQLite transaction covers the `batch_id` dedupe check through the\ncommit, so no commit from another connection lands between the dedupe\nread and this batch's writes. A write lock the busy timeout could not\ntake is a 503 with Retry-After, never the raw sqlite3.OperationalError.\nThe batch applies only if every `expect` entry still holds, checked in\nthe same transaction after the dedupe, else 412 and nothing is written.\n\nThe text-limit and title judges (`judge_batch`) run first, in the\nthreadpool: off the write lock, so one large batch's refusal never\nholds every other write, and off the event loop. A refused batch is\nlooked up before its 400, without the write lock (a committed row is\nvisible to a plain read). One already applied replays its stored ack,\neven if a limit has tightened since: a 400 would make the client\ndiscard edits the server holds.",
         "operationId": "post_ops_api_ops_post",
         "requestBody": {
           "content": {
@@ -344,7 +344,7 @@
     "/api/pages": {
       "post": {
         "summary": "Create Page",
-        "description": "Idempotent: creating an existing page returns its row, not an error.\nA title longer than 1,000 characters (`MAX_PAGE_TITLE_CHARS`) is a 422,\neven for a page stored before the cap.",
+        "description": "Idempotent: creating an existing page returns its row, not an error.\nA title over `MAX_PAGE_TITLE_CHARS` is a 422, even for a page stored\nbefore the cap.",
         "operationId": "create_page_api_pages_post",
         "requestBody": {
           "content": {
@@ -424,7 +424,7 @@
     "/api/page/{title}/rename": {
       "post": {
         "summary": "Rename Page",
-        "description": "Rename a page, rewriting every [[link]]/#tag/attr:: in block text.\nWhen the new title is taken: 409 unless allow_merge is true, in which\ncase the source page is concatenated onto the target (source's\ntop-level blocks appended after the target's, referencing text\nrewritten to the target, source page row dropped) -- a confirm-gated\nmerge, not a silent overwrite. Case-sensitive throughout, like\npages.title itself. 422 when the new title is blank, refused or longer\nthan 1,000 characters, or when the rewrite would carry a block over the\ntext length cap or nest its `[[` past the cap (a longer title lengthens\nevery link to it); the detail names the block, and nothing changes.",
+        "description": "Rename a page, rewriting every [[link]]/#tag/attr:: in block text.\nWhen the new title is taken: 409 unless allow_merge is true, in which\ncase the source page is concatenated onto the target (source's\ntop-level blocks appended after the target's, referencing text\nrewritten to the target, source page row dropped) -- a confirm-gated\nmerge, not a silent overwrite. Case-sensitive throughout, like\npages.title itself. 422 when the new title is blank, refused or over\n`MAX_PAGE_TITLE_CHARS`, or when the rewrite would carry a block over the\ntext length cap or nest its `[[` past the cap (a longer title lengthens\nevery link to it); the detail names the block, and nothing changes.",
         "operationId": "rename_page_api_page__title__rename_post",
         "parameters": [
           {
@@ -3182,7 +3182,7 @@
           "page_title"
         ],
         "title": "CreatePageOp",
-        "description": "Durable push path for offline page creation (offline-editing-design.md\n\u00a71): an empty page created offline has no block op to carry its title, so\npage creation is itself an op -- get_or_create semantics, safely\nreplayable."
+        "description": "Durable push path for offline page creation: an empty page created\noffline has no block op to carry its title, so page creation is itself an\nop -- get_or_create semantics, safely replayable."
       },
       "CreatePageRequest": {
         "properties": {

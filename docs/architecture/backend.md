@@ -543,8 +543,8 @@ raises `BlankTitleError`.
 
 One shared password behind Tailscale, the transport boundary. `auth_core.py`
 does the constant-time scrypt check and signs the `pkm_session` cookie
-(`v1.<issued_ms>.<sig>`). `docs/SECURITY.md` owns the cookie flags and the
-threat model.
+(`v1.<issued_ms>.<sig>`). [SECURITY.md](../SECURITY.md) owns the cookie
+flags, the threat model and what these mechanisms leave open.
 
 Response headers that apply to every route are set in one place,
 `SecurityHeadersMiddleware`; routes set only their own. An
@@ -645,9 +645,10 @@ their refusals are logged and carry the security headers.
 
 `OriginGuardMiddleware` (`origin_guard.py`, rules in `origin_core.py`)
 checks `Origin` on every `/api/ws` handshake and on every HTTP method
-outside `SAFE_METHODS`. `ts.net` is a public suffix, so every tailnet host
-is same-site with the app and the `Lax` cookie rides along on a sibling
-host's handshake and simple POSTs. A request with no `Origin` passes,
+outside `SAFE_METHODS`, because the `Lax` cookie rides along on a sibling
+tailnet host's handshake and simple POSTs
+([SECURITY.md § Authentication](../SECURITY.md#authentication)). A request
+with no `Origin` passes,
 because browsers send one on every request the guard checks; only
 non-browser clients omit it. A request with exactly one `Origin`, in the
 allowed set, passes. Anything else is refused.
@@ -754,8 +755,8 @@ over its tailnet IPv6 address gives the device a second key, since the
 direct listener is IPv4 only. `X-Real-IP`, `Forwarded`
 and `Tailscale-User-*` are never read for the key. Serve passes `X-Real-IP`
 through from the client, and `Tailscale-User-*` is forgeable on the direct
-listeners. A local process can pick its key with `X-Forwarded-For`; the
-throttle does not defend against a process that can read `config.json`.
+listeners. What this keying leaves open is in
+[SECURITY.md § Known limitations](../SECURITY.md#known-limitations).
 
 Nothing enforces the conditions this keying needs:
 
@@ -807,7 +808,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 |---|---|---|
 | POST | `/api/login` *(public)* | Password → session cookie; a body past `PUBLIC_BODY_MAX_BYTES` gets 413 ([Auth](#auth)) |
 | GET | `/login` *(public)* | HTML login form |
-| GET | `/healthz` *(public)* | Liveness check |
+| GET | `/healthz` *(public)* | Liveness check; answers `{"ok": true}` and nothing else |
 | GET | `/{path}` *(public)* | SPA fallback; hashed bundles under `/app-assets/` |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |

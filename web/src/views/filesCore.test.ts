@@ -1,6 +1,7 @@
 // pattern: Functional Core
 import { describe, expect, it } from "vitest";
 import type { AssetSearchItem } from "../api/payloads";
+import fixture from "../../../shared/fixtures/mime_parity.json";
 import { canonicalTitleOf, uidOf, shaOf } from "../test-helpers";
 import {
   EMPTY_FILTERS, PAGE_SIZE, blockedFilesHeading, clipboardToken,
@@ -166,5 +167,11 @@ describe("an asset delete the server refuses", () => {
   it("says what removing the link would do", () => {
     expect(fileBlockerReasonLabel("limit")).toBe(
       "removing the link would put this block over a size or nesting limit");
+  });
+});
+
+describe("mimeCategory parity with the server", () => {
+  it.each(fixture.rows)("buckets $mime as $category", (row) => {
+    expect(mimeCategory(row.mime)).toBe(row.category);
   });
 });

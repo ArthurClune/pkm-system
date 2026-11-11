@@ -1,0 +1,108 @@
+{
+  "rows": [
+    {
+      "mime": "image/png",
+      "category": "image"
+    },
+    {
+      "mime": "image/jpeg",
+      "category": "image"
+    },
+    {
+      "mime": "image/gif",
+      "category": "image"
+    },
+    {
+      "mime": "image/webp",
+      "category": "image"
+    },
+    {
+      "mime": "image/heic",
+      "category": "image"
+    },
+    {
+      "mime": "image/svg+xml",
+      "category": "image"
+    },
+    {
+      "mime": "application/pdf",
+      "category": "pdf"
+    },
+    {
+      "mime": "text/plain",
+      "category": "document"
+    },
+    {
+      "mime": "text/markdown",
+      "category": "document"
+    },
+    {
+      "mime": "text/csv",
+      "category": "document"
+    },
+    {
+      "mime": "application/json",
+      "category": "document"
+    },
+    {
+      "mime": "application/msword",
+      "category": "document"
+    },
+    {
+      "mime": "application/vnd.ms-excel",
+      "category": "document"
+    },
+    {
+      "mime": "application/vnd.ms-powerpoint",
+      "category": "document"
+    },
+    {
+      "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "category": "document"
+    },
+    {
+      "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "category": "document"
+    },
+    {
+      "mime": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "category": "document"
+    },
+    {
+      "mime": "image/avif",
+      "category": "image"
+    },
+    {
+      "mime": "image/x-unknown",
+      "category": "image"
+    },
+    {
+      "mime": "text/html",
+      "category": "document"
+    },
+    {
+      "mime": "text/x-python",
+      "category": "document"
+    },
+    {
+      "mime": "application/zip",
+      "category": "other"
+    },
+    {
+      "mime": "application/octet-stream",
+      "category": "other"
+    },
+    {
+      "mime": "application/pdf+x",
+      "category": "other"
+    },
+    {
+      "mime": "audio/mpeg",
+      "category": "other"
+    },
+    {
+      "mime": "",
+      "category": "other"
+    }
+  ]
+}

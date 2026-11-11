@@ -241,6 +241,25 @@ export interface DurablePendingRow {
   error: string | null;
 }
 
+/** Every pending_ops row exactly as stored, in id order. With `after` (null
+ * for "before the first row"), only the one row that follows it, so a walk
+ * that hits a damaged row stops with the prefix it already read. */
+export function readPendingRows(
+  db: ReplicaDb, after?: PendingRowId | null,
+): DurablePendingRow[] {
+  const bound = after === undefined ? "" : " WHERE id > ?";
+  const limit = after === undefined ? "" : " LIMIT 1";
+  return db.select(
+    "SELECT id AS pending_row_id, batch_id, ops_json, poisoned," +
+    ` error AS pending_error FROM pending_ops${bound} ORDER BY id${limit}`,
+    ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"],
+    after === undefined ? [] : [after ?? -1],
+  ).map((r) => ({
+    id: r.pending_row_id, batch_id: r.batch_id, ops_json: r.ops_json,
+    poisoned: r.poisoned, error: r.pending_error,
+  }));
+}
+
 /** Insert `rows` verbatim, ids included, in one transaction. Ids are kept
  * because the provider deletes a poisoned row by id after a repair and acked
  * seqs key on ids; a row whose id is already present is left as it is, so

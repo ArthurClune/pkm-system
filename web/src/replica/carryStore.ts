@@ -7,7 +7,7 @@
 // real sqlite-wasm in Node and the worker supplies the pool-backed one.
 
 import type { ReplicaDb } from "./db";
-import { type DurablePendingRow, importPendingRows } from "./queue";
+import { type DurablePendingRow, importPendingRows, readPendingRows } from "./queue";
 
 /** The carry file as the host provides it. */
 export interface CarryFiles {
@@ -58,14 +58,7 @@ export function createCarryStore(files: CarryFiles): CarryStore {
         const table = db.select(
           "SELECT 1 AS n FROM sqlite_master WHERE type='table' AND name='pending_ops'", ["n"]);
         if (table.length === 0) return [];
-        return db.select(
-          "SELECT id AS pending_row_id, batch_id, ops_json, poisoned," +
-          " error AS pending_error FROM pending_ops ORDER BY id",
-            ["pending_row_id", "batch_id", "ops_json", "poisoned", "pending_error"],
-        ).map((r) => ({
-          id: r.pending_row_id, batch_id: r.batch_id, ops_json: r.ops_json,
-          poisoned: r.poisoned, error: r.pending_error,
-        }));
+        return readPendingRows(db);
       });
     },
     discard() {

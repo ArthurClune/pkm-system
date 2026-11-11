@@ -7,17 +7,8 @@ from __future__ import annotations
 
 from typing import Literal, TypedDict
 
+from pkm.assets_core import DESCRIBABLE_MIME
 from pkm.contracts.text import well_formed
-
-# The image subset of ALLOWED_UPLOAD_MIME that OpenAI vision accepts
-# (png/jpeg/webp/gif). HEIC and SVG are uploadable but not describable, so
-# they are skipped silently — "no description" is the normal state for
-# them, not a failure. All image/gif uploads are enqueued regardless of
-# animation (this module can't detect it); an animated gif that OpenAI
-# rejects surfaces as describe_error, not a skip.
-ELIGIBLE_MIME = frozenset({
-    "image/png", "image/jpeg", "image/webp", "image/gif",
-})
 
 # Above this we skip rather than downscale (no Pillow dependency in v1).
 # 15 MB of raw bytes base64-encodes to ~20 MB, the OpenAI request ceiling;
@@ -36,7 +27,11 @@ Status = Literal["described", "failed", "pending"]
 
 
 def describe_action(mime: str, size: int) -> Action:
-    if mime not in ELIGIBLE_MIME:
+    # A type outside DESCRIBABLE_MIME is skipped silently: "no description"
+    # is its normal state, not a failure. Every gif is enqueued, since an
+    # animated one cannot be told here; one OpenAI rejects surfaces as
+    # describe_error, not a skip.
+    if mime not in DESCRIBABLE_MIME:
         return "skip"
     if size > MAX_DESCRIBE_BYTES:
         return "too_large"
@@ -46,7 +41,7 @@ def describe_action(mime: str, size: int) -> Action:
 def enabled_reason(api_key: str | None, config_enabled: bool) -> str | None:
     """None = feature enabled; otherwise why it is off (shown in /settings).
     `api_key` is the already-resolved key (env var or key-file contents —
-    see server/_default_describe_service), so this stays pure/precedence-
+    see server/app._default_describe_service), so this stays pure/precedence-
     agnostic about where it came from."""
     if not config_enabled:
         return "disabled in config.json (image_descriptions=false)"

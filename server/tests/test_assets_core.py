@@ -163,6 +163,58 @@ def test_mime_category(mime, cat):
     assert mime_category(mime) == cat
 
 
+# --- MIME_POLICY: the sets derive from one table ---
+
+_OFFICE = "application/vnd.openxmlformats-officedocument"
+
+
+def test_the_mime_sets_derive_from_one_table():
+    assert assets_core.ALLOWED_UPLOAD_MIME == frozenset({
+        "image/png", "image/jpeg", "image/gif", "image/webp", "image/heic",
+        "image/svg+xml",
+        "application/pdf",
+        "text/plain", "text/markdown", "text/csv", "application/json",
+        "application/msword", "application/vnd.ms-excel",
+        "application/vnd.ms-powerpoint",
+        f"{_OFFICE}.wordprocessingml.document",
+        f"{_OFFICE}.spreadsheetml.sheet",
+        f"{_OFFICE}.presentationml.presentation",
+    })
+    assert assets_core.INLINE_MIME == frozenset({
+        "image/png", "image/jpeg", "image/gif", "image/webp", "image/heic",
+        "application/pdf",
+    })
+    assert assets_core.DESCRIBABLE_MIME == frozenset({
+        "image/png", "image/jpeg", "image/webp", "image/gif",
+    })
+    assert assets_core._DOCUMENT_MIME == (
+        "application/json",
+        "application/msword", "application/vnd.ms-excel",
+        "application/vnd.ms-powerpoint",
+        f"{_OFFICE}.wordprocessingml.document",
+        f"{_OFFICE}.spreadsheetml.sheet",
+        f"{_OFFICE}.presentationml.presentation",
+    )
+
+
+def test_each_row_has_the_category_mime_category_gives():
+    for mime, policy in assets_core.MIME_POLICY.items():
+        assert policy.category == mime_category(mime), mime
+
+
+def test_svg_uploads_but_is_never_inline_or_described():
+    svg = "image/svg+xml"
+    assert svg in assets_core.ALLOWED_UPLOAD_MIME
+    assert svg not in assets_core.INLINE_MIME
+    assert svg not in assets_core.DESCRIBABLE_MIME
+
+
+def test_describable_types_are_inline_images():
+    for mime in assets_core.DESCRIBABLE_MIME:
+        assert mime in assets_core.INLINE_MIME, mime
+        assert mime_category(mime) == "image", mime
+
+
 # --- type_where: fragment must agree with mime_category ---
 
 @pytest.mark.parametrize("mime", [

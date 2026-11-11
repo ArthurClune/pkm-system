@@ -1,5 +1,6 @@
 # pattern: Imperative Shell
-"""Serve content-addressed assets ."""
+"""Content-addressed assets: upload, serving, search, delete, and the
+selected-asset zip."""
 from __future__ import annotations
 
 import hashlib
@@ -18,7 +19,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Upl
 from fastapi.responses import FileResponse
 
 from pkm.assets_core import (
-    AssetCategory, asset_url, export_limit_violation, hasher_hex, parse_sha256,
+    ALLOWED_UPLOAD_MIME, INLINE_MIME, AssetCategory, asset_url, export_limit_violation, hasher_hex, parse_sha256,
     strip_asset_tokens, type_where, zip_arcnames)
 from pkm.contracts.ops import BlockUid, Sha256Hex
 from pkm.contracts.responses import (
@@ -32,7 +33,8 @@ from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db, write_txn
-from pkm.server.fts import phrase_query
+from pkm.server.fts import like_escape, phrase_query
+from pkm.server.path_params import path_sha256
 from pkm.server.mime_sniff import resolve_stored_mime, sniff_mime
 from pkm.server.store import reindex_refs_for_text
 from pkm.server.tempfile_response import CleanupFileResponse
@@ -45,27 +47,6 @@ logger = logging.getLogger("pkm.assets")
 # Read/write in bounded chunks rather than slurping the whole upload (up
 # to max_upload_bytes) into one bytes object.
 _CHUNK_SIZE = 1024 * 1024  # 1 MiB
-
-# Upload allowlist (spec: images, PDF, plain text, office docs). SVG upload
-# is allowed; serving forces it to download (see INLINE_MIME in Task 4).
-ALLOWED_UPLOAD_MIME = frozenset({
-    "image/png", "image/jpeg", "image/gif", "image/webp", "image/heic",
-    "image/svg+xml",
-    "application/pdf",
-    "text/plain", "text/markdown", "text/csv", "application/json",
-    "application/msword", "application/vnd.ms-excel",
-    "application/vnd.ms-powerpoint",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-})
-
-# Safe to render in the app's origin: raster images + PDF. SVG is
-# deliberately absent — it can script, so it downloads instead.
-INLINE_MIME = frozenset({
-    "image/png", "image/jpeg", "image/gif", "image/webp", "image/heic",
-    "application/pdf",
-})
 
 # Selected-asset export: proportionate limits for a personal,
 # single-user server -- generous enough that no real selection through
@@ -116,9 +97,7 @@ def search_assets(q: str = "", limit: Int64 = 50, offset: Int64 = 0,
     params: list[object] = []
     needle = q.strip()
     if needle:
-        esc = (needle.replace("\\", "\\\\")
-                     .replace("%", "\\%")
-                     .replace("_", "\\_"))
+        esc = like_escape(needle)
         where_parts.append(r"(description LIKE ? ESCAPE '\'"
                            r" OR filename LIKE ? ESCAPE '\')")
         params += [f"%{esc}%", f"%{esc}%"]
@@ -204,7 +183,7 @@ def _strip_references(db: Db, sha: Sha256Hex) -> int:
 
 
 @router.delete("/api/assets/{sha256}", response_model=AssetDeleteAck)
-def delete_asset(request: Request, sha256: Sha256Hex,
+def delete_asset(request: Request, sha: Sha256Hex = Depends(path_sha256),
                  if_unreferenced: bool = False,
                  db: Db = Depends(get_db),
                  config: Config = Depends(get_config)) -> AssetDeleteAck:
@@ -228,9 +207,6 @@ def delete_asset(request: Request, sha256: Sha256Hex,
     The reference check and the delete share one write transaction, so a
     block that starts referencing the asset cannot slip in between. Undo
     history is its caller, releasing an upload once redo is gone."""
-    sha = parse_sha256(sha256)
-    if sha is None:
-        raise HTTPException(status_code=404, detail="asset not found")
     # The write lock precedes every read: no batch can commit between the
     # strip's read of a block and its rewrite, nor a new reference slip in
     # between the unreferenced check and the delete.
@@ -315,12 +291,9 @@ def export_assets(sha256s: list[str] = Form(default=[]),
 
 
 @router.get("/assets/{sha256}/{filename}")
-def get_asset(sha256: Sha256Hex, filename: str,
+def get_asset(filename: str, sha: Sha256Hex = Depends(path_sha256),
               db: Db = Depends(get_db),
               config: Config = Depends(get_config)) -> FileResponse:
-    sha = parse_sha256(sha256)
-    if sha is None:
-        raise HTTPException(status_code=404, detail="asset not found")
     row = db.select_one("SELECT mime, filename FROM assets WHERE sha256 = ?",
                         (sha,))
     path = config.assets_dir / sha[:2] / sha

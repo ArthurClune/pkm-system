@@ -77,8 +77,8 @@ counterpart ([docs/cli.md](../cli.md#reading)).
 ## The shared client
 
 `PkmClient` sends the token from `~/.config/pkm-cli/config.json` as the
-`pkm_session` cookie. Every method returns a validated `pkm/contracts/responses.py` model. A 2xx body that fails
-its model raises `ResponseSchemaError`, naming the endpoint and field path.
+`pkm_session` cookie. Every method returns a validated
+`pkm/contracts/responses.py` model. A 2xx body that fails its model raises `ResponseSchemaError`, naming the endpoint and field path.
 Unknown extra fields are ignored, so an older CLI works against a newer
 server.
 
@@ -194,8 +194,9 @@ the spec's syntax.
 | bare (`Notes`) | the first block with that exact text at any level, plain blocks included |
 
 A marked spec uses the same rule as `--parent`, so the two agree on which
-`Notes` they mean. `_SECTION_MARKER` allows one to three `#`, the app's whole
-heading domain (`HEADING_COMMANDS`), so `####` is bare text.
+`Notes` they mean. `_SECTION_MARKER` (`render.py`) and `planning._HEADING_SPEC` both allow one to
+three `#`, the app's whole heading domain (`HEADING_COMMANDS` in
+`web/src/outline/slashCommands.ts`), so `####` is bare text.
 
 ## Heading round trip
 

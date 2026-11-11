@@ -68,7 +68,8 @@ user who has had the chance to read all of it.
 | `check_write()` validates with the tool's own FastMCP argument model and, for `batch`, the schema `apply_batch` applies; input they reject is a `Refusal` | FastMCP coerces arguments (`"yes"` becomes true, `"null"` becomes None, a JSON string becomes a list), so the card must show the coerced value. `test_preview_matches_what_the_tool_receives` pins the parity |
 | Any exception inside `check_write()` or `build_write_preview()` is a `Refusal`, logged with its type only | Raised out of `can_use_tool`, it would reach the SDK as a control error rather than a reason; its message can quote the attacker's input |
 | `ClaudeConversation.can_use_tool` denies a `Refusal` without a confirm | The user cannot approve what the tool would not run as shown |
-| Allow applies only while every block the card shows keeps the text it showed (for a delete, the same blocks under it with the same texts); where a block sits is not checked. Allow returns `approved_input` (the card's input plus an `expect` entry per block) as `updated_input`. The tool posts it as `OpBatch.expect`, which `routes_ops.post_ops` checks ([the write path](write-path.md)) | The hashes travel server to server. The browser sends only `confirm_id` and a boolean, and the model never sees `updated_input`, so neither can forge or drop one |
+| Allow applies only while every block the card shows keeps the text it showed. For a delete, that is the same blocks under it with the same texts. Where a block sits is not checked | The card shows text, so that is what Allow must still match |
+| Allow returns `approved_input` (the card's input plus an `expect` entry per block) as `updated_input`. The tool posts it as `OpBatch.expect`, which `routes_ops.post_ops` checks ([the write path](write-path.md)) | The hashes travel server to server. The browser sends only `confirm_id` and a boolean, and the model never sees `updated_input`, so neither can forge or drop one |
 | `check_write()` refuses input carrying a `GATE_FIELDS` key (`expect`), whatever its value | A model's own `expect` could carry stale hashes or `[]`. The key stays in the tool's schema, because the CLI refuses an Allow whose `updated_input` fails that schema |
 | `ClaudeEngine` starts `pkm-mcp` with `--require-expect`: `update_block` and `batch` then refuse a call with no `expect` key before any request. The card always sets one, `[]` when the call names no stored block | An SDK or CLI that dropped `updated_input` would run the model's input unguarded; this fails closed instead. External `pkm-mcp` callers run without the flag |
 | An op carries warnings for an `allow_merge` rename, a `((uid))` or `{{alias}}` parent, and a batch `update` or `move` uid | The target rows alone can mislead. An alias parent overrides the op's `page`; a uid that names no block sends the text, or a note, to today's daily note. The wording follows `plan_save`, `plan_batch` and `ops_core.classify_skip` |
@@ -124,7 +125,8 @@ entry, whichever op comes first.
 | Rule | Reason |
 |---|---|
 | `preview_write` reads the blocks on the server, in a thread, for the checked call, just before the `confirm_request`. The web fetches nothing | The tool writes the server's database, so that is the text to show. A web fetch would add a route, a loading state and a race with Allow arming |
-| `preview_write` calls `check_write` once, before any read. `check_write` deep-copies the input and never raises. The uids read, the card and `approved_input` all come from the `CheckedWrite` it returns | A refusal reads nothing, and tells the model the check's reason or `input could not be previewed`. `could not be read` means only that the read or its guard failed. The `CheckedWrite` owns its input, so a caller's later change to its dict cannot reach what Allow runs |
+| `preview_write` calls `check_write` once, before any read. `check_write` deep-copies the input and never raises. The uids read, the card and `approved_input` all come from the `CheckedWrite` it returns | A refusal reads nothing. The `CheckedWrite` owns its input, so a caller's later change to its dict cannot reach what Allow runs |
+| A refusal's wording to the model is the check's reason, or `input could not be previewed`; `could not be read` means only that the read or its guard failed | The model needs to tell a bad call from a store it could not read |
 | `db_block_reader` reads texts, pages, delete counts and subtree hashes, and parents' ancestors in one read transaction. A failed read, or a block whose page row is missing, is a `Refusal`, never an absent entry | An absent uid is what the card shows as `missing`, so it must mean only "no row" |
 | The excerpt is a clip with `text_length` beside it, never a silent cut. `parseWritePreview` accepts only the server's exact clip (`CURRENT_EXCERPT_CHARS` is in `previewKeys.gen.ts`) | A block can hold a million characters, and "first N of M" must be the clip the server made |
 | `_moved_into_delete` refuses a batch delete, naming both writes, when an earlier write moves an existing block into its subtree, directly, through an `as` alias or under a descendant. A move it cannot place (a `## Heading` parent, a parent uid with no row, a cycle) is refused too. It places parents by the ancestors read for `ancestor_uids` | The count is of the store before the batch runs, so a block moved in would go uncounted. No batch needs to move a block where it then deletes it. `pkm batch` is unchecked: its user wrote the batch |
@@ -144,17 +146,15 @@ that case together:
 
 **A card is never silently stale from the assistant's own writes.** The
 queue answers cards in order, so a write that lands after a card's read was
-already waiting or running when the read started, or parked during it. The
-server stamps that card and the web counts the Allow that released the write;
+already waiting or running when the read started, or parked during it.
 `test_claude_engine.py` pins each case. The stamp errs towards the marker: a
 write still counts as running until the pump has read its result.
 
 Edits from outside the turn, such as the editor beside the panel, get no
-marker. Allow refuses them instead: 412, and nothing is written; the tool
+marker. Allow refuses them instead: 412, and nothing is written. The tool
 line shows the failure ([below](#a-writes-result)), and a retry builds a
-fresh card. An `update_block`
-on a block deleted meanwhile fails on `edit_block`'s own 404 before the
-check runs.
+fresh card. An `update_block` on a block deleted meanwhile fails on
+`edit_block`'s own 404 before the check runs.
 
 ### The stream contract
 
@@ -292,10 +292,14 @@ What `claude_engine.py` fixes before and around each harness subprocess:
 | Host files | `MCP_ONLY_TOOLS` (`upload_asset`) is left out of `--tools`, and `classify_tool` calls it `unknown`, so a call is denied without a card | `upload_asset` reads a host path as the service account. The service runs in `app/server`, so `../../data/config.json` is the secret config. The assistant has no files of its own to upload |
 | Provider routing | `resolve_harness_env()` keys on `policy.ZAI_MODELS`, not a `glm` literal | `glm` sets `ANTHROPIC_BASE_URL` (`ZAI_BASE_URL`) and `ANTHROPIC_AUTH_TOKEN` in the subprocess env and asks for `ZAI_SDK_MODEL`, an alias z.ai maps to its plan default, so no GLM version name is in the code |
 | Model resolution | Claude models go to the SDK as aliases; the `claude` binary bundled in `claude-agent-sdk` maps them to ids | A new Claude model arrives only through an SDK upgrade, which is why `server/pyproject.toml` exempts the SDK from the uv cooldown |
-| Environment | `cli_path` is a per-conversation launcher (`harness_env.launcher_script`), a Python script that calls `os.execve` on the CLI with only the names in `harness_env_names()` taken from its own environment. `pkm-mcp` runs under `/usr/bin/env -i` with only `PKM_CLI_CONFIG` (`mcp_server_config`) | The SDK merges `os.environ` under `options.env` and cannot remove a variable, and the CLI hands its environment to MCP servers, so the allow-list has to sit in the launcher. Without it both processes see the service's other keys and proxy routing. A variable the CLI needs must be added to `HOST_ENV`: the SDK-drift test catches one the SDK starts setting, but nothing catches a CLI need, so check with a live start. `pkm-mcp` ignores `PKM_URL` once `PKM_CLI_CONFIG` is set (`load_mcp_config`; [cli.md](../cli.md)) |
+| Environment | `cli_path` is a per-conversation launcher (`harness_env.launcher_script`), a Python script that calls `os.execve` on the CLI with only the names in `harness_env_names()` taken from its own environment. `pkm-mcp` runs under `/usr/bin/env -i` with only `PKM_CLI_CONFIG` (`mcp_server_config`) | The SDK merges `os.environ` under `options.env` and cannot remove a variable, and the CLI hands its environment to MCP servers, so the allow-list has to sit in the launcher. Without it both processes see the service's other keys and proxy routing. `pkm-mcp` ignores `PKM_URL` once `PKM_CLI_CONFIG` is set (`load_mcp_config`; [cli.md](../cli.md)) |
 | Auth | A fresh session token (`auth_core.sign_session`) in a 0600 temp config file per conversation, passed as `PKM_CLI_CONFIG` | The file is deleted on close. The environment carries only the file's path; the token is in the file |
 | Transactional startup | `create_conversation()` cleans up through `ClaudeConversation.close()` on any exit but success | The launcher is removed with the config file. Both unlinks are in a `finally`, because `except Exception` misses `BaseException` |
 | Credentials | The SDK uses the machine's Claude subscription login ([deploy/README.md](../../deploy/README.md#assistant-prerequisites)) | No `ANTHROPIC_API_KEY` in the service environment |
+
+A variable the CLI needs must be added to `HOST_ENV`. The SDK-drift test
+catches one the SDK starts setting, but nothing catches a CLI need, so check
+with a live start.
 
 Without a z.ai key ([configuration](backend.md#configuration-and-entrypoints)),
 `available_models()` drops `glm`, `create()` rejects it with a 400, and the
@@ -311,13 +315,15 @@ client that vanished without a clean close. Thinking content is not streamed;
 `TurnMapper.map` turns each `content_block_start` into a `phase` event
 ("reasoning", "preparing `<tool>`", "replying") for the panel's busy line.
 
-The stall watchdog treats total SDK silence as a dead network, since real
-reasoning emits a steady stream of events. After `STALL_TIMEOUT_S` with no
+The SDK's model request has no first-token timeout, so on a dead network a
+turn would wait forever and only the user's patience would end it. The stall
+watchdog treats total SDK silence as that network, since real reasoning emits
+a steady stream of events. After `STALL_TIMEOUT_S` with no
 SDK message, the pump interrupts the harness and drains the aborted result
 as Stop does ([the turn phase](#the-turn-phase)), then reports an in-band
 `error`. The interrupt and drain go first because the error ends the
-consumer's loop, which cancels the pump. The deadline is suspended while a confirm is parked, because that
-silence is the user's. The client's own guard is in
+consumer's loop, which cancels the pump. The deadline is suspended while a
+confirm is parked, because that silence is the user's. The client's own guard is in
 [frontend.md](frontend.md#the-assistant-panel).
 
 ## Testing

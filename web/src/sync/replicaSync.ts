@@ -17,6 +17,7 @@ import type {
 } from "../replica/client";
 import { isSessionFatal } from "../replica/errors";
 import { INITIAL_SEQ } from "../ids";
+import { coalesce } from "./coalesce";
 import { listeners } from "./listeners";
 import type { OpQueue } from "./opQueue";
 import { readOpsAck } from "./opsAck";
@@ -259,7 +260,6 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   let windowFailure: { cursor: SyncSeq; message: string; count: number } | null
     = null;
   let pulling: Promise<void> | null = null;
-  let starting: Promise<void> | null = null;
   let again = false;
   let authoritativeRepair: "poison" | null = null;
   // A pull pass left work to a poison repair; see owePoisonPull.
@@ -512,7 +512,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     try {
       if (options.awaitInFlightPull) {
         // a failed start is reported by its own catch
-        await starting?.catch(() => undefined);
+        await startOnce.idle();
         await (pulling ?? Promise.resolve());
       }
       const lease = await replica.prepareRecovery();
@@ -851,23 +851,25 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     noteSuccess({ force: true });
     await pull();
   };
+  // single-flight: the mount-time start (cold start offline needs no
+  // socket), the first connect's start and a backoff retry share one
+  // initialization. A failed one takes the pull's backoff, so a first
+  // bootstrap that failed with the socket up does not wait for the next
+  // reconnect, which can be hours away.
+  const startOnce = coalesce(async () => {
+    try {
+      await doStart();
+    } catch (error: unknown) {
+      noteFailure(error);
+      throw error;
+    }
+  }, { merge: () => undefined, joinable: () => true });
   const start = async (): Promise<void> => {
     if (started) {
       await pull();
       return;
     }
-    // single-flight: the mount-time start (cold start offline needs no
-    // socket), the first connect's start and a backoff retry share one
-    // initialization. A failed one takes the pull's backoff, so a first
-    // bootstrap that failed with the socket up does not wait for the next
-    // reconnect, which can be hours away.
-    starting ??= doStart()
-      .catch((error: unknown) => {
-        noteFailure(error);
-        throw error;
-      })
-      .finally(() => { starting = null; });
-    await starting;
+    await startOnce(undefined);
   };
 
   return {

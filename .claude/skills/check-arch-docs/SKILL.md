@@ -32,8 +32,9 @@ this check enforces; this file only sequences the audit.
    regression.
 
 2. **Judgment review** — find the last re-check
-   (`git log --oneline --grep=re-check -i -- docs/architecture/`, or the
-   docs-rebalance-emphasis merge `7d842de` failing that) and read
+   (the SHA on the first line of `.claude/skills/recheck-docs/last-recheck`;
+   `git log -1 --format=%H --grep='^Docs-Recheck:'` confirms it; before any
+   re-check has run, use the merge base with `main`) and read
    `git diff <last>..HEAD -- docs/architecture/` against the skill's
    principles: incidents phrased as prose ("used to", "before the fix"),
    every paragraph opening with a bolded thesis, a new section appended at

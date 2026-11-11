@@ -12,8 +12,7 @@ afterEach(() => vi.unstubAllGlobals());
 const PLANS = [{
   page_id: pageIdOf(9),
   page_title: canonicalTitleOf("Plans"),
-  items: [{ uid: uidOf("uid_p1"), text: "Remind me on [[July 7th, 2026]]",
-            breadcrumbs: [] }],
+  items: [{ uid: uidOf("uid_p1"), text: "Remind me on [[July 7th, 2026]]" }],
 }];
 
 function show(refs: Parameters<typeof journalBacklinks>[0],
@@ -54,8 +53,7 @@ it("resolves ((block refs)) in a reference's text from the journal-wide map",
   // payload's block_ref_texts, which the Journal seeds for every day.
   show(
     [{ page_id: pageIdOf(9), page_title: canonicalTitleOf("Plans"),
-       items: [{ uid: uidOf("uid_p1"), text: "see ((ref_local)) for details",
-                 breadcrumbs: [] }] }],
+       items: [{ uid: uidOf("uid_p1"), text: "see ((ref_local)) for details" }] }],
     { ref_local: { text: "resolved locally", page_title: canonicalTitleOf("Elsewhere") } },
   );
   expect(screen.getByText("resolved locally")).toBeInTheDocument();

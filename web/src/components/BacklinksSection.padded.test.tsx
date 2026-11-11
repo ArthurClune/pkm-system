@@ -18,8 +18,8 @@ const initial: Backlinks = {
   groups: [{
     page_id: pageIdOf(3), page_title: canonicalTitleOf("Daily"),
     items: [
-      { uid: uidOf("tuid-a"), text: "[[AI]] and [[ML]]", breadcrumbs: [] },
-      { uid: uidOf("tuid-b"), text: "[[ AI ]] and [[ML ]]", breadcrumbs: [] },
+      { uid: uidOf("tuid-a"), text: "[[AI]] and [[ML]]" },
+      { uid: uidOf("tuid-b"), text: "[[ AI ]] and [[ML ]]" },
     ],
   }],
   total_pages: 1, offset: 0, limit: 20,

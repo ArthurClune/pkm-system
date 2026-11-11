@@ -261,7 +261,7 @@ Known symptoms and their fixes:
 | `install.sh` stops at `Bootstrap failed: 5: Input/output error` and leaves the server unloaded | Re-run the `launchctl bootstrap` line |
 | HTTPS over the tailnet connects but the TLS handshake hangs on a recreated node | Serve is waiting on a new Let's Encrypt certificate. Retry patiently; Let's Encrypt allows five failed validations per hostname per hour |
 | On the Serve hostname, live updates never connect and edits stay queued; `access.log` shows `403` on `POST /api/ops` | The origin is missing from `serve_origins` (step 4 of [First install](#first-install)) |
-| After a deploy, an open tab can't load the PDF viewer, a diagram or formula, or shows `…` breadcrumbs | The tab runs the old bundle. Reload it |
+| After a deploy, an open tab can't load the PDF viewer or a diagram or formula | The tab runs the old bundle. Reload it |
 
 ## Image descriptions (optional)
 

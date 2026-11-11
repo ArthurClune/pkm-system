@@ -72,12 +72,6 @@ def walk_blocks(nodes: Sequence[BlockNode]) -> Iterator[BlockNode]:
         yield from walk_blocks(n.children)
 
 
-# Text the old item field carries where a trail exists. A bundle built
-# before `ancestors` renders it as its whole trail: an elision a click on
-# the item resolves, never the texts, which were the amplification.
-STALE_BUNDLE_CRUMB = "…"
-
-
 def _omit_empty(model: BaseModel, handler: SerializerFunctionWrapHandler,
                 field: str) -> object:
     """Serialize `model`, leaving `field` out when it is empty."""
@@ -90,14 +84,9 @@ def _omit_empty(model: BaseModel, handler: SerializerFunctionWrapHandler,
 class BacklinkItem(StrictModel):
     """A block linking the page (or block). `ancestors` is its breadcrumb
     trail, root first, as positions in its group's `ancestor_texts`; left
-    out when the block has no parent.
-
-    `breadcrumbs` is for bundles built before `ancestors`, which read it
-    off every item and throw on a missing one: `[STALE_BUNDLE_CRUMB]` where
-    the item has a trail, else empty. Nothing current reads it."""
+    out when the block has no parent."""
     uid: BlockUid
     text: str
-    breadcrumbs: list[str]
     ancestors: list[int] = Field(default_factory=list)
 
     @model_serializer(mode="wrap")

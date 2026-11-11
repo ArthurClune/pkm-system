@@ -34,9 +34,9 @@ it("shows each item's trail as its group's ancestor texts, root first", () => {
     page_id: pageIdOf(1), page_title: canonicalTitleOf("A"),
     ancestor_texts: ["Root", "Mid"],
     items: [
-      { uid: uidOf("tuid-s1"), text: "one", breadcrumbs: ["…"], ancestors: [0, 1] },
-      { uid: uidOf("tuid-s2"), text: "two", breadcrumbs: ["…"], ancestors: [0] },
-      { uid: uidOf("tuid-s3"), text: "three", breadcrumbs: [] }],
+      { uid: uidOf("tuid-s1"), text: "one", ancestors: [0, 1] },
+      { uid: uidOf("tuid-s2"), text: "two", ancestors: [0] },
+      { uid: uidOf("tuid-s3"), text: "three" }],
   }]);
   expect(group.items).toEqual([
     { uid: "tuid-s1", text: "one", crumbs: ["Root", "Mid"] },
@@ -47,7 +47,7 @@ it("shows each item's trail as its group's ancestor texts, root first", () => {
 it("marks an ancestor position its group lacks, never dropping it", () => {
   const [group] = showBacklinkGroups([{
     page_id: pageIdOf(1), page_title: canonicalTitleOf("A"),
-    items: [{ uid: uidOf("tuid-s1"), text: "one", breadcrumbs: ["…"],
+    items: [{ uid: uidOf("tuid-s1"), text: "one",
               ancestors: [0] }],
   }]);
   expect(group.items[0].crumbs).toEqual([MISSING_ANCESTOR_TEXT]);

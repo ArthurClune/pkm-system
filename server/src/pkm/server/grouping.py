@@ -15,9 +15,9 @@ from typing import TypedDict
 
 from pkm.changed import ChangeStatus
 from pkm.contracts.ops import BlockUid, PageId
-from pkm.contracts.responses import (STALE_BUNDLE_CRUMB, BacklinkGroup,
-                                     BacklinkItem, BlockGroup, ChangedGroup,
-                                     ChangedItem, GroupItem)
+from pkm.contracts.responses import (BacklinkGroup, BacklinkItem,
+                                     BlockGroup, ChangedGroup, ChangedItem,
+                                     GroupItem)
 from pkm.refs import CanonicalTitle
 from pkm.rows import Row
 from pkm.server.tree import Ancestors
@@ -88,7 +88,6 @@ def group_backlinks(rows: Sequence[Row],
                  for uid in ancestors.trails.get(r["uid"], [])]
         items.append(BacklinkItem(
             uid=r["uid"], text=r["text"],
-            breadcrumbs=[STALE_BUNDLE_CRUMB] if trail else [],
             ancestors=trail))
     return [BacklinkGroup(
         page_id=pid, page_title=titles[pid], items=items,

@@ -37,10 +37,6 @@ const fetchPage = (db: ReplicaDb, requested: string): PageMeta | null => {
 type BacklinkRow = Pick<Columns, "uid" | "text" | "src_page_id"
   | "src_page_title">;
 
-/** responses.STALE_BUNDLE_CRUMB, pinned by shim_parity.json: what a bundle
- * built before `ancestors` shows as an item's whole trail. */
-const STALE_BUNDLE_CRUMB = "…";
-
 const HOUR_MS = 60 * 60 * 1000;
 const CURRENT_WORK_SECTIONS = [
   { id: "last-24-hours", heading: "Last 24 hours", minAge: 0,
@@ -88,7 +84,7 @@ export function backlinks(db: ReplicaDb, pageId: PageId, offset: number,
  * Each group lists its items' ancestor texts once and items name them by
  * position, numbered as server grouping.group_backlinks numbers them: items
  * in row order, each trail root first. Like the server, an empty trail or
- * list is left out, and `breadcrumbs` is the stale-bundle field. */
+ * list is left out. */
 function groupBacklinkRows(rows: BacklinkRow[],
                            ancestors: Ancestors): BacklinkGroup[] {
   const groups: BacklinkGroup[] = [];
@@ -112,9 +108,8 @@ function groupBacklinkRows(rows: BacklinkRow[],
       return at;
     });
     group.items.push(trail.length > 0
-      ? { uid: r.uid, text: r.text, breadcrumbs: [STALE_BUNDLE_CRUMB],
-          ancestors: trail }
-      : { uid: r.uid, text: r.text, breadcrumbs: [] });
+      ? { uid: r.uid, text: r.text, ancestors: trail }
+      : { uid: r.uid, text: r.text });
   }
   for (const { group, seen } of index.values()) {
     if (seen.size > 0) {

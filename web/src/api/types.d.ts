@@ -1174,18 +1174,12 @@ export interface components {
          * @description A block linking the page (or block). `ancestors` is its breadcrumb
          *     trail, root first, as positions in its group's `ancestor_texts`; left
          *     out when the block has no parent.
-         *
-         *     `breadcrumbs` is for bundles built before `ancestors`, which read it
-         *     off every item and throw on a missing one: `[STALE_BUNDLE_CRUMB]` where
-         *     the item has a trail, else empty. Nothing current reads it.
          */
         BacklinkItem: {
             /** Uid */
             uid: Brands.BlockUid;
             /** Text */
             text: string;
-            /** Breadcrumbs */
-            breadcrumbs: string[];
             /** Ancestors */
             ancestors?: number[];
         };

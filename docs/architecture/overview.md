@@ -9,7 +9,8 @@ as an installable PWA.
 This directory is the "get up to speed" layer. It describes the system as it
 is. The system-wide *why* is in [Key decisions](#key-decisions); per-feature
 designs and their rejected alternatives are in the specs under
-[`docs/superpowers/specs/`](../superpowers/specs/).
+[`docs/superpowers/specs/`](../superpowers/specs/), which are frozen at
+approval and record the design as it was then.
 
 | Doc | Read when you |
 |---|---|

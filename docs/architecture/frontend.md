@@ -214,8 +214,8 @@ Every pathname under `/page/` renders PageView directly, because react-router
 compiles `*` to a `.*` that matches no newline, U+2028 or U+2029. A title
 the fold changes (a hand-typed `%0A`, a double space, an NBSP) is first
 redirected to the title it folds to (`normalizeRefTitle`). PageView, a sidebar
-panel and the Journal key their outline session by the page's stored title, whatever spelling opened them
-(`outline/titleKeys.props.test.tsx`).
+panel and the Journal key their outline session by the page's stored title,
+whatever spelling opened them (`outline/titleKeys.props.test.tsx`).
 
 ### One table for route metadata
 

@@ -30,9 +30,10 @@ export interface LegacyRepairDeps {
 
 export interface LegacyRepair {
   /** Repair after this rejection. `lane` says the queue paused the "lane"
-   * owner for it. Joins a repair still reading, which then reports under the
-   * newer error; a repair already past its stable point read too early for
-   * this one, so a fresh run follows it. */
+   * owner for it. Joins a repair still reading, whose events keep the error
+   * it started with while rejected() takes the newer one; a repair already
+   * past its stable point read too early for this one, so a fresh run
+   * follows it. */
   run(error: unknown, desync?: { lane: boolean }): Promise<void>;
   /** A socket reconnect: rerun a repair whose last attempt failed, exactly
    * as the banner's Retry does; otherwise nothing. A repair still running is

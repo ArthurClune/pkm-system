@@ -984,3 +984,14 @@ def test_raw_page_is_defined_once():
         ["git", "grep", "-n", r"def _raw_page\|def raw_page", "--",
          "src"], capture_output=True, text=True, check=True).stdout
     assert len(hits.splitlines()) == 1, hits
+
+
+def test_count_label_picks_singular_only_at_one():
+    from pkm.render import count_label
+
+    assert count_label(1, "block") == "1 block"
+    assert count_label(0, "block") == "0 blocks"
+    assert count_label(2, "sidebar entry", "sidebar entries") == (
+        "2 sidebar entries")
+    assert count_label(1, "stored title is", "stored titles are") == (
+        "1 stored title is")

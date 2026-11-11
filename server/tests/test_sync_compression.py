@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from pkm.contracts.responses import ChangesPayload, SnapshotPayload
 from pkm.server import routes_sync
 from pkm.server.http_encoding import GZIP_MIN_BYTES
 
@@ -44,6 +45,18 @@ def test_both_encodings_carry_the_same_json(client, url):
     assert json.loads(plain.content) == json.loads(packed.content)
     assert plain.headers["content-type"].startswith("application/json")
     assert packed.headers["content-type"].startswith("application/json")
+
+
+# FastAPI renders a response model with pydantic's dump_json; the routes
+# render their own body and must keep producing those bytes.
+@pytest.mark.parametrize("url,model", [
+    ("/api/sync/snapshot", SnapshotPayload),
+    ("/api/sync/changes?since=0", ChangesPayload),
+])
+def test_the_plain_body_is_pydantics_own_json(client, url, model):
+    plain = _get(client, url, "identity").content
+    assert plain == model.model_validate_json(plain).model_dump_json(
+        by_alias=True).encode()
 
 
 # TestClient adds its own Accept-Encoding when none is given, so the

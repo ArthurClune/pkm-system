@@ -15,7 +15,6 @@ from collections.abc import Sequence
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from pkm.contracts.ops import NO_SEQ, BlockUid, PageId, SyncSeq
@@ -273,12 +272,11 @@ def _sidebar_payloads(db: Db,
 
 
 def _encoded_json(request: Request, payload: BaseModel) -> Response:
-    """The payload as the JSON body FastAPI renders for a response model,
-    gzipped when the client accepts it. Runs after the read transaction has
-    closed, in the route's worker thread: neither the render nor the gzip
-    holds a read snapshot or blocks the event loop."""
-    rendered = JSONResponse(payload.model_dump(mode="json", by_alias=True))
-    body, headers = encode_body(bytes(rendered.body),
+    """The payload rendered as FastAPI renders a response model (pydantic's
+    `dump_json`, by alias), gzipped when the client accepts it. Runs after
+    the read transaction has closed, in the route's worker thread: neither
+    the render nor the gzip holds a read snapshot or blocks the event loop."""
+    body, headers = encode_body(payload.model_dump_json(by_alias=True).encode(),
                                 request.headers.get("accept-encoding"))
     return Response(body, media_type="application/json", headers=headers)
 

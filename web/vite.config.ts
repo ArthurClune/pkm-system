@@ -144,6 +144,9 @@ export default defineConfig({
     setupFiles: ["src/test-guards.ts", "src/test-setup.ts"],
     globals: false,
     exclude: ["e2e/**", "node_modules/**"],
+    // Only a hang guard: a test that is merely slow under load must not
+    // fail on vitest's 5s default.
+    testTimeout: 30_000,
     coverage: {
       provider: "v8",
       include: ["src/**/*.{ts,tsx}"],

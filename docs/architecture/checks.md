@@ -166,6 +166,11 @@ property of one pure module is an ordinary unit test instead
 specs: [server](../superpowers/specs/2026-10-02-property-checks-server-design.md),
 [web sync](../superpowers/specs/2026-10-03-property-checks-sync-harness-design.md).
 
+A web suite's `PROPERTY_LIMIT_MS` is a hang guard, not a performance promise:
+`numRuns` is sized to the quiet-machine time and the limit sits at about three
+times it, because other suites sharing the machine stretch a run several times
+over. An overrun reports as a budget problem, never as a finding.
+
 | Suite | Holds |
 |---|---|
 | `test_ops_state.py` | `POST /api/ops` matches `props/model.py`; the invariants are in the module docstring |

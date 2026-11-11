@@ -26,7 +26,7 @@ export const NUM_RUNS = 319_000;
 /** The margin over NUM_RUNS covers a slower gate: run after the other sync
  * files (as on a fresh vitest cache) the file measured about 5,300 examples
  * a second, about 4,100 with the judging: 78 seconds. */
-const PROPERTY_LIMIT_MS = 90_000;
+const PROPERTY_LIMIT_MS = 240_000;
 
 type Example = { start: BlockNode[]; commands: Command[] };
 

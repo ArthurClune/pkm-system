@@ -74,6 +74,16 @@ it("Enter resolves true", async () => {
   expect(screen.queryByRole("alertdialog")).toBeNull();
 });
 
+it("Enter while an IME composes does not resolve the confirm", async () => {
+  const onSettle = vi.fn();
+  render(<Harness onSettle={onSettle} />);
+  fireEvent.click(screen.getByText("open"));
+  fireEvent.keyDown(window, { key: "Enter", isComposing: true });
+  fireEvent.keyDown(window, { key: "Enter", keyCode: 229 });
+  expect(onSettle).not.toHaveBeenCalled();
+  expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+});
+
 it("clicking the overlay backdrop resolves false, clicking inside the card does not", async () => {
   const onSettle = vi.fn();
   render(<Harness onSettle={onSettle} />);

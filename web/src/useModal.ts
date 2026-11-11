@@ -57,6 +57,8 @@ export function useModal({
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (open[open.length - 1] !== entry) return;
+      // An IME's own Escape and Enter cancel or commit a composition.
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();

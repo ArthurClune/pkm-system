@@ -146,6 +146,21 @@ it("Escape calls onClose once and reaches neither a bubbling window listener nor
   }
 });
 
+it.each([
+  ["isComposing", { isComposing: true }],
+  ["keyCode 229", { keyCode: 229 }],
+])("Escape and onKey are ignored while an IME composes (%s)", (_name, init) => {
+  const onClose = vi.fn();
+  const onKey = vi.fn();
+  render(<Modal id="m" onClose={onClose} onKey={onKey} />);
+  fireEvent.keyDown(button("m-a"), { key: "Escape", ...init });
+  fireEvent.keyDown(button("m-a"), { key: "Enter", ...init });
+  expect(onClose).not.toHaveBeenCalled();
+  expect(onKey).not.toHaveBeenCalled();
+  fireEvent.keyDown(button("m-a"), { key: "Escape" });
+  expect(onClose).toHaveBeenCalledTimes(1);
+});
+
 it("with two modals open only the later one answers Escape, Tab and onKey", () => {
   const outer = { onClose: vi.fn(), onKey: vi.fn() };
   const inner = { onClose: vi.fn(), onKey: vi.fn() };

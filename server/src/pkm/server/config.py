@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, fields
 from pathlib import Path
+from types import MappingProxyType
+from typing import Any
 
 from pkm.server.origin_core import canonical_origin
 
@@ -33,7 +36,7 @@ class Config:
     # (assets, DB), and the key shouldn't sit somewhere a future
     # export/browse feature might sweep it up. The key file wins over the
     # OPENAI_API_KEY env var when both are present (see
-    # server/_default_describe_service).
+    # server/app._default_describe_service).
     openai_api_key_file: Path = Path("../openai_key")
     # z.ai GLM Coding Plan key: same placement rule and precedence as the
     # OpenAI key above (file wins over the ZAI_API_KEY env var). The key IS
@@ -69,27 +72,44 @@ def _serve_origins(raw: object) -> tuple[str, ...]:
     return tuple(origins)
 
 
+# How each optional JSON value becomes its field. A key the file leaves out
+# is not passed, so Config's default applies.
+_CONVERT: Mapping[str, Callable[..., object]] = MappingProxyType({
+    "cookie_secure": lambda value: value,
+    "bind_hosts": tuple,
+    "serve_origins": _serve_origins,
+    "max_upload_bytes": int,
+    "image_descriptions": bool,
+    "image_description_model": str,
+    "goodlinks_api_url": str,
+})
+_OPTIONAL_DIRS = ("web_dist", "local_docs_root")
+# Always passed: a default here is relative to config.json's directory, and
+# Config's own default would resolve against the process's working directory.
+_KEY_FILES = ("openai_api_key_file", "zai_api_key_file",
+              "goodlinks_api_key_file")
+
+
+def _field_default(name: str) -> object:
+    return next(f.default for f in fields(Config) if f.name == name)
+
+
 def load_config(path: Path) -> Config:
     raw = json.loads(path.read_text(encoding="utf-8"))
     base = path.parent
+    # JSON values, converted per key; Config's field types state the contract.
+    given: dict[str, Any] = {name: convert(raw[name])
+                             for name, convert in _CONVERT.items()
+                             if name in raw}
+    given |= {name: base / raw[name] if raw[name] else None
+              for name in _OPTIONAL_DIRS if name in raw}
+    given |= {name: base / raw.get(name, _field_default(name))
+              for name in _KEY_FILES}
     return Config(
         db_path=base / raw["db_file"],
         assets_dir=base / raw["assets_dir"],
         password_salt=raw["password_salt"],
         password_hash=raw["password_hash"],
         session_secret=raw["session_secret"],
-        cookie_secure=raw.get("cookie_secure", True),
-        web_dist=(base / raw["web_dist"]) if raw.get("web_dist") else None,
-        bind_hosts=tuple(raw.get("bind_hosts", ["127.0.0.1"])),
-        serve_origins=_serve_origins(raw.get("serve_origins", [])),
-        max_upload_bytes=int(raw.get("max_upload_bytes", 150 * 1024 * 1024)),
-        image_descriptions=bool(raw.get("image_descriptions", True)),
-        image_description_model=str(raw.get("image_description_model",
-                                            "gpt-4o-mini")),
-        openai_api_key_file=base / raw.get("openai_api_key_file", "../openai_key"),
-        zai_api_key_file=base / raw.get("zai_api_key_file", "../zai_key"),
-        local_docs_root=(base / raw["local_docs_root"]
-                         if raw.get("local_docs_root") else None),
-        goodlinks_api_key_file=base / raw.get("goodlinks_api_key_file", "../goodlinks_key"),
-        goodlinks_api_url=str(raw.get("goodlinks_api_url", "http://localhost:9428/api/v1")),
+        **given,
     )

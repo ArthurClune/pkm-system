@@ -26,8 +26,8 @@ import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
 import { clientId, createOpQueue } from "./opQueue";
 import { RETRY_BASE_MS } from "./replicaSync";
-import { SyncProvider, useResyncGeneration, useSyncActions, useSyncEditability,
-         useSyncHealth, type Sync } from "./SyncProvider";
+import { SyncProvider, useResync, useResyncGeneration, useSyncActions,
+         useSyncEditability, useSyncHealth, type Sync } from "./SyncProvider";
 
 /** Every slice at once. The app has no such consumer — a component that only
  * writes must not wake for a pending tick — but these tests assert on the
@@ -2196,6 +2196,34 @@ describe("offline and cold start", () => {
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { await Promise.resolve(); });
     expect(screen.getByTestId("s").textContent).toBe("ready:1:true");
+  });
+
+  test("cold start offline: a refetch after the resync bump is served " +
+  "through the shim", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
+    const replica = fakeReplicaForProvider();
+    replica.init = async () => ({ empty: false, cursor: seqOf(5),
+                                  schemaMismatch: false,
+      plainSpaceTitleCanonicalization: false, pendingBatches: [] });
+    const served: string[] = [];
+    replica.localApi = async (req) => {
+      served.push(req.path);
+      return { handled: true, status: 200, body: { local: true } };
+    };
+    const refetched: unknown[] = [];
+    function Consumer() {
+      useResync(() => {
+        void apiFetch("/api/probe").then((r) => refetched.push(r));
+      });
+      return null;
+    }
+    const { unmount } = render(
+      <SyncProvider replica={replica}><Consumer /></SyncProvider>);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(served).toEqual(["/api/probe"]);
+    expect(refetched).toEqual([{ local: true }]);
+    unmount();
   });
 
   test("offline without a replica stays read-only with a reason", async () => {

@@ -262,11 +262,14 @@ digest, each canonical group with its survivor, sources, counts and merge
 order, each sidebar entry it would retitle, and every blocker with an
 `all_space` or `forbidden_syntax` reason. Review it before applying.
 
-`--apply` requires that exact digest. It is refused if database changes since
-the audit have altered the plan, if there are blockers, or if the migration is
-already active and the audit lists no group and no sidebar entry. On a
-database where the migration is not yet active, a successful apply also
-activates it, even one run only to merge the pages the startup check named.
+`--apply` requires that exact digest:
+
+| Condition | Result |
+|---|---|
+| database changes since the audit have altered the plan | refused |
+| the audit lists blockers | refused |
+| the migration is already active and the audit lists no group and no sidebar entry | refused |
+| the migration is not yet active | applied, and it activates the rule, even when run only to merge the pages the startup check named |
 
 A successful apply runs in one transaction. It retitles and merges pages,
 rewrites inbound references and sidebar entries, activates the new title
@@ -310,23 +313,12 @@ active". Remove the entry in the sidebar's edit mode, or call
 
 ### What the title rules are
 
-Every run of whitespace in a title folds to one ordinary space, at creation
-and at lookup, online and offline. Whitespace means the characters in
-`TITLE_WHITESPACE` (`server/src/pkm/contracts/titles.py`): tab, newline and
-the other control whitespace, the ordinary and non-breaking spaces, and the
-other Unicode space characters. When the fold changes a title, its leading
-and trailing spaces go too. Look-alikes outside that list, such as the
-zero-width space, stay as typed. So `A  B`, `A`+NBSP+`B` and `A B` followed by
-a newline all name the page `A B`.
-
-Writes, online and offline, then reject a title that:
-
-- contains `#`, `[[`, `]]` or a backtick
-- ends with `]`
-- has a `.`, `..` or empty `/`-separated segment, so it has no URL
-
+Runs of whitespace in a title fold to one space (`TITLE_WHITESPACE` in
+`server/src/pkm/contracts/titles.py` lists what counts), so `A  B`, `A`+NBSP+`B`
+and `A B` all name the page `A B`.
+A title with `#`, `[[`, `]]` or a backtick, a trailing `]` or `[`, or a `.`,
+`..` or empty `/`-separated segment is refused, online and offline.
 Once the migration is active, leading and trailing ordinary spaces are removed
-from every title, so a title is its words joined by single spaces.
-
-See [architecture/backend.md](architecture/backend.md#title-integrity-and-one-time-activation)
-for the mechanism.
+from every title.
+[backend.md § Refused titles](architecture/backend.md#refused-titles) has the
+complete list and the reasons.

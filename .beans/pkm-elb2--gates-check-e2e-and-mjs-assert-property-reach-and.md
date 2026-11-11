@@ -1,11 +1,11 @@
 ---
 # pkm-elb2
 title: 'Gates: check e2e and .mjs, assert property reach and teeth, shared prop driver'
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-11-09T21:39:24Z
-updated_at: 2026-11-10T09:49:12Z
+updated_at: 2026-11-11T01:38:42Z
 parent: pkm-4gda
 ---
 

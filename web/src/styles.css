@@ -1,7 +1,8 @@
 /* pkm — Roam-ish light/dark theme. Plain CSS only. */
 
-/* --- theme tokens ---
- * Light values are the default palette (:root), unchanged from the
+/* == Tokens and themes == */
+
+/* Light values are the default palette (:root), unchanged from the
  * original light-only theme. Dark values apply two ways, so both a plain
  * OS-level preference and an explicit user choice work, with the explicit
  * choice always winning:
@@ -221,6 +222,7 @@
   --hljs-deleted-bg: #67060c;
 }
 
+/* == Base elements == */
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
 body {
@@ -254,6 +256,8 @@ a.tag { color: var(--color-tag); font-weight: 400; font-size: 13px;
 a:hover { text-decoration: underline; }
 ::selection { background: var(--color-selection-bg); }
 button { font: inherit; }
+
+/* == Buttons and fields == */
 /* the one secondary-button look (Show more, sidebar entry controls,
  * assistant send, ...); owning classes keep only their layout.
  * The default padding is part of the token: without it a bare
@@ -303,6 +307,7 @@ button { font: inherit; }
 .input-control:focus-visible { outline: 2px solid var(--color-link);
   outline-offset: 1px; }
 
+/* == Dialogs == */
 /* in-app confirm() replacement: window.confirm is suppressed by
  * iPadOS Safari in standalone/PWA mode, so destructive actions use this
  * instead -- see components/ConfirmDialog.tsx */
@@ -317,7 +322,7 @@ button { font: inherit; }
 .confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .confirm-dialog-actions button { padding: 6px 14px; }
 
-/* layout */
+/* == Layout and navigation == */
 .app-shell { display: flex; flex-direction: column; min-height: 100vh;
   --app-banner-height: 0px; }
 .app-banner-stack { flex-shrink: 0; }
@@ -418,6 +423,8 @@ button { font: inherit; }
 .page-title-input { display: block; width: 100%; padding: 0; border: none;
   outline: none; background: transparent; color: inherit;
   font-family: inherit; }
+
+/* == Status and notices == */
 .loading, .empty, .empty-day { color: var(--color-text-muted); }
 .error { color: var(--color-error); }
 /* /upload, paste, drag-drop failures: inline, dismissible, next
@@ -428,8 +435,8 @@ button { font: inherit; }
   color: var(--color-text-secondary); font-size: 14px; }
 .editor-notice button { padding: 1px 8px; font-size: 13px; }
 
-/* top bar: spans the main pane, houses the search bar + the page ("...")
- * menu */
+/* == Top bar == */
+/* spans the main pane, houses the search bar + the page ("...") menu */
 .top-bar { display: flex; justify-content: flex-end; align-items: center; gap: 8px;
   width: var(--pane-width); margin: 0 auto 0 var(--pane-left); padding: 8px 4px; }
 /* ghost buttons: quiet until hovered, so the bar reads as one surface
@@ -510,7 +517,7 @@ button { font: inherit; }
  * onto two lines. The timestamps item flips its label instead, so every item
  * starts at the padding edge. */
 
-/* outline */
+/* == Outline rows == */
 /* line-height set here (not on .block-text) so the edit-mode textarea
  * inherits the same value and the row doesn't jump on focus */
 .block-row { display: flex; align-items: baseline; padding: 3px 0; border-radius: var(--radius-control);
@@ -587,7 +594,7 @@ h1.block-text, .block-input.heading-1 { font-size: 1.4rem; font-weight: 600; }
 h2.block-text, .block-input.heading-2 { font-size: 1.25rem; font-weight: 600; }
 h3.block-text, .block-input.heading-3 { font-size: 1.1rem; font-weight: 600; }
 
-/* inline */
+/* == Inline content == */
 a.tag:hover { color: var(--color-tag); text-decoration: none;
   border-color: var(--color-border); }
 /* the attribute name is a field label, not content: small caps, muted, and
@@ -625,6 +632,8 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
 .toc-link { color: var(--color-text-secondary); text-decoration: none; }
 .toc-link:hover { text-decoration: underline; }
 .toc-empty { color: var(--color-text-muted); font-style: italic; }
+
+/* == Help and settings pages == */
 /* renders docs/keyboard.md (help/parseHelpMarkdown.ts); prose lines are
  * capped for readability, tables stay full width to fit their columns */
 .help-page h1, .help-page h2, .help-page h3, .help-page p { max-width: 640px; }
@@ -640,6 +649,8 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
 .settings-section h2 { font-size: 20px; font-weight: 600; margin: 0 0 10px; }
 .settings-section p { margin: 0; color: var(--color-text-secondary); }
 p.settings-note { font-size: 13px; color: var(--color-text-muted); margin-top: 6px; }
+
+/* == Block references and highlights == */
 .block-ref::before { content: ""; display: inline-block; width: 2px; height: 10px;
   border-radius: 2px; background: var(--color-link); margin-right: 6px; vertical-align: middle; }
 .block-ref.unresolved { color: var(--color-text-muted); }
@@ -652,6 +663,8 @@ p.settings-note { font-size: 13px; color: var(--color-text-muted); margin-top: 6
   to { background: transparent; }
 }
 mark.highlight { background: var(--color-highlight-bg); }
+
+/* == Media and embeds == */
 /* Embedded images stop at two-thirds of the text column: a photo at full column
  * width dominates the page. An external URL renders as a bare <img> and an
  * uploaded /assets/ image is wrapped in the expansion trigger, so both boxes
@@ -778,6 +791,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .todo-checkbox { margin-right: 6px; vertical-align: middle; }
 .query-pending { color: var(--color-text-muted); font-style: italic; }
 
+/* == Code highlighting == */
 /* highlight.js token colors (see components/CodeBlock.tsx). Selectors and
  * grouping copied from highlight.js/styles/github.css; only the colors are
  * swapped for the --hljs-* vars so dark mode gets github-dark.css's
@@ -801,7 +815,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .hljs-addition { color: var(--hljs-inserted-fg); background-color: var(--hljs-inserted-bg); }
 .hljs-deletion { color: var(--hljs-deleted-fg); background-color: var(--hljs-deleted-bg); }
 
-/* backlinks + unlinked */
+/* == References == */
 .backlinks, .unlinked { margin-top: 36px; border-top: 1px solid var(--color-border); padding-top: 12px; }
 .section-header { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;
   color: var(--color-text-secondary); margin: 0 0 8px; }
@@ -830,7 +844,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .reference-link-button { flex-shrink: 0; font-size: 12px; padding: 1px 10px; }
 .unlinked-item-error { margin: 4px 0 0; }
 
-/* linked-refs filter */
+/* == Linked-references filter == */
 .section-header .filter-toggle { margin-left: 10px; font-size: 12px;
   text-transform: none; letter-spacing: normal; padding: 1px 10px; }
 .filter-panel { margin: 8px 0 12px; padding: 8px 10px;
@@ -853,11 +867,12 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .filter-loading, .filter-empty, .filter-no-match { font-size: 13px;
   color: var(--color-text-secondary); }
 
+/* == References, continued == */
 .breadcrumbs { font-size: 12px; color: var(--color-text-muted); margin-bottom: 2px; }
 /* padding comes from .btn-secondary; this class is layout only */
 .show-more { margin-top: 8px; }
 
-/* journal */
+/* == Journal == */
 /* No `content-visibility: auto` here. The Journal never unmounts a loaded
  * day, so skipping the off-screen ones looks like the obvious win -- it was
  * measured on scenario I and is a small, repeatable LOSS (see
@@ -869,7 +884,8 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .journal-day { margin-bottom: 40px; padding-bottom: 16px; border-bottom: 1px solid var(--color-border-subtle); }
 .journal-sentinel { height: 1px; }
 
-/* search results dropdown (anchored under the top-bar search input) */
+/* == Search == */
+/* results dropdown, anchored under the top-bar search input */
 .search-results { position: absolute; top: 100%; right: 0; z-index: 21;
   width: min(480px, 80vw); margin: 4px 0 0; padding: 4px 0; list-style: none;
   max-height: 60vh; overflow-y: auto;
@@ -883,13 +899,13 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .result-snippet { font-size: 13px; color: var(--color-text-secondary); }
 .result-snippet mark { background: var(--color-highlight-bg); padding: 0 1px; }
 
-/* query blocks */
+/* == Query blocks == */
 .query-block { border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: 8px 12px;
   margin: 4px 0; }
 .query-header { display: flex; justify-content: space-between; font-size: 12px;
   color: var(--color-text-muted); margin-bottom: 4px; }
 
-/* right sidebar stack */
+/* == Right sidebar == */
 .sidebar { width: 33.333%; flex-shrink: 0; border-left: 1px solid var(--color-border);
   background: var(--color-bg-sidebar); padding: 16px; overflow-y: auto; height: 100vh;
   position: sticky; top: 0; }
@@ -908,10 +924,11 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
   padding: 4px 8px; cursor: pointer; color: var(--color-text); }
 .hamburger:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 
-/* theme toggle */
+/* == Theme toggle == */
 .theme-toggle { display: flex; align-items: center; gap: 4px; }
 
-/* responsive: sidebar overlays under 900px */
+/* == Responsive == */
+/* the right sidebar overlays under 900px */
 @media (max-width: 900px) {
   .sidebar { position: fixed; right: 0; top: var(--app-banner-height);
     height: calc(100vh - var(--app-banner-height)); width: 340px;
@@ -961,11 +978,11 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
   .block-stamp { display: none; }
 }
 
-/* --- carry-forwards --- */
+/* == Carry-forwards == */
 .error-screen, .not-found { padding: 32px; }
 .journal-status { min-height: 1.5em; color: var(--color-text-muted); margin: 4px 0; }
 
-/* --- sync --- */
+/* == Sync == */
 .ws-banner { background: var(--color-banner-bg); color: var(--color-banner-text);
   text-align: center; padding: 4px 8px;
   font-size: 13px; }
@@ -975,7 +992,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .dropped-draft textarea { width: 100%; font: inherit; }
 .dropped-draft button { margin: 2px 4px; }
 
-/* --- editor --- */
+/* == Editor == */
 .block-input { flex: 1; width: 100%; font: inherit; color: inherit;
   line-height: inherit; background: transparent; border: none; outline: none;
   resize: none; padding: 0; margin: 0; overflow: hidden; display: block; }
@@ -998,7 +1015,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .block-tree:focus { outline: none; }
 .block-text { cursor: text; min-height: 1.5em; }
 
-/* --- autocomplete --- */
+/* == Autocomplete == */
 .block-input-wrap { position: relative; flex: 1; min-width: 0; }
 /* The /upload file picker is driven programmatically; keep it out of layout. */
 .upload-input { display: none; }
@@ -1009,7 +1026,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .ac-row { padding: 4px 10px; cursor: pointer; }
 .ac-row.selected { background: var(--color-ac-selected-bg); }
 
-/* --- /date picker --- */
+/* == Date picker == */
 .date-picker { position: absolute; top: 100%; left: 0; z-index: 50;
   background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
   box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); padding: 8px; width: 252px; }
@@ -1029,7 +1046,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .date-picker-day.outside { opacity: 0.45; }
 .date-picker-day.today { font-weight: 600; }
 
-/* --- block context menu --- */
+/* == Block menu == */
 .block-menu { position: fixed; z-index: 60;
   background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
   box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); min-width: 200px;
@@ -1045,18 +1062,19 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
   text-transform: uppercase; }
 .block-menu-item-check { display: inline-block; width: 1.25em; }
 
-/* --- empty page/day affordance --- */
+/* == Empty page == */
 .empty-page { display: block; width: 100%; text-align: left; color: var(--color-text-muted);
   background: none; border: none; padding: 8px 0 24px; cursor: text;
   font: inherit; }
 .empty-page:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 
-/* --- phone keyboard bar: rendered only on an iPhone (by user agent, not
- * width), pinned to the top of the on-screen keyboard. KeyboardBar sets
- * `bottom` to the keyboard's height; below the completion popup (50). Keys
- * are the shared pill, sized for a thumb. A touch on a key must not start
- * iOS text selection over the labels, and two quick taps ("[" twice for a
- * link) must not read as a double-tap zoom. --- */
+/* == Keyboard bar == */
+/* rendered only on an iPhone (by user agent, not width), pinned to the top
+ * of the on-screen keyboard. KeyboardBar sets `bottom` to the keyboard's
+ * height; below the completion popup (50). Keys are the shared pill, sized
+ * for a thumb. A touch on a key must not start iOS text selection over the
+ * labels, and two quick taps ("[" twice for a link) must not read as a
+ * double-tap zoom. */
 .keyboard-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
   display: flex; gap: 6px; padding: 6px 8px;
   background: var(--color-bg-surface); border-top: 1px solid var(--color-border);
@@ -1065,7 +1083,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .keyboard-bar-key { flex: 1; min-width: 0; min-height: 36px; padding: 0;
   font-size: 18px; }
 
-/* --- block drag-and-drop --- */
+/* == Drag and drop == */
 .drop-indicator {
   position: absolute;
   right: 0;
@@ -1088,7 +1106,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
    * outer edge (left kept to 2px so the chevron isn't overlapped much) */
   inset: -9px -9px -9px -6px; }
 
-/* Assistant panel */
+/* == Assistant == */
 .assistant-panel {
   position: fixed;
   right: 16px;
@@ -1169,7 +1187,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
  * lozenge */
 .assistant-input .btn-secondary { align-self: flex-end; }
 
-/* Files view */
+/* == Files == */
 .files-page { max-width: 1100px; }
 .files-filters {
   display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
@@ -1244,7 +1262,9 @@ button.file-badge.status-failed:hover { color: var(--color-error); }
 /* compact inside the 160px-wide card; the rest of the look is .btn-secondary */
 .file-copy { align-self: flex-start; padding: 1px 8px; font-size: 0.8em; }
 .files-more { margin: 12px 0; }
-/* /link-local-file picker (see LocalFilePicker.tsx) */
+
+/* == Local file picker == */
+/* the /link-local-file picker (LocalFilePicker.tsx) */
 .local-picker-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex;
   align-items: flex-start; justify-content: center; background: rgb(0 0 0 / 45%);
   padding: 12vh 16px 16px; box-sizing: border-box; }

@@ -173,12 +173,35 @@ pause can land while the read waits on the worker's gate.
 `onDesync` reports `{ error, lane }`. A local refusal (a text past a limit, a
 `ReplicaError.rejected` op) also desyncs, but it paused nothing, so its legacy
 repair resumes nothing. `legacyRepair.ts` owes a `lane` resume across a failed
-run, so the retry that succeeds pays it. A rejection that lands after a run's
-`onStable` gets a run of its own, since that run read too early for it.
+run, so the retry that succeeds pays it.
 
 A poison problem without its repair outranks a legacy one in the banner: its
 Retry is what lifts `poison`. The legacy problem waits in `legacyBehind`
 (`sync/syncState.ts`) and is shown once the poison problem ends.
+
+### Calls that arrive during a run
+
+`coalesce` (`sync/coalesce.ts`) holds the rule for the single-flight sites in
+the table: **a call that arrives during a run still gets a run that could have
+served it.** The call joins the run while the site's `joinable()` holds.
+Otherwise it is owed one run, which starts in the reaction that ends the
+current run, so no call lands between a run's last step and the moment it stops
+counting as in flight. A run that rejects rejects every call waiting on it or
+owed behind it. `idle()` settles after the owed runs and never rejects.
+
+| Site | A late call joins until | Then owed | Decided by |
+|---|---|---|---|
+| `start` (`replicaSync.ts`) | always: the run's own pull follows | nothing | `joinable: () => true` |
+| `pull` (`replicaSync.ts`) | never: a pass may be past its fetch | a pass of its own | `joinable` omitted |
+| reconnect completion (`reconnectFlow.ts`) | the resync decision | a completion of its own | `deciding` |
+| poison repair (`clientRuntime.ts`) | the delete loop reads its targets | a repair, with the events merged | `deleting` |
+| legacy outline repair (`legacyRepair.ts`) | `onStable`: a later run read too early | a run, under the latest error | `stable` |
+
+The flag that decides must flip in the same step as the read it guards, or the
+gap moves instead of closing. `opQueue.drain` keeps its own rule
+(`drainAgain` and the re-check after `drained` is emitted): it reruns only on
+some outcomes, and never over an armed retry, which `coalesce` does not
+express.
 
 ## A batch the server rejects
 
@@ -243,9 +266,7 @@ owner:
 A mark RPC that fails holds the claim, because the row is still unmarked.
 
 While the claim is held, a pull pass that needs a recovery leaves it to the
-repair. That pass ends, but a pull that joined it still gets a pass of its
-own: callers such as the reconnect's trailing pull take a join to mean their
-pull will run. One more pull is owed for when the claim is released, because
+repair. That pass ends, and a pull owed behind it gets its own run. One more pull is owed for when the claim is released, because
 a repair that fails applies no snapshot and so covers nothing.
 
 ## A pull that keeps failing

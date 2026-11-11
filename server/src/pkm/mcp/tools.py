@@ -17,14 +17,14 @@ from pathlib import Path
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient
 from pkm.changed import local_tz
-from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
-                                  upload_and_link)
+from pkm.client.workflows import (apply_batch, edit_block, raw_page,
+                                  save_blocks, upload_and_link)
 from pkm.contracts.ops import BlockUid, ExpectedBlock
-from pkm.contracts.titles import RawTitle, as_raw_title
+from pkm.contracts.titles import RawTitle
 from pkm.todo import TaskMark
 from pkm.render import (render_assets, render_backlinks_bounded,
                         render_block_bounded, render_changed_bounded,
-                        render_groups_bounded, render_ops_ack,
+                        render_groups_bounded, render_ops_ack, render_rename,
                         render_page_bounded, render_search)
 
 _client_factory = lambda: PkmClient(client_api.load_mcp_config())  # noqa: E731
@@ -151,11 +151,6 @@ def changed_blocks(since: str, until: str | None = None,
         "Narrow it with a shorter window or page=.")
 
 
-def _raw_page(page: str | None) -> RawTitle | None:
-    """A tool's `page` argument: typed text, so a raw title."""
-    return None if page is None else as_raw_title(page)
-
-
 def save_note(text: str, page: str | None = None,
               parent: str | None = None, todo: bool = False) -> str:
     """Create block(s). Multi-line `text` becomes an outline (2-space
@@ -167,7 +162,7 @@ def save_note(text: str, page: str | None = None,
     with {{TODO}}. Markdown pipe tables do not render; a table is a
     '{{table}}' block whose children are rows (first = header), each
     row's cells a chain of single children nested one level per column."""
-    save_ops = save_blocks(_client(), text, page=_raw_page(page), parent=parent,
+    save_ops = save_blocks(_client(), text, page=raw_page(page), parent=parent,
                            todo=todo)
     return "\n".join(f"created ^{op.uid}" for op in save_ops)
 
@@ -227,7 +222,7 @@ def upload_asset(path: str, page: str | None = None,
     p = Path(path)
     if not p.is_file():
         raise ValueError(f"no such file: {path}")
-    linked = upload_and_link(_client(), p, page=_raw_page(page),
+    linked = upload_and_link(_client(), p, page=raw_page(page),
                              parent=parent)
     return f"{linked.url}\ncreated ^{linked.uid}"
 
@@ -243,9 +238,7 @@ def rename_page(title: RawTitle, new_title: RawTitle,
     default to False and confirm with the user first."""
     result = _client().rename_page(title, new_title,
                                     allow_merge=allow_merge)
-    if result.result == "merged":
-        return f'merged "{title}" into "{result.title}"'
-    return f'renamed "{title}" -> "{result.title}"'
+    return render_rename(title, result)
 
 
 def search_assets(q: str, limit: int = 20) -> str:
@@ -261,6 +254,3 @@ def search_assets(q: str, limit: int = 20) -> str:
 TOOLS = (get_page, get_block, search, query, backlinks, todos,
          changed_blocks, save_note, update_block, batch, upload_asset,
          search_assets, rename_page)
-
-READ_TOOL_NAMES = ("get_page", "get_block", "search", "query", "backlinks",
-                   "todos", "changed_blocks", "search_assets")

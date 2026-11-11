@@ -19,7 +19,8 @@ from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
                                      BlockPayload, BlockRefText, ChangedPayload,
                                      GoodlinksCheckPayload, GroupsPayload,
                                      LocalCheckPayload, OpsAck, PagePayload,
-                                     QueryPayload, SkipReason,
+                                     QueryPayload, RenamePageResponse,
+                                     SkipReason,
                                      SearchPayload, TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload,
                                      TitleMigrationBlocker,
@@ -525,6 +526,12 @@ def render_title_migration_apply(payload: TitleMigrationApplyResponse) -> str:
         f"generation: {payload.generation}",
     ]
     return "\n".join(lines) + "\n"
+
+
+def render_rename(old_title: RawTitle, result: RenamePageResponse) -> str:
+    if result.result == "merged":
+        return f'merged "{old_title}" into "{result.title}"'
+    return f'renamed "{old_title}" -> "{result.title}"'
 
 
 def select_section(blocks: Sequence[BlockNode],

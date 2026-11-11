@@ -187,9 +187,10 @@ owner, and `replicaSync` uses it to pay the pull a `poison` repair left owed.
 
 Every `OpQueue` emission follows an await except `onRelease` and
 `settleCommitted`'s `onSkipped`. No emission may report during a render, and
-both exceptions are reached only from effects and async paths. `onRelease` is
-synchronous so that its listener acts before any other call can claim the owner
-again, which needs that listener to report nothing synchronously.
+both exceptions are reached only from effects, event handlers and async paths.
+`onRelease` is synchronous so that its listener acts before any other call can
+claim the owner again, which needs that listener to report nothing
+synchronously.
 
 The drain checks the barrier again after each `nextBatch()` read, since a
 pause can land while the read waits on the worker's gate.
@@ -324,14 +325,15 @@ the replica.
 leaves its RPC client terminal and a failed open is latched, so every later
 call fails the same way. `noteUnavailable` is the one writer of `no-replica`
 and of `usable = false`. It reports once and arms no retry, `setMode` drops
-every later mode, and `start()` and the pull passes return without a replica
-call. `appliedVersion()` reads null, so every reconnect refetches views.
+every later mode, and `start()`, a new pull and an owed pass return without a
+replica call. A pass already in flight runs on until it fails or ends.
+`appliedVersion()` reads null, so every reconnect refetches views.
 
-The death is reported at the next replica call, whoever makes it. The
-queue's calls trip the latch `noteReplicaFailure` sets, emitted as
-`onUnavailable`; `replicaSync` and `clientRuntime` call `noteUnavailable`
-for their own calls, which the latch does not see. `computeEditability` then refuses offline edits, and the
-banner is [above](#what-the-ui-shows).
+The death is reported at the next replica call, whoever makes it. The queue's
+calls trip the latch `noteReplicaFailure` sets, emitted as `onUnavailable`;
+`replicaSync` and `clientRuntime` call `noteUnavailable` for their own calls,
+which the latch does not see. `computeEditability` then refuses offline edits,
+and the banner is [above](#what-the-ui-shows).
 
 ## Rebootstraps
 

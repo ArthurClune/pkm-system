@@ -3,7 +3,7 @@
 This doc follows an edit from a keystroke, through the browser's durable queue
 and replica, to the server, and back out to other clients. What each guard does
 when a hop fails is in [sync-recovery.md](sync-recovery.md). The server half of
-every hop is in [backend.md](backend.md). Failures are indexed by symptom in
+every hop is in [write-path.md](write-path.md) and [backend.md](backend.md). Failures are indexed by symptom in
 [troubleshooting.md](../troubleshooting.md); the design and its rejected
 alternatives are in
 [`docs/superpowers/specs/2026-07-12-offline-editing-design.md`](../superpowers/specs/2026-07-12-offline-editing-design.md).
@@ -28,7 +28,7 @@ at push time.
 | Change journal | `schema.py` (`changes`), triggers | Every mutation gets a `seq`, whatever path wrote it |
 | Windowed feed | `routes_sync.py`, `sync_core.py` | `changes?since=` serves windows of the journal; `snapshot` bootstraps |
 | Sync metadata | `sync_meta` (`db_generation`, `plain_space_title_canonicalization`) | A new generation forces every client to rebootstrap |
-| WS hub | `ws.py`, `notify.py` | Post-commit nudges and op echoes ([backend.md § Post-commit nudges](backend.md#post-commit-nudges)) |
+| WS hub | `ws.py`, `notify.py` | Post-commit nudges and op echoes ([write-path.md § Post-commit nudges](write-path.md#post-commit-nudges)) |
 | Replica | `web/src/replica/` | sqlite-wasm in a worker, on the OPFS SAHPool VFS |
 | Op queue | `sync/opQueue.ts`, `replica/queue.ts`, `sync/outbox.ts` | Durable `pending_ops`, optimistic apply, the drain, and every `/api/ops` POST, the recovery flush's (`deliverLeased`) included |
 | Orchestration | `sync/session.ts` (`createSyncSession`), built from `clientRuntime.ts`, `reconnectFlow.ts`, `replicaSync.ts`, `outlineRepair.ts` | The one composition (connect ordering, pull loop, recovery, banner fold), also run by the sync property harness |
@@ -136,7 +136,7 @@ accept its window ([below](#windows-and-the-pending-queue)).
 
 `seen_seq` is the replica's cursor at enqueue, which the server uses to drop
 edits that predate a page delete
-([backend.md § Stale batches](backend.md#stale-batches)). `enqueueBatch`
+([write-path.md § Stale batches](write-path.md#stale-batches)). `enqueueBatch`
 records it in `pending_seen` only when the replica has a generation. A batch
 with no row, such as a carried one, posts without it and counts as current.
 
@@ -317,7 +317,7 @@ the queue.
 
 `enqueueBatch` first refuses, whole and before anything is stored, a batch
 the server would always refuse. That is a text past a
-[text limit](backend.md#planning) (`findOpTextLimitViolation`), judged before
+[text limit](write-path.md#planning) (`findOpTextLimitViolation`), judged before
 titles as the server judges it, or a [forbidden title](#title-activation-across-online-and-offline-paths)
 or one past the [length cap](backend.md#refused-titles)
 (`findOpTitleViolation`, which judges length first).
@@ -348,8 +348,8 @@ each pair changes together
 
 An op whose target another device deleted or moved never rejects its batch;
 the server skips or re-places it and acks 200
-([backend.md § Missing targets](backend.md#missing-targets),
-[§ Concurrent structure edits](backend.md#concurrent-structure-edits)). The
+([write-path.md § Missing targets](write-path.md#missing-targets),
+[§ Concurrent structure edits](write-path.md#concurrent-structure-edits)). The
 replica decides the same way: `skipsOnMissingTarget` (`replica/missingTarget.ts`)
 mirrors `ops_core.classify_skip`, and `placementFor` (`replica/placement.ts`)
 mirrors where `ops_apply` lands a create or move.
@@ -424,7 +424,7 @@ screen, and each flush into it lands another daily-note entry.
 ### Conflicts at push time
 
 Conflicts resolve on the server, per block
-([backend.md § Conflicts](backend.md#conflicts)). The client supplies the
+([write-path.md § Conflicts](write-path.md#conflicts)). The client supplies the
 hashes, both `Sha256Hex`, minted only by `text_hash` / `subtree_hash`
 (`sha256Hex` / `subtreeHash` on the web):
 

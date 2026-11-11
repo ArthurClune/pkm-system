@@ -42,7 +42,7 @@ annotated with `^uid` markers that the write tools accept. The assistant's
 | `update_block` | write | replace a block's text or set its task marker; `expect` is set by the assistant's [approval card](assistant.md#the-write-approval-card) |
 | `batch` | write | several commands in one atomic transaction; skipped ops are flagged with `warning:`; `expect` as for `update_block` |
 | `upload_asset` | write, `pkm-mcp` only | upload a local file and link it from a page |
-| `rename_page` | write | retitle a page, rewriting every reference to it; 409 unless `allow_merge`; 422 when a rewritten block would be past a [text limit](backend.md#page-mutations-and-the-sidebar) |
+| `rename_page` | write | retitle a page, rewriting every reference to it; 409 unless `allow_merge`; 422 when a rewritten block would be past a [text limit](write-path.md#page-mutations-and-the-sidebar) |
 
 `get_page` and `get_block` stay within `--max-chars` (`DEFAULT_MAX_CHARS`,
 set through `set_max_chars`) by rendering through `render_page_bounded` and

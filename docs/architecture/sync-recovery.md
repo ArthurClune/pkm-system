@@ -67,7 +67,7 @@ later, and an unmarked row would go ahead of the whole lane. After a lost
 reply the durable row and its lane copy share one id, and whichever arrives
 second replays. The worker fills hashes into the durable copy only;
 `batch_replay_hash` leaves those fields out, so the copies still match
-([backend.md § The write path](backend.md#the-write-path)). A lane copy posts
+([write-path.md](write-path.md)). A lane copy posts
 without `seen_seq`, so it is never treated as stale.
 
 A terminal 4xx discards a lane entry and runs `onDesync`'s outline repair
@@ -242,7 +242,7 @@ never over an armed retry, which `coalesce` does not express.
 
 A batch the editor planned can still meet a 400 for a reason its replica
 could not see: two devices' edits, each legal alone, can stack past the
-[depth cap](backend.md#missing-targets). The server refuses the whole batch,
+[depth cap](write-path.md#missing-targets). The server refuses the whole batch,
 so the rebase below drops its valid ops with the deep one.
 
 A poisoned row pauses delivery, and `clientRuntime.ts` runs

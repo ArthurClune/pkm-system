@@ -30,7 +30,7 @@ from `scanGrammar`. Its brackets render as text, and `extractRefs` reports
 none of its links, though its hashtags and `((uid))` refs survive.
 `tokenizeInline` recurses into a run whose title names no page, once per
 such nested run, so following such a nest would overflow the stack. Only a row stored before the
-[limit](backend.md#planning) reaches this. `refs.extract` still reports
+[limit](write-path.md#planning) reaches this. `refs.extract` still reports
 those links, yet nothing diverges: the replica takes a pulled block's `refs`
 rows from the server, derives only `block_refs` itself, and refuses a local
 op whose text nests that deep.

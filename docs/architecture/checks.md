@@ -186,7 +186,7 @@ specs: [server](../superpowers/specs/2026-10-02-property-checks-server-design.md
 Rules a change to the gate must keep:
 
 - **A model is written from the docs, not from the code.** `props/model.py`
-  encodes backend.md and sync-and-offline.md and never imports `pkm.server`,
+  encodes write-path.md, backend.md and sync-and-offline.md and never imports `pkm.server`,
   `pkm.planning` or `pkm.batch` (`test_model_imports_no_server_code`). The
   outline model imports outline code as types only. A model derived from the
   code agrees with its bugs.

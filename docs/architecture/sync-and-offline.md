@@ -393,9 +393,11 @@ running one may be past its pull, and the server sends no seq frame on
 connect. A connect after the decision gets a completion of its own
 ([sync-recovery.md § Calls that arrive during a run](sync-recovery.md#calls-that-arrive-during-a-run)).
 A failed completion rejects the `begin()` waiting on it, which the session
-logs; a failed `start()` also reaches `replicaSync`'s `noteFailure`, which
-counts towards the stall banner and arms the retry. Before its drain, a connect
-retries a failed rejected-batch repair, then a failed lane repair
+logs. A failed `start()` also reaches `replicaSync`'s `noteFailure`, which
+takes the pull's stall accounting and backoff
+([sync-recovery.md § A pull that keeps failing](sync-recovery.md#a-pull-that-keeps-failing)).
+Before its drain, a connect retries a failed rejected-batch repair, then a
+failed lane repair
 (`retryFailedRepair`), whose barrier would block the drain
 ([sync-recovery.md § A batch the server rejects](sync-recovery.md#a-batch-the-server-rejects)).
 

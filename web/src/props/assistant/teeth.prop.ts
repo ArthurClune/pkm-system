@@ -13,7 +13,7 @@
 import fc from "fast-check";
 import { expect, test } from "vitest";
 import {
-  turnBusy, type ChatEvent, type ChatState, type Step,
+  answerFailed, turnBusy, type ChatEvent, type ChatState, type Step,
 } from "../../assistant/chatMachine";
 import { SEED } from "../env";
 import { expectMutantsCaught } from "../gate";
@@ -105,20 +105,45 @@ const MUTANTS: Record<string, { catches: readonly string[]; machine: Machine }> 
     catches: ["status"],
     machine: mutate((s, e) => (e.type === "streamEvent" && e.event.type === "turn_stopped"
       && s.turn.phase === "stopping" && s.turn.id === e.turn
-      ? { state: { ...s, turn: { phase: "idle" }, confirms: [], answering: false, phase: null },
+      ? { state: { ...s, turn: { phase: "idle" }, confirms: [], phase: null },
           effects: [] } : null)),
   },
   "a turn_stopped the turn did not ask for ends it silently": {
     catches: ["error"],
     machine: mutate((s, e) => (e.type === "streamEvent" && e.event.type === "turn_stopped"
       && s.turn.phase === "streaming" && s.turn.id === e.turn
-      ? { state: { ...s, turn: { phase: "idle" }, confirms: [], answering: false, phase: null },
+      ? { state: { ...s, turn: { phase: "idle" }, confirms: [], phase: null },
           effects: [] } : null)),
   },
   "a conversation created for a superseded turn is left open": {
     catches: ["leak"],
     machine: mutate((s, e) => (e.type === "created" && !turnBusy(s, e.turn)
       ? { state: s, effects: [] } : null)),
+  },
+  // The server may hold a failed answer already, so only it may go again;
+  // the card shows that it failed, and Stop stays the way out of it.
+  "a failed answer can be changed": {
+    catches: ["confirm"],
+    machine: mutate((s, e) => {
+      const head = s.confirms[0];
+      if (e.type !== "answer" || head === undefined || !answerFailed(head)
+          || head.answer.allow === e.allow) return null;
+      return REAL.step({ ...s, confirms: [{ ...head, answer: null }, ...s.confirms.slice(1)] }, e);
+    }),
+  },
+  "a failed post leaves the card posting": {
+    catches: ["confirm", "stoppable"],
+    machine: mutate((s, e) => (e.type === "confirmFailed" && !e.notFound
+      && s.turn.phase === "streaming" && s.turn.id === e.turn
+      ? { state: { ...s, error: e.message }, effects: [] } : null)),
+  },
+  "Stop is hidden once an answer failed": {
+    catches: ["stoppable"],
+    machine: { ...REAL, view: (s) => {
+      const head = s.confirms[0];
+      const view = REAL.view(s);
+      return head !== undefined && answerFailed(head) ? { ...view, stoppable: false } : view;
+    } },
   },
 };
 

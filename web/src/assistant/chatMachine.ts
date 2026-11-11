@@ -1,7 +1,7 @@
 // pattern: Functional Core
 // The assistant panel's chat as one machine: the conversation it talks to,
 // the one turn in flight, and what the panel shows. `step` takes an event
-// and returns the next state plus the effects the hook (useAssistant.ts)
+// and returns the next state plus the effects the driver (chatDriver.ts)
 // runs; every request's result comes back as an event naming its turn.
 
 import type { ConfirmId, ConversationId } from "../api/brands";
@@ -19,15 +19,18 @@ export type ChatItem =
       done: boolean; error: string | null; declined: boolean;
       warning?: string };
 
+/** An answer the machine posted: `posting` until its POST settles, then
+ * `failed` if it did not land. */
+export type ConfirmAnswer = { allow: boolean; state: "posting" | "failed" };
+
 export type PendingConfirm = {
   confirmId: ConfirmId;
-  opsPreview: string;
   preview: WritePreview | null;
-  // the answer posted for this confirm, set only once it is posted. The
-  // server may hold a failed answer already and ignores a changed one, so
-  // after a failure only this answer may be sent again; it lives here rather
-  // than in the card so a remounted card cannot forget it.
-  sentDecision: boolean | null;
+  // set once an answer is posted. The server may hold a failed answer
+  // already and ignores a changed one, so after a failure only this answer
+  // may be sent again; it lives here rather than in the card so a remounted
+  // card cannot forget it.
+  answer: ConfirmAnswer | null;
   // how many cards of this turn the user allowed before answering this one,
   // before it arrived or while it waited. When the server stamped the card
   // (`writes_in_flight`), one of those writes may have landed after it read
@@ -57,7 +60,7 @@ export type Conversation =
  * dropped. The server acts on a stop before answering it, so once the POST
  * has settled it cannot stop a later turn. So the turn is idle only once the
  * server is, except when Stop's fallback aborts the stream and the POST
- * (useAssistant.ts `STOP_ACK_TIMEOUT_MS`) or New chat aborts the stream.
+ * (chatDriver.ts `STOP_ACK_TIMEOUT_MS`) or New chat aborts the stream.
  * `recreated` is set once the turn has re-created a conversation the server
  * no longer knew, so a second 404 fails instead of looping. */
 export type Turn =
@@ -75,8 +78,6 @@ export type ChatState = {
   /** FIFO: a confirm arriving while one is on screen waits behind it, so the
    * card never changes under the user's cursor */
   confirms: PendingConfirm[];
-  /** the head's answer is being posted; its buttons are disabled */
-  answering: boolean;
   phase: PhaseInfo | null;
   error: string | null;
   /** the picker's choice while there is no conversation */
@@ -146,7 +147,7 @@ export const EXPIRED_MESSAGE =
 export function initialChat(): ChatState {
   return {
     conversation: { kind: "none" }, turn: { phase: "idle" }, lastTurn: 0,
-    items: [], confirms: [], answering: false, phase: null, error: null,
+    items: [], confirms: [], phase: null, error: null,
     picked: "sonnet", pickTouched: false, models: FALLBACK_MODELS,
     allowedInTurn: 0,
   };
@@ -169,6 +170,18 @@ export function chatStatus(s: ChatState): "idle" | "busy" | "confirm" {
   return s.turn.phase === "idle" ? "idle" : "busy";
 }
 
+/** Stop is offered while the turn is busy with no card, and while the head
+ * card's answer posts or has failed: then Stop is the way out of the card. */
+export function canStop(s: ChatState): boolean {
+  return chatStatus(s) === "busy" || (s.confirms[0]?.answer ?? null) !== null;
+}
+
+export function answerFailed(
+  c: PendingConfirm,
+): c is PendingConfirm & { answer: ConfirmAnswer & { state: "failed" } } {
+  return c.answer?.state === "failed";
+}
+
 /** The turn with this id is busy: its requests' results still count. */
 export function turnBusy(s: ChatState, turn: TurnId): boolean {
   return s.turn.phase !== "idle" && s.turn.id === turn;
@@ -181,7 +194,7 @@ const same = (state: ChatState): Step => ({ state, effects: [] });
 /** An answer still in flight has nothing left to answer, and the next
  * turn's card must not wait on it. */
 function endTurn(s: ChatState): ChatState {
-  return { ...s, turn: IDLE, confirms: [], answering: false, phase: null };
+  return { ...s, turn: IDLE, confirms: [], phase: null };
 }
 
 /** A stopping turn ends once nothing it waits for is left. */
@@ -232,8 +245,8 @@ function applyStreamEvent(s: ChatState, ev: AssistantEvent, at: number): ChatSta
     }
     case "confirm_request":
       return { ...s, confirms: [...s.confirms, {
-        confirmId: ev.confirm_id, opsPreview: ev.ops_preview, preview: ev.preview,
-        sentDecision: null, allowedAhead: s.allowedInTurn,
+        confirmId: ev.confirm_id, preview: ev.preview, answer: null,
+        allowedAhead: s.allowedInTurn,
       }] };
     case "turn_done":
       return { ...s, allowedInTurn: 0 };
@@ -249,9 +262,7 @@ export function step(s: ChatState, e: ChatEvent): Step {
   switch (e.type) {
     case "send": {
       // at most one turn is busy; the panel also disables Send meanwhile
-      if (!e.text.trim() || t.phase !== "idle" || s.conversation.kind === "creating") {
-        return same(s);
-      }
+      if (!e.text.trim() || t.phase !== "idle") return same(s);
       const id = s.lastTurn + 1;
       const base: ChatState = {
         ...s, lastTurn: id, error: null, phase: { label: null, since: e.at },
@@ -279,7 +290,7 @@ export function step(s: ChatState, e: ChatEvent): Step {
       }
       if (t.phase === "streaming" && s.conversation.kind === "open") {
         return {
-          state: { ...stopping, confirms: [], answering: false,
+          state: { ...stopping, confirms: [],
                    turn: { phase: "stopping", id: t.id, streamOpen: true, stopPosting: true } },
           effects: [{ kind: "postStop", turn: t.id, conversation: s.conversation.id }],
         };
@@ -363,7 +374,7 @@ export function step(s: ChatState, e: ChatEvent): Step {
         return {
           state: { ...s, conversation: { kind: "creating", model },
                    turn: { ...t, phase: "creating", recreated: true },
-                   confirms: [], answering: false },
+                   confirms: [] },
           effects: [{ kind: "create", turn: t.id, model }],
         };
       }
@@ -375,12 +386,13 @@ export function step(s: ChatState, e: ChatEvent): Step {
     }
     case "answer": {
       const head = s.confirms[0];
-      if (head === undefined || s.answering || head.confirmId !== e.confirmId
+      if (head === undefined || head.confirmId !== e.confirmId
           || t.phase !== "streaming" || s.conversation.kind !== "open") return same(s);
-      if (head.sentDecision !== null && head.sentDecision !== e.allow) return same(s);
+      if (head.answer !== null
+          && (head.answer.state === "posting" || head.answer.allow !== e.allow)) return same(s);
+      const answer: ConfirmAnswer = { allow: e.allow, state: "posting" };
       return {
-        state: { ...s, answering: true,
-                 confirms: [{ ...head, sentDecision: e.allow }, ...s.confirms.slice(1)] },
+        state: { ...s, confirms: [{ ...head, answer }, ...s.confirms.slice(1)] },
         effects: [{ kind: "confirm", turn: t.id, conversation: s.conversation.id,
                     confirmId: head.confirmId, allow: e.allow }],
       };
@@ -397,7 +409,7 @@ export function step(s: ChatState, e: ChatEvent): Step {
         .map((p) => (e.allow ? { ...p, allowedAhead: p.allowedAhead + 1 } : p));
       // the parked stretch was the user's silence, not the model's: restart
       // the busy line's clock rather than resume a stale label
-      return same({ ...next, answering: false, confirms: rest,
+      return same({ ...next, confirms: rest,
                     phase: rest.length === 0 ? { label: null, since: e.at } : next.phase });
     }
     case "confirmFailed": {
@@ -413,8 +425,14 @@ export function step(s: ChatState, e: ChatEvent): Step {
           effects: [{ kind: "abort", turn: t.id }],
         };
       }
-      // the same card stays, so the user can answer it again
-      return same({ ...s, answering: false, error: e.message });
+      // the same card stays, so the user can answer it again; a failure
+      // for a card no longer at the head marks nothing
+      const head = s.confirms[0];
+      if (head === undefined || head.confirmId !== e.confirmId
+          || head.answer?.state !== "posting") return same({ ...s, error: e.message });
+      const answer: ConfirmAnswer = { allow: head.answer.allow, state: "failed" };
+      return same({ ...s, error: e.message,
+                    confirms: [{ ...head, answer }, ...s.confirms.slice(1)] });
     }
   }
 }

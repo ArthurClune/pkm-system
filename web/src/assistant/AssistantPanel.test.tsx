@@ -3,6 +3,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { canonicalTitleOf, stubFetch, confirmIdOf } from "../test-helpers";
+import type { ConfirmAnswer } from "./chatMachine";
 import type { ChatItem, PendingConfirm, PhaseInfo } from "./useAssistant";
 import { parseWritePreview, type PreviewOp, type WritePreview } from "./writePreview";
 
@@ -21,7 +22,7 @@ const state = vi.hoisted(() => {
       modelLocked: false,
       pendingConfirm: noConfirm(),
       pendingConfirmCount: 0,
-      answering: false,
+      canStop: false,
       send: vi.fn().mockResolvedValue(undefined),
       stop: vi.fn(),
       respondConfirm: vi.fn().mockResolvedValue(undefined),
@@ -43,7 +44,7 @@ afterEach(() => {
   state.current.modelLocked = false;
   state.current.pendingConfirm = null;
   state.current.pendingConfirmCount = 0;
-  state.current.answering = false;
+  state.current.canStop = false;
   state.current.models = ["sonnet", "opus", "haiku", "fable"];
 });
 
@@ -61,12 +62,12 @@ function previewOf(...ops: PreviewOp[]): WritePreview {
 }
 
 function showConfirm(preview: WritePreview | null, count = 1,
-  sentDecision: boolean | null = null, allowedAhead = 0) {
+  answer: ConfirmAnswer | null = null, allowedAhead = 0) {
   state.current.status = "confirm";
   state.current.pendingConfirm = {
-    confirmId: confirmIdOf("t1"), opsPreview: "s", preview, sentDecision,
-    allowedAhead };
+    confirmId: confirmIdOf("t1"), preview, answer, allowedAhead };
   state.current.pendingConfirmCount = count;
+  state.current.canStop = answer !== null;
 }
 
 // the card's Allow arms after a pause, so a test that clicks it waits it out
@@ -237,6 +238,7 @@ describe("AssistantPanel", () => {
     const { rerender } = render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
     state.current.status = "busy";
+    state.current.canStop = true;
     rerender(<AssistantPanel open onClose={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "Stop" }));
     expect(state.current.stop).toHaveBeenCalled();
@@ -252,7 +254,7 @@ describe("AssistantPanel", () => {
   // declines the confirm on the server, without discarding the chat
   test.each([true, false])(
     "Stop shows after a failed %s post and calls stop()", (decision) => {
-      showConfirm(previewOf(op()), 1, decision);
+      showConfirm(previewOf(op()), 1, { allow: decision, state: "failed" });
       render(<AssistantPanel open onClose={() => {}} />);
       fireEvent.click(screen.getByRole("button", { name: "Stop" }));
       expect(state.current.stop).toHaveBeenCalled();
@@ -757,16 +759,15 @@ describe("ConfirmCard", () => {
     const { rerender } = renderArmed();
     expect(screen.getByRole("button", { name: "Allow" })).toBeEnabled();
     state.current.pendingConfirm = {
-      confirmId: confirmIdOf("t2"), opsPreview: "s", preview: previewOf(op()),
-      sentDecision: null, allowedAhead: 0 };
+      confirmId: confirmIdOf("t2"), preview: previewOf(op()), answer: null,
+      allowedAhead: 0 };
     state.current.pendingConfirmCount = 1;
     rerender(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByRole("button", { name: "Allow" })).toBeDisabled();
   });
 
   test("while answering both buttons are disabled and Stop shows", () => {
-    showConfirm(previewOf(op()));
-    state.current.answering = true;
+    showConfirm(previewOf(op()), 1, { allow: true, state: "posting" });
     renderArmed();
     expect(screen.getByRole("button", { name: "Allow" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Deny" })).toBeDisabled();
@@ -780,7 +781,7 @@ describe("ConfirmCard", () => {
     ["Allow", true],
     ["Deny", false],
   ] as const)("a failed %s offers only a retry of it", (name, allow) => {
-    showConfirm(previewOf(op()), 1, allow);
+    showConfirm(previewOf(op()), 1, { allow, state: "failed" });
     state.current.error = "request failed";
     renderArmed();
     const buttons = within(card()).getAllByRole("button");
@@ -791,7 +792,7 @@ describe("ConfirmCard", () => {
 
   // the decision lives in the hook, so a card mounted afresh still knows it
   test("a failed Allow stays retry-only after the panel closes and reopens", () => {
-    showConfirm(previewOf(op()), 1, true);
+    showConfirm(previewOf(op()), 1, { allow: true, state: "failed" });
     state.current.error = "request failed";
     const { rerender } = renderArmed();
     rerender(<AssistantPanel open={false} onClose={() => {}} />);

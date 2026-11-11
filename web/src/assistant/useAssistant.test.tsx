@@ -74,7 +74,7 @@ function deferredValue<T>() {
 }
 
 describe("useAssistant", () => {
-  test("models are not fetched until ensureModels is called (panel open)", async () => {
+  test("the models are fetched only once the panel opens, and once per success", async () => {
     const d = deferredValue<{ models: string[]; default: string }>();
     mocks.fetchModels.mockReturnValue(d.promise);
     render(<Harness />);
@@ -139,25 +139,7 @@ describe("useAssistant", () => {
     expect(mocks.createConversation).toHaveBeenCalledTimes(1);
   });
 
-  test("tool events render as tool items", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
-    feed([
-      { type: "tool_started", tool_use_id: "t1", name: "search", summary: 'searching "x"' },
-      { type: "tool_finished", tool_use_id: "t1", name: "search", error: null, declined: false },
-      { type: "text_delta", text: "found" },
-      { type: "turn_done", usage: null },
-    ]);
-    render(<Harness />);
-    await act(() => latest.send("find x"));
-    expect(latest.items).toEqual([
-      { kind: "user", text: "find x" },
-      { kind: "tool", toolUseId: "t1", name: "search", summary: 'searching "x"',
-        done: true, error: null, declined: false },
-      { kind: "assistant", text: "found" },
-    ]);
-  });
-
-  test("confirm_request pauses, respondConfirm answers", async () => {
+  test("a confirm request parks the turn until its answer posts", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     let release!: () => void;
     mocks.streamMessage.mockImplementation(
@@ -177,8 +159,7 @@ describe("useAssistant", () => {
     });
     expect(latest.status).toBe("confirm");
     expect(latest.pendingConfirm).toEqual(
-      { confirmId: "t1", opsPreview: "save_note(...)", preview: null,
-        sentDecision: null, allowedAhead: 0 });
+      { confirmId: "t1", preview: null, answer: null, allowedAhead: 0 });
     await act(async () => {
       await latest.respondConfirm(true);
       release();
@@ -189,7 +170,7 @@ describe("useAssistant", () => {
     expect(latest.pendingConfirm).toBeNull();
   });
 
-  test("respondConfirm restores pending state on confirmTool failure", async () => {
+  test("a failed confirm POST shows its error and keeps the card answerable", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     mocks.streamMessage.mockImplementation(
       async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
@@ -204,555 +185,16 @@ describe("useAssistant", () => {
       await Promise.resolve();
     });
     expect(latest.pendingConfirm).toEqual(
-      { confirmId: "t1", opsPreview: "save_note(...)", preview: null,
-        sentDecision: null, allowedAhead: 0 });
+      { confirmId: "t1", preview: null, answer: null, allowedAhead: 0 });
     await act(() => latest.respondConfirm(true));
     expect(latest.pendingConfirm).toEqual(
-      { confirmId: "t1", opsPreview: "save_note(...)", preview: null,
-        sentDecision: true, allowedAhead: 0 });
+      { confirmId: "t1", preview: null, answer: { allow: true, state: "failed" },
+        allowedAhead: 0 });
     expect(latest.status).toBe("confirm");
     expect(latest.error).toBe("network down");
   });
 
-  // A second confirm must wait behind the card on screen: replacing it would
-  // change what Allow approves under the user's cursor.
-  test("queues a second confirm behind the first", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
-    let release!: () => void;
-    mocks.streamMessage.mockImplementation(
-      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        onEvent(confirmEvent("c1"));
-        onEvent(confirmEvent("c2"));
-        await new Promise<void>((r) => (release = r));
-        onEvent({ type: "turn_done", usage: null });
-      },
-    );
-    mocks.confirmTool.mockResolvedValue(undefined);
-    render(<Harness />);
-    let sendDone!: Promise<void>;
-    await act(async () => {
-      sendDone = latest.send("please write");
-      await Promise.resolve();
-    });
-    expect(latest.status).toBe("confirm");
-    expect(latest.pendingConfirm?.confirmId).toBe("c1");
-    expect(latest.pendingConfirmCount).toBe(2);
-
-    await act(() => latest.respondConfirm(true));
-    expect(mocks.confirmTool).toHaveBeenLastCalledWith("conv1", "c1", true);
-    expect(latest.pendingConfirm?.confirmId).toBe("c2");
-    expect(latest.pendingConfirmCount).toBe(1);
-    expect(latest.status).toBe("confirm");
-
-    await act(async () => {
-      release();
-      await sendDone;
-    });
-    expect(latest.pendingConfirm).toBeNull();
-    expect(latest.pendingConfirmCount).toBe(0);
-    expect(latest.status).toBe("idle");
-  });
-
-  test("answering the last queued confirm returns to busy", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
-    mocks.streamMessage.mockImplementation(
-      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        onEvent(confirmEvent("c1"));
-        onEvent(confirmEvent("c2"));
-        await new Promise<void>(() => {});
-      },
-    );
-    mocks.confirmTool.mockResolvedValue(undefined);
-    render(<Harness />);
-    await act(async () => {
-      void latest.send("please write");
-      await Promise.resolve();
-    });
-    await act(() => latest.respondConfirm(false));
-    await act(() => latest.respondConfirm(true));
-    expect(mocks.confirmTool.mock.calls).toEqual([["conv1", "c1", false], ["conv1", "c2", true]]);
-    expect(latest.pendingConfirm).toBeNull();
-    expect(latest.status).toBe("busy");
-  });
-
-  // The server reads each card's current text when it builds the card, so
-  // a card waiting behind one the user allows was read before that write
-  test("a card queued behind an allowed one counts it; a denied one does not",
-    async () => {
-      mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
-      let emit!: (ev: AssistantEvent) => void;
-      mocks.streamMessage.mockImplementation(
-        async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-          emit = onEvent;
-          onEvent(confirmEvent("c1"));
-          onEvent(confirmEvent("c2"));
-          onEvent(confirmEvent("c3"));
-          onEvent(confirmEvent("c4"));
-          await new Promise<void>(() => {});
-        },
-      );
-      mocks.confirmTool.mockResolvedValue(undefined);
-      render(<Harness />);
-      await act(async () => {
-        void latest.send("please write");
-        await Promise.resolve();
-      });
-      expect(latest.pendingConfirm?.allowedAhead).toBe(0);
-      await act(() => latest.respondConfirm(true));
-      expect(latest.pendingConfirm?.confirmId).toBe("c2");
-      expect(latest.pendingConfirm?.allowedAhead).toBe(1);
-      await act(() => latest.respondConfirm(false));
-      expect(latest.pendingConfirm?.confirmId).toBe("c3");
-      expect(latest.pendingConfirm?.allowedAhead).toBe(1);
-      await act(() => latest.respondConfirm(true));
-      expect(latest.pendingConfirm?.allowedAhead).toBe(2);
-      // built after those Allows: the server's stamp says whether their
-      // writes could still land after its read, so it counts them too
-      act(() => emit(confirmEvent("c5")));
-      await act(() => latest.respondConfirm(false));
-      expect(latest.pendingConfirm?.confirmId).toBe("c5");
-      expect(latest.pendingConfirm?.allowedAhead).toBe(2);
-    });
-
-  test("a new turn counts no Allow from the last", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
-    const turnOne = deferredValue<void>();
-    let calls = 0;
-    mocks.streamMessage.mockImplementation(
-      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        calls += 1;
-        if (calls === 1) {
-          onEvent(confirmEvent("c1"));
-          await turnOne.promise;
-          onEvent({ type: "turn_done", usage: null });
-          return;
-        }
-        onEvent(confirmEvent("c2"));
-        await new Promise<void>(() => {});
-      },
-    );
-    mocks.confirmTool.mockResolvedValue(undefined);
-    render(<Harness />);
-    let first!: Promise<void>;
-    await act(async () => {
-      first = latest.send("one");
-      await Promise.resolve();
-    });
-    await act(() => latest.respondConfirm(true));
-    await act(async () => {
-      turnOne.resolve();
-      await first;
-    });
-    await act(async () => {
-      void latest.send("two");
-      await Promise.resolve();
-    });
-    expect(latest.pendingConfirm?.confirmId).toBe("c2");
-    expect(latest.pendingConfirm?.allowedAhead).toBe(0);
-  });
-
-  // Turn one shows c1 and runs until stopped; turn two shows c2.
-  function stoppedThenNext() {
-    let calls = 0;
-    mocks.streamMessage.mockImplementation(
-      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void,
-             signal?: AbortSignal,
-             onOpen?: () => void) => {
-        calls += 1;
-        if (calls === 1) {
-          onEvent(confirmEvent("c1"));
-          await untilStopped(onEvent, signal, onOpen);
-          return;
-        }
-        onEvent(confirmEvent("c2"));
-        await new Promise<void>(() => {});
-      },
-    );
-    mocks.confirmTool.mockResolvedValue(undefined);
-  }
-
-  test("a stopped turn's Allows count for the next turn's cards", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
-    stoppedThenNext();
-    render(<Harness />);
-    let first!: Promise<void>;
-    await act(async () => {
-      first = latest.send("one");
-      await Promise.resolve();
-    });
-    await act(() => latest.respondConfirm(true));
-    await act(async () => {
-      latest.stop();
-      await first;
-    });
-    await act(async () => {
-      void latest.send("two");
-      await Promise.resolve();
-    });
-    expect(latest.pendingConfirm?.confirmId).toBe("c2");
-    expect(latest.pendingConfirm?.allowedAhead).toBe(1);
-  });
-
-  test("a new conversation counts no Allow from the old one", async () => {
-    mocks.createConversation
-      .mockResolvedValueOnce({ id: "conv1", model: "sonnet" })
-      .mockResolvedValueOnce({ id: "conv2", model: "sonnet" });
-    mocks.deleteConversation.mockResolvedValue(undefined);
-    stoppedThenNext();
-    render(<Harness />);
-    await act(async () => {
-      void latest.send("one");
-      await Promise.resolve();
-    });
-    await act(() => latest.respondConfirm(true));
-    await act(() => latest.newChat());
-    await act(async () => {
-      void latest.send("two");
-      await Promise.resolve();
-    });
-    expect(latest.pendingConfirm?.confirmId).toBe("c2");
-    expect(latest.pendingConfirm?.allowedAhead).toBe(0);
-  });
-
-  test("an Allow that fails to post counts for no card behind it", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
-    mocks.streamMessage.mockImplementation(
-      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        onEvent(confirmEvent("c1"));
-        onEvent(confirmEvent("c2"));
-        await new Promise<void>(() => {});
-      },
-    );
-    mocks.confirmTool.mockRejectedValueOnce(new Error("network down"));
-    mocks.confirmTool.mockResolvedValue(undefined);
-    render(<Harness />);
-    await act(async () => {
-      void latest.send("please write");
-      await Promise.resolve();
-    });
-    await act(() => latest.respondConfirm(true));
-    expect(latest.pendingConfirm?.confirmId).toBe("c1");
-    // only the retry that posted counts, not the failed post before it
-    await act(() => latest.respondConfirm(true));
-    expect(latest.pendingConfirm?.confirmId).toBe("c2");
-    expect(latest.pendingConfirm?.allowedAhead).toBe(1);
-  });
-
-  function parkTwoConfirms() {
-    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
-    mocks.streamMessage.mockImplementation(
-      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        onEvent(confirmEvent("c1"));
-        onEvent(confirmEvent("c2"));
-        await new Promise<void>(() => {});
-      },
-    );
-  }
-
-  // Advancing before the POST settles would let a failure swap the card
-  // back under the cursor, so the answered card stays, marked answering.
-  test("the answered card stays until its answer is posted", async () => {
-    parkTwoConfirms();
-    const post = deferredValue<void>();
-    mocks.confirmTool.mockReturnValue(post.promise);
-    render(<Harness />);
-    await act(async () => {
-      void latest.send("please write");
-      await Promise.resolve();
-    });
-    expect(latest.answering).toBe(false);
-    let answered!: Promise<void>;
-    act(() => { answered = latest.respondConfirm(true); });
-    expect(latest.answering).toBe(true);
-    expect(latest.pendingConfirm?.confirmId).toBe("c1");
-    expect(latest.pendingConfirmCount).toBe(2);
-    expect(latest.status).toBe("confirm");
-    await act(async () => {
-      post.resolve();
-      await answered;
-    });
-    expect(latest.answering).toBe(false);
-    expect(latest.pendingConfirm?.confirmId).toBe("c2");
-    expect(latest.pendingConfirmCount).toBe(1);
-  });
-
-  // A second click, from a fresh render, while the first answer is in
-  // flight must not answer anything: not c1 again, and not c2 behind it.
-  test("an answer while one is in flight posts nothing", async () => {
-    parkTwoConfirms();
-    const post = deferredValue<void>();
-    mocks.confirmTool.mockReturnValue(post.promise);
-    render(<Harness />);
-    await act(async () => {
-      void latest.send("please write");
-      await Promise.resolve();
-    });
-    let answered!: Promise<void>;
-    act(() => { answered = latest.respondConfirm(true); });
-    await act(() => latest.respondConfirm(true));
-    expect(mocks.confirmTool.mock.calls).toEqual([["conv1", "c1", true]]);
-    await act(async () => {
-      post.resolve();
-      await answered;
-    });
-    expect(mocks.confirmTool.mock.calls).toEqual([["conv1", "c1", true]]);
-    expect(latest.pendingConfirm?.confirmId).toBe("c2");
-    expect(latest.status).toBe("confirm");
-  });
-
-  test("a failed answer leaves the same card showing, not the next", async () => {
-    parkTwoConfirms();
-    const post = deferredValue<void>();
-    mocks.confirmTool.mockReturnValueOnce(post.promise);
-    render(<Harness />);
-    await act(async () => {
-      void latest.send("please write");
-      await Promise.resolve();
-    });
-    let answered!: Promise<void>;
-    act(() => { answered = latest.respondConfirm(false); });
-    expect(latest.pendingConfirm?.confirmId).toBe("c1");
-    await act(async () => {
-      post.reject(new Error("network down"));
-      await answered;
-    });
-    expect(latest.pendingConfirm?.confirmId).toBe("c1");
-    expect(latest.pendingConfirmCount).toBe(2);
-    expect(latest.answering).toBe(false);
-    expect(latest.status).toBe("confirm");
-    expect(latest.error).toBe("network down");
-
-    // the user can answer the same card again
-    mocks.confirmTool.mockResolvedValueOnce(undefined);
-    await act(() => latest.respondConfirm(false));
-    expect(mocks.confirmTool.mock.calls).toEqual(
-      [["conv1", "c1", false], ["conv1", "c1", false]]);
-    expect(latest.pendingConfirm?.confirmId).toBe("c2");
-  });
-
-  // The server may hold a failed answer already and ignores a changed one,
-  // so the hook records what it posted and the card can offer only that again,
-  // however often the card remounts.
-  test("the head records the decision once it is posted", async () => {
-    parkTwoConfirms();
-    const post = deferredValue<void>();
-    mocks.confirmTool.mockReturnValueOnce(post.promise);
-    render(<Harness />);
-    await act(async () => {
-      void latest.send("please write");
-      await Promise.resolve();
-    });
-    expect(latest.pendingConfirm?.sentDecision).toBeNull();
-    let answered!: Promise<void>;
-    act(() => { answered = latest.respondConfirm(true); });
-    expect(latest.pendingConfirm?.sentDecision).toBe(true);
-    await act(async () => {
-      post.reject(new Error("network down"));
-      await answered;
-    });
-    expect(latest.pendingConfirm?.confirmId).toBe("c1");
-    expect(latest.pendingConfirm?.sentDecision).toBe(true);
-
-    // a changed answer posts nothing; the same one goes again
-    await act(() => latest.respondConfirm(false));
-    expect(mocks.confirmTool.mock.calls).toEqual([["conv1", "c1", true]]);
-    mocks.confirmTool.mockResolvedValueOnce(undefined);
-    await act(() => latest.respondConfirm(true));
-    expect(mocks.confirmTool.mock.calls).toEqual(
-      [["conv1", "c1", true], ["conv1", "c1", true]]);
-    expect(latest.pendingConfirm?.confirmId).toBe("c2");
-    expect(latest.pendingConfirm?.sentDecision).toBeNull();
-  });
-
-  test("an answer the hook does not post records nothing", async () => {
-    parkTwoConfirms();
-    render(<Harness />);
-    await act(async () => {
-      void latest.send("please write");
-      await Promise.resolve();
-    });
-    const stale = latest.respondConfirm;
-    mocks.confirmTool.mockReturnValueOnce(new Promise<void>(() => {}));
-    act(() => { void latest.respondConfirm(true); });
-    // in flight: a second answer, even a stale render's, is refused
-    await act(() => stale(false));
-    expect(mocks.confirmTool.mock.calls).toEqual([["conv1", "c1", true]]);
-    expect(latest.pendingConfirm?.sentDecision).toBe(true);
-  });
-
-  // The server can finish the turn before the answer's POST returns; the
-  // next turn's card must still take an answer.
-  test("a turn that ends while an answer is in flight leaves the next answerable", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
-    let release!: () => void;
-    mocks.streamMessage.mockImplementationOnce(
-      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        onEvent(confirmEvent("c1"));
-        await new Promise<void>((r) => (release = r));
-      },
-    );
-    mocks.streamMessage.mockImplementationOnce(
-      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        onEvent(confirmEvent("c3"));
-        await new Promise<void>(() => {});
-      },
-    );
-    mocks.confirmTool.mockReturnValueOnce(new Promise<void>(() => {}));
-    mocks.confirmTool.mockResolvedValueOnce(undefined);
-    render(<Harness />);
-    let first!: Promise<void>;
-    await act(async () => {
-      first = latest.send("please write");
-      await Promise.resolve();
-    });
-    act(() => { void latest.respondConfirm(true); });
-    await act(async () => {
-      release();
-      await first;
-    });
-    expect(latest.answering).toBe(false);
-    await act(async () => {
-      void latest.send("and again");
-      await Promise.resolve();
-    });
-    expect(latest.pendingConfirm?.confirmId).toBe("c3");
-    await act(() => latest.respondConfirm(true));
-    expect(mocks.confirmTool).toHaveBeenLastCalledWith("conv1", "c3", true);
-  });
-
-  test("a reaped conversation drops the whole queue", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "conv1", model: "sonnet" });
-    mocks.streamMessage.mockImplementation(
-      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        onEvent(confirmEvent("c1"));
-        onEvent(confirmEvent("c2"));
-        await new Promise<void>(() => {});
-      },
-    );
-    mocks.confirmTool.mockRejectedValue(
-      new ApiError(404, "/api/assistant/conversations/conv1/confirm"));
-    render(<Harness />);
-    await act(async () => {
-      void latest.send("please write");
-      await Promise.resolve();
-    });
-    await act(() => latest.respondConfirm(true));
-    expect(latest.pendingConfirm).toBeNull();
-    expect(latest.pendingConfirmCount).toBe(0);
-    expect(latest.status).toBe("idle");
-    expect(latest.error).toMatch(/expired/);
-  });
-
-  // The phase drives the busy line's label and its elapsed clock.
-  test("phase events update the label mid-turn; turn end clears it", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
-    let release!: () => void;
-    const gate = () => new Promise<void>((r) => (release = r));
-    mocks.streamMessage.mockImplementation(
-      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        onEvent({ type: "phase", label: "reasoning" });
-        await gate();
-        onEvent({ type: "phase", label: "preparing save_note" });
-        await gate();
-        onEvent({ type: "turn_done", usage: null });
-      },
-    );
-    render(<Harness />);
-    let sendDone!: Promise<void>;
-    await act(async () => {
-      sendDone = latest.send("tidy this page");
-      await Promise.resolve();
-    });
-    expect(latest.phase).toEqual({ label: "reasoning", since: expect.any(Number) as number });
-    await act(async () => release());
-    expect(latest.phase).toEqual({ label: "preparing save_note", since: expect.any(Number) as number });
-    await act(async () => {
-      release();
-      await sendDone;
-    });
-    expect(latest.phase).toBeNull();
-    expect(latest.status).toBe("idle");
-  });
-
-  test("send opens an unlabelled phase; tool_started resets back to it", async () => {
-    // The pre-first-event window has no label by design (the busy line reads
-    // plain "thinking…"), and a running tool's own line takes over from any
-    // stale "preparing …" label.
-    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
-    let release!: () => void;
-    const gate = () => new Promise<void>((r) => (release = r));
-    mocks.streamMessage.mockImplementation(
-      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        await gate();
-        onEvent({ type: "phase", label: "preparing search" });
-        await gate();
-        onEvent({ type: "tool_started", tool_use_id: "t1", name: "search",
-          summary: 'searching "x"' });
-        await gate();
-        onEvent({ type: "turn_done", usage: null });
-      },
-    );
-    render(<Harness />);
-    let sendDone!: Promise<void>;
-    await act(async () => {
-      sendDone = latest.send("find x");
-      await Promise.resolve();
-    });
-    expect(latest.phase).toEqual({ label: null, since: expect.any(Number) as number });
-    await act(async () => release());
-    expect(latest.phase).toEqual({ label: "preparing search", since: expect.any(Number) as number });
-    await act(async () => release());
-    expect(latest.phase).toEqual({ label: null, since: expect.any(Number) as number });
-    await act(async () => {
-      release();
-      await sendDone;
-    });
-    expect(latest.phase).toBeNull();
-  });
-
-  test("resuming from a confirm restarts the phase clock unlabelled", async () => {
-    // The parked stretch was the user's silence, not the model's; its
-    // duration must not leak into the next busy stretch's elapsed display.
-    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
-    let release!: () => void;
-    mocks.streamMessage.mockImplementation(
-      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
-        onEvent({ type: "phase", label: "preparing save_note" });
-        onEvent(confirmEvent("t1"));
-        await new Promise<void>((r) => (release = r));
-        onEvent({ type: "turn_done", usage: null });
-      },
-    );
-    mocks.confirmTool.mockResolvedValue(undefined);
-    render(<Harness />);
-    let sendDone!: Promise<void>;
-    await act(async () => {
-      sendDone = latest.send("please write");
-      await Promise.resolve();
-    });
-    expect(latest.status).toBe("confirm");
-    await act(async () => {
-      await latest.respondConfirm(true);
-    });
-    expect(latest.status).toBe("busy");
-    expect(latest.phase).toEqual({ label: null, since: expect.any(Number) as number });
-    await act(async () => {
-      release();
-      await sendDone;
-    });
-    expect(latest.phase).toBeNull();
-  });
-
-  test("error event surfaces and unlocks", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
-    feed([{ type: "error", message: "boom" }]);
-    render(<Harness />);
-    await act(() => latest.send("hi"));
-    expect(latest.error).toBe("boom");
-    expect(latest.status).toBe("idle");
-  });
-
-  test("newChat deletes and resets", async () => {
+  test("New chat deletes the conversation and clears the chat", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     mocks.deleteConversation.mockResolvedValue(undefined);
     feed([{ type: "turn_done", usage: null }]);
@@ -1100,114 +542,7 @@ describe("useAssistant", () => {
     expect(mocks.closeConversationBeacon).toHaveBeenCalledWith("c1");
   });
 
-  test("tool_finished marks the line with its own id, carrying its error", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
-    feed([
-      { type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" },
-      { type: "tool_started", tool_use_id: "t2", name: "update_block", summary: "update_block" },
-      { type: "tool_finished", tool_use_id: "t2", name: "update_block",
-        error: "nope", declined: false },
-      { type: "turn_done", usage: null },
-    ]);
-    render(<Harness />);
-    await act(() => latest.send("edit"));
-    expect(latest.items).toEqual([
-      { kind: "user", text: "edit" },
-      { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
-        done: false, error: null, declined: false },
-      { kind: "tool", toolUseId: "t2", name: "update_block", summary: "update_block",
-        done: true, error: "nope", declined: false },
-    ]);
-  });
-
-  test("a skipped batch's warning lands on its tool line", async () => {
-    feed([
-      { type: "tool_started", tool_use_id: "t1", name: "batch", summary: "batch" },
-      { type: "tool_finished", tool_use_id: "t1", name: "batch",
-        error: null, declined: false, warning: "warning: skipped 1 of 3 ops" },
-      { type: "turn_done", usage: null },
-    ]);
-    render(<Harness />);
-    await act(() => latest.send("edit"));
-    expect(latest.items[1]).toEqual({
-      kind: "tool", toolUseId: "t1", name: "batch", summary: "batch",
-      done: true, error: null, declined: false,
-      warning: "warning: skipped 1 of 3 ops" });
-  });
-
-  test("a declined write's line is done, with no error", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
-    feed([
-      { type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" },
-      { type: "tool_finished", tool_use_id: "t1", name: "update_block",
-        error: null, declined: true },
-      { type: "turn_done", usage: null },
-    ]);
-    render(<Harness />);
-    await act(() => latest.send("edit"));
-    expect(latest.items[1]).toEqual(
-      { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
-        done: true, error: null, declined: true });
-  });
-
-  test("a later turn's tool_finished marks an earlier turn's line", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
-    feed([
-      { type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" },
-      { type: "turn_done", usage: null },
-    ]);
-    render(<Harness />);
-    await act(() => latest.send("one"));
-    feed([
-      { type: "tool_finished", tool_use_id: "t1", name: "update_block",
-        error: "nope", declined: false },
-      { type: "turn_done", usage: null },
-    ]);
-    await act(() => latest.send("two"));
-    expect(latest.items[1]).toEqual(
-      { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
-        done: true, error: "nope", declined: false });
-  });
-
-  test("a reused id marks the line not yet done, never a finished one", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
-    feed([
-      { type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" },
-      { type: "tool_finished", tool_use_id: "t1", name: "update_block",
-        error: "nope", declined: false },
-      { type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" },
-      { type: "tool_finished", tool_use_id: "t1", name: "update_block",
-        error: null, declined: false },
-      { type: "turn_done", usage: null },
-    ]);
-    render(<Harness />);
-    await act(() => latest.send("edit"));
-    expect(latest.items.slice(1)).toEqual([
-      { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
-        done: true, error: "nope", declined: false },
-      { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
-        done: true, error: null, declined: false },
-    ]);
-  });
-
-  test("a tool_finished with an unknown id changes no line", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
-    feed([
-      { type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" },
-      { type: "tool_finished", tool_use_id: "tX", name: "update_block",
-        error: "nope", declined: false },
-      { type: "turn_done", usage: null },
-    ]);
-    render(<Harness />);
-    await act(() => latest.send("edit"));
-    expect(latest.items).toEqual([
-      { kind: "user", text: "edit" },
-      { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
-        done: false, error: null, declined: false },
-    ]);
-  });
-
-  test("newChat aborts the live turn; its late events never reach the new chat", async () => {
+  test("New chat aborts the live turn; its late events never reach the new chat", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     mocks.deleteConversation.mockResolvedValue(undefined);
     let emit!: (ev: AssistantEvent) => void;
@@ -1280,7 +615,7 @@ describe("useAssistant", () => {
     expect(latest.status).toBe("idle");
   });
 
-  test("newChat keeps a newer turn's controller and stays stoppable", async () => {
+  test("New chat keeps a newer turn's abort handle and stays stoppable", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     mocks.deleteConversation.mockResolvedValue(undefined);
     const signals: AbortSignal[] = [];
@@ -1401,7 +736,7 @@ describe("useAssistant", () => {
     expect(mocks.streamMessage.mock.calls[0][0]).toBe("c2");
   });
 
-  test("newChat clears the transcript synchronously, as the panel's click does", async () => {
+  test("New chat clears the transcript on the click, before its DELETE settles", async () => {
     // AssistantPanel's New chat button calls `void assistant.newChat()`,
     // so an empty chat must appear on the click -- not after the abort has
     // unwound and the DELETE has resolved.
@@ -1438,7 +773,7 @@ describe("useAssistant", () => {
     expect(mocks.deleteConversation).toHaveBeenCalledWith("c1");
   });
 
-  test("respondConfirm from a superseded turn cannot clobber the new chat", async () => {
+  test("an answer's 404 arriving after New chat cannot clobber the new chat", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     mocks.deleteConversation.mockResolvedValue(undefined);
     mocks.streamMessage.mockImplementation(
@@ -1460,18 +795,18 @@ describe("useAssistant", () => {
     });
     expect(latest.status).toBe("confirm");
 
-    let answering!: Promise<void>;
-    act(() => { answering = latest.respondConfirm(true); });
+    let inFlight!: Promise<void>;
+    act(() => { inFlight = latest.respondConfirm(true); });
     await act(() => latest.newChat());
     await act(async () => {
       confirmCall.reject(new ApiError(404, "/api/assistant/conversations/c1/confirm"));
-      await answering;
+      await inFlight;
     });
     // the 404 branch resets conversationId and sets an explanatory error;
     // neither may touch the chat that replaced it
     expect(latest.error).toBeNull();
     expect(latest.pendingConfirm).toBeNull();
-    expect(latest.answering).toBe(false);
+    expect(latest.canStop).toBe(false);
     expect(latest.status).toBe("idle");
   });
 
@@ -1561,70 +896,8 @@ describe("useAssistant", () => {
       await answered;
     });
     expect(latest.error).toBeNull();
-    expect(latest.answering).toBe(false);
+    expect(latest.canStop).toBe(false);
     expect(latest.status).toBe("idle");
-  });
-
-  test("the server's default lands after the send: the picker keeps the conversation's model",
-    async () => {
-      const models = deferredValue<{ models: string[]; default: string }>();
-      mocks.fetchModels.mockReturnValue(models.promise);
-      const created = deferredValue<{ id: string; model: string }>();
-      mocks.createConversation.mockReturnValue(created.promise);
-      feed([{ type: "turn_done", usage: null }]);
-      render(<Harness />);
-      act(() => latest.ensureModels());
-      let sendDone!: Promise<void>;
-      await act(async () => {
-        sendDone = latest.send("hi");
-        await Promise.resolve();
-      });
-      expect(mocks.createConversation).toHaveBeenCalledWith("sonnet");
-      expect(latest.modelLocked).toBe(true);
-      await act(async () => models.resolve(
-        { models: ["sonnet", "opus", "haiku", "fable"], default: "haiku" }));
-      expect(latest.model).toBe("sonnet");
-      await act(async () => {
-        created.resolve({ id: "c1", model: "sonnet" });
-        await sendDone;
-      });
-      expect(latest.model).toBe("sonnet");
-    });
-
-  test("the picker shows the model the server says the conversation runs", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "c1", model: "opus" });
-    feed([{ type: "turn_done", usage: null }]);
-    render(<Harness />);
-    await act(() => latest.send("hi"));
-    expect(latest.model).toBe("opus");
-  });
-
-  test("a 404 whose re-create fails leaves the picker unlocked", async () => {
-    mocks.createConversation
-      .mockResolvedValueOnce({ id: "c1", model: "sonnet" })
-      .mockRejectedValueOnce(new Error("cap reached"));
-    mocks.streamMessage.mockImplementation(async () => {
-      throw new ApiError(404, "/api/assistant/conversations/c1/messages");
-    });
-    render(<Harness />);
-    await act(() => latest.send("hi"));
-    expect(latest.error).toContain("cap reached");
-    expect(latest.modelLocked).toBe(false);
-  });
-
-  test("a conversation reaped under a card leaves the picker unlocked", async () => {
-    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
-    streamUntilStopped((emit) => emit(confirmEvent("t1")));
-    mocks.confirmTool.mockRejectedValue(
-      new ApiError(404, "/api/assistant/conversations/c1/confirm"));
-    render(<Harness />);
-    await act(async () => {
-      void latest.send("please write");
-      await Promise.resolve();
-    });
-    await act(() => latest.respondConfirm(true));
-    expect(latest.error).toMatch(/expired/);
-    expect(latest.modelLocked).toBe(false);
   });
 
   // After a lost harness the server retires the conversation, so the next

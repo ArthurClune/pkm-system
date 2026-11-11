@@ -116,7 +116,10 @@ not fit its op is an `AssertionError`: a 500 the client retries, never a
   holds both hashes and the guard fields the stored `batch_replay_hash`
   leaves out. A change to what either hash covers re-hashes every stored
   batch of that kind, and a retry across the deploy then 409s.
-  `op_hashes.json` pins both hashes for every op kind.
+  `op_hashes.json` pins both hashes for every op kind, and its
+  `replay_excluded` list is the fields the worker fills per kind: the server
+  test checks the replay hash drops exactly those, the web test checks the
+  worker fills exactly those.
 - **Well-formed text.** `WellFormedModel` turns lone surrogates into U+FFFD
   ([Hostile input](backend.md#hostile-input)). The rule is to normalise,
   never reject: SQLite cannot bind a surrogate, a 5xx is retried forever and

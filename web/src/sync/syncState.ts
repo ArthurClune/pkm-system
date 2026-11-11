@@ -37,7 +37,8 @@ export interface SyncState {
    * outranks it (see outline). It is shown once that problem ends. */
   outlineBehind?: OutlineProblem;
   /** The error of the session's no-replica report, which comes once: the
-   * online-only banner it raises is shown whenever no other problem is. */
+   * online-only banner it raises is shown whenever no other problem is, or
+   * the one shown needs the worker (needsWorker). */
   replicaGone?: string;
 }
 
@@ -160,7 +161,8 @@ function replicaUnusable(state: SyncState, error: string): SyncTransition {
   // delivery problem the user can act on — overwriting a failed
   // outline-rejected repair would take its Retry with it, and retryProblem
   // would no longer reach that repair at all. A stalled banner is not one:
-  // its Reset cannot work on a replica that is gone.
+  // its Reset cannot work on a replica that is gone. Nor are the poison
+  // problems that need the worker, which transitionSync replaces.
   const current = state.problem;
   if (current && current.kind !== "replica-unusable" &&
       current.kind !== "replica-stalled") return unchanged(state);
@@ -206,19 +208,29 @@ function bannerForMode(state: SyncState, next: ReplicaState,
   }
 }
 
+/** A poison problem whose way out runs on the replica worker: the repair,
+ * running or failed with its Retry, and discovery's Retry. A failed mark is
+ * not one: its Discard needs no worker, and a replica that never opens
+ * fails the same mark again after a reload. */
+const needsWorker = (p: SyncProblem | undefined): boolean =>
+  (p?.kind === "rejected-batch" && (p.repair === "running" || p.repair === "failed"))
+  || p?.kind === "poison-discovery";
+
 export function transitionSync(state: SyncState, event: SyncEvent): SyncTransition {
   const t = transitionProblem(state, event);
   const gone = event.type === "replica-state" && event.state.mode === "no-replica"
     ? event.state.error : state.replicaGone;
   if (gone === undefined) return t;
-  if (t.state.replicaGone === gone && t.state.problem !== undefined) return t;
-  return {
-    state: {
-      ...t.state, replicaGone: gone,
-      problem: t.state.problem ?? { kind: "replica-unusable", error: gone },
-    },
-    effects: t.effects,
-  };
+  const next = t.state.problem;
+  const yields = next === undefined || needsWorker(next);
+  if (t.state.replicaGone === gone && !yields) return t;
+  if (!yields) return { state: { ...t.state, replicaGone: gone }, effects: t.effects };
+  // With the replica gone nothing can end a problem that needs it, so the
+  // outline problem held behind it is shown, else the online-only banner.
+  const shown = t.state.outlineBehind
+    ?? (state.problem?.kind === "replica-unusable" ? state.problem
+      : { kind: "replica-unusable", error: gone });
+  return { state: { problem: shown, replicaGone: gone }, effects: t.effects };
 }
 
 function transitionProblem(state: SyncState, event: SyncEvent): SyncTransition {

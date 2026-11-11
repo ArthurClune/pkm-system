@@ -662,6 +662,59 @@ describe("replica mode", () => {
     });
   });
 
+  test("a rejected-batch repair that meets a dead worker offers Reload, " +
+       "not a Retry", async () => {
+    let deletes = 0;
+    const replica = loggingReplica({
+      deleteBatch: () => { deletes += 1; return Promise.reject(deadWorker()); },
+    });
+    replica.rows.push(leftover(1));
+    const { session, reported } = rig({
+      replica,
+      answer: (body) => {
+        throw new ApiError(409, `/api/ops ${body.batch_id}`, "conflict");
+      },
+    });
+    await session.startup();
+    await session.onSocketStatus(true);
+    await vi.waitFor(() => expect(session.problem()).toEqual({
+      kind: "replica-unusable", error: "replica worker failed",
+    }));
+    expect(session.replicaState()).toEqual(online);
+    expect(deletes).toBe(1);
+    const shown = reported.problems.length;
+    const folded = reported.events.length;
+
+    // Neither the banner's action nor a reconnect's rerun of the failed
+    // repair brings a Retry back.
+    await session.actions.retryProblem();
+    await session.onSocketStatus(false);
+    await session.onSocketStatus(true);
+
+    expect(reported.events.slice(folded).map((e) => e.type))
+      .toEqual(expect.arrayContaining(["repair-started", "repair-failed"]));
+    expect(reported.problems.slice(shown)).toEqual([]);
+  });
+
+  test("a startup discovery that meets a dead worker offers Reload, " +
+       "keeping the startup gate", async () => {
+    const replica = loggingReplica({
+      poisonedBatches: () => Promise.reject(deadWorker()),
+    });
+    const { session, reported } = rig({ replica });
+    await session.startup();
+
+    expect(reported.events.map((e) => e.type)).toContain("poison-discovery-failed");
+    expect(session.problem()).toEqual({
+      kind: "replica-unusable", error: "replica worker failed",
+    });
+    await session.actions.retryProblem();
+    expect(session.queue.holds("startup")).toBe(true);
+    expect(session.problem()).toEqual({
+      kind: "replica-unusable", error: "replica worker failed",
+    });
+  });
+
   test("a stall followed by a worker death ends on the online-only banner",
   async () => {
     let dead = false;

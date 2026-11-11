@@ -1,9 +1,9 @@
 // pattern: Imperative Shell
 // Client-only replica tables layered on the exported server base schema
-// (offline-editing-design.md §3). pending_ops is the durable offline queue --
-// its shape (id, batch_id, ops_json) is migration-stable: a newer client must
-// always be able to extract wire-format JSON from an older database, so changes
-// here must be additive only (offline-editing-design.md §6 guardrail).
+// pending_ops is the durable offline queue -- its shape (id, batch_id,
+// ops_json) is migration-stable: a newer client must always be able to extract
+// wire-format JSON from an older database, so changes here must be additive
+// only (docs/architecture/sync-and-offline.md § The replica).
 
 import { BASE_SCHEMA } from "./baseSchema.gen";
 import type { ReplicaDb } from "./db";
@@ -46,8 +46,8 @@ CREATE TABLE IF NOT EXISTS replay_batches(
 `;
 
 /** Identifies the exact DDL a replica file was built with; a mismatch on
- * open triggers the flush-then-rebootstrap recovery (offline-editing-design.md
- * §6). */
+ * open triggers the flush-then-rebootstrap recovery
+ * (docs/architecture/sync-recovery.md § Rebootstrap triggers). */
 export const SCHEMA_VERSION = sha256Hex(BASE_SCHEMA + CLIENT_DDL);
 
 export function installSchema(db: ReplicaDb): void {

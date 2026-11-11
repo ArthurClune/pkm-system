@@ -4,12 +4,11 @@ All styling is plain CSS in a single file, `web/src/styles.css`, with no
 framework or CSS-in-JS. The app around it is in [frontend.md](frontend.md);
 failures are indexed by symptom in [troubleshooting.md](../troubleshooting.md).
 
-`styles.css` is divided by `/* == Name == */` markers, from Tokens and themes
-at the top through the component sections to Local file picker. Later rules
-win at equal specificity, so a responsive or variant override follows the rule
-it overrides: the shared `Responsive` section holds the 900px and 600px
-breakpoints, and a section with its own `@media` block (Media and embeds,
-Local file picker) keeps it right after the rules it overrides.
+`styles.css` is divided by `/* == Name == */` markers, with Tokens and themes
+first. Later rules win at equal specificity, so a responsive or variant
+override follows the rule it overrides: the shared `Responsive` section holds
+the common breakpoints, and a section with its own `@media` block keeps it
+right after the rules it overrides.
 
 ## Tokens and theming
 
@@ -61,8 +60,8 @@ Buttons and fields are styled by named class, and there is no bare
 
 - **Buttons** are pills. `.btn-secondary` carries its own padding. A small
   button beside text adds `.btn-compact`, which sits after `.btn-secondary`
-  because it overrides it at equal specificity. `.btn-danger` fills with `--color-error-fill`, a token
-  separate from the error text colour. The chrome trio
+  because it overrides it at equal specificity. `.btn-danger` fills with
+  `--color-error-fill`, a token separate from the error text colour. The chrome trio
   (`.top-bar-menu-button`, `.sidebar-toggle-button`, `.help-button`) has a
   transparent border, so hover does not shift layout.
 - **Fields** are `.input-control` and `.search-field` /
@@ -78,9 +77,8 @@ that takes focus from the unmounted button and draws no ring.
 
 The assistant panel's tool line marks a failed write with
 `.assistant-tool-failed`, in `--color-error` text and not italic like the
-line around it. `.assistant-tool-warning` (a batch's skipped-ops line)
-keeps the line's colour and is not italic. `.assistant-tool-declined` has no rule: it is a hook for
-tests and future styling, and a declined write is deliberately not red.
+line around it. `.assistant-tool-warning` (a batch's skipped-ops line) keeps
+the line's colour and is not italic. A declined write is not red.
 
 Supporting copy in Files and Settings uses `p.settings-note`, whose `p`
 qualifier lets it override Settings' `.settings-section p` reset.
@@ -108,7 +106,7 @@ One ring, everywhere a control can be focused:
 
 It is declared per component, next to that component's own rule.
 `.asset-image-trigger` and `button.file-thumb` take `outline-offset: 2px` to
-clear a rounded image corner. Three exceptions are commented in `styles.css`:
+clear a rounded image corner. The exceptions, each commented in `styles.css`:
 
 - `.top-bar-search-input` sets `outline: none`, because its desktop width
   growth is the affordance; the `@media (max-width: 600px)` block re-enables
@@ -127,7 +125,9 @@ Other rules:
   so reading `styles.css` alone will not find every focusable control.
 - **Content anchors.** `a.page-link`, external links and the
   `.page-title > a` heading link keep the UA ring; at the block line-height an
-  offset ring collides with the line above.
+  offset ring collides with the line above. The global `a` rule sets
+  `font-weight: 600`, so an anchor placed among buttons pins its weight in its
+  own component rule.
 - **The closed phone drawer** pairs `translateX(-100%)` with
   `visibility: hidden`, restored by `.left-nav.open`, or its links stay tab
   stops. The hamburger carries `aria-expanded` and `aria-controls="left-nav"`.
@@ -142,6 +142,8 @@ Other rules:
   its chevron `aria-hidden`. `.page-title-edit` never takes a fixed
   `aria-label`: accname walks the `<h1>`'s children, so a name on the button
   renames the page's heading.
+- **Removing a class.** The verify skill selects by class: grep the "Known
+  selectors" table in `.claude/skills/verify/SKILL.md` too.
 
 ## Layout invariants
 
@@ -156,23 +158,11 @@ Other rules:
   `.pdf-footer`'s text rather than a canvas inside the scroller. A numbered
   bullet is text, so `.bullet.numbered` joins with `align-self: baseline`.
 - **Embedded image caps.** `.asset-image` (an external `<img>`) and
-  `.asset-image-trigger` (an uploaded image's wrapper) both cap at
-  `max-width: 67%`. The inner image resets to `max-width: 100%` so the caps do
+  `.asset-image-trigger` (an uploaded image's wrapper) share one
+  `max-width` cap. The inner image resets to `max-width: 100%` so the caps do
   not multiply. The phone override back to full width must stay after those
   rules, because a media query adds no specificity.
-- **Stacking.** Every `z-index` reads one of the `--z-*` tokens on `:root`
-  in `styles.css`, bottom to top as below. `styles.test.ts` pins the order, so
-  a new layer takes a token between its neighbours.
-
-  | Token | Layer |
-  |---|---|
-  | `--z-drop-indicator` | the drag drop line |
-  | `--z-sidebar-overlay` | the right sidebar under 900px |
-  | `--z-dropdown` | top-bar menu, search results |
-  | `--z-phone-nav` | the left nav under 600px |
-  | `--z-hamburger` | the nav toggle |
-  | `--z-keyboard-bar` | `.keyboard-bar`, below the editor popups; its touch rules are in [frontend.md § iOS and phone behaviour](frontend.md#ios-and-phone-behaviour) |
-  | `--z-editor-popup` | `.ac-popup`, `.date-picker` |
-  | `--z-popover` | `.block-menu`, `.block-ref-popover` |
-  | `--z-assistant` | the assistant panel: above the block menu, below modals |
-  | `--z-modal` | confirm, image, PDF, Goodlinks and local-file overlays |
+- **Stacking.** Every `z-index` reads one of the `--z-*` tokens declared
+  together on `:root` in `styles.css`, bottom to top. `styles.test.ts` ("the
+  z-index scale") pins that order, so a new layer takes a token between its
+  neighbours.

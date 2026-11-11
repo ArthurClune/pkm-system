@@ -290,8 +290,8 @@ def get_page(request: Request, title: RawTitle, bl_offset: Int64 = 0, bl_limit: 
 def create_page(request: Request, body: CreatePageRequest,
                 db: Db = Depends(get_db)) -> PageMeta:
     """Idempotent: creating an existing page returns its row, not an error.
-    A title longer than 1,000 characters (`MAX_PAGE_TITLE_CHARS`) is a 422,
-    even for a page stored before the cap."""
+    A title over `MAX_PAGE_TITLE_CHARS` is a 422, even for a page stored
+    before the cap."""
     # Judged on the title as sent, before the store looks it up: the store
     # refuses only creating a long page, and this route refuses the title.
     measured = title_length_over(body.title)
@@ -383,8 +383,8 @@ def rename_page(request: Request, title: RawTitle, body: RenamePageRequest,
     top-level blocks appended after the target's, referencing text
     rewritten to the target, source page row dropped) -- a confirm-gated
     merge, not a silent overwrite. Case-sensitive throughout, like
-    pages.title itself. 422 when the new title is blank, refused or longer
-    than 1,000 characters, or when the rewrite would carry a block over the
+    pages.title itself. 422 when the new title is blank, refused or over
+    `MAX_PAGE_TITLE_CHARS`, or when the rewrite would carry a block over the
     text length cap or nest its `[[` past the cap (a longer title lengthens
     every link to it); the detail names the block, and nothing changes."""
     # The write lock is taken before the first read the decision rests on
@@ -510,8 +510,8 @@ def get_current_work(now: int = Depends(now_ms),
 
 # Non-empty = any block with non-whitespace text; the trim char set matches
 # is_page_empty()'s strip() for ASCII whitespace, and the offline shim runs the
-# identical SQL so both engines agree byte-for-byte (offline-editing-design.md
-# §7).
+# identical SQL so both engines agree byte-for-byte (docs/architecture/
+# backend.md § Generated artifacts and parity fixtures).
 _NONEMPTY_DAILY_SQL = (
     "SELECT title FROM pages WHERE EXISTS ("
     " SELECT 1 FROM blocks b WHERE b.page_id = pages.id"
@@ -521,15 +521,15 @@ _NONEMPTY_DAILY_SQL = (
 # scroll if another page [[links]] to it ("Remind me on [[July
 # 28th, 2026]]" should show under that day even before anyone writes to it
 # directly) -- so a daily title with an inbound ref counts as non-empty too.
-# Same SQL in the offline shim (offline-editing-design.md §7).
+# Same SQL in the offline shim.
 _REFERENCED_DAILY_SQL = (
     "SELECT DISTINCT p.title FROM pages p JOIN refs r ON r.target_page_id = p.id")
 
 # How many referencing pages each journal day carries inline. A scroll full of
 # days each listing every referencing page would be noisy; the day's own
 # BacklinksSection pages the rest from /api/page on demand. The offline shim
-# uses the same number (offline-editing-design.md §7), and the web client reads
-# the limit back off the payload rather than hardcoding it.
+# uses the same number, and the web client reads the limit back off the
+# payload rather than hardcoding it.
 JOURNAL_BACKLINK_PREVIEW = 5
 
 

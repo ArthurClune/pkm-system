@@ -152,8 +152,9 @@ def _block_payloads(db: Db,
                     uids: Sequence[BlockUid]) -> tuple[list[SyncBlock], set[PageId]]:
     """Hydrate blocks + their refs, plus their transitive parent-block closure.
     Also return every page id a shipped block depends on: ref target pages
-    (offline-editing-design.md §1 -- a window boundary can split a block+refs
-    from the implicitly-created page it points at) and each shipped block's
+    (docs/architecture/sync-and-offline.md § The changes feed -- a window
+    boundary can split a block+refs from the implicitly-created page it
+    points at) and each shipped block's
     OWN page (a block moved to a brand-new page has the same hazard). Fetched
     via chunked `WHERE uid IN (...)` set queries rather than one query per
     uid -- a legal window/snapshot can carry thousands of uids."""

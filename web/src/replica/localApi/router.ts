@@ -1,8 +1,9 @@
 // pattern: Imperative Shell
-// The offline shim's route table (offline-editing-design.md §4): matches the
-// requests the app makes and serves them from the replica with the same OpenAPI
-// shapes the server returns. Unmatched routes report handled:false — the caller
-// surfaces a clear online-only error. Runs inside the worker.
+// The offline shim's route table (docs/architecture/sync-and-offline.md
+// § Key pieces): matches the requests the app makes and serves them from the
+// replica with the same OpenAPI shapes the server returns. Unmatched routes
+// report handled:false — the caller surfaces a clear online-only error. Runs
+// inside the worker.
 
 import type { BatchId, BlockUid } from "../../api/brands";
 import type { BlockRefsPayload, SidebarNavEntry, SidebarNavPayload,
@@ -112,7 +113,7 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
                  `unsupported page-title syntax: ${JSON.stringify(pageTitle)}`);
     }
     // local negative id now; the durable create_page op carries the title
-    // to the server (get_or_create there — offline-editing-design.md §1)
+    // to the server (get_or_create there)
     getOrCreateLocalPage(db, pageTitle, req.nowMs);
     enqueueBatch(db, [{ op: "create_page", page_title: pageTitle }], req.nowMs,
                  deps.newBatchId());

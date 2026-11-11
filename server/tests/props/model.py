@@ -6,10 +6,11 @@ real server against. It must never import `pkm.server.*` or
 `pkm.planning` (a test pins that), or it would agree with the server by
 construction.
 
-The rules come from backend.md § Planning (Ordering), § Conflicts,
-§ Missing targets, § Stale batches, § Concurrent structure edits and § Page
-mutations and the sidebar. Each rule below names the row it encodes. Where
-the docs are silent the rule follows the code, and says so.
+The rules come from write-path.md § Planning (Ordering), § Work bounds
+under the write lock, § Conflicts, § Missing targets, § Stale batches,
+§ Concurrent structure edits and § Page mutations and the sidebar. Each rule
+below names the row it encodes. Where the docs are silent the rule follows
+the code, and says so.
 
 Ops are plain dicts in the wire shape of `pkm.contracts.ops`. The model
 tracks only the blocks the ops address; the conflict headers and copies
@@ -91,7 +92,7 @@ def _valid_uid(uid: BlockUid) -> bool:
 
 
 def _title_violation(ops: Sequence[Op]) -> bool:
-    """backend.md § Missing targets: "title syntax" is still a 400. Checked
+    """write-path.md § Missing targets: "title syntax" is still a 400. Checked
     over the whole batch before any op applies: a create's, create_page's or
     move's page_title (even one a live parent makes the server ignore), and
     every `[[ref]]`/`#tag` title in a create's or edit's text. An edit's
@@ -110,11 +111,12 @@ def _title_violation(ops: Sequence[Op]) -> bool:
 
 
 def _limit_violation(ops: Sequence[Op]) -> bool:
-    """backend.md § Planning (text limits): a create's or edit's text
-    longer than 1,000,000 code points, or with `[[` runs nested deeper
-    than 32 outside code, is a 400 for the whole batch. Judged over the
-    whole batch before titles, an op the server would skip included; no
-    other op's text is judged. Of the texts the strategies draw, exactly
+    """write-path.md § Work bounds under the write lock, and § Planning
+    (text limits) for the order: a create's or edit's text longer than
+    1,000,000 code points, or with `[[` runs nested deeper than 32 outside
+    code, is a 400 for the whole batch. Judged over the whole batch before
+    titles, an op the server would skip included; no other op's text is
+    judged. Of the texts the strategies draw, exactly
     `PAST_LIMIT_TEXTS` are past a limit (props/limit_texts.py).
 
     That holds only while every other drawn text stays well inside both
@@ -144,9 +146,9 @@ _BLOCK_REF = re.compile(r"\(\(([^()\s]+)\)\)")
 
 
 def unlink_titles(text: str, titles: Collection[str]) -> str:
-    """backend.md § Page mutations: every `[[Title]]` and `#Title` naming
-    one of `titles` becomes plain `Title`. A leading `Title::` is not a
-    link and is left alone."""
+    """write-path.md § Page mutations and the sidebar: every `[[Title]]`
+    and `#Title` naming one of `titles` becomes plain `Title`. A leading
+    `Title::` is not a link and is left alone."""
     def plain(m: re.Match[str]) -> str:
         return m.group(1) if m.group(1) in titles else m.group(0)
     return _TAG.sub(plain, _LINK.sub(plain, text))
@@ -159,7 +161,7 @@ def attribute_name(text: str) -> str | None:
 
 
 def fence_attribute(text: str, titles: Collection[str]) -> str:
-    """backend.md § Stale batches: a leading attribute naming one of
+    """write-path.md § Stale batches: a leading attribute naming one of
     `titles` gets its name code-fenced in place (`` `X`:: v ``). A name
     holding a backtick is no attribute, so it is left alone."""
     span = attribute_title_span(strip_code(text), text)
@@ -191,7 +193,7 @@ _NEWLINES = re.compile(r"\s*\n\s*")
 
 
 def _plain_copy(text: str) -> str:
-    """backend.md § Page mutations and the sidebar: a block's copy drops
+    """write-path.md § Page mutations and the sidebar: a block's copy drops
     its leading attribute, and its newlines are folded to one space each
     run (generated texts carry no task marker)."""
     span = attribute_title_span(strip_code(text), text)
@@ -214,10 +216,11 @@ def page_copies(title: RawTitle, page_texts: Mapping[BlockUid, str]) -> dict[Blo
 @dataclass(frozen=True)
 class Rewrite:
     """One recorded rewrite of a block's text: the `block_rewrites` rows
-    sharing a before/after hash pair (backend.md § Database). `unlinked`
-    are deleted titles, `inlines` the `(uid, copied text)` pairs a page
-    delete put in place of `((uid))`. A hashed edit whose base hash is
-    `base_hash` has this replayed onto its text first. `before` is the
+    sharing a before/after hash pair (backend.md § Database; kinds, code:
+    schema.py). `unlinked` are deleted titles, `inlines` the
+    `(uid, copied text)` pairs a page delete put in place of `((uid))`.
+    A hashed edit whose base hash is `base_hash` has this replayed onto
+    its text first. `before` is the
     text `base_hash` hashes: what a device that missed the rewrite still
     holds, which strategies re-send. It is not part of the rows."""
     base_hash: Sha256Hex
@@ -265,15 +268,15 @@ class PageDelete:
                for r in extract(text).refs):
             return "used_as_attribute"
         new, _, applied = self.rewrite(text)
-        # backend.md § Page mutations: the copies inlined may not carry a
-        # text past the length cap, nor further past it, judged on the
-        # inlined text before unlinking and ahead of the rewrite's own
+        # write-path.md § Work bounds under the write lock: the copies inlined
+        # may not carry a text past the length cap, nor further past it, judged
+        # on the inlined text before unlinking and ahead of the rewrite's own
         # blockers. Unlinking only shortens, so the unlinked text needs no
-        # second length judgement. The code judges the nesting there too,
-        # since copies that open runs and copies that close them join into
-        # one deep link, and the depth times the length; every drawn text
-        # closes the runs it opens, so inlining never deepens a drawn
-        # text's nesting, and no drawn text with a ref is long.
+        # second length judgement. The code judges the nesting there too, since
+        # copies that open runs and copies that close them join into one deep
+        # link, and the depth times the length; every drawn text closes the runs
+        # it opens, so inlining never deepens a drawn text's nesting, and no
+        # drawn text with a ref is long.
         inlined = inline_refs(text, applied)
         if len(inlined) > TEXT_CAP and len(inlined) > len(text):
             return "limit"
@@ -346,7 +349,7 @@ class Model:
         return dict(self.blocks)
 
     def stale_titles(self, seen_seq: SyncSeq | None) -> frozenset[str]:
-        """backend.md § Stale batches: the titles deleted after `seen_seq`;
+        """write-path.md § Stale batches: the titles deleted after `seen_seq`;
         none without one. A `seen_seq` past the journal head is not
         modelled: the state machine never draws one."""
         if seen_seq is None:
@@ -360,7 +363,7 @@ class Model:
 
     def apply(self, ops: Sequence[Op], seen_seq: SyncSeq | None = None) -> Outcome:
         """Apply one batch atomically: a 400 leaves the model unchanged
-        (backend.md § The write path: one transaction per batch)."""
+        (write-path.md: one transaction per batch)."""
         saved = (dict(self.blocks), set(self.pages), set(self.deleted),
                  {u: list(s) for u, s in self.rewrites.items()})
         stale = self.stale_titles(seen_seq)
@@ -381,7 +384,7 @@ class Model:
 
     def delete_page(self, title: RawTitle, others: Mapping[BlockUid, str],
                     seq: SyncSeq) -> PageDelete:
-        """`DELETE /api/page/{title}` (backend.md § Page mutations and the
+        """`DELETE /api/page/{title}` (write-path.md § Page mutations and the
         sidebar). `others` is the text of every block the model does not
         track that is off the page (conflict entries, seed rows), since
         they can refuse the delete too. A 200 removes the page and its
@@ -439,15 +442,15 @@ class Model:
 
     def _replay(self, uid: BlockUid, text: str,
                 base: str) -> tuple[str, str, list[Rewrite]]:
-        """backend.md § Database, `block_rewrites`: a hashed edit made
-        before recorded rewrites of its block has them replayed onto its
-        text first."""
+        """backend.md § Database, `block_rewrites` (kinds, code: schema.py):
+        a hashed edit made before recorded rewrites of its block has them
+        replayed onto its text first."""
         return replay_chain(self.rewrites.get(uid, ()), text, base)
 
     def _record_written(self, uid: BlockUid, sent: str, written: str,
                         stale: Collection[str],
                         replayed: Sequence[Rewrite]) -> None:
-        """backend.md § Conflicts: text written to `uid` that differs
+        """write-path.md § Conflicts: text written to `uid` that differs
         from the text the client sent, because of a stale unlink or a
         replay, records how the one became the other, so the client's next
         hashed edit replays onto the written text. One rewrite per pass
@@ -504,7 +507,7 @@ class Model:
 
     def _shift(self, page: str, parent: BlockUid | None, key: int,
                moving: BlockUid | None = None) -> None:
-        """backend.md § Planning, Ordering: landing at `key` first
+        """write-path.md § Planning, Ordering: landing at `key` first
         bumps every sibling (same page, same parent) whose key is >= `key`
         by one. A moving block is left out of its own shift: its key is
         overwritten when it lands, so only its siblings move."""
@@ -520,11 +523,11 @@ class Model:
         kind = op["op"]
         if kind == "create_page":
             title = _page_name(op["page_title"])
-            # backend.md § Stale batches: a stale batch's create_page for a
+            # write-path.md § Stale batches: a stale batch's create_page for a
             # deleted title is dropped, and not reported.
             if title in stale:
                 return
-            # backend.md § The write path: create_page idempotently ensures
+            # write-path.md: create_page idempotently ensures
             # a page exists.
             self.pages.add(title)
             return
@@ -544,7 +547,7 @@ class Model:
             return
         block = self.blocks.get(uid)
         if block is None:
-            # backend.md § Missing targets: a skipped op whose uid fails
+            # write-path.md § Missing targets: a skipped op whose uid fails
             # UID_RE is still a 400.
             if not _valid_uid(uid):
                 raise _Rejected
@@ -577,7 +580,7 @@ class Model:
 
     def _create(self, op: Op, uid: BlockUid, text: str, skip: SkipFn,
                 kept: list[str], stale: frozenset[str]) -> None:
-        # backend.md § Missing targets: an invalid uid is a 400 -- for a
+        # write-path.md § Missing targets: an invalid uid is a 400 -- for a
         # create, checked before anything else.
         if not _valid_uid(uid):
             raise _Rejected
@@ -632,7 +635,7 @@ class Model:
         sent = op["text"]
         base = op.get("base_text_hash")
         if base is None:
-            # backend.md § Conflicts: a hashless edit to a live block is
+            # write-path.md § Conflicts: a hashless edit to a live block is
             # unconditional last-write-wins.
             self._write(block, text)
             self._record_written(block.uid, sent, text, stale, ())
@@ -640,13 +643,13 @@ class Model:
         unreplayed = text
         steps = self.rewrites.get(block.uid, ())
         if replay_peak(steps, unreplayed, base) > TEXT_CAP:
-            # backend.md § Conflicts: a replay may not store text past a
+            # write-path.md § Conflicts: a replay may not store text past a
             # limit. The edit lands, the block keeps its text. Every
             # drawn text closes the runs it opens, so its copies cannot
             # join into a deeper link and only the length cap can be
             # reached (code: replay_core._replay_step judges each step's
             # splice on both, and on the depth times the length).
-            # § Planning, "Replayed text": the landing has every title
+            # § Work bounds under the write lock: the landing has every title
             # the chain deleted or renamed away made plain, the steps past
             # the one over the cap included (code:
             # replay_core.over_limit_landing_text). The machine draws no
@@ -682,7 +685,7 @@ class Model:
             self._record_written(block.uid, sent, text, stale, replayed)
             return
         if text_hash(block.text) != base:
-            # backend.md § Conflicts, rows "Hashes differ" and "Block
+            # write-path.md § Conflicts, rows "Hashes differ" and "Block
             # exists, hash mismatch": incoming wins, the overwritten text
             # is kept.
             kept.append(block.text)
@@ -742,7 +745,7 @@ class Model:
         base = op.get("base_subtree_hash")
         if base is not None and subtree_hash(
                 (u, self.blocks[u].text) for u in subtree) != base:
-            # backend.md § Conflicts, row "Guarded `delete` whose subtree
+            # write-path.md § Conflicts, row "Guarded `delete` whose subtree
             # changed": the delete wins, but every text of the subtree is
             # kept first. A matching or hashless delete keeps nothing.
             kept.extend(self.blocks[u].text for u in subtree)
@@ -780,7 +783,7 @@ def positions_after(groups: Mapping[BlockUid | None, Sequence[BlockUid]],
 
     A command whose block or parent is not in `groups` changes nothing (a
     create still spends its uid), and a move into the block itself or its
-    own subtree is left undone: backend.md § Missing targets and
+    own subtree is left undone: write-path.md § Missing targets and
     § Concurrent structure edits, which the server reports as skips. Parent
     specs are `((uid))` or `{{alias}}`; a `## Heading` spec, which the
     planner would create, and `outline` are not modelled and raise.

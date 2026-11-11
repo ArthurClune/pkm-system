@@ -4,7 +4,9 @@ What fails mechanically in this repo, when, and what a maintainer of each
 check could break without noticing. Each check's code holds its rules,
 scenarios and suites. [`AGENTS.md` § Testing](../../AGENTS.md#testing) says
 how to run each gate and what to do with its verdicts. Failures of the gates
-themselves are in [troubleshooting.md](../troubleshooting.md#performance-checks).
+themselves are in troubleshooting.md, under
+[Property checks](../troubleshooting.md#property-checks) and
+[Performance checks](../troubleshooting.md#performance-checks).
 Anything not listed here, such as the server-side FCIS boundary, is
 convention plus review.
 
@@ -20,11 +22,11 @@ convention plus review.
 | contract tests | generated artifacts are fresh; routes declare a `response_model`; row keys match the DDL; registry paths exist and still mint; the property suite stays out of `pytest -q` | pytest | `test_openapi_sync.py`, `test_routes_models.py`, `test_rows_vocabulary.py`, `test_brandlint_registry.py`, `test_proptest_exclusion.py`, parity tests | regenerate per [backend.md](backend.md#generated-artifacts-and-parity-fixtures) |
 | row check | every `Db.select` row fits its `Row` keys and brand shapes | pytest (`PKM_ROW_CHECK=1`) | `pkm.database`, `pkm.rows` | `RowCheckError` names the column |
 | pyrefly, ruff | server types; no implicit `Any` in `server/src`; `ANN`, `ANN401`, `E501` | `uv run pyrefly check`, `uv run ruff check` | `pyrefly.toml`, `[tool.ruff]`, whose comments give the policy | |
-| typecheck | `tsc` on `src`, the generated API types, all of `tooling`, and `web/e2e` with `playwright.config.ts` | `pnpm verify`, `pnpm build` | `typecheck` in `web/package.json`, `web/e2e/tsconfig.json`, `web/tooling/tsconfig.node.json`, `web/tooling/perf/tsconfig.payload.json` | |
+| typecheck | `tsc` on `src`, the generated API types, all of `tooling`, and `web/e2e` with `playwright.config.ts` | `pnpm verify`, `pnpm build` | `typecheck` in `web/package.json`, `web/tsconfig.apitypes.json`, `web/tooling/tsconfig.typecheck.json`, `web/e2e/tsconfig.json`, `web/tooling/tsconfig.node.json`, `web/tooling/perf/tsconfig.payload.json` | |
 | eslint | hooks, promises, no `any`, import bans, web brand rules, no unchecked `@ts-` suppression; `web/e2e` and `playwright.config.ts` too, without the hooks rules | `pnpm verify` (`lint`) | `web/eslint.config.js`, `web/tooling/eslint-plugin-brands` | fixtures in `web/tooling/eslint-fixtures`, pinned by `lintConfig.test.ts` |
 | FCIS check | a Functional Core web module never imports an Imperative Shell or Mixed one, and every runtime module carries a valid header | `pnpm verify` (`check:fcis`) | `web/tooling/fcis.ts` | [overview.md](overview.md#functional-core--imperative-shell) |
 | vitest | unit tests pass over `coverage.thresholds` | `pnpm verify` (`test:coverage`) | `web/vite.config.ts` | |
-| unit-test guards | replica rows fit `Columns`; no unsilenced `console.warn`/`error`; no runaway fast-check filter; `types.d.ts` matches `openapi.json` | every vitest run | `replica/rowCheck.ts`, `src/test-setup.ts`, `src/test-guards.ts`, `genTypes.drift.test.ts` | each guard's test shows its teeth |
+| unit-test guards | replica rows fit `Columns`; no unsilenced `console.warn`/`error`; no runaway fast-check filter; no orphaned vitest worker; `types.d.ts` matches `openapi.json` | the filter cap and orphan watchdog on every vitest run, property suite included; the console guard in the unit suite only | `replica/rowCheck.ts`, `src/test-setup.ts` (the console guard), `src/fcFilterCap.ts` and `src/orphanWatchdog.ts` (wired by `src/test-guards.ts`), `genTypes.drift.test.ts` | each guard's test shows its teeth |
 | bundle budgets | the build stays under its caps | `vite build` | `viteBudgetPlugin.ts`, `budgets.json` | |
 | Playwright | the built SPA works against a real server | last in `pnpm verify` | `web/e2e` | any 5xx or server exception fails |
 | performance gate | no count rises; no timing clearly worsens | `perf/check.sh`, before merge | `server/tooling/perfcheck`, `web/tooling/perf/check.ts` | [Performance gate](#performance-gate) |
@@ -32,14 +34,10 @@ convention plus review.
 | architecture docs | mermaid parses; links and anchors resolve | by hand | `.claude/skills/architecture-docs/check-docs.mjs` | |
 
 Node runs the scripts under `web/tooling` as `.ts` by type stripping, with
-no build step. Stripping rewrites nothing, so `tsconfig.node.json` checks the
-scripts node loads as it loads them. Imports carry their `.ts` extension,
-type-only imports say `type`, and syntax that needs a transform (an enum, a
-parameter property) is refused. The plain tooling pass would accept all three,
-and node would then fail at run time. The perf payloads `instrument.js` and
+no build step, so `tsconfig.node.json` checks them as node loads them; its
+`//` comment says what that refuses. The perf payloads `instrument.js` and
 `react-commits.js` stay JavaScript, because `harness.ts` hands their text to
-the browser. `tsconfig.payload.json` checks their JSDoc against DOM types
-alone.
+the browser; `tsconfig.payload.json` checks their JSDoc.
 
 ## Comment and regex lint
 
@@ -78,10 +76,9 @@ the Playwright specs mint there; `test-helpers.ts` re-exports it, and imports
 vitest, so the specs may not import it.
 
 The one opt-out is `brand: untrusted -- <reason>` in a comment, allowed only
-in `OPT_OUT_FILES`: route modules on the server, and on the web the HTTP
-response boundary `api/client.ts`, its Playwright twin `e2e/wireJson.ts`,
-and a few harness files. It covers one
-site, the leftmost on its line, and one that covers nothing is reported.
+in the files `OPT_OUT_FILES` lists, each with its reason. It
+covers one site, the leftmost on its line, and one that covers nothing is
+reported.
 
 The rules and their messages are `RULES` in `brandlint/core.py` and the
 header of each rule module under `eslint-plugin-brands/`.
@@ -101,7 +98,9 @@ header of each rule module under `eslint-plugin-brands/`.
 `perf/check.sh` measures fixed backend and frontend scenarios against a
 synthetic prod-shaped fixture and compares them with baselines in `perf/`. The
 [design spec](../superpowers/specs/2026-09-26-perf-regression-checks-design.md)
-holds the rationale.
+holds the rationale. The frontend half's files and the caveats for reading
+its numbers are in
+[`web/tooling/perf/README.md`](../../web/tooling/perf/README.md).
 
 | Class | Fails when | On improvement |
 |---|---|---|
@@ -172,21 +171,21 @@ specs: [server](../superpowers/specs/2026-10-02-property-checks-server-design.md
 
 | Suite | Holds |
 |---|---|
-| `test_ops_state.py` | blocks, pages, rewrite rows and acks match `props/model.py`, title and text-limit refusals included, and an over-limit replay's landing, with its deleted titles plain; replay is inert |
+| `test_ops_state.py` | `POST /api/ops` matches `props/model.py`; the invariants are in the module docstring |
 | `test_planner_props.py` | sibling order matches `positions_after` |
 | `test_unlink_props.py` | no rewritten source references the page; a second pass is inert |
-| `test_assistant_turn_props.py` | each turn shows only its own events and sends one interrupt at most, only a user-stopped turn ends on `TurnStopped`, and retirement matches [the turn phase](assistant.md#the-turn-phase). The rules draw every interrupt order, a Stop held past the stall deadline, a Stop before the reserved turn's first step and a query cut short. It runs on a virtual clock (`props/virtual_loop.py`) |
+| `test_assistant_turn_props.py` | each turn shows only its own events and sends one interrupt at most, only a user-stopped turn ends on `TurnStopped`, and retirement matches [the turn phase](assistant.md#the-turn-phase). It runs on a virtual clock (`props/virtual_loop.py`) |
 | `sync/` | the invariants in the header of `sync/oracle.ts`, over clients that run `createSyncSession`; `queue.prop.ts` holds those in the header of `sync/queueModel.ts`, without a server |
 | `outline/` | `checks.ts`: rows match a reading-view model; history undoes to the start. The runner composes commands through `command.ts`, the code `useOutline.run` and the undo dispatch run, and models the commands the editor refuses (a refusal check, and `unguardedBatches` for the ops suite) |
-| `outline/draft.prop.ts` | the real editor in jsdom (`draftHarness.tsx`) holds a pending draft exactly when `draftModel.ts` does; the textarea shows it or else the tree, and adopts nothing mid-composition; each flush hashes its draft's base; a keydown the IME owns sends nothing |
+| `outline/draft.prop.ts` | the real editor in jsdom (`draftHarness.tsx`) agrees with `draftModel.ts`; the invariants are in the file header |
 | `ops/` | the replica and the in-memory trees store what the server stores; `enqueueBatch` refuses a batch for title syntax or a text limit exactly when the server does |
-| `assistant/` | the panel's chat machine keeps [the chat machine](frontend.md#the-chat-machine)'s rules (the invariants in the header of `assistant/run.ts`), with Stop, New chat and the models list landing inside a create, a 404 re-create and a turn. Pure; `PROPERTY_LIMIT_MS` in `assistant.prop.ts` cuts it off |
-| `journal/` | `journalPaging` matches a model of [the Journal's paging](frontend.md#the-journal) through loads, resyncs, answers in any order, StrictMode replays and remounts. Pure; `PROPERTY_LIMIT_MS` in `journal.prop.ts` cuts it off |
+| `assistant/` | the panel's chat machine keeps [the chat machine](frontend.md#the-chat-machine)'s rules (the invariants in the header of `assistant/run.ts`). Pure; `PROPERTY_LIMIT_MS` in `assistant.prop.ts` cuts it off |
+| `journal/` | `journalPaging` matches a model of [the Journal's paging](frontend.md#the-journal). Pure; `PROPERTY_LIMIT_MS` in `journal.prop.ts` cuts it off |
 
 Rules a change to the gate must keep:
 
 - **A model is written from the docs, not from the code.** `props/model.py`
-  encodes backend.md and sync-and-offline.md and never imports `pkm.server`,
+  encodes write-path.md, backend.md and sync-and-offline.md and never imports `pkm.server`,
   `pkm.planning` or `pkm.batch` (`test_model_imports_no_server_code`). The
   outline model imports outline code as types only. A model derived from the
   code agrees with its bugs.
@@ -194,9 +193,9 @@ Rules a change to the gate must keep:
   share of an example count that a label must exceed. A property that stopped
   drawing a case would otherwise stay green on the cases it still draws.
   - Server: `merge_floors` (`tests/props/harness.py`) arms `with_floors`
-    (`tests/hostile.py`) only under the `merge` profile, because every other
-    profile caps a run at 20 examples, too few for any floor. Labels come from
-    `hostile.event`, not Hypothesis's own.
+    (`tests/hostile.py`) only under the `merge` profile, because `examples`
+    caps every other profile's run below what any floor needs. Labels come
+    from `hostile.event`, not Hypothesis's own.
   - Web: `checkGateProperty` (`props/gate.ts`) judges a `Reach`
     (`props/reach.ts`) on the tally after a passing run. A replayed path is
     neither logged nor judged, since its tally counts one counterexample.

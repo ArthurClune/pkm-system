@@ -20,20 +20,19 @@ inline code and TODO markers. Ref extraction (`grammar/refs.ts`,
 `replica/refs.ts`), caret lookup (`outline/refAtCaret.ts`), TODO toggling and
 slash commands adapt its token stream rather than scanning privately.
 `server/src/pkm/refs.py` owns the grammar and `scan.ts` mirrors it
-([backend.md § Ref grammar](backend.md#ref-grammar));
+([backend.md § Ref grammar](backend.md#ref-grammar)).
 `shared/fixtures/ref_grammar.json` pins the two together, and both sides' tests
-replay it
-([generated artifacts and parity fixtures](backend.md#generated-artifacts-and-parity-fixtures)).
+replay it ([generated artifacts and parity
+fixtures](backend.md#generated-artifacts-and-parity-fixtures)).
 
-A block whose `[[` runs nest past `MAX_LINK_NESTING` gets no run tokens
-from `scanGrammar`. Its brackets render as text, and `extractRefs` reports
-none of its links, though its hashtags and `((uid))` refs survive.
-`tokenizeInline` recurses into a run whose title names no page, once per
-such nested run, so following such a nest would overflow the stack. Only a row stored before the
-[limit](backend.md#planning) reaches this. `refs.extract` still reports
-those links, yet nothing diverges: the replica takes a pulled block's `refs`
-rows from the server, derives only `block_refs` itself, and refuses a local
-op whose text nests that deep.
+A block whose `[[` runs nest past `MAX_LINK_NESTING` gets no run tokens from
+`scanGrammar`. Its brackets render as text, and `extractRefs` reports none of
+its links, though its hashtags and `((uid))` refs survive. Only a row stored
+before the [limit](write-path.md#work-bounds-under-the-write-lock) reaches
+this, because every write refuses such a text. The server's `refs.extract`
+still reports those links, yet nothing diverges: the replica takes a pulled
+block's `refs` rows from the server, derives only `block_refs` itself, and
+refuses a local op whose text nests that deep.
 
 **Grammar code stays linear in the text, and never spreads a token array
 into a call (`push(...xs)`).** A block at `MAX_BLOCK_TEXT_CHARS` holds
@@ -86,7 +85,7 @@ and the only place a segment becomes a component.
 | anything else | plain text |
 
 A `depth` prop rides the recursive cases: `BlockRef` renders the raw `((uid))`
-at its `MAX_DEPTH` of 3, and `QueryBlock` stops at 2. `EditableBlockTree`
+at its own `MAX_DEPTH`, and `QueryBlock` stops at its own. `EditableBlockTree`
 resolves two block-level shapes before this dispatch, `{{toc}}` (`TocBlock`,
 `tocEntries.ts`, `isTocMacro`) and a table macro (`roamTableRows`), both only
 while the row is unfocused.
@@ -125,8 +124,9 @@ one way to read either.
 The payload wins where both have the uid. The store keeps per-uid listener sets
 read through `useSyncExternalStore`, so a resolved batch wakes only its own
 refs. Requests from one render pass batch into one call, chunked at the
-server's 50-uid cap. `claimRequest` is the fetch-once guard, and keeps claims
-only for uids the server could not resolve.
+server's per-request cap (`CHUNK` in `BlockRefProvider.tsx`). `claimRequest` is
+the fetch-once guard, and keeps claims only for uids the server could not
+resolve.
 
 ## Mermaid
 
@@ -164,6 +164,10 @@ viewer reads through `failureNote` because pdf.js exposes the status and not
 the body. A tap on a deferred link's download first asks for one byte
 (`Range: bytes=0-0`; the route has no HEAD), and only a success starts the
 native download.
+
+`InlineSegments` keys each `PdfEmbed` by its href, so an embed's click-to-load
+state (`armed`) never survives an href change. Reusing the instance would load
+a deferred PDF without its click.
 
 In `PdfViewer`, a new `href` resets its state and bumps a generation counter
 synchronously in render, and every load callback checks the generation it
@@ -212,13 +216,10 @@ placeholder is plain text.
 **No diagram fetches, in a note or a reply** (`mermaidSafety.ts`).
 beautiful-mermaid escapes labels, but its SVG opens with a Google Fonts
 `@import`, which `stripCssImports` removes before the SVG is cached. Stock
-mermaid's `securityLevel` strict is not enough. Its DOMPurify defaults keep
-`<img src>`. Its frontmatter and `%%{init}%%` config reach CSS with only a
-brace-balance check. d3 draws image shapes and sequence actor icons outside
-any sanitizer. `mermaid.render` lays the diagram out in the live document, so
-a fetch starts before the SVG returns, and cleaning the output would be too
-late.
-Before render, the app therefore:
+mermaid's `securityLevel` strict is not enough (`mermaidSafety.test.ts` pins
+what it lets through). `mermaid.render` lays the diagram out in the live
+document, so a fetch starts before the SVG returns, and cleaning the output
+would be too late. Before render, the app therefore:
 
 - secures the CSS-bearing config keys (`STOCK_MERMAID_SECURE`);
 - forbids the label tags and attributes that load a URL

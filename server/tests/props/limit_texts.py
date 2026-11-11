@@ -1,12 +1,12 @@
 # pattern: Functional Core
 """The block texts at and past the write-time limits that the ops property
-draws (backend.md § Planning (text limits)): a text may hold at most
-1,000,000 code points, and its `[[` runs may nest at most 32 deep outside
-code. Every other text the strategies draw is a few short tokens, so these
-are the only texts a limit can reach. The model decides a batch's fate by
-membership here rather than asking the server's judge, so a boundary bug in
-the judge disagrees with it. The limits are written out, not imported, for
-the same reason."""
+draws (write-path.md § Work bounds under the write lock): a text may hold at
+most 1,000,000 code points, and its `[[` runs may nest at most 32 deep
+outside code. Every other text the strategies draw is a few short tokens, so
+these are the only texts a limit can reach. The model decides a batch's fate
+by membership here rather than asking the server's judge, so a boundary bug
+in the judge disagrees with it. The limits are written out, not imported,
+for the same reason."""
 from __future__ import annotations
 
 TEXT_CAP = 1_000_000

@@ -1,9 +1,11 @@
 // pattern: Imperative Shell
-// Drives the replica from the server (offline-editing-design.md §3): snapshot
-// bootstrap, nudge-driven windowed pulls, and the guarded re-bootstrap paths
-// (feed reset / generation flip / schema-version mismatch). The guardrail from
-// the epic: a re-bootstrap NEVER tears down a database whose pending queue is
-// non-empty — queued batches are flushed to the server first (batch_id dedup
+// Drives the replica from the server (docs/architecture/sync-and-offline.md
+// § The changes feed): snapshot bootstrap, nudge-driven windowed pulls, and
+// the guarded re-bootstrap paths (feed reset / generation flip /
+// schema-version mismatch, docs/architecture/sync-recovery.md
+// § Rebootstrap triggers).
+// The guardrail: a re-bootstrap NEVER tears down a database whose pending queue
+// is non-empty — queued batches are flushed to the server first (batch_id dedup
 // makes replayed flushes safe), and a failed flush keeps the old database:
 // degraded beats data loss.
 
@@ -475,7 +477,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     const deliverLeased = queue.deliverLeased;
     for (const b of batches) {
       // poisoned batches were already rejected by the server; retrying
-      // them forever would wedge recovery (offline-editing-design.md §6)
+      // them forever would wedge recovery
       if (b.poisoned) continue;
       beforePost();
       if (deliverLeased === undefined) {

@@ -5,9 +5,8 @@ network security boundary. The application's own authentication protects
 against casual attackers on a local network or other reachable devices. It
 does not make the server safe to expose to the public Internet.
 
-The last security review was on 2026-10-23
-([findings](security-review-2026-10-23.md)). This document describes the
-system after the fixes that review led to.
+The last security review is recorded in
+[security-review-2026-10-23.md](security-review-2026-10-23.md).
 
 ## Deployment assumptions
 
@@ -17,14 +16,13 @@ Tailscale IP. `bind_hosts` in `config.json` defaults to loopback. Never
 configure `0.0.0.0`, an ordinary LAN address or public port forwarding.
 Tailscale Serve provides HTTPS; keep `cookie_secure` enabled in production.
 `serve_origins` must name the Serve hostname's origin, or browsers on it can
-read but cannot write or open the WebSocket (see
-[Authentication](#authentication)).
+read but cannot write or open the WebSocket
+([allowed origins](architecture/backend.md#auth)).
 
 Start the server through `python -m pkm.server.run`, as the launchd job
 does. Only that entry point installs the slow-client deadlines and pins
 the proxy-header trust the login throttle keys on
-([mechanism](architecture/backend.md#auth)). The server refuses to
-start on SQLite older than `MIN_SQLITE_VERSION` (`db_core.py`).
+([mechanism](architecture/backend.md#auth)).
 
 Anyone who can read the data directory can read the database and assets.
 Other local operating-system users are outside the network threat model.
@@ -54,31 +52,22 @@ suffix, so the cookie's site is the whole tailnet: a page on any tailnet
 host is same-site with the app, and its requests to PKM carry the cookie.
 
 Every `/api` and `/assets` route except `POST /api/login` requires a session,
-including `/api/openapi.json`; FastAPI's documentation routes are disabled.
-`AuthGateMiddleware` refuses an anonymous request before the app reads its
-body: any `/api` or `/assets` request other than `POST /api/login`, any
-method other than `GET` or `HEAD`, and every WebSocket handshake. HTTP gets
-`401`; `/api/ws` refuses the handshake. The public routes are `GET /login`,
-`POST /api/login`, `GET /healthz` (which returns only `{"ok": true}`) and the
-SPA shell with its static files. A public body larger than
-`PUBLIC_BODY_MAX_BYTES` is refused with `413`.
-`test_the_gate_admits_exactly_the_public_routes` walks the route table and
-fails when the gate admits any other route.
+including `/api/openapi.json`, and every WebSocket handshake does too.
+FastAPI's documentation routes are disabled. The public routes are the
+login form and its `POST`, a liveness check, and the SPA shell with its
+static files. An anonymous request to any other route is refused before the
+app reads its body ([gate](architecture/backend.md#auth)).
 
-CSRF protection is `SameSite=Lax` plus `OriginGuardMiddleware`. Every
-`/api/ws` handshake and every request whose method is not `GET`, `HEAD` or
-`OPTIONS` must, if it carries an `Origin`, name one of PKM's own origins:
-`serve_origins`, each `bind_hosts` listener on the served port, and loopback
-on that port. `Origin: null` is refused. A request with no `Origin` comes from
-a non-browser client (the CLI, `pkm-mcp`, Shortcuts), and still needs the
-cookie. There is no CORS, so a sibling page cannot read a response. Safe
-methods are not checked, and some have side effects a sibling page could
-trigger blind: `GET /api/journal` and a `GET /api/page/` of today's title
-create today's daily page, `GET /api/local/...` can start an iCloud download
-of an evicted file, and `GET /api/goodlinks/{link_id}` can make GoodLinks
-fetch an uncached page. Never set `Referrer-Policy: no-referrer`: it makes the
-app's own no-cors form posts send `Origin: null`, which the guard refuses
-([why](architecture/backend.md#auth)).
+CSRF protection is `SameSite=Lax` plus `OriginGuardMiddleware`, which
+refuses a write or a WebSocket handshake whose `Origin` is not one of PKM's
+own ([allowed origins](architecture/backend.md#auth)). A request with no
+`Origin` comes from a non-browser client (the CLI, `pkm-mcp`, Shortcuts),
+and still needs the cookie. There is no CORS, so a sibling page cannot read
+a response. Safe methods are not checked, and some have side effects a
+sibling page could trigger blind: `GET /api/journal` and a `GET /api/page/`
+of today's title create today's daily page, `GET /api/local/...` can start
+an iCloud download of an evicted file, and `GET /api/goodlinks/{link_id}`
+can make GoodLinks fetch an uncached page.
 
 ## What a session can reach beyond the graph
 
@@ -119,10 +108,10 @@ These bounds hold for every authenticated client; the gaps are under
 |---|---|---|
 | Request bodies: `PRIVATE_BODY_MAX_BYTES`, an upload `max_upload_bytes` plus `UPLOAD_ENVELOPE_BYTES` | at the gate: a declared length past the cap is refused before the app reads a byte; a chunked body is counted as the app reads it, and refused once it passes the cap | [backend.md § Auth](architecture/backend.md#auth) |
 | Slow clients: a deadline for the request head, a deadline for a public body, a minimum rate for taking a response | in `DeadlineH11Protocol` and the gate | [backend.md § Auth](architecture/backend.md#auth) |
-| Block text: at most `MAX_BLOCK_TEXT_CHARS` code points and `MAX_LINK_NESTING` levels of `[[` | on every write path: ops, server-made rewrites and the importer. A stale edit whose replay would pass a limit lands as a conflict entry instead | [backend.md § Planning](architecture/backend.md#planning) |
+| Block text: at most `MAX_BLOCK_TEXT_CHARS` code points and `MAX_LINK_NESTING` levels of `[[` | on every write path: ops, server-made rewrites and the importer. A stale edit whose replay would pass a limit lands as a conflict entry instead. Server-made text passes a limit only by an unlink's fence backticks, or by copying a row stored past it before the limits existed | [write-path.md § Work bounds under the write lock](architecture/write-path.md#work-bounds-under-the-write-lock) |
 | Page titles: at most `MAX_PAGE_TITLE_CHARS`, measured on the title's fold | for a new title, at creation, rename, move, sidebar pin and import; a page stored before the cap keeps its title | [backend.md § Refused titles](architecture/backend.md#refused-titles) |
-| Server history one batch replays: `MAX_BATCH_REPLAY_WORK`; a page delete's inlined copies: `MAX_DELETE_COPY_CHARS` | under the write lock; an edit past the budget lands as a conflict entry (the block keeps its text), a delete past it is refused | [backend.md § Planning](architecture/backend.md#planning) |
-| No malformed or hostile input makes a route answer `500` | every route; a write racing a long batch can still get a `500` from a route without a busy branch ([backend.md § The write lock](architecture/backend.md#the-write-lock)) | [backend.md § Hostile input](architecture/backend.md#hostile-input) |
+| Server history one batch replays: `MAX_BATCH_REPLAY_WORK`; a page delete's inlined copies: `MAX_DELETE_COPY_CHARS` | under the write lock; an edit past the budget lands as a conflict entry (the block keeps its text), a delete past it is refused | [write-path.md § Work bounds under the write lock](architecture/write-path.md#work-bounds-under-the-write-lock) |
+| No malformed or hostile input makes a route answer `500` | every route; a lock-taking route answers `503` when the lock stays busy. An asset upload commits outside `write_txn` and has no busy branch, so it answers `500` when a threadpool route's write (a rename, a page delete, the title migration) holds the lock past `BUSY_TIMEOUT_MS`. A batch cannot be that holder, because `post_ops` holds the lock without yielding the event loop the upload runs on ([write-path.md § The write lock](architecture/write-path.md#the-write-lock)) | [backend.md § Hostile input](architecture/backend.md#hostile-input) |
 
 ## Embedded assistant
 
@@ -201,17 +190,17 @@ broadening exposure.
 
 | Limitation | Consequence |
 |---|---|
-| Login backoff is per source (`LoginThrottle`, `throttle_core.py`: `BASE_BACKOFF_MS` doubling to `MAX_BACKOFF_MS`), one password check in flight per source, with no lockout | The source is the device's tailnet address: on the loopback listener the `X-Forwarded-For` Tailscale Serve sets (trusted from `127.0.0.1` only, `run.FORWARDED_ALLOW_IPS`), on the Tailscale-IP listener the TCP peer. Each device has its own bucket, so a guessing device does not put the others in backoff; a local process can choose its key. Concurrent guesses from one source wait their turn, so a burst costs one scrypt check per backoff window. Every refusal is the same `401`. Scrypt makes each guess expensive, but a weak password is open to patient guessing; use a strong one |
+| Login backoff is per source, one password check in flight per source, with no lockout ([mechanism](architecture/backend.md#login-throttle)) | The source is the device's tailnet address, so each device has its own bucket and a guessing device does not put the others in backoff. A local process can choose its key; the throttle does not defend against a process that can read `config.json`. Scrypt makes each guess expensive, but a weak password is open to patient guessing; use a strong one |
 | No logout and no per-session revocation | a copied cookie works until it expires or `session_secret` is rotated, which ends every session |
 | Each device keeps the full replica, its unsent outbox and recently viewed uploads (the service worker's `pkm-assets` cache, served without an auth check); nothing clears them on a `401` or a `session_secret` rotation | rotation ends sessions, not the copies on devices: a lost device still holds the notes it synced. Clear the site's data on the device |
 | A Bluesky post URL in a note embeds on render, with no click (`BlueskyEmbed` gates it only inside an assistant reply) | any view that renders the block (its page, a backlink, an unlinked reference, a query result, a transclusion) sends a handle lookup to Bluesky, whose servers resolve the handle's domain, and loads the embed from Bluesky. Whoever wrote the URL chose that domain, so any write that reaches the notes (an assistant write the user approved, an external `pkm-mcp` client's, an import) can carry note text, encoded into the handle's labels, to a domain an attacker controls |
 | No CSP, `frame-ancestors` or other anti-framing headers | `SameSite=Lax`, the origin guard, React escaping and the narrow boundary limit the risk; these would limit a future browser-side mistake |
 | The direct Tailscale-IP listener is plain HTTP | Tailscale encrypts the hop, but login sends the password over it. Browsers should use the Serve HTTPS URL; never expose the listener on an untrusted network |
 | An authenticated request body has no read deadline | a client with a session can hold a connection open by sending its body slowly. An upload over a slow link needs the time |
-| `apply_batch` runs on the event loop and holds the write lock until it commits | a large authenticated batch stalls every request, login and WebSockets included, while it applies; one near `PRIVATE_BODY_MAX_BYTES` takes tens of seconds. `post_ops` also takes the write lock on the event loop, so while a threadpool route (a rename, a page delete) holds it, the loop waits up to `BUSY_TIMEOUT_MS` before answering `503` |
-| A move or delete of a large subtree rewrites or hashes every descendant, and no batch budget charges it | a small batch of such moves or deletes holds the write lock, and with it the server, for as long as that takes, and can repeat it with each batch. The stale-title load (`stale_titles`) is uncharged too: it is linear in the pages deleted since the batch's `seen_seq`, which the client sends |
+| `apply_batch` holds the write lock on the event loop until it commits ([bounds](architecture/write-path.md#work-bounds-under-the-write-lock)) | a large authenticated batch stalls every request, login and WebSockets included, while it applies; one near `PRIVATE_BODY_MAX_BYTES` takes tens of seconds. `post_ops` also takes the write lock on the event loop, so while a threadpool route (a rename, a page delete) holds it, the loop waits up to `BUSY_TIMEOUT_MS` before answering `503` |
+| A move or delete of a large subtree, and the stale-title load, are charged to no batch budget ([charges](architecture/write-path.md#work-bounds-under-the-write-lock)) | a small batch of such moves or deletes holds the write lock, and with it the server, for as long as that takes, and can repeat it with each batch. A batch that sends an old `seen_seq` makes the stale-title load read every page deleted since |
 | GoodLinks' local API listens on every interface (`*:9428`), not loopback only; this is GoodLinks' behaviour, outside PKM's control | anything that reaches the host on that port can call the API over plain HTTP, guarded only by its bearer token. PKM reaches it at `goodlinks_api_url`, loopback by default. Keep the host off untrusted networks or block the port at the host firewall |
-| Two react-router advisories (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg) stay open: they are fixed only in react-router 7 | judged unreachable: the app mounts `BrowserRouter`, with no data router and no server-side hydration, and builds page links, and the redirect that folds a title's spelling, with `pagePath`, which starts every target with `/page/` and percent-encodes each segment, so a backslash never reaches a router target. Every other production advisory the 2026-10-23 review listed is upgraded away; the dev and build tools (`pnpm audit` without `--prod`) still carry advisories, which touch building, testing and the dev server, not the shipped bundle ([review](security-review-2026-10-23.md#dependency-advisories)) |
+| Two react-router advisories (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg) stay open: they are fixed only in react-router 7 | judged unreachable: the app has no data router and no server-side hydration, and every router target built from a title comes from `pagePath`, which starts with `/page/` and percent-encodes each segment; the others are route constants and a block's `#uid`. The dev and build tools still carry advisories, which touch building and testing, not the shipped bundle. The [review](security-review-2026-10-23.md#dependency-advisories) covers the rest of the advisories |
 | `mermaidSafety.ts` restates mermaid internals (its secure keys, entity handling, CSS paths) | a mermaid upgrade can change what those rules must cover. mermaid is pinned to a patch range (`~`) in `web/package.json` so a minor release arrives only through a deliberate upgrade that re-checks them |
 
 ## Hardening priorities
@@ -223,7 +212,8 @@ If the threat model expands, make changes in this order:
    `COOKIE_MAX_AGE`), write down a session-secret rotation procedure, and
    clear on-device data on logout.
 3. Add CSP, anti-framing and related response headers. The referrer policy
-   must not be `no-referrer` (see [Authentication](#authentication)).
+   must not be `no-referrer`
+   ([why](architecture/backend.md#auth)).
 4. Review password-hashing parameters against current guidance.
 
 Application hardening is not a substitute for Tailscale or another

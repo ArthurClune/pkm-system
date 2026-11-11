@@ -73,8 +73,8 @@ flowchart LR
     end
 ```
 
-- `SyncProvider` registers the offline gateway (`setOfflineGateway`) only once
-  the replica is ready. Only a dropped socket counts as offline, so a cold
+- `SyncProvider` registers the offline gateway (`setOfflineGateway`); it
+  serves only once the replica is ready. Only a dropped socket counts as offline, so a cold
   start reaches the gateway through a failed fetch. The shim and its
   "online only" routes are in [sync-and-offline.md](sync-and-offline.md).
 - Views refetch when `resyncGeneration` bumps
@@ -203,15 +203,15 @@ running app.
 
 ### Paged lists
 
-Each list's fetch state exists for one rule; the file's header gives the
-reasons:
+Each list's fetch state exists for one rule; the linked section or the
+state's file gives the reasons:
 
 | List | State lives in | The rule |
 |---|---|---|
 | Journal days | `views/journalPaging.ts` | One load in flight; a failed load keeps the days and their cursor ([The Journal](#the-journal)) |
 | `/files` | `views/filesPaging.ts` | A filter change bumps the generation at the keystroke, not when the debounced reload fires ([The `/files` browser](#the-files-browser)) |
 | Linked references | `components/backlinksPaging.ts` | Show more and load-all overlap, so the section is loading until every walk settles; no walk starts while a sync refresh is in flight |
-| Unlinked references | `components/UnlinkedSection.tsx`, `components/unlinkedStatus.ts` | A delivered Link leaves the loaded list and `total`, because the server's list has shifted left; Show more asks from the count of loaded blocks still listed |
+| Unlinked references | `components/UnlinkedSection.tsx`, `components/unlinkedStatus.ts` | A delivered Link leaves the loaded list and `total`, because the server's list has shifted left; Show more asks from the count of loaded blocks still listed: counting an undelivered Link as gone only re-fetches a block `mergeGroups` drops; the reverse skips one |
 
 #### The Journal
 
@@ -264,7 +264,7 @@ node, not the React node, so a portalled surface stops its own clicks.
 | `BlockRefBacklinksPopover`, `FileCardPopovers` | `Popover`'s own `useDismiss` (outside `mousedown` or Escape) |
 | `BlockMenu` | `useDismiss`; roving focus and Tab stay in the component |
 | `TopBar`'s page menu, `SearchBar` | `useDismiss` with `enabled` |
-| `ConfirmDialog`, `DeleteBlockedDialog`, `PdfViewer`'s overlay | `useModal`, `trap: "cycle"` |
+| `ConfirmDialog` (Enter on a focused dialog button is left to that button), `DeleteBlockedDialog`, `PdfViewer`'s overlay | `useModal`, `trap: "cycle"` |
 | `ImageOverlay`, `GoodlinksReader`, `LocalFilePicker` | `useModal`, `trap: "pin"` |
 | `AutocompletePopup`, `DatePickerPopup` | none: `BlockInput` owns their keys |
 
@@ -331,6 +331,9 @@ fallback (`FALLBACK_MODELS` in `chatMachine.ts`).
   `EVENT_TYPES`, so a new event type is invisible until the web is
   regenerated ([assistant.md § The stream
   contract](assistant.md#the-stream-contract) owns the tolerance rule).
+- `client.ts::readWithStallGuard` fails a stream silent for
+  `STREAM_STALL_TIMEOUT_MS` with an error that is not an `AbortError`,
+  which the driver would read as the user's Stop and show no error for.
 - A tool line pairs with its `tool_finished` by `tool_use_id`, across turns,
   so a stopped turn's write still resolves in the next. Only a line not yet
   done pairs, so a reused id cannot turn a finished line's `✗` into `✓`.

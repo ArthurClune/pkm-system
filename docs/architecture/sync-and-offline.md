@@ -154,8 +154,11 @@ it for reuse, and a live row does not prove the id names the same entity.
 The replica dispatches each tombstone `kind` (`EntityKind`) to its own branch.
 An unknown kind deletes nothing and logs. It must never fall through to a
 delete, or an older replica meeting a newer server's kind destroys an unrelated
-row. `parseTombstoneId` (`sync/wire.ts`) is the one reader of the text id;
-a malformed one rolls the window back (`MalformedTombstoneError`).
+row. `parseTombstoneId` (`sync/wire.ts`) is the one reader of the text id.
+A malformed wire id rolls the window back (`tombstoneIdOfWire` throws
+`MalformedTombstoneError`). A malformed entry in the deferred record is
+dropped with a warning, since the record outlives the window and a throw
+would fail every one after it.
 
 ## Applying a window over pending edits
 
@@ -252,9 +255,12 @@ The rewind is why the replica does not depend on the server journalling a
 skipped op's destination siblings. It undoes the shifts of every skipped or
 re-placed create and move, whichever group the server journalled.
 
-`replayPending` redoes a batch that trips an FK check op by op, rolling back
-only the ops that add a violation (the `apply.ts` header). Nothing leaves
-`pending_ops`. A queue handler that runs before `init()` installs the tables
+`replayPending` redoes a batch that trips an FK pre-check under
+`foreign_key_check` diffs, and op by op only when the batch adds a
+violation, rolling back only the ops that add one (the `apply.ts` header).
+Nothing leaves `pending_ops`. A local `delete` removes its blocks' `refs`
+and `block_refs` itself, because the reset rebuild replays with
+`foreign_keys=OFF`. A queue handler that runs before `init()` installs the tables
 an older file lacks (`ensureClientTables`), so a log insert cannot roll an
 optimistic apply back.
 

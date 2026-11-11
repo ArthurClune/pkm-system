@@ -143,9 +143,10 @@ latched for the session.
 The memory-only warning (`memoryOnlySentence`) and Reload's confirmation,
 shown only when `unsentInMemory > 0`, count `unsentInMemory`, the lane's share
 of `pending`: a reload discards the lane, and durable rows survive it.
-`OfflineIndicator.tsx` holds the wording. A replica that opens and then fails
-every write has no availability verdict, so no problem banner mounts; the
-offline `ConnectivityBanner` gives the same warning.
+The banner names unsent changes only offline; connected, it says they are
+still being saved. `OfflineIndicator.tsx` holds the wording. A replica that
+opens and then fails every write has no availability verdict, so no problem
+banner mounts; the offline `ConnectivityBanner` gives the same warning.
 
 ## The recovery barrier
 
@@ -159,7 +160,7 @@ and `pause(owner)` and `resume(owner)` take one:
 | `startup` | `clientRuntime.startup()` | `continueStartup`, once discovery answers; on poisoned rows, after `repair()` has claimed `poison` |
 | `poison` | the queue's construction, when mark intents were retained; `rejectDurableBatch`, before the durable mark; `markRetainedPoison` (the startup and Retry mark round), before it marks; `runRepair`, for rows startup found | `runRepair` on success; `continueStartup` when discovery finds nothing or the replica is unusable; `clientRuntime`'s unmatched-round listener and `discardPoisonIntents`, each only when no repair runs (and, for the listener, discovery has answered) |
 | `recovery` | `runRecovery`, before its lease | the end of that run, whatever its outcome |
-| `lane` | a lane entry's 4xx (`deliverLaneHead`) | the first outline repair to become stable after it |
+| `lane` | a lane entry's 4xx (`deliverLaneHead`) | the first outline repair to become stable after it (`laneOwed` in `outlineRepair.ts`) |
 
 `OpQueue.holds(owner)` reports a claim, and `replicaSync` reads
 `holds("poison")` as its `holdsPoison` dep
@@ -171,7 +172,7 @@ pause can land while the read waits on the worker's gate.
 
 `onDesync` reports `{ error, lane }`. A local refusal (a text past a limit, a
 `ReplicaError.rejected` op) also desyncs, but it paused nothing, so its outline
-repair resumes nothing (`laneOwed` in `outlineRepair.ts`).
+repair resumes nothing.
 
 A poison problem without its repair outranks an outline one in the banner,
 because its Retry is what lifts `poison`; the outline problem waits in
@@ -386,8 +387,9 @@ Every queue handler reaches the database through `queueDb`, which adopts a
 leftover carry before serving: an edit reaching a restarted worker first
 would take the carried ids, and the by-id import would drop those rows. The
 recovery internals (`rebuildOrReplaceFile`, `rebaseOrReplaceFile`,
-`replaceUnreadableQueue`) and `diagnostics` use `db()` instead, because
-mid-replacement the carry is the rows' only copy. `adoptLeftoverCarry`'s
+`replaceUnreadableQueue`) and `diagnostics` use `db()` instead:
+mid-replacement the carry is the rows' only copy, and `diagnostics` must
+report even when an adoption would fail. `adoptLeftoverCarry`'s
 docstring gives what adoption does with an unreadable carry
 (`isUnreadableFileMessage`), with a replica that cannot take the rows
 (`mergeCarriedRows`), and with any other error; no row is lost unless both

@@ -58,8 +58,8 @@ surfaces, `PageView` and `EditableSidebarPanel`. Both wrap their content in
 `BlockRefContext.Provider`. `PageView` answers a `resyncGeneration` bump with
 `reload("resync")`; the sidebar does not.
 
-The hook keys its session by the page's canonical title, which only the
-replica worker can compute. A first read that reports a different
+The hook keys its session by the page's canonical title, which the main
+thread cannot compute. A first read that reports a different
 `page.title` re-keys the hook once, onto the session every other surface of
 that page uses (the hook's header walks it).
 
@@ -104,8 +104,9 @@ repair.
 Every mutation goes through the pure `applyOps` (`outline/tree.ts`), which
 mirrors the server's op semantics, so the same ops drive the screen, the
 replica and the server. `order_idx` is a sparse `OrderIdx` sibling key, not a
-position; `edits.ts::orderIdxAfterPosition` is where a dense position
-converts to one.
+position. A dense position converts to one only in
+`edits.ts::orderIdxAfterPosition`, and in `orderIdx.ts::freshChildOrderIdx`
+for a block the same plan created.
 
 `applyOpsWithChange` reports `changed: false` when the result is `blocksEqual`
 to the input, and only a changed batch advances `transitionOutline`'s
@@ -249,7 +250,7 @@ flush, a refused draft excepted (below).
 
 `admit` leaves out the title the caret is in (`heldCaret`), because the user
 is still typing it, and a title the server accepts can pass through one it
-refuses: `[[a [b] c]]` passes through `[[a []]]`. `run()` judges the whole draft's refs when it saves it, so
+refuses: `[[a [b] c]]` passes through `[[a []]]`, whose title ends in `[`. `run()` judges the whole draft's refs when it saves it, so
 no path ships an unjudged text. A draft it refuses is never sent. It stays on
 screen to be fixed while its block can show it:
 
@@ -264,7 +265,8 @@ screen to be fixed while its block can show it:
 
 When its block can no longer show it (`droppedDrafts.ts` lists when),
 `releaseUnshownDraft` and the unmount flush hand the draft to
-`droppedDrafts.ts`, whose `DroppedDraftNotice` outlives the outline. The
+`droppedDrafts.ts`, whose list `DroppedDraftNotice` reads; the notice
+outlives the outline. The
 command or focus change that met the draft then goes ahead, so the outline
 never stays pinned to a block nobody can see. A refused draft is lost only to
 a killed tab or a reload: one the user confirms on desktop, any reload on
@@ -362,7 +364,9 @@ as the block drag). Otherwise a later Finder drop would move the old block
 instead of uploading the files.
 
 `allowedDepths` offers no depth that would put the dragged subtree past
-`MAX_OUTLINE_DEPTH`, so a drag needs no depth notice. The subtree's height
+`MAX_OUTLINE_DEPTH`, so a drag needs no depth notice. A legacy subtree too
+tall for any depth is the exception: it gets the shallowest, and `run()`,
+or for a cross-page drop the server, refuses it. The subtree's height
 travels in `BlockDragSource.height`, so a drop on another page needs no
 source tree, and this is the only depth check a cross-page drop meets.
 `DndProvider` plans it with `planCrossPageDrop`, judges it with

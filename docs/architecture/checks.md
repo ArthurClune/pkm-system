@@ -98,7 +98,9 @@ header of each rule module under `eslint-plugin-brands/`.
 `perf/check.sh` measures fixed backend and frontend scenarios against a
 synthetic prod-shaped fixture and compares them with baselines in `perf/`. The
 [design spec](../superpowers/specs/2026-09-26-perf-regression-checks-design.md)
-holds the rationale.
+holds the rationale. The frontend half's files and the caveats for reading
+its numbers are in
+[`web/tooling/perf/README.md`](../../web/tooling/perf/README.md).
 
 | Class | Fails when | On improvement |
 |---|---|---|

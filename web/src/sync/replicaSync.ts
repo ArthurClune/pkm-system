@@ -37,8 +37,11 @@ export type ReplicaState =
 
 export interface ReplicaSync {
   /** Idempotent: first call initializes (+ bootstrap/recovery as needed);
-   * later calls catch up the feed. Call on every reconnect. */
-  start(): Promise<void>;
+   * later calls catch up the feed. Call on every reconnect. Resolves false
+   * when no pull pass served this call: its own pass failed, it was owed
+   * behind one that failed (and so never ran), or there is no usable
+   * replica. A failed first initialization rejects instead. */
+  start(): Promise<boolean>;
   /** WS nudge: pull if the journal moved past our cursor, or unconditionally
    * for a committed metadata/generation frame whose real seq may be equal. */
   onSeq(seq: SyncSeq, force?: boolean): void;
@@ -56,9 +59,10 @@ export interface ReplicaSync {
    * or an RPC client a dead worker left terminal.
    *
    * An ordinary failed pull is deliberately NOT null: the cursor is the durable
-   * memory of what has been seen, so the next successful reconnect pulls the
-   * same window again and reports the change then. That reasoning only holds
-   * while a later pull can succeed, which a session-fatal error rules out. */
+   * memory of what has been seen, so a later pull reads the same window
+   * again; the caller whose pull failed hears it from start() instead. That
+   * reasoning only holds while a later pull can succeed, which a
+   * session-fatal error rules out. */
   appliedVersion(): number | null;
   /** True once doStart emits `onState({ mode: "ready" })` (set in the same
    * synchronous step, just before the emit): the local database already has
@@ -798,8 +802,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
 
   // One run is one pass. A pass in flight may be past its fetch, so a call
   // during it never joins: it is owed a run of its own, and a pass that fails
-  // drops what it owed to noteFailure's backoff retry. A pass owed when
-  // stop() runs never starts.
+  // drops what it owed to noteFailure's backoff retry, while pull() tells
+  // those callers that no pass served them. A pass owed when stop() runs
+  // never starts.
   const pullRun = coalesce(async () => {
     if (stopped || !usable) return;
     try {
@@ -811,12 +816,13 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     noteSuccess();
   }, { merge: () => undefined });
 
-  const pull = (): Promise<void> => {
-    if (!started || !usable) return Promise.resolve();
-    return pullRun(undefined).catch(() => undefined);
+  /** True when a pass that could have served this call succeeded. */
+  const pull = (): Promise<boolean> => {
+    if (!started || !usable) return Promise.resolve(false);
+    return pullRun(undefined).then(() => true, () => false);
   };
 
-  const doStart = async (): Promise<void> => {
+  const doStart = async (): Promise<boolean> => {
     let init: ReplicaInit;
     try {
       init = await replica.init();
@@ -828,7 +834,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       const fatal = asSessionFatal(error);
       if (fatal !== null) {
         noteUnavailable(fatal);
-        return;
+        return false;
       }
       throw error;
     }
@@ -849,7 +855,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     performance.mark?.("pkm:replica-ready");
     // Clears the failures and any retry a failed start left behind.
     noteSuccess({ force: true });
-    await pull();
+    return pull();
   };
   // single-flight: the mount-time start (cold start offline needs no
   // socket), the first connect's start and a backoff retry share one
@@ -858,19 +864,16 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   // reconnect, which can be hours away.
   const startOnce = coalesce(async () => {
     try {
-      await doStart();
+      return await doStart();
     } catch (error: unknown) {
       noteFailure(error);
       throw error;
     }
   }, { merge: () => undefined, joinable: () => true });
-  const start = async (): Promise<void> => {
-    if (!usable) return;
-    if (started) {
-      await pull();
-      return;
-    }
-    await startOnce(undefined);
+  const start = async (): Promise<boolean> => {
+    if (!usable) return false;
+    if (started) return pull();
+    return startOnce(undefined);
   };
 
   return {

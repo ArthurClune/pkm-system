@@ -82,9 +82,12 @@ export function createReconnectFlow(deps: {
     deciding = false;
     if (!deps.isMounted()) return;
     const before = deps.replicaSync?.appliedVersion() ?? null;
+    // Only the last pull counts: a served pull read from the cursor every
+    // earlier one left, so the version comparison covers the whole run.
+    let served = false;
     do {
       trailing = false;
-      await deps.replicaSync?.start();
+      served = await deps.replicaSync?.start() ?? false;
       await deps.replicaSync?.idle();
     } while (trailing && deps.isMounted());
     deciding = true;
@@ -96,8 +99,10 @@ export function createReconnectFlow(deps: {
     // Refetch only when the catch-up actually moved local data.
     // `null` on either side is "cannot tell" — no replica, or one this
     // session can never use — and must count as moved, or an online-only
-    // session would stop refreshing its views altogether.
-    const moved = unconditional ||
+    // session would stop refreshing its views altogether. An unserved pull
+    // cannot tell either: the backoff retry that later applies the gap
+    // resyncs nothing, so this decision is the views' only refetch.
+    const moved = unconditional || !served ||
       before === null || after === null || before !== after;
     if (deps.isMounted() && moved) deps.onResync();
   }, { merge: () => undefined, joinable: () => !deciding });

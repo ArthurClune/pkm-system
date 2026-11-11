@@ -13,8 +13,8 @@ symptom in [troubleshooting.md](../troubleshooting.md).
 `python -m pkm.backup` takes an online SQLite `.backup()` from a read-only
 connection into `backups/sqlite/`, so the live database is never opened for
 writing. `rotation.py` prunes the snapshots. The job then runs the markdown
-export from that same snapshot and git-commits it. Its success line prints the
-whole export-count dictionary, and any failure exits non-zero.
+export from that same snapshot and git-commits it. Any failure exits
+non-zero.
 
 ## Restore
 
@@ -71,16 +71,11 @@ adds a dedupe suffix. `test_filenames.py` checks the key against the real
 filesystem.
 
 Assets are mirrored incrementally. An existing destination is checked against
-the `assets` row's size and sha256 before it is hardlinked into the new tree:
-`assets_disk.asset_on_disk_needs_repair` stats first and hashes only once the
-size matches, and `assets_core.asset_needs_repair` rules on the pair. A
-mismatch is re-copied from the live store. The importer calls the same check.
-
-| Outcome | Counter |
-|---|---|
-| fresh transfer | `assets_copied` |
-| corrupt destination replaced | `assets_repaired` |
-| repair source missing (asset dropped, `pkm.export` warning) | `assets_missing_source_on_repair` |
+the `assets` row's size and sha256 before it is hardlinked into the new tree
+(`assets_disk.asset_on_disk_needs_repair`, `assets_core.asset_needs_repair`).
+A mismatch is re-copied from the live store, and the importer calls the same
+check. `export/writer.py` counts each outcome (`assets_copied`,
+`assets_repaired`, `assets_missing_source_on_repair`).
 
 The export directory has one writer, so each run sweeps abandoned
 `.export-staging-*` entries first, with no lock or age heuristic. Rendering
@@ -133,7 +128,6 @@ The route's gather (`_gather_resolution_data`) runs before the renderer and is
 charged against the same limits through `GatherBudget`, one per export, shared
 by every query expression in every round. Expressions that differ only in
 spacing slip past the `visited` set, so the shared budget is what bounds them.
-A query's match count is checked before any row is fetched.
 
 Every expression the gather runs is rendered at least once, so it refuses only
 what the renderer would. One divergence is accepted. The gather follows the

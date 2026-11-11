@@ -11,7 +11,7 @@ indexed by symptom in [troubleshooting.md](../troubleshooting.md).
 |---|---|---|
 | `cli/main.py` | Shell | argparse verbs (`cmd_*`), exit codes |
 | `mcp/tools.py` | Shell | The MCP tool functions and their LLM-facing docstrings |
-| `mcp/server.py` | Shell | `build_server()` registers `TOOLS` on a `FastMCP`, or the subset `--tools` names. Only `pkm-mcp` imports it: constructing a `FastMCP` configures the root logger, and the web server imports the tool signatures for the assistant's write preview |
+| `mcp/server.py` | Shell | `build_server()` registers `TOOLS` on a `FastMCP`, or the subset `--tools` names. Only `pkm-mcp` calls it: constructing a `FastMCP` configures the root logger, and the web server imports the tool signatures for the assistant's write preview |
 | `client/api.py` | Shell | `PkmClient`: config, session cookie, every HTTP call |
 | `client/core.py` | Core | Config format, cookie header, error-message shaping |
 | `client/workflows.py` | Shell | The write workflows both shells call, so an ordering fix lands once |
@@ -24,9 +24,9 @@ indexed by symptom in [troubleshooting.md](../troubleshooting.md).
 Tools are built from the same planners as the CLI, and reads return markdown
 annotated with `^uid` markers that the write tools accept. The assistant's
 `policy.py` auto-allows reads and confirm-gates writes
-([assistant.md](assistant.md)), so a new tool must join `READ_TOOLS`,
-`WRITE_TOOLS` or `MCP_ONLY_TOOLS` (`test_every_mcp_tool_is_classified` fails
-otherwise).
+([assistant.md](assistant.md)), so a new tool must join `READ_TOOL_NAMES`
+(`mcp/names.py`, which `READ_TOOLS` reads), `WRITE_TOOLS` or
+`MCP_ONLY_TOOLS` (`test_every_mcp_tool_is_classified` fails otherwise).
 
 | Tool | Kind | Does |
 |---|---|---|

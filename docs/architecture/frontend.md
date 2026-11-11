@@ -304,8 +304,11 @@ fallback (`FALLBACK_MODELS` in `chatMachine.ts`).
 - `client.ts::streamMessage` feeds the response body through `sse.ts`, a pure
   frame parser, into `useAssistant.ts`. It bypasses `apiFetch`, which reads
   the body as JSON, and replicates its 401 handling.
-- `sse.ts` drops a frame whose `event:` name is not in `EVENT_TYPES`. That
-  hides keepalives, and also drops a new event type until it is added.
+- `sse.ts` drops a frame whose `event:` name is not in `EVENT_TYPES`, which
+  is generated with the `AssistantEvent` union ([assistant.md § The stream
+  contract](assistant.md#the-stream-contract), which owns the tolerance rule).
+  That hides keepalives, and also drops a new event type until the web is
+  regenerated.
 - After `STREAM_STALL_TIMEOUT_MS` with nothing received the turn errors, with
   an error that is not an `AbortError`: `useAssistant` reports an
   `AbortError` as `aborted`, and `step` shows no error for it.
@@ -329,8 +332,11 @@ fallback (`FALLBACK_MODELS` in `chatMachine.ts`).
 
 `assistant/chatMachine.ts` (Core) holds the whole chat as one reducer:
 `step(state, event)` returns the next state and the effects to run.
-`useAssistant.ts` only dispatches the user's actions and each request's
-result, and starts the requests the effects name. The conversation is
+`useAssistant.ts` only dispatches the user's actions; the driver in
+`chatDriver.ts` (`createChatDriver(publish, client)`, which takes the client
+functions rather than importing them) feeds each request's result back and
+starts the requests the effects name. Stop is offered per `canStop`, which
+holds while a card's answer posts or has failed. The conversation is
 `none`, `creating` or `open`; the turn moves like this:
 
 ```mermaid

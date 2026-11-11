@@ -14,11 +14,11 @@ symptom in [troubleshooting.md](../troubleshooting.md).
 
 | File | Pattern | Role |
 |---|---|---|
-| `events.py` | Core | The event union routes and the web UI speak, plus `encode_sse()`, and `tool_error_reason()` (a failed result's text, clipped at `TOOL_ERROR_LIMIT_CHARS`). Nothing engine-specific leaks upward |
+| `events.py` | Core | The event union routes and the web UI speak, plus `encode_sse()`, and `tool_error_reason()` (a failed result's text, clipped at `TOOL_ERROR_LIMIT_CHARS`). Nothing engine-specific leaks upward. The web's copy of the union is generated from it and `EVENT_NAMES` ([the stream contract](#the-stream-contract)) |
 | `policy.py` | Core | The tool gate (`READ_TOOLS` auto-allowed, `WRITE_TOOLS` confirm-gated, `MCP_ONLY_TOOLS` never offered), `MODELS`, `available_models()`, `default_model()`, `WRITE_PREVIEW_FIELDS` (which arguments of each write are targets and which are content), the system prompt |
-| `write_preview.py` | Core | `build_write_preview()`: the approval card's content for a write, or a `Refusal`; `write_target_uids()` and `delete_target_uids()`: the blocks the shell reads for it; `approved_input()`: the input Allow runs |
+| `write_preview.py` | Core | `check_write()`: validates a write once, into a `CheckedWrite` or a `Refusal`; `build_write_preview()`: the approval card's content from it, or a `Refusal`; `target_uids()` and `ancestor_uids()`: the blocks the shell reads for it; `approved_input()`: the input Allow runs |
 | `target_reader.py` | Shell | `preview_write()`: reads those blocks through a `BlockReader` (`db_block_reader()` in production) and builds the card and the input Allow runs (an `Approval`) |
-| `preview_keys_dump.py` | Shell | Writes `web/src/assistant/previewKeys.gen.ts`, the keys each card action may carry ([generated artifacts](backend.md#generated-artifacts-and-parity-fixtures)) |
+| `wire_dump.py` | Shell | Writes `web/src/assistant/previewKeys.gen.ts` (the keys each card action may carry) and `events.gen.ts` (the event union) ([generated artifacts](backend.md#generated-artifacts-and-parity-fixtures)) |
 | `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols: the seam the test double plugs into. `send()` is an async generator because the caller closes it |
 | `harness_env.py` | Core | `resolve_harness_env()`: requested model and available key → the SDK alias and the subprocess env |
 | `turn_phase.py` | Core | `TurnPhase` and `_MOVES`: where a conversation's harness is in its turn, and what moves it on ([the turn phase](#the-turn-phase)) |
@@ -65,12 +65,12 @@ user who has had the chance to read all of it.
 | Targets come first, in full, and are never clipped | A long value in front of a `uid` or `title` would hide which block or page is written |
 | A key the tool's FastMCP argument model does not declare is a `Refusal` (for `batch`, anything beside `commands`) | The tool drops such a key, so a card row for it could only be a decoy beside the real target, such as a lookalike `uid` |
 | A declared field `WRITE_PREVIEW_FIELDS` does not name still shows as a target | A new argument is shown, never hidden; a test fails when a tool or batch params model gains an unclassified field |
-| `build_write_preview()` validates with the tool's own FastMCP argument model and, for `batch`, the schema `apply_batch` applies; input they reject is a `Refusal` | FastMCP coerces arguments (`"yes"` becomes true, `"null"` becomes None, a JSON string becomes a list), so the card must show the coerced value. `test_preview_matches_what_the_tool_receives` pins the parity |
+| `check_write()` validates with the tool's own FastMCP argument model and, for `batch`, the schema `apply_batch` applies; input they reject is a `Refusal` | FastMCP coerces arguments (`"yes"` becomes true, `"null"` becomes None, a JSON string becomes a list), so the card must show the coerced value. `test_preview_matches_what_the_tool_receives` pins the parity |
 | Content values (`text`, `items`) reach the card whole; one over `CONTENT_LIMIT_CHARS`, or a target string over `TARGET_LIMIT_CHARS`, is a `Refusal` | `[show]` must be able to reveal every character approved. The card shows a target before the server judges it, and a page stored before `MAX_PAGE_TITLE_CHARS` may carry a longer title; a multi-MB value would freeze the tab |
-| Any exception inside `build_write_preview()` is a `Refusal`, logged with its type only | Raised out of `can_use_tool`, it would reach the SDK as a control error rather than a reason; its message can quote the attacker's input |
+| Any exception inside `check_write()` or `build_write_preview()` is a `Refusal`, logged with its type only | Raised out of `can_use_tool`, it would reach the SDK as a control error rather than a reason; its message can quote the attacker's input |
 | `ClaudeConversation.can_use_tool` denies a `Refusal` without a confirm | The user cannot approve what the tool would not run as shown |
 | Allow applies only while every block the card shows keeps the text it showed (for a delete, the same blocks under it with the same texts); where a block sits is not checked. Allow returns `approved_input` (the card's input plus an `expect` entry per block) as `updated_input`. The tool posts it as `OpBatch.expect`, which `routes_ops.post_ops` checks ([the write path](backend.md#the-write-path)) | The hashes travel server to server. The browser sends only `confirm_id` and a boolean, and the model never sees `updated_input`, so neither can forge or drop one |
-| `_validate` refuses input carrying a `GATE_FIELDS` key (`expect`), whatever its value | A model's own `expect` could carry stale hashes or `[]`. The key stays in the tool's schema, because the CLI refuses an Allow whose `updated_input` fails that schema |
+| `check_write()` refuses input carrying a `GATE_FIELDS` key (`expect`), whatever its value | A model's own `expect` could carry stale hashes or `[]`. The key stays in the tool's schema, because the CLI refuses an Allow whose `updated_input` fails that schema |
 | `ClaudeEngine` starts `pkm-mcp` with `--require-expect`: `update_block` and `batch` then refuse a call with no `expect` key before any request. The card always sets one, `[]` when the call names no stored block | An SDK or CLI that dropped `updated_input` would run the model's input unguarded; this fails closed instead. External `pkm-mcp` callers run without the flag |
 | An op carries warnings for an `allow_merge` rename, a `((uid))` or `{{alias}}` parent, and a batch `update` or `move` uid | The target rows alone can mislead. An alias parent overrides the op's `page`; a uid that names no block sends the text, or a note, to today's daily note. The wording follows `plan_save`, `plan_batch` and `ops_core.classify_skip` |
 | The tool functions are imported from `pkm.mcp.tools`, not `pkm.mcp.server` | Building the server's `FastMCP` configures the root logger |
@@ -81,9 +81,13 @@ user who has had the chance to read all of it.
 
 The browser keeps confirms in a queue. The head stays until its POST settles,
 so a second `confirm_request` never swaps the card under the cursor.
-`chatMachine.step` owns `sentDecision`, set on the `answer` event before the
-POST runs, and after a failed post the card
-offers a retry of that same decision only: the server may already hold it.
+`chatMachine.step` sets the head card's `PendingConfirm.answer` on the
+`answer` event, before the POST runs: `{ allow, state }`, `posting` until the
+POST settles, then `failed` if it did not land. After a failure the card
+offers a retry of that same answer only, because the server may already hold
+it. The panel renders from the `canStop` and `answerFailed` selectors, and
+Stop stays offered while an answer posts or has failed: it is the way out of
+the card.
 
 Allow arms after `ALLOW_ARM_MS`, and only once markers before the first op and
 after the last have each been in view. The ops scroll in a region inside the
@@ -119,6 +123,7 @@ entry, whichever op comes first.
 | Rule | Reason |
 |---|---|
 | `preview_write` reads the blocks on the server, in a thread, from one deep copy of the tool input, just before the `confirm_request`. The web fetches nothing | The tool writes the server's database, so that is the text to show. A web fetch would add a route, a loading state and a race with Allow arming |
+| `preview_write` calls `check_write` on that copy once, before the read's `try`. The uids read, the card and `approved_input` all come from the resulting `CheckedWrite`, and a `Refusal` reads nothing | Inside the read's `try`, a validation that raised would tell the model `could not be read` instead of `input could not be previewed`. A second copy would let Allow run input the card never showed |
 | `db_block_reader` reads texts, pages, delete counts and subtree hashes, and parents' ancestors in one read transaction. A failed read, or a block whose page row is missing, is a `Refusal`, never an absent entry | An absent uid is what the card shows as `missing`, so it must mean only "no row" |
 | The excerpt is a clip with `text_length` beside it, never a silent cut. `parseWritePreview` accepts only the server's exact clip (`CURRENT_EXCERPT_CHARS` is in `previewKeys.gen.ts`) | A block can hold a million characters, and "first N of M" must be the clip the server made |
 | `_moved_into_delete` refuses a batch delete, naming both writes, when an earlier write moves an existing block into its subtree, directly, through an `as` alias or under a descendant. A move it cannot place (a `## Heading` parent, a parent uid with no row, a cycle) is refused too. It places parents by the ancestors read for `ancestor_uids` | The count is of the store before the batch runs, so a block moved in would go uncounted. No batch needs to move a block where it then deletes it. `pkm batch` is unchecked: its user wrote the batch |
@@ -148,6 +153,17 @@ marks the call failed with the tool's reason, the model relays it too, and a
 retry builds a fresh card. An `update_block`
 on a block deleted meanwhile fails on `edit_block`'s own 404 before the
 check runs.
+
+### The stream contract
+
+`web/src/assistant/events.gen.ts` holds the web's `AssistantEvent` union and
+`EVENT_TYPES`, generated by `wire_dump.py events` from `events.py`'s
+dataclasses and `EVENT_NAMES`. `confirm_request.preview` is typed as parsed
+(`WritePreview | null`): a malformed preview still yields the card, Deny only.
+
+| Rule | Reason |
+|---|---|
+| A field with a server-side default is optional in the generated union, and the web parser keeps a frame's unknown keys. Only the write preview is checked strictly (`parseWritePreview`) | A PWA keeps its cached bundle across a deploy, so an older bundle runs against a newer server and the reverse. A field a later server drops is one the web must already treat as absent |
 
 ### A write's result
 

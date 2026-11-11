@@ -35,18 +35,15 @@ pkm/
 │   ├── tag_chars.py            TAG_WORD_RANGES, the generated tag word class
 │   └── daily.py                date <-> "July 8th, 2026" titles
 ├── database.py          Shell  Db, the typed connection
-├── db_sidecars.py, db_swap.py   Core / Shell  fold, then refuse, a database swap beside a held -wal/-shm
 ├── rows.py              Core   Row: one typed key per name a query may return
 ├── brand_registry.py    Core   brand NAMES, MINT_SITES, COLUMN_KEYS, SHAPES
 ├── schema.py            Core   BASE_DDL (replicated to clients) + SERVER_DDL
 ├── refs.py              Core   the ref grammar and title normalisation
 ├── todo.py              Core   {{TODO}}/{{DONE}} markers, mirrored by grammar/todo.ts
 ├── rename.py, unlink.py Core   rename and page-delete rewrites of block text
-├── text_limits.py       Core   the length and `[[` nesting limits on block text
 ├── title_migration_core.py Core   title migration planner (the transactional shell is `server/title_migration.py`)
 ├── planning.py, batch.py, render.py   Core   shared by the CLI, MCP and client
 ├── *_dump.py            Shell  generated-artifact writers
-├── parity_corpus.py     Core   the parity dumps' corpora and shape tally
 ├── server/                     the FastAPI app (below)
 ├── client/, cli/, mcp/         PkmClient, `pkm` and `pkm-mcp`
 ├── assistant/, describe/       embedded assistant; image-description queue
@@ -54,20 +51,12 @@ pkm/
 
 server/
 ├── app.py               Shell  create_app(config): init_db(), routers, 422 handler, SPA
-├── config.py, setup.py  Shell  Config from config.json; setup writes it
 ├── db.py                Shell  init_db() at startup, open_db() per request, migrations
-├── wholepath.py         Shell  the {name:wholepath} DOTALL route convertor
-├── auth.py, auth_core.py  Shell / Core  login, require_auth; scrypt and tokens
-├── throttle.py, throttle_core.py  Shell / Core  LoginThrottle; backoff policy
-├── auth_gate_core.py, auth_gate.py  Core / Shell  which requests are public, the body caps; AuthGateMiddleware
-├── http_protocol.py     Shell  DeadlineH11Protocol: closes a connection whose request head is late or whose client stops reading
-├── origin_core.py, origin_guard.py  Core / Shell  allowed origins; OriginGuardMiddleware
+├── auth*.py, throttle*.py, origin*.py, http_protocol.py   the request gate, login throttle, origin guard and deadlines (§ Auth)
 ├── routes_*.py          Shell  the HTTP surface
 ├── ops_core.py          Core   judges, skips, contexts, effects; plan_op(), classify_skip
 ├── replay_core.py       Core   the rewrite replay: walk, steps, budget charges, classify_text_edit
-├── ops_hash.py          Core   the hashes that bind a batch_id to one payload
-├── ops_expect.py        Core   which `expect` entry no longer holds
-├── conflict_notes.py    Core   the text of conflict headers and skip notes
+├── ops_hash.py, ops_expect.py, conflict_notes.py   Core   batch hashes, stale `expect` entries, conflict and skip text
 ├── ops_apply.py         Shell  apply_batch: read context, plan, execute effects
 ├── store.py             Shell  page create, delete, rename, merge; never commits
 ├── sync_meta.py         Shell  flag and generation; read_title, title_reader
@@ -87,24 +76,16 @@ and its context into effects ([Planning](write-path.md#planning)).
 ## Database
 
 One SQLite file, `pkm.sqlite3`, in the data directory. `init_db()` sets WAL
-mode and applies the schema once at startup, never per request, because both
-take locks that conflict with another connection's open write transaction.
-Each request gets a fresh `Db` from `open_db()`, with `foreign_keys=ON`,
-`recursive_triggers=ON` and `BUSY_TIMEOUT_MS`.
-
-`init_db()` refuses to start on a SQLite older than
-`db_core.MIN_SQLITE_VERSION`, naming both versions. That version added
-`octet_length`, which the
-[replay charge](write-path.md#work-bounds-under-the-write-lock) sizes
-rewrite rows with.
+mode and applies the schema once at startup, never per request (its
+docstring says why), and refuses a SQLite older than
+`db_core.MIN_SQLITE_VERSION`. Each request gets a fresh `Db` from
+`open_db()`, whose `recursive_triggers=ON` is what journals cascade deletes.
 
 An `IN (...)` list built from a set the data can grow without bound, such as
 a page's block uids, goes through `sync_core.chunk_ids`. SQLite refuses a
 statement that binds more variables than its limit, and the route would
-answer 500. The offline shim
-(`replica/localApi/`) meets the same limit in the wasm build. It binds such a
-set whole as one JSON array, `IN (SELECT value FROM json_each(?))`, which
-needs one variable at any size and keeps one statement per read.
+answer 500. The offline shim (`replica/localApi/`) binds such a set whole as
+one JSON array (`json_each`) instead.
 
 ### Schema
 
@@ -169,35 +150,27 @@ tables kept in step by triggers. `blocks_fts` is keyed by implicit rowid, so
 |---|---|---|
 | `changes` | The append-only journal: `seq`, `kind`, `entity_id`, `deleted`, `page_id` | Triggers on `blocks`, `pages` and `sidebar_entries`, so a new write path is journalled automatically; also `JournalBlock` ([Missing targets](write-path.md#missing-targets)) |
 | `applied_batches` | Each batch's request hash and stored ack | `post_ops` |
-| `block_rewrites` | What a rename, merge, title migration or page delete did to one block's text, replayed over a stale edit ([Conflicts](write-path.md#conflicts)). Pruned after `BLOCK_REWRITE_RETENTION_MS` | `store.insert_block_rewrites` only, for `store._record_block_rewrite` (rename, merge, title migration), `store._record_delete_rewrite` (page delete), `ops_apply._execute` on a `RecordRewrite` that `ops_core.rewrite_effects` plans |
+| `block_rewrites` | What a rename, merge, title migration or page delete did to one block's text, replayed over a stale edit ([Conflicts](write-path.md#conflicts)); `schema.py` says what each `kind` stores. Pruned after `BLOCK_REWRITE_RETENTION_MS` | `store.insert_block_rewrites` only, which the store's rewrites and a planned `RecordRewrite` effect both call |
 | `page_deletions` | Each user-deleted page's title and the journal head after it ([Stale batches](write-path.md#stale-batches)). Pruned on the same window | `store.delete_page_unlinking` only |
 | `conflict_headers` | Today's conflict header per block; a new header deletes other days' rows | `ops_apply._execute` |
 | `sync_meta` | `db_generation` (a rebuilt or restored database gets a new one and clients rebootstrap) and the `plain_space_title_canonicalization` flag | startup, title migration apply, `pkm.backup.restore` |
 
-Cascade deletes are journalled only because `recursive_triggers=ON`.
-`changes.page_id` is set only on a block tombstone: by `blocks_chg_ad`, the
-page the deleted block was on; by `JournalBlock`, the page a diverted create
-was placed on. It is never shipped and has no index, since every journal
-insert would pay for one.
-
-| `block_rewrites.kind` | `old_title` | `new_title` |
-|---|---|---|
-| `retitle` | the old title | the new title |
-| `unlink` | the deleted page's title | empty |
-| `inline` | the target block's uid | the text copied in place of `((uid))` |
+`changes.page_id` is set only on a block tombstone and never shipped;
+`schema.py` says why it has no index.
 
 ### Schema migrations and legacy data
 
 New tables and indexes are replayable `IF NOT EXISTS` statements. New columns
-are guarded `PRAGMA` checks in `db._ensure_schema_migrations`. Replicas
+are guarded `PRAGMA` checks in `db._ensure_schema_migrations`, and
+`init_db()` runs the one-time backfills (`db._backfill_*`). Replicas
 rebootstrap on a schema-hash change. Startup never runs the
 [title migration](#title-integrity-and-one-time-activation).
+
+Shapes a read can still meet:
 
 | Legacy shape | Handled by |
 |---|---|
 | `blocks.heading` 0, Roam's "no heading", from older imports | `Row.heading` is `StoredHeadingLevel`, so the row check admits it; `rows.heading_level` and `StoredHeading` read it as `None`, so the wire never carries it. A SQL `NULLIF` would cost VM steps on every block row |
-| NULL `blocks.created_at` from old imports | `db._backfill_created_at`, through the update trigger so replicas get it |
-| blocks from before `block_refs` was maintained | `db._backfill_block_refs`, once, behind a `sync_meta` marker |
 | a journal without `changes.page_id` | `db._ensure_changes_page_id`; old rows stay NULL |
 | `block_rewrites` rows without `kind` | the column default, `retitle` |
 | `applied_batches` rows holding the strict `batch_request_hash` | `post_ops` accepts either that or `batch_replay_hash` |
@@ -208,21 +181,15 @@ rebootstrap on a schema-hash change. Startup never runs the
 
 `routes_pages.py::_fetch_ancestors` builds the breadcrumb trail behind
 `GET /api/block/{uid}` and every backlink group. Its recursive CTE holds
-`uid` alone and joins with `UNION`, which queues a row only once. So each
-distinct ancestor is read once, however many starts share it, and a parent
-cycle in a hand-edited database ends the walk. `tree.ancestor_trails` then
-rebuilds each trail root first, stopping at the first uid already on it.
-**The ancestor walk must not carry a per-row path string.** One row per
-start and ancestor, each copying an `O(depth)` string, makes the backlinks
-of a deep chain cost `O(depth³)`.
+`uid` alone and joins with `UNION`, so each distinct ancestor is read once
+and a parent cycle ends the walk; `tree.ancestor_trails` rebuilds the
+trails. **The ancestor walk must not carry a per-row path string.** One row
+per start and ancestor, each copying an `O(depth)` string, makes the
+backlinks of a deep chain cost `O(depth³)`.
 
-A backlinks payload sends each ancestor's text once. Each `BacklinkGroup`
-lists its ancestors' texts in `ancestor_texts`, and each item names its
-trail, root first, as positions in that list (`ancestors`). Texts on every
-item would repeat a deep chain's shared ancestors about `depth²/2` times,
-so a few MB stored would cost hundreds of MB per read. An ancestor is always
-on its item's page, so a per-group list holds each once. Both fields are
-left out when empty. The web shows each ancestor's full text and the
+A backlinks payload sends each ancestor's text once: each `BacklinkGroup`
+lists them in `ancestor_texts`, and each item names its trail as positions
+in that list (`ancestors`). The web shows each ancestor's full text and the
 linked-references filter reads its refs, so an excerpt is no substitute.
 `groups.showBacklinkGroups` resolves a batch to texts on arrival, since
 positions mean nothing outside their group. `GET /api/block/{uid}` has one
@@ -234,12 +201,10 @@ to the root error screen when it is missing. It holds
 `STALE_BUNDLE_CRUMB` (`…`) where the item has a trail and nothing
 otherwise, never the texts.
 
-The single-chain walks carry `path` as `,uid,uid,…,` and keep a row only
-while `instr(c.path, ',' || b.uid || ',') = 0`, so a cycle stops at the
-repeat. `ops_apply._unvisited` is the one place that test is spelled.
-`UID_RE` admits no comma, so the test is exact. Each walk has a
-replica mirror; change a pair together. None caps depth, so a chain deeper
-than `MAX_OUTLINE_DEPTH` from before the cap reads whole.
+The single-chain walks stop a cycle with a path string, spelled once in
+`ops_apply._unvisited`. Each walk has a replica mirror; change a pair
+together. None caps depth, so a chain deeper than `MAX_OUTLINE_DEPTH` from
+before the cap reads whole.
 
 | Walk | Server | Replica mirror | Cycle guard |
 |---|---|---|---|
@@ -262,12 +227,9 @@ return, typed with its brand (`uid: BlockUid`) or `Literal` domain. A key
 keeps one meaning and one nullability everywhere, so a column that differs
 from the key of its name is read under an alias: `pages.id` as `page_id`, a
 computed value under the query's own (`COUNT(*) AS n`).
-`brand_registry.COLUMN_KEYS` is the list of aliases and `SHAPES` each brand's
-regex; `CLIENT_KEYS` and `CLIENT_LITERALS` cover the replica's own tables.
-With `PKM_ROW_CHECK=1`, `select` checks each row with `row_problems` and
-raises `RowCheckError` on any problem it finds. Tests, e2e
-and the proptest sync server turn it on; `perfcheck` turns it off. Fix a
-`RowCheckError` in the query (alias, `COALESCE`) or the data, never by
+`brand_registry.COLUMN_KEYS` is the list of aliases. With `PKM_ROW_CHECK=1`
+([row check](checks.md)), `select` checks each row with `row_problems`. Fix
+a `RowCheckError` in the query (alias, `COALESCE`) or the data, never by
 loosening `row_problems`. A key admits every value its column stores,
 [legacy ones](#schema-migrations-and-legacy-data) included. `Row` is not a
 wire type: handlers copy keys into a response model.
@@ -280,24 +242,20 @@ from these models, and `PkmClient` validates every response against them.
 
 - **Closed sets** are `Literal`s, not `str`/`int`. They reach OpenAPI as an
   `enum`, and `pnpm gen-types` makes each a TS union.
-- **Brands.** `brand()` (`contracts/brands.py`) tags a `NewType` with an
-  `x-brand` schema marker, which gen-types turns into the web brand of the
-  same name ([frontend.md § Brands](frontend.md#brands)). Call it in
-  its own statement after the `NewType` line: pyrefly stops treating a
-  wrapped `NewType` call as a type. A subtype inherits its parent's marker,
-  so each needs its own `brand()`.
+- **Brands.** `brand()` (`contracts/brands.py`, whose docstring says how to
+  call it) tags a `NewType` with an `x-brand` schema marker, which gen-types
+  turns into the web brand of the same name
+  ([frontend.md § Brands](frontend.md#brands)).
 - **Strict models.** Every model inherits `StrictModel`, so pyrefly checks
-  constructor arguments, brands included, and pydantic never coerces `"1"`
-  to an int. Outside the checker: input decoded by `model_validate` at
-  runtime, the perf fixture's `TypeAdapter(BlockOp)`, FastAPI form bodies and
-  the MCP library's argument models.
+  constructor arguments, brands included. Outside the checker: input
+  decoded by `model_validate` at runtime, the perf fixture's
+  `TypeAdapter(BlockOp)`, FastAPI form bodies and the MCP library's argument
+  models.
 
 The [brand lint](checks.md#brand-rules) enforces both;
 `brand_registry.MINT_SITES` lists where each brand may be minted.
-A path parameter whose brand has a parser (`BlockUid`, `Sha256Hex`,
-`GoodlinksId`) comes from its dependency in `path_params.py`, so a handler
-only receives the checked brand. A malformed segment keeps its
-brand's status: 422 for a uid, 404 for a sha256 or a GoodLinks id.
+A path parameter whose brand has a parser comes from its dependency in
+`path_params.py`, so a handler only receives the checked brand.
 
 Which brands exist is what `grep 'brand('` returns. The ones whose meaning
 a name does not carry:
@@ -311,14 +269,14 @@ a name does not carry:
   `canonicalize_title`) to `CanonicalTitle` (the stored spelling of
   `pages.title`).
 
-`canonicalize_title` takes `plain_space` as an argument rather than reading
-the flag, so it returns only a `NormalizedTitle`. A `CanonicalTitle` comes
-from `sync_meta.read_title` / `title_reader`, which read the live flag;
-`refs.target_canonical_title`, which the title migration uses to plan
-against the post-activation state; or `refs.canonical_daily_title`, canonical
-under either flag. `store.fetch_page`, the rename, merge and sidebar helpers,
-`query.py`'s `plan_sql` and the migration inventory take `CanonicalTitle`,
-so pyrefly flags a title that skipped a mint. It cannot see an `Any` value or
+`canonicalize_title` returns only a `NormalizedTitle`, since its
+`plain_space` is the caller's, not the live flag. A `CanonicalTitle` comes
+from `sync_meta.read_title` / `title_reader` (the live flag),
+`refs.target_canonical_title` (the title migration's post-activation plan)
+or `refs.canonical_daily_title` (canonical under either flag). The title
+lookups (`store.fetch_page`, the rename, merge and sidebar helpers,
+`query.py`'s `plan_sql`, the migration inventory) take `CanonicalTitle`, so
+pyrefly flags a title that skipped a mint. It cannot see an `Any` value or
 raw SQL.
 
 ## Ref grammar
@@ -338,45 +296,35 @@ raw SQL.
 | How deep `[[` runs nest: the height of the run tree over the code-stripped text | `link_nesting_depth` | `linkNestingDepth` | `text_limits_parity.json` |
 | A `#tag` name is a run of `_`, `/`, `.`, `-` and the word characters in `TAG_WORD_RANGES` | `_TAG_NAME` | `TAG_CHARS_RE` | `ref_grammar.json`, `test_tag_chars_artifact.py` |
 
-The backtick check reads the original text, because `strip_code()` has
-blanked code to spaces. Both scanners stay linear: a failed fence-closer
-search retires the fence rule for the rest of the text. The fence-closer word
-test is ASCII on both sides. A Unicode class follows each runtime's Unicode
-table, and Python's lags a browser's, so the two would hide different text as
-code and disagree on a block's refs and nesting depth. A tag name cannot be
-ASCII, or `#café` would stop being a tag. Its word class is instead one frozen
-table, `contracts/tag_chars.py` (CPython 3.12's `\w`, Unicode
-`TAG_CHARS_UNICODE_VERSION`), which both sides compile. A Python or browser
-upgrade therefore changes no tag. Moving the table to a newer Unicode is a
-deliberate regeneration.
+Each rule's reason sits beside its Python symbol. Both scanners stay
+linear: a failed fence-closer search retires the fence rule for the rest of
+the text. No word test uses a runtime's own Unicode table, because Python's
+lags a browser's and the two sides would disagree on a block's refs. The fence closer's test is ASCII. A tag name
+cannot be ASCII, or `#café` would stop being a tag, so its class is the
+frozen table in `contracts/tag_chars.py` (`TAG_CHARS_UNICODE_VERSION`). A
+Python or browser upgrade therefore changes no tag; moving the table to a
+newer Unicode is a deliberate regeneration.
 
 `rename.py` and `unlink.py` keep no copy of the grammar. They locate refs
 through `strip_code`, `bracket_spans`, `tag_spans` and `attribute_title_span`,
-so they cannot find a ref the index missed or splice over code. `rename.py`
-adds which span wins when refs nest and how to spell the replacement. A
-replaced span hides every ref inside it: an outer `[[run]]` its nested runs,
-and a leading attribute the `#tags` in its name (`#a b::` is the attribute
-`#a b` and the tag `a`). `spans.splice` assumes no two spans overlap. Its
-`normalize` argument maps a spelling in the text onto a replacement key.
-Rename, merge and their replay pass `rename.spelled_or_canonical`: a spelling
-that is itself a key, else its canonical form under the live flag. Matched
-byte for byte, `[[ Old ]]` would survive a rename under plain-space
-canonicalisation, and the reindex would recreate `Old`.
+so they cannot find a ref the index missed or splice over code. A replaced
+span hides every ref inside it: an outer `[[run]]` its nested runs, and a
+leading attribute the `#tags` in its name (`#a b::` is the attribute `#a b`
+and the tag `a`). Rename, merge and their replay match a spelling through
+`rename.spelled_or_canonical`, so `[[ Old ]]` is rewritten under plain-space
+canonicalisation too.
 
 Writes refuse a text whose runs nest past `MAX_LINK_NESTING`
-([text limits](write-path.md#work-bounds-under-the-write-lock)). `link_nesting_depth` counts every run, ref or
-not, and `#[[` like `[[`. Brackets in code, an unclosed `[[`, a stray `]]`
-and a run whose title holds a backtick do not count. The title guard
+([text limits](write-path.md#work-bounds-under-the-write-lock)), measured by
+`link_nesting_depth` over every run, ref or not. The title guard
 (`ops_core.find_op_title_violation`) cannot stand in for it: it judges only
 runs that are refs, and a run whose title has an unreachable segment
-(`[[a//...`) is none. Runs inside a `{{query: …}}` or
-`{{pdf: …}}` body count too, though the web renders that body without
-tokenizing it. That only over-counts, and a change to it must change
-`linkNestingDepth` with it, because `text_limits_parity.json` pins the two
-equal.
+(`[[a//...`) is none. Runs inside a `{{query: …}}` or `{{pdf: …}}` body
+count too, though the web renders that body without tokenizing it; that
+only over-counts.
 
-Rows stored before the limit can nest far deeper. Every walk over
-`BracketSpan.children` therefore keeps its own stack, as `bracket_spans`,
+Rows stored before the limit can nest far deeper, so every walk over
+`BracketSpan.children` keeps its own stack, as `bracket_spans`,
 `rename._rewrite_range` and `unlink._unlink_range` do. A recursive one fails
 past the recursion limit, and the page such a block links could then not be
 renamed or deleted.
@@ -397,8 +345,7 @@ There a title with nothing to fold keeps its single-space edge padding
 (` A `), so legacy rows still resolve.
 
 `contracts/titles.TITLE_WHITESPACE` is the whitespace set, written out
-rather than taken from either language. Python's `\s` adds U+001C-U+001F
-and JS's adds U+FEFF and drops U+0085, so either would split a page between
+because Python's `\s` and JS's differ and either would split a page between
 server and replica. The web gets the list
 [generated](#generated-artifacts-and-parity-fixtures). Blankness keeps
 Python's `strip()` (`is_blank_title`, mirrored by `stripLikePython`), and
@@ -411,11 +358,10 @@ points are a `{title:wholepath}` route parameter, the `page` filter on
 `/api/todos` and `/api/changed`, a `[[Page]]` operand in `{{query}}`
 (`query_exec.parse_canonical_query`) and the `POST /api/sidebar` title.
 
-The `wholepath` convertor (`server/wholepath.py`) replaces Starlette's `path`
-on title and file-path routes and the SPA fallback. `path` stops before a
-final newline, so `Foo%20%0A` would arrive as `Foo `. `test_title_routes_props.py`
-checks every title-taking route and CLI verb against generated spellings;
-its route list comes from OpenAPI, so a new title route fails until covered.
+The `wholepath` convertor (`server/wholepath.py`) replaces Starlette's `path`,
+which stops before a final newline, on title and file-path routes and the
+SPA fallback. `test_title_routes_props.py` checks every title-taking route
+(its list comes from OpenAPI) and CLI verb against generated spellings.
 The web's sidebar form sends input untrimmed, because `trim()`'s set is not
 `TITLE_WHITESPACE` and the flag decides edge U+0020.
 
@@ -435,27 +381,23 @@ values are opaque (`rename.rewrite_title_refs_map()` never rescans one), and
 the digest covers the whole relevant snapshot.
 `audit_title_migration()` runs in a read transaction it always rolls back.
 Apply takes that `audit_digest`, re-inventories under the
-[write lock](write-path.md#the-write-lock), and answers 409 to a stale digest, to a
-blocker, or to an active flag with no groups and no sidebar retitles. Every
-change, through activation and the `db_generation` rotation, is one
-transaction, followed by one forced seq frame; replicas rebootstrap before
-replaying pending intent
+[write lock](write-path.md#the-write-lock), and answers 409 to a stale
+digest, a blocker, or an active flag with nothing to do. Every change,
+activation and the `db_generation` rotation included, is one transaction,
+followed by one forced seq frame; replicas rebootstrap before replaying
+pending intent
 ([sync-and-offline.md](sync-and-offline.md#title-activation-across-online-and-offline-paths)).
 
-Apply runs on an active database when the audit finds work, because a
-change to the fold rule leaves rows that were canonical under the old one.
-A page whose stored title the new fold changes is unreachable, since every
-key folds, so rename cannot touch it and only the migration merges or
-retitles it. On
-an inactive database the same apply also activates the flag.
+Apply also runs on an active database, because a change to the fold rule
+leaves rows that were canonical under the old one. A page whose stored
+title the new fold changes is unreachable, since every key folds, so only
+the migration can merge or retitle it.
 
 `server/title_migration.check_titles_at_startup`, run from the app lifespan,
 logs one ERROR on `pkm.titles` naming the stored page and sidebar titles the
 live rule would change, with `pkm migrate-titles` as the remedy. It never
-refuses to start: the remedy is an HTTP call, and under launchd's KeepAlive a
-refusal is a crash loop. It never repairs either, because a merge is
-irreversible and stays a digest-confirmed operator action. A failure inside
-the check is logged and the server serves on.
+refuses to start (its docstring says why) and never repairs, because a merge
+is irreversible and stays a digest-confirmed operator action.
 
 Some reported rows have no migration remedy, and
 [docs/cli.md](../cli.md#rows-the-migration-cannot-fix) gives each one's fix:
@@ -488,23 +430,19 @@ stays readable and deletable; [Page mutations](write-path.md#page-mutations-and-
 bounds its unlink.
 
 A title whose fold (`normalize_title`) is longer than
-`MAX_PAGE_TITLE_CHARS` code points is refused too (`refs.title_length_over`).
-That holds at creation, rename, move, sidebar pin and import, but not in the
-migration audit, which only shortens a title. In block text a link, tag or
-attribute to such a title fails the batch with a 400. The fold is measured
-on the title as sent, before the flag's edge strip: it is the longest a
-stored title can be under either flag, and the pure ops check never knows
-the flag (`title_length.json` pins single-space edges counting). Length is
-judged before syntax (`refs.title_refusal`), so a refusal names the length
-and never echoes the title.
+`MAX_PAGE_TITLE_CHARS` code points is refused too (`refs.title_length_over`,
+whose docstring says why the fold is measured). That holds at creation,
+rename, move, sidebar pin and import, but not in the migration audit, which
+only shortens a title. In block text a link, tag or attribute to such a
+title fails the batch with a 400. `refs.title_refusal` judges length before
+syntax, so a refusal never echoes the title.
 
-`get_or_create_page` refuses only creating such a page (`TitleTooLongError`,
-raised after `fetch_page` misses). A row stored before the cap stays
-readable, renamable to a shorter title and deletable, and a reindex keeps its
-backlinks; `index_ref` skips a long title as it skips a forbidden one. An op
-naming a stored long title as a `page_title` or a link is refused until the
-page is renamed. `update_text`'s `page_title` hint is never judged: refusing
-it would refuse an edit to a block on such a page and discard the offline
+`get_or_create_page` refuses only creating such a page (`TitleTooLongError`).
+A row stored before the cap stays readable, renamable to a shorter title and
+deletable, and a reindex keeps its backlinks (`index_ref`). An
+op naming it as a `page_title` or a link is refused until the page is
+renamed. `update_text`'s `page_title` hint is never judged: refusing it
+would refuse an edit to a block on such a page and discard the offline
 batch.
 
 ### Blank titles
@@ -530,9 +468,13 @@ does the constant-time scrypt check and signs the `pkm_session` cookie
 (`v1.<issued_ms>.<sig>`). [SECURITY.md](../SECURITY.md) owns the cookie
 flags, the threat model and what these mechanisms leave open.
 
-Response headers that apply to every route are set in one place,
-`SecurityHeadersMiddleware`; routes set only their own. An
-unhandled exception's 500 is built outside it and carries none.
+Middleware runs outermost first: `RequestLogMiddleware` →
+`SecurityHeadersMiddleware` → `OriginGuardMiddleware` →
+`AuthGateMiddleware` → router. The two that refuse are innermost, so
+their refusals are logged and carry the security headers.
+`SecurityHeadersMiddleware` sets every header that applies to all routes;
+routes set only their own. An unhandled exception's 500 is built outside it
+and carries none.
 
 `AuthGateMiddleware` (`auth_gate.py`, rules in `auth_gate_core.py`)
 refuses an anonymous request before routing, without calling `receive`.
@@ -540,7 +482,8 @@ refuses an anonymous request before routing, without calling `receive`.
 guard that is only a dependency takes in an anonymous upload whole before
 its 401. The refusals are 401 `{"detail": "not authenticated"}` and a 4401
 handshake close before accepting. `session_is_valid` (`auth.py`) is the
-one session check.
+one session check. The gate hands `is_public` `get_route_path(scope)`, the
+string the router matches, so the two cannot disagree on decoding.
 
 | Request (`is_public`) | At the gate |
 |---|---|
@@ -548,43 +491,34 @@ one session check.
 | `GET` or `HEAD` outside `/api` and `/assets`: `GET /login`, `GET /healthz`, `/app-assets/*`, the SPA shell | public |
 | anything else, every WebSocket handshake included | needs a valid `pkm_session` |
 
-The gate hands `is_public` `get_route_path(scope)`, the string the router
-matches, so the two cannot disagree on decoding. A public body (a method outside
-`SAFE_METHODS`) is read by the gate, session or not, and replayed to the
-route as one message. No session bounds it, so the gate keeps at most
-`PUBLIC_BODY_MAX_BYTES` and answers 413 `{"detail": "request body too large"}`
-past it, before the app reads any of it when `Content-Length` declares it.
-A streamed body is refused at the message that passes the cap, so the
-overshoot is at most one of uvicorn's reads. This runs before the login
-throttle.
+`require_auth` stays on every router
+(`dependencies=[Depends(require_auth)]`) as the route's own check, and
+`/api/ws` checks the cookie inline. It is the only check on a `GET`
+outside `/api` and `/assets`. `test_the_gate_admits_exactly_the_public_routes`
+fails when the gate admits a route of `create_app`'s table outside the
+test's `PUBLIC_ROUTES`; routes another app adds, such as the proptest sync
+server's `GET /__proptest/*`, are not walked.
 
-An authenticated body outside `SAFE_METHODS` is capped too, at the size
-`private_body_cap` gives. FastAPI would otherwise parse a body of any size
-before the route's own limits refuse it: a batch of hundreds of MiB would
-cost GiBs of memory before `MAX_OPS_PER_BATCH` refused it.
+The gate caps every body outside `SAFE_METHODS`, because FastAPI would
+otherwise parse a body of any size, a multipart upload included, before the
+route's own limits refuse it.
 
-| Authenticated request | Cap |
+| Request | Cap |
 |---|---|
-| an upload (`UPLOAD_ROUTES`) | the config's `max_upload_bytes` plus `UPLOAD_ENVELOPE_BYTES` |
-| any other method outside `SAFE_METHODS` | `PRIVATE_BODY_MAX_BYTES` |
+| public (`PUBLIC_UNSAFE_ROUTES`), session or not | `PUBLIC_BODY_MAX_BYTES`. The gate reads the body and replays it to the route as one message, before the login throttle runs |
+| an authenticated upload (`UPLOAD_ROUTES`) | the config's `max_upload_bytes` plus `UPLOAD_ENVELOPE_BYTES` for the multipart framing |
+| any other authenticated method | `PRIVATE_BODY_MAX_BYTES` (`private_body_cap`) |
 
-An upload needs the cap as much as a batch does. FastAPI parses the whole
-multipart form before `upload_asset` runs: it spools the file to disk and
-holds other fields in memory, and the route checks `max_upload_bytes` only
-afterwards. `UPLOAD_ENVELOPE_BYTES` is slack for the multipart framing, so
-a file just past its limit still gets the route's own 413
-`upload too large`.
+A declared `Content-Length` past the cap gets 413
+`{"detail": "request body too large"}` before the app reads a byte;
+`declared_content_length` ignores a length sent beside `Transfer-Encoding`.
+An authenticated body with no trusted length is counted as the route reads
+it, never buffered by the gate, and refused at the message that passes the
+cap.
 
-A declared `Content-Length` past the cap gets 413 unread; a length sent
-beside `Transfer-Encoding` is ignored (`declared_content_length`), because
-h11 then frames by the chunks. A body with no trusted length is counted as
-the route reads it and never buffered by the gate, since an upload may be
-far larger than anything worth holding. The message that passes the cap
-raises `_BodyOverCap`, an `HTTPException`, out of `receive`, and FastAPI
-answers it 413.
-
-uvicorn has no read or write timeout of its own. `DeadlineH11Protocol` and
-the gate bound a slow client:
+uvicorn has no read or write timeout of its own. `DeadlineH11Protocol`, whose
+docstring in [http_protocol.py](../../server/src/pkm/server/http_protocol.py)
+explains each deadline, and the gate bound a slow client:
 
 | What is late | Bound | Answer |
 |---|---|---|
@@ -592,45 +526,21 @@ the gate bound a slow client:
 | the rest of a body answered without reading it (a 401, 403 or 413) | the same deadline, which the leftover body counts against | the connection is closed |
 | a public body | `PUBLIC_BODY_READ_TIMEOUT_S` for the whole read | 408 with `Connection: close`, as RFC 9110 advises: the client has shown it will not finish |
 | the client taking a response, while writing is paused or the response is finished with bytes unsent | the transport's buffer must shrink within `WRITE_STALL_TIMEOUT_S` | the connection is aborted |
-| an authenticated body | none | — |
+| an authenticated body | none: an upload over a slow link may take minutes | — |
 | a request every few seconds on one connection | none: uvicorn's 5 s keep-alive restarts with each one | — |
 
-The write deadline measures progress, not paused time: one large JSON
-message keeps writing paused until nearly all of it has left, so a client
-that is draining it is not cut. In effect it is a minimum read rate of one
-kernel socket-buffer step per `WRITE_STALL_TIMEOUT_S`, far below any usable
-link ([http_protocol.py](../../server/src/pkm/server/http_protocol.py) has
-the arithmetic).
-
-A 401 or 413 leaves the connection open: closing with the body unread resets
-it, and a client still sending could lose the answer. An upload past its
-limit plus the multipart envelope gets the gate's 413 at once and the sender
-is cut at the head deadline, so a browser may show a reset instead of the
-413; the upload fails either way. An authenticated body has no deadline
-because an upload over a slow link may take minutes.
-
-`require_auth` stays on every router
-(`dependencies=[Depends(require_auth)]`) as the route's own check, and
-`/api/ws` checks the cookie inline. It is the only check on a `GET`
-outside `/api` and `/assets`. `test_the_gate_admits_exactly_the_public_routes`
-fails when the gate admits a route of `create_app`'s table outside
-`PUBLIC_ROUTES`; routes another app adds, such as the proptest sync
-server's `GET /__proptest/*`, are not walked.
-
-Middleware runs outermost first: `RequestLogMiddleware` →
-`SecurityHeadersMiddleware` → `OriginGuardMiddleware` →
-`AuthGateMiddleware` → router. The two that refuse are innermost, so
-their refusals are logged and carry the security headers.
+A 401 or 413 leaves the connection open (`auth_gate.py` says why), so an
+upload far past its limit is cut at the head deadline and a browser may
+show a reset instead of the 413.
 
 `OriginGuardMiddleware` (`origin_guard.py`, rules in `origin_core.py`)
 checks `Origin` on every `/api/ws` handshake and on every HTTP method
 outside `SAFE_METHODS`, because the `Lax` cookie rides along on a sibling
 tailnet host's handshake and simple POSTs
 ([SECURITY.md § Authentication](../SECURITY.md#authentication)). A request
-with no `Origin` passes,
-because browsers send one on every request the guard checks; only
-non-browser clients omit it. A request with exactly one `Origin`, in the
-allowed set, passes. Anything else is refused.
+with no `Origin` passes, because only non-browser clients omit it. A
+request with exactly one `Origin`, in the allowed set, passes. Anything
+else is refused.
 
 | Allowed origin | Source |
 |---|---|
@@ -640,10 +550,10 @@ allowed set, passes. Anything else is refused.
 
 `<port>` is the `api_port` `create_app()` is given, the port `run.py`
 serves on. A refused HTTP request gets 403
-`{"detail": "origin not allowed"}`. A refused handshake is closed with
-4403 before accepting. uvicorn sends both closes, 4403 and 4401, as an
-HTTP 403. The guard runs before the auth gate, so an anonymous handshake
-from a foreign origin sees 4403, not 4401.
+`{"detail": "origin not allowed"}`, and a refused handshake a 4403 close
+before accepting, which uvicorn sends as HTTP 403 (as it does 4401). The
+guard runs before the auth gate, so an anonymous handshake from a foreign
+origin sees 4403, not 4401.
 
 `Origin: null` is refused, because a sibling page can produce it
 (`test_origin_allowed`, `test_ws_refuses_a_foreign_origin`). The web treats
@@ -655,10 +565,10 @@ Nothing enforces these rules:
 
 - The app must never set `Referrer-Policy: no-referrer`, as a header or a
   meta tag on its own documents. Fetch writes, uploads and the WebSocket
-  keep the real origin under that policy. The no-cors form posts do not:
-  the export form in `web/src/views/Files.tsx` (Chromium and WebKit) and
-  the assistant close beacon in `web/src/assistant/client.ts` (WebKit)
-  would send `Origin: null` and be refused.
+  keep the real origin under it, but the no-cors form posts would send
+  `Origin: null` and be refused: the export form in
+  `web/src/views/Files.tsx` (Chromium and WebKit) and the assistant close
+  beacon in `web/src/assistant/client.ts` (WebKit).
 - A new hostname or Serve port needs its origin in `serve_origins`.
 - Every public route that takes a body is capped, so one added to
   `PUBLIC_UNSAFE_ROUTES` must accept a body within
@@ -666,22 +576,14 @@ Nothing enforces these rules:
   public `GET` route must not read a body.
 - A new upload route joins `UPLOAD_ROUTES`, or its bodies are cut at
   `PRIVATE_BODY_MAX_BYTES`. A route that reads a body itself must let an
-  `HTTPException` from `receive` through, as FastAPI's body parsing does
-  (it turns any other exception into a 400), or a streamed body past the
-  cap is not answered 413.
+  `HTTPException` from `receive` through (`_BodyOverCap` says why), or a
+  streamed body past the cap is not answered 413.
 - Only `run.uvicorn_config` installs `DeadlineH11Protocol`, and `run.serve`
   is the one way to start a server through it: `run.main`,
   `tests/e2e_serve.py` and `tooling/proptest/sync_server.py` all call it,
   so E2E runs the production protocol. The server must keep starting
   through `python -m pkm.server.run` (the launchd job does). The `uvicorn`
   CLI, or its `httptools` protocol, has neither deadline.
-- The protocol reads uvicorn internals (`cycle`, `flow`,
-  `on_response_complete`, `pause_writing`, `handle_websocket_upgrade`);
-  `test_http_protocol.py` catches an upgrade that moves them. Its timers
-  are re-armed after a pipelined request has started, or after an upgrade
-  behind a response has taken the transport. So the checks at fire time
-  (a request in progress; the transport still the protocol's) are what
-  spare a request and a WebSocket, not any disarm.
 - The gate reads the config from `scope["app"].state.config` on every
   request, never once at startup: the proptest sync server replaces
   `app.state.config` after `create_app`.
@@ -690,10 +592,9 @@ Nothing enforces these rules:
 
 `LoginThrottle` (`throttle.py`, policy in `throttle_core.py`) applies a
 per-source exponential backoff (`BASE_BACKOFF_MS` to `MAX_BACKOFF_MS`)
-before scrypt runs. It also lets one source run one password check at a
-time, and caps scrypt work process-wide at `MAX_CONCURRENT_SCRYPT` slots.
-`login()` is an async route: it waits for the source's turn on the event
-loop and runs the check on a worker thread.
+before scrypt runs, and caps scrypt work process-wide at
+`MAX_CONCURRENT_SCRYPT` slots. `login()` waits for the source's turn on the
+event loop and runs the check on a worker thread.
 
 ```mermaid
 flowchart TD
@@ -713,10 +614,10 @@ flowchart TD
 ```
 
 Every refusal is the same 401 `wrong password` (`_wrong_password`), so a
-guesser cannot tell a wrong password from a throttled source or a
-timeout. Only the timing differs: a throttled source is refused without
-scrypt. That holds even when it sends the right password, since the backoff
-exists to spend no scrypt on it.
+guesser cannot tell a wrong password from a throttled source or a timeout;
+only the timing differs. A throttled source is refused without scrypt even
+when it sends the right password, since the backoff exists to spend no
+scrypt on it.
 
 The source is `request.client.host`, which uvicorn rewrites from
 `X-Forwarded-For` only when the TCP peer is in `run.FORWARDED_ALLOW_IPS`
@@ -741,36 +642,24 @@ Nothing enforces the conditions this keying needs:
 - `run.uvicorn_config` passes `proxy_headers` and `forwarded_allow_ips`
   explicitly. Left unset, uvicorn reads the `FORWARDED_ALLOW_IPS`
   environment variable, and `*` there would key on the left-most entry,
-  which the client chooses. Only `run.serve` builds that config, so
-  launchd must start the server through `python -m pkm.server.run`, not
-  the `uvicorn` CLI.
+  which the client chooses.
 - Serve's upstream must stay `http://127.0.0.1:<port>` (`install.sh`'s
   `serve` line). Pointed at the Tailscale IP, Serve becomes an untrusted
   peer, and every Serve client shares the host's backoff bucket unless
   `FORWARDED_ALLOW_IPS` changes with it. An IPv6 loopback upstream (`[::1]`,
   or a `localhost` that resolves to it) reaches no listener, because
-  `bind_sockets` opens IPv4 sockets only. It would need a `::1` listener
-  and `::1` in the trust list.
+  `bind_sockets` opens IPv4 sockets only.
 
-**One password check is in flight per source.** Checking the backoff and
-recording the verdict are separate steps, so without a turn every request of
-a concurrent burst would pass the first and run scrypt. The other requests
-wait for the turn rather than being refused, so a double-submit of the right
-password is never told it was wrong, and the next holder re-checks the
-backoff.
-
-The turn ends with the check, not the request: `hand_turn_to` ends it in the
-check's done-callback. A cancelled request stops waiting at once, but a
-worker thread cannot be stopped, so a turn that ended with the request would
-let the next one start a second check before the first one's failure was
-recorded.
-
-`take_turn` waits on the event loop, holding no worker thread, so each
-source holds at most one thread. `scrypt_slot()` waits on that thread for up
-to `SCRYPT_ACQUIRE_TIMEOUT_S`, which bounds what many sources can hold, so
-concurrent logins cannot starve the threadpool every sync route shares. A
-login waits at most two such timeouts plus one scrypt check. A right password
-that times out in the queue gets the uniform 401.
+**One password check is in flight per source**, because checking the
+backoff and recording the verdict are separate steps: without a turn,
+every request of a concurrent burst would pass the first and run scrypt.
+The others wait for the turn rather than being refused, so a double-submit
+of the right password is never told it was wrong. The turn ends with the
+check, not the request, because a worker thread cannot be cancelled
+(`hand_turn_to`). A login waits at most two `SCRYPT_ACQUIRE_TIMEOUT_S`
+timeouts (`take_turn`, then `scrypt_slot()`) plus one scrypt check, and the
+slot timeout keeps concurrent logins from starving the threadpool every
+sync route shares.
 
 ## HTTP API reference
 
@@ -795,7 +684,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | POST | `/api/pages` | Idempotent page create; 422 for a blank, refused or over-long title |
 | DELETE | `/api/page/{title}` | Delete a page, unlinking inbound refs; 409 with `blockers`, each an `excerpt` and `text_length` ([Page mutations](write-path.md#page-mutations-and-the-sidebar)) |
 | GET | `/api/delete-preview?title=` | What a delete would rewrite or be refused for, a `limit` blocker included |
-| POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge`; 422 when the new title is [refused](#refused-titles) or longer than `MAX_PAGE_TITLE_CHARS`, or the rewrite would carry a block past a text limit |
+| POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge`; 422 when the new title is [refused](#refused-titles), too long included, or the rewrite would carry a block past a text limit |
 | GET | `/api/unlinked?title&limit&offset` | Unlinked mentions, not from the page itself |
 | GET | `/api/journal?before&days` | Daily-notes feed |
 | POST | `/api/journal/cleanup` | Prune empty, unreferenced daily pages from the week before today |
@@ -911,15 +800,9 @@ below, in the order its `STEPS` table holds; add a dump to that table, which
 | `draft_flush.json` | hand-edited | `test_ops_endpoint.py` | the op an editor draft flushes |
 | `registry_paths.json` | hand-edited | `test_brandlint_registry.py`, `eslint-plugin-brands/registry.test.ts` | the brand registry's path syntax: `registry_path_matches` on the server and `pathMatcher` on the web |
 
-Hand-edited fixtures live in `shared/fixtures/`, and `git grep <name>.json` finds every test that reads one. `rows_dump` fails for a
-brand `brands.ts` lacks. The `--table` redirect empties `tag_chars.py` before
-the dump runs. So `tag_chars_dump` imports the table only for the plain run,
-which writes the TS file, and must keep no top-level import of it. The seeded
-corpora in `refs_parity.json`, `title_parity.json` and
-`text_limits_parity.json` are tallied by shape (`parity_corpus.shape_tally`),
-so they cannot go vacuous. The [ops property](checks.md#property-gate)
-checks the server, replica and in-memory implementations against each other
-on random batches.
+Hand-edited fixtures live in `shared/fixtures/`, and `git grep <name>.json`
+finds every test that reads one. The seeded parity corpora are tallied by
+shape (`parity_corpus.shape_tally`), so they cannot go vacuous.
 
 ## Configuration and entrypoints
 
@@ -938,7 +821,7 @@ directory, so the data directory moves as a unit.
 | `cookie_secure` | `Secure` flag on the session cookie |
 | `web_dist` | Built SPA directory; unset serves the API only |
 | `bind_hosts` | Interfaces to listen on |
-| `serve_origins` | Origins browsers use to reach the server through Tailscale Serve, e.g. `["https://<machine>.<tailnet>.ts.net"]`; loopback and `bind_hosts` listeners are always allowed ([Auth](#auth)) |
+| `serve_origins` | Origins browsers use to reach the server through Tailscale Serve, e.g. `["https://<machine>.<tailnet>.ts.net"]` ([Auth](#auth)) |
 | `max_upload_bytes` | Upload size cap |
 | `image_descriptions` | Master switch for image captions |
 | `image_description_model` | Vision model |
@@ -948,12 +831,12 @@ directory, so the data directory moves as a unit.
 | `goodlinks_api_key_file` | GoodLinks token; else `GOODLINKS_API_KEY`. With neither, every GoodLinks route but `check` 404s |
 | `goodlinks_api_url` | Where the GoodLinks app listens |
 
-A key file wins over its environment variable. Key files default to one
-level above the data directory, outside anything servable or exportable.
+A key file wins over its environment variable and defaults to one level
+above the data directory, outside anything servable or exportable.
 
-`python -m pkm.server.run` serves its `--port` on `bind_hosts`. Its `--host`
-flags replace `bind_hosts`, for the listeners and for the origin guard's
-allowed set alike. launchd runs it
+`python -m pkm.server.run` serves its `--port` on `bind_hosts`, or on its
+`--host` flags, which replace `bind_hosts` for the origin guard too. launchd
+runs it
 through `$PKM_HOME/bin/pkm-server`, which stays the Python process's parent,
 so macOS attributes file-access consent to a binary that does not change
 ([the launcher](../../deploy/README.md#the-launcher)). `create_app()` always
@@ -972,30 +855,22 @@ was slow. `logfmt.uvicorn_log_config()` routes each logger to a handler.
 
       <client> "GET /api/page/Foo?bl_limit=20" 200 4ms
 
-Attacker-chosen text (a path, an upload's filename, an error text) is escaped
-at the handler, not per call site. `request_line` passes the client, method
-and path through `logfmt.escape_controls`, which escapes every non-printable
-character, backslash and double quote: a raw newline or U+2028 would forge a
-log line, and a quote would close the request field early and fake the
-status. The default handler applies the same escape to the message of every
-`pkm.*` record (`logfmt.EscapePkmMessages`). Its formatter,
-`logfmt.EscapingFormatter`, hex-escapes the non-printable characters in
-every traceback and indents each line two spaces, so an exception's text
-cannot start a line that reads as a log record.
-
-uvicorn's own lines are the exception to the escaping. They cannot break a
-line, since h11 admits only visible ASCII in the request target. A quote in
-a websocket path still reaches `server.log` raw.
+Attacker-chosen text (a path, an upload's filename, an error text) is
+escaped at the handler, not per call site, so no text a request carries can
+forge a log line. `request_line` escapes its fields with
+`logfmt.escape_controls`; the default handler's `logfmt.EscapePkmMessages`
+escapes every `pkm.*` message; and `logfmt.EscapingFormatter` escapes and
+indents every traceback. uvicorn's own lines are the exception: h11 admits
+only visible ASCII in a request target, but a quote in a websocket path
+reaches `server.log` raw.
 
 With `run.py --log-dir` (production) the handlers write `server.log` and
 `access.log`; without it, stderr and stdout. The server rotates its own
 files at midnight (`TimedRotatingFileHandler`), because launchd holds its
 `StandardOutPath` descriptors open and an outside rename would leave the job
-writing to the renamed file.
-`RequestLogMiddleware` defaults the status to 500, so a request that dies
-before responding still logs what the client saw. Nothing configures the root
-logger, so `test_every_declared_pkm_logger_has_an_effective_info_handler`
-checks every `pkm.*` logger reaches a handler.
+writing to the renamed file. Nothing configures the root logger, so
+`test_every_declared_pkm_logger_has_an_effective_info_handler` checks that
+every `pkm.*` logger reaches a handler.
 
 ## Testing
 

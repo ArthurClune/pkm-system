@@ -23,7 +23,7 @@
 //                     died: progress renews the lease, however slow the
 //                     download, and a stalled one is abandoned by the client,
 //                     which gives the gate back itself before the worker
-//                     would (sync-recovery.md § runRecovery)
+//                     would (sync-recovery.md § The recovery lease)
 //   serial replay     replaying the recorded bodies in commit order, each at
 //                     its applied_at, with every page rename and delete put
 //                     back after the batch it followed, at the clock it ran

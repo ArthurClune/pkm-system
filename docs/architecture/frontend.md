@@ -92,8 +92,7 @@ made: a second click before React re-renders must see the first click's lock,
 and a fetch must read the load id it just started. A plain `useReducer`'s
 state in a handler is the last render's. A reducer that returns the same
 object sets no state, so a refused event costs no render. `unlinkedStatus.ts`
-uses it without load ids, as a double-click guard: a second Link click sees
-the first's `pending` status before React re-renders.
+uses it without load ids, as a double-click guard on Link.
 
 An async handler in chrome that outlives a route, such as `TopBar`'s, checks
 after each `await` that the route is still the one it started on (`titleRef`).
@@ -144,10 +143,8 @@ brand back into `string`.
 
 Where a brand may be minted is `MINT_SITES` in
 `server/src/pkm/brand_registry.py`, enforced on the web by
-`brands/no-brand-assertion` ([checks.md § Brand rules](checks.md#brand-rules)).
-Tests mint through the checked helpers in `test-mint.ts`, which
-`test-helpers.ts` re-exports. `sync/wire.ts`
-reads network bodies, tombstone ids (`tombstoneIdOfWire`) and WebSocket frames
+`brands/no-brand-assertion` ([checks.md § Brand rules](checks.md#brand-rules)
+says where tests mint). `sync/wire.ts` reads network bodies, tombstone ids (`tombstoneIdOfWire`) and WebSocket frames
 (`wsFrameOfWire`) as the contract's types; `ReplicaDb.select` does the same for
 replica rows ([sync-and-offline.md](sync-and-offline.md#reading-rows)).
 `assistant/writePreview.ts` mints the `CanonicalTitle` of an approval card's
@@ -163,15 +160,11 @@ on the server's WS echo, so a `CanonicalTitle` is assignable to it.
 
 ## Views and navigation
 
-| Route | View |
-|---|---|
-| `/` | Journal, an infinite scroll of daily pages |
-| `/page/*` | PageView, one page |
-| `/current-work` | Recently edited pages |
-| `/files` | The asset browser |
-| `/settings` | Whole-database export, image-description status |
-| `/help` | `docs/keyboard.md` (bundled with `?raw`), rendered by `help/parseHelpMarkdown.ts`, which knows only headings, paragraphs, pipe tables and code spans: a list or link there renders literally |
-| `*` | NotFound |
+The routes are `STATIC_ROUTES` ([below](#one-table-for-route-metadata)) plus
+`/page/*`, one page in `PageView`; any other path renders `NotFound`. `/help`
+renders `docs/keyboard.md` (bundled with `?raw`) through
+`help/parseHelpMarkdown.ts`, which knows only headings, paragraphs, pipe
+tables and code spans: a list or link there renders literally.
 
 Every pathname under `/page/` renders PageView directly, because react-router
 compiles `*` to a `.*` that matches no newline, U+2028 or U+2029. A title
@@ -186,9 +179,8 @@ outline session by the page's stored title, whatever spelling opened them
 title of every static route. `App.tsx` maps each id to its view through
 `VIEWS`, a `Record<StaticRouteId, ComponentType>` the compiler checks for
 completeness. TopBar and `useRouteTitle.ts` read the same array, so a route
-cannot be labelled in one place and not another. `/page/*` has no entry;
-`PageView.tsx` sets its title. The catch-all renders `NotFound`, and
-`NOT_FOUND_TITLE` is its title.
+cannot be labelled in one place and not another. `/page/*` has no entry, and
+`PageView.tsx` sets its title; `NOT_FOUND_TITLE` is `NotFound`'s.
 
 ### Navigation chrome
 
@@ -259,28 +251,21 @@ node, not the React node, so a portalled surface stops its own clicks.
 | `AutocompletePopup`, `DatePickerPopup` | none: `BlockInput` owns their keys |
 
 A modal surface (one that traps focus, locks scrolling or answers keys beyond
-Escape) uses `useModal` and nothing hand-rolled. Only the topmost modal
-answers keys, because every modal's capture listener on `window` runs
-whatever `stopPropagation` says. The body stays locked until the last modal
-closes. Focus goes back to `triggerRef` if given, else to whatever held it
-when the modal opened, and only from the topmost modal. A surface whose keys
-another component owns hand-rolls its dismissal.
+Escape) uses `useModal` and nothing hand-rolled; a surface whose keys another
+component owns hand-rolls its dismissal. `useModal` keeps a stack, and
+`useModal.test.tsx` pins it: only the topmost modal answers keys, the body
+stays locked until the last one closes, and focus goes back (to `triggerRef`,
+else to what held it) only from the topmost. The topmost modal stops Escape in
+the capture phase at `window`, so nothing beneath it closes on the same
+keypress: not the page menu, not the assistant panel's `onKeyDown`, not a
+`useDismiss` listener. A non-modal popover inside a modal therefore cannot
+answer Escape and must itself be a `useModal`.
 
-The topmost modal stops Escape in the capture phase at `window`, so nothing
-beneath it closes on the same keypress: not the page menu, not the assistant
-panel's `onKeyDown`, not a `useDismiss` listener. A non-modal popover inside a
-modal therefore cannot answer Escape and must itself be a `useModal`. Keys
-are ignored while an IME composes (`isComposing` or `keyCode` 229).
-
-`"cycle"` wraps Tab and Shift+Tab inside the surface (`focusWrap.ts`), as in
-the confirm and blocked dialogs; every modal also locks body scroll and
-restores focus on close. The three pinned
-surfaces keep Tab on one element: `LocalFilePicker` is driven from its search
+`"cycle"` wraps Tab and Shift+Tab inside the surface (`focusWrap.ts`).
+`"pin"` keeps Tab on one element: `LocalFilePicker` is driven from its search
 box, and `GoodlinksReader`'s sandboxed iframe would swallow a cycling Tab,
 since its keydowns never reach the app
 ([files-and-assets.md](files-and-assets.md#the-reader-and-the-goodlinks-command)).
-A confirm opened from the page menu closes first on Escape; a second Escape
-closes the menu.
 
 A row's `RefCountBadge` opens `BlockRefBacklinksPopover`, which fetches
 `GET /api/block/{uid}/backlinks` at open, so the list is live while the count
@@ -294,12 +279,11 @@ hook with a confirm-backed handler takes `confirm` as an argument, as
 batches can land while a dialog is open, so a handler re-derives its target
 after the await.
 
-Dismissible notice lines render through `DismissibleNotice`: `tone: "error"`
-is an alert, `"status"` a status. `useOutline` exposes one `notices` list
-(`outline/notices.ts`: one slot per `NoticeKind`, listed by `noticeList`) and
-`EditablePage` maps it; `EditablePage`'s picker notice and `TopBar`'s menu
-error use the component directly. The classes and roles are what `styles.css`
-and the e2e locators select on.
+Dismissible notice lines render through `DismissibleNotice`, whose classes and
+roles (`tone: "error"` an alert, `"status"` a status) are what `styles.css`
+and the e2e locators select on. `useOutline` exposes one `notices` list
+(`outline/notices.ts`: one slot per `NoticeKind`, listed by `noticeList`),
+which `EditablePage` maps.
 
 ### The `/files` browser
 
@@ -418,12 +402,11 @@ stateDiagram-v2
 **Stop is a move from every busy phase.** After it, no output of that turn
 reaches the panel. A create cannot be called back, so Stop in `creating`
 keeps the conversation the create returns but starts no stream from it.
-Stop in `streaming` asks the server (`postStop`). The turn stays
-`stopping` until its stream is over (`turn_stopped`, an `error` event, or
-the stream's end) and its stop POST has settled, so the panel is idle only
-once the server is ([turn phase](assistant.md#the-turn-phase)). The
-exceptions are an aborted stream, from Stop's fallback or New chat, after
-which the server may still be draining; `streamWithBusyRetry` absorbs that.
+Stop in `streaming` asks the server (`postStop`), and the rules below keep the
+panel busy until the server's turn is over
+([turn phase](assistant.md#the-turn-phase)). After an aborted stream, from
+Stop's fallback or New chat, the server may still be draining;
+`streamWithBusyRetry` retries the 409 that a send meets then.
 
 | Rule | Reason |
 |---|---|
@@ -466,11 +449,6 @@ fails on, and `AGENTS.md` § Testing says how to run them.
   | `.journal-day.last()` moves as days are added | locate a seeded day by its title |
   | jsdom has no popups | prove a click opens no window with `context.on("page")` |
   | "element is not stable" or "detached" retries for 30 s | something bumped `resyncGeneration` and remounted the tree |
-- **Lint**: `web/eslint.config.js`'s header names its rule families;
-  `tooling/lintConfig.test.ts` proves each rule fires.
-- **Budgets** (`web/tooling/budgets.json`, `viteBudgetPlugin.ts`): the build
-  fails when the entry, largest asset, total, service-worker precache or a
-  library's owned bytes (mermaid, pdfjs, katex) exceed their caps.
 - **Perf**: `web/tooling/perf/check.ts` is the frontend half of
   `perf/check.sh` ([checks.md § Performance gate](checks.md#performance-gate)); its
   [README](../../web/tooling/perf/README.md) lists the files and the measurement caveats.

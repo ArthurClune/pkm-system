@@ -62,11 +62,10 @@ user who has had the chance to read all of it.
 
 | Rule | Reason |
 |---|---|
-| Targets come first, in full, and are never clipped | A long value in front of a `uid` or `title` would hide which block or page is written |
+| Targets come first. Targets and content values (`text`, `items`) reach the card whole, never clipped; [Bounds](#bounds) refuses a card too large to render | A long value in front of a `uid` or `title` would hide which block or page is written, and `[show]` must be able to reveal every character approved |
 | A key the tool's FastMCP argument model does not declare is a `Refusal` (for `batch`, anything beside `commands`) | The tool drops such a key, so a card row for it could only be a decoy beside the real target, such as a lookalike `uid` |
 | A declared field `WRITE_PREVIEW_FIELDS` does not name still shows as a target | A new argument is shown, never hidden; a test fails when a tool or batch params model gains an unclassified field |
 | `check_write()` validates with the tool's own FastMCP argument model and, for `batch`, the schema `apply_batch` applies; input they reject is a `Refusal` | FastMCP coerces arguments (`"yes"` becomes true, `"null"` becomes None, a JSON string becomes a list), so the card must show the coerced value. `test_preview_matches_what_the_tool_receives` pins the parity |
-| Content values (`text`, `items`) reach the card whole; one over `CONTENT_LIMIT_CHARS`, or a target string over `TARGET_LIMIT_CHARS`, is a `Refusal` | `[show]` must be able to reveal every character approved. The card shows a target before the server judges it, and a page stored before `MAX_PAGE_TITLE_CHARS` may carry a longer title; a multi-MB value would freeze the tab |
 | Any exception inside `check_write()` or `build_write_preview()` is a `Refusal`, logged with its type only | Raised out of `can_use_tool`, it would reach the SDK as a control error rather than a reason; its message can quote the attacker's input |
 | `ClaudeConversation.can_use_tool` denies a `Refusal` without a confirm | The user cannot approve what the tool would not run as shown |
 | Allow applies only while every block the card shows keeps the text it showed (for a delete, the same blocks under it with the same texts); where a block sits is not checked. Allow returns `approved_input` (the card's input plus an `expect` entry per block) as `updated_input`. The tool posts it as `OpBatch.expect`, which `routes_ops.post_ops` checks ([the write path](write-path.md)) | The hashes travel server to server. The browser sends only `confirm_id` and a boolean, and the model never sees `updated_input`, so neither can forge or drop one |
@@ -85,9 +84,9 @@ so a second `confirm_request` never swaps the card under the cursor.
 `answer` event, before the POST runs: `{ allow, state }`, `posting` until the
 POST settles, then `failed` if it did not land. After a failure the card
 offers a retry of that same answer only, because the server may already hold
-it. The panel renders from the `canStop` and `answerFailed` selectors, and
-Stop stays offered while an answer posts or has failed: it is the way out of
-the card.
+it (`answerFailed`). Stop stays offered while an answer posts or has failed,
+as the way out of the card (`canStop`,
+[frontend.md § The chat machine](frontend.md#the-chat-machine)).
 
 Allow arms after `ALLOW_ARM_MS`, and only once markers before the first op and
 after the last have each been in view. The ops scroll in a region inside the
@@ -102,8 +101,10 @@ marker past its top, and "scroll to the end" would point the wrong way.
 
 | Limit | Of | Past it | Reason |
 |---|---|---|---|
+| `TARGET_LIMIT_CHARS` | a target string, or a `found` block's page title | a `Refusal` | The card shows a target before the server judges it, and a page stored before `MAX_PAGE_TITLE_CHARS` may carry a longer title; a multi-MB one would freeze the tab |
+| `CONTENT_LIMIT_CHARS` | one content value | a `Refusal` | The card sends it whole, so a longer one would be approved partly unseen |
 | `MAX_PREVIEW_OPS` (= `MAX_OPS_PER_BATCH`) | a batch's commands | a `Refusal` | `apply_batch` sends one `/api/ops` batch of at most `MAX_OPS_PER_BATCH` ops, and each command plans at least one, so a longer batch could never apply |
-| `PREVIEW_LIMIT_CHARS` | the card's target strings, content, warnings, and current page, excerpt, alias and count | a `Refusal` | The tab must render the card before the user can approve it. It counts code points, not bytes on the wire |
+| `PREVIEW_LIMIT_CHARS` | everything the card holds at once (`_card_size`) | a `Refusal` | The tab must render the card before the user can approve it. It counts code points, not bytes on the wire |
 | `REFUSAL_LIMIT_CHARS` | a `Refusal`'s message | cut, ending `… (N characters)` | A refusal reaches the model and the log on every retry. It backstops `pkm.echo.echo`, which quotes and clips each echoed value at `ECHO_LIMIT_CHARS` |
 
 ### The blocks a write changes
@@ -142,15 +143,16 @@ that case together:
 | web, `ConfirmCard` | a stamped card with a `found` or `missing` block and `allowedAhead` above zero shows `.assistant-confirm-stale` |
 
 **A card is never silently stale from the assistant's own writes.** The
-queue answers cards in order. So a write that lands after a card's read was
-waiting or running when the read started, or parked during it. The card is
-then stamped, and the Allow that released the write is counted. The stamp
-errs towards the marker: a write still counts as running until the pump has
-read its result.
+queue answers cards in order, so a write that lands after a card's read was
+already waiting or running when the read started, or parked during it. The
+server stamps that card and the web counts the Allow that released the write;
+`test_claude_engine.py` pins each case. The stamp errs towards the marker: a
+write still counts as running until the pump has read its result.
+
 Edits from outside the turn, such as the editor beside the panel, get no
-marker. Allow refuses them instead: 412, and nothing is written. The panel
-marks the call failed with the tool's reason, the model relays it too, and a
-retry builds a fresh card. An `update_block`
+marker. Allow refuses them instead: 412, and nothing is written; the tool
+line shows the failure ([below](#a-writes-result)), and a retry builds a
+fresh card. An `update_block`
 on a block deleted meanwhile fails on `edit_block`'s own 404 before the
 check runs.
 
@@ -159,7 +161,7 @@ check runs.
 `web/src/assistant/events.gen.ts` holds the web's `AssistantEvent` union and
 `EVENT_TYPES`, generated by `wire_dump.py events` from `events.py`'s
 dataclasses and `EVENT_NAMES`. `confirm_request.preview` is typed as parsed
-(`WritePreview | null`): a malformed preview still yields the card, Deny only.
+(`WritePreview | null`), so a malformed preview still yields a card.
 
 | Rule | Reason |
 |---|---|
@@ -187,11 +189,11 @@ reply, which can report a refused write as done.
   conversation owns (`_tool_names`, which the mapper calls `_tools`, and
   `_declined`). A stopped turn's write reports during the drain, after its
   mapper's turn has ended, so the maps must outlive a mapper.
-- `tool_error_reason` drops the CLI's `<tool_use_error>` wrapper,
-  FastMCP's `Error executing tool <name>:` prefix and the HTTP status pkm's
-  `ApiError` leads with (`412: `). The reason can echo
+- `tool_error_reason` strips the wrappers around the reason: the CLI's
+  `<tool_use_error>`, FastMCP's `Error executing tool <name>:` and the HTTP
+  status pkm's `ApiError` leads with (`412: `). The reason can echo
   model-chosen input, so it is clipped server-side and the panel renders it
-  as text. `warning` is clipped the same way and rendered the same way.
+  as text, as it does `warning`.
 
 ## Conversation registry
 
@@ -271,7 +273,7 @@ has moved the phase to `draining`.
 
 | Rule | Reason |
 |---|---|
-| A turn sends one interrupt at most. `_stop_turn` acts only in `streaming`, so a Stop during a stall's interrupt or drain, a second Stop, and a disconnect after a Stop send none | A second ack would find the phase `draining`, and the table makes that `dead` |
+| A turn sends one interrupt at most: `_stop_turn` acts only in `streaming`. `test_assistant_turn_phase.py` pins the orders a Stop, a stall and a disconnect can meet in | A second ack would find the phase `draining`, and the table makes that `dead` |
 | `send()` moves `query` before it awaits `query()`. A cancellation there makes the phase `dead` | The prompt may already have reached the harness, and a turn nobody reads would be read by the next one as its own |
 | A stop reaches the turn the service has reserved, started or not: `send()` mints the turn's stop request when called, and `AssistantService.send()` calls it as it sets `busy`. A turn stopped before its first step sends no prompt and yields only `TurnStopped` | The stop POST can be handled before the response body starts. A stop after its turn has ended reaches nothing, since each turn has its own request |
 | A read that settled in the same pass as a Stop is handled first, so a turn that finished as the Stop landed ends on its own `TurnDone` | No interrupt goes to an idle CLI. An idle CLI acknowledges an interrupt with no result, so a drain would wait out its bound |

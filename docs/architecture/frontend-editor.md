@@ -192,8 +192,8 @@ flowchart LR
 | An offset transform, and a caret the editor places, snaps with `snapCaret` (`keyEdits.ts`); `outline/surrogatePairs.props.test.ts` covers each | a slice between surrogate halves stores two U+FFFD |
 | `set_collapsed` does not stamp (`opBumpsUpdatedAt`, which `replica/localOps.test.ts` pins for the replica) | collapsing re-dates the block |
 | No create or move lands a block past `MAX_OUTLINE_DEPTH`. `run()` and `undoManager`'s dispatch judge each by its subtree in the tree the ops leave (`depthCap.ts`), and refuse the whole command | the server refuses the batch whole, and the offline queue's [rebase](sync-recovery.md#a-batch-the-server-rejects) drops its other ops with it |
-| No edit queues a text past a [text limit](write-path.md#work-bounds-under-the-write-lock), or a ref (link, tag or attribute) to a [refused title](backend.md#refused-titles): past `MAX_PAGE_TITLE_CHARS`, or holding `#` or other forbidden syntax. `useBlockDraft.admit` judges a draft's text limits and refs as it is typed or pasted, leaving out the title the caret is still inside; `run()` judges a saved draft's refs again (`draftRefusal`, [below](#drafts-and-commit-points)) and a command's ops, and `undoManager`'s dispatch a replay. As on the server, every ref a text holds is judged (`linkedTitleRefusal` shares `findOpTitleViolation`'s loop), so a block holding a refused one refuses edits that keep it. `UnlinkedSection` judges a Link's text limits only | the same: the server's 400 poisons the batch, and the repair drops its other ops with it |
-| No command queues a batch past `MAX_OPS_PER_BATCH` or the private body cap (`findBatchSizeViolation`, `batchLimits.ts`). `run()` judges the draft's text ops together with the command's, for the reason it judges depth. An undo or redo replay (`undoManager.ts`) and a cross-page drop (`DndProvider.drop`) ask the same judge, `editRefusal` (`editRefusal.ts`): an inverse can be far larger than the op it undoes, since deleting a subtree is one op and restoring it is one `create` per block. A refused replay keeps its entry on its stack; a refused drop moves nothing | the server refuses the batch whole, and a queued refusal discards it |
+| No edit queues a text past a [text limit](write-path.md#work-bounds-under-the-write-lock), or a ref (link, tag or attribute) to a [refused title](backend.md#refused-titles): past `MAX_PAGE_TITLE_CHARS`, or holding `#` or other forbidden syntax. `useBlockDraft.admit` judges a draft's text limits and refs as it is typed or pasted ([below](#drafts-and-commit-points)); `run()` judges a saved draft's refs again (`draftRefusal`) and a command's ops, and `undoManager`'s dispatch a replay. As on the server, every ref a text holds is judged (`linkedTitleRefusal` shares `findOpTitleViolation`'s loop), so a block holding a refused one refuses edits that keep it. `UnlinkedSection` judges a Link's text limits only | the same: the server's 400 poisons the batch, and the repair drops its other ops with it |
+| No command queues a batch past `MAX_OPS_PER_BATCH` or the private body cap (`findBatchSizeViolation`, `batchLimits.ts`). `run()` judges the draft's text ops together with the command's, for the reason it judges depth. An undo or redo replay (`undoManager.ts`) and a cross-page drop (`DndProvider.drop`) ask the same judge, `editRefusal` (`editRefusal.ts`): an inverse can be far larger than the op it undoes, since deleting a subtree is one op and restoring it is one `create` per block. A refused drop moves nothing | the server refuses the batch whole, and a queued refusal discards it |
 
 A depth refusal (`DEPTH_NOTICE`), a text-limit one (`textLimitNotice`), a
 title one (`TITLE_LENGTH_NOTICE`, `TITLE_SYNTAX_NOTICE`) or a size one
@@ -203,25 +203,22 @@ clears once the draft saves. A refused keystroke leaves the textarea
 as it was, with the caret where the refused insertion began
 (`refusedEditCaret`). A refused paste is prevented, so its caret and
 selection are untouched. The draft's own text still ships, unless its own
-titles are refused ([below](#drafts-and-commit-points)), and a refused undo or
-redo keeps its entry for a retry. The entry goes back as though refused at the
-keypress (`restoreEntry`), because an unmounted page's read can take long
-enough for a new edit to be recorded meanwhile. A refused undo goes back below
-every edit recorded during its read, so the next undo still takes the newest
-edit first. A refused redo whose take a newer edit followed is dropped, since
-that edit cleared redo.
+titles are refused ([below](#drafts-and-commit-points)). A refused undo or redo
+keeps its entry for a retry, put back as though refused at the keypress
+(`restoreEntry`). An unmounted page's read can take long enough for a new edit
+to be recorded meanwhile, and `history.test.ts` pins where the entry goes back
+then.
+
 Code can hide a nest: a split inside a fence can cut off its closing
 backticks, so the first half exposes the nest and is refused, here and by the
 server.
 
-Where the web cannot see the tree, it sends and the server decides. An undo
-for an unmounted page whose read fails is judged for the text limits and
-the titles only, and a cross-page drop meets only `allowedDepths`
-([below](#drag-and-drop)).
-Refusing there would block an edit the web cannot check, for a case that
-needs an outline near the cap. A cross-page drop meets no title judge
-either: a drop onto a page whose title was stored past the cap is refused
-by the replica's queue or the server, not by the outline.
+Where the web cannot see the tree, the server decides the depth. An undo for
+an unmounted page whose read fails, and a cross-page drop, reach
+`editRefusal` with no tree, so it judges them for everything but depth; the
+drop's depth meets only `allowedDepths` ([below](#drag-and-drop)). Refusing
+there would block an edit the web cannot check, for a case that needs an
+outline near the cap.
 
 ### Drafts and commit points
 
@@ -270,12 +267,12 @@ the lease already showing the last edit. `ensureRefPageThenOpen` (`Ctrl-O` over 
 flushes before `POST /api/pages`. Tab hide and reload are covered by the
 `visibilitychange` flush, a refused draft excepted (below).
 
-Typing leaves out the title the caret is in while the draft is held
-(`linkedTitleRefusal`'s `heldCaret`). The user is still typing that title,
-and one the server accepts can pass through one it refuses: `[[a [b] c]]`
-passes through `[[a []]]`, whose title ends in `[`. `run()` judges the whole draft's refs when it saves it, and
-`admit` has judged its text limits and refs, so no path ships an unjudged text. A draft it refuses is never sent. It stays on
-screen to be fixed while its block can show it:
+`admit` leaves out the title the caret is in (`linkedTitleRefusal`'s
+`heldCaret`), because the user is still typing it, and one the server accepts
+can pass through one it refuses: `[[a [b] c]]` passes through `[[a []]]`,
+whose title ends in `[`. `run()` judges the whole draft's refs when it saves
+it, so no path ships an unjudged text. A draft it refuses is never sent. It
+stays on screen to be fixed while its block can show it:
 
 | With a refused draft on a shown block | What happens |
 |---|---|

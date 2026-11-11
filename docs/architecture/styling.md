@@ -4,12 +4,11 @@ All styling is plain CSS in a single file, `web/src/styles.css`, with no
 framework or CSS-in-JS. The app around it is in [frontend.md](frontend.md);
 failures are indexed by symptom in [troubleshooting.md](../troubleshooting.md).
 
-`styles.css` is divided by `/* == Name == */` markers, from Tokens and themes
-at the top through the component sections to Local file picker. Later rules
-win at equal specificity, so a responsive or variant override follows the rule
-it overrides: the shared `Responsive` section holds the 900px and 600px
-breakpoints, and a section with its own `@media` block (Media and embeds,
-Local file picker) keeps it right after the rules it overrides.
+`styles.css` is divided by `/* == Name == */` markers, with Tokens and themes
+first. Later rules win at equal specificity, so a responsive or variant
+override follows the rule it overrides: the shared `Responsive` section holds
+the common breakpoints, and a section with its own `@media` block keeps it
+right after the rules it overrides.
 
 ## Tokens and theming
 
@@ -108,7 +107,7 @@ One ring, everywhere a control can be focused:
 
 It is declared per component, next to that component's own rule.
 `.asset-image-trigger` and `button.file-thumb` take `outline-offset: 2px` to
-clear a rounded image corner. Three exceptions are commented in `styles.css`:
+clear a rounded image corner. The exceptions, each commented in `styles.css`:
 
 - `.top-bar-search-input` sets `outline: none`, because its desktop width
   growth is the affordance; the `@media (max-width: 600px)` block re-enables
@@ -156,23 +155,11 @@ Other rules:
   `.pdf-footer`'s text rather than a canvas inside the scroller. A numbered
   bullet is text, so `.bullet.numbered` joins with `align-self: baseline`.
 - **Embedded image caps.** `.asset-image` (an external `<img>`) and
-  `.asset-image-trigger` (an uploaded image's wrapper) both cap at
-  `max-width: 67%`. The inner image resets to `max-width: 100%` so the caps do
+  `.asset-image-trigger` (an uploaded image's wrapper) share one
+  `max-width` cap. The inner image resets to `max-width: 100%` so the caps do
   not multiply. The phone override back to full width must stay after those
   rules, because a media query adds no specificity.
-- **Stacking.** Every `z-index` reads one of the `--z-*` tokens on `:root`
-  in `styles.css`, bottom to top as below. `styles.test.ts` pins the order, so
-  a new layer takes a token between its neighbours.
-
-  | Token | Layer |
-  |---|---|
-  | `--z-drop-indicator` | the drag drop line |
-  | `--z-sidebar-overlay` | the right sidebar under 900px |
-  | `--z-dropdown` | top-bar menu, search results |
-  | `--z-phone-nav` | the left nav under 600px |
-  | `--z-hamburger` | the nav toggle |
-  | `--z-keyboard-bar` | `.keyboard-bar`, below the editor popups; its touch rules are in [frontend.md § iOS and phone behaviour](frontend.md#ios-and-phone-behaviour) |
-  | `--z-editor-popup` | `.ac-popup`, `.date-picker` |
-  | `--z-popover` | `.block-menu`, `.block-ref-popover` |
-  | `--z-assistant` | the assistant panel: above the block menu, below modals |
-  | `--z-modal` | confirm, image, PDF, Goodlinks and local-file overlays |
+- **Stacking.** Every `z-index` reads one of the `--z-*` tokens declared
+  together on `:root` in `styles.css`, bottom to top. `styles.test.ts` ("the
+  z-index scale") pins that order, so a new layer takes a token between its
+  neighbours.

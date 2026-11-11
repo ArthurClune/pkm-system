@@ -1980,7 +1980,7 @@ describe("the poison gate and repair problems", () => {
     expect(posts).toEqual(["bad-batch", "good-batch"]);
   });
 
-  test("applySync reads the freshest problem for same-tick dispatches: a dismiss " +
+  test("the session reads the freshest problem for same-tick dispatches: a dismiss " +
   "racing a new repair-started must not erase it", async () => {
     let snapshotCalls = 0;
     const posts: BatchId[] = [];

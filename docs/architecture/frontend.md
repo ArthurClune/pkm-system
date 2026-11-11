@@ -3,9 +3,7 @@
 The frontend is a React single-page app built with Vite: an offline-capable,
 real-time-synced Roam-style outliner. The server owns its shapes. API types
 are generated from its OpenAPI schema, the replica schema from its DDL, and
-the block grammar is pinned to the Python parser by shared fixtures. `pnpm
-check:fcis` (`web/tooling/fcis.ts`) fails a Functional Core module that
-imports a Shell ([overview.md](overview.md#functional-core--imperative-shell)).
+the block grammar is pinned to the Python parser by shared fixtures.
 
 This doc covers the app shell. The outline editor is in
 [frontend-editor.md](frontend-editor.md), block text to DOM in
@@ -26,12 +24,9 @@ web/src/
 ├── routeMeta.ts              Core   Path, label and browser title per route
 ├── Popover.tsx               Shell  Anchored-popover chrome
 ├── useDismiss.ts             Shell  Outside-mousedown and Escape dismissal
-├── useScrollFlashTarget.ts   Shell  Scroll a data-uid into view, flash and pin it
-├── externalLink.ts           Core   iOS-standalone check; the x-safari rewrite
 ├── uid.ts                    Shell  Mints uids, ClientId and BatchId
 ├── ids.ts                    Core   Parses an untrusted string into an id brand
 ├── paths.ts                  Core   Page title to URL path and back
-├── contexts.ts               Shell  The app's React contexts
 ├── useStaleGuard.ts          Shell  The stale-response idiom for async reads
 ├── useReducerRef.ts          Shell  A reducer whose handler reads its own dispatch's state
 ├── useModal.ts, focusWrap.ts Shell  Modal keys, scroll lock and focus; the Tab wrap (Core)
@@ -78,20 +73,15 @@ flowchart LR
     end
 ```
 
-- A write's `WriteTicket` separates *persisted locally* (`settled`) from
-  *acknowledged by the server* (`delivered`). Pages created offline get
-  negative ids, remapped by `replica/reconcile.ts`.
-- `SyncProvider` registers the offline gateway (`setOfflineGateway`). It
-  serves only once the replica is ready, and treats only a dropped socket as
-  offline; a cold start reaches it through a failed fetch. The shim answers
-  with the server's JSON shapes (`shared/fixtures/shim_parity.json`). An
-  unshimmed route throws `OfflineError`, and its UI says "online only".
+- `SyncProvider` registers the offline gateway (`setOfflineGateway`); it
+  serves only once the replica is ready. Only a dropped socket counts as offline, so a cold
+  start reaches the gateway through a failed fetch. The shim and its
+  "online only" routes are in [sync-and-offline.md](sync-and-offline.md).
 - Views refetch when `resyncGeneration` bumps
   ([sync-and-offline.md](sync-and-offline.md#when-views-refetch)).
-- `OfflineIndicator`'s wording states what is true of unsent work, so it is
-  documented beside the mechanisms that decide it
-  ([sync-recovery.md](sync-recovery.md#what-the-ui-shows)). Change both
-  together.
+- `OfflineIndicator`'s wording states what is true of unsent work, so it
+  changes together with the mechanisms that decide it
+  ([sync-recovery.md](sync-recovery.md#what-the-ui-shows)).
 
 ## State management
 
@@ -130,14 +120,7 @@ use depends on how many requests of the same kind can be live:
 |---|---|---|
 | One request live at a time (a debounced search, a popup, `CurrentWork`) | `useStaleGuard`: `begin()` per request, commit only if `!isStale(token)`, `cancel()` when the surface empties | a later input supersedes the earlier one, even when the offline gateway ignores an abort |
 | One request tied to one effect (`SidebarNav`, `BlockRefBacklinksPopover`) | a `cancelled` flag local to the effect, set by its cleanup | the effect re-runs or unmounts when the answer stops mattering |
-| Several loads of one list that must stay valid together | a Core reducer whose events carry the load id they answer, driven through `useReducerRef`: `journalPaging.ts`, `filesPaging.ts`, `backlinksPaging.ts` | `useStaleGuard` has a single live token; these loads join one generation |
-
-`useReducerRef` exists because a handler reads the state its own dispatch
-made: a second click before React re-renders must see the first click's lock,
-and a fetch must read the load id it just started. A plain `useReducer`'s
-state in a handler is the last render's. A reducer that returns the same
-object sets no state, so a refused event costs no render. `unlinkedStatus.ts`
-uses it without load ids, as a double-click guard on Link.
+| Several loads of one list that must stay valid together | a Core reducer whose events carry the load id they answer, driven through `useReducerRef` (its header says why): `journalPaging.ts`, `filesPaging.ts`, `backlinksPaging.ts` | `useStaleGuard` has a single live token; these loads join one generation |
 
 An async handler in chrome that outlives a route, such as `TopBar`'s, checks
 after each `await` that the route is still the one it started on (`titleRef`).
@@ -151,22 +134,14 @@ again, so a ref set once stays `false`.
 ## API layer
 
 `apiFetch<T>` (`api/client.ts`) handles JSON, the 401 → `/login` redirect and
-the offline gateway. Reads carry a `READ_TIMEOUT_MS` abort signal. Mutations
-carry none, because an aborted write the server applied would leave the op
-queue retrying a batch it cannot know landed. `/api/sync/snapshot` opts out
-(`{ timeoutMs: null }`), or a slow cold-start bootstrap would abort.
-
-Product code calls `api/typedClient.ts`'s `apiGet`/`apiPost`/`apiPut`/
-`apiDelete`; ESLint's `no-restricted-imports` bars `apiFetch` elsewhere. The
-typed client takes the OpenAPI path template, so the generated `paths` table
-decides the parameters, body and response type:
+the offline gateway. Only reads carry a timeout (`READ_TIMEOUT_MS`;
+`client.ts` says why mutations do not). Product code calls
+`api/typedClient.ts`'s `apiGet`/`apiPost`/`apiPut`/`apiDelete`, and ESLint's
+`no-restricted-imports` bars `apiFetch` elsewhere. The typed client takes the
+OpenAPI path template, so the generated `paths` table decides the parameters,
+body and response type:
 
     apiGet("/api/page/{title}", { path: { title } })
-
-Path parameters are encoded per segment, because `{title:wholepath}` routes
-carry titles whose slashes must survive. Raw `apiFetch` remains in the typed
-client itself, multipart upload (`sync/assets.ts`) and `SyncProvider.tsx`'s
-`replicaSync` seam (`fetchJson: apiFetch`).
 
 Types come from `api/types.d.ts`, generated by `pnpm gen-types` from
 `api/openapi.json`. Never hand-write API types: the server suite fails on a
@@ -177,51 +152,32 @@ stale artifact ([backend.md](backend.md#generated-artifacts-and-parity-fixtures)
 A server field typed with a branded `NewType` carries an `x-brand` marker in
 `openapi.json` ([backend.md](backend.md#wire-models-and-brands)).
 `tooling/genTypes-core.ts` turns it into `Brands.<Name>`, a reference to the
-export of that name in `api/brands.ts`, where every web brand is defined. A
-subtype brand adds a second key, not a second `__brand`, since two `__brand`
-literals intersect to `never`.
+export of that name in `api/brands.ts`, where every web brand is defined.
 
 **The main tsconfig's `skipLibCheck` skips every `.d.ts`, so a `Brands.<Name>`
 that `brands.ts` does not export degrades silently to `any`.** `pnpm typecheck`
 therefore runs a second pass, `tsconfig.apitypes.json`, with lib checking on.
-`tooling/genTypes.drift.test.ts` fails when the committed `types.d.ts` is not
-what `pnpm gen-types` writes; the stock openapi-typescript CLI would turn every
-brand back into `string`.
 
-Where a brand may be minted is `MINT_SITES` in
-`server/src/pkm/brand_registry.py`, enforced on the web by
-`brands/no-brand-assertion` ([checks.md § Brand rules](checks.md#brand-rules)
-says where tests mint). The web's readers of untrusted data are mint sites:
-`sync/wire.ts` for network bodies and WebSocket frames, `ReplicaDb.select` for
-replica rows ([sync-and-offline.md](sync-and-offline.md#reading-rows)).
-
-A title no check has run on is a `RawTitle`: request bodies, `paths.ts`'s
-`titleFromPathname`, and the op `page_title`. That op field is canonical only
-on the server's WS echo, so a `CanonicalTitle` is assignable to it.
-`asRawTitle` (`replica/titles.ts`) mints from plain text. `replica/apply.ts`'s
-`parkedTitle`, the placeholder written while two rows swap titles, is its own
-`ParkedTitle` brand, so no reader can take it for a canonical title.
+Where a brand may be minted is `MINT_SITES`
+([checks.md § Brand rules](checks.md#brand-rules)). A title no check has run
+on is a `RawTitle`; `brands.ts` documents the title hierarchy above it.
 
 ## Views and navigation
 
-The routes are `STATIC_ROUTES` plus `/page/*`, one page in `PageView`; any other
-path renders `NotFound`. `STATIC_ROUTES` in `routeMeta.ts` holds the id, path,
-top-bar label and browser title of every static route. `App.tsx` maps each id
-to its view through `VIEWS`, a `Record<StaticRouteId, ComponentType>` the
-compiler checks for completeness. TopBar and `useRouteTitle.ts` read the same
-array, so a route cannot be labelled in one place and not another. `/page/*`
-has no entry, and `PageView.tsx` sets its title. `documentTitleFor` returns
-`NOT_FOUND_TITLE` for any other path. `/help`
-renders `docs/keyboard.md` (bundled with `?raw`) through
-`help/parseHelpMarkdown.ts`, which knows only headings, paragraphs, pipe
-tables and code spans: a list or link there renders literally.
+The routes are `STATIC_ROUTES` (`routeMeta.ts`) plus `/page/*`; any other path
+renders `NotFound`. `App.tsx` maps each route id to its view through `VIEWS`,
+which the compiler checks for completeness, and TopBar and `useRouteTitle.ts`
+read the same array, so a route cannot be labelled in one place and not
+another. `/help` renders `docs/keyboard.md` through
+`help/parseHelpMarkdown.ts`, which knows a narrow subset: a list or link there
+renders literally.
 
-Every pathname under `/page/` renders PageView directly, because react-router
-compiles `*` to a `.*` that matches no newline, U+2028 or U+2029. A title
-the fold changes (a hand-typed `%0A`, a double space, an NBSP) is first
-redirected to the title it folds to (`normalizeRefTitle`). PageView, a sidebar
-panel and the Journal key their outline session by the page's stored title,
-whatever spelling opened them (`outline/titleKeys.props.test.tsx`).
+Every pathname under `/page/` renders PageView by its prefix, because
+react-router's `*` matches no newline, U+2028 or U+2029. A title the fold
+changes (a hand-typed `%0A`, a double space, an NBSP) is first redirected to
+the title it folds to (`normalizeRefTitle`). PageView, a sidebar panel and the
+Journal key their outline session by the page's stored title, whatever
+spelling opened them (`outline/titleKeys.props.test.tsx`).
 
 ### Navigation chrome
 
@@ -230,8 +186,7 @@ theme toggle. The right sidebar is a session-only stack: shift-clicking a page
 link or ref pushes a `SidebarPanel`.
 
 No link in the left nav may leave shift-click to the browser. react-router
-ignores modified clicks (`shouldProcessLinkClick` bails on `shiftKey`), so a
-nav link is never a bare `NavLink`:
+ignores modified clicks, so a nav link is never a bare `NavLink`:
 
 | Component | For | Shift-click |
 |---|---|---|
@@ -248,14 +203,15 @@ running app.
 
 ### Paged lists
 
-Each list exists for one rule:
+Each list's fetch state exists for one rule; the linked section or the
+state's file gives the reasons:
 
 | List | State lives in | The rule |
 |---|---|---|
 | Journal days | `views/journalPaging.ts` | One load in flight; a failed load keeps the days and their cursor ([The Journal](#the-journal)) |
-| `/files` | `views/filesPaging.ts` | A filter change bumps the generation at the keystroke; Select all and Load more start only from a list loaded under the current generation ([The `/files` browser](#the-files-browser)) |
-| Linked references | `components/backlinksPaging.ts` | Show more and the filter panel's load-all are walks and several can be in flight, so the section is loading until every walk settles; a sync refresh replaces the groups from offset 0, and while one is in flight no walk starts and the panel stays closed, since either would page on from groups about to be replaced |
-| Unlinked references | paging in `components/UnlinkedSection.tsx`; each Link's status in `components/unlinkedStatus.ts` | The server drops a block from `/api/unlinked` once it references the page, so a delivered Link takes its block out of the loaded list and one off `total`, and Show more asks from the count of loaded blocks still listed: counting an undelivered Link as gone only re-fetches a block, which `mergeGroups` drops, while counting a gone one as listed skips the next block |
+| `/files` | `views/filesPaging.ts` | A filter change bumps the generation at the keystroke, not when the debounced reload fires ([The `/files` browser](#the-files-browser)) |
+| Linked references | `components/backlinksPaging.ts` | Show more and load-all overlap, so the section is loading until every walk settles; no walk starts while a sync refresh is in flight |
+| Unlinked references | `components/UnlinkedSection.tsx`, `components/unlinkedStatus.ts` | A delivered Link leaves the loaded list and `total`, because the server's list has shifted left; Show more asks from the count of loaded blocks still listed: counting an undelivered Link as gone only re-fetches a block `mergeGroups` drops; the reverse skips one |
 
 #### The Journal
 
@@ -267,8 +223,7 @@ Nothing unmounts a loaded day, so each mounted outline and its `useDismiss`
 listener last for the session (the perf gate's journal scenarios).
 
 The days on screen are a contiguous, newest-first run of the non-empty days
-`/api/journal` serves, starting at today. Paging state lives in one reducer,
-`views/journalPaging.ts`, and one load is in flight at a time:
+`/api/journal` serves, starting at today. One load is in flight at a time:
 
 | Event | Load it starts | When it lands |
 |---|---|---|
@@ -287,17 +242,12 @@ server clamps `days`; scrolling loads them back.
 #### The `/files` browser
 
 `/files` is a table over `/api/assets/search`; the store is in
-[files-and-assets.md](files-and-assets.md). Image and PDF thumbs open in-app
-(`ImageOverlay`, `PdfViewer`'s overlay-only mode). The refs popover renders
-through `BacklinkGroupList`, which provides `InertMediaContext` itself
-whenever `onNavigate` is set, so media in a navigable row is inert and the
-whole row is the click target. `AssetRefGroup` has
-no `page_id`, which keeps asset refs out of `mergeGroups`. `filesPaging.ts`
-owns the list's fetch state. A filter change bumps the generation and clears
-the selection at the keystroke, not when the debounced reload fires. Select
-all and Load more start only from a list loaded under the current generation,
-since until then `items` and `total` belong to the old filter and a Delete
-would remove files outside the new one.
+[files-and-assets.md](files-and-assets.md). `AssetRefGroup` has no `page_id`,
+which keeps asset refs out of `mergeGroups`. A filter change clears the
+selection and bumps the generation at the keystroke. Until the debounced
+reload lands, `items` and `total` belong to the old filter, so Select all and
+Load more starting from them would let a Delete remove files outside the new
+one.
 
 ### Popovers and menus
 
@@ -320,25 +270,20 @@ node, not the React node, so a portalled surface stops its own clicks.
 
 A modal surface (one that traps focus, locks scrolling or answers keys beyond
 Escape) uses `useModal` and nothing hand-rolled; a surface whose keys another
-component owns hand-rolls its dismissal. `useModal` keeps a stack, and
-`useModal.test.tsx` pins it: only the topmost modal answers keys, the body
-stays locked until the last one closes, and focus goes back (to `triggerRef`,
-else to what held it) only from the topmost.
-
-The topmost modal stops Escape in the capture phase at `window`, so nothing
-beneath it closes on the same keypress, whether a menu, the assistant panel's
-`onKeyDown` or a `useDismiss` listener. A non-modal popover inside a modal
-therefore cannot answer Escape and must itself be a `useModal`.
-
-`"cycle"` wraps Tab and Shift+Tab inside the surface (`focusWrap.ts`).
-`"pin"` keeps Tab on one element: `LocalFilePicker` is driven from its search
-box, and `GoodlinksReader`'s sandboxed iframe would swallow a cycling Tab,
-since its keydowns never reach the app
+component owns hand-rolls its dismissal. Only the topmost `useModal` answers
+keys, and it stops Escape in the capture phase at `window`
+(`useModal.test.tsx` pins the stack). A non-modal popover inside a modal
+therefore cannot answer Escape and must itself be a `useModal`. `"pin"`
+keeps Tab on one element: `LocalFilePicker` is driven from its search box,
+and `GoodlinksReader`'s sandboxed iframe would swallow a cycling Tab, since
+its keydowns never reach the app
 ([files-and-assets.md](files-and-assets.md#the-reader-and-the-goodlinks-command)).
 
 A row's `RefCountBadge` opens `BlockRefBacklinksPopover`, which fetches
 `GET /api/block/{uid}/backlinks` at open, so the list is live while the count
-is as fresh as the page payload.
+is as fresh as the page payload. Media in a row that navigates is inert
+(`InertMediaContext`, from `BacklinkGroupList`), so the whole row is the click
+target.
 
 Every clipboard write goes through `copyText`, which resolves `false` instead
 of throwing when the Clipboard API is missing or the write is refused.
@@ -347,18 +292,14 @@ menu's Copy block reference and Cmd/Ctrl+C on a block selection
 (`EditableBlockTree`) ignore the result, so their failure shows nothing.
 
 Every confirmation goes through `useConfirm` (`components/ConfirmDialog.tsx`),
-never `window.confirm` ([below](#ios-and-phone-behaviour)). The owning
-component must render the returned `dialog`, or `confirm()` never settles; a
-hook with a confirm-backed handler takes `confirm` as an argument, as
-`useOutline` does, and its owner (`EditablePage`) renders the dialog. Remote
-batches can land while a dialog is open, so a handler re-derives its target
-after the await.
+never `window.confirm` ([below](#ios-and-phone-behaviour)). A hook with a
+confirm-backed handler takes `confirm` as an argument, and its owner renders
+the returned `dialog`, or `confirm()` never settles. Remote batches can land
+while a dialog is open, so a handler re-derives its target after the await.
 
 Dismissible notice lines render through `DismissibleNotice`, whose classes and
 roles (`tone: "error"` an alert, `"status"` a status) are what `styles.css`
-and the e2e locators select on. `useOutline` exposes one `notices` list
-(`outline/notices.ts`: one slot per `NoticeKind`, listed by `noticeList`),
-which `EditablePage` maps.
+and the e2e locators select on.
 
 ## iOS and phone behaviour
 
@@ -384,17 +325,15 @@ which `EditablePage` maps.
 list comes from `GET /api/assistant/models` on first open, with a hardcoded
 fallback (`FALLBACK_MODELS` in `chatMachine.ts`).
 
-- `client.ts::streamMessage` feeds the response body through `sse.ts`, a pure
-  frame parser, into the chat driver (`chatDriver.ts`). It bypasses `apiFetch`,
-  which reads the body as JSON, and replicates its 401 handling.
-- `sse.ts` drops a frame whose `event:` name is not in `EVENT_TYPES`, which
-  is generated with the `AssistantEvent` union ([assistant.md § The stream
-  contract](assistant.md#the-stream-contract), which owns the tolerance rule).
-  That hides keepalives, and also drops a new event type until the web is
-  regenerated.
-- A stalled stream (`STREAM_STALL_TIMEOUT_MS`) errors with something that is
-  not an `AbortError`: the driver's `streamFailure` reports an `AbortError` as
-  `aborted`, and `step` shows no error for it.
+- `client.ts::streamMessage` feeds the response body through `sse.ts` into
+  the chat driver (`chatDriver.ts`), bypassing `apiFetch`.
+- `sse.ts` drops a frame whose `event:` name is not in the generated
+  `EVENT_TYPES`, so a new event type is invisible until the web is
+  regenerated ([assistant.md § The stream
+  contract](assistant.md#the-stream-contract) owns the tolerance rule).
+- `client.ts::readWithStallGuard` fails a stream silent for
+  `STREAM_STALL_TIMEOUT_MS` with an error that is not an `AbortError`,
+  which the driver would read as the user's Stop and show no error for.
 - A tool line pairs with its `tool_finished` by `tool_use_id`, across turns,
   so a stopped turn's write still resolves in the next. Only a line not yet
   done pairs, so a reused id cannot turn a finished line's `✗` into `✓`.
@@ -404,21 +343,17 @@ fallback (`FALLBACK_MODELS` in `chatMachine.ts`).
 - `stripCaretBlockRefs` (`assistant/normalizeRefs.ts`) runs before
   `tokenizeBlock`, because some models copy the `^uid` marker into citations
   and the grammar rejects `((^uid))`.
-- Replies render under `UntrustedContentContext`, so a Bluesky post or a
-  diagram that needs stock mermaid waits for a click (external images already
-  do everywhere)
+- Replies render under `UntrustedContentContext`
   ([frontend-rendering.md](frontend-rendering.md#link-safety-and-external-media)).
 
 ### The chat machine
 
 `assistant/chatMachine.ts` (Core) holds the whole chat as one reducer:
 `step(state, event)` returns the next state and the effects to run.
-`useAssistant.ts` only dispatches the user's actions; the driver in
-`chatDriver.ts` (`createChatDriver(publish, client)`, which takes the client
-functions rather than importing them) feeds each request's result back and
-starts the requests the effects name. Stop is offered per `canStop`, which
-holds while a card's answer posts or has failed. The conversation is
-`none`, `creating` or `open`; the turn moves like this:
+`useAssistant.ts` only dispatches the user's actions. The driver
+(`createChatDriver` in `chatDriver.ts`) starts the requests the effects name
+and feeds each result back. The conversation is `none`, `creating` or `open`;
+the turn moves like this:
 
 ```mermaid
 stateDiagram-v2
@@ -450,7 +385,7 @@ Stop's fallback or New chat, the server may still be draining;
 |---|---|
 | Every request's result names its turn, and changes nothing on screen unless that turn is busy and not stopping. That includes a failed confirm POST | New chat clears the transcript at once, so a superseded turn's events must not fold into the new one. After Stop no card is left to answer again |
 | A stream's 404 re-creates the conversation once, with the same model, in the same turn. A second 404 fails the turn | The server retires a reaped, evicted or dead conversation, and a lost harness ends its turn with `HARNESS_LOST`. The next send to it gets a 404 |
-| The picker shows the model of the conversation that is creating or open, as the create returned it, and is locked then. The models list's default applies only while there is none and the user has not picked | A conversation keeps the model it was created with, so the picker shows that one |
+| While a conversation is creating or open, the picker shows its model as the create returned it, and is locked. Otherwise the models list's default applies until the user picks | A conversation keeps the model it was created with |
 | The driver posts the stop only once the stream's response has opened, and retries no 409 after Stop. A stream that settles first posts nothing | `POST …/stop` names no turn. An opened response means the server has reserved this turn, so the stop cannot reach another |
 | A stopped turn ends only once its stop POST has settled (`stopSettled`) | The server acts on a stop before it answers, so a settled POST cannot stop a later turn |
 | If the POST fails, or the turn has not ended within `STOP_ACK_TIMEOUT_MS` (`chatDriver.ts`), the driver aborts the stream and the POST | The server's own bound is `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S` once it hears the stop; past it the panel must still be freed. An aborted POST can still reach the server later and stop the next turn |
@@ -462,73 +397,55 @@ this section ([checks.md § Property gate](checks.md#property-gate)).
 
 ## Testing and quality gates
 
-`pnpm verify` runs the web gates;
-[checks.md](checks.md#every-check) lists what each
-fails on, and `AGENTS.md` § Testing says how to run them.
+`pnpm verify` runs the web gates; [checks.md](checks.md#every-check) lists
+what each fails on, and `AGENTS.md` § Testing says how to run them. Traps that
+make a unit test (Vitest + jsdom, co-located `*.test.ts(x)`) pass without
+proving anything, or fail somewhere else:
 
-- **Unit** (Vitest + jsdom): co-located `*.test.ts(x)`. `src/test-setup.ts`
-  fails whichever test is running when a `console.warn` or `console.error`
-  lands, or the file when it lands after the last test. So a stray timer's
-  message surfaces in a later test: read the message, not the test name. Traps
-  that make a test pass without proving anything:
+| Trap | Instead |
+|---|---|
+| `src/test-setup.ts` fails whichever test is running when a stray `console.warn` or `console.error` lands, so a timer's message surfaces in a later test | read the message, not the test name |
+| `fireEvent.click` in jsdom moves no focus, and the op queue posts nothing | call `focus()` yourself; assert writes through `SyncFake` (`test-helpers.ts`) |
+| A bubble listener never sees a click inside an interactive island, which stops propagation | to prove a click was not prevented, read `defaultPrevented` in a `document` listener added with `capture: true` |
+| A fixture that derives a daily-page title from the real date collides with a seeded page on some days | pin the date, as `router.test.ts` and `parity.test.ts` pin `nowMs` |
+| A hidden `<input type=file>` inside a component that unmounts on blur loses the pick, because `change` fires after the unmount (no `POST /api/assets` in the logs) | keep it in a stable ancestor, as `EditableBlockTree` does with `.upload-input` |
+| jsdom computes accessible names differently from Chromium | check one with a Playwright aria snapshot |
 
-  | Trap | Instead |
-  |---|---|
-  | `fireEvent.click` in jsdom moves no focus, and the op queue posts nothing | call `focus()` yourself; assert writes through `SyncFake` (`test-helpers.ts`) |
-  | A bubble listener never sees a click inside an interactive island, which stops propagation | to prove a click was not prevented, read `defaultPrevented` in a `document` listener added with `capture: true` |
-  | A fixture that derives a daily-page title from the real date collides with a seeded page on some days | pin the date, as `router.test.ts` and `parity.test.ts` pin `nowMs` |
-  | A hidden `<input type=file>` inside a component that unmounts on blur loses the pick, because `change` fires after the unmount (no `POST /api/assets` in the logs) | keep it in a stable ancestor, as `EditableBlockTree` does with `.upload-input` |
-- **E2E** (Playwright, `web/e2e/`): any HTTP 5xx fails the run (`fixtures.ts`),
-  and a server-side exception fails teardown.
-  `e2e/server-state.ts::waitForServerText` waits for a write to reach the
-  server before a reload. jsdom computes accessible names differently from
-  Chromium, so check one with a Playwright aria snapshot. Traps that make a
-  spec pass vacuously or hang:
+Traps that make a Playwright spec (`web/e2e/`) pass vacuously or hang:
 
-  | Trap | Instead |
-  |---|---|
-  | A bare `#Tag` at the caret's end reopens autocomplete, which swallows Enter | type a trailing space first |
-  | `Escape` blurs and unmounts `textarea.block-input` | re-locate the textarea after it |
-  | The op queue drains in order, so an early block can reach the server first | before a reload, wait on `waitForServerText` for the last block created |
-  | A `.ws-banner` count of 0 holds whenever the socket is connected | assert the state the banner reports |
-  | `.journal-day.last()` moves as days are added | locate a seeded day by its title |
-  | jsdom has no popups | prove a click opens no window with `context.on("page")` |
-  | "element is not stable" or "detached" retries for 30 s | something bumped `resyncGeneration` and remounted the tree |
-- **Perf**: `web/tooling/perf/check.ts` is the frontend half of
-  `perf/check.sh` ([checks.md § Performance gate](checks.md#performance-gate)); its
-  [README](../../web/tooling/perf/README.md) lists the files and the measurement caveats.
+| Trap | Instead |
+|---|---|
+| A bare `#Tag` at the caret's end reopens autocomplete, which swallows Enter | type a trailing space first |
+| `Escape` blurs and unmounts `textarea.block-input` | re-locate the textarea after it |
+| The op queue drains in order, so an early block can reach the server first | before a reload, wait on `e2e/server-state.ts::waitForServerText` for the last block created |
+| A `.ws-banner` count of 0 holds whenever the socket is connected | assert the state the banner reports |
+| `.journal-day.last()` moves as days are added | locate a seeded day by its title |
+| jsdom has no popups | prove a click opens no window with `context.on("page")` |
+| "element is not stable" or "detached" retries for 30 s | something bumped `resyncGeneration` and remounted the tree |
 
 ## Build notes (`vite.config.ts`)
 
 - The dev server proxies `/api` (with WebSocket), `/assets` and `/login` to
-  the backend on `PKM_API_PORT`. Unset, that is 8974, production's port, so
-  `pnpm dev` writes to production: on this machine set `PKM_API_PORT=8975` and
-  run a scratch server there.
-  The backend refuses any `Origin` but its own on `/api/ws` and unsafe
-  methods, so the `/api` proxy rewrites the dev server's own origin to the
-  backend's (`devProxyOrigin` in `web/tooling/devProxyOrigin.ts`). Any other
-  origin goes upstream unchanged and is refused there. Rewriting every origin
-  would let any page on `localhost` write to the backend through the proxy.
+  the backend on `PKM_API_PORT`, which defaults to production's port
+  ([AGENTS.md](../../AGENTS.md) § Production and ports). The `/api` proxy
+  rewrites only the dev server's own `Origin` to the backend's
+  (`web/tooling/devProxyOrigin.ts` says why not every origin).
 - `web/pnpm-workspace.yaml` turns off pnpm's stale-dependency check
   (`verifyDepsBeforeRun`). The check keys on the project path, and a
   worktree shares the main checkout's `node_modules` through a symlink. With
   the check on, a script run in a worktree installs through the link and
   repoints the main checkout's packages at that worktree.
-- `@sqlite.org/sqlite-wasm` stays in `optimizeDeps.exclude`, because its wasm
-  URL resolution breaks under dep optimization.
 - Hashed bundles go under `app-assets/`. The server sends `index.html` with
   `Cache-Control: no-cache`, so a reload after a deploy fetches the new shell
   and its chunk names.
-- `server.fs.allow` lists the repo root so `?raw` can import `docs/keyboard.md`
-  from above `web/`; without it vitest fails with "Denied ID".
 - A build over budget throws in `generateBundle`, before the output is written,
   so measure a size with the limits in `budgets.json` raised. Attribute a
   budget delta against the commit just before the merge.
-- The service worker (`vite-plugin-pwa`, `autoUpdate`) precaches what
-  `globPatterns` lists: the app shell, every emitted chunk, the sqlite wasm,
-  the pdf.js worker and the core KaTeX fonts. A cold offline start therefore
-  boots, and lazy renderers load offline. It runtime-caches `/assets/` and
-  never caches `/api`.
+- `server.fs.allow` lists the repo root so `?raw` can import `docs/keyboard.md`
+  from above `web/`; without it vitest fails with "Denied ID".
+- The service worker (`vite-plugin-pwa`) precaches what `globPatterns` lists,
+  so a cold offline start boots and lazy renderers load offline. It
+  runtime-caches `/assets/` and never caches `/api`.
 
 ## Tech stack
 

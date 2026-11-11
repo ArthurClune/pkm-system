@@ -30,17 +30,16 @@ at push time.
 | Sync metadata | `sync_meta` (`db_generation`, `plain_space_title_canonicalization`) | A new generation forces every client to rebootstrap |
 | WS hub | `ws.py`, `notify.py` | Post-commit nudges and op echoes ([write-path.md § Post-commit nudges](write-path.md#post-commit-nudges)) |
 | Replica | `web/src/replica/` | sqlite-wasm in a worker, on the OPFS SAHPool VFS |
-| Op queue | `sync/opQueue.ts`, `replica/queue.ts`, `sync/outbox.ts` | Durable `pending_ops`, optimistic apply, the drain, and every `/api/ops` POST, the recovery flush's (`deliverLeased`) included |
+| Op queue | `sync/opQueue.ts`, `replica/queue.ts`, `sync/outbox.ts` | Durable `pending_ops`, optimistic apply, the drain, and every `/api/ops` POST |
 | Orchestration | `sync/session.ts` (`createSyncSession`), built from `clientRuntime.ts`, `reconnectFlow.ts`, `replicaSync.ts`, `outlineRepair.ts` | The one composition (connect ordering, pull loop, recovery, banner fold), also run by the sync property harness |
 | React shell | `sync/SyncProvider.tsx`, `useSocketLifecycle.ts` | State, contexts, the owned worker and the offline gateway; the socket and the deferred teardown |
 | Offline API shim | `replica/localApi/` | Serves the read API's JSON shapes from the replica |
 
 The session is built during render, so building it reports nothing
 (`session.test.ts`), and a listener added after construction still hears every
-emission (`opQueue.replica.test.ts`). The two synchronous emissions are
-documented in the `opQueue.ts` header.
-A StrictMode replay may cancel the deferred `dispose()`, so every listener and
-report checks `live()` first.
+emission (`opQueue.replica.test.ts`; the `opQueue.ts` header names the two
+synchronous ones). A StrictMode replay may cancel the deferred `dispose()`, so
+every listener and report checks `live()` first.
 
 ## The replica
 
@@ -77,25 +76,19 @@ this rule.
 
 ### Reading rows
 
-`ReplicaDb.select(sql, keys, params?)` returns rows typed `Pick<Columns, K>[]`,
-where `K` comes from `keys`, the required list of the columns the SQL returns.
-A column under another name is aliased to a key in the SQL
-(`id AS pending_row_id`). The keys must be an array literal, because a widened
-array would type every column as present ([checks.md](checks.md#every-check)).
-`Columns` and its siblings in `replica/columns.gen.ts` are generated from the
-server's `rows.Row`
+`ReplicaDb.select(sql, keys, params?)` (`replica/db.ts`) returns rows typed
+`Pick<Columns, K>[]`, where `keys` lists the columns the SQL returns
+(`id AS pending_row_id` aliases one). The keys must be an array literal,
+because a widened array would type every column as present. `Columns` in
+`replica/columns.gen.ts` is generated from the server's `rows.Row`
 ([backend.md](backend.md#generated-artifacts-and-parity-fixtures)).
 
-Under vitest, `select` also checks the engine's column names against `keys` and
-every row against `rowProblems` (`replica/rowCheck.ts`, the twin of the
-server's `row_problems`). A production build folds the mode test to a constant,
-so the worker bundle holds neither check. `openTestDb({ checkRows })` turns the
-check off for a test whose premise is data it would reject.
-
-`introspect(sql)` returns raw rows for catalog reads, counts and tests;
-production code uses the helpers in `replica/db.ts`. Under vitest it refuses a
-returned column that may carry a brand, so such a value is read through
-`select` and meets the row check.
+Under vitest only, `select` checks every row against `keys` and `rowProblems`
+(`replica/rowCheck.ts`, the twin of the server's `row_problems`;
+[checks.md](checks.md#every-check)), and `introspect`, for catalog reads,
+counts and tests, refuses a column that may carry a brand.
+`openTestDb({ checkRows })` turns the check off for a test whose premise is
+data it would reject.
 
 ## An online edit, end to end
 
@@ -143,8 +136,7 @@ window of raw journal rows in one read transaction.
   FK check at COMMIT.
 - `block_refs` never ships; both sides derive it through the parity-pinned
   extractor.
-- Hydration batches ids through `sync_core.chunk_ids`, under SQLite's historic
-  999-parameter cap.
+- Hydration batches ids through `sync_core.chunk_ids`.
 - The client loops `pull → apply → cursor = next_since` until
   `next_since >= latest_seq`.
 
@@ -162,10 +154,11 @@ it for reuse, and a live row does not prove the id names the same entity.
 The replica dispatches each tombstone `kind` (`EntityKind`) to its own branch.
 An unknown kind deletes nothing and logs. It must never fall through to a
 delete, or an older replica meeting a newer server's kind destroys an unrelated
-row. `parseTombstoneId` (`sync/wire.ts`) is the one reader of the text id. A
-malformed wire id makes `tombstoneIdOfWire` throw `MalformedTombstoneError`,
-which rolls the window back. A malformed deferred record entry is dropped
-with a warning.
+row. `parseTombstoneId` (`sync/wire.ts`) is the one reader of the text id.
+A malformed wire id rolls the window back (`tombstoneIdOfWire` throws
+`MalformedTombstoneError`). A malformed entry in the deferred record is
+dropped with a warning, since the record outlives the window and a throw
+would fail every one after it.
 
 ## Applying a window over pending edits
 
@@ -205,40 +198,27 @@ its upserts.**
 | At the head | The recorded ones and its own apply; the record clears. A record whose cursor is not the current one is void |
 | Snapshot | `applySnapshot` clears the record |
 
-By the head window every block the server kept is placed by its own row or
-under a chain the server kept, so the cascade takes only what the server
-deleted. `test_sync_block_tombstone_window.py` models this. Between windows a
-deleted block stays editable, and an edit to it lands as a conflict entry.
+`applyWindow`'s docstring gives the argument that the head-window cascade
+takes only what the server deleted, and
+`test_sync_block_tombstone_window.py` models it. Between windows a deleted
+block stays editable, and an edit to it lands as a conflict entry.
 
 ### Windows and the pending queue
 
-`pullLoop` snapshots the pending batch ids before each fetch. A window read
-before batch B committed lacks B. If B's ack deleted its row meanwhile, the
-window would drop B's edit with nothing left to replay.
-`pendingSetStillCovered` (`replica/pendingGuard.ts`) checks, in order:
-
-| Condition | Result |
-|---|---|
-| any acked `seq` the worker holds is past the window's `latest_seq` | `pending-changed` |
-| ids unchanged | applied |
-| some removed, each on an ack with a `seq` | applied |
-| any other removal, an addition, or a reorder | `pending-changed` |
-
-On `pending-changed`, `pullLoop` refetches up to `PENDING_CHANGED_CAP`
-times, then throws `PullStarvedError`. A bootstrap snapshot takes the same
-check against its `seq`, which `sync_snapshot` reads in the rows' own read
-transaction. It needs one because the queue resumes before
-`replicaSync.start()` and can ack a batch while the first snapshot is in
-flight.
-
-An acked removal is safe because `sync_changes` reads `latest_seq` in the
-window's read transaction, so a window at or past the ack's `seq` carries the
-batch. `pendingGuard.test.ts` pins each row, including a batch queued and acked
-during the fetch, which leaves the ids unchanged.
+A window read before batch B committed lacks B. If B's ack deleted its row
+meanwhile, the window would drop B's edit with nothing left to replay. So
+`pullLoop` snapshots the pending batch ids before each fetch.
+`pendingSetStillCovered` (`replica/pendingGuard.ts`, whose header gives the
+argument) accepts the window only if the ids changed by losing acked batches
+alone and its `latest_seq` has reached every ack the worker holds. Otherwise
+`pullLoop` refetches up to `PENDING_CHANGED_CAP` times, then throws
+`PullStarvedError`. A bootstrap snapshot takes the same check, against the
+`seq` `sync_snapshot` reads in the rows' own read transaction, because the
+queue resumes before `replicaSync.start()` and can ack a batch while the
+first snapshot is in flight.
 
 Row ids restart after a schema rebuild, so every delete and poison mark names
 its row by `id` and `batch_id` both (`queue.ts::deleteBatch`, `markPoisoned`).
-A stale delete then cannot remove the batch that took its old id.
 
 ### A payload that already holds a pending batch
 
@@ -263,35 +243,26 @@ names nothing; its commit deletes acked rows itself
 
 ### The replay log
 
-`localOps.ts` records a row's pre-image in `replay_log`
-(`replica/replayLog.ts`) before a batch's first write to it.
-
-| Table | Holds |
-|---|---|
-| `replay_log` | One record per `(batch_id, kind, key)`, first touch wins. A block's columns in `pre_json`, NULL for a block the batch created; a page's `updated_at` |
-| `replay_log_refs` | The block's `refs` rows. `block_refs` and FTS derive from the restored text |
-| `replay_batches` | `enqueued_ms`, reused as the stamp of every replay. A page keeps the later of its `updated_at` and the stamp |
-
-Page ids sit in the log's own columns (`pre_page_id`, `replay_log_refs`), so
-`remapLogPage` reaches them when `reconcilePage` swaps a local id. A queue
-handler that runs before `init()` installs the client tables an older file
-lacks (`ensureClientTables`), so a log insert cannot roll an optimistic apply
-back.
-
-`rewind` (`replica/rewind.ts`) restores with UPDATE and INSERT, never REPLACE.
-With `recursive_triggers` on, REPLACE's implicit delete fires the FTS delete
-trigger and cascades the row's children and refs. Per `(kind, key)` the oldest
-record wins.
+`localOps.ts` records a row's pre-image in `replay_log` before a batch's first
+write to it, and `rewind` (`replica/rewind.ts`) puts every recorded row back.
+The headers of `replica/replayLog.ts` and `rewind.ts` give the record shapes,
+a batch's states and the restore order, including why a restore never uses
+REPLACE. `replay_batches` holds each batch's `enqueued_ms`, reused as the
+stamp of every replay; a page keeps the later of its `updated_at` and the
+stamp.
 
 The rewind is why the replica does not depend on the server journalling a
 skipped op's destination siblings. It undoes the shifts of every skipped or
 re-placed create and move, whichever group the server journalled.
 
-`replayPending` runs each batch under a savepoint. When a batch trips an FK
-check it redoes the batch op by op, and an op that adds a violation rolls back
-alone. Nothing leaves `pending_ops`. The local `delete` removes its blocks'
-`refs` and `block_refs` itself, because the reset rebuild runs under
-`foreign_keys=OFF`.
+`replayPending` redoes a batch that trips an FK pre-check under
+`foreign_key_check` diffs, and op by op only when the batch adds a
+violation, rolling back only the ops that add one (the `apply.ts` header).
+Nothing leaves `pending_ops`. A local `delete` removes its blocks' `refs`
+and `block_refs` itself, because the reset rebuild replays with
+`foreign_keys=OFF`. A queue handler that runs before `init()` installs the tables
+an older file lacks (`ensureClientTables`), so a log insert cannot roll an
+optimistic apply back.
 
 ## Offline editing and reconnect
 
@@ -301,20 +272,17 @@ own SAVEPOINT; an op that cannot apply locally is skipped, never dropped from
 the queue.
 
 `enqueueBatch` first refuses, whole and before anything is stored, a batch
-the server would always refuse. It judges a
+the server would always refuse: a
 [text limit](write-path.md#work-bounds-under-the-write-lock)
-(`findOpTextLimitViolation`) before titles, as the server does, then a
+(`findOpTextLimitViolation`) or a
 [forbidden or over-long title](backend.md#refused-titles)
-(`findOpTitleViolation`, which judges length first). It throws `LocalOpError`,
+(`findOpTitleViolation`), in the server's order. It throws `LocalOpError`,
 whose `rejected` flag makes `opQueue` treat it as the server's refusal
 ([sync-recovery.md § A local write fails](sync-recovery.md#a-local-write-fails)).
-
 The editor refuses such an edit earlier, with a notice
 ([frontend-editor.md](frontend-editor.md#rules-an-edit-must-not-break)), so
 this is the backstop for a producer that missed it. `opQueue.enqueue` judges
-text limits too, because a session without a usable replica never reaches
-`enqueueBatch`. Its refusal fails the delivery and desyncs, since the outline
-has already applied the ops.
+text limits too, for a session without a usable replica.
 
 The optimistic apply mirrors the server's rules as well as its rows: for
 example `set_collapsed` leaves `updated_at` alone. Local `refs` resolve titles
@@ -403,10 +371,9 @@ the outline repair epoch, so pending edits elsewhere on a page survive a bump.
 | A repair or reset succeeds | always | `syncState.ts` |
 | The replica turns ready while disconnected | always, at the mode report, reading the socket status then | `syncState.ts` (`replica-state`) |
 
-A skip bumps whatever the replica state, because a tab with no replica gets no
-tombstone for the ghost block, and a replica tombstone raises no resync.
-Without the bump the ghost stays on screen, and each flush into it lands
-another daily-note entry.
+A skip bumps whatever the replica state, because a replica tombstone raises
+no resync (`noteCommitted` in `opQueue.ts`). Without the bump the ghost block
+stays on screen, and each flush into it lands another daily-note entry.
 
 ### Conflicts at push time
 
@@ -416,9 +383,9 @@ hashes, both `Sha256Hex`, minted only by `text_hash` / `subtree_hash`
 (`sha256Hex` / `subtreeHash` on the web):
 
 - The editor stamps `base_text_hash`, `base_subtree_hash` and `page_title`
-  while building the batch (`outline/baseTextHash.ts`), against the tree it
-  was planned from, so op N leaves the text op N+1's hash matches. The worker
-  fills a hash only when it is still `undefined`.
+  while building the batch (`outline/baseTextHash.ts`, whose header says what
+  the worker fills), against the tree it was planned from, so op N leaves the
+  text op N+1's hash matches.
 - Undo history records unstamped ops, and `undoManager.dispatch` stamps at
   replay. An entry-time hash is stale and lands a spurious conflict.
 - An editor flush hashes the text the user typed over
@@ -433,39 +400,35 @@ hashes, both `Sha256Hex`, minted only by `text_hash` / `subtree_hash`
 The server flag `plain_space_title_canonicalization` rides in every snapshot
 and changes payload beside `generation`.
 [backend.md § Title integrity and one-time activation](backend.md#title-integrity-and-one-time-activation)
-owns its server meaning and the audited apply. The replica persists `"0"` or
-`"1"`, and `canonicalizeTitle` strips boundary U+0020 only under `"1"`.
-`normalizeRefTitle` (`grammar/scan.ts`) folds by `TITLE_WHITESPACE` from the
-generated `grammar/titleWhitespace.gen.ts`, never JS's `\s`, so an offline
-create files a title under the page the server will. Blankness and
-attribute-name edges use Python's `str.strip()` set instead
-(`stripLikePython`). `title_parity.json` replays the server's verdicts.
+owns its server meaning and the audited apply. The replica persists it, and
+`canonicalizeTitle` strips boundary U+0020 only while it is set.
+`normalizeRefTitle` (`grammar/scan.ts`) folds by the generated
+`TITLE_WHITESPACE`, never JS's `\s`, so an offline create files a title under
+the page the server will (`stripLikePython` for blankness and attribute
+names). `title_parity.json` replays the server's verdicts.
 
 A [forbidden title](backend.md#refused-titles) is refused on enqueue
 ([above](#offline-editing-and-reconnect)), but snapshot and feed payloads are
 always accepted, because rejecting one would wedge the queue.
 
-The replica persists the flag in the payload's own transaction. Activation then
-moves negative-id pages made under the old rule onto a matching server page,
-or retitles them, before the durable wire ops replay unchanged under the new
-rule. A new generation returns `needs-bootstrap` before any metadata changes.
+The replica persists the flag in the payload's own transaction, before
+`reconcileActivationPageTitles` moves or retitles the negative-id pages made
+under the old rule; the durable wire ops then replay unchanged. A new
+generation returns `needs-bootstrap` before any metadata changes.
 
 The main thread keeps its own copy (`sync/titleCanonicalization.ts`) for titles
-read from block text, such as backlink chips. It reads `false` until
-`replicaSync` sees `init()` or a payload, so an online-only session keeps the
-old chips. An `update_text` echo carries the caller's `page_title` hint
-unresolved, so no consumer may treat it as the block's page.
+read from block text, such as backlink chips. An `update_text` echo carries
+the caller's `page_title` hint unresolved, so no consumer may treat it as the
+block's page.
 
 ## Ancillary details
 
-- **Socket** (`sync/socket.ts`): reconnect backoff doubling
-  (`reconnectBackoff.ts`), resetting only on a received frame or `STABLE_MS`
-  open. Attempts wait while `document.hidden`. On return to
-  visibility after `RESUME_STALE_MS` hidden, a socket still reporting `OPEN`
-  is closed, because iPadOS may have frozen it, and its handlers stay
-  attached so the close reconnects. `close()` from the owner detaches them
-  first: under a development StrictMode replay the replaced socket's late close
-  would otherwise report offline over the open one.
+- **Socket** (`sync/socket.ts`, whose header gives the reconnect policy):
+  a socket still reporting `OPEN` after `RESUME_STALE_MS` hidden is closed,
+  because iPadOS may have frozen it, and its handlers stay attached so the
+  close reconnects. `close()` from the owner detaches them first: under a
+  development StrictMode replay the replaced socket's late close would
+  otherwise report offline over the open one.
 - **Online-only features** degrade explicitly rather than queueing: asset
   upload, sidebar edits, page deletion and `{{[[query]]}}` say "online only";
   `/files` and the assistant are unavailable (no shim for `/api/assets/*` or

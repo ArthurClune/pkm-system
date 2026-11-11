@@ -216,10 +216,11 @@ def page_copies(title: RawTitle, page_texts: Mapping[BlockUid, str]) -> dict[Blo
 @dataclass(frozen=True)
 class Rewrite:
     """One recorded rewrite of a block's text: the `block_rewrites` rows
-    sharing a before/after hash pair (backend.md § Database). `unlinked`
-    are deleted titles, `inlines` the `(uid, copied text)` pairs a page
-    delete put in place of `((uid))`. A hashed edit whose base hash is
-    `base_hash` has this replayed onto its text first. `before` is the
+    sharing a before/after hash pair (backend.md § Database; kinds, code:
+    schema.py). `unlinked` are deleted titles, `inlines` the
+    `(uid, copied text)` pairs a page delete put in place of `((uid))`.
+    A hashed edit whose base hash is `base_hash` has this replayed onto
+    its text first. `before` is the
     text `base_hash` hashes: what a device that missed the rewrite still
     holds, which strategies re-send. It is not part of the rows."""
     base_hash: Sha256Hex
@@ -441,9 +442,9 @@ class Model:
 
     def _replay(self, uid: BlockUid, text: str,
                 base: str) -> tuple[str, str, list[Rewrite]]:
-        """backend.md § Database, `block_rewrites`: a hashed edit made
-        before recorded rewrites of its block has them replayed onto its
-        text first."""
+        """backend.md § Database, `block_rewrites` (kinds, code: schema.py):
+        a hashed edit made before recorded rewrites of its block has them
+        replayed onto its text first."""
         return replay_chain(self.rewrites.get(uid, ()), text, base)
 
     def _record_written(self, uid: BlockUid, sent: str, written: str,

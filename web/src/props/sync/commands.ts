@@ -44,7 +44,7 @@ export interface World<C extends ClientPort = ClientPort> {
   server: ServerControl;
   clients: Map<string, C>;
   watch: Pick<CursorWatch, "observe">;
-  modes: Pick<ModeWatch, "observe" | "afterPull">;
+  modes: Pick<ModeWatch, "observe" | "afterPull" | "afterEdit">;
   /** One resolved line per command run, for the failure report. */
   transcript: string[];
   /** Counts what ran, by name (see tally). */
@@ -166,8 +166,10 @@ export class Edit extends SyncCommand {
         w.count(op.page_title ? `Edit op move top of ${op.page_title}` : "Edit op move top untitled");
       }
     }
-    if (c.workerDead()) w.count("Edit with a dead worker");
+    const dead = c.workerDead();
+    if (dead) w.count("Edit with a dead worker");
     const id = await c.edit(ops);
+    if (dead) w.modes.afterEdit(c);
     m.good.get(this.client)?.push(id);
     return `Edit(${this.client}) ${id}: ${ops.map(showOp).join("; ")}`;
   }

@@ -7,7 +7,7 @@ import type { DroppedBatch, PendingBatch, Replica, ReplicaInit, SnapshotApplyRes
 import { ReplicaError, ReplicaUnusableError, RpcLifecycleError } from "../replica/errors";
 import {
   uidOf, clientIdOf, batchIdOf, seqOf, pendingRowIdOf, sentBatchId, sentBody, bodyBatchId,
-  ANY_STRING,
+  ANY_STRING, defer,
 } from "../test-helpers";
 import type { BarrierOwner } from "./queueState";
 import {
@@ -272,7 +272,7 @@ describe("start, bootstrap and feed pulls", () => {
     await sync.start();
     await sync.start();
     expect(feeds).toEqual([]);
-    expect(states.map((s) => s.mode)).toEqual(["no-replica", "no-replica", "no-replica"]);
+    expect(states.map((s) => s.mode)).toEqual(["no-replica"]);
   });
 
   test("appliedVersion answers 'cannot tell' only for a database that is gone, "
@@ -2626,6 +2626,117 @@ describe("replica mode exits", () => {
       await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * 4);
       await sync.start();
       expect(fetchJson.mock.calls.length).toBe(pulls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a recovery that meets a dead worker reports no-replica and never recovery-failed",
+  async () => {
+    // A recovery-failed report first would raise the stalled banner and its
+    // Reset, and no-replica never replaces it: Reset cannot work on a dead
+    // worker, so the session would end on a way out that is not one.
+    let applyCall = 0;
+    const replica = fakeReplica({
+      applyChanges: async (window: Changes) => {
+        applyCall += 1;
+        return applyCall === 1
+          ? { status: "applied" as const, cursor: window.next_since }
+          : { status: "needs-bootstrap" as const };
+      },
+      prepareRecovery: () => Promise.reject(deadWorker()),
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({
+      replica, fetchJson: async () => feed(), clientId: CID, onState,
+    });
+    await sync.start();
+    sync.onSeq(seqOf(9));
+    await sync.idle();
+    expect(states).toEqual([
+      { mode: "ready" },
+      { mode: "no-replica", error: "replica worker failed" },
+    ]);
+  });
+
+  test("noteUnavailable reports no-replica once, and nothing is reported or called after it",
+  async () => {
+    vi.useFakeTimers();
+    try {
+      const changes = defer<Changes>();
+      let held = false;
+      const replica = fakeReplica();
+      const fetchJson = vi.fn(async (path: string) => {
+        if (held && path.startsWith("/api/sync/changes")) {
+          held = false;
+          return changes.promise;
+        }
+        return feed();
+      });
+      const { states, onState } = collector();
+      const sync = createReplicaSync({ replica, fetchJson, clientId: CID, onState });
+      await sync.start();
+
+      // A pass in flight, and one owed behind it.
+      held = true;
+      sync.onSeq(seqOf(99), true);
+      await vi.waitFor(() => expect(held).toBe(false));
+      sync.onSeq(seqOf(100), true);
+
+      sync.noteUnavailable(deadWorker());
+      sync.noteUnavailable(deadWorker());
+      const callsAt = replica.calls.length;
+      const fetchesAt = fetchJson.mock.calls.length;
+
+      changes.resolve(feed());
+      await sync.idle();
+      await sync.start();
+      sync.onSeq(seqOf(101), true);
+      await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * 4);
+
+      expect(states).toEqual([
+        { mode: "ready" },
+        { mode: "no-replica", error: "replica worker failed" },
+      ]);
+      // The pass in flight applies its window; the owed one never starts.
+      expect(replica.calls.slice(callsAt)).toEqual(["applyChanges"]);
+      expect(fetchJson.mock.calls.length).toBe(fetchesAt);
+      expect(sync.appliedVersion()).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a pass that fails after noteUnavailable reports nothing and arms no retry",
+  async () => {
+    vi.useFakeTimers();
+    try {
+      const changes = defer<Changes>();
+      let held = false;
+      const replica = fakeReplica();
+      const fetchJson = vi.fn(async (path: string) => {
+        if (held && path.startsWith("/api/sync/changes")) {
+          held = false;
+          return changes.promise;
+        }
+        return feed();
+      });
+      const { states, onState } = collector();
+      const sync = createReplicaSync({
+        replica, fetchJson, clientId: CID, onState,
+      });
+      await sync.start();
+      held = true;
+      sync.onSeq(seqOf(99), true);
+      await vi.waitFor(() => expect(held).toBe(false));
+
+      sync.noteUnavailable(deadWorker());
+      changes.reject(new ApiError(503, "/api/sync/changes"));
+      await sync.idle();
+
+      expect(states.map((s) => s.mode)).toEqual(["ready", "no-replica"]);
+      expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();
     }

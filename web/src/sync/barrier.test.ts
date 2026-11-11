@@ -62,9 +62,9 @@ describe("one owner's resume leaves another's claim standing", () => {
         start: async () => undefined,
         // The poison repair's snapshot fetch fails: its Retry banner stays.
         rebaseAuthoritative: async () => { throw new TypeError("fetch failed"); },
+        noteUnavailable: () => undefined,
       },
       onSyncEvent: (event) => { events.push(event); },
-      onReplicaState: () => undefined,
     });
     const outline = createOutlineRepair({
       repairSessions: async (onStable) => { onStable(); },
@@ -165,7 +165,6 @@ describe("the poison claim under a discard", () => {
     const runtime = createClientRuntime({
       queue, replica, replicaSync,
       onSyncEvent: () => undefined,
-      onReplicaState: () => undefined,
     });
     return { queue, replicaSync, runtime };
   }

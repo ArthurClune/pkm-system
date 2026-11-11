@@ -11,10 +11,10 @@
 // holds until a repair of them succeeds. Which Retry a click
 // means is decided by retryPolicy.ts; runRetry only executes that decision.
 import type { Replica } from "../replica/client";
-import { availabilityOf } from "../replica/errors";
+import { ReplicaUnusableError } from "../replica/errors";
 import { coalesce } from "./coalesce";
 import type { OpQueue, PoisonEvent } from "./opQueue";
-import type { ReplicaState, ReplicaSync } from "./replicaSync";
+import type { ReplicaSync } from "./replicaSync";
 import type { RetryPlan } from "./retryPolicy";
 import type { SyncEvent } from "./syncState";
 
@@ -35,11 +35,10 @@ export interface ClientRuntimeDeps {
     "refreshPending" | "discardPoisonIntents" | "onPoison" | "onPoisonMarkFailed" |
     "onPoisonMarkUnmatched">;
   replica: Pick<Replica, "poisonedBatches" | "deleteBatch">;
-  replicaSync: Pick<ReplicaSync, "start" | "rebaseAuthoritative">;
+  replicaSync: Pick<ReplicaSync, "start" | "rebaseAuthoritative" |
+    "noteUnavailable">;
   /** The session passes its fold over transitionSync. */
   onSyncEvent: (event: SyncEvent) => void;
-  /** The startup "no-replica" report for a replica that proved unusable. */
-  onReplicaState: (state: ReplicaState) => void;
   /** An owner whose teardown lags its unmount: the session passes its
    * liveness, which turns false synchronously at SyncProvider's unmount,
    * while dispose() waits a microtask so a StrictMode effect replay can keep
@@ -182,25 +181,19 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
         // banner rather than delivering past unread poison. Every branch here
         // must resolve to a definite availability state; none may leave
         // downstream unable to tell what happened.
-        const message = messageOf(error);
-        if (availabilityOf(error) === "unusable") {
+        if (error instanceof ReplicaUnusableError) {
           discovering = false;
-          // Report the mode directly, exactly as the session's startup does
-          // with no replica. There is nothing to "mark": the worker has
-          // latched the fact, and every later replica call — including the
-          // start() a reconnect triggers — replays it.
+          // There is nothing to "mark": the worker has latched the fact, and
+          // every later replica call replays it. The mode's report raises
+          // the online-only banner.
           if (live()) {
-            deps.onReplicaState({ mode: "no-replica" });
+            replicaSync.noteUnavailable(error);
             queue.resume("poison");
             queue.resume("startup");
           }
-          // Not silent: the user has lost offline editing for the session and
-          // gets no other signal, since "no-replica" raises no banner of its
-          // own.
-          emit({ type: "replica-unusable", error: message });
           return;
         }
-        emit({ type: "poison-discovery-failed", error: message });
+        emit({ type: "poison-discovery-failed", error: messageOf(error) });
         return;
       }
       // Returned mark evidence is sufficient to repair those rows safely;

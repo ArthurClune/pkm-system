@@ -145,12 +145,60 @@ describe("transitionSync replica-state", () => {
     expect(t.effects).toEqual([]);
   });
 
-  it("no-replica without an error changes nothing", () => {
-    for (const status of STATUSES) {
-      const before = createSyncState();
-      const t = transitionSync(before, modeReport({ mode: "no-replica" }, status));
-      expect(t.state).toBe(before);
-      expect(t.effects).toEqual([]);
+  it("a no-replica report replaces a stalled banner", () => {
+    // Reset local data cannot work on a replica that is gone: the stalled
+    // banner's Reset gives way to the online-only banner's Reload.
+    for (const reset of ["idle", "running", "blocked", "failed"] as const) {
+      const t = transitionSync(withProblem({
+        kind: "replica-stalled", error: "x", reset,
+      }), modeReport({ mode: "no-replica", error: "worker died" },
+                     "connected", "stalled"));
+      expect(t.state.problem).toEqual({
+        kind: "replica-unusable", error: "worker died",
+      });
+    }
+  });
+
+  it("a delivery problem that ends after a no-replica report gives way to " +
+     "the online-only banner", () => {
+    // The replica's death is reported once, so a banner held off by a
+    // delivery problem must come back when that problem ends.
+    const gone = modeReport({ mode: "no-replica", error: "worker died" });
+    const unusable = { kind: "replica-unusable", error: "worker died" };
+    const ends: [SyncProblem, SyncEvent][] = [
+      [{ kind: "rejected-batch", event: poison(), repair: "mark-failed",
+         error: "e" }, { type: "poison-intents-discarded" }],
+      [{ kind: "poison-discovery", error: "e" },
+       { type: "poison-discovery-cleared" }],
+      [{ kind: "outline-rejected", repair: "repaired", error: "e" },
+       { type: "dismiss" }],
+    ];
+    for (const [current, end] of ends) {
+      const held = transitionSync(withProblem(current), gone).state;
+      expect(held.problem).toEqual(current);
+      expect(transitionSync(held, end).state.problem).toEqual(unusable);
+    }
+  });
+
+  it("the online-only banner keeps its identity across unrelated events", () => {
+    const shown = transitionSync(createSyncState(),
+      modeReport({ mode: "no-replica", error: "worker died" })).state;
+    const after = transitionSync(shown, { type: "ops-skipped" });
+    expect(after.state.problem).toBe(shown.problem);
+    expect(after.effects).toEqual([{ type: "bump-resync" }]);
+  });
+
+  it("a no-replica report keeps a delivery problem", () => {
+    const kept: SyncProblem[] = [
+      { kind: "rejected-batch", event: poison(), repair: "failed", error: "e" },
+      { kind: "poison-discovery", error: "read failed" },
+      { kind: "outline-rejected", repair: "failed", error: "e",
+        repairError: "r" },
+    ];
+    for (const current of kept) {
+      const t = transitionSync(withProblem(current),
+        modeReport({ mode: "no-replica", error: "worker died" }, "connected"));
+      expect(t.state.problem).toEqual(current);
     }
   });
 
@@ -291,9 +339,9 @@ describe("transitionSync poison discovery", () => {
   it("reports a session committed to online-only", () => {
     // This state must not be silent. The user has lost offline
     // editing for the session and needs to know, and to have a way out.
-    const t = transitionSync(createSyncState(), {
-      type: "replica-unusable", error: "Access Handles cannot be created",
-    });
+    const t = transitionSync(createSyncState(), modeReport({
+      mode: "no-replica", error: "Access Handles cannot be created",
+    }));
     expect(t.state.problem).toEqual({
       kind: "replica-unusable",
       error: "Access Handles cannot be created",
@@ -308,9 +356,9 @@ describe("transitionSync poison discovery", () => {
       kind: "outline-rejected", repair: "failed",
       error: "rejected", repairError: "snapshot unavailable",
     };
-    const t = transitionSync(withProblem(failed), {
-      type: "replica-unusable", error: "Access Handles cannot be created",
-    });
+    const t = transitionSync(withProblem(failed), modeReport({
+      mode: "no-replica", error: "Access Handles cannot be created",
+    }));
     expect(t.state.problem).toEqual(failed);
   });
 

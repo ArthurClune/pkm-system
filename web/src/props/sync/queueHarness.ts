@@ -212,9 +212,9 @@ export async function runQueueExample(
       rebaseAuthoritative: () => new Promise<void>((resolve, reject) => {
         rebases.push({ resolve, reject });
       }),
+      noteUnavailable: () => undefined,
     },
     onSyncEvent: () => undefined,
-    onReplicaState: () => undefined,
   });
   const reads: Read[] = [];
   const outline = createOutlineRepair({

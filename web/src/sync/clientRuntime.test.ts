@@ -7,7 +7,6 @@ import { ReplicaUnusableError } from "../replica/errors";
 import { createClientRuntime, type ClientRuntimeDeps } from "./clientRuntime";
 import { memReplica } from "./memReplica";
 import type { PoisonEvent, PoisonMarkFailure } from "./opQueue";
-import type { ReplicaState } from "./replicaSync";
 import type { SyncEvent } from "./syncState";
 import { pendingRowIdOf, batchIdOf } from "../test-helpers";
 
@@ -40,7 +39,8 @@ interface SetupOptions {
 function setup(opts: SetupOptions = {}) {
   const calls: string[] = [];
   const events: SyncEvent[] = [];
-  const states: ReplicaState[] = [];
+  /** The errors noteUnavailable heard, by message. */
+  const unavailable: string[] = [];
   const poisonFns = new Set<(event: PoisonEvent) => void>();
   const markFailedFns = new Set<(failure: PoisonMarkFailure) => void>();
   const unmatchedFns = new Set<() => void>();
@@ -81,18 +81,18 @@ function setup(opts: SetupOptions = {}) {
       calls.push(`rebaseAuthoritative(${reason})`);
       await opts.rebase?.();
     },
+    noteUnavailable: (error) => { unavailable.push(error.message); },
   };
   const runtime = createClientRuntime({
     queue, replica, replicaSync,
     onSyncEvent: (event) => { events.push(event); },
-    onReplicaState: (state) => { states.push(state); },
     isMounted: opts.isMounted,
   });
   const emitPoison = (event: PoisonEvent) => poisonFns.forEach((fn) => fn(event));
   const emitMarkFailed = (failure: PoisonMarkFailure) =>
     markFailedFns.forEach((fn) => fn(failure));
   const emitUnmatched = () => unmatchedFns.forEach((fn) => fn());
-  return { calls, events, states, runtime, emitPoison, emitMarkFailed,
+  return { calls, events, unavailable, runtime, emitPoison, emitMarkFailed,
            emitUnmatched, poisonFns, markFailedFns, unmatchedFns };
 }
 
@@ -173,10 +173,10 @@ describe("clientRuntime startup", () => {
       poisoned: async () => { throw new ReplicaUnusableError("no opfs"); },
     });
     await h.runtime.startup();
-    expect(h.states).toEqual([{ mode: "no-replica" }]);
+    expect(h.unavailable).toEqual(["no opfs"]);
     expect(h.calls).toContain("resume(startup)");
     expect(h.calls).not.toContain("start");
-    expect(h.events).toEqual([{ type: "replica-unusable", error: "no opfs" }]);
+    expect(h.events).toEqual([]);
     expect(h.runtime.discoveringPoison()).toBe(false);
   });
 
@@ -531,10 +531,10 @@ describe("clientRuntime repair and retry", () => {
     h.emitPoison(poisonEvent(1, "b-1"));
     h.emitMarkFailed({ event: poisonEvent(1, "b-1"), error: "x" });
     await h.runtime.discardPoisonIntents();
-    expect(h.states).toEqual([{ mode: "no-replica" }]);
+    expect(h.unavailable).toEqual(["gone"]);
     expect(h.calls.filter((c) => c === "resume(startup)")).toHaveLength(1);
     expect(h.calls).not.toContain("rebaseAuthoritative(poison)");
-    expect(h.events).toEqual([{ type: "replica-unusable", error: "gone" }]);
+    expect(h.events).toEqual([]);
   });
 });
 

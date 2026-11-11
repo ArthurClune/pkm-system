@@ -17,10 +17,11 @@ export type SyncProblem =
       repair: "mark-failed" | "running" | "failed" | "repaired";
       error?: string }
   | { kind: "poison-discovery"; error: string }
-  /** The replica could not be opened, so this session runs online-only: edits
-   * still reach the server, but there is no local cache and no offline
-   * editing. Session-scoped by design (the worker latches a failed open), so
-   * the only way out is a reload. */
+  /** The replica could not be opened or its worker died, so this session
+   * runs online-only: edits still reach the server, but there is no local
+   * cache and no offline editing. Session-scoped by design (the worker
+   * latches a failed open), so the only way out is a reload. Raised by every
+   * no-replica mode report. */
   | { kind: "replica-unusable"; error: string }
   | { kind: "outline-rejected"; repair: "running" | "failed" | "repaired";
       error: string; repairError?: string }
@@ -35,6 +36,9 @@ export interface SyncState {
   /** A outline repair's problem held back while a rejected durable batch's
    * outranks it (see outline). It is shown once that problem ends. */
   outlineBehind?: OutlineProblem;
+  /** The error of the session's no-replica report, which comes once: the
+   * online-only banner it raises is shown whenever no other problem is. */
+  replicaGone?: string;
 }
 
 export type SyncEvent =
@@ -48,7 +52,6 @@ export type SyncEvent =
   | { type: "repair-failed"; event: PoisonEvent; error: string }
   | { type: "poison-discovery-failed"; error: string }
   | { type: "poison-intents-discarded" }
-  | { type: "replica-unusable"; error: string }
   | { type: "poison-discovery-cleared" }
   | { type: "outline-repair-started"; error: string }
   | { type: "outline-repair-succeeded"; error: string }
@@ -164,10 +167,11 @@ function replicaUnusable(state: SyncState, error: string): SyncTransition {
   // A background "this session is online-only" report must not stomp a
   // delivery problem the user can act on — overwriting a failed
   // outline-rejected repair would take its Retry with it, and retryProblem
-  // would no longer reach that repair at all. Same precedence shape as
-  // replicaStalled below.
+  // would no longer reach that repair at all. A stalled banner is not one:
+  // its Reset cannot work on a replica that is gone.
   const current = state.problem;
-  if (current && current.kind !== "replica-unusable") return unchanged(state);
+  if (current && current.kind !== "replica-unusable" &&
+      current.kind !== "replica-stalled") return unchanged(state);
   return problem(state, { kind: "replica-unusable", error });
 }
 
@@ -204,16 +208,28 @@ function bannerForMode(state: SyncState, next: ReplicaState,
       return status === "connected"
         ? replicaStalled(state, next.error) : unchanged(state);
     case "no-replica":
-      // A worker that died mid-session: the same online-only banner and
-      // Reload as a replica that never opened.
-      return next.error === undefined
-        ? unchanged(state) : replicaUnusable(state, next.error);
+      return replicaUnusable(state, next.error);
     case "starting":
       return unchanged(state);
   }
 }
 
 export function transitionSync(state: SyncState, event: SyncEvent): SyncTransition {
+  const t = transitionProblem(state, event);
+  const gone = event.type === "replica-state" && event.state.mode === "no-replica"
+    ? event.state.error : state.replicaGone;
+  if (gone === undefined) return t;
+  if (t.state.replicaGone === gone && t.state.problem !== undefined) return t;
+  return {
+    state: {
+      ...t.state, replicaGone: gone,
+      problem: t.state.problem ?? { kind: "replica-unusable", error: gone },
+    },
+    effects: t.effects,
+  };
+}
+
+function transitionProblem(state: SyncState, event: SyncEvent): SyncTransition {
   switch (event.type) {
     case "replica-state": {
       const banner = bannerForMode(state, event.state, event.status);
@@ -250,13 +266,12 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
     case "poison-intents-discarded":
       // The user discarded retained poison-mark intents, so the
       // mark-failed problem reporting them is now stale. Only that exact
-      // phase clears — replica-unusable never stomps another kind (below),
-      // so a leftover mark-failed banner would otherwise outlive its intents.
+      // phase clears — replica-unusable never stomps a delivery problem
+      // (replicaUnusable), so a leftover mark-failed banner would otherwise
+      // outlive its intents.
       return state.problem?.kind === "rejected-batch"
           && state.problem.repair === "mark-failed"
         ? poisonEnded(state, undefined) : { state, effects: [] };
-    case "replica-unusable":
-      return replicaUnusable(state, event.error);
     case "poison-discovery-cleared":
       return state.problem?.kind === "poison-discovery"
         ? poisonEnded(state, undefined) : { state, effects: [] };

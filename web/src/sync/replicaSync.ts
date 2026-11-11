@@ -15,7 +15,8 @@ import type { ReplicaDiagnostics } from "../replica/client";
 import type {
   AckedBatch, PendingBatch, RecoveryCommit, RecoveryLease, Replica, ReplicaInit,
 } from "../replica/client";
-import { isSessionFatal } from "../replica/errors";
+import { asSessionFatal, isSessionFatal,
+         type SessionFatalError } from "../replica/errors";
 import { INITIAL_SEQ } from "../ids";
 import { coalesce } from "./coalesce";
 import { listeners } from "./listeners";
@@ -27,9 +28,9 @@ import { isFreshCorruption, isStallShaped, isWindowFailure, PullStarvedError } f
 
 export type ReplicaState =
   | { mode: "starting" }
-  /** No database this session can use: a failed open, or a worker that
-   * died. `error` says why when the replica found out itself. */
-  | { mode: "no-replica"; error?: string }
+  /** No database this session can use: a failed open, a worker that died,
+   * or no replica in this environment. Terminal: no other mode follows. */
+  | { mode: "no-replica"; error: string }
   | { mode: "ready" }
   | { mode: "recovery-failed"; error: string }
   | { mode: "stalled"; error: string };
@@ -51,9 +52,8 @@ export interface ReplicaSync {
    *
    * `null` means the question cannot be answered: this session has no usable
    * database, so there is no cursor to compare and the caller must assume the
-   * worst. A session-fatal error (`isSessionFatal`) from init or a pull puts
-   * it there: the worker's latched failed open, or an RPC client a dead
-   * worker left terminal.
+   * worst. noteUnavailable puts it there: the worker's latched failed open,
+   * or an RPC client a dead worker left terminal.
    *
    * An ordinary failed pull is deliberately NOT null: the cursor is the durable
    * memory of what has been seen, so the next successful reconnect pulls the
@@ -81,6 +81,12 @@ export interface ReplicaSync {
    * discardPending) then rebuilds from a fresh snapshot. Throws
    * ResetBlockedError when discardPending is false and the flush fails. */
   resetLocalData(opts: { discardPending: boolean }): Promise<void>;
+  /** The one way into mode no-replica: `error` says this session's
+   * database is gone for good. Reports it once; afterwards no mode is
+   * reported, no retry is armed and no pass, start or owed pull calls the
+   * replica. Called for a session-fatal error met here, by startup discovery,
+   * and by the queue when one of its own calls meets one. */
+  noteUnavailable(error: SessionFatalError): void;
   /** Stops scheduling backoff retries (of a pull or of a failed start) and
    * clears any pending retry timer. The provider must call this on teardown
    * (unmount) so a stopped instance doesn't leak a timer that outlives its
@@ -296,6 +302,15 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   // so a still-in-flight pull's eventual noteFailure must not reschedule.
   let stopped = false;
 
+  /** Every report but no-replica's, dropped once the replica is gone: a
+   * stalled or recovery-failed banner over it would offer a Reset that
+   * cannot work. */
+  const setMode = (
+    next: Exclude<ReplicaState, { mode: "no-replica" }>,
+  ): void => {
+    if (usable) onState(next);
+  };
+
   const noteSuccess = (opts: { force?: boolean } = {}): void => {
     consecutiveFailures = 0;
     windowFailure = null;
@@ -303,7 +318,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
     if (reportedNonReady || opts.force) {
       reportedNonReady = false;
-      onState({ mode: "ready" });
+      setMode({ mode: "ready" });
     }
   };
 
@@ -313,7 +328,8 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
    * null and every reconnect refetches views, the offline gateway stops
    * serving reads from the replica, and offline editing ends. No retry is
    * armed, since none could succeed. */
-  const noteNoReplica = (error: unknown): void => {
+  const noteUnavailable = (error: SessionFatalError): void => {
+    if (!usable) return;
     usable = false;
     if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
     onState({ mode: "no-replica", error: errText(error) });
@@ -323,15 +339,19 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
    * count towards the stall report. The retry runs whichever of the two is
    * still owed. */
   const noteFailure = (error: unknown): void => {
-    if (isSessionFatal(error)) {
-      noteNoReplica(error);
+    const fatal = asSessionFatal(error);
+    if (fatal !== null) {
+      noteUnavailable(fatal);
       return;
     }
+    // A pass already under way when the replica went fails for whatever
+    // reason it meets: nothing is left to count or retry.
+    if (!usable) return;
     if (isStallShaped(error)) {
       consecutiveFailures += 1;
       if (consecutiveFailures >= STALL_AFTER_FAILURES) {
         reportedNonReady = true;
-        onState({ mode: "stalled", error: errText(error) });
+        setMode({ mode: "stalled", error: errText(error) });
       }
     }
     // No timer while offline: every retry would just reproduce the same
@@ -542,16 +562,17 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         error === poisonPreempted;
       // A rebase that hit corruption is about to be retried as a reset by
       // recover(); reporting it here would flash a recovery-failed banner
-      // over a repair that is still in progress.
+      // over a repair that is still in progress. A session-fatal error is
+      // not a failed recovery: it reaches noteFailure, which ends the mode.
       if (options.reportReplicaFailure && !poisonOwnsRecovery &&
-          !wouldEscalateCorruption(kind, error)) {
+          !wouldEscalateCorruption(kind, error) && !isSessionFatal(error)) {
         // Without this, a recovery-failed report that never crosses the
         // stall threshold (e.g. the very first failure) leaves
         // reportedNonReady false, so noteSuccess's later "ready" re-emission
         // is gated off and the banner (plus the stale replicaState it
         // reflects) sticks forever despite a healthy replica.
         reportedNonReady = true;
-        onState({ mode: "recovery-failed", error: errText(error) });
+        setMode({ mode: "recovery-failed", error: errText(error) });
       }
       if (token !== null) {
         // Commit failures release in the worker; abort is still attempted so
@@ -791,7 +812,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   // drops what it owed to noteFailure's backoff retry. A pass owed when
   // stop() runs never starts.
   const pullRun = coalesce(async () => {
-    if (stopped) return;
+    if (stopped || !usable) return;
     try {
       await pullLoop();
     } catch (error: unknown) {
@@ -815,8 +836,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // latched failed open, or a dead worker's terminal RPC client, replays
       // for every later call, so no later start() can revive it. Anything
       // else, a bare timeout included, is an ordinary start failure.
-      if (isSessionFatal(error)) {
-        noteNoReplica(error);
+      const fatal = asSessionFatal(error);
+      if (fatal !== null) {
+        noteUnavailable(fatal);
         return;
       }
       throw error;
@@ -854,6 +876,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     }
   }, { merge: () => undefined, joinable: () => true });
   const start = async (): Promise<void> => {
+    if (!usable) return;
     if (started) {
       await pull();
       return;
@@ -925,6 +948,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         forceReadyOnSuccess: true,
       });
     },
+    noteUnavailable,
     stop() {
       stopped = true;
       if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }

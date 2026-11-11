@@ -22,8 +22,9 @@ import { describeTextLimit, findOpTextLimitViolation } from "../grammar/textLimi
 import { apiPost } from "../api/typedClient";
 import type { PendingBatch, Replica } from "../replica/client";
 import { wellFormedOps } from "../replica/wellFormed";
-import { availabilityOf, isSessionFatal, ReplicaError,
-         type ReplicaAvailability } from "../replica/errors";
+import { asSessionFatal, availabilityOf, ReplicaError,
+         type ReplicaAvailability,
+         type SessionFatalError } from "../replica/errors";
 import { mintTicketId } from "../ids";
 import { newBatchId as freshBatchId, newClientId } from "../uid";
 import { listeners } from "./listeners";
@@ -127,6 +128,11 @@ export interface OpQueue {
    * gating on it would interrupt an ordinary offline reload that risks
    * nothing. */
   onUnsentInMemory(fn: (n: number) => void): () => void;
+  /** One of this queue's own replica calls met a session-fatal error: the
+   * replica is gone for the session. Emitted once, when the availability
+   * latch sets, so the death is heard at the queue's first failed call
+   * rather than at the next pull. */
+  onUnavailable(fn: (error: SessionFatalError) => void): () => void;
   onPoisonMarkFailed(fn: (failure: PoisonMarkFailure) => void): () => void;
   onPoison(fn: (event: PoisonEvent) => void): () => void;
   /** Fires once per markRetainedPoison call in which intents existed and NONE
@@ -224,6 +230,7 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
   const poison = listeners<PoisonEvent>();
   const poisonMarkUnmatched = listeners<void>();
   const released = listeners<BarrierOwner>();
+  const unavailable = listeners<SessionFatalError>();
   const deliveries = new Map<BatchId, (outcome: DeliveryOutcome) => void>();
   // The in-memory lane: enqueues whose ops could not be persisted locally (a
   // full disk, OPFS access-handle contention, an exhausted SAH pool),
@@ -242,8 +249,10 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
   // evidence and belongs to startup.
   let availability: ReplicaAvailability | null = null;
   const noteReplicaFailure = (error: unknown): void => {
-    if (availability === null && isSessionFatal(error)) {
-      availability = availabilityOf(error);
+    const fatal = asSessionFatal(error);
+    if (availability === null && fatal !== null) {
+      availability = availabilityOf(fatal);
+      unavailable.emit(fatal);
     }
   };
 
@@ -839,6 +848,7 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
       return totalPending();
     },
     onUnsentInMemory: unsentInMemory.add,
+    onUnavailable: unavailable.add,
     onPoisonMarkFailed: poisonMarkFailed.add,
     onPoison: poison.add,
     onPoisonMarkUnmatched: poisonMarkUnmatched.add,

@@ -94,8 +94,20 @@ export function availabilityOf(error: unknown): ReplicaAvailability | null {
  * leaves the client usable. Retention does not need this distinction (every
  * level retains); latching a state does. */
 export function isSessionFatal(error: unknown): boolean {
-  if (error instanceof ReplicaUnusableError) return true;
-  return error instanceof RpcLifecycleError && error.kind !== "timeout";
+  return asSessionFatal(error) !== null;
+}
+
+/** The errors isSessionFatal accepts. Not every RpcLifecycleError is one: a
+ * timeout is not, so a value of this type is narrowed by asSessionFatal,
+ * never by the union's members alone. */
+export type SessionFatalError = ReplicaUnusableError | RpcLifecycleError;
+
+export function asSessionFatal(error: unknown): SessionFatalError | null {
+  if (error instanceof ReplicaUnusableError) return error;
+  if (error instanceof RpcLifecycleError && error.kind !== "timeout") {
+    return error;
+  }
+  return null;
 }
 
 /** SQLite saying the database it opened is internally inconsistent: result

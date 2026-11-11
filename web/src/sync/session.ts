@@ -59,6 +59,10 @@ export interface SyncActions {
   settled(): Promise<void>;
 }
 
+/** What a session without a replica reports, as its mode's error and as
+ * absentReplica()'s every call. */
+const NO_REPLICA = "no replica in this environment";
+
 /** The queue always has a Replica; where there is none, this reports the same
  * permanent unavailability the worker reports for a database it could not open.
  * The queue latches that once and answers it by delivering online-only through
@@ -69,7 +73,7 @@ export interface SyncActions {
  * defaultReplica). */
 export function absentReplica(): Replica {
   const absent = async (): Promise<never> => {
-    throw new ReplicaUnusableError("no replica in this environment");
+    throw new ReplicaUnusableError(NO_REPLICA);
   };
   return {
     init: absent, applySnapshot: absent, applyChanges: absent,
@@ -205,7 +209,6 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
       replica,
       replicaSync,
       onSyncEvent: fold,
-      onReplicaState: reportMode,
       isMounted: live,
     });
 
@@ -236,6 +239,10 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
     queue.onDrain((outcome) => {
       if (live()) reconnect.observeDrain(outcome);
     }),
+    // Not live-guarded: the latch emits once, and a StrictMode replay that
+    // keeps the session must still know the replica is gone. The report
+    // itself is guarded in reportMode.
+    queue.onUnavailable((error) => replicaSync?.noteUnavailable(error)),
     // The recovery flush is a third POST path outside the queue's own
     // lane/drain, and its ack can name a skip too.
     ...(replicaSync === null ? []
@@ -255,7 +262,7 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
     // (see opQueue's emitPending).
     if (replica !== null) void queue.refreshPending();
     if (runtime === null) {
-      reportMode({ mode: "no-replica" });
+      reportMode({ mode: "no-replica", error: NO_REPLICA });
       startupRun = Promise.resolve();
     } else {
       startupRun = runtime.startup();

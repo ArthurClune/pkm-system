@@ -4,6 +4,7 @@ import type { BlockOp } from "../api/ops";
 import type { OpBatch, OpsAck } from "../api/payloads";
 import { MAX_BLOCK_TEXT_CHARS } from "../grammar/textLimits";
 import type { PendingBatch, Replica } from "../replica/client";
+import { ReplicaUnusableError, RpcLifecycleError } from "../replica/errors";
 import { batchIdOf, clientIdOf, defer, pendingRowIdOf, rawTitleOf, seqOf,
          uidOf } from "../test-helpers";
 import type { ClientRuntime, ClientRuntimeDeps } from "./clientRuntime";
@@ -489,9 +490,12 @@ describe("startup", () => {
     const { session, server, reported } = rig({ replica: null });
     expect(session.replicaSync).toBeNull();
     await session.startup();
-    expect(reported.modes).toEqual([{ mode: "no-replica" }]);
-    expect(session.replicaState()).toEqual({ mode: "no-replica" });
-    expect(session.problem()).toBeUndefined();
+    const absent = { mode: "no-replica", error: "no replica in this environment" };
+    expect(reported.modes).toEqual([absent]);
+    expect(session.replicaState()).toEqual(absent);
+    expect(session.problem()).toEqual({
+      kind: "replica-unusable", error: "no replica in this environment",
+    });
 
     await session.onSocketStatus(true);
     const ticket = session.actions.enqueue([op("cccccccc")]);
@@ -583,6 +587,104 @@ describe("the problem fold", () => {
   });
 });
 
+describe("replica mode", () => {
+  const deadWorker = (): RpcLifecycleError =>
+    new RpcLifecycleError("worker-error", "replica worker failed");
+  const online = { mode: "no-replica", error: "replica worker failed" };
+
+  test("a queue RPC that meets a dead worker reports no-replica before any pull",
+  async () => {
+    let dead = false;
+    const replica = loggingReplica();
+    const { enqueue } = replica;
+    replica.enqueue = (ops, batchId) =>
+      dead ? Promise.reject(deadWorker()) : enqueue(ops, batchId);
+    const { session, reported } = rig({ replica });
+    await session.startup();
+    await session.onSocketStatus(true);
+    trace.log.length = 0;
+
+    dead = true;
+    await session.actions.enqueue([op("cccccccc")]).settled;
+
+    expect(session.replicaState()).toEqual(online);
+    expect(reported.modes.at(-1)).toEqual(online);
+    expect(session.problem()).toEqual({
+      kind: "replica-unusable", error: "replica worker failed",
+    });
+    expect(replicaSyncOf(session).appliedVersion()).toBeNull();
+    expect(only(["fetch /api/sync/changes"])).toEqual([]);
+  });
+
+  test("a replica startup finds unusable answers appliedVersion null and " +
+       "reports its mode once", async () => {
+    const unusable = new ReplicaUnusableError("no opfs");
+    const replica = loggingReplica({
+      pendingCount: () => Promise.reject(unusable),
+      poisonedBatches: () => Promise.reject(unusable),
+      init: () => Promise.reject(unusable),
+    });
+    const { session, reported } = rig({ replica });
+    await session.startup();
+    expect(replicaSyncOf(session).appliedVersion()).toBeNull();
+
+    await session.onSocketStatus(true);
+    await turns();
+
+    expect(reported.modes).toEqual([{ mode: "no-replica", error: "no opfs" }]);
+    expect(session.problem()).toEqual({
+      kind: "replica-unusable", error: "no opfs",
+    });
+  });
+
+  test("a recovery that meets a dead worker ends on the online-only banner",
+  async () => {
+    let needsBootstrap = false;
+    const replica = loggingReplica({
+      applyChanges: async (changes) => needsBootstrap
+        ? { status: "needs-bootstrap" }
+        : { status: "applied", cursor: changes.next_since },
+      prepareRecovery: () => Promise.reject(deadWorker()),
+    });
+    const { session } = rig({ replica });
+    await session.startup();
+    await session.onSocketStatus(true);
+
+    needsBootstrap = true;
+    session.onSeq({ type: "seq", seq: seqOf(99) });
+    await replicaSyncOf(session).idle();
+
+    expect(session.replicaState()).toEqual(online);
+    expect(session.problem()).toEqual({
+      kind: "replica-unusable", error: "replica worker failed",
+    });
+  });
+
+  test("a stall followed by a worker death ends on the online-only banner",
+  async () => {
+    let dead = false;
+    const replica = loggingReplica();
+    const { pendingBatches } = replica;
+    replica.pendingBatches = () =>
+      dead ? Promise.reject(deadWorker()) : pendingBatches();
+    const { session, server } = rig({ replica, retryBaseMs: 1 });
+    await session.startup();
+    await session.onSocketStatus(true);
+    server.changesFail = true;
+
+    session.onSeq({ type: "seq", seq: seqOf(99) });
+    await vi.waitFor(() => expect(session.problem()).toMatchObject({
+      kind: "replica-stalled",
+    }));
+    dead = true;
+
+    await vi.waitFor(() => expect(session.problem()).toEqual({
+      kind: "replica-unusable", error: "replica worker failed",
+    }));
+    expect(session.replicaState()).toEqual(online);
+  });
+});
+
 describe("the actions", () => {
   test("an own echo reaches no subscriber", () => {
     const { session } = rig();
@@ -644,9 +746,10 @@ describe("the actions", () => {
   test("retryProblem with no runtime and nothing to retry does nothing", async () => {
     const { session } = rig({ replica: null });
     await session.startup();
+    const before = session.problem();
     await session.actions.retryProblem();
     await session.actions.discardProblem();
-    expect(session.problem()).toBeUndefined();
+    expect(session.problem()).toBe(before);
   });
 
   test("discardProblem only acts on a mark-failed rejected batch", async () => {

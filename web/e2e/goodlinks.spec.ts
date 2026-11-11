@@ -7,6 +7,8 @@ import { createHash } from "node:crypto";
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
+import { rawTitleOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
 
 // server/tests/fake_goodlinks_server.py's seeded id and its POST /links id
 // derivation (hashlib.md5(url.encode()).hexdigest()) -- waitForServerText
@@ -24,8 +26,8 @@ async function login(page: Page) {
 
 const input = (page: Page) => page.locator("textarea.block-input");
 
-async function freshPage(page: Page, prefix: string): Promise<string> {
-  const title = `${prefix} ${Date.now()}`;
+async function freshPage(page: Page, prefix: string): Promise<RawTitle> {
+  const title = rawTitleOf(`${prefix} ${Date.now()}`);
   const res = await page.request.post("/api/pages", { data: { title } });
   expect(res.ok()).toBeTruthy();
   await page.goto(`/page/${encodeURIComponent(title)}`);
@@ -43,7 +45,7 @@ async function linkThenChildGoodlinks(page: Page, url: string) {
 
 test("/goodlinks links a saved page and the reader shows the sanitised article", async ({ page }) => {
   await login(page);
-  let title = "";
+  let title: RawTitle | null = null;
   try {
     title = await freshPage(page, "Goodlinks E2E");
     await linkThenChildGoodlinks(page, "https://example.com/e2e-article");
@@ -86,7 +88,7 @@ test("/goodlinks links a saved page and the reader shows the sanitised article",
 
 test("/goodlinks saves an unknown URL to GoodLinks and reports it", async ({ page }) => {
   await login(page);
-  let title = "";
+  let title: RawTitle | null = null;
   try {
     title = await freshPage(page, "Goodlinks Save E2E");
     const url = `https://example.com/new-${Date.now()}`;

@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { COMMENT_HEADER } from "openapi-typescript";
 import { expect, test } from "vitest";
-import { generateTypes } from "./genTypes-core.mjs";
+import { generateTypes } from "./genTypes-core.ts";
 
 const apiDir = join(dirname(dirname(fileURLToPath(import.meta.url))), "src", "api");
 const apiFile = (name: string) => readFileSync(join(apiDir, name), "utf8");

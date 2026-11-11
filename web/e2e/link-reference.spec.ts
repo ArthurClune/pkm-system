@@ -1,5 +1,9 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { rawTitleOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
+import type { PagePayload } from "../src/api/payloads";
+import { serverJson } from "./wireJson";
 
 const PASSWORD = "e2e-pw";
 const input = (page: Page) => page.locator("textarea.block-input");
@@ -12,24 +16,24 @@ async function login(page: Page) {
   await expect(page.locator(".ws-banner")).toHaveCount(0);
 }
 
-async function createPage(page: Page, title: string) {
+async function createPage(page: Page, title: RawTitle) {
   const response = await page.request.post("/api/pages", { data: { title } });
   expect(response.ok()).toBeTruthy();
 }
 
-async function waitForText(page: Page, pageTitle: string, text: string) {
+async function waitForText(page: Page, pageTitle: RawTitle, text: string) {
   await expect.poll(async () => {
     const response = await page.request.get(`/api/page/${encodeURIComponent(pageTitle)}`);
     if (!response.ok()) return false;
-    const payload = await response.json() as { blocks: { text: string }[] };
+    const payload = await serverJson<PagePayload>(response);
     return payload.blocks.some((block) => block.text === text);
   }, { timeout: 20_000 }).toBe(true);
 }
 
 test("links a differently cased plain mention with canonical casing", async ({ page }) => {
   const stamp = Date.now();
-  const target = `LinkTarget${stamp}`;
-  const source = `LinkSource${stamp}`;
+  const target = rawTitleOf(`LinkTarget${stamp}`);
+  const source = rawTitleOf(`LinkSource${stamp}`);
   const original = `${target.toLowerCase()} created the jumbotron`;
   const linked = `[[${target}]] created the jumbotron`;
   await login(page);
@@ -52,8 +56,8 @@ test("links a differently cased plain mention with canonical casing", async ({ p
 
 test("preserves Markdown and appends a canonical tag", async ({ page }) => {
   const stamp = Date.now();
-  const target = `MarkdownTarget${stamp}`;
-  const source = `MarkdownSource${stamp}`;
+  const target = rawTitleOf(`MarkdownTarget${stamp}`);
+  const source = rawTitleOf(`MarkdownSource${stamp}`);
   const href = `https://example.test/${target.toLowerCase()}/study.md`;
   const original = `[A study](${href}) shows great things`;
   const linked = `${original} #[[${target}]]`;

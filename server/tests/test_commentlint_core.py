@@ -11,7 +11,7 @@ from commentlint.core import (RULES, Violation, check_text, comment_spans, forma
     "web/src/views/Journal.tsx",
     "web/src/styles.css",
     "web/src/App.test.tsx",
-    "web/tooling/fcis.mjs",
+    "web/tooling/fcis.ts",
     "web/e2e/outline.spec.ts",
     "web/eslint.config.js",
     "web/vite.config.ts",

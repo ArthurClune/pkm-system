@@ -255,9 +255,11 @@ SQLITE_SITES: dict[str, str] = {
 
 # The one module on each side that may mint every brand: the checked
 # helpers tests build their values with. Product code may not import them.
+# The web's imports no vitest, so the Playwright specs can mint there too;
+# test-helpers.ts re-exports it for the unit tests.
 TEST_MINT_SITES: tuple[str, ...] = (
     "server/src/pkm/test_data/ids.py",
-    "web/src/test-helpers.ts",
+    "web/src/test-mint.ts",
 )
 
 # Brand -> the stem of its test helper: `<stem>_of` in Python, the camel
@@ -309,10 +311,12 @@ TEST_CODE: tuple[str, ...] = (
     "web/src/fcFilterCap.ts",
     "web/src/orphanWatchdog.ts",
     "web/src/test-helpers.ts",
+    "web/src/test-mint.ts",
     "web/src/props/",
     "web/src/replica/replayArbs.ts",
     "web/src/replica/testDb.ts",
     "web/src/sync/memReplica.ts",
+    "web/e2e/",
 )
 
 # Glob patterns for files where a line may carry `# brand: untrusted --
@@ -336,6 +340,10 @@ OPT_OUT_FILES: tuple[str, ...] = (
     # as a predicate on the arbitrary's type parameter; the capped filter's
     # is backed by the arbitrary it wraps.
     "web/src/fcFilterCap.ts",
+    # The Playwright specs' JSON boundary, as client.ts is the app's:
+    # `APIResponse.json()` and `postDataJSON()` are untyped, and the
+    # generated API types name the brands a body carries.
+    "web/e2e/wireJson.ts",
 )
 
 # Columns whose key is not their own name: table -> {column: key}. One

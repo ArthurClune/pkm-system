@@ -6,7 +6,7 @@
 // A marker reached through a $ref stays a ref: only the component the
 // marker sits on is branded. A marker under `propertyNames` (a dict keyed
 // by a branded NewType) is not branded: openapi-typescript ignores
-// propertyNames, so the key stays `string`. File I/O lives in genTypes.mjs.
+// propertyNames, so the key stays `string`. File I/O lives in genTypes.ts.
 import openapiTS, { astToString } from "openapi-typescript";
 import ts from "typescript";
 
@@ -20,15 +20,16 @@ const UNBRANDABLE_KEYWORDS = ["nullable", "enum", "const"];
  * whose `type` is "string" or "integer" and that has no `nullable`, `enum`
  * or `const`. Those keywords would be dropped beside a brand, or would drop
  * the brand, depending on where openapi-typescript meets the schema. */
-function checkMarker(schemaObject) {
-  const name = schemaObject["x-brand"];
+function checkMarker(schemaObject: object): string {
+  const name = "x-brand" in schemaObject ? schemaObject["x-brand"] : undefined;
   if (typeof name !== "string" || !BRAND_NAME_RE.test(name)) {
     throw new Error(`x-brand ${JSON.stringify(name)}: not a brand identifier`);
   }
-  if (!BRANDABLE_TYPES.has(schemaObject.type)) {
+  const type = "type" in schemaObject ? schemaObject.type : undefined;
+  if (typeof type !== "string" || !BRANDABLE_TYPES.has(type)) {
     throw new Error(
       `x-brand ${name}: only a string or integer schema can be branded, ` +
-      `not ${JSON.stringify(schemaObject.type)}`);
+      `not ${JSON.stringify(type)}`);
   }
   for (const key of UNBRANDABLE_KEYWORDS) {
     if (key in schemaObject) {
@@ -42,7 +43,7 @@ function checkMarker(schemaObject) {
  * `transform` only on some schemas (not on an enum or const branch, nor on
  * a schema without a type), so a check inside the hook alone would miss a
  * marker it never sees. propertyNames subtrees are skipped (see header). */
-export function checkBrandMarkers(node) {
+export function checkBrandMarkers(node: unknown): void {
   if (Array.isArray(node)) {
     node.forEach(checkBrandMarkers);
   } else if (node !== null && typeof node === "object") {
@@ -55,18 +56,21 @@ export function checkBrandMarkers(node) {
 
 /** openapi-typescript `transform` hook: `Brands.<name>` for a schema with an
  * `x-brand` marker, undefined (stock output) otherwise. */
-export function brandTransform(schemaObject) {
-  if (schemaObject["x-brand"] === undefined) return undefined;
+export function brandTransform(schemaObject: object): ts.TypeNode | undefined {
+  if (!("x-brand" in schemaObject) || schemaObject["x-brand"] === undefined) {
+    return undefined;
+  }
   const name = checkMarker(schemaObject);
   return ts.factory.createTypeReferenceNode(ts.factory.createQualifiedName(
     ts.factory.createIdentifier("Brands"), name));
 }
 
 /** The generated declarations for `spec`, starting with the brands import.
- * Rejects on a malformed marker anywhere in `spec`. */
-export async function generateTypes(spec) {
+ * Rejects on a malformed marker anywhere in `spec`. openapi-typescript
+ * validates the document itself, from its JSON text. */
+export async function generateTypes(spec: unknown): Promise<string> {
   checkBrandMarkers(spec);
-  return astToString(await openapiTS(spec, {
+  return astToString(await openapiTS(JSON.stringify(spec), {
     transform: brandTransform,
     inject: BRANDS_IMPORT,
   }));

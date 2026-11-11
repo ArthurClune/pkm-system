@@ -1,12 +1,14 @@
 {
-  "//": "Type-aware lint project for tooling/ and the eslint fixtures. ESLint's projectService consumes this. pnpm typecheck runs tsc over tsconfig.typecheck.json, which extends this but leaves out eslint-fixtures, so their intentional violations never fail the build.",
+  "//": "Type-aware lint project for tooling/ and the eslint fixtures. ESLint's projectService consumes this. pnpm typecheck runs tsc over tsconfig.typecheck.json, which extends this but leaves out eslint-fixtures, so their intentional violations never fail the build, and over tsconfig.node.json for the scripts node runs itself. A .mjs script added here is checked and linted like the rest; the perf payloads (perf/*.js) have their own DOM-only project.",
   "extends": "../tsconfig.json",
   "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["node", "vite/client"],
     "allowJs": true,
-    "checkJs": false,
+    "checkJs": true,
+    "allowImportingTsExtensions": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false
   },
-  "include": ["**/*.ts", "**/*.tsx"]
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mjs"]
 }

@@ -1,5 +1,9 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { rawTitleOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
+import type { PagePayload } from "../src/api/payloads";
+import { serverJson } from "./wireJson";
 
 // The center pane (.main-pane) is meant to widen into whatever
 // room a missing/collapsed sidebar frees up, rather than sitting at a fixed
@@ -20,16 +24,16 @@ async function login(page: Page) {
   await expect(page.locator(".ws-banner")).toHaveCount(0);
 }
 
-async function createPage(page: Page, title: string) {
+async function createPage(page: Page, title: RawTitle) {
   const response = await page.request.post("/api/pages", { data: { title } });
   expect(response.ok()).toBeTruthy();
 }
 
-async function waitForText(page: Page, pageTitle: string, text: string) {
+async function waitForText(page: Page, pageTitle: RawTitle, text: string) {
   await expect.poll(async () => {
     const response = await page.request.get(`/api/page/${encodeURIComponent(pageTitle)}`);
     if (!response.ok()) return false;
-    const payload = await response.json() as { blocks: { text: string }[] };
+    const payload = await serverJson<PagePayload>(response);
     return payload.blocks.some((block) => block.text === text);
   }, { timeout: 20_000 }).toBe(true);
 }
@@ -42,8 +46,8 @@ async function mainPaneWidth(page: Page): Promise<number> {
 
 test("center pane widens as the left nav collapses and the right sidebar closes", async ({ page }) => {
   const stamp = Date.now();
-  const source = `PageWidthSource${stamp}`;
-  const target = `PageWidthTarget${stamp}`;
+  const source = rawTitleOf(`PageWidthSource${stamp}`);
+  const target = rawTitleOf(`PageWidthTarget${stamp}`);
   await login(page);
   await createPage(page, target);
   await createPage(page, source);

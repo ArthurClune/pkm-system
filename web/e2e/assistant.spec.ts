@@ -1,6 +1,10 @@
 import { type Locator, type Page } from "@playwright/test";
+import type { BlockUid, RawTitle } from "../src/api/brands";
+import type { PagePayload } from "../src/api/payloads";
+import { rawTitleOf, uidOf } from "../src/test-mint";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
+import { serverJson } from "./wireJson";
 
 const PASSWORD = "e2e-pw";
 
@@ -18,7 +22,8 @@ const askInput = (panel: Locator) => panel.getByPlaceholder(/ask about your note
 const confirmCard = (panel: Locator) => panel.locator(".assistant-confirm-card");
 
 // the fake engine's save_note card: one write to page `title`, text "Demo"
-async function expectDemoCard(panel: Locator, title: string) {
+const DEMO = rawTitleOf("Demo");
+async function expectDemoCard(panel: Locator, title: RawTitle) {
   const card = confirmCard(panel);
   await expect(card.locator(".assistant-confirm-action")).toHaveText("save note");
   await expect(card.locator(".assistant-confirm-target").first())
@@ -36,7 +41,7 @@ async function openPanel(page: Page): Promise<Locator> {
 }
 
 // pages a test made, deleted after it whether it passed or not
-const createdPages: string[] = [];
+const createdPages: RawTitle[] = [];
 test.afterEach(async ({ page }) => {
   for (const title of createdPages.splice(0)) {
     await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
@@ -65,14 +70,14 @@ test("assistant panel: toggle, echo turn, confirm allow/deny", async ({ page }) 
   // confirm flow: deny
   await askInput(panel).fill("please write");
   await askInput(panel).press("Enter");
-  await expectDemoCard(panel, "Demo");
+  await expectDemoCard(panel, DEMO);
   await panel.getByRole("button", { name: "Deny" }).click();
   await expect(panel.getByText("Okay, not saving.")).toBeVisible();
 
   // confirm flow: allow
   await askInput(panel).fill("please write");
   await askInput(panel).press("Enter");
-  await expectDemoCard(panel, "Demo");
+  await expectDemoCard(panel, DEMO);
   await panel.getByRole("button", { name: "Allow" }).click();
   await expect(panel.getByText("Saved.")).toBeVisible();
 
@@ -95,10 +100,10 @@ test("two confirms queue: the second waits behind the first", async ({ page }) =
   await askInput(panel).fill("please write twice");
   await askInput(panel).press("Enter");
   await expect(title).toHaveText("The assistant wants to make 1 write (1 of 2):");
-  await expectDemoCard(panel, "Demo");
+  await expectDemoCard(panel, DEMO);
   await panel.getByRole("button", { name: "Allow" }).click();
   await expect(title).toHaveText("The assistant wants to make 1 write:");
-  await expectDemoCard(panel, "Demo 2");
+  await expectDemoCard(panel, rawTitleOf("Demo 2"));
   await panel.getByRole("button", { name: "Deny" }).click();
   await expect(panel.getByText("Saved 1.")).toBeVisible();
   await expect(panel.getByText("Not saving 2.")).toBeVisible();
@@ -119,7 +124,7 @@ for (const height of [260, 230]) {
 
     await askInput(panel).fill("please write");
     await askInput(panel).press("Enter");
-    await expectDemoCard(panel, "Demo");
+    await expectDemoCard(panel, DEMO);
     await expect(card.locator(".assistant-confirm-title")).toBeInViewport();
     const region = card.getByRole("region", { name: "Writes to review" });
     expect(await region.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
@@ -149,7 +154,7 @@ test("in a very short window the hint points up to the end it passed", async ({ 
   const card = confirmCard(panel);
   await askInput(panel).fill("please write");
   await askInput(panel).press("Enter");
-  await expectDemoCard(panel, "Demo");
+  await expectDemoCard(panel, DEMO);
   const region = card.getByRole("region", { name: "Writes to review" });
   await region.evaluate((el) => { el.scrollTop = el.scrollHeight; });
   const messages = panel.locator(".assistant-messages");
@@ -210,7 +215,7 @@ test("the card shows the current text of the block an update targets", async ({ 
   const panel = await openPanel(page);
   const card = confirmCard(panel);
   const stamp = Date.now();
-  const title = `ApprovalCardTarget${stamp}`;
+  const title = rawTitleOf(`ApprovalCardTarget${stamp}`);
   const uid = `act${stamp}`;
   createdPages.push(title);
   expect((await page.request.post("/api/pages", { data: { title } })).ok()).toBeTruthy();
@@ -239,21 +244,21 @@ test("the card shows the current text of the block an update targets", async ({ 
   await expect(card).toHaveCount(0);
 });
 
-type ServerBlock = { text: string; children: ServerBlock[] };
+type ServerBlock = PagePayload["blocks"][number];
 
 const serverTexts = (blocks: ServerBlock[]): string[] =>
   blocks.flatMap((b) => [b.text, ...serverTexts(b.children)]);
 
 /** Every block text the server holds for page `title`. */
-async function serverPageTexts(page: Page, title: string): Promise<string[]> {
+async function serverPageTexts(page: Page, title: RawTitle): Promise<string[]> {
   const res = await page.request.get(`/api/page/${encodeURIComponent(title)}`);
   if (!res.ok()) return [];
-  return serverTexts(((await res.json()) as { blocks: ServerBlock[] }).blocks);
+  return serverTexts((await serverJson<PagePayload>(res)).blocks);
 }
 
 /** Logs in, makes a page holding one block `uid` with "Shown text.", opens
  * it, and opens the assistant over it. */
-async function openBesideBlock(page: Page, title: string, uid: string): Promise<Locator> {
+async function openBesideBlock(page: Page, title: RawTitle, uid: BlockUid): Promise<Locator> {
   await login(page);
   createdPages.push(title);
   expect((await page.request.post("/api/pages", { data: { title } })).ok()).toBeTruthy();
@@ -275,8 +280,8 @@ async function openBesideBlock(page: Page, title: string, uid: string): Promise<
 // Allow, against this server, so the write lands as the assistant's would
 test("Allow refuses an update to a block edited after the card showed it", async ({ page }) => {
   const stamp = Date.now();
-  const title = `ApprovalGuard${stamp}`;
-  const panel = await openBesideBlock(page, title, `ag${stamp}`);
+  const title = rawTitleOf(`ApprovalGuard${stamp}`);
+  const panel = await openBesideBlock(page, title, uidOf(`ag${stamp}`));
 
   await askInput(panel).fill(`please update ag${stamp}`);
   await askInput(panel).press("Enter");
@@ -304,8 +309,8 @@ test("Allow refuses an update to a block edited after the card showed it", async
 
 test("Allow applies an update to an unchanged block", async ({ page }) => {
   const stamp = Date.now();
-  const title = `ApprovalGuard${stamp}`;
-  const panel = await openBesideBlock(page, title, `ag${stamp}`);
+  const title = rawTitleOf(`ApprovalGuard${stamp}`);
+  const panel = await openBesideBlock(page, title, uidOf(`ag${stamp}`));
 
   await askInput(panel).fill(`please update ag${stamp}`);
   await askInput(panel).press("Enter");
@@ -321,8 +326,8 @@ test("Allow applies an update to an unchanged block", async ({ page }) => {
 
 test("the panel shows a refused Allow whatever the reply says", async ({ page }) => {
   const stamp = Date.now();
-  const title = `ApprovalShown${stamp}`;
-  const panel = await openBesideBlock(page, title, `as${stamp}`);
+  const title = rawTitleOf(`ApprovalShown${stamp}`);
+  const panel = await openBesideBlock(page, title, uidOf(`as${stamp}`));
 
   await askInput(panel).fill(`please misreport update as${stamp}`);
   await askInput(panel).press("Enter");

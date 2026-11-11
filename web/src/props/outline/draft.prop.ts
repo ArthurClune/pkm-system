@@ -13,9 +13,9 @@
 // and splits nothing while any other Enter splits.
 //
 // A failure prints the seed, the path, the shrunk example and a replay line.
-import fc from "fast-check";
 import { test } from "vitest";
-import { PATH, SEED } from "../env";
+import { checkGateProperty, EXAMPLES } from "../gate";
+import { bump, type Reach, type Tally } from "../reach";
 import { captureFaultWarnings } from "../warningsCapture";
 import { runDraftExample } from "./draftHarness";
 import { draftExampleArb, type DraftExample } from "./draftModel";
@@ -26,63 +26,60 @@ captureFaultWarnings("outline draft");
  * alone, clean runs measured about 215 examples a second, each rendering the
  * editor afresh. */
 export const NUM_RUNS = 3_500;
-/** The whole property, shrinking included; see outline.prop.ts for how a cut
- * off reads. */
 const PROPERTY_LIMIT_MS = 45_000;
 
-function report(details: fc.RunDetails<[DraftExample]>): string {
-  const counterexample = details.counterexample;
-  const shown = counterexample === null ? "none"
-    : `start ${JSON.stringify(counterexample[0].start)}\ncommands\n${
-      counterexample[0].commands.map((c, i) => `  ${i} ${JSON.stringify(c)}`).join("\n")}`;
-  const error = details.errorInstance instanceof Error
-    ? details.errorInstance.message : String(details.errorInstance);
-  return [
-    `outline draft property failed after ${details.numRuns} runs and ` +
-      `${details.numShrinks} shrinks` +
-      (details.interrupted ? " (shrinking cut off at the time limit: the" +
-                             " smallest counterexample so far)" : ""),
-    `seed: ${details.seed}`,
-    `path: ${details.counterexamplePath ?? "none"}`,
-    `counterexample: ${shown}`,
-    `error: ${error}`,
-    `replay: proptest/check.sh web --seed ${details.seed}` +
-      (details.counterexamplePath ? ` --path '${details.counterexamplePath}'` : "") +
-      " --file outline/draft.prop.ts",
-  ].join("\n");
-}
+const tally: Tally = new Map();
+/** Where each label must stay above its share of EXAMPLES. */
+const REACH: Reach = {
+  per: EXAMPLES,
+  // Floors: half the lowest share over 30 unseeded gate runs, 2026-11-10.
+  // No floor, under ten in some run, so half of it is noise:
+  //   "Enter-229-late"
+  floors: {
+    "Enter-229-unowned": 0.037,
+    "Enter-right-after-end": 0.002,
+    "Escape-229-late": 0.001,
+    "Escape-229-unowned": 0.035,
+    "Escape-right-after-end": 0.002,
+    "compose-end": 0.055,
+    "compose-end-adopts": 0.006,
+    "conflict": 0.022,
+    "debounce-flush": 0.035,
+    "enter-splits": 0.064,
+    "erase-to-base": 0.011,
+    "flush-sends-nothing": 0.014,
+    "flush-then-splice": 0.042,
+    "ime-Enter-after-end": 0.004,
+    "ime-Enter-composing": 0.018,
+    "ime-Enter-flagged": 0.021,
+    "ime-Escape-after-end": 0.004,
+    "ime-Escape-composing": 0.018,
+    "ime-Escape-flagged": 0.021,
+    "remote-under-draft": 0.046,
+    "remote-while-composing": 0.023,
+    "replay-under-draft": 0.045,
+    "replay-while-composing": 0.024,
+    "skip": 0.762,
+    "splice-over-unsent-draft": 0.003,
+    "typed-over-held-text": 0.014,
+    "undo-applied": 0.043,
+    "undo-over-draft": 0.035,
+    "undo-while-composing": 0.024,
+  },
+};
+
+const show = ([example]: [DraftExample]): string =>
+  `counterexample: start ${JSON.stringify(example.start)}\ncommands\n${
+    example.commands.map((c, i) => `  ${i} ${JSON.stringify(c)}`).join("\n")}`;
 
 test("outline draft property", async () => {
-  const tally = new Map<string, number>();
-  const details = await fc.check(fc.asyncProperty(draftExampleArb,
-    async (example) => {
+  await checkGateProperty({
+    suite: "outline draft property", file: "outline/draft.prop.ts", arbs: [draftExampleArb],
+    predicate: async (example: DraftExample) => {
       const run = await runDraftExample(example);
-      for (const label of run.labels) {
-        tally.set(label, (tally.get(label) ?? 0) + 1);
-      }
+      for (const label of run.labels) bump(tally, label);
       if (run.problems.length > 0) throw new Error(run.problems.join("\n"));
-    }), {
-    numRuns: NUM_RUNS, seed: SEED, path: PATH,
-    interruptAfterTimeLimit: PROPERTY_LIMIT_MS, markInterruptAsFailure: false,
+    },
+    numRuns: NUM_RUNS, limitMs: PROPERTY_LIMIT_MS, show, tally, reach: REACH,
   });
-  console.log(`outline draft tally after ${details.numRuns} runs: ${
-    [...tally].sort(([a], [b]) => a.localeCompare(b))
-      .map(([label, n]) => `${label}=${n}`).join(" ")}`);
-  if (details.failed && details.counterexample !== null) {
-    const text = report(details);
-    console.error(text);
-    throw new Error(text);
-  }
-  if (details.interrupted) {
-    const text = `outline draft property ran out of its time budget after ` +
-      `${details.numRuns} of ${NUM_RUNS} runs (no failure found): a budget ` +
-      `problem, not a finding\nseed: ${details.seed}`;
-    console.error(text);
-    throw new Error(text);
-  }
-  if (details.failed) {
-    const text = report(details);
-    console.error(text);
-    throw new Error(text);
-  }
 });

@@ -845,7 +845,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       await bootstrap(init.pendingBatches);
     }
     started = true;
-    // Read by web/tooling/perf/check.mjs to time replica readiness.
+    // Read by web/tooling/perf/check.ts to time replica readiness.
     performance.mark?.("pkm:replica-ready");
     // Clears the failures and any retry a failed start left behind.
     noteSuccess({ force: true });

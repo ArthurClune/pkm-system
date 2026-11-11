@@ -1,9 +1,11 @@
 // Drives the real flat ESLint config (web/eslint.config.js) over the
 // eslint-fixtures with `ignore: false` (the fixtures are globally ignored so
 // `pnpm lint` never trips on their intentional violations). Each bad fixture
-// must report its named rule; each corrected variant must be diagnostic-free.
+// must report its named rule; each `x.bad.ts` has an `x.ok.ts` beside it that
+// must be diagnostic-free.
 // This is the executable proof that the config enforces exactly the rules the
 // task promises -- not that some broader recommended set happens to fire.
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ESLint } from "eslint";
@@ -13,11 +15,13 @@ import {
   isTestCode,
   pathMatcher,
   repoPath,
-} from "./eslint-plugin-brands/index.mjs";
+} from "./eslint-plugin-brands/index.ts";
 
 const toolingDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = dirname(toolingDir);
 const fixturesDir = join(toolingDir, "eslint-fixtures");
+
+const okName = (bad: string): string => bad.replace(/\.bad(\.tsx?)$/, ".ok$1");
 
 function makeLinter(): ESLint {
   // cwd = web root so eslint.config.js is discovered; ignore:false so the
@@ -28,12 +32,11 @@ function makeLinter(): ESLint {
 interface FixtureCase {
   file: string;
   rule: string;
-  corrected: string;
   // Exact number of diagnostics the bad fixture reports for `rule`, when
   // the fixture carries several cases of it.
   count?: number;
-  // A web-root path to lint `corrected` as, when the fixture's own location
-  // forbids what the corrected text needs (importing the test helpers).
+  // A web-root path to lint the `.ok` file's text as, when its own location
+  // forbids what it needs (importing the test helpers).
   correctedAs?: string;
   // Text each message of `rule` must contain, in order, from the first.
   messages?: string[][];
@@ -41,555 +44,146 @@ interface FixtureCase {
 
 const cases: readonly FixtureCase[] = [
   {
-    file: "missing-hook-dependency.tsx",
+    file: "missing-hook-dependency.bad.tsx",
     rule: "react-hooks/exhaustive-deps",
-    corrected:
-      'import { useEffect, useState } from "react";\n' +
-      "export function Counter({ start }: { start: number }) {\n" +
-      "  const [count, setCount] = useState(start);\n" +
-      "  useEffect(() => {\n" +
-      "    setCount(start);\n" +
-      "  }, [start]);\n" +
-      "  return <span>{count}</span>;\n" +
-      "}\n",
   },
   {
-    file: "floating-promise.ts",
+    file: "floating-promise.bad.ts",
     rule: "@typescript-eslint/no-floating-promises",
-    corrected:
-      "async function persist(): Promise<void> {}\n" +
-      "export function run(): void {\n" +
-      "  void persist();\n" +
-      "}\n",
   },
   {
-    file: "misused-promise.tsx",
+    file: "misused-promise.bad.tsx",
     rule: "@typescript-eslint/no-misused-promises",
-    corrected:
-      "async function save(): Promise<void> {}\n" +
-      "export function SaveButton() {\n" +
-      "  return <button onClick={() => void save()}>Save</button>;\n" +
-      "}\n",
   },
   {
-    file: "string-throw.ts",
+    file: "string-throw.bad.ts",
     rule: "@typescript-eslint/only-throw-error",
-    corrected:
-      "export function boom(): void {\n" +
-      '  throw new Error("boom");\n' +
-      "}\n",
   },
   {
-    file: "unsafe-catch.ts",
+    file: "unsafe-catch.bad.ts",
     rule: "@typescript-eslint/use-unknown-in-catch-callback-variable",
-    corrected:
-      "export function run(p: Promise<number>): void {\n" +
-      "  p.then((n) => n).catch((err: unknown) => {\n" +
-      "    console.log(err);\n" +
-      "  });\n" +
-      "}\n",
   },
   {
-    file: "restricted-api-fetch.ts",
+    file: "restricted-api-fetch.bad.ts",
     rule: "no-restricted-imports",
-    corrected:
-      'import { apiGet } from "../../src/api/typedClient";\n' +
-      "export function load() {\n" +
-      '  return apiGet("/api/current-work");\n' +
-      "}\n",
   },
   {
-    file: "select-keys-literal.ts",
-    rule: "brands/select-keys-literal",
+    file: "select-keys-literal.bad.ts",
+    rule: "repo/select-keys-literal",
     count: 10,
-    corrected:
-      'import type { Columns } from "../../src/replica/columns.gen";\n' +
-      'import type { ReplicaDb } from "../../src/replica/db";\n' +
-      "export function load(db: ReplicaDb) {\n" +
-      '  return db.select("SELECT uid FROM blocks", ["uid"]);\n' +
-      "}\n" +
-      "// A select implementation passes its generic K through unchanged.\n" +
-      "export const wrapped = (db: ReplicaDb): ReplicaDb => ({\n" +
-      "  ...db,\n" +
-      "  select<const K extends keyof Columns>(\n" +
-      "    sql: string, keys: readonly [K, ...K[]],\n" +
-      "  ) {\n" +
-      "    return db.select(sql, keys);\n" +
-      "  },\n" +
-      "});\n" +
-      "export const viaProperty = (db: ReplicaDb) => ({\n" +
-      "  select: <K extends keyof Columns>(sql: string, keys: K[]) =>\n" +
-      "    db.select(sql, keys),\n" +
-      "});\n" +
-      "export class Wrapper {\n" +
-      "  constructor(private db: ReplicaDb) {}\n" +
-      "  select<const K extends keyof Columns>(\n" +
-      "    sql: string, keys: readonly [K, ...K[]],\n" +
-      "  ) {\n" +
-      "    return this.db.select(sql, keys);\n" +
-      "  }\n" +
-      "}\n" +
-      "// Only ReplicaDb's select is governed.\n" +
-      "export const other = {\n" +
-      "  select: (sql: string, keys: string[]) => [sql, keys],\n" +
-      "};\n" +
-      'export const run = (ks: string[]) => other.select("x", ks);\n',
   },
   {
-    file: "explicit-any.ts",
+    file: "explicit-any.bad.ts",
     rule: "@typescript-eslint/no-explicit-any",
-    corrected:
-      "export function show(value: unknown): string {\n" +
-      "  return String(value);\n" +
-      "}\n",
   },
   {
-    file: "unsafe-assignment.ts",
+    file: "unsafe-assignment.bad.ts",
     rule: "@typescript-eslint/no-unsafe-assignment",
-    corrected:
-      "export function isNull(s: string): boolean {\n" +
-      "  const v: unknown = JSON.parse(s);\n" +
-      "  return v === null;\n" +
-      "}\n",
   },
   {
-    file: "unsafe-member-access.ts",
+    file: "unsafe-member-access.bad.ts",
     rule: "@typescript-eslint/no-unsafe-member-access",
-    corrected:
-      "export function idOf(s: string): unknown {\n" +
-      "  const v: unknown = JSON.parse(s);\n" +
-      '  if (typeof v === "object" && v !== null && "id" in v) return v.id;\n' +
-      "  return undefined;\n" +
-      "}\n",
   },
   {
-    file: "unsafe-return.ts",
+    file: "unsafe-return.bad.ts",
     rule: "@typescript-eslint/no-unsafe-return",
-    corrected:
-      "export function load(s: string): string[] {\n" +
-      "  const v: unknown = JSON.parse(s);\n" +
-      "  if (!Array.isArray(v)) return [];\n" +
-      '  return v.filter((x): x is string => typeof x === "string");\n' +
-      "}\n",
   },
   {
-    file: "unsafe-argument.ts",
+    file: "unsafe-argument.bad.ts",
     rule: "@typescript-eslint/no-unsafe-argument",
-    corrected:
-      "function take(n: number): number {\n" +
-      "  return n;\n" +
-      "}\n" +
-      "export function run(s: string): number {\n" +
-      "  const v: unknown = JSON.parse(s);\n" +
-      '  return typeof v === "number" ? take(v) : 0;\n' +
-      "}\n",
   },
   {
-    file: "unsafe-call.ts",
+    file: "unsafe-call.bad.ts",
     rule: "@typescript-eslint/no-unsafe-call",
-    corrected:
-      "export function run(s: string): unknown {\n" +
-      "  const v: unknown = JSON.parse(s);\n" +
-      '  return typeof v === "function" ? v.name : undefined;\n' +
-      "}\n",
   },
   {
-    file: "brand-name.ts",
+    file: "brand-name.bad.ts",
     rule: "brands/name-carries-brand",
     count: 2,
-    corrected:
-      'import type { BlockUid, PageId } from "../../src/api/brands";\n' +
-      "export function lookup(uid: BlockUid): BlockUid {\n" +
-      "  return uid;\n" +
-      "}\n" +
-      "export interface Row {\n" +
-      "  pageId: PageId;\n" +
-      "}\n",
   },
   {
-    file: "brand-assertion.ts",
+    file: "brand-assertion.bad.ts",
     rule: "brands/no-brand-assertion",
     count: 3,
-    corrected:
-      'import type { BlockUid } from "../../src/api/brands";\n' +
-      'import { parseBlockUid } from "../../src/ids";\n' +
-      "export function direct(x: string): BlockUid | null {\n" +
-      "  return parseBlockUid(x);\n" +
-      "}\n",
   },
   {
-    file: "brand-assertion-structural.ts",
+    file: "brand-assertion-structural.bad.ts",
     rule: "brands/no-brand-assertion",
     count: 2,
-    corrected:
-      'import type { BatchId, BlockUid } from "../../src/api/brands";\n' +
-      "interface PendingOp {\n" +
-      "  batch_id: BatchId;\n" +
-      "}\n" +
-      "export function rowsOf(rows: { uid: BlockUid }[]): BlockUid[] {\n" +
-      "  return rows.map((r) => r.uid);\n" +
-      "}\n" +
-      "export function opOf(s: string): unknown {\n" +
-      "  const v: unknown = JSON.parse(s);\n" +
-      "  return v;\n" +
-      "}\n",
   },
   {
-    file: "brand-opt-out-outside-boundary.ts",
+    file: "brand-opt-out-outside-boundary.bad.ts",
     rule: "brands/name-carries-brand",
     count: 1,
-    corrected:
-      'import type { BlockUid } from "../../src/api/brands";\n' +
-      "export function lookup(uid: BlockUid): BlockUid {\n" +
-      "  return uid;\n" +
-      "}\n",
   },
   {
-    file: "brand-assertion-mapped.ts",
+    file: "brand-assertion-mapped.bad.ts",
     rule: "brands/no-brand-assertion",
     count: 8,
-    corrected:
-      'import type { BlockUid } from "../../src/api/brands";\n' +
-      "export function keep(v: Record<string, BlockUid>): unknown {\n" +
-      "  return v;\n" +
-      "}\n",
   },
   {
-    file: "brand-name-titles.ts",
+    file: "brand-name-titles.bad.ts",
     rule: "brands/name-carries-brand",
     count: 2,
-    corrected:
-      "import type {\n" +
-      "  CanonicalTitle,\n" +
-      "  NormalizedTitle,\n" +
-      "  RawTitle,\n" +
-      '} from "../../src/api/brands";\n' +
-      "export function wire(pageTitle: NormalizedTitle): void {\n" +
-      "  void pageTitle;\n" +
-      "}\n" +
-      "export function raw(rawTitle: RawTitle): void {\n" +
-      "  void rawTitle;\n" +
-      "}\n" +
-      "export function normalized(normalizedTitle: NormalizedTitle): void {\n" +
-      "  void normalizedTitle;\n" +
-      "}\n" +
-      "export function canonical(canonicalTitle: CanonicalTitle): void {\n" +
-      "  void canonicalTitle;\n" +
-      "}\n",
   },
   {
-    file: "brand-name-bare-title.ts",
+    file: "brand-name-bare-title.bad.ts",
     rule: "brands/name-carries-brand",
     count: 2,
-    corrected:
-      'import type { CanonicalTitle, RawTitle } from "../../src/api/brands";\n' +
-      "export function bare(title: CanonicalTitle): void {\n" +
-      "  void title;\n" +
-      "}\n" +
-      "export const names: RawTitle[] = [];\n" +
-      "names.forEach((title) => {\n" +
-      "  void title;\n" +
-      "});\n" +
-      "export function ok<T extends RawTitle>(title: T): void {\n" +
-      "  void title;\n" +
-      "}\n",
   },
   {
-    file: "brand-name-shallow.ts",
+    file: "brand-name-shallow.bad.ts",
     rule: "brands/name-carries-brand",
     count: 5,
-    corrected:
-      'import type { BlockUid } from "../../src/api/brands";\n' +
-      "export function a(uid: BlockUid | null): void {\n" +
-      "  void uid;\n" +
-      "}\n" +
-      "export function b(uids: readonly BlockUid[]): void {\n" +
-      "  void uids;\n" +
-      "}\n" +
-      "export function c(uids: BlockUid[] | undefined): void {\n" +
-      "  void uids;\n" +
-      "}\n" +
-      "export function d(uids: ReadonlySet<BlockUid>): void {\n" +
-      "  void uids;\n" +
-      "}\n" +
-      "export function e(uid: Map<BlockUid, string>): void {\n" +
-      "  void uid;\n" +
-      "}\n" +
-      "export function f(uid: Record<BlockUid, string>): void {\n" +
-      "  void uid;\n" +
-      "}\n",
   },
   {
-    file: "brand-assertion-generic.ts",
+    file: "brand-assertion-generic.bad.ts",
     rule: "brands/no-brand-assertion",
     count: 4,
-    corrected:
-      'import type { BlockUid, PageId } from "../../src/api/brands";\n' +
-      "export function pick<T extends BlockUid | PageId>(x: T): T {\n" +
-      "  return x;\n" +
-      "}\n",
   },
   {
-    file: "brand-predicate.ts",
+    file: "brand-predicate.bad.ts",
     rule: "brands/no-brand-assertion",
     count: 4,
-    corrected:
-      'import type { BlockUid } from "../../src/api/brands";\n' +
-      'import { parseBlockUid } from "../../src/ids";\n' +
-      "export function parse(x: string): BlockUid | null {\n" +
-      "  return parseBlockUid(x);\n" +
-      "}\n",
   },
   {
-    file: "brand-predicate-launder.ts",
+    file: "brand-predicate-launder.bad.ts",
     rule: "brands/no-brand-assertion",
     count: 22,
-    corrected:
-      'import type { BlockUid } from "../../src/api/brands";\n' +
-      'type Op = { op: "insert"; uid: BlockUid } | { op: "note"; n: 1 };\n' +
-      "export function present(x: BlockUid | null): x is BlockUid {\n" +
-      "  return x !== null;\n" +
-      "}\n" +
-      "export function assertPresent(\n" +
-      "  x: BlockUid | undefined,\n" +
-      "): asserts x is BlockUid {\n" +
-      "  void x;\n" +
-      "}\n" +
-      "export function isInsert(\n" +
-      "  x: Op,\n" +
-      '): x is { op: "insert"; uid: BlockUid } {\n' +
-      '  return x.op === "insert";\n' +
-      "}\n" +
-      "export function levelled(\n" +
-      "  x: { uid: BlockUid; level: number | null },\n" +
-      "): x is { uid: BlockUid; level: number } {\n" +
-      "  return x.level !== null;\n" +
-      "}\n" +
-      "export function listed(x: BlockUid[] | null): x is BlockUid[] {\n" +
-      "  return x !== null;\n" +
-      "}\n" +
-      "export function mutable(x: readonly BlockUid[]): x is BlockUid[] {\n" +
-      "  return Array.isArray(x);\n" +
-      "}\n" +
-      "export function notText(\n" +
-      "  x: string | { uid: BlockUid },\n" +
-      "): x is { uid: BlockUid } {\n" +
-      '  return typeof x !== "string";\n' +
-      "}\n" +
-      "export function many(x: string | BlockUid[]): x is BlockUid[] {\n" +
-      "  return Array.isArray(x);\n" +
-      "}\n" +
-      "export class Index<K, V> extends Map<K, V> {\n" +
-      "  tag = 1;\n" +
-      "}\n" +
-      "export function isIndex(\n" +
-      "  x: Map<BlockUid, number> | null,\n" +
-      "): x is Index<BlockUid, number> {\n" +
-      "  return x instanceof Index;\n" +
-      "}\n" +
-      "export class Sorted<K, V> extends Index<K, V> {\n" +
-      "  sorted = true;\n" +
-      "}\n" +
-      "export function isSorted(\n" +
-      "  x: Map<BlockUid, number> | null,\n" +
-      "): x is Sorted<BlockUid, number> {\n" +
-      "  return x instanceof Sorted;\n" +
-      "}\n" +
-      "export function isReadIndex(\n" +
-      "  x: ReadonlyMap<BlockUid, number> | null,\n" +
-      "): x is Index<BlockUid, number> {\n" +
-      "  return x instanceof Index;\n" +
-      "}\n" +
-      "export function counted(\n" +
-      "  x: { uid: BlockUid },\n" +
-      "): x is { uid: BlockUid; n?: number } {\n" +
-      "  return \"n\" in x;\n" +
-      "}\n" +
-      "export function notNull<T>(x: T | null | undefined): x is T {\n" +
-      "  return x != null;\n" +
-      "}\n" +
-      "export function isDefined<T>(x: T): x is NonNullable<T> {\n" +
-      "  return x != null;\n" +
-      "}\n" +
-      "export function compact<T>(xs: readonly (T | null)[]): T[] {\n" +
-      "  return xs.filter((x): x is T => x !== null);\n" +
-      "}\n" +
-      "export function assertPresentOf<T>(x: T | undefined): asserts x is T {\n" +
-      "  if (x === undefined) throw new Error(\"absent\");\n" +
-      "}\n",
   },
   {
-    file: "brand-overload.ts",
+    file: "brand-overload.bad.ts",
     rule: "brands/no-brand-assertion",
     count: 19,
-    corrected:
-      'import type { BlockUid } from "../../src/api/brands";\n' +
-      "export function same(x: BlockUid): BlockUid;\n" +
-      "export function same(x: null): null;\n" +
-      "export function same(x: BlockUid | null): BlockUid | null {\n" +
-      "  return x;\n" +
-      "}\n" +
-      "export class Keeper {\n" +
-      "  keep(x: BlockUid): BlockUid;\n" +
-      "  keep(x: BlockUid | null): BlockUid | null {\n" +
-      "    return x;\n" +
-      "  }\n" +
-      "}\n" +
-      "export class Index<K, V> extends Map<K, V> {\n" +
-      "  tag = 1;\n" +
-      "}\n" +
-      "export function indexOf(m: Map<BlockUid, number>): Index<BlockUid, number>;\n" +
-      "export function indexOf(m: Map<BlockUid, number>): Map<BlockUid, number> {\n" +
-      "  return m;\n" +
-      "}\n" +
-      "export function tagged(x: BlockUid): Promise<BlockUid> & { t: 1 };\n" +
-      "export function tagged(x: BlockUid): Promise<BlockUid> & { t: 1 } {\n" +
-      "  return Object.assign(Promise.resolve(x), { t: 1 as const });\n" +
-      "}\n" +
-      "export function first<T>(xs: readonly T[]): T | undefined {\n" +
-      "  return xs[0];\n" +
-      "}\n" +
-      "export function pick<T>(x: T, label?: string): T {\n" +
-      "  void label;\n" +
-      "  return x;\n" +
-      "}\n" +
-      "export function firstOf<T>(xs: readonly T[]): T | undefined {\n" +
-      "  return xs[0];\n" +
-      "}\n",
   },
   {
-    file: "brand-assertion-launder.ts",
+    file: "brand-assertion-launder.bad.ts",
     rule: "brands/no-brand-assertion",
     count: 19,
-    corrected:
-      'import type { BlockUid, PageId } from "../../src/api/brands";\n' +
-      "export function pick<T extends BlockUid | PageId>(x: T): T {\n" +
-      "  return x;\n" +
-      "}\n" +
-      'export function mode(k: string): "a" | "b" | null {\n' +
-      '  return k === "a" || k === "b" ? k : null;\n' +
-      "}\n" +
-      'export const modes = ["a", "b"] as const;\n' +
-      "export function frozen<T>(xs: T[]): readonly T[] {\n" +
-      "  const ys: readonly T[] = xs;\n" +
-      "  return ys;\n" +
-      "}\n" +
-      "export function none<T>(): T[] {\n" +
-      "  const xs: T[] = [];\n" +
-      "  return xs;\n" +
-      "}\n" +
-      "interface Shape {\n" +
-      "  a: number;\n" +
-      "  b: string;\n" +
-      "}\n" +
-      "export const field = (f: string) => f as keyof Shape;\n",
   },
   {
-    file: "brand-assertion-optional.ts",
+    file: "brand-assertion-optional.bad.ts",
     rule: "brands/no-brand-assertion",
     count: 14,
-    corrected:
-      'import type { BlockUid } from "../../src/api/brands";\n' +
-      "export function frozen(xs: BlockUid[]): readonly BlockUid[] {\n" +
-      "  const ys: readonly BlockUid[] = xs;\n" +
-      "  return ys;\n" +
-      "}\n" +
-      "export function maybe<T>(x: T): T | undefined {\n" +
-      "  const y: T | undefined = x;\n" +
-      "  return y;\n" +
-      "}\n" +
-      "export const none = (): BlockUid[] => [];\n" +
-      "export function counts(): Record<BlockUid, number> {\n" +
-      "  const r: Record<BlockUid, number> = {};\n" +
-      "  return r;\n" +
-      "}\n" +
-      "export function start<T>(): Partial<T> {\n" +
-      "  const p: Partial<T> = {};\n" +
-      "  return p;\n" +
-      "}\n" +
-      "interface Row {\n" +
-      "  uid: BlockUid;\n" +
-      "  n: number;\n" +
-      "}\n" +
-      "export function picked<K extends keyof Row>(r: Row): Pick<Row, K> {\n" +
-      "  const p: Pick<Row, K> = r;\n" +
-      "  return p;\n" +
-      "}\n" +
-      "export function frozenPartial<T>(t: T): Partial<Readonly<T>> {\n" +
-      "  const p: Partial<Readonly<T>> = t;\n" +
-      "  return p;\n" +
-      "}\n" +
-      "export function narrower<T, U extends T>(u: U): Partial<T> {\n" +
-      "  const p: Partial<T> = u;\n" +
-      "  return p;\n" +
-      "}\n" +
-      "export function numbered(\n" +
-      "  x: Record<string, BlockUid>,\n" +
-      "): { [i: number]: BlockUid } {\n" +
-      "  const n: { [i: number]: BlockUid } = x;\n" +
-      "  return n;\n" +
-      "}\n",
   },
   {
-    file: "brand-name-positions.ts",
+    file: "brand-name-positions.bad.ts",
     rule: "brands/name-carries-brand",
     count: 9,
-    corrected:
-      'import type { BlockUid } from "../../src/api/brands";\n' +
-      "export type Handler = (uid: BlockUid) => void;\n" +
-      "export class Holder {\n" +
-      "  constructor(private readonly uid: BlockUid) {}\n" +
-      "}\n" +
-      "export function rest(...uids: BlockUid[]): void {\n" +
-      "  void uids;\n" +
-      "}\n" +
-      "export interface Callable {\n" +
-      "  (uid: BlockUid): void;\n" +
-      "  new (uid: BlockUid): object;\n" +
-      "}\n",
   },
   {
-    file: "brand-bypass.ts",
+    file: "brand-bypass.bad.ts",
     rule: "brands/no-brand-bypass",
     count: 23,
-    corrected:
-      'import type { BlockUid } from "../../src/api/brands";\n' +
-      "export function call(f: (uid: BlockUid) => void, uid: BlockUid): void {\n" +
-      "  f(uid);\n" +
-      "  f.call(undefined, uid);\n" +
-      "}\n" +
-      "interface Row {\n  uid: BlockUid;\n  text: string;\n}\n" +
-      "export function write(row: Row): void {\n" +
-      '  Object.assign(row, { text: "t" });\n' +
-      '  Object.defineProperty(row, "text", { value: "t" });\n' +
-      '  Object.defineProperties(row, { text: { value: "t" } });\n' +
-      "}\n" +
-      "export function dynamic(o: object, key: string): void {\n" +
-      "  Object.defineProperty(o, key, { value: 1 });\n" +
-      "}\n" +
-      "export function branded(row: Row, uid: BlockUid, other: Row): void {\n" +
-      "  Object.assign(row, { uid });\n" +
-      "  Object.assign({}, other);\n" +
-      "  Object.defineProperty(row, \"uid\", { value: uid });\n" +
-      "  Reflect.set(row, \"uid\", uid);\n" +
-      "}\n" +
-      "export const sameKind = (x: unknown) => x instanceof Object;\n",
   },
   {
-    file: "ts-expect-error-in-probe.ts",
-    rule: "brands/ts-expect-error-in-probe",
+    file: "ts-expect-error-in-probe.bad.ts",
+    rule: "repo/ts-expect-error-in-probe",
     count: 6,
     correctedAs: "src/paths.test.ts",
-    corrected:
-      'import { typeProbe } from "./test-helpers";\n' +
-      "typeProbe(() => {\n" +
-      "  // @ts-expect-error -- a string where a number goes\n" +
-      '  const n: number = "x";\n' +
-      "  return n;\n" +
-      "});\n",
   },
   {
-    file: "off-type-brand.ts",
+    file: "off-type-brand.bad.ts",
     rule: "brands/no-brand-assertion",
     count: 14,
     // a brand with a malformed helper names it; one without asks for one
@@ -598,123 +192,36 @@ const cases: readonly FixtureCase[] = [
       ["`uid`", "malformedUid"],
     ],
     correctedAs: "src/paths.test.ts",
-    corrected:
-      'import type { BlockUid } from "./api/brands";\n' +
-      'import type { SyncProblem } from "./sync/syncState";\n' +
-      'import { offType, uidOf } from "./test-helpers";\n' +
-      'export const d = uidOf("tuid-a");\n' +
-      'export const e = offType<{ uid: BlockUid }>({ uid: uidOf("tuid-a") });\n' +
-      "export const f = offType<{ w: { uid: BlockUid } }>(\n" +
-      '  { w: { uid: uidOf("tuid-a") } });\n' +
-      "const typed = { uid: uidOf(\"tuid-a\"), note: 1 };\n" +
-      "export const g = offType<{ uid: BlockUid }>(typed);\n" +
-      // a library type with a `digest` method is not walked
-      "export const h = offType<unknown>(crypto.subtle);\n" +
-      'export const a = offType<SyncProblem>({ kind: "brand-new" });\n' +
-      'export const b = offType<{ label: string }>({ label: 1 });\n' +
-      "export const c: unknown = offType(3);\n",
   },
   {
-    file: "restricted-test-code-import.ts",
+    file: "restricted-test-code-import.bad.ts",
     rule: "no-restricted-imports",
     count: 2,
-    corrected:
-      'import { apiGet } from "../../src/api/typedClient";\n' +
-      "export const load = () => apiGet(\"/api/current-work\");\n",
   },
   {
-    file: "restricted-test-code-import.ts",
+    file: "restricted-test-code-import.bad.ts",
     rule: "no-restricted-syntax",
     count: 3,
-    corrected:
-      'export const load = () => import("../../src/api/typedClient");\n' +
-      "export const named = (name: string) => import(`../../src/${name}`);\n",
   },
   {
-    file: "brand-ambient.ts",
+    file: "brand-ambient.bad.ts",
     rule: "brands/no-brand-assertion",
     count: 9,
-    corrected:
-      "declare global {\n" +
-      "  var ambientName: string;\n" +
-      "  function ambientFn(): string;\n" +
-      "}\n" +
-      "declare namespace Ns {\n" +
-      "  const inner: string;\n" +
-      "  function innerFn(): string;\n" +
-      "  class Inner {\n" +
-      "    label: string;\n" +
-      "    make(): string;\n" +
-      "  }\n" +
-      "}\n" +
-      "export class Fields {\n" +
-      "  declare label: string;\n" +
-      "}\n" +
-      "export declare class Ambient {\n" +
-      "  label: string;\n" +
-      "  make(): string;\n" +
-      "}\n" +
-      "export { Ns };\n",
   },
   {
-    file: "brand-assertion-function.ts",
+    file: "brand-assertion-function.bad.ts",
     rule: "brands/no-brand-assertion",
     count: 8,
-    corrected:
-      "export const asFn = (f: unknown) => f as (s: string) => string;\n" +
-      "export const asNew = (f: unknown) => f as new (s: string) => string;\n" +
-      "export const asProp = (f: unknown) => f as { make(): string };\n" +
-      "// A type parameter a parameter mentions is the caller's own value.\n" +
-      "export const asTied = (f: unknown) => f as { run<T>(fn: () => T): T };\n" +
-      "// A function that returns `never` does not come back.\n" +
-      "export const asNever = (f: unknown) => f as () => Promise<never>;\n",
   },
   {
-    file: "brand-merge.ts",
+    file: "brand-merge.bad.ts",
     rule: "brands/no-brand-assertion",
     count: 3,
-    corrected:
-      'import type { BlockUid } from "../../src/api/brands";\n' +
-      "export class Q {}\n" +
-      "export interface Q {\n" +
-      "  label: string;\n" +
-      "}\n" +
-      "export class Maker {\n" +
-      "  make(): BlockUid | null {\n" +
-      "    return null;\n" +
-      "  }\n" +
-      "}\n" +
-      "export interface Maker {\n" +
-      "  make(): BlockUid;\n" +
-      "}\n" +
-      "declare global {\n" +
-      "  interface Window {\n" +
-      "    ambientName: string;\n" +
-      "  }\n" +
-      "}\n",
   },
   {
-    file: "brand-generic-value.ts",
+    file: "brand-generic-value.bad.ts",
     rule: "brands/no-brand-assertion",
     count: 6,
-    corrected:
-      "export const parse = (s: string): unknown => JSON.parse(s) as unknown;\n" +
-      "export function mk(s: string): unknown {\n" +
-      "  return JSON.parse(s) as unknown;\n" +
-      "}\n" +
-      "export function identity<T>(x: T): T {\n" +
-      "  return x;\n" +
-      "}\n" +
-      "export const alias: <T>(x: T) => T = identity;\n" +
-      "export const keep: <T>(x: T) => T = (x) => x;\n" +
-      "interface Reader {\n" +
-      "  get(s: string): unknown;\n" +
-      "}\n" +
-      "export class Impl implements Reader {\n" +
-      "  get(s: string): unknown {\n" +
-      "    return JSON.parse(s) as unknown;\n" +
-      "  }\n" +
-      "}\n",
   },
 ];
 
@@ -726,6 +233,9 @@ const ESLINT_TIMEOUT_MS = 20000;
 describe("eslint flat config", () => {
   it("each bad fixture reports its named rule", async () => {
     const linter = makeLinter();
+    const bad = readdirSync(fixturesDir).filter((f) => f.includes(".bad."));
+    expect(new Set(cases.map((c) => c.file)), "a .bad fixture has no case")
+      .toEqual(new Set(bad));
     for (const c of cases) {
       const results = await linter.lintFiles([join(fixturesDir, c.file)]);
       const ruleIds = results.flatMap((r) => r.messages.map((m) => m.ruleId));
@@ -745,13 +255,19 @@ describe("eslint flat config", () => {
 
   it("each corrected variant is diagnostic-free", async () => {
     const linter = makeLinter();
-    for (const c of cases) {
-      const results = await linter.lintText(c.corrected, {
-        filePath: c.correctedAs === undefined
-          ? join(fixturesDir, c.file) : join(webRoot, c.correctedAs),
-      });
+    const files = [...new Set(cases.map((c) => c.file))];
+    for (const file of files) {
+      const ok = join(fixturesDir, okName(file));
+      expect(existsSync(ok), `${file} has no ${okName(file)}`).toBe(true);
+      const as = cases.find((c) => c.file === file && c.correctedAs)
+        ?.correctedAs;
+      const results = as === undefined
+        ? await linter.lintFiles([ok])
+        : await linter.lintText(readFileSync(ok, "utf8"), {
+          filePath: join(webRoot, as),
+        });
       const messages = results.flatMap((r) => r.messages);
-      expect(messages, `${c.file} messages: ${JSON.stringify(messages)}`)
+      expect(messages, `${file} messages: ${JSON.stringify(messages)}`)
         .toHaveLength(0);
     }
   }, ESLINT_TIMEOUT_MS);
@@ -805,8 +321,8 @@ describe("brands plugin paths", () => {
   });
 
   it("makes the test mint module a mint site for every brand", () => {
-    expect(isMintSite("SyncSeq", "web/src/test-helpers.ts")).toBe(true);
-    expect(isMintSite("ParkedTitle", "web/src/test-helpers.ts")).toBe(true);
+    expect(isMintSite("SyncSeq", "web/src/test-mint.ts")).toBe(true);
+    expect(isMintSite("ParkedTitle", "web/src/test-mint.ts")).toBe(true);
     expect(isMintSite("SyncSeq", "web/src/props/ops/compare.ts")).toBe(false);
   });
 
@@ -1147,7 +663,7 @@ describe("tests under the lint", () => {
       + 'export const u = "x" as BlockUid;\n');
     expect(rulesOf(found)).toEqual(["brands/no-brand-assertion"]);
     expect(found[0].message).toContain("uidOf");
-    expect(found[0].message).toContain("test-helpers");
+    expect(found[0].message).toContain("test-mint");
   }, ESLINT_TIMEOUT_MS);
 
   it("a test file may not widen select's keys", async () => {
@@ -1156,7 +672,7 @@ describe("tests under the lint", () => {
       + "export const f = (db: ReplicaDb, ks: [\"uid\"]) =>\n"
       + '  db.select("SELECT uid FROM blocks", ks);\n';
     const found = await messagesFor("src/paths.test.ts", text);
-    expect(rulesOf(found)).toEqual(["brands/select-keys-literal"]);
+    expect(rulesOf(found)).toEqual(["repo/select-keys-literal"]);
     expect(found[0].message).toContain("array literal of string literals");
   }, ESLINT_TIMEOUT_MS);
 
@@ -1169,7 +685,7 @@ describe("tests under the lint", () => {
     expect(found[0].message).toContain("pageIdOf");
   }, ESLINT_TIMEOUT_MS);
 
-  it("test-helpers.ts may mint every brand", async () => {
+  it("test-mint.ts may mint every brand", async () => {
     // `up` leads from the linted file to src/.
     const text = (up: string): string =>
       `import type { BlockUid, PageId, Sha256Hex, SyncSeq } from "${up}api/brands";\n`
@@ -1181,7 +697,7 @@ describe("tests under the lint", () => {
       + "export const d = (n: number) => n as SyncSeq;\n"
       + "export const e = (n: number) => n as PendingRowId;\n"
       + "export const f = (n: number) => n as RequestId;\n";
-    expect(await messagesFor("src/test-helpers.ts", text("./"))).toEqual([]);
+    expect(await messagesFor("src/test-mint.ts", text("./"))).toEqual([]);
     const outside = await messagesFor("src/props/ops/compare.ts", text("../../"));
     expect(rulesOf(outside)).toEqual(
       Array<string>(6).fill("brands/no-brand-assertion"));
@@ -1201,6 +717,8 @@ describe("tests under the lint", () => {
       'import { uidOf } from "./test-helpers.ts";\nvoid uidOf;\n',
       'import { uidOf } from "../test-helpers.js";\nvoid uidOf;\n',
       'export const load = () => import("../test-helpers");\n',
+      'import { uidOf } from "../test-mint";\nvoid uidOf;\n',
+      'export const load = () => import("./test-mint.ts");\n',
     ];
     const bans = new Set(["no-restricted-imports", "no-restricted-syntax"]);
     const restricted = async (rel: string): Promise<string[]> => {
@@ -1225,6 +743,32 @@ describe("tests under the lint", () => {
     expect(await restricted("src/outline/tree.test.ts")).toEqual([]);
     expect(await restricted("src/props/ops/example.ts")).toEqual([]);
     expect(await restricted("src/replica/testDb.ts")).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("an e2e spec mints from test-mint and may not load test-helpers", async () => {
+    const helpers = await messagesFor("e2e/undo.spec.ts",
+      'import { uidOf } from "../src/test-helpers";\nvoid uidOf;\n');
+    expect(rulesOf(helpers)).toEqual(["no-restricted-imports"]);
+    expect(helpers[0].message).toContain("vitest");
+    expect(await messagesFor("e2e/undo.spec.ts",
+      'import { uidOf } from "../src/test-mint";\nvoid uidOf;\n')).toEqual([]);
+    const named = await messagesFor("e2e/undo.spec.ts",
+      "export function f(uid: string): string {\n  return uid;\n}\n");
+    expect(rulesOf(named)).toEqual(["brands/name-carries-brand"]);
+    expect(named[0].message).toContain("from web/src/test-mint.ts");
+  }, ESLINT_TIMEOUT_MS);
+
+  it("e2e fixtures are not judged as React hooks", async () => {
+    // Playwright names the fixture callback `use`.
+    const rel = "e2e/fixtures.ts";
+    const found = await messagesFor(rel, readFileSync(join(webRoot, rel), "utf8"));
+    expect(found).toEqual([]);
+  }, ESLINT_TIMEOUT_MS);
+
+  it("playwright.config.ts gets the typed rules", async () => {
+    const found = await messagesFor("playwright.config.ts",
+      'export const n: number = JSON.parse("1");\n');
+    expect(rulesOf(found)).toEqual(["@typescript-eslint/no-unsafe-assignment"]);
   }, ESLINT_TIMEOUT_MS);
 
   it("product code may not import the test fixtures, tests may", async () => {
@@ -1258,7 +802,7 @@ describe("tests under the lint", () => {
     expect(rulesOf(found)).toEqual(["brands/no-brand-bypass"]);
     expect(found[0].message).toContain("uidOf");
     // The test mint module may write any brand-named field.
-    expect(await messagesFor("src/test-helpers.ts", text)).toEqual([]);
+    expect(await messagesFor("src/test-mint.ts", text)).toEqual([]);
   }, ESLINT_TIMEOUT_MS);
 
   it("test files keep the apiFetch import ban", async () => {
@@ -1294,7 +838,7 @@ describe("tests under the lint", () => {
     const head = 'import { typeProbe } from "./test-helpers";\n';
     const err = "// @ts-expect-error -- a string where a number goes\n"
       + 'const n: number = "x";\n';
-    const rule = "brands/ts-expect-error-in-probe";
+    const rule = "repo/ts-expect-error-in-probe";
     // this rule's reports alone: an import from the wrong module is also an
     // unsafe call
     const reported = async (text: string): Promise<string[]> =>
@@ -1349,7 +893,7 @@ describe("tests under the lint", () => {
   it("only the exported offType may assert to a type parameter in the test mint module", async () => {
     const offType = "export function offType<T>(value: unknown): T {\n"
       + "  return value as T;\n}\n";
-    expect(await messagesFor("src/test-helpers.ts", offType)).toEqual([]);
+    expect(await messagesFor("src/test-mint.ts", offType)).toEqual([]);
     expect(rulesOf(await messagesFor("src/props/ops/compare.ts", offType)))
       .toEqual(["brands/no-brand-assertion"]);
     // a second helper, a non-exported offType and an arrow are launders
@@ -1359,11 +903,11 @@ describe("tests under the lint", () => {
       + "function offType2<T>(value: unknown): T {\n"
       + "  return value as T;\n}\n"
       + "export const arrow = <T,>(value: unknown): T => value as T;\n";
-    const found = await messagesFor("src/test-helpers.ts", others);
+    const found = await messagesFor("src/test-mint.ts", others);
     expect(rulesOf(found)).toEqual(
       Array<string>(3).fill("brands/no-brand-assertion"));
     expect(found.every((m) => m.message.includes("launders"))).toBe(true);
-    const unexported = await messagesFor("src/test-helpers.ts",
+    const unexported = await messagesFor("src/test-mint.ts",
       "function offType<T>(value: unknown): T {\n"
       + "  return value as T;\n}\nexport { offType as handle };\n");
     expect(rulesOf(unexported)).toEqual(["brands/no-brand-assertion"]);

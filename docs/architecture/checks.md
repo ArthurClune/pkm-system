@@ -13,23 +13,33 @@ convention plus review.
 | Check | Guarantees | Runs | Code | A failure |
 |---|---|---|---|---|
 | commit message | no Claude session URL or `Claude-Session:` trailer | `commit-msg` hook | `.githooks/commit-msg` | [`AGENTS.md` § Git](../../AGENTS.md#git) |
-| comment lint | no bean id, line number or pathless spec pointer in a comment; widths | `pre-commit` hook, pytest, `pnpm verify` (`lint:comments`) | `server/tooling/commentlint` | names rule, file and line |
+| comment lint | no bean id, line number or pathless spec pointer in a comment or in `docs/architecture`; widths | `pre-commit` hook, pytest, `pnpm verify` (`lint:comments`) | `server/tooling/commentlint` | names rule, file and line |
 | regex lint | no Python regex anchors with a bare `$` | as comment lint | `server/tooling/regexlint` | use `\Z` or `fullmatch` |
 | brand lint, server | brands minted only at registered sites; strict models; raw `sqlite3` only in `SQLITE_SITES` | as comment lint | `server/tooling/brandlint` | the message names the remedy |
 | pytest | the server suite passes over `--cov-fail-under` branch coverage | `uv run pytest -q` | `addopts` in `server/pyproject.toml` | |
 | contract tests | generated artifacts are fresh; routes declare a `response_model`; row keys match the DDL; registry paths exist and still mint; the property suite stays out of `pytest -q` | pytest | `test_openapi_sync.py`, `test_routes_models.py`, `test_rows_vocabulary.py`, `test_brandlint_registry.py`, `test_proptest_exclusion.py`, parity tests | regenerate per [backend.md](backend.md#generated-artifacts-and-parity-fixtures) |
 | row check | every `Db.select` row fits its `Row` keys and brand shapes | pytest (`PKM_ROW_CHECK=1`) | `pkm.database`, `pkm.rows` | `RowCheckError` names the column |
 | pyrefly, ruff | server types; no implicit `Any` in `server/src`; `ANN`, `ANN401`, `E501` | `uv run pyrefly check`, `uv run ruff check` | `pyrefly.toml`, `[tool.ruff]`, whose comments give the policy | |
-| typecheck | `tsc` on `src`, the generated API types and the `.ts` files of `tooling`; `.mjs` files and `web/e2e` are not type-checked | `pnpm verify`, `pnpm build` | `typecheck` in `web/package.json` | |
-| eslint | hooks, promises, no `any`, import bans, web brand rules, no unchecked `@ts-` suppression | `pnpm verify` (`lint`) | `web/eslint.config.js`, `web/tooling/eslint-plugin-brands` | fixtures in `web/tooling/eslint-fixtures`, pinned by `lintConfig.test.ts` |
-| FCIS check | a Functional Core web module never imports an Imperative Shell or Mixed one, and every runtime module carries a valid header | `pnpm verify` (`check:fcis`) | `web/tooling/fcis.mjs` | [overview.md](overview.md#functional-core--imperative-shell) |
+| typecheck | `tsc` on `src`, the generated API types, all of `tooling`, and `web/e2e` with `playwright.config.ts` | `pnpm verify`, `pnpm build` | `typecheck` in `web/package.json`, `web/e2e/tsconfig.json`, `web/tooling/tsconfig.node.json`, `web/tooling/perf/tsconfig.payload.json` | |
+| eslint | hooks, promises, no `any`, import bans, web brand rules, no unchecked `@ts-` suppression; `web/e2e` and `playwright.config.ts` too, without the hooks rules | `pnpm verify` (`lint`) | `web/eslint.config.js`, `web/tooling/eslint-plugin-brands` | fixtures in `web/tooling/eslint-fixtures`, pinned by `lintConfig.test.ts` |
+| FCIS check | a Functional Core web module never imports an Imperative Shell or Mixed one, and every runtime module carries a valid header | `pnpm verify` (`check:fcis`) | `web/tooling/fcis.ts` | [overview.md](overview.md#functional-core--imperative-shell) |
 | vitest | unit tests pass over `coverage.thresholds` | `pnpm verify` (`test:coverage`) | `web/vite.config.ts` | |
 | unit-test guards | replica rows fit `Columns`; no unsilenced `console.warn`/`error`; no runaway fast-check filter; `types.d.ts` matches `openapi.json` | every vitest run | `replica/rowCheck.ts`, `src/test-setup.ts`, `src/test-guards.ts`, `genTypes.drift.test.ts` | each guard's test shows its teeth |
 | bundle budgets | the build stays under its caps | `vite build` | `viteBudgetPlugin.ts`, `budgets.json` | |
 | Playwright | the built SPA works against a real server | last in `pnpm verify` | `web/e2e` | any 5xx or server exception fails |
-| performance gate | no count rises; no timing clearly worsens | `perf/check.sh`, before merge | `server/tooling/perfcheck`, `web/tooling/perf/check.mjs` | [Performance gate](#performance-gate) |
+| performance gate | no count rises; no timing clearly worsens | `perf/check.sh`, before merge | `server/tooling/perfcheck`, `web/tooling/perf/check.ts` | [Performance gate](#performance-gate) |
 | property gate | random batches and commands keep the invariants | `proptest/check.sh`, before merge | `server/tests/props`, `web/src/props` | [Property gate](#property-gate) |
-| architecture docs | mermaid parses; links resolve; no bean id in prose | by hand | `.claude/skills/architecture-docs/check-docs.mjs` | |
+| architecture docs | mermaid parses; links and anchors resolve | by hand | `.claude/skills/architecture-docs/check-docs.mjs` | |
+
+Node runs the scripts under `web/tooling` as `.ts` by type stripping, with
+no build step. Stripping rewrites nothing, so `tsconfig.node.json` checks the
+scripts node loads as it loads them. Imports carry their `.ts` extension,
+type-only imports say `type`, and syntax that needs a transform (an enum, a
+parameter property) is refused. The plain tooling pass would accept all three,
+and node would then fail at run time. The perf payloads `instrument.js` and
+`react-commits.js` stay JavaScript, because `harness.ts` hands their text to
+the browser. `tsconfig.payload.json` checks their JSDoc against DOM types
+alone.
 
 ## Comment and regex lint
 
@@ -63,15 +73,18 @@ against the staged registry.
 Tests are under every rule. They mint through the checked helpers in
 `TEST_MINT_SITES`, which raise unless a value fits the brand's `SHAPES`. A
 deliberately bad value comes from a `MALFORMED` helper. Product code may
-import neither.
+import neither. The web's mint module, `test-mint.ts`, imports no vitest, so
+the Playwright specs mint there; `test-helpers.ts` re-exports it, and imports
+vitest, so the specs may not import it.
 
 The one opt-out is `brand: untrusted -- <reason>` in a comment, allowed only
-in `OPT_OUT_FILES`: route modules on the server, and the HTTP response
-boundary `api/client.ts` and a few harness files on the web. It covers one
+in `OPT_OUT_FILES`: route modules on the server, and on the web the HTTP
+response boundary `api/client.ts`, its Playwright twin `e2e/wireJson.ts`,
+and a few harness files. It covers one
 site, the leftmost on its line, and one that covers nothing is reported.
 
 The rules and their messages are `RULES` in `brandlint/core.py` and the
-header of `eslint-plugin-brands/index.mjs`.
+header of each rule module under `eslint-plugin-brands/`.
 
 ### Known limits
 
@@ -136,8 +149,9 @@ Rules a change to the gate must keep:
   emit the `pkm:replica-ready` mark.
 - Counts are deterministic or the run fails. Backend counts are taken twice
   (`UnstableCountError`) and scenario R measures two passes. Clocks, timezone,
-  fixture copies, typing paces and browser context groups (`_CONTEXT_GROUPS`)
-  are pinned beside the code that needs them. What no control removes is
+  fixture copies, typing paces and browser context groups
+  (`CONTEXT_GROUPS` in `contextGroups.ts`, which `check.ts --only`
+  expands) are pinned beside the code that needs them. What no control removes is
   classed `band` or `timing`.
 - `cache_key` (`fixture.py`, `build.py`, the DDL, the product source) decides
   when the cached fixture is rebuilt. `fixture_hash` (`fixture.py` only)
@@ -176,25 +190,35 @@ Rules a change to the gate must keep:
   `pkm.planning` or `pkm.batch` (`test_model_imports_no_server_code`). The
   outline model imports outline code as types only. A model derived from the
   code agrees with its bugs.
-- A new property shows it reaches its case. On the server, read `event()`
-  rates with
-  `HYPOTHESIS_PROFILE=merge uv run pytest -m proptest --no-cov -q tests/props --hypothesis-show-statistics`.
-  On the web, read the tally each suite prints: a fault armed far more often
-  than it fired, or a climbing skip count, means the generator no longer
-  reaches its case. A server property that must keep reaching a case asserts
-  it with `with_floors` (`tests/hostile.py`), whose docstring says how a floor
-  is measured.
+- **A property that must keep reaching a case asserts it with a floor**: a
+  share of an example count that a label must exceed. A property that stopped
+  drawing a case would otherwise stay green on the cases it still draws.
+  - Server: `merge_floors` (`tests/props/harness.py`) arms `with_floors`
+    (`tests/hostile.py`) only under the `merge` profile, because every other
+    profile caps a run at 20 examples, too few for any floor. Labels come from
+    `hostile.event`, not Hypothesis's own.
+  - Web: `checkGateProperty` (`props/gate.ts`) judges a `Reach`
+    (`props/reach.ts`) on the tally after a passing run. A replayed path is
+    neither logged nor judged, since its tally counts one counterexample.
+  - To set a floor, register the labels with floors of `{}` and run the suite
+    unseeded with `PKM_FLOOR_LOG` (server) or `PROPTEST_REACH_LOG` (web)
+    set. The `with_floors` docstring owns the recipe that turns the logged
+    shares into floors; `reach.ts` follows it.
 - A generator draws only from Hypothesis or fast-check. A draw steered by
   other state, such as the reach tally, no longer replays from its seed.
-- A new property shows it fails. Each web suite's `teeth.prop.ts` breaks a rule
-  (a mutant, a broken transport mode, a `/__proptest/*/teeth` route) and must
-  see the named invariant fail, and a clean run must pass. A mutant names
+- A new property shows it fails. Server: `tests/props/test_teeth.py` runs
+  each gate suite's property against a mutant and expects the invariant that
+  mutant breaks to fail. Web: each suite's `teeth.prop.ts` breaks a rule (a
+  mutant, a broken transport mode, a `/__proptest/*/teeth` route) through
+  `expectMutantsCaught` (`props/gate.ts`), which must see a problem line
+  naming one of the mutant's `catches`. A clean run must pass. A mutant names
   every invariant its bug breaks, since which one fires first depends on the
   seed; sweep a few `PROPTEST_SEED` values before trusting a teeth test.
-- Each web suite prints one `fault warnings` line. An `UNEXPECTED` entry under
-  it does not fail the gate. It is a recovery path firing where no fault
-  reaches, so fix the cause, or add a kind to `EXPECTED_KINDS`
-  (`props/warnings.ts`) if a fault is meant to provoke it.
+- Each web suite prints one `fault warnings` line, and an `UNEXPECTED` entry
+  under it fails the suite's file (`unexpectedFailure`,
+  `props/warnings.ts`). It is a recovery path firing where no fault reaches,
+  so fix the cause, or add a kind to `EXPECTED_KINDS` if a fault is meant to
+  provoke it.
 - A web example that depends on timing may not replay from its seed. It is
   still a finding: pin it as a fixed scenario, as `sync.prop.ts` does.
 - A web property is an `fc.asyncProperty`. vitest fails the run when its

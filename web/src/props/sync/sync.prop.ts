@@ -18,9 +18,9 @@
 // A failure prints the seed, the path, the shrunk command list, what each
 // command did in the failing run, the oracle's findings and a replay line.
 // How often each command ran or was skipped by its precondition, and how
-// often each fault was armed and fired, is printed once, after the file.
+// often each fault was armed and fired, is printed after the property.
 import fc from "fast-check";
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { beforeAll, expect, test } from "vitest";
 import type { BatchId } from "../../api/brands";
 import { extractRefs } from "../../grammar/refs";
 import { EDIT_TARGETS, type OpDraft, PAGE_TITLES } from "./arbitraries";
@@ -30,12 +30,14 @@ import { staleNamers } from "./deleteWins";
 import { BadBatch, commandsFor, connectTally, connectTiming, countSkipsWith, Edit,
          Fault, type FaultKind, NAMES, Nudge, Offline, Pull, Reload, Rename,
          RotateGeneration, SyncCommand, WorkerDies, type World } from "./commands";
-import { PATH, REPLAY_PATH, SEED } from "./env";
+import { REPLAY_PATH } from "./env";
 import { type FirstStart, startClient, type HarnessClient } from "./harnessClient";
 import { initialModel, type SyncModel } from "./model";
 import { checkQuiescent, CursorWatch, ModeWatch } from "./oracle";
 import { quiesce, TIMED_OUT, within } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
+import { checkGateProperty, EXAMPLES } from "../gate";
+import { bump, type Reach, type Tally } from "../reach";
 import { captureFaultWarnings } from "../warningsCapture";
 
 captureFaultWarnings("sync");
@@ -49,12 +51,10 @@ const QUIESCE_LIMIT_MS = 30_000;
  * liveness failure is quiesce's to report. A command that hangs is caught
  * here instead, as a failing example fast-check can shrink. */
 const EXAMPLE_LIMIT_MS = 90_000;
-/** The whole property, shrinking included. fast-check abandons the example
- * the limit cuts into, which the property then cancels. Cut off while
- * shrinking, it fails with the smallest counterexample so far; cut off
- * before any failure, it fails as a budget problem, never as a finding. The
- * margin to vitest's testTimeout (vitest.props.config.ts) covers that
- * example's clean-up and the report, so vitest never cuts a report off. */
+/** fast-check abandons the example the limit cuts into, which the property
+ * then cancels. The margin to vitest's testTimeout (vitest.props.config.ts)
+ * covers that example's clean-up and the report, so vitest never cuts a
+ * report off. */
 const PROPERTY_LIMIT_MS = 420_000;
 const DISPOSE_LIMIT_MS = 10_000;
 /** How long a fixed scenario waits for the state it sets up. */
@@ -69,8 +69,9 @@ const LANE_DRAIN_WAIT_MS = 5_000;
 
 type Commands = Iterable<fc.AsyncCommand<SyncModel, World, boolean>>;
 
-const tally = new Map<string, number>();
-const count = (key: string, n = 1): void => { tally.set(key, (tally.get(key) ?? 0) + n); };
+/** The fixed scenarios count into it too; the property empties it first. */
+const tally: Tally = new Map();
+const count = (key: string, n = 1): void => { bump(tally, key, n); };
 countSkipsWith(count);
 
 const FAULT_KINDS: readonly FaultKind[] = [
@@ -102,17 +103,137 @@ beforeAll(async () => {
 
 /** Fault rows read armed and fired side by side; everything else is one
  * count per key. */
-afterAll(() => {
+function showSyncTally(t: Tally): string {
   const isFault = (k: string): boolean => /^Fault \S+( fired)?$/.test(k);
-  const rest = [...tally].filter(([k]) => !isFault(k));
+  const rest = [...t].filter(([k]) => !isFault(k));
   const width = Math.max(0, ...rest.map(([k]) => k.length));
   const faults = FAULT_KINDS.map((kind) =>
-    `  Fault ${kind.padEnd(10)}  armed ${String(tally.get(`Fault ${kind}`) ?? 0).padStart(6)}` +
-    `  fired ${String(tally.get(`Fault ${kind} fired`) ?? 0).padStart(6)}`);
-  console.log(`sync property tally (every run, shrinks included):\n${
+    `  Fault ${kind.padEnd(10)}  armed ${String(t.get(`Fault ${kind}`) ?? 0).padStart(6)}` +
+    `  fired ${String(t.get(`Fault ${kind} fired`) ?? 0).padStart(6)}`);
+  return `sync property tally (the property's examples):\n${
     rest.sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, n]) => `  ${k.padEnd(width)}  ${n}`).join("\n")}\n${faults.join("\n")}`);
-});
+      .map(([k, n]) => `  ${k.padEnd(width)}  ${n}`).join("\n")}\n${faults.join("\n")}`;
+}
+
+/** Where each label must stay above its share of EXAMPLES. The reach
+ * signal is each `Fault <kind> fired`: a fault armed far more often than
+ * it fired is the case a floor must catch. */
+const REACH: Reach = {
+  per: EXAMPLES,
+  // Floors: half the lowest share over 30 unseeded gate runs, 2026-11-10.
+  // No floor, under five events in some run:
+  //   "Edit refused: read-only, mode recovery-failed"
+  //   "Edit refused: read-only, mode stalled"
+  //   "Pull joined under poison"
+  //   "examples with an overwritten conflict on a lane write"
+  // No floor, under ten in some run, so half of it is noise:
+  //   "CrossMidnight fell back to model date"
+  //   "settle: dead worker's reload drops lane batches"
+  // No floor, server timing, not a draw, decides when the connect lands:
+  //   "Reload connect timed, landed after startup"
+  //   "Reload connect timed, landed mid-startup"
+  //   "start connect timed, landed after startup"
+  //   "start connect timed, landed mid-startup"
+  floors: {
+    "BadBatch": 0.187,
+    "BadBatch skipped: worker dead": 0.012,
+    "BadBatch skipped: write failure armed or lane unsent": 0.022,
+    "CrossMidnight 2026-03-29": 0.023,
+    "CrossMidnight 2026-10-25": 0.026,
+    "CrossMidnight model": 0.177,
+    "DeletePage deleted": 0.096,
+    "DeletePage failed offline": 0.033,
+    "DeletePage refused 404": 0.091,
+    "DeletePage refused 409": 0.005,
+    "Edit": 2.381,
+    "Edit op create": 0.344,
+    "Edit op create top of Fourth": 0.011,
+    "Edit op create top of Proptest": 0.067,
+    "Edit op create top of Second": 0.011,
+    "Edit op create top of Third": 0.012,
+    "Edit op delete": 1.378,
+    "Edit op move": 1.39,
+    "Edit op move top of Fourth": 0.052,
+    "Edit op move top of Proptest": 0.051,
+    "Edit op move top of Second": 0.053,
+    "Edit op move top of Third": 0.051,
+    "Edit op move top untitled": 0.223,
+    "Edit op set_collapsed": 1.393,
+    "Edit op update_text": 1.37,
+    "Edit refused: read-only, mode no-replica": 0.007,
+    "Edit refused: read-only, mode starting": 0.036,
+    "Edit with a dead worker": 0.225,
+    "Fault dropAck": 0.117,
+    "Fault dropAck fired": 0.058,
+    "Fault duplicate": 0.109,
+    "Fault duplicate fired": 0.056,
+    "Fault lostPull": 0.115,
+    "Fault lostPull fired": 0.05,
+    "Fault lostReply": 0.103,
+    "Fault lostReply fired": 0.057,
+    "Fault lostReply skipped: worker dead": 0.007,
+    "Fault snapshot5xx": 0.477,
+    "Fault snapshot5xx fired": 0.381,
+    "Fault writeFails": 0.091,
+    "Fault writeFails fired": 0.052,
+    "Fault writeFails skipped: worker dead": 0.006,
+    "Fault writeFails skipped: write failure armed or lane unsent": 0.01,
+    "Nudge ahead": 0.147,
+    "Nudge ahead skipped: offline": 0.025,
+    "Nudge duplicate": 0.145,
+    "Nudge duplicate skipped: offline": 0.024,
+    "Nudge latest": 0.146,
+    "Nudge latest skipped: offline": 0.025,
+    "Nudge stale": 0.143,
+    "Nudge stale skipped: offline": 0.024,
+    "Offline": 0.596,
+    "Offline skipped: already offline": 0.11,
+    "Online after 1": 0.102,
+    "Online after 2": 0.091,
+    "Online after 3": 0.083,
+    "Online after 5": 0.065,
+    "Online at quiesce": 0.15,
+    "Online at quiesce, before its return": 0.081,
+    "Pull": 0.608,
+    "Pull alone": 0.576,
+    "Pull joined": 0.024,
+    "Pull skipped: offline": 0.106,
+    "Pull with a dead worker": 0.045,
+    "Pull with a dead worker, never started": 0.005,
+    "Reload": 0.389,
+    "Reload connect timed, offline": 0.028,
+    "Reload connect untimed": 0.203,
+    "Reload of a dead worker": 0.028,
+    "Reload skipped: write failure armed or lane unsent": 0.052,
+    "Rename failed offline": 0.033,
+    "Rename refused 404": 0.09,
+    "Rename refused 409": 0.042,
+    "Rename renamed": 0.055,
+    "RotateGeneration": 0.239,
+    "WorkerDies offline": 0.029,
+    "WorkerDies online": 0.175,
+    "WorkerDies skipped: already dead": 0.019,
+    "examples with 2 clients": 0.237,
+    "examples with 3 clients": 0.237,
+    "examples with a conflict": 0.31,
+    "examples with a leading attribute": 0.191,
+    "examples with a rejected batch": 0.15,
+    "examples with a stale batch naming a deleted page": 0.039,
+    "examples with an overwritten conflict": 0.036,
+    "examples with no window limit": 0.324,
+    "examples with window limit 1": 0.028,
+    "examples with window limit 2": 0.029,
+    "examples with window limit 3": 0.034,
+    "examples with window limit 4": 0.026,
+    "examples with window limit 5": 0.024,
+    "settle: dead worker never started": 0.017,
+    "settle: dead worker online-only after a pull": 0.156,
+    "settle: first start owed a retry": 0.064,
+    "start connect untimed": 0.608,
+    "start first bootstrap fails, not started by it": 0.116,
+    "start first bootstrap timesOut, not started by it": 0.11,
+  },
+};
 
 interface ExampleOptions {
   /** Runs after the commands, before quiescence. */
@@ -911,80 +1032,37 @@ const showStarts = (n: number, at: Starts): string =>
   NAMES.slice(0, n).map((name, i) =>
     `${name} ${at[i] === undefined ? "after startup" : `tick ${at[i]}`}`).join(", ");
 
-/** The failure report: everything needed to read and replay it. */
-function report(details: fc.RunDetails<[Drawn, number | undefined, Starts, FirstStarts]>):
-    string {
-  const counterexample = details.counterexample;
-  const shown = counterexample === null ? "none"
-    : `${counterexample[0][0]} clients, ` +
-      (counterexample[1] === undefined ? "no window limit"
-                                       : `window limit ${counterexample[1]}`) +
-      `, connect at ${showStarts(counterexample[0][0], counterexample[2])}` +
-      `, first bootstraps ${counterexample[3].slice(0, counterexample[0][0]).join(", ")}` +
-      `, ${String(counterexample[0][1])}`;
-  const replay = /replayPath="([^"]*)"/.exec(shown)?.[1];
-  const error = details.errorInstance instanceof Error
-    ? details.errorInstance.message : String(details.errorInstance);
-  return [
-    `sync property failed after ${details.numRuns} runs and ${details.numShrinks} shrinks` +
-      (details.interrupted ? " (shrinking cut off at the time limit: the smallest" +
-                             " counterexample so far)" : ""),
-    `seed: ${details.seed}`,
-    `path: ${details.counterexamplePath ?? "none"}`,
-    `counterexample: ${shown}`,
-    `error: ${error}`,
-    `replay: proptest/check.sh web --file sync/sync.prop.ts --seed ${details.seed}` +
-      (details.counterexamplePath ? ` --path '${details.counterexamplePath}'` : "") +
-      (replay ? ` --replay-path '${replay}'` : ""),
-  ].join("\n");
-}
+/** The counterexample as the report shows it. */
+const show = ([[n, cmds], limit, at, first]: [Drawn, number | undefined, Starts, FirstStarts]):
+    string =>
+  `counterexample: ${n} clients, ` +
+  (limit === undefined ? "no window limit" : `window limit ${limit}`) +
+  `, connect at ${showStarts(n, at)}` +
+  `, first bootstraps ${first.slice(0, n).join(", ")}` +
+  `, ${String(cmds)}`;
 
 test("sync protocol property", async () => {
-  const details = await fc.check(fc.asyncProperty(
-    clientsAndCommands,
+  await checkGateProperty({
+    suite: "sync property", file: "sync/sync.prop.ts",
     // A new arbitrary goes last: an arbitrary's place fixes what a seed and
     // path replay, so the ones before it replay as they did before it was
     // added.
-    windowLimit,
-    starts,
-    firstStarts,
-    async ([n, cmds], limit, at, first) => {
-      count("examples");
+    arbs: [clientsAndCommands, windowLimit, starts, firstStarts],
+    predicate: async ([n, cmds], limit, at, first) => {
       count(`examples with ${n} clients`);
       count(limit === undefined ? "examples with no window limit"
                                 : `examples with window limit ${limit}`);
       await runExample(NAMES.slice(0, n), cmds,
                        { windowLimit: limit, connectAt: at, firstStart: first });
     },
-  ), {
-    numRuns: NUM_RUNS, seed: SEED, path: PATH,
-    interruptAfterTimeLimit: PROPERTY_LIMIT_MS, markInterruptAsFailure: false,
+    numRuns: NUM_RUNS, limitMs: PROPERTY_LIMIT_MS, show,
+    tally, showTally: showSyncTally, reach: REACH,
+    // The example the time limit cut into is still running: stop it before
+    // anything is reported, and before the next file resets the server.
+    settle: async () => {
+      if (inFlight === null) return;
+      inFlight.abandon();
+      await within(inFlight.finished.catch(() => undefined), DISPOSE_LIMIT_MS * 2);
+    },
   });
-  // The example the time limit cut into is still running: stop it before
-  // anything is reported, and before the next file resets the server.
-  if (inFlight !== null) {
-    inFlight.abandon();
-    await within(inFlight.finished.catch(() => undefined), DISPOSE_LIMIT_MS * 2);
-  }
-  // A failure keeps failed set when the time limit cuts its shrinking off,
-  // with the smallest counterexample so far. Cut off before any failure,
-  // fast-check reports interrupted, and failed as well if no example had
-  // finished, but with no counterexample: either way that is the budget.
-  if (details.failed && details.counterexample !== null) {
-    const text = report(details);
-    console.error(text);
-    throw new Error(text);
-  }
-  if (details.interrupted) {
-    const text = `sync property ran out of its time budget after ${details.numRuns} of` +
-      ` ${NUM_RUNS} runs (no failure found): a budget problem, not a finding\n` +
-      `seed: ${details.seed}`;
-    console.error(text);
-    throw new Error(text);
-  }
-  if (details.failed) {
-    const text = report(details);
-    console.error(text);
-    throw new Error(text);
-  }
 });

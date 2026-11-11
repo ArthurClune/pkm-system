@@ -1,5 +1,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { rawTitleOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
 
 // The block menu and the references popover are `position: fixed`
 // and anchored at viewport coordinates read off the click. Rendering them
@@ -25,12 +27,12 @@ const MONTHS = ["January", "February", "March", "April", "May", "June",
 
 /** The daily-note title for a date, matching the server's `title_for_date`
  * (server/src/pkm/contracts/daily.py). */
-function titleForDate(d: Date): string {
+function titleForDate(d: Date): RawTitle {
   const day = d.getDate();
   const suffix = day % 100 >= 10 && day % 100 <= 20
     ? "th"
     : ({ 1: "st", 2: "nd", 3: "rd" }[day % 10] ?? "th");
-  return `${MONTHS[d.getMonth()]} ${day}${suffix}, ${d.getFullYear()}`;
+  return rawTitleOf(`${MONTHS[d.getMonth()]} ${day}${suffix}, ${d.getFullYear()}`);
 }
 
 async function login(page: Page) {
@@ -45,9 +47,9 @@ async function login(page: Page) {
  * (see appendJournalBlock in rename.spec.ts), and this is the only spec that
  * seeds PAST daily notes: left behind, they turn `/` from one `.journal-day`
  * into four for every spec that runs after this one. */
-const created: string[] = [];
+const created: RawTitle[] = [];
 
-async function createPage(page: Page, title: string) {
+async function createPage(page: Page, title: RawTitle) {
   const response = await page.request.post("/api/pages", { data: { title } });
   expect(response.ok()).toBeTruthy();
   created.unshift(title);
@@ -76,7 +78,7 @@ async function postOps(page: Page, ops: Op[]) {
   expect(response.ok()).toBeTruthy();
 }
 
-function rowOps(pageTitle: string, uidPrefix: string, count: number): Op[] {
+function rowOps(pageTitle: RawTitle, uidPrefix: string, count: number): Op[] {
   return Array.from({ length: count }, (_, i) => ({
     op: "create", uid: `${uidPrefix}${String(i).padStart(4, "0")}`,
     page_title: pageTitle, parent_uid: null, order_idx: i,
@@ -113,7 +115,7 @@ async function lastClick(page: Page): Promise<ClickProbe> {
 }
 
 test("the block menu opens at the pointer on a page", async ({ page }) => {
-  const title = `MukaMenuPage${Date.now()}`;
+  const title = rawTitleOf(`MukaMenuPage${Date.now()}`);
   await login(page);
   await createPage(page, title);
   await postOps(page, rowOps(title, `mukapg${Date.now()}`.slice(0, 24), 8));
@@ -143,7 +145,7 @@ test("menu and references popover stay anchored deep in a scrolled journal",
   // collide with edit.spec.ts's "today starts empty" assumption. Days 1..3
   // back are the newest non-empty days, so all three arrive in the journal's
   // first batch of five.
-  const dayTitles: string[] = [];
+  const dayTitles: RawTitle[] = [];
   for (let back = 1; back <= PAST_DAYS; back++) {
     const d = new Date();
     d.setDate(d.getDate() - back);
@@ -155,7 +157,7 @@ test("menu and references popover stay anchored deep in a scrolled journal",
   }
   // A reference into the LAST row of the oldest seeded day, so the badge
   // sits deep inside its section rather than near its top.
-  const source = `MukaRefSrc${stamp}`;
+  const source = rawTitleOf(`MukaRefSrc${stamp}`);
   await createPage(page, source);
   const referenced =
     `${`mk${PAST_DAYS}${stamp}`.slice(0, 24)}${String(ROWS_PER_DAY - 1).padStart(4, "0")}`;

@@ -16,8 +16,9 @@ import {
   turnBusy, type ChatEvent, type ChatState, type Step,
 } from "../../assistant/chatMachine";
 import { SEED } from "../env";
+import { expectMutantsCaught } from "../gate";
 import { captureFaultWarnings } from "../warningsCapture";
-import { actionsArb } from "./arbitraries";
+import { actionsArb, type Action } from "./arbitraries";
 import { REAL, runActions, type Machine } from "./run";
 
 captureFaultWarnings("assistant teeth");
@@ -26,14 +27,12 @@ const NUM_RUNS = 20_000;
 const TIME_LIMIT_MS = 15_000;
 const CLEAN_RUNS = 20_000;
 
-class PropertyReport extends Error {}
-
 /** The real step, except where `wrong` answers first. */
 function mutate(wrong: (s: ChatState, e: ChatEvent) => Step | null): Machine {
   return { ...REAL, step: (s, e) => wrong(s, e) ?? REAL.step(s, e) };
 }
 
-const MUTANTS: Record<string, { catches: string[]; machine: Machine }> = {
+const MUTANTS: Record<string, { catches: readonly string[]; machine: Machine }> = {
   // A stopped create that streams starts a request (start); one that fails
   // shows its error (silent). Which comes first depends on the seed.
   "Stop does nothing while the conversation is being created": {
@@ -123,33 +122,16 @@ const MUTANTS: Record<string, { catches: string[]; machine: Machine }> = {
   },
 };
 
-for (const [name, { machine, catches }] of Object.entries(MUTANTS)) {
-  test(`the assistant property catches: ${name}`, async () => {
-    const details = await fc.check(fc.asyncProperty(actionsArb, async (actions) => {
-      const { problems } = runActions(actions, machine);
-      if (problems.length > 0) throw new PropertyReport(problems.join("\n"));
-    }), {
-      numRuns: NUM_RUNS, seed: SEED, endOnFailure: true,
-      interruptAfterTimeLimit: TIME_LIMIT_MS,
-    });
-    const cutOff = details.interrupted
-      ? ` (cut off by the ${TIME_LIMIT_MS / 1000}s time limit, not a full run)` : "";
-    expect(details.failed, `mutant survived ${details.numRuns} runs${cutOff}` +
-      ` (seed ${details.seed}): ${name}`).toBe(true);
-    const error = details.errorInstance;
-    expect(error instanceof PropertyReport, `mutant caught by a thrown error, not a property` +
-      ` report (seed ${details.seed}): ${name}: ${String(error)}`).toBe(true);
-    const lines = (error as PropertyReport).message.split("\n");
-    expect(lines.some((line) => catches.some((p) => line.startsWith(`${p}: `))),
-           `mutant caught, but not by ${catches.join(" or ")} (seed ${details.seed}):` +
-           ` ${name}:\n${lines.join("\n")}`).toBe(true);
-  });
-}
+expectMutantsCaught({
+  suite: "assistant property", mutants: MUTANTS, arbs: [actionsArb],
+  problems: async (mutant, actions: Action[]) => runActions(actions, mutant.machine).problems,
+  numRuns: NUM_RUNS, limitMs: TIME_LIMIT_MS,
+});
 
 test("the real machine passes the same runs", async () => {
   const details = await fc.check(fc.asyncProperty(actionsArb, async (actions) => {
     const { problems } = runActions(actions, REAL);
-    if (problems.length > 0) throw new PropertyReport(problems.join("\n"));
+    if (problems.length > 0) throw new Error(problems.join("\n"));
   }), { numRuns: CLEAN_RUNS, seed: SEED });
   expect(details.failed, `clean run failed (seed ${details.seed}):` +
     ` ${String(details.errorInstance)}`).toBe(false);

@@ -1,5 +1,5 @@
 from perfcheck.compare import (Finding, bootstrap, compare, confirm,
-                               incomparable_reason, render_table)
+                               incomparable_reason, render_table, reproduced)
 
 
 def doc(scenarios, *, fixture_hash="fx1", env=None, commit="c1"):
@@ -119,6 +119,20 @@ def test_incomparable_on_fixture_or_env_change():
     assert fixture_reason is not None and "fixture_hash" in fixture_reason
     env_reason = incomparable_reason(base, doc({}, env={"python": "3.12.10", "sqlite": "3.48.0"}))
     assert env_reason is not None and "sqlite" in env_reason
+
+
+def test_reproduced_is_true_only_when_the_run_is_still_worse():
+    base = doc({"a": {"n": ex(1)}})
+    f = Finding("a", "n", "candidate", "1", "2")
+    assert reproduced(base, f, doc({"a": {"n": ex(2)}})) is True
+    assert reproduced(base, f, doc({"a": {"n": ex(1)}})) is False
+
+
+def test_reproduced_is_false_when_the_run_lacks_the_metric_or_is_missing():
+    base = doc({"a": {"n": ex(1)}})
+    f = Finding("a", "n", "candidate", "1", "2")
+    assert reproduced(base, f, doc({})) is False
+    assert reproduced(base, f, None) is False
 
 
 def test_confirm_outcomes():

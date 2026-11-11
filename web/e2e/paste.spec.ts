@@ -4,6 +4,8 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
+import { rawTitleOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
 
 const PASSWORD = "e2e-pw";
 
@@ -19,7 +21,7 @@ const input = (page: Page) => page.locator("textarea.block-input");
 
 /** Create a fresh page over the API and open it (never touches the shared
  * journal). */
-async function openFreshPage(page: Page, title: string) {
+async function openFreshPage(page: Page, title: RawTitle) {
   const res = await page.request.post("/api/pages", {
     data: { title },
   });
@@ -52,7 +54,7 @@ async function pasteText(page: Page, text: string, chord = false) {
 
 test("plain paste of multi-line text is never intercepted", async ({ page }) => {
   await login(page);
-  const title = `Paste Native ${Date.now()}`;
+  const title = rawTitleOf(`Paste Native ${Date.now()}`);
   await openFreshPage(page, title);
 
   await page.getByText("Click to start writing…").click();
@@ -70,7 +72,7 @@ test("plain paste of multi-line text is never intercepted", async ({ page }) => 
 
 test("Shift-Cmd-V pastes an indented outline as nested blocks", async ({ page }) => {
   await login(page);
-  const title = `Paste Target ${Date.now()}`;
+  const title = rawTitleOf(`Paste Target ${Date.now()}`);
   await openFreshPage(page, title);
 
   await page.getByText("Click to start writing…").click();
@@ -104,7 +106,7 @@ test("Shift-Cmd-V pastes an indented outline as nested blocks", async ({ page })
 
 test("copy of a multi-block selection round-trips hierarchy", async ({ page }) => {
   await login(page);
-  const src = `Paste Src ${Date.now()}`;
+  const src = rawTitleOf(`Paste Src ${Date.now()}`);
   await openFreshPage(page, src);
 
   await page.getByText("Click to start writing…").click();
@@ -147,7 +149,7 @@ test("copy of a multi-block selection round-trips hierarchy", async ({ page }) =
   expect(copied).toBe("one\n\ttwo\n\t\tthree");
 
   // paste the captured text into a fresh page and verify the structure
-  const dst = `Paste Dst ${Date.now()}`;
+  const dst = rawTitleOf(`Paste Dst ${Date.now()}`);
   await openFreshPage(page, dst);
   await page.getByText("Click to start writing…").click();
   await pasteText(page, copied!, true);

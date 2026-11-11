@@ -111,28 +111,23 @@ const bump = (r: Record<string, number>, key: string, n = 1): void => {
   r[key] = (r[key] ?? 0) + n;
 };
 
-const VARIATIONS = ["cycle", "missing parent", "cross-page create", "cross-page move",
-                    "stale text hash", "stale subtree hash", "block named twice",
-                    "forbidden title", "text past a limit", "text at the length cap"] as const;
-
-export function showTally(t: Tally): string {
-  const row = (r: Record<string, number>): string =>
-    Object.entries(r).sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, n]) => `${k} ${n}`)
-      .join(", ") || "none";
-  return [
-    "ops property tally",
-    `  examples: raw ${t.examples.raw}, command ${t.examples.command}`,
-    `  op kinds: ${row(t.opKinds)}`,
-    `  variations: ${VARIATIONS.map((v) => `${v} ${t.variations[v] ?? 0}`).join(", ")}`,
-    `  O steps: windows ${t.others.windows}, O rejected ${t.others.rejected}`,
-    `  skipped ops: ${row(t.skipped)}`,
-    `  pages set aside for an authoritative reload: ${t.reloads}`,
-    `  rejections: title syntax ${t.rejections["title syntax"]},` +
-      ` title length ${t.rejections["title length"]},` +
-      ` text limit ${t.rejections["text limit"]}, other ${t.rejections.other}`,
-    "  command batches both sides refused for title syntax, title length" +
-      ` or a text limit: ${t.commandGuardRefused}`,
-  ].join("\n");
+/** Every count above zero as one reach label, such as "op kinds: move". */
+export function tallyLabels(t: Tally): [string, number][] {
+  const under = (group: string, r: Record<string, number>): [string, number][] =>
+    Object.entries(r).map(([k, n]) => [`${group}: ${k}`, n]);
+  const rows: [string, number][] = [
+    ["examples: raw", t.examples.raw],
+    ["examples: command", t.examples.command],
+    ...under("op kinds", t.opKinds),
+    ...under("variations", t.variations),
+    ["O steps: windows", t.others.windows],
+    ["O steps: O rejected", t.others.rejected],
+    ...under("skipped ops", t.skipped),
+    ["pages set aside for an authoritative reload", t.reloads],
+    ...under("rejections", t.rejections),
+    ["command batches both sides refused for a guard", t.commandGuardRefused],
+  ];
+  return rows.filter(([, n]) => n > 0);
 }
 
 const harness = (what: string): Error => new Error(`harness: ${what}`);

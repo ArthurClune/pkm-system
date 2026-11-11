@@ -7,10 +7,10 @@
 //
 // A failure prints the seed, the path, the shrunk action list, the reducer's
 // trace of it, the problems and a replay line. The tally of what the
-// examples reached is printed once, after the file.
-import fc from "fast-check";
-import { afterAll, test } from "vitest";
-import { PATH, SEED } from "../env";
+// examples reached is printed after the property.
+import { test } from "vitest";
+import { checkGateProperty, EXAMPLES } from "../gate";
+import type { Reach } from "../reach";
 import { captureFaultWarnings } from "../warningsCapture";
 import { actionsArb, type Action } from "./arbitraries";
 import { REAL, runActions, type Tally } from "./run";
@@ -21,70 +21,102 @@ captureFaultWarnings("assistant");
  * `proptest/check.sh web`: alone it measured about 65,000 examples a
  * second. */
 export const NUM_RUNS = 1_300_000;
-/** The whole property, shrinking included. Cut off while shrinking, it fails
- * with the smallest counterexample so far; cut off before any failure, it
- * fails as a budget problem, never as a finding. */
 const PROPERTY_LIMIT_MS = 60_000;
 
 const tally: Tally = new Map();
+/** Where each label must stay above its share of EXAMPLES. */
+const REACH: Reach = {
+  per: EXAMPLES,
+  // Floors: half the lowest share over 30 unseeded gate runs, 2026-11-10.
+  // No floor, half the lowest share rounds to 0:
+  //   "abort lands after stop while re-creating"
+  //   "confirm 404 after stop"
+  //   "confirm 404 after stop while re-creating"
+  //   "confirm fails after stop"
+  //   "confirm fails after stop while re-creating"
+  //   "confirm fails for a finished or superseded turn"
+  //   "confirm posts after stop"
+  //   "confirm posts after stop while re-creating"
+  //   "error ends a stopped turn after stop while re-creating"
+  //   "harness lost after stop while re-creating"
+  //   "stop's fallback aborts after stop while re-creating"
+  //   "stream fails after stop while re-creating"
+  floors: {
+    "abort lands after stop": 0.012,
+    "abort lands for a finished or superseded turn": 0.051,
+    "confirm 404": 0.001,
+    "confirm 404 for a finished or superseded turn": 0.002,
+    "confirm fails": 0.001,
+    "confirm posts": 0.004,
+    "confirm posts for a finished or superseded turn": 0.001,
+    "create fails": 0.098,
+    "create fails after stop": 0.018,
+    "create fails after stop while re-creating": 0.002,
+    "create fails for a finished or superseded turn": 0.008,
+    "create resolves": 0.39,
+    "create resolves after a default landed meanwhile": 0.027,
+    "create resolves after stop": 0.074,
+    "create resolves after stop while re-creating": 0.008,
+    "create resolves for a finished or superseded turn": 0.035,
+    "error ends a stopped turn after stop": 0.01,
+    "harness lost": 0.073,
+    "harness lost after stop": 0.011,
+    "models load with conversation creating": 0.05,
+    "models load with conversation none": 0.168,
+    "models load with conversation open": 0.138,
+    "new chat with conversation creating": 0.05,
+    "new chat with conversation none": 0.168,
+    "new chat with conversation open": 0.139,
+    "pick with conversation creating": 0.05,
+    "pick with conversation none": 0.168,
+    "pick with conversation open": 0.139,
+    "send after a lost harness": 0.038,
+    "send after a reap": 0.023,
+    "send while busy (creating)": 0.254,
+    "send while busy (streaming)": 0.4,
+    "skipped answer": 1.404,
+    "skipped reap": 0.316,
+    "skipped server": 2.584,
+    "stop POST settles before its stream is over after stop": 0.06,
+    "stop POST settles before its stream is over after stop while re-creating": 0.004,
+    "stop POST settles late after stop": 0.053,
+    "stop POST settles late after stop while re-creating": 0.003,
+    "stop POST settles late for a finished or superseded turn": 0.013,
+    "stop while creating": 0.112,
+    "stop while re-creating": 0.013,
+    "stop while streaming": 0.17,
+    "stop's fallback aborts after stop": 0.012,
+    "stream 404": 0.059,
+    "stream 404 after a lost harness": 0.025,
+    "stream 404 after stop": 0.002,
+    "stream 404 after stop after a lost harness": 0.004,
+    "stream ends": 0.133,
+    "stream ends after stop": 0.036,
+    "stream ends after stop while re-creating": 0.002,
+    "stream ends for a finished or superseded turn": 0.061,
+    "stream event": 0.295,
+    "stream event after stop": 0.015,
+    "stream event after stop while re-creating": 0.001,
+    "stream event for a finished or superseded turn (aborted)": 0.009,
+    "stream fails": 0.064,
+    "stream fails after stop": 0.008,
+    "turn_stopped after stop": 0.038,
+    "turn_stopped after stop while re-creating": 0.002,
+    "unasked turn_stopped": 0.01,
+  },
+};
 
-afterAll(() => {
-  const rows = [...tally.entries()].sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, n]) => `  ${k}: ${n}`);
-  console.log(`assistant property tally (every run, shrinks included):\n${rows.join("\n")}`);
-});
-
-function report(details: fc.RunDetails<[Action[]]>): string {
-  const counterexample = details.counterexample;
-  const error = details.errorInstance instanceof Error
-    ? details.errorInstance.message : String(details.errorInstance);
-  const shown = counterexample === null ? "none"
-    : counterexample[0].map((a, i) => `  ${i} ${JSON.stringify(a)}`).join("\n");
-  const trace = counterexample === null ? []
-    : runActions(counterexample[0]).trace.map((t) => `  ${t}`);
-  return [
-    `assistant property failed after ${details.numRuns} runs and ${details.numShrinks} shrinks` +
-      (details.interrupted ? " (shrinking cut off at the time limit: the smallest" +
-                             " counterexample so far)" : ""),
-    `seed: ${details.seed}`,
-    `path: ${details.counterexamplePath ?? "none"}`,
-    `actions:\n${shown}`,
-    `trace:\n${trace.join("\n")}`,
-    `error: ${error}`,
-    `replay: proptest/check.sh web --seed ${details.seed}` +
-      (details.counterexamplePath ? ` --path '${details.counterexamplePath}'` : "") +
-      " --file assistant/assistant.prop.ts",
-  ].join("\n");
-}
+const show = ([actions]: [Action[]]): string =>
+  `actions:\n${actions.map((a, i) => `  ${i} ${JSON.stringify(a)}`).join("\n")}\n` +
+  `trace:\n${runActions(actions).trace.map((t) => `  ${t}`).join("\n")}`;
 
 test("assistant chat machine property", async () => {
-  const details = await fc.check(fc.asyncProperty(actionsArb, async (actions) => {
-    const { problems } = runActions(actions, REAL, tally);
-    if (problems.length > 0) throw new Error(problems.join("\n"));
-  }), {
-    numRuns: NUM_RUNS, seed: SEED, path: PATH,
-    interruptAfterTimeLimit: PROPERTY_LIMIT_MS, markInterruptAsFailure: false,
+  await checkGateProperty({
+    suite: "assistant property", file: "assistant/assistant.prop.ts", arbs: [actionsArb],
+    predicate: async (actions: Action[]) => {
+      const { problems } = runActions(actions, REAL, tally);
+      if (problems.length > 0) throw new Error(problems.join("\n"));
+    },
+    numRuns: NUM_RUNS, limitMs: PROPERTY_LIMIT_MS, show, tally, reach: REACH,
   });
-  console.log(`assistant property: ${details.numRuns} runs`);
-  // A failure keeps failed set when the time limit cuts its shrinking off,
-  // with the smallest counterexample so far. Cut off before any failure,
-  // fast-check reports interrupted, and failed as well if no example had
-  // finished, but with no counterexample: either way that is the budget.
-  if (details.failed && details.counterexample !== null) {
-    const text = report(details);
-    console.error(text);
-    throw new Error(text);
-  }
-  if (details.interrupted) {
-    const text = `assistant property ran out of its time budget after ${details.numRuns} of` +
-      ` ${NUM_RUNS} runs (no failure found): a budget problem, not a finding\n` +
-      `seed: ${details.seed}`;
-    console.error(text);
-    throw new Error(text);
-  }
-  if (details.failed) {
-    const text = report(details);
-    console.error(text);
-    throw new Error(text);
-  }
 });

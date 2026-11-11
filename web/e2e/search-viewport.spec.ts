@@ -1,5 +1,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { rawTitleOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
 
 // The top-bar search field grows to a fixed 320px on focus.
 // With the other top-bar controls present that pushes the input
@@ -20,7 +22,7 @@ async function login(page: Page) {
 /** Creates a uniquely-named page via POST (never writes to today's
  * journal) and navigates to it -- a page route puts the full top bar
  * (title + search + help + page menu) on screen at once. */
-async function createAndVisitPage(page: Page, title: string) {
+async function createAndVisitPage(page: Page, title: RawTitle) {
   const createRes = await page.request.post("/api/pages", { data: { title } });
   expect(createRes.ok()).toBeTruthy();
   await page.goto(`/page/${encodeURIComponent(title)}`);
@@ -32,7 +34,7 @@ for (const viewport of [{ width: 320, height: 660 }, { width: 390, height: 844 }
     await page.setViewportSize(viewport);
     const stamp = Date.now();
     await login(page);
-    await createAndVisitPage(page, `SearchViewport${viewport.width}_${stamp}`);
+    await createAndVisitPage(page, rawTitleOf(`SearchViewport${viewport.width}_${stamp}`));
 
     const input = page.getByRole("textbox", { name: "Search" });
     await input.focus();

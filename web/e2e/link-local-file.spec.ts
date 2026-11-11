@@ -5,8 +5,9 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
+import { rawTitleOf } from "../src/test-mint";
 
-const TITLE = "Link Local File E2E";
+const TITLE = rawTitleOf("Link Local File E2E");
 
 async function login(page: Page) {
   await page.goto("/login");

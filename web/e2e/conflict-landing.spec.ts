@@ -14,15 +14,18 @@
 // the day's top-level blocks are the ones it found.
 import { createHash } from "node:crypto";
 import { type Page } from "@playwright/test";
+import type { BlockUid, RawTitle, Sha256Hex } from "../src/api/brands";
+import type { BlockNode, OpsAck, PagePayload } from "../src/api/payloads";
+import { rawTitleOf, uidOf } from "../src/test-mint";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
+import { serverJson, wireModel } from "./wireJson";
 
 const PASSWORD = "e2e-pw";
 
-type BlockNode = { uid: string; text: string; children: BlockNode[] };
-type SkippedOp = { uid: string; op: string; reason: string };
-type Ack = { skipped?: SkippedOp[] };
-type WireOp = { op: string; uid?: string; base_subtree_hash?: string | null };
+// The fields of a sent op the tests read; the generated op union has no
+// one member that carries them all.
+type WireOp = { op: string; uid?: BlockUid; base_subtree_hash?: Sha256Hex | null };
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 /** The canonical subtree hash, computed independently of the app's code. */
@@ -38,16 +41,16 @@ async function login(page: Page) {
   await expect(page.locator(".ws-banner")).toHaveCount(0);
 }
 
-const pageBlocks = async (page: Page, title: string): Promise<BlockNode[]> => {
+const pageBlocks = async (page: Page, title: RawTitle): Promise<BlockNode[]> => {
   const res = await page.request.get(`/api/page/${encodeURIComponent(title)}`);
   expect(res.ok()).toBeTruthy();
-  return (await res.json() as { blocks: BlockNode[] }).blocks;
+  return (await serverJson<PagePayload>(res)).blocks;
 };
 
 interface Scenario {
-  title: string;
-  today: string;
-  u1: string;
+  title: RawTitle;
+  today: RawTitle;
+  u1: BlockUid;
   remote: (id: string, ops: object[]) => Promise<void>;
 }
 
@@ -57,8 +60,8 @@ interface Scenario {
 async function withScenario(page: Page, label: string, base: string,
                             body: (s: Scenario) => Promise<void>) {
   const stamp = Date.now();
-  const title = `${label} ${stamp}`;
-  const u1 = `e2ecfl${stamp}`.slice(0, 32);
+  const title = rawTitleOf(`${label} ${stamp}`);
+  const u1 = uidOf(`e2ecfl${stamp}`.slice(0, 32));
   const remote = async (id: string, ops: object[]) => {
     const res = await page.request.post("/api/ops", { data: {
       client_id: "e2e-remote-conflict", batch_id: `e2e-cfl-${id}-${stamp}`, ops,
@@ -67,8 +70,8 @@ async function withScenario(page: Page, label: string, base: string,
   };
 
   await login(page);
-  const today = await page.locator(".journal-day").first()
-    .locator("h1.page-title").innerText();
+  const today = rawTitleOf(await page.locator(".journal-day").first()
+    .locator("h1.page-title").innerText());
   const before = (await pageBlocks(page, today)).map((b) => b.uid);
   const conflictExisted =
     (await page.request.get("/api/page/conflict")).ok();
@@ -95,13 +98,13 @@ async function withScenario(page: Page, label: string, base: string,
 /** Holds this tab's first batch carrying a `kind` op for `uid`: `first`
  * runs (the other device's write), then the batch reaches the server.
  * Resolves with the held op as sent and the server's ack. */
-async function holdOpTo(page: Page, kind: string, uid: string,
+async function holdOpTo(page: Page, kind: string, uid: BlockUid,
                         first: () => Promise<void>):
-    Promise<() => { sent: WireOp; ack: Ack } | null> {
-  let held: { sent: WireOp; ack: Ack } | null = null;
+    Promise<() => { sent: WireOp; ack: OpsAck } | null> {
+  let held: { sent: WireOp; ack: OpsAck } | null = null;
   let taken = false;
   await page.route("**/api/ops", async (route) => {
-    const batch = route.request().postDataJSON() as { ops: WireOp[] };
+    const batch = wireModel<{ ops: WireOp[] }>(route.request().postDataJSON());
     const sent = batch.ops.find((op) => op.op === kind && op.uid === uid);
     if (taken || !sent) {
       await route.continue();
@@ -110,13 +113,13 @@ async function holdOpTo(page: Page, kind: string, uid: string,
     taken = true;
     await first();
     const response = await route.fetch();
-    held = { sent, ack: await response.json() as Ack };
+    held = { sent, ack: await serverJson<OpsAck>(response) };
     await route.fulfill({ response });
   });
   return () => held;
 }
 
-const holdEditTo = async (page: Page, uid: string, first: () => Promise<void>) => {
+const holdEditTo = async (page: Page, uid: BlockUid, first: () => Promise<void>) => {
   const held = await holdOpTo(page, "update_text", uid, first);
   return () => held()?.ack ?? null;
 };

@@ -20,8 +20,9 @@ from typing import Any
 import httpx2
 import pytest
 import time_machine
-from hypothesis import event, given, settings, strategies as st
+from hypothesis import given, settings, strategies as st
 
+from hostile import count, event
 from pkm.client.api import PkmClient
 from pkm.client.core import CliConfig
 from pkm.client.workflows import apply_batch
@@ -30,8 +31,8 @@ from pkm.contracts.ops import (BatchId, BlockOp, BlockUid, CreateOp, CreatePageO
 from pkm.contracts.responses import BlockNode, OpsAck, walk_blocks
 from pkm.planning import BuildError
 from props.harness import (FROZEN_NOW, FreshApp, assert_unique_keys,
-                           assert_well_formed, examples, fresh_app, seed_ops,
-                           template_db_path)
+                           assert_well_formed, examples, fresh_app,
+                           merge_floors, seed_ops, template_db_path)
 from props.model import Groups, MBlock, positions_after
 from props.strategies import PAGES, cli_batch, seed_tree, uid_pool
 from pkm.test_data.ids import batch_id_of, raw_title_of, uid_of
@@ -162,6 +163,16 @@ def _index_events(commands: Sequence[dict], ops: Sequence[AnyOp],
         event("index: past end" if index > len(group) else "index: inside")
 
 
+def children_match_positions_after(expected: Groups, actual: Groups,
+                                   excluded: set[str | None]) -> None:
+    exp, act = _nonempty(expected), _nonempty(actual)
+    assert set(act) == set(exp), (act, exp)
+    for parent, kids in exp.items():
+        assert sorted(act[parent]) == sorted(kids), (parent, act, exp)
+        if parent not in excluded:
+            assert act[parent] == kids, (parent, act, exp)
+
+
 def _check(app: FreshApp, rows: Sequence[MBlock], commands: list[dict],
            concurrent: BlockUid | None) -> None:
     r = app.client.post("/api/ops", json={
@@ -232,19 +243,13 @@ def _check(app: FreshApp, rows: Sequence[MBlock], commands: list[dict],
         assert concurrent is None
         event("skipped: none")
 
-    exp, act = _nonempty(expected), _nonempty(actual)
-    assert set(act) == set(exp), (act, exp)
-    for parent, kids in exp.items():
-        assert sorted(act[parent]) == sorted(kids), (parent, act, exp)
-        if parent not in excluded:
-            assert act[parent] == kids, (parent, act, exp)
+    children_match_positions_after(expected, actual, excluded)
     assert_unique_keys(app.config.db_path)
     assert_well_formed(app.config.db_path)
 
 
-@settings(max_examples=examples("planner"))
-@given(data=st.data())
-def test_cli_batch_positions(data: st.DataObject) -> None:
+def cli_batch_positions(data: st.DataObject) -> None:
+    count("example")
     rows = [b for b in data.draw(seed_tree(UIDS), label="seed")
             if b.page == PAGE]
     commands = data.draw(cli_batch(rows, PAGE), label="commands")
@@ -265,3 +270,22 @@ def test_cli_batch_positions(data: st.DataObject) -> None:
             _check(app, rows, commands, concurrent)
         finally:
             app.close()
+
+
+# Floors: half the lowest share over 30 unseeded merge runs, 2026-11-10.
+@merge_floors({
+    "concurrent delete": 0.046,
+    "index: inside": 0.619,
+    "index: none": 0.365,
+    "index: past end": 0.243,
+    "parent: alias": 0.066,
+    "seed: gapped": 0.233,
+    "skip: block_not_found": 0.047,
+    "skip: cycle": 0.016,
+    "skip: parent_not_found": 0.018,
+    "skipped: none": 0.334,
+}, "example")
+@settings(max_examples=examples("planner"))
+@given(data=st.data())
+def test_cli_batch_positions(data: st.DataObject) -> None:
+    cli_batch_positions(data)

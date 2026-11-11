@@ -1,7 +1,7 @@
 import pytest
 
 from proptest.run import web_command, web_env
-from proptest.sides import available, resolve_file_filter, sides_for
+from proptest.sides import resolve_file_filter, sides_for
 
 
 def test_server_src_picks_both_sides():
@@ -20,10 +20,6 @@ def test_docs_pick_nothing():
     assert sides_for(["docs/architecture/backend.md"]) == []
 
 
-def test_both_sides_available():
-    assert available("server") and available("web")
-
-
 def test_server_route_change_picks_both_sides():
     assert sides_for(["server/src/pkm/server/routes_ops.py"]) == ["server", "web"]
 
@@ -38,8 +34,8 @@ def test_sync_server_launcher_picks_both_sides():
 
 def test_web_command():
     expected = ["pnpm", "exec", "vitest", "run", "--config", "vitest.props.config.ts"]
+    assert web_command() == expected
     assert web_command(None) == expected
-    assert web_command(7) == expected
 
 
 def test_web_env_carries_the_server_alone_by_default():
@@ -56,8 +52,8 @@ def test_web_env_forwards_seed_path_and_replay_path():
 
 def test_web_command_appends_a_file_filter():
     base = ["pnpm", "exec", "vitest", "run", "--config", "vitest.props.config.ts"]
-    assert web_command(None, "outline/outline.prop.ts") == [*base, "outline/outline.prop.ts"]
-    assert web_command(7, None) == base
+    assert web_command("outline/outline.prop.ts") == [*base, "outline/outline.prop.ts"]
+    assert web_command(None) == base
 
 
 def test_file_is_web_only(capsys):

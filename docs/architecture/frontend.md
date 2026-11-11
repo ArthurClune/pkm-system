@@ -4,7 +4,7 @@ The frontend is a React single-page app built with Vite: an offline-capable,
 real-time-synced Roam-style outliner. The server owns its shapes. API types
 are generated from its OpenAPI schema, the replica schema from its DDL, and
 the block grammar is pinned to the Python parser by shared fixtures. `pnpm
-check:fcis` (`web/tooling/fcis.mjs`) fails a Functional Core module that
+check:fcis` (`web/tooling/fcis.ts`) fails a Functional Core module that
 imports a Shell ([overview.md](overview.md#functional-core--imperative-shell)).
 
 This doc covers the app shell. The outline editor is in
@@ -111,7 +111,7 @@ stale artifact ([backend.md](backend.md#generated-artifacts-and-parity-fixtures)
 
 A server field typed with a branded `NewType` carries an `x-brand` marker in
 `openapi.json` ([backend.md](backend.md#wire-models-and-brands)).
-`tooling/genTypes-core.mjs` turns it into `Brands.<Name>`, a reference to the
+`tooling/genTypes-core.ts` turns it into `Brands.<Name>`, a reference to the
 export of that name in `api/brands.ts`, where every web brand is defined. A
 subtype brand adds a second key, not a second `__brand`, since two `__brand`
 literals intersect to `never`.
@@ -126,7 +126,8 @@ brand back into `string`.
 Where a brand may be minted is `MINT_SITES` in
 `server/src/pkm/brand_registry.py`, enforced on the web by
 `brands/no-brand-assertion` ([checks.md § Brand rules](checks.md#brand-rules)).
-Tests mint through the checked helpers in `test-helpers.ts`. `sync/wire.ts`
+Tests mint through the checked helpers in `test-mint.ts`, which
+`test-helpers.ts` re-exports. `sync/wire.ts`
 reads network bodies, tombstone ids (`tombstoneIdOfWire`) and WebSocket frames
 (`wsFrameOfWire`) as the contract's types; `ReplicaDb.select` does the same for
 replica rows ([sync-and-offline.md](sync-and-offline.md#reading-rows)).
@@ -404,9 +405,9 @@ fails on, and `AGENTS.md` § Testing says how to run them.
 - **Budgets** (`web/tooling/budgets.json`, `viteBudgetPlugin.ts`): the build
   fails when the entry, largest asset, total, service-worker precache or a
   library's owned bytes (mermaid, pdfjs, katex) exceed their caps.
-- **Perf**: `web/tooling/perf/check.mjs` is the frontend half of
+- **Perf**: `web/tooling/perf/check.ts` is the frontend half of
   `perf/check.sh` ([checks.md § Performance gate](checks.md#performance-gate)); its
-  [README](../../web/tooling/perf/README.md) covers the investigation toolkit.
+  [README](../../web/tooling/perf/README.md) lists the files and the measurement caveats.
 
 ## Build notes (`vite.config.ts`)
 
@@ -461,7 +462,8 @@ web/src/
 ├── useStaleGuard.ts          Shell  The stale-response idiom for async reads
 ├── theme.ts, useTheme.ts,    —      The theme preference and the theme it resolves to
 │   useEffectiveTheme.ts
-├── test-helpers.ts           —      Checked brand mints for tests
+├── test-helpers.ts           —      Unit-test fixtures; re-exports test-mint.ts
+├── test-mint.ts              —      Checked brand mints for unit and e2e tests
 ├── styles.css                —      All styling (styling.md)
 ├── api/                      Shell  apiFetch, the typed client, brands.ts, the
 │                                    generated openapi.json and types.d.ts

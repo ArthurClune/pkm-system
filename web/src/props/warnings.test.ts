@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { classify, emptyTally, renderArg, summarise, type WarnArgs } from "./warnings";
+import {
+  classify, emptyTally, renderArg, summarise, unexpectedFailure, type WarnArgs,
+} from "./warnings";
 
 const engine = (code: number, name: string): WarnArgs =>
   ["sqlite3_step() rc=", code, name, "SQL =", "INSERT INTO blocks"];
@@ -63,6 +65,22 @@ describe("summarise", () => {
     const t = classify(emptyTally(), ["probe: unexpected"], "ops > a test");
     expect(summarise("ops", t)).toBe(
       "fault warnings (ops): none\n  1 unexpected:\n  UNEXPECTED [ops > a test] probe: unexpected");
+  });
+});
+
+describe("unexpectedFailure", () => {
+  test("none when every warning has a kind", () => {
+    const t = classify(emptyTally(), engine(1555, "SQLITE_CONSTRAINT_PRIMARYKEY"), "x");
+    expect(unexpectedFailure(t)).toBeNull();
+  });
+
+  test("names each unknown warning's context and text", () => {
+    let t = classify(emptyTally(), ["probe: unexpected"], "ops > a test seed=7");
+    t = classify(t, ["second"], "ops > another");
+    const text = unexpectedFailure(t);
+    expect(text).not.toBeNull();
+    expect(text).toContain("[ops > a test seed=7] probe: unexpected");
+    expect(text).toContain("[ops > another] second");
   });
 });
 

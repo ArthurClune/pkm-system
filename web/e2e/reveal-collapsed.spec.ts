@@ -4,6 +4,10 @@
 // to and flashes the block as it does for any other #uid.
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { rawTitleOf } from "../src/test-mint";
+import type { RawTitle } from "../src/api/brands";
+import type { PagePayload } from "../src/api/payloads";
+import { serverJson } from "./wireJson";
 
 const PASSWORD = "e2e-pw";
 
@@ -15,14 +19,14 @@ async function login(page: Page) {
   await expect(page.locator(".ws-banner")).toHaveCount(0);
 }
 
-const created: string[] = [];
+const created: RawTitle[] = [];
 test.afterEach(async ({ page }) => {
   for (const title of created.splice(0)) {
     await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
   }
 });
 
-async function createPage(page: Page, title: string) {
+async function createPage(page: Page, title: RawTitle) {
   created.push(title);
   expect((await page.request.post("/api/pages", { data: { title } })).ok()).toBeTruthy();
 }
@@ -37,8 +41,8 @@ test("following a block ref into a collapsed subtree expands it and lands on the
      async ({ page }) => {
   await login(page);
   const stamp = Date.now().toString(36);
-  const target = `Reveal Target ${stamp}`;
-  const source = `Reveal Source ${stamp}`;
+  const target = rawTitleOf(`Reveal Target ${stamp}`);
+  const source = rawTitleOf(`Reveal Source ${stamp}`);
   const parentUid = `rvl${stamp}par`;
   const childUid = `rvl${stamp}kid`;
   await createPage(page, target);
@@ -64,7 +68,7 @@ test("following a block ref into a collapsed subtree expands it and lands on the
 
   await expect.poll(async () => {
     const res = await page.request.get(`/api/page/${encodeURIComponent(target)}`);
-    const body = await res.json() as { blocks: { uid: string; collapsed: boolean }[] };
+    const body = await serverJson<PagePayload>(res);
     return body.blocks.find((b) => b.uid === parentUid)?.collapsed;
   }).toBe(false);
 });

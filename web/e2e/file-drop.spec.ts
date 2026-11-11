@@ -4,6 +4,8 @@
 import { readFileSync } from "node:fs";
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import type { PagePayload } from "../src/api/payloads";
+import { serverJson } from "./wireJson";
 
 const PDF = readFileSync(new URL("../../test-data/assets/sample.pdf", import.meta.url));
 const PNG = Buffer.from(
@@ -69,7 +71,7 @@ test("dropping an image and a PDF between two blocks creates a block for each", 
   // the UI is optimistic: wait for the server to hold all four
   const serverTexts = async () => {
     const res = await page.request.get(`/api/page/${encodeURIComponent(title!)}`);
-    return ((await res.json()).blocks as { text: string }[]).map((b) => b.text);
+    return (await serverJson<PagePayload>(res)).blocks.map((b) => b.text);
   };
   await expect.poll(async () => (await serverTexts()).length).toBe(4);
   const texts = await serverTexts();

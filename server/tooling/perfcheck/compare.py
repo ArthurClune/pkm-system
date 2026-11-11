@@ -158,11 +158,12 @@ def _metric(run: dict | None, f: Finding) -> dict | None:
     return run["scenarios"].get(f.scenario, {}).get(f.metric)
 
 
-def _still_worse(baseline: dict, f: Finding, run: dict | None) -> bool | None:
-    """None when the run lacks the metric (treated as not reproduced)."""
+def reproduced(baseline: dict, f: Finding, run: dict | None) -> bool:
+    """Whether the run is still worse than the baseline; a run that lacks the
+    metric has not reproduced it."""
     m = _metric(run, f)
     if m is None:
-        return None
+        return False
     return _judge(baseline["scenarios"][f.scenario][f.metric], m)[0] == "candidate"
 
 
@@ -173,7 +174,7 @@ def _confirm_timing(baseline: dict, f: Finding, rerun: dict, merge_base: dict | 
     now, mb = _metric(rerun, f), _metric(merge_base, f)
     if mb is None or now is None or _clearly_slower(now["value"], mb["value"]):
         return "regression"
-    if _still_worse(baseline, f, merge_base):
+    if reproduced(baseline, f, merge_base):
         return "stale-baseline"
     return "unstable"
 
@@ -183,11 +184,11 @@ def confirm(baseline: dict, candidates: Iterable[Finding], rerun: dict,
     out: dict[tuple[str, str], Outcome] = {}
     for f in candidates:
         key = (f.scenario, f.metric)
-        if not _still_worse(baseline, f, rerun):
+        if not reproduced(baseline, f, rerun):
             out[key] = "unstable"
         elif baseline["scenarios"][f.scenario][f.metric]["class"] == "timing":
             out[key] = _confirm_timing(baseline, f, rerun, merge_base)
-        elif _still_worse(baseline, f, merge_base):
+        elif reproduced(baseline, f, merge_base):
             out[key] = "stale-baseline"
         else:
             out[key] = "regression"

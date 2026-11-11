@@ -4,6 +4,8 @@
 // is deterministic — context.setOffline alone does not kill an open socket.
 import { type Page, type WebSocketRoute } from "@playwright/test";
 import { expect, test } from "./ownPage";
+import type { PagePayload } from "../src/api/payloads";
+import { serverJson } from "./wireJson";
 
 const PASSWORD = "e2e-pw";
 
@@ -171,10 +173,7 @@ test("offline: edit, create page, link, navigate; reconnect drains to server", a
   // the daily-page edit (with its link) reached the server as a backlink
   const res = await page.request.get("/api/page/Offline%20Target");
   expect(res.ok()).toBeTruthy();
-  const body = await res.json() as {
-    page: { id: number; title: string };
-    backlinks: { groups: { items: { text: string }[] }[] };
-  };
+  const body = await serverJson<PagePayload>(res);
   expect(body.page.id).toBeGreaterThan(0);
   const texts = body.backlinks.groups.flatMap((g) => g.items.map((i) => i.text));
   expect(texts).toContain("offline edit survives [[Offline Target]]");

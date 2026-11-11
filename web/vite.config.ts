@@ -131,6 +131,7 @@ export default defineConfig({
       exclude: [
         "src/**/*.test.{ts,tsx}",
         "src/test-helpers.ts",
+        "src/test-mint.ts",
         "src/sync/memReplica.ts",
         "src/replica/testDb.ts",
         "src/replica/replayArbs.ts",

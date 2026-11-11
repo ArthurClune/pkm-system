@@ -31,30 +31,21 @@ def test_sides_for_skips_e2e_specs_and_docs_under_web():
     assert run_core.sides_for(["server/README.md"]) == ["backend"]
 
 
-def test_frontend_letters_cover_whole_context_groups():
-    # counts were recorded with each letter in its shared browser context
-    assert run_core.frontend_letters(["K/drag-top", "K/drag-bottom", "S/search-rare"]) == "J,K,S"
-    assert run_core.frontend_letters(["F/typing"]) == "A,B,F,I"
-    assert run_core.frontend_letters(["W/warm", "I/journal-scroll"]) == "A,B,F,H,I,W"
-    assert run_core.frontend_letters(["R/rebase-edit"]) == "R"
-    assert run_core.frontend_letters(["R/rebase-paste", "F/typing"]) == "A,B,F,I,R"
+def test_frontend_letters_pass_through_unexpanded():
+    # check.ts expands each letter to its browser-context group
+    assert run_core.frontend_letters(["K/drag-top", "K/drag-bottom", "S/search-rare"]) == "K,S"
+    assert run_core.frontend_letters(["F/typing"]) == "F"
+    assert run_core.frontend_letters(["R/rebase-paste", "F/typing"]) == "F,R"
 
 
 def test_check_command_points_the_scenario_at_the_measured_worktree(tmp_path):
     repo, wt = tmp_path / "repo", tmp_path / "wt"
     cmd, env = run.FrontendRunner(repo).check_command(
         wt, ["R/rebase-edit"], "abc", tmp_path / "out.json")
-    assert cmd[:2] == ["node", str(repo / "web" / "tooling" / "perf" / "check.mjs")]
+    assert cmd[:2] == ["node", str(repo / "web" / "tooling" / "perf" / "check.ts")]
     assert cmd[cmd.index("--only") + 1] == "R"
     assert env["PERF_WEB_ROOT"] == str(wt / "web")
     assert env["PERF_COMMIT"] == "abc"
-
-
-def test_frontend_letters_errors_on_a_letter_outside_every_group():
-    # silently dropping it would let a new scenario always confirm as
-    # unstable, since its counts were never gathered in any run
-    with pytest.raises(ValueError, match="Z"):
-        run_core.frontend_letters(["Z/new-scenario"])
 
 
 def test_next_steps_one_line_per_verdict_present():
@@ -102,33 +93,6 @@ def test_exit_code():
     assert run_core.exit_code(lost, {}) == 1
     faster = Comparison((Finding("s", "t", "faster", "10.0", "1.0"),), {})
     assert run_core.exit_code(faster, {}) == 0
-
-
-def test_sides_include_untracked(tmp_path, monkeypatch):
-    monkeypatch.setattr(run, "_git", lambda repo, *a: {
-        ("merge-base", "HEAD", "main"): "abc\n",
-        ("diff", "--name-only", "abc"): "server/a.py\n",
-        ("ls-files", "--others", "--exclude-standard"): "web/new.ts\n",
-    }[a])
-    assert run.changed_paths(tmp_path) == ["server/a.py", "web/new.ts"]
-
-
-def test_changed_paths_handles_paths_with_spaces(tmp_path, monkeypatch):
-    # .split() would break "server/name with space.py" into three entries
-    monkeypatch.setattr(run, "_git", lambda repo, *a: {
-        ("merge-base", "HEAD", "main"): "abc\n",
-        ("diff", "--name-only", "abc"): "server/a.py\nserver/name with space.py\n",
-        ("ls-files", "--others", "--exclude-standard"): "web/new.ts\n",
-    }[a])
-    assert run.changed_paths(tmp_path) == [
-        "server/a.py", "server/name with space.py", "web/new.ts"]
-
-
-def test_git_surfaces_stderr_on_failure(tmp_path):
-    not_a_repo = tmp_path / "not-a-repo"
-    not_a_repo.mkdir()
-    with pytest.raises(run.PerfRunError, match="not a git repository"):
-        run._git(not_a_repo, "rev-parse", "--show-toplevel")
 
 
 def test_git_failure_before_sides_are_known_is_reported_not_a_raw_traceback(monkeypatch, capsys):
@@ -413,9 +377,25 @@ def test_prune_worktrees_removes_only_long_unused(tmp_path, monkeypatch):
         t = time.time() - age_days * 86_400
         os.utime(root / name / run.USED_MARKER, (t, t))
     calls = []
-    monkeypatch.setattr(run, "_git", lambda repo, *a: calls.append(a) or "")
+    monkeypatch.setattr(run, "git", lambda repo, *a: calls.append(a) or "")
     run.prune_worktrees(tmp_path, root, keep=root / "current")
     assert calls == [("worktree", "remove", "--force", str(root / "old")), ("worktree", "prune")]
+
+
+def test_prune_worktrees_deletes_the_directory_git_will_not_remove(tmp_path, monkeypatch):
+    root = tmp_path / "worktrees"
+    (root / "old").mkdir(parents=True)
+    (root / "old" / run.USED_MARKER).touch()
+    t = time.time() - 8 * 86_400
+    os.utime(root / "old" / run.USED_MARKER, (t, t))
+
+    def git(repo, *args):
+        if args[:2] == ("worktree", "remove"):
+            raise run.GitError("git worktree remove failed")
+        return ""
+    monkeypatch.setattr(run, "git", git)
+    run.prune_worktrees(tmp_path, root, keep=root / "current")
+    assert not (root / "old").exists()
 
 
 def test_busy_reason_boundary():

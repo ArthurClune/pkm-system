@@ -10,7 +10,6 @@ from pkm.assistant.policy import (
     READ_TOOLS,
     WRITE_PREVIEW_FIELDS,
     WRITE_TOOLS,
-    all_tool_names,
     available_models,
     classify_tool,
     default_model,
@@ -24,14 +23,11 @@ from pkm.assistant.policy import (
 
 def test_tool_names_namespaced():
     assert mcp_tool_name("search") == "mcp__pkm__search"
-    assert "mcp__pkm__save_note" in all_tool_names()
     assert set(read_tool_names()) == {
         "mcp__pkm__get_page", "mcp__pkm__get_block", "mcp__pkm__search",
         "mcp__pkm__query", "mcp__pkm__backlinks", "mcp__pkm__todos",
         "mcp__pkm__changed_blocks", "mcp__pkm__search_assets",
     }
-    assert "mcp__pkm__rename_page" in all_tool_names()
-    assert len(all_tool_names()) == 12
 
 
 def test_classify_tool():
@@ -59,7 +55,7 @@ def test_upload_asset_is_not_an_assistant_tool():
 def test_system_prompt_names_every_write_verb():
     """The prompt enumerates the write verbs by name, so a tool added to
     WRITE_TOOLS without a matching mention leaves the assistant unaware it
-    exists. Same tripwire role as `all_tool_names`'s count assertion."""
+    exists: this fails until the prompt names it."""
     for tool in WRITE_TOOLS:
         assert tool in SYSTEM_PROMPT, f"SYSTEM_PROMPT omits {tool!r}"
 

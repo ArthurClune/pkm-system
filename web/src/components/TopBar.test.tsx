@@ -320,6 +320,30 @@ it("confirming delete in the dialog sends DELETE to the page's URL, closes the m
   expect(screen.getByText("home")).toBeInTheDocument();
 });
 
+it("confirming a delete closes the menu before the DELETE settles, so a second Enter opens nothing", async () => {
+  vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) =>
+    init?.method === "DELETE"
+      ? new Promise<Response>(() => {})
+      : Promise.resolve(new Response(JSON.stringify({ blockers: [] })))));
+  renderTopBar("/page/Paper");
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  const item = screen.getByRole("menuitem", { name: "Delete page…" });
+  item.focus();
+  fireEvent.click(item);
+  await screen.findByRole("alertdialog");
+  await act(async () => {
+    fireEvent.keyDown(window, { key: "Enter" });
+  });
+
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(screen.queryByRole("menu")).toBeNull();
+  await act(async () => {
+    fireEvent.keyDown(document.activeElement ?? document.body,
+      { key: "Enter" });
+  });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
 it("a failed delete closes the menu, does not navigate, and announces an actionable error", async () => {
   vi.stubGlobal("fetch", vi.fn(async () =>
     new Response(JSON.stringify({ detail: "boom" }), { status: 500 })));

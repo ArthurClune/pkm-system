@@ -2,10 +2,10 @@
 // Fullscreen overlay for uploaded images, extracted from AssetImage
 // so the /files browser can share it. Body scroll lock,
 // Escape-to-close, Tab pinned to Close and focus restore to the trigger
-// come from useOverlayDismiss, shared with the GoodLinks reader.
+// come from useModal.
 import { useRef } from "react";
 import { createPortal } from "react-dom";
-import { useOverlayDismiss } from "./useOverlayDismiss";
+import { useModal } from "../useModal";
 
 export function ImageOverlay({ src, alt, onClose, onError, triggerRef }: {
   src: string;
@@ -17,8 +17,10 @@ export function ImageOverlay({ src, alt, onClose, onError, triggerRef }: {
   triggerRef?: React.RefObject<HTMLButtonElement | null>;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
-
-  useOverlayDismiss(closeRef, onClose, triggerRef);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  useModal({
+    surfaceRef, initialFocusRef: closeRef, onClose, triggerRef, trap: "pin",
+  });
 
   const dialogLabel = alt ? `Expanded image: ${alt}` : "Expanded image";
   return createPortal(
@@ -27,6 +29,7 @@ export function ImageOverlay({ src, alt, onClose, onError, triggerRef }: {
       role="dialog"
       aria-modal="true"
       aria-label={dialogLabel}
+      ref={surfaceRef}
       onClick={(event) => event.stopPropagation()}
     >
       <div className="image-overlay-bar">

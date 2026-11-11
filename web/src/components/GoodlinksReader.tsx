@@ -16,9 +16,9 @@ import type { GoodlinksId } from "../api/brands";
 import type { GoodlinksArticle } from "../api/payloads";
 import { apiGet } from "../api/typedClient";
 import { useEffectiveTheme } from "../useEffectiveTheme";
+import { useModal } from "../useModal";
 import { failureNote, formatSaved, READER_SANDBOX, readerDocument, type ReaderPalette } from "./goodlinksReaderDoc";
 import { isSafeHref } from "./externalMedia";
-import { useOverlayDismiss } from "./useOverlayDismiss";
 
 type ReaderState =
   | { status: "loading" }
@@ -41,11 +41,16 @@ export function GoodlinksReader({ linkId, onClose, triggerRef }: {
   triggerRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<ReaderState>({ status: "loading" });
   const theme = useEffectiveTheme();
   // Re-read the tokens whenever the effective theme flips while open.
   const palette = useMemo(readPalette, [theme]);
-  useOverlayDismiss(closeRef, onClose, triggerRef);
+  // Tab is pinned to Close: the sandboxed iframe would take a cycling
+  // Tab and never hand its keys back to the app.
+  useModal({
+    surfaceRef, initialFocusRef: closeRef, onClose, triggerRef, trap: "pin",
+  });
 
   useEffect(() => {
     let alive = true;
@@ -70,6 +75,7 @@ export function GoodlinksReader({ linkId, onClose, triggerRef }: {
       role="dialog"
       aria-modal="true"
       aria-label={title}
+      ref={surfaceRef}
       onClick={(event) => event.stopPropagation()}
     >
       <div className="goodlinks-reader-bar">

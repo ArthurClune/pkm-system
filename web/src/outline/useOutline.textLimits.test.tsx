@@ -18,6 +18,7 @@ import { block, canonicalTitleOf, makeSync, orderIdxOf, type SyncFake,
 import { findNode } from "./tree";
 import { performUndo, resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
+import { noticeOf } from "./notices";
 
 vi.mock("../uid", () => {
   let n = 0;
@@ -77,7 +78,7 @@ it("a split that leaves an unclosed fence over a deep nest is refused",
 
   expect(sync.sent).toEqual([]);
   expect(outline().blocks).toEqual(before);
-  expect(outline().editNotice).toBe(LINK_NESTING_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(LINK_NESTING_NOTICE);
   // nothing was recorded: there is no entry to undo
   expect(performUndo(sync)).toBe(false);
 });
@@ -91,7 +92,7 @@ it("a merge past the length cap is refused with the length notice", () => {
 
   expect(sync.sent).toEqual([]);
   expect(outline().blocks).toEqual(before);
-  expect(outline().editNotice).toBe(TEXT_LENGTH_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(TEXT_LENGTH_NOTICE);
 });
 
 it("an outline paste with one line past the length cap applies nothing",
@@ -105,7 +106,7 @@ it("an outline paste with one line past the length cap applies nothing",
 
   expect(sync.sent).toEqual([]);
   expect(outline().blocks).toEqual(before);
-  expect(outline().editNotice).toBe(TEXT_LENGTH_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(TEXT_LENGTH_NOTICE);
 });
 
 it("an outline paste with a line linking a title past the cap applies "
@@ -119,7 +120,7 @@ it("an outline paste with a line linking a title past the cap applies "
 
   expect(sync.sent).toEqual([]);
   expect(outline().blocks).toEqual(before);
-  expect(outline().editNotice).toBe(TITLE_LENGTH_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(TITLE_LENGTH_NOTICE);
 });
 
 it("an outline paste with a line linking a forbidden title applies "
@@ -133,7 +134,7 @@ it("an outline paste with a line linking a forbidden title applies "
 
   expect(sync.sent).toEqual([]);
   expect(outline().blocks).toEqual(before);
-  expect(outline().editNotice).toBe(TITLE_SYNTAX_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(TITLE_SYNTAX_NOTICE);
 });
 
 it("a refused command still ships and applies the block's draft", () => {
@@ -151,20 +152,20 @@ it("a refused command still ships and applies the block's draft", () => {
   ]]);
   expect(textOf(outline(), "tuid-big2")).toBe(`${HALF}!`);
   expect(textOf(outline(), "tuid-big1")).toBe(HALF);
-  expect(outline().editNotice).toBe(TEXT_LENGTH_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(TEXT_LENGTH_NOTICE);
 });
 
 it("the next command that applies clears the notice", () => {
   const sync = makeSync();
   const outline = setup(sync);
   act(() => outline().handlers.onBackspaceAtStart(uidOf("tuid-big2")));
-  expect(outline().editNotice).toBe(TEXT_LENGTH_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(TEXT_LENGTH_NOTICE);
 
   act(() => outline().handlers.onSplit(uidOf("tuid-small"), 2));
 
   expect(sync.sent).toHaveLength(1);
   expect(textOf(outline(), "tuid-small")).toBe("sm");
-  expect(outline().editNotice).toBeNull();
+  expect(noticeOf(outline().notices, "edit")).toBeNull();
 });
 
 it("an edit the editor refused raises its notice, which dismisses", () => {
@@ -173,10 +174,10 @@ it("an edit the editor refused raises its notice, which dismisses", () => {
 
   act(() => outline().handlers.onRefusedEdit(LINK_NESTING_NOTICE));
 
-  expect(outline().editNotice).toBe(LINK_NESTING_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(LINK_NESTING_NOTICE);
   expect(sync.sent).toEqual([]);
 
-  act(() => outline().dismissEditNotice());
+  act(() => outline().dismissNotice("edit"));
 
-  expect(outline().editNotice).toBeNull();
+  expect(noticeOf(outline().notices, "edit")).toBeNull();
 });

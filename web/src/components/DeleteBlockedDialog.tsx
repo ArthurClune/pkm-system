@@ -2,10 +2,11 @@
 // Shown instead of the delete confirmation when blocks would break if the
 // page's links were unlinked, and after an asset delete the server refused
 // for the blocks it would break. Same overlay and classes as ConfirmDialog.
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { pagePath } from "../paths";
+import { useModal } from "../useModal";
 import {
   BLOCKED_LEAD, blockerExcerpt, blockerReasonLabel, type DeleteBlocker,
 } from "./deletePageCopy";
@@ -21,24 +22,14 @@ export function DeleteBlockedDialog({
   onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    closeRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
+  useModal({ surfaceRef, initialFocusRef: closeRef, onClose });
 
   const headingId = "delete-blocked-heading";
   return createPortal(
     <div className="confirm-dialog-overlay" onClick={onClose}>
       <div className="confirm-dialog" role="dialog" aria-modal="true"
-           aria-labelledby={headingId}
+           aria-labelledby={headingId} ref={surfaceRef}
            onClick={(event) => event.stopPropagation()}>
         <p className="confirm-dialog-title" id={headingId}>
           {heading}

@@ -1,39 +1,52 @@
 import { describe, expect, it } from "vitest";
-import { DYNAMIC_ROUTES, PAGE_ROUTE_PREFIX, ROUTE_META, ROUTES, routeMetaFor } from "./routeMeta";
-
-describe("ROUTES / ROUTE_META consistency", () => {
-  it("every declared route has a label/title entry or is an explicit dynamic marker, never both", () => {
-    for (const path of Object.values(ROUTES)) {
-      const hasMeta = path in ROUTE_META;
-      const isDynamic = DYNAMIC_ROUTES.includes(path);
-      expect(hasMeta || isDynamic).toBe(true);
-      expect(hasMeta && isDynamic).toBe(false);
-    }
-  });
-
-  it("the page route is built from the shared page-route prefix", () => {
-    expect(ROUTES.page).toBe(`${PAGE_ROUTE_PREFIX}*`);
-  });
-});
+import { documentTitleFor, NOT_FOUND_TITLE, ROUTES, routeMetaFor,
+         STATIC_ROUTES } from "./routeMeta";
 
 describe("routeMetaFor", () => {
   it.each([
-    ["/files/", { label: "Files", documentTitle: "Files — pkm" }],
-    ["/settings///", { label: "Settings", documentTitle: "Settings — pkm" }],
-  ])("normalizes trailing slashes for static route %s", (pathname, expected) => {
-    expect(routeMetaFor(pathname)).toEqual(expected);
+    ["/files/", "Files", "Files — pkm"],
+    ["/settings///", "Settings", "Settings — pkm"],
+  ])("normalizes trailing slashes for static route %s",
+     (pathname, label, documentTitle) => {
+    expect(routeMetaFor(pathname))
+      .toMatchObject({ label, documentTitle });
+  });
+
+  it("matches case-insensitively, as the router does", () => {
+    expect(routeMetaFor("/Files")).toMatchObject({ label: "Files" });
+    expect(documentTitleFor("/HELP/")).toBe("Keyboard shortcuts — pkm");
+    expect(documentTitleFor("/Page/Paper")).toBeNull();
   });
 
   it("keeps root canonical and dynamic/unmatched paths undefined", () => {
-    expect(routeMetaFor("/")).toEqual(ROUTE_META[ROUTES.journal]);
+    expect(routeMetaFor("/")).toMatchObject({ path: ROUTES.journal });
     expect(routeMetaFor("/page/Paper/")).toBeUndefined();
     expect(routeMetaFor("/definitely/not/a/route/")).toBeUndefined();
   });
 
   it("a route's label and title may differ (Help's browser title isn't its top-bar label)", () => {
-    expect(routeMetaFor(ROUTES.help)).toEqual({
+    expect(routeMetaFor(ROUTES.help)).toMatchObject({
       label: "Help",
       documentTitle: "Keyboard shortcuts — pkm",
     });
   });
+});
+
+it("documentTitleFor gives a static route's title, null under /page/, and "
+   + "the not-found title elsewhere", () => {
+  expect(documentTitleFor("/settings/")).toBe("Settings — pkm");
+  expect(documentTitleFor("/page/Paper")).toBeNull();
+  expect(documentTitleFor("/nope")).toBe(NOT_FOUND_TITLE);
+});
+
+it("static routes have distinct ids and paths", () => {
+  const ids = STATIC_ROUTES.map((r) => r.id);
+  const paths = STATIC_ROUTES.map((r) => r.path);
+  expect(new Set(ids).size).toBe(ids.length);
+  expect(new Set(paths).size).toBe(paths.length);
+});
+
+it("ROUTES maps each static route's id to its path", () => {
+  for (const r of STATIC_ROUTES) expect(ROUTES[r.id]).toBe(r.path);
+  expect(Object.keys(ROUTES)).toHaveLength(STATIC_ROUTES.length);
 });

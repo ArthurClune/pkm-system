@@ -10,6 +10,7 @@ import { SyncContext } from "../sync/SyncProvider";
 import { block, makeSync, orderIdxOf, type SyncFake, canonicalTitleOf, uidOf, confirmYes } from "../test-helpers";
 import { resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
+import { noticeOf } from "./notices";
 
 vi.mock("../uid", () => {
   let n = 0;
@@ -102,7 +103,7 @@ it("a paste past the server's op count per batch is refused", () => {
   act(() => getOutline().handlers.onPasteOutline(
     uidOf("tuid-a"), 4, 4, `!\n${lines.join("\n")}`));
 
-  expect(getOutline().editNotice).toBe(BATCH_TOO_LARGE_NOTICE);
+  expect(noticeOf(getOutline().notices, "edit")).toBe(BATCH_TOO_LARGE_NOTICE);
   // the paste's own text splice is part of the refused command
   expect(sync.sent).toEqual([]);
   expect(getOutline().blocks.map((b) => b.text)).toEqual(["seed"]);

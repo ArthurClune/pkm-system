@@ -24,16 +24,14 @@ logger = logging.getLogger("pkm.assistant")
 # waits for it to connect) while the admission lock is held, so one wedged
 # harness fails one request instead of wedging every future create().
 #
-# The lock-hold story lives here, once, and is cross-referenced from the two
-# places that used to retell it. This is not a ceiling on how long the lock is
-# held: asyncio.wait_for does not return until the task it cancelled has
-# finished unwinding, so a handshake still wedged at CREATE_TIMEOUT_S gets
-# create_conversation's own cancellation-triggered cleanup (disconnecting the
-# partially-connected client) run to completion first, under the
-# lock, before TimeoutError reaches create() below. That cleanup rides the SDK
-# transport's own bounded close (~20s worst case per claude_agent_sdk's
-# SubprocessCLITransport), so the true worst-case hold is CREATE_TIMEOUT_S
-# plus that -- roughly 80s, not 60s.
+# This is not a ceiling on how long the lock is held: asyncio.wait_for does
+# not return until the task it cancelled has finished unwinding, so a
+# handshake still wedged at CREATE_TIMEOUT_S runs create_conversation's own
+# cancellation cleanup (disconnecting the partially-connected client) to
+# completion, under the lock, before TimeoutError reaches create() below.
+# That cleanup rides the SDK transport's bounded close (~20s worst case per
+# claude_agent_sdk's SubprocessCLITransport), so the worst-case hold is
+# CREATE_TIMEOUT_S plus that: roughly 80s, not 60s.
 CREATE_TIMEOUT_S = 60.0
 
 
@@ -95,11 +93,11 @@ class AssistantService:
         # The lock spans a subprocess spawn: engine.create_conversation()
         # starts the Claude CLI harness and awaits its connect handshake,
         # bounded by CREATE_TIMEOUT_S -- see that constant's comment for what
-        # the bound actually costs. The other await that used to run under
-        # this lock, closing a reaped or evicted conversation's harness, is
-        # deferred to create()'s outer finally: eviction correctness needs the
-        # `_entries` pop to be atomic with the cap check, not the old
-        # harness's teardown to finish before admission proceeds.
+        # the bound actually costs. Closing a reaped or evicted
+        # conversation's harness happens after the lock, in create()'s outer
+        # finally: eviction needs only the `_entries` pop to be atomic with
+        # the cap check, not the old harness's teardown to finish before
+        # admission proceeds.
         self._admission_lock = asyncio.Lock()
 
     async def create(self, model: str | None) -> tuple[ConversationId, AssistantModel]:
@@ -146,16 +144,15 @@ class AssistantService:
             # slow-to-close harness delays only this request.
             #
             # Every entry here was already popped from `_entries` under the
-            # lock (by _reap_idle/_evict_oldest_idle above) -- nothing else
-            # will ever retry closing it. A cancellation landing while
-            # parked in one handle's close() must not therefore abort this
-            # loop: the remaining handles would leak their subprocess and
-            # 0600 session-token config file until process exit,
-            # the same class of leak closed one layer down. Keep
-            # closing every queued handle regardless, and only re-raise the
-            # first cancellation once the whole queue has been attempted --
-            # each close() is itself SDK-bounded (~20s worst case), so the
-            # cancellation is delayed, not lost.
+            # lock (by _reap_idle/_evict_oldest_idle above), so nothing else
+            # will retry closing it. A cancellation landing while parked in
+            # one handle's close() must not abort this loop: the remaining
+            # handles would leak their subprocess and 0600 session-token
+            # config file until process exit. Every queued handle is closed
+            # regardless, and the first cancellation is re-raised once the
+            # whole queue has been attempted; each close() is itself
+            # SDK-bounded (~20s worst case), so the cancellation is delayed,
+            # not lost.
             first_cancel: asyncio.CancelledError | None = None
             for old_cid, old_handle in to_close:
                 try:

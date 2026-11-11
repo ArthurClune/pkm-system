@@ -8,8 +8,9 @@
 // accessible dialog and resolves a promise instead, giving every caller
 // the same `if (!(await confirm(...))) return;` shape window.confirm used
 // to, but one that actually works in standalone mode everywhere.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useModal } from "../useModal";
 
 export interface ConfirmOptions {
   /** Optional heading shown above the message. */
@@ -22,6 +23,9 @@ export interface ConfirmOptions {
 
 interface ConfirmState extends ConfirmOptions {
   message: string;
+  /** Bumped by every confirm() call: the card is keyed by it, so a second
+   * confirm remounts the card and refocuses its confirm button. */
+  opening: number;
 }
 
 /** Renders (at most) one confirmation dialog for its owning component.
@@ -37,8 +41,7 @@ export function useConfirm(): {
   dialog: React.ReactNode;
 } {
   const [state, setState] = useState<ConfirmState | null>(null);
-  const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
-  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const openings = useRef(0);
 
   // The pending promise's resolver, kept out of state so that settling it
   // never happens inside a state updater, which React may run twice.
@@ -56,32 +59,42 @@ export function useConfirm(): {
       new Promise<boolean>((resolve) => {
         pendingResolve.current?.(false);
         pendingResolve.current = resolve;
-        setState({ message, ...options });
+        openings.current += 1;
+        setState({ message, ...options, opening: openings.current });
       }),
     [],
   );
 
-  useEffect(() => {
-    if (!state) return undefined;
-    confirmButtonRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        settle(false);
-      } else if (event.key === "Enter") {
-        // A focused dialog button activates itself on Enter; settling here
-        // would confirm when the focus is on Cancel.
-        if (event.target instanceof HTMLButtonElement
-            && dialogRef.current?.contains(event.target)) return;
-        event.preventDefault();
-        settle(true);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [state, settle]);
-
   const dialog = state && createPortal(
+    <ConfirmCard key={state.opening} state={state} settle={settle} />,
+    document.body,
+  );
+
+  return { confirm, dialog };
+}
+
+function ConfirmCard({ state, settle }: {
+  state: ConfirmState;
+  settle: (value: boolean) => void;
+}) {
+  const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  useModal({
+    surfaceRef: dialogRef,
+    initialFocusRef: confirmButtonRef,
+    onClose: () => settle(false),
+    onKey: (event) => {
+      if (event.key !== "Enter") return;
+      // A focused dialog button activates itself on Enter; settling here
+      // would confirm when the focus is on Cancel.
+      if (event.target instanceof HTMLButtonElement
+          && dialogRef.current?.contains(event.target)) return;
+      event.preventDefault();
+      settle(true);
+    },
+  });
+
+  return (
     <div className="confirm-dialog-overlay" onClick={() => settle(false)}>
       <div className="confirm-dialog" role="alertdialog" aria-modal="true"
            ref={dialogRef}
@@ -103,9 +116,6 @@ export function useConfirm(): {
           </button>
         </div>
       </div>
-    </div>,
-    document.body,
+    </div>
   );
-
-  return { confirm, dialog };
 }

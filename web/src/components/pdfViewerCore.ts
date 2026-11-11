@@ -24,20 +24,6 @@ export function currentPageFromRatios(
   return best;
 }
 
-/** Focus-trap wrap decision: the element Tab/Shift+Tab should move to, or
- * null when the browser's natural tab order already stays inside the trap.
- * An active element outside the list (or none) pulls focus back inside. */
-export function focusWrapTarget<T>(
-  focusables: readonly T[],
-  active: T | null,
-  shiftKey: boolean,
-): T | null {
-  if (focusables.length === 0) return null;
-  const i = active === null ? -1 : focusables.indexOf(active);
-  if (shiftKey) return i <= 0 ? focusables[focusables.length - 1] : null;
-  return i === -1 || i === focusables.length - 1 ? focusables[0] : null;
-}
-
 /** The pages that should stay mounted: every page within `radius` of one the
  * observer reports near the viewport, clamped to the document. Page 1 is the
  * floor: no observer has fired yet, or every near page is outside the

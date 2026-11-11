@@ -76,6 +76,25 @@ identity reaches a row.
 `pending` has one publisher, the op queue. Code that changes the durable queue
 behind its back calls `queue.refreshPending()` rather than reading the replica.
 
+### Fetch state
+
+A response that lands after its input changed must not commit. Which guard to
+use depends on how many requests of the same kind can be live:
+
+| Situation | Idiom | Because |
+|---|---|---|
+| One request live at a time (a debounced search, a popup, `CurrentWork`) | `useStaleGuard`: `begin()` per request, commit only if `!isStale(token)`, `cancel()` when the surface empties | a later input supersedes the earlier one, even when the offline gateway ignores an abort |
+| One request tied to one effect (`SidebarNav`, `BlockRefBacklinksPopover`) | a `cancelled` flag local to the effect, set by its cleanup | the effect re-runs or unmounts exactly when the answer stops mattering |
+| Several loads of one list that must stay valid together | a Core reducer whose events carry the load id they answer, driven through `useReducerRef`: `journalPaging.ts`, `filesPaging.ts`, `backlinksPaging.ts` | `useStaleGuard` has a single live token; these loads join one generation |
+
+`useReducerRef` exists because a handler reads the state its own dispatch
+made: a second click before React re-renders must see the first click's lock,
+and a fetch must read the load id it just started. A plain `useReducer`'s
+state in a handler is the last render's. A reducer that returns the same
+object sets no state, so a refused event costs no render. `unlinkedStatus.ts`
+uses it without load ids, as a double-click guard: a second Link click sees
+the first's `pending` status before React re-renders.
+
 An async handler in chrome that outlives a route, such as `TopBar`'s, checks
 after each `await` that the route is still the one it started on (`titleRef`).
 Otherwise a slow answer opens a dialog or navigates over the page the user has
@@ -163,10 +182,13 @@ outline session by the page's stored title, whatever spelling opened them
 
 ### One table for route metadata
 
-`routeMeta.ts` holds the path, top-bar label and browser title of every static
-route. `App.tsx`'s routes and nav links, TopBar, and `useRouteTitle.ts` all
-read it, so a route cannot be labelled in one place and not another. `/page/*`
-and the catch-all have no entry; `PageView.tsx` sets its own title.
+`STATIC_ROUTES` in `routeMeta.ts` holds the id, path, top-bar label and browser
+title of every static route. `App.tsx` maps each id to its view through
+`VIEWS`, a `Record<StaticRouteId, ComponentType>` the compiler checks for
+completeness. TopBar and `useRouteTitle.ts` read the same array, so a route
+cannot be labelled in one place and not another. `/page/*` has no entry;
+`PageView.tsx` sets its title. The catch-all renders `NotFound`, and
+`NOT_FOUND_TITLE` is its title.
 
 ### Navigation chrome
 
@@ -232,13 +254,33 @@ node, not the React node, so a portalled surface stops its own clicks.
 | `BlockRefBacklinksPopover`, `FileCardPopovers` | `Popover`'s own `useDismiss` (outside `mousedown` or Escape) |
 | `BlockMenu` | `useDismiss`; roving focus and Tab stay in the component |
 | `TopBar`'s page menu, `SearchBar` | `useDismiss` with `enabled` |
-| `ConfirmDialog` | hand-rolled: `window` listener, Escape/Enter; Enter on a focused dialog button is left to that button |
-| `ImageOverlay`, `GoodlinksReader`, `LocalFilePicker` | `useOverlayDismiss`: capture-phase `window` listener, scroll lock, focus restore |
+| `ConfirmDialog` (Enter on a focused dialog button is left to that button), `DeleteBlockedDialog`, `PdfViewer`'s overlay | `useModal`, `trap: "cycle"` |
+| `ImageOverlay`, `GoodlinksReader`, `LocalFilePicker` | `useModal`, `trap: "pin"` |
 | `AutocompletePopup`, `DatePickerPopup` | none: `BlockInput` owns their keys |
 
-Hand-roll dismissal only for a modal surface (one that traps focus, locks
-scrolling or answers keys beyond Escape), or one whose keys another component
-owns.
+A modal surface (one that traps focus, locks scrolling or answers keys beyond
+Escape) uses `useModal` and nothing hand-rolled. Only the topmost modal
+answers keys, because every modal's capture listener on `window` runs
+whatever `stopPropagation` says. The body stays locked until the last modal
+closes. Focus goes back to `triggerRef` if given, else to whatever held it
+when the modal opened, and only from the topmost modal. A surface whose keys
+another component owns hand-rolls its dismissal.
+
+The topmost modal stops Escape in the capture phase at `window`, so nothing
+beneath it closes on the same keypress: not the page menu, not the assistant
+panel's `onKeyDown`, not a `useDismiss` listener. A non-modal popover inside a
+modal therefore cannot answer Escape and must itself be a `useModal`. Keys
+are ignored while an IME composes (`isComposing` or `keyCode` 229).
+
+`"cycle"` wraps Tab and Shift+Tab inside the surface (`focusWrap.ts`), as in
+the confirm and blocked dialogs; every modal also locks body scroll and
+restores focus on close. The three pinned
+surfaces keep Tab on one element: `LocalFilePicker` is driven from its search
+box, and `GoodlinksReader`'s sandboxed iframe would swallow a cycling Tab,
+since its keydowns never reach the app
+([files-and-assets.md](files-and-assets.md#the-reader-and-the-goodlinks-command)).
+A confirm opened from the page menu closes first on Escape; a second Escape
+closes the menu.
 
 A row's `RefCountBadge` opens `BlockRefBacklinksPopover`, which fetches
 `GET /api/block/{uid}/backlinks` at open, so the list is live while the count
@@ -252,6 +294,13 @@ hook with a confirm-backed handler takes `confirm` as an argument, as
 batches can land while a dialog is open, so a handler re-derives its target
 after the await.
 
+Dismissible notice lines render through `DismissibleNotice`: `tone: "error"`
+is an alert, `"status"` a status. `useOutline` exposes one `notices` list
+(`outline/notices.ts`: one slot per `NoticeKind`, listed by `noticeList`) and
+`EditablePage` maps it; `EditablePage`'s picker notice and `TopBar`'s menu
+error use the component directly. The classes and roles are what `styles.css`
+and the e2e locators select on.
+
 ### The `/files` browser
 
 `/files` is a table over `/api/assets/search`; the store is in
@@ -260,17 +309,26 @@ after the await.
 through `BacklinkGroupList`, which provides `InertMediaContext` itself
 whenever `onNavigate` is set, so media in a navigable row is inert and the
 whole row is the click target. `AssetRefGroup` has
-no `page_id`, which keeps asset refs out of `mergeGroups`. Pagination has a
-synchronous single-flight lock against a double click, and a generation guard
-that discards responses a filter change has made stale. A filter change bumps
-the generation and clears the selection at the keystroke, not when the
-debounced reload fires. Select all and Load more start only from a list loaded
-under the current generation, since until then `items` and `total` belong to
-the old filter and a Delete would remove files outside the new one.
+no `page_id`, which keeps asset refs out of `mergeGroups`. `filesPaging.ts`
+owns the list's fetch state. A filter change bumps the generation and clears
+the selection at the keystroke, not when the debounced reload fires. Select
+all and Load more start only from a list loaded under the current generation,
+since until then `items` and `total` belong to the old filter and a Delete
+would remove files outside the new one.
+
+### Linked references
+
+`BacklinksSection` shows the groups in `backlinksPaging.ts`. Show more and the
+filter panel's load-all are walks, and several can be in flight together, so
+the section counts as loading until every walk has settled. A sync-driven
+refresh replaces the groups from offset 0; a walk cannot start, and the panel
+cannot open, while one is in flight, since either would page on from groups
+the refresh is about to replace.
 
 ### Unlinked references
 
-`UnlinkedSection` pages `/api/unlinked` by `offset`, and the server drops a
+`UnlinkedSection` keeps each block's Link status in `unlinkedStatus.ts`, which
+owns the lifecycle, and pages `/api/unlinked` by `offset`, and the server drops a
 block from that list once it references the page. So a delivered Link takes
 its block out of the loaded list and one off `total`, and Show more asks from
 the count of loaded blocks still listed. Counting a block whose Link is not
@@ -302,13 +360,17 @@ list comes from `GET /api/assistant/models` on first open, with a hardcoded
 fallback (`FALLBACK_MODELS` in `chatMachine.ts`).
 
 - `client.ts::streamMessage` feeds the response body through `sse.ts`, a pure
-  frame parser, into `useAssistant.ts`. It bypasses `apiFetch`, which reads
-  the body as JSON, and replicates its 401 handling.
-- `sse.ts` drops a frame whose `event:` name is not in `EVENT_TYPES`. That
-  hides keepalives, and also drops a new event type until it is added.
+  frame parser, into the chat driver's dispatch (`chatDriver.ts`). It
+  bypasses `apiFetch`, which reads the body as JSON, and replicates its 401
+  handling.
+- `sse.ts` drops a frame whose `event:` name is not in `EVENT_TYPES`, which
+  is generated with the `AssistantEvent` union ([assistant.md § The stream
+  contract](assistant.md#the-stream-contract), which owns the tolerance rule).
+  That hides keepalives, and also drops a new event type until the web is
+  regenerated.
 - After `STREAM_STALL_TIMEOUT_MS` with nothing received the turn errors, with
-  an error that is not an `AbortError`: `useAssistant` reports an
-  `AbortError` as `aborted`, and `step` shows no error for it.
+  an error that is not an `AbortError`: the driver's `streamFailure`
+  reports an `AbortError` as `aborted`, and `step` shows no error for it.
 - The busy clock (`elapsed.ts::elapsedLabel`) restarts on each phase label,
   tool start and confirm resume, so a parked approval does not inflate it.
 - A tool line pairs with its `tool_finished` by `tool_use_id`, across turns,
@@ -329,8 +391,11 @@ fallback (`FALLBACK_MODELS` in `chatMachine.ts`).
 
 `assistant/chatMachine.ts` (Core) holds the whole chat as one reducer:
 `step(state, event)` returns the next state and the effects to run.
-`useAssistant.ts` only dispatches the user's actions and each request's
-result, and starts the requests the effects name. The conversation is
+`useAssistant.ts` only dispatches the user's actions; the driver in
+`chatDriver.ts` (`createChatDriver(publish, client)`, which takes the client
+functions rather than importing them) feeds each request's result back and
+starts the requests the effects name. Stop is offered per `canStop`, which
+holds while a card's answer posts or has failed. The conversation is
 `none`, `creating` or `open`; the turn moves like this:
 
 ```mermaid
@@ -365,9 +430,9 @@ which the server may still be draining; `streamWithBusyRetry` absorbs that.
 | Every request's result names its turn, and changes nothing on screen unless that turn is busy and not stopping. That includes a failed confirm POST | New chat clears the transcript at once, so a superseded turn's events must not fold into the new one. After Stop no card is left to answer again |
 | A stream's 404 re-creates the conversation once, with the same model, in the same turn. A second 404 fails the turn | The server retires a reaped, evicted or dead conversation, and a lost harness ends its turn with `HARNESS_LOST`. The next send to it gets a 404 |
 | The picker shows the model of the conversation that is creating or open, as the create returned it, and is locked exactly then. The models list's default applies only while there is none and the user has not picked | A conversation keeps the model it was created with, so the picker shows that one |
-| The hook posts the stop only once the stream's response has opened, and retries no 409 after Stop. A stream that settles first posts nothing | `POST …/stop` names no turn. An opened response means the server has reserved this turn, so the stop cannot reach another |
+| The driver posts the stop only once the stream's response has opened, and retries no 409 after Stop. A stream that settles first posts nothing | `POST …/stop` names no turn. An opened response means the server has reserved this turn, so the stop cannot reach another |
 | A stopped turn ends only once its stop POST has settled (`stopSettled`) | The server acts on a stop before it answers, so a settled POST cannot stop a later turn |
-| If the POST fails, or the turn has not ended within `STOP_ACK_TIMEOUT_MS` (`useAssistant.ts`), the hook aborts the stream and the POST | The server's own bound is `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S` once it hears the stop; past it the panel must still be freed. An aborted POST can still reach the server later and stop the next turn |
+| If the POST fails, or the turn has not ended within `STOP_ACK_TIMEOUT_MS` (`chatDriver.ts`), the driver aborts the stream and the POST | The server's own bound is `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S` once it hears the stop; past it the panel must still be freed. An aborted POST can still reach the server later and stop the next turn |
 | A `turn_stopped` for a turn that did not stop ends it with `UNASKED_STOP_MESSAGE` | That is a stop meant for an earlier turn: the user is told the reply was cut short, never left without one |
 | New chat aborts the stream, a stopping turn's included, and sends the DELETE only after that stream settles. A conversation created for a superseded turn is deleted | The server sees the dropped connection and ends the turn before it closes the conversation |
 
@@ -461,6 +526,9 @@ web/src/
 ├── paths.ts                  Core   Page title to URL path and back
 ├── contexts.ts               Shell  The app's React contexts
 ├── useStaleGuard.ts          Shell  The stale-response idiom for async reads
+├── useReducerRef.ts          Shell  A reducer whose handler reads its own dispatch's state
+├── useModal.ts, focusWrap.ts Shell  Modal keys, scroll lock and focus; the Tab wrap (Core)
+├── useStoredToggle.ts        Shell  A two-valued localStorage preference (keys: prefKeys.ts)
 ├── theme.ts, useTheme.ts,    —      The theme preference and the theme it resolves to
 │   useEffectiveTheme.ts
 ├── test-helpers.ts           —      Unit-test fixtures; re-exports test-mint.ts

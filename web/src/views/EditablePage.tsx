@@ -10,6 +10,7 @@ import { selectionDragUids } from "../outline/blockSelection";
 import { subtreeHeight } from "../outline/depthCap";
 import { findNode, hidingAncestors } from "../outline/tree";
 import { useConfirm } from "../components/ConfirmDialog";
+import { DismissibleNotice } from "../components/DismissibleNotice";
 import { useOutline } from "../outline/useOutline";
 
 /** One editable outline (a page body or a journal day).
@@ -125,41 +126,16 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
          className={ownsEditor ? "outline-drop-zone" : undefined}
          style={ownsEditor ? { position: "relative" } : undefined}
          {...(ownsEditor && !outline.readOnly ? zoneProps : {})}>
-      {ownsEditor && outline.uploadError && (
-        <p className="error upload-error" role="alert">
-          {outline.uploadError}
-          <button type="button" className="btn-secondary"
-                  onClick={outline.dismissUploadError}>
-            Dismiss
-          </button>
-        </p>
-      )}
-      {ownsEditor && outline.goodlinksNotice && (
-        <p className="editor-notice" role="status">
-          {outline.goodlinksNotice}
-          <button type="button" className="btn-secondary"
-                  onClick={outline.dismissGoodlinksNotice}>
-            Dismiss
-          </button>
-        </p>
-      )}
-      {ownsEditor && outline.editNotice && (
-        <p className="editor-notice" role="status">
-          {outline.editNotice}
-          <button type="button" className="btn-secondary"
-                  onClick={outline.dismissEditNotice}>
-            Dismiss
-          </button>
-        </p>
-      )}
+      {ownsEditor && outline.notices.map((notice) => (
+        <DismissibleNotice key={notice.kind} tone={notice.tone}
+                           onDismiss={() => outline.dismissNotice(notice.kind)}>
+          {notice.text}
+        </DismissibleNotice>
+      ))}
       {ownsEditor && pickerNotice && (
-        <p className="editor-notice" role="status">
+        <DismissibleNotice tone="status" onDismiss={() => setPickerNotice(null)}>
           {pickerNotice}
-          <button type="button" className="btn-secondary"
-                  onClick={() => setPickerNotice(null)}>
-            Dismiss
-          </button>
-        </p>
+        </DismissibleNotice>
       )}
       {outline.blocks.length === 0 && ownsEditor ? (
         <div className="empty-drop-zone">

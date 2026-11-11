@@ -6,8 +6,7 @@
 import type { BlockUid, CanonicalTitle } from "../api/brands";
 import { InertMediaContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
-import type { AssetRefGroup } from "../views/filesCore";
-import type { ShownBacklinkGroup } from "./groups";
+import type { AssetRefGroup, ShownBacklinkGroup } from "./groups";
 import { InlineSegments } from "./InlineSegments";
 import { PageLink } from "./PageLink";
 

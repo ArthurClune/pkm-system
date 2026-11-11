@@ -4,8 +4,8 @@
 // probe that stops catching its drift fails the build rather than
 // silently passing.
 import { expect, it } from "vitest";
-import type { AssetRefGroup } from "../views/filesCore";
 import { pageIdOf, typeProbe, uidOf, canonicalTitleOf } from "../test-helpers";
+import type { AssetRefGroup } from "./groups";
 import { MISSING_ANCESTOR_TEXT, mergeGroups, showBacklinkGroups } from "./groups";
 
 // AssetRefGroup (asset refs, keyed by page_title -- the search payload

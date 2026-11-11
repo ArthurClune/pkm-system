@@ -197,7 +197,7 @@ flowchart LR
 
 A depth refusal (`DEPTH_NOTICE`), a text-limit one (`textLimitNotice`), a
 title one (`TITLE_LENGTH_NOTICE`, `TITLE_SYNTAX_NOTICE`) or a size one
-(`BATCH_TOO_LARGE_NOTICE`) shows in the one `editNotice` slot `EditablePage` renders. The next command
+(`BATCH_TOO_LARGE_NOTICE`) shows in the one `edit` notice `EditablePage` renders. The next command
 that applies, or Dismiss, clears it, and a refused draft's notice also
 clears once the draft saves. A refused keystroke leaves the textarea
 as it was, with the caret where the refused insertion began

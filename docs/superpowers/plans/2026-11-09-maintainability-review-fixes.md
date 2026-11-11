@@ -434,17 +434,17 @@ Not blocking any merge above. Each entry is added by the package that makes the 
 
 | Machine | Converted in | Suite |
 |---|---|---|
-| Files paging reducer (`filesPaging.ts`) | W15 | new `props/files/` |
-| Backlinks paging reducer (`backlinksPaging.ts`) | W15 | new `props/backlinks/` |
-| Unlinked-item lifecycle map | W15 | with backlinks |
+| Files paging reducer (`views/filesPaging.ts`) | W15 | new `props/files/` |
+| Backlinks paging reducer (`components/backlinksPaging.ts`) | W15 | new `props/backlinks/` |
+| Unlinked-item lifecycle map (`components/unlinkedStatus.ts`, `withStatus`) | W15 | with backlinks |
 | Banner under `replica-state` events (`transitionSync`) | W8 | extend `props/sync/`: the harness's clients already run the fold, `session.problem()` is the read, and `sync.prop.ts`'s `Problem at settle: <kind>` tally is the reach data; the offline-reload first connect is reached (a scratch mutant forcing `needsBootstrap` false failed the sync property on both seeds tried). W10 adds: a `no-replica` report replaces a stalled banner and never a delivery problem, and the fold shows it again when a delivery problem ends |
 | Acknowledged stop (`postStop`, `turn_stopped`, the fallback timer) | W3 | already in the assistant suites (W3 updates them); listed so the shell half is covered with the row below |
-| Chat driver shell: DELETE only after the stream settles (`createChatDriver`) | W14 | extend `props/assistant/` to drive the driver, settling stream and DELETE as separate actions |
-| Confirm answer state (`PendingConfirm.answer`) | W14 | extend the assistant model's confirm invariant |
+| Chat driver shell: DELETE only after the stream settles (`createChatDriver`) | W14 | W14 moved the driver to `chatDriver.ts`, taking a `ChatClient`; its timers are still global. W19 extends `props/assistant/` to drive it with a fake client, settling stream and DELETE as separate actions |
+| Confirm answer state (`PendingConfirm.answer`) | W14 | done in W14: the `confirm` invariant is re-pointed and `stoppable` added, with three new labels that have no floors yet; nothing left for W19 |
 | Late callers at `coalesce` sites the sync property suites do not reach: the reconnect completion (`reconnectFlow.ts`) and the poison repair (`clientRuntime.ts`); the outline repair is listed until a run shows a suite reaches it | W9 | extend `props/sync/` only if a suite can draw the late call (a connect after the resync decision; a rejection after the delete loop reads its targets). Guarded today by `reconnectFlow.test.ts` (`a connect finished while the completion decides gets its own pull`), `clientRuntime.test.ts` (`a poison event after the repair began deleting gets a repair of its own`) and `legacyRepair.test.ts` (`a rejection arriving after a run's onStable gets a run of its own`). `pull` is reached: the sync property fails when its late nudge is lost |
 | The poison claim as `replicaSync` reads it (`holdsPoison`) and its releases | W10 | the queue suite checks the claim through `OpQueue.holds` (rules `claim` and `release`, with committed teeth), but its `replicaSync` is a stand-in and neither suite draws a discard or an unmatched marking round during a repair, so the releases that skip a running repair survive a mutant there. Extend `props/sync/` to draw them. Guarded by `clientRuntime.test.ts` (`discarding a rejected change while a repair runs keeps the poison claim until the repair ends`, the unmatched-round tests), `barrier.test.ts` and `session.test.ts` (`a connect while a reload's poison mark keeps failing leaves recovery to the poison claim`, and the test pinning `session.ts`'s `holdsPoison` wiring, which no other unit test caught) |
 | Leased delivery (`OpQueue.deliverLeased`) in the queue suite | W10 | the recovery stand-in flushes its lease through `deliverLeased`; the model then needs a rule that a recovery's own leased POSTs pass its own claim, a change to `barrier`. Mutants that skip the lane ahead, the `beforePost` call or the disposed re-check are caught by `opQueue.replica.test.ts` and `replicaSync.test.ts` only; list the row again if a sync-suite run leaves them surviving |
-| `useModal` focus trap | W15 | judge when written whether a property earns its cost over the unit table |
+| `useModal`: focus trap and the modal stack (topmost-only keys, overflow held until the last modal closes, restore only from the topmost) | W15 | judge when written whether a property earns its cost over the unit table |
 
 ## Not in this plan
 

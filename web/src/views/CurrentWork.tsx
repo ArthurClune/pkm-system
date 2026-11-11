@@ -1,25 +1,26 @@
 // pattern: Imperative Shell
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { apiGet } from "../api/typedClient";
 import type { CurrentWorkPayload } from "../api/payloads";
 import { pagePath } from "../paths";
 import { useResync } from "../sync/SyncProvider";
+import { useStaleGuard } from "../useStaleGuard";
 import { Link } from "react-router-dom";
 
 export function CurrentWork() {
   const [payload, setPayload] = useState<CurrentWorkPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const seqRef = useRef(0);
+  const guard = useStaleGuard();
 
   const load = useCallback(() => {
-    const token = ++seqRef.current;
+    const token = guard.begin();
     setError(null);
     apiGet("/api/current-work")
-      .then((p) => { if (token === seqRef.current) setPayload(p); })
+      .then((p) => { if (!guard.isStale(token)) setPayload(p); })
       .catch((e: unknown) => {
-        if (token === seqRef.current) setError(String(e));
+        if (!guard.isStale(token)) setError(String(e));
       });
-  }, []);
+  }, [guard]);
 
   useEffect(() => { load(); }, [load]);
   useResync(load);

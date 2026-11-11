@@ -125,6 +125,9 @@ export interface HarnessClient {
   failNextMark(): void;
   /** The next markPoisoned call finds no row: the row is deleted first. */
   unmatchNextMark(): void;
+  /** This life met an injected mark failure, and the harness has given it
+   * no Retry or Discard since. */
+  failedMarkUnanswered(): boolean;
   /** A mark fault armed and not yet met. */
   markFaultArmed(): boolean;
   /** Each mark fault that fired, across lives, with where it met the
@@ -224,6 +227,8 @@ interface LifeState {
   events: SyncEvent[];
   /** The session's startup() has resolved. */
   startupDone: boolean;
+  /** An injected mark failure no Retry or Discard has answered. */
+  failedMarkUnanswered: boolean;
   workerDead: boolean;
   startAttempted: boolean;
   unsentInMemory: number;
@@ -354,7 +359,8 @@ export async function startClient(
     const clientId = clientIdOf(`proptest-${name}-${lives}`);
     const idSlots: { id?: BatchId }[] = [];
     const state: LifeState = {
-      events: [], startupDone: false, workerDead: false, startAttempted: false, unsentInMemory: 0, ended: false,
+      events: [], startupDone: false, failedMarkUnanswered: false,
+      workerDead: false, startAttempted: false, unsentInMemory: 0, ended: false,
     };
     const handle = lifeDb(() => writeDb);
     const channel = new MessageChannel();
@@ -465,7 +471,10 @@ export async function startClient(
           markFaultsFired.push(`${fault} ${!state.startupDone ? "at startup"
             : repairRunning(state.events) ? "during a repair" : "at rest"}`);
         }
-        if (fault === "fails") throw new Error("proptest: injected mark failure");
+        if (fault === "fails") {
+          state.failedMarkUnanswered = true;
+          throw new Error("proptest: injected mark failure");
+        }
         if (fault === "unmatched") {
           // Rejected and gone: nothing will report or repair it.
           if (!poisoned.includes(batchId)) poisoned.push(batchId);
@@ -641,8 +650,15 @@ export async function startClient(
     markFaultArmed: () => markFault !== null,
     markFaultsFired,
     clearMarkFaults() { markFault = null; },
-    discard: () => life.session.actions.discardProblem(),
-    retry: () => life.session.actions.retryProblem(),
+    failedMarkUnanswered: () => life.state.failedMarkUnanswered,
+    discard: () => {
+      life.state.failedMarkUnanswered = false;
+      return life.session.actions.discardProblem();
+    },
+    retry: () => {
+      life.state.failedMarkUnanswered = false;
+      return life.session.actions.retryProblem();
+    },
     leaseRefusals,
     recoveries,
     unsentInMemory: () => life.state.unsentInMemory,

@@ -8,7 +8,7 @@
 //               poison    while a durable row the server rejected is still
 //                         in the replica
 //               lane      from a lane entry's rejection until the next
-//                         legacy repair turns stable
+//                         outline repair turns stable
 //   order     the server applies this client's batches in enqueue order,
 //             lane and durable copies alike
 //   delivery  once quiescent, every batch the server accepts is applied,

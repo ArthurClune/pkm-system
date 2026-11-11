@@ -48,7 +48,7 @@ export interface ClientRuntimeDeps {
   isMounted?: () => boolean;
 }
 
-export type PoisonRetryPlan = Exclude<RetryPlan, { kind: "legacy-repair" }>;
+export type PoisonRetryPlan = Exclude<RetryPlan, { kind: "outline-repair" }>;
 
 export interface ClientRuntime {
   /** The startup effect's body: setOnline(false), pause, retryPoisonMarks,
@@ -65,8 +65,8 @@ export interface ClientRuntime {
    * yet begun deleting, which the call widens. With no rows, resolves at
    * once with whether the last repair succeeded. */
   repair(events: readonly PoisonEvent[]): Promise<boolean>;
-  /** Execute a planRetry() result for the poison-side plans; "legacy-repair"
-   * stays with the session's legacy repair. */
+  /** Execute a planRetry() result for the poison-side plans; "outline-repair"
+   * stays with the session's outline repair. */
   runRetry(plan: PoisonRetryPlan): Promise<void>;
   /** A socket reconnect: rerun a repair whose last attempt failed, exactly as
    * the banner's "repair-targets" Retry does; otherwise nothing. A repair

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { createLegacyRepair, type LegacyRepairDeps } from "./legacyRepair";
+import { createOutlineRepair, type OutlineRepairDeps } from "./outlineRepair";
 import type { SyncEvent } from "./syncState";
 
 interface Deferred {
@@ -18,11 +18,11 @@ function deferred(): Deferred {
 /** A repairSessions stand-in whose attempts each wait on a deferred the
  * test settles: resolving one calls onStable first, as the real repair does
  * before its promise settles. */
-function setup(overrides: Partial<LegacyRepairDeps> = {}) {
+function setup(overrides: Partial<OutlineRepairDeps> = {}) {
   const attempts: Deferred[] = [];
   const events: SyncEvent[] = [];
   const state = { resumes: 0, mounted: true };
-  const repair = createLegacyRepair({
+  const repair = createOutlineRepair({
     repairSessions: async (onStable) => {
       const attempt = deferred();
       attempts.push(attempt);
@@ -50,8 +50,8 @@ describe("run", () => {
     await run;
     expect(h.state.resumes).toBe(1);
     expect(h.events).toEqual([
-      { type: "legacy-repair-started", error: "bad op" },
-      { type: "legacy-repair-succeeded", error: "bad op" },
+      { type: "outline-repair-started", error: "bad op" },
+      { type: "outline-repair-succeeded", error: "bad op" },
     ]);
     expect(h.repair.rejected()).toEqual(new Error("bad op"));
   });
@@ -63,8 +63,8 @@ describe("run", () => {
     await run;
     expect(h.state.resumes).toBe(0);
     expect(h.events).toEqual([
-      { type: "legacy-repair-started", error: "bad op" },
-      { type: "legacy-repair-failed", error: "bad op", repairError: "fetch failed" },
+      { type: "outline-repair-started", error: "bad op" },
+      { type: "outline-repair-failed", error: "bad op", repairError: "fetch failed" },
     ]);
   });
 
@@ -87,7 +87,7 @@ describe("run", () => {
     h.attempts[0].resolve();
     await run;
     expect(h.state.resumes).toBe(0);
-    expect(h.events).toEqual([{ type: "legacy-repair-started", error: "bad op" }]);
+    expect(h.events).toEqual([{ type: "outline-repair-started", error: "bad op" }]);
   });
 
   test("a repair for a local refusal reports but resumes nothing", async () => {
@@ -97,7 +97,7 @@ describe("run", () => {
     await run;
     expect(h.state.resumes).toBe(0);
     expect(h.events.map((e) => e.type)).toEqual([
-      "legacy-repair-started", "legacy-repair-succeeded",
+      "outline-repair-started", "outline-repair-succeeded",
     ]);
   });
 
@@ -117,7 +117,7 @@ describe("run", () => {
     const reading = deferred();
     const tail = deferred();
     const state = { resumes: 0, attempts: 0 };
-    const repair = createLegacyRepair({
+    const repair = createOutlineRepair({
       repairSessions: async (onStable) => {
         state.attempts += 1;
         if (state.attempts === 1) {
@@ -178,10 +178,10 @@ describe("retryFailed", () => {
     await retry;
     expect(h.state.resumes).toBe(1);
     expect(h.events.map((e) => e.type)).toEqual([
-      "legacy-repair-started", "legacy-repair-failed",
-      "legacy-repair-started", "legacy-repair-succeeded",
+      "outline-repair-started", "outline-repair-failed",
+      "outline-repair-started", "outline-repair-succeeded",
     ]);
-    expect(h.events[2]).toEqual({ type: "legacy-repair-started", error: "bad op" });
+    expect(h.events[2]).toEqual({ type: "outline-repair-started", error: "bad op" });
   });
 
   test("does nothing when no repair ever ran", async () => {
@@ -234,7 +234,7 @@ describe("retryFailed", () => {
     const reading = deferred();
     const tail = deferred();
     const state = { resumes: 0, attempts: 0 };
-    const repair = createLegacyRepair({
+    const repair = createOutlineRepair({
       repairSessions: async (onStable) => {
         state.attempts += 1;
         if (state.attempts === 1) {
@@ -314,7 +314,7 @@ describe("retryFailed", () => {
     const reading = deferred();
     const tail = deferred();
     const state = { resumes: 0, attempts: 0 };
-    const repair = createLegacyRepair({
+    const repair = createOutlineRepair({
       repairSessions: async (onStable) => {
         state.attempts += 1;
         if (state.attempts === 1) {

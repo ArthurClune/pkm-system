@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 // The one composition of the sync parts, without React: the op queue, the
 // replica sync, the client runtime (startup poison gate and poison repair),
-// the legacy outline repair and the reconnect flow, with the socket status,
+// the outline repair and the reconnect flow, with the socket status,
 // the first-connect gate and the delivery-health fold over transitionSync.
 // SyncProvider runs it and publishes what it reports; the sync property
 // harness runs the same session over its own transport.
@@ -18,7 +18,7 @@ import type { OutlineReplayAction } from "../outline/outlineState";
 import type { Replica } from "../replica/client";
 import { ReplicaUnusableError } from "../replica/errors";
 import { createClientRuntime } from "./clientRuntime";
-import { createLegacyRepair } from "./legacyRepair";
+import { createOutlineRepair } from "./outlineRepair";
 import { createOpQueue, type OpQueue, type OpQueueDeps,
          type WriteTicket } from "./opQueue";
 import { createReconnectFlow } from "./reconnectFlow";
@@ -86,7 +86,7 @@ export interface OutlineHooks {
   track(ticket: WriteTicket, ops: readonly BlockOp[]): void;
   attachReplay(ticket: WriteTicket, title: RawTitle,
                replay: readonly OutlineReplayAction[]): void;
-  /** legacyRepair's repairSessions. */
+  /** outlineRepair's repairSessions. */
   repairSessions(onStable: () => void): Promise<void>;
 }
 
@@ -177,7 +177,7 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
   const queue = createOpQueue(replica ?? absentReplica(),
                               { ...deps.queue, clientId });
 
-  const legacyRepair = createLegacyRepair({
+  const outlineRepair = createOutlineRepair({
     repairSessions: (onStable) => outlines.repairSessions(onStable),
     onEvent: fold,
     resume: () => queue.resume("lane"),
@@ -217,13 +217,13 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
     // repair goes first: it holds the durable queue's recovery barrier.
     retryFailedRepair: async () => {
       await (runtime?.retryFailedRepair() ?? Promise.resolve());
-      await legacyRepair.retryFailed();
+      await outlineRepair.retryFailed();
     },
   });
 
   const offs = [
     queue.onDesync((desync) => {
-      if (live()) void legacyRepair.run(desync.error, desync);
+      if (live()) void outlineRepair.run(desync.error, desync);
     }),
     // Either delivery path's ack named a skipped op: a replica-backed tab's
     // own feed tombstones the row, but nothing else bumps resync for it, so
@@ -321,14 +321,14 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
   const actions: SyncActions = {
     retryProblem: () => {
       // Which recovery this click means is a pure decision (retryPolicy.ts);
-      // its execution belongs to the runtime, except the legacy outline
+      // its execution belongs to the runtime, except the outline
       // repair. With no runtime, startup never ran, so its gate still counts
       // as up.
       const plan = planRetry(syncState.problem, {
         startupDiscoveringPoison: runtime?.discoveringPoison() ?? true,
       });
-      if (plan.kind === "legacy-repair") {
-        return legacyRepair.run(legacyRepair.rejected());
+      if (plan.kind === "outline-repair") {
+        return outlineRepair.run(outlineRepair.rejected());
       }
       return runtime?.runRetry(plan) ?? Promise.resolve();
     },
@@ -340,8 +340,8 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
     },
     dismissProblem: () => {
       const current = syncState.problem;
-      if (current?.kind === "legacy-rejected" && current.repair === "repaired") {
-        legacyRepair.clear();
+      if (current?.kind === "outline-rejected" && current.repair === "repaired") {
+        outlineRepair.clear();
       } else if (current?.kind === "rejected-batch" &&
           current.repair === "repaired") {
         runtime?.clearRepairTargets();

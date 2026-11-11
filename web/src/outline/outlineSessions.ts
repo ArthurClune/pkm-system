@@ -768,7 +768,7 @@ export function isOutlineSessionActive(title: RawTitle): boolean {
 }
 
 /** Force every active outline through a post-settlement authoritative read,
- * rebase wholly later unresolved writes, and only then release legacy
+ * rebase wholly later unresolved writes, and only then release outline
  * delivery. */
 export function repairActiveOutlineSessions(
   onStable?: () => void,

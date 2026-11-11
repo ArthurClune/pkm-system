@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// The legacy outline repair, without React. The queue's onDesync starts it:
+// The outline repair, without React. The queue's onDesync starts it:
 // a batch from the in-memory lane that the server rejected, which paused
 // the barrier's "lane" owner, or a local refusal (a text limit, a
 // replica-rejected op), which paused nothing. It forces every active outline
@@ -16,11 +16,11 @@
 import { coalesce } from "./coalesce";
 import type { SyncEvent } from "./syncState";
 
-export interface LegacyRepairDeps {
+export interface OutlineRepairDeps {
   /** repairActiveOutlineSessions in the app: calls onStable once delivery
    * may resume, and rejects when the repair failed. */
   repairSessions: (onStable: () => void) => Promise<void>;
-  /** The legacy-repair-* sync events; the session passes its fold. */
+  /** The outline-repair-* sync events; the session passes its fold. */
   onEvent: (event: SyncEvent) => void;
   /** Releases the queue's "lane" barrier owner. */
   resume: () => void;
@@ -28,7 +28,7 @@ export interface LegacyRepairDeps {
   isMounted: () => boolean;
 }
 
-export interface LegacyRepair {
+export interface OutlineRepair {
   /** Repair after this rejection. `lane` says the queue paused the "lane"
    * owner for it. Joins a repair still reading, whose events keep the error
    * it started with while rejected() takes the newer one; a repair already
@@ -48,7 +48,7 @@ export interface LegacyRepair {
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-export function createLegacyRepair(deps: LegacyRepairDeps): LegacyRepair {
+export function createOutlineRepair(deps: OutlineRepairDeps): OutlineRepair {
   const emit = (event: SyncEvent): void => {
     if (deps.isMounted()) deps.onEvent(event);
   };
@@ -72,11 +72,11 @@ export function createLegacyRepair(deps: LegacyRepairDeps): LegacyRepair {
     }
     repairFailed = false;
     const message = messageOf(error);
-    emit({ type: "legacy-repair-started", error: message });
+    emit({ type: "outline-repair-started", error: message });
     return deps.repairSessions(() => {
         if (!deps.isMounted()) return;
         stable = true;
-        emit({ type: "legacy-repair-succeeded", error: message });
+        emit({ type: "outline-repair-succeeded", error: message });
         if (laneOwed) {
           laneOwed = false;
           deps.resume();
@@ -85,7 +85,7 @@ export function createLegacyRepair(deps: LegacyRepairDeps): LegacyRepair {
       .catch((repairError: unknown) => {
         repairFailed = true;
         emit({
-          type: "legacy-repair-failed", error: message,
+          type: "outline-repair-failed", error: message,
           repairError: messageOf(repairError),
         });
       });

@@ -5,7 +5,7 @@
 // harness drives the socket status itself where the app's socket would.
 //
 // Two things are stood in for. The open outline editors: the harness mounts
-// none, so the legacy repair's repairSessions is one authoritative read
+// none, so the outline repair's repairSessions is one authoritative read
 // through this client's transport, of pt_seed_6's block: live for the whole
 // example, so the read succeeds online whatever a Rename has done to page
 // titles. It fails while the client is offline, as the real repair's does,

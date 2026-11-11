@@ -13,7 +13,7 @@ export type QueueBlockReason = "offline" | "retryable" | "recovering" | "dispose
  *   poison    a rejected durable batch, from the rejection (or a reload's
  *             retained mark intent) until its repair succeeds
  *   recovery  replicaSync's recovery lease, for the length of one run
- *   lane      a rejected lane entry, until the legacy outline repair is
+ *   lane      a rejected lane entry, until the outline repair is
  *             stable */
 export type BarrierOwner = "startup" | "poison" | "recovery" | "lane";
 

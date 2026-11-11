@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// The queue property's world: the real op queue, client runtime and legacy
+// The queue property's world: the real op queue, client runtime and outline
 // repair, wired by hand as createSyncSession (sync/session.ts) wires them,
 // around stand-ins the property steps one command at a time. A session
 // would bring the real replicaSync, whose repair snapshot and recovery the
@@ -11,7 +11,7 @@
 //   server    one POST in flight at a time, answered by a command; a batch
 //             drawn bad is rejected with a 400 whenever it is posted
 //   repairs   the poison repair's snapshot (replicaSync.rebaseAuthoritative)
-//             and the legacy repair's outline read each wait on a command
+//             and the outline repair's outline read each wait on a command
 //   recovery  replicaSync's runRecovery: pause("recovery"), the lease's gate,
 //             then the gate and resume("recovery")
 // The model (queueModel.ts) watches the same events and judges each POST as
@@ -26,7 +26,7 @@ import { MAX_LINK_NESTING } from "../../grammar/textLimits";
 import type { PendingBatch, Replica } from "../../replica/client";
 import { ReplicaError, RpcLifecycleError } from "../../replica/errors";
 import { createClientRuntime } from "../../sync/clientRuntime";
-import { createLegacyRepair } from "../../sync/legacyRepair";
+import { createOutlineRepair } from "../../sync/outlineRepair";
 import { memReplica } from "../../sync/memReplica";
 import { createOpQueue, type DeliveryOutcome } from "../../sync/opQueue";
 import { batchIdOf, pendingRowIdOf, seqOf, uidOf } from "../../test-helpers";
@@ -47,9 +47,9 @@ export type QueueCmd =
   | { t: "holdGate" }
   | { t: "releaseGate" }
   | { t: "repair"; ok: boolean }
-  | { t: "legacyStable" }
-  | { t: "legacyFails" }
-  | { t: "legacyDone" }
+  | { t: "outlineStable" }
+  | { t: "outlineFails" }
+  | { t: "outlineDone" }
   | { t: "retryTimer" }
   | { t: "drain" };
 
@@ -217,7 +217,7 @@ export async function runQueueExample(
     onReplicaState: () => undefined,
   });
   const reads: Read[] = [];
-  const legacy = createLegacyRepair({
+  const outline = createOutlineRepair({
     repairSessions: (onStable) => new Promise<void>((resolve, reject) => {
       reads.push({ onStable, resolve, reject, stable: false });
     }),
@@ -227,7 +227,7 @@ export async function runQueueExample(
   });
   queue.onDesync((desync) => {
     count(desync.lane ? "desync: lane rejection" : "desync: local refusal");
-    void legacy.run(desync.error, desync);
+    void outline.run(desync.error, desync);
   });
 
   const outcomes: { info: BatchInfo; outcome: DeliveryOutcome | null }[] = [];
@@ -272,7 +272,7 @@ export async function runQueueExample(
           } else {
             count("lane batch rejected");
             if (reads.some((r) => r.stable)) {
-              count("lane rejected after a legacy repair's onStable");
+              count("lane rejected after a outline repair's onStable");
             }
             laneWaiting.delete(p.batchId);
             model.lane = true;
@@ -303,7 +303,7 @@ export async function runQueueExample(
         // reconnectFlow.begin's first step.
         void (async () => {
           await runtime.retryFailedRepair();
-          await legacy.retryFailed();
+          await outline.retryFailed();
         })();
         return true;
       case "pauseStartup":
@@ -351,31 +351,31 @@ export async function runQueueExample(
         else r.reject(new TypeError("snapshot fetch failed"));
         return true;
       }
-      case "legacyStable": {
+      case "outlineStable": {
         const r = reads.find((x) => !x.stable);
         if (r === undefined) return false;
         if (model.lane) {
           released("lane");
-          count("legacy stable: lane owed");
+          count("outline stable: lane owed");
           model.lane = false;
         } else if (model.poison.size > 0 && repairFailed) {
-          count("legacy stable: nothing owed, poison repair failed");
+          count("outline stable: nothing owed, poison repair failed");
         } else {
-          count("legacy stable: nothing owed");
+          count("outline stable: nothing owed");
         }
         r.stable = true;
         r.onStable();
         return true;
       }
-      case "legacyFails": {
+      case "outlineFails": {
         const at = reads.findIndex((x) => !x.stable);
         if (at === -1) return false;
-        count("legacy repair fails");
+        count("outline repair fails");
         const [r] = reads.splice(at, 1);
         r.reject(new TypeError("fetch failed"));
         return true;
       }
-      case "legacyDone": {
+      case "outlineDone": {
         const at = reads.findIndex((x) => x.stable);
         if (at === -1) return false;
         const [r] = reads.splice(at, 1);
@@ -413,8 +413,8 @@ export async function runQueueExample(
       if (!online) step({ t: "online" });
       if (flying() !== null) step({ t: "respond", kind: "ack" });
       if (rebases.length > 0) step({ t: "repair", ok: true });
-      if (!step({ t: "legacyStable" })) step({ t: "legacyDone" });
-      void runtime.retryFailedRepair().then(() => legacy.retryFailed());
+      if (!step({ t: "outlineStable" })) step({ t: "outlineDone" });
+      void runtime.retryFailedRepair().then(() => outline.retryFailed());
       vi.advanceTimersByTime(10_000);
       void queue.drain();
       await settle();

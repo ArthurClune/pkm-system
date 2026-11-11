@@ -24,8 +24,8 @@
 //     completes out of band (an automatic retry after a blocked flush) still
 //     finishes the reconnect that is waiting on it.
 // A reconnect first reruns a repair whose last attempt failed
-// (`retryFailedRepair`): the runtime's poison repair, then the legacy outline
-// repair of a rejected lane batch (legacyRepair.ts). Either holds the
+// (`retryFailedRepair`): the runtime's poison repair, then the outline
+// repair of a rejected lane batch (outlineRepair.ts). Either holds the
 // recovery barrier, so nothing below it can deliver until it succeeds, and a
 // repair cut off by the network going down has no other trigger. It runs from
 // begin() only, once per (re)connect; observeDrain fires on every drain while
@@ -61,7 +61,7 @@ export function createReconnectFlow(deps: {
   onResync: () => void;
   /** A connect's first step: rerun a failed poison repair (the client
    * runtime's retryFailedRepair, when there is a runtime), then a failed
-   * legacy repair (legacyRepair.ts's retryFailed). Required, so that no
+   * outline repair (outlineRepair.ts's retryFailed). Required, so that no
    * caller can drop the retry by leaving it out. */
   retryFailedRepair: () => Promise<void>;
 }): ReconnectFlow {

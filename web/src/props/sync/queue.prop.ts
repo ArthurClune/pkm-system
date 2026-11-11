@@ -3,7 +3,7 @@
 // driven one command at a time through queueHarness.ts and judged by
 // queueModel.ts. No server: the stand-ins answer, so thousands of
 // interleavings run in seconds. The alphabet splits every rule another actor
-// can land inside: a POST and its answer, a repair and its success, a legacy
+// can land inside: a POST and its answer, a repair and its success, a outline
 // read and its stable point, a lost enqueue reply and the write behind a
 // held gate.
 //
@@ -36,18 +36,18 @@ const REACH: Reach = {
     "holdGate": 0.222,
     "holdGate skipped": 0.049,
     "lane batch rejected": 0.031,
-    "lane rejected after a legacy repair's onStable": 0.003,
+    "lane rejected after a outline repair's onStable": 0.003,
     "lane released, others held": 0.003,
-    "legacy repair fails": 0.044,
-    "legacy stable: lane owed": 0.015,
-    "legacy stable: nothing owed": 0.117,
-    "legacy stable: nothing owed, poison repair failed": 0.003,
-    "legacyDone": 0.035,
-    "legacyDone skipped": 0.238,
-    "legacyFails": 0.044,
-    "legacyFails skipped": 0.23,
-    "legacyStable": 0.137,
-    "legacyStable skipped": 0.691,
+    "outline repair fails": 0.044,
+    "outline stable: lane owed": 0.015,
+    "outline stable: nothing owed": 0.117,
+    "outline stable: nothing owed, poison repair failed": 0.003,
+    "outlineDone": 0.035,
+    "outlineDone skipped": 0.238,
+    "outlineFails": 0.044,
+    "outlineFails skipped": 0.23,
+    "outlineStable": 0.137,
+    "outlineStable skipped": 0.691,
     "lost reply: an earlier lane entry is waiting": 0.133,
     "lost reply: its row handed out behind a waiting lane entry": 0.013,
     "lost reply: the row persists after the timeout": 0.06,

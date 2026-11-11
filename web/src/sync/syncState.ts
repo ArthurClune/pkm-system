@@ -2,7 +2,7 @@
 // The deterministic sync policy: whether editing is allowed (and why not),
 // whether a replica turning ready while the socket is down must force a
 // resync, and the delivery-health "problem" lifecycle (rejected-batch repair
-// phases, legacy repair, poison discovery, replica stalls). The sync session
+// phases, outline repair, poison discovery, replica stalls). The sync session
 // (session.ts) owns the I/O — the queue, the replica, async single-flight and
 // liveness — and folds events here, then reports the returned problem and
 // executes the effects.
@@ -22,19 +22,19 @@ export type SyncProblem =
    * editing. Session-scoped by design (the worker latches a failed open), so
    * the only way out is a reload. */
   | { kind: "replica-unusable"; error: string }
-  | { kind: "legacy-rejected"; repair: "running" | "failed" | "repaired";
+  | { kind: "outline-rejected"; repair: "running" | "failed" | "repaired";
       error: string; repairError?: string }
   | { kind: "replica-stalled"; error: string;
       reset: "idle" | "running" | "blocked" | "failed";
       pending?: number; resetError?: string };
 
-type LegacyProblem = Extract<SyncProblem, { kind: "legacy-rejected" }>;
+type OutlineProblem = Extract<SyncProblem, { kind: "outline-rejected" }>;
 
 export interface SyncState {
   problem: SyncProblem | undefined;
-  /** A legacy repair's problem held back while a rejected durable batch's
-   * outranks it (see legacy). It is shown once that problem ends. */
-  legacyBehind?: LegacyProblem;
+  /** A outline repair's problem held back while a rejected durable batch's
+   * outranks it (see outline). It is shown once that problem ends. */
+  outlineBehind?: OutlineProblem;
 }
 
 export type SyncEvent =
@@ -50,9 +50,9 @@ export type SyncEvent =
   | { type: "poison-intents-discarded" }
   | { type: "replica-unusable"; error: string }
   | { type: "poison-discovery-cleared" }
-  | { type: "legacy-repair-started"; error: string }
-  | { type: "legacy-repair-succeeded"; error: string }
-  | { type: "legacy-repair-failed"; error: string; repairError: string }
+  | { type: "outline-repair-started"; error: string }
+  | { type: "outline-repair-succeeded"; error: string }
+  | { type: "outline-repair-failed"; error: string; repairError: string }
   | { type: "reset-started" }
   | { type: "reset-blocked"; pending: number }
   | { type: "reset-failed"; error: string }
@@ -105,44 +105,44 @@ type StalledProblem = Extract<SyncProblem, { kind: "replica-stalled" }>;
 
 /** A rejected durable batch not yet repaired, or a discovery that could not
  * say whether there is one. Its banner carries the Retry that lifts the
- * poison owner's barrier, so a legacy repair's banner waits behind it rather
+ * poison owner's barrier, so a outline repair's banner waits behind it rather
  * than taking that Retry away. */
 const poisonUnresolved = (current: SyncProblem | undefined): boolean =>
   (current?.kind === "rejected-batch" && current.repair !== "repaired")
   || current?.kind === "poison-discovery";
 
-/** Show a poison-side problem, keeping an unrepaired legacy one it replaces
+/** Show a poison-side problem, keeping an unrepaired outline one it replaces
  * behind it. */
 const poisonProblem = (
   state: SyncState, next: SyncProblem,
 ): SyncTransition => {
   const current = state.problem;
-  const behind = current?.kind === "legacy-rejected" && current.repair !== "repaired"
-    ? current : state.legacyBehind;
+  const behind = current?.kind === "outline-rejected" && current.repair !== "repaired"
+    ? current : state.outlineBehind;
   return {
-    state: { problem: next, ...(behind ? { legacyBehind: behind } : {}) },
+    state: { problem: next, ...(behind ? { outlineBehind: behind } : {}) },
     effects: [],
   };
 };
 
-/** The poison-side problem ended: a legacy problem held behind it, if any,
+/** The poison-side problem ended: a outline problem held behind it, if any,
  * takes its place, else `next`. */
 const poisonEnded = (
   state: SyncState, next: SyncProblem | undefined,
   effects: readonly SyncEffect[] = [],
 ): SyncTransition => {
-  const behind = state.legacyBehind;
+  const behind = state.outlineBehind;
   const shown = behind !== undefined && (next === undefined || behind.repair !== "repaired")
     ? behind : next;
   return { state: { problem: shown }, effects };
 };
 
-/** A legacy repair's phase: shown, or held behind an unresolved poison
+/** A outline repair's phase: shown, or held behind an unresolved poison
  * problem. Its effects apply either way. */
-const legacy = (
-  state: SyncState, next: LegacyProblem, effects: readonly SyncEffect[] = [],
+const outline = (
+  state: SyncState, next: OutlineProblem, effects: readonly SyncEffect[] = [],
 ): SyncTransition => poisonUnresolved(state.problem)
-  ? { state: { ...state, legacyBehind: next }, effects }
+  ? { state: { ...state, outlineBehind: next }, effects }
   : { state: { problem: next }, effects };
 
 /** Shared by reset-started/reset-blocked/reset-failed: a delivery problem of
@@ -163,7 +163,7 @@ const unchanged = (state: SyncState): SyncTransition => ({ state, effects: [] })
 function replicaUnusable(state: SyncState, error: string): SyncTransition {
   // A background "this session is online-only" report must not stomp a
   // delivery problem the user can act on — overwriting a failed
-  // legacy-rejected repair would take its Retry with it, and retryProblem
+  // outline-rejected repair would take its Retry with it, and retryProblem
   // would no longer reach that repair at all. Same precedence shape as
   // replicaStalled below.
   const current = state.problem;
@@ -260,17 +260,17 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
     case "poison-discovery-cleared":
       return state.problem?.kind === "poison-discovery"
         ? poisonEnded(state, undefined) : { state, effects: [] };
-    case "legacy-repair-started":
-      return legacy(state, {
-        kind: "legacy-rejected", repair: "running", error: event.error,
+    case "outline-repair-started":
+      return outline(state, {
+        kind: "outline-rejected", repair: "running", error: event.error,
       });
-    case "legacy-repair-succeeded":
-      return legacy(state, {
-        kind: "legacy-rejected", repair: "repaired", error: event.error,
+    case "outline-repair-succeeded":
+      return outline(state, {
+        kind: "outline-rejected", repair: "repaired", error: event.error,
       }, [{ type: "bump-resync" }]);
-    case "legacy-repair-failed":
-      return legacy(state, {
-        kind: "legacy-rejected", repair: "failed", error: event.error,
+    case "outline-repair-failed":
+      return outline(state, {
+        kind: "outline-rejected", repair: "failed", error: event.error,
         repairError: event.repairError,
       });
     case "reset-started": {
@@ -302,7 +302,7 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
     }
     case "dismiss": {
       const current = state.problem;
-      const repaired = (current?.kind === "legacy-rejected"
+      const repaired = (current?.kind === "outline-rejected"
         || current?.kind === "rejected-batch") && current.repair === "repaired";
       // A stalled replica's idle/running states are the only signal a user
       // has that local data is broken — only an acknowledged blocked/failed

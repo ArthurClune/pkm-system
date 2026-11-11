@@ -358,7 +358,7 @@ describe("the first connect", () => {
 });
 
 describe("later connects", () => {
-  test("a later connect retries the poison repair, then the legacy repair, then drains",
+  test("a later connect retries the poison repair, then the outline repair, then drains",
   async () => {
     let failNext = true;
     const { session, reported } = rig({
@@ -375,7 +375,7 @@ describe("later connects", () => {
     await session.onSocketStatus(true);
     await session.actions.enqueue([overLimit()]).settled;
     await vi.waitFor(() => expect(session.problem()).toMatchObject({
-      kind: "legacy-rejected", repair: "failed",
+      kind: "outline-rejected", repair: "failed",
     }));
     const queue = session.queue;
     const realDrain = queue.drain;
@@ -391,7 +391,7 @@ describe("later connects", () => {
     expect(only(["runtime.retryFailedRepair", "repairSessions", "drain"]))
       .toEqual(["runtime.retryFailedRepair", "repairSessions", "drain"]);
     expect(reported.problems.at(-1)).toMatchObject({
-      kind: "legacy-rejected", repair: "repaired",
+      kind: "outline-rejected", repair: "repaired",
     });
   });
 });
@@ -542,7 +542,7 @@ describe("the actions", () => {
     await session.actions.settled();
   });
 
-  test("retryProblem reruns a failed legacy repair, and dismiss clears it once repaired",
+  test("retryProblem reruns a failed outline repair, and dismiss clears it once repaired",
   async () => {
     let failNext = true;
     const { session, reported } = rig({
@@ -558,13 +558,13 @@ describe("the actions", () => {
     await session.onSocketStatus(true);
     await session.actions.enqueue([overLimit()]).settled;
     await vi.waitFor(() => expect(session.problem()).toMatchObject({
-      kind: "legacy-rejected", repair: "failed",
+      kind: "outline-rejected", repair: "failed",
     }));
     const resyncs = reported.resyncs;
 
     await session.actions.retryProblem();
     expect(session.problem()).toMatchObject({
-      kind: "legacy-rejected", repair: "repaired",
+      kind: "outline-rejected", repair: "repaired",
     });
     expect(reported.resyncs).toBe(resyncs + 1);
 

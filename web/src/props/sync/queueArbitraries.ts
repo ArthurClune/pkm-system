@@ -42,9 +42,9 @@ export const queueCommand: fc.Arbitrary<QueueCmd> = fc.oneof(
   { weight: 1, arbitrary: simple("holdGate") },
   { weight: 2, arbitrary: simple("releaseGate") },
   { weight: 3, arbitrary: fc.boolean().map((ok): QueueCmd => ({ t: "repair", ok })) },
-  { weight: 3, arbitrary: simple("legacyStable") },
-  { weight: 1, arbitrary: simple("legacyFails") },
-  { weight: 1, arbitrary: simple("legacyDone") },
+  { weight: 3, arbitrary: simple("outlineStable") },
+  { weight: 1, arbitrary: simple("outlineFails") },
+  { weight: 1, arbitrary: simple("outlineDone") },
   { weight: 1, arbitrary: simple("retryTimer") },
   { weight: 1, arbitrary: simple("drain") },
 );

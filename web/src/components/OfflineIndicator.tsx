@@ -92,8 +92,8 @@ function ReplicaUnusableBanner({ status, unsentInMemory, actions }: {
   );
 }
 
-function LegacyRejectedMessage({ problem, actions }: {
-  problem: ProblemOf<"legacy-rejected">;
+function OutlineRejectedMessage({ problem, actions }: {
+  problem: ProblemOf<"outline-rejected">;
   actions: BannerActions;
 }) {
   switch (problem.repair) {
@@ -117,15 +117,15 @@ function LegacyRejectedMessage({ problem, actions }: {
   }
 }
 
-function LegacyRejectedBanner({ problem, actions }: {
-  problem: ProblemOf<"legacy-rejected">;
+function OutlineRejectedBanner({ problem, actions }: {
+  problem: ProblemOf<"outline-rejected">;
   actions: BannerActions;
 }) {
   return (
     <div className="ws-banner" role={
       problem.repair === "failed" ? "alert" : "status"
     }>
-      <LegacyRejectedMessage problem={problem} actions={actions} />
+      <OutlineRejectedMessage problem={problem} actions={actions} />
     </div>
   );
 }
@@ -235,8 +235,8 @@ function DeliveryProblemBanner({ problem, status, unsentInMemory, actions }: {
       return <ReplicaUnusableBanner status={status}
                                     unsentInMemory={unsentInMemory}
                                     actions={actions} />;
-    case "legacy-rejected":
-      return <LegacyRejectedBanner problem={problem} actions={actions} />;
+    case "outline-rejected":
+      return <OutlineRejectedBanner problem={problem} actions={actions} />;
     case "rejected-batch":
       return <RejectedBatchBanner problem={problem} actions={actions} />;
     case "replica-stalled":

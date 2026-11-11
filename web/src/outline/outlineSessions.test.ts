@@ -439,10 +439,10 @@ it("attaches an unresolved scoped ticket when its target session opens later", a
   target.release();
 });
 
-it("waits for active session loaders at the legacy repair boundary", async () => {
+it("waits for active session loaders at the outline repair boundary", async () => {
   const response = deferred<ReturnType<typeof block>[]>();
   const session = acquireOutlineSession(
-    rawTitleOf("Legacy repair"), [block("tuid-u1", "optimistic")],
+    rawTitleOf("Outline repair"), [block("tuid-u1", "optimistic")],
   );
   const load = vi.fn(() => response.promise);
   const removeLoader = session.setAuthoritativeLoader("editable", load);
@@ -462,7 +462,7 @@ it("waits for active session loaders at the legacy repair boundary", async () =>
   session.release();
 });
 
-it("legacy repair supersedes and awaits an existing automatic read", async () => {
+it("outline repair supersedes and awaits an existing automatic read", async () => {
   const stale = deferred<ReturnType<typeof block>[]>();
   const forced = deferred<ReturnType<typeof block>[]>();
   const session = acquireOutlineSession(
@@ -490,7 +490,7 @@ it("legacy repair supersedes and awaits an existing automatic read", async () =>
   session.release();
 });
 
-it("legacy repair adopts server state and reapplies a wholly later ticket", async () => {
+it("outline repair adopts server state and reapplies a wholly later ticket", async () => {
   const rejected = deferred<DeliveryOutcome>();
   const later = deferred<DeliveryOutcome>();
   const session = acquireOutlineSession(rawTitleOf("Repair rebase"), [
@@ -551,7 +551,7 @@ it("asks for authority when a remote batch moves a block off the page and back",
   }
 });
 
-it("legacy repair rejects when an active session has no loader", async () => {
+it("outline repair rejects when an active session has no loader", async () => {
   const session = acquireOutlineSession(
     rawTitleOf("Missing repair loader"), [block("tuid-u1", "optimistic")],
   );

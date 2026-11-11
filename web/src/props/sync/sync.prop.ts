@@ -148,6 +148,7 @@ const REACH: Reach = {
   // No floor, under ten in some run, so half of it is noise:
   //   "CrossMidnight fell back to model date"
   //   "settle: dead worker's reload drops lane batches"
+  //   "Edit while a snapshot is paced"
   // No floor, server timing, not a draw, decides when the connect lands:
   //   "Reload connect timed, landed after startup"
   //   "Reload connect timed, landed mid-startup"
@@ -156,12 +157,10 @@ const REACH: Reach = {
   // No floor, no rule checks the banner yet: the problem each client's
   // session holds once quiesced, one count per client per example:
   //   "Problem at settle: <kind>", "Problem at settle: none"
-  // No floor yet, added with the paced snapshot faults and not yet measured
-  // over unseeded runs:
-  //   "Fault slowSnapshot", "Fault slowSnapshot fired",
-  //   "Fault stalledSnapshot", "Fault stalledSnapshot fired",
-  //   "Recovery renewed", "Recovery committed past its first deadline",
-  //   "Recovery abandoned on a stall", "Edit while a snapshot is paced"
+  // The eight paced-snapshot labels were floored roughly, from 6 unseeded
+  // runs on 2026-11-11: a quarter of the lowest share for the four drawn
+  // Fault labels, and for the Recovery labels, which the harness lease's
+  // real timers decide, only at least one event per run.
   floors: {
     "BadBatch": 0.187,
     "BadBatch skipped: worker dead": 0.012,
@@ -200,8 +199,12 @@ const REACH: Reach = {
     "Fault lostReply": 0.103,
     "Fault lostReply fired": 0.057,
     "Fault lostReply skipped: worker dead": 0.007,
+    "Fault slowSnapshot": 0.013,
+    "Fault slowSnapshot fired": 0.002,
     "Fault snapshot5xx": 0.477,
     "Fault snapshot5xx fired": 0.381,
+    "Fault stalledSnapshot": 0.019,
+    "Fault stalledSnapshot fired": 0.003,
     "Fault writeFails": 0.091,
     "Fault writeFails fired": 0.052,
     "Fault writeFails skipped: worker dead": 0.006,
@@ -228,6 +231,9 @@ const REACH: Reach = {
     "Pull skipped: offline": 0.106,
     "Pull with a dead worker": 0.045,
     "Pull with a dead worker, never started": 0.005,
+    "Recovery abandoned on a stall": 0.0004,
+    "Recovery committed past its first deadline": 0.0004,
+    "Recovery renewed": 0.0004,
     "Reload": 0.389,
     "Reload connect timed, offline": 0.028,
     "Reload connect untimed": 0.203,

@@ -41,15 +41,15 @@ const REACH: Reach = {
   //   "harness lost after stop while re-creating"
   //   "stop's fallback aborts after stop while re-creating"
   //   "stream fails after stop while re-creating"
-  // No floor yet, not measured; until then what guards each one's reach:
+  // No floor, the share rounds to 0 (30 unseeded gate runs, 2026-11-11, each
+  // reached them over four hundred times); what guards each one's reach:
   //   "answer changed after a failure": the teeth "a failed answer can be
   //     changed", which only a run reaching it catches
   //   "answer repeated after a failure": the teeth "a Retry after a failure
   //     posts nothing", likewise
-  //   "answer while posting": nothing pins its reach; the at-most-once
-  //     `confirm` rule checks the runs that reach it
   floors: {
     "abort lands after stop": 0.012,
+    "answer while posting": 0.004,
     "abort lands for a finished or superseded turn": 0.051,
     "confirm 404": 0.001,
     "confirm 404 for a finished or superseded turn": 0.002,

@@ -590,7 +590,7 @@ def test_preview_matches_what_the_tool_receives(monkeypatch):
     assert set(_hostile_inputs()) == set(WRITE_TOOLS)
     for short, raw in _hostile_inputs().items():
         preview = _preview(short, raw)
-        asyncio.run(mcp_server.mcp.call_tool(short, raw))
+        asyncio.run(mcp_server.build_server().call_tool(short, raw))
         received = rec.calls[short]
         if short != "batch":
             (op,) = preview.ops

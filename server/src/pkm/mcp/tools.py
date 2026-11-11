@@ -261,6 +261,3 @@ def search_assets(q: str, limit: int = 20) -> str:
 TOOLS = (get_page, get_block, search, query, backlinks, todos,
          changed_blocks, save_note, update_block, batch, upload_asset,
          search_assets, rename_page)
-
-READ_TOOL_NAMES = ("get_page", "get_block", "search", "query", "backlinks",
-                   "todos", "changed_blocks", "search_assets")

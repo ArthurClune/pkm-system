@@ -1,11 +1,11 @@
 ---
 # pkm-elb2
 title: 'Gates: check e2e and .mjs, assert property reach and teeth, shared prop driver'
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-11-09T21:39:24Z
-updated_at: 2026-11-10T09:49:12Z
+updated_at: 2026-11-11T01:38:42Z
 parent: pkm-4gda
 ---
 
@@ -15,10 +15,10 @@ Plan: docs/superpowers/plans/2026-11-09-maintainability-review-fixes.md § W17. 
 Task plan: docs/superpowers/plans/2026-11-10-w17-gates-and-tooling.md
 
 - [x] T1 every server property file is marked or allowed
-- [ ] T2 server gate suites assert reach
+- [x] T2 server gate suites assert reach
 - [x] T3 server teeth
 - [x] T4 one web gate driver (gate.ts)
-- [ ] T5 web reach floors
+- [x] T5 web reach floors
 - [x] T6 an unexpected fault warning fails the gate
 - [x] T7 web/e2e and playwright.config.ts type-checked and linted
 - [x] T8 split the brands plugin, behaviour unchanged

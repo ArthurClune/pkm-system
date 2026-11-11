@@ -31,16 +31,18 @@ TEETH = settings(settings.get_profile("merge"), database=None,
 
 
 def expect_caught(run: Callable[[], None], *invariants: str) -> None:
-    """`run` fails in a frame named by one of `invariants`. A frame name
+    """`run` fails an assertion in a function named by one of `invariants`:
+    the innermost frame is the one that raised. Any other exception is a
+    crash, not the property seeing the bug, and propagates. A function name
     outlives an assertion message's wording. Name every invariant the
     mutant's bug breaks: which fires first depends on the seed."""
     try:
         run()
-    except Exception as error:
-        frames = [e.name for e in pytest.ExceptionInfo.from_exception(
-            error).traceback]
-        assert set(frames) & set(invariants), (
-            f"caught outside {invariants}: {error!r} in {frames}")
+    except AssertionError as error:
+        innermost = pytest.ExceptionInfo.from_exception(
+            error).traceback[-1].name
+        assert innermost in invariants, (
+            f"caught outside {invariants}: {error!r} in {innermost}")
         return
     pytest.fail("mutant survived")
 
@@ -54,7 +56,7 @@ def test_ops_refuses_text_past_a_limit(monkeypatch: pytest.MonkeyPatch
                         lambda ops: None)
     expect_caught(lambda: run_state_machine_as_test(OpsMachine, settings=(
         settings(TEETH, max_examples=600, stateful_step_count=30))),
-        "_send")
+        "status_matches_model")
 
 
 def test_planner_places_each_index(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -91,4 +93,4 @@ def test_assistant_sends_one_interrupt(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(ClaudeConversation, "_interrupt", twice)
     expect_caught(lambda: run_state_machine_as_test(TurnMachine, settings=(
         settings(TEETH, max_examples=200, stateful_step_count=30))),
-        "one_interrupt_per_turn", "_end_turn")
+        "one_interrupt_per_turn", "at_most_one_interrupt")

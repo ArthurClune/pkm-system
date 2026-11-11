@@ -30,7 +30,45 @@ const PROPERTY_LIMIT_MS = 120_000;
 
 const tally: Tally = new Map();
 /** Where each label must stay above its share of EXAMPLES. */
-const REACH: Reach = { per: EXAMPLES, floors: {} };
+const REACH: Reach = {
+  per: EXAMPLES,
+  // Floors: half the lowest share over 30 unseeded gate runs, 2026-11-10.
+  // No floor, under five events in some run:
+  //   "command batches both sides refused for a guard"
+  //   "variations: text at the length cap"
+  // No floor, under ten in some run, so half of it is noise:
+  //   "rejections: title length"
+  floors: {
+    "O steps: O rejected": 0.015,
+    "O steps: windows": 0.26,
+    "examples: command": 0.188,
+    "examples: raw": 0.288,
+    "op kinds: create": 0.51,
+    "op kinds: create_page": 0.116,
+    "op kinds: delete": 0.294,
+    "op kinds: move": 0.764,
+    "op kinds: set_collapsed": 0.139,
+    "op kinds: set_heading": 0.134,
+    "op kinds: set_view_type": 0.129,
+    "op kinds: update_text": 0.456,
+    "pages set aside for an authoritative reload": 0.183,
+    "rejections: other": 0.014,
+    "rejections: text limit": 0.007,
+    "rejections: title syntax": 0.004,
+    "skipped ops: block_not_found": 0.135,
+    "skipped ops: cycle": 0.115,
+    "skipped ops: parent_not_found": 0.18,
+    "variations: block named twice": 0.224,
+    "variations: cross-page create": 0.062,
+    "variations: cross-page move": 0.122,
+    "variations: cycle": 0.06,
+    "variations: forbidden title": 0.006,
+    "variations: missing parent": 0.112,
+    "variations: stale subtree hash": 0.071,
+    "variations: stale text hash": 0.102,
+    "variations: text past a limit": 0.007,
+  },
+};
 let server: ServerControl;
 
 beforeAll(async () => {

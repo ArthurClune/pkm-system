@@ -223,14 +223,31 @@ def delete_rewrite_properties(
         replay_reproduces(original, new, uid, plan)
 
 
-@merge_floors({}, "example")
+# Floors: half the lowest share over 30 unseeded merge runs, 2026-11-10.
+@merge_floors({
+    "blocker: used_as_attribute": 0.024,
+    "rewrite: inlines a copy": 0.157,
+    "rewrite: inlines a copy that refers to a page block": 0.084,
+    "rewrite: inlines and unlinks": 0.063,
+    "rewrite: unlinks": 0.198,
+    "source: embeds a page block": 0.235,
+    "source: links the page": 0.205,
+    "source: links the page by alias": 0.058,
+    "source: refers to a page block": 0.16,
+}, "example")
 @settings(max_examples=examples("unlink"))
 @given(scenario())
 def test_delete_rewrite_properties(case):
     delete_rewrite_properties(case)
 
 
-@merge_floors({}, "example")
+# Floors: half the lowest share over 30 unseeded merge runs, 2026-11-10.
+@merge_floors({
+    "stale: attribute names the target": 0.033,
+    "stale: links the target": 0.173,
+    "stale: names a title holding a backtick": 0.03,
+    "stale: nothing to strip": 0.239,
+}, "example")
 @settings(max_examples=examples("unlink"))
 @given(stale_text())
 def test_stale_unlink_leaves_no_ref_to_the_target(text):

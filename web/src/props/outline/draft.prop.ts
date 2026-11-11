@@ -30,7 +30,43 @@ const PROPERTY_LIMIT_MS = 45_000;
 
 const tally: Tally = new Map();
 /** Where each label must stay above its share of EXAMPLES. */
-const REACH: Reach = { per: EXAMPLES, floors: {} };
+const REACH: Reach = {
+  per: EXAMPLES,
+  // Floors: half the lowest share over 30 unseeded gate runs, 2026-11-10.
+  // No floor, under ten in some run, so half of it is noise:
+  //   "Enter-229-late"
+  floors: {
+    "Enter-229-unowned": 0.037,
+    "Enter-right-after-end": 0.002,
+    "Escape-229-late": 0.001,
+    "Escape-229-unowned": 0.035,
+    "Escape-right-after-end": 0.002,
+    "compose-end": 0.055,
+    "compose-end-adopts": 0.006,
+    "conflict": 0.022,
+    "debounce-flush": 0.035,
+    "enter-splits": 0.064,
+    "erase-to-base": 0.011,
+    "flush-sends-nothing": 0.014,
+    "flush-then-splice": 0.042,
+    "ime-Enter-after-end": 0.004,
+    "ime-Enter-composing": 0.018,
+    "ime-Enter-flagged": 0.021,
+    "ime-Escape-after-end": 0.004,
+    "ime-Escape-composing": 0.018,
+    "ime-Escape-flagged": 0.021,
+    "remote-under-draft": 0.046,
+    "remote-while-composing": 0.023,
+    "replay-under-draft": 0.045,
+    "replay-while-composing": 0.024,
+    "skip": 0.762,
+    "splice-over-unsent-draft": 0.003,
+    "typed-over-held-text": 0.014,
+    "undo-applied": 0.043,
+    "undo-over-draft": 0.035,
+    "undo-while-composing": 0.024,
+  },
+};
 
 const show = ([example]: [DraftExample]): string =>
   `counterexample: start ${JSON.stringify(example.start)}\ncommands\n${

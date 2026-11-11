@@ -1,10 +1,10 @@
-// The specs' one read of a JSON body on the wire, as `apiFetch` is the
-// app's: the caller names the route's generated model, and the server owns
-// the brands it carries.
+// The specs' one read of an untyped value off the wire, as `apiFetch` is the
+// app's: a JSON body, a request's posted data, or a worker's reply. The
+// caller names the type it expects; the server owns the brands it carries.
 
 /** A request or response body, typed as its route's model. */
 export function wireModel<T>(body: unknown): T {
-  // brand: untrusted -- a JSON body on the wire, typed by the caller's route
+  // brand: untrusted -- a value off the wire, typed by the caller
   return body as T;
 }
 

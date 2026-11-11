@@ -382,6 +382,22 @@ def test_prune_worktrees_removes_only_long_unused(tmp_path, monkeypatch):
     assert calls == [("worktree", "remove", "--force", str(root / "old")), ("worktree", "prune")]
 
 
+def test_prune_worktrees_deletes_the_directory_git_will_not_remove(tmp_path, monkeypatch):
+    root = tmp_path / "worktrees"
+    (root / "old").mkdir(parents=True)
+    (root / "old" / run.USED_MARKER).touch()
+    t = time.time() - 8 * 86_400
+    os.utime(root / "old" / run.USED_MARKER, (t, t))
+
+    def git(repo, *args):
+        if args[:2] == ("worktree", "remove"):
+            raise run.GitError("git worktree remove failed")
+        return ""
+    monkeypatch.setattr(run, "git", git)
+    run.prune_worktrees(tmp_path, root, keep=root / "current")
+    assert not (root / "old").exists()
+
+
 def test_busy_reason_boundary():
     assert run_core.busy_reason(5.0, 10) is None
     assert run_core.busy_reason(0.0, 10) is None

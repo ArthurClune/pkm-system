@@ -33,7 +33,7 @@ from props.harness import (DAILY_TITLE, FROZEN_NOW, FreshApp,
                            assert_unique_keys, assert_well_formed, examples,
                            fresh_app, merge_floors, read_db, seed_ops,
                            template_db_path)
-from props.model import MBlock, Model
+from props.model import MBlock, Model, Outcome
 from props.limit_texts import (AT_NESTING_LIMIT, COPIES_PAST_CAP, EMOJI_AT_CAP,
                                LONG_WITHIN_CAP, NEST_IN_CODE, PAST_LIMIT_TEXTS)
 from props.strategies import PAGES, batch_for, seed_tree, texts, uid_pool
@@ -111,6 +111,11 @@ class ClippedOps(list):
                    f" ({len(op['text'])} characters)"}
                   if len(op.get("text", "")) > CLIP_OVER else op
                   for op in self])
+
+
+def status_matches_model(r: Response, outcome: Outcome) -> None:
+    """The server's status for a batch is the one the model predicts."""
+    assert r.status_code == outcome.status, r.text
 
 
 def _snapshot(app: FreshApp) -> tuple[Any, ...]:
@@ -373,7 +378,7 @@ class OpsMachine(RuleBasedStateMachine):
             event(path)
         before = _snapshot(self.app)
         r = self._post(payload)
-        assert r.status_code == outcome.status, r.text
+        status_matches_model(r, outcome)
         event(f"status: {r.status_code}")
         if r.status_code != 200:
             assert _snapshot(self.app) == before
@@ -572,7 +577,58 @@ class OpsMachine(RuleBasedStateMachine):
             assert block_refs.get(uid, set()) == set(parsed.block_refs), uid
 
 
-@merge_floors({}, "example")
+# Floors: half the lowest share over 30 unseeded merge runs, 2026-11-10.
+# No floor, under five events in some run:
+#   "delete page blocker: limit"
+#   "offline over the cap: first delete refused"
+#   "offline over the cap: second delete refused"
+#   "offline: a queued edit links a dropped title again"
+#   "text: astral at the length cap"
+#   "text: at the nesting limit"
+#   "update_text replay: clean"
+#   "update_text replay: conflict"
+#   "update_text replay: identical"
+#   "update_text replay: identical, edit rewritten"
+# No floor, under ten in some run, so half of it is noise:
+#   "skip: page_deleted"
+#   "text: nest hidden in code"
+# No floor, a run under half the lowest share is too likely:
+#   "delete page blocker: attribute"
+#   "offline over the cap: two steps"
+#   "update_text replay: clean, edit rewritten"
+@merge_floors({
+    "batch: records a rewrite": 0.205,
+    "batch: stale": 0.696,
+    "delete hash: absent": 1.438,
+    "delete hash: block gone": 2.102,
+    "delete hash: match": 0.287,
+    "delete hash: stale": 0.289,
+    "delete page blocker: used_as_attribute": 0.098,
+    "delete page: 200": 0.79,
+    "delete page: 404": 1.081,
+    "delete page: 409": 0.27,
+    "kept texts": 1.747,
+    "offline over the cap: one step": 0.026,
+    "replay": 0.918,
+    "reuse": 0.972,
+    "seed: dense or empty": 0.033,
+    "seed: gapped": 0.367,
+    "skip: block_not_found": 15.415,
+    "skip: cycle": 0.146,
+    "skip: parent_not_found": 0.542,
+    "skip: text_limit": 0.049,
+    "status: 200": 3.706,
+    "status: 400": 0.496,
+    "text: past a limit": 0.031,
+    "update_text hash: absent": 1.956,
+    "update_text hash: block gone": 2.404,
+    "update_text hash: match": 0.34,
+    "update_text hash: replay": 0.276,
+    "update_text hash: stale": 0.411,
+    "update_text replay: conflict, edit rewritten": 0.098,
+    "update_text replay: over the length cap, gone titles unlinked": 0.049,
+    "update_text: identical after stale unlink": 0.085,
+}, "example")
 def test_ops() -> None:
     run_state_machine_as_test(OpsMachine, settings=settings(
         max_examples=examples("ops_state"), stateful_step_count=30))

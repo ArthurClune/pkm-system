@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { CONTEXT_GROUPS, expandOnly } from "./contextGroups.ts";
+import { CONTEXT_GROUPS, expandOnly, LETTERS } from "./contextGroups.ts";
 
 describe("expandOnly", () => {
   test("a letter expands to its whole browser-context group", () => {
@@ -12,6 +12,11 @@ describe("expandOnly", () => {
   test("groups partition the letters, each in exactly one", () => {
     const all = CONTEXT_GROUPS.flatMap((g: string) => [...g]);
     expect(new Set(all).size).toBe(all.length);
+  });
+
+  test("every scenario letter belongs to a group", () => {
+    const grouped = CONTEXT_GROUPS.flatMap((g: string) => [...g]).sort();
+    expect(grouped).toEqual(LETTERS.split(",").sort());
   });
 
   test("an unknown letter is kept so the caller can refuse it", () => {

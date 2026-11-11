@@ -20,13 +20,13 @@ Task-level plan: docs/superpowers/plans/2026-11-11-w11-recovery-lease.md
 (Arthur, 2026-11-11: option (c), the lease follows the download, plus
 compression of the snapshot and changes responses).
 
-- [ ] T1 The sync routes gzip their bodies
-- [ ] T2 The worker renews a recovery lease
-- [ ] T3 A property over the worker lease
-- [ ] T4 apiFetch bounds a read by its silence
-- [ ] T5 runRecovery renews on progress and abandons a stalled download (after pkm-jowv)
-- [ ] T6 "Reset failed" shows the message, not the class
-- [ ] T7 The sync suite meets slow and stalled downloads
-- [ ] T8 Docs say what W11 made true
-- [ ] T9 The troubleshooting row (own final commit)
+- [x] T1 The sync routes gzip their bodies
+- [x] T2 The worker renews a recovery lease
+- [x] T3 A property over the worker lease
+- [x] T4 apiFetch bounds a read by its silence
+- [x] T5 runRecovery renews on progress and abandons a stalled download (after pkm-jowv)
+- [x] T6 "Reset failed" shows the message, not the class
+- [x] T7 The sync suite meets slow and stalled downloads
+- [x] T8 Docs say what W11 made true
+- [x] T9 The troubleshooting row (own final commit)
 - [ ] T10 Measure the fix (Chromium throttled, WebKit through a pacing proxy)

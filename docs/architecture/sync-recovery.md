@@ -217,8 +217,9 @@ and `pause(owner)` and `resume(owner)` take one:
 
 A recovery's leased flush (`OpQueue.deliverLeased`, lane entries ahead of the
 batch included) posts while `lane` holds. The claim only orders the ordinary
-drain behind the outline repair, which rewrites no queued op, so a row's
-outcome is the same posted then or later. A leased POST settles no ticket, so
+drain behind the outline repair, which never cancels, rewrites or re-plans a
+queued op, so a row's outcome is the same posted then or later. A repair that
+began to do so would be bypassed by a leased flush during the hold. A leased POST settles no ticket, so
 the repair still replays the write it covers. Only `poison` stops the flush,
 because a rebase that posts nothing would replay posted rows over its commit.
 

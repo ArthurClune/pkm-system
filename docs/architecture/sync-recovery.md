@@ -152,8 +152,9 @@ remembers the report, so the banner returns when a delivery problem ends. Its
 action is Reload, not Retry, because the failed open is latched for the
 session.
 
-The banner and Reload's confirmation mention unsent changes only when
-`unsentInMemory > 0`. Those live only in the lane, so a reload discards them.
+Reload's confirmation names unsent changes when `unsentInMemory > 0`. The
+banner names them only offline; connected, it says they are still being saved.
+Those changes live only in the lane, so a reload discards them.
 Durable rows (`pending` minus `unsentInMemory`) survive a reload and are not
 counted. Wording is in `OfflineIndicator.tsx`.
 
@@ -374,7 +375,7 @@ await it, since `pullLoop` calls it from inside that pull; it runs through
 `recover()`, which turns a `rebase` failing on fresh corruption into a
 `reset`.
 
-Within a session, a rebase never replays a batch its flush got an ack for.
+**Within a session, a rebase never replays a batch its flush got an ack for.**
 The server's result can differ from the wire op. The next pull starts at the
 snapshot's seq, so nothing would correct a replay of the wire text.
 `flushBatches` holds each ack in `heldAcks` (`sync/opsAck.ts`), across runs

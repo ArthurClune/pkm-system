@@ -248,14 +248,14 @@ running app.
 
 ### Paged lists
 
-Each list pages through a reducer of its own, and each exists for one rule:
+Each list exists for one rule:
 
 | List | State lives in | The rule |
 |---|---|---|
 | Journal days | `views/journalPaging.ts` | One load in flight; a failed load keeps the days and their cursor ([The Journal](#the-journal)) |
 | `/files` | `views/filesPaging.ts` | A filter change bumps the generation at the keystroke; Select all and Load more start only from a list loaded under the current generation ([The `/files` browser](#the-files-browser)) |
 | Linked references | `components/backlinksPaging.ts` | Show more and the filter panel's load-all are walks and several can be in flight, so the section is loading until every walk settles; a sync refresh replaces the groups from offset 0, and while one is in flight no walk starts and the panel stays closed, since either would page on from groups about to be replaced |
-| Unlinked references | `components/unlinkedStatus.ts` (Link lifecycle) | The server drops a block from `/api/unlinked` once it references the page, so a delivered Link takes its block out of the loaded list and one off `total`, and Show more asks from the count of loaded blocks still listed: counting an undelivered Link as gone only re-fetches a block, which `mergeGroups` drops, while counting a gone one as listed skips the next block |
+| Unlinked references | paging in `components/UnlinkedSection.tsx`; each Link's status in `components/unlinkedStatus.ts` | The server drops a block from `/api/unlinked` once it references the page, so a delivered Link takes its block out of the loaded list and one off `total`, and Show more asks from the count of loaded blocks still listed: counting an undelivered Link as gone only re-fetches a block, which `mergeGroups` drops, while counting a gone one as listed skips the next block |
 
 #### The Journal
 
@@ -341,8 +341,10 @@ A row's `RefCountBadge` opens `BlockRefBacklinksPopover`, which fetches
 is as fresh as the page payload.
 
 Every clipboard write goes through `copyText`, which resolves `false` instead
-of throwing when the Clipboard API is missing or the write is refused; a caller
-shows the text to copy by hand.
+of throwing when the Clipboard API is missing or the write is refused.
+`Files` and `DroppedDraftNotice` then show the text to copy by hand. The block
+menu's Copy block reference and Cmd/Ctrl+C on a block selection
+(`EditableBlockTree`) ignore the result, so their failure shows nothing.
 
 Every confirmation goes through `useConfirm` (`components/ConfirmDialog.tsx`),
 never `window.confirm` ([below](#ios-and-phone-behaviour)). The owning
@@ -464,12 +466,11 @@ this section ([checks.md § Property gate](checks.md#property-gate)).
 [checks.md](checks.md#every-check) lists what each
 fails on, and `AGENTS.md` § Testing says how to run them.
 
-- **Unit** (Vitest + jsdom): co-located `*.test.ts(x)`. The guards that fail a
-  run are in [checks.md](checks.md#every-check). `src/test-setup.ts` fails
-  whichever test is running when a `console.warn` or `console.error` lands, so
-  a stray timer's message surfaces in a later test: read the message, not the
-  test name. Traps that make a test pass without
-  proving anything:
+- **Unit** (Vitest + jsdom): co-located `*.test.ts(x)`. `src/test-setup.ts`
+  fails whichever test is running when a `console.warn` or `console.error`
+  lands, or the file when it lands after the last test. So a stray timer's
+  message surfaces in a later test: read the message, not the test name. Traps
+  that make a test pass without proving anything:
 
   | Trap | Instead |
   |---|---|

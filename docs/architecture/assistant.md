@@ -163,7 +163,7 @@ dataclasses and `EVENT_NAMES`. `confirm_request.preview` is typed as parsed
 
 | Rule | Reason |
 |---|---|
-| A field with a server-side default is optional in the generated union, and the web parser keeps a frame's unknown keys. Only the write preview is checked strictly (`parseWritePreview`) | A PWA keeps its cached bundle across a deploy, so an older bundle runs against a newer server and the reverse. A field a later server drops is one the web must already treat as absent |
+| A field with a server-side default is optional in the generated union, and the web parser keeps a frame's unknown keys, except in `confirm_request`, which `sse.ts` rebuilds from `confirm_id` and a strictly parsed preview (`parseWritePreview`) | A PWA keeps its cached bundle across a deploy, so an older bundle runs against a newer server and the reverse. A field a later server drops is one the web must already treat as absent |
 
 ### A write's result
 

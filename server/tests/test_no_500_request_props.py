@@ -77,8 +77,7 @@ _FOCUS = {"/api/ops", "/api/pages", "/api/page/{title:wholepath}",
           "/api/page/{title:wholepath}/rename", "/api/search", "/api/titles",
           "/api/unlinked", "/api/delete-preview", "/api/sidebar",
           "/api/sync/changes", "/api/sync/snapshot", "/api/journal",
-          "/api/block/{uid}", "/api/export/page/{title:wholepath}",
-          "/api/current-work"}
+          "/api/block/{uid}", "/api/export/page/{title:wholepath}"}
 
 
 # The write routes that take a title or block text; their bodies are

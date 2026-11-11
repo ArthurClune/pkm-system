@@ -168,8 +168,8 @@ describe("transitionSync replica-state", () => {
     const ends: [SyncProblem, SyncEvent][] = [
       [{ kind: "rejected-batch", event: poison(), repair: "mark-failed",
          error: "e" }, { type: "poison-intents-discarded" }],
-      [{ kind: "poison-discovery", error: "e" },
-       { type: "poison-discovery-cleared" }],
+      [{ kind: "rejected-batch", event: poison(), repair: "repaired" },
+       { type: "dismiss" }],
       [{ kind: "outline-rejected", repair: "repaired", error: "e" },
        { type: "dismiss" }],
     ];
@@ -188,12 +188,16 @@ describe("transitionSync replica-state", () => {
     expect(after.effects).toEqual([{ type: "bump-resync" }]);
   });
 
-  it("a no-replica report keeps a delivery problem", () => {
+  it("a no-replica report keeps a delivery problem whose action works " +
+     "without the worker", () => {
     const kept: SyncProblem[] = [
-      { kind: "rejected-batch", event: poison(), repair: "failed", error: "e" },
-      { kind: "poison-discovery", error: "read failed" },
+      { kind: "rejected-batch", event: poison(), repair: "mark-failed",
+        error: "e" },
+      { kind: "rejected-batch", event: poison(), repair: "repaired" },
       { kind: "outline-rejected", repair: "failed", error: "e",
         repairError: "r" },
+      { kind: "outline-rejected", repair: "running", error: "e" },
+      { kind: "outline-rejected", repair: "repaired", error: "e" },
     ];
     for (const current of kept) {
       const t = transitionSync(withProblem(current),
@@ -375,6 +379,188 @@ describe("transitionSync poison discovery", () => {
       type: "poison-discovery-cleared",
     });
     expect(kept.state.problem).toEqual(other);
+  });
+});
+
+describe("transitionSync with the replica gone", () => {
+  // A rejected batch's repair and startup's poison discovery both run on the
+  // replica worker, so once it is gone their Retry cannot work: the
+  // online-only banner's Reload takes their place.
+  const event = poison();
+  const gone = modeReport({ mode: "no-replica", error: "worker died" });
+  const unusable: SyncProblem = { kind: "replica-unusable", error: "worker died" };
+  const fold = (state: SyncState, ...events: SyncEvent[]): SyncState =>
+    events.reduce((s, e) => transitionSync(s, e).state, state);
+  const repairFailed: SyncEvent = { type: "repair-failed", event, error: "rpc" };
+  const discoveryFailed: SyncEvent = {
+    type: "poison-discovery-failed", error: "rpc",
+  };
+
+  it("a repair that fails after the replica died offers Reload", () => {
+    const state = fold(createSyncState(),
+      { type: "repair-started", event }, gone, repairFailed);
+    expect(state.problem).toEqual(unusable);
+  });
+
+  it("a replica that dies after a repair failed offers Reload", () => {
+    const state = fold(createSyncState(),
+      { type: "repair-started", event }, repairFailed, gone);
+    expect(state.problem).toEqual(unusable);
+  });
+
+  it("a running repair yields when the replica dies, and its failure " +
+     "keeps the same banner", () => {
+    const yielded = fold(createSyncState(), { type: "repair-started", event }, gone);
+    expect(yielded.problem).toEqual(unusable);
+    const t = transitionSync(yielded, repairFailed);
+    expect(t.state.problem).toBe(yielded.problem);
+  });
+
+  it("a discovery that fails after the replica died offers Reload", () => {
+    expect(fold(createSyncState(), gone, discoveryFailed).problem)
+      .toEqual(unusable);
+  });
+
+  it("a replica that dies after discovery failed offers Reload", () => {
+    expect(fold(createSyncState(), discoveryFailed, gone).problem)
+      .toEqual(unusable);
+  });
+
+  it("a reconnect's repair rerun does not bring back a Retry", () => {
+    const yielded = fold(createSyncState(), gone, discoveryFailed);
+    for (const next of [
+      { type: "repair-started", event } as const, repairFailed,
+      discoveryFailed,
+    ]) {
+      expect(transitionSync(yielded, next).state.problem).toBe(yielded.problem);
+    }
+  });
+
+  it("clearing discovery or a dismiss leaves the online-only banner", () => {
+    const yielded = fold(createSyncState(), discoveryFailed, gone);
+    for (const next of [
+      { type: "poison-discovery-cleared" } as const, { type: "dismiss" } as const,
+      { type: "poison-intents-discarded" } as const,
+    ]) {
+      expect(transitionSync(yielded, next).state.problem).toBe(yielded.problem);
+    }
+  });
+
+  it("a repair that succeeds after all shows repaired, then Reload once " +
+     "dismissed", () => {
+    const repaired = fold(createSyncState(),
+      { type: "repair-started", event }, gone,
+      { type: "repair-succeeded", event });
+    expect(repaired.problem).toEqual({
+      kind: "rejected-batch", event, repair: "repaired",
+    });
+    expect(fold(repaired, { type: "dismiss" }).problem).toEqual(unusable);
+  });
+
+  it("a failed mark keeps its banner: Discard needs no worker", () => {
+    // A replica that can never open fails the same mark on every reload, so
+    // Reload is no way out; Discard is.
+    const markFailed: SyncEvent = {
+      type: "poison-mark-failed", event, error: "rpc",
+    };
+    for (const state of [fold(createSyncState(), gone, markFailed),
+                         fold(createSyncState(), markFailed, gone)]) {
+      expect(state.problem).toEqual({
+        kind: "rejected-batch", event, repair: "mark-failed", error: "rpc",
+      });
+    }
+  });
+
+  it("an outline problem held behind a yielded repair comes forward", () => {
+    // Its Retry reads through the server, so it works without the worker,
+    // and it outranks the online-only banner as it always has.
+    const outlineFailed: SyncEvent = {
+      type: "outline-repair-failed", error: "reject", repairError: "bad",
+    };
+    const state = fold(createSyncState(),
+      { type: "repair-started", event }, outlineFailed, repairFailed, gone);
+    expect(state.problem).toEqual({
+      kind: "outline-rejected", repair: "failed", error: "reject",
+      repairError: "bad",
+    });
+    expect(state.outlineBehind).toBeUndefined();
+    const done = fold(state, { type: "outline-repair-succeeded", error: "reject" },
+                      { type: "dismiss" });
+    expect(done.problem).toEqual(unusable);
+  });
+
+  it("an outline repair that starts after a yielded one is shown", () => {
+    const state = fold(createSyncState(), discoveryFailed, gone,
+                       { type: "outline-repair-started", error: "reject" });
+    expect(state.problem).toEqual({
+      kind: "outline-rejected", repair: "running", error: "reject",
+    });
+  });
+});
+
+describe("transitionSync delivery held for a poison repair", () => {
+  // Delivery waits while "poison" or "startup" holds the barrier. With the
+  // replica gone neither claim can be released by a repair or discovery, so
+  // the online-only banner says changes are paused.
+  const event = poison();
+  const gone = modeReport({ mode: "no-replica", error: "worker died" });
+  const held: SyncEvent = { type: "delivery-held", held: true };
+  const released: SyncEvent = { type: "delivery-held", held: false };
+  const paused: SyncProblem = {
+    kind: "replica-unusable", error: "worker died", paused: true,
+  };
+  const fold = (state: SyncState, ...events: SyncEvent[]): SyncState =>
+    events.reduce((s, e) => transitionSync(s, e).state, state);
+
+  it("a yielded repair's banner says delivery is paused", () => {
+    const state = fold(createSyncState(), held,
+      { type: "repair-started", event }, gone,
+      { type: "repair-failed", event, error: "rpc" });
+    expect(state.problem).toEqual(paused);
+  });
+
+  it("a hold that starts after the banner marks it paused, and its " +
+     "release unmarks it", () => {
+    const shown = fold(createSyncState(), gone);
+    expect(shown.problem).toEqual({ kind: "replica-unusable", error: "worker died" });
+    const pausedState = fold(shown, held);
+    expect(pausedState.problem).toEqual(paused);
+    expect(fold(pausedState, released).problem)
+      .toEqual({ kind: "replica-unusable", error: "worker died" });
+  });
+
+  it("the hold outlives an outline problem that comes forward and is " +
+     "dismissed", () => {
+    const state = fold(createSyncState(), held,
+      { type: "repair-started", event },
+      { type: "outline-repair-failed", error: "reject", repairError: "bad" },
+      { type: "repair-failed", event, error: "rpc" }, gone);
+    expect(state.problem).toMatchObject({ kind: "outline-rejected" });
+    const done = fold(state,
+      { type: "outline-repair-succeeded", error: "reject" }, { type: "dismiss" });
+    expect(done.problem).toEqual(paused);
+  });
+
+  it("the paused banner keeps its identity across unrelated events and " +
+     "a repeated hold", () => {
+    const shown = fold(createSyncState(), held, gone);
+    for (const next of [{ type: "ops-skipped" } as const, held]) {
+      expect(transitionSync(shown, next).state.problem).toBe(shown.problem);
+    }
+  });
+
+  it("a hold changes no other problem", () => {
+    const markFailed: SyncProblem = {
+      kind: "rejected-batch", event, repair: "mark-failed", error: "rpc",
+    };
+    const state = fold(withProblem(markFailed), gone, held);
+    expect(state.problem).toEqual(markFailed);
+    expect(fold(state, { type: "poison-intents-discarded" }).problem)
+      .toEqual(paused);
+  });
+
+  it("with the replica present a hold shows nothing", () => {
+    expect(fold(createSyncState(), held).problem).toBeUndefined();
   });
 });
 

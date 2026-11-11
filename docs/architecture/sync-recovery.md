@@ -135,16 +135,31 @@ whether a consumer may latch it: yes for everything but a bare timeout.
 `bannerForMode` (`sync/syncState.ts`) folds each mode report into a banner;
 it and the transitions beside it say which banner each mode raises and what
 it may replace. Offline, `computeEditability` reads `recovery-failed` as
-read-only. `replica-unusable` replaces a stalled banner (`replica-stalled`)
-but never a delivery problem, and `SyncState.replicaGone` brings it back when
-that problem ends. Its action is Reload, not Retry, because the failed open is
-latched for the session.
+read-only. Its action is Reload, not Retry, because the failed open or dead
+worker is latched for the session.
+
+With the replica gone, `transitionSync` ranks the banners by whether their
+action still works:
+
+| Shown problem | With `SyncState.replicaGone` set | Why |
+|---|---|---|
+| `replica-stalled` | replaced by `replica-unusable` | Reset needs the replica |
+| `rejected-batch` running or failed, `poison-discovery` (`needsWorker`) | replaced by the outline problem in `outlineBehind`, else `replica-unusable` | the repair and discovery run on the worker, so their Retry cannot work and a reload can |
+| `rejected-batch` mark-failed | kept | Discard needs no worker, and a replica that never opens fails the same mark after a reload |
+| `outline-rejected`, a repaired `rejected-batch` | kept | the outline Retry reads through the server; Dismiss needs nothing |
+
+`replicaGone` brings `replica-unusable` back when a kept problem ends.
 
 The memory-only warning (`memoryOnlySentence`) and Reload's confirmation,
 shown only when `unsentInMemory > 0`, count `unsentInMemory`, the lane's share
 of `pending`: a reload discards the lane, and durable rows survive it.
 The banner names unsent changes only offline; connected, it says they are
-still being saved. `OfflineIndicator.tsx` holds the wording. A replica that
+still being saved. That reassurance is false while `heldForPoison` holds: a
+`poison` or `startup` claim, which only a reload releases once the replica is
+gone. The problem then carries `paused`, and the banner says changes are
+paused until a reload and names unsent changes whether connected or not. The
+session reads the claim from the queue (`onBarrier`), not from the problem
+that took it. `OfflineIndicator.tsx` holds the wording. A replica that
 opens and then fails every write has no availability verdict, so no problem
 banner mounts; the offline `ConnectivityBanner` gives the same warning.
 
@@ -176,7 +191,9 @@ repair resumes nothing.
 
 A poison problem without its repair outranks an outline one in the banner,
 because its Retry is what lifts `poison`; the outline problem waits in
-`outlineBehind` (`sync/syncState.ts`).
+`outlineBehind` (`sync/syncState.ts`). Once the replica is gone that Retry
+cannot work, and the outline problem comes forward
+([What the UI shows](#what-the-ui-shows)).
 
 ### Calls that arrive during a run
 

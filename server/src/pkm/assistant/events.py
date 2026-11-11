@@ -89,7 +89,7 @@ AssistantEvent = (
     | ErrorEvent | TurnStopped
 )
 
-_EVENT_NAMES: dict[type, str] = {
+EVENT_NAMES: dict[type, str] = {
     TextDelta: "text_delta",
     ToolStarted: "tool_started",
     ToolFinished: "tool_finished",
@@ -157,7 +157,7 @@ def tool_error_reason(content: str | list[dict[str, Any]] | None) -> str:
 
 
 def event_name(event: AssistantEvent) -> str:
-    return _EVENT_NAMES[type(event)]
+    return EVENT_NAMES[type(event)]
 
 
 def encode_sse(event: AssistantEvent) -> str:

@@ -1,8 +1,8 @@
 # Files and assets
 
-A block can link to a file in three places. Each is an ordinary markdown link
-whose href the app recognises, served through the server so other devices
-reach it over the tailnet.
+A block links to a file through an ordinary markdown link whose href the app
+recognises. The server serves each one, so other devices reach it over the
+tailnet.
 
 | Surface | Href | Lives in | Server code |
 |---|---|---|---|
@@ -27,23 +27,21 @@ digest; the `assets` row keeps the display filename, MIME and size.
 Raster images and PDFs serve inline. Everything else downloads with
 `nosniff`, including SVG, which can script.
 
-An asset digest is `Sha256Hex` (`contracts/ops.py`), not a plain string.
-`path_params.path_sha256` parses every sha256 path parameter against
-`SHA256_HEX_RE` (404 when malformed), and `assets_core.py` mints from `hashlib`.
-On the web the only mint point is the `/assets/<sha>/<name>` autolink rule in
-`grammar/tokenize.ts`. Anything its capture group rejects renders as plain text
-or a generic link.
+An asset digest is a `Sha256Hex` brand (`contracts/ops.py`), minted only at
+the sites `brand_registry.MINT_SITES` lists. `path_params.path_sha256` parses
+every sha256 path parameter against `SHA256_HEX_RE` and 404s a malformed one.
 
 The upload response's `existing` says whether the row was already there (a
 dedup hit). The CLI's upload compensation keys on it
-([cli-and-mcp.md](cli-and-mcp.md#shared-write-workflows)).
+([cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)).
 
-**Search** behind `/files` is `LIKE` over `description` and `filename`, not
-FTS: the table is personal-scale and has no offline-parity burden. The
+**Search** behind `/files` is `LIKE` over `description` and `filename`. It
+skips FTS because the table is personal-scale and has no offline-parity
+burden. The
 `linked`/`orphan` filters need refs for every candidate, so they scan the
 whole filtered set.
 
-**Delete** has two modes.
+**Delete**:
 
 | Mode | Referenced asset | Unreferenced asset |
 |---|---|---|
@@ -56,13 +54,13 @@ The stripping rules:
   (`grammar/markdown.ts`) and removes both URL spellings, the percent-encoded
   one `asset_url` returns and the raw name older uploads wrote.
 - Each removed token takes one adjacent space; every other character stays.
-- A token between `[` and `[` keeps them apart, so a strip can nest a block
-  deeper or past a text limit, or create a link: with the token gone, `[` and
-  `[Foo]]` become `[[Foo]]`, which links and creates `Foo`. A strip that makes a
-  block worse on a limit refuses the whole delete before any write: 409 with
+- A token between `[` and `[` keeps them apart, so removing it can join
+  them. `[` and `[Foo]]` become `[[Foo]]`, which links and creates `Foo`.
+- A strip that leaves a block worse on a text limit, longer or with deeper
+  `[[` nesting, refuses the whole delete before any write. The 409 carries
   `blockers` in page delete's shape, reason `limit`
-  ([write-path.md § Work bounds under the write lock](write-path.md#work-bounds-under-the-write-lock)).
-  `/files` shows them in `DeleteBlockedDialog`.
+  ([write-path.md § Work bounds under the write lock](write-path.md#work-bounds-under-the-write-lock)),
+  and `/files` shows them in `DeleteBlockedDialog`.
 - A block left empty and childless is deleted. An emptied parent is kept,
   because asset deletion must never cascade away real content.
 - The file is unlinked after the commit, so a crash leaves at worst an
@@ -138,7 +136,7 @@ the index, the check and the file route's 503s do report what is there.
 segment, a control character or a backslash. `is_within` then re-checks the
 resolved path against the resolved root, so a symlink out is a 404 too. The
 file route's parameter arrives decoded once through the
-[`wholepath` convertor](backend.md#title-integrity-and-one-time-activation).
+[`wholepath` convertor](titles-and-refs.md#title-integrity-and-one-time-activation).
 `/api/local-check` starts from a raw href in block text, so it uses
 `resolve_relative`, which unquotes once.
 
@@ -160,9 +158,9 @@ Both routes share the eviction helpers, so they cannot disagree.
 consent prompt. On anyio's shared threadpool that would leak a thread per
 attempt until every sync route hung. So a file is never handed to
 `FileResponse` unprobed. `local_open.OpenProber` runs `os.open` on its own
-daemon thread with a timeout, shares one thread among callers asking about the
-same path, and caps distinct in-flight probes (`DEFAULT_CAP`). A blocked
-`open()` cannot be cancelled, so the cap bounds stuck threads.
+daemon thread with a timeout. Callers asking about the same path share one
+thread. A blocked `open()` cannot be cancelled, so a cap on distinct in-flight
+probes (`DEFAULT_CAP`) bounds the stuck threads.
 
 The probe and `FileResponse` each open the file. A file that becomes
 unopenable between the two still hangs after the 200 headers; that window is
@@ -180,7 +178,7 @@ The index lists only names `clean_relative` accepts (`visible_name`), so the
 picker never offers a link the file route 404s. An evicted `.Name.ext.icloud`
 stub is listed as `Name.ext`. Hrefs come from `local_href`.
 
-### Errors a person sees
+### HTML error pages
 
 A file-route failure is JSON for `fetch()` and pdf.js. A browser navigation
 gets a short HTML page with the same status, plus `no-store`, because Safari
@@ -189,7 +187,7 @@ decides from `Sec-Fetch-Mode`, `Sec-Fetch-Dest`, or failing both, `Accept`.
 
 ## GoodLinks copies
 
-GoodLinks is Arthur's read-later app, and it archives web pages. A block notes
+GoodLinks is a macOS read-later app that archives web pages. A block notes
 a copy with `Local copy:: [Goodlinks](/api/goodlinks/<32-hex id>)`. The
 renderer keys on the href, never the link text, so any link with that href
 opens the reader.
@@ -211,13 +209,13 @@ flowchart LR
   GW -->|bearer, loopback| APP[GoodLinks app :9428]
 ```
 
-### Two barriers for third-party HTML
+### Sanitising the article HTML
 
 `GET /api/goodlinks/{link_id}` is the only route that returns third-party HTML
 for the app to render in its own frame: GoodLinks' reader-view extraction of a
-page. (`/api/local/{path}` serves a host `.html` file only as a download.) Two
-independent barriers stand between it and the browser, and neither may be
-widened for convenience.
+page. (`/api/local/{path}` serves a host `.html` file only as a download.) The
+HTML passes two independent barriers before the browser renders it, and
+loosening either is a security change.
 
 1. The server reduces it with `sanitize_article` (`nh3`) to a tag and
    attribute allowlist. A `"*": set()` entry removes `nh3`'s default generic
@@ -228,36 +226,26 @@ widened for convenience.
 2. The reader renders it only inside
    `<iframe sandbox="allow-popups allow-popups-to-escape-sandbox" srcdoc>`
    (`goodlinksReaderDoc.ts`). HTML that slipped the allowlist would still run
-   no script and could not reach the app's origin or cookies. This is the only
-   place third-party HTML reaches the DOM. The app's other
+   no script and could not reach the app's origin or cookies. The app's other
    `dangerouslySetInnerHTML` uses (Mermaid, KaTeX, highlighted code) render
    markup the app generated.
 
-Article images still load from their original hosts, because GoodLinks' API
-returns the article with their original URLs even when it keeps its own copy
-of them. Opening a copy reveals the reader's IP to those hosts.
+Article images load from their original hosts, because GoodLinks' API
+returns their original URLs. Those hosts see the reader's IP
+([SECURITY.md](../SECURITY.md#what-a-session-can-reach-beyond-the-graph)).
 
-### Why a proxy
+### The GoodLinks gateway
 
 The browser never holds GoodLinks' bearer token. The server holds it and
 forwards through `GoodlinksGateway` to `goodlinks_api_url`, loopback by
-default, so the GoodLinks app must be running on the host. GoodLinks itself
-listens on every interface ([SECURITY.md](../SECURITY.md#known-limitations)),
-so the proxy keeps the token, not the port, off other devices.
-
-An unreachable app and a refused token are 503s. A GoodLinks 404 passes
-through, and a refused save is a 422 carrying its text.
-`GoodlinksUnavailable` covers a closed app and any 2xx that is not a usable
-link ([hostile input](backend.md#hostile-input)). A 401 or 403
-(`GoodlinksUnauthorized`) gets its own detail,
-"Goodlinks rejected the API token". With no API key configured,
-`app.state.goodlinks` is `None` and `get_goodlinks` turns every route except
-`check` into a 404.
+default, so the GoodLinks app must be running on the host. The proxy keeps
+the token off other devices. GoodLinks' own port stays reachable on every
+interface ([SECURITY.md](../SECURITY.md#known-limitations)).
 
 `resolve` tries exact lookups against `candidate_urls` (the URL, without query
 and fragment, each with its trailing slash toggled), then one search on
 `search_query`. A search counts only when exactly one hit matches
-(`search_match`); two hits is a miss, not a guess. Only when all of that
+(`search_match`), and two matching hits count as no match. Only when all of that
 misses, and only with `save: true`, does it save the page, read-marked.
 Lookup runs before save so an archived link's read date is never bumped.
 
@@ -267,10 +255,7 @@ Lookup runs before save so an archived link's read date is never bumped.
 `ImageOverlay` is: a cycling Tab would be swallowed by the iframe. Escape stops
 closing it once focus is inside the iframe, because the frame runs no script and
 its keydown never reaches the app's `window` listener. The Close button still
-works. Fixing Escape would need `allow-scripts`, which barrier 2 forbids.
-
-The original URL arrives only with the article, so on failure the bar has no
-link, and only a note and Close are guaranteed.
+works. Fixing Escape would need `allow-scripts`, which the sandbox forbids.
 
 The bar's "original" link goes through `isSafeHref` (`externalMedia.ts`), like a
 markdown link, and an unsafe URL shows as plain text, because GoodLinks' answer
@@ -285,15 +270,14 @@ notices (the `goodlinks` notice) go to the page-level `.editor-notice` line.
 
 | Case | Server | Reader | `/goodlinks` |
 |---|---|---|---|
-| Not configured (no API key) | 404, except `check`: `enabled: false` | "No longer in Goodlinks" | "Not in Goodlinks" |
-| GoodLinks app not running | 503 `Goodlinks is not running on the host` | "Goodlinks is not running on the Mac" | "Goodlinks is not running" |
-| Token refused (401/403) | 503 `Goodlinks rejected the API token` | that detail | that detail |
-| Link no longer in GoodLinks | 404 | "No longer in Goodlinks" | "Not in Goodlinks" |
+| Not configured (no API key): `app.state.goodlinks` is `None` | `get_goodlinks` 404s every route except `check`, which answers `enabled: false` | "No longer in Goodlinks" | "Not in Goodlinks" |
+| GoodLinks app not running, or a 2xx that is not a usable link ([hostile input](request-boundary.md#hostile-input)) | `GoodlinksUnavailable`: 503 `Goodlinks is not running on the host` | "Goodlinks is not running on the Mac" | "Goodlinks is not running" |
+| Token refused (401/403) | `GoodlinksUnauthorized`: 503 `Goodlinks rejected the API token` | that detail | that detail |
+| Link no longer in GoodLinks | GoodLinks' 404 passes through | "No longer in Goodlinks" | "Not in Goodlinks" |
 | Link known, no reader copy (a paywall, a PDF, a fresh save) | 200, empty `html` | "Goodlinks has no reader copy of this page", full bar | — |
 | GoodLinks rejects a save | 422 with its text | — | "Goodlinks refused the URL" |
-| Resolve misses with `save: false` | 404 `not in Goodlinks` | — | not reachable: the command always saves |
 | No response (offline, or the replica has no route) | — | "Needs the server" | "Couldn't reach the server" |
-| Anything else | — | "Couldn't load this article." | "Couldn't reach Goodlinks" |
+| Any other failure | — | "Couldn't load this article." | "Couldn't reach Goodlinks" |
 
 Every reader error keeps Close working. A failed `/goodlinks` splices nothing.
 

@@ -321,5 +321,5 @@ A title with `#`, `[[`, `]]` or a backtick, a trailing `]` or `[`, or a `.`,
 `..` or empty `/`-separated segment is refused, online and offline.
 Once the migration is active, leading and trailing ordinary spaces are removed
 from every title.
-[backend.md § Refused titles](architecture/backend.md#refused-titles) has the
+[titles-and-refs.md § Refused titles](architecture/titles-and-refs.md#refused-titles) has the
 complete list and the reasons.

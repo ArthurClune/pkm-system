@@ -15,7 +15,9 @@ approval and record the design as it was then.
 | Doc | Read when you |
 |---|---|
 | this file | are new: the system picture, the core idea and the decisions behind it, the stack |
-| [backend.md](backend.md) | change a route, the schema, the ref grammar, titles, auth or config |
+| [backend.md](backend.md) | change a route, the schema, a wire model, a generated artifact or config |
+| [titles-and-refs.md](titles-and-refs.md) | change the ref grammar, how titles are canonicalised and looked up, or which titles are refused |
+| [request-boundary.md](request-boundary.md) | change auth, the origin guard, body caps, deadlines, the login throttle or a hostile-input guard |
 | [write-path.md](write-path.md) | change an op, planning, conflicts, the write lock or a page mutation |
 | [sync-and-offline.md](sync-and-offline.md) | change how an edit travels from the editor to the server and back |
 | [sync-recovery.md](sync-recovery.md) | change what happens when a sync hop fails: banners, repairs, resets |
@@ -64,11 +66,11 @@ flowchart LR
     BK --> AS
 ```
 
-One server process, one SQLite file, one assets directory. Browser, CLI and
-MCP all speak the same HTTP API with the same session-cookie auth. Block
-content changes go through `POST /api/ops`
-([the write path](write-path.md)); pages, the sidebar and assets
-have their own routes ([API reference](backend.md#http-api-reference)).
+The server is one process over one SQLite file and one assets directory.
+Browser, CLI and MCP all speak the same HTTP API with the same session-cookie
+auth. Block content changes go through `POST /api/ops`
+([the write path](write-path.md)); pages, the sidebar and assets have their
+own routes ([API reference](backend.md#http-api-reference)).
 The embedded assistant is one more client: a harness subprocess per
 conversation, confined to the
 [`pkm-mcp` tools](cli-and-mcp.md#the-mcp-tool-surface), which call the same
@@ -76,13 +78,13 @@ API.
 
 ## Core idea
 
-**Server-authoritative, block-granular, no CRDTs.** The server's SQLite is the
-single source of truth. Browsers apply edits optimistically and send batches of
-block-level ops. A trigger-based change journal plus a client cursor handles
-down-sync, and a WebSocket only nudges. Per-block last-write-wins, with losing
-text preserved as `[[conflict]]` blocks, is enough for one person. Offline is a
-cache of that state: a sqlite-wasm replica plus a durable op queue in each
-browser. Portability comes from a nightly plain-markdown export.
+The server's SQLite is the single source of truth, and there are no CRDTs.
+Browsers apply edits optimistically and send batches of block-level ops. A
+trigger-based change journal plus a client cursor handles down-sync, and a
+WebSocket only nudges. Conflicts resolve per block, last write wins, and the
+losing text is kept as a `[[conflict]]` block. Each browser caches that state
+offline in a sqlite-wasm replica, with a durable op queue for its edits.
+Portability comes from a nightly plain-markdown export.
 [sync-and-offline.md](sync-and-offline.md) has the protocol end to end.
 
 ## Key decisions
@@ -91,8 +93,7 @@ Two alternatives to the core idea were rejected. A client-side graph with
 op-log sync, Roam's own architecture, is fast but means owning a sync protocol
 and its data-loss modes. Markdown files plus an index, as Obsidian does it,
 are portable, but files fit badly with stable block uids and live structural
-edits. The nightly markdown export supplies the portability instead. The
-[original design spec](../superpowers/specs/2026-07-08-roam-migration-pkm-design.md)
+edits. The [original design spec](../superpowers/specs/2026-07-08-roam-migration-pkm-design.md)
 has the full trade-off.
 
 | Decision | Why |
@@ -106,7 +107,7 @@ has the full trade-off.
 Out of scope: multiple users, multiple graphs, full datalog queries and
 encrypted blocks; the design spec gives the reasons. Some features stay
 online-only:
-[sync-and-offline.md § Ancillary details](sync-and-offline.md#ancillary-details)
+[sync-and-offline.md § Online-only features](sync-and-offline.md#online-only-features)
 lists them, and the
 [offline design spec](../superpowers/specs/2026-07-12-offline-editing-design.md)
 explains the deferral.
@@ -125,25 +126,16 @@ explains the deferral.
 
 ### Functional Core / Imperative Shell
 
-The whole codebase follows FCIS. Pure logic (op planning, ref extraction,
-query evaluation, tree building, state transitions) lives in Functional Core
-files. I/O (routes, SQLite, WebSocket, workers, React effects) lives in thin
-Imperative Shell files that gather inputs, call the core, and persist results.
-Every runtime file declares its role in a header comment:
-
-```
-# pattern: Functional Core        (Python)
-// pattern: Imperative Shell      (TypeScript)
-```
-
+Every runtime file declares itself Functional Core (pure logic) or
+Imperative Shell (I/O) in a header comment;
+[`AGENTS.md` § FCIS](../../AGENTS.md#fcis) has the rules and escape hatches.
 On the web the boundary is machine-checked: `pnpm check:fcis`
 (`web/tooling/fcis.ts`) fails on any Functional-Core → Shell or Mixed import,
-type-only imports excepted. On the server it is convention plus review. The write path
-is the clearest case: a pure planner (`ops_core.plan_op`) between two thin
-shells ([write-path.md](write-path.md)). The rules and escape hatches
-are in `AGENTS.md`.
+type-only imports excepted. On the server it is convention plus review. In
+the write path, for example, a pure planner (`ops_core.plan_op`) sits
+between two thin shells ([write-path.md](write-path.md)).
 
-### One grammar, two languages, pinned by fixtures
+### Shared grammar and parity fixtures
 
 Roam-flavoured markdown (`[[links]]`, `#tags`, `Attr::`, `((block refs))`,
 `{{[[query]]}}`, `{{TODO}}`) is parsed on both sides: `server/src/pkm/refs.py`
@@ -152,18 +144,14 @@ Roam-flavoured markdown (`[[links]]`, `#tags`, `Attr::`, `((block refs))`,
 Both test suites replay the fixtures in `shared/fixtures/`, so the two parsers
 cannot drift. The same technique pins the offline API shim to the real routes
 and the replica schema to the server's DDL, and the server's response models
-generate the TypeScript API types. Each artifact is generated and checked in;
-[backend.md](backend.md#generated-artifacts-and-parity-fixtures) names its
-generator, the test that fails when it goes stale, and its consumer.
+generate the TypeScript API types. Each artifact is checked in;
+[backend.md](backend.md#generated-artifacts-and-parity-fixtures) names the
+test that fails when it goes stale and what it pins.
 
 ## Deployment and development
 
 Production is launchd services on this Mac under `$PKM_HOME` (default
-`~/.config/pkm`): `app/` (a checkout of local `main`), `data/` (`config.json`,
-`pkm.sqlite3`, `assets/`), `backups/` and `logs/`. Tailscale Serve terminates
-HTTPS and proxies to the server on `127.0.0.1:8974`.
-[deploy/README.md](../../deploy/README.md) owns install, update, backups and
-restore. `AGENTS.md` is the contract for working in this repo: beans, worktrees,
-the gates to run and how to answer them. [checks.md](checks.md) describes what
-each gate checks. Per-feature designs are in `docs/superpowers/specs/` and plans
-in `docs/superpowers/plans/`.
+`~/.config/pkm`), with Tailscale Serve terminating HTTPS in front of the
+server on `127.0.0.1:8974`. [deploy/README.md](../../deploy/README.md) owns
+the layout, install, update, backups and restore. `AGENTS.md` is the
+contract for working in this repo.

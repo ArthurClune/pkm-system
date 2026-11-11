@@ -13,7 +13,7 @@ This doc covers the app shell. The outline editor is in
 
 ## Module map
 
-An orientation map, not an inventory. `outline/` is mapped in
+`outline/` is mapped in
 [frontend-editor.md](frontend-editor.md#module-map), and `sync/` and
 `replica/` in [sync-and-offline.md](sync-and-offline.md#key-pieces).
 
@@ -29,12 +29,6 @@ web/src/
 ├── useStaleGuard.ts          Shell  The stale-response idiom for async reads
 ├── useReducerRef.ts          Shell  A reducer whose handler reads its own dispatch's state
 ├── useModal.ts, focusWrap.ts Shell  Modal keys, scroll lock and focus; the Tab wrap (Core)
-├── useStoredToggle.ts        Shell  A two-valued localStorage preference (keys: prefKeys.ts)
-├── theme.ts, useTheme.ts,    —      The theme preference and the theme it resolves to
-│   useEffectiveTheme.ts
-├── test-helpers.ts           —      Unit-test fixtures; re-exports test-mint.ts
-├── test-mint.ts              —      Checked brand mints for unit and e2e tests
-├── styles.css                —      All styling (styling.md)
 ├── api/                      Shell  apiFetch, the typed client, brands.ts, the
 │                                    generated openapi.json and types.d.ts
 ├── views/                    Shell  One file per route. EditablePage is one editable
@@ -72,10 +66,11 @@ flowchart LR
     end
 ```
 
-- `SyncProvider` registers the offline gateway (`setOfflineGateway`); it
-  serves only once the replica is ready. Only a dropped socket counts as offline, so a cold
-  start reaches the gateway through a failed fetch. The shim and its
-  "online only" routes are in [sync-and-offline.md](sync-and-offline.md).
+- `SyncProvider` registers the offline gateway (`setOfflineGateway`), which
+  serves only once the replica is ready. Only a dropped socket counts as
+  offline, so a cold start reaches the gateway through a failed fetch. The
+  shim and its "online only" routes are in
+  [sync-and-offline.md](sync-and-offline.md).
 - Views refetch when `resyncGeneration` bumps
   ([sync-and-offline.md](sync-and-offline.md#when-views-refetch)).
 - `OfflineIndicator`'s wording states what is true of unsent work, so it
@@ -84,13 +79,13 @@ flowchart LR
 
 ## State management
 
-There is no Redux or Zustand. A view holds the payload it fetched and refetches
-through `useResync(fn)`. `sync/session.ts` holds the queue and
-connectivity; `sync/SyncProvider.tsx` publishes them.
+The app uses no store library. A view holds the payload it fetched and
+refetches through `useResync(fn)`. `sync/session.ts` holds the
+queue and connectivity, which `sync/SyncProvider.tsx` publishes.
 `outline/outlineSessions.ts` holds one shared block tree per title
 ([frontend-editor.md](frontend-editor.md#per-title-outline-sessions)).
 
-`SyncProvider` publishes four contexts, one per rate of change:
+`SyncProvider` publishes one context per rate of change:
 
 | Hook | Value | New identity when |
 |---|---|---|
@@ -134,17 +129,18 @@ again, so a ref set once stays `false`.
 
 `apiFetch<T>` (`api/client.ts`) handles JSON, the 401 → `/login` redirect and
 the offline gateway. Only reads carry a timeout (`READ_TIMEOUT_MS`;
-`client.ts` says why mutations do not). A read may bound its silence instead
-of its total time: `stallMs` fails it with `StalledReadError` once no byte,
-the headers included, arrives for that long. The sync snapshot, whose size
-grows with the graph, has only this bound; during a recovery its `onProgress`
-renews the [recovery lease](sync-recovery.md#the-recovery-lease). A stall
-never falls back to the offline gateway, which does not serve the snapshot.
-Product code calls
-`api/typedClient.ts`'s `apiGet`/`apiPost`/`apiPut`/`apiDelete`, and ESLint's
-`no-restricted-imports` bars `apiFetch` elsewhere. The typed client takes the
-OpenAPI path template, so the generated `paths` table decides the parameters,
-body and response type:
+`client.ts` says why mutations do not). A read may bound its silence instead:
+`stallMs` fails it with `StalledReadError` once no byte, headers included,
+arrives for that long. The sync snapshot grows with the graph, so it has only
+this bound. During a recovery its `onProgress` renews the
+[recovery lease](sync-recovery.md#the-recovery-lease). A stall never falls
+back to the offline gateway, which does not serve the snapshot.
+
+Product code calls `api/typedClient.ts`'s
+`apiGet`/`apiPost`/`apiPut`/`apiDelete`; ESLint's `no-restricted-imports`
+bars `apiFetch` elsewhere. The typed client takes the OpenAPI path template,
+so the generated `paths` table decides the parameters, body and response
+type:
 
     apiGet("/api/page/{title}", { path: { title } })
 
@@ -171,9 +167,9 @@ on is a `RawTitle`; `brands.ts` documents the title hierarchy above it.
 
 The routes are `STATIC_ROUTES` (`routeMeta.ts`) plus `/page/*`; any other path
 renders `NotFound`. `App.tsx` maps each route id to its view through `VIEWS`,
-which the compiler checks for completeness, and TopBar and `useRouteTitle.ts`
-read the same array, so a route cannot be labelled in one place and not
-another. `/help` renders `docs/keyboard.md` through
+which the compiler checks for completeness. TopBar and `useRouteTitle.ts`
+read the same array, so a route is labelled everywhere or nowhere. `/help`
+renders `docs/keyboard.md` through
 `help/parseHelpMarkdown.ts`, which knows a narrow subset: a list or link there
 renders literally.
 
@@ -208,15 +204,12 @@ running app.
 
 ### Paged lists
 
-Each list's fetch state exists for one rule; the linked section or the
-state's file gives the reasons:
+The Journal and `/files` have sections of their own below.
 
 | List | State lives in | The rule |
 |---|---|---|
-| Journal days | `views/journalPaging.ts` | One load in flight; a failed load keeps the days and their cursor ([The Journal](#the-journal)) |
-| `/files` | `views/filesPaging.ts` | A filter change bumps the generation at the keystroke, not when the debounced reload fires ([The `/files` browser](#the-files-browser)) |
 | Linked references | `components/backlinksPaging.ts` | Show more and load-all overlap, so the section is loading until every walk settles; no walk starts while a sync refresh is in flight |
-| Unlinked references | `components/UnlinkedSection.tsx`, `components/unlinkedStatus.ts` | A delivered Link leaves the loaded list and `total`, because the server's list has shifted left; Show more asks from the count of loaded blocks still listed: counting an undelivered Link as gone only re-fetches a block `mergeGroups` drops; the reverse skips one |
+| Unlinked references | `components/UnlinkedSection.tsx`, `components/unlinkedStatus.ts` | A delivered Link leaves the loaded list and `total`, because the server's list has shifted left. Show more asks from the count of loaded blocks still listed (`nextOffset` says why) |
 
 #### The Journal
 
@@ -228,7 +221,8 @@ Nothing unmounts a loaded day, so each mounted outline and its `useDismiss`
 listener last for the session (the perf gate's journal scenarios).
 
 The days on screen are a contiguous, newest-first run of the non-empty days
-`/api/journal` serves, starting at today. One load is in flight at a time:
+`/api/journal` serves, starting at today. `views/journalPaging.ts` keeps one
+load in flight at a time:
 
 | Event | Load it starts | When it lands |
 |---|---|---|
@@ -236,32 +230,29 @@ The days on screen are a contiguous, newest-first run of the non-empty days
 | the sentinel or "Load older days" | older: `BATCH` days `before` the oldest shown; ignored while a load is in flight or the past is exhausted | appends |
 | resync | head: as many days as are on screen, at least `BATCH`, at most `SERVER_MAX_DAYS`; supersedes the load in flight | replaces the days |
 
-A failed load leaves the days and their cursor as they were. So "Load older
-days" after a failed resync continues from the oldest day shown, rather than
-starting over with one batch. The error shows only while the latest completed
-load failed: any success clears it. A result that answers a superseded load
-changes nothing. A batch shorter than asked for means the past is exhausted.
-A resync over more than `SERVER_MAX_DAYS` days drops the oldest off, since the
-server clamps `days`; scrolling loads them back.
+A failed load leaves the days and their cursor as they were, so "Load older
+days" after a failed resync continues from the oldest day shown. The error
+shows only while the latest completed load failed. A result for a superseded
+load changes nothing. A batch shorter than asked for means the past is
+exhausted. The server clamps `days` to `SERVER_MAX_DAYS`, so a resync over
+more days drops the oldest; scrolling loads them back.
 
 #### The `/files` browser
 
 `/files` is a table over `/api/assets/search`; the store is in
 [files-and-assets.md](files-and-assets.md). `AssetRefGroup` has no `page_id`,
 which keeps asset refs out of `mergeGroups`. A filter change clears the
-selection and bumps the generation at the keystroke. Until the debounced
-reload lands, `items` and `total` belong to the old filter, so Select all and
-Load more starting from them would let a Delete remove files outside the new
-one. Select all and Load more also
-exclude each other (the buttons and `filesPaging` both refuse the second): the
-later answer would land on a list the earlier one replaced, showing files
-twice.
+selection and bumps the generation at the keystroke, not when the debounced
+reload fires (`views/filesPaging.ts`). Until the reload lands, `items` and
+`total` belong to the old filter, and a Select all or Load more started from
+them could let a Delete remove files outside the new one. Select all and
+Load more exclude each other, in the buttons and in `filesPaging`.
 
 ### Popovers and menus
 
-`Popover.tsx` is the chrome every anchored popover renders through:
-`position: fixed` at its anchor, measured after layout and clamped into the
-viewport by `clampPopoverPosition`, since an overflowing fixed element grows no
+Every anchored popover renders through `Popover.tsx`, `position: fixed` at its
+anchor. It measures after layout and clamps into the viewport
+(`clampPopoverPosition`), since an overflowing fixed element grows no
 scrollbar. Its `remeasure` prop names values whose change resizes the content.
 `Popover` and `BlockMenu` portal into `document.body`
 ([styling.md](styling.md#layout-invariants) says why). A portal moves the DOM
@@ -279,42 +270,31 @@ node, not the React node, so a portalled surface stops its own clicks.
 A modal surface (one that traps focus, locks scrolling or answers keys beyond
 Escape) uses `useModal` and nothing hand-rolled; a surface whose keys another
 component owns hand-rolls its dismissal. Only the topmost `useModal` answers
-keys, and it stops Escape in the capture phase at `window`
-(`useModal.test.tsx` pins the stack). A non-modal popover inside a modal
-therefore cannot answer Escape and must itself be a `useModal`. `"pin"`
-keeps Tab on one element: `LocalFilePicker` is driven from its search box,
-and `GoodlinksReader`'s sandboxed iframe would swallow a cycling Tab, since
+keys, and it stops Escape in the capture phase at `window`. So a non-modal
+popover inside a modal cannot answer Escape and must itself be a `useModal`.
+`"pin"` keeps Tab on one element. `LocalFilePicker` is driven from its search
+box. `GoodlinksReader`'s sandboxed iframe would swallow a cycling Tab, since
 its keydowns never reach the app
 ([files-and-assets.md](files-and-assets.md#the-reader-and-the-goodlinks-command)).
 
 A row's `RefCountBadge` opens `BlockRefBacklinksPopover`, which fetches
-`GET /api/block/{uid}/backlinks` at open, so the list is live while the count
-is as fresh as the page payload. Media in a row that navigates is inert
-(`InertMediaContext`, from `BacklinkGroupList`), so the whole row is the click
-target.
+`GET /api/block/{uid}/backlinks` at open. The list is live, while the count is
+as fresh as the page payload.
 
-Every clipboard write goes through `copyText`, which resolves `false` instead
-of throwing when the Clipboard API is missing or the write is refused.
-`Files` and `DroppedDraftNotice` then show the text to copy by hand, as do
-`EditableBlockTree`'s two copies (Copy block reference, Cmd/Ctrl+C on a block
-selection), whose text appears in the outline's copy notice.
+### Shared UI primitives
 
-Every confirmation goes through `useConfirm` (`components/ConfirmDialog.tsx`),
-never `window.confirm` ([below](#ios-and-phone-behaviour)). A hook with a
-confirm-backed handler takes `confirm` as an argument, and its owner renders
-the returned `dialog`, or `confirm()` never settles. Remote batches can land
-while a dialog is open, so a handler re-derives its target after the await.
-
-Dismissible notice lines render through `DismissibleNotice`, whose classes and
-roles (`tone: "error"` an alert, `"status"` a status) are what `styles.css`
-and the e2e locators select on.
+| Primitive | Use for | Rule |
+|---|---|---|
+| `copyText` | every clipboard write | resolves `false` instead of throwing when the Clipboard API is missing or refuses. `Files`, `DroppedDraftNotice` and `EditableBlockTree`'s copies (Copy block reference, Cmd/Ctrl+C on a block selection) then show the text to copy by hand |
+| `useConfirm` (`components/ConfirmDialog.tsx`) | every confirmation, never `window.confirm` ([iOS](#ios-and-phone-behaviour)) | a hook with a confirm-backed handler takes `confirm` as an argument, and its owner renders the returned `dialog`, or `confirm()` never settles. Remote batches can land while a dialog is open, so a handler re-derives its target after the await |
+| `DismissibleNotice` | dismissible notice lines | `styles.css` and the e2e locators select on its classes and roles (`tone: "error"` is an alert, `"status"` a status) |
 
 ## iOS and phone behaviour
 
 | Platform behaviour | What the app does | Code |
 |---|---|---|
 | An installed iOS app opens external links in an in-app WKWebView | rewrites a cross-origin click to `x-safari-https://` (or `-http`), which opens Safari. Hrefs stay `https://` | `ExternalLinkInterceptor`, `externalLink.ts::isIosStandalone` |
-| In standalone, a same-origin `target="_blank"` link replaces the whole app | the interceptor does not rewrite same-origin clicks, so PDF links and /files thumbs open the in-app `PdfViewer` overlay rather than a `target="_blank"` anchor | `PdfEmbed`, `PdfViewer`, `externalLink.ts::safariHrefForClick` |
+| In standalone, a same-origin `target="_blank"` link replaces the whole app | PDF links and /files thumbs open the in-app `PdfViewer` overlay; the interceptor leaves same-origin clicks alone | `PdfEmbed`, `PdfViewer`, `externalLink.ts::safariHrefForClick` |
 | A tap inside a cross-origin iframe never reaches that listener | in standalone, `BlueskyEmbed` lays a `.bluesky-embed-tap` anchor to the post over its iframe | `BlueskyEmbed.tsx` |
 | Standalone suppresses `window.confirm`, returning `false` | every confirmation uses `useConfirm` | `ConfirmDialog.tsx` |
 | Standalone ignores `beforeunload` | the in-memory lane's unload guard cannot hold ([sync-recovery.md](sync-recovery.md#the-in-memory-fallback-lane)) | `sync/unloadGuard.ts` |
@@ -324,7 +304,7 @@ and the e2e locators select on.
 | The iOS 26 Safari tab's floating address pill is outside the visual viewport | the bar sits one pill higher, the lowest position where every key can be tapped | `keyboardInset` |
 | Cancelling `pointerdown` keeps the keyboard open, but WebKit then sends no click | a bar key acts on `pointerdown`; only a `detail === 0` click (VoiceOver) acts on its own | `KeyboardBar.tsx` |
 | A touch on a key starts text selection; two quick taps zoom | `.keyboard-bar` sets `user-select: none`, `-webkit-touch-callout: none`, `touch-action: manipulation` | `styles.css` |
-| iPadOS may freeze a hidden tab's socket | a socket still reporting `OPEN` after `RESUME_STALE_MS` hidden is closed on return to visibility ([sync-and-offline.md](sync-and-offline.md#ancillary-details)) | `sync/socket.ts` |
+| iPadOS may freeze a hidden tab's socket | a socket still reporting `OPEN` after `RESUME_STALE_MS` hidden is closed on return to visibility ([sync-and-offline.md](sync-and-offline.md#the-socket)) | `sync/socket.ts` |
 
 ## The assistant panel
 
@@ -380,24 +360,23 @@ stateDiagram-v2
     stopping --> idle: New chat
 ```
 
-Stop is a move from every busy phase. After it, no output of that turn
-reaches the panel. A create cannot be called back, so Stop in `creating`
-keeps the conversation the create returns but starts no stream from it.
-Stop in `streaming` asks the server (`postStop`), and the rules below keep the
-panel busy until the server's turn is over
-([turn phase](assistant.md#the-turn-phase)). After an aborted stream, from
-Stop's fallback or New chat, the server may still be draining;
-`streamWithBusyRetry` retries the 409 that a send meets then.
+Stop is allowed from every busy phase, and after it no output of that turn
+reaches the panel. A create cannot be called back, so Stop in `creating` keeps
+the conversation the create returns but starts no stream from it. Stop in
+`streaming` posts a stop (`postStop`), and the panel stays busy until the
+server's turn is over ([turn phase](assistant.md#the-turn-phase)). After an
+aborted stream the server may still be draining, so `streamWithBusyRetry`
+retries the 409 a send meets then.
 
 | Rule | Reason |
 |---|---|
 | Every request's result names its turn, and changes nothing on screen unless that turn is busy and not stopping. That includes a failed confirm POST | New chat clears the transcript at once, so a superseded turn's events must not fold into the new one. After Stop no card is left to answer again |
-| A stream's 404 re-creates the conversation once, with the same model, in the same turn. A second 404 fails the turn | The server retires a reaped, evicted or dead conversation, and a lost harness ends its turn with `HARNESS_LOST`. The next send to it gets a 404 |
+| A stream's 404 re-creates the conversation once, with the same model, in the same turn. A second 404 fails the turn | The server answers 404 for a conversation it has reaped, evicted or retired as dead, including one whose harness was lost (`HARNESS_LOST`) |
 | While a conversation is creating or open, the picker shows its model as the create returned it, and is locked. Otherwise the models list's default applies until the user picks | A conversation keeps the model it was created with |
 | The driver posts the stop only once the stream's response has opened, and retries no 409 after Stop. A stream that settles first posts nothing | `POST …/stop` names no turn. An opened response means the server has reserved this turn, so the stop cannot reach another |
 | A stopped turn ends only once its stop POST has settled (`stopSettled`) | The server acts on a stop before it answers, so a settled POST cannot stop a later turn |
-| If the POST fails, or the turn has not ended within `STOP_ACK_TIMEOUT_MS` (`chatDriver.ts`), the driver aborts the stream and the POST | The server's own bound is `INTERRUPT_TIMEOUT_S` + `DRAIN_TIMEOUT_S` once it hears the stop; past it the panel must still be freed. An aborted POST can still reach the server later and stop the next turn |
-| A `turn_stopped` for a turn that did not stop ends it with `UNASKED_STOP_MESSAGE` | That is a stop meant for an earlier turn: the user is told the reply was cut short, never left without one |
+| If the POST fails, or the turn has not ended within `STOP_ACK_TIMEOUT_MS` (`chatDriver.ts`), the driver aborts the stream and the POST | The server's stop is unbounded while the prompt is still being written ([turn phase](assistant.md#the-turn-phase)), and the panel must still be freed. An aborted POST can still reach the server later and stop the next turn |
+| A `turn_stopped` for a turn that did not stop ends it with `UNASKED_STOP_MESSAGE` | The stop was meant for an earlier turn; the user is told the reply was cut short |
 | New chat aborts the stream, a stopping turn's included, and sends the DELETE only after that stream settles. A conversation created for a superseded turn is deleted | The server sees the dropped connection and ends the turn before it closes the conversation |
 
 `web/src/props/assistant` checks these rules against a model written from
@@ -427,8 +406,7 @@ Traps that make a Playwright spec (`web/e2e/`) pass vacuously or hang:
 | `Escape` blurs and unmounts `textarea.block-input` | re-locate the textarea after it |
 | The op queue drains in order, so an early block can reach the server first | before a reload, wait on `e2e/server-state.ts::waitForServerText` for the last block created |
 | A `.ws-banner` count of 0 holds whenever the socket is connected | assert the state the banner reports |
-| `.journal-day.last()` moves as days are added | locate a seeded day by its title |
-| jsdom has no popups | prove a click opens no window with `context.on("page")` |
+| A unit test cannot see a new window, since jsdom opens none | prove a click opens no window with `context.on("page")` in a spec |
 | "element is not stable" or "detached" retries for 30 s | something bumped `resyncGeneration` and remounted the tree |
 
 ## Build notes (`vite.config.ts`)
@@ -438,11 +416,6 @@ Traps that make a Playwright spec (`web/e2e/`) pass vacuously or hang:
   ([AGENTS.md](../../AGENTS.md) § Production and ports). The `/api` proxy
   rewrites only the dev server's own `Origin` to the backend's
   (`web/tooling/devProxyOrigin.ts` says why not every origin).
-- `web/pnpm-workspace.yaml` turns off pnpm's stale-dependency check
-  (`verifyDepsBeforeRun`). The check keys on the project path, and a
-  worktree shares the main checkout's `node_modules` through a symlink. With
-  the check on, a script run in a worktree installs through the link and
-  repoints the main checkout's packages at that worktree.
 - Hashed bundles go under `app-assets/`. The server sends `index.html` with
   `Cache-Control: no-cache`, so a reload after a deploy fetches the new shell
   and its chunk names.
@@ -457,7 +430,7 @@ Traps that make a Playwright spec (`web/e2e/`) pass vacuously or hang:
 
 ## Tech stack
 
-Versions are in `web/package.json`. What the code does not say:
+Versions are in `web/package.json`.
 
 | Concern | Choice |
 |---|---|

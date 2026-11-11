@@ -1,11 +1,10 @@
 # Import, export and backup
 
-The batch jobs either side of the live server. `pkm.backup` takes the nightly
+These batch jobs run beside the live server. `pkm.backup` takes the nightly
 snapshot, `pkm.export` renders a database to markdown, and `pkm.importer`
-builds a fresh database from a Roam EDN export. None is on a request path; the
-two exports are also downloads over HTTP. The server is in
-[backend.md](backend.md), the schedule and restore steps in
-[deploy/README.md](../../deploy/README.md#backups).
+builds a fresh database from a Roam EDN export. The two exports are also
+HTTP downloads. The server is in [backend.md](backend.md), the schedule and
+restore steps in [deploy/README.md](../../deploy/README.md#backups).
 
 ## Backup job
 
@@ -43,13 +42,9 @@ one reads as the old database, or a mix of both.
 | left by a crash or a closed read-only reader, such as the nightly backup | folds them by opening and closing the target read-write, then passes |
 | held by an open connection | the fold's close leaves them, so it refuses: "Stop the server first" |
 
-**It never unlinks a sidecar.** A live writer's WAL holds commits the file
-does not, and only SQLite's last-connection close may remove it. Folding a
-stale WAL into the old file loses nothing, because that file is about to be
-replaced. Each tool checks immediately before its `os.replace`, and the
-importer also checks before it starts. The check is not a running-server
-probe: the server opens a connection per request, so an idle one holds none
-and passes. Stopping it is the operator's step.
+It never unlinks a sidecar, because a live writer's WAL holds commits the
+file does not. An idle server holds no connection, so the check passes while
+it runs; stopping the server is the operator's step.
 
 ## Markdown export
 
@@ -59,9 +54,9 @@ one level deep and keeps `{{query: ...}}` macros as written. Unchanged files
 are rewritten byte-identically, so a nightly git diff is minimal.
 `/api/export.zip` runs the same `export_graph()` into a temp directory.
 
-It calls `refs.extract()` once per block (`collect_block_ref_uids`), so
-`extract()` must stay linear, including on a long `::`-free run such as a
-blanked code fence.
+It calls `refs.extract()` once per block (`collect_block_ref_uids`), which is
+one reason the scanner must stay linear ([titles-and-refs.md § Ref
+grammar](titles-and-refs.md#ref-grammar)).
 
 Page filenames and asset zip arcnames dedupe by `filenames.fs_dedupe_key`,
 which compares names as APFS does (Unicode-normalised, case-folded). A key
@@ -73,8 +68,7 @@ Assets are mirrored incrementally. An existing destination is checked against
 the `assets` row's size and sha256 before it is hardlinked into the new tree
 (`assets_disk.asset_on_disk_needs_repair`, `assets_core.asset_needs_repair`).
 A mismatch is re-copied from the live store, and the importer calls the same
-check. `export/writer.py` counts each outcome (`assets_copied`,
-`assets_repaired`, `assets_missing_source_on_repair`).
+check.
 
 The export directory has one writer, so each run sweeps abandoned
 `.export-staging-*` entries first, with no lock or age heuristic. Rendering
@@ -102,13 +96,13 @@ user's download, and it renders what a reader of the live page sees:
   that they agree.
 
 `export/resolve.py` is pure over uid→text and expr→results maps. The route
-fetches them breadth-first with a `visited` set: the depth caps stop a cyclic
-`((ref))` chain from rendering forever, not from fetching forever.
+fetches them breadth-first with a `visited` set, which stops the fetch of a
+cyclic `((ref))` chain; the depth caps stop its render.
 
-The depth caps bound how deep expansion goes, not how much it produces: K refs
-a level over `BLOCK_REF_MAX_DEPTH` levels is K to that power copies of the
-leaf. So `render_page_resolved` holds one budget, shared by every block and
-every recursion, with two limits:
+The depth caps do not bound output size: K refs a level over
+`BLOCK_REF_MAX_DEPTH` levels is K to that power copies of the leaf. So
+`render_page_resolved` holds one budget, shared by every block and every
+recursion, with two limits:
 
 | Limit | Charged | Why it exists |
 |---|---|---|
@@ -123,67 +117,30 @@ never truncated.
 Expansion is built bottom-up, so a check on the result would come after the
 whole exponential body was built.
 
-The route's gather (`_gather_resolution_data`) runs before the renderer and is
-charged against the same limits through `GatherBudget`, one per export, shared
-by every query expression in every round. Expressions that differ only in
-spacing slip past the `visited` set, so the shared budget is what bounds them.
-
-Every expression the gather runs is rendered at least once, so it refuses only
-what the renderer would. One divergence is accepted. The gather follows the
-refs `refs.extract` finds, and the renderer follows those `_BLOCK_REF_RE` finds
-outside query macros. A query reached only through a ref inside a query macro's
-body is gathered and charged but never rendered. A parent cycle would be a
-second case, but no write makes one: `/api/ops` skips a move into the block's
-own subtree as `move_cycle` ([write-path.md § Concurrent structure
-edits](write-path.md#concurrent-structure-edits)).
+The route's gather (`_gather_resolution_data`) charges the same limits through
+one `GatherBudget` per export, so it refuses only what the renderer would.
+The one exception is a query reached only through a ref inside a query
+macro's body: the gather charges it, and the renderer never renders it.
 
 ## Importer (Roam EDN → fresh database)
 
 `python -m pkm.importer.run export.edn --files <dir> --out <data-dir>` builds a
 complete new database and swaps it in, so re-running is safe once the server
-is stopped ([Restore](#restore) has the WAL refusal it shares).
-
-```mermaid
-flowchart TD
-    A["verify export.edn exists"] --> B["edn.py — strict EDN parse (Core)"]
-    B --> C["parse_export.py — datoms → page/block trees (Core)"]
-    C --> P["preflight.py — duplicate UID / multi-parent /<br/>malformed UID / depth refusal (Core)"]
-    P --> T["titles.py — import-only sanitization (Core)"]
-    F["linked-files dir"] --> G["index files + transform asset URLs"]
-    T --> G
-    G --> D["rows.py + mermaid_preservation.py<br/>rows, refs, global Mermaid plan (Core)"]
-    D --> L["preflight.py — text-limit refusal on the rows (Core)"]
-    L --> E["write pkm.sqlite3.tmp + copy assets"]
-    E --> M["audit + apply shared title migration on tmp DB"]
-    M --> R["render + write import-report.txt.tmp (Core render, Shell write)"]
-    R --> H["atomic os.replace: database, then report"]
-```
+is stopped ([Restore](#restore) has the WAL refusal it shares). The stages
+run in this order; everything before the temp database is Functional Core.
 
 | Stage | Invariant |
 |---|---|
-| EDN parse | Malformed input exits 2 with `error: malformed export at offset N: DETAIL`. The solidus escape `\/` stays invalid |
-| Preflight | Duplicate block uids, a block reached through two parents, and any uid failing `UID_RE` refuse the run, listing every offender before any output. A block past [`MAX_OUTLINE_DEPTH`](write-path.md#work-bounds-under-the-write-lock) refuses it too (`validate_export_depth`). No uid is re-minted, because every `((uid))` recognizer shares `UID_RE`'s bound |
-| Title sanitization | `importer/titles.py` strips balanced `[[`/`]]` and `#` markers and rewrites refs. Collisions merge in source order, preferring an already-clean survivor |
-| Text limits | A block past a [text limit](write-path.md#work-bounds-under-the-write-lock) refuses the run, naming the block and its sanitised page (`validate_row_text_limits`). It judges rows, since asset-URL rewriting and mermaid folding change the text. A deep nest pays `extract`, quadratic in depth, before its refusal, which a local operator tool can bear |
+| EDN parse (`edn.py`, `parse_export.py`) | Malformed input exits 2 with `error: malformed export at offset N: DETAIL`. The solidus escape `\/` stays invalid. `:create/time`, `:edit/time`, uids and sibling order survive, so every `((block ref))` resolves |
+| Preflight (`preflight.py`) | Duplicate block uids, a block reached through two parents, and any uid failing `UID_RE` refuse the run, listing every offender before any output. A block past [`MAX_OUTLINE_DEPTH`](write-path.md#work-bounds-under-the-write-lock) refuses it too (`validate_export_depth`). No uid is re-minted, because every `((uid))` recognizer shares `UID_RE`'s bound |
+| Title sanitization (`titles.py`) | Strips balanced `[[`/`]]` and `#` markers and rewrites refs. Collisions merge in source order, preferring an already-clean survivor |
+| Refused titles (`sanitize_import_title`) | A refused page title skips its page (`SanitizedImport.skipped_pages`), and its blocks go to the recovery page. A refused ref becomes plain text (`unlink.unlink_stale_refs`): as a ref, the ops title check would refuse every edit to its block |
+| Rows (`rows.py`, `mermaid_preservation.py`) | Asset URLs are rewritten and mermaid components fold into fences, except a component with an inbound `((uid))` into its subtree, which stays nested blocks |
+| Orphan blocks (`rows.py`) | Every subtree unreachable from a page (`Export.orphan_blocks`, cycles included) is attached intact under `RECOVERY_PAGE_TITLE`. The first placement of a block stands, and later claims are listed (`Export.dropped_claims`) |
+| Text limits | A block past a [text limit](write-path.md#work-bounds-under-the-write-lock) refuses the run, naming the block and its sanitised page (`validate_row_text_limits`). It judges rows, since asset-URL rewriting and mermaid folding change the text |
+| Write `pkm.sqlite3.tmp`, copy assets | The [export's verify-then-copy check](#markdown-export), rewriting a mismatched destination atomically. It runs after the row `commit()`, which the title migration needs |
 | Title migration | The operator route's `audit_title_migration()` / `apply_title_migration()` run on the temp database, so `plain_space_title_canonicalization` arrives active. A blocker, or a rewrite past a text limit (`RewriteTextLimitError`), exits 2 |
-| Timestamps | `:create/time`, `:edit/time`, uids and sibling order survive, so every `((block ref))` resolves. A time past 64 bits or a heading outside 1–3 reads as absent |
-| Mermaid flattening | A component with an inbound `((uid))` into its subtree stays nested blocks (`mermaid_preservation.py`, shared with `migrate_mermaid_blocks.py`). `migrate_mermaid_blocks.py` also leaves a component whose fence would be past a text limit unconverted, and lists it (`Plan.over_limit`) |
-| Orphan blocks | Every subtree unreachable from a page (`Export.orphan_blocks`, cycles included) is attached intact under `RECOVERY_PAGE_TITLE`, so refs into it resolve. The first placement of a block stands, and later claims are listed (`Export.dropped_claims`) |
-| Asset copying | The [export's verify-then-copy check](#markdown-export), rewriting a mismatched destination atomically. It runs after the row `commit()`, which the title migration needs |
-
-`sanitize_import_title` refuses some spellings (malformed markers, a
-[refused title](backend.md#refused-titles), or blank once stripped). A refusal
-never stops the run:
-
-| The refused spelling is | The import |
-|---|---|
-| a page title | skips the page (`SanitizedImport.skipped_pages`); its blocks go to the recovery page |
-| a ref `refs.extract()` reports (`[[#]]`, `#[[#]]`, `#:: v`) | makes it plain text with `unlink.unlink_stale_refs` |
-| text `extract()` reads as no ref (`[[]]`, `[[.]]`, ``[[a`b]]``) | leaves it byte-identical |
-
-A refused ref cannot stay a ref: the ops title check would refuse every edit
-to its block, and the title migration audit would refuse the implicit page
-`rows.py` creates.
+| Publish | `import-report.txt.tmp` is written, then `os.replace` moves in the database, then the report |
 
 | Failure at | Leaves | Healed by |
 |---|---|---|

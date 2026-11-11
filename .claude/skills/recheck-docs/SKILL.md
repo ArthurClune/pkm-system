@@ -70,7 +70,7 @@ outside git, indexed by its `MEMORY.md`.
 
    | Reviewer | Scope |
    |---|---|
-   | backend | `backend.md` and `write-path.md` |
+   | backend | `backend.md`, `write-path.md`, `request-boundary.md` and `titles-and-refs.md` |
    | sync | the `sync-*` docs |
    | frontend | `frontend*.md` and `styling.md` |
    | rest | every other doc in `docs/architecture/`, `overview.md` first |

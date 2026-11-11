@@ -1,18 +1,14 @@
 // pattern: Imperative Shell
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { routeMetaFor } from "./routeMeta";
+import { documentTitleFor } from "./routeMeta";
 
-/** Sets document.title from the centralized route table,
- * replacing five near-identical per-view effects. /page/* has no entry in
- * that table on purpose: PageView.tsx keeps its own effect, setting the
- * title once the loaded page's own title is known. The not-found catch-all
- * also has no entry, so its title is left as whatever the previous route
- * set -- matching its prior (never explicitly set) behaviour. */
+/** Sets document.title from the route table. Under /page/ the title is left
+ * to PageView, which sets it once the loaded page's own title is known. */
 export function useRouteTitle(): void {
   const { pathname } = useLocation();
   useEffect(() => {
-    const meta = routeMetaFor(pathname);
-    if (meta) document.title = meta.documentTitle;
+    const title = documentTitleFor(pathname);
+    if (title !== null) document.title = title;
   }, [pathname]);
 }

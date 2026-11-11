@@ -10,6 +10,7 @@ import { PAGE_ROUTE_PREFIX, ROUTES, routeMetaFor } from "../routeMeta";
 import { useDismiss } from "../useDismiss";
 import { useConfirm } from "./ConfirmDialog";
 import { DeleteBlockedDialog } from "./DeleteBlockedDialog";
+import { DismissibleNotice } from "./DismissibleNotice";
 import {
   blockedHeading, deleteConfirmMessage, plainDeleteMessage, type DeleteBlocker,
   type DeletePreview,
@@ -81,6 +82,9 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
       ? plainDeleteMessage(title) : deleteConfirmMessage(title, preview);
     const ok = await confirm(message, { confirmLabel: "Delete", danger: true });
     if (!ok || titleRef.current !== title) return;
+    // The confirm's focus restore lands on this menu's item; with the menu
+    // open a second Enter would start another delete while this one runs.
+    setMenuOpen(false);
     // Clear any error from a previous attempt as this one starts, so a
     // retry never leaves a stale message sitting alongside (or instead of)
     // the new outcome.
@@ -221,12 +225,10 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
         )}
       </div>
       {menuError !== null && (
-        <p className="error upload-error top-bar-error" role="alert">
+        <DismissibleNotice tone="error" className="top-bar-error"
+                           onDismiss={() => setMenuError(null)}>
           {menuError}
-          <button type="button" className="btn-secondary" onClick={() => setMenuError(null)}>
-            Dismiss
-          </button>
-        </p>
+        </DismissibleNotice>
       )}
     </>
   );

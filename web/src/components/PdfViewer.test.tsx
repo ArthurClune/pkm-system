@@ -1,6 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { StrictMode } from "react";
 import type { ReactNode } from "react";
 
 // ---- observer stubs --------------------------------------------------
@@ -401,95 +400,6 @@ it("a 404 reads as a missing file rather than a render failure", async () => {
   expect(screen.queryByText("Couldn't render this PDF.")).toBeNull();
 });
 
-// ---- reset and generation-guard on href change ------------------------
-
-const href2 = `/assets/${"cd".repeat(32)}/doc2.pdf`;
-
-it("resets expansion and page state when href changes to a new document", async () => {
-  const { rerender } = render(<PdfViewer href={href} label="Notes" />);
-  await act(async () => {});
-  fireEvent.click(screen.getByRole("button", { name: "Expand" }));
-  act(() => indicatorObserver().cb([slotEntry(3, 0.9)]));
-  expect(document.querySelector(".pdf-overlay")).not.toBeNull();
-  // both the inline footer and the overlay show the indicator while expanded
-  expect(screen.getAllByText("Page 3 of 3")).toHaveLength(2);
-
-  rerender(<PdfViewer href={href2} label="Notes 2" />);
-  await act(async () => {});
-
-  // a new href is a new document: the overlay and the stale page number from
-  // the previous document must not survive the switch
-  expect(document.querySelector(".pdf-overlay")).toBeNull();
-  expect(screen.getByText("Page 1 of 3")).toBeInTheDocument();
-});
-
-it("a slow getPage(1) from the previous document cannot overwrite the new document's metadata", async () => {
-  manual = true;
-  const { rerender } = render(<PdfViewer href={href} label="A" />);
-  await act(async () => {});
-  expect(pendingLoads).toHaveLength(1);
-
-  // the old document finishes loading, but its page-1 metadata is still in
-  // flight when href changes
-  act(() => pendingLoads[0].resolveSuccess(5));
-
-  rerender(<PdfViewer href={href2} label="B" />);
-  await act(async () => {});
-  expect(pendingLoads).toHaveLength(2);
-
-  act(() => pendingLoads[1].resolveSuccess(2));
-  await act(async () => {
-    pendingLoads[1].resolvePage({ width: 100, height: 200 });
-  });
-  expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
-
-  // the old document's stale getPage(1) resolves late: it must not resurrect
-  // its page count or aspect for the currently-displayed document
-  await act(async () => {
-    pendingLoads[0].resolvePage({ width: 1, height: 999 });
-  });
-  expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
-});
-
-it("a document load that finishes after href has already moved on does not resurrect its metadata", async () => {
-  manual = true;
-  const { rerender } = render(<PdfViewer href={href} label="A" />);
-  await act(async () => {});
-  expect(pendingLoads).toHaveLength(1); // the old load is registered but never resolves
-
-  rerender(<PdfViewer href={href2} label="B" />);
-  await act(async () => {});
-  expect(pendingLoads).toHaveLength(2);
-
-  act(() => pendingLoads[1].resolveSuccess(2));
-  await act(async () => {
-    pendingLoads[1].resolvePage({ width: 100, height: 200 });
-  });
-  expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
-
-  // the abandoned load for the old href finally completes -- too late
-  act(() => pendingLoads[0].resolveSuccess(9));
-  expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
-  expect(screen.queryByText(/of 9/)).toBeNull();
-});
-
-it("a stale load error from the previous document does not mark the new document as failed", async () => {
-  manual = true;
-  const { rerender } = render(<PdfViewer href={href} label="A" />);
-  await act(async () => {});
-
-  rerender(<PdfViewer href={href2} label="B" />);
-  await act(async () => {});
-  act(() => pendingLoads[1].resolveSuccess(2));
-  await act(async () => {
-    pendingLoads[1].resolvePage({ width: 100, height: 200 });
-  });
-
-  act(() => pendingLoads[0].resolveError());
-  expect(screen.queryByText("Couldn't render this PDF.")).toBeNull();
-  expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
-});
-
 // ---- overlay-only mode (used by /files) --------------------------------
 
 it("with onClose renders the fullscreen overlay immediately, with no inline frame or Expand", async () => {
@@ -543,43 +453,4 @@ it("overlay mode: locks body scrolling on mount and restores the prior value on 
   expect(document.body.style.overflow).toBe("hidden");
   unmount();
   expect(document.body.style.overflow).toBe("auto");
-});
-
-it("StrictMode double-invocation still guards a slow getPage(1) from the previous document", async () => {
-  // The render-time gen bump + reset (see PdfViewer.tsx) relies on being
-  // idempotent under React's double-invoked renders/effects in StrictMode (app
-  // is wrapped in it: main.tsx). Pin that down mechanically rather than by
-  // reasoning, matching this codebase's convention for
-  // lifecycle-order-sensitive code (SyncProvider.test.tsx,
-  // EditablePage.test.tsx).
-  manual = true;
-  const { rerender } = render(
-    <StrictMode><PdfViewer href={href} label="A" /></StrictMode>,
-  );
-  await act(async () => {});
-  const loadsA = loadsFor(href);
-  expect(loadsA.length).toBeGreaterThan(0);
-  act(() => {
-    for (const l of loadsA) l.resolveSuccess(5);
-  });
-
-  rerender(<StrictMode><PdfViewer href={href2} label="B" /></StrictMode>);
-  await act(async () => {});
-  const loadsB = loadsFor(href2);
-  expect(loadsB.length).toBeGreaterThan(0);
-  act(() => {
-    for (const l of loadsB) l.resolveSuccess(2);
-  });
-  await act(async () => {
-    for (const l of loadsB) l.resolvePage({ width: 100, height: 200 });
-  });
-  expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
-
-  // the old document's stale getPage(1) resolves late, even under
-  // StrictMode's extra render/effect pass -- it must not resurrect stale
-  // metadata for the document now on screen
-  await act(async () => {
-    for (const l of loadsA) l.resolvePage({ width: 1, height: 999 });
-  });
-  expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
 });

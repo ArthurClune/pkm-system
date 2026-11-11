@@ -4,6 +4,13 @@ All styling is plain CSS in a single file, `web/src/styles.css`, with no
 framework or CSS-in-JS. The app around it is in [frontend.md](frontend.md);
 failures are indexed by symptom in [troubleshooting.md](../troubleshooting.md).
 
+`styles.css` is divided by `/* == Name == */` markers, from Tokens and themes
+at the top through the component sections to Local file picker. Later rules
+win at equal specificity, so a responsive or variant override follows the rule
+it overrides: the shared `Responsive` section holds the 900px and 600px
+breakpoints, and a section with its own `@media` block (Media and embeds,
+Local file picker) keeps it right after the rules it overrides.
+
 ## Tokens and theming
 
 Design tokens are custom properties on `:root`: a color system
@@ -52,9 +59,9 @@ the column too. `.block-ref-popover` copies `.block-menu`'s surface, a pair
 Buttons and fields are styled by named class, and there is no bare
 `input`/`select` element rule: a new control opts in by name.
 
-- **Buttons** are pills. `.btn-secondary` carries its own padding. A call
-  site that wants other metrics overrides it in a rule that sits later in
-  `styles.css` or has higher specificity (`.file-copy`). `.btn-danger` fills with `--color-error-fill`, a token
+- **Buttons** are pills. `.btn-secondary` carries its own padding. A small
+  button beside text adds `.btn-compact`, which sits after `.btn-secondary`
+  because it overrides it at equal specificity. `.btn-danger` fills with `--color-error-fill`, a token
   separate from the error text colour. The chrome trio
   (`.top-bar-menu-button`, `.sidebar-toggle-button`, `.help-button`) has a
   transparent border, so hover does not shift layout.
@@ -99,8 +106,7 @@ One ring, everywhere a control can be focused:
 :focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 ```
 
-It is declared per component, next to that component's own rule; a grouped
-selector list also defeats `ruleFor` in `styles.test.ts`.
+It is declared per component, next to that component's own rule.
 `.asset-image-trigger` and `button.file-thumb` take `outline-offset: 2px` to
 clear a rounded image corner. Three exceptions are commented in `styles.css`:
 
@@ -154,5 +160,19 @@ Other rules:
   `max-width: 67%`. The inner image resets to `max-width: 100%` so the caps do
   not multiply. The phone override back to full width must stay after those
   rules, because a media query adds no specificity.
-- **`.keyboard-bar`** sits at z-index 45, below `.ac-popup` (50). Its touch
-  rules are in [frontend.md § iOS and phone behaviour](frontend.md#ios-and-phone-behaviour).
+- **Stacking.** Every `z-index` reads one of the `--z-*` tokens on `:root`
+  in `styles.css`, bottom to top as below. `styles.test.ts` pins the order, so
+  a new layer takes a token between its neighbours.
+
+  | Token | Layer |
+  |---|---|
+  | `--z-drop-indicator` | the drag drop line |
+  | `--z-sidebar-overlay` | the right sidebar under 900px |
+  | `--z-dropdown` | top-bar menu, search results |
+  | `--z-phone-nav` | the left nav under 600px |
+  | `--z-hamburger` | the nav toggle |
+  | `--z-keyboard-bar` | `.keyboard-bar`, below the editor popups; its touch rules are in [frontend.md § iOS and phone behaviour](frontend.md#ios-and-phone-behaviour) |
+  | `--z-editor-popup` | `.ac-popup`, `.date-picker` |
+  | `--z-popover` | `.block-menu`, `.block-ref-popover` |
+  | `--z-assistant` | the assistant panel: above the block menu, below modals |
+  | `--z-modal` | confirm, image, PDF, Goodlinks and local-file overlays |

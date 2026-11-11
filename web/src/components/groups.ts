@@ -41,6 +41,16 @@ export interface ShownBacklinkGroup {
   items: ShownBacklinkItem[];
 }
 
+// A BacklinkGroup shaped for BacklinkGroupList, minus page_id: the asset
+// search payload carries no page ids. Omitting the field (rather than
+// faking one) keeps this type structurally incompatible with mergeGroups,
+// whose page_id key dedupes real pages -- asset refs from different pages
+// must never collide through that key.
+export interface AssetRefGroup {
+  page_title: CanonicalTitle;
+  items: ShownBacklinkItem[];
+}
+
 /** What a crumb shows for an ancestor position its group's list lacks: a
  * broken payload, made visible rather than cut from the trail. */
 export const MISSING_ANCESTOR_TEXT = "(missing ancestor)";

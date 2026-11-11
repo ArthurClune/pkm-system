@@ -4,7 +4,7 @@
 import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { AssetSearchItem } from "../api/payloads";
 import type { DeleteBlocker } from "../components/deletePageCopy";
-import type { ShownBacklinkItem } from "../components/groups";
+import type { AssetRefGroup } from "../components/groups";
 import { assetLabel } from "../sync/assetNames";
 
 export interface FileFilters {
@@ -141,16 +141,6 @@ export function refUidChunks(refs: readonly AssetRef[]): BlockUid[][] {
 }
 
 export const MISSING_BLOCK_TEXT = "(block not found)";
-
-// A BacklinkGroup shaped for BacklinkGroupList, minus page_id: the asset
-// search payload carries no page ids. Omitting the field (rather than
-// faking one) keeps this type structurally incompatible with mergeGroups,
-// whose page_id key dedupes real pages -- asset refs from different pages
-// must never collide through that key.
-export interface AssetRefGroup {
-  page_title: CanonicalTitle;
-  items: ShownBacklinkItem[];
-}
 
 // Shape an asset's refs for BacklinkGroupList, grouped by page title
 // (ancestors aren't available here, so rows carry no crumbs).

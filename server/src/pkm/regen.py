@@ -45,6 +45,8 @@ STEPS = (
     Step("title-parity", "pkm.title_parity_dump", target="shared/fixtures/title_parity.json"),
     Step("text-limits-parity", "pkm.text_limits_parity_dump",
          target="shared/fixtures/text_limits_parity.json"),
+    Step("mime-parity", "pkm.mime_parity_dump",
+         target="shared/fixtures/mime_parity.json"),
     Step("shim-parity", "pkm.server.shim_parity_dump",
          target="shared/fixtures/shim_parity.json"),
     Step("text-hash-parity",

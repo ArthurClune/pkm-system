@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-11-11T07:17:46Z
-updated_at: 2026-11-11T14:21:57Z
+updated_at: 2026-11-11T14:35:11Z
 parent: pkm-4gda
 ---
 
@@ -33,4 +33,4 @@ Cause: transitionSync's ranking let every delivery problem outrank the online-on
 
 Fix: with `SyncState.replicaGone` set, a problem that needs the worker (`needsWorker`: a rejected batch whose repair is running or failed, a failed poison discovery) is replaced by the outline problem held in `outlineBehind`, else by `replica-unusable` with its Reload. A failed mark keeps its banner (its Discard needs no worker, and a replica that never opens fails the same mark after a reload), as do outline problems and a repaired batch. The rule is in docs/architecture/sync-recovery.md § What the UI shows.
 
-Open: the online-only banner says "Your changes are still being saved to the server." while connected, but in the yielded case the `poison` or `startup` barrier holds, so lane entries are not delivered; proposed copy is in the implementer's report, not shipped.
+Paused copy: while the queue's barrier has a `poison` or `startup` holder (`heldForPoison`, read through `OpQueue.onBarrier` into `SyncState.deliveryHeld`), the `replica-unusable` problem carries `paused` and the banner says "Changes are paused until you reload." in place of "Your changes are still being saved to the server.", followed by the memory-only sentence whenever changes are unsent, connected or not. Stated in docs/architecture/sync-recovery.md § What the UI shows.

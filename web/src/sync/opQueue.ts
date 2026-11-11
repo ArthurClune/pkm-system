@@ -7,14 +7,17 @@
 // (session.ts) adds its own as it builds the queue, and starts no queue work
 // before its startup(), which SyncProvider reaches from an effect. No event may
 // precede those subscriptions, and none may reach a report during a render.
-// Every emission but two follows at least one await (persist runs on
+// Every emission but three follows at least one await (persist runs on
 // persistChain, delivery waits on a POST). resume emits onRelease
 // synchronously, so its listener acts on the release before any other call
 // can claim the owner again; that also needs a release listener to report
-// nothing synchronously. settleCommitted emits onSkipped synchronously, for
-// a sync payload replicaSync has just applied. Both are sound only because
-// the method is reached from effects and async paths, never from a render.
-// Any other synchronous emission needs the same check.
+// nothing synchronously. pause and resume emit onBarrier synchronously, so
+// holds() never disagrees with what its listener last heard; the session's
+// listener folds and reports there, which no queue call re-enters.
+// settleCommitted emits onSkipped synchronously, for a sync payload
+// replicaSync has just applied. All are sound only because the method is
+// reached from effects and async paths, never from a render. Any other
+// synchronous emission needs the same check.
 import { ApiError } from "../api/client";
 import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
@@ -103,6 +106,9 @@ export interface OpQueue {
    * synchronously inside resume (see the header), and never for an owner
    * that held nothing. */
   onRelease(fn: (owner: BarrierOwner) => void): () => void;
+  /** A pause or resume changed the barrier's holders; holds() already
+   * reads the new set. */
+  onBarrier(fn: () => void): () => void;
   dispose(): void;
   /** The replica refused an op on its merits, an op is past a text limit, or
    * the server terminally rejected a lane entry: the active outline must be
@@ -235,6 +241,7 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
   const poison = listeners<PoisonEvent>();
   const poisonMarkUnmatched = listeners<void>();
   const released = listeners<BarrierOwner>();
+  const barrier = listeners<void>();
   const unavailable = listeners<SessionFatalError>();
   const deliveries = new Map<BatchId, (outcome: DeliveryOutcome) => void>();
   // The in-memory lane: enqueues whose ops could not be persisted locally (a
@@ -826,15 +833,21 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
       dispatch({ type: "set-online", online: next });
     },
     pause(owner) {
+      const held = qstate.holders.has(owner);
       dispatch({ type: "pause", owner });
+      if (!held && qstate.holders.has(owner)) barrier.emit(undefined);
     },
     resume(owner) {
       const held = qstate.holders.has(owner);
       dispatch({ type: "resume", owner });
-      if (held) released.emit(owner);
+      if (held) {
+        released.emit(owner);
+        barrier.emit(undefined);
+      }
     },
     holds: (owner) => qstate.holders.has(owner),
     onRelease: released.add,
+    onBarrier: barrier.add,
     dispose() {
       if (qstate.disposed) return;
       dispatch({ type: "dispose" });

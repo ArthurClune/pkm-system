@@ -154,7 +154,12 @@ The memory-only warning (`memoryOnlySentence`) and Reload's confirmation,
 shown only when `unsentInMemory > 0`, count `unsentInMemory`, the lane's share
 of `pending`: a reload discards the lane, and durable rows survive it.
 The banner names unsent changes only offline; connected, it says they are
-still being saved. `OfflineIndicator.tsx` holds the wording. A replica that
+still being saved. That reassurance is false while `heldForPoison` holds: a
+`poison` or `startup` claim, which only a reload releases once the replica is
+gone. The problem then carries `paused`, and the banner says changes are
+paused until a reload and names unsent changes whether connected or not. The
+session reads the claim from the queue (`onBarrier`), not from the problem
+that took it. `OfflineIndicator.tsx` holds the wording. A replica that
 opens and then fails every write has no availability verdict, so no problem
 banner mounts; the offline `ConnectivityBanner` gives the same warning.
 

@@ -678,7 +678,7 @@ describe("replica mode", () => {
     await session.startup();
     await session.onSocketStatus(true);
     await vi.waitFor(() => expect(session.problem()).toEqual({
-      kind: "replica-unusable", error: "replica worker failed",
+      kind: "replica-unusable", error: "replica worker failed", paused: true,
     }));
     expect(session.replicaState()).toEqual(online);
     expect(deletes).toBe(1);
@@ -705,13 +705,32 @@ describe("replica mode", () => {
     await session.startup();
 
     expect(reported.events.map((e) => e.type)).toContain("poison-discovery-failed");
+    const paused = {
+      kind: "replica-unusable", error: "replica worker failed", paused: true,
+    };
+    expect(session.problem()).toEqual(paused);
+    await session.actions.retryProblem();
+    expect(session.queue.holds("startup")).toBe(true);
+    expect(session.problem()).toEqual(paused);
+
+    // The banner follows the barrier itself, not the problem that held it.
+    session.queue.resume("startup");
     expect(session.problem()).toEqual({
       kind: "replica-unusable", error: "replica worker failed",
     });
-    await session.actions.retryProblem();
-    expect(session.queue.holds("startup")).toBe(true);
+  });
+
+  test("a reload's retained poison claim marks the online-only banner " +
+       "paused from the start", async () => {
+    const { session } = rig({ replica: null, retained: [{
+      id: pendingRowIdOf(1), batch_id: batchIdOf("b1"), ops: [],
+      status: 409, message: "conflict",
+    }] });
+    expect(session.queue.holds("poison")).toBe(true);
+    await session.startup();
     expect(session.problem()).toEqual({
-      kind: "replica-unusable", error: "replica worker failed",
+      kind: "replica-unusable", error: "no replica in this environment",
+      paused: true,
     });
   });
 

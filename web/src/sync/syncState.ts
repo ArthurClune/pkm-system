@@ -7,6 +7,7 @@
 // liveness — and folds events here, then reports the returned problem and
 // executes the effects.
 import type { PoisonEvent } from "./opQueue";
+import type { BarrierOwner } from "./queueState";
 import type { ReplicaState } from "./replicaSync";
 
 export type SyncStatus = "connecting" | "connected" | "reconnecting";
@@ -21,8 +22,10 @@ export type SyncProblem =
    * runs online-only: edits still reach the server, but there is no local
    * cache and no offline editing. Session-scoped by design (the worker
    * latches a failed open), so the only way out is a reload. Raised by every
-   * no-replica mode report. */
-  | { kind: "replica-unusable"; error: string }
+   * no-replica mode report. `paused`: delivery is held for a poison repair
+   * or discovery (SyncState.deliveryHeld), which cannot run without the
+   * replica, so nothing is being saved until a reload. */
+  | { kind: "replica-unusable"; error: string; paused?: true }
   | { kind: "outline-rejected"; repair: "running" | "failed" | "repaired";
       error: string; repairError?: string }
   | { kind: "replica-stalled"; error: string;
@@ -40,6 +43,8 @@ export interface SyncState {
    * online-only banner it raises is shown whenever no other problem is, or
    * the one shown needs the worker (needsWorker). */
   replicaGone?: string;
+  /** The queue's barrier has a holder in heldForPoison. */
+  deliveryHeld?: true;
 }
 
 export type SyncEvent =
@@ -62,6 +67,8 @@ export type SyncEvent =
   | { type: "reset-failed"; error: string }
   | { type: "reset-succeeded" }
   | { type: "dismiss" }
+  /** The barrier's holders changed: whether heldForPoison now holds. */
+  | { type: "delivery-held"; held: boolean }
   /** Either delivery path's ack named a skipped op: the active view may be
    * stale (a replica-backed tab's own feed tombstones the row, but nothing
    * else bumps resync for it) and must refetch, same as any other resync
@@ -74,6 +81,12 @@ export interface SyncTransition {
   state: SyncState;
   effects: readonly SyncEffect[];
 }
+
+/** Delivery waits on a claim that only a poison repair or startup's
+ * discovery releases. Both run on the replica, so once it is gone only a
+ * reload releases them; the other owners release without it. */
+export const heldForPoison = (holds: (owner: BarrierOwner) => boolean): boolean =>
+  holds("poison") || holds("startup");
 
 /** Editing is always allowed when connected (server-authoritative). Offline it
  * is allowed only with a ready replica. */
@@ -216,21 +229,39 @@ const needsWorker = (p: SyncProblem | undefined): boolean =>
   (p?.kind === "rejected-batch" && (p.repair === "running" || p.repair === "failed"))
   || p?.kind === "poison-discovery";
 
+type OnlineOnly = Extract<SyncProblem, { kind: "replica-unusable" }>;
+
+/** The online-only banner, keeping `prev` when it already says the same. */
+const onlineOnly = (
+  prev: SyncProblem | undefined, error: string, held: boolean,
+): OnlineOnly =>
+  prev?.kind === "replica-unusable" && prev.error === error
+    && (prev.paused === true) === held
+    ? prev : { kind: "replica-unusable", error, ...(held ? { paused: true } : {}) };
+
 export function transitionSync(state: SyncState, event: SyncEvent): SyncTransition {
   const t = transitionProblem(state, event);
   const gone = event.type === "replica-state" && event.state.mode === "no-replica"
     ? event.state.error : state.replicaGone;
-  if (gone === undefined) return t;
-  const next = t.state.problem;
-  const yields = next === undefined || needsWorker(next);
-  if (t.state.replicaGone === gone && !yields) return t;
-  if (!yields) return { state: { ...t.state, replicaGone: gone }, effects: t.effects };
+  const held = event.type === "delivery-held"
+    ? event.held : state.deliveryHeld === true;
+  const carried: SyncState = gone === t.state.replicaGone
+      && held === (t.state.deliveryHeld === true)
+    ? t.state
+    : { ...t.state, replicaGone: gone, deliveryHeld: held ? true : undefined };
+  const next = carried.problem;
+  if (gone === undefined || (next !== undefined
+      && next.kind !== "replica-unusable" && !needsWorker(next))) {
+    return carried === t.state ? t : { state: carried, effects: t.effects };
+  }
   // With the replica gone nothing can end a problem that needs it, so the
   // outline problem held behind it is shown, else the online-only banner.
-  const shown = t.state.outlineBehind
-    ?? (state.problem?.kind === "replica-unusable" ? state.problem
-      : { kind: "replica-unusable", error: gone });
-  return { state: { problem: shown, replicaGone: gone }, effects: t.effects };
+  const behind = next?.kind === "replica-unusable" ? undefined : carried.outlineBehind;
+  const shown = behind ?? onlineOnly(state.problem, gone, held);
+  return {
+    state: { ...carried, problem: shown, outlineBehind: undefined },
+    effects: t.effects,
+  };
 }
 
 function transitionProblem(state: SyncState, event: SyncEvent): SyncTransition {
@@ -334,6 +365,8 @@ function transitionProblem(state: SyncState, event: SyncEvent): SyncTransition {
     }
     case "ops-skipped":
       return { state, effects: [{ type: "bump-resync" }] };
+    case "delivery-held":
+      return unchanged(state);
     default: {
       const exhaustive: never = event;
       throw new Error(`unhandled sync event: ${String(exhaustive)}`);

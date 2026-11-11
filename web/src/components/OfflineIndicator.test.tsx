@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SyncContext, type Sync, type SyncProblem } from "../sync/SyncProvider";
 import { OfflineIndicator } from "./OfflineIndicator";
 import { uidOf, ticketIdOf, pendingRowIdOf, batchIdOf } from "../test-helpers";
@@ -237,6 +237,53 @@ it("an online-only session says so and offers a Reload, not a Retry", async () =
       configurable: true, value: original,
     });
   }
+});
+
+describe("an online-only session whose delivery is paused", () => {
+  // A repair or discovery that needs the dead worker holds the barrier, so
+  // nothing is being saved: only a reload releases it.
+  const paused = {
+    kind: "replica-unusable", error: "worker died", paused: true,
+  } as const;
+
+  it("says changes are paused instead of being saved", () => {
+    renderWith({ problem: paused });
+    const banner = screen.getByRole("status");
+    expect(banner).toHaveTextContent(
+      "Working online only — offline editing is unavailable for now. "
+      + "Changes are paused until you reload.");
+    expect(banner).not.toHaveTextContent("still being saved");
+    expect(banner).not.toHaveTextContent("unsent change");
+    expect(within(banner).getByRole("button", { name: "Reload" })).toBeVisible();
+  });
+
+  it("names the changes held only in memory, connected or not", () => {
+    for (const status of ["connected", "reconnecting"] as const) {
+      const { unmount } = renderWith({
+        status, canEdit: status === "connected", problem: paused,
+        pending: 2, unsentInMemory: 2,
+      });
+      const banner = screen.getAllByRole("status")[0];
+      expect(banner).toHaveTextContent(
+        "Changes are paused until you reload. 2 unsent changes exist only "
+        + "in memory here. Reloading or closing this tab discards them.");
+      expect(banner).not.toHaveTextContent("still being saved");
+      expect(banner).not.toHaveTextContent("You are offline");
+      unmount();
+    }
+  });
+});
+
+it("an online-only session that is delivering keeps its reassurance", () => {
+  renderWith({
+    problem: { kind: "replica-unusable", error: "worker died" },
+    pending: 1, unsentInMemory: 1,
+  });
+  const banner = screen.getByRole("status");
+  expect(banner).toHaveTextContent(
+    "Working online only — offline editing is unavailable for now. "
+    + "Your changes are still being saved to the server.");
+  expect(banner).not.toHaveTextContent("paused");
 });
 
 it("warns instead of reassuring when an online-only session goes offline", () => {

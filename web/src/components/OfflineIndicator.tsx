@@ -60,10 +60,17 @@ function memoryOnlySentence(unsentInMemory: number): string | null {
  * conditional even with useUnloadGuard installed, because the guard does not
  * hold on iPad, so the unconditional reassurance would be a promise we cannot
  * keep there. Offline with nothing pending is neither a promise to make nor a
- * loss to warn about, so the first sentence stands alone. */
+ * loss to warn about, so the first sentence stands alone. A paused problem
+ * delivers nothing whatever the socket does, so it says so and names what
+ * only memory holds, without "You are offline". */
 function onlineOnlySafetyCopy(
-  status: SyncStatus, unsentInMemory: number,
+  status: SyncStatus, unsentInMemory: number, paused: boolean,
 ): string | null {
+  if (paused) {
+    const sentence = memoryOnlySentence(unsentInMemory);
+    return " Changes are paused until you reload."
+      + (sentence === null ? "" : ` ${sentence}`);
+  }
   if (status === "connected") {
     return " Your changes are still being saved to the server.";
   }
@@ -71,7 +78,8 @@ function onlineOnlySafetyCopy(
   return sentence === null ? null : ` You are offline: ${sentence}`;
 }
 
-function ReplicaUnusableBanner({ status, unsentInMemory, actions }: {
+function ReplicaUnusableBanner({ problem, status, unsentInMemory, actions }: {
+  problem: ProblemOf<"replica-unusable">;
   status: SyncStatus;
   unsentInMemory: number;
   actions: BannerActions;
@@ -84,7 +92,7 @@ function ReplicaUnusableBanner({ status, unsentInMemory, actions }: {
   return (
     <div className="ws-banner" role="status">
       Working online only — offline editing is unavailable for now.
-      {onlineOnlySafetyCopy(status, unsentInMemory)}
+      {onlineOnlySafetyCopy(status, unsentInMemory, problem.paused === true)}
       <button type="button" onClick={actions.reload}>
         Reload
       </button>
@@ -232,7 +240,7 @@ function DeliveryProblemBanner({ problem, status, unsentInMemory, actions }: {
     case "poison-discovery":
       return <PoisonDiscoveryBanner problem={problem} actions={actions} />;
     case "replica-unusable":
-      return <ReplicaUnusableBanner status={status}
+      return <ReplicaUnusableBanner problem={problem} status={status}
                                     unsentInMemory={unsentInMemory}
                                     actions={actions} />;
     case "outline-rejected":

@@ -26,8 +26,8 @@ import { createReplicaSync, ResetBlockedError, type ReplicaState,
          type ReplicaSync, type ReplicaSyncDeps } from "./replicaSync";
 import { planRetry } from "./retryPolicy";
 import type { WsBatch, WsSeq } from "./socket";
-import { transitionSync, type SyncEvent, type SyncProblem, type SyncState,
-         type SyncStatus } from "./syncState";
+import { heldForPoison, transitionSync, type SyncEvent, type SyncProblem,
+         type SyncState, type SyncStatus } from "./syncState";
 
 /** Everything callable. One object for the session's whole lifetime: every
  * outline keeps it in the dependencies of its handlers, its edit runner and
@@ -182,6 +182,14 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
   const queue = createOpQueue(replica ?? absentReplica(),
                               { ...deps.queue, clientId });
 
+  // Read from the queue itself, so the banner cannot drift from the barrier.
+  const noteBarrier = (): void => {
+    const held = heldForPoison(queue.holds);
+    if (held !== (syncState.deliveryHeld === true)) {
+      fold({ type: "delivery-held", held });
+    }
+  };
+
   const outlineRepair = createOutlineRepair({
     repairSessions: (onStable) => outlines.repairSessions(onStable),
     onEvent: fold,
@@ -237,6 +245,7 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
     queue.onSkipped(() => fold({ type: "ops-skipped" })),
     queue.onPending((n) => { if (live()) report.pending(n); }),
     queue.onUnsentInMemory((n) => { if (live()) report.unsentInMemory(n); }),
+    queue.onBarrier(noteBarrier),
     // Drains completing out of band finish a reconnect waiting on them.
     queue.onDrain((outcome) => {
       if (live()) reconnect.observeDrain(outcome);
@@ -253,6 +262,9 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
 
   const startup = (): Promise<void> => {
     if (startupRun !== null) return startupRun;
+    // A reload's retained mark intents claim "poison" as the queue is built,
+    // before this listened.
+    noteBarrier();
     // A durable queue may be non-empty from a previous session. Asked of the
     // queue, not of the replica: report.pending has one writer, the queue's
     // listener, because the queue suppresses a re-emit of an unchanged count

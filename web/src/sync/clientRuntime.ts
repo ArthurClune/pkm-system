@@ -14,21 +14,10 @@ import type { Replica } from "../replica/client";
 import { ReplicaUnusableError } from "../replica/errors";
 import { coalesce } from "./coalesce";
 import type { OpQueue, PoisonEvent } from "./opQueue";
+import { orderedPoisonEvents } from "./poisonIntents";
 import type { ReplicaSync } from "./replicaSync";
 import type { RetryPlan } from "./retryPolicy";
 import type { SyncEvent } from "./syncState";
-
-/** Every retained or discovered poison event once, in row order. */
-export const mergePoisonEvents = (
-  ...groups: ReadonlyArray<readonly PoisonEvent[]>
-): PoisonEvent[] => {
-  const merged = new Map<string, PoisonEvent>();
-  groups.flat().forEach((event) => {
-    merged.set(`${event.id}\u0000${event.batch_id}`, event);
-  });
-  return [...merged.values()].sort((a, b) =>
-    a.id - b.id || a.batch_id.localeCompare(b.batch_id));
-};
 
 export interface ClientRuntimeDeps {
   queue: Pick<OpQueue, "setOnline" | "pause" | "resume" | "retryPoisonMarks" |
@@ -112,7 +101,8 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
     deleting = false;
     // A failed repair's rows are still poisoned, so a later run takes them
     // too: its success releases "poison".
-    repairTargets = mergePoisonEvents(repairFailed ? repairTargets : [], events);
+    repairTargets = orderedPoisonEvents(
+      repairFailed ? repairTargets : [], events);
     repairSucceeded = false;
     // A run owed past dispose() or an unmount must not start, yet counts as
     // failed: after a StrictMode replay the session lives on, and its
@@ -150,14 +140,14 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
     return repairSucceeded;
   };
   const repairOnce = coalesce<readonly PoisonEvent[], boolean>(runRepair, {
-    merge: mergePoisonEvents, joinable: () => !deleting,
+    merge: orderedPoisonEvents, joinable: () => !deleting,
   });
 
   const repair = (events: readonly PoisonEvent[]): Promise<boolean> => {
     if (events.length === 0) return Promise.resolve(repairSucceeded);
     // A joined call's rows reach the running repair through this list; a
     // starting or owed run rebuilds it from its own arguments.
-    repairTargets = mergePoisonEvents(repairTargets, events);
+    repairTargets = orderedPoisonEvents(repairTargets, events);
     return repairOnce(events);
   };
 
@@ -199,7 +189,7 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
       // Returned mark evidence is sufficient to repair those rows safely;
       // never discard it merely because the broader discovery read failed.
     }
-    const repairable = mergePoisonEvents(marked, discovered);
+    const repairable = orderedPoisonEvents(marked, discovered);
     discovering = false;
     if (repairable.length > 0) {
       // repair() claims "poison" before it returns, so the barrier never

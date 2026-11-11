@@ -17,15 +17,6 @@ export interface ReplicaErrorFlags {
   rejected?: boolean;
 }
 
-/** There was a `quota` flag here too, meant to mark "local storage refused the
- * write for want of space" and to drive a read-only mode. NOTHING could ever
- * set it: the app runs on sqlite-wasm's opfs-sahpool VFS, whose
- * `xWrite` catches the `QuotaExceededError` DOMException from
- * `SyncAccessHandle.write()`, stores it on the pool's private `$error` and
- * returns `SQLITE_IOERR` — so what reaches this module is a bare "disk I/O
- * error", indistinguishable from any other write failure. Storage exhaustion
- * is therefore handled the same way as every other failure to persist: the op
- * is retained in the fallback lane and delivered online. */
 export class ReplicaError extends Error {
   readonly rejected: boolean;
 

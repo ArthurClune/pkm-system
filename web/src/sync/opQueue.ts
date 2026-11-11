@@ -799,12 +799,6 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
           // than lost, and must not rebase the outline. The one-item
           // blocklist above (`rejected === true`) is the only case allowed
           // to bypass that.
-          //
-          // A `quota` flag was also emitted here, to drive an offline
-          // read-only mode. Nothing could ever set it — the opfs-sahpool VFS
-          // reports an exhausted disk as a bare SQLITE_IOERR — so
-          // storage exhaustion arrives, correctly, as one more "could not
-          // persist locally right now" and is retained like the rest.
           noteReplicaFailure(error);
           if (qstate.disposed) {
             resolveDelivery({

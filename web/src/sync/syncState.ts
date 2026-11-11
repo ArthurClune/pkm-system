@@ -75,15 +75,7 @@ export interface SyncTransition {
 }
 
 /** Editing is always allowed when connected (server-authoritative). Offline it
- * is allowed only with a ready replica.
- *
- * A third input, `quotaExhausted`, used to freeze the editor offline once local
- * storage was full, on the reasoning that a further edit could be silently
- * lost. It was unreachable: the flag behind it could never be set, because the
- * opfs-sahpool VFS reports an exhausted disk as an undifferentiated
- * SQLITE_IOERR. An exhausted disk now behaves like every other
- * failure to persist locally — the op is retained in the fallback lane and
- * delivered when the socket allows. */
+ * is allowed only with a ready replica. */
 export function computeEditability(
   status: SyncStatus,
   replicaMode: ReplicaMode,

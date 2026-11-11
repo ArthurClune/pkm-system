@@ -94,9 +94,18 @@ Repoint it with `git -C "$PKM_HOME/app" remote set-url origin <dev checkout>`.
 If the app checkout has diverged from `main`, the fast-forward fails and
 nothing is rebuilt.
 
+Run it as `CI=true $PKM_HOME/app/deploy/update.sh` when there is no terminal:
+without it pnpm aborts asking to purge `node_modules`.
+
+Verify the deploy rather than trusting the "updated to <sha>" line.
+`launchctl kickstart` silently does nothing when the service is unloaded, so
+check `launchctl list | grep pkm` and which process owns the production port,
+then grep the served bundle (under `/app-assets/`) for a string the change
+added.
+
 `update.sh` does not re-render the launchd plists. When an update changes a
 `*.plist.template`, run `$PKM_HOME/app/deploy/install.sh` after it, which
-re-renders and reloads all three jobs.
+re-renders and reloads every job.
 
 ## The launcher
 

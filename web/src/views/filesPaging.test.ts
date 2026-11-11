@@ -73,13 +73,13 @@ describe("filesPaging", () => {
      { more: null, items: [...assets(2), ...g1.items], total: 7 }],
     ["moreInFlight", { type: "moreFailed", gen: 1 },
      { more: null, notice: LOAD_MORE_FAILED }],
-    ["moreInFlight", { type: "selectAllStarted" }, { busy: "select-all" }],
+    ["moreInFlight", { type: "selectAllStarted" }, "same"],
     ["selectingAll", { type: "selectAllStarted" }, "same"],
     ["selectingAll", { type: "selectAllLoaded", ...g1 },
      { busy: null, items: g1.items, selected: new Set([asset(10).sha256]) }],
     ["selectingAll", { type: "selectAllFailed", gen: 1 },
      { busy: null, notice: SELECT_ALL_FAILED }],
-    ["selectingAll", { type: "moreStarted" }, { more: { gen: 1 } }],
+    ["selectingAll", { type: "moreStarted" }, "same"],
   ];
   it.each(table)("from %s, %j", (phase, event, expected) => {
     const before = phases[phase]();
@@ -149,6 +149,14 @@ describe("filesPaging", () => {
     expect(step(other, { type: "moreLoaded", gen: 1, items: [], total: 0 }))
       .toBe(other);
     expect(step(other, { type: "moreFailed", gen: 1 })).toBe(other);
+  });
+
+  it("Select all and Load more exclude each other, since the later answer " +
+     "would land on a list the earlier one replaced", () => {
+    const more = moreInFlight();
+    expect(step(more, { type: "selectAllStarted" })).toBe(more);
+    const all = selectingAll();
+    expect(step(all, { type: "moreStarted" })).toBe(all);
   });
 
   it("select all starts only from a current list and selects every item it " +

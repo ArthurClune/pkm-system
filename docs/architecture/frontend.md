@@ -252,7 +252,10 @@ which keeps asset refs out of `mergeGroups`. A filter change clears the
 selection and bumps the generation at the keystroke. Until the debounced
 reload lands, `items` and `total` belong to the old filter, so Select all and
 Load more starting from them would let a Delete remove files outside the new
-one.
+one. Select all and Load more also
+exclude each other (the buttons and `filesPaging` both refuse the second): the
+later answer would land on a list the earlier one replaced, showing files
+twice.
 
 ### Popovers and menus
 

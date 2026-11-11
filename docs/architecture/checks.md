@@ -178,6 +178,8 @@ specs: [server](../superpowers/specs/2026-10-02-property-checks-server-design.md
 | `ops/` | the replica and the in-memory trees store what the server stores; `enqueueBatch` refuses a batch for title syntax or a text limit exactly when the server does |
 | `assistant/` | the panel's chat machine keeps [the chat machine](frontend.md#the-chat-machine)'s rules (the invariants in the header of `assistant/run.ts`). Pure; `PROPERTY_LIMIT_MS` in `assistant.prop.ts` cuts it off |
 | `journal/` | `journalPaging` matches a model of [the Journal's paging](frontend.md#the-journal). Pure; `PROPERTY_LIMIT_MS` in `journal.prop.ts` cuts it off |
+| `files/` | `filesPaging` matches a model of [the `/files` browser](frontend.md#the-files-browser)'s generation rules: a stale answer changes nothing or frees only its own slot, and a guarded start is refused exactly when the model says. Pure; `PROPERTY_LIMIT_MS` in `files.prop.ts` cuts it off |
+| `backlinks/` | `backlinksPaging` matches the epoch and walk rules in its header (`backlinks.prop.ts`), and `withStatus` with the functions that read its map match the Link lifecycle table in `unlinkedStatus.ts` (`unlinked.prop.ts`). Pure; each file's `PROPERTY_LIMIT_MS` cuts it off |
 
 Rules a change to the gate must keep:
 

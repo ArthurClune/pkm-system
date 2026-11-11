@@ -135,7 +135,13 @@ again, so a ref set once stays `false`.
 
 `apiFetch<T>` (`api/client.ts`) handles JSON, the 401 → `/login` redirect and
 the offline gateway. Only reads carry a timeout (`READ_TIMEOUT_MS`;
-`client.ts` says why mutations do not). Product code calls
+`client.ts` says why mutations do not). A read may bound its silence instead
+of its total time: `stallMs` fails it with `StalledReadError` once no byte,
+the headers included, arrives for that long. The sync snapshot, whose size
+grows with the graph, has only this bound; during a recovery its `onProgress`
+renews the [recovery lease](sync-recovery.md#the-recovery-lease). A stall
+never falls back to the offline gateway, which does not serve the snapshot.
+Product code calls
 `api/typedClient.ts`'s `apiGet`/`apiPost`/`apiPut`/`apiDelete`, and ESLint's
 `no-restricted-imports` bars `apiFetch` elsewhere. The typed client takes the
 OpenAPI path template, so the generated `paths` table decides the parameters,

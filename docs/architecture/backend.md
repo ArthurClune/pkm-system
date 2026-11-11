@@ -702,8 +702,8 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | **Sidebar** | | |
 | GET / POST / PUT / DELETE | `/api/sidebar`… | List, pin, reorder (a permutation), unpin; a pin of a refused or over-long title is a 422 |
 | **Sync** ([sync-and-offline.md](sync-and-offline.md)) | | |
-| GET | `/api/sync/snapshot?pending` | Full bootstrap with `seq`, `generation`, the title flag and `applied_batches` |
-| GET | `/api/sync/changes?since&limit&pending` | Windowed incremental feed with the same metadata |
+| GET | `/api/sync/snapshot?pending` | Full bootstrap with `seq`, `generation`, the title flag and `applied_batches`; gzip when the client accepts it |
+| GET | `/api/sync/changes?since&limit&pending` | Windowed incremental feed with the same metadata; gzip when the client accepts it |
 | POST | `/api/client/diagnostics` | A replica's self-report before a rebuild, logged as one `pkm.sync` warning cut at `_MAX_DIAGNOSTICS_LOG_CHARS` |
 | WS | `/api/ws` | [Post-commit nudges](write-path.md#post-commit-nudges) and op echoes |
 | **Assistant** ([assistant.md](assistant.md)) | | |
@@ -733,6 +733,15 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | **Export** ([import-export-and-backup.md](import-export-and-backup.md)) | | |
 | GET | `/api/export/page/{title}` | One page as markdown; 422 when refs and queries expand past `EXPORT_MAX_CHARS` or too many times |
 | GET | `/api/export.zip` | Whole-graph markdown export |
+
+The sync snapshot and changes routes encode their own body
+(`_encoded_json`, `http_encoding.py`) rather than through a middleware, which
+would compress on the event loop and reach every route. The routes stay
+`def`, so the render and the gzip run in the thread pool after `read_txn` has
+closed: neither the event loop nor a read snapshot waits on them. **A response
+that carries a credential never goes through `encode_body`**, because a
+compressed length shows how well a secret compresses beside text an attacker
+chose ([SECURITY.md](../SECURITY.md#known-limitations)).
 
 ### Hostile input
 

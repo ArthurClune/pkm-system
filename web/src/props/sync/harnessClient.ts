@@ -27,6 +27,11 @@
 // while the requests it had already received finish as a crash just after
 // them would leave the file. Only a reload brings a new worker.
 //
+// A mark fault answers the next markPoisoned call of whichever life makes it:
+// a failure that is not session-fatal, as a busy worker's would be, or a
+// round that finds no row, as one does after a reset took the rejected row.
+// The second removes the row first, so the rejected batch is gone for good.
+//
 // The recovery lease runs on real timers, so the harness shortens it
 // (HARNESS_LEASE_MS) and scales the client's renewal interval and stall bound
 // with it, keeping the rule the real constants keep: a live client abandons a
@@ -44,7 +49,7 @@ import type { BatchId, SyncSeq } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import { createReplica, type Replica } from "../../replica/client";
 import { RpcLifecycleError } from "../../replica/errors";
-import { computeEditability, type ReplicaMode, type SyncEvent,
+import { computeEditability, heldForPoison, type ReplicaMode, type SyncEvent,
          type SyncProblem } from "../../sync/syncState";
 import type { ReplicaDb } from "../../replica/db";
 import { getMeta } from "../../replica/meta";
@@ -55,6 +60,7 @@ import type { OpQueue, PoisonEvent } from "../../sync/opQueue";
 import type { ReplicaSync } from "../../sync/replicaSync";
 import { createSyncSession, type SyncSession } from "../../sync/session";
 import { BAD_UID } from "./arbitraries";
+import { repairRunning } from "./bannerModel";
 import type { ServerControl } from "./serverControl";
 import { createTransport, type Broken, type Pacing, type Transport, type TransportOptions,
          type TransportLife } from "./transport";
@@ -104,13 +110,35 @@ export interface HarnessClient {
   readonly replicaSync: ReplicaSync;
   /** Every ticket's batch id, in enqueue order, across lives. */
   readonly enqueued: BatchId[];
-  /** Batch ids reported rejected: through onPoison, or found poisoned by a
-   * page load's startup discovery. */
+  /** Batch ids reported rejected: through onPoison, found poisoned by a
+   * page load's startup discovery, or met by a mark that found no row. */
   readonly poisoned: BatchId[];
   /** Errors reported through onDesync. */
   readonly desyncs: unknown[];
   /** Every event the session folds, in order, across lives. */
   readonly syncEvents: SyncEvent[];
+  /** The events the current life's session has folded, in order. */
+  lifeEvents(): readonly SyncEvent[];
+  /** Whether the current life's queue holds a poison or startup claim. */
+  heldForPoison(): boolean;
+  /** The next markPoisoned call throws an error that is not session-fatal. */
+  failNextMark(): void;
+  /** The next markPoisoned call finds no row: the row is deleted first. */
+  unmatchNextMark(): void;
+  /** This life met an injected mark failure, and the harness has given it
+   * no Retry or Discard since. */
+  failedMarkUnanswered(): boolean;
+  /** A mark fault armed and not yet met. */
+  markFaultArmed(): boolean;
+  /** Each mark fault that fired, across lives, with where it met the
+   * runtime: "fails during a repair", "unmatched at startup", and so on. */
+  readonly markFaultsFired: readonly string[];
+  /** Disarms any mark fault. */
+  clearMarkFaults(): void;
+  /** The banner's Discard (Sync.discardProblem). */
+  discard(): Promise<void>;
+  /** The banner's Retry (Sync.retryProblem). */
+  retry(): Promise<void>;
   /** Every recovery run's lease refused as expired, across lives. */
   readonly leaseRefusals: readonly LeaseRefusal[];
   /** Every recovery run that got a lease, across lives. */
@@ -159,6 +187,9 @@ export interface HarnessClient {
    * needs-bootstrap: a fixed scenario's way to land a death between a pull
    * pass that leaves recovery to a poison repair and the pass after it. */
   killOnNeedsBootstrap(): void;
+  /** Armed, the next startup discovery's worker dies as it asks: a
+   * reload's worker that dies before discovery answers. */
+  dieAtDiscovery(armed: boolean): void;
   /** Whether the current life's worker has died. */
   workerDead(): boolean;
   /** Batches not yet committed when a worker died, across lives: durable
@@ -193,6 +224,11 @@ export interface HarnessClient {
 
 /** What one page load's instances share with the harness. */
 interface LifeState {
+  events: SyncEvent[];
+  /** The session's startup() has resolved. */
+  startupDone: boolean;
+  /** An injected mark failure no Retry or Discard has answered. */
+  failedMarkUnanswered: boolean;
   workerDead: boolean;
   startAttempted: boolean;
   unsentInMemory: number;
@@ -312,6 +348,8 @@ export async function startClient(
   const lostReplyBatches: BatchId[] = [];
   let deathLanePushes = 0;
   let snapshotTimeoutArmed = firstStart === "timesOut";
+  let markFault: "fails" | "unmatched" | null = null;
+  const markFaultsFired: string[] = [];
   const retryBaseMs = firstStart === "ok" ? undefined : FAST_RETRY_MS;
   let disposed = false;
 
@@ -321,6 +359,7 @@ export async function startClient(
     const clientId = clientIdOf(`proptest-${name}-${lives}`);
     const idSlots: { id?: BatchId }[] = [];
     const state: LifeState = {
+      events: [], startupDone: false, failedMarkUnanswered: false,
       workerDead: false, startAttempted: false, unsentInMemory: 0, ended: false,
     };
     const handle = lifeDb(() => writeDb);
@@ -360,9 +399,9 @@ export async function startClient(
         throw error;
       });
     // The session's replica. Each override has one caller: only the queue
-    // enqueues, only replicaSync calls init, applyChanges, applySnapshot and
-    // the recovery lease's calls, and only the runtime asks for
-    // poisonedBatches.
+    // enqueues and marks, only replicaSync calls init, applyChanges,
+    // applySnapshot and the recovery lease's calls, and only the runtime
+    // asks for poisonedBatches.
     const sessionReplica: Replica = {
       ...replica,
       // A lost reply rejects on this side while the worker's write goes on.
@@ -425,10 +464,32 @@ export async function startClient(
         const run = recoveryOf.get(token);
         if (run) run.record.abandonedOnStall = transport.stalls() > run.stallsBefore;
       },
+      markPoisoned: async (id, error, batchId) => {
+        const fault = markFault;
+        markFault = null;
+        if (fault !== null) {
+          markFaultsFired.push(`${fault} ${!state.startupDone ? "at startup"
+            : repairRunning(state.events) ? "during a repair" : "at rest"}`);
+        }
+        if (fault === "fails") {
+          state.failedMarkUnanswered = true;
+          throw new Error("proptest: injected mark failure");
+        }
+        if (fault === "unmatched") {
+          // Rejected and gone: nothing will report or repair it.
+          if (!poisoned.includes(batchId)) poisoned.push(batchId);
+          await replica.deleteBatch(id, batchId);
+        }
+        return replica.markPoisoned(id, error, batchId);
+      },
       // Startup discovery. A rejection whose onPoison died with the page
       // load before (its mark landed while that life was being torn down)
       // is found here, surfaced and repaired by this one.
       poisonedBatches: async () => {
+        if (dieAtDiscovery) {
+          dieAtDiscovery = false;
+          killCurrent();
+        }
         const found = await replica.poisonedBatches();
         for (const event of found) {
           if (!poisoned.includes(event.batch_id)) poisoned.push(event.batch_id);
@@ -476,7 +537,10 @@ export async function startClient(
           if (n > state.unsentInMemory) lanePushes += n - state.unsentInMemory;
           state.unsentInMemory = n;
         },
-        event: (event) => { syncEvents.push(event); },
+        event: (event) => {
+          syncEvents.push(event);
+          state.events.push(event);
+        },
       },
     });
     const offs = [
@@ -534,6 +598,7 @@ export async function startClient(
 
   let landed: ConnectLanding | null = null;
   let killOnNeedsBootstrap = false;
+  let dieAtDiscovery = false;
   const killCurrent = (): void => {
     if (life.state.workerDead) return;
     const committed = transport.committed;
@@ -549,11 +614,15 @@ export async function startClient(
     landed = null;
     if (at === undefined) {
       await l.session.startup();
+      l.state.startupDone = true;
       await goOnline(l);
       return;
     }
     let mountDone = false;
-    const mounted = l.session.startup().finally(() => { mountDone = true; });
+    const mounted = l.session.startup().finally(() => {
+      mountDone = true;
+      l.state.startupDone = true;
+    });
     // Rejected while the ticks run, it is still awaited below.
     mounted.catch(() => undefined);
     await ticks(at);
@@ -574,6 +643,22 @@ export async function startClient(
     poisoned,
     desyncs,
     syncEvents,
+    lifeEvents: () => life.state.events,
+    heldForPoison: () => heldForPoison(life.session.queue.holds),
+    failNextMark() { markFault = "fails"; },
+    unmatchNextMark() { markFault = "unmatched"; },
+    markFaultArmed: () => markFault !== null,
+    markFaultsFired,
+    clearMarkFaults() { markFault = null; },
+    failedMarkUnanswered: () => life.state.failedMarkUnanswered,
+    discard: () => {
+      life.state.failedMarkUnanswered = false;
+      return life.session.actions.discardProblem();
+    },
+    retry: () => {
+      life.state.failedMarkUnanswered = false;
+      return life.session.actions.retryProblem();
+    },
     leaseRefusals,
     recoveries,
     unsentInMemory: () => life.state.unsentInMemory,
@@ -645,6 +730,7 @@ export async function startClient(
       if (offline) {
         landed = null;
         await life.session.startup();
+        life.state.startupDone = true;
         goOffline(life);
       } else {
         await load(life, at);
@@ -653,6 +739,7 @@ export async function startClient(
     connectLanded: () => landed,
     killWorker: () => killCurrent(),
     killOnNeedsBootstrap() { killOnNeedsBootstrap = true; },
+    dieAtDiscovery(armed) { dieAtDiscovery = armed; },
     workerDead: () => life.state.workerDead,
     undeliveredAtDeath,
     deathLanePushes: () => deathLanePushes,

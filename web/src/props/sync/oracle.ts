@@ -35,10 +35,12 @@
 // and every other invariant runs first; afterwards the server holds the
 // replay's state.
 // CursorWatch is the eighth check, run after every command rather than here,
-// and ModeWatch the ninth, run after every command and after each pull or
-// edit of a client whose worker died.
+// ModeWatch the ninth, run after every command and after each pull or edit
+// of a client whose worker died, and BannerWatch the tenth, run after every
+// command and at settle, before a dead worker's reload and after quiesce.
 import type { BatchId, SyncSeq } from "../../api/brands";
-import { computeEditability } from "../../sync/syncState";
+import { computeEditability, type SyncEvent } from "../../sync/syncState";
+import { expectedBanner, viewOf } from "./bannerModel";
 import { conflictLane, conflictNoise } from "./conflictNoise";
 import { deleteWins, replaySeenSeq, withSeenSeq } from "./deleteWins";
 import type { HarnessClient } from "./harnessClient";
@@ -350,5 +352,42 @@ export class ModeWatch {
       throw new Error(`replica mode: ${c.name}'s worker died and ${what} has run, ` +
                       `but ${problems.join(", ")}`);
     }
+  }
+}
+
+const showSyncEvent = (e: SyncEvent): string =>
+  e.type === "replica-state" ? `mode ${e.state.mode}`
+    : e.type === "delivery-held" ? `held ${e.held}` : e.type;
+
+type BannerClient = Pick<HarnessClient,
+  "name" | "problem" | "lifeEvents" | "heldForPoison">;
+
+/** The banner (bannerModel.ts): the problem each client's session shows is
+ * the one the model reads from its life's events and the queue's claims.
+ * Both are read in one synchronous step, so no event lands between them.
+ * `seen` keeps each label the example reached, for the tally: the view
+ * checked, or why the life was not modelled. */
+export class BannerWatch {
+  readonly seen = new Set<string>();
+
+  observe(clients: readonly BannerClient[], where = "after a command"): void {
+    for (const c of clients) this.check(c, where);
+  }
+
+  /** Checks one client; returns the view it shows. */
+  check(c: BannerClient, where: string): string {
+    const shown = viewOf(c.problem());
+    const want = expectedBanner(c.lifeEvents(), c.heldForPoison());
+    if ("unmodelled" in want) {
+      this.seen.add(`Banner unmodelled: ${want.unmodelled}`);
+      return shown;
+    }
+    if (shown !== want.view) {
+      throw new Error(`banner: ${c.name} ${where} shows ${shown}, the model says` +
+        ` ${want.view} (events ${c.lifeEvents().map(showSyncEvent).join(", ")})`);
+    }
+    this.seen.add(`Banner ${where}: ${shown}`);
+    for (const rule of want.rules) this.seen.add(`Banner rule: ${rule}`);
+    return shown;
   }
 }

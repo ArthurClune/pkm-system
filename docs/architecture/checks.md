@@ -178,7 +178,7 @@ Each suite states its invariants in its module docstring or file header.
 | `test_planner_props.py` | sibling order from `positions_after` |
 | `test_unlink_props.py` | the page-delete rewriter's anti-goals; a second pass is inert |
 | `test_assistant_turn_props.py` | [the turn phase](assistant.md#the-turn-phase), on a virtual clock (`props/virtual_loop.py`) |
-| `sync/` | `sync/oracle.ts`, over clients that run `createSyncSession`; `queue.prop.ts` checks `sync/queueModel.ts` without a server |
+| `sync/` | `sync/oracle.ts`, over clients that run `createSyncSession`, including each session's banner against `sync/bannerModel.ts` ([What the UI shows](sync-recovery.md#what-the-ui-shows)); `queue.prop.ts` checks `sync/queueModel.ts` without a server |
 | `outline/` | a reading-view model and undo to the start (`checks.ts`). Commands go through `command.ts`, as `useOutline.run` and the undo dispatch do, and the commands the editor refuses are modelled too (`unguardedBatches` for the ops suite) |
 | `outline/draft.prop.ts` | `draftModel.ts`, driving the real editor in jsdom (`draftHarness.tsx`) |
 | `ops/` | what the server stores, in the replica and the in-memory trees; `enqueueBatch` refuses a batch exactly when the server does |

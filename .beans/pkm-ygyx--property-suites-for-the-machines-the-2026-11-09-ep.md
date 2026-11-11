@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-11-09T21:39:24Z
-updated_at: 2026-11-11T14:44:02Z
+updated_at: 2026-11-11T17:29:02Z
 parent: pkm-4gda
 ---
 
@@ -14,12 +14,12 @@ Plan: docs/superpowers/plans/2026-11-09-maintainability-review-fixes.md § W19. 
 
 ## From W11 (pkm-3iwm), sync suite mutants not yet run
 
-| Mutant | Expected | Note |
-|---|---|---|
-| renewal moves nothing | caught by `lease held` | caught on one seed in T7; a second seed not run |
-| never renew | caught by `lease held` | caught on one seed in T7; a second seed not run |
-| `runRecovery` ignores a refused renewal and commits | survives | nothing draws a refused renewal in a running life unless another bug already expired the lease: a reach fact |
-| `commitRecovery` skips the fingerprint check | survives | needs a stall that lets an edit persist mid-run and a reset after it: a reach fact |
+| Mutant | Expected | Seeds 1 and 2 (2026-11-11, part b) | Note |
+|---|---|---|---|
+| renewal moves nothing | caught by `lease held` | caught on both: `lease held` after 13 and 388 runs, each through a `slowSnapshot` | |
+| never renew | caught by `lease held` | caught on both: `lease held` after 13 and 388 runs, each through a `slowSnapshot` | |
+| `runRecovery` ignores a refused renewal and commits | survives | survived both (2100 runs each) | still a reach fact: the new draws of part (b) (mark faults, a death at discovery, Discard) expire no lease in a running life |
+| `commitRecovery` skips the fingerprint check | survives | survived both (2100 runs each) | still a reach fact: no new draw lets an edit persist mid-recovery with a reset after it |
 
 
 ## Scope decisions (Arthur, 2026-11-11)
@@ -30,5 +30,5 @@ Plan: docs/superpowers/plans/2026-11-09-maintainability-review-fixes.md § W19. 
 
 ## Checklist
 - [x] (a) paging property suites: props/files, props/backlinks (backlinks paging and unlinked lifecycle). Found: Select all and Load more could overlap and show files twice; filesPaging now refuses the second.
-- [ ] (b) sync extensions
+- [x] (b) sync extensions: the banner checked against a model of the ranking (bannerModel.ts, with teeth); queue draws for mark failures, unmatched rounds, Discard, Retry and leased delivery (with teeth); late coalesce callers at the reconnect completion and the poison repair are never drawn (measured: none owed in either suite), so the unit tests stay their guard; W11 mutants run (table above). Open question for Arthur: a recovery leased flush posts while the lane claim holds (deliverLeased does not consult the barrier; the docs give the lane claim no rule over it), so the queue model does not judge leased POSTs against lane.
 - [ ] (c) assistant chat driver shell

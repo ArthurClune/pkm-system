@@ -146,7 +146,7 @@ export class Edit extends SyncCommand {
 
   protected async act(m: SyncModel, w: World): Promise<string> {
     const c = clientOf(w, this.client);
-    // The editor is read-only here, as SyncProvider's canEdit makes it.
+    // The editor is read-only here, as the session's status and mode make it.
     if (!c.canEdit()) {
       w.count(`Edit refused: read-only, mode ${c.mode()}`);
       return `${this.toString()}: refused, read-only in mode ${c.mode()}`;

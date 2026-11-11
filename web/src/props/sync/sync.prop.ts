@@ -134,6 +134,9 @@ const REACH: Reach = {
   //   "Reload connect timed, landed mid-startup"
   //   "start connect timed, landed after startup"
   //   "start connect timed, landed mid-startup"
+  // No floor, no rule checks the banner yet: the problem each client's
+  // session holds once quiesced, one count per client per example:
+  //   "Problem at settle: <kind>", "Problem at settle: none"
   floors: {
     "BadBatch": 0.187,
     "BadBatch skipped: worker dead": 0.012,
@@ -414,6 +417,7 @@ async function runExample(names: readonly string[], cmds: Commands,
     transcript.push("quiesce");
     await quiesce(all(), guard.server, QUIESCE_LIMIT_MS);
     world.watch.observe(all());
+    for (const c of all()) count(`Problem at settle: ${c.problem()?.kind ?? "none"}`);
     const snap = await guard.server.snapshot();
     if (snap.blocks.some((b) => b.text.includes("[[conflict]]"))) count("examples with a conflict");
     if (model.bad.size > 0) count("examples with a rejected batch");

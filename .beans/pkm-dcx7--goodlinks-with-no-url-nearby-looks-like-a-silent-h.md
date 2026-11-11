@@ -1,11 +1,11 @@
 ---
 # pkm-dcx7
 title: /goodlinks 'No URL nearby' notice is easy to miss
-status: todo
+status: scrapped
 type: bug
 priority: deferred
 created_at: 2026-10-13T19:03:36Z
-updated_at: 2026-10-13T19:04:43Z
+updated_at: 2026-11-11T13:37:06Z
 ---
 
 ## Symptom
@@ -24,3 +24,8 @@ On `Paper/Can LLMs Be Computers?` (2026-10-13) Arthur ran `/goodlinks` in an emp
 - [ ] Reproduce: the block after a non-URL sibling, `/goodlinks`, see what (if anything) shows and where
 - [ ] Make the no-URL failure visible near the block (or as an alert the user can't miss), with a clear message
 - [ ] Unit test for the no-candidate path; e2e if the fix is in placement
+
+
+## Reasons for Scrapping
+
+Arthur closed it (2026-11-11): the notice does show, and that is enough.

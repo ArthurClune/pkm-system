@@ -6,10 +6,10 @@
 //   barrier   no POST starts while any owner holds the barrier, except a
 //             recovery's own leased POSTs (the leased batch, and the lane
 //             entries it follows, posted ahead of it), which only a poison
-//             claim stops (§ A batch the server rejects). The docs give the
-//             lane's claim no rule over them, and in the app no recovery
-//             runs under startup's, which this property's pauseStartup can
-//             still draw:
+//             claim stops (§ A batch the server rejects); the lane's claim
+//             does not (sync-recovery.md § The recovery barrier). In the
+//             app no recovery runs under startup's, which this property's
+//             pauseStartup can still draw:
 //               startup   between the property's pause and resume
 //               recovery  between a recovery's start and end
 //               poison    from a durable rejection until the repair deletes

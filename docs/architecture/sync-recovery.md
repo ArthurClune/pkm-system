@@ -215,6 +215,16 @@ and `pause(owner)` and `resume(owner)` take one:
 | `recovery` | `runRecovery`, before its lease | the end of that run, whatever its outcome |
 | `lane` | a lane entry's 4xx (`deliverLaneHead`) | the first outline repair to become stable after it (`laneOwed` in `outlineRepair.ts`) |
 
+A recovery's leased flush (`OpQueue.deliverLeased`, lane entries ahead of the
+batch included) posts while `lane` holds. The claim only orders the ordinary
+drain behind the outline repair, which touches the queue only through
+`resume("lane")` and never cancels, rewrites or re-plans a queued op. So a
+row's outcome is the same posted then or later; a repair that changed queued
+ops would need the flush to stop for `lane` too. A leased POST settles no
+ticket, so the repair still replays the write it covers. Only `poison` stops
+the flush, because a rebase that posts nothing would replay posted rows over
+its commit.
+
 `OpQueue.holds(owner)` reports a claim, and `replicaSync` reads
 `holds("poison")` as its `holdsPoison` dep
 ([below](#a-batch-the-server-rejects)). `OpQueue.onRelease` fires

@@ -70,6 +70,7 @@ function fakeReplica(over: Partial<Replica> = {},
       token: "lease-1", batches: init.pendingBatches ?? [],
     }),
     commitRecovery: () => rec("commitRecovery", undefined),
+    renewRecovery: () => rec("renewRecovery", undefined),
     abortRecovery: () => rec("abortRecovery", undefined),
     diagnostics: () => rec("diagnostics", {
       sqliteVersion: "fake", quickCheck: ["ok"],

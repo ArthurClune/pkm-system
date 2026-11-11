@@ -53,6 +53,7 @@ function rowReplica(): Replica {
     localApi: async () => ({ handled: false as const }),
     prepareRecovery: async () => ({ token: "lease", batches: [...rows] }),
     commitRecovery: async () => undefined,
+    renewRecovery: async () => undefined,
     abortRecovery: async () => undefined,
     diagnostics: async () => ({
       sqliteVersion: "fake", quickCheck: ["ok"],

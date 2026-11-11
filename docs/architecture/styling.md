@@ -60,8 +60,8 @@ Buttons and fields are styled by named class, and there is no bare
 
 - **Buttons** are pills. `.btn-secondary` carries its own padding. A small
   button beside text adds `.btn-compact`, which sits after `.btn-secondary`
-  because it overrides it at equal specificity. `.btn-danger` fills with `--color-error-fill`, a token
-  separate from the error text colour. The chrome trio
+  because it overrides it at equal specificity. `.btn-danger` fills with
+  `--color-error-fill`, a token separate from the error text colour. The chrome trio
   (`.top-bar-menu-button`, `.sidebar-toggle-button`, `.help-button`) has a
   transparent border, so hover does not shift layout.
 - **Fields** are `.input-control` and `.search-field` /
@@ -77,9 +77,8 @@ that takes focus from the unmounted button and draws no ring.
 
 The assistant panel's tool line marks a failed write with
 `.assistant-tool-failed`, in `--color-error` text and not italic like the
-line around it. `.assistant-tool-warning` (a batch's skipped-ops line)
-keeps the line's colour and is not italic. `.assistant-tool-declined` has no rule: it is a hook for
-tests and future styling, and a declined write is deliberately not red.
+line around it. `.assistant-tool-warning` (a batch's skipped-ops line) keeps
+the line's colour and is not italic. A declined write is not red.
 
 Supporting copy in Files and Settings uses `p.settings-note`, whose `p`
 qualifier lets it override Settings' `.settings-section p` reset.
@@ -126,7 +125,9 @@ Other rules:
   so reading `styles.css` alone will not find every focusable control.
 - **Content anchors.** `a.page-link`, external links and the
   `.page-title > a` heading link keep the UA ring; at the block line-height an
-  offset ring collides with the line above.
+  offset ring collides with the line above. The global `a` rule sets
+  `font-weight: 600`, so an anchor placed among buttons pins its weight in its
+  own component rule.
 - **The closed phone drawer** pairs `translateX(-100%)` with
   `visibility: hidden`, restored by `.left-nav.open`, or its links stay tab
   stops. The hamburger carries `aria-expanded` and `aria-controls="left-nav"`.
@@ -141,6 +142,8 @@ Other rules:
   its chevron `aria-hidden`. `.page-title-edit` never takes a fixed
   `aria-label`: accname walks the `<h1>`'s children, so a name on the button
   renames the page's heading.
+- **Removing a class.** The verify skill selects by class: grep the "Known
+  selectors" table in `.claude/skills/verify/SKILL.md` too.
 
 ## Layout invariants
 

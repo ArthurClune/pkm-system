@@ -1,16 +1,19 @@
 // pattern: Imperative Shell
 // One simulated device: the real replica worker handlers over a
-// MessageChannel, the real op queue, replicaSync, clientRuntime, legacy
-// repair and reconnect flow, wired as SyncProvider and useSocketLifecycle wire
-// them, over an in-memory sqlite database that survives reloads.
+// MessageChannel, under createSyncSession, the composition SyncProvider
+// runs, over an in-memory sqlite database that survives reloads. The
+// harness drives the socket status itself where the app's socket would.
 //
-// The legacy repair's outline sessions are the one part stood in for: the
-// harness mounts no editor, so its repairSessions is one authoritative read
+// Two things are stood in for. The open outline editors: the harness mounts
+// none, so the legacy repair's repairSessions is one authoritative read
 // through this client's transport, of pt_seed_6's block: live for the whole
 // example, so the read succeeds online whatever a Rename has done to page
 // titles. It fails while the client is offline, as the real repair's does,
 // so a lane rejection whose repair is cut off by the network is left for
-// the next connect to retry.
+// the next connect to retry. And the replica the session sees: one wrapper
+// over the worker's client that injects the drawn faults (a lost enqueue
+// reply, a timed-out first applySnapshot, a death at needs-bootstrap) and
+// records what startup discovery finds poisoned.
 //
 // A "life" is one page load. reload() ends it the way a browser ends one by
 // killing the worker and the page's fetches: the transport discards replies
@@ -26,26 +29,24 @@
 //
 // A page load's first connect comes, by default, once the startup has
 // finished. In the app it need not: the socket's onStatus is a macrotask
-// that can land at any await inside runtime.startup(), and the
-// first-connect handler then waits on the mount-time pending read and the
-// startup run itself. A load given connectAt connects that many ticks after
-// its mount begins instead, whether or not the startup has finished.
+// that can land at any await inside runtime.startup(), and the session's
+// first connect then waits on the startup's pending read and the startup
+// run itself. A load given connectAt connects that many ticks after its
+// mount begins instead, whether or not the startup has finished.
 import type { BatchId, SyncSeq } from "../../api/brands";
 import type { BlockOp } from "../../api/ops";
 import { createReplica, type Replica } from "../../replica/client";
 import { RpcLifecycleError } from "../../replica/errors";
-import { computeEditability, type ReplicaMode } from "../../sync/syncState";
+import { computeEditability, type ReplicaMode, type SyncEvent,
+         type SyncProblem } from "../../sync/syncState";
 import type { ReplicaDb } from "../../replica/db";
 import { getMeta } from "../../replica/meta";
 import { serveRpc, toPortLike } from "../../replica/rpc";
 import { failingOnce, openRawTestDb } from "../../replica/testDb";
 import { buildHandlers } from "../../replica/workerHandlers";
-import { createClientRuntime, type ClientRuntime } from "../../sync/clientRuntime";
-import { createLegacyRepair } from "../../sync/legacyRepair";
-import { createOpQueue, type OpQueue, type PoisonEvent } from "../../sync/opQueue";
-import { createReconnectFlow, type ReconnectFlow } from "../../sync/reconnectFlow";
-import { createReplicaSync, type ReplicaSync } from "../../sync/replicaSync";
-import type { SyncEvent, SyncStatus } from "../../sync/syncState";
+import type { OpQueue, PoisonEvent } from "../../sync/opQueue";
+import type { ReplicaSync } from "../../sync/replicaSync";
+import { createSyncSession, type SyncSession } from "../../sync/session";
 import { BAD_UID } from "./arbitraries";
 import type { ServerControl } from "./serverControl";
 import { createTransport, type Broken, type Transport, type TransportOptions,
@@ -68,8 +69,7 @@ export interface HarnessClient {
   readonly poisoned: BatchId[];
   /** Errors reported through onDesync. */
   readonly desyncs: unknown[];
-  /** The client runtime's and the legacy repair's sync events
-   * (SyncProvider's applySync input), in order, across lives. */
+  /** Every event the session folds, in order, across lives. */
   readonly syncEvents: SyncEvent[];
   /** Entries in the queue's in-memory lane (lost by a reload). */
   unsentInMemory(): number;
@@ -125,8 +125,10 @@ export interface HarnessClient {
   /** Batches whose enqueue reply loseNextReply lost: a lane copy and a
    * durable row, across lives. */
   readonly lostReplyBatches: readonly BatchId[];
-  /** SyncProvider's replicaState.mode for the current life. */
+  /** The current life's session replica mode. */
   mode(): ReplicaMode;
+  /** The current life's session problem: what the banner shows. */
+  problem(): SyncProblem | undefined;
   /** The current life's replicaSync.appliedVersion(). */
   appliedVersion(): number | null;
   /** The current life's replicaSync.hasStarted(). */
@@ -134,8 +136,8 @@ export interface HarnessClient {
   /** Whether the current life's replicaSync has called init: a start was
    * attempted, rather than held back behind a poison repair. */
   startAttempted(): boolean;
-  /** What the editor may do: computeEditability over the life's status and
-   * mode, as SyncProvider derives canEdit. */
+  /** What the editor may do: computeEditability over the session's status
+   * and mode, as SyncProvider derives canEdit. */
   canEdit(): boolean;
   /** Whether the current life's timed connect fired before its startup had
    * finished, or null when it had no timing or did not connect. */
@@ -147,13 +149,8 @@ export interface HarnessClient {
 
 /** What one page load's instances share with the harness. */
 interface LifeState {
-  /** useSocketLifecycle's statusRef. */
-  status: SyncStatus;
-  /** SyncProvider's replicaState.mode, set by both of its writers. */
-  mode: ReplicaMode;
   workerDead: boolean;
   startAttempted: boolean;
-  everConnected: boolean;
   unsentInMemory: number;
   ended: boolean;
 }
@@ -161,13 +158,10 @@ interface LifeState {
 /** One page load's instances. */
 interface Life {
   state: LifeState;
-  queue: OpQueue;
+  session: SyncSession;
+  /** The worker's client, unwrapped: the oracle's reads record nothing. */
   replica: Replica;
-  replicaSync: ReplicaSync;
-  runtime: ClientRuntime;
-  reconnect: ReconnectFlow;
-  /** useSocketLifecycle's readInitialPending, read at mount. */
-  initialPending: Promise<number>;
+  /** The harness's own queue listeners. */
   offs: (() => void)[];
   /** This life's view of the shared database. */
   handle: LifeDb;
@@ -218,6 +212,13 @@ async function ticks(n: number): Promise<void> {
   for (let i = 0; i < n; i += 1) {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
+}
+
+/** A harness life always has a replica, so its session a replicaSync. */
+function replicaSyncOf(session: SyncSession): ReplicaSync {
+  const replicaSync = session.replicaSync;
+  if (replicaSync === null) throw new Error("a harness session has no replicaSync");
+  return replicaSync;
 }
 
 interface LifeDb {
@@ -283,8 +284,7 @@ export async function startClient(
     const clientId = clientIdOf(`proptest-${name}-${lives}`);
     const idSlots: { id?: BatchId }[] = [];
     const state: LifeState = {
-      status: "connecting", mode: "starting", workerDead: false, startAttempted: false,
-      everConnected: false, unsentInMemory: 0, ended: false,
+      workerDead: false, startAttempted: false, unsentInMemory: 0, ended: false,
     };
     const handle = lifeDb(() => writeDb);
     const channel = new MessageChannel();
@@ -301,9 +301,6 @@ export async function startClient(
       channel.port1.close();
       channel.port2.close();
     });
-    // The queue's view of the replica: a lost reply rejects on this side
-    // while the worker's write goes on. Not with a write failure armed, whose
-    // INSERT would store nothing.
     // A dead worker's enqueue goes to the lane unhashed, as a failed write
     // does; one in flight at the death may also have stored its row.
     const deadLane = <T>(batchId: BatchId, sent: Promise<T>): Promise<T> =>
@@ -314,8 +311,13 @@ export async function startClient(
         }
         throw error;
       });
-    const queueReplica: Replica = {
+    // The session's replica. Each override has one caller: only the queue
+    // enqueues, only replicaSync calls init, applyChanges and applySnapshot,
+    // and only the runtime asks for poisonedBatches.
+    const sessionReplica: Replica = {
       ...replica,
+      // A lost reply rejects on this side while the worker's write goes on.
+      // Not with a write failure armed, whose INSERT would store nothing.
       enqueue: (ops, batchId) => {
         if (!loseArmed || writeArmed || state.workerDead) {
           return deadLane(batchId, replica.enqueue(ops, batchId));
@@ -327,11 +329,6 @@ export async function startClient(
         return Promise.reject(new RpcLifecycleError(
           "timeout", "proptest: replica RPC enqueue timed out"));
       },
-    };
-    // replicaSync's view: a first applySnapshot drawn to time out rejects
-    // here while the worker applies it.
-    const syncReplica: Replica = {
-      ...replica,
       init: () => {
         state.startAttempted = true;
         return replica.init();
@@ -344,6 +341,8 @@ export async function startClient(
         }
         return res;
       },
+      // A first applySnapshot drawn to time out rejects here while the
+      // worker applies it.
       applySnapshot: (snapshot, expectedPendingIds) => {
         if (!snapshotTimeoutArmed) return replica.applySnapshot(snapshot, expectedPendingIds);
         snapshotTimeoutArmed = false;
@@ -351,85 +350,65 @@ export async function startClient(
         return Promise.reject(new RpcLifecycleError(
           "timeout", "proptest: replica RPC applySnapshot timed out"));
       },
+      // Startup discovery. A rejection whose onPoison died with the page
+      // load before (its mark landed while that life was being torn down)
+      // is found here, surfaced and repaired by this one.
+      poisonedBatches: async () => {
+        const found = await replica.poisonedBatches();
+        for (const event of found) {
+          if (!poisoned.includes(event.batch_id)) poisoned.push(event.batch_id);
+        }
+        return found;
+      },
     };
-    const queue = createOpQueue(queueReplica, {
-      post: doors.post,
+    const session = createSyncSession({
+      replica: sessionReplica,
       clientId,
-      poisonStore: {
-        read: () => [...poisonIntents],
-        write: (intents) => { poisonIntents = [...intents]; },
-      },
-      newBatchId: () => {
-        minted += 1;
-        const id = batchIdOf(`batch-${name}-${minted}`);
-        enqueued.push(id);
-        const slot = idSlots.find((s) => s.id === undefined);
-        if (slot) slot.id = id;
-        return id;
-      },
-    });
-    const replicaSync = createReplicaSync({
-      replica: syncReplica,
       fetchJson: doors.fetchJson,
-      clientId,
-      queue,
-      isOffline: () => state.status === "reconnecting",
-      onState: (next) => { if (!state.ended) state.mode = next.mode; },
-      retryBaseMs,
-    });
-    const runtime = createClientRuntime({
-      queue, replicaSync,
-      replica: {
-        // Startup discovery. A rejection whose onPoison died with the page
-        // load before (its mark landed while that life was being torn down)
-        // is found here, surfaced and repaired by this one.
-        poisonedBatches: async () => {
-          const found = await replica.poisonedBatches();
-          for (const event of found) {
-            if (!poisoned.includes(event.batch_id)) poisoned.push(event.batch_id);
-          }
-          return found;
+      queue: {
+        post: doors.post,
+        poisonStore: {
+          read: () => [...poisonIntents],
+          write: (intents) => { poisonIntents = [...intents]; },
         },
-        deleteBatch: (id, batchId) => replica.deleteBatch(id, batchId),
+        newBatchId: () => {
+          minted += 1;
+          const id = batchIdOf(`batch-${name}-${minted}`);
+          enqueued.push(id);
+          const slot = idSlots.find((s) => s.id === undefined);
+          if (slot) slot.id = id;
+          return id;
+        },
       },
-      onSyncEvent: (event) => { syncEvents.push(event); },
-      onReplicaState: (next) => { if (!state.ended) state.mode = next.mode; },
-    });
-    const legacyRepair = createLegacyRepair({
-      repairSessions: async (onStable) => {
-        await doors.fetchJson(`/api/block/${BAD_UID}`);
-        onStable();
+      retryBaseMs,
+      outlines: {
+        track: () => undefined,
+        attachReplay: () => undefined,
+        repairSessions: async (onStable) => {
+          await doors.fetchJson(`/api/block/${BAD_UID}`);
+          onStable();
+        },
       },
-      onEvent: (event) => { syncEvents.push(event); },
-      resume: () => queue.resume("lane"),
       isMounted: () => !state.ended,
-    });
-    const reconnect = createReconnectFlow({
-      queue,
-      replicaSync,
-      isMounted: () => !state.ended,
-      onResync: () => undefined,
-      // SyncProvider's composition: the poison repair first, then the legacy.
-      retryFailedRepair: async () => {
-        await runtime.retryFailedRepair();
-        await legacyRepair.retryFailed();
+      report: {
+        status: () => undefined,
+        replicaState: () => undefined,
+        problem: () => undefined,
+        resync: () => undefined,
+        pending: () => undefined,
+        unsentInMemory: (n) => {
+          if (n > state.unsentInMemory) lanePushes += n - state.unsentInMemory;
+          state.unsentInMemory = n;
+        },
+        event: (event) => { syncEvents.push(event); },
       },
     });
     const offs = [
-      queue.onDesync((desync) => {
-        desyncs.push(desync.error);
-        void legacyRepair.run(desync.error, desync);
-      }),
-      queue.onPoison((event) => { poisoned.push(event.batch_id); }),
-      queue.onUnsentInMemory((n) => {
-        if (n > state.unsentInMemory) lanePushes += n - state.unsentInMemory;
-        state.unsentInMemory = n;
-      }),
-      queue.onDrain((outcome) => reconnect.observeDrain(outcome)),
+      session.queue.onDesync((desync) => { desyncs.push(desync.error); }),
+      session.queue.onPoison((event) => { poisoned.push(event.batch_id); }),
     ];
     return {
-      state, queue, replica, replicaSync, runtime, reconnect,
-      initialPending: Promise.resolve(0), offs, handle, idSlots,
+      state, session, replica, offs, handle, idSlots,
       kill: () => {
         state.workerDead = true;
         // what a Worker's error event does to the RPC client (rpc.ts)
@@ -438,25 +417,15 @@ export async function startClient(
     };
   };
 
-  /** SyncProvider's mount: the startup effect, then useSocketLifecycle's
-   * mount-time pending read. */
-  const mount = (l: Life): Promise<void> => {
-    const startup = l.runtime.startup();
-    l.initialPending = l.queue.refreshPending();
-    return startup;
-  };
-
   /** Ends a life whose transport doors are already severed, so that any of
    * its work still in flight fails at its next request instead of waiting
    * on the network. */
   const endLife = async (l: Life): Promise<void> => {
     l.state.ended = true;
     l.offs.forEach((off) => off());
-    // useSocketLifecycle's teardown order: stop replicaSync, dispose the
-    // queue, then SyncProvider's disposeOwned (the runtime, then the replica).
-    l.replicaSync.stop();
-    l.queue.dispose();
-    l.runtime.dispose();
+    // useSocketLifecycle's teardown order: the session, then SyncProvider's
+    // disposeOwned (the replica).
+    l.session.dispose();
     try {
       // close queues behind every request the old worker already received,
       // so this resolves once that work has finished; then the ports close.
@@ -473,39 +442,18 @@ export async function startClient(
   let life = buildLife(transport.newLife());
   let offline = false;
 
-  // Copied from useSocketLifecycle's onStatus (sync/useSocketLifecycle.ts);
-  // keep the two in step. The harness awaits the first-connect chain the
-  // socket handler leaves running.
-  const goOnline = async (l: Life): Promise<void> => {
+  // The harness awaits the connect chain the app's socket handler leaves
+  // running.
+  const goOnline = (l: Life): Promise<void> => {
     offline = false;
     transport.setOffline(false);
-    l.queue.setOnline(true);
-    l.state.status = "connected";
-    if (l.state.everConnected) {
-      await l.reconnect.begin().catch((error: unknown) => {
-        console.error("reconnect.begin() failed", error);
-      });
-      return;
-    }
-    l.state.everConnected = true;
-    try {
-      const n = await l.initialPending;
-      await l.runtime.startupRun();
-      // A reload during those awaits ended this life: never call into it.
-      if (l.state.ended) return;
-      if (n > 0 || !l.replicaSync.hasStarted()) {
-        await l.reconnect.begin({ viewsAreStale: true });
-      }
-    } catch (error: unknown) {
-      console.error("first-connect reconnect.begin() failed", error);
-    }
+    return l.session.onSocketStatus(true);
   };
 
   const goOffline = (l: Life): void => {
     offline = true;
     transport.setOffline(true);
-    l.queue.setOnline(false);
-    l.state.status = "reconnecting";
+    void l.session.onSocketStatus(false);
   };
 
   let landed: ConnectLanding | null = null;
@@ -524,12 +472,12 @@ export async function startClient(
   const load = async (l: Life, at: number | undefined): Promise<void> => {
     landed = null;
     if (at === undefined) {
-      await mount(l);
+      await l.session.startup();
       await goOnline(l);
       return;
     }
     let mountDone = false;
-    const mounted = mount(l).finally(() => { mountDone = true; });
+    const mounted = l.session.startup().finally(() => { mountDone = true; });
     // Rejected while the ticks run, it is still awaited below.
     mounted.catch(() => undefined);
     await ticks(at);
@@ -543,9 +491,9 @@ export async function startClient(
     name,
     db,
     transport,
-    get queue() { return life.queue; },
+    get queue() { return life.session.queue; },
     get replica() { return life.replica; },
-    get replicaSync() { return life.replicaSync; },
+    get replicaSync() { return replicaSyncOf(life.session); },
     enqueued,
     poisoned,
     desyncs,
@@ -558,7 +506,7 @@ export async function startClient(
       const l = life;
       const slot: { id?: BatchId } = {};
       l.idSlots.push(slot);
-      const ticket = l.queue.enqueue(ops);
+      const ticket = l.session.actions.enqueue(ops);
       await ticket.settled;
       // The mint precedes the replica write that settles the ticket, so the
       // slot is filled unless the queue was disposed before persisting.
@@ -570,18 +518,19 @@ export async function startClient(
       const latest = await server.latestSeq();
       // A reload while the seq was read ended this life: never call into it.
       if (l.state.ended) return;
+      const replicaSync = replicaSyncOf(l.session);
       // idle() hands out the one in-flight pull, or a fresh resolved promise
-      const inFlight = l.replicaSync.idle() === l.replicaSync.idle();
+      const inFlight = replicaSync.idle() === replicaSync.idle();
       lastJoin = !inFlight ? "alone"
         : poisonOwns(syncEvents) ? "joined under poison" : "joined";
       // Forced: a rotated generation keeps the journal's seq, and a pull must
       // still run to find it.
-      l.replicaSync.onSeq(latest, true);
-      await l.replicaSync.idle();
+      replicaSync.onSeq(latest, true);
+      await replicaSync.idle();
     },
     lastPullJoin: () => lastJoin,
     nudge(seq, force = false) {
-      life.replicaSync.onSeq(seq, force);
+      replicaSyncOf(life.session).onSeq(seq, force);
     },
     failNextWrite() {
       const failing = failingOnce(db, PENDING_INSERT, "proptest: injected write failure");
@@ -617,7 +566,7 @@ export async function startClient(
       life = buildLife(doors);
       if (offline) {
         landed = null;
-        await mount(life);
+        await life.session.startup();
         goOffline(life);
       } else {
         await load(life, at);
@@ -630,11 +579,13 @@ export async function startClient(
     undeliveredAtDeath,
     deathLanePushes: () => deathLanePushes,
     lostReplyBatches,
-    mode: () => life.state.mode,
-    appliedVersion: () => life.replicaSync.appliedVersion(),
-    hasStarted: () => life.replicaSync.hasStarted(),
+    mode: () => life.session.replicaState().mode,
+    problem: () => life.session.problem(),
+    appliedVersion: () => replicaSyncOf(life.session).appliedVersion(),
+    hasStarted: () => replicaSyncOf(life.session).hasStarted(),
     startAttempted: () => life.state.startAttempted,
-    canEdit: () => computeEditability(life.state.status, life.state.mode).canEdit,
+    canEdit: () => computeEditability(life.session.status(),
+                                      life.session.replicaState().mode).canEdit,
     cursor() {
       const hasMeta = db.select(
         "SELECT 1 AS n FROM sqlite_master WHERE type = 'table' AND name = 'sync_client_meta'", ["n"],

@@ -1,7 +1,8 @@
 // pattern: Imperative Shell
-// The startup poison gate and the poison repair, without React. SyncProvider
-// creates one per replica-backed mount and feeds its sync events into the
-// syncState core; anything else (a test harness) can drive it the same way.
+// The startup poison gate and the poison repair, without React. The sync
+// session (session.ts) creates one per replica-backed session and folds its
+// sync events through the syncState core; the queue property harness wires
+// one by hand.
 //
 // Startup closes the reload window in which later durable work could post
 // before a previously rejected optimistic batch is repaired: the barrier's
@@ -34,13 +35,14 @@ export interface ClientRuntimeDeps {
   replica: Pick<Replica, "poisonedBatches" | "deleteBatch">;
   replicaSync: Pick<ReplicaSync, "start" | "rebaseAuthoritative" |
     "completeAuthoritativeRepair">;
-  /** SyncProvider passes applySync. */
+  /** The session passes its fold over transitionSync. */
   onSyncEvent: (event: SyncEvent) => void;
   /** The startup "no-replica" report for a replica that proved unusable. */
   onReplicaState: (state: ReplicaState) => void;
-  /** An owner whose teardown lags its unmount: SyncProvider passes its
-   * mountedRef, which turns false synchronously at unmount, while dispose()
-   * waits a microtask so a StrictMode effect replay can keep the runtime.
+  /** An owner whose teardown lags its unmount: the session passes its
+   * liveness, which turns false synchronously at SyncProvider's unmount,
+   * while dispose() waits a microtask so a StrictMode effect replay can keep
+   * the runtime.
    * Work in that gap is skipped exactly as after dispose(). */
   isMounted?: () => boolean;
 }
@@ -51,8 +53,8 @@ export interface ClientRuntime {
   /** The startup effect's body: setOnline(false), pause, retryPoisonMarks,
    * then continueStartup. Resolves with startupRun(). */
   startup(): Promise<void>;
-  /** The promise of the current/last startup run (useSocketLifecycle's
-   * startupRun); resolved before the first startup(). */
+  /** The promise of the current/last startup run, which the session's first
+   * connect waits on; resolved before the first startup(). */
   startupRun(): Promise<void>;
   /** Discovery after marking: repair every marked or discovered poison row,
    * or resume delivery when there is none, then start the replica sync. */
@@ -60,7 +62,7 @@ export interface ClientRuntime {
   /** Repair these poison rows; joins (and widens) a repair already running. */
   repair(events: readonly PoisonEvent[]): Promise<void>;
   /** Execute a planRetry() result for the poison-side plans; "legacy-repair"
-   * stays with SyncProvider. */
+   * stays with the session's legacy repair. */
   runRetry(plan: PoisonRetryPlan): Promise<void>;
   /** A socket reconnect: rerun a repair whose last attempt failed, exactly as
    * the banner's "repair-targets" Retry does; otherwise nothing. A repair
@@ -162,10 +164,10 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
         const message = messageOf(error);
         if (availabilityOf(error) === "unusable") {
           discovering = false;
-          // Report the mode directly, exactly as SyncProvider's null-replica
-          // path does. There is nothing to "mark": the worker has latched the
-          // fact, and every later replica call — including the start() a
-          // reconnect triggers — replays it.
+          // Report the mode directly, exactly as the session's startup does
+          // with no replica. There is nothing to "mark": the worker has
+          // latched the fact, and every later replica call — including the
+          // start() a reconnect triggers — replays it.
           if (live()) {
             deps.onReplicaState({ mode: "no-replica" });
             queue.resume("poison");

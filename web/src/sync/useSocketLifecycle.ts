@@ -1,146 +1,50 @@
 // pattern: Imperative Shell
-// SyncProvider's connect/reconnect lifecycle, extracted from the one mount
-// effect that used to hold all of it. Four phases, in the order they run:
-//   1. mount-time pending bootstrap — leftovers from a previous page load (a
-//      reload can kill an in-flight POST), read before the first connect can
-//      start draining them;
-//   2. the reconnect protocol (reconnectFlow.ts), including its subscription
-//      to the queue's drain outcomes;
-//   3. socket status — the queue's connectivity is driven synchronously here,
-//      never from a status effect, which would race child refetch effects;
-//   4. StrictMode-safe teardown — terminal ownership cleanup deferred one
-//      microtask so React's development effect replay can keep the memoized
-//      queue/replica alive.
+// The websocket for SyncProvider's sync session (session.ts), and the
+// session's StrictMode-safe teardown. The session owns everything a socket
+// status means: the queue's connectivity, the first-connect gate and the
+// reconnect protocol. Its status callback is driven synchronously from the
+// socket, never from a status effect, which would race child refetch effects.
 import { useEffect, useRef, type MutableRefObject } from "react";
-import { createReconnectFlow } from "./reconnectFlow";
-import type { OpQueue } from "./opQueue";
-import type { ReplicaSync } from "./replicaSync";
-import { connectSocket, type WsBatch, type WsSeq } from "./socket";
-import type { SyncStatus } from "./syncState";
+import type { SyncSession } from "./session";
+import { connectSocket } from "./socket";
 
 export interface SocketLifecycleDeps {
-  /** Both mount-stable useMemo values: this lifecycle runs once per mount. */
-  queue: OpQueue;
-  replicaSync: ReplicaSync | null;
-  /** Durable rows a previous page load left behind; started once per mount. */
-  readInitialPending: () => Promise<number>;
-  /** The startup poison gate: a first connect waits for it before flushing. */
-  startupRun: () => Promise<void>;
-  /** Reruns a failed poison or legacy repair: every connect's reconnect
-   * protocol starts with it (reconnectFlow.ts). */
-  retryFailedRepair: () => Promise<void>;
+  /** Mount-stable: the effect runs once per mount. */
+  session: SyncSession;
   /** False after unmount (owned by the provider, which also guards on it). */
   mountedRef: MutableRefObject<boolean>;
-  /** Written synchronously on every transition: the offline gateway and the
-   * replica-state callback must not lag a transition by a React render. */
-  statusRef: MutableRefObject<SyncStatus>;
-  onBatch: (batch: WsBatch) => void;
-  onSeq: (frame: WsSeq) => void;
-  onStatus: (status: SyncStatus) => void;
-  onResync: () => void;
-  /** Terminal ownership cleanup the provider owns (the worker-backed replica
-   * it created); runs after the queue and replica sync have been shut down. */
+  /** After session.dispose(): the worker-backed replica SyncProvider made. */
   disposeOwned: () => void;
 }
 
 export function useSocketLifecycle(deps: SocketLifecycleDeps): void {
-  // Read through a ref so the effect below depends only on the two
-  // mount-stable values and never re-runs on a render-identity change.
+  // Read through a ref so the effect below depends only on the session and
+  // never re-runs on a render-identity change.
   const depsRef = useRef(deps);
   depsRef.current = deps;
-  const everConnectedRef = useRef(false);
-  const { queue, replicaSync } = deps;
+  const { session } = deps;
 
   useEffect(() => {
-    const { mountedRef, statusRef } = depsRef.current;
+    const { mountedRef } = depsRef.current;
     mountedRef.current = true;
-    const initialPending = depsRef.current.readInitialPending();
-    const reconnect = createReconnectFlow({
-      queue,
-      replicaSync,
-      isMounted: () => mountedRef.current,
-      onResync: () => depsRef.current.onResync(),
-      retryFailedRepair: () => depsRef.current.retryFailedRepair(),
-    });
-    // Drains completing out of band reach this mount's reconnect flow, and
-    // nothing after its cleanup.
-    const offDrain = queue.onDrain((outcome) => reconnect.observeDrain(outcome));
-
     const handle = connectSocket({
-      onBatch: (batch) => depsRef.current.onBatch(batch),
-      onSeq: (frame) => depsRef.current.onSeq(frame),
-      onStatus: (up) => {
-        // Drive the queue's connectivity synchronously here: the pump must be
-        // paused/resumed at the exact transition.
-        queue.setOnline(up);
-        statusRef.current = up ? "connected" : "reconnecting";
-        if (up) {
-          if (everConnectedRef.current) {
-            // Unlike observeDrain (which wraps its own finish() in a .catch),
-            // begin() does not swallow: a throw inside it (e.g. a
-            // non-availability replicaSync.start() failure) must not become
-            // an unhandled rejection here.
-            void reconnect.begin().catch((error: unknown) => {
-              console.error("reconnect.begin() failed", error);
-            });
-          } else {
-            // A first connect with a non-empty durable queue IS a reconnect
-            // after a gap — the gap just spans page loads. Views have already
-            // fetched server state that predates the flush, and the flushed
-            // batches echo back under this tab's own clientId (filtered), so
-            // only the resync bump can refresh them. `viewsAreStale` is what
-            // says so: this session's mount-time catch-up may already have
-            // absorbed the flush, leaving the reconnect's own cursor
-            // comparison with nothing to report.
-            //
-            // A pending count of zero is NOT by itself proof there is nothing
-            // to do: an offline cold start's mount-time startupRun() already
-            // tried replicaSync.start(), and if the snapshot fetch failed for
-            // being offline, the replica never reached "ready" — the failure
-            // is swallowed in clientRuntime.startup, and a failed start arms
-            // no retry timer while offline, so only this connect retries it.
-            // Gate on `hasStarted()` too, so this
-            // first connect still runs the reconnect protocol (which retries
-            // start()) instead of leaving the replica un-bootstrapped until a
-            // reload. A replica that never existed (`null`) needs
-            // no such retry — there is nothing for start() to (re)do.
-            void initialPending.then(async (n) => {
-              await depsRef.current.startupRun();
-              const needsBootstrap = replicaSync !== null && !replicaSync.hasStarted();
-              if (n > 0 || needsBootstrap) {
-                await reconnect.begin({ viewsAreStale: true });
-              }
-            }).catch((error: unknown) => {
-              console.error("first-connect reconnect.begin() failed", error);
-            });
-          }
-          everConnectedRef.current = true;
-          if (mountedRef.current) depsRef.current.onStatus("connected");
-        } else {
-          if (mountedRef.current) depsRef.current.onStatus("reconnecting");
-        }
-      },
+      onBatch: (batch) => session.onBatch(batch),
+      onSeq: (frame) => session.onSeq(frame),
+      onStatus: (up) => { void session.onSocketStatus(up); },
     });
 
     return () => {
       mountedRef.current = false;
-      offDrain();
       handle.close();
       // React StrictMode immediately replays effects in development while
       // preserving memoized resources. Defer terminal ownership cleanup one
-      // microtask so the replayed setup can keep them alive; a real unmount
-      // leaves mountedRef false and performs cleanup exactly once.
+      // microtask so the replayed setup can keep the session alive; a real
+      // unmount leaves mountedRef false and performs cleanup exactly once.
       queueMicrotask(() => {
         if (mountedRef.current) return;
-        // A stopped instance's in-flight pull may still finish, but must not
-        // reschedule another backoff retry that outlives this component.
-        replicaSync?.stop();
-        queue.dispose();
+        session.dispose();
         depsRef.current.disposeOwned();
       });
     };
-    // queue and replicaSync are both mount-stable useMemo values; listing
-    // them satisfies the dependency check without letting this connect/
-    // reconnect effect re-run (they never change identity for this mount).
-  }, [queue, replicaSync]);
+  }, [session]);
 }

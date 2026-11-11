@@ -280,13 +280,13 @@ the replica.
 | `ready` | `start()` succeeds, or a pull or reset succeeds after a report | a report below |
 | `stalled` | `STALL_AFTER_FAILURES` counted failures of a pull or a start | a later pull or start succeeds, or Reset local data |
 | `recovery-failed` | a `runRecovery` that reports (`reportReplicaFailure`) throws | as `stalled` |
-| `no-replica` | an error `isSessionFatal()` accepts, from init, a pull or a failed `start()` (`noteFailure`); a latched failed open met by startup discovery; SyncProvider when there is no replica (`runtime === null`) | never: only a reload brings a new worker |
+| `no-replica` | an error `isSessionFatal()` accepts, from init, a pull or a failed `start()` (`noteFailure`); a latched failed open met by startup discovery; the session when there is no replica (`runtime === null`) | never: only a reload brings a new worker |
 
 **A session-fatal error ends replica mode for the session.** A dead worker
 leaves its RPC client terminal and a failed open is latched, so every later
 call fails the same way. `noteFailure` then reports `no-replica` with the
 error, arms no retry, and `appliedVersion()` reads null so every reconnect
-refetches views. SyncProvider raises the `replica-unusable` banner from it,
+refetches views. `transitionSync` raises the `replica-unusable` banner from the `replica-state` report,
 whose Reload is the way out. Nothing reports the death before the next
 replica call from `replicaSync`, so until then an offline edit still goes to
 the lane under the offline banner's memory-only sentence.

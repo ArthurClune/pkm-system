@@ -2403,9 +2403,11 @@ describe("skipped ops in an ack", () => {
 });
 
 describe("a listener subscribed in the same tick as the call still hears it", () => {
-  // SyncProvider subscribes in effects, after the commit that built the queue.
-  // That is only sound while no call emits synchronously: every emission
-  // follows at least one await (persist on persistChain, delivery on a POST).
+  // The session is built during render, so construction must report nothing;
+  // and a listener added after construction (a harness's, a test's) must
+  // still hear every emission. Both hold only while no call emits
+  // synchronously: every emission follows at least one await (persist on
+  // persistChain, delivery on a POST).
 
   test("enqueue's rejected-op desync reaches a listener added after the call",
   async () => {

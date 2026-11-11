@@ -6,7 +6,7 @@ import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
 import type { DeliveryOutcome, WriteTicket } from "../sync/opQueue";
 import { block, defer, makeSync, orderIdxOf, uidOf, shaOf, ticketIdOf, canonicalTitleOf } from "../test-helpers";
-import { acquireOutlineSession } from "./outlineSessions";
+import { acquireOutlineSession, isOutlineSessionActive } from "./outlineSessions";
 import { HISTORY_BLOCKED_NOTICE, historyIdle, performRedo, performUndo,
          recordHistory, registerOutlineHistory, resetHistory,
          setAssetReleaser, setHistoryNavigator,
@@ -334,6 +334,42 @@ it("a failed load ships the recorded batch unstamped, navigates, and later dispa
   expect(warn).toHaveBeenCalled();
   clear();
   warn.mockRestore();
+});
+
+it.each([
+  ["succeeds", (gate: ReturnType<typeof defer<BlockNode[]>>) =>
+    gate.resolve([block("tuid-a", "stale read", { order_idx: orderIdxOf(0) })])],
+  ["fails", (gate: ReturnType<typeof defer<BlockNode[]>>) =>
+    gate.reject(new Error("offline"))],
+])("an outline that mounts while the page read %s gets the replay",
+   async (_name, finish) => {
+  const sync = makeSync();
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const gate = defer<BlockNode[]>();
+  const reading = defer<void>();
+  setHistoryPageLoader(() => {
+    reading.resolve();
+    return gate.promise;
+  });
+  recordHistory(entry());
+  performUndo(sync);
+  await reading.promise;
+  const mounted = acquireOutlineSession(PAGE, [
+    block("tuid-a", "after", { order_idx: orderIdxOf(0) })]);
+  try {
+    finish(gate);
+    await historyIdle();
+    expect(sync.sent).toEqual([[{ op: "update_text", uid: "tuid-a", text: "before",
+                                 base_text_hash: sha256Hex("after"),
+                                 page_title: PAGE }]]);
+    expect(mounted.getSnapshot().blocks[0].text).toBe("before");
+    await sync.tickets[0].delivered;
+  } finally {
+    mounted.release();
+    warn.mockRestore();
+  }
+  await new Promise((r) => setTimeout(r, 0));
+  expect(isOutlineSessionActive(PAGE)).toBe(false); // the peek was released
 });
 
 it("a throwing enqueue is logged and does not break later dispatches or leak the session", async () => {

@@ -1,11 +1,11 @@
 ---
 # pkm-go73
 title: Undo replay to a page that mounts during its page read skips applyLocal
-status: todo
+status: in-progress
 type: bug
 priority: normal
 created_at: 2026-10-25T12:48:05Z
-updated_at: 2026-11-11T13:34:46Z
+updated_at: 2026-11-11T13:53:50Z
 ---
 
 ## Symptom
@@ -24,8 +24,8 @@ replay is enqueued without `handle.applyLocal`.
 
 ## Fix
 
-- [ ] Red unit test: a session mounts while `dispatchUnmounted` awaits the read; the replay must reach that session's tree
-- [ ] After the await, peek the session again; if one exists, go through `dispatchWithSession` (re-planning against the session's tree, not the read)
+- [x] Red unit test: a session mounts while `dispatchUnmounted` awaits the read; the replay must reach that session's tree
+- [x] After the await, peek the session again; if one exists, go through `dispatchWithSession` (re-planning against the session's tree, not the read)
 - [ ] `proptest/check.sh web` (undo history) before merge
 
 ## Out of scope (ruled 2026-11-11)

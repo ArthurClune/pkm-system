@@ -31,7 +31,7 @@ import type { BlockNode } from "../api/payloads";
 import { releaseAssets } from "../sync/assetRelease";
 import type { DeliveryOutcome, WriteTicket } from "../sync/opQueue";
 import { pagePath } from "../paths";
-import { planReplay, type PlannedReplay } from "./command";
+import { planReplay } from "./command";
 import type { FocusTarget } from "./edits";
 import { emptyHistory, recordEntry, restoreEntry, takeRedo,
          takeUndo, type BatchAnchors, type HistoryEntry,
@@ -299,18 +299,29 @@ async function dispatchUnmounted(
   // writes, so with none this tab holds nothing unresolved for the page and
   // the page as the normal read returns it is a correct tree to re-key and
   // stamp against. If that read fails the recorded batch ships as it is
-  // (planReplay with no tree). A reset during the read drops the dispatch
-  // whole.
-  let plan: PlannedReplay;
+  // (planReplay with no tree). A session that mounted during the read (an
+  // earlier step's settle() navigated here) is newer than the read and must
+  // apply the replay, so it wins over both. A reset during the read drops
+  // the dispatch whole.
+  let live: BlockNode[] | null;
+  let readError: unknown = null;
   try {
-    const live = await loadPage(title);
-    if (stale()) return dropped();
-    plan = planReplay(live, batch, anchors, title);
+    live = await loadPage(title);
   } catch (e: unknown) {
-    if (stale()) return dropped();
-    console.warn("undo/redo could not read the page; sending unstamped", e);
-    plan = planReplay(null, batch, anchors, title);
+    live = null;
+    readError = e;
   }
+  if (stale()) return dropped();
+  const handle = peekOutlineSession(title);
+  if (handle) {
+    return dispatchWithSession(sync, handle, batch, anchors, title, focus,
+                               onRefused);
+  }
+  if (live === null) {
+    console.warn("undo/redo could not read the page; sending unstamped",
+                 readError);
+  }
+  const plan = planReplay(live, batch, anchors, title);
   if (plan.refusal !== null) return refuse(title, focus, onRefused, plan.refusal);
   const write = sync.enqueue(plan.wireOps, ["page", title]);
   settle(title, focus);

@@ -164,10 +164,10 @@ MINT_SITES: dict[str, tuple[str, ...]] = {
     # The importer appends sidebar entries one past the current max.
     "SidebarOrderIdx": (_CONTRACTS, "server/src/pkm/importer/sidebar_rows.py",
                         _WEB_ROWS, _WEB_WIRE),
-    # assets_core parses and digests; title_migration digests its plan; the
-    # web's `sha256Hex` digests text and `parseSha256Hex` reads a hash.
+    # assets_core parses and digests; title_migration_core digests its plan;
+    # the web's `sha256Hex` digests text and `parseSha256Hex` reads a hash.
     "Sha256Hex": (_CONTRACTS, "server/src/pkm/assets_core.py",
-                  "server/src/pkm/title_migration.py",
+                  "server/src/pkm/title_migration_core.py",
                   "web/src/replica/sha256.ts",
                   _WEB_ROWS, _WEB_WIRE, _WEB_PENDING_OPS, _WEB_POISON),
     # `parseSyncSeq` reads a cursor out of an untrusted value.

@@ -10,7 +10,7 @@ from pkm.contracts.ops import Sha256Hex
 from pkm.database import Db
 from pkm.contracts.titles import RawTitle
 from pkm.refs import target_canonical_title, title_syntax_reason
-from pkm.title_migration import (
+from pkm.title_migration_core import (
     InventoryBlock,
     InventoryPage,
     InventoryRef,

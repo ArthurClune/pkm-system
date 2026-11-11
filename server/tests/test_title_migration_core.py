@@ -5,7 +5,7 @@ from dataclasses import replace
 from typing import Callable
 
 from pkm.refs import CanonicalTitle, canonicalize_title
-from pkm.title_migration import (
+from pkm.title_migration_core import (
     InventoryBlock,
     InventoryPage,
     InventoryRef,

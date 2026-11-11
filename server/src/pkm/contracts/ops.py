@@ -58,7 +58,7 @@ OpKind = Literal["create", "update_text", "move", "delete", "set_collapsed",
 # its base type, so the wire format is unchanged; `brand` carries the name
 # to the web's generated types. Minted by `text_hash`/`subtree_hash` (and
 # their web twin `sha256Hex`), by `assets_core.sha256_hex` for
-# content-addressed asset files, and by `title_migration._plan_digest`; a
+# content-addressed asset files, and by `title_migration_core._plan_digest`; a
 # test literal standing in for a hash wraps in `Sha256Hex(...)`.
 Sha256Hex = NewType("Sha256Hex", str)
 brand(Sha256Hex)

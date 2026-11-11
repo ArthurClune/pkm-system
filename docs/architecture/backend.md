@@ -194,12 +194,6 @@ linked-references filter reads its refs, so an excerpt is no substitute.
 positions mean nothing outside their group. `GET /api/block/{uid}` has one
 trail and keeps it as texts in `breadcrumbs`.
 
-Every `BacklinkItem` also carries `breadcrumbs`, for tabs running a bundle
-built before `ancestors`. Such a bundle reads it off every item and throws
-to the root error screen when it is missing. It holds
-`STALE_BUNDLE_CRUMB` (`…`) where the item has a trail and nothing
-otherwise, never the texts.
-
 The single-chain walks stop a cycle with a path string, spelled once in
 `ops_apply._unvisited`. Each walk has a replica mirror; change a pair
 together. None caps depth, so a chain deeper than `MAX_OUTLINE_DEPTH` from

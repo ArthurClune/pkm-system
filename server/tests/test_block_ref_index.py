@@ -89,7 +89,7 @@ def test_block_backlinks_groups(client):
     assert [g["page_title"] for g in groups] == ["July 7th, 2026"]
     assert [i["uid"] for i in groups[0]["items"]] == ["uid_b5"]
     assert groups[0]["items"][0]["text"] == "See ((uid_b3)) for details"
-    assert groups[0]["items"][0]["breadcrumbs"] == []
+    assert "breadcrumbs" not in groups[0]["items"][0]
 
 
 def test_block_backlinks_empty_for_unreferenced_block(client):

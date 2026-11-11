@@ -10,7 +10,7 @@ import { showBacklinkGroups } from "./groups";
 
 const group = (n: number) => ({
   page_id: pageIdOf(n), page_title: canonicalTitleOf(`P${n}`),
-  items: [{ uid: uidOf(`tuid-${n}`), text: `t${n}`, breadcrumbs: [] }],
+  items: [{ uid: uidOf(`tuid-${n}`), text: `t${n}` }],
 });
 const initial: Backlinks = {
   groups: [group(1)], total_pages: 3, offset: 0, limit: 1,

@@ -20,22 +20,19 @@ it("walks multiple batches, growing groups and total pages as it goes", async ()
   const fetchBatch = vi.fn()
     .mockResolvedValueOnce(batch({
       groups: [
-        { page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-u1"), text: "one",
-          breadcrumbs: [] }] },
+        { page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-u1"), text: "one" }] },
       ],
       total_pages: 3,
     }))
     .mockResolvedValueOnce(batch({
       groups: [
-        { page_id: pageIdOf(2), page_title: canonicalTitleOf("B"), items: [{ uid: uidOf("tuid-u2"), text: "two",
-          breadcrumbs: [] }] },
+        { page_id: pageIdOf(2), page_title: canonicalTitleOf("B"), items: [{ uid: uidOf("tuid-u2"), text: "two" }] },
       ],
       total_pages: 3,
     }))
     .mockResolvedValueOnce(batch({
       groups: [
-        { page_id: pageIdOf(3), page_title: canonicalTitleOf("C"), items: [{ uid: uidOf("tuid-u3"), text: "three",
-          breadcrumbs: [] }] },
+        { page_id: pageIdOf(3), page_title: canonicalTitleOf("C"), items: [{ uid: uidOf("tuid-u3"), text: "three" }] },
       ],
       total_pages: 3,
     }));
@@ -64,16 +61,15 @@ it("dedupes items a later batch repeats for an already-seen page", async () => {
   const fetchBatch = vi.fn()
     .mockResolvedValueOnce(batch({
       groups: [
-        { page_id: pageIdOf(9), page_title: canonicalTitleOf("Src"), items: [{ uid: uidOf("tuid-s1"), text: "one",
-          breadcrumbs: [] }] },
+        { page_id: pageIdOf(9), page_title: canonicalTitleOf("Src"), items: [{ uid: uidOf("tuid-s1"), text: "one" }] },
       ],
       total_pages: 2,
     }))
     .mockResolvedValueOnce(batch({
       // same page, one repeated item + one new item
       groups: [{ page_id: pageIdOf(9), page_title: canonicalTitleOf("Src"),
-                 items: [{ uid: uidOf("tuid-s1"), text: "one", breadcrumbs: [] },
-                         { uid: uidOf("tuid-s2"), text: "two", breadcrumbs: [] }] }],
+                 items: [{ uid: uidOf("tuid-s1"), text: "one" },
+                         { uid: uidOf("tuid-s2"), text: "two" }] }],
       total_pages: 2,
     }));
 
@@ -103,7 +99,7 @@ it("stops without applying a batch once the caller reports staleness", async () 
         {
           page_id: pageIdOf(calls),
           page_title: canonicalTitleOf(`P${calls}`),
-          items: [{ uid: uidOf(`tuid-u${calls}`), text: "x", breadcrumbs: [] }],
+          items: [{ uid: uidOf(`tuid-u${calls}`), text: "x" }],
         },
       ],
       total_pages: 3,
@@ -126,8 +122,7 @@ it("propagates a batch fetch failure without applying any partial progress", asy
   const fetchBatch = vi.fn()
     .mockResolvedValueOnce(batch({
       groups: [
-        { page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-u1"), text: "one",
-          breadcrumbs: [] }] },
+        { page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-u1"), text: "one" }] },
       ],
       total_pages: 3,
     }))
@@ -157,8 +152,8 @@ it("stops when a non-empty batch yields no new distinct group (no-growth termina
   const fetchBatch = vi.fn().mockResolvedValueOnce(batch({
     // merges into the page already present in the starting state -- group count
     // doesn't grow
-    groups: [{ page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-u2"), text: "two",
-      breadcrumbs: [] }] }],
+    groups: [{ page_id: pageIdOf(1), page_title: canonicalTitleOf("A"),
+      items: [{ uid: uidOf("tuid-u2"), text: "two" }] }],
     total_pages: 5,
   }));
   const starting: BacklinkBatchState = {
@@ -189,8 +184,7 @@ it("merges block_ref_texts across batches", async () => {
     .mockResolvedValueOnce(batch(
       {
         groups: [
-          { page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-u1"), text: "one",
-            breadcrumbs: [] }] },
+          { page_id: pageIdOf(1), page_title: canonicalTitleOf("A"), items: [{ uid: uidOf("tuid-u1"), text: "one" }] },
         ],
         total_pages: 2,
       },
@@ -199,8 +193,7 @@ it("merges block_ref_texts across batches", async () => {
     .mockResolvedValueOnce(batch(
       {
         groups: [
-          { page_id: pageIdOf(2), page_title: canonicalTitleOf("B"), items: [{ uid: uidOf("tuid-u2"), text: "two",
-            breadcrumbs: [] }] },
+          { page_id: pageIdOf(2), page_title: canonicalTitleOf("B"), items: [{ uid: uidOf("tuid-u2"), text: "two" }] },
         ],
         total_pages: 2,
       },
@@ -224,8 +217,7 @@ it("merges block_ref_texts across batches", async () => {
 it("fetches a single batch and stops when nextLimit only allows one (loadMore-style)", async () => {
   const fetchBatch = vi.fn().mockResolvedValueOnce(batch({
     groups: [
-      { page_id: pageIdOf(4), page_title: canonicalTitleOf("D"), items: [{ uid: uidOf("tuid-u4"), text: "four",
-        breadcrumbs: [] }] },
+      { page_id: pageIdOf(4), page_title: canonicalTitleOf("D"), items: [{ uid: uidOf("tuid-u4"), text: "four" }] },
     ],
     total_pages: 9,
   }));

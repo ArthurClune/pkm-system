@@ -14,9 +14,9 @@ it("an error notice is an alert and a status notice is a status", () => {
 
   expect(container.innerHTML).toBe(
     '<p class="error upload-error" role="alert">bad.png: 413'
-    + '<button type="button" class="btn-secondary">Dismiss</button></p>'
+    + '<button type="button" class="btn-secondary btn-compact">Dismiss</button></p>'
     + '<p class="editor-notice" role="status">No URL nearby'
-    + '<button type="button" class="btn-secondary">Dismiss</button></p>');
+    + '<button type="button" class="btn-secondary btn-compact">Dismiss</button></p>');
 });
 
 it("Dismiss calls onDismiss", () => {
@@ -38,4 +38,13 @@ it("className joins the tone's classes", () => {
 
   expect(screen.getByRole("alert").className)
     .toBe("error upload-error top-bar-error");
+});
+
+it("the Dismiss button is compact", () => {
+  render(<DismissibleNotice tone="status" onDismiss={() => {}}>
+    Saved
+  </DismissibleNotice>);
+
+  expect(screen.getByRole("button", { name: "Dismiss" }))
+    .toHaveClass("btn-secondary", "btn-compact");
 });

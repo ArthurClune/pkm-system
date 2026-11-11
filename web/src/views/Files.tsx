@@ -138,7 +138,7 @@ function FileCard({ item, checked, onToggle, onCopy }: {
         )}
       </span>
       {item.refs.length === 0 && (
-        <button type="button" className="btn-secondary file-copy"
+        <button type="button" className="btn-secondary btn-compact file-copy"
                 onClick={onCopy}>
           Copy link
         </button>

@@ -16,7 +16,7 @@ export function DismissibleNotice({ tone, onDismiss, className, children }: {
     <p className={className ? `${toneClass} ${className}` : toneClass}
        role={tone === "error" ? "alert" : "status"}>
       {children}
-      <button type="button" className="btn-secondary" onClick={onDismiss}>
+      <button type="button" className="btn-secondary btn-compact" onClick={onDismiss}>
         Dismiss
       </button>
     </p>

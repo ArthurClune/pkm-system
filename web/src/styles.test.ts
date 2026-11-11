@@ -947,3 +947,30 @@ describe("the z-index scale", () => {
       .toBeLessThan(tokenValue("--z-modal"));
   });
 });
+
+describe("compact buttons", () => {
+  test("the compact button is one class", () => {
+    const body = ruleFor(".btn-compact");
+    expect(body).toContain("padding: 1px 8px;");
+    expect(body).toContain("font-size: 13px;");
+    for (const suffix of [".upload-error button", ".editor-notice button"]) {
+      expect(allRules.some((rule) => rule.selectors.some(
+        (member) => normalise(member).endsWith(suffix))), suffix).toBe(false);
+    }
+  });
+
+  // Same specificity as .btn-secondary, so only source order lets it win.
+  test("the compact button follows .btn-secondary", () => {
+    const at = (selector: string) =>
+      allRules.findIndex((rule) => isWhole(rule, selector));
+    expect(at(".btn-compact")).toBeGreaterThan(at(".btn-secondary"));
+  });
+
+  test("the file card's Copy link takes its size from .btn-compact", () => {
+    expect(ruleFor(".file-copy")).not.toMatch(/padding|font-size/);
+  });
+
+  test("no rule styles the unused .empty-day", () => {
+    expect(styles).not.toContain("empty-day");
+  });
+});

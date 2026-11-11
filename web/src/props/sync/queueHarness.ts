@@ -13,7 +13,16 @@
 //   repairs   the poison repair's snapshot (replicaSync.rebaseAuthoritative)
 //             and the outline repair's outline read each wait on a command
 //   recovery  replicaSync's runRecovery: pause("recovery"), the lease's gate,
-//             then the gate and resume("recovery")
+//             its preemptible flush through deliverLeased one row per
+//             command, then a commit that deletes the rows it got acks for
+//             (an abort, after a failed flush, keeps them), the gate and
+//             resume("recovery"); it starts only once startup has let go,
+//             as replicaSync starts after the runtime's startup
+//   marks     a bad batch's first mark fails, or finds no row (the
+//             stand-in deletes it first, as a reset would have), as drawn;
+//             the banner's Retry and Discard are commands too, offered
+//             once a mark has failed, and Discard also while a repair
+//             runs, which the runtime's rule covers
 // The model (queueModel.ts) watches the same events and judges each POST as
 // it starts. Retry timers are vitest's fake setTimeout, fired only by the
 // retryTimer command, so an example replays from its seed.
@@ -31,13 +40,13 @@ import { memReplica } from "../../sync/memReplica";
 import { createOpQueue, type DeliveryOutcome } from "../../sync/opQueue";
 import { batchIdOf, pendingRowIdOf, seqOf, uidOf } from "../../test-helpers";
 import { accepted, claimProblems, deliveryProblems, holders, initialModel, noteApplied,
-         notePost, releaseProblems, type BatchInfo, type Owner, type Persist,
-         type Refusal } from "./queueModel";
+         notePoisonRelease, notePost, noteRepairDelete, releaseProblems, type BatchInfo,
+         type Mark, type Owner, type Persist, type Refusal } from "./queueModel";
 
 export type Respond = "ack" | "lostAck" | "netFail";
 
 export type QueueCmd =
-  | { t: "edit"; persist: Persist; refusal: Refusal; bad: boolean }
+  | { t: "edit"; persist: Persist; refusal: Refusal; bad: boolean; mark: Mark }
   | { t: "respond"; kind: Respond }
   | { t: "offline" }
   | { t: "online" }
@@ -52,13 +61,16 @@ export type QueueCmd =
   | { t: "outlineFails" }
   | { t: "outlineDone" }
   | { t: "retryTimer" }
-  | { t: "drain" };
+  | { t: "drain" }
+  | { t: "retryMarks" }
+  | { t: "discard" }
+  | { t: "recoveryFlush" };
 
 export const showCmd = (c: QueueCmd): string => {
   switch (c.t) {
     case "edit":
       return `edit(${c.persist}${c.refusal === "none" ? "" : `, ${c.refusal}`}` +
-        `${c.bad ? ", bad" : ""})`;
+        `${c.bad ? ", bad" : ""}${c.bad && c.mark !== "ok" ? `, mark ${c.mark}` : ""})`;
     case "respond": return `respond(${c.kind})`;
     case "repair": return `repair(${c.ok ? "ok" : "fails"})`;
     default: return c.t;
@@ -88,6 +100,8 @@ interface Read {
 interface InFlight {
   batchId: BatchId;
   copy: "durable" | "lane";
+  /** Posted by the recovery's leased flush. */
+  leased: boolean;
   resolve: (ack: OpsAck) => void;
   reject: (error: unknown) => void;
 }
@@ -122,6 +136,17 @@ export async function runQueueExample(
   const laneWaiting = new Set<BatchId>();
   let lastHanded: BatchId | null = null;
   let repairFailed = false;
+  /** Bad batches whose drawn mark fault has fired: only the first mark. */
+  const markFaulted = new Set<BatchId>();
+  /** A mark failed and neither Retry nor Discard has answered it: the
+   * failed mark's banner, which offers both. */
+  let markFailed = false;
+  let repairRunning = false;
+  /** The batch the leased flush is delivering, while deliverLeased runs. */
+  let leasing: BatchId | null = null;
+  /** This recovery's acked leased rows, and whether its flush failed. */
+  const leaseAcked = new Set<BatchId>();
+  let flushFailed = false;
 
   const replica: Replica = {
     ...memReplica(),
@@ -160,32 +185,50 @@ export async function runQueueExample(
       if (at !== -1) rows.splice(at, 1);
       if (model.poison.has(batchId)) {
         if (holders(model).length > 1) count("poison released, others held");
-        model.poison.delete(batchId);
+        if (model.releaseWithRepair) count("poison left to a repair released by it");
+        noteRepairDelete(model, batchId);
       }
       return { pending: live() };
     }),
-    markPoisoned: (id, _error, batchId) => work(() => {
-      const row = rows.find((r) => r.id === id && r.batch_id === batchId);
-      if (row) row.poisoned = true;
-      return { pending: live(), matched: row !== undefined };
-    }),
+    markPoisoned: (id, _error, batchId) => {
+      const drawn = model.batches.get(batchId)?.mark ?? "ok";
+      const fault = drawn === "ok" || markFaulted.has(batchId) ? null : drawn;
+      markFaulted.add(batchId);
+      const where = repairRunning ? "during a repair" : "no repair running";
+      return work(() => {
+        if (fault === "fails") {
+          count(`mark fails, ${where}`);
+          throw new Error("SQLITE_BUSY: database is locked");
+        }
+        if (fault === "unmatched") {
+          count(`mark finds no row, ${where}`);
+          const at = rows.findIndex((r) => r.id === id && r.batch_id === batchId);
+          if (at !== -1) rows.splice(at, 1);
+        }
+        const row = rows.find((r) => r.id === id && r.batch_id === batchId);
+        if (row) row.poisoned = true;
+        return { pending: live(), matched: row !== undefined };
+      });
+    },
     pendingCount: () => work(live),
     poisonedBatches: () => work(() => rows.filter((r) => r.poisoned).map((r) => ({
       id: r.id, batch_id: r.batch_id, ops: r.ops, status: 400, message: "bad batch",
     }))),
   };
 
-  let inFlight: InFlight | null = null;
-  // Read through a call: the assignments happen inside closures, which
-  // control-flow narrowing does not see.
-  const flying = (): InFlight | null => inFlight;
+  /** Answered oldest first. Only a leased POST may overlap another. */
+  const inFlight: InFlight[] = [];
   const post = (body: OpBatch): Promise<OpsAck> => {
-    const copy = body.batch_id === lastHanded ? "durable" : "lane";
-    lastHanded = null;
-    if (inFlight !== null) model.violations.push(`two POSTs at once: ${body.batch_id}`);
-    notePost(model, body.batch_id, copy);
+    const leased = leasing !== null;
+    const copy = body.batch_id === lastHanded || body.batch_id === leasing ? "durable" : "lane";
+    if (!leased) lastHanded = null;
+    if (!leased && inFlight.some((p) => !p.leased)) {
+      model.violations.push(`two POSTs at once: ${body.batch_id}`);
+    }
+    if (leased && inFlight.length > 0) count("leased POST beside another");
+    notePost(model, body.batch_id, copy, leased);
     return new Promise<OpsAck>((resolve, reject) => {
-      inFlight = { batchId: body.batch_id, copy, resolve, reject };
+      inFlight.push({ batchId: body.batch_id, copy, leased, resolve, reject });
     });
   };
 
@@ -214,7 +257,16 @@ export async function runQueueExample(
       }),
       noteUnavailable: () => undefined,
     },
-    onSyncEvent: () => undefined,
+    onSyncEvent: (e) => {
+      if (e.type === "repair-started") repairRunning = true;
+      if (e.type === "repair-succeeded" || e.type === "repair-failed") repairRunning = false;
+    },
+  });
+  queue.onPoisonMarkFailed(() => { markFailed = true; });
+  // The queue's report that a marking round matched nothing.
+  queue.onPoisonMarkUnmatched(() => {
+    count(repairRunning ? "unmatched round during a repair" : "unmatched round, no repair");
+    notePoisonRelease(model, repairRunning);
   });
   const reads: Read[] = [];
   const outline = createOutlineRepair({
@@ -243,7 +295,9 @@ export async function runQueueExample(
     switch (c.t) {
       case "edit": {
         edits += 1;
-        const info: BatchInfo = { idx: edits, persist: c.persist, refusal: c.refusal, bad: c.bad };
+        const info: BatchInfo = {
+          idx: edits, persist: c.persist, refusal: c.refusal, bad: c.bad, mark: c.mark,
+        };
         const uid = uidOf(`tuid-q${edits}`);
         const ops: BlockOp[] = c.refusal === "overLimit"
           ? [{ op: "update_text", uid, text: NESTED }]
@@ -261,11 +315,17 @@ export async function runQueueExample(
         return true;
       }
       case "respond": {
-        const p: InFlight | null = inFlight;
-        if (p === null) return false;
-        inFlight = null;
+        const p = inFlight.shift();
+        if (p === undefined) return false;
         const info = model.batches.get(p.batchId)!;
+        if (info.bad && p.leased) {
+          // deliverLeased throws: no poison mark, and a lane entry stays.
+          count(`leased ${p.copy} batch rejected`);
+          p.reject(new ApiError(400, "/api/ops", "bad batch"));
+          return true;
+        }
         if (info.bad) {
+          if (leasing !== null) count("durable rejection while a leased flush runs");
           if (p.copy === "durable") {
             count("durable batch rejected");
             model.poison.add(p.batchId);
@@ -280,7 +340,7 @@ export async function runQueueExample(
           p.reject(new ApiError(400, "/api/ops", "bad batch"));
           return true;
         }
-        count(`respond ${c.kind} (${p.copy})`);
+        count(`respond ${c.kind} (${p.leased ? "leased " : ""}${p.copy})`);
         if (c.kind === "netFail") {
           p.reject(new ApiError(503, "/api/ops"));
           return true;
@@ -319,19 +379,73 @@ export async function runQueueExample(
         return true;
       case "recoveryStart":
         if (model.recovery) return false;
-        if (inFlight?.copy === "lane") count("recovery started over a lane POST");
+        if (inFlight.some((p) => p.copy === "lane")) count("recovery started over a lane POST");
         model.recovery = true;
         queue.pause("recovery");
         recoveryHold = true;
+        leaseAcked.clear();
+        flushFailed = false;
         return true;
-      case "recoveryEnd":
-        if (!model.recovery) return false;
+      case "recoveryFlush": {
+        if (!model.recovery || model.startup || leasing !== null || flushFailed) return false;
+        const row = rows.find((r) => !r.poisoned && !leaseAcked.has(r.batch_id));
+        if (row === undefined) return false;
+        // replicaSync's preemptible flush: a poison claim abandons it.
+        const beforePost = (): void => {
+          if (queue.holds("poison")) throw new Error("poison preempted the flush");
+        };
+        try {
+          beforePost();
+        } catch {
+          count("leased flush preempted before its batch");
+          flushFailed = true;
+          return true;
+        }
+        const idx = model.batches.get(row.batch_id)!.idx;
+        if ([...laneWaiting].some((b) => model.batches.get(b)!.idx < idx)) {
+          count("leased flush with a lane entry ahead");
+        }
+        leasing = row.batch_id;
+        void queue.deliverLeased({ ...row }, beforePost).then(() => {
+          leaseAcked.add(row.batch_id);
+        }, (error: unknown) => {
+          count(error instanceof Error && error.message === "poison preempted the flush"
+            ? "leased flush preempted after its lane ahead" : "leased flush failed");
+          flushFailed = true;
+        }).finally(() => { leasing = null; });
+        return true;
+      }
+      case "recoveryEnd": {
+        if (!model.recovery || leasing !== null) return false;
         if (model.lane) count("recovery ended while lane held");
         released("recovery");
+        // The commit deletes the rows its flush got acks for; an abort keeps
+        // every row.
+        const committed = flushFailed ? [] : [...leaseAcked];
+        if (committed.length > 0) count("recovery committed leased acks");
+        for (const id of committed) {
+          const at = rows.findIndex((r) => r.batch_id === id);
+          if (at !== -1) rows.splice(at, 1);
+        }
         recoveryHold = false;
         pump();
         model.recovery = false;
         queue.resume("recovery");
+        queue.settleCommitted(committed.map((batch_id) => ({ batch_id, skipped: [] })));
+        return true;
+      }
+      case "retryMarks":
+        if (!markFailed) return false;
+        markFailed = false;
+        void runtime.runRetry({ kind: "retry-poison-marks", continueStartup: false });
+        return true;
+      case "discard":
+        if (!markFailed && !repairRunning) return false;
+        count(`discard${markFailed ? " of a failed mark" : ""}, ${
+          repairRunning ? "during a repair" : "no repair running"}`);
+        markFailed = false;
+        notePoisonRelease(model, repairRunning);
+        void runtime.discardPoisonIntents();
         return true;
       case "holdGate":
         if (extraHold) return false;
@@ -414,20 +528,21 @@ export async function runQueueExample(
       if (model.recovery) step({ t: "recoveryEnd" });
       if (extraHold) step({ t: "releaseGate" });
       if (!online) step({ t: "online" });
-      if (flying() !== null) step({ t: "respond", kind: "ack" });
+      if (inFlight.length > 0) step({ t: "respond", kind: "ack" });
+      step({ t: "retryMarks" });
       if (rebases.length > 0) step({ t: "repair", ok: true });
       if (!step({ t: "outlineStable" })) step({ t: "outlineDone" });
       void runtime.retryFailedRepair().then(() => outline.retryFailed());
       vi.advanceTimersByTime(10_000);
       void queue.drain();
       await settle();
-      quiet = flying() === null && rebases.length === 0 && reads.length === 0 &&
+      quiet = inFlight.length === 0 && rebases.length === 0 && reads.length === 0 &&
         rows.length === 0 && unsent === 0 && holders(model).length === 0 &&
         outcomes.every((o) => o.outcome !== null || o.info.refusal === "overLimit");
     }
     if (!quiet) {
       findings.push(`not quiescent after ${QUIESCE_ROUNDS} rounds: ` +
-        `in flight ${flying()?.batchId ?? "none"}, ` +
+        `in flight ${inFlight.map((p) => p.batchId).join(" ") || "none"}, ` +
         `rebases ${rebases.length}, reads ${reads.length}, rows ${rows.length}, ` +
         `lane ${unsent}, held ${holders(model).join(", ") || "none"}`);
     }

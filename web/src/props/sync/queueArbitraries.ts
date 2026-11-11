@@ -5,7 +5,7 @@
 // command answers, holds or releases one thing the queue is waiting on.
 import fc from "fast-check";
 import type { QueueCmd, Respond } from "./queueHarness";
-import type { Persist, Refusal } from "./queueModel";
+import type { Mark, Persist, Refusal } from "./queueModel";
 
 /** What a failing example throws: the model's findings and the commands. */
 export class QueueReport extends Error {
@@ -24,7 +24,12 @@ const edit: fc.Arbitrary<QueueCmd> = fc.record({
   ),
   // One in three: a lane rejection needs a bad batch whose write failed.
   bad: fc.nat({ max: 2 }).map((n) => n === 0),
-}).map(({ persist, refusal, bad }) => ({ t: "edit", persist, refusal, bad }));
+  // Read only for a bad batch's durable mark.
+  mark: fc.oneof(
+    { weight: 6, arbitrary: fc.constant<Mark>("ok") },
+    { weight: 1, arbitrary: fc.constantFrom<Mark>("fails", "unmatched") },
+  ),
+}).map(({ persist, refusal, bad, mark }) => ({ t: "edit", persist, refusal, bad, mark }));
 
 const simple = (t: Exclude<QueueCmd["t"], "edit" | "respond" | "repair">) =>
   fc.constant<QueueCmd>({ t } as QueueCmd);
@@ -47,6 +52,9 @@ export const queueCommand: fc.Arbitrary<QueueCmd> = fc.oneof(
   { weight: 1, arbitrary: simple("outlineDone") },
   { weight: 1, arbitrary: simple("retryTimer") },
   { weight: 1, arbitrary: simple("drain") },
+  { weight: 1, arbitrary: simple("retryMarks") },
+  { weight: 1, arbitrary: simple("discard") },
+  { weight: 2, arbitrary: simple("recoveryFlush") },
 );
 
 export const queueCommands: fc.Arbitrary<QueueCmd[]> =

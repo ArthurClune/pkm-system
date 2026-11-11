@@ -1,12 +1,21 @@
 // pattern: Functional Core
-// The queue property's model, from sync-recovery.md § The recovery barrier
-// and § The in-memory fallback lane, never from opQueue: who holds the
-// barrier, which batches the server has applied, and what each POST may be.
-//   barrier   no POST starts while any owner holds the barrier:
+// The queue property's model, from sync-recovery.md § The recovery barrier,
+// § A batch the server rejects and § The in-memory fallback lane, never from
+// opQueue: who holds the barrier, which batches the server has applied, and
+// what each POST may be.
+//   barrier   no POST starts while any owner holds the barrier, except a
+//             recovery's own leased POSTs (the leased batch, and the lane
+//             entries it follows, posted ahead of it), which only a poison
+//             claim stops (§ A batch the server rejects). The docs give the
+//             lane's claim no rule over them, and in the app no recovery
+//             runs under startup's, which this property's pauseStartup can
+//             still draw:
 //               startup   between the property's pause and resume
 //               recovery  between a recovery's start and end
-//               poison    while a durable row the server rejected is still
-//                         in the replica
+//               poison    from a durable rejection until the repair deletes
+//                         the row; a discard or a marking round that finds no
+//                         row releases it at once when no repair runs, and
+//                         leaves it to the running repair's end otherwise
 //               lane      from a lane entry's rejection until the next
 //                         outline repair turns stable
 //   order     the server applies this client's batches in enqueue order,
@@ -25,6 +34,9 @@ export type Owner = "startup" | "poison" | "recovery" | "lane";
 
 export type Persist = "ok" | "writeFails" | "lostReply";
 export type Refusal = "none" | "overLimit" | "replicaRejected";
+/** How a bad batch's first durable mark goes: as usual, failing, or
+ * finding its row already gone. */
+export type Mark = "ok" | "fails" | "unmatched";
 
 export interface BatchInfo {
   /** Position in enqueue order. */
@@ -33,13 +45,17 @@ export interface BatchInfo {
   refusal: Refusal;
   /** The server rejects this batch whenever it is posted. */
   bad: boolean;
+  mark: Mark;
 }
 
 export interface QueueModel {
   startup: boolean;
   recovery: boolean;
-  /** Rejected durable rows still in the replica. */
+  /** Rejected durable rows whose poison claim is still open. */
   poison: Set<BatchId>;
+  /** A discard or an unmatched round came while a repair ran: the claim
+   * goes when that repair (or a later one) deletes its row. */
+  releaseWithRepair: boolean;
   lane: boolean;
   batches: Map<BatchId, BatchInfo>;
   /** First applications, in server order. */
@@ -49,7 +65,8 @@ export interface QueueModel {
 
 export function initialModel(): QueueModel {
   return {
-    startup: false, recovery: false, poison: new Set(), lane: false,
+    startup: false, recovery: false, poison: new Set(), releaseWithRepair: false,
+    lane: false,
     batches: new Map(), applied: [], violations: [],
   };
 }
@@ -63,12 +80,36 @@ export function holders(m: QueueModel): Owner[] {
   return out;
 }
 
-/** A POST is starting: the barrier must be clear. */
-export function notePost(m: QueueModel, batchId: BatchId, copy: string): void {
-  const held = holders(m);
+/** A POST is starting: the barrier must be clear, and for a POST the
+ * recovery's lease makes, clear of poison. */
+export function notePost(m: QueueModel, batchId: BatchId, copy: string,
+                         leased = false): void {
+  const held = holders(m).filter((o) => !leased || o === "poison");
   if (held.length > 0) {
-    m.violations.push(`barrier: ${copy} ${batchId} posted while ${held.join(", ")} held`);
+    m.violations.push(`barrier: ${leased ? "leased " : ""}${copy} ${batchId}` +
+                      ` posted while ${held.join(", ")} held`);
   }
+}
+
+/** A repair deleted `batchId`'s row: that claim goes, and with it any the
+ * repair was left to release. */
+export function noteRepairDelete(m: QueueModel, batchId: BatchId): void {
+  m.poison.delete(batchId);
+  if (m.releaseWithRepair) {
+    m.poison.clear();
+    m.releaseWithRepair = false;
+  }
+}
+
+/** A discard of the retained mark intents, or a marking round that matched
+ * no row: the poison claim goes now, unless a repair runs. */
+export function notePoisonRelease(m: QueueModel, repairRunning: boolean): void {
+  if (repairRunning) {
+    if (m.poison.size > 0) m.releaseWithRepair = true;
+    return;
+  }
+  m.poison.clear();
+  m.releaseWithRepair = false;
 }
 
 /** The server applies `batchId` (first time or replay). */

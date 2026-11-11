@@ -14,6 +14,16 @@
 //                        owner (claim)
 //   poison kept          the runtime never resumes poison, so a repair
 //                        that succeeds keeps its claim (release)
+//   discard frees        a discard releases poison even while a repair
+//                        runs (claim, or barrier when a POST follows)
+//   discard keeps        a discard with no repair running keeps the claim
+//                        (release)
+//   mark failure frees   a failed mark releases poison, though its row is
+//                        still unmarked (claim, barrier)
+//   unmatched keeps      a marking round that matched no row keeps the
+//                        claim (release)
+//   lane ahead skipped   a leased flush posts its batch before the lane
+//                        entries it follows (order)
 import { afterEach, beforeEach, vi } from "vitest";
 import type { ClientRuntimeDeps } from "../../sync/clientRuntime";
 import type { BarrierOwner } from "../../sync/queueState";
@@ -30,6 +40,12 @@ const mutants = vi.hoisted(() => ({
   markAfterRpc: false,
   holdsNothing: false,
   keepPoison: false,
+  discardFrees: false,
+  discardKeeps: false,
+  markFailureFrees: false,
+  unmatchedKeeps: false,
+  skipLaneAhead: false,
+  inLeased: false,
   isLost: (_id: string): boolean => false,
 }));
 
@@ -52,6 +68,8 @@ vi.mock("../../sync/outbox", async (importOriginal) => {
     ...real,
     markFollows: (...[s, batchId]: Parameters<typeof real.markFollows>) =>
       mutants.markAfterRpc && mutants.isLost(batchId) ? s : real.markFollows(s, batchId),
+    headPrecedes: (...args: Parameters<typeof real.headPrecedes>) =>
+      !(mutants.skipLaneAhead && mutants.inLeased) && real.headPrecedes(...args),
   };
 });
 
@@ -61,7 +79,18 @@ vi.mock("../../sync/opQueue", async (importOriginal) => {
     ...real,
     createOpQueue: (...args: Parameters<typeof real.createOpQueue>) => {
       const queue = real.createOpQueue(...args);
-      return { ...queue, holds: (o: BarrierOwner) => !mutants.holdsNothing && queue.holds(o) };
+      return {
+        ...queue,
+        holds: (o: BarrierOwner) => !mutants.holdsNothing && queue.holds(o),
+        deliverLeased: async (...[batch, beforePost]: Parameters<typeof queue.deliverLeased>) => {
+          mutants.inLeased = true;
+          try {
+            return await queue.deliverLeased(batch, beforePost);
+          } finally {
+            mutants.inLeased = false;
+          }
+        },
+      };
     },
   };
 });
@@ -70,13 +99,34 @@ vi.mock("../../sync/clientRuntime", async (importOriginal) => {
   const real = await importOriginal<typeof import("../../sync/clientRuntime")>();
   return {
     ...real,
-    createClientRuntime: (deps: ClientRuntimeDeps) => real.createClientRuntime({
-      ...deps,
-      queue: {
-        ...deps.queue,
-        resume: (o) => { if (!(mutants.keepPoison && o === "poison")) deps.queue.resume(o); },
-      },
-    }),
+    createClientRuntime: (deps: ClientRuntimeDeps) => {
+      const runtime = real.createClientRuntime({
+        ...deps,
+        queue: {
+          ...deps.queue,
+          resume: (o) => { if (!(mutants.keepPoison && o === "poison")) deps.queue.resume(o); },
+          onPoisonMarkFailed: (fn) => deps.queue.onPoisonMarkFailed((failure) => {
+            fn(failure);
+            if (mutants.markFailureFrees) deps.queue.resume("poison");
+          }),
+          onPoisonMarkUnmatched: (fn) => deps.queue.onPoisonMarkUnmatched(() => {
+            if (!mutants.unmatchedKeeps) fn();
+          }),
+        },
+      });
+      return {
+        ...runtime,
+        discardPoisonIntents: () => {
+          if (mutants.discardKeeps) {
+            deps.queue.discardPoisonIntents();
+            return Promise.resolve();
+          }
+          const done = runtime.discardPoisonIntents();
+          if (mutants.discardFrees) deps.queue.resume("poison");
+          return done;
+        },
+      };
+    },
   };
 });
 
@@ -92,6 +142,11 @@ const disarm = (): void => {
   mutants.markAfterRpc = false;
   mutants.holdsNothing = false;
   mutants.keepPoison = false;
+  mutants.discardFrees = false;
+  mutants.discardKeeps = false;
+  mutants.markFailureFrees = false;
+  mutants.unmatchedKeeps = false;
+  mutants.skipLaneAhead = false;
 };
 
 expectMutantsCaught({
@@ -120,6 +175,27 @@ expectMutantsCaught({
       catches: ["release"], disarm,
       arm: () => { mutants.keepPoison = true; },
     },
+    "a discard that frees poison under a running repair breaks the claim": {
+      catches: ["claim", "barrier"], disarm,
+      arm: () => { mutants.discardFrees = true; },
+    },
+    "a discard that keeps poison with no repair running breaks the release": {
+      catches: ["release"], disarm,
+      arm: () => { mutants.discardKeeps = true; },
+    },
+    "a failed mark that frees poison breaks the claim": {
+      catches: ["claim", "barrier"], disarm,
+      arm: () => { mutants.markFailureFrees = true; },
+    },
+    "an unmatched round that keeps poison breaks the release": {
+      catches: ["release"], disarm,
+      arm: () => { mutants.unmatchedKeeps = true; },
+    },
+    "a leased flush that skips the lane ahead breaks the order": {
+      catches: ["order"], disarm,
+      arm: () => { mutants.skipLaneAhead = true; },
+    },
+
   },
   arbs: [queueCommands],
   problems: async (_, cmds: QueueCmd[]) => runQueueExample(cmds, () => undefined),

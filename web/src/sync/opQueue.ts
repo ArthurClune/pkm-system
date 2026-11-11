@@ -127,9 +127,6 @@ export interface OpQueue {
    * gating on it would interrupt an ordinary offline reload that risks
    * nothing. */
   onUnsentInMemory(fn: (n: number) => void): () => void;
-  /** Internal recovery ownership signal. Unlike onPoison, this fires before
-   * the durable poison mark so a recovery lease cannot flush a stale row. */
-  onPoisonPending(fn: () => void): () => void;
   onPoisonMarkFailed(fn: (failure: PoisonMarkFailure) => void): () => void;
   onPoison(fn: (event: PoisonEvent) => void): () => void;
   /** Fires once per markRetainedPoison call in which intents existed and NONE
@@ -223,7 +220,6 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
   const skipped = listeners<void>();
   const pending = listeners<number>();
   const unsentInMemory = listeners<number>();
-  const poisonPending = listeners<void>();
   const poisonMarkFailed = listeners<PoisonMarkFailure>();
   const poison = listeners<PoisonEvent>();
   const poisonMarkUnmatched = listeners<void>();
@@ -491,10 +487,9 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
     };
     // Claim the shared recovery barrier as soon as the server rejects
     // the batch. markPoisoned may wait behind a recovery lease whose
-    // snapshot still says this row is valid; that lease must learn it
-    // is stale before it begins its next POST.
+    // snapshot still says this row is valid; that lease reads this claim
+    // (holds("poison")) before each POST, so it learns it is stale first.
     dispatch({ type: "pause", owner: "poison" });
-    poisonPending.emit(undefined);
     rememberPoisonMark(event);
     finishDelivery(batch.batch_id, { status: "failed", error });
     // Terminal for this batch: it is never POSTed again (the barrier holds
@@ -844,7 +839,6 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
       return totalPending();
     },
     onUnsentInMemory: unsentInMemory.add,
-    onPoisonPending: poisonPending.add,
     onPoisonMarkFailed: poisonMarkFailed.add,
     onPoison: poison.add,
     onPoisonMarkUnmatched: poisonMarkUnmatched.add,

@@ -9,6 +9,7 @@ import {
   uidOf, clientIdOf, batchIdOf, seqOf, pendingRowIdOf, sentBatchId, sentBody, bodyBatchId,
   ANY_STRING,
 } from "../test-helpers";
+import type { BarrierOwner } from "./queueState";
 import {
   createReplicaSync, PENDING_CHANGED_CAP, PENDING_IDS_CAP, ResetBlockedError, RETRY_BASE_MS,
   RETRY_MAX_MS, STALL_AFTER_FAILURES, WINDOW_STRIKES, type ReplicaState,
@@ -81,6 +82,29 @@ function fakeReplica(over: Partial<Replica> = {},
 function collector() {
   const states: ReplicaState[] = [];
   return { states, onState: (s: ReplicaState) => { states.push(s); } };
+}
+
+/** The queue's barrier as replicaSync reads it: pause and resume recorded,
+ * and the poison claim in the test's hand, its release heard by onRelease
+ * as the queue's resume of "poison" would be. */
+function fakeClaim() {
+  const released = new Set<(owner: BarrierOwner) => void>();
+  let held = false;
+  return {
+    queue: {
+      pause: vi.fn(), resume: vi.fn(),
+      onRelease: (fn: (owner: BarrierOwner) => void) => {
+        released.add(fn);
+        return () => { released.delete(fn); };
+      },
+    },
+    holdsPoison: () => held,
+    claim: () => { held = true; },
+    release: () => {
+      held = false;
+      released.forEach((fn) => fn("poison"));
+    },
+  };
 }
 
 // Tests that drive a failure path on purpose spy on console.warn and assert
@@ -464,15 +488,18 @@ describe("poison recovery ownership", () => {
       if (changesCall === 2) await heldFeed;
       return feed({ next_since: seqOf(6), latest_seq: seqOf(6) });
     });
-    const queue = { pause: vi.fn(), resume: vi.fn() };
+    const claim = fakeClaim();
+    const { queue } = claim;
     const { onState } = collector();
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState, queue,
+      holdsPoison: claim.holdsPoison,
     });
     await sync.start();
 
     sync.onSeq(seqOf(9));
     await vi.waitFor(() => { expect(changesCall).toBe(2); });
+    claim.claim();
     const firstRepair = sync.rebaseAuthoritative("poison")
       .then(() => null, (error: unknown) => error);
     releaseHeldFeed();
@@ -501,8 +528,7 @@ describe("poison recovery ownership", () => {
     expect(resumesBeforeRetryCommit).toEqual([["recovery"]]);
     expect(queue.resume).not.toHaveBeenCalledWith("poison");
     expect(snapshotCalls).toBe(2); // failed poison snapshot + successful Retry
-    expect(sync.completeAuthoritativeRepair).toBeTypeOf("function");
-    sync.completeAuthoritativeRepair("poison");
+    claim.release();
   });
 
   test("poison preempts a normal recovery lease before its stale flush starts", async () => {
@@ -541,24 +567,18 @@ describe("poison recovery ownership", () => {
       if (path === "/api/sync/snapshot") return { ...SNAP, seq: 10 };
       return feed({ next_since: seqOf(6), latest_seq: seqOf(6) });
     });
-    let signalPoisonPending: () => void = () => undefined;
-    const queue = {
-      pause: vi.fn(),
-      resume: vi.fn(),
-      onPoisonPending: (listener: () => void) => {
-        signalPoisonPending = listener;
-        return () => undefined;
-      },
-    };
+    const claim = fakeClaim();
+    const { queue } = claim;
     const { onState } = collector();
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState, queue,
+      holdsPoison: claim.holdsPoison,
     });
     await sync.start();
 
     sync.onSeq(seqOf(9));
     await acquired; // normal recovery owns a stale pre-mark lease snapshot
-    signalPoisonPending(); // 4xx observed; markPoisoned is blocked by that lease
+    claim.claim(); // 4xx observed; markPoisoned is blocked by that lease
     releaseLease();
     await sync.idle();
 
@@ -585,7 +605,7 @@ describe("poison recovery ownership", () => {
     );
   });
 
-  test("an unmatched poison round releases ownership so a later needs-bootstrap pull can rebootstrap",
+  test("a released poison claim lets a later needs-bootstrap pull rebootstrap",
   async () => {
     let applyCall = 0;
     const replica = fakeReplica({
@@ -598,34 +618,17 @@ describe("poison recovery ownership", () => {
     });
     const fetchJson = vi.fn(async (path: string) =>
       path === "/api/sync/snapshot" ? SNAP : feed());
-    let signalPoisonPending: () => void = () => undefined;
-    let signalUnmatched: () => void = () => undefined;
-    const queue = {
-      pause: vi.fn(),
-      resume: vi.fn(),
-      onPoisonPending: (listener: () => void) => {
-        signalPoisonPending = listener;
-        return () => undefined;
-      },
-      onPoisonMarkUnmatched: (listener: () => void) => {
-        signalUnmatched = listener;
-        return () => undefined;
-      },
-    };
+    const claim = fakeClaim();
+    const { queue } = claim;
     const { onState } = collector();
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState, queue,
+      holdsPoison: claim.holdsPoison,
     });
     await sync.start(); // consumes applyCall #1 ("applied"), nothing poison-related yet
 
-    // Calling the unmatched signal with no claim held is a no-op: nothing to
-    // release, so resume must not fire yet.
-    signalUnmatched();
-    expect(queue.resume).not.toHaveBeenCalled();
-
-    signalPoisonPending(); // claims ownership, as rejectDurableBatch would
-    signalUnmatched(); // the marking round matched nothing
-    expect(queue.resume.mock.calls).toEqual([["poison"]]);
+    claim.claim(); // as rejectDurableBatch would
+    claim.release(); // the runtime's release: the marking round matched nothing
 
     sync.onSeq(seqOf(9));
     await sync.idle(); // drives applyCall #2 ("needs-bootstrap")
@@ -1614,22 +1617,16 @@ describe("resetLocalData", () => {
   test("resetLocalData rejects immediately when poison "
     + "owns recovery, without touching the queue or lease", async () => {
     const replica = fakeReplica();
-    let signalPoisonPending: () => void = () => undefined;
-    const queue = {
-      pause: vi.fn(),
-      resume: vi.fn(),
-      onPoisonPending: (listener: () => void) => {
-        signalPoisonPending = listener;
-        return () => undefined;
-      },
-    };
+    const claim = fakeClaim();
+    const { queue } = claim;
     const fetchJson = vi.fn(async () => feed());
     const { onState } = collector();
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState, queue,
+      holdsPoison: claim.holdsPoison,
     });
     await sync.start();
-    signalPoisonPending();
+    claim.claim();
 
     await expect(sync.resetLocalData({ discardPending: true }))
       .rejects.toThrow("rejected-batch repair in progress");
@@ -1641,19 +1638,12 @@ describe("resetLocalData", () => {
   test("resetLocalData releases only its own claim when poison now owns recovery",
        async () => {
     const replica = fakeReplica();
-    let signalPoisonPending: () => void = () => undefined;
-    const queue = {
-      pause: vi.fn(),
-      resume: vi.fn(),
-      onPoisonPending: (listener: () => void) => {
-        signalPoisonPending = listener;
-        return () => undefined;
-      },
-    };
+    const claim = fakeClaim();
+    const { queue } = claim;
     const fetchJson = vi.fn(async (path: string) => {
       if (path === "/api/sync/snapshot") {
         // poison observed mid-reset, after the entry guard already passed
-        signalPoisonPending();
+        claim.claim();
         return SNAP;
       }
       return feed();
@@ -1661,6 +1651,7 @@ describe("resetLocalData", () => {
     const { onState } = collector();
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState, queue,
+      holdsPoison: claim.holdsPoison,
     });
     await sync.start();
 
@@ -2367,21 +2358,14 @@ describe("acks held across a flush and rebase", () => {
       commitRecovery,
       abortRecovery,
     });
-    let signalPoisonPending: () => void = () => undefined;
-    const queue = {
-      pause: vi.fn(),
-      resume: vi.fn(),
-      onPoisonPending: (listener: () => void) => {
-        signalPoisonPending = listener;
-        return () => undefined;
-      },
-    };
+    const claim = fakeClaim();
+    const { queue } = claim;
     const posted: string[] = [];
     const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === "/api/ops") {
         posted.push(sentBatchId(init));
         // a later batch's rejection lands while this one is in flight
-        signalPoisonPending();
+        claim.claim();
         return { ok: true, ts: 1, applied: 1, seq: 8 };
       }
       if (path === "/api/sync/snapshot") return SNAP;
@@ -2389,6 +2373,7 @@ describe("acks held across a flush and rebase", () => {
     });
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState: collector().onState, queue,
+      holdsPoison: claim.holdsPoison,
     });
 
     await sync.start();
@@ -2807,7 +2792,7 @@ describe("a dead worker under a poison repair", () => {
     // feed rebase is under way, and the worker dies before its lease. The
     // poison deferral must not swallow a session-fatal error.
     let applyCall = 0;
-    let signalPoisonPending: () => void = () => undefined;
+    const claim = fakeClaim();
     const replica = fakeReplica({
       applyChanges: async (window: Changes) => {
         applyCall += 1;
@@ -2816,20 +2801,15 @@ describe("a dead worker under a poison repair", () => {
           : { status: "needs-bootstrap" as const };
       },
       prepareRecovery: async () => {
-        signalPoisonPending();
+        claim.claim();
         throw new RpcLifecycleError("worker-error", "replica worker failed");
       },
     });
-    const queue = {
-      pause: vi.fn(), resume: vi.fn(),
-      onPoisonPending: (listener: () => void) => {
-        signalPoisonPending = listener;
-        return () => undefined;
-      },
-    };
+    const { queue } = claim;
     const { states, onState } = collector();
     const sync = createReplicaSync({
       replica, fetchJson: async () => feed(), clientId: CID, onState, queue,
+      holdsPoison: claim.holdsPoison,
     });
     await sync.start();
     sync.onSeq(seqOf(9));
@@ -2865,16 +2845,11 @@ describe("a pull left to a poison repair", () => {
       }
       return path === "/api/sync/snapshot" ? SNAP : feed();
     });
-    let signalPoisonPending: () => void = () => undefined;
-    const queue = {
-      pause: vi.fn(), resume: vi.fn(),
-      onPoisonPending: (listener: () => void) => {
-        signalPoisonPending = listener;
-        return () => undefined;
-      },
-    };
+    const claim = fakeClaim();
+    const { queue } = claim;
     const sync = createReplicaSync({
       replica, fetchJson, clientId: CID, onState: () => undefined, queue,
+      holdsPoison: claim.holdsPoison,
     });
     await sync.start();
     held = true;
@@ -2883,7 +2858,8 @@ describe("a pull left to a poison repair", () => {
     await vi.waitFor(() => { expect(fetches).toBe(2); });
     return {
       sync, replica, fetches: () => fetches, applyCalls: () => applyCall,
-      claimPoison: () => { signalPoisonPending(); },
+      claimPoison: () => { claim.claim(); },
+      releasePoison: () => { claim.release(); },
       releaseFetch: () => { releaseFetch(); },
     };
   }
@@ -2910,7 +2886,7 @@ describe("a pull left to a poison repair", () => {
     expect(h.fetches()).toBe(2);
     expect(h.replica.calls).not.toContain("prepareRecovery");
 
-    h.sync.completeAuthoritativeRepair("poison");
+    h.releasePoison();
     await h.sync.idle();
     expect(h.fetches()).toBe(3);
   });

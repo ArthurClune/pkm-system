@@ -114,6 +114,8 @@ interface RigOptions {
   isMounted?: () => boolean;
   retryBaseMs?: number;
   repairSessions?: OutlineHooks["repairSessions"];
+  /** The mark intents a previous page load left; none by default. */
+  retained?: readonly PoisonEvent[];
 }
 
 const sessions: SyncSession[] = [];
@@ -157,7 +159,7 @@ function rig(options: RigOptions = {}) {
     fetchJson,
     queue: {
       post,
-      poisonStore: { read: () => [], write: () => undefined },
+      poisonStore: { read: () => [...(options.retained ?? [])], write: () => undefined },
       newBatchId: () => { minted += 1; return batchIdOf(`batch-${minted}`); },
     },
     retryBaseMs: options.retryBaseMs,
@@ -354,6 +356,37 @@ describe("the first connect", () => {
     expect(() => session.onSocketStatus(true)).toThrow();
     expect(session.status()).toBe("connecting");
     expect(reported.statuses).toEqual([]);
+  });
+});
+
+describe("a reload's retained poison mark", () => {
+  test("a connect while a reload's poison mark keeps failing leaves recovery " +
+       "to the poison claim", async () => {
+    const replica = loggingReplica({
+      markPoisoned: async () => { throw new Error("mark rpc failed"); },
+      applyChanges: async () => {
+        trace.log.push("applyChanges");
+        return { status: "needs-bootstrap" };
+      },
+      prepareRecovery: async () => {
+        trace.log.push("prepareRecovery");
+        return { token: "lease", batches: [...replica.rows] };
+      },
+    });
+    const rejected = leftover(1);
+    replica.rows.push(rejected, leftover(2));
+    const { session, server, reported } = rig({
+      replica,
+      retained: [{ id: rejected.id, batch_id: rejected.batch_id,
+                   ops: rejected.ops, status: 400, message: "rejected" }],
+    });
+    await session.startup();
+    await session.onSocketStatus(true);
+    await turns();
+
+    expect(trace.log).not.toContain("prepareRecovery");
+    expect(server.posts).toEqual([]);
+    expect(reported.modes.map((m) => m.mode)).not.toContain("recovery-failed");
   });
 });
 

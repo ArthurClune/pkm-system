@@ -212,7 +212,6 @@ export async function runQueueExample(
       rebaseAuthoritative: () => new Promise<void>((resolve, reject) => {
         rebases.push({ resolve, reject });
       }),
-      completeAuthoritativeRepair: () => undefined,
     },
     onSyncEvent: () => undefined,
     onReplicaState: () => undefined,

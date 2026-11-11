@@ -43,6 +43,7 @@ function setup(opts: SetupOptions = {}) {
   const states: ReplicaState[] = [];
   const poisonFns = new Set<(event: PoisonEvent) => void>();
   const markFailedFns = new Set<(failure: PoisonMarkFailure) => void>();
+  const unmatchedFns = new Set<() => void>();
   const queue: ClientRuntimeDeps["queue"] = {
     setOnline: (online) => { calls.push(`setOnline(${online})`); },
     pause: (reason) => { calls.push(`pause(${reason})`); },
@@ -57,6 +58,10 @@ function setup(opts: SetupOptions = {}) {
     onPoisonMarkFailed: (fn) => {
       markFailedFns.add(fn);
       return () => { markFailedFns.delete(fn); };
+    },
+    onPoisonMarkUnmatched: (fn) => {
+      unmatchedFns.add(fn);
+      return () => { unmatchedFns.delete(fn); };
     },
   };
   const replica = memReplica({
@@ -76,9 +81,6 @@ function setup(opts: SetupOptions = {}) {
       calls.push(`rebaseAuthoritative(${reason})`);
       await opts.rebase?.();
     },
-    completeAuthoritativeRepair: (reason) => {
-      calls.push(`completeAuthoritativeRepair(${reason})`);
-    },
   };
   const runtime = createClientRuntime({
     queue, replica, replicaSync,
@@ -89,8 +91,9 @@ function setup(opts: SetupOptions = {}) {
   const emitPoison = (event: PoisonEvent) => poisonFns.forEach((fn) => fn(event));
   const emitMarkFailed = (failure: PoisonMarkFailure) =>
     markFailedFns.forEach((fn) => fn(failure));
+  const emitUnmatched = () => unmatchedFns.forEach((fn) => fn());
   return { calls, events, states, runtime, emitPoison, emitMarkFailed,
-           poisonFns, markFailedFns };
+           emitUnmatched, poisonFns, markFailedFns, unmatchedFns };
 }
 
 describe("clientRuntime startup", () => {
@@ -114,8 +117,7 @@ describe("clientRuntime startup", () => {
       "setOnline(false)", "pause(startup)", "retryPoisonMarks",
       "poisonedBatches", "pause(poison)",
       "rebaseAuthoritative(poison)", "resume(startup)", "deleteBatch(3,b-3)",
-      "refreshPending", "completeAuthoritativeRepair(poison)",
-      "resume(poison)", "start",
+      "refreshPending", "resume(poison)", "start",
     ]);
     expect(h.events).toEqual([
       { type: "repair-started", event },
@@ -287,8 +289,7 @@ describe("clientRuntime repair and retry", () => {
     await h.runtime.runRetry({ kind: "repair-targets" });
     expect(h.calls).toEqual([
       "pause(poison)", "rebaseAuthoritative(poison)", "deleteBatch(4,b-4)",
-      "refreshPending", "completeAuthoritativeRepair(poison)",
-      "resume(poison)", "start",
+      "refreshPending", "resume(poison)", "start",
     ]);
   });
 
@@ -321,7 +322,7 @@ describe("clientRuntime repair and retry", () => {
     expect(h.calls).toEqual([
       "retryPoisonMarks", "poisonedBatches", "pause(poison)",
       "rebaseAuthoritative(poison)", "resume(startup)", "deleteBatch(6,b-6)", "refreshPending",
-      "completeAuthoritativeRepair(poison)", "resume(poison)", "start",
+      "resume(poison)", "start",
     ]);
   });
 
@@ -368,7 +369,7 @@ describe("clientRuntime repair and retry", () => {
     h.calls.length = 0;
     await h.runtime.discardPoisonIntents();
     expect(h.calls).toEqual([
-      "discardPoisonIntents", "completeAuthoritativeRepair(poison)",
+      "discardPoisonIntents",
       "resume(poison)", "poisonedBatches", "resume(poison)", "resume(startup)",
       "start",
     ]);
@@ -384,13 +385,78 @@ describe("clientRuntime repair and retry", () => {
     h.events.length = 0;
     await h.runtime.discardPoisonIntents();
     expect(h.calls).toEqual([
-      "discardPoisonIntents", "completeAuthoritativeRepair(poison)",
+      "discardPoisonIntents",
       "resume(poison)",
     ]);
     expect(h.events).toEqual([{ type: "poison-intents-discarded" }]);
   });
 
-  test("dispose mid-repair releases the claim but never resumes or starts", async () => {
+  test("discarding a rejected change while a repair runs keeps the poison claim " +
+       "until the repair ends", async () => {
+    const rebase = deferred<void>();
+    const h = setup({ rebase: () => rebase.promise });
+    await h.runtime.startup();
+    h.calls.length = 0;
+    h.emitPoison(poisonEvent(1, "b-1"));
+    await flush();
+    await h.runtime.discardPoisonIntents();
+    await flush();
+    const afterDiscard = (): string[] =>
+      h.calls.slice(h.calls.indexOf("discardPoisonIntents") + 1);
+    expect(afterDiscard()).toEqual([]);
+    rebase.resolve();
+    await flush();
+    expect(afterDiscard().at(-1)).toBe("resume(poison)");
+  });
+
+  test("an unmatched marking round releases poison when no repair runs",
+  async () => {
+    let mounted = true;
+    const h = setup({ isMounted: () => mounted });
+    await h.runtime.startup();
+    h.calls.length = 0;
+    h.emitUnmatched();
+    expect(h.calls).toEqual(["resume(poison)"]);
+    mounted = false;
+    h.emitUnmatched();
+    h.runtime.dispose();
+    h.emitUnmatched();
+    expect(h.calls).toEqual(["resume(poison)"]);
+    expect(h.unmatchedFns.size).toBe(0);
+  });
+
+  test("an unmatched marking round during a repair keeps the claim", async () => {
+    const rebase = deferred<void>();
+    const h = setup({ rebase: () => rebase.promise });
+    await h.runtime.startup();
+    h.emitPoison(poisonEvent(1, "b-1"));
+    await flush();
+    h.calls.length = 0;
+    h.emitUnmatched();
+    expect(h.calls).toEqual([]);
+    rebase.resolve();
+    await flush();
+    expect(h.calls).toEqual([
+      "deleteBatch(1,b-1)", "refreshPending", "resume(poison)",
+    ]);
+  });
+
+  test("an unmatched marking round during discovery leaves the release to " +
+       "continueStartup", async () => {
+    const marks = deferred<readonly PoisonEvent[]>();
+    const h = setup({ marks: () => marks.promise });
+    const run = h.runtime.startup();
+    h.emitUnmatched();
+    expect(h.calls).toEqual(["setOnline(false)", "pause(startup)", "retryPoisonMarks"]);
+    marks.resolve([]);
+    await run;
+    expect(h.calls).toEqual([
+      "setOnline(false)", "pause(startup)", "retryPoisonMarks",
+      "poisonedBatches", "resume(poison)", "resume(startup)", "start",
+    ]);
+  });
+
+  test("dispose mid-repair never resumes or starts", async () => {
     const rebase = deferred<void>();
     const event = poisonEvent(7, "b-7");
     const h = setup({ poisoned: async () => [event], rebase: () => rebase.promise });
@@ -400,8 +466,8 @@ describe("clientRuntime repair and retry", () => {
     h.runtime.dispose();
     rebase.resolve();
     await run;
-    expect(h.calls.slice(-2)).toEqual([
-      "deleteBatch(7,b-7)", "completeAuthoritativeRepair(poison)",
+    expect(h.calls.slice(-1)).toEqual([
+      "deleteBatch(7,b-7)",
     ]);
     expect(h.events).toEqual([{ type: "repair-started", event }]);
     // A Retry after dispose still never restarts the replica sync.
@@ -421,7 +487,7 @@ describe("clientRuntime repair and retry", () => {
     h.calls.length = 0;
     hold.release();
     await flush();
-    expect(h.calls).toEqual(["completeAuthoritativeRepair(poison)"]);
+    expect(h.calls).toEqual([]);
   });
 
   test("a repair owed across an unmount gap is left to the next connect",
@@ -443,8 +509,7 @@ describe("clientRuntime repair and retry", () => {
     await h.runtime.retryFailedRepair();
     expect(h.calls).toEqual([
       "pause(poison)", "rebaseAuthoritative(poison)", "deleteBatch(2,b-2)",
-      "refreshPending", "completeAuthoritativeRepair(poison)",
-      "resume(poison)", "start",
+      "refreshPending", "resume(poison)", "start",
     ]);
   });
 
@@ -571,8 +636,7 @@ describe("clientRuntime reconnect", () => {
     await h.runtime.retryFailedRepair();
     expect(h.calls).toEqual([
       "pause(poison)", "rebaseAuthoritative(poison)", "deleteBatch(3,b-3)",
-      "refreshPending", "completeAuthoritativeRepair(poison)",
-      "resume(poison)", "start",
+      "refreshPending", "resume(poison)", "start",
     ]);
   });
 

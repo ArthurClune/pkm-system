@@ -189,6 +189,7 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
     fetchJson: deps.fetchJson,
     clientId,
     queue,
+    holdsPoison: () => queue.holds("poison"),
     // Same predicate as SyncProvider's offline gateway: a failed pull's retry
     // is pointless while the socket is down, and the reconnect's own start()
     // resumes it once the status flips back.

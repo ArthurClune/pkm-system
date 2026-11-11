@@ -71,13 +71,11 @@ export interface ReplicaSync {
    * with an empty durable queue. A failed start() while online is retried
    * on the pull's backoff. Never goes back to false once true. */
   hasStarted(): boolean;
-  /** Full-snapshot poison repair under the shared recovery lease. Delivery
-   * stays paused on return, under the queue's "poison" owner, so the provider
-   * can delete the poison row, bump view resync, and only then resume it. */
+  /** Full-snapshot poison repair under the shared recovery lease. The caller
+   * holds the queue's "poison" claim before calling, and nothing here claims
+   * or releases it: delivery stays paused on return, so the provider can
+   * delete the poison row, bump view resync, and only then resume it. */
   rebaseAuthoritative(reason: "poison"): Promise<void>;
-  /** Release poison recovery ownership after row deletion/resync scheduling.
-   * This does not resume delivery; the provider owns that final ordering. */
-  completeAuthoritativeRepair(reason: "poison"): void;
   /** Manual recovery for a wedged replica (incident: pullLoop failures were
    * silently swallowed and the cursor froze). Flushes pending writes (unless
    * discardPending) then rebuilds from a fresh snapshot. Throws
@@ -153,10 +151,14 @@ export interface ReplicaSyncDeps {
    * `deliverLaneAhead` is how the recovery flush below gets the drain's own
    * lane-ordering guarantee: this flush posts leased durable rows
    * on its own, knowing nothing about the lane, so flushBatches asks the
-   * queue to deliver whatever the lane holds ahead of each one first. */
+   * queue to deliver whatever the lane holds ahead of each one first.
+   * `onRelease` of "poison" pays the pull a poison repair left owed. */
   queue?: Pick<OpQueue, "pause" | "resume"> &
-    Partial<Pick<OpQueue, "onPoisonPending" | "onPoisonMarkUnmatched" |
-                          "deliverLaneAhead" | "settleCommitted">>;
+    Partial<Pick<OpQueue, "onRelease" | "deliverLaneAhead" | "settleCommitted">>;
+  /** Whether the queue's barrier holds "poison": a poison repair, or a
+   * rejected row still waiting for one, owns recovery, so a normal recovery
+   * must neither start nor post past it. Defaults to never. */
+  holdsPoison?: () => boolean;
   /** True while the socket is down (mirrors the offline gateway's own
    * `session.status() === "reconnecting"` predicate). A failed pull's retry
    * is pointless here -- every retry while offline just reproduces the same
@@ -246,6 +248,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     resume: () => undefined,
   };
   const isOffline = deps.isOffline ?? (() => false);
+  const holdsPoison = deps.holdsPoison ?? (() => false);
   let cursor = INITIAL_SEQ;
   // See appliedVersion(): bumped only through adoptCursor, so a new place that
   // moves the replica forward has to state whether views must refetch.
@@ -260,7 +263,6 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   let rebasedForUnappliableWindow = false;
   let windowFailure: { cursor: SyncSeq; message: string; count: number } | null
     = null;
-  let authoritativeRepair: "poison" | null = null;
   // A pull pass left work to a poison repair; see owePoisonPull.
   let owedAfterPoison = false;
   // Acks the server gave for leased batches whose rows are still queued. The
@@ -347,23 +349,6 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     }
   };
 
-  // The queue fires this synchronously on the terminal-rejection path,
-  // before the durable poison mark and its public event. A normal recovery
-  // lease acquired just before that mark therefore cannot flush its stale
-  // pre-mark batch list.
-  queue.onPoisonPending?.(() => { authoritativeRepair = "poison"; });
-
-  // A marking round that matched no row leaves nothing for onPoison to
-  // trigger a repair from; this is the other half of the claim onPoisonPending
-  // took above, and it must release what that claim owns and nothing more.
-  queue.onPoisonMarkUnmatched?.(() => {
-    if (authoritativeRepair === "poison") {
-      authoritativeRepair = null;
-      queue.resume("poison");
-      payPoisonPull();
-    }
-  });
-
   /** Local data now reflects `seq`. A `"snapshot"` always replaced the
    * database; a `"window"` only moved it if the feed had rows to apply, which
    * is exactly when `next_since` advances past the cursor we asked from. */
@@ -437,7 +422,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   };
 
   const assertNormalRecoveryStillOwnsFlush = (): void => {
-    if (authoritativeRepair === "poison") throw poisonPreempted;
+    if (holdsPoison()) throw poisonPreempted;
   };
 
   const flushBatches = async (
@@ -522,14 +507,14 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // deletes before its replay. A flushing rebase holds an ack for every
       // row it posted. A poison rebase posts nothing; a row behind the
       // rejected one went out only if a normal flush posted it, and two
-      // guards stop that. onPoisonPending claims authoritativeRepair
-      // synchronously, before the durable poison mark, so a lease that could
-      // see the mark fails assertNormalRecoveryStillOwnsFlush before its
-      // first post, and a flush already under way stops at its next one,
-      // its acks held. A poisoned row left by an earlier page load is
-      // repaired before start() (clientRuntime's startup), before any
-      // normal recovery can lease it. Weakening either guard would let a
-      // flush post past a poisoned row and this snapshot replay it twice.
+      // guards stop that. rejectDurableBatch claims "poison" synchronously,
+      // before the durable poison mark, so a lease that could see the mark
+      // fails assertNormalRecoveryStillOwnsFlush before its first post, and a
+      // flush already under way stops at its next one, its acks held. A
+      // poisoned row left by an earlier page load is repaired before start()
+      // (clientRuntime's startup), before any normal recovery can lease it.
+      // Weakening either guard would let a flush post past a poisoned row
+      // and this snapshot replay it twice.
       // A reset drops the queue and replays nothing.
       const snapshot = await fetchSnapshot();
       // Every commit takes the held acks. A reset drops the queue, so it
@@ -553,7 +538,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         noteSuccess({ force: true });
       }
     } catch (error: unknown) {
-      const poisonOwnsRecovery = authoritativeRepair === "poison" ||
+      const poisonOwnsRecovery = holdsPoison() ||
         error === poisonPreempted;
       // A rebase that hit corruption is about to be retried as a reset by
       // recover(); reporting it here would flash a recovery-failed banner
@@ -646,7 +631,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     await reportReplicaProblem("window-unappliable", error);
     // Same ownership rule as the corruption branch: a poison repair holds the
     // recovery lease, so leave the window to the pull that follows it.
-    if (authoritativeRepair === "poison") return "deferred";
+    if (holdsPoison()) return "deferred";
     const result = await recover("rebase");
     if (result.ok) {
       rebasedForUnappliableWindow = true;
@@ -687,20 +672,21 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   };
 
   /** Work a poison repair now owns is left to it: the pass ends, and one
-   * more pull is owed for when the repair releases recovery, since the
+   * more pull is owed for when the queue releases "poison", since the
    * repair may fail and its snapshot then covers nothing. */
   const owePoisonPull = (): void => { owedAfterPoison = true; };
   const payPoisonPull = (): void => {
-    if (!owedAfterPoison || authoritativeRepair === "poison") return;
+    if (!owedAfterPoison || holdsPoison()) return;
     owedAfterPoison = false;
     void pull();
   };
+  queue.onRelease?.((owner) => { if (owner === "poison") payPoisonPull(); });
 
   /** A failed recovery a poison repair now owns is left to that repair,
    * unless its error is session-fatal: that is about the database, not the
    * recovery, and noteFailure must hear it or the mode stays ready. */
   const leftToPoison = (error: unknown): boolean =>
-    authoritativeRepair === "poison" && !isSessionFatal(error);
+    holdsPoison() && !isSessionFatal(error);
 
   const pullLoop = async (): Promise<void> => {
     // Counts consecutive "pending-changed" refetches since the last applied
@@ -733,7 +719,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
           // Same ownership rule as the needs-bootstrap branch below: a
           // poison repair holds the recovery lease; leave the corruption
           // for the pull that follows it.
-          if (authoritativeRepair === "poison") { owePoisonPull(); break; }
+          if (holdsPoison()) { owePoisonPull(); break; }
           const rebuilt = await rebuildForCorruption(error);
           if (!rebuilt.ok) {
             if (leftToPoison(rebuilt.error)) { owePoisonPull(); break; }
@@ -778,7 +764,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         // A rejected batch owns recovery until the provider has deleted its
         // durable row and scheduled resync. Normal recovery would flush
         // later valid rows, breaking poison's stronger ordering.
-        if (authoritativeRepair === "poison") { owePoisonPull(); break; }
+        if (holdsPoison()) { owePoisonPull(); break; }
         const rebased = await recover("rebase");
         if (!rebased.ok) {
           // A poison signal that arrived mid-recovery (flush-time
@@ -898,32 +884,27 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       return started;
     },
     async rebaseAuthoritative(_reason) {
-      // Ownership is claimed before the barrier so a concurrent normal
-      // recovery abandons its stale flush; the rest is the shared lifecycle
+      // The caller's "poison" claim is what makes a concurrent normal
+      // recovery abandon its stale flush; the rest is the shared lifecycle
       // under poison's options (no flush of later valid rows, no report of
-      // its own). The barrier it leaves standing is the "poison" owner's.
+      // its own).
       //
       // Deliberately NOT routed through recover(): corruption met here must
       // not escalate to a reset. A reset drops every table, pending_ops
       // included, and this repair runs with flush "skip" precisely so the
       // later valid rows stay durable until the poisoned one is deleted.
       // The repair banner's Retry, or a reload, is the way out.
-      authoritativeRepair = "poison";
       await runRecovery("rebase", {
         flush: "skip", reportReplicaFailure: false,
         awaitInFlightPull: true, forceReadyOnSuccess: false,
       });
-    },
-    completeAuthoritativeRepair(reason) {
-      if (authoritativeRepair === reason) authoritativeRepair = null;
-      payPoisonPull();
     },
     async resetLocalData({ discardPending }) {
       // A rejected-batch repair owns recovery until the provider has deleted
       // its durable row and scheduled resync; a manual reset must not steal
       // that lease out from under it (mirrors the needs-bootstrap guard in
       // pullLoop). Bail before touching the queue or acquiring a lease.
-      if (authoritativeRepair === "poison") {
+      if (holdsPoison()) {
         throw new Error("rejected-batch repair in progress");
       }
       // A session committed to online-only must stay that way: this method sets

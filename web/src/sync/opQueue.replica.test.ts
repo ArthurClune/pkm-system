@@ -201,16 +201,14 @@ describe("durable batch delivery", () => {
       },
     });
     const q = createOpQueue(replica);
-    let pendingSignals = 0;
     const publicEvents: PoisonEvent[] = [];
-    q.onPoisonPending(() => { pendingSignals += 1; });
     q.onPoison((event) => publicEvents.push(event));
 
     q.enqueue([op("tuid-bad")]);
     q.enqueue([op("tuid-good")]);
     await marking;
     const observedWhileMarkBlocked = {
-      pendingSignals,
+      claimed: q.holds("poison"),
       publicEvents: [...publicEvents],
       postedBatchIds: bodies.map((body) =>
         bodyBatchId(body.body)),
@@ -218,9 +216,8 @@ describe("durable batch delivery", () => {
     releaseMark();
     await q.drain();
 
-    expect(q.onPoisonPending).toBeTypeOf("function");
     expect(observedWhileMarkBlocked).toEqual({
-      pendingSignals: 1,
+      claimed: true,
       publicEvents: [], // public details follow durable mark
       postedBatchIds: [replica.enqueued[0]],
     });
@@ -720,10 +717,8 @@ describe("poison marks and retained mark intents", () => {
     const desync = vi.fn();
     const q = createOpQueue(replica);
     q.onDesync(desync);
-    const pending = vi.fn();
     const published = vi.fn();
     const markFailed = vi.fn();
-    q.onPoisonPending(pending);
     q.onPoisonMarkFailed(markFailed);
     q.onPoison(published);
 
@@ -738,7 +733,7 @@ describe("poison marks and retained mark intents", () => {
       status: "blocked", reason: "recovering", pending: 1,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(pending).toHaveBeenCalledTimes(1);
+    expect(q.holds("poison")).toBe(true);
     expect(published).not.toHaveBeenCalled();
     expect(markFailed).toHaveBeenCalledWith({
       event: objectContaining({ id: 1, batch_id: replica.enqueued[0] }),

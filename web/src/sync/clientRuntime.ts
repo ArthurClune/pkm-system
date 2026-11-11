@@ -32,10 +32,10 @@ export const mergePoisonEvents = (
 
 export interface ClientRuntimeDeps {
   queue: Pick<OpQueue, "setOnline" | "pause" | "resume" | "retryPoisonMarks" |
-    "refreshPending" | "discardPoisonIntents" | "onPoison" | "onPoisonMarkFailed">;
+    "refreshPending" | "discardPoisonIntents" | "onPoison" | "onPoisonMarkFailed" |
+    "onPoisonMarkUnmatched">;
   replica: Pick<Replica, "poisonedBatches" | "deleteBatch">;
-  replicaSync: Pick<ReplicaSync, "start" | "rebaseAuthoritative" |
-    "completeAuthoritativeRepair">;
+  replicaSync: Pick<ReplicaSync, "start" | "rebaseAuthoritative">;
   /** The session passes its fold over transitionSync. */
   onSyncEvent: (event: SyncEvent) => void;
   /** The startup "no-replica" report for a replica that proved unusable. */
@@ -80,7 +80,7 @@ export interface ClientRuntime {
   clearRepairTargets(): void;
   /** True until startup discovery has run to a definite answer. */
   discoveringPoison(): boolean;
-  /** Unsubscribes onPoison / onPoisonMarkFailed; afterwards no callback
+  /** Unsubscribes the queue's poison signals; afterwards no callback
    * fires, no repair starts, and no queue.resume or replicaSync.start is
    * called. */
   dispose(): void;
@@ -142,7 +142,6 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
         void queue.refreshPending();
         emit({ type: "repair-succeeded", event });
       }
-      replicaSync.completeAuthoritativeRepair("poison");
       if (live()) queue.resume("poison");
       repairSucceeded = true;
     } catch (error: unknown) {
@@ -277,6 +276,14 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
       repairFailed = false;
       emit({ type: "poison-mark-failed", event, error: messageOf(error) });
     }),
+    // A marking round that matched no row leaves no repair to release the
+    // claim the rejection took. Under the discard's rule: during discovery
+    // continueStartup releases it, and a running repair keeps it.
+    queue.onPoisonMarkUnmatched(() => {
+      if (live() && !discovering && !repairOnce.running()) {
+        queue.resume("poison");
+      }
+    }),
   ];
 
   return {
@@ -317,13 +324,9 @@ export function createClientRuntime(deps: ClientRuntimeDeps): ClientRuntime {
     discardPoisonIntents: () => {
       queue.discardPoisonIntents();
       emit({ type: "poison-intents-discarded" });
-      // Releases a claim this session may be holding from a rejection that
-      // has not yet re-entered rejectDurableBatch; harmless when no claim is
-      // held (completeAuthoritativeRepair only clears its own matching
-      // reason).
-      replicaSync.completeAuthoritativeRepair("poison");
       // The intents' claim on "poison" goes with them. A repair still
-      // running owns that claim too, and releases it when it succeeds.
+      // running owns that claim too, and releases it when it succeeds: the
+      // claim is one set entry, so releasing it now would free the repair's.
       // Mid-session the still-unmarked durable row is then handed out again:
       // the server rejects it again and the flow re-enters
       // rejectDurableBatch, whose per-batch effects are idempotent across

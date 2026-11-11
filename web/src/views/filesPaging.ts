@@ -8,6 +8,10 @@
 // the two, items and total belong to the old filter, and Load more or Select
 // all must not start from them.
 //
+// Load more and Select all exclude each other: whichever answers second
+// would land on a list the first replaced (Select all swaps in every file,
+// Load more appends a page of them again).
+//
 // Load more and Select all join the generation the reload started rather
 // than beginning their own, which is why this is not useStaleGuard.
 // Files.tsx drives it through useReducerRef so a second click before React
@@ -80,7 +84,8 @@ export function filesPaging(
       if (event.gen !== state.filterGen) return state;
       return { ...state, phase: "error" };
     case "moreStarted":
-      if (!listIsCurrent(state) || state.more !== null) return state;
+      if (!listIsCurrent(state) || state.more !== null
+          || state.busy !== null) return state;
       return { ...state, more: { gen: state.filterGen } };
     case "moreLoaded":
       if (state.more?.gen !== event.gen) return state;
@@ -92,7 +97,8 @@ export function filesPaging(
       if (event.gen !== state.filterGen) return { ...state, more: null };
       return { ...state, more: null, notice: LOAD_MORE_FAILED };
     case "selectAllStarted":
-      if (!listIsCurrent(state) || state.busy !== null) return state;
+      if (!listIsCurrent(state) || state.busy !== null
+          || state.more !== null) return state;
       return { ...state, busy: "select-all" };
     case "selectAllLoaded":
       if (state.busy !== "select-all") return state;

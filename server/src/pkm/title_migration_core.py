@@ -5,10 +5,13 @@ import hashlib
 import json
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Callable, Iterable, Literal, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from pkm.contracts.ops import (BlockUid, OrderIdx, PageId, Sha256Hex,
                                SidebarEntryId, SidebarOrderIdx)
+from pkm.contracts.responses import (TitleMigrationBlocker,
+                                     TitleMigrationGroup, TitleMigrationPage,
+                                     TitleMigrationSidebarRetitle)
 from pkm.refs import (CanonicalTitle, RefKind, is_blank_title,
                       target_canonical_title, title_syntax_reason)
 
@@ -49,37 +52,6 @@ class TitleMigrationInventory:
     blocks: tuple[InventoryBlock, ...]
     refs: tuple[InventoryRef, ...]
     sidebars: tuple[InventorySidebar, ...]
-
-
-TitleMigrationBlockerReason = Literal["all_space", "forbidden_syntax"]
-
-
-@dataclass(frozen=True)
-class TitleMigrationBlocker:
-    page_id: PageId
-    title: CanonicalTitle
-    reason: TitleMigrationBlockerReason
-
-
-@dataclass(frozen=True)
-class TitleMigrationGroup:
-    canonical_title: CanonicalTitle
-    survivor: InventoryPage
-    sources: tuple[InventoryPage, ...]
-    has_clean_twin: bool
-    block_count: int
-    inbound_ref_count: int
-    sidebar_count: int
-
-
-@dataclass(frozen=True)
-class TitleMigrationSidebarRetitle:
-    """A pinned spelling the target rule changes that no group moves: an
-    orphan pin, or a pin of a page already spelled canonically."""
-
-    sidebar_id: SidebarEntryId
-    title: CanonicalTitle
-    canonical_title: CanonicalTitle
 
 
 @dataclass(frozen=True)
@@ -208,13 +180,18 @@ def _plan_digest(payload: dict[str, Any]) -> Sha256Hex:
     return Sha256Hex(hashlib.sha256(encoded).hexdigest())
 
 
+def _wire_page(page: InventoryPage) -> TitleMigrationPage:
+    return TitleMigrationPage(page_id=page.page_id, title=page.title)
+
+
 def _sidebar_retitles(
     sidebars: tuple[InventorySidebar, ...],
     grouped_titles: frozenset[CanonicalTitle],
 ) -> list[TitleMigrationSidebarRetitle]:
     """Every pinned spelling the target rule changes, less those a group
-    already moves with its page. An entry whose canonical form is blank or
-    refused stays: it names no title a pin could hold, and the sidebar's
+    already moves with its page: an orphan pin, or a pin of a page already
+    spelled canonically. An entry whose canonical form is blank or refused
+    stays: it names no title a pin could hold, and the sidebar's
     remove-by-id remains its remedy."""
     retitles: list[TitleMigrationSidebarRetitle] = []
     for sidebar in sidebars:
@@ -224,7 +201,8 @@ def _sidebar_retitles(
                 and not is_blank_title(canonical)
                 and title_syntax_reason(canonical) is None):
             retitles.append(TitleMigrationSidebarRetitle(
-                sidebar.sidebar_id, sidebar.title, canonical))
+                sidebar_id=sidebar.sidebar_id, title=sidebar.title,
+                canonical_title=canonical))
     return retitles
 
 
@@ -244,12 +222,11 @@ def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigra
         canonical = target_canonical_title(page.title)
         if is_blank_title(canonical):
             blockers.append(TitleMigrationBlocker(
-                page.page_id, page.title, "all_space"
-            ))
+                page_id=page.page_id, title=page.title, reason="all_space"))
         elif title_syntax_reason(canonical) is not None:
             blockers.append(TitleMigrationBlocker(
-                page.page_id, page.title, "forbidden_syntax"
-            ))
+                page_id=page.page_id, title=page.title,
+                reason="forbidden_syntax"))
         elif page.title != canonical:
             fold_groups.setdefault(canonical, []).append(page)
 
@@ -261,16 +238,16 @@ def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigra
         pages_in_group = list(group_pages)
         if clean_twin is not None:
             pages_in_group.append(clean_twin)
-        sources = tuple(sorted(
+        sources = sorted(
             (page for page in pages_in_group if page != survivor),
             key=lambda page: page.page_id,
-        ))
+        )
         page_ids = {page.page_id for page in pages_in_group}
         page_titles = {page.title for page in pages_in_group}
         groups.append(TitleMigrationGroup(
             canonical_title=canonical_title,
-            survivor=survivor,
-            sources=sources,
+            survivor=_wire_page(survivor),
+            sources=[_wire_page(page) for page in sources],
             has_clean_twin=clean_twin is not None,
             block_count=sum(block.page_id in page_ids for block in blocks),
             inbound_ref_count=sum(ref.target_page_id in page_ids for ref in refs),

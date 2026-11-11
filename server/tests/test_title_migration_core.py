@@ -4,6 +4,8 @@ from dataclasses import replace
 
 from typing import Callable
 
+from pkm.contracts import responses
+from pkm.contracts.responses import TitleMigrationPage
 from pkm.refs import CanonicalTitle, canonicalize_title
 from pkm.title_migration_core import (
     InventoryBlock,
@@ -248,25 +250,25 @@ def test_build_title_migration_plan_groups_padded_titles_deterministically():
     acme, beta, gamma, lower = plan.groups
 
     assert acme.has_clean_twin is True
-    assert acme.survivor == InventoryPage(page_id=page_id_of(1), title=_ct("Acme"))
-    assert acme.sources == (
-        InventoryPage(page_id=page_id_of(2), title=_ct(" Acme")),
-        InventoryPage(page_id=page_id_of(3), title=_ct("Acme ")),
-    )
+    assert acme.survivor == TitleMigrationPage(page_id=page_id_of(1), title=_ct("Acme"))
+    assert acme.sources == [
+        TitleMigrationPage(page_id=page_id_of(2), title=_ct(" Acme")),
+        TitleMigrationPage(page_id=page_id_of(3), title=_ct("Acme ")),
+    ]
 
     assert beta.has_clean_twin is False
-    assert beta.survivor == InventoryPage(page_id=page_id_of(4), title=_ct("Beta "))
-    assert beta.sources == (InventoryPage(page_id=page_id_of(5), title=_ct(" Beta")),)
+    assert beta.survivor == TitleMigrationPage(page_id=page_id_of(4), title=_ct("Beta "))
+    assert beta.sources == [TitleMigrationPage(page_id=page_id_of(5), title=_ct(" Beta"))]
 
     # NBSP is title whitespace: an NBSP-edged title is retitled to its words.
     assert gamma.has_clean_twin is False
-    assert gamma.survivor == InventoryPage(
+    assert gamma.survivor == TitleMigrationPage(
         page_id=page_id_of(7), title=_ct("\u00a0Gamma\u00a0"))
-    assert gamma.sources == ()
+    assert gamma.sources == []
 
     assert lower.has_clean_twin is False
-    assert lower.survivor == InventoryPage(page_id=page_id_of(8), title=_ct(" acme"))
-    assert lower.sources == ()
+    assert lower.survivor == TitleMigrationPage(page_id=page_id_of(8), title=_ct(" acme"))
+    assert lower.sources == []
 
     assert [
         (blocker.page_id, blocker.title, blocker.reason)
@@ -299,20 +301,42 @@ def test_plan_groups_pages_that_fold_to_one_spelling():
     assert [group.canonical_title for group in plan.groups] == [
         "A B", "Lone Page"]
     pair, lone = plan.groups
-    assert pair.survivor == InventoryPage(
+    assert pair.survivor == TitleMigrationPage(
         page_id=page_id_of(1), title=_ct("A B"))
     assert pair.has_clean_twin is True
     assert [page.page_id for page in pair.sources] == [2, 3]
-    assert lone.survivor == InventoryPage(
+    assert lone.survivor == TitleMigrationPage(
         page_id=page_id_of(4), title=_ct("Lone\u3000Page"))
     assert lone.has_clean_twin is False
-    assert lone.sources == ()
+    assert lone.sources == []
     assert plan.blockers == ()
     assert plan.replacements == {
         "A  B": "A B",
         "A\u00a0B": "A B",
         "Lone\u3000Page": "Lone Page",
     }
+
+
+def test_plan_holds_the_wire_models():
+    """The audit route returns the plan's groups, blockers and retitles as
+    they are, so the core builds the response models rather than its own
+    look-alikes."""
+    plan = build_title_migration_plan(
+        _inventory(
+            InventoryPage(page_id=page_id_of(1), title=_ct("Acme")),
+            InventoryPage(page_id=page_id_of(2), title=_ct(" Acme")),
+            InventoryPage(page_id=page_id_of(3), title=_ct(" ")),
+            sidebars=(InventorySidebar(sidebar_id=sidebar_entry_id_of(1),
+                                       title=_ct("X  Y"),
+                                       order_idx=sidebar_order_idx_of(0)),),
+        )
+    )
+
+    assert isinstance(plan.groups[0], responses.TitleMigrationGroup)
+    assert isinstance(plan.groups[0].survivor, responses.TitleMigrationPage)
+    assert isinstance(plan.blockers[0], responses.TitleMigrationBlocker)
+    assert isinstance(plan.sidebar_retitles[0],
+                      responses.TitleMigrationSidebarRetitle)
 
 
 def test_plan_retitles_every_noncanonical_sidebar_entry_no_group_covers():
@@ -393,15 +417,15 @@ def test_build_title_migration_plan_normalizes_control_whitespace_before_plain_s
 
     acme, lower = plan.groups
 
-    assert acme.survivor == InventoryPage(page_id=page_id_of(1), title=_ct("Acme"))
-    assert acme.sources == (
-        InventoryPage(page_id=page_id_of(2), title=_ct(" \nAcme\t ")),
-        InventoryPage(page_id=page_id_of(4), title=_ct("\u00a0Acme\u00a0")),
-    )
+    assert acme.survivor == TitleMigrationPage(page_id=page_id_of(1), title=_ct("Acme"))
+    assert acme.sources == [
+        TitleMigrationPage(page_id=page_id_of(2), title=_ct(" \nAcme\t ")),
+        TitleMigrationPage(page_id=page_id_of(4), title=_ct("\u00a0Acme\u00a0")),
+    ]
     assert acme.has_clean_twin is True
 
-    assert lower.survivor == InventoryPage(page_id=page_id_of(5), title=_ct("acme"))
-    assert lower.sources == (InventoryPage(page_id=page_id_of(6), title=_ct(" \nacme\t ")),)
+    assert lower.survivor == TitleMigrationPage(page_id=page_id_of(5), title=_ct("acme"))
+    assert lower.sources == [TitleMigrationPage(page_id=page_id_of(6), title=_ct(" \nacme\t "))]
     assert lower.has_clean_twin is True
 
     assert [

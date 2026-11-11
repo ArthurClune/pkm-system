@@ -979,11 +979,13 @@ def test_render_rename_names_both_branches():
 
 
 def test_raw_page_is_defined_once():
-    import subprocess
-    hits = subprocess.run(
-        ["git", "grep", "-n", r"def _raw_page\|def raw_page", "--",
-         "src"], capture_output=True, text=True, check=True).stdout
-    assert len(hits.splitlines()) == 1, hits
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[1] / "src"
+    pattern = re.compile(r"def _raw_page\b|def raw_page\b")
+    hits = [line for p in src.rglob("*.py")
+            for line in p.read_text(encoding="utf-8").splitlines()
+            if pattern.search(line)]
+    assert len(hits) == 1, hits
 
 
 def test_count_label_picks_singular_only_at_one():

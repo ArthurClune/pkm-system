@@ -1,6 +1,7 @@
 // pattern: Imperative Shell
-// Feed application (offline-editing-design.md §3 and §1): snapshot bootstrap
-// and windowed changes upserts. Each window applies in ONE transaction: it
+// Feed application: snapshot bootstrap and windowed changes upserts
+// (docs/architecture/sync-and-offline.md § Applying a window over pending
+// edits). Each window applies in ONE transaction: it
 // rewinds the pending batches' effects (rewind.ts), applies page and sidebar
 // tombstones -> pages -> blocks -> block tombstones -> sidebar, then replays
 // the pending batches as a first apply, under transaction-scoped deferred FKs

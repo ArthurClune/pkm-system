@@ -1,9 +1,10 @@
 // pattern: Imperative Shell
-// Negative-id page reconciliation (offline-editing-design.md §3). Pages created
-// offline get temporary negative ids; when the feed delivers the authoritative
-// row for the same title, the negative row can't simply be upserted (it owns
-// the UNIQUE title) and must not be deleted first with children attached (FK
-// cascade would erase them). Inside the caller's window transaction (already
+// Negative-id page reconciliation (docs/architecture/sync-and-offline.md
+// § Applying a window over pending edits). Pages created offline get temporary
+// negative ids; when the feed delivers the authoritative row for the same
+// title, the negative row can't simply be upserted (it owns the UNIQUE title)
+// and must not be deleted first with children attached (FK cascade would erase
+// them). Inside the caller's window transaction (already
 // running with defer_foreign_keys): remap children + refs, delete the negative
 // row, and let the caller insert the authoritative row.
 

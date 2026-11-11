@@ -2,7 +2,8 @@
 // The reconnect protocol the sync session (session.ts) runs on a connect:
 // after a gap, flush the preserved ops first, then pull the changes feed,
 // then bump resyncGeneration so views refetch state that already reflects both
-// (flush -> pull -> resync, offline-editing-design.md §3/§6).
+// (flush -> pull -> resync, docs/architecture/sync-and-offline.md
+// § Offline editing and reconnect).
 //
 // The bump is conditional on the catch-up having moved local data, because a
 // flapping link otherwise makes every 2 s blip cost a full refetch of every

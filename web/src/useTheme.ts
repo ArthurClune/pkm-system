@@ -1,15 +1,12 @@
 // pattern: Imperative Shell
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import {
   isThemePreference,
   nextThemePreference,
-  resolveEffectiveTheme,
   THEME_STORAGE_KEY,
   type ThemePreference,
 } from "./theme";
 import { useStoredPref } from "./useStoredPref";
-
-const DARK_MEDIA_QUERY = "(prefers-color-scheme: dark)";
 
 /** Stamps data-theme so CSS can force a palette regardless of the OS
  * setting. "system" also gets the attribute (rather than none) so callers
@@ -19,28 +16,16 @@ function applyToDocument(preference: ThemePreference) {
   document.documentElement.setAttribute("data-theme", preference);
 }
 
+/** The stored theme preference and its cycle. What renders is read from the
+ * DOM by useEffectiveTheme. */
 export function useTheme() {
   const [preference, setPreference] =
     useStoredPref(THEME_STORAGE_KEY, isThemePreference, "system");
-  const [systemPrefersDark, setSystemPrefersDark] = useState(
-    () => window.matchMedia(DARK_MEDIA_QUERY).matches,
-  );
-
-  useEffect(() => {
-    const mql = window.matchMedia(DARK_MEDIA_QUERY);
-    const handler = (e: MediaQueryListEvent) => setSystemPrefersDark(e.matches);
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
-  }, []);
 
   useEffect(() => { applyToDocument(preference); }, [preference]);
 
   const cycle = useCallback(() => setPreference(nextThemePreference),
     [setPreference]);
 
-  return {
-    preference,
-    effective: resolveEffectiveTheme(preference, systemPrefersDark),
-    cycle,
-  };
+  return { preference, cycle };
 }

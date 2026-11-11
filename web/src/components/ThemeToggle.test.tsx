@@ -59,8 +59,8 @@ it("reflects the OS setting while preference is system", () => {
   stubMatchMedia(true); // OS is in dark mode
   render(<ThemeToggle />);
   // The button always shows the *preference* label ("Auto"), not the
-  // resolved theme -- effective theme is exposed via useTheme() for CSS/
-  // other consumers, not surfaced as separate button text.
+  // resolved theme -- useEffectiveTheme reads that from the DOM for the
+  // consumers that need it.
   expect(screen.getByRole("button", { name: /theme: auto/i })).toBeInTheDocument();
   expect(document.documentElement.getAttribute("data-theme")).toBe("system");
 });

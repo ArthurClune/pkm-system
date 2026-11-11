@@ -2,7 +2,7 @@ import { createEvent, fireEvent, render, screen, waitFor, within } from "@testin
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "./router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { SIDEBAR_STORAGE_KEY } from "./sidebar";
+import { SIDEBAR_STORAGE_KEY } from "./prefKeys";
 import { block, canonicalTitleOf, pagePayload, stubFetch } from "./test-helpers";
 import { App } from "./App";
 

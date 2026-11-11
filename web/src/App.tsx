@@ -19,11 +19,12 @@ import { BlockStampsContext, SidebarContext } from "./contexts";
 import { DndProvider } from "./dnd/DndContext";
 import { normalizeRefTitle } from "./grammar/scan";
 import { pagePath, titleFromPathname } from "./paths";
+import { BLOCK_STAMPS_STORAGE_KEY, BLOCK_STAMPS_VALUES, SIDEBAR_STORAGE_KEY,
+         SIDEBAR_VALUES } from "./prefKeys";
 import { PAGE_ROUTE_PREFIX, ROUTES } from "./routeMeta";
 import { SyncProvider } from "./sync/SyncProvider";
-import { useBlockStampsPref } from "./useBlockStampsPref";
 import { useRouteTitle } from "./useRouteTitle";
-import { useSidebarCollapsed } from "./useSidebarCollapsed";
+import { useStoredToggle } from "./useStoredToggle";
 import { CurrentWork } from "./views/CurrentWork";
 import { Files } from "./views/Files";
 import { Help } from "./views/Help";
@@ -81,8 +82,15 @@ export function MainRoutes() {
 export function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
-  const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollapsed();
-  const { stamps, toggle: toggleStamps } = useBlockStampsPref();
+  // Desktop only: the phone breakpoint's hamburger overlay is its own
+  // state, and styles.css makes it win whatever this says.
+  const [sidebarCollapsed, toggleSidebar] =
+    useStoredToggle(SIDEBAR_STORAGE_KEY, SIDEBAR_VALUES, false);
+  // One instance, shared through BlockStampsContext: two would not re-render
+  // each other, so the TopBar menu label and the stamp column would disagree
+  // until the next route change.
+  const [stamps, toggleStamps] =
+    useStoredToggle(BLOCK_STAMPS_STORAGE_KEY, BLOCK_STAMPS_VALUES, false);
   const blockStampsApi = useMemo(
     () => ({ stamps, toggle: toggleStamps }), [stamps, toggleStamps]);
   const [stack, setStack] = useState<SidebarEntry[]>([]);

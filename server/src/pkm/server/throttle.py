@@ -60,11 +60,7 @@ class _SourceTurn:
 
 
 class LoginThrottle:
-    """Per-source login-failure backoff, one password check at a time per
-    source (`take_turn`), and a process-wide bound on concurrent scrypt
-    work (see throttle_core for the backoff policy).
-
-    Lives on `app.state`, so every app -- including each test's -- gets
+    """Lives on `app.state`, so every app -- including each test's -- gets
     its own isolated instance. All state transitions take an explicit
     monotonic clock reading (`mono_ms`) rather than reading a clock
     themselves, matching `auth_core.verify_session`'s style (there with
@@ -118,8 +114,9 @@ class LoginThrottle:
     def hand_turn_to(self, source: str,
                      check: asyncio.Future[bool | None]) -> None:
         """The caller's turn now ends when `check` does, not when the
-        caller does: a request cancelled mid-check leaves the turn held
-        until the check's verdict is in."""
+        caller does. A worker thread cannot be stopped, so a turn that ended
+        with a cancelled request would let the next one start a second
+        check before this one's failure is recorded."""
         self._turns[source].check = check
         check.add_done_callback(lambda done: self._end_check(source, done))
 

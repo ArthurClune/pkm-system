@@ -1,52 +1,14 @@
 # pattern: Imperative Shell
-"""ASGI middleware refusing an anonymous request before its body is read.
+"""ASGI middleware refusing an anonymous request before its body is read,
+and capping the bodies FastAPI would otherwise parse whole before any
+dependency or route limit runs. `auth_gate_core` decides which requests are
+public and how large each body may be; the rules and their reasons are in
+docs/architecture/backend.md#auth.
 
-FastAPI reads and parses a request body before it runs any dependency, so
-`Depends(require_auth)` refuses an anonymous upload only after the server
-has taken all of it in. This gate runs before routing: a request outside
-the public surface (`auth_gate_core.is_public`) without a valid session
-gets 401 `{"detail": "not authenticated"}`, or a WebSocket close 4401
-before accept, and `receive` is never called.
-
-`require_auth` stays on every router as the route's own check: it is the
-only check on a `GET` outside `/api` and `/assets`, which the gate admits.
-The config is read from `app.state` on each request, not captured here,
-because the proptest server replaces `app.state.config` after
-`create_app`.
-
-A public request that may carry a body (`POST /api/login` is the only
-one) has it read here, session or not, and replayed to the app as one
-message. No session bounds such a body, and FastAPI would read any size
-before the route runs. The gate keeps at most `PUBLIC_BODY_MAX_BYTES`: a
-declared length past it gets 413 unread, and a streamed body gets 413 as
-soon as it passes it. Reading stops one server message past the cap, so
-the server's read size (uvicorn's) bounds the overshoot. The whole read
-must finish within `PUBLIC_BODY_READ_TIMEOUT_S` or gets 408, so a client
-dripping a login body cannot hold the connection.
-
-An authenticated body is capped too, at the size `private_body_cap`
-gives (`PRIVATE_BODY_MAX_BYTES`, or an upload's own limit plus its
-multipart framing), for the same reason: FastAPI would parse any size
-before the route's own limits run. A declared length past the cap gets
-413 unread. One within it passes untouched: the server (h11) frames the
-body to that length, so no more can arrive than was declared. A length
-sent beside `Transfer-Encoding` is no such promise (h11 frames by the
-chunks), so `declared_content_length` ignores it. A body with no length
-it trusts is counted as the route reads it, not buffered here: an upload
-may be far larger than anything worth holding in memory. The message
-that passes the cap raises `_BodyOverCap` out of `receive`. FastAPI reads
-every body inside the route, passes an `HTTPException` from its body
-parsing on (any other exception becomes a 400), and answers it with its
-own handler, so the 413 is the same as the gate's. An authenticated body
-has no read deadline: an upload over a slow link may take minutes.
-
-A 401 or 413 leaves the connection open. uvicorn then reads and drops the
-rest of the refused body, and `http_protocol.DeadlineH11Protocol` closes
-the connection if that and the next request head take longer than its
-deadline. Closing at once would discard a body still in flight, and a TCP
-close with unread data resets the connection, so a client still sending
-could lose the answer. A 408 carries `Connection: close`, as RFC 9110
-advises: its client has shown it will not finish."""
+A 401 or 413 leaves the connection open: closing with a body still in
+flight resets the connection, and a client still sending could lose the
+answer. `http_protocol.DeadlineH11Protocol` closes it if the leftover body
+and the next request head take longer than its deadline."""
 from __future__ import annotations
 
 import asyncio
@@ -77,6 +39,11 @@ class _Unread(Enum):
 
 
 class _BodyOverCap(HTTPException):
+    """Raised out of `receive` when a counted body passes its cap. An
+    `HTTPException` because FastAPI passes one raised while parsing a body
+    on to its own handler, so the 413 matches the gate's; it turns any
+    other exception there into a 400."""
+
     def __init__(self) -> None:
         super().__init__(status_code=413, detail=BODY_TOO_LARGE_DETAIL)
 

@@ -272,7 +272,19 @@ def cli_batch_positions(data: st.DataObject) -> None:
             app.close()
 
 
-@merge_floors({}, "example")
+# Floors: half the lowest share over 30 unseeded merge runs, 2026-11-10.
+@merge_floors({
+    "concurrent delete": 0.046,
+    "index: inside": 0.619,
+    "index: none": 0.365,
+    "index: past end": 0.243,
+    "parent: alias": 0.066,
+    "seed: gapped": 0.233,
+    "skip: block_not_found": 0.047,
+    "skip: cycle": 0.016,
+    "skip: parent_not_found": 0.018,
+    "skipped: none": 0.334,
+}, "example")
 @settings(max_examples=examples("planner"))
 @given(data=st.data())
 def test_cli_batch_positions(data: st.DataObject) -> None:

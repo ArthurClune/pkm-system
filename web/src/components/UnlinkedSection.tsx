@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { apiGet } from "../api/typedClient";
 import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { UpdateTextOp } from "../api/ops";
@@ -10,15 +10,21 @@ import { tokenizeBlock } from "../grammar/tokenize";
 import { sha256Hex } from "../replica/sha256";
 import type { WriteTicket } from "../sync/opQueue";
 import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
+import { useReducerRef } from "../useReducerRef";
 import { InlineSegments } from "./InlineSegments";
 import { PageLink } from "./PageLink";
 import { mergeGroups } from "./groups";
+import {
+  canLink, isListed, nextOffset as nextOffsetOf, settledCount, withStatus,
+  withoutDelivered, type LinkStatus, type LinkStatuses,
+} from "./unlinkedStatus";
 
 const PAGE_SIZE = 20;
 
-type ItemStatus =
-  | { state: "pending" }
-  | { state: "error"; message: string };
+const moveStatus = (statuses: LinkStatuses,
+                    { uid, status }: { uid: BlockUid; status: LinkStatus }) =>
+  withStatus(statuses, uid, status);
+const noStatuses = (): LinkStatuses => new Map();
 
 export function UnlinkedSection({ title, onLinked }: {
   title: CanonicalTitle;
@@ -31,21 +37,12 @@ export function UnlinkedSection({ title, onLinked }: {
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [itemStatus, setItemStatus] = useState<Record<BlockUid, ItemStatus>>({});
-  const [hiddenUids, setHiddenUids] = useState<ReadonlySet<BlockUid>>(new Set());
-  const inFlight = useRef(new Set<BlockUid>());
-  // Delivered links. The server no longer lists them, so a batch answered
-  // before a link landed must not bring one back.
-  const linked = useRef(new Set<BlockUid>());
-
-  const setStatus = (uid: BlockUid, status?: ItemStatus) => {
-    setItemStatus((current) => {
-      const next = { ...current };
-      if (status) next[uid] = status;
-      else delete next[uid];
-      return next;
-    });
-  };
+  // Read through current() in the click handler, so a second click before
+  // the re-render sees the first one's "pending".
+  const { state: statuses, current, dispatch } =
+    useReducerRef(moveStatus, noStatuses);
+  const setStatus = (uid: BlockUid, status: LinkStatus) =>
+    dispatch({ uid, status });
 
   const load = async (from: number) => {
     setLoading(true);
@@ -54,9 +51,7 @@ export function UnlinkedSection({ title, onLinked }: {
       const p = await apiGet("/api/unlinked", {
         query: { title, limit: PAGE_SIZE, offset: from },
       });
-      const fresh = p.groups.map((g) => ({
-        ...g, items: g.items.filter((item) => !linked.current.has(item.uid)),
-      }));
+      const fresh = withoutDelivered(p.groups, current());
       setGroups((g) => mergeGroups(g, fresh));
       setTotal(p.total);
     } catch (e: unknown) {
@@ -67,21 +62,20 @@ export function UnlinkedSection({ title, onLinked }: {
   };
 
   const linkItem = async (group: BlockGroup, item: BlockGroup["items"][number]) => {
-    if (!canEdit || inFlight.current.has(item.uid)) return;
+    if (!canEdit || !canLink(current().get(item.uid))) return;
     const transformed = linkUnlinkedReference(item.text, title);
     if (transformed.status === "no-safe-match") {
-      setStatus(item.uid, { state: "error", message: "No linkable occurrence found." });
+      setStatus(item.uid, { error: "No linkable occurrence found." });
       return;
     }
     // The server would refuse the batch whole; never queue it.
     const overLimit = textLimitViolation(transformed.text);
     if (overLimit !== null) {
-      setStatus(item.uid, { state: "error", message: textLimitNotice(overLimit) });
+      setStatus(item.uid, { error: textLimitNotice(overLimit) });
       return;
     }
 
-    inFlight.current.add(item.uid);
-    setStatus(item.uid, { state: "pending" });
+    setStatus(item.uid, "pending");
     const op: UpdateTextOp = {
       op: "update_text",
       uid: item.uid,
@@ -94,44 +88,28 @@ export function UnlinkedSection({ title, onLinked }: {
     try {
       ticket = sync.enqueue([op], ["page", group.page_title]);
     } catch (queueError: unknown) {
-      inFlight.current.delete(item.uid);
-      setStatus(item.uid, { state: "error", message: String(queueError) });
+      setStatus(item.uid, { error: String(queueError) });
       return;
     }
 
     const settled = await ticket.settled;
     if (settled.status === "failed") {
-      inFlight.current.delete(item.uid);
-      setStatus(item.uid, { state: "error", message: String(settled.error) });
+      setStatus(item.uid, { error: String(settled.error) });
       return;
     }
-    setHiddenUids((current) => new Set(current).add(item.uid));
+    setStatus(item.uid, "settled");
 
     const delivered = await ticket.delivered;
-    inFlight.current.delete(item.uid);
     if (delivered.status === "failed") {
-      setHiddenUids((current) => {
-        const next = new Set(current);
-        next.delete(item.uid);
-        return next;
-      });
-      setStatus(item.uid, { state: "error", message: String(delivered.error) });
+      setStatus(item.uid, { error: String(delivered.error) });
       return;
     }
     // The server's list has lost this block, shifting every later one left
     // by one, so it leaves the loaded list and the total rather than staying
     // hidden: the next Show more offset counts only blocks still listed.
-    linked.current.add(item.uid);
-    setGroups((current) => current.map((g) => ({
-      ...g, items: g.items.filter((i) => i.uid !== item.uid),
-    })));
+    const now = setStatus(item.uid, "delivered");
+    setGroups((current) => withoutDelivered(current, now));
     setTotal((current) => current === null ? null : Math.max(0, current - 1));
-    setHiddenUids((current) => {
-      const next = new Set(current);
-      next.delete(item.uid);
-      return next;
-    });
-    setStatus(item.uid);
     onLinked?.();
   };
 
@@ -144,15 +122,13 @@ export function UnlinkedSection({ title, onLinked }: {
   const visibleGroups = groups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => !hiddenUids.has(item.uid)),
+      items: group.items.filter((item) => isListed(statuses.get(item.uid))),
     }))
     .filter((group) => group.items.length > 0);
-  const visibleTotal = total === null ? null : Math.max(0, total - hiddenUids.size);
+  const visibleTotal = total === null
+    ? null : Math.max(0, total - settledCount(statuses));
   const loadedCount = groups.reduce((n, g) => n + g.items.length, 0);
-  // /api/unlinked paginates by blocks. A hidden block whose link has not
-  // been delivered may still be listed: counting it out can only re-fetch a
-  // block mergeGroups drops, where counting it in could skip one.
-  const nextOffset = loadedCount - hiddenUids.size;
+  const nextOffset = nextOffsetOf(loadedCount, statuses);
 
   return (
     <section className="unlinked">
@@ -173,7 +149,7 @@ export function UnlinkedSection({ title, onLinked }: {
             <div className="backlink-group" key={g.page_id}>
               <h3 className="group-title"><PageLink title={g.page_title} tag={false} /></h3>
               {g.items.map((item) => {
-                const status = itemStatus[item.uid];
+                const status = statuses.get(item.uid);
                 return (
                   <div className="backlink-item" key={item.uid}>
                     <div className="unlinked-link-row">
@@ -182,15 +158,15 @@ export function UnlinkedSection({ title, onLinked }: {
                       </div>
                       <button
                         className="reference-link-button btn-secondary"
-                        disabled={!canEdit || status?.state === "pending"}
+                        disabled={!canEdit || status === "pending"}
                         title={!canEdit ? readOnlyReason : undefined}
                         onClick={() => void linkItem(g, item)}
                       >
-                        {status?.state === "pending" ? "Linking…" : "Link"}
+                        {status === "pending" ? "Linking…" : "Link"}
                       </button>
                     </div>
-                    {status?.state === "error" && (
-                      <p className="error unlinked-item-error">{status.message}</p>
+                    {typeof status === "object" && (
+                      <p className="error unlinked-item-error">{status.error}</p>
                     )}
                   </div>
                 );

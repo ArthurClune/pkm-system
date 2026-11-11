@@ -5,41 +5,30 @@ import { apiGet } from "../api/typedClient";
 import type { Backlinks } from "../api/payloads";
 import { BlockRefContext } from "../contexts";
 import { useTitleReader } from "../sync/titleCanonicalization";
+import { useReducerRef } from "../useReducerRef";
 
-import type { BacklinkBatchState } from "./backlinkBatchWalk";
-import { mergeBacklinkResult, walkBacklinkBatches } from "./backlinkBatchWalk";
+import { walkBacklinkBatches, type NextBatchLimit } from "./backlinkBatchWalk";
 import { applyFilter, chipCounts, EMPTY_FILTER, isFiltering, toggleChip,
          type FilterState } from "./backlinkFilter";
 import { BacklinkGroupList } from "./BacklinkGroupList";
-import { showBacklinkGroups } from "./groups";
+import { backlinksPaging, hasMore as hasMoreOf, initialBacklinksPaging,
+         walking } from "./backlinksPaging";
 
 export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
     { title: CanonicalTitle; initial: Backlinks; refreshGeneration?: number }) {
   const base = useContext(BlockRefContext);
   const read = useTitleReader();
-  // groups, total page count, and extra ref texts change in lockstep -- one
-  // state value so a partial update can't happen. total_pages can shrink or
-  // grow server-side (multi-tab sync) between mount and panel open; it's
-  // tracked here (not frozen from the initial prop) so completion is
-  // derived from the latest known value.
-  const [backlinks, setBacklinks] = useState<BacklinkBatchState>({
-    groups: showBacklinkGroups(initial.groups), totalPages: initial.total_pages,
-    refTexts: {},
-  });
-  // Shared by loadMore and loadAll, not per-caller: if both are ever in
-  // flight together the first to settle re-enables both buttons early. Both
-  // walks are idempotent, so a stray extra click just repeats a batch fetch
-  // — cosmetic, not a correctness bug.
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshError, setRefreshError] = useState<string | null>(null);
-  const [panelOpen, setPanelOpen] = useState(false);
+  // total_pages can shrink or grow server-side (multi-tab sync) between
+  // mount and panel open; it's tracked in `shown` (not frozen from the
+  // initial prop) so completion is derived from the latest known value.
+  const { state: paging, current, dispatch } = useReducerRef(
+    backlinksPaging, () => initialBacklinksPaging(initial));
+  const { shown: backlinks, refreshing, refreshError, panelOpen } = paging;
+  const error = paging.walkError;
+  const loading = walking(paging);
   const [filter, setFilter] = useState<FilterState>(EMPTY_FILTER);
-  const refreshEpoch = useRef(0);
-  const refreshInFlight = useRef(false);
   const seenRefreshGeneration = useRef(refreshGeneration);
-  const hasMore = backlinks.groups.length < backlinks.totalPages;
+  const hasMore = hasMoreOf(paging);
   const fullyLoaded = !hasMore;
 
   const fetchBatch = useCallback((offset: number, limit: number) =>
@@ -48,58 +37,41 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
       query: { bl_offset: offset, bl_limit: limit },
     }), [title]);
 
-  const loadMore = async () => {
-    if (refreshInFlight.current) return;
-    const epoch = refreshEpoch.current;
-    setLoading(true);
-    setError(null);
+  // A walk reads current(), not the render's state: a click in the same
+  // tick as a refresh starting must be refused.
+  const walk = async (nextLimit: NextBatchLimit) => {
+    const before = current();
+    const started = dispatch({ type: "walkStarted" });
+    if (started === before) return;
+    const { epoch, shown } = started;
+    const id = started.nextWalk - 1;
     try {
       const result = await walkBacklinkBatches(
-        fetchBatch, backlinks,
-        (_state, batchesFetched) => (batchesFetched === 0 ? initial.limit : null),
-        () => epoch !== refreshEpoch.current);
-      if (result === "stale" || epoch !== refreshEpoch.current) return;
-      // Merge onto the latest state, not the stale snapshot the walk
-      // started from: loadMore and loadAll guard only against a concurrent
-      // refresh, not against each other, so both can be in flight at once.
-      setBacklinks((current) => mergeBacklinkResult(current, result));
+        fetchBatch, shown, nextLimit, () => current().epoch !== epoch);
+      dispatch(result === "stale"
+        ? { type: "walkDropped", id }
+        : { type: "walkLoaded", id, epoch, result });
     } catch (loadFailure: unknown) {
-      if (epoch === refreshEpoch.current) setError(String(loadFailure));
-    } finally {
-      setLoading(false);
+      dispatch({ type: "walkFailed", id, epoch,
+                 message: String(loadFailure) });
     }
   };
+
+  const loadMore = () => walk(
+    (_state, batchesFetched) => (batchesFetched === 0 ? initial.limit : null));
 
   // The filter panel needs every backlink loaded: chips and counts must
   // not lie about pages that simply weren't fetched yet.
-  const loadAll = async () => {
-    if (refreshInFlight.current) return;
-    const epoch = refreshEpoch.current;
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await walkBacklinkBatches(
-        fetchBatch, backlinks,
-        (state) => (state.groups.length < state.totalPages ? 100 : null),
-        () => epoch !== refreshEpoch.current);
-      if (result === "stale" || epoch !== refreshEpoch.current) return;
-      setBacklinks((current) => mergeBacklinkResult(current, result));
-    } catch (loadFailure: unknown) {
-      if (epoch === refreshEpoch.current) setError(String(loadFailure));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const loadAll = () => walk(
+    (state) => (state.groups.length < state.totalPages ? 100 : null));
 
   const refresh = useCallback(async () => {
-    const epoch = ++refreshEpoch.current;
-    refreshInFlight.current = true;
-    setRefreshing(true);
-    setRefreshError(null);
+    const { epoch, panelOpen: open } = dispatch({ type: "refreshStarted" });
     try {
       // Replace everything from scratch: the first batch's size depends on
-      // whether the filter panel needs every page loaded, then (only while
-      // the panel stays open) the walk continues in full-size batches.
+      // whether the filter panel needs every page loaded, then (only if the
+      // panel was open when the refresh started) the walk continues in
+      // full-size batches.
       // totalPages: Infinity is safe here only because nextLimit's
       // batchesFetched === 0 branch below returns unconditionally, never
       // reading state.totalPages first — a check that ran before the first
@@ -107,20 +79,16 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
       const result = await walkBacklinkBatches(
         fetchBatch, { groups: [], totalPages: Infinity, refTexts: {} },
         (state, batchesFetched) => (batchesFetched === 0
-          ? (panelOpen ? 100 : initial.limit)
-          : (panelOpen && state.groups.length < state.totalPages ? 100 : null)),
-        () => epoch !== refreshEpoch.current);
-      if (result === "stale" || epoch !== refreshEpoch.current) return;
-      setBacklinks(result);
+          ? (open ? 100 : initial.limit)
+          : (open && state.groups.length < state.totalPages ? 100 : null)),
+        () => current().epoch !== epoch);
+      if (result === "stale") return;
+      dispatch({ type: "refreshLoaded", epoch, result });
     } catch (refreshFailure: unknown) {
-      if (epoch === refreshEpoch.current) setRefreshError(String(refreshFailure));
-    } finally {
-      if (epoch === refreshEpoch.current) {
-        refreshInFlight.current = false;
-        setRefreshing(false);
-      }
+      dispatch({ type: "refreshFailed", epoch,
+                 message: String(refreshFailure) });
     }
-  }, [fetchBatch, initial.limit, panelOpen]);
+  }, [current, dispatch, fetchBatch, initial.limit]);
 
   useEffect(() => {
     if (refreshGeneration === seenRefreshGeneration.current) return;
@@ -129,9 +97,9 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   }, [refreshGeneration, refresh]);
 
   const openPanel = () => {
-    if (refreshInFlight.current) return;
-    setPanelOpen(true);
-    if (hasMore) void loadAll();
+    const before = current();
+    const opened = dispatch({ type: "panelOpened" });
+    if (opened !== before && hasMoreOf(opened)) void loadAll();
   };
 
   const filtering = isFiltering(filter);
@@ -158,7 +126,8 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
             ? `${visible.length} of ${backlinks.totalPages}` : backlinks.totalPages})
           {backlinks.totalPages > 0 && (
             <button className="filter-toggle btn-secondary" aria-expanded={panelOpen}
-                    onClick={() => (panelOpen ? setPanelOpen(false) : openPanel())}
+                    onClick={() => (panelOpen
+                      ? dispatch({ type: "panelClosed" }) : openPanel())}
                     disabled={refreshing && !panelOpen}>
               Filter{filtering
                 ? ` (${filter.include.length + filter.exclude.length})` : ""}

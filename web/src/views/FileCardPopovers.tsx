@@ -9,7 +9,8 @@ import { BacklinkGroupList } from "../components/BacklinkGroupList";
 import { pagePath } from "../paths";
 import { Popover } from "../Popover";
 import { refGroups, refUidChunks } from "./filesCore";
-import type { AssetRef, AssetRefGroup } from "./filesCore";
+import type { AssetRefGroup } from "../components/groups";
+import type { AssetRef } from "./filesCore";
 
 export function FileRefsPopover({ refs, x, y, onClose }: {
   refs: readonly AssetRef[]; x: number; y: number; onClose: () => void;

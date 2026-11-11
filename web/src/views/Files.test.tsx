@@ -341,6 +341,50 @@ describe("Files", () => {
       .not.toBeInTheDocument();
   });
 
+  it("a failed Load more shows its notice and frees the button", async () => {
+    mockFetch
+      .mockResolvedValueOnce(fiftyOf(60))
+      .mockRejectedValueOnce(new Error("boom"));
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "Load more" }));
+    expect(await screen.findByText("Could not load more files."))
+      .toBeInTheDocument();
+    expect(screen.getByText("50 of 60 files")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load more" }))
+      .not.toBeDisabled();
+  });
+
+  it("a failed Select all shows its notice, selects nothing and frees busy",
+     async () => {
+    mockFetch
+      .mockResolvedValueOnce(fiftyOf(60))
+      .mockRejectedValueOnce(new Error("boom"));
+    renderFiles();
+    expect(await screen.findByText("50 of 60 files")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    expect(await screen.findByText("Could not load the full selection."))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/selected/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select all" }))
+      .not.toBeDisabled();
+  });
+
+  it("Refresh after Load more shows the first page again", async () => {
+    const last = item({ sha256: sha("ef".repeat(32)), filename: "last.png" });
+    mockFetch
+      .mockResolvedValueOnce(fiftyOf(51))
+      .mockResolvedValueOnce(payload([last], 51))
+      .mockResolvedValueOnce(fiftyOf(51));
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "Load more" }));
+    expect(await screen.findByText("51 of 51 files")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("50 of 51 files")).toBeInTheDocument();
+    expect(screen.queryByText("last.png")).not.toBeInTheDocument();
+    expect(mockFetch).toHaveBeenLastCalledWith(
+      expect.stringContaining("offset=0"), { method: "GET" });
+  });
+
   it("deletes selected files after a calm confirm and reports", async () => {
     mockFetch.mockResolvedValueOnce(payload([item({})]));
     renderFiles();

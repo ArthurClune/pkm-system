@@ -1,8 +1,11 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
-import { stubFetch } from "../test-helpers";
+import type { CurrentWorkPayload } from "../api/payloads";
+import { SyncContext } from "../sync/SyncProvider";
+import { canonicalTitleOf, defer, jsonResponse, makeSync, pageIdOf, stubFetch }
+  from "../test-helpers";
 import { CurrentWork } from "./CurrentWork";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -45,4 +48,35 @@ it("shows an error when current work cannot be loaded", async () => {
   );
 
   expect(await screen.findByText(/could not load current work/i)).toBeInTheDocument();
+});
+
+it("a slow first load answered after a resync's load does not overwrite it",
+   async () => {
+  const titled = (text: string): CurrentWorkPayload => ({ sections: [
+    { id: "last-24-hours", heading: "Last 24 hours",
+      pages: [{ id: pageIdOf(1), title: canonicalTitleOf(text),
+                updated_at: 1800000000000 }] },
+  ] });
+  const first = defer<Response>();
+  let calls = 0;
+  vi.stubGlobal("fetch", vi.fn(() => {
+    calls += 1;
+    return calls === 1
+      ? first.promise
+      : Promise.resolve(jsonResponse(titled("After resync")));
+  }));
+  const sync = makeSync();
+  const inSync = (s: typeof sync) => (
+    <SyncContext.Provider value={s}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}><CurrentWork /></MemoryRouter>
+    </SyncContext.Provider>
+  );
+  const { rerender } = render(inSync(sync));
+  rerender(inSync({ ...sync, resyncGeneration: 1 }));
+  expect(await screen.findByRole("link", { name: "After resync" }))
+    .toBeInTheDocument();
+
+  await act(async () => { first.resolve(jsonResponse(titled("Stale"))); });
+  expect(screen.queryByRole("link", { name: "Stale" })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "After resync" })).toBeInTheDocument();
 });

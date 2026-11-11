@@ -16,8 +16,10 @@ import { acquireOutlineSession,
 import { pagePath } from "../paths";
 import { useResync } from "../sync/SyncProvider";
 import { EditablePage } from "./EditablePage";
+import { useReducerRef } from "../useReducerRef";
 import { initialJournalPaging, journalPager, journalPaging, loadInFlight,
          type JournalLoad,
+         type JournalPaging,
          type JournalPagingEvent } from "./journalPaging";
 
 // A day's authoritative page fetch 404s when it's been deleted (or never
@@ -28,10 +30,11 @@ const fetchDayBlocks = (title: CanonicalTitle): Promise<PagePayload["blocks"]> =
   loadOutlineBlocks(title, substituteMissingDay);
 
 export function Journal() {
-  const [paging, setPaging] = useState(initialJournalPaging<JournalDay>);
-  // The IntersectionObserver callback and the fetches read the latest state
-  // here, never a stale render's.
-  const pagingRef = useRef(paging);
+  // The IntersectionObserver callback and the fetches read current(), never
+  // a stale render's state.
+  const { state: paging, current, dispatch } = useReducerRef<
+    JournalPaging<JournalDay>, JournalPagingEvent<JournalDay>
+  >(journalPaging, initialJournalPaging);
   const [refTexts, setRefTexts] = useState<Record<string, BlockRefText>>({});
   const [refCounts, setRefCounts] = useState<Record<string, number>>({});
   const mountedRef = useRef(false);
@@ -64,23 +67,16 @@ export function Journal() {
     for (const reads of [...activeReadsRef.current]) releaseReads(reads);
   }, [releaseReads]);
 
-  const dispatch = useCallback((event: JournalPagingEvent<JournalDay>) => {
-    const next = journalPaging(pagingRef.current, event);
-    pagingRef.current = next;
-    setPaging(next);
-    return next;
-  }, []);
-
   const fetchLoad = useCallback(async (load: JournalLoad) => {
     const reads = captureActiveOutlineReads();
     activeReadsRef.current.add(reads);
-    const current = () =>
-      mountedRef.current && loadInFlight(pagingRef.current, load.id) !== null;
+    const live = () =>
+      mountedRef.current && loadInFlight(current(), load.id) !== null;
     try {
       const p = await apiGet("/api/journal", {
         query: { days: load.want, before: load.before },
       });
-      if (!current()) return;
+      if (!live()) return;
       const received = p.days.map((day) => {
         const activeAtResponse = isOutlineSessionActive(day.title);
         const session = sessionFor(day.title);
@@ -105,19 +101,19 @@ export function Journal() {
                                : { ...m, ...p.block_ref_counts });
       dispatch({ type: "loaded", id: load.id, days: received });
     } catch (e: unknown) {
-      if (!current()) return;
+      if (!live()) return;
       dispatch({ type: "failed", id: load.id, message: String(e) });
     } finally {
       releaseReads(reads);
     }
-  }, [dispatch, releaseReads, sessionFor]);
+  }, [current, dispatch, releaseReads, sessionFor]);
 
   const run = useCallback((event: JournalPagingEvent<JournalDay>) => {
     if (!mountedRef.current) return;
-    const before = pagingRef.current.loading;
+    const before = current().loading;
     const { loading } = dispatch(event);
     if (loading !== null && loading !== before) void fetchLoad(loading);
-  }, [dispatch, fetchLoad]);
+  }, [current, dispatch, fetchLoad]);
 
   const loadOlder = useCallback(() => run({ type: "older" }), [run]);
 

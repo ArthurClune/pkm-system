@@ -12,6 +12,7 @@ import { ImageOverlay } from "../components/ImageOverlay";
 import { PdfEmbed } from "../components/PdfEmbed";
 import { SearchIcon } from "../components/icons";
 import { useSyncHealth } from "../sync/SyncProvider";
+import { useReducerRef } from "../useReducerRef";
 import {
   FileDescriptionPopover, FileRefsPopover,
 } from "./FileCardPopovers";
@@ -21,31 +22,7 @@ import {
   summarizeDeletes,
 } from "./filesCore";
 import type { FileFilters } from "./filesCore";
-
-// Stale-response guard: any Files list operation (reload, loadMore,
-// selectAll) may take time to resolve. The generation is bumped by every
-// filter change (at the keystroke, not when the debounced reload fires) and
-// by every reload; loadMore/selectAll capture it before they start and check
-// it before committing a result, so a response that lands after a newer
-// generation started is discarded instead of mixing result sets,
-// overwriting totals, or selecting files outside the now-visible filter.
-// loadMore/selectAll start only from a "ready" list: between a filter
-// change and its reload landing, items and total belong to the old filter.
-//
-// Deliberately NOT the shared useStaleGuard: that guard's
-// contract is "one live request at a time", where begin() invalidates its
-// predecessor. Here the generation is a query key for the current FILTER
-// set, and loadMore/selectAll join the generation reload started rather
-// than beginning their own -- several requests are legitimately valid at
-// once. Routing this through begin() would make each of them cancel the
-// others.
-function bumpGeneration(gen: { current: number }): number {
-  return ++gen.current;
-}
-
-function isStale(gen: { current: number }, at: number): boolean {
-  return gen.current !== at;
-}
+import { filesPaging, initialFilesPaging } from "./filesPaging";
 
 function submitExportForm(sha256s: Sha256Hex[]) {
   const form = document.createElement("form");
@@ -179,26 +156,15 @@ export function Files() {
   const offline = status !== "connected";
   const { confirm, dialog } = useConfirm();
   const [filters, setFilters] = useState<FileFilters>(EMPTY_FILTERS);
-  const [items, setItems] = useState<AssetSearchItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [state, setState] =
-    useState<"loading" | "ready" | "error">("loading");
-  const [selected, setSelected] =
-    useState<ReadonlySet<Sha256Hex>>(new Set());
-  const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { state: paging, current, dispatch } =
+    useReducerRef(filesPaging, initialFilesPaging);
+  const { items, total, phase, selected, notice } = paging;
+  const busy = paging.busy !== null;
   // The blocks a refused delete names: the server strips a file's links
   // from block text, and refuses when that would break a block.
   const [blocked, setBlocked] = useState<
     { heading: string; blockers: DeleteBlocker[] } | null>(null);
   const closeBlocked = useCallback(() => setBlocked(null), []);
-  const loadMoreInFlight = useRef(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  // Stale-response guard: only the latest reload may set state.
-  const generation = useRef(0);
-  // The generation `items` and `total` were loaded under, set in the same
-  // render as them, so a handler's closure sees a matching pair.
-  const [itemsGeneration, setItemsGeneration] = useState(-1);
 
   const fetchPage = useCallback(
     (f: FileFilters, offset: number) =>
@@ -206,21 +172,12 @@ export function Files() {
     []);
 
   const reload = useCallback((f: FileFilters) => {
-    const gen = bumpGeneration(generation);
-    setState("loading");
-    setSelected(new Set());
+    const gen = dispatch({ type: "reloadStarted" }).filterGen;
     fetchPage(f, 0)
-      .then((p) => {
-        if (isStale(generation, gen)) return;
-        setItems(p.assets);
-        setTotal(p.total);
-        setItemsGeneration(gen);
-        setState("ready");
-      })
-      .catch(() => {
-        if (!isStale(generation, gen)) setState("error");
-      });
-  }, [fetchPage]);
+      .then((p) => dispatch({ type: "loaded", gen, items: p.assets,
+                              total: p.total }))
+      .catch(() => dispatch({ type: "failed", gen }));
+  }, [dispatch, fetchPage]);
 
   useEffect(() => {
     if (offline) return;
@@ -229,65 +186,45 @@ export function Files() {
   }, [filters, offline, reload]);
 
   const update = (patch: Partial<FileFilters>) => {
-    bumpGeneration(generation);
-    setState("loading");
-    setSelected(new Set());
+    dispatch({ type: "filterChanged" });
     setFilters((f) => ({ ...f, ...patch }));
   };
 
-  const listIsCurrent = () =>
-    state === "ready" && itemsGeneration === generation.current;
-
+  // Each handler reads current(), not the render's state, and a refused
+  // start comes back as the same object: a second click before the re-render
+  // starts nothing.
   const loadMore = async () => {
-    if (!listIsCurrent() || loadMoreInFlight.current) return;
-    loadMoreInFlight.current = true;
-    setLoadingMore(true);
-    const gen = generation.current;
+    const before = current();
+    const started = dispatch({ type: "moreStarted" });
+    if (started === before) return;
+    const gen = started.filterGen;
     try {
-      const p = await fetchPage(filters, items.length);
-      if (isStale(generation, gen)) return;
-      setItems((cur) => [...cur, ...p.assets]);
-      setTotal(p.total);
+      const p = await fetchPage(filters, started.items.length);
+      dispatch({ type: "moreLoaded", gen, items: p.assets, total: p.total });
     } catch {
-      if (!isStale(generation, gen)) setNotice("Could not load more files.");
-    } finally {
-      loadMoreInFlight.current = false;
-      setLoadingMore(false);
+      dispatch({ type: "moreFailed", gen });
     }
   };
 
   const selectAll = async () => {
-    if (!listIsCurrent()) return;
-    const gen = generation.current;
-    setBusy(true);
+    const before = current();
+    const started = dispatch({ type: "selectAllStarted" });
+    if (started === before) return;
+    const gen = started.filterGen;
     try {
-      let all = items;
-      while (all.length < total) {
+      let all = started.items;
+      while (all.length < started.total && current().filterGen === gen) {
         const p = await fetchPage(filters, all.length);
-        if (isStale(generation, gen)) return;
         if (p.assets.length === 0) break;
         all = [...all, ...p.assets];
       }
-      if (isStale(generation, gen)) return;
-      setItems(all);
-      setSelected(new Set(all.map((i) => i.sha256)));
+      dispatch({ type: "selectAllLoaded", gen, items: all });
     } catch {
-      if (!isStale(generation, gen)) {
-        setNotice("Could not load the full selection.");
-      }
-    } finally {
-      // busy is a UI lock on this operation, not fetched data — release it
-      // even when the result itself was discarded as stale.
-      setBusy(false);
+      dispatch({ type: "selectAllFailed", gen });
     }
   };
 
-  const toggle = (sha: Sha256Hex) =>
-    setSelected((cur) => {
-      const next = new Set(cur);
-      if (next.has(sha)) next.delete(sha); else next.add(sha);
-      return next;
-    });
+  const toggle = (sha: Sha256Hex) => dispatch({ type: "toggled", sha });
 
   const deleteSelected = async () => {
     const chosen = items.filter((i) => selected.has(i.sha256));
@@ -298,7 +235,7 @@ export function Files() {
       confirmLabel: `Delete ${chosen.length === 1 ? "file" : "files"}`,
     });
     if (!ok) return;
-    setBusy(true);
+    dispatch({ type: "deleteStarted" });
     const failures: string[] = [];
     const blockedFiles: string[] = [];
     const blockers: DeleteBlocker[] = [];
@@ -318,8 +255,8 @@ export function Files() {
         }
       }
     }
-    setBusy(false);
-    setNotice(summarizeDeletes(deleted, failures));
+    dispatch({ type: "deleteFinished",
+               notice: summarizeDeletes(deleted, failures) });
     if (blockers.length > 0) {
       setBlocked({ heading: blockedFilesHeading(blockedFiles), blockers });
     }
@@ -328,19 +265,19 @@ export function Files() {
 
   const copyLink = async (item: AssetSearchItem) => {
     const token = clipboardToken(item);
-    setNotice(await copyText(token)
+    dispatch({ type: "noticeShown", text: await copyText(token)
       ? "Link copied."
-      : `Copying failed. Select and copy it: ${token}`);
+      : `Copying failed. Select and copy it: ${token}` });
   };
 
   const runScan = async () => {
     try {
       const p = await apiPost("/api/assets/scan");
-      setNotice(p.enabled
+      dispatch({ type: "noticeShown", text: p.enabled
         ? `Scan queued ${p.queued} file${p.queued === 1 ? "" : "s"}.`
-        : `Image descriptions are disabled — ${p.reason}`);
+        : `Image descriptions are disabled — ${p.reason}` });
     } catch {
-      setNotice("Scan failed.");
+      dispatch({ type: "noticeShown", text: "Scan failed." });
     }
     reload(filters);
   };
@@ -405,7 +342,7 @@ export function Files() {
           {items.length} of {total} files
         </span>
         <button type="button" className="btn-secondary"
-                disabled={busy || state !== "ready"}
+                disabled={busy || phase !== "ready"}
                 onClick={() => void selectAll()}>
           Select all
         </button>
@@ -433,14 +370,14 @@ export function Files() {
         </button>
       </div>
       {notice && <p className="settings-note files-notice">{notice}</p>}
-      {state === "loading" && <p className="settings-note">Loading…</p>}
-      {state === "error" && (
+      {phase === "loading" && <p className="settings-note">Loading…</p>}
+      {phase === "error" && (
         <p className="settings-note">Could not load files.</p>
       )}
-      {state === "ready" && items.length === 0 && (
+      {phase === "ready" && items.length === 0 && (
         <p className="settings-note">No files match these filters.</p>
       )}
-      {state === "ready" && items.length > 0 && (
+      {phase === "ready" && items.length > 0 && (
         <div className="files-grid">
           {items.map((item) => (
             <FileCard key={item.sha256} item={item}
@@ -450,9 +387,9 @@ export function Files() {
           ))}
         </div>
       )}
-      {state === "ready" && items.length < total && (
+      {phase === "ready" && items.length < total && (
         <button type="button" className="btn-secondary files-more"
-                disabled={busy || loadingMore}
+                disabled={busy || paging.more !== null}
                 onClick={() => void loadMore()}>
           Load more
         </button>

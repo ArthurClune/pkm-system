@@ -17,7 +17,8 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Document, Page, pdfjs } from "react-pdf";
 import { PdfFallbackLink } from "./PdfFallbackLink";
-import { currentPageFromRatios, failureNote, focusWrapTarget, mountedPageWindow,
+import { FOCUSABLE_SELECTOR, focusWrapTarget } from "../focusWrap";
+import { currentPageFromRatios, failureNote, mountedPageWindow,
          placeholderHeight, retainPages } from "./pdfViewerCore";
 
 /** How many pages either side of one the mount observer reports near the
@@ -159,12 +160,6 @@ function PdfPages({ numPages, aspect, onCurrentPage, scrollRegionLabel }: {
   );
 }
 
-/** Everything the overlay's focus trap can land on. Scoped to what this
- * overlay actually contains (links, buttons, the tabindexed scroll frame) --
- * extend it before adding other control types (inputs, contenteditable) to
- * the overlay chrome. */
-const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 /**
  * Inline-then-expand viewer for PDF embeds in block content. With `onClose`
  * set it instead renders as a fullscreen overlay dialog from the first
@@ -234,7 +229,7 @@ export function PdfViewer({ href, label, onClose }:
         return;
       }
       if (e.key !== "Tab" || !overlayRef.current) return;
-      const focusables = Array.from(overlayRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+      const focusables = Array.from(overlayRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
       const target = focusWrapTarget(
         focusables,
         document.activeElement as HTMLElement | null,

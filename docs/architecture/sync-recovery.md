@@ -145,13 +145,11 @@ whether a consumer may latch it: yes for everything but a bare timeout.
 | `recovery-failed` | the same banner while the socket is connected; offline none, and `computeEditability` reads the mode as read-only |
 | `no-replica` | `replica-unusable`, below |
 
-Every `no-replica` report raises `replica-unusable`, and `OfflineIndicator`
-renders "Working online only — offline editing is unavailable for now." It
-replaces a stalled banner, whose Reset cannot work on a replica that is gone,
-and never a delivery problem. `SyncState.replicaGone` remembers the report, so
-the banner returns when a delivery problem ends. A session with no replica
-(`runtime === null`) shows it too. The second sentence depends on
-connectivity:
+`OfflineIndicator` renders `replica-unusable` as "Working online only —
+offline editing is unavailable for now." It replaces a stalled banner, whose
+Reset cannot work on a replica that is gone, and never a delivery problem.
+`SyncState.replicaGone` remembers the report, so the banner returns when a
+delivery problem ends. The second sentence depends on connectivity:
 
 | State | Second sentence | Why |
 |---|---|---|
@@ -160,10 +158,10 @@ connectivity:
 | Offline, `unsentInMemory === 0` | none | nothing to lose |
 
 Its action is Reload, not Retry, because the failed open is latched for the
-session. Reload asks for confirmation only when `unsentInMemory > 0`. A replica that opens and then fails every write has no availability
-verdict, so no problem banner mounts. The offline `ConnectivityBanner` covers
-it: it appends `memoryOnlySentence`'s output whenever `unsentInMemory > 0` and
-the socket is not `connected`.
+session. Reload asks for confirmation only when `unsentInMemory > 0`. A
+replica that opens and then fails every write has no availability verdict, so
+no problem banner mounts; the offline `ConnectivityBanner` appends the same
+`memoryOnlySentence`.
 
 ## The recovery barrier
 
@@ -179,18 +177,15 @@ and `pause(owner)` and `resume(owner)` take one:
 | `recovery` | `runRecovery`, before its lease | the end of that run, whatever its outcome |
 | `lane` | a lane entry's 4xx (`deliverLaneHead`) | the first outline repair to become stable after it |
 
-`OpQueue.holds(owner)` reports a claim. `replicaSync` reads `holds("poison")`
-(its `holdsPoison` dep, wired in `session.ts`) as the poison repair's claim on
-recovery: a normal recovery abandons its flush, and a pass that needs one is
-left to the repair. `OpQueue.onRelease` fires after `resume` releases a held
-owner, and `replicaSync` uses it to pay the pull a `poison` repair left owed.
-
-Every `OpQueue` emission follows an await except `onRelease` and
-`settleCommitted`'s `onSkipped`. No emission may report during a render, and
-both exceptions are reached only from effects, event handlers and async paths.
-`onRelease` is synchronous so that its listener acts before any other call can
-claim the owner again, which needs that listener to report nothing
-synchronously.
+`OpQueue.holds(owner)` reports a claim, and `replicaSync` reads
+`holds("poison")` as its `holdsPoison` dep
+([below](#a-batch-the-server-rejects)). `OpQueue.onRelease` fires inside
+`resume` when it releases a held owner, so its listener acts before any other
+call can claim the owner again. A release listener therefore reports nothing
+synchronously. No emission may report during a render. Every `OpQueue`
+emission follows an await except `onRelease` and `settleCommitted`'s
+`onSkipped`, and both are reached only from effects and async paths
+(`opQueue.ts` header).
 
 The drain checks the barrier again after each `nextBatch()` read, since a
 pause can land while the read waits on the worker's gate.
@@ -209,10 +204,8 @@ Retry is what lifts `poison`. The outline problem waits in `outlineBehind`
 `coalesce` (`sync/coalesce.ts`) holds the rule for the single-flight sites in
 the table: **a call that arrives during a run still gets a run that could have
 served it.** The call joins the run while the site's `joinable()` holds.
-Otherwise it is owed one run, which starts in the reaction that ends the
-current run, so no call lands between a run's last step and the moment it stops
-counting as in flight. A run that rejects rejects every call waiting on it or
-owed behind it. `idle()` settles after the owed runs and never rejects.
+Otherwise it is owed one run, started in the reaction that ends the current
+one. `coalesce.test.ts` pins the windows, the rejections and `idle()`.
 
 | Site | A late call joins until | Then owed | Decided by |
 |---|---|---|---|
@@ -279,8 +272,9 @@ Mark intents live in `localStorage` (`sync/poisonIntentStore.ts`,
 change" (`Sync.discardProblem()`).
 
 A successful `markPoisoned` fires `onPoison`, which starts the repair. A mark
-RPC that fails holds the `poison` claim, because the row is still unmarked. Discarding the intents while a repair runs keeps it until the repair
-succeeds, so a reset or a pass needing recovery still waits for the repair.
+RPC that fails holds the `poison` claim, because the row is still unmarked.
+A discard during a repair leaves the claim to the repair
+(`barrier.test.ts`, `clientRuntime.test.ts`).
 
 While the claim is held, a pull pass that needs a recovery leaves it to the
 repair, and a pull owed behind that pass gets its own run. One more pull is
@@ -303,9 +297,8 @@ wait for the next reconnect, which on a desktop can be hours away.
 | `OfflineError`, a raw `fetch` rejection | no | the offline banner owns network-down |
 | anything `availabilityOf()` classifies | no | `stalled` would take editing from a session already known to have no replica |
 
-The third counted failure sets mode `stalled`: "Local sync is stuck", with
-Reset local data. `WINDOW_STRIKES` equals `STALL_AFTER_FAILURES` so that a
-window failing identically rebases before the banner can show.
+`WINDOW_STRIKES` equals `STALL_AFTER_FAILURES` so that a window failing
+identically rebases before the [`stalled`](#replica-mode) banner can show.
 
 ## Replica mode
 
@@ -327,13 +320,11 @@ call fails the same way. `noteUnavailable` is the one writer of `no-replica`
 and of `usable = false`. It reports once and arms no retry, `setMode` drops
 every later mode, and `start()`, a new pull and an owed pass return without a
 replica call. A pass already in flight runs on until it fails or ends.
-`appliedVersion()` reads null, so every reconnect refetches views.
-
-The death is reported at the next replica call, whoever makes it. The queue's
-calls trip the latch `noteReplicaFailure` sets, emitted as `onUnavailable`;
-`replicaSync` and `clientRuntime` call `noteUnavailable` for their own calls,
-which the latch does not see. `computeEditability` then refuses offline edits,
-and the banner is [above](#what-the-ui-shows).
+`appliedVersion()` reads null, so every reconnect refetches views. The death is
+reported at the next replica call, whoever makes it: the queue's latch
+(`noteReplicaFailure`, emitted as `onUnavailable`) sees only the queue's own
+calls, so `replicaSync` and `clientRuntime` report theirs. The banner is
+[above](#what-the-ui-shows).
 
 ## Rebootstraps
 

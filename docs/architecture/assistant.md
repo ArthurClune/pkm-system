@@ -122,8 +122,8 @@ entry, whichever op comes first.
 
 | Rule | Reason |
 |---|---|
-| `preview_write` reads the blocks on the server, in a thread, from one deep copy of the tool input, just before the `confirm_request`. The web fetches nothing | The tool writes the server's database, so that is the text to show. A web fetch would add a route, a loading state and a race with Allow arming |
-| `preview_write` calls `check_write` on that copy once, before the read's `try`. The uids read, the card and `approved_input` all come from the resulting `CheckedWrite`, and a `Refusal` reads nothing | Inside the read's `try`, a validation that raised would tell the model `could not be read` instead of `input could not be previewed`. A second copy would let Allow run input the card never showed |
+| `preview_write` reads the blocks on the server, in a thread, for the checked call, just before the `confirm_request`. The web fetches nothing | The tool writes the server's database, so that is the text to show. A web fetch would add a route, a loading state and a race with Allow arming |
+| `preview_write` calls `check_write` once, before any read. `check_write` deep-copies the input and never raises. The uids read, the card and `approved_input` all come from the `CheckedWrite` it returns | A refusal reads nothing, and tells the model the check's reason or `input could not be previewed`. `could not be read` means only that the read or its guard failed. The `CheckedWrite` owns its input, so a caller's later change to its dict cannot reach what Allow runs |
 | `db_block_reader` reads texts, pages, delete counts and subtree hashes, and parents' ancestors in one read transaction. A failed read, or a block whose page row is missing, is a `Refusal`, never an absent entry | An absent uid is what the card shows as `missing`, so it must mean only "no row" |
 | The excerpt is a clip with `text_length` beside it, never a silent cut. `parseWritePreview` accepts only the server's exact clip (`CURRENT_EXCERPT_CHARS` is in `previewKeys.gen.ts`) | A block can hold a million characters, and "first N of M" must be the clip the server made |
 | `_moved_into_delete` refuses a batch delete, naming both writes, when an earlier write moves an existing block into its subtree, directly, through an `as` alias or under a descendant. A move it cannot place (a `## Heading` parent, a parent uid with no row, a cycle) is refused too. It places parents by the ancestors read for `ancestor_uids` | The count is of the store before the batch runs, so a block moved in would go uncounted. No batch needs to move a block where it then deletes it. `pkm batch` is unchecked: its user wrote the batch |
@@ -163,7 +163,7 @@ dataclasses and `EVENT_NAMES`. `confirm_request.preview` is typed as parsed
 
 | Rule | Reason |
 |---|---|
-| A field with a server-side default is optional in the generated union, and the web parser keeps a frame's unknown keys. Only the write preview is checked strictly (`parseWritePreview`) | A PWA keeps its cached bundle across a deploy, so an older bundle runs against a newer server and the reverse. A field a later server drops is one the web must already treat as absent |
+| A field with a server-side default is optional in the generated union, and the web parser keeps a frame's unknown keys, except in `confirm_request`, which `sse.ts` rebuilds from `confirm_id` and a strictly parsed preview (`parseWritePreview`) | A PWA keeps its cached bundle across a deploy, so an older bundle runs against a newer server and the reverse. A field a later server drops is one the web must already treat as absent |
 
 ### A write's result
 

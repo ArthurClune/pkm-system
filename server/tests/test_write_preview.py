@@ -1291,3 +1291,14 @@ def test_approved_input_runs_the_checked_copy():
     assert approved_input(checked, {}) == {
         "uid": _A, "text": "original",
         "expect": [{"uid": _A, "kind": "absent", "shown_hash": None}]}
+
+
+def test_approved_input_runs_the_checked_copy_of_nested_input():
+    params: dict[str, object] = {"uid": _A, "text": "original"}
+    raw: dict[str, object] = {"commands": [
+        {"command": "update", "params": params}]}
+    checked = _checked("batch", raw)
+    params["uid"] = _B
+    params["text"] = "swapped"
+    assert approved_input(checked, {})["commands"] == [
+        {"command": "update", "params": {"uid": _A, "text": "original"}}]

@@ -131,6 +131,14 @@ const MUTANTS: Record<string, { catches: readonly string[]; machine: Machine }> 
       return REAL.step({ ...s, confirms: [{ ...head, answer: null }, ...s.confirms.slice(1)] }, e);
     }),
   },
+  "a Retry after a failure posts nothing": {
+    catches: ["confirm"],
+    machine: mutate((s, e) => {
+      const head = s.confirms[0];
+      return e.type === "answer" && head !== undefined && answerFailed(head)
+        && head.answer.allow === e.allow ? { state: s, effects: [] } : null;
+    }),
+  },
   "a failed post leaves the card posting": {
     catches: ["confirm", "stoppable"],
     machine: mutate((s, e) => (e.type === "confirmFailed" && !e.notFound

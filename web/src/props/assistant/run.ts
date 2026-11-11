@@ -21,7 +21,9 @@
 //   leak    every conversation the server made is open, deleted or retired
 //   confirm an answer posts at most once at a time, for the head card of the
 //           busy, unstopped turn's open conversation; after a failed post it
-//           posts only the failed answer again. The head card shows the
+//           posts only the failed answer again. An answer the head card can
+//           take (no post of the turn in flight, and no answer yet or the
+//           failed one repeated) posts it exactly once. The head card shows the
 //           answer its requests imply (posting until the POST settles, then
 //           failed unless it landed), and a card behind it shows none
 //   stoppable Stop is offered while the busy turn has no card, or its head
@@ -132,7 +134,7 @@ class World {
   }
 
   /** One reducer step, checked against what the model expects of it. */
-  feed(event: ChatEvent, input: Input): void {
+  feed(event: ChatEvent, input: Input): ChatEffect[] {
     const before = this.machine.view(this.state);
     const { doc, expect } = modelExpect(this.doc, input);
     const out = this.machine.step(this.state, event);
@@ -141,6 +143,7 @@ class World {
     this.trace.push(`${JSON.stringify(event)} -> ${JSON.stringify(out.effects)}`);
     this.doc = this.checkEffects(doc, expect, out.effects, after);
     this.checkView(before, after, expect);
+    return out.effects;
   }
 
   checkEffects(doc: Doc, ex: Expectation, effects: ChatEffect[], view: View): Doc {
@@ -504,8 +507,20 @@ class World {
             : prior.allow === a.allow ? "answer repeated after a failure"
               : "answer changed after a failure");
         }
-        this.feed({ type: "answer", confirmId: a.stale ? confirmIdOf("stale") : head, allow: a.allow },
-                  { k: "answer" });
+        const b = this.doc.busy;
+        const takes = !a.stale && b !== null && !b.stopped && b.stage === "streaming"
+          && this.doc.conv.kind === "open"
+          && !this.reqs.some((r) => r.kind === "confirm" && r.turn === b.turn)
+          && (prior === undefined || (prior.state === "failed" && prior.allow === a.allow));
+        const effects = this.feed(
+          { type: "answer", confirmId: a.stale ? confirmIdOf("stale") : head, allow: a.allow },
+          { k: "answer" });
+        const posts = effects.filter((e): e is Extract<ChatEffect, { kind: "confirm" }> =>
+          e.kind === "confirm");
+        if (takes && !(posts.length === 1 && posts[0].confirmId === head && posts[0].allow === a.allow)) {
+          this.problems.push(`confirm: allow=${a.allow} for the head card ${head}, which can take it,` +
+            ` posted ${JSON.stringify(posts)}`);
+        }
         return true;
       }
       case "server": {

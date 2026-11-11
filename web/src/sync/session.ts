@@ -367,7 +367,10 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
         if (e instanceof ResetBlockedError) {
           fold({ type: "reset-blocked", pending: e.pending });
         } else {
-          fold({ type: "reset-failed", error: String(e) });
+          fold({
+            type: "reset-failed",
+            error: e instanceof Error ? e.message : String(e),
+          });
         }
       }
     },

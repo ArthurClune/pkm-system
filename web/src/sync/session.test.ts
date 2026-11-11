@@ -4,7 +4,9 @@ import type { BlockOp } from "../api/ops";
 import type { OpBatch, OpsAck } from "../api/payloads";
 import { MAX_BLOCK_TEXT_CHARS } from "../grammar/textLimits";
 import type { PendingBatch, Replica } from "../replica/client";
-import { ReplicaUnusableError, RpcLifecycleError } from "../replica/errors";
+import { ReplicaError, ReplicaUnusableError, RpcLifecycleError }
+  from "../replica/errors";
+import { LEASE_EXPIRED } from "../replica/workerHandlers";
 import { batchIdOf, clientIdOf, defer, pendingRowIdOf, rawTitleOf, seqOf,
          uidOf } from "../test-helpers";
 import type { ClientRuntime, ClientRuntimeDeps } from "./clientRuntime";
@@ -834,10 +836,24 @@ describe("the actions", () => {
 
     await session.actions.resetReplica();
     expect(session.problem()).toMatchObject({
-      kind: "replica-stalled", reset: "failed", resetError: "Error: reset boom",
+      kind: "replica-stalled", reset: "failed", resetError: "reset boom",
     });
 
     session.actions.dismissProblem();
     expect(session.problem()).toBeUndefined();
+  });
+
+  test("a failed reset shows the error's message without its class name",
+  async () => {
+    const { session } = rig();
+    await session.startup();
+    vi.spyOn(replicaSyncOf(session), "resetLocalData")
+      .mockRejectedValue(new ReplicaError(LEASE_EXPIRED));
+
+    await session.actions.resetReplica();
+
+    expect(session.problem()).toMatchObject({
+      kind: "replica-stalled", reset: "failed", resetError: LEASE_EXPIRED,
+    });
   });
 });

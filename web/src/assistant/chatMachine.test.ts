@@ -5,7 +5,7 @@ import {
   UNASKED_STOP_MESSAGE,
   type ChatEvent, type ChatState, type TurnId,
 } from "./chatMachine";
-import type { AssistantEvent } from "./sse";
+import { createSseParser, type AssistantEvent } from "./sse";
 
 function run(events: ChatEvent[], from: ChatState = initialChat()) {
   let state = from;
@@ -306,6 +306,34 @@ describe("chatMachine stream events", () => {
       { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
         done: true, error: null, declined: false },
     ]);
+  });
+
+  // Parsed from the wire, as a bundle one release apart from its server
+  // would read it.
+  function finishedFrame(data: string): ChatEvent[] {
+    return createSseParser().push(`event: tool_finished\ndata: ${data}\n\n`)
+      .map((event) => streamed(event));
+  }
+
+  test("a tool_finished without a name marks its line", () => {
+    const { state } = run([...firstTurn("edit"),
+      streamed({ type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" }),
+      ...finishedFrame('{"tool_use_id": "t1", "error": "nope", "declined": false}'),
+      ...turnDone()]);
+    expect(state.items[1]).toEqual(
+      { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
+        done: true, error: "nope", declined: false });
+  });
+
+  test("a tool_finished that still carries a name marks its line", () => {
+    const { state } = run([...firstTurn("edit"),
+      streamed({ type: "tool_started", tool_use_id: "t1", name: "update_block", summary: "update_block" }),
+      ...finishedFrame('{"tool_use_id": "t1", "name": "update_block", "error": null, '
+        + '"declined": true}'),
+      ...turnDone()]);
+    expect(state.items[1]).toEqual(
+      { kind: "tool", toolUseId: "t1", name: "update_block", summary: "update_block",
+        done: true, error: null, declined: true });
   });
 
   test("a tool_finished with an unknown id changes no line", () => {

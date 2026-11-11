@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { conversationIdOf } from "../test-helpers";
+import { initialChat, step } from "./chatMachine";
 import { createSseParser } from "./sse";
 
 describe("createSseParser", () => {
@@ -109,6 +111,45 @@ describe("createSseParser", () => {
     expect(
       p.push('event: confirm_request\ndata: {"confirm_id": "c2", "ops_preview": "x"}\n\n'),
     ).toEqual([{ type: "confirm_request", confirm_id: "c2", ops_preview: "x", preview: null }]);
+  });
+
+  // A tab keeps its bundle across a deploy, so a bundle may meet a server
+  // one release older or newer. These frames are what each sends.
+  describe("across a server release", () => {
+    const preview = {
+      ops: [{ action: "save note", targets: [["page", "Inbox"]],
+        content: [["text", "hi", 2]], warnings: [], current: null }],
+      summary: "save_note(title='Inbox')",
+      writes_in_flight: false,
+    };
+
+    test("a confirm_request without ops_preview still yields its card", () => {
+      const data = JSON.stringify({ confirm_id: "c1", preview });
+      const events = createSseParser().push(`event: confirm_request\ndata: ${data}\n\n`);
+      expect(events).toEqual([{ type: "confirm_request", confirm_id: "c1", preview }]);
+      const { state } = step(
+        step(step(initialChat(), { type: "send", text: "go", at: 1 }).state,
+             { type: "created", turn: 1, id: conversationIdOf("c"), model: "sonnet" }).state,
+        { type: "streamEvent", turn: 1, event: events[0]!, at: 2 });
+      expect(state.confirms).toEqual([
+        { confirmId: "c1", preview, answer: null, allowedAhead: 0 }]);
+    });
+
+    test("a confirm_request that still sends ops_preview yields its card", () => {
+      const data = JSON.stringify({ confirm_id: "c1", ops_preview: preview.summary, preview });
+      expect(createSseParser().push(`event: confirm_request\ndata: ${data}\n\n`))
+        .toMatchObject([{ type: "confirm_request", confirm_id: "c1", preview }]);
+    });
+
+    test("a frame's unknown keys are kept, not refused", () => {
+      expect(createSseParser().push(
+        'event: tool_finished\ndata: {"tool_use_id": "t1", "name": "save_note", '
+          + '"error": null, "declined": false, "later": 1}\n\n',
+      )).toEqual([
+        { type: "tool_finished", tool_use_id: "t1", name: "save_note",
+          error: null, declined: false, later: 1 },
+      ]);
+    });
   });
 
   test("event name from the event line wins over a type key in data", () => {

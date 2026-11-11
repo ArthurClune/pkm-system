@@ -90,28 +90,16 @@ def _check_password(throttle: LoginThrottle, source: str, password: str,
 async def login(body: LoginBody, request: Request, response: Response,
                 config: Config = Depends(get_config)) -> OkAck:
     throttle: LoginThrottle = request.app.state.login_throttle
-    # The source is the client's tailnet address for every tailnet client:
-    # the TCP peer on the Tailscale-IP listener, and the X-Forwarded-For that
-    # Tailscale Serve sets on loopback. That holds only while run.py's
-    # FORWARDED_ALLOW_IPS trusts the header from 127.0.0.1 alone. A local
-    # process on loopback keys as 127.0.0.1, or picks its key with the
-    # header.
+    # The device's tailnet address for every tailnet client, which holds
+    # only while run.FORWARDED_ALLOW_IPS trusts loopback alone; see
+    # docs/architecture/backend.md#login-throttle for each listener's key.
     source = request.client.host if request.client else "unknown"
-    # Throttled sources are rejected with the *same* 401 a wrong password
-    # gets, before any scrypt work runs -- an attacker can't distinguish
-    # "throttled" from "wrong password" except by the timing difference
-    # (fast reject vs. a real scrypt computation), which this design accepts.
+    # The wrong-password 401, before any scrypt work runs.
     if throttle.is_throttled(source, throttle.now_ms()):
         raise _wrong_password()
-    # One check in flight per source. Checking the backoff and recording
-    # the verdict are separate steps, so without the turn every request
-    # of a concurrent burst passes the check above and runs scrypt. The
-    # rest wait for the turn rather than being refused, so a double-submit
-    # of the right password is never told it was wrong. The check records
-    # its own verdict on its thread and holds the turn until it returns,
-    # whatever happens to this request (a worker thread cannot be
-    # stopped); the next holder re-checks the backoff, so a failure puts
-    # every waiter into it without a check of its own.
+    # One check in flight per source, or a concurrent burst all passes the
+    # check above before the first failure is recorded. The turn's holder
+    # re-checks the backoff; docs/architecture/backend.md#login-throttle.
     if not await throttle.take_turn(source):
         raise _wrong_password()
     if throttle.is_throttled(source, throttle.now_ms()):

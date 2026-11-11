@@ -1,11 +1,11 @@
 ---
 # pkm-7rxj
 title: Server routes and domain cleanups
-status: todo
+status: completed
 type: task
 priority: normal
 created_at: 2026-11-09T21:39:24Z
-updated_at: 2026-11-09T21:44:04Z
+updated_at: 2026-11-11T04:05:06Z
 parent: pkm-4gda
 blocked_by:
     - pkm-t57n

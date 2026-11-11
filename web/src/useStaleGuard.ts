@@ -16,9 +16,9 @@
 //
 // This is NOT the right shape for a guard whose generation spans SEVERAL
 // concurrent requests that must all stay valid together (Files' filter
-// generation, where loadMore and selectAll join the generation reload
+// generation, where Load more and Select all join the generation a reload
 // started rather than beginning their own) -- that contract has no single
-// live token, so it keeps its own helpers.
+// live token; views/filesPaging.ts holds it.
 import { useRef, useState } from "react";
 
 export interface StaleGuard {

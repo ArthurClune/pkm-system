@@ -16,7 +16,7 @@ replica is a cache and the queue is the user's intent.
 | A replica write fails (`SQLITE_CANTOPEN`, `IOERR`, a dead worker) | The op is kept in the in-memory lane; only `ReplicaError.rejected` discards | [A local write fails](#a-local-write-fails) |
 | Lane entries and durable rows are both waiting | `headPrecedes` orders them by batch identity | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
 | The OPFS file cannot be opened | Up to the attempt limit, then `unusable` for the session | [When the replica cannot be opened](#when-the-replica-cannot-be-opened) |
-| The worker RPC breaks | `unreachable`: ops kept, barrier held; the next replica call, the queue's or `replicaSync`'s, sets mode `no-replica` | [Availability](#availability-two-values-one-owner), [Replica mode](#replica-mode) |
+| The worker RPC breaks | `unreachable`: ops kept, barrier held; the next replica call, by the queue, `replicaSync` or `clientRuntime`, sets mode `no-replica` | [Availability](#availability-two-values-one-owner), [Replica mode](#replica-mode) |
 | The replica opens, then fails every write | The offline banner says unsent changes exist only in memory | [What the UI shows](#what-the-ui-shows) |
 | A window was read before an ack deleted its row | Refetched; `PullStarvedError` after the cap | [Windows and the pending queue](sync-and-offline.md#windows-and-the-pending-queue) |
 | Two repairs or a recovery overlap | Each holds its own barrier owner and releases only that | [The recovery barrier](#the-recovery-barrier) |
@@ -318,7 +318,7 @@ the replica.
 | `ready` | `start()` succeeds, or a pull or reset succeeds after a report | a report below |
 | `stalled` | `STALL_AFTER_FAILURES` counted failures of a pull or a start | a later pull or start succeeds, or Reset local data |
 | `recovery-failed` | a `runRecovery` that reports (`reportReplicaFailure`) throws, unless the error is session-fatal (that is `no-replica`) | as `stalled` |
-| `no-replica` | `replicaSync.noteUnavailable(error)`, called by `noteFailure`, `doStart`'s init, `clientRuntime.continueStartup` and the session's `queue.onUnavailable` latch; or the session's own report when there is no replica (`runtime === null`) | never: only a reload brings a new worker |
+| `no-replica` | `replicaSync.noteUnavailable(error)`, called wherever a replica call of `replicaSync` or `clientRuntime` meets a session-fatal error, and by the session's `queue.onUnavailable` latch; or the session's own report when there is no replica (`runtime === null`) | never: only a reload brings a new worker |
 
 **A session-fatal error ends replica mode for the session.** A dead worker
 leaves its RPC client terminal and a failed open is latched, so every later
@@ -327,9 +327,10 @@ and of `usable = false`. It reports once and arms no retry, `setMode` drops
 every later mode, and `start()` and the pull passes return without a replica
 call. `appliedVersion()` reads null, so every reconnect refetches views.
 
-The death is reported at the next replica call, the queue's (the latch
-`noteReplicaFailure` sets, emitted as `onUnavailable`) or `replicaSync`'s,
-whichever comes first. `computeEditability` then refuses offline edits, and the
+The death is reported at the next replica call, whoever makes it. The
+queue's calls trip the latch `noteReplicaFailure` sets, emitted as
+`onUnavailable`; `replicaSync` and `clientRuntime` call `noteUnavailable`
+for their own calls, which the latch does not see. `computeEditability` then refuses offline edits, and the
 banner is [above](#what-the-ui-shows).
 
 ## Rebootstraps

@@ -3,7 +3,7 @@
 // queue and replica sync around an in-memory replica, so the call order and
 // the sync events can be read back exactly.
 import { describe, expect, test } from "vitest";
-import { ReplicaUnusableError } from "../replica/errors";
+import { ReplicaUnusableError, RpcLifecycleError } from "../replica/errors";
 import { createClientRuntime, type ClientRuntimeDeps } from "./clientRuntime";
 import { memReplica } from "./memReplica";
 import type { PoisonEvent, PoisonMarkFailure } from "./opQueue";
@@ -21,6 +21,9 @@ const poisonEvent = (id: number, batch: string): PoisonEvent => ({
   id: pendingRowIdOf(id), batch_id: batchIdOf(batch), ops: [],
   status: 400, message: "rejected",
 });
+
+const deadWorker = (): RpcLifecycleError =>
+  new RpcLifecycleError("worker-error", "replica worker failed");
 
 /** Settle every pending promise chain the runtime started. */
 const flush = async (): Promise<void> => {
@@ -190,6 +193,20 @@ describe("clientRuntime startup", () => {
     expect(h.runtime.discoveringPoison()).toBe(true);
   });
 
+  test("a dead worker at discovery reports no-replica and keeps the gate",
+  async () => {
+    const h = setup({
+      poisoned: async () => { throw deadWorker(); },
+    });
+    await h.runtime.startup();
+    expect(h.unavailable).toEqual(["replica worker failed"]);
+    expect(h.calls).not.toContain("resume(startup)");
+    expect(h.events).toEqual([
+      { type: "poison-discovery-failed", error: "replica worker failed" },
+    ]);
+    expect(h.runtime.discoveringPoison()).toBe(true);
+  });
+
   test("a failed mark retry holds the gate without discovery", async () => {
     const h = setup({ marks: async () => { throw new Error("mark rpc"); } });
     await h.runtime.startup();
@@ -273,6 +290,22 @@ describe("clientRuntime repair and retry", () => {
     expect(h.events).toEqual([
       { type: "repair-started", event },
       { type: "repair-failed", event, error: "snapshot 500" },
+    ]);
+  });
+
+  test("a dead worker met deleting a repaired row reports no-replica",
+  async () => {
+    const event = poisonEvent(4, "b-4");
+    const h = setup({
+      poisoned: async () => [event],
+      deleteBatch: async () => { throw deadWorker(); },
+    });
+    await h.runtime.startup();
+    expect(h.unavailable).toEqual(["replica worker failed"]);
+    expect(h.calls).not.toContain("start");
+    expect(h.events).toEqual([
+      { type: "repair-started", event },
+      { type: "repair-failed", event, error: "replica worker failed" },
     ]);
   });
 

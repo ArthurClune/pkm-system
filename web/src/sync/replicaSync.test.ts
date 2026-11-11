@@ -2216,6 +2216,40 @@ describe("window strikes", () => {
     }
   });
 
+  test("a dead worker met gathering diagnostics reports no-replica, though "
+    + "the window is left to a poison repair", async () => {
+    const warn = quietWarn();
+    vi.useFakeTimers();
+    try {
+      const failure = new RpcLifecycleError("worker-error", "replica worker failed");
+      const replica = fakeReplica({
+        applyChanges: failingApply(WINDOW_STRIKES, UNAPPLIABLE),
+        diagnostics: () => Promise.reject(failure),
+      });
+      const claim = fakeClaim();
+      const fetchJson = vi.fn(async () =>
+        feed({ next_since: seqOf(9), latest_seq: seqOf(9) }));
+      const { states, onState } = collector();
+      const sync = createReplicaSync({
+        replica, fetchJson, onState, queue: claim.queue,
+        holdsPoison: claim.holdsPoison,
+      });
+      claim.claim();
+
+      await sync.start();
+      await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * (WINDOW_STRIKES + 2));
+
+      expect(logged(warn, "could not gather diagnostics")).toBe(1);
+      expect(replica.calls).not.toContain("prepareRecovery");
+      expect(states.filter((s) => s.mode === "no-replica")).toEqual([
+        { mode: "no-replica", error: "replica worker failed" }]);
+      expect(states.at(-1)?.mode).toBe("no-replica");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("window failures with different messages never accumulate into a rebase", async () => {
     const warn = quietWarn();
     vi.useFakeTimers();
@@ -2725,6 +2759,112 @@ describe("replica mode exits", () => {
       { mode: "ready" },
       { mode: "no-replica", error: "replica worker failed" },
     ]);
+  });
+
+  test("a recovery whose abort meets a dead worker reports no-replica and never recovery-failed",
+  async () => {
+    let applyCall = 0;
+    const replica = fakeReplica({
+      applyChanges: async (window: Changes) => {
+        applyCall += 1;
+        return applyCall === 1
+          ? { status: "applied" as const, cursor: window.next_since }
+          : { status: "needs-bootstrap" as const };
+      },
+      abortRecovery: () => Promise.reject(deadWorker()),
+    });
+    const fetchJson = vi.fn(async (path: string) => {
+      if (path.startsWith("/api/sync/snapshot")) throw new ApiError(503, path);
+      return feed();
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, onState });
+    await sync.start();
+    sync.onSeq(seqOf(9));
+    await sync.idle();
+    expect(states).toEqual([
+      { mode: "ready" },
+      { mode: "no-replica", error: "replica worker failed" },
+    ]);
+  });
+
+  test("a reset from stalled that meets a dead worker reports no-replica once and disarms the retry",
+  async () => {
+    vi.useFakeTimers();
+    try {
+      let dead = false;
+      const replica = fakeReplica();
+      const fetchJson = vi.fn(async (path: string) => {
+        if (!dead) throw new ApiError(503, path);
+        return feed();
+      });
+      const { states, onState } = collector();
+      const sync = createReplicaSync({ replica, fetchJson, onState });
+      await sync.start();
+      await vi.advanceTimersByTimeAsync(RETRY_BASE_MS);
+      await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2);
+      expect(states.at(-1)?.mode).toBe("stalled");
+      expect(vi.getTimerCount()).toBe(1);
+
+      dead = true;
+      const failure = deadWorker();
+      replica.prepareRecovery = () => Promise.reject(failure);
+      // the session's resetReplica raises reset-failed from this rejection
+      await expect(sync.resetLocalData({ discardPending: true }))
+        .rejects.toBe(failure);
+
+      expect(states.filter((s) => s.mode === "no-replica")).toEqual([
+        { mode: "no-replica", error: "replica worker failed" }]);
+      expect(states.at(-1)?.mode).toBe("no-replica");
+      expect(sync.appliedVersion()).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+
+      const reported = states.length;
+      await sync.start();
+      sync.onSeq(seqOf(99), true);
+      await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * 4);
+      expect(states.length).toBe(reported);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a poison repair that meets a dead worker reports no-replica once",
+  async () => {
+    vi.useFakeTimers();
+    try {
+      const replica = fakeReplica();
+      const claim = fakeClaim();
+      const fetchJson = vi.fn(async () => feed());
+      const { states, onState } = collector();
+      const sync = createReplicaSync({
+        replica, fetchJson, onState, queue: claim.queue,
+        holdsPoison: claim.holdsPoison,
+      });
+      await sync.start();
+      expect(states).toEqual([{ mode: "ready" }]);
+
+      claim.claim();
+      const failure = deadWorker();
+      replica.prepareRecovery = () => Promise.reject(failure);
+      // the caller's repair-failed banner comes from this rejection
+      await expect(sync.rebaseAuthoritative("poison")).rejects.toBe(failure);
+
+      expect(states).toEqual([
+        { mode: "ready" },
+        { mode: "no-replica", error: "replica worker failed" },
+      ]);
+      expect(sync.appliedVersion()).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+
+      claim.release();
+      await sync.start();
+      sync.onSeq(seqOf(99), true);
+      await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * 4);
+      expect(states).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("noteUnavailable reports no-replica once, and nothing is reported or called after it",

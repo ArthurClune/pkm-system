@@ -16,7 +16,7 @@ After the security epic's dependency upgrades, `pnpm audit --prod` reports only 
 
 ## Summary of Changes
 
-`pnpm update` within each direct dependency's range (vite 6.4.3 to 6.4.6, postcss, eslint, typescript-eslint, playwright and others) moved the transitive fixes with it: brace-expansion, fast-uri, browserslist, js-yaml, nanoid, zod, serialize-javascript and the rest resolved without an override or a major jump. The full `pnpm audit` went from 49 (5 low, 15 moderate, 27 high, 2 critical) to 8 (1 low, 5 moderate, 2 critical); `pnpm audit --prod` stays clean.
+`pnpm update` within each direct dependency's range (vite 6.4.3 to 6.4.6, postcss, eslint and typescript-eslint among others; @playwright/test stays at 1.61.1 because 1.65 needs a newer cached browser and no advisory covers it) moved the transitive fixes with it: brace-expansion, fast-uri, browserslist, js-yaml, nanoid, zod, serialize-javascript and the rest resolved without an override or a major jump. The full `pnpm audit` went from 49 (5 low, 15 moderate, 27 high, 2 critical) to 8 (1 low, 5 moderate, 2 critical); `pnpm audit --prod` stays clean.
 
 ## Advisories that stay open
 

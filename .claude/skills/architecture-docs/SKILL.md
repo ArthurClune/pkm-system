@@ -20,7 +20,7 @@ Other material has a better home:
 
 | When the material is | Its home |
 |---|---|
-| a list the code already holds: a module inventory, a registry, the cases a lint or check handles, the suites or scenarios a gate runs, a constant's value | the code. The doc names the file or symbol that holds it (`MINT_SITES`, `RETRY_DELAYS`, `perf/baseline-backend.json`), in table or prose alike |
+| a list the code already holds: a complete module inventory, a registry, the cases a lint or check handles, the suites or scenarios a gate runs, a constant's value | the code. The doc names the file or symbol that holds it (`MINT_SITES`, `RETRY_DELAYS`, `perf/baseline-backend.json`), in table or prose alike |
 | the case-by-case argument that a guard is needed | the test that pins it. The doc keeps the rule and its sharpest reason |
 | how something failed before a fix | a row in `docs/troubleshooting.md` |
 | a count of things ("eleven routes", "four mutants") | nowhere; it goes stale |
@@ -51,7 +51,7 @@ history and rejected alternatives belong.
 | a set of things sharing fields (keys, routes, states, options, outcomes) | a table | a comma list inside a sentence |
 | a decision with two or three outcomes | a table keyed by the condition | a paragraph per branch |
 | already owned by another doc | a link to it | a restatement that will drift |
-| a module map | the aligned tree in `backend.md` § Module map — name / pattern / role columns, one sub-line per file, directories spread across lines | a paragraph of file names per directory |
+| a module map | an aligned tree for orientation, as in `backend.md` § Module map: name / pattern / role columns, directories spread across lines. It names the directories and the files a newcomer needs to find their way, and is never a complete inventory | a paragraph of file names per directory, or one row for every file |
 
 Ownership matters as much as shape: `docs/keyboard.md` owns the shortcut surface
 and the slash commands, `docs/cli.md` the CLI's user-facing syntax, `backend.md`
@@ -60,8 +60,8 @@ A second copy in prose is worse than no copy, because it drifts silently.
 
 **Dedupe toward the doc that owns the mechanism, not away from it.** When two
 docs describe the same thing, the one whose subject implements it keeps the
-sentence and the other links. Server broadcast behaviour stays in `backend.md`
-even though the sync doc needs it too.
+sentence and the other links. Server broadcast behaviour stays in `write-path.md`
+(§ Post-commit nudges) even though the sync doc needs it too.
 
 **Prose earns its place** for what no shape carries: why a step exists, what
 breaks without it, who owns a value, which of two paths is authoritative, what
@@ -189,23 +189,43 @@ identifier — a name points into the code, a sentence copies it.
 node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/<file>.md docs/troubleshooting.md
 ```
 
-Every mermaid block parses under the project's own mermaid; links and heading
-anchors resolve, including inbound anchors from sibling docs (a renamed heading
-breaks those silently). A bean id in a `docs/architecture` line is the
-comment lint's to refuse on commit; its one home is the Ref column of
-`docs/troubleshooting.md`. The checker also prints, for judgement rather than
-pass/fail, the longest prose sentences, the longest table cells, any
-identifiers dropped since `HEAD`, and each file's word count against `HEAD`. A
-table cell that reads as a paragraph is prose that escaped the sentence check.
+Every mermaid block parses under the project's own mermaid. Links resolve,
+and so do heading anchors: `](#anchor)` links within a file, and every
+`<doc>.md#anchor` citation from any tracked file, code comments included. A
+renamed heading breaks those silently, so the checker fails on a live
+citation. A citation inside a frozen record (`docs/superpowers/`, `.beans/`,
+a date-prefixed file) prints as a `note` and is left as written. Exit status is
+1 only for broken mermaid, a broken link, or a live anchor miss.
+
+A bean id in a `docs/architecture` line is the comment lint's to refuse on
+commit; its one home is the Ref column of `docs/troubleshooting.md`.
+
+The first output line names the base the checker compares against: the merge
+base with `main`, or `HEAD` when you are on `main`. `--base <ref>` picks
+another. When `.claude/skills/recheck-docs/last-recheck` exists, sizes are also
+shown against the commit it names. Everything below is printed for judgement,
+never as pass/fail:
+
+- the longest prose sentences and the longest table cells. A table cell that
+  reads as a paragraph is prose that escaped the sentence check;
+- identifiers dropped since the base. `(moved to <file>)` means the name now
+  appears as inline code in another file you passed, so the drop is a move.
+  A drop with no `moved to` is a deletion: decide that it was intended;
+- each file's word count against the base (`+d since <sha>`) and against the
+  last re-check (`+e since re-check <sha>`), `(new)` for a file the reference
+  lacks. The size shows where a doc grew or shrank. Read it against the
+  question "does this still say only what the code cannot?"; a number is not
+  the verdict. A doc that grew because it gained an invariant is fine, and one
+  that shrank because it lost one is not.
 
 **Re-run it after your edits and read the count, not just the list.** It shows
 the longest five by default (`--all` for the rest), so clearing those five is not
-the same as being done — splitting one sentence often lengthens another. Any 40+
-word sentence your edit introduced is marked `NEW` and always listed, wherever it
-ranks.
+the same as being done — splitting one sentence often lengthens another. A
+long sentence your edit introduced is marked `NEW` and always listed, wherever
+it ranks.
 
 Before cutting a row or section, `git grep` its doc name outside `docs/`. Code
-comments cite rows by name (`props/model.py` cites `backend.md` sections), and
+comments cite rows by name (`props/model.py` cites `write-path.md` sections), and
 check-docs cannot see them.
 
 Docs-only commits need no test run. The commit message should say what was

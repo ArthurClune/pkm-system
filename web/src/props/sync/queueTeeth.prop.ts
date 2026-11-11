@@ -3,7 +3,8 @@
 // queue, and the property must fail on the invariant that exists to catch
 // it. A mutant that survives means the property cannot see that bug.
 //   resume clears all    the barrier as one boolean: any owner's resume
-//                        lifts every claim (barrier)
+//                        lifts every claim (barrier, or claim when no POST
+//                        follows before the property sees the lost claim)
 //   mark after the RPC   a batch marked as following the lane only once its
 //                        persist reply arrives, so a lost reply leaves its
 //                        durable row unmarked (order)
@@ -91,7 +92,7 @@ expectMutantsCaught({
   suite: "queue property",
   mutants: {
     "a resume that clears every owner breaks the barrier": {
-      catches: ["barrier"], disarm,
+      catches: ["barrier", "claim"], disarm,
       arm: () => { mutants.resumeClearsAll = true; },
     },
     "marking a batch only after its persist reply breaks the order": {

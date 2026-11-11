@@ -1,7 +1,7 @@
 // pattern: Functional Core
 // The assistant panel's chat as one machine: the conversation it talks to,
 // the one turn in flight, and what the panel shows. `step` takes an event
-// and returns the next state plus the effects the hook (useAssistant.ts)
+// and returns the next state plus the effects the driver (chatDriver.ts)
 // runs; every request's result comes back as an event naming its turn.
 
 import type { ConfirmId, ConversationId } from "../api/brands";
@@ -60,7 +60,7 @@ export type Conversation =
  * dropped. The server acts on a stop before answering it, so once the POST
  * has settled it cannot stop a later turn. So the turn is idle only once the
  * server is, except when Stop's fallback aborts the stream and the POST
- * (useAssistant.ts `STOP_ACK_TIMEOUT_MS`) or New chat aborts the stream.
+ * (chatDriver.ts `STOP_ACK_TIMEOUT_MS`) or New chat aborts the stream.
  * `recreated` is set once the turn has re-created a conversation the server
  * no longer knew, so a second 404 fails instead of looping. */
 export type Turn =

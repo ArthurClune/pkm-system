@@ -176,13 +176,13 @@ def test_every_optional_key_is_converted(tmp_path):
         "bind_hosts": ["127.0.0.1", "100.1.2.3"],
         "serve_origins": ["https://h.example/"],
         "max_upload_bytes": "1024",
-        "image_descriptions": 0,
-        "image_description_model": "m",
+        "image_descriptions": "yes",
+        "image_description_model": 7,
         "openai_api_key_file": "o",
         "zai_api_key_file": "z",
         "local_docs_root": "docs",
         "goodlinks_api_key_file": "g",
-        "goodlinks_api_url": "http://127.0.0.1:1/api",
+        "goodlinks_api_url": 8080,
     }))
     assert cfg == Config(
         db_path=tmp_path / "pkm.sqlite3",
@@ -195,15 +195,19 @@ def test_every_optional_key_is_converted(tmp_path):
         bind_hosts=("127.0.0.1", "100.1.2.3"),
         serve_origins=("https://h.example",),
         max_upload_bytes=1024,
-        image_descriptions=False,
-        image_description_model="m",
+        image_descriptions=True,
+        image_description_model="7",
         openai_api_key_file=tmp_path / "o",
         zai_api_key_file=tmp_path / "z",
         local_docs_root=tmp_path / "docs",
         goodlinks_api_key_file=tmp_path / "g",
-        goodlinks_api_url="http://127.0.0.1:1/api",
+        goodlinks_api_url="8080",
     )
     assert isinstance(cfg.bind_hosts, tuple)
+    assert type(cfg.image_descriptions) is bool
+    assert type(cfg.image_description_model) is str
+    assert type(cfg.goodlinks_api_url) is str
+    assert type(cfg.max_upload_bytes) is int
 
 
 def test_load_config_restates_no_default():

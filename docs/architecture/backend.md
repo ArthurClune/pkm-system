@@ -30,6 +30,7 @@ pkm/
 │   ├── strict.py               StrictModel, the base of every model
 │   ├── text.py                 WellFormedModel: lone surrogates become U+FFFD
 │   ├── int64.py                Int64, the bound on int path and query parameters
+│   ├── tag_chars.py            TAG_WORD_RANGES, the generated tag word class
 │   └── daily.py                date <-> "July 8th, 2026" titles
 ├── database.py          Shell  Db, the typed connection
 ├── db_sidecars.py, db_swap.py   Core / Shell  fold, then refuse, a database swap beside a held -wal/-shm
@@ -40,9 +41,10 @@ pkm/
 ├── todo.py              Core   {{TODO}}/{{DONE}} markers, mirrored by grammar/todo.ts
 ├── rename.py, unlink.py Core   rename and page-delete rewrites of block text
 ├── text_limits.py       Core   the length and `[[` nesting limits on block text
-├── title_migration.py   Core   title migration planner (the transactional shell is `server/title_migration.py`)
+├── title_migration_core.py Core   title migration planner (the transactional shell is `server/title_migration.py`)
 ├── planning.py, batch.py, render.py   Core   shared by the CLI, MCP and client
 ├── *_dump.py            Shell  generated-artifact writers
+├── parity_corpus.py     Core   the parity dumps' corpora and shape tally
 ├── server/                     the FastAPI app (below)
 ├── client/, cli/, mcp/         PkmClient, `pkm` and `pkm-mcp`
 ├── assistant/, describe/       embedded assistant; image-description queue
@@ -54,6 +56,8 @@ server/
 ├── db.py                Shell  init_db() at startup, open_db() per request, migrations
 ├── db_core.py           Core   sqlite_too_old: the SQLite version the server needs
 ├── wholepath.py         Shell  the {name:wholepath} DOTALL route convertor
+├── path_params.py       Core   route dependencies parsing branded path parameters
+├── clock.py             Shell  now_ms, the routes' clock dependency
 ├── auth.py, auth_core.py  Shell / Core  login, require_auth; scrypt and tokens
 ├── throttle.py, throttle_core.py  Shell / Core  LoginThrottle; backoff policy
 ├── auth_gate_core.py, auth_gate.py  Core / Shell  which requests are public, the body caps; AuthGateMiddleware
@@ -61,6 +65,7 @@ server/
 ├── origin_core.py, origin_guard.py  Core / Shell  allowed origins; OriginGuardMiddleware
 ├── security_headers.py  Shell  middleware adding fixed security headers
 ├── routes_*.py          Shell  the HTTP surface
+├── sidebar_core.py      Core   sidebar order and reorder checks
 ├── ops_core.py          Core   judges, skips, contexts, effects; plan_op(), classify_skip
 ├── replay_core.py       Core   the rewrite replay: walk, steps, budget charges, classify_text_edit
 ├── ops_hash.py          Core   the hashes that bind a batch_id to one payload
@@ -302,6 +307,9 @@ from these models, and `PkmClient` validates every response against them.
 
 The [brand lint](checks.md#brand-rules) enforces both;
 `brand_registry.MINT_SITES` lists where each brand may be minted.
+A branded path parameter comes from its dependency in `path_params.py`, so a
+handler only receives the checked brand. A malformed segment keeps its
+brand's status: 422 for a uid, 404 for a sha256 or a GoodLinks id.
 
 | Brand | Base | Declared in | Note |
 |---|---|---|---|
@@ -1004,7 +1012,7 @@ Every creation path funnels through `store.get_or_create_page()`. Daily pages
 Activation is an operator action: `pkm migrate-titles`, then
 `pkm migrate-titles --apply DIGEST`
 ([docs/cli.md](../cli.md#one-time-title-canonicalization)).
-`pkm/title_migration.py` groups pages whose titles share a
+`pkm/title_migration_core.py` groups pages whose titles share a
 `target_canonical_title`, picks a survivor and reports `all_space` or
 `forbidden_syntax` blockers. It also lists `sidebar_retitles`: every sidebar
 entry the target rule changes that no group already moves. Replacement
@@ -1385,7 +1393,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | GET | `/api/unlinked?title&limit&offset` | Unlinked mentions, not from the page itself; `limit` is clamped to 1–100 |
 | GET | `/api/journal?before&days` | Daily-notes feed |
 | POST | `/api/journal/cleanup` | Prune empty, unreferenced daily pages from the week before today |
-| GET | `/api/current-work?now_ms` | Recently edited pages, bucketed by age; `now_ms` replaces the server clock, for tests |
+| GET | `/api/current-work` | Recently edited pages, bucketed by age |
 | **Migrations** | | |
 | GET | `/api/migrations/title-canonicalization` | Side-effect-free audit and digest: `groups`, `blockers`, `sidebar_retitles` ([Title integrity](#title-integrity-and-one-time-activation)) |
 | POST | `/api/migrations/title-canonicalization` | Apply the audited digest, returning counts such as `sidebars_retitled`; 409 on stale, blocked, a rewrite past a text limit, or active with nothing to do |
@@ -1501,15 +1509,18 @@ brand `brands.ts` lacks. The `--table` redirect empties `tag_chars.py` before
 the dump runs. So `tag_chars_dump` imports the table only for the plain run,
 which writes the TS file, and must keep no top-level import of it. The seeded
 corpora in `refs_parity.json`, `title_parity.json` and
-`text_limits_parity.json` are tallied by shape, so they cannot go vacuous. The [ops property](checks.md#property-gate)
+`text_limits_parity.json` are tallied by shape (`parity_corpus.shape_tally`),
+so they cannot go vacuous. The [ops property](checks.md#property-gate)
 checks the server, replica and in-memory implementations against each other
 on random batches.
 
 ## Configuration and entrypoints
 
 `config.json` lives in the data directory, never in git;
-`python -m pkm.server.setup` writes it mode 0600. Path keys resolve relative
-to `config.json`'s directory, so the data directory moves as a unit.
+`python -m pkm.server.setup` writes it mode 0600. `Config` holds every
+default, and `load_config` passes only the keys the file sets. Path keys,
+key-file defaults included, resolve relative to `config.json`'s directory, so
+the data directory moves as a unit.
 
 | Key | Default | Meaning |
 |---|---|---|

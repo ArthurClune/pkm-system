@@ -130,18 +130,16 @@ such as a synced offline create. A malformed uid needs no entry, because
 | `_moved_into_delete` refuses a batch delete when an earlier write moves an existing block into its subtree, or a move it cannot place. It places parents by the ancestors read for `ancestor_uids` | The count is of the store before the batch runs, so a block moved in would go uncounted. `pkm batch` is unchecked: its user wrote the batch |
 | A delete's count and subtree hash come from one walk of `ops_apply.subtree_rows` per target, the walk the server's `expect` check runs | Two walks could disagree on a corrupted parent chain |
 
-A card is a snapshot taken when its `confirm_request` was built, so a write
-the user allows on another card can land after it. **A card is never
-silently stale from the assistant's own writes.**
-`ClaudeConversation.can_use_tool` stamps `writes_in_flight` when another
-assistant write could land after its read. An allowed write stops counting
-when its tool result arrives (`finished_tool_ids`) or its turn finishes
-(`TurnDone`). A stopped or errored turn never finishes, so its running writes
-stamp the next turn's cards. On the web, `chatMachine.ts` counts in
-`allowedAhead` the Allows posted since the last `turn_done`. `ConfirmCard`
-shows `.assistant-confirm-stale` on a stamped card with a `found` or
-`missing` block and `allowedAhead` above zero. `test_claude_engine.py` pins
-each timing case.
+**A card is never silently stale from the assistant's own writes.** A card
+is a snapshot taken when its `confirm_request` was built, so a write the user
+allows on another card can land after it. Each side marks that case:
+
+| Side | Marks |
+|---|---|
+| server, `ClaudeConversation.can_use_tool` | stamps `writes_in_flight` when another assistant write could land after its read. An allowed write stops counting when its tool result arrives (`finished_tool_ids`) or its turn finishes (`TurnDone`). A stopped or errored turn never finishes, so its running writes stamp the next turn's cards |
+| web, `ConfirmCard` | shows `.assistant-confirm-stale` on a stamped card with a `found` or `missing` block while `allowedAhead` is above zero. `chatMachine.ts` counts in `allowedAhead` the Allows posted since the last `turn_done` |
+
+`test_claude_engine.py` pins each timing case.
 
 Edits from outside the turn, such as the editor beside the panel, get no
 marker. Allow refuses them instead: 412, and nothing is written. The tool

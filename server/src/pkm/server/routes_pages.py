@@ -1,5 +1,7 @@
 # pattern: Imperative Shell
-"""Page read routes: page tree, block-ref resolution (backlinks: Task 5)."""
+"""Page routes: read, create, delete (with its preview) and rename;
+unlinked references; block and block-ref reads; the journal and its
+cleanup; current work."""
 from __future__ import annotations
 
 import time

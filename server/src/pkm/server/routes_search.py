@@ -1,5 +1,6 @@
 # pattern: Imperative Shell
-"""Full-text search (query evaluation joins in Task 8)."""
+"""Full-text search, query evaluation, title completion, todos and changed
+blocks."""
 from __future__ import annotations
 
 from datetime import datetime

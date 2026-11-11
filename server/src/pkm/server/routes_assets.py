@@ -1,5 +1,6 @@
 # pattern: Imperative Shell
-"""Serve content-addressed assets ."""
+"""Content-addressed assets: upload, serving, search, delete, and the
+selected-asset zip."""
 from __future__ import annotations
 
 import hashlib

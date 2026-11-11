@@ -1,10 +1,9 @@
 # pattern: Imperative Shell
 """Dump the OpenAPI schema for TS type generation:
 python -m pkm.server.openapi_dump > ../web/src/api/openapi.json
-Builds a throwaway app from a dummy Config in a scratch temp dir; touches no
-real (production) database. create_app() now runs init_db() on whatever path
-it's given, so the db_path must point at a writable directory
-rather than a nonexistent one."""
+Builds a throwaway app from a dummy Config in a scratch temp dir, so it
+touches no real database. create_app() runs init_db() on the db_path it is
+given, which is why that path sits in a writable directory."""
 from __future__ import annotations
 
 import json

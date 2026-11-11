@@ -3,10 +3,9 @@
 // opens THAT block; no hit (or a failed lookup) falls back to opening the
 // raw asset in a new tab.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { SidebarContext } from "../contexts";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { AssetLink } from "./AssetLink";
 import { shaOf, typeProbe } from "../test-helpers";
 
@@ -31,7 +30,7 @@ function Probe() {
 
 function mount(openInSidebar = vi.fn()) {
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+    <MemoryRouter initialEntries={["/"]}>
       <SidebarContext.Provider value={{ openInSidebar }}>
         <AssetLink url={URL} sha={SHA} filename="IMG_0868.jpeg" />
       </SidebarContext.Provider>

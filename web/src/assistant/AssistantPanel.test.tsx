@@ -1,7 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from "vitest";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { canonicalTitleOf, stubFetch, confirmIdOf } from "../test-helpers";
 import type { ConfirmAnswer } from "./chatMachine";
 import type { ChatItem, PendingConfirm, PhaseInfo } from "./useAssistant";
@@ -268,7 +267,7 @@ describe("AssistantPanel", () => {
       { kind: "assistant", text: "see ((chart1)) for details" },
     ];
     render(
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <AssistantPanel open onClose={() => {}} />
       </MemoryRouter>,
     );
@@ -296,7 +295,7 @@ describe("AssistantPanel", () => {
       { kind: "assistant", text: "see ((chart1)) and ![x](https://attacker.invalid/a.png)" },
     ];
     render(
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <AssistantPanel open onClose={() => {}} />
         <LocationProbe />
       </MemoryRouter>,
@@ -326,7 +325,7 @@ describe("AssistantPanel", () => {
       { kind: "assistant", text: "see ((^chart1)) for details" },
     ];
     render(
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <AssistantPanel open onClose={() => {}} />
       </MemoryRouter>,
     );

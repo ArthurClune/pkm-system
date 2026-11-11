@@ -9,7 +9,7 @@
 // drop, and Ctrl-O ref navigation. Every semantic mutation goes out through
 // the OutlineHandlers port; nothing here touches the block tree.
 import { useContext, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { apiPost } from "../api/typedClient";
 import type { BlockUid, NormalizedTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
@@ -159,7 +159,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       // fall through regardless
     }
     if (sidebar) openInSidebar(title);
-    else navigate(pagePath(title));
+    else void navigate(pagePath(title));
   };
 
   const pick = (row: AcRow) => {

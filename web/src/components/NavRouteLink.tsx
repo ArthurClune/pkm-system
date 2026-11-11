@@ -2,7 +2,7 @@
 // Navigates via react-router's NavLink -- runtime navigation, not a pure
 // rendering decision.
 import { type ReactNode } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink } from "react-router";
 
 /** A left-nav link to a route that *isn't* a page — Daily Notes, Current
  * Work, Files, Settings. `NavPageLink` is the counterpart for the ones that

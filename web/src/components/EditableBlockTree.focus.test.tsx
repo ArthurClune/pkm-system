@@ -1,7 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { beforeEach, expect, test, vi } from "vitest";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { block, uidOf } from "../test-helpers";
 import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
@@ -38,7 +37,7 @@ function table(tag: string): BlockNode {
 
 function mount(blocks: BlockNode[], focus: { uid: BlockUid; cursor: number } | null) {
   return render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={blocks} focus={focus} handlers={handlers()}
                          readOnly={false} />
     </MemoryRouter>,

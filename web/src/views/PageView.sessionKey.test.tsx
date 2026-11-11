@@ -1,6 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isOutlineSessionActive } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
@@ -33,7 +32,7 @@ describe.each([
     const sync = makeSync();
     const view = (resyncGeneration: number) => (
       <SyncContext.Provider value={{ ...sync, resyncGeneration }}>
-        <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={[path]}>
+        <MemoryRouter initialEntries={[path]}>
           <Routes><Route path="/page/*" element={<PageView />} /></Routes>
         </MemoryRouter>
       </SyncContext.Provider>

@@ -1,6 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { Link, MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { BlockStampsContext, SidebarContext } from "../contexts";
 import { setOfflineGateway } from "../api/client";
@@ -20,7 +19,7 @@ function renderTopBar(
   onToggleSidebar = vi.fn(),
 ) {
   return render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={[path]}>
+    <MemoryRouter initialEntries={[path]}>
       <SidebarContext.Provider value={{ openInSidebar }}>
         <TopBar sidebarCollapsed={sidebarCollapsed}
                 onToggleSidebar={onToggleSidebar} />
@@ -218,7 +217,7 @@ it("a failure that lands after the user navigated away is dropped", async () => 
     fail = () => reject(new TypeError("Failed to fetch"));
   })));
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}>
+    <MemoryRouter initialEntries={["/page/Paper"]}>
       <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
         <TopBar sidebarCollapsed={false} onToggleSidebar={vi.fn()} />
       </SidebarContext.Provider>
@@ -240,7 +239,7 @@ it("a success that lands after the user navigated away downloads nothing", async
     finish = () => resolve(exportResponse());
   })));
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}>
+    <MemoryRouter initialEntries={["/page/Paper"]}>
       <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
         <TopBar sidebarCollapsed={false} onToggleSidebar={vi.fn()} />
       </SidebarContext.Provider>
@@ -421,7 +420,7 @@ it("navigating away clears a stale delete error", async () => {
   vi.stubGlobal("fetch", vi.fn(async () =>
     new Response(JSON.stringify({ detail: "boom" }), { status: 500 })));
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}>
+    <MemoryRouter initialEntries={["/page/Paper"]}>
       <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
         <TopBar sidebarCollapsed={false} onToggleSidebar={vi.fn()} />
       </SidebarContext.Provider>
@@ -578,7 +577,7 @@ it("shows the search shortcut hint inside the search pill", () => {
 
 function renderTopBarWithStamps(stamps: boolean, toggle = vi.fn()) {
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/AWS"]}>
+    <MemoryRouter initialEntries={["/page/AWS"]}>
       <BlockStampsContext.Provider value={{ stamps, toggle }}>
         <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
           <TopBar sidebarCollapsed={false} onToggleSidebar={vi.fn()} />
@@ -634,7 +633,7 @@ function renderWithHeldFetches() {
     new Promise<Response>((answer) => { held.push({ url: String(input), init, answer }); }));
   vi.stubGlobal("fetch", fetchMock);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}>
+    <MemoryRouter initialEntries={["/page/Paper"]}>
       <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
         <TopBar sidebarCollapsed={false} onToggleSidebar={vi.fn()} />
       </SidebarContext.Provider>

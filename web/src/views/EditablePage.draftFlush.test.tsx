@@ -3,11 +3,10 @@
 // fixture binds the two halves, so a change to what a draft flush sends must
 // keep both green.
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { sha256Hex } from "../replica/sha256";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, makeSync, stubFetch, canonicalTitleOf, uidOf, clientIdOf } from "../test-helpers";
 import { EditablePage } from "./EditablePage";
@@ -30,7 +29,7 @@ afterEach(() => vi.useRealTimers());
 function typeDraftUnder(remoteOps: BlockOp[]) {
   const sync = makeSync();
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={sync}>
         <EditablePage title={canonicalTitleOf(fixture.page_title)}
                       initial={[block(fixture.uid, fixture.base)]} />

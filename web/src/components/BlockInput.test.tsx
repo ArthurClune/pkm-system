@@ -1,7 +1,6 @@
 import { createEvent, fireEvent, render, screen,
          waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { SidebarContext } from "../contexts";
 import { titleForDate } from "../replica/daily";
@@ -42,7 +41,7 @@ function inputElement(
   readOnly = false,
 ) {
   return (
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BlockInput
         node={node}
         cursor={cursor}
@@ -804,7 +803,7 @@ test("adopting a remote update clamps the caret to the new (shorter) length", ()
 
 function mountWithPageRoute(h: OutlineHandlers, cursor: number) {
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+    <MemoryRouter initialEntries={["/"]}>
       <BlockInput
         node={NODE}
         cursor={cursor}
@@ -888,7 +887,7 @@ test("Ctrl-Shift-O opens the reference in the sidebar instead of navigating", as
   const openInSidebar = vi.fn();
   const h = handlers();
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+    <MemoryRouter initialEntries={["/"]}>
       <SidebarContext.Provider value={{ openInSidebar }}>
         <BlockInput
           node={NODE}
@@ -1492,7 +1491,7 @@ test("/link-local-file strips the trigger, blurs, and opens the picker at the tr
   const h = handlers();
   const onRequestLocalFile = vi.fn();
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BlockInput node={{ ...NODE, text: "" }} cursor={0} handlers={h} readOnly={false}
                   onRequestUpload={vi.fn()} onRequestLocalFile={onRequestLocalFile} />
     </MemoryRouter>);

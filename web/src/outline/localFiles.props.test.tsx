@@ -1,9 +1,8 @@
 import { cleanup, render } from "@testing-library/react";
 import fc from "fast-check";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { describe, expect, test } from "vitest";
 import { InlineSegments } from "../components/InlineSegments";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { scanMarkdownLinkAt } from "../grammar/markdown";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { fileName, localCopyAttribute } from "./localFiles";
@@ -78,7 +77,7 @@ describe("rendered Local copy link", () => {
           const h = href + ext;
           const text = localCopyAttribute({ path: p, href: h });
           const { container } = render(
-            <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+            <MemoryRouter>
               <InlineSegments segments={tokenizeBlock(text)} />
             </MemoryRouter>,
           );

@@ -1,8 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, expect, it, vi } from "vitest";
 import { ApiError, apiFetch } from "../api/client";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { canonicalTitleOf } from "../test-helpers";
 import { PageTitle } from "./PageTitle";
 
@@ -20,7 +19,7 @@ function Probe() {
 function mount(titleText: string) {
   const pageTitle = canonicalTitleOf(titleText);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/x"]}>
+    <MemoryRouter initialEntries={["/page/x"]}>
       <PageTitle title={pageTitle} />
       <Probe />
     </MemoryRouter>);

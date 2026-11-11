@@ -1,6 +1,5 @@
 import { act, render, screen, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import type { CurrentWorkPayload } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
@@ -22,7 +21,7 @@ it("renders changed pages grouped into exclusive current-work sections", async (
   ] }]]);
 
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <CurrentWork />
     </MemoryRouter>,
   );
@@ -42,7 +41,7 @@ it("shows an error when current work cannot be loaded", async () => {
   stubFetch([]);
 
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <CurrentWork />
     </MemoryRouter>,
   );
@@ -68,7 +67,7 @@ it("a slow first load answered after a resync's load does not overwrite it",
   const sync = makeSync();
   const inSync = (s: typeof sync) => (
     <SyncContext.Provider value={s}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}><CurrentWork /></MemoryRouter>
+      <MemoryRouter><CurrentWork /></MemoryRouter>
     </SyncContext.Provider>
   );
   const { rerender } = render(inSync(sync));

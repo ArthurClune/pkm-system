@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 import { type ComponentType, createElement, useEffect, useLayoutEffect, useMemo, useRef,
          useState } from "react";
-import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import type { BlockUid, RawTitle } from "./api/brands";
 import { asRawTitle } from "./replica/titles";
 import { AssistantPanel } from "./assistant/AssistantPanel";
@@ -170,7 +170,7 @@ export function App() {
       // page never receives the keydown.
       if (e.ctrlKey && e.shiftKey && !e.metaKey && e.key.toLowerCase() === "d") {
         e.preventDefault();
-        navigate("/");
+        void navigate("/");
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "/") {
         e.preventDefault();

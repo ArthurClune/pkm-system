@@ -1,6 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter } from "react-router";
 import { expect, it, vi } from "vitest";
 import type { BlockRefText } from "../api/payloads";
 import { BlockRefContext, SidebarContext } from "../contexts";
@@ -26,7 +25,7 @@ vi.mock("./PdfViewer", () => ({
 
 function renderText(text: string, refTexts: Record<string, BlockRefText> = {}) {
   return render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BlockRefContext.Provider value={refTexts}>
         <InlineSegments segments={tokenizeBlock(text)} />
       </BlockRefContext.Provider>
@@ -184,7 +183,7 @@ it("protocol-relative and escaped pseudo-relative hrefs render as plain text", (
 it("shift-click calls the sidebar callback instead of navigating", () => {
   const openInSidebar = vi.fn();
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SidebarContext.Provider value={{ openInSidebar }}>
         <InlineSegments segments={tokenizeBlock("go [[Paper]]")} />
       </SidebarContext.Provider>
@@ -322,7 +321,7 @@ it("renders a Goodlinks link as an open button that does not bubble its click", 
   // is the real target the click must not bubble to.
   render(
     <div onClick={onOuterClick}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <BlockRefContext.Provider value={{}}>
           <InlineSegments segments={tokenizeBlock(`Local copy:: [Goodlinks](/api/goodlinks/${id})`)} />
         </BlockRefContext.Provider>

@@ -4,7 +4,7 @@
 // click -- all runtime React state/effect/navigation, not a pure rendering
 // decision.
 import { useContext, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import type { BlockUid } from "../api/brands";
 import { BlockRefRequestContext, SidebarContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
@@ -33,7 +33,7 @@ export function BlockRef({ uid, depth }: { uid: BlockUid; depth: number }) {
   // uid in the hash. Shift-click opens in the sidebar (same as PageLink).
   const go = (e: { shiftKey: boolean }) => {
     if (e.shiftKey) openInSidebar(resolved.page_title, uid);
-    else navigate(`${pagePath(resolved.page_title)}#${uid}`);
+    else void navigate(`${pagePath(resolved.page_title)}#${uid}`);
   };
   return (
     <span className="block-ref" role="link" tabIndex={0}

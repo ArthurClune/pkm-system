@@ -1,7 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
-import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   block,
@@ -40,7 +39,7 @@ function mount(sync = makeSync(), initial = [
   block("tuid-u2", "second", { order_idx: orderIdxOf(1) }),
 ]) {
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={sync}>
         <EditablePage title={canonicalTitleOf("Page")} initial={initial} />
       </SyncContext.Provider>
@@ -95,7 +94,7 @@ test("stale initial rerender during a pending split keeps the optimistic new blo
   const view = (
     blocks: typeof initial,
   ) => (
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={sync}>
         <EditablePage title={canonicalTitleOf("Page")} initial={blocks} />
       </SyncContext.Provider>
@@ -145,7 +144,7 @@ test("stale initial rerender while its scoped write is unsettled keeps optimisti
     },
   };
   const view = (blocks: typeof initial) => (
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={sync}>
         <EditablePage title={canonicalTitleOf("Page")} initial={blocks} />
       </SyncContext.Provider>
@@ -756,7 +755,7 @@ test("Ctrl-Shift-O over a held [[ref]] flushes the block text too", () => {
 // exactly the no-blur condition those navigations create.
 function NavAway() {
   const navigate = useNavigate();
-  return <button onClick={() => navigate("/elsewhere")}>go</button>;
+  return <button onClick={() => void navigate("/elsewhere")}>go</button>;
 }
 
 test("navigating away with no blur still flushes a held draft", () => {
@@ -764,7 +763,7 @@ test("navigating away with no blur still flushes a held draft", () => {
   stubFetch([["/api/titles", { titles: [] }]]);
   const sync = makeSync();
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+    <MemoryRouter initialEntries={["/"]}>
       <SyncContext.Provider value={sync}>
         <Routes>
           <Route path="/" element={<>
@@ -1045,7 +1044,7 @@ test("a page already active elsewhere in this tab renders read-only", () => {
 test("two same-title instances mounted in one commit expose exactly one editor", () => {
   const sync = makeSync();
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={sync}>
         <EditablePage title={canonicalTitleOf("Page")} initial={[block("tuid-u1", "first")]} />
         <EditablePage title={canonicalTitleOf("Page")} initial={[block("tuid-u1", "first")]} />
@@ -1063,7 +1062,7 @@ test("two same-title instances mounted in one commit expose exactly one editor",
 test("StrictMode same-title mount cleanup never exposes duplicate editors", () => {
   render(
     <StrictMode>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <SyncContext.Provider value={makeSync()}>
           <EditablePage title={canonicalTitleOf("Strict Page")} initial={[block("tuid-u1", "first")]} />
           <EditablePage title={canonicalTitleOf("Strict Page")} initial={[block("tuid-u1", "first")]} />
@@ -1078,7 +1077,7 @@ test("same-title fallback observes the owner's flushed optimistic tree", () => {
   vi.useFakeTimers();
   const sync = makeSync();
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={sync}>
         <EditablePage title={canonicalTitleOf("Page")} initial={[block("tuid-u1", "first")]} />
         <EditablePage title={canonicalTitleOf("Page")} initial={[block("tuid-u1", "first")]} />
@@ -1104,7 +1103,7 @@ test("same-title fallback observes the owner's flushed optimistic tree", () => {
 test("a remaining same-title fallback atomically takes over after owner unmount", () => {
   const sync = makeSync();
   const view = (includeFirst: boolean) => (
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={sync}>
         {includeFirst && (
           <EditablePage key="first" title={canonicalTitleOf("Page")} initial={[block("tuid-u1", "first")]} />
@@ -1140,7 +1139,7 @@ test("the read-only fallback still reflects genuinely remote batches", () => {
 test("once the first instance unmounts, a freshly mounted one becomes editable again", () => {
   const sync = makeSync();
   const first = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={sync}>
         <EditablePage title={canonicalTitleOf("Page")}
           initial={[block("tuid-u1", "first", { order_idx: orderIdxOf(0) })]} />
@@ -1148,7 +1147,7 @@ test("once the first instance unmounts, a freshly mounted one becomes editable a
     </MemoryRouter>);
   first.unmount();
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={sync}>
         <EditablePage title={canonicalTitleOf("Page")}
           initial={[block("tuid-u1", "first", { order_idx: orderIdxOf(0) })]} />
@@ -1338,7 +1337,7 @@ test("a draft refused at save keeps the editor on its block", () => {
 
 function NavBack() {
   const navigate = useNavigate();
-  return <button onClick={() => navigate("/")}>back</button>;
+  return <button onClick={() => void navigate("/")}>back</button>;
 }
 
 /** The page at "/" (blocks first, second), a "go" button to "/elsewhere"
@@ -1346,7 +1345,7 @@ function NavBack() {
 function mountRouted(sync: SyncFake) {
   stubFetch([["/api/titles", { titles: [] }]]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+    <MemoryRouter initialEntries={["/"]}>
       <SyncContext.Provider value={sync}>
         <DroppedDraftNotice />
         <Routes>

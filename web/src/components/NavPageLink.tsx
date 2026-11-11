@@ -3,7 +3,7 @@
 // React context and navigation, not a pure rendering decision.
 import type { RawTitle } from "../api/brands";
 import { type ReactNode, useContext } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink } from "react-router";
 import { SidebarContext } from "../contexts";
 import { pagePath } from "../paths";
 

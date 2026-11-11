@@ -263,7 +263,7 @@
       },
       "requests": {
         "class": "exact",
-        "value": 16
+        "value": 17
       },
       "snapshot_requests": {
         "class": "exact",

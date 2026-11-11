@@ -1,6 +1,7 @@
 import type { ClientRequest, IncomingMessage } from "node:http";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
+import type { Plugin } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { defineConfig } from "vitest/config";
 import { devProxyOrigin } from "./tooling/devProxyOrigin";
@@ -15,8 +16,26 @@ const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 // touching 8974, which the production launchd service owns on this machine.
 const apiTarget = `http://127.0.0.1:${process.env.PKM_API_PORT ?? "8974"}`;
 
+// react-router 7's exports map sends every condition, production included, to
+// its development build, so a build would ship its dev warnings and checks.
+const reactRouterProduction: Plugin = {
+  name: "react-router-production",
+  apply: "build",
+  config: () => ({
+    resolve: {
+      alias: [{
+        find: /^react-router$/,
+        replacement: fileURLToPath(new URL(
+          "node_modules/react-router/dist/production/index.mjs",
+          import.meta.url)),
+      }],
+    },
+  }),
+};
+
 export default defineConfig({
   plugins: [
+    reactRouterProduction,
     react(),
     // Offline app shell (docs/architecture/frontend.md § Build notes):
     // precache the built SPA so a cold start works with no network;

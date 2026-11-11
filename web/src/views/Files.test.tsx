@@ -2,10 +2,9 @@
 import {
   act, fireEvent, render, screen, waitFor,
 } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssetSearchItem, AssetSearchPayload } from "../api/payloads";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { makeSync, canonicalTitleOf, uidOf, shaOf } from "../test-helpers";
 import { Files } from "./Files";
 
@@ -48,7 +47,7 @@ const payload = (assets: AssetSearchItem[],
 
 const renderFiles = () =>
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/files"]}>
+    <MemoryRouter initialEntries={["/files"]}>
       <Files />
     </MemoryRouter>,
   );

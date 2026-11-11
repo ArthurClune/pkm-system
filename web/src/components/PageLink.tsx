@@ -3,7 +3,7 @@
 // runtime React context and navigation, not a pure rendering decision.
 import type { RawTitle } from "../api/brands";
 import { useContext } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { SidebarContext } from "../contexts";
 import { pagePath } from "../paths";
 import { pageNamespace } from "./pageNamespace";

@@ -1,6 +1,5 @@
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter } from "react-router";
 import { expect, test, vi } from "vitest";
 import { block, jsonResponse, orderIdxOf, stubFetch, uidOf } from "../test-helpers";
 import type { OutlineHandlers } from "../outline/handlers";
@@ -36,7 +35,7 @@ function handlers(): OutlineHandlers {
 
 function mount(h: OutlineHandlers) {
   return render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <EditableBlockTree blocks={[block("tuid-u1", "", { order_idx: orderIdxOf(0) })]}
                          focus={{ uid: uidOf("tuid-u1"), cursor: 0 }} handlers={h}
                          readOnly={false} />

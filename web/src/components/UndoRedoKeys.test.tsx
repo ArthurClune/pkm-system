@@ -1,9 +1,8 @@
 // Window-level undo keys fire only when no editable element owns
 // the keystroke, so the search bar keeps native input undo.
 import { fireEvent, render } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { makeSync, canonicalTitleOf, uidOf } from "../test-helpers";
 import { historyIdle, recordHistory, resetHistory,
@@ -25,7 +24,7 @@ const entry = () => ({
 
 function setup(sync = makeSync()) {
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncContext.Provider value={sync}>
         <UndoRedoKeys />
         <input aria-label="other-input" />

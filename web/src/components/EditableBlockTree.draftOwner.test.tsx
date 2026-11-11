@@ -4,14 +4,13 @@
 // while the user typed in the same block) or the flush sent nothing (typed
 // then erased) while a remote edit landed.
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { goodlinksAttribute } from "../outline/goodlinks";
 import { useOutline } from "../outline/useOutline";
 import { sha256Hex } from "../replica/sha256";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, canonicalTitleOf, clientIdOf, jsonResponse, makeSync,
          orderIdxOf, uidOf, type SyncFake, confirmYes } from "../test-helpers";
@@ -33,7 +32,7 @@ function renderPage(initial: BlockNode[]): SyncFake {
   const sync = makeSync();
   render(
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <Page initial={initial} />
       </MemoryRouter>
     </SyncContext.Provider>);

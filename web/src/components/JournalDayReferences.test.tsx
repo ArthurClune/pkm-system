@@ -1,6 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import type { BlockRefText } from "../api/payloads";
 import { BlockRefProvider } from "./BlockRefProvider";
@@ -21,7 +20,7 @@ function show(refs: Parameters<typeof journalBacklinks>[0],
     Promise.reject(new Error("no request may be made for a rendered day")));
   vi.stubGlobal("fetch", fetchMock);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BlockRefProvider seed={seed}>
         <JournalDayReferences title={canonicalTitleOf("July 7th, 2026")}
                               backlinks={journalBacklinks(refs)} />

@@ -1,13 +1,12 @@
 // /goodlinks end to end in the editor: pick resolves the parent's URL and
 // splices the attribute into the child block through the draft path.
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, jsonResponse, makeSync, orderIdxOf, canonicalTitleOf, confirmYes } from "../test-helpers";
 import { useOutline } from "../outline/useOutline";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { EditableBlockTree } from "./EditableBlockTree";
 import { noticeOf } from "../outline/notices";
 
@@ -56,7 +55,7 @@ function tree() {
 function renderPage(initial: BlockNode[] = tree()) {
   render(
     <SyncContext.Provider value={makeSync()}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <Page initial={initial} />
       </MemoryRouter>
     </SyncContext.Provider>);

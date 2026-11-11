@@ -5,7 +5,7 @@
 // retry with allow_merge=true. Daily notes are not editable (server
 // rejects them too). The server is atomic, so any failure = clean revert.
 import { useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { ApiError } from "../api/client";
 import { apiPost } from "../api/typedClient";
 import type { CanonicalTitle, RawTitle } from "../api/brands";
@@ -34,7 +34,7 @@ export function PageTitle({ title }: { title: CanonicalTitle }) {
     if (!newTitle || newTitle === title) return;
     try {
       const r = await rename(newTitle, false);
-      navigate(pagePath(r.title));
+      void navigate(pagePath(r.title));
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         const ok = await confirm(
@@ -43,7 +43,7 @@ export function PageTitle({ title }: { title: CanonicalTitle }) {
         if (!ok) return;
         try {
           const r = await rename(newTitle, true);
-          navigate(pagePath(r.title));
+          void navigate(pagePath(r.title));
         } catch (retryError) {
           setError(String(retryError));
         }

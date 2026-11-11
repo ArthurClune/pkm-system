@@ -1,6 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { ROUTER_FUTURE_FLAGS } from "../router";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import type { Backlinks } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
@@ -77,7 +76,7 @@ it("renders backlink groups with breadcrumbs and loads more on demand", async ()
   });
   const fetchMock = stubFetch([["/api/page/Machine%20Learning?bl_offset=1", more]]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("Machine Learning")} initial={initial} />
     </MemoryRouter>,
   );
@@ -111,7 +110,7 @@ it("backlinks show-more merges batches from the same source page", async () => {
       { backlinks: { groups: [groupAmore], total_pages: 2, offset: 1, limit: 1 } })],
   ]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("T")} initial={backlinksInitial} />
     </MemoryRouter>,
   );
@@ -125,7 +124,7 @@ it("shows an error and re-enables the button when show-more fails", async () => 
   vi.stubGlobal("fetch", vi.fn(async () =>
     new Response(JSON.stringify({ detail: "boom" }), { status: 500 })));
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("Machine Learning")} initial={initial} />
     </MemoryRouter>,
   );
@@ -145,12 +144,12 @@ it("refresh generation replaces the first backlink batch", async () => {
   });
   stubFetch([["/api/page/ACME?bl_offset=0&bl_limit=20", refreshed]]);
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("ACME")} initial={initial} refreshGeneration={0} />
     </MemoryRouter>,
   );
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("ACME")} initial={initial} refreshGeneration={1} />
     </MemoryRouter>,
   );
@@ -178,7 +177,7 @@ it("refresh with an open filter panel refetches from offset 0 at limit 100 until
     })],
   ]);
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("Claude")}
         initial={{ ...filterInitial, groups: filterInitial.groups.slice(0, 1), total_pages: 1 }}
         refreshGeneration={0} />
@@ -186,7 +185,7 @@ it("refresh with an open filter panel refetches from offset 0 at limit 100 until
   );
   fireEvent.click(screen.getByRole("button", { name: /filter/i }));
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("Claude")}
         initial={{ ...filterInitial, groups: filterInitial.groups.slice(0, 1), total_pages: 1 }}
         refreshGeneration={1} />
@@ -217,7 +216,7 @@ it("refresh preserves filter selections and panel state while replacing groups",
   });
   stubFetch([["/api/page/Claude?bl_offset=0&bl_limit=100", refreshed]]);
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("Claude")} initial={filterInitial} refreshGeneration={0} />
     </MemoryRouter>,
   );
@@ -226,7 +225,7 @@ it("refresh preserves filter selections and panel state while replacing groups",
   fireEvent.click(screen.getByRole("button", { name: "Idea (1)" }));
   expect(screen.getByText(/linked references \(1 of 2\)/i)).toBeInTheDocument();
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("Claude")} initial={filterInitial} refreshGeneration={1} />
     </MemoryRouter>,
   );
@@ -260,12 +259,12 @@ it("failed refresh keeps old groups and offers retry refresh", async () => {
     return new Response(JSON.stringify({ detail: "not found" }), { status: 404 });
   }));
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("ACME")} initial={initial} refreshGeneration={0} />
     </MemoryRouter>,
   );
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("ACME")} initial={initial} refreshGeneration={1} />
     </MemoryRouter>,
   );
@@ -289,17 +288,17 @@ it("ignores an older refresh response that resolves after a newer generation", a
     return calls === 1 ? older.promise : newer.promise;
   }));
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("ACME")} initial={initial} refreshGeneration={0} />
     </MemoryRouter>,
   );
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("ACME")} initial={initial} refreshGeneration={1} />
     </MemoryRouter>,
   );
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("ACME")} initial={initial} refreshGeneration={2} />
     </MemoryRouter>,
   );
@@ -351,12 +350,12 @@ it("disables show-more during refresh so stale pagination cannot start", async (
   });
   vi.stubGlobal("fetch", fetchMock);
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("ACME")} initial={initial} refreshGeneration={0} />
     </MemoryRouter>,
   );
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("ACME")} initial={initial} refreshGeneration={1} />
     </MemoryRouter>,
   );
@@ -412,7 +411,7 @@ it("a concurrent loadAll's groups survive a loadMore that started from a stale s
     total_pages: 3, offset: 0, limit: 1,
   };
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("T")} initial={raceInitial} />
     </MemoryRouter>,
   );
@@ -473,12 +472,12 @@ it("prevents opening the filter panel during refresh so stale load-all cannot st
     groups: filterInitial.groups.slice(0, 1),
   };
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("Claude")} initial={partial} refreshGeneration={0} />
     </MemoryRouter>,
   );
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("Claude")} initial={partial} refreshGeneration={1} />
     </MemoryRouter>,
   );
@@ -515,12 +514,12 @@ it("changing filter-panel state does not issue a second refresh for the same gen
   vi.stubGlobal("fetch", fetchMock);
   const singlePage = { ...initial, total_pages: 1 };
   const view = render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("ACME")} initial={singlePage} refreshGeneration={0} />
     </MemoryRouter>,
   );
   view.rerender(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("ACME")} initial={singlePage} refreshGeneration={1} />
     </MemoryRouter>,
   );
@@ -559,7 +558,7 @@ it("unlinked references fetch lazily on first open and paginate", async () => {
     }],
   ]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <UnlinkedSection title={canonicalTitleOf("Machine Learning")} />
     </MemoryRouter>,
   );
@@ -576,7 +575,7 @@ it("queues a canonical update with the snapshot hash and source scope", async ()
   const sync = makeSync();
   render(
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <UnlinkedSection title={canonicalTitleOf("ACME")} />
       </MemoryRouter>
     </SyncContext.Provider>,
@@ -612,7 +611,7 @@ it("renders one Link button per result and disables only the pending result", as
   });
   render(
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <UnlinkedSection title={canonicalTitleOf("ACME")} />
       </MemoryRouter>
     </SyncContext.Provider>,
@@ -631,7 +630,7 @@ it("disables Link with the read-only reason as its tooltip", async () => {
   });
   render(
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <UnlinkedSection title={canonicalTitleOf("ACME")} />
       </MemoryRouter>
     </SyncContext.Provider>,
@@ -669,7 +668,7 @@ it("hides a durably persisted item and notifies only after delivery", async () =
   });
   render(
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <UnlinkedSection title={canonicalTitleOf("ACME")} onLinked={onLinked} />
       </MemoryRouter>
     </SyncContext.Provider>,
@@ -710,7 +709,7 @@ it("retains the item when local persistence fails", async () => {
   });
   render(
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <UnlinkedSection title={canonicalTitleOf("ACME")} />
       </MemoryRouter>
     </SyncContext.Provider>,
@@ -757,7 +756,7 @@ it("restores the item and permits retry after delivery fails", async () => {
   });
   render(
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <UnlinkedSection title={canonicalTitleOf("ACME")} />
       </MemoryRouter>
     </SyncContext.Provider>,
@@ -792,7 +791,7 @@ it("reports no-safe-match without enqueueing", async () => {
   sync.enqueue = enqueue;
   render(
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <UnlinkedSection title={canonicalTitleOf("ACME")} />
       </MemoryRouter>
     </SyncContext.Provider>,
@@ -817,7 +816,7 @@ it("refuses a link that would put the block past the length cap", async () => {
   sync.enqueue = enqueue;
   render(
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <UnlinkedSection title={canonicalTitleOf("ACME")} />
       </MemoryRouter>
     </SyncContext.Provider>,
@@ -843,7 +842,7 @@ it("shows an error and re-enables the button when unlinked show-more fails", asy
     return new Response(JSON.stringify({ detail: "boom" }), { status: 500 });
   }));
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <UnlinkedSection title={canonicalTitleOf("Machine Learning")} />
     </MemoryRouter>,
   );
@@ -855,7 +854,7 @@ it("shows an error and re-enables the button when unlinked show-more fails", asy
 
 it("show-more buttons carry the shared secondary-button style", () => {
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("Machine Learning")} initial={initial} />
     </MemoryRouter>,
   );
@@ -877,7 +876,7 @@ const filterInitial: Backlinks = {
 
 it("filter panel: include, exclude via shift-click, clear", () => {
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("Claude")} initial={filterInitial} />
     </MemoryRouter>,
   );
@@ -920,7 +919,7 @@ it("opening the filter panel loads all remaining backlinks first", async () => {
   });
   const fetchMock = stubFetch([["/api/page/Claude?bl_offset=1&bl_limit=100", rest]]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("Claude")}
         initial={{ ...filterInitial, groups: filterInitial.groups.slice(0, 1) }} />
     </MemoryRouter>,
@@ -946,7 +945,7 @@ it("filter panel reaches loaded state when the backlink total shrinks server-sid
   });
   stubFetch([["/api/page/Claude?bl_offset=1&bl_limit=100", shrunk]]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <BacklinksSection title={canonicalTitleOf("Claude")} initial={shrinkInitial} />
     </MemoryRouter>,
   );
@@ -962,7 +961,7 @@ it("filter panel reaches loaded state when the backlink total shrinks server-sid
 it("the unlinked header is a focusable button reporting its expanded state", async () => {
   stubFetch([["/api/unlinked?title=ACME", unlinkedPayload()]]);
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <UnlinkedSection title={canonicalTitleOf("ACME")} />
     </MemoryRouter>,
   );
@@ -1004,7 +1003,7 @@ it("Show more after linking continues where the server's shortened list " +
   vi.stubGlobal("fetch", fetchMock);
   render(
     <SyncContext.Provider value={sync}>
-      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <MemoryRouter>
         <UnlinkedSection title={canonicalTitleOf("ACME")} />
       </MemoryRouter>
     </SyncContext.Provider>,

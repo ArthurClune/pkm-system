@@ -1,12 +1,11 @@
 // pattern: Imperative Shell
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter } from "react-router";
 import { registerSW } from "virtual:pwa-register";
 import { App } from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { isPhoneUserAgent, phoneViewportContent } from "./outline/keyboardBar";
-import { ROUTER_FUTURE_FLAGS } from "./router";
 import "./styles.css";
 
 // Offline shell (docs/architecture/frontend.md § Build notes): the service
@@ -25,7 +24,7 @@ if (isPhoneUserAgent(navigator.userAgent)) {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter future={ROUTER_FUTURE_FLAGS}>
+    <BrowserRouter>
       <ErrorBoundary>
         <App />
       </ErrorBoundary>

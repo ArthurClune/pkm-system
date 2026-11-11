@@ -1,7 +1,6 @@
 import { act, render } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { beforeEach, expect, test, vi } from "vitest";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import { block, FakeWebSocket, orderIdxOf, stubFetch, canonicalTitleOf, uidOf } from "../test-helpers";
 import * as tokenize from "../grammar/tokenize";
 import { SyncProvider, useSyncActions,
@@ -35,7 +34,7 @@ beforeEach(() => {
 
 test("an enqueue's pending count re-renders no block row", async () => {
   render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+    <MemoryRouter>
       <SyncProvider replica={null}>
         <Grab />
         <EditablePage title={canonicalTitleOf("Page")} initial={[

@@ -1,8 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it } from "vitest";
 import type { Backlinks } from "../api/payloads";
-import { ROUTER_FUTURE_FLAGS } from "../router";
 import {
   resetPlainSpaceTitleCanonicalization, setPlainSpaceTitleCanonicalization,
 } from "../sync/titleCanonicalization";
@@ -26,7 +25,7 @@ const initial: Backlinks = {
 };
 
 const openPanel = () => render(
-  <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+  <MemoryRouter>
     <BacklinksSection title={canonicalTitleOf("AI")} initial={initial} />
   </MemoryRouter>);
 

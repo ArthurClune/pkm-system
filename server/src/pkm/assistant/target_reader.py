@@ -104,9 +104,11 @@ async def preview_write(short: str, tool_input: Mapping[str, object],
     only `check_write`'s or `build_write_preview`'s refusal or fixed text,
     so every refusal that quotes input leaves through their length cut.
 
-    The input is checked before the read's `try`, so input the check
-    cannot handle reads nothing and is refused as not previewable, never
-    as unreadable."""
+    `check_write` runs first and never raises, so a refused input reads
+    nothing and the model is told the check's reason, or that the input
+    could not be previewed (nested past the deep copy's recursion limit,
+    say). "Could not be read" means only that the read, or the guard built
+    from it, failed."""
     checked = check_write(short, tool_input)
     if isinstance(checked, Refusal):
         return checked

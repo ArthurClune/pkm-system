@@ -5,10 +5,15 @@
 //
 // Every signal is a listener added after construction: the sync session
 // (session.ts) adds its own as it builds the queue, and starts no queue work
-// before its startup(), which SyncProvider reaches from an effect. No event can
-// precede those subscriptions, and none can reach a report during a render:
-// every emission follows at least one await (persist runs on persistChain,
-// delivery waits on a POST). So no method here may emit synchronously.
+// before its startup(), which SyncProvider reaches from an effect. No event may
+// precede those subscriptions, and none may reach a report during a render.
+// Every emission but one follows at least one await (persist runs on
+// persistChain, delivery waits on a POST). onRelease is the exception: resume
+// emits it synchronously, so its listener acts on the release before any
+// other call can claim the owner again. That holds only because resume is
+// reached from effects and async paths, never from a render, and a release
+// listener reports nothing synchronously. Any other synchronous emission
+// needs both facts too.
 import { ApiError } from "../api/client";
 import type { BatchId, ClientId, SyncSeq } from "../api/brands";
 import type { BlockOp } from "../api/ops";
@@ -90,6 +95,12 @@ export interface OpQueue {
   pause(owner: BarrierOwner): void;
   /** Release `owner`'s claim, and only that one. */
   resume(owner: BarrierOwner): void;
+  /** Whether `owner` holds the recovery barrier now. */
+  holds(owner: BarrierOwner): boolean;
+  /** resume released `owner`'s claim; holds(owner) is already false. Emitted
+   * synchronously inside resume (see the header), and never for an owner
+   * that held nothing. */
+  onRelease(fn: (owner: BarrierOwner) => void): () => void;
   dispose(): void;
   /** The replica refused an op on its merits, an op is past a text limit, or
    * the server terminally rejected a lane entry: the active outline must be
@@ -216,6 +227,7 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
   const poisonMarkFailed = listeners<PoisonMarkFailure>();
   const poison = listeners<PoisonEvent>();
   const poisonMarkUnmatched = listeners<void>();
+  const released = listeners<BarrierOwner>();
   const deliveries = new Map<BatchId, (outcome: DeliveryOutcome) => void>();
   // The in-memory lane: enqueues whose ops could not be persisted locally (a
   // full disk, OPFS access-handle contention, an exhausted SAH pool),
@@ -802,8 +814,12 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
       dispatch({ type: "pause", owner });
     },
     resume(owner) {
+      const held = qstate.holders.has(owner);
       dispatch({ type: "resume", owner });
+      if (held) released.emit(owner);
     },
+    holds: (owner) => qstate.holders.has(owner),
+    onRelease: released.add,
     dispose() {
       if (qstate.disposed) return;
       dispatch({ type: "dispose" });

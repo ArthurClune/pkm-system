@@ -1012,6 +1012,90 @@ describe("poison marks and retained mark intents", () => {
   });
 });
 
+describe("barrier claims", () => {
+  test("holds reports each owner's claim from its pause until its own resume",
+  () => {
+    const q = createOpQueue(memReplica());
+    expect(q.holds("recovery")).toBe(false);
+    q.pause("recovery");
+    q.pause("lane");
+    expect(q.holds("recovery")).toBe(true);
+    expect(q.holds("lane")).toBe(true);
+    expect(q.holds("poison")).toBe(false);
+    q.resume("lane");
+    expect(q.holds("lane")).toBe(false);
+    expect(q.holds("recovery")).toBe(true);
+    q.resume("recovery");
+    expect(q.holds("recovery")).toBe(false);
+    q.dispose();
+  });
+
+  test("holds(\"poison\") is true from construction while a reload's mark " +
+       "intents are retained", () => {
+    const retained: PoisonEvent = {
+      id: pendingRowIdOf(1), batch_id: bid("batch-1"), ops: [op("tuid-bad")],
+      status: 400, message: "rejected",
+    };
+    localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
+      version: 1, intents: [retained],
+    }));
+    const q = createOpQueue(memReplica());
+    expect(q.holds("poison")).toBe(true);
+    expect(q.holds("startup")).toBe(false);
+    q.dispose();
+  });
+
+  test("a durable rejection claims poison before its mark is written",
+  async () => {
+    fetchSeq([() => jsonResponse({ detail: "bad op" }, 400)]);
+    const markGate = deferred<void>();
+    const markStarted = deferred<void>();
+    const replica = memReplica({
+      markPoisoned: async (id) => {
+        markStarted.resolve();
+        await markGate.promise;
+        replica.rows.find((row) => row.id === id)!.poisoned = true;
+        return { pending: 0, matched: true };
+      },
+    });
+    const q = createOpQueue(replica);
+    q.enqueue([op("tuid-bad")]);
+    await markStarted.promise;
+    expect(q.holds("poison")).toBe(true);
+    markGate.resolve();
+    await q.drain();
+    expect(q.holds("poison")).toBe(true);
+    q.dispose();
+  });
+
+  test("onRelease fires once when resume releases a held claim, and not for " +
+       "an owner that was not held", () => {
+    const q = createOpQueue(memReplica());
+    const released: string[] = [];
+    q.onRelease((owner) => released.push(owner));
+    q.resume("poison");
+    q.pause("poison");
+    q.pause("poison");
+    q.resume("poison");
+    q.resume("poison");
+    q.pause("lane");
+    q.resume("lane");
+    expect(released).toEqual(["poison", "lane"]);
+    q.dispose();
+  });
+
+  test("onRelease runs after the release, so holds() is already false inside it",
+  () => {
+    const q = createOpQueue(memReplica());
+    const seen: boolean[] = [];
+    q.onRelease((owner) => seen.push(q.holds(owner)));
+    q.pause("recovery");
+    q.resume("recovery");
+    expect(seen).toEqual([false]);
+    q.dispose();
+  });
+});
+
 describe("replica RPC failures and retry delays", () => {
   test("an automatic drain RPC failure is observed without an unhandled rejection", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ok: true })));

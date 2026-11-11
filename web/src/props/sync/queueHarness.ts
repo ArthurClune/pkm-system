@@ -30,8 +30,9 @@ import { createOutlineRepair } from "../../sync/outlineRepair";
 import { memReplica } from "../../sync/memReplica";
 import { createOpQueue, type DeliveryOutcome } from "../../sync/opQueue";
 import { batchIdOf, pendingRowIdOf, seqOf, uidOf } from "../../test-helpers";
-import { accepted, deliveryProblems, holders, initialModel, noteApplied, notePost,
-         type BatchInfo, type Owner, type Persist, type Refusal } from "./queueModel";
+import { accepted, claimProblems, deliveryProblems, holders, initialModel, noteApplied,
+         notePost, releaseProblems, type BatchInfo, type Owner, type Persist,
+         type Refusal } from "./queueModel";
 
 export type Respond = "ack" | "lostAck" | "netFail";
 
@@ -401,6 +402,9 @@ export async function runQueueExample(
       count(ran ? showCmd(c).replace(/\(.*/, "") : `${c.t} skipped`);
       if (ran) transcript.push(showCmd(c));
       await settle();
+      for (const problem of claimProblems(model, queue.holds)) {
+        if (!model.violations.includes(problem)) model.violations.push(problem);
+      }
     }
     // Quiesce: every hold lets go, every request is answered as the server
     // and the network would answer it once healthy.
@@ -428,6 +432,7 @@ export async function runQueueExample(
         `rebases ${rebases.length}, reads ${reads.length}, rows ${rows.length}, ` +
         `lane ${unsent}, held ${holders(model).join(", ") || "none"}`);
     }
+    findings.push(...releaseProblems(model, queue.holds));
     findings.push(...deliveryProblems(model));
     for (const { info, outcome } of outcomes) {
       if (outcome === null) continue;

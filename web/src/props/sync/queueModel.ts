@@ -13,6 +13,12 @@
 //             lane and durable copies alike
 //   delivery  once quiescent, every batch the server accepts is applied,
 //             and no other batch is
+//   claim     after every command settles, the queue holds every owner the
+//             model holds; it may hold one longer (it releases poison after
+//             the repair's delete loop, the model at the delete)
+//   release   once quiescent, the queue holds no owner; a run cut off before
+//             quiescence names each owner the queue holds and the model
+//             does not
 import type { BatchId } from "../../api/brands";
 
 export type Owner = "startup" | "poison" | "recovery" | "lane";
@@ -83,6 +89,21 @@ export function noteApplied(m: QueueModel, batchId: BatchId): void {
 /** Whether the server accepts this batch when posted. */
 export function accepted(info: BatchInfo): boolean {
   return !info.bad && info.refusal === "none";
+}
+
+const OWNERS: readonly Owner[] = ["startup", "poison", "recovery", "lane"];
+
+/** After a command settles: every owner the model holds, the queue holds. */
+export function claimProblems(m: QueueModel, holds: (o: Owner) => boolean): string[] {
+  return holders(m).filter((o) => !holds(o))
+    .map((o) => `claim: the model holds ${o}, the queue does not`);
+}
+
+/** After quiescing: the queue holds no owner the model has let go. */
+export function releaseProblems(m: QueueModel, holds: (o: Owner) => boolean): string[] {
+  const model = holders(m);
+  return OWNERS.filter((o) => holds(o) && !model.includes(o))
+    .map((o) => `release: ${o} still held by the queue`);
 }
 
 /** Once quiescent: what was applied matches what the server accepts. */

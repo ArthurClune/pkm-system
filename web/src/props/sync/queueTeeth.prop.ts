@@ -7,7 +7,13 @@
 //   mark after the RPC   a batch marked as following the lane only once its
 //                        persist reply arrives, so a lost reply leaves its
 //                        durable row unmarked (order)
+//   claims unreported    a queue whose holds() answers false for every
+//                        owner (claim)
+//   poison kept          the runtime never resumes poison, so a repair
+//                        that succeeds keeps its claim (release)
 import { afterEach, beforeEach, vi } from "vitest";
+import type { ClientRuntimeDeps } from "../../sync/clientRuntime";
+import type { BarrierOwner } from "../../sync/queueState";
 import { expectMutantsCaught } from "../gate";
 import { captureFaultWarnings } from "../warningsCapture";
 import { queueCommands } from "./queueArbitraries";
@@ -18,6 +24,8 @@ captureFaultWarnings("sync queue teeth");
 const mutants = vi.hoisted(() => ({
   resumeClearsAll: false,
   markAfterRpc: false,
+  holdsNothing: false,
+  keepPoison: false,
   isLost: (_id: string): boolean => false,
 }));
 
@@ -41,6 +49,31 @@ vi.mock("../../sync/outbox", async (importOriginal) => {
   };
 });
 
+vi.mock("../../sync/opQueue", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../../sync/opQueue")>();
+  return {
+    ...real,
+    createOpQueue: (...args: Parameters<typeof real.createOpQueue>) => {
+      const queue = real.createOpQueue(...args);
+      return { ...queue, holds: (o: BarrierOwner) => !mutants.holdsNothing && queue.holds(o) };
+    },
+  };
+});
+
+vi.mock("../../sync/clientRuntime", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../../sync/clientRuntime")>();
+  return {
+    ...real,
+    createClientRuntime: (deps: ClientRuntimeDeps) => real.createClientRuntime({
+      ...deps,
+      queue: {
+        ...deps.queue,
+        resume: (o) => { if (!(mutants.keepPoison && o === "poison")) deps.queue.resume(o); },
+      },
+    }),
+  };
+});
+
 const NUM_RUNS = 10_000;
 const TIME_LIMIT_MS = 15_000;
 
@@ -50,6 +83,8 @@ afterEach(() => { vi.useRealTimers(); });
 const disarm = (): void => {
   mutants.resumeClearsAll = false;
   mutants.markAfterRpc = false;
+  mutants.holdsNothing = false;
+  mutants.keepPoison = false;
 };
 
 expectMutantsCaught({
@@ -65,6 +100,14 @@ expectMutantsCaught({
         mutants.markAfterRpc = true;
         mutants.isLost = (id) => [...lostReplyIds].some((lost) => lost === id);
       },
+    },
+    "a queue that never reports a claim breaks the claim": {
+      catches: ["claim"], disarm,
+      arm: () => { mutants.holdsNothing = true; },
+    },
+    "a poison repair that never releases its claim breaks the release": {
+      catches: ["release"], disarm,
+      arm: () => { mutants.keepPoison = true; },
     },
   },
   arbs: [queueCommands],

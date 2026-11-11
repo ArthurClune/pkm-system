@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pkm.contracts.ops import BlockUid, ViewType
 from pkm.rows import Row, StoredHeadingLevel
 from pkm.contracts.responses import BlockNode
@@ -58,3 +60,16 @@ def test_tree_collapsed_is_bool():
 def test_build_tree_reads_a_legacy_heading_zero_as_none():
     (node,) = build_tree([_row(uid_of("tuid-h0"), None, 0, "legacy", 0, None, 0)])
     assert node.heading is None
+
+
+_SRC = Path(__file__).resolve().parents[1] / "src"
+
+
+def _files_holding(needle: str) -> list[str]:
+    return sorted(str(p.relative_to(_SRC)) for p in _SRC.rglob("*.py")
+                  if needle in p.read_text(encoding="utf-8"))
+
+
+def test_block_columns_are_spelled_once():
+    assert _files_holding("uid, parent_uid, order_idx, text, heading,"
+                          " collapsed") == ["pkm/server/tree.py"]

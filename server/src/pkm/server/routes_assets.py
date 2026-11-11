@@ -32,7 +32,7 @@ from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db, write_txn
-from pkm.server.fts import phrase_query
+from pkm.server.fts import like_escape, phrase_query
 from pkm.server.path_params import path_sha256
 from pkm.server.mime_sniff import resolve_stored_mime, sniff_mime
 from pkm.server.store import reindex_refs_for_text
@@ -96,9 +96,7 @@ def search_assets(q: str = "", limit: Int64 = 50, offset: Int64 = 0,
     params: list[object] = []
     needle = q.strip()
     if needle:
-        esc = (needle.replace("\\", "\\\\")
-                     .replace("%", "\\%")
-                     .replace("_", "\\_"))
+        esc = like_escape(needle)
         where_parts.append(r"(description LIKE ? ESCAPE '\'"
                            r" OR filename LIKE ? ESCAPE '\')")
         params += [f"%{esc}%", f"%{esc}%"]

@@ -41,16 +41,12 @@ from pkm.server.store import (BlankTitleError, DeleteBlockedError,
                               RewriteTextLimitError)
 from pkm.server.sync_core import chunk_ids
 from pkm.server.sync_meta import read_title, title_reader
-from pkm.server.tree import (Ancestors, ancestors_of, build_tree,
+from pkm.server.tree import (BLOCK_COLS, Ancestors, ancestors_of, build_tree,
                              collect_block_ref_uids, find_node)
 from pkm.server import wholepath  # noqa: F401 -- registers {title:wholepath}
 from pkm.unlink import DeleteBlocker
 
 router = APIRouter(dependencies=[Depends(require_auth)])
-
-_BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
-               " created_at, updated_at, view_type")
-
 
 class CreatePageRequest(WellFormedModel):
     title: RawTitle = Field(min_length=1)
@@ -59,10 +55,6 @@ class CreatePageRequest(WellFormedModel):
 class RenamePageRequest(WellFormedModel):
     new_title: RawTitle = Field(min_length=1)
     allow_merge: bool = False
-
-
-def _daily_title(d: date) -> CanonicalTitle:
-    return canonical_daily_title(d)
 
 
 def _block_ref_texts(db: Db,
@@ -243,7 +235,7 @@ def get_block(uid: BlockUid = Depends(path_uid),
     if row is None:
         raise HTTPException(status_code=404, detail="block not found")
     blocks = db.select(
-        f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
+        f"SELECT {BLOCK_COLS} FROM blocks WHERE page_id = ?",
         (row["page_id"],))
     node = find_node(build_tree(blocks), uid)
     assert node is not None  # the block row exists on this page
@@ -278,7 +270,7 @@ def get_page(request: Request, title: RawTitle, bl_offset: Int64 = 0, bl_limit: 
         if created:
             notify.nudge_threadpool(request, db)
     blocks = db.select(
-        f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
+        f"SELECT {BLOCK_COLS} FROM blocks WHERE page_id = ?",
         (page["page_id"],))
     backlinks, bl_texts = _backlinks(db, page["page_id"], bl_offset, bl_limit)
     return PagePayload(
@@ -563,12 +555,12 @@ def get_journal(request: Request, before: str | None = None, days: Int64 = 7,
         except ValueError:
             raise HTTPException(status_code=400, detail="invalid before date")
     today = date.today()
-    if cursor is None and fetch_page(db, _daily_title(today)) is None:
+    if cursor is None and fetch_page(db, canonical_daily_title(today)) is None:
         with write_txn(db):
-            created = fetch_page(db, _daily_title(today)) is None
+            created = fetch_page(db, canonical_daily_title(today)) is None
             if created:
                 get_or_create_page(
-                    db, _daily_title(today), int(time.time() * 1000))
+                    db, canonical_daily_title(today), int(time.time() * 1000))
         if created:
             notify.nudge_threadpool(request, db)
     nonempty: set[date] = set()
@@ -584,11 +576,11 @@ def get_journal(request: Request, before: str | None = None, days: Int64 = 7,
     texts: list[str] = []
     uids: list[BlockUid] = []
     for d in select_journal_days(nonempty, today, cursor, days):
-        page = fetch_page(db, _daily_title(d))
+        page = fetch_page(db, canonical_daily_title(d))
         if page is None:  # pragma: no cover - selected days exist
             continue
         blocks = db.select(
-            f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
+            f"SELECT {BLOCK_COLS} FROM blocks WHERE page_id = ?",
             (page["page_id"],))
         backlinks, bl_texts = _backlinks(
             db, page["page_id"], 0, JOURNAL_BACKLINK_PREVIEW)
@@ -633,7 +625,7 @@ def cleanup_journal(request: Request,
     deleted: list[CanonicalTitle] = []
     with write_txn(db):
         for d in past_week_dates(date.today()):
-            title = _daily_title(d)
+            title = canonical_daily_title(d)
             page = fetch_page(db, title)
             if page is None:
                 continue

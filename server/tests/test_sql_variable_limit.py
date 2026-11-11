@@ -11,7 +11,7 @@ from datetime import date
 import pytest
 from pkm.server import db as server_db
 from pkm.server.db import open_db
-from pkm.server.routes_pages import _daily_title
+from pkm.refs import canonical_daily_title
 
 LIMIT = 600
 N = 700  # past LIMIT, and past one 500-id chunk
@@ -115,7 +115,7 @@ def test_export_resolves_many_distinct_refs(client, db):
 def test_journal_counts_and_resolves_past_the_limit(client, db):
     client.get("/api/journal")  # creates today's page
     today = db.select_one("SELECT id AS page_id FROM pages WHERE title = ?",
-                          (_daily_title(date.today()),))
+                          (canonical_daily_title(date.today()),))
     assert today is not None
     _blocks(db, today["page_id"],
             [(f"day_{i:07d}", None, "x") for i in range(N)])

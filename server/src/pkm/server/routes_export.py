@@ -52,17 +52,10 @@ from pkm.server.store import fetch_page
 from pkm.server.sync_core import chunk_ids
 from pkm.server.sync_meta import read_title
 from pkm.server.tempfile_response import CleanupFileResponse
-from pkm.server.tree import build_tree, collect_block_ref_uids
+from pkm.server.tree import BLOCK_COLS, build_tree, collect_block_ref_uids
 from pkm.server import wholepath  # noqa: F401 -- registers {title:wholepath}
 
 router = APIRouter(dependencies=[Depends(require_auth)])
-
-# Matches the column set build_tree() reads (see routes_pages._BLOCK_COLS) --
-# kept as its own copy rather than a cross-module import since it's a plain
-# SQL literal, not shared behaviour.
-_BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
-              " created_at, updated_at, view_type")
-
 
 def _run_query(db: Db, expr: str, budget: GatherBudget,
                item_depth: int) -> QueryResult | None:
@@ -166,7 +159,7 @@ def export_page_markdown(title: RawTitle,
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")
     blocks = db.select(
-        f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
+        f"SELECT {BLOCK_COLS} FROM blocks WHERE page_id = ?",
         (page["page_id"],))
     texts = [r["text"] for r in blocks]
     try:

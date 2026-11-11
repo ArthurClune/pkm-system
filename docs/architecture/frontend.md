@@ -52,15 +52,15 @@ flowchart LR
 ## State management
 
 There is no Redux or Zustand. A view holds the payload it fetched and refetches
-through `useResync(fn)`. `sync/SyncProvider.tsx` holds the queue and
-connectivity. `outline/outlineSessions.ts` holds one shared block tree per
+through `useResync(fn)`. `sync/session.ts` holds the queue and
+connectivity; `sync/SyncProvider.tsx` publishes them. `outline/outlineSessions.ts` holds one shared block tree per
 title ([frontend-editor.md](frontend-editor.md#per-title-outline-sessions)).
 
 `SyncProvider` publishes four contexts, one per rate of change:
 
 | Hook | Value | New identity when |
 |---|---|---|
-| `useSyncActions()` | `enqueue`, `subscribe`, `settled`, `attachOutlineReplay`, `retryProblem`, `dismissProblem`, `discardProblem`, `resetReplica` | never: each method reads current state through a ref |
+| `useSyncActions()` | `enqueue`, `subscribe`, `settled`, `attachOutlineReplay`, `retryProblem`, `dismissProblem`, `discardProblem`, `resetReplica` | never: `session.actions`, one object for the session's life |
 | `useResyncGeneration()` | `resyncGeneration` | server state may have diverged (reconnect after a gap, repair finished) |
 | `useSyncEditability()` | `canEdit`, `readOnlyReason` | editing becomes allowed or blocked; a flap with a ready replica changes neither |
 | `useSyncHealth()` | `status`, `replicaMode`, `pending`, `unsentInMemory`, `problem` | the socket flaps, or an op is queued or acknowledged |

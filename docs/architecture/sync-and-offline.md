@@ -31,12 +31,18 @@ at push time.
 | WS hub | `ws.py`, `notify.py` | Post-commit nudges and op echoes ([backend.md § Post-commit nudges](backend.md#post-commit-nudges)) |
 | Replica | `web/src/replica/` | sqlite-wasm in a worker, on the OPFS SAHPool VFS |
 | Op queue | `sync/opQueue.ts`, `replica/queue.ts`, `sync/outbox.ts` | Durable `pending_ops`, optimistic apply, drain |
-| Orchestration | `sync/SyncProvider.tsx`, `clientRuntime.ts`, `useSocketLifecycle.ts`, `reconnectFlow.ts`, `replicaSync.ts`, `legacyRepair.ts` | Connect ordering, the pull loop, recovery, view refetch |
+| Orchestration | `sync/session.ts` (`createSyncSession`), built from `clientRuntime.ts`, `reconnectFlow.ts`, `replicaSync.ts`, `legacyRepair.ts` | The one composition (connect ordering, pull loop, recovery, banner fold), also run by the sync property harness |
+| React shell | `sync/SyncProvider.tsx`, `useSocketLifecycle.ts` | State, contexts, the owned worker and the offline gateway; the socket and the deferred teardown |
 | Offline API shim | `replica/localApi/` | Serves the read API's JSON shapes from the replica |
 
-No `OpQueue` method may emit synchronously. `SyncProvider` subscribes in an
-effect after the commit that built the queue, so a synchronous emission reaches
-no listener. `opQueue.replica.test.ts` pins this.
+No `OpQueue` method may emit synchronously. The session subscribes as it
+builds the queue, during render, and starts no work before `startup()`, which
+`SyncProvider` calls from an effect after the commit. A synchronous emission
+would reach a report during render. `opQueue.replica.test.ts` pins this.
+
+The session's listeners stay subscribed until `dispose()`, which runs a
+microtask after the effect cleanup and which a StrictMode replay cancels. Each
+listener and report therefore checks liveness first.
 
 ## The replica
 
@@ -397,13 +403,12 @@ the outline repair epoch, so pending edits elsewhere on a page survive a bump.
 | Trigger | Bumps when | Where |
 |---|---|---|
 | A reconnect completes | its catch-up moved data (`replicaSync.appliedVersion()`), or there is no usable replica | `reconnectFlow.ts` |
-| A first connect | `begin({ viewsAreStale: true })`: the queue holds an earlier page load's rows, or `replicaSync.hasStarted()` is false | `useSocketLifecycle.ts` |
+| A first connect | `begin({ viewsAreStale: true })`: the queue holds an earlier page load's rows, or `replicaSync.hasStarted()` is false | `session.ts` |
 | An ack lists skipped ops | always, whatever the replica state | `opQueue.ts`, `replicaSync.ts` (`ops-skipped`) |
 | A repair or reset succeeds | always | `syncState.ts` |
-| The replica turns ready while disconnected | always | `syncState.ts` (`mode-ready-check`) |
+| The replica turns ready while disconnected | always, at the mode report, reading the socket status then | `syncState.ts` (`replica-state`) |
 
-The skipped-ops bump runs on every path that posts a batch (`deliverLaneHead`,
-`runDrain`, `deliverLaneAhead`, `replicaSync.flushBatches`), each through
+The skipped-ops bump runs on every path that posts a batch, each through
 `readOpsAck`. A tab with no replica gets no tombstone for the ghost block, and
 a replica tombstone raises no resync. Without the bump the ghost stays on
 screen, and each flush into it lands another daily-note entry.

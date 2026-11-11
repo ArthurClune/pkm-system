@@ -5,7 +5,7 @@ status: in-progress
 type: bug
 priority: normal
 created_at: 2026-11-11T05:04:59Z
-updated_at: 2026-11-11T09:05:44Z
+updated_at: 2026-11-11T09:11:38Z
 parent: pkm-4gda
 ---
 
@@ -15,6 +15,6 @@ On reconnect the flow asks replicaSync for a pull. If a pass is already running 
 - [x] Red test: reconnect owed behind a failing pass, and own pull failing (reconnectFlow.test.ts, real replicaSync)
 - [x] start()/pull() report an unserved pull; completion counts it as moved
 - [x] Mutation check
-- [ ] Sync property suite look and proptest run
-- [ ] Docs: refetch table row
+- [x] Sync property suite look and proptest run (fails on pre-existing pkm-c6ot)
+- [x] Docs: refetch table row
 - [ ] Troubleshooting row (own commit)

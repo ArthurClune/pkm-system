@@ -333,8 +333,8 @@ flowchart TD
     AW -->|no| L
     subgraph G["worker gate held: every other replica call waits"]
         L["replica.prepareRecovery()<br/>pending rows fingerprinted<br/>deadline: call time + RECOVERY_LEASE_MS"]
-        L --> F["flushLease: skip · preemptible · blocking<br/>each ack held as { id, batch_id, seq }<br/>each ack renews the lease"]
-        F --> S["GET /api/sync/snapshot<br/>each chunk renews the lease"]
+        L --> F["flushLease: skip · preemptible · blocking<br/>each ack held as { id, batch_id, seq }<br/>progress renews the lease"]
+        F --> S["GET /api/sync/snapshot<br/>progress renews the lease"]
         S --> C{"commitRecovery:<br/>lease live, pending rows unchanged?"}
         C -->|"yes, reset"| RB["rebuildOrReplaceFile"]
         C -->|"yes, rebase"| RS["rebaseOrReplaceFile<br/>acked rows deleted in the snapshot's transaction"]
@@ -374,40 +374,28 @@ after a reload the rows replay once and the stored ack deletes them.
 
 The lease bounds the gate span in the diagram above. Its first deadline
 counts from the `prepareRecovery` call, so the wait for the gate counts
-against it. `keepLease` (`replicaSync.ts`) renews it through
-`renewRecovery`, at most once per `LEASE_RENEW_EVERY_MS` and never two at
-once.
+against it. A run renews as soon as it is granted a lease whose wait
+outlasted `LEASE_RENEW_EVERY_MS`, so a recovery queued behind a long one
+starts with a whole lease. `keepLease` (`replicaSync.ts`) renews it through
+`renewRecovery`, at most once per `LEASE_RENEW_EVERY_MS`.
 
 **Renewal follows progress, never a timer.** A flush POST that hangs is never
 aborted, and a page that stops running sends nothing. Either stops renewing,
 and the worker frees the gate a lease-length later. A heartbeat would hold
 the gate for as long as a hung POST lasts.
 
-A download that goes silent is the client's to end. `fetchSnapshot` passes
-`stallMs: SNAPSHOT_STALL_MS`, and the run then releases the gate itself
-through `abortRecovery`. `SNAPSHOT_STALL_MS + LEASE_RENEW_EVERY_MS` stays
+A download silent for `SNAPSHOT_STALL_MS` is abandoned by the client, which
+frees the gate itself. `SNAPSHOT_STALL_MS + LEASE_RENEW_EVERY_MS` stays
 under `RECOVERY_LEASE_MS`, so a live client gives the gate back before the
 worker has to. Expiry is left for a page that stopped running. The test "a
 live client abandons a stalled download before the worker's lease expires"
 (`replicaSync.test.ts`) pins the inequality.
 
-The worker answers a lease call for a token by the lease's state:
-
-| Lease state | `renewRecovery` | `commitRecovery` | `abortRecovery` |
-|---|---|---|---|
-| held, deadline ahead | ok; keeps the later deadline | proceeds; stops the timer, so nothing expires a running commit | ok; frees the gate |
-| its commit has begun | refused, `INVALID_TOKEN` | refused, `INVALID_TOKEN` | refused, `INVALID_TOKEN` |
-| expired | refused, `LEASE_EXPIRED` | refused, `LEASE_EXPIRED` | refused, `LEASE_EXPIRED` |
-
-A lease is expired once any lease call finds the clock at or past its
-deadline (`liveLease`), so no call can revive it before its timer runs. With
-no call in flight, the gate is freed when the timer fires, which a forward
-jump of the wall clock puts later than the deadline. Only the most recently expired token reads
-`LEASE_EXPIRED`; any other token not held reads `INVALID_TOKEN`.
-
-A refused renewal aborts the download through `LeaseKeeper.signal` and fails
-the run with the refusal, not the fetch's `AbortError`. The commit waits for
-a renewal still in flight.
+A lease call is refused once the lease has expired (`LEASE_EXPIRED`) or its
+commit has begun (`INVALID_TOKEN`). A begun commit stops the timer, so it is
+never expired. Expiry is decided at each lease call as well as by the timer
+(`liveLease`), so no call can revive a lease in the moment before its timer
+runs. `recoveryLease.props.test.ts` holds the cases.
 
 An edit made during the gate span waits behind it. Its enqueue times out into
 the [in-memory lane](#the-in-memory-fallback-lane), which the `recovery`

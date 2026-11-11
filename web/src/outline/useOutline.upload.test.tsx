@@ -2,7 +2,7 @@
 // and drag-drop paths — it calls uploadAsset per file and lands each result
 // as its own block after the current one (an empty block takes the first).
 // This also covers the error-surfacing half: a failed upload must set a
-// visible uploadError and leave the block text untouched, never swallow the
+// visible upload notice and leave the block text untouched, never swallow the
 // failure with zero user feedback.
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
@@ -14,6 +14,7 @@ import { block, defer, jsonResponse, makeSync, stubFetch, canonicalTitleOf, type
 import { findNode } from "./tree";
 import { resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
+import { noticeOf } from "./notices";
 
 function Harness({ titleText, initial, onReady }: {
   titleText: string;
@@ -61,11 +62,11 @@ it("onFiles adds the upload as a new block after one with text", async () => {
     await flush();
   });
 
-  expect(getOutline().uploadError).toBeNull();
+  expect(noticeOf(getOutline().notices, "upload")).toBeNull();
   expect(rootTexts(getOutline())).toEqual(["hello", md(INFO)]);
 });
 
-it("a failed upload sets a visible uploadError and leaves the text untouched",
+it("a failed upload sets a visible upload notice and leaves the text untouched",
    async () => {
   const sync = makeSync();
   stubFetch([]); // /api/assets 404s -> ApiError
@@ -77,13 +78,13 @@ it("a failed upload sets a visible uploadError and leaves the text untouched",
     await flush();
   });
 
-  expect(getOutline().uploadError).not.toBeNull();
-  expect(getOutline().uploadError).toContain("cat.png");
+  expect(noticeOf(getOutline().notices, "upload")).not.toBeNull();
+  expect(noticeOf(getOutline().notices, "upload")).toContain("cat.png");
   expect(sync.sent).toEqual([]); // no op enqueued
   expect(findNode(getOutline().blocks, uidOf("tuid-u1"))!.text).toBe("hello");
 });
 
-it("dismissUploadError clears the message", async () => {
+it("dismissNotice clears the upload notice", async () => {
   const sync = makeSync();
   stubFetch([]);
   const getOutline = setup(sync, "Page", [block("tuid-u1", "hello")]);
@@ -93,11 +94,11 @@ it("dismissUploadError clears the message", async () => {
     void getOutline().handlers.onFiles(uidOf("tuid-u1"), [file]);
     await flush();
   });
-  expect(getOutline().uploadError).not.toBeNull();
+  expect(noticeOf(getOutline().notices, "upload")).not.toBeNull();
 
-  act(() => getOutline().dismissUploadError());
+  act(() => getOutline().dismissNotice("upload"));
 
-  expect(getOutline().uploadError).toBeNull();
+  expect(noticeOf(getOutline().notices, "upload")).toBeNull();
 });
 
 // The /upload pick blurs the block itself before onFiles ever runs —
@@ -192,7 +193,7 @@ it("starting a new upload clears a stale error from a previous failure", async (
     void getOutline().handlers.onFiles(uidOf("tuid-u1"), [file]);
     await flush();
   });
-  expect(getOutline().uploadError).not.toBeNull();
+  expect(noticeOf(getOutline().notices, "upload")).not.toBeNull();
 
   fetchMock.mockImplementationOnce(async () => new Response(
     JSON.stringify(INFO), { status: 200,
@@ -202,7 +203,7 @@ it("starting a new upload clears a stale error from a previous failure", async (
     await flush();
   });
 
-  expect(getOutline().uploadError).toBeNull();
+  expect(noticeOf(getOutline().notices, "upload")).toBeNull();
 });
 
 const DOG = { ...INFO, sha256: "cd".repeat(32), filename: "dog.png",
@@ -265,7 +266,7 @@ it("a failed upload among several still lands the others", async () => {
   });
 
   expect(rootTexts(getOutline())).toEqual(["hello", md(INFO)]);
-  expect(getOutline().uploadError).toContain("dog.png");
+  expect(noticeOf(getOutline().notices, "upload")).toContain("dog.png");
 });
 
 it("an unflushed draft keeps the block non-empty", async () => {

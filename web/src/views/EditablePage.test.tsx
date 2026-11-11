@@ -619,6 +619,33 @@ test("pasting an image uploads it onto its own bullet after the block", async ()
   }));
 });
 
+test("an upload alert shows above an edit notice, and each dismisses alone",
+     async () => {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  mount();
+  const ta = focusBlock("first");
+  const nested = "[[a//".repeat(33) + "x" + "]]".repeat(33);
+  fireEvent.change(ta, { target: { value: nested } });
+  fireEvent.paste(ta, {
+    clipboardData: {
+      files: [new File(["png"], "pic.png", { type: "image/png" })],
+    },
+  });
+  const alert = await screen.findByRole("alert");
+  const status = screen.getByRole("status");
+
+  expect(alert).toHaveTextContent("pic.png");
+  expect(alert).toHaveClass("error", "upload-error");
+  expect(status).toHaveTextContent(LINK_NESTING_NOTICE);
+  expect(alert.compareDocumentPosition(status)
+         & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+  const [first] = screen.getAllByRole("button", { name: "Dismiss" });
+  fireEvent.click(first);
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByRole("status")).toHaveTextContent(LINK_NESTING_NOTICE);
+});
+
 test("a paste-upload leaves a dirty draft's text alone and saves it", async () => {
   const url = `/assets/${"cd".repeat(32)}/pic.png`;
   stubFetch([["/api/titles", { titles: [] }],
@@ -1385,6 +1412,45 @@ test("a remote delete of a refused draft's block drops it to the notice, "
   expect(droppedDrafts()).toMatchObject([DROPPED]);
   expect(screen.queryByText(TITLE_SYNTAX_NOTICE)).toBeNull();
   expectUnlocked(sync);
+});
+
+/** Over a draft refused at save, a keystroke the editor refuses: its
+ * notice replaces the draft's in the one edit slot. */
+function newerRefusalOverRefusedDraft(sync: SyncFake) {
+  refusedAtSave(sync);
+  const nested = "[[a//".repeat(33) + "x" + "]]".repeat(33);
+  fireEvent.change(textbox(), { target: { value: nested } });
+  expect(textbox().value).toBe("first[[a#b]]");
+  expect(screen.getByText(LINK_NESTING_NOTICE)).toBeInTheDocument();
+  expect(screen.queryByText(TITLE_SYNTAX_NOTICE)).toBeNull();
+}
+
+test("fixing a refused draft leaves a newer refusal's notice showing", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  newerRefusalOverRefusedDraft(sync);
+
+  fireEvent.change(textbox(), { target: {
+    value: "first[[ab]]", selectionStart: 9, selectionEnd: 9,
+  } });
+  fireEvent.blur(textbox());
+
+  expect(sync.sent.flat()).toHaveLength(1);
+  expect(screen.getByText(LINK_NESTING_NOTICE)).toBeInTheDocument();
+});
+
+test("dropping a refused draft leaves a newer refusal's notice showing",
+     () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  newerRefusalOverRefusedDraft(sync);
+
+  act(() => sync.emit({ client_id: clientIdOf("other"), ts: 1, ops: [
+    { op: "delete", uid: uidOf("tuid-u1") },
+  ] }));
+
+  expect(droppedDrafts()).toMatchObject([DROPPED]);
+  expect(screen.getByText(LINK_NESTING_NOTICE)).toBeInTheDocument();
 });
 
 test("a remote collapse hiding a refused draft drops it to the notice, "

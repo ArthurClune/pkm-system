@@ -27,6 +27,8 @@ import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          spliceUploadedMarkdown, validateOutlineFocus, type EditResult,
          type FocusTarget } from "./edits";
 import { goodlinksAttribute, goodlinksCandidates, goodlinksNotice } from "./goodlinks";
+import { clearNoticeIf, NO_NOTICES, noticeList, type NoticeKind,
+         type NoticeSlots, type OutlineNotice, withNotice } from "./notices";
 import type { OutlineHandlers } from "./handlers";
 import { localCopyAttribute } from "./localFiles";
 import { loadOutlineBlocks } from "./loadOutlineBlocks";
@@ -59,22 +61,13 @@ export interface Outline {
   /** Expand every collapsed ancestor hiding `uid` (revealBlock); true when
    * that took any ops. Never an undo step: set_collapsed is not inverted. */
   reveal(uid: BlockUid): boolean;
-  /** Most recent /upload, paste, or drag-drop failure, if any. */
-  uploadError: string | null;
   /** Upload files dragged in from outside the app and create one new block
    * per file at `target`. Resolves once the blocks are in (or nothing was). */
   onDropFiles: (files: File[], target: DropTarget) => Promise<void>;
-  dismissUploadError(): void;
-  /** Outcome of the last /goodlinks pick: "Saved to Goodlinks" or a
-   * failure notice (see outline/goodlinks.ts). */
-  goodlinksNotice: string | null;
-  dismissGoodlinksNotice(): void;
-  /** Why the last edit was refused: DEPTH_NOTICE for a command that would
-   * put a block past the outline depth cap, or a text limit's notice for a
-   * command or keystroke that would store a block text past one. The next
-   * command that applies clears it. */
-  editNotice: string | null;
-  dismissEditNotice(): void;
+  /** The notices showing, in render order. The same array until one
+   * changes. */
+  notices: readonly OutlineNotice[];
+  dismissNotice(kind: NoticeKind): void;
 }
 
 export function useOutline(
@@ -93,17 +86,13 @@ export function useOutline(
   const [session, setSession] = useState<OutlineSessionHandle | null>(null);
   const [ownsEditor, setOwnsEditor] = useState(false);
   const [focus, setFocus] = useState<FocusTarget | null>(null);
-  // Most recent /upload, paste, or drag-drop failure: uploadAsset
-  // rejections used to be swallowed silently. Cleared at the start of the
-  // next upload attempt, or explicitly via dismissUploadError.
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  // Outcome of the last /goodlinks pick: "Saved to Goodlinks" or a failure
-  // notice. Cleared at the start of the next pick or by dismissGoodlinksNotice.
-  const [goodlinksNotice_, setGoodlinksNotice] = useState<string | null>(null);
-  // Set when run() refuses a command for the depth cap or a text limit, or
-  // the editor refuses a keystroke; cleared by the next command that applies
-  // or by dismissEditNotice. One slot: the latest refusal is the one to tell.
-  const [editNotice, setEditNotice] = useState<string | null>(null);
+  const [noticeSlots, setNoticeSlots] = useState<NoticeSlots>(NO_NOTICES);
+  const setNotice = useCallback((kind: NoticeKind, text: string | null) => {
+    setNoticeSlots((s) => withNotice(s, kind, text));
+  }, []);
+  const notices = useMemo(() => noticeList(noticeSlots), [noticeSlots]);
+  const dismissNotice = useCallback(
+    (kind: NoticeKind) => setNotice(kind, null), [setNotice]);
   // A live multi-block selection (Shift+Arrow), mutually exclusive with an
   // editing focus: starting one blurs the textarea, focusing a block clears it.
   const [selection, setSelection] = useState<BlockSelection | null>(null);
@@ -230,7 +219,7 @@ export function useOutline(
       timerRef.current = null;
     }
     draftNoticeRef.current = null;
-    setEditNotice((n) => (n === notice ? null : n));
+    setNoticeSlots((s) => clearNoticeIf(s, "edit", notice));
     // listed first, so the unload guard is not detached and attached again
     dropDraft({ pageTitle, text: pending.text, notice });
     markRefusedPending();
@@ -267,7 +256,7 @@ export function useOutline(
       }
       draftNoticeRef.current = draftNotice;
       markRefusedPending();
-      setEditNotice(draftNotice);
+      setNotice("edit", draftNotice);
       if (opts?.freshAssets && opts.freshAssets.length > 0) {
         releaseUnusedAssets(opts.freshAssets);
       }
@@ -276,7 +265,7 @@ export function useOutline(
     const cleared = draftNoticeRef.current;
     if (cleared !== null) {
       draftNoticeRef.current = null;
-      setEditNotice((n) => (n === cleared ? null : n));
+      setNoticeSlots((s) => clearNoticeIf(s, "edit", cleared));
     }
     const pending = takePendingDraft();
     markRefusedPending();
@@ -284,7 +273,8 @@ export function useOutline(
     const plan = planCommand(blocksRef.current, pending, fn, pageTitle,
                              focusRef.current, freshAssets);
     if (plan.verdict.kind !== "none") {
-      setEditNotice(plan.verdict.kind === "refused" ? plan.verdict.notice : null);
+      setNotice("edit",
+                plan.verdict.kind === "refused" ? plan.verdict.notice : null);
     }
     // the uploads that made a refused command already stored their files,
     // and no history entry will ever own them
@@ -307,7 +297,7 @@ export function useOutline(
     }
     return applied;
   }, [releaseUnshownDraft, draftRefusal, takePendingDraft,
-      markRefusedPending, pageTitle, sync]);
+      markRefusedPending, pageTitle, sync, setNotice]);
 
   /** Save the pending draft now. False when run() kept it unsaved, and the
    * caller must then leave the editor on its block. */
@@ -346,8 +336,8 @@ export function useOutline(
       setSelection(null);
       setFocus(f ? validateOutlineFocus(f, blocksRef.current) : null);
     },
-    showNotice: (text) => setEditNotice(text),
-  }), [pageTitle, flushNow]);
+    showNotice: (text) => setNotice("edit", text),
+  }), [pageTitle, flushNow, setNotice]);
 
   // A hidden tab can be killed without blur ever firing: flush the draft as
   // soon as the tab hides.
@@ -424,7 +414,7 @@ export function useOutline(
     files: readonly File[], rejected: readonly string[],
     plan: (b: BlockNode[], texts: string[], uids: BlockUid[]) => FileDropPlan,
   ): Promise<boolean> => {
-    setUploadError(null);
+    setNotice("upload", null);
     const texts: string[] = [];
     const fresh: Sha256Hex[] = [];
     const failures: string[] = [];
@@ -440,7 +430,7 @@ export function useOutline(
       }
     }
     const notice = fileDropNotice(failures, [...rejected]);
-    if (notice !== null) setUploadError(notice);
+    if (notice !== null) setNotice("upload", notice);
     if (texts.length === 0) return false;
     const uids = texts.map(() => newUid());
     let fallbackUid: BlockUid | null = null;
@@ -451,7 +441,7 @@ export function useOutline(
     }, { freshAssets: fresh });
     if (applied && fallbackUid !== null) scrollToUidRef.current = fallbackUid;
     return applied;
-  }, [run]);
+  }, [run, setNotice]);
   const handlers = useMemo<OutlineHandlers>(() => ({
     // A draft run() would not save keeps the editor on its block: focus
     // does not move off it (here, onBlurBlock, onArrow, block selection),
@@ -546,10 +536,10 @@ export function useOutline(
       (b, texts, uids) => planUploadBlocks(b, pageTitle, uid, texts, uids,
                                            focusRef.current?.uid ?? null)),
     onGoodlinks: (uid, cursor) => {
-      setGoodlinksNotice(null);
+      setNotice("goodlinks", null);
       const url = goodlinksCandidates(blocksRef.current, uid)[0];
       if (!url) {
-        setGoodlinksNotice("No URL nearby");
+        setNotice("goodlinks", "No URL nearby");
         return;
       }
       void (async () => {
@@ -557,7 +547,8 @@ export function useOutline(
         try {
           link = await apiPost("/api/goodlinks/resolve", { body: { url, save: true } });
         } catch (err) {
-          setGoodlinksNotice(err instanceof ApiError ? goodlinksNotice(err.status, err.detail) : goodlinksNotice(0));
+          setNotice("goodlinks", err instanceof ApiError
+            ? goodlinksNotice(err.status, err.detail) : goodlinksNotice(0));
           return;
         }
         run((b) => {
@@ -572,7 +563,7 @@ export function useOutline(
             ? { uid, cursor: spliced.selStart } : null;
           return { blocks: applyOps(b, ops, pageTitle), ops, focus };
         });
-        if (link.created) setGoodlinksNotice("Saved to Goodlinks");
+        if (link.created) setNotice("goodlinks", "Saved to Goodlinks");
       })();
     },
     onLinkLocalFile: (uid, cursor, file) =>
@@ -656,17 +647,17 @@ export function useOutline(
     // one keeps a refused draft they do nothing and say so here.
     onUndo: () => {
       if (!flushNow()) return false;
-      performUndo(sync, (notice) => setEditNotice(notice));
+      performUndo(sync, (notice) => setNotice("edit", notice));
       return true;
     },
     onRedo: () => {
       if (!flushNow()) return false;
-      performRedo(sync, (notice) => setEditNotice(notice));
+      performRedo(sync, (notice) => setNotice("edit", notice));
       return true;
     },
-    onRefusedEdit: (notice) => setEditNotice(notice),
+    onRefusedEdit: (notice) => setNotice("edit", notice),
   }), [run, flushNow, flushOtherDraft, markRefusedPending, pageTitle,
-      selection, sync, confirm, uploadAndPlace]);
+      selection, sync, confirm, uploadAndPlace, setNotice]);
 
   const dnd = useMemo<OutlineDndApi>(() => ({
     flushDraft: flushNow,
@@ -684,8 +675,8 @@ export function useOutline(
       publishBlocks(insertSubtree(
         blocksRef.current, node, target.parent_uid, target.order_idx));
     },
-    refuse: (notice) => setEditNotice(notice),
-  }), [run, flushNow, pageTitle, publishBlocks]);
+    refuse: (notice) => setNotice("edit", notice),
+  }), [run, flushNow, pageTitle, publishBlocks, setNotice]);
 
   // The first block of a drop or upload that fell back to the end of the
   // page, waiting for the render that puts it in the DOM.
@@ -738,12 +729,8 @@ export function useOutline(
     dnd,
     createFirstBlock,
     reveal,
-    uploadError,
     onDropFiles,
-    dismissUploadError: () => setUploadError(null),
-    goodlinksNotice: goodlinksNotice_,
-    dismissGoodlinksNotice: () => setGoodlinksNotice(null),
-    editNotice,
-    dismissEditNotice: () => setEditNotice(null),
+    notices,
+    dismissNotice,
   };
 }

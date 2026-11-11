@@ -1,59 +1,52 @@
 // pattern: Functional Core
-// Single source for the app's route paths, top-bar labels, and browser
-// titles. Previously the router (App.tsx), TopBar, and five
-// near-identical per-view effects each hardcoded their own copy of this --
-// /files and /settings had fallen through the cracks and had no top-bar
-// label at all.
+// Single source for the app's route paths, top-bar labels and browser
+// titles. App.tsx maps STATIC_ROUTES to its views; TopBar and useRouteTitle
+// read the labels and titles from here.
 
-/** Prefix shared by /page/* route matching (TopBar's page-action menu) and
- * page link construction (paths.ts's pagePath). */
+/** Prefix shared by /page/* route matching (MainRoutes, TopBar's page-action
+ * menu) and page paths (paths.ts). */
 export const PAGE_ROUTE_PREFIX = "/page/";
 
-/** Every path App.tsx declares in its <Routes>, so the router and the
- * consistency check below can't drift apart. */
-export const ROUTES = {
-  journal: "/",
-  currentWork: "/current-work",
-  page: `${PAGE_ROUTE_PREFIX}*`,
-  help: "/help",
-  files: "/files",
-  settings: "/settings",
-  notFound: "*",
-} as const;
-
-/** One of the paths in ROUTES -- not an arbitrary string. Used to keep
- * DYNAMIC_ROUTES (and anything else enumerating declared routes) unable to
- * name a path ROUTES doesn't declare. */
-type RoutePath = (typeof ROUTES)[keyof typeof ROUTES];
-
-export interface RouteMeta {
+export interface StaticRoute {
+  id: string;
+  path: string;
   /** Top-bar label (TopBar.tsx). */
   label: string;
-  /** Browser <title>. May differ from the label -- e.g. /help's top-bar
-   * label is "Help" but its title is "Keyboard shortcuts — pkm". */
+  /** Browser <title>. May differ from the label: /help's top-bar label is
+   * "Help", its title "Keyboard shortcuts — pkm". */
   documentTitle: string;
 }
 
-/** Label and title for every route whose value is a fixed string.
- * ROUTES.page and ROUTES.notFound are deliberately absent: their label/title
- * depend on data resolved after the route matches (the loaded page's own
- * title; nothing, for not-found) rather than the pathname alone -- see
- * DYNAMIC_ROUTES, which the consistency test checks this table against so a
- * newly declared route can't silently end up with neither. */
-export const ROUTE_META: Readonly<Record<string, RouteMeta>> = {
-  [ROUTES.journal]: { label: "Daily Notes", documentTitle: "Daily Notes — pkm" },
-  [ROUTES.currentWork]: { label: "Current Work", documentTitle: "Current Work — pkm" },
-  [ROUTES.help]: { label: "Help", documentTitle: "Keyboard shortcuts — pkm" },
-  [ROUTES.files]: { label: "Files", documentTitle: "Files — pkm" },
-  [ROUTES.settings]: { label: "Settings", documentTitle: "Settings — pkm" },
-};
+/** Every route whose label and title are fixed strings. A /page/ route's
+ * come from the loaded page; any other path is not found. */
+export const STATIC_ROUTES = [
+  { id: "journal", path: "/", label: "Daily Notes",
+    documentTitle: "Daily Notes — pkm" },
+  { id: "currentWork", path: "/current-work", label: "Current Work",
+    documentTitle: "Current Work — pkm" },
+  { id: "help", path: "/help", label: "Help",
+    documentTitle: "Keyboard shortcuts — pkm" },
+  { id: "files", path: "/files", label: "Files",
+    documentTitle: "Files — pkm" },
+  { id: "settings", path: "/settings", label: "Settings",
+    documentTitle: "Settings — pkm" },
+] as const satisfies readonly StaticRoute[];
 
-/** Routes intentionally excluded from ROUTE_META (see above). Typed as
- * RoutePath[] rather than string[] so a typo or a path ROUTES doesn't
- * declare is a compile error, not just a runtime test failure. */
-export const DYNAMIC_ROUTES: readonly RoutePath[] = [ROUTES.page, ROUTES.notFound];
+export type StaticRouteId = (typeof STATIC_ROUTES)[number]["id"];
 
-export function routeMetaFor(pathname: string): RouteMeta | undefined {
+export const ROUTES = Object.fromEntries(
+  STATIC_ROUTES.map((r) => [r.id, r.path]),
+) as { readonly [K in StaticRouteId]: string };
+
+export const NOT_FOUND_TITLE = "Page not found — pkm";
+
+export function routeMetaFor(pathname: string): StaticRoute | undefined {
   const canonical = pathname === "/" ? pathname : pathname.replace(/\/+$/, "");
-  return ROUTE_META[canonical];
+  return STATIC_ROUTES.find((r) => r.path === canonical);
+}
+
+/** null under PAGE_ROUTE_PREFIX: PageView sets its own title. */
+export function documentTitleFor(pathname: string): string | null {
+  if (pathname.startsWith(PAGE_ROUTE_PREFIX)) return null;
+  return routeMetaFor(pathname)?.documentTitle ?? NOT_FOUND_TITLE;
 }

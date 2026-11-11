@@ -10,6 +10,7 @@ import { PAGE_ROUTE_PREFIX, ROUTES, routeMetaFor } from "../routeMeta";
 import { useDismiss } from "../useDismiss";
 import { useConfirm } from "./ConfirmDialog";
 import { DeleteBlockedDialog } from "./DeleteBlockedDialog";
+import { DismissibleNotice } from "./DismissibleNotice";
 import {
   blockedHeading, deleteConfirmMessage, plainDeleteMessage, type DeleteBlocker,
   type DeletePreview,
@@ -221,12 +222,10 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
         )}
       </div>
       {menuError !== null && (
-        <p className="error upload-error top-bar-error" role="alert">
+        <DismissibleNotice tone="error" className="top-bar-error"
+                           onDismiss={() => setMenuError(null)}>
           {menuError}
-          <button type="button" className="btn-secondary" onClick={() => setMenuError(null)}>
-            Dismiss
-          </button>
-        </p>
+        </DismissibleNotice>
       )}
     </>
   );

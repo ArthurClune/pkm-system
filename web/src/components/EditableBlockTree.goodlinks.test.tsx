@@ -9,6 +9,7 @@ import { block, jsonResponse, makeSync, orderIdxOf, canonicalTitleOf, confirmYes
 import { useOutline } from "../outline/useOutline";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { EditableBlockTree } from "./EditableBlockTree";
+import { noticeOf } from "../outline/notices";
 
 const ID = "e4966bb2483b5c78f658398c0ae7b03f";
 const LINK = { id: ID, title: "UML", url: "https://tratt.net/uml.html", added_at: "", created: false };
@@ -16,9 +17,10 @@ const RESOLVE = "/api/goodlinks/resolve";
 
 function Page({ initial }: { initial: BlockNode[] }) {
   const o = useOutline(canonicalTitleOf("Page"), initial, confirmYes);
+  const notice = noticeOf(o.notices, "goodlinks");
   return (
     <>
-      {o.goodlinksNotice && <p role="status">{o.goodlinksNotice}</p>}
+      {notice && <p role="status">{notice}</p>}
       <EditableBlockTree blocks={o.blocks} focus={o.focus} selection={o.selection}
                          handlers={o.handlers} readOnly={o.readOnly} />
     </>

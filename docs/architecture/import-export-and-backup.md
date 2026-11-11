@@ -114,60 +114,34 @@ fetches them breadth-first with a `visited` set: the depth caps stop a cyclic
 The depth caps bound how deep expansion goes, not how much it produces: K refs
 a level over `BLOCK_REF_MAX_DEPTH` levels is K to that power copies of the
 leaf. So `render_page_resolved` holds one budget, shared by every block and
-every recursion, that bounds both the characters and the work of expanding:
+every recursion, with two limits:
 
-| Counter | Limit | Charged | Why |
-|---|---|---|---|
-| Characters of body | `EXPORT_MAX_CHARS` | each piece of text as it is appended | K to the depth copies of a leaf |
-| Call units | one per `CHARS_PER_CALL` characters of the character bound | one per `resolve_text` or `render_query_result` call, plus one per `SCAN_CHARS_PER_UNIT` characters a `resolve_text` call scans | refs back to back over an empty leaf produce no characters yet make that many calls; a resolved query macro's padding is scanned on every ref but never output |
-
-The scan rate is coarse so that the character bound stays the one a
-text-heavy page reaches: literal text is both scanned and output.
-
-Past either, it raises `ExportTooLarge`. The route answers 422 with the
-exception's message, which says which limit was passed; a page is never
-truncated. **Characters are charged as text is appended, never on the finished
-body.** Expansion is built bottom-up, so a check on the result would come after
-the whole exponential body was built. A recursive result is not charged again by its
-caller, so the character count equals the body's length, and a page under
-both bounds exports in full, byte for byte as rendered. Indents go in with
-`str.replace` rather than by splitting into lines, so a body of many short
-lines does not hold one string per line.
-
-The route's gather (`_gather_resolution_data`) runs before the renderer, and
-it is charged against the same limits through `GatherBudget`: one per export,
-shared by every query expression in every round. Expressions that differ only
-in spacing slip past the `visited` set, so the shared budget is what bounds Q
-expressions over M matches each. A query's match count (`count_matches`) is
-checked before any row is fetched, and a count of zero runs no rows query.
-Its rows then stream (`query_exec.iter_plan_rows`) and are charged one at a
-time.
-
-Each gather charge is at most what rendering that piece once costs:
-
-| Gathered | Calls | Characters |
+| Limit | Charged | Why it exists |
 |---|---|---|
-| a query | one, its `render_query_result` call | none |
-| an item | its `resolve_text` call, scan included | five, plus its text outside the spans `resolve_text` substitutes at the item's depth (`_substitutions`, shared by both), plus each substituted query macro's expression |
+| `EXPORT_MAX_CHARS` characters of body | each piece of text as it is appended | K to the depth copies of a leaf |
+| call units, one per `CHARS_PER_CALL` characters of that bound | one per `resolve_text` or `render_query_result` call, plus one per `SCAN_CHARS_PER_UNIT` characters a `resolve_text` call scans | refs back to back over an empty leaf output nothing yet make that many calls |
 
-A substituted macro still costs the renderer its expression. A resolved one
-writes it in the result's header, and an unresolved one is left as written. A
-ref span costs the renderer a call when resolved and its characters when
-missing, so neither alone is a floor, and the gather prices it by its scan
-only. So the gather bounds the rows it holds by the call budget, but not the
-text in them by `EXPORT_MAX_CHARS`. Text the renderer may drop, ref spans and
-a macro's padding, is priced at one call unit per `SCAN_CHARS_PER_UNIT`
-characters. Held text can therefore reach about `SCAN_CHARS_PER_UNIT` times the
-call budget: 100 million characters at the real bound.
+Past either limit the renderer raises `ExportTooLarge`. The route answers 422
+with the exception's message, which says which limit was passed. A page is
+never truncated.
+
+**Characters are charged as text is appended, never on the finished body.**
+Expansion is built bottom-up, so a check on the result would come after the
+whole exponential body was built.
+
+The route's gather (`_gather_resolution_data`) runs before the renderer and is
+charged against the same limits through `GatherBudget`, one per export, shared
+by every query expression in every round. Expressions that differ only in
+spacing slip past the `visited` set, so the shared budget is what bounds them.
+A query's match count is checked before any row is fetched.
 
 Every expression the gather runs is rendered at least once, so it refuses only
-what the renderer would. One exception is accepted. The gather follows the refs
-`refs.extract` finds; the renderer follows those `_BLOCK_REF_RE` finds outside
-query macros. A query reached only through a ref inside a query macro's body is
-gathered and charged but never rendered. Blocks in a parent cycle would be a
-second case: the gather reads every block of the page, and `build_tree` renders
-none of a cycle. No write makes one, because `/api/ops` skips a move into the
-block's own subtree as `move_cycle` ([write-path.md § Concurrent structure
+what the renderer would. One divergence is accepted. The gather follows the
+refs `refs.extract` finds, and the renderer follows those `_BLOCK_REF_RE` finds
+outside query macros. A query reached only through a ref inside a query macro's
+body is gathered and charged but never rendered. A parent cycle would be a
+second case, but no write makes one: `/api/ops` skips a move into the block's
+own subtree as `move_cycle` ([write-path.md § Concurrent structure
 edits](write-path.md#concurrent-structure-edits)).
 
 ## Importer (Roam EDN → fresh database)
@@ -217,14 +191,6 @@ never stops the run:
 A refused ref cannot stay a ref: the ops title check would refuse every edit
 to its block, and the title migration audit would refuse the implicit page
 `rows.py` creates.
-
-A sanitized block names no title its source did not, once sanitized
-(`titles._sanitized_text`). Refs are renamed before refused ones are
-unlinked, so a refused run nested in a kept one (`[[a [[#]] b]]`) goes with
-the outer rename. Unlinking still removes the brackets that kept a ref's
-text apart from its neighbours: `[[#]]a b:: v` becomes the attribute `#a b`.
-`_without_formed_refs` fences such a formed attribute in backticks and
-unlinks any other formed ref.
 
 | Failure at | Leaves | Healed by |
 |---|---|---|

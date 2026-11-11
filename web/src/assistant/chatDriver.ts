@@ -68,6 +68,8 @@ async function streamWithBusyRetry(
     } catch (err) {
       if (attempt >= BUSY_RETRY_ATTEMPTS || !isBusyError(err) || !keepTrying()) throw err;
       await sleep(BUSY_RETRY_DELAY_MS);
+      // a Stop or New chat during the back-off
+      if (!keepTrying()) throw err;
     }
   }
 }

@@ -11,7 +11,7 @@ including one that would have had the right password, because the
 whole point is to avoid spending scrypt work on it. Consulting is not
 enough on its own: the check and the recording of its verdict are
 separate steps, so the caller must also run one check per source at a
-time and consult again once its turn comes (`auth.LoginThrottle`'s
+time and consult again once its turn comes (`throttle.LoginThrottle`'s
 `take_turn`). Otherwise every request of a concurrent burst passes
 before the first failure is recorded.
 """

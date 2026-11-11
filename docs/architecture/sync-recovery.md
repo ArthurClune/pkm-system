@@ -198,10 +198,11 @@ owed behind it. `idle()` settles after the owed runs and never rejects.
 | legacy outline repair (`legacyRepair.ts`) | `onStable`: a later run read too early | a run, under the latest error | `stable` |
 
 The flag that decides must flip in the same step as the read it guards, or the
-gap moves instead of closing. `opQueue.drain` keeps its own rule
-(`drainAgain` and the re-check after `drained` is emitted): it reruns only on
-some outcomes, and never over an armed retry, which `coalesce` does not
-express.
+gap moves instead of closing. A site whose calls can be owed checks its owner
+is still live at the top of its run, because an owed run can start after the
+session is disposed. `opQueue.drain` keeps its own rule (`drainAgain` and
+the re-check after `drained` is emitted): it reruns only on some outcomes, and
+never over an armed retry, which `coalesce` does not express.
 
 ## A batch the server rejects
 

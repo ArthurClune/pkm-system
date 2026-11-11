@@ -58,8 +58,9 @@ The stripping rules:
   one `asset_url` returns and the raw name older uploads wrote.
 - Each removed token takes one adjacent space; every other character stays.
 - A token between `[` and `[` keeps them apart, so a strip can nest a block
-  deeper or past a text limit. A strip that makes a block worse on a limit
-  refuses the whole delete before any write: 409 with `blockers` in page
+  deeper or past a text limit, or create a link: with the token gone, `[` and
+  `[Foo]]` become `[[Foo]]`, which links and creates `Foo`. A strip that makes
+  a block worse on a limit refuses the whole delete before any write: 409 with `blockers` in page
   delete's shape, reason `limit`
   ([write-path.md § Work bounds under the write lock](write-path.md#work-bounds-under-the-write-lock)).
   `/files` shows them in `DeleteBlockedDialog`.
@@ -67,10 +68,8 @@ The stripping rules:
   because asset deletion must never cascade away real content.
 - The file is unlinked after the commit, so a crash leaves at worst an
   unreferenced file, never a row pointing at a missing one.
-- Every rewritten block is reindexed (`store.reindex_refs_for_text`).
-  Asset URLs produce no `refs` rows, but a strip can create a link: a
-  token between `[` and `[Foo]]` kept them apart, and once it goes the
-  block holds `[[Foo]]`, which links and creates `Foo`.
+- Every rewritten block is reindexed (`store.reindex_refs_for_text`), for
+  the links a strip can create.
 - An upload of the same bytes that dedups onto the row before its linking
   batch commits is not protected: an `if_unreferenced` delete in between
   removes the file under it. The window is accepted.
@@ -245,7 +244,9 @@ The browser never holds GoodLinks' bearer token. The server holds it and
 forwards through `GoodlinksGateway` to `goodlinks_api_url`, loopback by
 default, so the GoodLinks app must be running on the host. GoodLinks itself
 listens on every interface ([SECURITY.md](../SECURITY.md#known-limitations)),
-so the proxy keeps the token, not the port, off other devices. An unreachable app and a refused token are 503s. A GoodLinks 404 passes
+so the proxy keeps the token, not the port, off other devices.
+
+An unreachable app and a refused token are 503s. A GoodLinks 404 passes
 through, and a refused save is a 422 carrying its text.
 `GoodlinksUnavailable` covers a closed app and any 2xx that is not a usable
 link ([hostile input](backend.md#hostile-input)). A 401 or 403
@@ -264,9 +265,9 @@ Lookup runs before save so an archived link's read date is never bumped.
 ### The reader and the /goodlinks command
 
 `GoodlinksReader` is a full-screen overlay on `useModal` with a pinned Tab, as
-`ImageOverlay` is: a cycling Tab would be swallowed by the iframe. Escape stops closing it once focus is inside the iframe,
-because the frame runs no script and its keydown never reaches the app's
-`window` listener. The Close button still works. Fixing Escape would need
+`ImageOverlay` is: a cycling Tab would be swallowed by the iframe. Escape
+stops closing it once focus is inside the iframe, because the frame runs no
+script and its keydown never reaches the app's `window` listener. The Close button still works. Fixing Escape would need
 `allow-scripts`, which barrier 2 forbids.
 
 The original URL arrives only with the article, so on failure the bar has no

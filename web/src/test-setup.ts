@@ -45,8 +45,8 @@ afterEach(() => { FakeWebSocket.instances = []; });
 // call vi.unstubAllGlobals() in their own afterEach (e.g. to reset an
 // IntersectionObserver stub), which would otherwise also wipe these out.
 beforeEach(() => {
-  // jsdom has no matchMedia; default to "OS is light" so components using
-  // useTheme render without crashing in tests that don't care about theming.
+  // jsdom has no matchMedia; default to "OS is light" for tests that don't
+  // care about theming.
   stubMatchMedia(false);
 
   // Node 26's own global `localStorage` getter shadows jsdom's real Storage

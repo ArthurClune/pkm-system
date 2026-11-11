@@ -1,6 +1,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { MemoryRouter, useNavigate } from "react-router-dom";
 import { expect, it } from "vitest";
+import { NOT_FOUND_TITLE } from "./routeMeta";
 import { ROUTER_FUTURE_FLAGS } from "./router";
 import { useRouteTitle } from "./useRouteTitle";
 
@@ -37,10 +38,11 @@ it("leaves the title alone on /page/* -- PageView sets its own once the page's t
   expect(document.title).toBe("Machine Learning — pkm");
 });
 
-it("leaves the title alone on an unmatched route, matching the prior not-found behaviour", () => {
+it("titles an unmatched route as not found", () => {
   document.title = "Daily Notes — pkm";
   renderAt("/definitely/not/a/route");
-  expect(document.title).toBe("Daily Notes — pkm");
+  expect(document.title).toBe(NOT_FOUND_TITLE);
+  expect(NOT_FOUND_TITLE).toBe("Page not found — pkm");
 });
 
 it("updates the title again on navigation between static routes", () => {

@@ -16,6 +16,7 @@ import { peekOutlineSession } from "./outlineSessions";
 import { findNode, locate } from "./tree";
 import { performUndo, resetHistory, setAssetReleaser } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
+import { noticeOf } from "./notices";
 
 vi.mock("../uid", () => {
   let n = 0;
@@ -77,7 +78,7 @@ it("an indent past the cap applies nothing and raises the notice", () => {
 
   expect(sync.sent).toEqual([]);
   expect(outline().blocks).toEqual(before);
-  expect(outline().editNotice).toBe(DEPTH_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(DEPTH_NOTICE);
   // nothing was recorded: there is no entry to undo
   expect(performUndo(sync)).toBe(false);
 });
@@ -97,7 +98,7 @@ it("a refused indent still ships and applies the block's draft", () => {
   ]]);
   expect(findNode(outline().blocks, uidOf("tuid-d100b"))?.text).toBe("typed");
   expect(parentOf(outline(), "tuid-d100b")).toBe("tuid-d99");
-  expect(outline().editNotice).toBe(DEPTH_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(DEPTH_NOTICE);
 });
 
 it("a multi-block indent with one root past the cap moves none", () => {
@@ -114,7 +115,7 @@ it("a multi-block indent with one root past the cap moves none", () => {
   expect(sync.sent).toEqual([]);
   expect(parentOf(outline(), "tuid-d100b")).toBe("tuid-d99");
   expect(parentOf(outline(), "tuid-d99b")).toBe("tuid-d98");
-  expect(outline().editNotice).toBe(DEPTH_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(DEPTH_NOTICE);
 });
 
 it("a three-level paste at level 99 is refused, at level 98 applied", () => {
@@ -127,7 +128,7 @@ it("a three-level paste at level 99 is refused, at level 98 applied", () => {
 
   expect(sync.sent).toEqual([]);
   expect(findNode(outline().blocks, uidOf("tuid-d99"))?.text).toBe("d99");
-  expect(outline().editNotice).toBe(DEPTH_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(DEPTH_NOTICE);
 
   act(() => outline().handlers.onPasteOutline(
     uidOf("tuid-d98"), 3, 3, pasted));
@@ -136,14 +137,14 @@ it("a three-level paste at level 99 is refused, at level 98 applied", () => {
   expect(sync.sent[0].map((op) => op.op))
     .toEqual(["update_text", "create", "create"]);
   expect(findNode(outline().blocks, uidOf("tuid-d98"))?.text).toBe("d98a");
-  expect(outline().editNotice).toBeNull();
+  expect(noticeOf(outline().notices, "edit")).toBeNull();
 });
 
 it("an indent to the cap applies, and clears a shown notice", () => {
   const sync = makeSync();
   const outline = setup(sync);
   act(() => outline().handlers.onIndent(uidOf("tuid-d100b")));
-  expect(outline().editNotice).toBe(DEPTH_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(DEPTH_NOTICE);
 
   act(() => outline().handlers.onIndent(uidOf("tuid-d99b")));
 
@@ -151,7 +152,7 @@ it("an indent to the cap applies, and clears a shown notice", () => {
     [{ op: "move", uid: "tuid-d99b", parent_uid: "tuid-d99", order_idx: 2 }],
   ]);
   expect(parentOf(outline(), "tuid-d99b")).toBe("tuid-d99");
-  expect(outline().editNotice).toBeNull();
+  expect(noticeOf(outline().notices, "edit")).toBeNull();
 });
 
 it("an applied indent never raises the notice", () => {
@@ -159,18 +160,30 @@ it("an applied indent never raises the notice", () => {
   const outline = setup(sync);
   act(() => outline().handlers.onIndent(uidOf("tuid-d99b")));
   expect(sync.sent).toHaveLength(1);
-  expect(outline().editNotice).toBeNull();
+  expect(noticeOf(outline().notices, "edit")).toBeNull();
 });
 
-it("dismissEditNotice clears the notice", () => {
+it("a command that applies with no notice showing keeps the notices list's identity", () => {
+  const sync = makeSync();
+  const outline = setup(sync);
+  const before = outline().notices;
+  expect(before).toEqual([]);
+
+  act(() => outline().handlers.onIndent(uidOf("tuid-d99b")));
+
+  expect(sync.sent).toHaveLength(1);
+  expect(outline().notices).toBe(before);
+});
+
+it("dismissNotice clears the edit notice", () => {
   const sync = makeSync();
   const outline = setup(sync);
   act(() => outline().handlers.onIndent(uidOf("tuid-d100b")));
-  expect(outline().editNotice).toBe(DEPTH_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(DEPTH_NOTICE);
 
-  act(() => outline().dismissEditNotice());
+  act(() => outline().dismissNotice("edit"));
 
-  expect(outline().editNotice).toBeNull();
+  expect(noticeOf(outline().notices, "edit")).toBeNull();
 });
 
 it("an undo the cap refuses raises the notice and applies nothing", () => {
@@ -196,7 +209,7 @@ it("an undo the cap refuses raises the notice and applies nothing", () => {
 
   expect(sync.sent).toHaveLength(sent);
   expect(outline().blocks).toEqual(before);
-  expect(outline().editNotice).toBe(DEPTH_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(DEPTH_NOTICE);
 });
 
 // Uploads finish before run() judges the command, so a refusal leaves the
@@ -231,7 +244,7 @@ it("a file drop past the depth cap releases the files it uploaded", async () => 
 
   await act(async () => { await outline().onDropFiles([png("one.png")], target); });
 
-  expect(outline().editNotice).toBe(DEPTH_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(DEPTH_NOTICE);
   expect(sync.sent).toEqual([]);
   expect(release).toHaveBeenCalledTimes(1);
   expect(release).toHaveBeenCalledWith([digestOf("one.png")], []);
@@ -256,7 +269,7 @@ it("an /upload past the depth cap releases the files, reports no insert",
   });
 
   expect(inserted).toBe(false);
-  expect(outline().editNotice).toBe(DEPTH_NOTICE);
+  expect(noticeOf(outline().notices, "edit")).toBe(DEPTH_NOTICE);
   expect(sync.sent).toEqual([]);
   expect(release).toHaveBeenCalledWith([digestOf("one.png")], []);
   restore();
@@ -274,7 +287,7 @@ it("a refused drop sets no scroll target", async () => {
                                page_title: canonicalTitleOf(PAGE) };
   await act(async () => { await outline().onDropFiles([png("long.png")], target); });
   expect(sync.sent).toEqual([]);
-  expect(outline().editNotice).not.toBeNull();
+  expect(noticeOf(outline().notices, "edit")).not.toBeNull();
 
   // a later render adds a block under the uid the refused plan chose: the
   // mocked newUid counts up, so cover the uids it could have handed out
@@ -313,17 +326,15 @@ describe("a page holding rows past the cap", () => {
   it("an indent at a shallow level applies", () => {
     const sync = makeSync();
     const outline = setup(sync, legacyTree());
-    console.log("PRE", outline().blocks.map(b=>b.uid).slice(0,5), outline().blocks.length, outline().editNotice);
     act(() => outline().handlers.onIndent(uidOf("tuid-s2")));
-    console.log("DBG", outline().editNotice, outline().blocks.map(b=>b.uid));
     expect(sync.sent).toHaveLength(1);
     expect(parentOf(outline(), "tuid-s2")).toBe("tuid-s1");
-    expect(outline().editNotice).toBeNull();
+    expect(noticeOf(outline().notices, "edit")).toBeNull();
     // the undo is judged by the blocks it places, too
     act(() => { performUndo(sync); });
     expect(sync.sent).toHaveLength(2);
     expect(parentOf(outline(), "tuid-s2")).toBeNull();
-    expect(outline().editNotice).toBeNull();
+    expect(noticeOf(outline().notices, "edit")).toBeNull();
   });
 
   it("a subtree move at a shallow level applies", () => {
@@ -334,7 +345,7 @@ describe("a page holding rows past the cap", () => {
     expect(sync.sent[0].map((op) => op.op)).toEqual(["move"]);
     expect(outline().blocks.map((b) => b.uid))
       .toEqual(["tuid-L1", "tuid-s2", "tuid-s1"]);
-    expect(outline().editNotice).toBeNull();
+    expect(noticeOf(outline().notices, "edit")).toBeNull();
   });
 
   it("a paste at a shallow level applies", () => {
@@ -346,7 +357,7 @@ describe("a page holding rows past the cap", () => {
     expect(sync.sent[0].map((op) => op.op))
       .toEqual(["update_text", "create"]);
     expect(findNode(outline().blocks, uidOf("tuid-s1"))?.text).toBe("s1a");
-    expect(outline().editNotice).toBeNull();
+    expect(noticeOf(outline().notices, "edit")).toBeNull();
   });
 
   it("the deep rows' text stays editable", () => {
@@ -362,6 +373,6 @@ describe("a page holding rows past the cap", () => {
         base_text_hash: sha256Hex("L120"), page_title: PAGE },
     ]]);
     expect(findNode(outline().blocks, deep)?.text).toBe("deep edit");
-    expect(outline().editNotice).toBeNull();
+    expect(noticeOf(outline().notices, "edit")).toBeNull();
   });
 });

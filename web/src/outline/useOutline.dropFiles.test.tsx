@@ -18,6 +18,7 @@ import {
 import type { DropTarget } from "./dnd";
 import { resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
+import { noticeOf } from "./notices";
 
 function Harness({ initial, onReady }: {
   initial: BlockNode[]; onReady: (o: Outline) => void;
@@ -76,7 +77,7 @@ it("creates one block per file, in drop order, at the target", async () => {
   expect(o().blocks.map((b) => b.text))
     .toEqual(["alpha", md("c.png"), md("d.pdf"), "beta"]);
   expect(sync.sent).toHaveLength(1); // one batch
-  expect(o().uploadError).toBeNull();
+  expect(noticeOf(o().notices, "upload")).toBeNull();
 });
 
 it("one undo removes every new block", async () => {
@@ -96,7 +97,7 @@ it("a failed upload is named in the banner and makes no block", async () => {
   const sync = makeSync();
   const o = setup(sync, AB());
   await drop(o, [png("bad.png"), png("ok.png")], at(null, 1));
-  expect(o().uploadError).toContain("bad.png");
+  expect(noticeOf(o().notices, "upload")).toContain("bad.png");
   expect(o().blocks.map((b) => b.text)).toEqual(["alpha", md("ok.png"), "beta"]);
 });
 
@@ -104,7 +105,7 @@ it("creates nothing when every upload fails", async () => {
   const sync = makeSync();
   const o = setup(sync, AB());
   await drop(o, [png("bad.png")], at(null, 1));
-  expect(o().uploadError).toContain("bad.png");
+  expect(noticeOf(o().notices, "upload")).toContain("bad.png");
   expect(sync.sent).toEqual([]);
   expect(o().blocks).toHaveLength(2);
 });
@@ -115,7 +116,7 @@ it("names files that are not images or PDFs instead of skipping them silently",
   const o = setup(sync, AB());
   await drop(o, [png("c.png"), new File(["x"], "notes.txt", { type: "text/plain" })],
              at(null, 1));
-  expect(o().uploadError).toContain("notes.txt");
+  expect(noticeOf(o().notices, "upload")).toContain("notes.txt");
   expect(o().blocks.map((b) => b.text)).toEqual(["alpha", md("c.png"), "beta"]);
   const uploads = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.body instanceof FormData);
   expect(uploads).toHaveLength(1); // the text file was never uploaded

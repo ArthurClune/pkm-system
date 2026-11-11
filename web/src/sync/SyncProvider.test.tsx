@@ -2282,12 +2282,12 @@ describe("ownership and StrictMode lifecycle", () => {
   });
 
   test("StrictMode effect replay leaves exactly one live connect lifecycle", async () => {
-    // The replayed setup builds a second socket and a second reconnect flow;
-    // the first mount's cleanup must have detached its own (mountedRef false,
-    // drain observer cleared, socket closed) or a reconnect would finish twice
-    // and bump resyncGeneration twice. Deliberately paired with "StrictMode
-    // effect replay keeps the queue live": that one pins what replay must NOT
-    // tear down, this one pins what it must not leave running.
+    // The replay builds a second socket over the one session. Only the
+    // replayed socket may drive it: if the first mount's socket stayed
+    // attached, a reconnect would finish twice and bump resyncGeneration
+    // twice. Deliberately paired with "StrictMode effect replay keeps the
+    // queue live": that one pins what replay must NOT tear down, this one
+    // pins what it must not leave running.
     vi.useFakeTimers();
     try {
       let sync!: Sync;

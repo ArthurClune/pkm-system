@@ -5,7 +5,7 @@ status: completed
 type: task
 priority: low
 created_at: 2026-10-29T18:02:39Z
-updated_at: 2026-10-29T18:02:39Z
+updated_at: 2026-11-11T15:08:59Z
 ---
 
 pnpm audit --prod reports two moderate react-router v6 advisories that the v6 line does not fix (fixed in 7.18.0). They were judged unreachable here:
@@ -28,3 +28,6 @@ react-router-dom 6.30.6 became react-router 7.18.5 (React 18 compatible); Browse
 - Future flags: `v7_startTransition` and `v7_relativeSplatPath` were already on and are the v7 behaviour, so `src/router.ts` and every `future={...}` prop are gone.
 - `navigate()` now returns a promise, so each call site marks it `void` (lint's no-floating-promises and no-misused-promises).
 - docs/SECURITY.md no longer lists the router advisories.
+- react-router 7's exports map resolves every condition, production included, to its development build; a build-only plugin in `vite.config.ts` (`reactRouterProduction`) aliases `react-router` to `dist/production`, so the shipped bundle carries no dev warnings.
+
+The official upgrade guide could not be fetched. The whole-branch review compared the installed 7.18.5 source with 6.30.6 instead and found no routing change for this app. Two v7 differences exist but cannot fire here: `navigate()` and `<Navigate>` throw "External navigation is not allowed" for a cross-origin target (every target is a same-origin path), and links gain a `data-discover` attribute.

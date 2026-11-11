@@ -15,9 +15,13 @@
 // the replica never applies them. So the client's next durable write of
 // that block is hashed against the text before the lane write and lands a
 // conflict; opQueue's drain names that conflict as the lane's guard against
-// a durable row overwriting the lane's newer text. Only that write is
-// excused: its ack and echo bring the server's text back to the replica,
-// so a later conflict on the block by the same client is noise again.
+// a durable row overwriting the lane's newer text. A worker death does the
+// same from the other side: the drain then sends only the lane, so a dead
+// worker's writes and a lost reply's lane copy land ahead of the durable
+// rows the death left, which the next life sends hashed against older text
+// (conflictLane). Only that write is excused: its ack and echo bring the
+// server's text back to the replica, so a later conflict on the block by
+// the same client is noise again.
 import type { BatchId, BlockUid } from "../../api/brands";
 import { uidOf } from "../../test-helpers";
 import type { ConflictRecord } from "./serverControl";
@@ -71,6 +75,42 @@ export function textEditors(run: Pick<ConflictNoiseRun, "applied" | "committedBy
     for (const uid of w.uids) editors.set(uid, (editors.get(uid) ?? new Set()).add(w.client));
   }
   return editors;
+}
+
+/** What conflictLane reads of a client. */
+export interface LaneClient {
+  name: string;
+  /** Sent from memory after a failed local write or a dead worker's. */
+  laneBatches: readonly BatchId[];
+  /** A lane copy and a durable row each, under one batch id. */
+  lostReplyBatches: readonly BatchId[];
+  /** Not yet committed when a worker of this client died. */
+  undeliveredAtDeath: ReadonlySet<BatchId>;
+}
+
+/** The batches the lane exemption covers: every client's lane batches, and
+ * each lost reply whose lane copy landed ahead of an earlier batch of its
+ * client that a worker death left undelivered. Once a death latches, the
+ * drain sends only the lane and the durable rows wait for the next life
+ * (sync-recovery.md § A local write fails), so that copy overtook them
+ * unhashed, as a lane batch does. A lost reply whose durable row went out
+ * in order is no lane write. `enqueued` is each client's batches in
+ * enqueue order. */
+export function conflictLane(clients: readonly LaneClient[],
+                             applied: readonly { batch_id: BatchId }[],
+                             enqueued: ReadonlyMap<string, readonly BatchId[]>): Set<BatchId> {
+  const at = new Map(applied.map((r, i) => [r.batch_id, i]));
+  return new Set(clients.flatMap((c) => {
+    const lane = new Set([...c.laneBatches, ...c.lostReplyBatches]);
+    const ids = enqueued.get(c.name) ?? [];
+    const overtook = (lost: BatchId): boolean => {
+      const landedAt = at.get(lost);
+      const rank = ids.indexOf(lost);
+      return landedAt !== undefined && rank >= 0 && ids.slice(0, rank).some((id) =>
+        c.undeliveredAtDeath.has(id) && !lane.has(id) && (at.get(id) ?? -1) > landedAt);
+    };
+    return [...c.laneBatches, ...c.lostReplyBatches.filter(overtook)];
+  }));
 }
 
 /** Whether `batch` is its client's first durable write of `uid` after a

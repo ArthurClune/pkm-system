@@ -33,7 +33,7 @@
 // edit of a client whose worker died.
 import type { BatchId, SyncSeq } from "../../api/brands";
 import { computeEditability } from "../../sync/syncState";
-import { conflictNoise } from "./conflictNoise";
+import { conflictLane, conflictNoise } from "./conflictNoise";
 import { deleteWins, replaySeenSeq, withSeenSeq } from "./deleteWins";
 import type { HarnessClient } from "./harnessClient";
 import { canonicaliseMintedUids, diffGraphs, fromReplica, fromSnapshot,
@@ -261,7 +261,7 @@ export async function checkQuiescent(clients: HarnessClient[], server: ServerCon
     ["conflict noise", await evaluate(() => conflictNoise({
       applied, conflicts,
       committedBy: new Map(clients.map((c) => [c.name, c.transport.committed])),
-      lane: new Set(clients.flatMap((c) => c.laneBatches)),
+      lane: conflictLane(clients, applied, exp.good),
     }))],
     ["serial replay", await evaluate(() =>
       serialReplay(server, applied, faulted, committed, renames, deletes))],

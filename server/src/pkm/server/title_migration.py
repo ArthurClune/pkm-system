@@ -298,8 +298,8 @@ def report_noncanonical_titles(db_path: Path) -> int:
         logger.error(
             "%s not canonical (%s, which no lookup reaches, and %s): %s%s."
             " Run `pkm migrate-titles` to audit them, then apply its digest."
-            " docs/cli.md, Rows the migration cannot fix, covers rows it"
-            " cannot.",
+            " docs/title-migration.md, Rows the migration cannot fix, covers"
+            " rows it cannot.",
             count_label(total, "stored title is", "stored titles are"),
             count_label(len(pages), "page title", "page titles"),
             count_label(len(sidebars), "sidebar entry", "sidebar entries"),

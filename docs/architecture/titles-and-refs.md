@@ -96,7 +96,7 @@ Every creation path funnels through `store.get_or_create_page()`. Daily pages
 `page_title`, so replicas receive the authoritative spelling.
 
 Activation is an operator action, `pkm migrate-titles`;
-[docs/cli.md](../cli.md#one-time-title-canonicalization) has the audit, its
+[docs/title-migration.md](../title-migration.md) has the audit, its
 survivor and blocker rules, and the digest workflow.
 `pkm/title_migration_core.py` plans it. Its `sidebar_retitles` lists every
 sidebar entry the target rule changes that no group already moves.
@@ -105,7 +105,7 @@ rescans one. `audit_title_migration()` runs in a read transaction it always
 rolls back, and its `digest` covers the whole relevant snapshot. Apply
 takes it back as `audit_digest` and re-inventories under the
 [write lock](write-path.md#the-write-lock). It answers 409 to each refusal
-cli.md lists, a stale digest among them. It makes every change in one
+title-migration.md lists, a stale digest among them. It makes every change in one
 transaction, activation and the `db_generation` rotation included. One
 forced seq frame
 follows, and replicas rebootstrap before replaying pending intent
@@ -121,7 +121,7 @@ logs one ERROR on `pkm.titles` naming the stored page and sidebar titles the
 live rule would change. It never refuses to start (its docstring says why)
 and never repairs, because a merge is irreversible and stays a
 digest-confirmed operator action. Some rows it reports have no migration
-remedy; [docs/cli.md](../cli.md#rows-the-migration-cannot-fix) gives each
+remedy; [docs/title-migration.md](../title-migration.md#rows-the-migration-cannot-fix) gives each
 one's fix.
 
 ## Refused titles

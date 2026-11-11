@@ -1,7 +1,7 @@
 # Deploying PKM
 
-Runs the server, the nightly backup and the nightly iCloud mirror as launchd
-services on a Mac, behind Tailscale Serve for HTTPS access from other devices
+These scripts run the server, the nightly backup and the nightly iCloud mirror
+as launchd services on a Mac, behind Tailscale Serve for HTTPS access from other devices
 on the tailnet.
 
 ## Layout
@@ -21,11 +21,9 @@ Everything lives under `$PKM_HOME` (default `~/.config/pkm`):
 
 The server writes `server.log` (lifecycle, errors, `pkm.*` loggers) and
 `access.log` (one line per request, with its duration) itself, because the
-plist passes `--log-dir`. Both rotate at midnight. Yesterday's file is
-`server.log.YYYY-MM-DD`, and copies older than 30 days are deleted. The
-launchd `server.{out,err}.log` files catch only what escapes logging, such as
-a crash before logging starts. The backup jobs' logs grow by a few KB a
-month and are not rotated.
+plist passes `--log-dir`. Both rotate at midnight and keep 30 days
+([Troubleshooting](#troubleshooting) says where each log is). The backup
+jobs' logs grow by a few KB a month and are not rotated.
 
 `install.sh` and `update.sh` only create `data/`; they never modify an
 existing `config.json` or database.
@@ -112,16 +110,13 @@ re-renders and reloads every job.
 The server job runs `$PKM_HOME/bin/pkm-server <venv python> -m pkm.server.run
 ...` (source: `deploy/launcher/pkm-server.swift`, built and ad-hoc signed by
 `deploy/launcher/build.sh`). macOS grants iCloud file access to the launchd
-job's own binary, not to the Python it starts. The launcher spawns the server
-and stays its parent, forwards SIGTERM/SIGINT/SIGHUP to it and exits with its
-status, so that binary is the one identity the grant attaches to. The grant
-is keyed to the binary's path and code hash (the signing identifier only
-keeps the hash reproducible), so it survives `uv`, Homebrew, Python and app
-upgrades.
-
-Rebuilding unchanged source with the same toolchain keeps the hash and the
-grant. A source change, a Swift toolchain change or a moved `PKM_HOME` gives
-a new client, and the consent prompt returns at the Mac's screen.
+job's own binary, not to the Python it starts. The launcher stays the
+server's parent and forwards its signals, so the grant attaches to it. The
+grant is keyed to the binary's path and code hash, so it survives `uv`,
+Homebrew, Python and app upgrades, and a rebuild of unchanged source with the
+same toolchain. A source change, a Swift toolchain change or a moved
+`PKM_HOME` gives a new client, and the consent prompt returns at the Mac's
+screen.
 `update.sh` never rebuilds the launcher: a change under `deploy/launcher/`
 reaches prod only through `install.sh --rebuild-launcher` followed by Allow.
 `install.sh` records the built source's SHA-256 in
@@ -157,21 +152,19 @@ python, stdlib only) runs at 04:30 and mirrors into
 | `data/incr/YYYY-MM-DD/` | `files/` added or changed since the previous snapshot, `deleted.txt`, and a full `manifest.json` | newest 30 days |
 
 `data/` on day T is `main` with every `incr/` up to T applied in date order.
-Once `main` is older than 30 days, the oldest incremental is folded into it
-(files moved in, deletions applied, manifest replaced) and removed. The oldest
-restorable point stays about 30 days back, and the total stays at one tree
-plus 30 days of changes. The data mirror excludes the live `pkm.sqlite3` and
-its `-wal`/`-shm` files, since a copy taken while the server runs is not a
-consistent snapshot; `db/` covers the database.
+Once `main` is older than 30 days, the oldest incremental is folded into it,
+so the oldest restorable point stays about 30 days back. The data mirror
+leaves out the live `pkm.sqlite3` and its `-wal`/`-shm` files, since a copy
+taken while the server runs is not a consistent snapshot; `db/` covers the
+database.
 
 The mirrored `config.json` has its `session_secret` removed, and any other
 file whose bytes contain the secret (a copy, a hard link, either hex case) is
 skipped. If `config.json` cannot be read or parsed as a JSON object it is not
 mirrored (the previous mirrored copy stays in the snapshot). Any of these
 makes the run print `PARTIAL`, say why on stderr and exit 1; the rest of the
-backup is still taken.
-A data file that contains the session secret is left out of the mirror, and
-the run exits 1 each day until that file is deleted or the secret is rotated.
+backup is still taken. A skipped file keeps the run failing each night until
+it is deleted or the secret is rotated.
 
 Restore the data dir as of a date into an empty folder. The matching
 `db/pkm-YYYY-MM-DD.sqlite3` goes into it through `pkm.backup.restore`, run
@@ -239,13 +232,6 @@ and passes the check, so step 1 is still needed. The mechanism is in
   stdout/stderr.
 - `tailscale serve status`: confirms the HTTPS Serve forward to the local
   port is still configured after a Tailscale update or reboot.
-- `Local copy::` files answer 503: unset `local_docs_root` until someone can
-  click Allow on the iCloud consent prompt ([The launcher](#the-launcher)) at
-  the Mac. Files that then read `unchecked`, or answer `too many file opens are
-  in flight`, mean probes are still blocked on the prompt: grant it or restart
-  the server. The log shows `local open probe … timed out` while the prompt
-  is pending. Full Disk Access is the wrong setting: the grant follows the
-  launcher's path and code hash.
 
 Known symptoms and their fixes:
 
@@ -257,6 +243,7 @@ Known symptoms and their fixes:
 | HTTPS over the tailnet connects but the TLS handshake hangs on a recreated node | Serve is waiting on a new Let's Encrypt certificate. Retry patiently; Let's Encrypt allows five failed validations per hostname per hour |
 | On the Serve hostname, live updates never connect and edits stay queued; `access.log` shows `403` on `POST /api/ops` | The origin is missing from `serve_origins` (step 4 of [First install](#first-install)) |
 | After a deploy, an open tab can't load the PDF viewer or a diagram or formula | The tab runs the old bundle. Reload it |
+| `Local copy::` files answer 503, read `unchecked` or answer `too many file opens are in flight`; the log shows `local open probe … timed out` | The iCloud consent prompt is pending ([The launcher](#the-launcher)). Click Allow at the Mac, or restart the server; until someone can, unset `local_docs_root`. Full Disk Access is the wrong setting |
 
 ## Image descriptions (optional)
 
@@ -294,12 +281,9 @@ If the login is missing, the assistant returns an error in the chat and the
 rest of the app is unaffected.
 
 The harness receives only an allow-list of the service's environment
-([assistant.md § Harness confinement](../docs/architecture/assistant.md#harness-confinement)).
-`HOME`, `USER` and `CLAUDE_CONFIG_DIR` are among the names that reach it.
-Proxy variables, CA-certificate variables (`NODE_EXTRA_CA_CERTS`,
-`SSL_CERT_FILE`), an `ANTHROPIC_BASE_URL` set on the service (a `glm`
-conversation sets its own), `CLAUDE_CODE_OAUTH_TOKEN` and operator
-`CLAUDE_CODE_*` switches such as telemetry opt-outs do not. A variable the
+([assistant.md § Harness confinement](../docs/architecture/assistant.md#harness-confinement)),
+so proxy and CA-certificate variables, `ANTHROPIC_BASE_URL` and
+`CLAUDE_CODE_*` switches set on the service do not reach it. A variable the
 CLI needs must be added to `HOST_ENV` in
 `server/src/pkm/assistant/harness_env.py`.
 

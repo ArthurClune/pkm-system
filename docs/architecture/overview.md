@@ -30,7 +30,8 @@ approval and record the design as it was then.
 | [cli-and-mcp.md](cli-and-mcp.md) | change the `pkm` CLI or an MCP tool |
 | [assistant.md](assistant.md) | change the embedded LLM harness |
 | [checks.md](checks.md) | add or answer a mechanical check: commit hooks, coverage, perf and property gates |
-| [cli.md](../cli.md) | run the `pkm` CLI or MCP server, or the one-time title migration |
+| [cli.md](../cli.md) | run the `pkm` CLI or MCP server |
+| [title-migration.md](../title-migration.md) | run the one-time title migration, or fix a title it cannot |
 | [SECURITY.md](../SECURITY.md) | change what the app defends against, or answer a security question |
 | [keyboard.md](../keyboard.md) | change a shortcut; it is also what `/help` renders |
 | the beans: `beans list -S '<error text>'`, or grep `.beans/` | are chasing a symptom someone has seen before; a fixed bug's bean names the symptom, the cause and the section that now states the rule |

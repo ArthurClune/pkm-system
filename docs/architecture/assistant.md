@@ -14,7 +14,7 @@ symptom in [troubleshooting.md](../troubleshooting.md).
 
 | File | Pattern | Role |
 |---|---|---|
-| `events.py` | Core | The event union routes and the web UI speak, plus `encode_sse()`, and `tool_error_reason()` (a failed result's text, clipped at `TOOL_ERROR_LIMIT_CHARS`). Nothing engine-specific leaks upward. The web's copy of the union is generated from it and `EVENT_NAMES` ([the stream contract](#the-stream-contract)) |
+| `events.py` | Core | The event union routes and the web UI speak, plus `encode_sse()` and `tool_error_reason()`. Nothing engine-specific leaks upward. The web's copy is generated from it ([the stream contract](#the-stream-contract)) |
 | `policy.py` | Core | The tool gate (`READ_TOOLS` auto-allowed, `WRITE_TOOLS` confirm-gated, `MCP_ONLY_TOOLS` never offered), `MODELS`, `available_models()`, `default_model()`, `WRITE_PREVIEW_FIELDS` (which arguments of each write are targets and which are content), the system prompt |
 | `write_preview.py` | Core | `check_write()`: validates a write once, into a `CheckedWrite` or a `Refusal`; `build_write_preview()`: the approval card's content from it, or a `Refusal`; `target_uids()` and `ancestor_uids()`: the blocks the shell reads for it; `approved_input()`: the input Allow runs |
 | `target_reader.py` | Shell | `preview_write()`: reads those blocks through a `BlockReader` (`db_block_reader()` in production) and builds the card and the input Allow runs (an `Approval`) |
@@ -62,32 +62,26 @@ user who has had the chance to read all of it.
 
 | Rule | Reason |
 |---|---|
-| Targets come first. Targets and content values (`text`, `items`) reach the card whole, never clipped; [Bounds](#bounds) refuses a card too large to render | A long value in front of a `uid` or `title` would hide which block or page is written, and `[show]` must be able to reveal every character approved |
-| A key the tool's FastMCP argument model does not declare is a `Refusal` (for `batch`, anything beside `commands`) | The tool drops such a key, so a card row for it could only be a decoy beside the real target, such as a lookalike `uid` |
-| A declared field `WRITE_PREVIEW_FIELDS` does not name still shows as a target | A new argument is shown, never hidden; a test fails when a tool or batch params model gains an unclassified field |
-| `check_write()` validates with the tool's own FastMCP argument model and, for `batch`, the schema `apply_batch` applies; input they reject is a `Refusal` | FastMCP coerces arguments (`"yes"` becomes true, `"null"` becomes None, a JSON string becomes a list), so the card must show the coerced value. `test_preview_matches_what_the_tool_receives` pins the parity |
-| Any exception inside `check_write()` or `build_write_preview()` is a `Refusal`, logged with its type only | Raised out of `can_use_tool`, it would reach the SDK as a control error rather than a reason; its message can quote the attacker's input |
+| Targets come first, and every value reaches the card whole; [Bounds](#bounds) refuses a card too large to render | A long value ahead of a `uid` or `title` would hide which block or page is written |
+| A key the tool's FastMCP argument model does not declare is a `Refusal` (for `batch`, anything beside `commands`) | The tool drops such a key, so its row could only be a decoy beside the real target |
+| A declared field `WRITE_PREVIEW_FIELDS` does not name still shows as a target | A new argument is shown, never hidden (`test_every_tool_field_is_classified`) |
+| `check_write()` validates with the tool's own FastMCP argument model and, for `batch`, the schema `apply_batch` applies; input they reject is a `Refusal` | FastMCP coerces arguments, so the card must show the coerced value. `test_preview_matches_what_the_tool_receives` pins the parity |
+| Any exception inside `check_write()` or `build_write_preview()` is a `Refusal`, logged with its type only | Raised out of `can_use_tool`, it would reach the SDK as a control error rather than a reason |
 | `ClaudeConversation.can_use_tool` denies a `Refusal` without a confirm | The user cannot approve what the tool would not run as shown |
-| Allow applies only while every block the card shows keeps the text it showed. For a delete, that is the same blocks under it with the same texts. Where a block sits is not checked | The card shows text, so that is what Allow must still match |
-| Allow returns `approved_input` (the card's input plus an `expect` entry per block) as `updated_input`. The tool posts it as `OpBatch.expect`, which `routes_ops.post_ops` checks ([the write path](write-path.md)) | The hashes travel server to server. The browser sends only `confirm_id` and a boolean, and the model never sees `updated_input`, so neither can forge or drop one |
+| Allow applies only while every block the card shows keeps the text it showed; for a delete, the same blocks under it with the same texts. Where a block sits is not checked | The card shows text, so that is what Allow must still match |
+| Allow returns `approved_input` (the card's input plus an `expect` entry per block) as `updated_input`. The tool posts it as `OpBatch.expect`, which `routes_ops.post_ops` checks ([the write path](write-path.md)) | The browser sends only `confirm_id` and a boolean, and the model never sees `updated_input`, so neither can forge or drop a hash |
 | `check_write()` refuses input carrying a `GATE_FIELDS` key (`expect`), whatever its value | A model's own `expect` could carry stale hashes or `[]`. The key stays in the tool's schema, because the CLI refuses an Allow whose `updated_input` fails that schema |
-| `ClaudeEngine` starts `pkm-mcp` with `--require-expect`: `update_block` and `batch` then refuse a call with no `expect` key before any request. The card always sets one, `[]` when the call names no stored block | An SDK or CLI that dropped `updated_input` would run the model's input unguarded; this fails closed instead. External `pkm-mcp` callers run without the flag |
-| An op carries warnings for an `allow_merge` rename, a `((uid))` or `{{alias}}` parent, and a batch `update` or `move` uid | The target rows alone can mislead. An alias parent overrides the op's `page`; a uid that names no block sends the text, or a note, to today's daily note. The wording follows `plan_save`, `plan_batch` and `ops_core.classify_skip` |
-| The tool functions are imported from `pkm.mcp.tools`, not `pkm.mcp.server` | Building the server's `FastMCP` configures the root logger |
-| The card's labels (keys, action) and warnings are escaped by `parseWritePreview`; values are quoted by `quoteValue`, and a target's newlines are escaped too | A value cannot close a quote or start a line that reads as another argument. `writePreview.ts` owns the character classes |
+| `ClaudeEngine` starts `pkm-mcp` with `--require-expect`: `update_block` and `batch` then refuse a call with no `expect` key | An SDK or CLI that dropped `updated_input` fails closed. External `pkm-mcp` callers run without the flag |
+| An op carries warnings for an `allow_merge` rename, a `((uid))` or `{{alias}}` parent, and a batch `update` or `move` uid | An alias parent overrides the op's `page`, and a uid that names no block sends the text, or a note, to today's daily note. The wording follows `plan_save`, `plan_batch` and `ops_core.classify_skip` |
+| `parseWritePreview` (`writePreview.ts`) escapes labels and warnings; `quoteValue` quotes values, escaping a target's newlines | A value cannot close a quote or start a line that reads as another argument |
 | Every value `<bdi>` and every warning line has `dir="ltr"` | A value that starts with an RTL letter otherwise renders reversed beside the same title quoted in a warning |
-| `parseWritePreview` gives each action only the keys, `current` state and count that `PREVIEW_KEYS` gives its label, each key once, and requires a boolean `writes_in_flight`. Anything else leaves Deny only. A test fails until it carries each of `PREVIEW_FIELDS` | Any other row could only be a decoy beside the real target. `previewKeys.gen.ts` is generated from `WRITE_PREVIEW_FIELDS`, `CURRENT_TEXT_ENTRIES` and `SUBTREE_DELETE_ENTRIES`, so it cannot drift; a `Map` cannot match `__proto__` |
-| `batch_aliases` (`pkm.batch`, run by `validate_batch` and `plan_batch`) refuses a reused `as`, and an alias used before or by the command that makes it | A reused name sends later references to the newer block. With one creator per name, the card can name that write by number |
+| `parseWritePreview` gives each action only the keys, `current` state and count that `PREVIEW_KEYS` gives its label, each once, and requires a boolean `writes_in_flight`. Anything else leaves Deny only | `previewKeys.gen.ts` is generated from `WRITE_PREVIEW_FIELDS`, `CURRENT_TEXT_ENTRIES` and `SUBTREE_DELETE_ENTRIES`, so it cannot drift. A `Map` cannot match `__proto__` |
+| `batch_aliases` (`pkm.batch`, run by `validate_batch` and `plan_batch`) refuses a reused `as`, and an alias used before or by the command that makes it | With one creator per name, the card can name that write by number |
 
-The browser keeps confirms in a queue. The head stays until its POST settles,
-so a second `confirm_request` never swaps the card under the cursor.
-`chatMachine.step` sets the head card's `PendingConfirm.answer` on the
-`answer` event, before the POST runs: `{ allow, state }`, `posting` until the
-POST settles, then `failed` if it did not land. After a failure the card
-offers a retry of that same answer only, because the server may already hold
-it (`answerFailed`). Stop stays offered while an answer posts or has failed,
-as the way out of the card (`canStop`,
-[frontend.md § The chat machine](frontend.md#the-chat-machine)).
+The browser keeps confirms in a queue whose head stays until its POST
+settles, so a second `confirm_request` never swaps the card under the cursor.
+After a failed POST the card offers a retry of that same answer only
+(`answerFailed`), because the server may already hold it.
 
 Allow arms after `ALLOW_ARM_MS`, and only once markers before the first op and
 after the last have each been in view. The ops scroll in a region inside the
@@ -95,18 +89,22 @@ scrolling transcript, so a short window can hide a target while Allow shows;
 `IntersectionObserver` reports against the viewport, which clips through every
 scrolling ancestor. Without `IntersectionObserver` Allow never arms; Deny
 still works. Until both markers are seen, `confirmHint` says which way the
-unseen one lies: in a very short window the transcript can scroll the end
-marker past its top, and "scroll to the end" would point the wrong way.
+unseen one lies.
 
 ### Bounds
 
-| Limit | Of | Past it | Reason |
-|---|---|---|---|
-| `TARGET_LIMIT_CHARS` | a target string, or a `found` block's page title | a `Refusal` | The card shows a target before the server judges it, and a page stored before `MAX_PAGE_TITLE_CHARS` may carry a longer title; a multi-MB one would freeze the tab |
-| `CONTENT_LIMIT_CHARS` | one content value | a `Refusal` | The card sends it whole, so a longer one would be approved partly unseen |
-| `MAX_PREVIEW_OPS` (= `MAX_OPS_PER_BATCH`) | a batch's commands | a `Refusal` | `apply_batch` sends one `/api/ops` batch of at most `MAX_OPS_PER_BATCH` ops, and each command plans at least one, so a longer batch could never apply |
-| `PREVIEW_LIMIT_CHARS` | everything the card holds at once (`_card_size`) | a `Refusal` | The tab must render the card before the user can approve it. It counts code points, not bytes on the wire |
-| `REFUSAL_LIMIT_CHARS` | a `Refusal`'s message | cut, ending `… (N characters)` | A refusal reaches the model and the log on every retry. It backstops `pkm.echo.echo`, which quotes and clips each echoed value at `ECHO_LIMIT_CHARS` |
+Each limit's reason is in its comment in `write_preview.py`. A write past one
+is a `Refusal`:
+
+| Limit | Of |
+|---|---|
+| `TARGET_LIMIT_CHARS` | a target string, or a `found` block's page title |
+| `CONTENT_LIMIT_CHARS` | one content value |
+| `MAX_PREVIEW_OPS` (= `MAX_OPS_PER_BATCH`) | a batch's commands |
+| `PREVIEW_LIMIT_CHARS` | everything the card holds at once (`_card_size`), in code points |
+
+`REFUSAL_LIMIT_CHARS` cuts a refusal's own message, ending
+`… (N characters)`, behind `pkm.echo.echo`'s clip of each quoted value.
 
 ### The blocks a write changes
 
@@ -125,17 +123,15 @@ entry, whichever op comes first.
 | Rule | Reason |
 |---|---|
 | `preview_write` reads the blocks on the server, in a thread, for the checked call, just before the `confirm_request`. The web fetches nothing | The tool writes the server's database, so that is the text to show. A web fetch would add a route, a loading state and a race with Allow arming |
-| `preview_write` calls `check_write` once, before any read. `check_write` deep-copies the input and never raises. The uids read, the card and `approved_input` all come from the `CheckedWrite` it returns | A refusal reads nothing. The `CheckedWrite` owns its input, so a caller's later change to its dict cannot reach what Allow runs |
-| A refusal's wording to the model is the check's reason, or `input could not be previewed`; `could not be read` means only that the read or its guard failed | The model needs to tell a bad call from a store it could not read |
-| `db_block_reader` reads texts, pages, delete counts and subtree hashes, and parents' ancestors in one read transaction. A failed read, or a block whose page row is missing, is a `Refusal`, never an absent entry | An absent uid is what the card shows as `missing`, so it must mean only "no row" |
-| The excerpt is a clip with `text_length` beside it, never a silent cut. `parseWritePreview` accepts only the server's exact clip (`CURRENT_EXCERPT_CHARS` is in `previewKeys.gen.ts`) | A block can hold a million characters, and "first N of M" must be the clip the server made |
-| `_moved_into_delete` refuses a batch delete, naming both writes, when an earlier write moves an existing block into its subtree, directly, through an `as` alias or under a descendant. A move it cannot place (a `## Heading` parent, a parent uid with no row, a cycle) is refused too. It places parents by the ancestors read for `ancestor_uids` | The count is of the store before the batch runs, so a block moved in would go uncounted. No batch needs to move a block where it then deletes it. `pkm batch` is unchecked: its user wrote the batch |
-| A delete's count and subtree hash come from one walk of `ops_apply.subtree_rows` per target, the walk the server's `expect` check runs | Two walks could disagree on a corrupted parent chain and refuse an unchanged subtree. Its cost is the sizes of nested targets' subtrees times their depth. Real outlines count in milliseconds, but a chain at `MAX_OUTLINE_DEPTH` over tens of thousands of blocks holds the card back for seconds |
+| `check_write` runs once, before any read; the uids read, the card and `approved_input` all come from its `CheckedWrite`. Its refusal wording and the `could not be read` case are in `preview_write`'s docstring | A refusal reads nothing, and a caller's later change to its dict cannot reach what Allow runs |
+| `db_block_reader` reads everything in one read transaction. A failed read, or a block whose page row is missing, is a `Refusal`, never an absent entry | An absent uid is what the card shows as `missing`, so it must mean only "no row" |
+| The excerpt is a clip with `text_length` beside it. `parseWritePreview` accepts only the server's exact clip (`CURRENT_EXCERPT_CHARS` is in `previewKeys.gen.ts`) | "first N of M" must be the clip the server made |
+| `_moved_into_delete` refuses a batch delete when an earlier write moves an existing block into its subtree, or a move it cannot place. It places parents by the ancestors read for `ancestor_uids` | The count is of the store before the batch runs, so a block moved in would go uncounted. `pkm batch` is unchecked: its user wrote the batch |
+| A delete's count and subtree hash come from one walk of `ops_apply.subtree_rows` per target, the walk the server's `expect` check runs | Two walks could disagree on a corrupted parent chain. The cost, nested targets' subtree sizes times their depth, reaches seconds only for a chain at `MAX_OUTLINE_DEPTH` over tens of thousands of blocks |
 
 A card is a snapshot taken when its `confirm_request` was built, so a write
-the user allows on another card can land after it. That write may be the
-turn's own, or a stopped or errored turn's still running. The two sides mark
-that case together:
+the user allows on another card, the turn's own or a stopped or errored
+turn's, can land after it. The two sides mark that case together:
 
 | Side | What it records |
 |---|---|
@@ -145,10 +141,8 @@ that case together:
 | web, `ConfirmCard` | a stamped card with a `found` or `missing` block and `allowedAhead` above zero shows `.assistant-confirm-stale` |
 
 **A card is never silently stale from the assistant's own writes.** The
-queue answers cards in order, so a write that lands after a card's read was
-already waiting or running when the read started, or parked during it.
-`test_claude_engine.py` pins each case. The stamp errs towards the marker: a
-write still counts as running until the pump has read its result.
+queue answers cards in order, so such a write was waiting, running or parked
+by the end of the card's read. `test_claude_engine.py` pins each case.
 
 Edits from outside the turn, such as the editor beside the panel, get no
 marker. Allow refuses them instead: 412, and nothing is written. The tool
@@ -186,14 +180,12 @@ reply, which can report a refused write as done.
   SDK stream passes. The CLI marks a deny `is_error` like a failure, so the
   server tells them apart by the card answer it gave (`_declined`).
 - `TurnMapper` pairs a result with its call by `tool_use_id`, through maps the
-  conversation owns (`_tool_names`, which the mapper calls `_tools`, and
-  `_declined`). A stopped turn's write reports during the drain, after its
-  mapper's turn has ended, so the maps must outlive a mapper.
-- `tool_error_reason` strips the wrappers around the reason: the CLI's
-  `<tool_use_error>`, FastMCP's `Error executing tool <name>:` and the HTTP
-  status pkm's `ApiError` leads with (`412: `). The reason can echo
-  model-chosen input, so it is clipped server-side and the panel renders it
-  as text, as it does `warning`.
+  conversation owns (`_tool_names`, `_declined`), because a stopped turn's
+  write reports during the drain, after its mapper's turn has ended.
+- `tool_error_reason` strips the CLI's, FastMCP's and `ApiError`'s wrappers
+  from the reason. The reason can echo model-chosen input, so it is clipped
+  server-side (`TOOL_ERROR_LIMIT_CHARS`) and the panel renders it as text,
+  as it does `warning`.
 
 ## Conversation registry
 
@@ -256,20 +248,16 @@ stateDiagram-v2
 (`DRAIN_TIMEOUT_S`), or a stream that raises or ends before its result.
 
 **The aborted turn's result is drained before the conversation takes
-another turn.** The CLI acknowledges an interrupt and only then writes the
-aborted turn's `ResultMessage` (`terminal_reason` `aborted_*`). The SDK
-buffers every message, so a result nobody reads becomes the next turn's
-first message, and every later reply lands one turn behind. So the pump
-keeps reading after the ack until that result, bounded by
-`DRAIN_TIMEOUT_S`. The drained messages still update the tool maps and
+another turn.** The CLI writes the aborted turn's `ResultMessage`
+(`terminal_reason` `aborted_*`) after it acknowledges the interrupt. The SDK
+buffers it, so a result nobody reads makes every later reply land one turn
+behind. The pump keeps reading after the ack until that result, bounded
+by `DRAIN_TIMEOUT_S`. The drained messages still update the tool maps and
 `_running_writes`, but their events reach no consumer.
 
 The pump is the only sender of an interrupt (`_stop_turn`, the one caller of
 `_interrupt`). A Stop or a dropped consumer is a request it hears in its
 read wait (`_request_stop`); the stall watchdog is its own read timing out.
-It handles no message while its interrupt is in flight. Its read may take
-one off the SDK's buffer meanwhile, but that message waits until the ack
-has moved the phase to `draining`.
 
 | Rule | Reason |
 |---|---|
@@ -287,14 +275,14 @@ What `claude_engine.py` fixes before and around each harness subprocess:
 
 | Concern | Mechanism | Rule |
 |---|---|---|
-| Tool surface | One SDK subprocess per conversation, `tools=[]` plus one MCP server running `python -m pkm.mcp.server --tools` with the names in `READ_TOOLS` and `WRITE_TOOLS`, and `strict_mcp_config=True` (`--strict-mcp-config`) | `ENABLE_TOOL_SEARCH=false` must accompany `tools=[]`, or the MCP tools are deferred behind a ToolSearch tool. `setting_sources=[]` still loads the account's claude.ai connectors. Strict config keeps all their tools from the model, reads included, where only `can_use_tool` would guard them |
-| Tool result size | `harness_env.py` sets `MAX_MCP_OUTPUT_TOKENS` to `MCP_OUTPUT_TOKENS` and passes `--max-chars MCP_MAX_CHARS` to pkm-mcp, whose read tools stay under it ([cli-and-mcp.md](cli-and-mcp.md#the-mcp-tool-surface)) | Claude Code saves a result that fails either of two gates to a file the assistant cannot open. The token gate passes a result whose `chars / 4` estimate is at most half the cap, so `MCP_MAX_CHARS <= 2 * MCP_OUTPUT_TOKENS`. The size gate is 50,000 characters unless the tool's `anthropic/maxResultSizeChars` meta raises it, so `MCP_MAX_CHARS <= MAX_RESULT_CHARS`. `test_assistant_harness_env.py` pins both |
-| Host files | `MCP_ONLY_TOOLS` (`upload_asset`) is left out of `--tools`, and `classify_tool` calls it `unknown`, so a call is denied without a card | `upload_asset` reads a host path as the service account. The service runs in `app/server`, so `../../data/config.json` is the secret config. The assistant has no files of its own to upload |
-| Provider routing | `resolve_harness_env()` keys on `policy.ZAI_MODELS`, not a `glm` literal | `glm` sets `ANTHROPIC_BASE_URL` (`ZAI_BASE_URL`) and `ANTHROPIC_AUTH_TOKEN` in the subprocess env and asks for `ZAI_SDK_MODEL`, an alias z.ai maps to its plan default, so no GLM version name is in the code |
+| Tool surface | One SDK subprocess per conversation, `tools=[]` plus one MCP server running `python -m pkm.mcp.server --tools` with the names in `READ_TOOLS` and `WRITE_TOOLS`, and `strict_mcp_config=True` | `ENABLE_TOOL_SEARCH=false` must accompany `tools=[]`. Strict config keeps the account's claude.ai connectors from the model, which `setting_sources=[]` does not |
+| Tool result size | `harness_env.py` sets `MAX_MCP_OUTPUT_TOKENS` to `MCP_OUTPUT_TOKENS` and passes `--max-chars MCP_MAX_CHARS` to pkm-mcp ([cli-and-mcp.md](cli-and-mcp.md#the-mcp-tool-surface)) | Claude Code saves a result past either of its two gates to a file the assistant cannot open. The comment on `MCP_OUTPUT_TOKENS` derives both bounds; `test_assistant_harness_env.py` pins them |
+| Host files | `MCP_ONLY_TOOLS` (`upload_asset`) is left out of `--tools`, and `classify_tool` calls it `unknown`, so a call is denied without a card | `upload_asset` reads a host path as the service account. The service runs in `app/server`, so `../../data/config.json` is the secret config |
+| Provider routing | `resolve_harness_env()` keys on `policy.ZAI_MODELS`, not a `glm` literal | `glm` sets `ANTHROPIC_BASE_URL` (`ZAI_BASE_URL`) and `ANTHROPIC_AUTH_TOKEN` and asks for `ZAI_SDK_MODEL`, an alias z.ai maps to its plan default |
 | Model resolution | Claude models go to the SDK as aliases; the `claude` binary bundled in `claude-agent-sdk` maps them to ids | A new Claude model arrives only through an SDK upgrade, which is why `server/pyproject.toml` exempts the SDK from the uv cooldown |
-| Environment | `cli_path` is a per-conversation launcher (`harness_env.launcher_script`), a Python script that calls `os.execve` on the CLI with only the names in `harness_env_names()` taken from its own environment. `pkm-mcp` runs under `/usr/bin/env -i` with only `PKM_CLI_CONFIG` (`mcp_server_config`) | The SDK merges `os.environ` under `options.env` and cannot remove a variable, and the CLI hands its environment to MCP servers, so the allow-list has to sit in the launcher. Without it both processes see the service's other keys and proxy routing. `pkm-mcp` ignores `PKM_URL` once `PKM_CLI_CONFIG` is set (`load_mcp_config`; [cli.md](../cli.md)) |
+| Environment | `cli_path` is a per-conversation launcher (`harness_env.launcher_script`) that execs the CLI with only the names in `harness_env_names()`. `pkm-mcp` runs under `/usr/bin/env -i` with only `PKM_CLI_CONFIG` (`mcp_server_config`) | The SDK merges `os.environ` under `options.env` and cannot remove a variable, and the CLI hands its environment to MCP servers, so the allow-list has to sit in the launcher. `pkm-mcp` ignores `PKM_URL` once `PKM_CLI_CONFIG` is set (`load_mcp_config`; [cli.md](../cli.md)) |
 | Auth | A fresh session token (`auth_core.sign_session`) in a 0600 temp config file per conversation, passed as `PKM_CLI_CONFIG` | The file is deleted on close. The environment carries only the file's path; the token is in the file |
-| Transactional startup | `create_conversation()` cleans up through `ClaudeConversation.close()` on any exit but success | The launcher is removed with the config file. Both unlinks are in a `finally`, because `except Exception` misses `BaseException` |
+| Transactional startup | `create_conversation()` cleans up through `ClaudeConversation.close()` on any exit but success | The launcher is removed with the config file, even on a second cancellation |
 | Credentials | The SDK uses the machine's Claude subscription login ([deploy/README.md](../../deploy/README.md#assistant-prerequisites)) | No `ANTHROPIC_API_KEY` in the service environment |
 
 A variable the CLI needs must be added to `HOST_ENV`. The SDK-drift test
@@ -315,16 +303,14 @@ client that vanished without a clean close. Thinking content is not streamed;
 `TurnMapper.map` turns each `content_block_start` into a `phase` event
 ("reasoning", "preparing `<tool>`", "replying") for the panel's busy line.
 
-The SDK's model request has no first-token timeout, so on a dead network a turn
-would wait forever and only the user's patience would end it. The stall watchdog
-treats total SDK silence as that network, since real reasoning emits a steady
-stream of events. After `STALL_TIMEOUT_S` with no SDK message, the pump
-interrupts the harness and drains the aborted result as Stop does
-([the turn phase](#the-turn-phase)), then reports an in-band `error`. The
-interrupt and drain go first because the error ends the consumer's loop, which
-cancels the pump. The deadline is suspended while a confirm is parked, because
-that silence is the user's. The client's own guard is in
-[frontend.md](frontend.md#the-assistant-panel).
+The SDK's model request has no first-token timeout, so the stall watchdog
+treats `STALL_TIMEOUT_S` of total SDK silence as a dead network; real
+reasoning emits a steady stream of events. The pump then interrupts the
+harness and drains the aborted result as Stop does
+([the turn phase](#the-turn-phase)), and only then reports an in-band
+`error`, which ends the consumer's loop and cancels the pump. The deadline is
+suspended while a confirm is parked, because that silence is the user's. The
+client's own guard is in [frontend.md](frontend.md#the-assistant-panel).
 
 ## Testing
 

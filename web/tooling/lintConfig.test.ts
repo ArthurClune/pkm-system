@@ -9,7 +9,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ESLint } from "eslint";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   isMintSite,
   isTestCode,
@@ -235,10 +235,10 @@ const cases: readonly FixtureCase[] = [
   },
 ];
 
-// Each ESLint spawn here takes ~2s under coverage instrumentation, close
-// enough to the 5s default that this file flaked repeatedly during parallel
-// verify runs. An explicit timeout gives it real headroom.
-const ESLINT_TIMEOUT_MS = 20000;
+// Type-aware ESLint runs cost 2s to 5s a test on a quiet machine under
+// coverage, and several times that while other suites share the CPU. The
+// limit is only a hang guard, so every test in the file gets room.
+vi.setConfig({ testTimeout: 60_000 });
 
 describe("eslint flat config", () => {
   it("each bad fixture reports its named rule", async () => {
@@ -266,7 +266,7 @@ describe("eslint flat config", () => {
         for (const part of parts) expect(texts[i], c.file).toContain(part);
       });
     }
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("each corrected variant is diagnostic-free", async () => {
     const linter = makeLinter();
@@ -285,7 +285,7 @@ describe("eslint flat config", () => {
       expect(messages, `${file} messages: ${JSON.stringify(messages)}`)
         .toHaveLength(0);
     }
-  }, ESLINT_TIMEOUT_MS);
+  });
 });
 
 describe("brands plugin paths", () => {
@@ -309,14 +309,14 @@ describe("brands plugin paths", () => {
       "brands/name-carries-brand",
       "brands/no-brand-assertion",
     ]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("lints test files and test support like production", async () => {
     const both = ["brands/name-carries-brand", "brands/no-brand-assertion"];
     expect(await brandIds("src/sync/memReplica.ts")).toEqual(both);
     expect(await brandIds("src/replica/replayArbs.ts")).toEqual(both);
     expect(await brandIds("src/sync/listeners.test.ts")).toEqual(both);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("normalises absolute paths against the repo root", () => {
     const abs = (rel: string): string => join(webRoot, rel);
@@ -378,7 +378,7 @@ describe("brands plugin judgement", () => {
     expect(inScan[0].message).toContain("CanonicalTitle");
     expect(inScan[0].message).not.toContain("NormalizedTitle");
     expect(await messagesFor("src/replica/daily.ts", text)).toEqual([]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("reports RawTitle outside its mint sites", async () => {
     const text =
@@ -388,7 +388,7 @@ describe("brands plugin judgement", () => {
     expect(found.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
     expect(found[0].message).toContain("RawTitle");
     expect(await messagesFor("src/replica/titles.ts", text)).toEqual([]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("counts NormalizedTitle as its own brand, not RawTitle", async () => {
     const text =
@@ -399,7 +399,7 @@ describe("brands plugin judgement", () => {
     expect(found.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
     expect(found[0].message).toContain("NormalizedTitle");
     expect(found[0].message).not.toContain("RawTitle");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("reports NormalizedTitle in a RawTitle-only mint site", async () => {
     const norm =
@@ -412,7 +412,7 @@ describe("brands plugin judgement", () => {
       'import type { RawTitle } from "../api/brands";\n' +
       "export const t = (s: string) => s as RawTitle;\n";
     expect(await messagesFor("src/replica/pendingOps.ts", raw)).toEqual([]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("names each title subtype itself when offType forges one", async () => {
     const header =
@@ -428,7 +428,7 @@ describe("brands plugin judgement", () => {
     expect(normalized.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
     expect(normalized[0].message).toContain("NormalizedTitle");
     expect(normalized[0].message).not.toContain("RawTitle");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("names the parser and the mint module in the remedy", async () => {
     const text =
@@ -442,7 +442,7 @@ describe("brands plugin judgement", () => {
     expect(found[0].message).toContain("parseBlockUid");
     expect(found[0].message).toContain("web/src/ids.ts");
     expect(found[1].message).toContain("`BlockUid[]`");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("says how many mint modules the remedy leaves out", async () => {
     const text =
@@ -452,7 +452,7 @@ describe("brands plugin judgement", () => {
     // BlockUid has seven web mint modules and the remedy names three
     expect(found[0].message).toContain("and 4 more");
     expect(found[0].message).not.toContain("...");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("points a brand with no web mint site at where the value enters", async () => {
     const text =
@@ -461,7 +461,7 @@ describe("brands plugin judgement", () => {
     const found = await messagesFor("src/sync/opQueue.ts", text);
     expect(found[0].message).toContain("pass it in already branded");
     expect(found[0].message).not.toContain("register");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("honours an opt-out line on a laundering assertion in a boundary", async () => {
     const text =
@@ -473,7 +473,7 @@ describe("brands plugin judgement", () => {
     const outside = await messagesFor("src/sync/opQueue.ts", text);
     expect(outside.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
     expect(outside[0].message).toContain("launders");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("lets a predicate narrow a brand its parameter already carries", async () => {
     const text =
@@ -486,7 +486,7 @@ describe("brands plugin judgement", () => {
       "  return op.n === 1;\n" +
       "}\n";
     expect(await messagesFor("src/sync/opQueue.ts", text)).toEqual([]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("lets a predicate keep some of the union members its parameter has", async () => {
     // B's `uid` is not minted by narrowing to `A | B`: the parameter was
@@ -498,7 +498,7 @@ describe("brands plugin judgement", () => {
       'interface C { op: "c" }\n' +
       "export const isAb = (o: A | B | C): o is A | B => o.op !== \"c\";\n";
     expect(await messagesFor("src/sync/opQueue.ts", text)).toEqual([]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("compares what a function member returns when a predicate narrows", async () => {
     const head =
@@ -515,7 +515,7 @@ describe("brands plugin judgement", () => {
       "export const isP = (x: W | number): x is P => typeof x !== 'number';\n");
     expect(minted.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
     expect(minted[0].message).toContain("BlockUid");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("honours an opt-out line on a constrained launder in a boundary", async () => {
     const text =
@@ -527,7 +527,7 @@ describe("brands plugin judgement", () => {
     const outside = await messagesFor("src/sync/opQueue.ts", text);
     expect(outside.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
     expect(outside[0].message).toContain("launders");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("launders through an object constraint even in a mint site", async () => {
     const text =
@@ -540,7 +540,7 @@ describe("brands plugin judgement", () => {
     const found = await messagesFor("src/ids.ts", text);
     expect(found.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
     expect(found[0].message).toContain("launders");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("reports an assertion toward a brand whatever its operand", async () => {
     const text =
@@ -550,7 +550,7 @@ describe("brands plugin judgement", () => {
       "export const wide = (v: unknown) => JSON.parse(String(v)) as BlockUid;\n";
     const found = await messagesFor("src/sync/opQueue.ts", text);
     expect(found.map((m) => m.message.includes("BlockUid"))).toEqual([true, true]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("lets an overload add a brand in its mint site only", async () => {
     const text =
@@ -563,7 +563,7 @@ describe("brands plugin judgement", () => {
     const outside = await messagesFor("src/sync/opQueue.ts", text);
     expect(outside.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
     expect(outside[0].message).toContain("implementation");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("walks a Pick alias by its picked keys, not every key", async () => {
     const head =
@@ -576,7 +576,7 @@ describe("brands plugin judgement", () => {
     expect(picked).toHaveLength(1);
     expect(picked[0].message).toContain("BlockUid");
     expect(picked[0].message).not.toContain("PageId");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("lets an opt-out cover one site, the leftmost on its line", async () => {
     const text =
@@ -596,7 +596,7 @@ describe("brands plugin judgement", () => {
       "  ];\n" +
       "}\n";
     expect(await messagesFor("src/api/client.ts", both)).toEqual([]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("pairs one opt-out with a name and an assertion by position", async () => {
     // The parameter is the leftmost site on the line and takes the opt-out;
@@ -607,7 +607,7 @@ describe("brands plugin judgement", () => {
     const found = await messagesFor("src/api/client.ts", text);
     expect(found.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
     expect(found[0].message).toContain("`never`");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("reports an opt-out that covers no site", async () => {
     const stale =
@@ -632,7 +632,7 @@ describe("brands plugin judgement", () => {
     expect(found.map((m) => m.message.includes("covers no site")))
       .toEqual([true, false]);
     expect(found.filter((m) => m.message.includes("launders"))).toHaveLength(1);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("honours an opt-out on a generic return no body backs", async () => {
     const text =
@@ -642,7 +642,7 @@ describe("brands plugin judgement", () => {
     const outside = await messagesFor("src/sync/opQueue.ts", text);
     expect(outside.map((m) => m.ruleId)).toEqual(["brands/no-brand-assertion"]);
     expect(outside[0].message).toContain("no body");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("asks for a reason when an opt-out file's marker has none", async () => {
     const text =
@@ -653,7 +653,7 @@ describe("brands plugin judgement", () => {
     const found = await messagesFor("tooling/viteBudgetPlugin.ts", text);
     expect(found).toHaveLength(1);
     expect(found[0].message).toContain("add a reason");
-  }, ESLINT_TIMEOUT_MS);
+  });
 });
 
 describe("tests under the lint", () => {
@@ -679,7 +679,7 @@ describe("tests under the lint", () => {
     expect(rulesOf(found)).toEqual(["brands/no-brand-assertion"]);
     expect(found[0].message).toContain("uidOf");
     expect(found[0].message).toContain("test-mint");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("a test file may not widen select's keys", async () => {
     const text =
@@ -689,7 +689,7 @@ describe("tests under the lint", () => {
     const found = await messagesFor("src/paths.test.ts", text);
     expect(rulesOf(found)).toEqual(["repo/select-keys-literal"]);
     expect(found[0].message).toContain("array literal of string literals");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("names the helper for a name that means a brand in a test", async () => {
     const found = await messagesFor("src/paths.test.ts",
@@ -698,7 +698,7 @@ describe("tests under the lint", () => {
       + "}\n");
     expect(rulesOf(found)).toEqual(["brands/name-carries-brand"]);
     expect(found[0].message).toContain("pageIdOf");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("test-mint.ts may mint every brand", async () => {
     // `up` leads from the linted file to src/.
@@ -716,7 +716,7 @@ describe("tests under the lint", () => {
     const outside = await messagesFor("src/props/ops/compare.ts", text("../../"));
     expect(rulesOf(outside)).toEqual(
       Array<string>(6).fill("brands/no-brand-assertion"));
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("props files are linted", async () => {
     const found = await messagesFor("src/props/ops/compare.ts",
@@ -724,7 +724,7 @@ describe("tests under the lint", () => {
       + "export const p = (n: number) => n as PageId;\n");
     expect(rulesOf(found)).toEqual(["brands/no-brand-assertion"]);
     expect(found[0].message).toContain("pageIdOf");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("product code may not import the test helpers", async () => {
     const imports = [
@@ -758,7 +758,7 @@ describe("tests under the lint", () => {
     expect(await restricted("src/outline/tree.test.ts")).toEqual([]);
     expect(await restricted("src/props/ops/example.ts")).toEqual([]);
     expect(await restricted("src/replica/testDb.ts")).toEqual([]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("the outline engine imports no UI code, its tests may", async () => {
     const ui = 'import { useConfirm } from "../components/ConfirmDialog";\n'
@@ -771,7 +771,7 @@ describe("tests under the lint", () => {
       + "void apiFetch;\n";
     expect(rulesOf(await messagesFor("src/outline/tree.ts", fetchImport)))
       .toEqual(["no-restricted-imports"]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("an e2e spec mints from test-mint and may not load test-helpers", async () => {
     const helpers = await messagesFor("e2e/undo.spec.ts",
@@ -784,20 +784,20 @@ describe("tests under the lint", () => {
       "export function f(uid: string): string {\n  return uid;\n}\n");
     expect(rulesOf(named)).toEqual(["brands/name-carries-brand"]);
     expect(named[0].message).toContain("from web/src/test-mint.ts");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("e2e fixtures are not judged as React hooks", async () => {
     // Playwright names the fixture callback `use`.
     const rel = "e2e/fixtures.ts";
     const found = await messagesFor(rel, readFileSync(join(webRoot, rel), "utf8"));
     expect(found).toEqual([]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("playwright.config.ts gets the typed rules", async () => {
     const found = await messagesFor("playwright.config.ts",
       'export const n: number = JSON.parse("1");\n');
     expect(rulesOf(found)).toEqual(["@typescript-eslint/no-unsafe-assignment"]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("product code may not import the test fixtures, tests may", async () => {
     const imports = [
@@ -818,7 +818,7 @@ describe("tests under the lint", () => {
       expect(rulesOf(found).filter((r) => r.startsWith("no-restricted")), text)
         .toEqual([]);
     }
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("the bypass rule covers tests, where the syntax bans are off", async () => {
     const text =
@@ -831,14 +831,14 @@ describe("tests under the lint", () => {
     expect(found[0].message).toContain("uidOf");
     // The test mint module may write any brand-named field.
     expect(await messagesFor("src/test-mint.ts", text)).toEqual([]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("test files keep the apiFetch import ban", async () => {
     const found = await messagesFor("src/outline/tree.test.ts",
       'import { apiFetch } from "../api/client";\nvoid apiFetch;\n');
     expect(rulesOf(found)).toEqual(["no-restricted-imports"]);
     expect(found[0].message).toContain("apiFetch");
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("ts-ignore and ts-nocheck are banned, ts-expect-error needs a description", async () => {
     const banned = await messagesFor("src/paths.test.ts",
@@ -860,7 +860,7 @@ describe("tests under the lint", () => {
     // service, so judge the comment rules alone
     expect(rulesOf(described).filter((id) => !id.includes("unsafe")))
       .toEqual([]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("allows ts-expect-error only inside an imported typeProbe callback", async () => {
     const head = 'import { typeProbe } from "./test-helpers";\n';
@@ -916,7 +916,7 @@ describe("tests under the lint", () => {
     expect(await reported(
       "// the @ts-expect-error directive is explained here\n"
       + 'export const s = "// @ts-expect-error";\n')).toEqual([]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("only the exported offType may assert to a type parameter in the test mint module", async () => {
     const offType = "export function offType<T>(value: unknown): T {\n"
@@ -939,7 +939,7 @@ describe("tests under the lint", () => {
       "function offType<T>(value: unknown): T {\n"
       + "  return value as T;\n}\nexport { offType as handle };\n");
     expect(rulesOf(unexported)).toEqual(["brands/no-brand-assertion"]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("a local offType is not the test helper", async () => {
     const found = await messagesFor("src/paths.test.ts",
@@ -947,7 +947,7 @@ describe("tests under the lint", () => {
       + "function offType<T>(v: T): T { return v; }\n"
       + 'export const u = offType<BlockUid>(undefined as unknown as BlockUid);\n');
     expect(found.some((m) => m.message.includes("offType"))).toBe(false);
-  }, ESLINT_TIMEOUT_MS);
+  });
 
   it("any reaches a branded slot only with a report in tests", async () => {
     const found = await messagesFor("src/paths.test.ts",
@@ -957,5 +957,5 @@ describe("tests under the lint", () => {
       + "  return u;\n"
       + "}\n");
     expect(rulesOf(found)).toEqual(["@typescript-eslint/no-unsafe-assignment"]);
-  }, ESLINT_TIMEOUT_MS);
+  });
 });

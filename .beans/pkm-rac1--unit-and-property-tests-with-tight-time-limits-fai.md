@@ -1,11 +1,11 @@
 ---
 # pkm-rac1
 title: Unit and property tests with tight time limits fail on a loaded machine
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-11-11T05:04:59Z
-updated_at: 2026-11-11T12:49:54Z
+updated_at: 2026-11-11T14:57:55Z
 parent: pkm-4gda
 ---
 

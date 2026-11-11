@@ -26,7 +26,7 @@ captureFaultWarnings("ops");
  * check R). */
 export const NUM_RUNS = 2250;
 /** The margin over NUM_RUNS covers a slower gate. */
-const PROPERTY_LIMIT_MS = 120_000;
+const PROPERTY_LIMIT_MS = 240_000;
 
 const tally: Tally = new Map();
 /** Where each label must stay above its share of EXAMPLES. */

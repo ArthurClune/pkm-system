@@ -56,7 +56,7 @@ const EXAMPLE_LIMIT_MS = 90_000;
  * then cancels. The margin to vitest's testTimeout (vitest.props.config.ts)
  * covers that example's clean-up and the report, so vitest never cuts a
  * report off. */
-const PROPERTY_LIMIT_MS = 420_000;
+const PROPERTY_LIMIT_MS = 840_000;
 const DISPOSE_LIMIT_MS = 10_000;
 /** How long a fixed scenario waits for the state it sets up. */
 const REPRO_WAIT_MS = 5_000;

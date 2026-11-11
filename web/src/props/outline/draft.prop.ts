@@ -26,7 +26,7 @@ captureFaultWarnings("outline draft");
  * alone, clean runs measured about 215 examples a second, each rendering the
  * editor afresh. */
 export const NUM_RUNS = 3_500;
-const PROPERTY_LIMIT_MS = 45_000;
+const PROPERTY_LIMIT_MS = 120_000;
 
 const tally: Tally = new Map();
 /** Where each label must stay above its share of EXAMPLES. */

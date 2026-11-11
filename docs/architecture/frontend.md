@@ -85,13 +85,15 @@ use depends on how many requests of the same kind can be live:
 |---|---|---|
 | One request live at a time (a debounced search, a popup, `CurrentWork`) | `useStaleGuard`: `begin()` per request, commit only if `!isStale(token)`, `cancel()` when the surface empties | a later input supersedes the earlier one, even when the offline gateway ignores an abort |
 | One request tied to one effect (`SidebarNav`, `BlockRefBacklinksPopover`) | a `cancelled` flag local to the effect, set by its cleanup | the effect re-runs or unmounts exactly when the answer stops mattering |
-| Several loads of one list that must stay valid together | a Core reducer whose events carry the load id they answer, driven through `useReducerRef`: `journalPaging.ts`, `filesPaging.ts`, `backlinksPaging.ts`, `unlinkedStatus.ts` | `useStaleGuard` has a single live token; these loads join one generation |
+| Several loads of one list that must stay valid together | a Core reducer whose events carry the load id they answer, driven through `useReducerRef`: `journalPaging.ts`, `filesPaging.ts`, `backlinksPaging.ts` | `useStaleGuard` has a single live token; these loads join one generation |
 
 `useReducerRef` exists because a handler reads the state its own dispatch
 made: a second click before React re-renders must see the first click's lock,
 and a fetch must read the load id it just started. A plain `useReducer`'s
 state in a handler is the last render's. A reducer that returns the same
-object sets no state, so a refused event costs no render.
+object sets no state, so a refused event costs no render. `unlinkedStatus.ts`
+uses it without load ids, as a double-click guard: a second Link click sees
+the first's `pending` status before React re-renders.
 
 An async handler in chrome that outlives a route, such as `TopBar`'s, checks
 after each `await` that the route is still the one it started on (`titleRef`).
@@ -264,7 +266,15 @@ closes. Focus goes back to `triggerRef` if given, else to whatever held it
 when the modal opened, and only from the topmost modal. A surface whose keys
 another component owns hand-rolls its dismissal.
 
-`"cycle"` wraps Tab through the surface (`focusWrap.ts`). The three pinned
+The topmost modal stops Escape in the capture phase at `window`, so nothing
+beneath it closes on the same keypress: not the page menu, not the assistant
+panel's `onKeyDown`, not a `useDismiss` listener. A non-modal popover inside a
+modal therefore cannot answer Escape and must itself be a `useModal`. Keys
+are ignored while an IME composes (`isComposing` or `keyCode` 229).
+
+`"cycle"` wraps Tab and Shift+Tab inside the surface (`focusWrap.ts`), as in
+the confirm and blocked dialogs; every modal also locks body scroll and
+restores focus on close. The three pinned
 surfaces keep Tab on one element: `LocalFilePicker` is driven from its search
 box, and `GoodlinksReader`'s sandboxed iframe would swallow a cycling Tab,
 since its keydowns never reach the app

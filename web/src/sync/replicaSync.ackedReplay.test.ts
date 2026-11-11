@@ -69,7 +69,6 @@ test("a batch the recovery flush got an ack for is not replayed over the snapsho
   });
   const sync = createReplicaSync({
     replica, fetchJson, queue,
-    clientId: clientIdOf("c1"),
     onState: () => {},
   });
 

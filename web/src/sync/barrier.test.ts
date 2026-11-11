@@ -11,7 +11,7 @@ import type { BlockOp } from "../api/ops";
 import type { OpBatch, OpsAck } from "../api/payloads";
 import { MAX_BLOCK_TEXT_CHARS } from "../grammar/textLimits";
 import type { Replica } from "../replica/client";
-import { batchIdOf, clientIdOf, seqOf, uidOf } from "../test-helpers";
+import { batchIdOf, seqOf, uidOf } from "../test-helpers";
 import { createClientRuntime } from "./clientRuntime";
 import { createOutlineRepair } from "./outlineRepair";
 import { memReplica } from "./memReplica";
@@ -158,7 +158,7 @@ describe("the poison claim under a discard", () => {
   function wire(replica: Replica, post: (body: OpBatch) => Promise<OpsAck>) {
     const queue = createOpQueue(replica, { post });
     const replicaSync = createReplicaSync({
-      replica, fetchJson, clientId: clientIdOf("barrier-test"), queue,
+      replica, fetchJson, queue,
       holdsPoison: () => queue.holds("poison"),
       onState: () => undefined,
     });

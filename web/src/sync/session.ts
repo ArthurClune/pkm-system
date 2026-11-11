@@ -191,7 +191,6 @@ export function createSyncSession(deps: SyncSessionDeps): SyncSession {
   const replicaSync = replica === null ? null : createReplicaSync({
     replica,
     fetchJson: deps.fetchJson,
-    clientId,
     queue,
     holdsPoison: () => queue.holds("poison"),
     // Same predicate as SyncProvider's offline gateway: a failed pull's retry

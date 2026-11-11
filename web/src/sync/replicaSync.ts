@@ -8,7 +8,7 @@
 // degraded beats data loss.
 
 import type { ApiFetchOptions } from "../api/client";
-import type { BatchId, ClientId, SyncSeq } from "../api/brands";
+import type { BatchId, SyncSeq } from "../api/brands";
 import type { SkippedOp } from "../api/payloads";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { ReplicaDiagnostics } from "../replica/client";
@@ -143,7 +143,6 @@ export interface ReplicaSyncDeps {
   fetchJson: (
     path: string, init?: RequestInit, opts?: ApiFetchOptions,
   ) => Promise<unknown>;
-  clientId: ClientId;
   onState: (s: ReplicaState) => void;
   /** Delivery is paused while the worker recovery lease owns the database.
    * The recovery flush posts each leased batch through `deliverLeased`, so

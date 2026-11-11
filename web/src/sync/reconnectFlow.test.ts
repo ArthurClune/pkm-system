@@ -5,7 +5,7 @@ import { memReplica } from "./memReplica";
 import { createReconnectFlow, type ReconnectFlow } from "./reconnectFlow";
 import { createReplicaSync } from "./replicaSync";
 import type { DrainOutcome } from "./opQueue";
-import { seqOf, clientIdOf } from "../test-helpers";
+import { seqOf } from "../test-helpers";
 
 /** A changes window with nothing in it: the flapping-link case, where the
  * cursor the replica already holds is the latest the server has. */
@@ -343,7 +343,6 @@ test("a reconnect resyncs once a pull reports the replica has become unusable",
   const sync = createReplicaSync({
     replica,
     fetchJson: async () => QUIET_FEED,
-    clientId: clientIdOf("c1"),
     onState: () => undefined,
   });
   const { flow, trace } = harness({

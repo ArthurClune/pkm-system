@@ -52,6 +52,9 @@ The turn's phases and moves are the diagram in
 |---|---|---|
 | Stop while creating | Stop in `creating` keeps the conversation the create returns but starts no stream from it | A create cannot be called back |
 | Stop while streaming | Stop in `streaming` posts a stop (`postStop`), and the panel stays busy until the server's turn is over ([assistant.md § The turn phase](../assistant.md#the-turn-phase)) | |
+| Output after Stop | From Stop on, nothing of that turn reaches the panel: no stream event (text, tool line or card), and no confirm POST's result | The user asked for the turn to end |
+| A failure after Stop | A failed create or stream after Stop, the abort included, shows no error line | The user asked for the turn to end |
+| Stop and the cards | Stop in `streaming` clears the cards | Stop declines every parked confirm on the server (`_abandon_turn`), so no card is left to answer |
 | A send after an aborted stream | `streamWithBusyRetry` retries the 409 the send meets | The server may still be draining |
 | A request's result | Every request's result names its turn, and changes nothing on screen unless that turn is busy and not stopping. That includes a failed confirm POST | New chat clears the transcript at once, so a superseded turn's events must not fold into the new one. After Stop no card is left to answer again |
 | A stream's 404 | A stream's 404 re-creates the conversation once, with the same model, in the same turn. A second 404 fails the turn | The server answers 404 for a conversation it has reaped, evicted or retired as dead, including one whose harness was lost (`HARNESS_LOST`) |

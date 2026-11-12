@@ -90,7 +90,9 @@ function settleStopped(doc: Doc, t: Busy, done: "stream" | "stopPost"): Doc {
 }
 
 /** The results of the busy turn's own requests still count, unless it was
- * stopped: after Stop no output of that turn reaches the panel. */
+ * stopped: after Stop no output of that turn reaches the panel
+ * (contracts/frontend.md § The chat machine, "Output after Stop" and "A
+ * failure after Stop"). */
 function live(doc: Doc, turn: number): Busy | null {
   return doc.busy !== null && doc.busy.turn === turn ? doc.busy : null;
 }
@@ -112,7 +114,7 @@ export function expect(doc: Doc, input: Input): { doc: Doc; expect: Expectation 
     }
     case "stop": {
       if (b === null || b.stopped) return { doc, expect: NOTHING };
-      // Stop clears any card: the server declines a parked confirm. A
+      // Stop clears any card ("Stop and the cards"). A
       // stream is asked to stop, not dropped, so the turn stays busy until
       // the server has ended it.
       const streaming = b.stage === "streaming";

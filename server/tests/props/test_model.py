@@ -56,6 +56,22 @@ def move(uid: BlockUid, parent, idx, page=None):
     return op
 
 
+# --- Limits the model writes out --------------------------------------------
+
+def test_written_out_limits_match_the_server():
+    """model.py may not import the server, so it writes its limits out; this
+    file may, and catches a server change the model would not follow."""
+    from pkm.contracts.ops import MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING
+    from pkm.contracts.titles import UNTITLED_PAGE_TITLE
+    from pkm.server.replay_core import MAX_REPLAYED_REWRITES
+    from props.limit_texts import NESTING_CAP
+    from props.model import MAX_REPLAY_STEPS, UNTITLED
+    assert MAX_REPLAY_STEPS == MAX_REPLAYED_REWRITES
+    assert UNTITLED == UNTITLED_PAGE_TITLE
+    assert TEXT_CAP == MAX_BLOCK_TEXT_CHARS
+    assert NESTING_CAP == MAX_LINK_NESTING
+
+
 # --- contracts/write-path.md § Planning, Ordering ---------------------------
 
 def test_create_shifts_siblings_at_and_after_key():

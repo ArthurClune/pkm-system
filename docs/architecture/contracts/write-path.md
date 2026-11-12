@@ -59,8 +59,9 @@ checking in this order:
 | Situation | Outcome |
 |---|---|
 | `base_text_hash` matches a pre-rewrite snapshot of this block | The `block_rewrites` rows replay over the incoming text (`replay_core.replay`), which then meets the rows below |
-| The replay would be over a text limit | The block keeps its text; the edit as sent lands under a conflict header, and the ack lists the op as skipped (`text_limit`) |
-| Incoming text equals current | No-op, even with a stale hash |
+| A replay step is refused (`_replay_step`) | The block keeps its text; the edit as sent lands under a conflict header, and the ack lists the op as skipped (`text_limit`) |
+| Incoming text, replayed if any step was taken, equals current | No-op, even with a stale hash |
+| A step was taken and the replayed text is over a text limit | As a refused step: `text_limit` |
 | `hash(current) == base_text_hash` | Clean apply |
 | Hashes differ | Incoming wins; the overwritten text, blank or not, lands under a conflict header |
 

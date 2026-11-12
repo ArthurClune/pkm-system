@@ -43,6 +43,10 @@ from props.limit_texts import (LIMIT_TEXTS, NESTING_CAP, PAST_LIMIT_TEXTS,
 # (contracts/write-path.md § Ops, blank `page_title` row).
 UNTITLED = "Untitled"
 
+# A replayed edit follows at most this many recorded rewrites
+# (contracts/write-path.md § Conflicts, the `RewriteHistory.walk` table).
+MAX_REPLAY_STEPS = 10
+
 Op = Mapping[str, Any]
 SkipEntry = tuple[int, str, str, str]
 # Records the current op as skipped, with the given reason.
@@ -305,15 +309,13 @@ def replay_peak(steps: Sequence[Rewrite], text: str, base: str) -> int:
 def replay_chain(steps: Sequence[Rewrite], text: str,
                  base: str) -> tuple[str, str, list[Rewrite]]:
     """Replay `steps` (newest first) onto an edit's `text`, following the
-    chain from its `base` hash: at most ten steps, the newest from each
-    hash, each used once (contracts/write-path.md § Conflicts, the
-    `RewriteHistory.walk` table; ten is `MAX_REPLAYED_REWRITES`, written
-    out as limit_texts.py writes out the text limits). Returns the text,
-    the hash the edit now counts as based on, and the steps used, in
-    order."""
+    chain from its `base` hash: at most `MAX_REPLAY_STEPS` steps, the
+    newest from each hash, each used once (contracts/write-path.md
+    § Conflicts, the `RewriteHistory.walk` table). Returns the text, the
+    hash the edit now counts as based on, and the steps used, in order."""
     left = list(steps)
     used: list[Rewrite] = []
-    for _ in range(10):
+    for _ in range(MAX_REPLAY_STEPS):
         match = next((s for s in left if s.base_hash == base), None)
         if match is None:
             break
@@ -683,9 +685,12 @@ class Model:
         elif kind == "identical" and text != sent:
             self._paths.append("update_text: identical after stale unlink")
         if text == block.text:
-            # Row "Incoming text equals current": no-op, even with a stale
-            # hash, so an identical edit with a stale hash keeps nothing
-            # (the `classify_text_edit` table, in check order).
+            # Row "Incoming text, replayed if any step was taken, equals
+            # current": no-op, even with a stale hash, so an identical edit
+            # with a stale hash keeps nothing (the `classify_text_edit`
+            # table, in check order). The length check above comes first
+            # here only because no stored text is over a limit, so an
+            # identical replay never is.
             self._record_written(block.uid, sent, text, stale, replayed)
             return
         if text_hash(block.text) != base:

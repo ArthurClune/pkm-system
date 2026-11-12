@@ -14,25 +14,29 @@ replaces goes away rather than sitting beside it.
 ## Contract files
 
 `docs/architecture/contracts/<doc>.md` holds the case tables that a property
-model (`server/tests/props`, `web/src/props`) is written from. A model must
-not read the code (`checks.md` § Property gate), so a contract restates, case
-by case, what the code does. That restating is its job. Every section after
-this one is about the `<doc>.md` files themselves. A contract file has this
-shape instead:
+model (`server/tests/props`, `web/src/props`, a `*.props.test.ts`) is written
+from. A model must not read the code (`checks.md` § Property gate), so a
+contract restates, case by case, what the code does. That restating is its
+job. Every section after this one is about the `<doc>.md` files themselves.
+A contract file has this shape instead:
 
 | Part | Holds |
 |---|---|
-| header | the models written from it, and a pointer to `<doc>.md`, where the reasons live under the same section names |
+| header | every model written from it, by path, and a pointer to `<doc>.md` |
 | sections | one per mechanism, named as the `<doc>.md` section that explains it |
 | rows | one per case the code tells apart, its first column a stable name a model can cite; two cases with one outcome are two rows |
 | cells | the exact strings, reason codes, constant names, judging symbols and bound arithmetic a model needs |
+| a Reason column | a reason that explains its row alone |
 | prose | only an order the cases are judged in, or a rule that spans rows |
 
+A reason shared by a section's rows is that section's principle, and lives
+in `<doc>.md` under the same section name.
+
 Tightening a contract changes its shape and keeps its content: a long cell
-becomes rows, a list becomes a table, a reason moves to `<doc>.md`. Every
-case, string, symbol and bound stays. A clause that says when a case applies
-("with the batch's earlier ops applied", "whatever the judges said") is
-content. A reason says why, and only a reason moves.
+becomes rows, a list becomes a table, a shared reason moves to `<doc>.md`.
+Every case, string, symbol and bound stays. A clause that says when a case
+applies ("with the batch's earlier ops applied", "whatever the judges said")
+is content, not a reason.
 
 A case table moves into a contract once a model encodes it. Until then it
 stays in `<doc>.md` under the rest of this skill.
@@ -41,9 +45,10 @@ A behaviour change in a mechanism that has a contract is one commit with
 three parts:
 
 1. the contract row, added or changed;
-2. the model that cites that section, and the model's own tests (find them
-   with `git grep '<doc>.md § <Section>' -- server/tests/props web/src/props`);
-3. the sentence in `<doc>.md`, if the rule or its reason changed.
+2. each model the contract's header names, and the model's own tests;
+   `git grep -n '§' <model>` lists the rules it cites;
+3. the sentence in `<doc>.md`, if the section's principle or its reason
+   changed.
 
 ## A doc states what the code cannot
 

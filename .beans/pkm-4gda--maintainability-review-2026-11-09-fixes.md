@@ -1,11 +1,11 @@
 ---
 # pkm-4gda
 title: 'Maintainability review (2026-11-09): fixes'
-status: todo
+status: completed
 type: epic
 priority: normal
 created_at: 2026-11-09T21:39:23Z
-updated_at: 2026-11-09T21:43:55Z
+updated_at: 2026-11-12T17:25:38Z
 ---
 
 Found by the maintainability review of 2026-11-09 (eight area reviewers:
@@ -42,28 +42,32 @@ machine it models changed) and adds the conversion to pkm-ygyx.
 
 ## Children, in suggested order
 
-- [ ] pkm-rmdl W6  Docs: correct statements the code contradicts
-- [ ] pkm-ey0s W1  Undo, redo and cross-page drops judge batch size
-- [ ] pkm-t57n W2  Every journal-advancing route under write_txn
-- [ ] pkm-60go W3  Assistant turn: interrupting phase, one stop path
-- [ ] pkm-t6xh W4  Small web bugs
-- [ ] pkm-3kbm W5  Small server and deploy bugs
-- [ ] pkm-eek2 W16 e2e specs write to pages they create
-- [ ] pkm-i74o W7  Outline: one command core (after W1)
-- [ ] pkm-r0tz W8  Sync: createSyncSession
-- [ ] pkm-p9s2 W9  Sync: coalesce helper (after W8)
-- [ ] pkm-onr2 W10 Sync: poison claim, mode writer, leased delivery (after W9)
-- [ ] pkm-3iwm W11 Recovery lease across network I/O (after W10)
-- [ ] pkm-wqnv W12 Server write path
-- [ ] pkm-7rxj W13 Server routes and domain cleanups (after W2, W12)
-- [ ] pkm-21bj W14 Assistant: contract, preview, confirm state (after W3)
-- [ ] pkm-nbl3 W15 Web UI (after W4)
-- [ ] pkm-elb2 W17 Gates and tooling (e2e typecheck after W16)
-- [ ] pkm-3m1g W18 Docs structure (after W2, W12, W13)
-- [ ] pkm-ygyx W19 Property suites for converted machines (deferred)
+- [x] pkm-rmdl W6  Docs: correct statements the code contradicts
+- [x] pkm-ey0s W1  Undo, redo and cross-page drops judge batch size
+- [x] pkm-t57n W2  Every journal-advancing route under write_txn
+- [x] pkm-60go W3  Assistant turn: interrupting phase, one stop path
+- [x] pkm-t6xh W4  Small web bugs
+- [x] pkm-3kbm W5  Small server and deploy bugs
+- [x] pkm-eek2 W16 e2e specs write to pages they create
+- [x] pkm-i74o W7  Outline: one command core (after W1)
+- [x] pkm-r0tz W8  Sync: createSyncSession
+- [x] pkm-p9s2 W9  Sync: coalesce helper (after W8)
+- [x] pkm-onr2 W10 Sync: poison claim, mode writer, leased delivery (after W9)
+- [x] pkm-3iwm W11 Recovery lease across network I/O (after W10)
+- [x] pkm-wqnv W12 Server write path
+- [x] pkm-7rxj W13 Server routes and domain cleanups (after W2, W12)
+- [x] pkm-21bj W14 Assistant: contract, preview, confirm state (after W3)
+- [x] pkm-nbl3 W15 Web UI (after W4)
+- [x] pkm-elb2 W17 Gates and tooling (e2e typecheck after W16)
+- [x] pkm-3m1g W18 Docs structure (after W2, W12, W13)
+- [x] pkm-ygyx W19 Property suites for converted machines (deferred)
 
 ## Not fixed, and why
 
 Listed in the plan's "Not in this plan" section: socket.ts as a phase
 union; retiring the strict-hash ack path; splitting styles.css; renaming
 commentlint.run.
+
+## Summary of Changes
+
+Every child is completed or scrapped; pkm-3ono (a terminal rejection on a recovery's leased POST) was the last. Gate problems found while closing it are filed on their own: pkm-9hki, pkm-j5wi, pkm-mgc0.

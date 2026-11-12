@@ -57,5 +57,48 @@ export const queueCommand: fc.Arbitrary<QueueCmd> = fc.oneof(
   { weight: 2, arbitrary: simple("recoveryFlush") },
 );
 
-export const queueCommands: fc.Arbitrary<QueueCmd[]> =
-  fc.array(queueCommand, { minLength: 1, maxLength: 40, size: "max" });
+const fixedEdit = (persist: Persist, bad: boolean): fc.Arbitrary<QueueCmd> =>
+  fc.constant<QueueCmd>({ t: "edit", persist, refusal: "none", bad, mark: "ok" });
+
+// A recovery's leased flush meets a rejected lane entry ahead of its row only
+// when the drain never posted that entry: it needs a bad lane-only edit, a
+// durable edit behind it, and a recovery, all before the drain runs. The mix
+// above draws that a few times in ten thousand, so some examples start
+// offline and draw from this mix instead. It adds little to the other
+// labels: their shares fall to about the six in seven examples the mix
+// above still draws, which is why queueCommands gives the mix above a
+// weight of 6 to this mix's 1, and no less. Its bad durable edits draw
+// failed and unmatched marks often, because a Discard of a failed mark is
+// rare in either mix.
+const recoveryCommand: fc.Arbitrary<QueueCmd> = fc.oneof(
+  { weight: 2, arbitrary: edit },
+  { weight: 2, arbitrary: fixedEdit("ok", false) },
+  { weight: 4, arbitrary: fixedEdit("writeFails", true) },
+  { weight: 2, arbitrary: fc.constantFrom<Mark>("ok", "ok", "fails", "unmatched")
+      .map((mark): QueueCmd => ({ t: "edit", persist: "ok", refusal: "none", bad: true, mark })) },
+  { weight: 6, arbitrary: fc.constantFrom<Respond>("ack", "ack", "lostAck", "netFail")
+      .map((kind): QueueCmd => ({ t: "respond", kind })) },
+  { weight: 1, arbitrary: simple("offline") },
+  { weight: 2, arbitrary: simple("online") },
+  { weight: 1, arbitrary: simple("pauseStartup") },
+  { weight: 2, arbitrary: simple("resumeStartup") },
+  { weight: 3, arbitrary: simple("recoveryStart") },
+  { weight: 1, arbitrary: simple("recoveryEnd") },
+  { weight: 1, arbitrary: simple("holdGate") },
+  { weight: 2, arbitrary: simple("releaseGate") },
+  { weight: 4, arbitrary: fc.boolean().map((ok): QueueCmd => ({ t: "repair", ok })) },
+  { weight: 2, arbitrary: simple("outlineStable") },
+  { weight: 1, arbitrary: simple("outlineFails") },
+  { weight: 1, arbitrary: simple("outlineDone") },
+  { weight: 1, arbitrary: simple("retryTimer") },
+  { weight: 1, arbitrary: simple("drain") },
+  { weight: 1, arbitrary: simple("retryMarks") },
+  { weight: 1, arbitrary: simple("discard") },
+  { weight: 4, arbitrary: simple("recoveryFlush") },
+);
+
+export const queueCommands: fc.Arbitrary<QueueCmd[]> = fc.oneof(
+  { weight: 6, arbitrary: fc.array(queueCommand, { minLength: 1, maxLength: 40, size: "max" }) },
+  { weight: 1, arbitrary: fc.array(recoveryCommand, { minLength: 1, maxLength: 40, size: "max" })
+      .map((cmds): QueueCmd[] => [{ t: "offline" }, ...cmds]) },
+);

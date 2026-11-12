@@ -24,6 +24,14 @@
 //                        claim (release)
 //   lane ahead skipped   a leased flush posts its batch before the lane
 //                        entries it follows (order)
+//   leased not terminal  a leased flush reads a rejection as a failure to
+//                        retry: its batch claims no poison and a lane entry
+//                        ahead stays (claim, or barrier when the rejection
+//                        lands while the run quiesces, where no claim is
+//                        checked, and a drain then posts)
+//   lane not terminal    a leased flush reads a lane entry ahead's rejection
+//                        as a failure to retry: the entry stays and the flush
+//                        throws before its batch (claim, or barrier as above)
 import { afterEach, beforeEach, vi } from "vitest";
 import type { ClientRuntimeDeps } from "../../sync/clientRuntime";
 import type { BarrierOwner } from "../../sync/queueState";
@@ -45,7 +53,14 @@ const mutants = vi.hoisted(() => ({
   markFailureFrees: false,
   unmatchedKeeps: false,
   skipLaneAhead: false,
+  leasedNotTerminal: false,
+  laneAheadNotTerminal: false,
   inLeased: false,
+  /** The batch the running leased flush delivers. */
+  leasedBatch: null as string | null,
+  /** Errors from the leased POSTs an armed mutant misjudges, so it spares a
+   * drain POST that was in flight when the flush began. */
+  notTerminal: new WeakSet<object>(),
   isLost: (_id: string): boolean => false,
 }));
 
@@ -73,21 +88,45 @@ vi.mock("../../sync/outbox", async (importOriginal) => {
   };
 });
 
+vi.mock("../../sync/rejection", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../../sync/rejection")>();
+  return {
+    ...real,
+    isTerminalRejection: (error: unknown): boolean =>
+      !(error instanceof Error && mutants.notTerminal.has(error)) && real.isTerminalRejection(error),
+  };
+});
+
 vi.mock("../../sync/opQueue", async (importOriginal) => {
   const real = await importOriginal<typeof import("../../sync/opQueue")>();
   return {
     ...real,
-    createOpQueue: (...args: Parameters<typeof real.createOpQueue>) => {
-      const queue = real.createOpQueue(...args);
+    createOpQueue: (...[replica, deps]: Parameters<typeof real.createOpQueue>) => {
+      const post = deps?.post;
+      const queue = real.createOpQueue(replica, post === undefined ? deps : {
+        ...deps,
+        post: (body) => {
+          const sent = post(body);
+          const misjudged = mutants.inLeased && (mutants.leasedNotTerminal ||
+            (mutants.laneAheadNotTerminal && body.batch_id !== mutants.leasedBatch));
+          if (!misjudged) return sent;
+          return sent.catch((error: unknown) => {
+            if (error instanceof Error) mutants.notTerminal.add(error);
+            throw error;
+          });
+        },
+      });
       return {
         ...queue,
         holds: (o: BarrierOwner) => !mutants.holdsNothing && queue.holds(o),
         deliverLeased: async (...[batch, beforePost]: Parameters<typeof queue.deliverLeased>) => {
           mutants.inLeased = true;
+          mutants.leasedBatch = batch.batch_id;
           try {
             return await queue.deliverLeased(batch, beforePost);
           } finally {
             mutants.inLeased = false;
+            mutants.leasedBatch = null;
           }
         },
       };
@@ -147,6 +186,9 @@ const disarm = (): void => {
   mutants.markFailureFrees = false;
   mutants.unmatchedKeeps = false;
   mutants.skipLaneAhead = false;
+  mutants.leasedNotTerminal = false;
+  mutants.laneAheadNotTerminal = false;
+  mutants.notTerminal = new WeakSet();
 };
 
 expectMutantsCaught({
@@ -195,7 +237,14 @@ expectMutantsCaught({
       catches: ["order"], disarm,
       arm: () => { mutants.skipLaneAhead = true; },
     },
-
+    "a leased flush that ignores a rejection breaks the claim": {
+      catches: ["claim", "barrier"], disarm,
+      arm: () => { mutants.leasedNotTerminal = true; },
+    },
+    "a leased flush that ignores a lane entry's rejection breaks the claim": {
+      catches: ["claim", "barrier"], disarm,
+      arm: () => { mutants.laneAheadNotTerminal = true; },
+    },
   },
   arbs: [queueCommands],
   problems: async (_, cmds: QueueCmd[]) => runQueueExample(cmds, () => undefined),

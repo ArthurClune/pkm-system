@@ -318,19 +318,14 @@ export async function runQueueExample(
         const p = inFlight.shift();
         if (p === undefined) return false;
         const info = model.batches.get(p.batchId)!;
-        if (info.bad && p.leased) {
-          // deliverLeased throws: no poison mark, and a lane entry stays.
-          count(`leased ${p.copy} batch rejected`);
-          p.reject(new ApiError(400, "/api/ops", "bad batch"));
-          return true;
-        }
         if (info.bad) {
-          if (leasing !== null) count("durable rejection while a leased flush runs");
+          if (!p.leased && leasing !== null) {
+            count("durable rejection while a leased flush runs");
+          }
+          count(`${p.leased ? "leased " : ""}${p.copy} batch rejected`);
           if (p.copy === "durable") {
-            count("durable batch rejected");
             model.poison.add(p.batchId);
           } else {
-            count("lane batch rejected");
             if (reads.some((r) => r.stable)) {
               count("lane rejected after an outline repair's onStable");
             }

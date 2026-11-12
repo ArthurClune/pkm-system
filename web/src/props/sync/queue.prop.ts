@@ -30,7 +30,8 @@ const REACH: Reach = {
   // Floors: half the lowest share over 30 unseeded gate runs, 2026-11-10;
   // for the mark, discard and leased-flush labels, 2026-11-11, to four
   // places where three would round to nothing.
-  // No floor, under ten in some run: the leased lane copy's answers
+  // No floor, under ten in some run of 30 on 2026-11-12, once a leased
+  // flush went on past a rejected lane entry: the leased lane copy's answers
   // ("respond ... (leased lane)", "leased lane batch rejected").
   // Never reached: a mark during a repair, so no unmatched round or failed
   // mark meets a running repair here; a repair holds poison, so no

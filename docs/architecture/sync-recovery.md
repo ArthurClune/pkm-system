@@ -287,16 +287,16 @@ rebase would replay those rows over their commits:
 
 | Guard | Where |
 |---|---|
-| `rejectDurableBatch`, and `deliverLeased` on a leased 4xx, pause `poison` before the durable mark. The flush's `beforePost` reads `holdsPoison()` before every leased batch, and `deliverLeased` reads it again after the lane ahead | `opQueue.ts`, `replicaSync.ts` |
+| `rejectDurableBatch`, and `deliverLeased` on a terminal rejection, pause `poison` before the durable mark. The flush's `beforePost` reads `holdsPoison()` before every leased batch, and `deliverLeased` reads it again after the lane ahead | `opQueue.ts`, `replicaSync.ts` |
 | Startup repairs poisoned rows left by an earlier page load before `replicaSync.start()` | `clientRuntime.ts` |
 
 `deliverLeased` claims `poison` synchronously, fails its ticket, starts
 `markRetainedPoison` without awaiting it, and throws. It cannot await the
 mark: `markPoisoned` passes the worker gate, which the run's own recovery lease
 holds, so the mark lands once the run aborts. Because it throws, the row's
-ack never reaches `heldAcks`, and the commit leaves the row for the poison
-repair. A lane entry ahead that the server rejects is discarded as in the
-drain, and the flush goes on.
+ack never reaches `heldAcks`, so no later commit, the poison repair's own
+included, deletes the row before that repair finds it. A lane entry ahead
+that the server rejects is discarded as in the drain, and the flush goes on.
 
 A failed repair keeps the barrier and a Retry banner. It usually failed
 offline, so every socket connect retries it too:

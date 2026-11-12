@@ -21,7 +21,9 @@ import { BadBatch, Discard, Fault, Pull, Reload, RotateGeneration, type SyncComm
          WorkerDies, type World } from "./commands";
 import { type HarnessClient, startClient } from "./harnessClient";
 import { initialModel, type SyncModel } from "./model";
+import { viewOf } from "./bannerModel";
 import { BannerWatch, CursorWatch, ModeWatch } from "./oracle";
+import { TIMED_OUT, within } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
 import { AwaitBanner, AwaitPoisonRepair, HoldSnapshots, ReleaseSnapshots,
          stallBehindMarkThenDiscard } from "./steps";
@@ -75,6 +77,11 @@ vi.mock("../../sync/syncState", async (importOriginal) => {
   };
 });
 
+/** A scenario's few commands settle in seconds. One still running at this
+ * limit has stalled, and fails naming its step instead of waiting out
+ * vitest's testTimeout while the gate holds its port. */
+const SCENARIO_LIMIT_MS = 60_000;
+
 let server: ServerControl;
 let clients: HarnessClient[] = [];
 
@@ -100,7 +107,17 @@ async function bannerFailure(cmds: readonly SyncCommand[]): Promise<string | nul
     cancelled: () => false,
   };
   try {
-    await fc.asyncModelRun(() => ({ model, real: world }), cmds);
+    const run = fc.asyncModelRun(() => ({ model, real: world }), cmds);
+    // A stalled run that fails after the limit is already reported.
+    run.catch(() => undefined);
+    if (await within(run, SCENARIO_LIMIT_MS) === TIMED_OUT) {
+      // Each command that finished wrote one transcript line.
+      const step = cmds[world.transcript.length]?.toString() ?? "none (all finished)";
+      throw new Error(`scenario stalled: still running after ${SCENARIO_LIMIT_MS}ms` +
+        ` in ${step}; finished: ${world.transcript.join(", ") || "nothing"};` +
+        ` A's banner: ${viewOf(a.problem())}; A waits on:` +
+        ` ${a.transport.waiting().join(", ") || "no request"}`);
+    }
   } catch (error: unknown) {
     const text = error instanceof Error ? error.message : String(error);
     if (text.startsWith("banner: ")) return text;

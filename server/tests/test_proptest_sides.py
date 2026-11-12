@@ -1,3 +1,7 @@
+import os
+import sys
+import time
+
 import pytest
 
 from proptest.run import web_command, web_env, web_port
@@ -121,3 +125,32 @@ def test_props_suites_lists_the_real_tree():
     import proptest.run as run
     suites = run._props_suites(run.repo_root())
     assert "ops/ops.prop.ts" in suites and "sync/sync.prop.ts" in suites
+
+
+def test_run_with_deadline_returns_the_exit_code(tmp_path):
+    from proptest.run import run_with_deadline
+    cmd = [sys.executable, "-c", "raise SystemExit(3)"]
+    assert run_with_deadline(cmd, tmp_path, os.environ, 30) == 3
+
+
+def test_run_with_deadline_kills_the_whole_group(tmp_path):
+    from proptest.run import run_with_deadline
+    marker = tmp_path / "grandchild.pid"
+    # A child that forks a grandchild and both sleep, as pnpm, vitest and
+    # its worker do.
+    script = (
+        "import os, subprocess, sys, time\n"
+        "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        f"open({str(marker)!r}, 'w').write(str(g.pid))\n"
+        "time.sleep(60)\n")
+    started = time.monotonic()
+    assert run_with_deadline([sys.executable, "-c", script], tmp_path, os.environ, 2) is None
+    assert time.monotonic() - started < 30
+    grandchild = int(marker.read_text())
+    for _ in range(50):
+        try:
+            os.kill(grandchild, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.1)
+    raise AssertionError(f"grandchild {grandchild} outlived the deadline")

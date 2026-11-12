@@ -1,9 +1,9 @@
 // pattern: Functional Core
 // What the assistant panel must do, stated from contracts/frontend.md § The
-// chat machine and assistant.md § The turn phase: which conversation the panel
-// talks to, which turn is busy, what the picker shows, and which requests each
-// step must and must not start. It never calls the reducer it checks; where the
-// two disagree, the disagreement is a finding.
+// chat machine and contracts/assistant.md § The turn phase: which conversation
+// the panel talks to, which turn is busy, what the picker shows, and which
+// requests each step must and must not start. It never calls the reducer it
+// checks; where the two disagree, the disagreement is a finding.
 import type { AssistantModel } from "../../assistant/client";
 
 export type Conv =

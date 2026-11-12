@@ -56,7 +56,7 @@ def move(uid: BlockUid, parent, idx, page=None):
     return op
 
 
-# --- write-path.md § Planning: Ordering -------------------------------------
+# --- contracts/write-path.md § Planning, Ordering ---------------------------
 
 def test_create_shifts_siblings_at_and_after_key():
     m = model(blk(A, idx=0), blk(B, idx=1))
@@ -86,7 +86,7 @@ def test_create_heading_and_view_type_are_kept():
     assert m.blocks[X] == blk(X, text="t", heading=2, view_type="numbered")
 
 
-# --- write-path.md § Concurrent structure edits -----------------------------
+# --- contracts/write-path.md § Concurrent structure edits -------------------
 
 def test_cycle_move_skipped():
     m = model(blk(A), blk(B, parent=A))
@@ -124,7 +124,7 @@ def test_cross_page_move_repages_subtree():
     assert keys(m, page="Beta") == [(0, P), (1, A)]
 
 
-# --- write-path.md § Missing targets ----------------------------------------
+# --- contracts/write-path.md § Missing targets ------------------------------
 
 def test_move_to_missing_parent_skipped():
     m = model(blk(A))
@@ -197,7 +197,7 @@ def test_follow_on_op_sees_diverted_create_as_missing():
     assert out.kept_texts == ("first", "second")
 
 
-# --- write-path.md § Conflicts -----------------------------------------------
+# --- contracts/write-path.md § Conflicts ------------------------------------
 
 def test_stale_hash_edit_keeps_overwritten_text():
     m = model(blk(A, text="old"))
@@ -266,7 +266,7 @@ def test_create_page_adds_page():
     assert m.pages == {"Gamma"}
 
 
-# --- write-path.md § Missing targets: what is still a 400 -------------------
+# --- contracts/write-path.md § Missing targets: what is still a 400 ---------
 
 def test_create_existing_uid_is_400_and_atomic():
     m = model(blk(A))
@@ -293,7 +293,7 @@ def test_title_syntax_is_400():
     assert X not in m.blocks
 
 
-# --- write-path.md § Page mutations and the sidebar: a page delete ------------
+# --- contracts/write-path.md § Page mutations and the sidebar ---------------
 
 def test_delete_missing_page_is_404():
     m = model()
@@ -368,7 +368,7 @@ def test_delete_page_judges_the_length_before_the_rewrite_s_own_blockers():
     assert m.delete_page(raw_title_of("Alpha"), {}, seq_of(9)).blockers == {B: "limit"}
 
 
-# --- write-path.md § Work bounds under the write lock -------------------------
+# --- contracts/write-path.md § Work bounds under the write lock -------------
 
 @pytest.mark.parametrize("text", PAST_LIMIT_TEXTS)
 def test_a_text_past_a_limit_refuses_the_batch(text):
@@ -397,7 +397,7 @@ def test_limit_texts_are_what_they_claim():
     assert len(LONG_WITHIN_CAP) * COPIES_PAST_CAP > TEXT_CAP > len(LONG_WITHIN_CAP) + 1000
 
 
-# --- write-path.md § Stale batches --------------------------------------------
+# --- contracts/write-path.md § Stale batches --------------------------------
 
 def deleted(*rows, title_text="Alpha", seq: SyncSeq = seq_of(9)):
     """A model whose `title_text` page was deleted at journal head `seq`."""

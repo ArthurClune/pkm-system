@@ -261,9 +261,9 @@ class FreshHeader:
 @dataclass(frozen=True)
 class ConflictLanding:
     """Where text an op could not apply lands (docs/architecture/
-    write-path.md § Conflicts): the entry `entry_uid` under the batch day's
-    header for the target block, or under a fresh one. `daily_title` is the
-    day key conflict_headers records."""
+    contracts/write-path.md § Conflicts): the entry `entry_uid` under the batch
+    day's header for the target block, or under a fresh one. `daily_title` is
+    the day key conflict_headers records."""
     daily_page_id: PageId
     daily_title: CanonicalTitle
     entry_uid: BlockUid
@@ -360,9 +360,9 @@ def descendant_copy_effects(
     `root_uid` in pre-order so a parent's copy always lands before its
     children's, and renumbered 0..n per parent by `(order_idx, uid)` --
     fresh uids nested as the subtree was, text only
-    (docs/architecture/write-path.md § Conflicts). The root is left out of
-    the child map: a corrupted tree whose root's parent lies inside the
-    subtree must not lead the walk back into its start.
+    (docs/architecture/contracts/write-path.md § Conflicts). The root is
+    left out of the child map: a corrupted tree whose root's parent lies
+    inside the subtree must not lead the walk back into its start.
 
     No copy lands past MAX_OUTLINE_DEPTH: a copy at the level above the cap
     takes its whole copied subtree as children at the cap, in pre-order,

@@ -184,20 +184,24 @@ function citations() {
 // repo root. A bare name resolves from the citing file's directory, or, from
 // code, by basename when no other tracked file shares it: README.md must
 // never match deploy/README.md that way.
-function citesTarget(c, rel, names) {
+// An untracked file being checked counts towards its name too, or a new
+// contracts/write-path.md would claim every bare `write-path.md#` citation.
+function citesTarget(c, rel, names, untracked) {
   if (normalize(join(dirname(c.file), c.cited)) === rel) return true;
   if (c.cited.includes("/")) return normalize(c.cited) === rel;
-  return rel.split("/").pop() === c.cited && names.get(c.cited) === 1;
+  const sharers = (names.get(c.cited) ?? 0) + (untracked ? 1 : 0);
+  return rel.split("/").pop() === c.cited && sharers === 1;
 }
 
 function checkInbound(file, text) {
   const rel = normalize(relative(REPO, resolve(file)));
   const mine = slugsOfText(text);
-  const { names, cites } = citations();
+  const { tracked, names, cites } = citations();
+  const untracked = !tracked.includes(rel);
   let live = 0;
   const from = new Set();
   for (const c of cites) {
-    if (!citesTarget(c, rel, names)) continue;
+    if (!citesTarget(c, rel, names, untracked)) continue;
     const where = `${c.file}:${c.line} -> ${c.cited}#${c.anchor}`;
     if (mine.has(c.anchor)) { live += 1; from.add(c.file); continue; }
     if (FROZEN.some((re) => re.test(c.file))) {

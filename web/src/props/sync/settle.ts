@@ -39,7 +39,8 @@ export async function settleReplicas(
   }
   for (const [name, c] of world.clients) {
     // A start held back behind a failed poison repair waits for that
-    // repair's own Retry or the next connect, as sync-recovery.md says.
+    // repair's own Retry or the next connect, as
+    // contracts/sync-recovery.md § A batch the server rejects says.
     if (!model.online[name] || model.dead[name] || c.hasStarted() ||
         !c.startAttempted()) continue;
     // So does one behind a failed mark this life has not answered: the

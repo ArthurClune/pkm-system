@@ -30,6 +30,7 @@ approval and record the design as it was then.
 | [cli-and-mcp.md](cli-and-mcp.md) | change the `pkm` CLI or an MCP tool |
 | [assistant.md](assistant.md) | change the embedded LLM harness |
 | [checks.md](checks.md) | add or answer a mechanical check: commit hooks, coverage, perf and property gates |
+| [contracts/](contracts/) | change what a mechanism does in some case, or write a property model; each file holds the case tables of the doc it is named after |
 | [cli.md](../cli.md) | run the `pkm` CLI or MCP server |
 | [title-migration.md](../title-migration.md) | run the one-time title migration, or fix a title it cannot |
 | [SECURITY.md](../SECURITY.md) | change what the app defends against, or answer a security question |

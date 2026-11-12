@@ -1,5 +1,5 @@
 // pattern: Functional Core
-// The Files list model, written from docs/architecture/frontend.md
+// The Files list model, written from docs/architecture/contracts/frontend.md
 // § The `/files` browser and the reducer's header and never from
 // filesPaging.ts: which filter generation is current, whether the list on
 // screen was loaded under it, what is on screen, and what a late answer may

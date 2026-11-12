@@ -13,15 +13,15 @@ interrupt can be held while the clock passes the stall watchdog's
 deadline, and a query can be held while the consumer is cancelled or the
 user stops. The process can also die, or close its output, at any step.
 
-The model is assistant.md § The turn phase, not the engine: a conversation
-whose query was abandoned, whose interrupt went unacknowledged, whose drain
-found no result, or whose stream raised or ended is retired, and any other
-stays usable. Every turn's events belong to its own prompt and a finished
-turn ends on its own result; a turn the user stopped ends on
-`TurnStopped`, unless a stall's interrupt came first, and no other turn
-shows one. No turn sends a second interrupt. A parked confirm is on the
-live consumer's screen or answered. The running writes cover every allowed
-write whose result the CLI has not written yet."""
+The model is contracts/assistant.md § The turn phase, not the engine: a
+conversation whose query was abandoned, whose interrupt went
+unacknowledged, whose drain found no result, or whose stream raised or
+ended is retired, and any other stays usable. Every turn's events belong to
+its own prompt and a finished turn ends on its own result; a turn the user
+stopped ends on `TurnStopped`, unless a stall's interrupt came first, and
+no other turn shows one. No turn sends a second interrupt. A parked confirm
+is on the live consumer's screen or answered. The running writes cover
+every allowed write whose result the CLI has not written yet."""
 from __future__ import annotations
 
 import asyncio

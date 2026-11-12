@@ -1,9 +1,9 @@
 // pattern: Functional Core
 // The Linked references model, written from the header of
-// components/backlinksPaging.ts and docs/architecture/frontend.md and never
-// from the reducer's switch: which pages are on screen, which epoch is
-// current, which walks are in flight, and what each late answer may touch.
-// Pages are named by number; the server's list is the runner's.
+// components/backlinksPaging.ts and docs/architecture/contracts/frontend.md
+// § Paged lists and never from the reducer's switch: which pages are on screen,
+// which epoch is current, which walks are in flight, and what each late answer
+// may touch. Pages are named by number; the server's list is the runner's.
 
 export interface Model {
   /** Page numbers on screen, in the order they arrived. */

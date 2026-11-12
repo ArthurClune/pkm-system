@@ -6,6 +6,8 @@ when a hop fails is in [sync-recovery.md](sync-recovery.md). The server half of
 every hop is in [write-path.md](write-path.md) and [backend.md](backend.md).
 The design and its rejected alternatives are in
 [`docs/superpowers/specs/2026-07-12-offline-editing-design.md`](../superpowers/specs/2026-07-12-offline-editing-design.md).
+The cases the sync property encodes sit under the same section names in
+[contracts/sync-and-offline.md](contracts/sync-and-offline.md).
 
 ## Model
 
@@ -182,17 +184,10 @@ A window that cannot apply returns `needs-bootstrap` or throws
 A block tombstone cascades the replica's local subtree. A kept descendant of a
 moved-out ancestor has no row of its own to re-ship, so nothing would bring it
 back. **Block tombstones apply only in the window at the journal head, after
-its upserts.**
-
-| Window | Block tombstones |
-|---|---|
-| Short of the head | Recorded in `deferred_block_tombstones` with the cursor written in the same transaction. A block a later window ships live leaves the record |
-| At the head | The recorded ones and its own apply; the record clears. A record whose cursor is not the current one is void |
-| Snapshot | `applySnapshot` clears the record |
-
+its upserts.** A window short of the head records them instead
+([contract](contracts/sync-and-offline.md#block-tombstones)).
 `applyWindow`'s docstring argues that the head-window cascade takes only
-what the server deleted. Between windows a deleted block stays editable, and
-an edit to it lands as a conflict entry.
+what the server deleted.
 
 ### Windows and the pending queue
 
@@ -388,20 +383,11 @@ stays on screen, and each flush into it lands another daily-note entry.
 Conflicts resolve on the server, per block
 ([write-path.md § Conflicts](write-path.md#conflicts)). The client supplies the
 hashes, both `Sha256Hex`, minted only by `text_hash` / `subtree_hash`
-(`sha256Hex` / `subtreeHash` on the web):
-
-- The editor stamps `base_text_hash`, `base_subtree_hash` and `page_title`
-  while building the batch (`outline/baseTextHash.ts`, whose header says what
-  the worker fills), against the tree it was planned from, so op N leaves the
-  text op N+1's hash matches.
-- Undo history records unstamped ops, and `undoManager.dispatch` stamps at
-  replay. An entry-time hash is stale and lands a spurious conflict.
-- An editor flush hashes the text the user typed over
-  ([frontend-editor.md § Drafts and commit points](frontend-editor.md#drafts-and-commit-points)),
-  so of two concurrent edits from one base the later wins and the earlier
-  becomes the conflict copy.
-- `subtree_hash.json` and `text_hash_parity.json` pin both hashes across the
-  two sides.
+(`sha256Hex` / `subtreeHash` on the web). Which text each batch's hashes
+are taken against is a row in the
+[contract](contracts/sync-and-offline.md#conflicts-at-push-time).
+`subtree_hash.json` and `text_hash_parity.json` pin both hashes across the
+two sides.
 
 ## Title activation across online and offline paths
 

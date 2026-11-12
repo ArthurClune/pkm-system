@@ -177,21 +177,26 @@ Each suite states its invariants in its module docstring or file header.
 | `test_ops_state.py` | `props/model.py`, through `POST /api/ops` |
 | `test_planner_props.py` | sibling order from `positions_after` |
 | `test_unlink_props.py` | the page-delete rewriter's anti-goals; a second pass is inert |
-| `test_assistant_turn_props.py` | [the turn phase](assistant.md#the-turn-phase), on a virtual clock (`props/virtual_loop.py`) |
-| `sync/` | `sync/oracle.ts`, over clients that run `createSyncSession`, including each session's banner against `sync/bannerModel.ts` ([What the UI shows](sync-recovery.md#what-the-ui-shows)); `queue.prop.ts` checks `sync/queueModel.ts` without a server |
+| `test_assistant_turn_props.py` | [the turn phase](contracts/assistant.md#the-turn-phase), on a virtual clock (`props/virtual_loop.py`) |
+| `sync/` | `sync/oracle.ts`, over clients that run `createSyncSession`, including each session's banner against `sync/bannerModel.ts` ([What the UI shows](contracts/sync-recovery.md#what-the-ui-shows)); `queue.prop.ts` checks `sync/queueModel.ts` ([contracts/sync-recovery.md](contracts/sync-recovery.md)) without a server |
 | `outline/` | a reading-view model and undo to the start (`checks.ts`). Commands go through `command.ts`, as `useOutline.run` and the undo dispatch do, and the commands the editor refuses are modelled too (`unguardedBatches` for the ops suite) |
-| `outline/draft.prop.ts` | `draftModel.ts`, driving the real editor in jsdom (`draftHarness.tsx`) |
+| `outline/draft.prop.ts` | `draftModel.ts` ([contracts/frontend-editor.md](contracts/frontend-editor.md)), driving the real editor in jsdom (`draftHarness.tsx`) |
 | `ops/` | what the server stores, in the replica and the in-memory trees; `enqueueBatch` refuses a batch exactly when the server does |
-| `assistant/` | [the chat machine](frontend.md#the-chat-machine) (`assistant/run.ts`); `driver.prop.ts` runs the real `createChatDriver` on a fake client and fake timers, against the machine and that section's I/O rules (`driverRun.ts`) |
-| `journal/` | [the Journal's paging](frontend.md#the-journal) (`journalPaging`) |
-| `files/` | [the `/files` browser](frontend.md#the-files-browser)'s generation rules (`filesPaging`) |
+| `assistant/` | [the chat machine](contracts/frontend.md#the-chat-machine) (`assistant/run.ts`); `driver.prop.ts` runs the real `createChatDriver` on a fake client and fake timers, against the machine and that section's I/O rules (`driverRun.ts`) |
+| `journal/` | [the Journal's paging](contracts/frontend.md#the-journal) (`journalPaging`) |
+| `files/` | [the `/files` browser](contracts/frontend.md#the-files-browser)'s generation rules (`filesPaging`) |
 | `backlinks/` | `backlinksPaging`'s epoch and walk rules (`backlinks.prop.ts`); `withStatus` against the Link lifecycle table in `unlinkedStatus.ts` (`unlinked.prop.ts`) |
 
 Rules a change to the gate must keep:
 
 - **A model is written from the docs, not from the code**, so it can
-  disagree with the code where the code is wrong. `props/model.py` encodes
-  write-path.md, backend.md and sync-and-offline.md and never imports
+  disagree with the code where the code is wrong. Its cases come from
+  [`contracts/`](contracts/), and a case it needs that no contract holds
+  becomes a contract row before the model encodes it. `props/model.py`
+  encodes [contracts/write-path.md](contracts/write-path.md), plus
+  [backend.md § Database](backend.md#database) and
+  [cli-and-mcp.md § Pure planners](cli-and-mcp.md#pure-planners), and never
+  imports
   `pkm.server`, `pkm.planning` or `pkm.batch`
   (`test_model_imports_no_server_code`). The outline model imports outline
   code as types only.

@@ -1,13 +1,13 @@
 // pattern: Functional Core
-// The queue property's model, from sync-recovery.md § The recovery barrier,
-// § A batch the server rejects and § The in-memory fallback lane, never from
-// opQueue: who holds the barrier, which batches the server has applied, and
-// what each POST may be.
+// The queue property's model, from contracts/sync-recovery.md § The
+// recovery barrier, § A batch the server rejects and § The in-memory
+// fallback lane, never from opQueue: who holds the barrier, which batches
+// the server has applied, and what each POST may be.
 //   barrier   no POST starts while any owner holds the barrier, except a
 //             recovery's own leased POSTs (the leased batch, and the lane
 //             entries it follows, posted ahead of it), which only a poison
-//             claim stops (§ A batch the server rejects); the lane's claim
-//             does not (sync-recovery.md § The recovery barrier). In the
+//             claim stops; the lane's claim does not
+//             (contracts/sync-recovery.md § The recovery barrier). In the
 //             app no recovery runs under startup's, which this property's
 //             pauseStartup can still draw:
 //               startup   between the property's pause and resume

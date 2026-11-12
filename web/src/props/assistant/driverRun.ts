@@ -6,11 +6,11 @@
 // driver did (each state it published, each request it sent, each abort it
 // signalled) is read back in order and judged.
 //
-// The pure machine is the reference for what the driver runs: a shadow copy
-// is stepped with the user's actions and with the results the fake's
-// settling implies, naming the turn each request was made for. The I/O
-// order around it is modelled from frontend.md § The chat machine. Each
-// problem names its invariant first:
+// The pure machine is the reference for what the driver runs: a shadow copy is
+// stepped with the user's actions and with the results the fake's settling
+// implies, naming the turn each request was made for. The I/O order around it
+// is modelled from contracts/frontend.md § The chat machine. Each problem names
+// its invariant first:
 //
 //   agree    every state the driver publishes is the machine's step on a
 //            result owed to it, each dispatched once, within the action that

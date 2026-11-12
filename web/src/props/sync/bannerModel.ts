@@ -8,17 +8,19 @@
 //             failed or repaired) or a discovery that could not answer; a
 //             discard ends a failed mark, a cleared discovery ends itself
 //   ranking   without the replica gone, the poison problem is shown, else a
-//             stalled replica's banner, else none
+//             stalled replica's banner, else none (§ What the UI shows, the
+//             poison and stalled replica row)
 //   gone      once a no-replica report has come, a failed mark and a repaired
 //             batch are kept (their action needs no worker); anything else,
 //             nothing included, shows the online-only banner, so it comes
 //             back when a kept problem ends
 //   paused    the online-only banner carries paused exactly while the queue
 //             holds a poison or startup claim
-// What the docs leave to the code is not modelled: an outline repair, a
-// reset, a dismiss, and a stall report in a life that also has a poison
-// problem while the replica is still there. A life with any of those is
-// reported unmodelled, with the reason, for the tally.
+// Not modelled: what the docs leave to the code (an outline repair, a
+// reset, a dismiss), and a stall report in a life that also has a poison
+// problem while the replica is still there, which has a contract row but no
+// model yet. A life with any of those is reported unmodelled, with the
+// reason, for the tally.
 import type { SyncEvent, SyncProblem } from "../../sync/syncState";
 
 /** A problem as the banner rule sees it: its kind, the repair phase of a

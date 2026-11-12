@@ -1,10 +1,11 @@
 ---
 # pkm-3ono
 title: A terminal 4xx on a recovery's leased POST is not handled as a rejection
-status: todo
+status: in-progress
 type: bug
+priority: normal
 created_at: 2026-11-11T19:16:33Z
-updated_at: 2026-11-11T19:16:33Z
+updated_at: 2026-11-12T14:33:47Z
 parent: pkm-4gda
 ---
 

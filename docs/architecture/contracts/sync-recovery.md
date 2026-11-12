@@ -104,19 +104,20 @@ releases only its own claim.
 | Owner | Claimed by | Released by |
 |---|---|---|
 | `startup` | `clientRuntime.startup()` | `continueStartup`, once discovery answers; on poisoned rows, after `repair()` has claimed `poison` |
-| `poison` | before any durable row is marked poisoned, and while retained mark intents or rows startup found await a repair (`rejectDurableBatch`, `markRetainedPoison`, `runRepair`) | a repair that succeeds (`runRepair`), or nothing left to repair, with no repair running (`continueStartup`, `discardPoisonIntents`) |
+| `poison` | before any durable row is marked poisoned, and while retained mark intents or rows startup found await a repair (`rejectDurableBatch`, `deliverLeased`, `markRetainedPoison`, `runRepair`) | a repair that succeeds (`runRepair`), or nothing left to repair, with no repair running (`continueStartup`, `discardPoisonIntents`) |
 | `recovery` | `runRecovery`, before its lease | the end of that run, whatever its outcome |
-| `lane` | a lane entry's 4xx (`deliverLaneHead`) | the first outline repair to become stable after it (`laneOwed` in `outlineRepair.ts`) |
+| `lane` | a lane entry's terminal rejection (`deliverLaneHead`, `deliverLaneAhead`) | the first outline repair to become stable after it (`laneOwed` in `outlineRepair.ts`) |
 
 | POST | Held back by |
 |---|---|
 | the ordinary drain, durable rows and lane entries alike | any owner |
-| a recovery's leased flush (`OpQueue.deliverLeased`, lane entries ahead of the batch included) | `poison` only; it posts while `lane` holds |
+| a recovery's leased flush (`OpQueue.deliverLeased`, lane entries ahead of the batch included) | `poison` only; it posts while `lane` holds, and a lane entry ahead that the server rejects is discarded as the drain discards one, and the flush goes on |
 
 ## A batch the server rejects
 
-`isTerminalRejection` (`sync/rejection.ts`), at both delivery sites in
-`opQueue.ts`:
+`isTerminalRejection` (`sync/rejection.ts`), at each delivery site in
+`opQueue.ts`: the drain's durable and lane deliveries, and a recovery's leased
+POST (`deliverLeased`, lane entries ahead of its batch included):
 
 | Answer | Terminal? | Outcome |
 |---|---|---|
@@ -127,6 +128,7 @@ releases only its own claim.
 | Poison mark | Outcome |
 |---|---|
 | `markPoisoned` succeeds | fires `onPoison`, which starts the repair |
+| a recovery's leased batch is rejected | `deliverLeased` claims `poison`, starts the mark without awaiting it (the run's own lease holds the worker gate the mark passes, so it lands once the run aborts), and throws: the row's ack never reaches `heldAcks`. A preemptible recovery reports no failure; a blocking reset refuses as "rejected-batch repair in progress", never `ResetBlockedError` |
 | the mark RPC fails | the `poison` claim stays, because the row is still unmarked |
 | `retryPoisonMarks()` fails | the barrier stays, with Retry and "Discard rejected change" (`Sync.discardProblem()`) |
 | a pull pass needs a recovery while the claim is held | it leaves the recovery to the repair, and one more pull is owed for the claim's release (`owePoisonPull` in `replicaSync.ts`) |

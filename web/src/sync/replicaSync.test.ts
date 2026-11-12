@@ -135,6 +135,7 @@ function leasedQueue(
     pause: () => undefined, resume: () => undefined,
     deliverLeased: real.deliverLeased, settleCommitted: real.settleCommitted,
     onSkipped: real.onSkipped, ...over,
+    holdsPoison: () => real.holds("poison"),
   };
 }
 
@@ -621,6 +622,45 @@ describe("poison recovery ownership", () => {
     expect(posted).toEqual([]);
     expect(abortRecovery).toHaveBeenCalledWith("stale-normal-lease");
     expect(queue.resume).not.toHaveBeenCalledWith("poison");
+  });
+
+  test("a preemptible recovery whose leased batch the server rejects reports no recovery-failed", async () => {
+    const lease: PendingBatch[] = [
+      { id: pendingRowIdOf(1), batch_id: bid("rejected"), ops: [{ op: "delete", uid: uidOf("uid_bad") }],
+        poisoned: false },
+    ];
+    let applyCall = 0;
+    const abortRecovery = vi.fn(async () => undefined);
+    const commitRecovery = vi.fn(async () => undefined);
+    const replica = fakeReplica({
+      applyChanges: vi.fn(async (window: Changes) => {
+        applyCall += 1;
+        return applyCall === 1
+          ? { status: "applied" as const, cursor: window.next_since }
+          : { status: "needs-bootstrap" as const };
+      }),
+      prepareRecovery: vi.fn(async () => ({ token: "normal-lease", batches: lease })),
+      abortRecovery,
+      commitRecovery,
+    });
+    const fetchJson = vi.fn(async (path: string) => {
+      if (path === "/api/ops") throw new ApiError(400, "/api/ops", "bad batch");
+      if (path === "/api/sync/snapshot") return { ...SNAP, seq: 10 };
+      return feed({ next_since: seqOf(6), latest_seq: seqOf(6) });
+    });
+    const queue = leasedQueue(fetchJson, { pause: vi.fn(), resume: vi.fn() });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({
+      replica, fetchJson, onState, queue, holdsPoison: queue.holdsPoison,
+    });
+    await sync.start();
+
+    sync.onSeq(seqOf(9));
+    await sync.idle();
+
+    expect(states.filter((s) => s.mode === "recovery-failed")).toEqual([]);
+    expect(abortRecovery).toHaveBeenCalled();
+    expect(commitRecovery).not.toHaveBeenCalled();
   });
 
   test("a needs-bootstrap feed answer re-bootstraps when the queue is empty", async () => {
@@ -1611,6 +1651,44 @@ describe("resetLocalData", () => {
     // A blocked reset is a refusal, not an outage: the database is intact and
     // delivery must be handed back so the flush the user is being asked about
     // can still succeed on its own.
+    expect(resume.mock.calls).toEqual([["recovery"]]);
+  });
+
+  test("a blocking reset whose leased batch the server rejects refuses as a " +
+       "rejected-batch repair, not ResetBlockedError", async () => {
+    const batch: PendingBatch = {
+      id: pendingRowIdOf(1), batch_id: bid("b-1"), ops: [{ op: "delete", uid: uidOf("uid_a1") }], poisoned: false,
+    };
+    const replica = fakeReplica({
+      prepareRecovery: async () => ({ token: "lease-reset", batches: [batch] }),
+    });
+    let snapshotCalls = 0;
+    const fetchJson = vi.fn(async (path: string) => {
+      if (path === "/api/ops") throw new ApiError(400, "/api/ops", "bad batch");
+      if (path === "/api/sync/snapshot") { snapshotCalls += 1; return SNAP; }
+      return feed();
+    });
+    const resume = vi.fn();
+    const queue = leasedQueue(fetchJson, { pause: vi.fn(), resume });
+    const { onState } = collector();
+    const sync = createReplicaSync({
+      replica, fetchJson, onState, queue, holdsPoison: queue.holdsPoison,
+    });
+    await sync.start();
+
+    let caught: unknown;
+    try {
+      await sync.resetLocalData({ discardPending: false });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch("rejected-batch repair in progress");
+    expect(caught).not.toBeInstanceOf(ResetBlockedError);
+    expect(replica.calls).toContain("abortRecovery");
+    expect(replica.calls).not.toContain("commitRecovery");
+    expect(snapshotCalls).toBe(0);
     expect(resume.mock.calls).toEqual([["recovery"]]);
   });
 

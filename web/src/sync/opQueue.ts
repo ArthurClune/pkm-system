@@ -160,11 +160,15 @@ export interface OpQueue {
    * lane entries it follows, as the drain orders its own. Runs under the
    * caller's "recovery" claim, so the barrier is not consulted; `beforePost`
    * is, between the lane ahead and the POST, since a poison claim can land
-   * while the lane goes out. Returns the ack's reading. Settles no ticket
-   * and no lane mark: the recovery commit deletes the row, and the drain or
-   * settleCommitted settles it as for any row deleted out of band. Throws,
-   * leaving a lane entry retained, on a POST failure, and throws once the
-   * queue is disposed. */
+   * while the lane goes out. Returns the ack's reading. On success it settles
+   * no ticket and no lane mark: the recovery commit deletes the row, and the
+   * drain or settleCommitted settles it as for any row deleted out of band. A
+   * lane entry ahead that the server rejects outright is discarded, as the
+   * drain discards one, and delivery goes on; one that fails otherwise stays
+   * retained and this throws. A terminal rejection of the batch itself
+   * claims `poison`, keeps the mark intent, fails its ticket, starts the
+   * mark without awaiting it, and throws; any other failure of the batch's
+   * POST throws. Throws once the queue is disposed. */
   deliverLeased(batch: PendingBatch, beforePost: () => void):
     Promise<OpsAckReading>;
   /** Durable batches the server holds that no ack of this queue's settled: a
@@ -463,12 +467,33 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
     return matchedIntents;
   };
 
-  /** Deliver every lane entry `batchId` follows, in order. Left retained on
-   * any error: a discard is the drain's decision alone. */
+  /** A lane entry has no durable row to poison, so terminal means
+   * discarded: drop exactly the rejected entry — the only discard this
+   * queue makes on its own — hold later entries behind the recovery
+   * barrier, and let the onDesync listener run the authoritative repair
+   * that resumes it. */
+  const discardRejectedLaneHead = (head: LaneEntry, error: ApiError): void => {
+    dispatch({ type: "pause", owner: "lane" });
+    settleLaneHead(head, { status: "failed", error });
+    desync.emit({ error, lane: true });
+  };
+
+  /** Deliver every lane entry `batchId` follows, in order. An entry the
+   * server rejects outright is discarded as the drain discards it, and
+   * delivery goes on under the `lane` claim that discard takes (why that is
+   * safe: docs/architecture/sync-recovery.md § The recovery barrier). Any
+   * other error leaves the entry retained and throws. */
   const deliverLaneAhead = async (batchId: BatchId): Promise<void> => {
     while (headPrecedes(outbox, batchId)) {
       const head = laneHead(outbox)!;
-      const ack = await postOps(head.ops, head.batchId);
+      let ack: OpsAck;
+      try {
+        ack = await postOps(head.ops, head.batchId);
+      } catch (error: unknown) {
+        if (!isTerminalRejection(error)) throw error;
+        discardRejectedLaneHead(head, error);
+        continue;
+      }
       noteCommitted(ack);
       settleLaneHead(head, { status: "delivered" });
     }
@@ -485,14 +510,7 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
       ack = await postOps(head.ops, head.batchId);
     } catch (error: unknown) {
       if (isTerminalRejection(error)) {
-        // A lane entry has no durable row to poison, so terminal means
-        // discarded: drop exactly the rejected entry — the only discard
-        // this queue makes on its own — hold later entries behind the
-        // recovery barrier, and let the onDesync listener run the
-        // authoritative repair that resumes it.
-        dispatch({ type: "pause", owner: "lane" });
-        settleLaneHead(head, { status: "failed", error });
-        desync.emit({ error, lane: true });
+        discardRejectedLaneHead(head, error);
         return blocked("recovering", error);
       }
       return failed(error);
@@ -505,12 +523,9 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
     return null;
   };
 
-  /** The server rejected a durable batch outright. Terminal for that batch:
-   * it is poisoned rather than retried, and the recovery barrier holds until
-   * an outside repair lifts it. */
-  const rejectDurableBatch = async (
-    batch: PendingBatch, error: ApiError,
-  ): Promise<DrainOutcome> => {
+  /** The synchronous half of a durable batch's rejection, shared by the
+   * drain and a recovery's leased POST: everything but the mark itself. */
+  const claimRejectedBatch = (batch: PendingBatch, error: ApiError): void => {
     const event: PoisonEvent = {
       id: batch.id,
       batch_id: batch.batch_id,
@@ -530,6 +545,15 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
     // `follows` mark — if it had one at all — is removed here rather than
     // waiting for a deleteBatch that will never arrive.
     outbox = forget(outbox, batch.batch_id);
+  };
+
+  /** The server rejected a durable batch outright. Terminal for that batch:
+   * it is poisoned rather than retried, and the recovery barrier holds until
+   * an outside repair lifts it. */
+  const rejectDurableBatch = async (
+    batch: PendingBatch, error: ApiError,
+  ): Promise<DrainOutcome> => {
+    claimRejectedBatch(batch, error);
     try {
       await markRetainedPoison();
     } catch (rpcError: unknown) {
@@ -901,8 +925,20 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
       await deliverLaneAhead(batch.batch_id);
       beforePost();
       if (qstate.disposed) throw new Error("op queue disposed");
-      return noteCommitted(
-        await postOps(batch.ops, batch.batch_id, batch.seen_seq));
+      let ack: OpsAck;
+      try {
+        ack = await postOps(batch.ops, batch.batch_id, batch.seen_seq);
+      } catch (error: unknown) {
+        if (isTerminalRejection(error)) {
+          claimRejectedBatch(batch, error);
+          // Not awaited: markPoisoned passes the replica's worker gate, which
+          // the recovery's own lease holds, so the mark lands after the run
+          // aborts. A mark failure is already reported by onPoisonMarkFailed.
+          void markRetainedPoison().catch(() => undefined);
+        }
+        throw error;
+      }
+      return noteCommitted(ack);
     },
   };
 }

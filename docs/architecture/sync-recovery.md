@@ -167,8 +167,8 @@ A recovery's leased flush posts while `lane` holds. The claim only orders
 the ordinary drain behind the outline repair, which touches the queue only
 through `resume("lane")` and never cancels, rewrites or re-plans a queued
 op. So a row's outcome is the same posted then or later; a repair that
-changed queued ops would need the flush to stop for `lane` too. A leased
-POST settles no ticket, so the repair still replays the write it covers.
+changed queued ops would need the flush to stop for `lane` too. An acked
+leased POST settles no ticket, so the repair still replays the write it covers.
 `poison` stops the flush, because a rebase that posts nothing would replay
 posted rows over its commit.
 
@@ -207,8 +207,10 @@ over an armed retry.
 
 ## A batch the server rejects
 
-`isTerminalRejection` (`sync/rejection.ts`) decides, at both delivery sites in
-`opQueue.ts`, whether a failure means the batch itself is bad
+`isTerminalRejection` (`sync/rejection.ts`) decides, at each delivery site in
+`opQueue.ts` (the drain's durable and lane deliveries, and a recovery's leased
+POST in `deliverLeased`, lane entries ahead included), whether a failure
+means the batch itself is bad
 ([contract](contracts/sync-recovery.md#a-batch-the-server-rejects)).
 
 A batch can meet a 400 its replica could not foresee, such as two devices'
@@ -227,8 +229,16 @@ rebase would replay those rows over their commits:
 
 | Guard | Where |
 |---|---|
-| `rejectDurableBatch` pauses `poison` before the durable mark. The flush's `beforePost` reads `holdsPoison()` before every leased batch, and `deliverLeased` reads it again after the lane ahead | `opQueue.ts`, `replicaSync.ts` |
+| `rejectDurableBatch`, and `deliverLeased` on a terminal rejection, pause `poison` before the durable mark. The flush's `beforePost` reads `holdsPoison()` before every leased batch, and `deliverLeased` reads it again after the lane ahead | `opQueue.ts`, `replicaSync.ts` |
 | Startup repairs poisoned rows left by an earlier page load before `replicaSync.start()` | `clientRuntime.ts` |
+
+`deliverLeased` claims `poison` synchronously, fails its ticket, starts
+`markRetainedPoison` without awaiting it, and throws. It cannot await the
+mark: `markPoisoned` passes the worker gate, which the run's own recovery lease
+holds, so the mark lands once the run aborts. Because it throws, the row's
+ack never reaches `heldAcks`, so no later commit, the poison repair's own
+included, deletes the row before that repair finds it. A lane entry ahead
+that the server rejects is discarded as in the drain, and the flush goes on.
 
 A failed repair usually failed offline, so every socket connect retries it
 too. A drain observed while connected does not, so a repair that fails
@@ -280,7 +290,7 @@ flowchart TD
 
 | `RecoveryOptions` | schema / feed recovery | poison repair | manual reset |
 |---|---|---|---|
-| `flush` | `"preemptible"`: abandon if a poison mark claims recovery | `"skip"`: never post valid rows ahead of a refused batch | `"blocking"`: a failed flush raises `ResetBlockedError`, unless the lease was lost, since discarding the queue would not win it back; `"skip"` if the user discards pending changes |
+| `flush` | `"preemptible"`: abandon if a poison mark claims recovery | `"skip"`: never post valid rows ahead of a refused batch | `"blocking"`: a failed flush raises `ResetBlockedError`, unless the lease was lost, since discarding the queue would not win it back, or a poison claim landed, which refuses as "rejected-batch repair in progress"; `"skip"` if the user discards pending changes |
 | `reportReplicaFailure` | yes, mode `recovery-failed` | no | no |
 | `awaitInFlightPull` | no | yes | yes |
 | `forceReadyOnSuccess` | no | no | yes |

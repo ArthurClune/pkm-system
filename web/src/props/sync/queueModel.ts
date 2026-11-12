@@ -18,6 +18,10 @@
 //                         leaves it to the running repair's end otherwise
 //               lane      from a lane entry's rejection until the next
 //                         outline repair turns stable
+//             A rejection claims its owner whichever POST met it: the
+//             drain's, or a leased flush's, the lane entries ahead of its
+//             batch included (contracts/sync-recovery.md § A batch the
+//             server rejects).
 //   order     the server applies this client's batches in enqueue order,
 //             lane and durable copies alike
 //   delivery  once quiescent, every batch the server accepts is applied,

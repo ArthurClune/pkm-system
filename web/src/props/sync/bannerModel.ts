@@ -8,7 +8,9 @@
 //             failed or repaired) or a discovery that could not answer; a
 //             discard ends a failed mark, a cleared discovery ends itself
 //   ranking   without the replica gone, the poison problem is shown, else a
-//             stalled replica's banner, else none
+//             stalled replica's banner, else none. A stall report beside a
+//             poison problem is kept until a ready report, so the stalled
+//             banner returns when the poison problem ends
 //   gone      once a no-replica report has come, a failed mark and a repaired
 //             batch are kept (their action needs no worker); anything else,
 //             nothing included, shows the online-only banner, so it comes
@@ -16,10 +18,8 @@
 //   paused    the online-only banner carries paused exactly while the queue
 //             holds a poison or startup claim
 // Not modelled: what the docs leave to the code (an outline repair, a
-// reset, a dismiss), and a stall report in a life that also has a poison
-// problem while the replica is still there, which has a contract row but no
-// model yet. A life with any of those is reported unmodelled, with the
-// reason, for the tally.
+// reset, a dismiss). A life with any of those is reported unmodelled, with
+// the event, for the tally.
 import type { SyncEvent, SyncProblem } from "../../sync/syncState";
 
 /** A problem as the banner rule sees it: its kind, the repair phase of a
@@ -54,12 +54,6 @@ export function viewOf(problem: SyncProblem | undefined): BannerView {
   }
 }
 
-const POISON_EVENTS = new Set<SyncEvent["type"]>([
-  "poison-mark-failed", "repair-started", "repair-failed", "repair-succeeded",
-  "poison-discovery-failed", "poison-intents-discarded",
-  "poison-discovery-cleared",
-]);
-
 const UNMODELLED = new Set<SyncEvent["type"]>([
   "outline-repair-started", "outline-repair-succeeded", "outline-repair-failed",
   "reset-started", "reset-blocked", "reset-failed", "reset-succeeded", "dismiss",
@@ -82,8 +76,7 @@ export function expectedBanner(events: readonly SyncEvent[],
   let poison: Poison | null = null;
   let gone = false;
   let stalled = false;
-  let stallReported = false;
-  /** What the no-replica report found shown, and what came after it. */
+  /** The paths this life took, for the tally. */
   const rules: string[] = [];
   for (const e of events) {
     if (UNMODELLED.has(e.type)) return { unmodelled: e.type };
@@ -98,11 +91,14 @@ export function expectedBanner(events: readonly SyncEvent[],
               : stalled ? "gone over stalled" : "gone over none");
           }
           gone = true;
-        } else if (mode === "ready") stalled = false;
-        else if (mode === "stalled" ||
-                 (mode === "recovery-failed" && e.status === "connected")) {
+        } else if (mode === "ready") {
+          if (!gone && stalled && poison !== null) {
+            rules.push("stall ended behind a poison problem");
+          }
+          stalled = false;
+        } else if (mode === "stalled" ||
+                   (mode === "recovery-failed" && e.status === "connected")) {
           stalled = true;
-          stallReported = true;
         }
         break;
       }
@@ -123,6 +119,8 @@ export function expectedBanner(events: readonly SyncEvent[],
       rules.push(`gone, a kept problem ended by ${e.type}`);
     } else if (gone && poison !== null && poison !== before) {
       rules.push(`gone, then ${poison}`);
+    } else if (!gone && stalled && before !== null && poison === null) {
+      rules.push(`stalled again when ${before} ended`);
     }
   }
   if (gone) {
@@ -131,9 +129,9 @@ export function expectedBanner(events: readonly SyncEvent[],
     }
     return { view: held ? "replica-unusable paused" : "replica-unusable", rules };
   }
-  if (stallReported && events.some((e) => POISON_EVENTS.has(e.type))) {
-    return { unmodelled: "a stall report beside a poison problem" };
+  if (poison !== null) {
+    if (stalled) rules.push(`${poison} over stalled`);
+    return { view: POISON_VIEW[poison], rules };
   }
-  if (poison !== null) return { view: POISON_VIEW[poison], rules };
   return { view: stalled ? "replica-stalled" : "none", rules };
 }

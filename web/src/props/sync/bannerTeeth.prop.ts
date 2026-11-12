@@ -12,6 +12,8 @@
 //                    problem ends
 //   stall kept       a stalled banner survives the replica's loss
 //   running kept     a running repair's banner survives the replica's loss
+//   stall lost       a poison problem that ends while the replica is stalled
+//                    leaves no banner, not the stalled one
 import fc from "fast-check";
 import { afterEach, beforeAll, expect, test, vi } from "vitest";
 import type { SyncProblem, SyncState } from "../../sync/syncState";
@@ -21,12 +23,14 @@ import { type HarnessClient, startClient } from "./harnessClient";
 import { initialModel, type SyncModel } from "./model";
 import { BannerWatch, CursorWatch, ModeWatch } from "./oracle";
 import { connectServer, type ServerControl } from "./serverControl";
-import { AwaitBanner, AwaitPoisonRepair, HoldSnapshots, ReleaseSnapshots } from "./steps";
+import { AwaitBanner, AwaitPoisonRepair, HoldSnapshots, ReleaseSnapshots,
+         stallBehindMarkThenDiscard } from "./steps";
 import { captureFaultWarnings } from "../warningsCapture";
 
 captureFaultWarnings("sync banner teeth");
 
-type Mutant = "pausedDropped" | "keptReplaced" | "notBack" | "stallKept" | "runningKept";
+type Mutant = "pausedDropped" | "keptReplaced" | "notBack" | "stallKept" | "runningKept"
+  | "stallLost";
 
 const mutants = vi.hoisted(() => ({ armed: null as string | null }));
 
@@ -49,6 +53,11 @@ function bend(mutant: string | null, before: SyncState, after: SyncState,
     case "runningKept":
       return unusable && before.problem?.kind === "rejected-batch" &&
         before.problem.repair === "running" ? before.problem : p;
+    case "stallLost":
+      return (eventType === "poison-intents-discarded" ||
+              eventType === "poison-discovery-cleared") &&
+        p?.kind === "replica-stalled" && before.problem?.kind !== "replica-stalled"
+        ? undefined : p;
     default:
       return p;
   }
@@ -127,6 +136,10 @@ const scenarios: Record<Mutant, { reaches: string; cmds: () => SyncCommand[] }> 
     reaches: "a poison repair the worker dies under",
     cmds: () => [new HoldSnapshots("A"), new BadBatch("A"), new AwaitPoisonRepair("A"),
                  new WorkerDies("A"), new ReleaseSnapshots("A")],
+  },
+  stallLost: {
+    reaches: "a stall, a failed mark over it, then Discard",
+    cmds: stallBehindMarkThenDiscard,
   },
 };
 

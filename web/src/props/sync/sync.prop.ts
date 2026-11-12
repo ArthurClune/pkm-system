@@ -37,7 +37,8 @@ import { BannerWatch, checkQuiescent, CursorWatch, ModeWatch } from "./oracle";
 import { quiesce, TIMED_OUT, within } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
 import { settleReplicas } from "./settle";
-import { AwaitPoisonRepair, clientIn, HoldSnapshots, ReleaseSnapshots } from "./steps";
+import { AwaitPoisonRepair, clientIn, HoldSnapshots, ReleaseSnapshots,
+         stallBehindMarkThenDiscard } from "./steps";
 import { checkGateProperty, EXAMPLES } from "../gate";
 import { bump, type Reach, type Tally } from "../reach";
 import { captureFaultWarnings } from "../warningsCapture";
@@ -156,9 +157,14 @@ const REACH: Reach = {
   // mark-failed", "gone, then running"), "Discard of a failed mark" with or
   // without a dead worker, "WorkerDies during a poison repair", "BadBatch,
   // mark ... at startup" and "settle: first start held back by an
-  // unanswered failed mark". The fixed scenarios and bannerTeeth.prop.ts
-  // reach the stalled and running paths by construction. Never reached: a
-  // mark during a repair, so no Discard of a failed mark during one.
+  // unanswered failed mark". A poison problem beside a live stall is
+  // rarer still, since one 503 stalls only until the backoff's first retry.
+  // Over four runs on 2026-11-12, "stall ended behind a poison problem"
+  // came 1 to 8 times a run, each "... over stalled" 0 to 3, and "stalled
+  // again when ... ended" never.
+  // The fixed scenarios and bannerTeeth.prop.ts reach the stalled, running
+  // and stalled-again paths by construction. Never reached: a mark during a
+  // repair, so no Discard of a failed mark during one.
   // The eight paced-snapshot labels were floored roughly, from 6 unseeded
   // runs on 2026-11-11: a quarter of the lowest share for the four drawn
   // Fault labels, and for the Recovery labels, which the harness lease's
@@ -184,7 +190,6 @@ const REACH: Reach = {
     "Banner rule: gone over repaired": 0.002,
     "Banner rule: gone, a kept problem ended by poison-intents-discarded": 0.001,
     "Banner rule: gone, then discovery": 0.023,
-    "Banner unmodelled: a stall report beside a poison problem": 0.005,
     "Banner with its worker dead, after a Discard: replica-unusable": 0.001,
     "Banner with its worker dead, before its reload: rejected-batch mark-failed": 0.001,
     "Banner with its worker dead, before its reload: rejected-batch repaired": 0.002,
@@ -1042,6 +1047,16 @@ test("a poison repair the worker dies under gives way to the online-only banner"
     new HoldSnapshots("A"), new BadBatch("A"), new AwaitPoisonRepair("A"),
     new WorkerDies("A"), new ReleaseSnapshots("A"),
   ], { beforeQuiesce: expectBannerRules(["gone over running"]) });
+});
+
+// 503 snapshots stall A's recovery after the rotation, then a failed mark
+// takes the banner. Discard ends the poison problem while the replica is
+// still stalled, so the stalled banner must come back.
+test("a stalled banner returns when the failed mark over it is discarded",
+     async () => {
+  await runExample(["A"], stallBehindMarkThenDiscard(), {
+    beforeQuiesce: expectBannerRules(["stalled again when mark-failed ended"]),
+  });
 });
 
 /** Two or three clients, equally often. Each branch draws its commands

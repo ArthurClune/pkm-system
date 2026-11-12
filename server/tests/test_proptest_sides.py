@@ -1,6 +1,6 @@
 import pytest
 
-from proptest.run import web_command, web_env
+from proptest.run import web_command, web_env, web_port
 from proptest.sides import resolve_file_filter, sides_for
 
 
@@ -48,6 +48,20 @@ def test_web_env_forwards_seed_path_and_replay_path():
     assert env["PROPTEST_SEED"] == "42"
     assert env["PROPTEST_PATH"] == "3:1:0"
     assert env["PROPTEST_REPLAY_PATH"] == "AAB"
+
+
+def test_web_port_defaults_to_8978():
+    assert web_port({}) == 8978
+
+
+def test_web_port_takes_proptest_port_from_the_environment():
+    assert web_port({"PROPTEST_PORT": "8991"}) == 8991
+
+
+@pytest.mark.parametrize("raw", ["8974", "abc", "0", "70000"])
+def test_web_port_rejects_production_and_non_ports(raw):
+    with pytest.raises(ValueError):
+        web_port({"PROPTEST_PORT": raw})
 
 
 def test_web_command_appends_a_file_filter():

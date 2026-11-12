@@ -15,6 +15,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+from collections.abc import Mapping
 from pathlib import Path
 
 from proptest.sides import resolve_file_filter, sides_for
@@ -33,9 +34,27 @@ def _run_server(repo: Path, seed: int | None, path: str | None = None,
     return result.returncode
 
 
-WEB_PORT = 8978
+DEFAULT_WEB_PORT = 8978
+_PRODUCTION_PORT = 8974
 WEB_PASSWORD = "proptest-pw"
 _HEALTH_DEADLINE_S = 30.0
+
+
+def web_port(environ: Mapping[str, str]) -> int:
+    """PROPTEST_PORT lets parallel sessions each run the web side on their own
+    port; sync_server.py reads the same variable."""
+    raw = environ.get("PROPTEST_PORT")
+    if raw is None:
+        return DEFAULT_WEB_PORT
+    try:
+        port = int(raw)
+    except ValueError:
+        raise ValueError(f"PROPTEST_PORT={raw!r} is not a port number") from None
+    if not 0 < port < 65536:
+        raise ValueError(f"PROPTEST_PORT={raw!r} is not a port number")
+    if port == _PRODUCTION_PORT:
+        raise ValueError(f"PROPTEST_PORT={port} is production's port")
+    return port
 
 
 def web_command(file: str | None = None) -> list[str]:
@@ -77,29 +96,35 @@ def _healthy(port: int) -> bool:
 
 def _run_web(repo: Path, seed: int | None, path: str | None = None,
              replay_path: str | None = None, file: str | None = None) -> int:
-    if _port_in_use(WEB_PORT):
-        print(f"web: port {WEB_PORT} is already in use; refusing to touch it. "
-              "Stop whatever owns it and re-run.", file=sys.stderr)
+    try:
+        port = web_port(os.environ)
+    except ValueError as e:
+        print(f"web: {e}", file=sys.stderr)
+        return 2
+    if _port_in_use(port):
+        print(f"web: port {port} is already in use; refusing to touch it. "
+              "Stop whatever owns it, or set PROPTEST_PORT to a free port, "
+              "and re-run.", file=sys.stderr)
         return 1
-    log = Path(tempfile.gettempdir()) / "proptest-sync-server.log"
-    out = Path(tempfile.gettempdir()) / "proptest-sync-server.out"
+    log = Path(tempfile.gettempdir()) / f"proptest-sync-server-{port}.log"
+    out = Path(tempfile.gettempdir()) / f"proptest-sync-server-{port}.out"
     with out.open("w") as logf:
         server = subprocess.Popen(
             ["uv", "run", "python", "-m", "proptest.sync_server"],
             cwd=repo / "server", stdout=logf, stderr=subprocess.STDOUT,
             env={**os.environ, "TZ": "Europe/London",
                  "PYTHONPATH": str(repo / "server" / "tooling"),
-                 "PROPTEST_PORT": str(WEB_PORT),
+                 "PROPTEST_PORT": str(port),
                  "PROPTEST_SERVER_LOG": str(log)})
         try:
             deadline = time.monotonic() + _HEALTH_DEADLINE_S
-            while not _healthy(WEB_PORT):
+            while not _healthy(port):
                 if server.poll() is not None or time.monotonic() > deadline:
-                    print(f"web: sync server on port {WEB_PORT} did not become healthy; "
+                    print(f"web: sync server on port {port} did not become healthy; "
                           f"see {log} and {out}", file=sys.stderr)
                     return 1
                 time.sleep(0.2)
-            env = {**os.environ, **web_env(WEB_PORT, seed, path, replay_path)}
+            env = {**os.environ, **web_env(port, seed, path, replay_path)}
             return subprocess.run(web_command(file), cwd=repo / "web", env=env).returncode
         finally:
             server.terminate()

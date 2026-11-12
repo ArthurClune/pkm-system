@@ -1,7 +1,7 @@
 // visibleUids against the rows EditableBlockTree renders, over generated
-// trees. The rendered DOM is one oracle; visibleTreeArbs' modelRows, written
-// from the render rules, is the other, so neither tree.ts nor the component
-// can drift alone.
+// trees. The rendered DOM is one oracle; visibleTree's modelRows, written
+// from contracts/frontend-editor.md § Rules an edit must not break, is the
+// other, so neither tree.ts nor the component can drift alone.
 import { cleanup, render } from "@testing-library/react";
 import fc from "fast-check";
 import { MemoryRouter } from "react-router";

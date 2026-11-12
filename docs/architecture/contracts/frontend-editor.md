@@ -1,12 +1,74 @@
 # Contract: the outline editor
 
-What one block's draft does, case by case.
-`web/src/props/outline/draftModel.ts`, which the draft property
-(`draft.prop.ts`) checks the real editor against, is written from this file
-and never from the code, so a change in behaviour edits the row here and the
-model together. Each section's principle, and why it holds, is in
+Which blocks the editor shows as rows, and what one block's draft does, case
+by case. These models are written from this file and never from the code, so
+a change in behaviour edits the row here and the models together:
+
+- `web/src/props/outline/visibleTree.ts`, the row model that
+  `web/src/outline/visibleUids.props.test.tsx` checks `visibleUids`,
+  `selectableUids` and `EditableBlockTree` against;
+- `web/src/outline/validateOutlineFocus.props.test.ts`, which checks
+  `validateOutlineFocus` with that row model;
+- `web/src/props/outline/draftModel.ts`, which the draft property
+  (`draft.prop.ts`) checks the real editor against.
+
+Each section's principle, and why it holds, is in
 [frontend-editor.md](../frontend-editor.md) under the same section name; a
 reason that belongs to one row sits in that row.
+
+## Rules an edit must not break
+
+`hidesChildren` (`outline/tree.ts`) decides what hides, for
+`EditableBlockTree`, `visibleUids`, `selectableUids` and
+`validateOutlineFocus` alike.
+
+A block's text is a table macro (`TABLE_MACRO` in `outline/roamTableRows.ts`)
+when, trimmed, it is the whole of one of two spellings:
+
+| Text | A table macro? | Reason |
+|---|---|---|
+| `{{table}}` | yes | the spelling `/table` writes |
+| `{{[[table]]}}` | yes | the spelling Roam imports hold |
+| either, in another letter case (`{{TABLE}}`, `{{[[Table]]}}`) | yes | |
+| either, with spaces or a newline around it | yes | |
+| either, with other text beside it (`{{table}} x`) | no | |
+| a near spelling: `{{tables}}`, an unclosed `{{[[table]]`, a bare `table` | no | |
+
+| A block whose text is a table macro | A valid Roam table (`roamTableRows` returns rows)? | Reason |
+|---|---|---|
+| with no children | no | |
+| whose children each start a row, every cell of a row holding at most one child (the next cell) | yes | |
+| with a cell, anywhere in a row, holding two or more children | no: it is an ordinary block | a grid has no place for the branch, and an ordinary block keeps it on screen |
+
+Which children are rows, judged top-down:
+
+| Block | Its children | Reason |
+|---|---|---|
+| a valid table, the focus on it or in its subtree (`focusChain`) | rows, collapsed or not: the raw outline, each cell an ordinary block | a cell is edited in its own row's textarea |
+| a valid table, the focus elsewhere or none | not rows: the table is one row that draws the grid (`RoamTable`) | |
+| a collapsed block with children | hidden (`hidesChildren`) | |
+| any other block | rows | |
+
+| Case | Outcome | Reason |
+|---|---|---|
+| a cell of a valid table whose children are rows | judged as any block: a collapsed cell with a child hides the rest of its row | |
+| a heading (`heading` 1 to 3), or any `view_type` (`numbered`, `document`, unset) | the same rows as without it | a heading and a view type change how a row draws, never which rows show |
+
+| Reader | Lists | Reason |
+|---|---|---|
+| `EditableBlockTree` (`.block-row`, in order) | the rows above, for the focus it is given | |
+| `visibleUids` | the rows above, every valid table's children among them, wherever the focus is | a focus can sit in any cell, and arrows step through a table's cells once the focus is inside it |
+| `selectableUids` | the rows above, no valid table's children among them: a table is one stop and its cells never one, collapsed or not | a selection clears the focus, so every table draws as its grid |
+
+| Focus | `validateOutlineFocus` returns | Reason |
+|---|---|---|
+| a uid not in the tree | null | |
+| a block under an ancestor that hides its children | that ancestor, the outermost if several, with the caret at the end of its text | it is the row on screen |
+| a block in a collapsed valid table's subtree | the focus | a valid table hides nothing |
+| a collapsed block itself | the focus | only its children hide |
+| a block on screen, the caret past the end of its text | the caret clamped to the text's length | undo restores a caret recorded on other text |
+| a block on screen, the caret between the halves of a surrogate pair | the caret moved to the pair's start (`snapCaret`) | typing there would leave two lone halves, saved as U+FFFD |
+| a block on screen, the caret inside its text | the same object | |
 
 ## Drafts and commit points
 

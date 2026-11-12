@@ -1,11 +1,11 @@
 ---
 # pkm-3kwx
 title: Stalled replica loses its banner when a poison problem ends
-status: in-progress
+status: completed
 type: bug
 priority: normal
 created_at: 2026-11-12T15:48:43Z
-updated_at: 2026-11-12T17:29:31Z
+updated_at: 2026-11-12T17:40:36Z
 ---
 
 Symptom: while the local replica is stalled, a poison problem (a rejected batch) takes the banner. When that problem ends (the failed mark is discarded, discovery clears, or Dismiss on the `repaired` notice), no banner shows at all, although the replica is still stalled. The `replica-stalled` banner only returns at the next stall report: `noteFailure` re-reports on each failed retry (backoff capped at `RETRY_MAX_MS`, 60 s), and arms no timer while offline, so offline it stays bannerless until a reconnect fails.
@@ -22,3 +22,11 @@ Found while writing pkm-k2lf's banner row. When fixed, give `sync/bannerModel.ts
 - [x] pnpm verify; proptest/check.sh web
 
 - [x] `pnpm verify` passed (proptest/check.sh web still open, above)
+
+## Summary of Changes
+
+Symptom: while the local replica is stalled, a poison problem (or an outline problem) takes the banner; when it ends (a failed mark discarded, discovery cleared, or Dismiss on a repaired notice) no banner shows although the replica is still stalled, until the next stall re-report (up to 60 s online, never offline).
+
+Cause: poisonProblem/outline replaced replica-stalled outright, and poisonEnded/dismiss fell back to undefined.
+
+Fix: SyncState.stalled holds the latest stall report's error whichever problem shows (set by a stalled report or a connected recovery-failed one; cleared by ready, no-replica and reset-succeeded; never set while the replica is gone). poisonEnded and the repaired-notice dismiss fall back to an idle replica-stalled while it is set. Dismissing a failed or blocked reset outcome still clears to nothing (Arthur's call). The rule is in docs/architecture/contracts/sync-recovery.md § What the UI shows. initialEntryBytes rebaselined to 487100 (entry 486639 once merged with pkm-3ono's opQueue changes).

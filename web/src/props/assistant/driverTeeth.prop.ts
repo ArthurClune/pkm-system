@@ -4,7 +4,7 @@
 // catch. A catch counts only when a problem names the invariant the bug
 // breaks (driverRun.ts lists them).
 import fc from "fast-check";
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import { ApiError } from "../../api/client";
 import type { ConversationId } from "../../api/brands";
 import {
@@ -191,13 +191,17 @@ const MUTANTS: Record<string, { catches: readonly string[]; make: MakeDriver }> 
     make: mutant(() => ({
       dispatch: (real, e) => {
         if (e.type !== "stop") return real(e);
+        // Swapped by hand, not with vi.spyOn: once the file ends vitest
+        // restores every spy it ever made, which would put this test's fake
+        // setTimeout back after its clock is gone, and no timer would fire
+        // in the process again.
         const armed = globalThis.setTimeout;
-        const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation((handler, ms) =>
-          armed(handler, ms === STOP_ACK_TIMEOUT_MS ? 2 * ms : ms));
+        globalThis.setTimeout = ((handler: () => void, ms?: number) =>
+          armed(handler, ms === STOP_ACK_TIMEOUT_MS ? 2 * ms : ms)) as typeof setTimeout;
         try {
           return real(e);
         } finally {
-          spy.mockRestore();
+          globalThis.setTimeout = armed;
         }
       },
     })),

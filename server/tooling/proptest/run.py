@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -38,6 +39,10 @@ DEFAULT_WEB_PORT = 8978
 _PRODUCTION_PORT = 8974
 WEB_PASSWORD = "proptest-pw"
 _HEALTH_DEADLINE_S = 30.0
+# Several times a quiet full run, since load stretches one. Every suite has
+# its own time limit, so a run still going at this point has stalled, and
+# would otherwise hold the sync server's port until someone kills it.
+WEB_DEADLINE_S = 3600.0
 
 
 def web_port(environ: Mapping[str, str]) -> int:
@@ -79,6 +84,23 @@ def web_env(port: int, seed: int | None, path: str | None,
     if replay_path is not None:
         env["PROPTEST_REPLAY_PATH"] = replay_path
     return env
+
+
+def run_with_deadline(cmd: list[str], cwd: Path, env: Mapping[str, str],
+                      deadline_s: float) -> int | None:
+    """`cmd`'s exit code, or None once `deadline_s` has passed. Unfinished
+    (the deadline, or Ctrl-C here), its whole process group is killed:
+    pnpm's vitest and the workers it forks would otherwise outlive it, and
+    in a session of its own the group never sees the terminal's Ctrl-C."""
+    proc = subprocess.Popen(cmd, cwd=cwd, env=dict(env), start_new_session=True)
+    try:
+        return proc.wait(timeout=deadline_s)
+    except subprocess.TimeoutExpired:
+        return None
+    finally:
+        if proc.returncode is None:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
 
 
 def _port_in_use(port: int) -> bool:
@@ -125,7 +147,14 @@ def _run_web(repo: Path, seed: int | None, path: str | None = None,
                     return 1
                 time.sleep(0.2)
             env = {**os.environ, **web_env(port, seed, path, replay_path)}
-            return subprocess.run(web_command(file), cwd=repo / "web", env=env).returncode
+            code = run_with_deadline(web_command(file), repo / "web", env, WEB_DEADLINE_S)
+            if code is None:
+                print(f"web: the suites ran past {WEB_DEADLINE_S / 60:.0f} minutes, so one "
+                      "has stalled; stopped them. vitest names a suite only once it "
+                      "finishes: the stalled one is among those not named above.",
+                      file=sys.stderr)
+                return 1
+            return code
         finally:
             server.terminate()
             try:

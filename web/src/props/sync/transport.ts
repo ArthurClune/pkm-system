@@ -72,6 +72,9 @@ export interface Transport extends TransportLife {
   stalls(): number;
   /** Whether a paced answer is being delivered now. */
   pacing(): boolean;
+  /** What a hung step waits on: each request on the wire now, as "METHOD
+   * path", and each held by a stall, as "held METHOD path". */
+  waiting(): string[];
   /** Test-only: every request whose path starts with `pathPrefix` ("" for
    * all) waits, before it is sent, until the returned release is called. A
    * stall is not a fault: clearFaults leaves it in place. Never released, it
@@ -157,6 +160,7 @@ export function createTransport(server: ServerControl, broken?: Broken,
   let stalls: { prefix: string; released: Promise<void> }[] = [];
   const committed = new Map<BatchId, string>();
   const sent = new Map<BatchId, number>();
+  const waitingOn = new Set<{ label: string }>();
 
   const noteSeq = (value: unknown): void => {
     if (typeof value === "number" && value > lastSeq) lastSeq = seqOf(value);
@@ -177,6 +181,8 @@ export function createTransport(server: ServerControl, broken?: Broken,
     }
     let res: Response;
     let text: string;
+    const wait = { label: `${init.method ?? "GET"} ${path}` };
+    waitingOn.add(wait);
     try {
       res = await fetch(`${BASE_URL}${path}`, { ...init, headers, signal });
       text = await res.text();
@@ -184,6 +190,8 @@ export function createTransport(server: ServerControl, broken?: Broken,
       // An abort rejects with a DOMException; the app sees a dead network.
       if (signal?.aborted) throw networkError();
       throw error;
+    } finally {
+      waitingOn.delete(wait);
     }
     let body: unknown = null;
     try {
@@ -319,7 +327,13 @@ export function createTransport(server: ServerControl, broken?: Broken,
     if (offline || !live()) throw networkError();
     const holding = stalls.filter((st) => path.startsWith(st.prefix));
     if (holding.length > 0) {
-      await Promise.all(holding.map((st) => st.released));
+      const wait = { label: `held ${(init?.method ?? "GET").toUpperCase()} ${path}` };
+      waitingOn.add(wait);
+      try {
+        await Promise.all(holding.map((st) => st.released));
+      } finally {
+        waitingOn.delete(wait);
+      }
       if (offline || !live()) throw networkError();
     }
     const method = (init?.method ?? "GET").toUpperCase();
@@ -387,6 +401,7 @@ export function createTransport(server: ServerControl, broken?: Broken,
     fired: (fault) => firedCounts[fault],
     stalls: () => stalled,
     pacing: () => paced > 0,
+    waiting: () => [...waitingOn].map((w) => w.label),
     newLife: () => {
       generation += 1;
       return doors(generation);

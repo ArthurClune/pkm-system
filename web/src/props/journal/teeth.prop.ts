@@ -20,9 +20,11 @@ interface Mutant {
 const MUTANTS: Record<string, Mutant> = {
   // The bug the reducer replaced: a resync zeroed the cursor before its
   // reload, so after a failure "Load older days" started over from the head.
-  // On a short window the replacement is no smaller, so only `days` sees it.
+  // On a short window the replacement is no smaller, so `days` sees it, or
+  // `done` alone when the model's older load reached the journal's start and
+  // the head reload did not.
   "Load older days after a failure starts from the head": {
-    catches: ["never-shrinks", "days"],
+    catches: ["never-shrinks", "days", "done"],
     reduce: (state, event) => {
       if (event.type !== "older" || state.error === null) return REAL(state, event);
       const next = REAL({ ...state, days: [] }, event);

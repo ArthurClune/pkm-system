@@ -38,7 +38,7 @@ import { quiesce, TIMED_OUT, within } from "./quiesce";
 import { connectServer, type ServerControl } from "./serverControl";
 import { settleReplicas } from "./settle";
 import { AwaitPoisonRepair, clientIn, HoldSnapshots, ReleaseSnapshots,
-         stallBehindMarkThenDiscard } from "./steps";
+         stallBehindMarkThenDiscard, waitUntil } from "./steps";
 import { checkGateProperty, EXAMPLES } from "../gate";
 import { bump, type Reach, type Tally } from "../reach";
 import { captureFaultWarnings } from "../warningsCapture";
@@ -553,11 +553,8 @@ test("poison repair cut off by offline settles after reconnect", async () => {
       const outcomes = (): string[] => a.syncEvents
         .filter((e) => e.type === "repair-failed" || e.type === "repair-succeeded")
         .map((e) => e.type);
-      const failed = await within((async () => {
-        while (!outcomes().includes("repair-failed")) {
-          await new Promise((resolve) => setTimeout(resolve, 10));
-        }
-      })(), REPRO_WAIT_MS);
+      const failed = await waitUntil(() => outcomes().includes("repair-failed"),
+                                     REPRO_WAIT_MS, 10);
       if (failed === TIMED_OUT) {
         throw new Error(`the repair never failed offline: ${outcomes().join(", ") || "none"}`);
       }
@@ -583,11 +580,8 @@ test("lost ack, own nudge pulls before the redelivery", async () => {
     beforeQuiesce: async (world) => {
       const a = world.clients.get("A");
       if (!a) throw new Error("no client A");
-      const committed = await within((async () => {
-        while (a.transport.committed.size === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 2));
-        }
-      })(), REPRO_WAIT_MS);
+      const committed = await waitUntil(() => a.transport.committed.size > 0,
+                                        REPRO_WAIT_MS, 2);
       if (committed === TIMED_OUT) throw new Error("the batch never committed");
       // The race this scenario is about: still pending and sent once, so the
       // pull below lands before the redelivery, not after it.
@@ -619,11 +613,8 @@ class Drained extends SyncCommand {
     if (!c) throw new Error(`no client ${this.client}`);
     const pending = (): number => c.db.select(
       "SELECT COUNT(*) AS n FROM pending_ops", ["n"])[0].n;
-    const drained = await within((async () => {
-      while (pending() > 0 || c.unsentInMemory() > 0) {
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      }
-    })(), REPRO_WAIT_MS);
+    const drained = await waitUntil(() => pending() === 0 && c.unsentInMemory() === 0,
+                                    REPRO_WAIT_MS);
     if (drained === TIMED_OUT) throw new Error(`${this.client} never drained`);
     return this.toString();
   }

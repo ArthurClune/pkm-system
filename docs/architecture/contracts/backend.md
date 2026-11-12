@@ -24,4 +24,5 @@ before and after the rewrite: one pair for all the rows one rewrite writes.
 | `DELETE /api/page/{title}` | `page_deletions` | Reason |
 |---|---|---|
 | 200, a page that is no daily note | one row: the page's stored title, and `seq` the journal head after the delete's own journal rows | a batch whose `seen_seq` is below it was made before the delete ([Stale batches](write-path.md#stale-batches)) |
+| 200, a daily note | no row | a daily note is re-made on demand, so "stays deleted" cannot hold for it |
 | 404 or 409 | no row | nothing was deleted |

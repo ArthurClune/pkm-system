@@ -346,8 +346,8 @@ stateDiagram-v2
     stopping --> idle: New chat
 ```
 
-The machine accepts Stop in every busy phase, and after it no output of that
-turn reaches the panel. The panel offers Stop (`canStop`) while no card waits
+The machine accepts Stop while creating or streaming, and after it no output of
+that turn reaches the panel, because the user asked for the turn to end. The panel offers Stop (`canStop`) while no card waits
 for an answer, and while the head card's answer posts or has failed, when Stop
 is the way out of the card. The panel stays busy after Stop until the server's turn is
 over ([turn phase](assistant.md#the-turn-phase)). Each rule the machine and

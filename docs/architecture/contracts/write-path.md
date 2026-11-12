@@ -14,7 +14,7 @@ belongs to one row sits in that row.
 | any op in the batch is a 400 | nothing in the batch is written: `post_ops` applies it inside one `write_txn`, which a raise rolls back | a client keeps or [discards](../sync-recovery.md#a-batch-the-server-rejects) a batch whole |
 | top-level `create` | lands on `page_title`'s page, created if absent (`ops_apply._resolve_page`) | with no parent, the op names the page |
 | `create` under a live parent | see [Concurrent structure edits](#concurrent-structure-edits) | |
-| `create`, any | the block stores the op's `text` (as [Stale batches](#stale-batches) leaves it), `heading` and `view_type`, with `collapsed` false (`plan_op`'s `InsertBlock`) | one op makes the block as the client drew it; collapse is view state |
+| `create`, any | the block stores the op's `text` (as [Stale batches](#stale-batches) leaves it), `heading` and `view_type`, with `collapsed` false (`plan_op`'s `InsertBlock`; `ops_apply._execute` inserts `collapsed` 0) | one op makes the block as the client drew it; collapse is view state |
 | top-level `move` with a `page_title` | lands on that page, created if absent | |
 | top-level `move` without a `page_title` | stays on its page | `MoveOp.page_title` absent means the current page |
 | `move` that changes the block's page | the block and every descendant take the new page (`SetPageId` over the subtree) | a child sits on its parent's page |
@@ -59,7 +59,7 @@ checking in this order:
 | Situation | Outcome |
 |---|---|
 | `base_text_hash` matches a pre-rewrite snapshot of this block | The `block_rewrites` rows replay over the incoming text (`replay_core.replay`), which then meets the rows below |
-| A replay step is refused (`_replay_step`) | The block keeps its text; the edit as sent lands under a conflict header, and the ack lists the op as skipped (`text_limit`) |
+| A replay step is refused (`_replay_step`), or the walk reaches rows too costly to read | The block keeps its text; the edit as sent lands under a conflict header, and the ack lists the op as skipped (`text_limit`) |
 | Incoming text, replayed if any step was taken, equals current | No-op, even with a stale hash |
 | A step was taken and the replayed text is over a text limit | As a refused step: `text_limit` |
 | `hash(current) == base_text_hash` | Clean apply |
@@ -74,6 +74,7 @@ checking in this order:
 | a step already taken | never taken again | a row is never replayed twice, however the hashes cycle |
 | `MAX_REPLAYED_REWRITES` steps taken | the walk stops, and the replayed edit meets `classify_text_edit`'s checks above as based on the hash it reached | past the bound the edit falls back to the ordinary conflict path |
 | a hash with no step left | the walk ends there | |
+| a hash whose rows were too costly to read (`ops_apply.BatchReplay._read`) | the walk stops blind; the edit lands `over_limit` | |
 
 | Edit | Outcome |
 |---|---|
@@ -95,7 +96,7 @@ as a `block_rewrites` chain (`RecordRewrite`), built by
 | a stale unlink's pass | an `unlink` row per stale title whose unlink alone changes the sent text (`replay_core.stale_titles_linked`) | |
 | a replayed step's pass | the step whole: every title and copy it holds, not only what the sent text moved | a ref or link the next edit adds back must still get its copy or lose its link |
 | the chain does not replay from `text_hash(sent)` to the written text | none | the rows a later edit replays must make the text the server wrote |
-| a row already stored | not written again (`ops_apply.BatchReplay.recorded`) | |
+| a row already stored | not written again (`ops_apply.BatchReplay.recorded`), unless that hash's stored rows were too costly to read: then every row is written | a row the client's next edit needs must never be dropped |
 
 | `delete` | Outcome |
 |---|---|
@@ -182,7 +183,7 @@ pruned.
 |---|---|
 | `[[Title]]`, `#Title`, `#[[Title]]` | becomes plain text |
 | `((uid))` to a block of the page | replaced by a copy of that block's text, without its task marker or leading attribute, newlines folded |
-| a `((uid))` inside that copy to another block of the page | replaced by that block's text, stripped and folded as above; a ref to a page block inside that becomes empty, so a cycle ends (`unlink._Copies`) |
+| a `((uid))` inside that copy to a block of the page, itself included | replaced by that block's text, stripped and folded as above; a ref to a page block inside that becomes empty, so a cycle ends (`unlink._Copies`) |
 | a query macro naming the page | refused: 409 with `blockers` (`DeleteBlockerModel`), `reason` `query`; nothing changes |
 | a leading `Title:: v` | refused, `used_as_attribute` |
 | the inlined copies would carry the block past a text limit | refused, `limit` |
@@ -237,6 +238,7 @@ The order the judges run in:
 | a server rewrite (`rewrite_text_limit_violation(before, after)`) or unlink (`unlink_refused`) of an over-limit row | allowed at its length or shorter, never longer |
 | a move that leaves a legacy subtree past the depth cap | refused |
 | an `over_limit` edit | lands as sent, with every title its replay deleted or renamed away made plain (`replay_core.over_limit_landing_text`). The walk goes on past the step that stopped, so the titles of every later step in the chain are made plain too |
+| an `over_limit` edit whose walk was blind | lands as sent, with every link made plain (`over_limit_landing_text`, `blind=True`) |
 | a server-made landing at the depth cap | keeps all its text; only the nesting below the cap is lost (`ops_core.descendant_copy_effects`) |
 
 A page delete judges each copy at its projected length before building any

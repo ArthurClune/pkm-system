@@ -8,8 +8,9 @@ construction.
 
 The rules come from contracts/write-path.md, contracts/backend.md and
 contracts/cli-and-mcp.md, whose case tables exist for this model. Each rule
-below names the row it encodes. Where the contracts are silent the rule
-follows the code, and says so.
+below names the row it encodes. One rule still follows the code and says so
+(`Model._record`); any other case a contract lacks is sorted as checks.md
+§ Property gate says.
 
 Ops are plain dicts in the wire shape of `pkm.contracts.ops`. The model
 tracks only the blocks the ops address; the conflict headers and copies

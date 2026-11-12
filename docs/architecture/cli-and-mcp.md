@@ -170,8 +170,8 @@ The batch `index` param is a position, not a key
 ([contracts/cli-and-mcp.md § Pure planners](contracts/cli-and-mcp.md#pure-planners)
 has where each command lands). Only `order_idx_at_position` turns a position
 into an `OrderIdx`.
-The model does not simulate an op the server will skip, so a later position
-in that op's groups can be off (see the `Planner` docstring).
+The planner cannot know what the server will skip, so it counts a skipped op as
+applied ([the contract row](contracts/cli-and-mcp.md#pure-planners)).
 
 ## Section selection
 

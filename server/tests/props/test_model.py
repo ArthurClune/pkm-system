@@ -59,8 +59,9 @@ def move(uid: BlockUid, parent, idx, page=None):
 # --- Limits the model writes out --------------------------------------------
 
 def test_written_out_limits_match_the_server():
-    """model.py may not import the server, so it writes its limits out; this
-    file may, and catches a server change the model would not follow."""
+    """The limits are written out in the model, not imported, so a server
+    change disagrees with the model instead of being followed; this file
+    imports the server's limits and catches that."""
     from pkm.contracts.ops import MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING
     from pkm.contracts.titles import UNTITLED_PAGE_TITLE
     from pkm.server.replay_core import MAX_REPLAYED_REWRITES

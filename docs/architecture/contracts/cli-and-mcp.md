@@ -11,7 +11,7 @@ that belongs to one row sits in that row.
 ## Pure planners
 
 A command's `index` is a 0-based position among a parent's children,
-counted as the earlier commands of the batch left them.
+counted as the earlier commands of the batch left them, when none is skipped.
 
 | Command | Where its block ends up | Reason |
 |---|---|---|
@@ -24,3 +24,4 @@ counted as the earlier commands of the batch left them.
 | `delete` | the block and its subtree leave | |
 | `update` | no change of place | |
 | a command whose block or parent the server no longer has, or a move into the block's own subtree | the server skips it ([contracts/write-path.md § Missing targets](write-path.md#missing-targets), [§ Concurrent structure edits](write-path.md#concurrent-structure-edits)), so nothing moves; a skipped `create` still used the uid the planner minted | |
+| a later command in a group a skipped command touched (its parent's or its old parent's children) | lands among them, but its position can be off by the skip: the planner counts the skipped command as applied (`Planner`) | the planner cannot know what the server will skip |

@@ -8,8 +8,7 @@
 //             failed or repaired) or a discovery that could not answer; a
 //             discard ends a failed mark, a cleared discovery ends itself
 //   ranking   without the replica gone, the poison problem is shown, else a
-//             stalled replica's banner, else none (§ What the UI shows, the
-//             poison and stalled replica row)
+//             stalled replica's banner, else none
 //   gone      once a no-replica report has come, a failed mark and a repaired
 //             batch are kept (their action needs no worker); anything else,
 //             nothing included, shows the online-only banner, so it comes

@@ -174,8 +174,8 @@ Each suite states its invariants in its module docstring or file header.
 
 | Suite | Checks against |
 |---|---|
-| `test_ops_state.py` | `props/model.py`, through `POST /api/ops` |
-| `test_planner_props.py` | sibling order from `positions_after` |
+| `test_ops_state.py` | `props/model.py`, through `POST /api/ops` ([contracts/write-path.md](contracts/write-path.md), [contracts/backend.md](contracts/backend.md)) |
+| `test_planner_props.py` | sibling order from `positions_after` ([contracts/cli-and-mcp.md](contracts/cli-and-mcp.md)) |
 | `test_unlink_props.py` | the page-delete rewriter's anti-goals; a second pass is inert |
 | `test_assistant_turn_props.py` | [the turn phase](contracts/assistant.md#the-turn-phase), on a virtual clock (`props/virtual_loop.py`) |
 | `sync/` | `sync/oracle.ts`, over clients that run `createSyncSession`, including each session's banner against `sync/bannerModel.ts` ([What the UI shows](contracts/sync-recovery.md#what-the-ui-shows)); `queue.prop.ts` checks `sync/queueModel.ts` ([contracts/sync-recovery.md](contracts/sync-recovery.md)) without a server |
@@ -193,10 +193,9 @@ Rules a change to the gate must keep:
   disagree with the code where the code is wrong. Its cases come from
   [`contracts/`](contracts/), and a case it needs that no contract holds
   becomes a contract row before the model encodes it. `props/model.py`
-  encodes [contracts/write-path.md](contracts/write-path.md), plus
-  [backend.md § Database](backend.md#database) and
-  [cli-and-mcp.md § Pure planners](cli-and-mcp.md#pure-planners), and never
-  imports
+  encodes [contracts/write-path.md](contracts/write-path.md),
+  [contracts/backend.md](contracts/backend.md) and
+  [contracts/cli-and-mcp.md](contracts/cli-and-mcp.md), and never imports
   `pkm.server`, `pkm.planning` or `pkm.batch`
   (`test_model_imports_no_server_code`). The outline model imports outline
   code as types only.

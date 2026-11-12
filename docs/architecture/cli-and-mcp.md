@@ -166,10 +166,10 @@ describes its subtree.
 `order_idx` is sparse: a delete leaves a gap and nothing renumbers. So
 `order_idx_at_position` never counts siblings, and an append lands one past
 the last sibling's key. `Planner` keeps a live sibling list per (page, parent).
-The batch `index` param is a position, not a key, counted against the page as
-fetched and then as earlier commands left it. A move's position counts the
-destination's children without the moving block, and a position past the end
-appends. Only `order_idx_at_position` turns a position into an `OrderIdx`.
+The batch `index` param is a position, not a key
+([contracts/cli-and-mcp.md § Pure planners](contracts/cli-and-mcp.md#pure-planners)
+has where each command lands). Only `order_idx_at_position` turns a position
+into an `OrderIdx`.
 The model does not simulate an op the server will skip, so a later position
 in that op's groups can be off (see the `Planner` docstring).
 

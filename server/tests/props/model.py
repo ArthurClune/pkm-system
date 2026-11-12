@@ -6,10 +6,10 @@ real server against. It must never import `pkm.server.*` or
 `pkm.planning` (a test pins that), or it would agree with the server by
 construction.
 
-The rules come from contracts/write-path.md, whose case tables exist for
-this model, and from backend.md § Database and cli-and-mcp.md § Pure
-planners. Each rule below names the row it encodes. Where the docs are
-silent the rule follows the code, and says so.
+The rules come from contracts/write-path.md, contracts/backend.md and
+contracts/cli-and-mcp.md, whose case tables exist for this model. Each rule
+below names the row it encodes. Where the contracts are silent the rule
+follows the code, and says so.
 
 Ops are plain dicts in the wire shape of `pkm.contracts.ops`. The model
 tracks only the blocks the ops address; the conflict headers and copies
@@ -217,8 +217,8 @@ def page_copies(title: RawTitle, page_texts: Mapping[BlockUid, str]) -> dict[Blo
 @dataclass(frozen=True)
 class Rewrite:
     """One recorded rewrite of a block's text: the `block_rewrites` rows
-    sharing a before/after hash pair (backend.md § Database; kinds, code:
-    schema.py). `unlinked` are deleted titles, `inlines` the
+    sharing a before/after hash pair (contracts/backend.md § Database).
+    `unlinked` are deleted titles, `inlines` the
     `(uid, copied text)` pairs a page delete put in place of `((uid))`.
     A hashed edit whose base hash is `base_hash` has this replayed onto
     its text first. `before` is the
@@ -447,9 +447,9 @@ class Model:
 
     def _replay(self, uid: BlockUid, text: str,
                 base: str) -> tuple[str, str, list[Rewrite]]:
-        """backend.md § Database, `block_rewrites` (kinds, code: schema.py):
-        a hashed edit made before recorded rewrites of its block has them
-        replayed onto its text first."""
+        """contracts/write-path.md § Conflicts: a hashed edit made before
+        recorded rewrites of its block has them replayed onto its text
+        first."""
         return replay_chain(self.rewrites.get(uid, ()), text, base)
 
     def _record_written(self, uid: BlockUid, sent: str, written: str,
@@ -773,7 +773,8 @@ def positions_after(groups: Mapping[BlockUid | None, Sequence[BlockUid]],
     """Each parent's children, in order, after the `pkm batch` `commands`
     run over `groups` (parent uid -> child uids, None for the page's top
     level). Positions only, never order keys: this is the CLI contract the
-    planner's keys must realise (cli-and-mcp.md § Pure planners, on `index`).
+    planner's keys must realise (contracts/cli-and-mcp.md § Pure
+    planners).
 
     - create/todo: lands at `index` among the parent's children as the
       earlier commands left them; None, or an index past the end, appends.

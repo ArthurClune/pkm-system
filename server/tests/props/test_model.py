@@ -633,7 +633,7 @@ def test_text_model_matches_the_unlinker_on_generated_texts(data):
                 if out.rewrite(t)[0] != t} == plan.rewrites
 
 
-# --- cli-and-mcp.md § Pure planners: batch `index` is a position -------
+# --- contracts/cli-and-mcp.md § Pure planners: `index` is a position --------
 
 def cr(index=None, parent=None, alias=None, command="create"):
     params = {"page": "Alpha", "text": "t", "parent": parent, "index": index}

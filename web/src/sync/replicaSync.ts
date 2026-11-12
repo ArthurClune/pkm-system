@@ -110,6 +110,8 @@ export class ResetBlockedError extends Error {
   }
 }
 
+const POISON_OWNS_RECOVERY = "rejected-batch repair in progress";
+
 export const STALL_AFTER_FAILURES = 3;
 /** How many times the SAME changes window must fail the SAME way before it is
  * treated as unappliable and rebased away. Equal to STALL_AFTER_FAILURES on
@@ -511,6 +513,10 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         // A lost lease is the run's failure, not a refusal of the flush:
         // asking to discard the queue would not get the lease back.
         keeper.assertHeld();
+        // The queue claimed poison on a terminal rejection: the poison repair
+        // now owns the row, so asking the user to discard the whole queue
+        // would be the wrong question.
+        if (holdsPoison()) throw new Error(POISON_OWNS_RECOVERY, { cause });
         throw new ResetBlockedError(
           lease.batches.filter((b) => !b.poisoned).length, { cause },
         );
@@ -1002,7 +1008,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // that lease out from under it (mirrors the needs-bootstrap guard in
       // pullLoop). Bail before touching the queue or acquiring a lease.
       if (holdsPoison()) {
-        throw new Error("rejected-batch repair in progress");
+        throw new Error(POISON_OWNS_RECOVERY);
       }
       // A session committed to online-only must stay that way: this method sets
       // started and forces mode "ready", which would revive syncing with poison

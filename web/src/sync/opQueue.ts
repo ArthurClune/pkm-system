@@ -163,10 +163,12 @@ export interface OpQueue {
    * while the lane goes out. Returns the ack's reading. Settles no ticket
    * and no lane mark: the recovery commit deletes the row, and the drain or
    * settleCommitted settles it as for any row deleted out of band. A
-   * terminal rejection of the batch claims `poison`, keeps the mark intent,
-   * fails its ticket, starts the mark without awaiting it, and throws. Any
-   * other POST failure throws, leaving a lane entry retained. Throws once the
-   * queue is disposed. */
+   * lane entry ahead that the server rejects outright is discarded, as the
+   * drain discards one, and delivery goes on; one that fails otherwise stays
+   * retained and this throws. A terminal rejection of the batch itself
+   * claims `poison`, keeps the mark intent, fails its ticket, starts the
+   * mark without awaiting it, and throws; any other failure of the batch's
+   * POST throws. Throws once the queue is disposed. */
   deliverLeased(batch: PendingBatch, beforePost: () => void):
     Promise<OpsAckReading>;
   /** Durable batches the server holds that no ack of this queue's settled: a
@@ -465,12 +467,33 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
     return matchedIntents;
   };
 
-  /** Deliver every lane entry `batchId` follows, in order. Left retained on
-   * any error: a discard is the drain's decision alone. */
+  /** A lane entry has no durable row to poison, so terminal means
+   * discarded: drop exactly the rejected entry — the only discard this
+   * queue makes on its own — hold later entries behind the recovery
+   * barrier, and let the onDesync listener run the authoritative repair
+   * that resumes it. */
+  const discardRejectedLaneHead = (head: LaneEntry, error: ApiError): void => {
+    dispatch({ type: "pause", owner: "lane" });
+    settleLaneHead(head, { status: "failed", error });
+    desync.emit({ error, lane: true });
+  };
+
+  /** Deliver every lane entry `batchId` follows, in order. An entry the
+   * server rejects outright is discarded as the drain discards it, and
+   * delivery goes on under the `lane` claim that discard takes (why that is
+   * safe: docs/architecture/sync-recovery.md § The recovery barrier). Any
+   * other error leaves the entry retained and throws. */
   const deliverLaneAhead = async (batchId: BatchId): Promise<void> => {
     while (headPrecedes(outbox, batchId)) {
       const head = laneHead(outbox)!;
-      const ack = await postOps(head.ops, head.batchId);
+      let ack: OpsAck;
+      try {
+        ack = await postOps(head.ops, head.batchId);
+      } catch (error: unknown) {
+        if (!isTerminalRejection(error)) throw error;
+        discardRejectedLaneHead(head, error);
+        continue;
+      }
       noteCommitted(ack);
       settleLaneHead(head, { status: "delivered" });
     }
@@ -487,14 +510,7 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
       ack = await postOps(head.ops, head.batchId);
     } catch (error: unknown) {
       if (isTerminalRejection(error)) {
-        // A lane entry has no durable row to poison, so terminal means
-        // discarded: drop exactly the rejected entry — the only discard
-        // this queue makes on its own — hold later entries behind the
-        // recovery barrier, and let the onDesync listener run the
-        // authoritative repair that resumes it.
-        dispatch({ type: "pause", owner: "lane" });
-        settleLaneHead(head, { status: "failed", error });
-        desync.emit({ error, lane: true });
+        discardRejectedLaneHead(head, error);
         return blocked("recovering", error);
       }
       return failed(error);

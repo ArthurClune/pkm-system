@@ -15,7 +15,7 @@ import {
   objectContaining, sentBody, clientIdOf,
 } from "../test-helpers";
 import { memReplica } from "./memReplica";
-import { clientId, createOpQueue, type PoisonEvent } from "./opQueue";
+import { clientId, createOpQueue, type Desync, type PoisonEvent } from "./opQueue";
 
 const op = (rawUid: string): BlockOp => ({ op: "delete", uid: uidOf(rawUid) });
 // Every test here picks an arbitrary batch-id string, same shape as the
@@ -1455,34 +1455,36 @@ describe("fallback lane ordering against durable batches", () => {
   });
 });
 
+const LEASED_CID = clientIdOf("c-leased");
+
+/** A queue posting through a recording `post`, with one lane entry and a
+ * durable row behind it: the row is what a recovery lease hands out. */
+async function laneThenDurable(answer: (body: OpBatch) => OpsAck =
+  () => ({ ok: true, ts: 1, applied: 1, seq: seqOf(7) })) {
+  const bodies: OpBatch[] = [];
+  const post = vi.fn(async (body: OpBatch) => {
+    bodies.push(body);
+    return answer(body);
+  });
+  const replica = memReplica();
+  const durableEnqueue = replica.enqueue.bind(replica);
+  const q = createOpQueue(replica, { post, clientId: LEASED_CID });
+  q.setOnline(false);
+  replica.enqueue = async () => { throw new Error(CANTOPEN); };
+  const lane = q.enqueue([op("tuid-lane")]);
+  await q.settled();
+  replica.enqueue = durableEnqueue;
+  const durable = q.enqueue([op("tuid-leased")]);
+  await q.settled();
+  return { q, replica, bodies, post, lane, durable, leased: replica.rows[0] };
+}
+
 describe("deliverLeased", () => {
-  const CID = clientIdOf("c-leased");
+  const CID = LEASED_CID;
   const SKIP = {
     index: 0, op: "update_text", uid: uidOf("tuid-u1"),
     reason: "block_not_found", note_page: null,
   } satisfies SkippedOp;
-
-  /** A queue posting through a recording `post`, with one lane entry and a
-   * durable row behind it: the row is what a recovery lease hands out. */
-  async function laneThenDurable(answer: (body: OpBatch) => OpsAck =
-    () => ({ ok: true, ts: 1, applied: 1, seq: seqOf(7) })) {
-    const bodies: OpBatch[] = [];
-    const post = vi.fn(async (body: OpBatch) => {
-      bodies.push(body);
-      return answer(body);
-    });
-    const replica = memReplica();
-    const durableEnqueue = replica.enqueue.bind(replica);
-    const q = createOpQueue(replica, { post, clientId: CID });
-    q.setOnline(false);
-    replica.enqueue = async () => { throw new Error(CANTOPEN); };
-    const lane = q.enqueue([op("tuid-lane")]);
-    await q.settled();
-    replica.enqueue = durableEnqueue;
-    const durable = q.enqueue([op("tuid-leased")]);
-    await q.settled();
-    return { q, replica, bodies, post, lane, durable, leased: replica.rows[0] };
-  }
 
   test("deliverLeased delivers the lane entries the batch follows, then posts " +
        "the batch, and returns its reading", async () => {
@@ -1661,6 +1663,62 @@ describe("deliverLeased's lane ahead", () => {
     await expect(Promise.race([entry.delivered.then(() => "settled"),
                                Promise.resolve("pending")]))
       .resolves.toBe("pending");
+  });
+
+  test("a lane entry ahead that the server rejects is discarded, pauses " +
+       "lane and desyncs, and the leased batch still posts", async () => {
+    const { q, bodies, lane, leased } = await laneThenDurable((body) => {
+      if (JSON.stringify(body.ops) === JSON.stringify([op("tuid-lane")])) {
+        throw new ApiError(400, "/api/ops", "bad op");
+      }
+      return { ok: true, ts: 1, applied: 1, seq: seqOf(7) };
+    });
+    const desyncs: Desync[] = [];
+    q.onDesync((d) => desyncs.push(d));
+    const unsent: number[] = [];
+    q.onUnsentInMemory((n) => unsent.push(n));
+
+    await expect(q.deliverLeased(leased, () => undefined))
+      .resolves.toEqual({ seq: 7, skipped: [] });
+
+    expect(bodies.map((b) => b.ops))
+      .toEqual([[op("tuid-lane")], [op("tuid-leased")]]);
+    await expect(lane.delivered).resolves.toMatchObject({ status: "failed" });
+    expect(q.holds("lane")).toBe(true);
+    expect(desyncs).toHaveLength(1);
+    expect(desyncs[0].lane).toBe(true);
+    expect((desyncs[0].error as ApiError).status).toBe(400);
+    expect(unsent.at(-1)).toBe(0);
+  });
+
+  test("two leased deliveries racing a lane head the server rejects both " +
+       "finish, and the next lane entry still goes out", async () => {
+    const post = vi.fn(async (body: OpBatch): Promise<OpsAck> => {
+      if (JSON.stringify(body.ops) === JSON.stringify([op("tuid-a")])) {
+        throw new ApiError(400, "/api/ops", "bad op");
+      }
+      return { ok: true, ts: 1, applied: 1, seq: seqOf(7) };
+    });
+    const replica = memReplica();
+    const durableEnqueue = replica.enqueue.bind(replica);
+    const q = createOpQueue(replica, { post, clientId: LEASED_CID });
+    q.setOnline(false);
+    replica.enqueue = async () => { throw new Error(CANTOPEN); };
+    const a = q.enqueue([op("tuid-a")]);
+    await q.settled();
+    const b = q.enqueue([op("tuid-b")]);
+    await q.settled();
+    replica.enqueue = durableEnqueue;
+    q.enqueue([op("tuid-durable")]); // follows both a and b
+    await q.settled();
+    const leased = replica.rows[0];
+
+    await Promise.all([q.deliverLeased(leased, () => undefined),
+                       q.deliverLeased(leased, () => undefined)]);
+
+    await expect(a.delivered).resolves.toMatchObject({ status: "failed" });
+    await expect(b.delivered).resolves.toEqual({ status: "delivered" });
+    expect(q.holds("lane")).toBe(true);
   });
 
   test("deliverLeased throws once the queue is disposed", async () => {

@@ -1,11 +1,11 @@
 ---
 # pkm-k2lf
 title: 'Contracts: write the rows models take from the code'
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-11-12T15:03:03Z
-updated_at: 2026-11-12T15:51:15Z
+updated_at: 2026-11-12T16:02:43Z
 ---
 
 Where a property model says the docs are silent and it follows the code ('(code, not docs)' markers in server/tests/props/model.py and the web models), add the case as a contract row in docs/architecture/contracts/, checked against the code, and point the model's comment at it. Includes a 'visible rows' contract for web/src/props/outline/visibleTree.ts, whose model reads two rows of frontend-editor.md § Rules an edit must not break and follows tree.ts for invalid table macros and view modes. Each new row is a claim, so commits say 'added'.
@@ -30,3 +30,10 @@ Reading the code to check a row is required; what the property gate forbids is t
 
 - [x] Accident/bug candidates put to Arthur (2026-11-12): blank-title stale mismatch ignored (fine); older-copy-wins -> pkm-7a8u; stall banner lost -> pkm-3kwx; poison-beside-stall model -> pkm-dr4j; revealed-table cell and repaired-over-stalled rows kept
 - [x] checks.md § Property gate and architecture-docs SKILL.md § Contract files state the triage
+
+
+## Summary of Changes
+
+Every case the property models took from the code or from the `<doc>.md` design prose is now a contract row, triaged first (intended / bug / accident). New: contracts/backend.md § Database, contracts/cli-and-mcp.md § Pure planners, write-path.md `## Ops` plus contracts/write-path.md § Ops, the visible-rows rows in contracts/frontend-editor.md § Rules an edit must not break, and rows for drafts, Keyboard policy, Stop and the poison/stall banner. checks.md § Property gate holds the triage table. `test_written_out_limits_match_the_server` pins the model's written-out limits (MAX_REPLAY_STEPS, UNTITLED, TEXT_CAP, NESTING_CAP) to the server's. The `classify_text_edit` table now follows the code's check order, including the blind walk.
+
+Left: the `Model._record` older-copy-wins marker (pkm-7a8u), the banner model's poison-beside-stall gap (pkm-dr4j), and a stalled replica losing its banner when a poison problem ends (pkm-3kwx). Arthur ruled that the blank-title stale-check mismatch is fine.

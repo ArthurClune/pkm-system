@@ -11,7 +11,8 @@
 // And from contracts/frontend-editor.md § Keyboard policy: a keydown the IME
 // owns decides nothing: one sent mid-composition, or the first keydown after
 // a compositionend when it carries keyCode 229 and comes within
-// IME_COMMIT_WINDOW_MS. Every other Enter splits and Escape blurs.
+// IME_COMMIT_WINDOW_MS. Every other Enter splits the block, and Escape
+// blurs it, flushing the draft.
 //
 // The server here is the one block's text, applying what the editor sends in
 // order. A send whose base hash is not the server's text is a conflict.

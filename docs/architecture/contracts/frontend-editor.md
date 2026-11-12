@@ -114,3 +114,11 @@ A keydown the IME owns decides `none`, whatever the key.
 | `isComposing`, or between `compositionstart` and `compositionend` | yes (Chromium sends the committing Enter this way) |
 | the first after a `compositionend`, with keyCode 229, within `IME_COMMIT_WINDOW_MS` | yes (WebKit ends the composition before sending its committing keydown) |
 | any other, keyCode 229 included | no |
+
+A keydown the IME does not own, with no autocomplete row or date picker
+open, is decided by `decideEditorKey` (`outline/keyboardPolicy.ts`):
+
+| Keydown | Decision | Reason |
+|---|---|---|
+| Enter with no modifier, keyCode 229 included, the block editable | `split` at `selStart`: the block becomes two | |
+| Escape, with or without a modifier, read-only included | `blur`: the block leaves edit mode, and the blur flushes its draft ([Drafts and commit points](#drafts-and-commit-points)) | |

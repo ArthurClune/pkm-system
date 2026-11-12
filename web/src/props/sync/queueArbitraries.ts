@@ -66,12 +66,15 @@ const fixedEdit = (persist: Persist, bad: boolean): fc.Arbitrary<QueueCmd> =>
 // above draws that a few times in ten thousand, so some examples start
 // offline and draw from this mix instead. It adds little to the other
 // labels: their shares fall to about the six in seven examples the mix
-// above still draws, which is why that weight is no lower.
+// above still draws, which is why that weight is no lower. Its bad durable
+// edits draw failed and unmatched marks often, because a Discard of a
+// failed mark is rare in either mix.
 const recoveryCommand: fc.Arbitrary<QueueCmd> = fc.oneof(
   { weight: 2, arbitrary: edit },
   { weight: 2, arbitrary: fixedEdit("ok", false) },
   { weight: 4, arbitrary: fixedEdit("writeFails", true) },
-  { weight: 2, arbitrary: fixedEdit("ok", true) },
+  { weight: 2, arbitrary: fc.constantFrom<Mark>("ok", "ok", "fails", "unmatched")
+      .map((mark): QueueCmd => ({ t: "edit", persist: "ok", refusal: "none", bad: true, mark })) },
   { weight: 6, arbitrary: fc.constantFrom<Respond>("ack", "ack", "lostAck", "netFail")
       .map((kind): QueueCmd => ({ t: "respond", kind })) },
   { weight: 1, arbitrary: simple("offline") },

@@ -854,6 +854,79 @@ describe("transitionSync replica-stalled lifecycle", () => {
   });
 });
 
+describe("transitionSync stall behind a problem that ends", () => {
+  const fold = (events: readonly SyncEvent[]): SyncState =>
+    events.reduce((s, e) => transitionSync(s, e).state, createSyncState());
+  const stall = modeReport({ mode: "stalled", error: "db locked" });
+  const stalledBanner: SyncProblem = {
+    kind: "replica-stalled", error: "db locked", reset: "idle",
+  };
+  const event = poison();
+  const markFailed: SyncEvent = {
+    type: "poison-mark-failed", event, error: "rpc down",
+  };
+
+  it("shows the stall when discarded poison intents end the problem", () => {
+    const s = fold([stall, markFailed, { type: "poison-intents-discarded" }]);
+    expect(s.problem).toEqual(stalledBanner);
+  });
+
+  it("shows the stall when discovery clears", () => {
+    const s = fold([stall, { type: "poison-discovery-failed", error: "x" },
+      { type: "poison-discovery-cleared" }]);
+    expect(s.problem).toEqual(stalledBanner);
+  });
+
+  it("keeps a repaired notice until dismissed, then shows the stall", () => {
+    const repaired = fold([stall, { type: "repair-started", event },
+      { type: "repair-succeeded", event }]);
+    expect(repaired.problem)
+      .toEqual({ kind: "rejected-batch", event, repair: "repaired" });
+    const t = transitionSync(repaired, { type: "dismiss" });
+    expect(t.state.problem).toEqual(stalledBanner);
+  });
+
+  it("shows the stall when a repaired outline notice is dismissed", () => {
+    const repaired = fold([stall,
+      { type: "outline-repair-succeeded", error: "reject" }]);
+    expect(repaired.problem?.kind).toBe("outline-rejected");
+    const t = transitionSync(repaired, { type: "dismiss" });
+    expect(t.state.problem).toEqual(stalledBanner);
+  });
+
+  it("remembers a stall reported while a poison problem shows", () => {
+    const s = fold([markFailed, stall, { type: "poison-intents-discarded" }]);
+    expect(s.problem).toEqual(stalledBanner);
+  });
+
+  it("shows no banner when the stall ended behind the poison problem", () => {
+    const s = fold([stall, markFailed,
+      modeReport({ mode: "ready" }, "connected", "stalled"),
+      { type: "poison-intents-discarded" }]);
+    expect(s.problem).toBeUndefined();
+  });
+
+  it("never brings the stall back once the replica is gone", () => {
+    const s = fold([stall, markFailed,
+      modeReport({ mode: "no-replica", error: "worker died" }),
+      { type: "poison-intents-discarded" }]);
+    expect(s.problem)
+      .toEqual({ kind: "replica-unusable", error: "worker died" });
+  });
+
+  it("clears the remembered stall when a reset succeeds", () => {
+    const s = fold([stall, markFailed, { type: "reset-succeeded" },
+      { type: "poison-intents-discarded" }]);
+    expect(s.problem).toBeUndefined();
+  });
+
+  it("still clears a dismissed failed reset outcome to nothing", () => {
+    const s = fold([stall, { type: "reset-failed", error: "no" }]);
+    expect(transitionSync(s, { type: "dismiss" }).state.problem)
+      .toBeUndefined();
+  });
+});
+
 describe("transitionSync ops-skipped", () => {
   it("bumps resync without raising a problem", () => {
     const t = transitionSync(createSyncState(), { type: "ops-skipped" });

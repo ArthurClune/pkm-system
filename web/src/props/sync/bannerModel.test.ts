@@ -48,9 +48,28 @@ describe("expectedBanner", () => {
       .toBe("rejected-batch repaired");
   });
 
+  it("ranks a poison problem over a stall, in either order", () => {
+    const marked: SyncEvent = { type: "poison-mark-failed", event, error: "e" };
+    expect(expectedBanner([mode("stalled"), { type: "repair-started", event }], false))
+      .toEqual({ view: "rejected-batch running", rules: ["running over stalled"] });
+    expect(view([marked, mode("recovery-failed")])).toBe("rejected-batch mark-failed");
+    expect(view([mode("stalled"), { type: "repair-succeeded", event }]))
+      .toBe("rejected-batch repaired");
+  });
+
+  it("brings the stall back when the poison problem ends while it lasts", () => {
+    const marked: SyncEvent = { type: "poison-mark-failed", event, error: "e" };
+    expect(expectedBanner([mode("stalled"), marked, { type: "poison-intents-discarded" }],
+                          false))
+      .toEqual({ view: "replica-stalled", rules: ["stalled again when mark-failed ended"] });
+    expect(view([{ type: "poison-discovery-failed", error: "e" }, mode("stalled"),
+                 { type: "poison-discovery-cleared" }])).toBe("replica-stalled");
+    expect(expectedBanner([mode("stalled"), marked, mode("ready"),
+                           { type: "poison-intents-discarded" }], false))
+      .toEqual({ view: "none", rules: ["stall ended behind a poison problem"] });
+  });
+
   it("does not judge what the docs leave to the code", () => {
     expect(expectedBanner([{ type: "dismiss" }], false)).toEqual({ unmodelled: "dismiss" });
-    expect(expectedBanner([mode("stalled"), { type: "repair-started", event }], false))
-      .toEqual({ unmodelled: "a stall report beside a poison problem" });
   });
 });

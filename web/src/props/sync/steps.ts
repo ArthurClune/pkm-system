@@ -3,7 +3,8 @@
 // or lets go one thing a scenario needs in place before its next command.
 // The sync property's scenarios and the banner teeth share them.
 import { repairRunning, viewOf } from "./bannerModel";
-import { SyncCommand, type World } from "./commands";
+import { BadBatch, Discard, Fault, Pull, RotateGeneration, SyncCommand,
+         type World } from "./commands";
 import type { HarnessClient } from "./harnessClient";
 import type { SyncModel } from "./model";
 import { TIMED_OUT, within } from "./quiesce";
@@ -88,3 +89,13 @@ export class ReleaseSnapshots extends Step {
   }
   toString(): string { return `ReleaseSnapshots(${this.client})`; }
 }
+
+/** A stall (the rotation's recovery meets 503 snapshots while the socket is
+ * up), a failed mark's banner over it, then Discard. Three 503s keep the
+ * backoff's retries failing for seconds, so the stall outlasts the Discard. */
+export const stallBehindMarkThenDiscard = (): SyncCommand[] => [
+  new Fault("A", "snapshot5xx"), new Fault("A", "snapshot5xx"),
+  new Fault("A", "snapshot5xx"), new RotateGeneration(), new Pull("A"),
+  new BadBatch("A", "fails"), new AwaitBanner("A", "rejected-batch mark-failed"),
+  new Discard("A"),
+];

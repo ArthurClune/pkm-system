@@ -506,3 +506,56 @@ No product change.
 - Tests reach further into page unlinking, deep deletes, and over-long text in replayed offline edits.
 - Fixed bugs in the GoodLinks reader's original link and the importer's report of over-long titles.
 - SECURITY.md updated for the fixes, closing the security epic `pkm-mfd0`.
+
+## 2026-11-03 — The changelog brought up to date
+
+No product change.
+
+## 2026-11-05 — The assistant reads large pages, and a perf timing floor
+
+- The assistant can read pages too large for one tool result, and its list tools keep their results within Claude Code's size limit.
+- The performance gate no longer flags timing changes on scenarios too quick to time reliably.
+
+## 2026-11-07 — The first fixes from a state-machine review
+
+- Restoring a backup makes replicas that had synced past it start over from the restored copy.
+- Fixed bugs in the confirm dialog, Files selection during a filter change, the bullet menu, restores and imports of a database in use, and the assistant answering one turn behind after Stop.
+
+## 2026-11-08 — IME input, offline-mode exits, and the state-machine review completed
+
+- Committing an input-method conversion with Enter no longer splits the block.
+- Offline mode exits cleanly when its background worker dies or its first download fails, and an unreadable queue of offline edits is replaced.
+- Stop works in the assistant panel while a new conversation is being created.
+- Fixed bugs in outline drafts, autocomplete, block drags, the ordering of queued offline edits, reconnects, journal paging, unlinked references, page deletes, and server writes under load, closing epic `pkm-zk8b`.
+- Property tests yield to the test runner, so long suites finish.
+
+## 2026-11-09 — A maintainability review
+
+No product change.
+
+## 2026-11-10 — The first fixes from the maintainability review
+
+- The server acknowledges Stop in the assistant panel.
+- Undo, redo and drops between pages refuse a change too large to sync, with a notice.
+- Fixed bugs in clipboard copies, the online-only banner's count of unsaved edits, PDF embeds after their link changes, the sidebar after a resync, media in backlinks, creating a page from search, the CLI's config file permissions, backups, and server writes under load.
+- Docs and code comments corrected where the code contradicted them.
+- End-to-end tests write only to pages they create.
+
+## 2026-11-11 — Recovery on slow links, shared dialog behaviour, and the docs restructured
+
+- Sync recovery works on slow links: its downloads are compressed, recovery holds while a download makes progress, and a stalled download gives up with a message.
+- Dialogs share one behaviour: Tab stays inside, the page behind does not scroll, focus returns on close, and Escape closes only the top dialog.
+- A failed copy of a block reference or block selection shows the text in a notice.
+- The sync banner offers Reload when Retry cannot work, and says changes are paused while a repair holds them.
+- Backlink responses are smaller.
+- React Router upgraded to version 7 and build tools upgraded, past published advisories.
+- Server routes, the write path, sync sessions, outline commands and the assistant's event contract each consolidated onto one shared core.
+- Property testing extended to Files and backlinks paging, unlinked references, the sync banner, and the assistant chat.
+- The architecture docs cut for length and split by topic; title migration has its own doc, and `docs/troubleshooting.md` is retired.
+- Fixed bugs in undo to a page opened mid-undo, reconnects that skipped a resync, and Select all beside Load more in Files.
+
+## 2026-11-12 — Contract docs and the last recovery fixes
+
+- The architecture docs that property models check moved into `docs/architecture/contracts/`, beside the design docs.
+- Parallel sessions can run the web property gate on their own ports, each web property file runs in its own process, and a stalled run fails.
+- Fixed bugs in sync recovery when the server rejects a change mid-recovery, in the stalled-sync banner after another problem clears, and in Retry after a later rejection, closing epic `pkm-4gda`.

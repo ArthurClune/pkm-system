@@ -82,7 +82,7 @@ The same test file keeps writes out of a `read_txn` body.
 | `POST /api/migrations/title-canonicalization` | the re-inventory |
 
 `apply_batch` holds the lock on the event loop;
-[Work bounds under the write lock](#work-bounds-under-the-write-lock)
+[contracts/write-path.md § Work bounds under the write lock](contracts/write-path.md#work-bounds-under-the-write-lock)
 states what bounds its work.
 
 ## Planning
@@ -204,15 +204,16 @@ merges by concatenating blocks. `DELETE /api/page/{title}` runs
 `store.delete_page_unlinking`, which plans with `unlink.plan_page_delete`
 before any write. Links to the page become plain text and `((uid))` refs to
 its blocks become copies. A reference the delete cannot remove refuses it
-whole, with `blockers` ([contract](contracts/write-path.md#page-delete)).
+whole, with `blockers`
+([contract](contracts/write-path.md#page-mutations-and-the-sidebar)).
 A leading `Title:: v` refuses, because the block's next edit would recreate
 the page. `unlink_title_refs` runs several passes, since a nested legacy
 link loses one layer per pass.
 
 A server rewrite can grow stored text: a longer title per link, a copy per
 `((uid))`, a stripped asset token that joins `[` to `[`.
-[Work bounds](#work-bounds-under-the-write-lock) states each bound and
-refusal.
+[contracts/write-path.md § Work bounds under the write lock](contracts/write-path.md#work-bounds-under-the-write-lock)
+states each bound and refusal.
 
 `cleanup_journal` spares any daily note with an incoming link, so a link to a
 journal day cannot dangle.
@@ -224,7 +225,7 @@ commit, so its work stalls every other request. That work is linear in the
 request and in the rows and subtrees of the blocks the batch touches. What it
 derives from the server's history is charged to the batch's replay budget.
 Each bound, its constant, where it is judged and what happens past it is a
-row in [contracts/write-path.md § Work bounds](contracts/write-path.md#work-bounds).
+row in [contracts/write-path.md § Work bounds under the write lock](contracts/write-path.md#work-bounds-under-the-write-lock).
 
 The text limits exist because export holds a whole block in memory and the
 web tokenizer recurses once per nested run. The depth cap exists because the

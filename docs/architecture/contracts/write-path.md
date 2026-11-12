@@ -3,10 +3,13 @@
 What `POST /api/ops` and `DELETE /api/page/{title}` do, case by case.
 `server/tests/props/model.py` is written from this file and never from the
 code, so a change in behaviour edits the row here and the model together.
-Why each rule holds is in [write-path.md](../write-path.md), under the same
-section names.
+Each section's principle, and why it holds, is in
+[write-path.md](../write-path.md) under the same section name; a reason that
+belongs to one row sits in that row.
 
-## Ordering
+## Planning
+
+### Ordering
 
 | Situation | Outcome |
 |---|---|
@@ -27,7 +30,7 @@ conflict on a block the same day appends under the same header.
 | Block gone, hint missing, blank or [refused](../titles-and-refs.md#refused-titles) | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
 | Block exists, move target gone or inside it, or a replayed edit over a text limit | `` [[conflict]] [[Page]] — ((uid)) `` |
 | Guarded `delete` whose subtree changed | `` [[conflict]] [[Page]] — deleted while edited elsewhere `` |
-| Any of these, when the page's name would put the header past a [text limit](#work-bounds) | the name replaced by `(page title too long)` (`LONG_TITLE_LABEL`) |
+| Any of these, when the page's name would put the header past a [text limit](#work-bounds-under-the-write-lock) | the name replaced by `(page title too long)` (`LONG_TITLE_LABEL`) |
 
 A page that exists is named by its stored title, never the hint's spelling
 (`conflict_notes.existing_page_label`).
@@ -99,7 +102,7 @@ These are still a 400 for the whole batch:
 | a create's invalid or taken uid; a taken uid outranks a gone parent | `ops_core.plan_op` |
 | title syntax in a `create`, `create_page` or `move` `page_title`, or in any ref a text holds; never an `update_text`'s `page_title` | `find_op_title_violation`, before any op applies |
 | a skipped op whose own uid, or whose gone parent (a diverted create's, or a move's whose block exists), fails `UID_RE` | `ops_core.impossible_uid_reason` |
-| a `create` or `move` that would put a block past `MAX_OUTLINE_DEPTH` | `ops_core._check_depth` ([Work bounds](#work-bounds)) |
+| a `create` or `move` that would put a block past `MAX_OUTLINE_DEPTH` | `ops_core._check_depth` ([Work bounds under the write lock](#work-bounds-under-the-write-lock)) |
 
 ## Stale batches
 
@@ -125,7 +128,7 @@ pruned.
 | `move` under a parent no longer on the page `page_title` names | moved onto the parent's page | the subtree |
 | `move` whose target is the block or its descendant | skipped as `move_cycle`, reported `cycle`; child `move skipped: would create a cycle` under the block's header | the moved subtree, root first |
 
-## Page delete
+## Page mutations and the sidebar
 
 `unlink.plan_page_delete` decides, before any write:
 
@@ -144,7 +147,7 @@ pruned.
 source `residual` (`unlink.unlink_settled`). Rewritten blocks get `unlink`
 and `inline` rows and a reindex, and the title goes into `page_deletions`.
 
-## Work bounds
+## Work bounds under the write lock
 
 | Bound | Constant | Judged in | Past it |
 |---|---|---|---|

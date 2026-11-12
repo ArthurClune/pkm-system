@@ -56,7 +56,7 @@ def move(uid: BlockUid, parent, idx, page=None):
     return op
 
 
-# --- contracts/write-path.md § Ordering -------------------------------------
+# --- contracts/write-path.md § Planning, Ordering ---------------------------
 
 def test_create_shifts_siblings_at_and_after_key():
     m = model(blk(A, idx=0), blk(B, idx=1))
@@ -293,7 +293,7 @@ def test_title_syntax_is_400():
     assert X not in m.blocks
 
 
-# --- contracts/write-path.md § Page delete ----------------------------------
+# --- contracts/write-path.md § Page mutations and the sidebar ---------------
 
 def test_delete_missing_page_is_404():
     m = model()
@@ -368,7 +368,7 @@ def test_delete_page_judges_the_length_before_the_rewrite_s_own_blockers():
     assert m.delete_page(raw_title_of("Alpha"), {}, seq_of(9)).blockers == {B: "limit"}
 
 
-# --- contracts/write-path.md § Work bounds ----------------------------------
+# --- contracts/write-path.md § Work bounds under the write lock -------------
 
 @pytest.mark.parametrize("text", PAST_LIMIT_TEXTS)
 def test_a_text_past_a_limit_refuses_the_batch(text):

@@ -193,7 +193,10 @@ Rules a change to the gate must keep:
   disagree with the code where the code is wrong. Its cases come from
   [`contracts/`](contracts/), and a case it needs that no contract holds
   becomes a contract row before the model encodes it. `props/model.py`
-  encodes [contracts/write-path.md](contracts/write-path.md) and never imports
+  encodes [contracts/write-path.md](contracts/write-path.md), plus
+  [backend.md § Database](backend.md#database) and
+  [cli-and-mcp.md § Pure planners](cli-and-mcp.md#pure-planners), and never
+  imports
   `pkm.server`, `pkm.planning` or `pkm.batch`
   (`test_model_imports_no_server_code`). The outline model imports outline
   code as types only.

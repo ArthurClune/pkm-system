@@ -92,11 +92,11 @@ def _valid_uid(uid: BlockUid) -> bool:
 
 def _title_violation(ops: Sequence[Op]) -> bool:
     """contracts/write-path.md § Missing targets: "title syntax" is still a
-    400. Checked
-    over the whole batch before any op applies: a create's, create_page's or
-    move's page_title (even one a live parent makes the server ignore), and
-    every `[[ref]]`/`#tag` title in a create's or edit's text. An edit's
-    page_title is only a header label and is never checked (§ Conflicts)."""
+    400. Checked over the whole batch before any op applies: a create's,
+    create_page's or move's page_title (even one a live parent makes the
+    server ignore), and every `[[ref]]`/`#tag` title in a create's or edit's
+    text. An edit's page_title is only a header label and is never checked
+    (contracts/write-path.md § Missing targets, title syntax row)."""
     for op in ops:
         kind = op["op"]
         title = op.get("page_title") if kind in ("create", "create_page",
@@ -111,13 +111,13 @@ def _title_violation(ops: Sequence[Op]) -> bool:
 
 
 def _limit_violation(ops: Sequence[Op]) -> bool:
-    """contracts/write-path.md § Work bounds, the bounds and their order:
-    a create's or edit's text longer than
-    1,000,000 code points, or with `[[` runs nested deeper than 32 outside
-    code, is a 400 for the whole batch. Judged over the whole batch before
-    titles, an op the server would skip included; no other op's text is
-    judged. Of the texts the strategies draw, exactly
-    `PAST_LIMIT_TEXTS` are past a limit (props/limit_texts.py).
+    """contracts/write-path.md § Work bounds under the write lock, the
+    bounds and their order: a create's or edit's text longer than 1,000,000
+    code points, or with `[[` runs nested deeper than 32 outside code, is a
+    400 for the whole batch. Judged over the whole batch before titles, an
+    op the server would skip included; no other op's text is judged. Of the
+    texts the strategies draw, exactly `PAST_LIMIT_TEXTS` are past a limit
+    (props/limit_texts.py).
 
     That holds only while every other drawn text stays well inside both
     limits, so a text outside `LIMIT_TEXTS` is checked against a bound no
@@ -146,9 +146,9 @@ _BLOCK_REF = re.compile(r"\(\(([^()\s]+)\)\)")
 
 
 def unlink_titles(text: str, titles: Collection[str]) -> str:
-    """contracts/write-path.md § Page delete: every `[[Title]]` and
-    `#Title` naming one of `titles` becomes plain `Title`. A leading
-    `Title::` is not a link and is left alone."""
+    """contracts/write-path.md § Page mutations and the sidebar: every
+    `[[Title]]` and `#Title` naming one of `titles` becomes plain `Title`.
+    A leading `Title::` is not a link and is left alone."""
     def plain(m: re.Match[str]) -> str:
         return m.group(1) if m.group(1) in titles else m.group(0)
     return _TAG.sub(plain, _LINK.sub(plain, text))
@@ -193,9 +193,9 @@ _NEWLINES = re.compile(r"\s*\n\s*")
 
 
 def _plain_copy(text: str) -> str:
-    """contracts/write-path.md § Page delete: a block's copy drops its
-    leading attribute, and its newlines are folded to one space each
-    run (generated texts carry no task marker)."""
+    """contracts/write-path.md § Page mutations and the sidebar: a block's
+    copy drops its leading attribute, and its newlines are folded to one
+    space each run (generated texts carry no task marker)."""
     span = attribute_title_span(strip_code(text), text)
     text = text if span is None else text[span.end:].lstrip()
     return _NEWLINES.sub(" ", text)
@@ -268,10 +268,10 @@ class PageDelete:
                for r in extract(text).refs):
             return "used_as_attribute"
         new, _, applied = self.rewrite(text)
-        # contracts/write-path.md § Work bounds: the copies inlined may not
-        # carry a text past the length cap, nor further past it, judged
-        # on the inlined text before unlinking and ahead of the rewrite's own
-        # blockers. Unlinking only shortens, so the unlinked text needs no
+        # contracts/write-path.md § Work bounds under the write lock: the copies
+        # inlined may not carry a text past the length cap, nor further past it,
+        # judged on the inlined text before unlinking and ahead of the rewrite's
+        # own blockers. Unlinking only shortens, so the unlinked text needs no
         # second length judgement. The code judges the nesting there too, since
         # copies that open runs and copies that close them join into one deep
         # link, and the depth times the length; every drawn text closes the runs
@@ -385,10 +385,10 @@ class Model:
     def delete_page(self, title: RawTitle, others: Mapping[BlockUid, str],
                     seq: SyncSeq) -> PageDelete:
         """`DELETE /api/page/{title}` (contracts/write-path.md § Page
-        delete). `others` is the text of every block the model does not
-        track that is off the page (conflict entries, seed rows), since
-        they can refuse the delete too. A 200 removes the page and its
-        blocks, rewrites each referencing pool block and records its
+        mutations and the sidebar). `others` is the text of every block the
+        model does not track that is off the page (conflict entries, seed
+        rows), since they can refuse the delete too. A 200 removes the page
+        and its blocks, rewrites each referencing pool block and records its
         rewrite, and records the deletion at journal head `seq`."""
         if title not in self.pages:
             return PageDelete(404)
@@ -507,10 +507,10 @@ class Model:
 
     def _shift(self, page: str, parent: BlockUid | None, key: int,
                moving: BlockUid | None = None) -> None:
-        """contracts/write-path.md § Ordering: landing at `key` first
-        bumps every sibling (same page, same parent) whose key is >= `key`
-        by one. A moving block is left out of its own shift: its key is
-        overwritten when it lands, so only its siblings move."""
+        """contracts/write-path.md § Planning, Ordering: landing at `key`
+        first bumps every sibling (same page, same parent) whose key is
+        >= `key` by one. A moving block is left out of its own shift: its key
+        is overwritten when it lands, so only its siblings move."""
         for b in list(self.blocks.values()):
             if (b.page == page and b.parent == parent and b.order_idx >= key
                     and b.uid != moving):
@@ -649,9 +649,10 @@ class Model:
             # join into a deeper link and only the length cap can be
             # reached (code: replay_core._replay_step judges each step's
             # splice on both, and on the depth times the length).
-            # § Work bounds under the write lock: the landing has every title
-            # the chain deleted or renamed away made plain, the steps past
-            # the one over the cap included (code:
+            # contracts/write-path.md § Work bounds under the write lock, row
+            # "an `over_limit` edit": the landing has every title the chain
+            # deleted or renamed away made plain, the steps past the one
+            # over the cap included (code:
             # replay_core.over_limit_landing_text). The machine draws no
             # rename, so a `Rewrite` carries no retitles and `gone` is the
             # deleted titles alone; a rename rule must add the old titles.
@@ -728,9 +729,9 @@ class Model:
                 skip("page_deleted")
                 return
             self.pages.add(page)
-        # § The write path, Ordering: shift the destination's siblings at or
-        # after the key, then place the block. Its old group is left with a
-        # gap: nothing renumbers.
+        # contracts/write-path.md § Planning, Ordering: shift the
+        # destination's siblings at or after the key, then place the block.
+        # Its old group is left with a gap: nothing renumbers.
         self._shift(page, parent, key, moving=block.uid)
         subtree = self.subtree(block.uid)
         self.blocks[block.uid] = replace(block, parent=parent,

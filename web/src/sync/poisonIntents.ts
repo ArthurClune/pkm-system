@@ -54,3 +54,10 @@ export function withIntent(
 ): PoisonEvent[] {
   return orderedPoisonEvents(intents, [event]);
 }
+
+export function withoutIntents(
+  intents: readonly PoisonEvent[], removed: readonly PoisonEvent[],
+): PoisonEvent[] {
+  const gone = new Set(removed.map(keyOf));
+  return intents.filter((event) => !gone.has(keyOf(event)));
+}

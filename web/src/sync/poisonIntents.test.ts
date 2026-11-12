@@ -4,6 +4,7 @@ import {
   serialiseIntents,
   validPoisonEvent,
   withIntent,
+  withoutIntents,
   type PoisonEvent,
 } from "./poisonIntents";
 import { batchIdOf, pendingRowIdOf } from "../test-helpers";
@@ -92,6 +93,26 @@ describe("withIntent", () => {
   it("does not mutate its input", () => {
     const intents = [event(1, "a")];
     withIntent(intents, event(0, "z"));
+    expect(intents).toEqual([event(1, "a")]);
+  });
+});
+
+describe("withoutIntents", () => {
+  it("removes only the events whose row and batch match", () => {
+    const intents = [event(1, "a"), event(1, "b"), event(2, "c")];
+    expect(withoutIntents(intents, [event(1, "a", "other message")]))
+      .toEqual([event(1, "b"), event(2, "c")]);
+  });
+
+  it("keeps an event added after the removed ones were taken", () => {
+    const taken = [event(1, "a")];
+    const now = withIntent(taken, event(2, "b"));
+    expect(withoutIntents(now, taken)).toEqual([event(2, "b")]);
+  });
+
+  it("does not mutate its input", () => {
+    const intents = [event(1, "a")];
+    withoutIntents(intents, intents);
     expect(intents).toEqual([event(1, "a")]);
   });
 });

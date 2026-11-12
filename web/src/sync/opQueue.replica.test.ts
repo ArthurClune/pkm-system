@@ -15,6 +15,7 @@ import {
   objectContaining, sentBody, clientIdOf,
 } from "../test-helpers";
 import { memReplica } from "./memReplica";
+import { parseStoredIntents } from "./poisonIntents";
 import { clientId, createOpQueue, type Desync, type PoisonEvent } from "./opQueue";
 
 const op = (rawUid: string): BlockOp => ({ op: "delete", uid: uidOf(rawUid) });
@@ -1911,6 +1912,56 @@ describe("deliverLeased's rejection", () => {
       ["Error: SQLITE_BUSY", "Error: replica disposed"]));
     await new Promise((done) => setTimeout(done, 0));
     expect(q.holds("poison")).toBe(true);
+  });
+
+  test("a mark that finishes while a later rejection's mark fails keeps " +
+       "the later intent for Retry", async () => {
+    const earlier: PoisonEvent = {
+      id: pendingRowIdOf(99), batch_id: bid("batch-earlier"),
+      ops: [op("tuid-earlier")], status: 400, message: "earlier rejected",
+    };
+    localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
+      version: 1, intents: [earlier],
+    }));
+    const earlierGate = deferred<void>();
+    const earlierStarted = deferred<void>();
+    let laterMarks = 0;
+    const { q, replica, row } = await leasedRow(
+      () => new ApiError(400, "/api/ops", "bad op"),
+      async (id) => {
+        if (id === earlier.id) {
+          earlierStarted.resolve();
+          await earlierGate.promise;
+          return { pending: 1, matched: true };
+        }
+        laterMarks += 1;
+        if (laterMarks === 1) throw new Error("SQLITE_BUSY");
+        replica.rows.find((r) => r.id === id)!.poisoned = true;
+        return { pending: 0, matched: true };
+      });
+    const markFailed: PoisonEvent[] = [];
+    q.onPoisonMarkFailed(({ event }) => markFailed.push(event));
+
+    const earlierMark = q.retryPoisonMarks();
+    await earlierStarted.promise;
+    await expect(q.deliverLeased(row, () => undefined))
+      .rejects.toMatchObject({ status: 400 });
+    await vi.waitFor(() => expect(markFailed.map((e) => e.batch_id))
+      .toEqual([row.batch_id]));
+
+    earlierGate.resolve();
+    await expect(earlierMark).resolves.toEqual([earlier]);
+
+    expect(q.poisonMarkIntents().map((e) => e.batch_id))
+      .toEqual([row.batch_id]);
+    expect(parseStoredIntents(
+      localStorage.getItem("pkm.poison-mark-intents.v1"),
+    ).map((e) => e.batch_id)).toEqual([row.batch_id]);
+    await expect(q.retryPoisonMarks()).resolves.toEqual([
+      expect.objectContaining({ batch_id: row.batch_id }),
+    ]);
+    expect(q.poisonMarkIntents()).toEqual([]);
+    q.dispose();
   });
 
   test("a leased batch's 503 claims nothing and keeps its ticket pending",

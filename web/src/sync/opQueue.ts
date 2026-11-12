@@ -37,7 +37,7 @@ import { append, clearMarks, createOutbox, forget, headPrecedes, laneHead,
          markFollows, settleHead, type LaneEntry } from "./outbox";
 import { readPoisonMarkIntents,
          writePoisonMarkIntents } from "./poisonIntentStore";
-import { withIntent, type PoisonEvent } from "./poisonIntents";
+import { withIntent, withoutIntents, type PoisonEvent } from "./poisonIntents";
 import { createQueueState, terminalReason, transitionQueue,
          type BarrierOwner, type QueueBlockReason, type QueueEffect,
          type QueueEvent } from "./queueState";
@@ -458,8 +458,10 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
     // The database is now the durable source of truth. Removing fallback
     // metadata before publication is crash-safe: startup discovers the
     // poisoned database rows. If removal fails, marking is idempotent.
-    poisonStore.write([]);
-    poisonMarkIntents = [];
+    // Only this call's intents go: another rejection may have added one while
+    // these marks awaited, and that one is not marked yet.
+    poisonMarkIntents = withoutIntents(poisonMarkIntents, intents);
+    poisonStore.write(poisonMarkIntents);
     matchedIntents.forEach((event) => poison.emit(event));
     if (intents.length > 0 && matchedIntents.length === 0) {
       poisonMarkUnmatched.emit(undefined);

@@ -191,8 +191,17 @@ Rules a change to the gate must keep:
 
 - **A model is written from the docs, not from the code**, so it can
   disagree with the code where the code is wrong. Its cases come from
-  [`contracts/`](contracts/), and a case it needs that no contract holds
-  becomes a contract row before the model encodes it. `props/model.py`
+  [`contracts/`](contracts/). Reading the code to check a row is expected;
+  a model whose only source is the code checks the code against itself.
+  A case a model needs that no contract holds is sorted first:
+
+  | The case is | Then |
+  |---|---|
+  | intended: a test, a stated reason or the change that added it shows someone chose it | a contract row, before the model encodes it |
+  | a bug | a bug bean; the model is not bent to the code |
+  | an accident nobody depends on, such as an order a merge happens to produce | the model stops asserting it, and no row pins it |
+
+  `props/model.py`
   encodes [contracts/write-path.md](contracts/write-path.md),
   [contracts/backend.md](contracts/backend.md) and
   [contracts/cli-and-mcp.md](contracts/cli-and-mcp.md), and never imports

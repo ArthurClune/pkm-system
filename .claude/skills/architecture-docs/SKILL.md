@@ -15,9 +15,11 @@ replaces goes away rather than sitting beside it.
 
 `docs/architecture/contracts/<doc>.md` holds the case tables that a property
 model (`server/tests/props`, `web/src/props`, a `*.props.test.ts`) is written
-from. A model must not read the code (`checks.md` § Property gate), so a
-contract restates, case by case, what the code does. That restating is its
-job. Every section after this one is about the `<doc>.md` files themselves.
+from. A model must not take its cases from the code (`checks.md` § Property
+gate), so a contract restates, case by case, what the code does. That
+restating is its job. A case found only in the code is sorted before it
+becomes a row: intended, a bug, or an accident the model should stop
+asserting (the table in that section). A row for an accident pins it. Every section after this one is about the `<doc>.md` files themselves.
 A contract file has this shape instead:
 
 | Part | Holds |

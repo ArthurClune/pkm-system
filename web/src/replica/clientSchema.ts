@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS replay_batches(
 
 /** Identifies the exact DDL a replica file was built with; a mismatch on
  * open triggers the flush-then-rebootstrap recovery
- * (docs/architecture/sync-recovery.md § Rebootstrap triggers). */
+ * (docs/architecture/contracts/sync-recovery.md § Rebootstrap triggers). */
 export const SCHEMA_VERSION = sha256Hex(BASE_SCHEMA + CLIENT_DDL);
 
 export function installSchema(db: ReplicaDb): void {

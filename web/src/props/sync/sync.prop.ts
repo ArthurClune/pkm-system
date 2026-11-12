@@ -320,7 +320,8 @@ interface ExampleOptions {
 /** No cap two times in three, else a window of one to five journal rows:
  * small enough that a catch-up over a few edits crosses several window
  * boundaries, where block tombstones wait for the window at the journal
- * head (docs/architecture/sync-and-offline.md § Block tombstones). */
+ * head (docs/architecture/contracts/sync-and-offline.md § Block
+ * tombstones). */
 const windowLimit: fc.Arbitrary<number | undefined> = fc.oneof(
   { weight: 2, arbitrary: fc.constant(undefined) },
   { weight: 1, arbitrary: fc.integer({ min: 1, max: 5 }) },

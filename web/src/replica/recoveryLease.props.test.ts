@@ -1,14 +1,15 @@
 // @vitest-environment node
 // The worker's recovery lease, driven through buildHandlers by drawn commands
-// and checked against a model of the lease's contract (sync-recovery.md
-// § The recovery lease): the client sends a deadline and may move it later
-// by renewing; once the clock reaches the deadline the lease is expired, the
-// gate is freed and the token is refused, unless a commit has begun. A lease
-// call that finds the deadline passed expires the lease itself, whether or
-// not the timer has run. The clock is the injected one; the timers keep pace
-// with it or run ahead of it (`skew`), and a lease call may arrive with the
-// clock ahead of the timers (`late`). Calls reach a running commit as soon as
-// it begins and from inside its snapshot apply. Invariants:
+// and checked against a model of the lease's contract
+// (contracts/sync-recovery.md § The recovery lease): the client sends a
+// deadline and may move it later by renewing; once the clock reaches the
+// deadline the lease is expired, the gate is freed and the token is refused,
+// unless a commit has begun. A lease call that finds the deadline passed
+// expires the lease itself, whether or not the timer has run. The clock is the
+// injected one; the timers keep pace with it or run ahead of it (`skew`), and a
+// lease call may arrive with the clock ahead of the timers (`late`). Calls
+// reach a running commit as soon as it begins and from inside its snapshot
+// apply. Invariants:
 //   exclusion         no gated call settles while the model holds the lease
 //                     or a commit runs
 //   bounded hold      once the clock reaches the model's deadline with no

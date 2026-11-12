@@ -10,7 +10,8 @@
 //   per-client order  each client's batches landed in its enqueue order,
 //                     except that a durable batch still undelivered when its
 //                     worker died may land after the lane batches enqueued
-//                     behind it (sync-recovery.md § A local write fails)
+//                     behind it (contracts/sync-recovery.md § A local
+//                     write fails)
 //   desync/poison     no onDesync, and onPoison only for expected rejections
 //   delete wins       no block a deleted page held is alive, and a deleted
 //                     title exists only if a rename or a batch not stale for
@@ -23,7 +24,8 @@
 //                     died: progress renews the lease, however slow the
 //                     download, and a stalled one is abandoned by the client,
 //                     which gives the gate back itself before the worker
-//                     would (sync-recovery.md § The recovery lease)
+//                     would (contracts/sync-recovery.md § The recovery
+//                     lease)
 //   serial replay     replaying the recorded bodies in commit order, each at
 //                     its applied_at, with every page rename and delete put
 //                     back after the batch it followed, at the clock it ran
@@ -314,14 +316,14 @@ export class CursorWatch {
 type ModeClient = Pick<HarnessClient,
   "name" | "mode" | "workerDead" | "appliedVersion" | "hasStarted">;
 
-/** Replica mode (sync-recovery.md § Replica mode). A live worker is never
- * taken for dead, and once a started client's worker has died, one forced
- * pull makes the session online-only: mode no-replica, no answer to "what
- * moved" for a reconnect to trust, and no editing while offline. A pull
- * that joins one in flight gets a pass of its own, so it calls the worker
- * too. An edit does the same through the queue's call, started or not.
- * Run after every command (observe), and after each forced pull (afterPull)
- * or edit (afterEdit) of a client whose worker died. */
+/** Replica mode (contracts/sync-recovery.md § Replica mode). A live
+ * worker is never taken for dead, and once a started client's worker has
+ * died, one forced pull makes the session online-only: mode no-replica, no
+ * answer to "what moved" for a reconnect to trust, and no editing while
+ * offline. A pull that joins one in flight gets a pass of its own, so it
+ * calls the worker too. An edit does the same through the queue's call,
+ * started or not. Run after every command (observe), and after each forced
+ * pull (afterPull) or edit (afterEdit) of a client whose worker died. */
 export class ModeWatch {
   observe(clients: readonly ModeClient[]): void {
     for (const c of clients) {

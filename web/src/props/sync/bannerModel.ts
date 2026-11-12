@@ -1,8 +1,9 @@
 // pattern: Functional Core
-// The banner model, from sync-recovery.md § What the UI shows, § The recovery
-// barrier and § A batch the server rejects, never from syncState.ts: which
-// problem one page load's session shows, given the events it has folded and
-// whether the queue holds a claim only the replica can release.
+// The banner model, from contracts/sync-recovery.md § What the UI shows,
+// § The recovery barrier and § A batch the server rejects, never from
+// syncState.ts: which problem one page load's session shows, given the
+// events it has folded and whether the queue holds a claim only the replica
+// can release.
 //   poison    a rejected batch's latest phase (mark failed, repair running,
 //             failed or repaired) or a discovery that could not answer; a
 //             discard ends a failed mark, a cleared discovery ends itself

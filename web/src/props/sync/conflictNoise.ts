@@ -92,10 +92,10 @@ export interface LaneClient {
  * each lost reply whose lane copy landed ahead of an earlier batch of its
  * client that a worker death left undelivered. Once a death latches, the
  * drain sends only the lane and the durable rows wait for the next life
- * (sync-recovery.md § A local write fails), so that copy overtook them
- * unhashed, as a lane batch does. A lost reply whose durable row went out
- * in order is no lane write. `enqueued` is each client's batches in
- * enqueue order. */
+ * (contracts/sync-recovery.md § A local write fails), so that copy
+ * overtook them unhashed, as a lane batch does. A lost reply whose durable
+ * row went out in order is no lane write. `enqueued` is each client's
+ * batches in enqueue order. */
 export function conflictLane(clients: readonly LaneClient[],
                              applied: readonly { batch_id: BatchId }[],
                              enqueued: ReadonlyMap<string, readonly BatchId[]>): Set<BatchId> {

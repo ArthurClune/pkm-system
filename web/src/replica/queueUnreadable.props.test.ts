@@ -1,10 +1,10 @@
 // @vitest-environment node
 // The worker's queue handlers over a pending_ops that can turn unreadable at
-// any step. The model is the queue rule in sync-recovery.md § Reset, rebase
-// and file replacement: the queue is the user's intent, so a file whose
-// queue cannot be read is replaced by one holding every row that still can
-// be, with the carry as the rows' durable copy from before the unlink until
-// the new file has them. Invariants:
+// any step. The model is the queue rule in contracts/sync-recovery.md
+// § Reset, rebase and file replacement: the queue is the user's intent, so
+// a file whose queue cannot be read is replaced by one holding every row
+// that still can be, with the carry as the rows' durable copy from before
+// the unlink until the new file has them. Invariants:
 //   no wedge   a handler fails only while a discard is armed to throw over a
 //              damaged queue, or as a commit whose lease met fresh damage;
 //              any other call succeeds

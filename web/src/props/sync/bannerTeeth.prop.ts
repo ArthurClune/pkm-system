@@ -1,9 +1,10 @@
 // pattern: Imperative Shell
 // Does the banner check have teeth? Each mutant bends transitionSync's
-// result on one rule of sync-recovery.md § What the UI shows, and a fixed
-// scenario that reaches the rule must then fail BannerWatch; run clean, the
-// same scenario must pass. The property draws some of these paths too
-// rarely to rely on, so each scenario reaches its rule by construction.
+// result on one rule of contracts/sync-recovery.md § What the UI shows, and
+// a fixed scenario that reaches the rule must then fail BannerWatch; run
+// clean, the same scenario must pass. The property draws some of these
+// paths too rarely to rely on, so each scenario reaches its rule by
+// construction.
 //   paused dropped   the online-only banner never says delivery is paused
 //   kept replaced    the replica gone, a failed mark's banner is replaced,
 //                    though its Discard needs no worker

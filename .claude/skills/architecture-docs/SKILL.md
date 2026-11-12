@@ -11,6 +11,40 @@ not the default.** If a diagram, a table, or a link to the doc that already owns
 the material can carry it, that is the version that ships — and the prose it
 replaces goes away rather than sitting beside it.
 
+## Contract files
+
+`docs/architecture/contracts/<doc>.md` holds the case tables that a property
+model (`server/tests/props`, `web/src/props`) is written from. A model must
+not read the code (`checks.md` § Property gate), so a contract restates, case
+by case, what the code does. That restating is its job. Every section after
+this one is about the `<doc>.md` files themselves. A contract file has this
+shape instead:
+
+| Part | Holds |
+|---|---|
+| header | the models written from it, and a pointer to `<doc>.md`, where the reasons live under the same section names |
+| sections | one per mechanism, named as the `<doc>.md` section that explains it |
+| rows | one per case the code tells apart, its first column a stable name a model can cite; two cases with one outcome are two rows |
+| cells | the exact strings, reason codes, constant names, judging symbols and bound arithmetic a model needs |
+| prose | only an order the cases are judged in, or a rule that spans rows |
+
+Tightening a contract changes its shape and keeps its content: a long cell
+becomes rows, a list becomes a table, a reason moves to `<doc>.md`. Every
+case, string, symbol and bound stays. A clause that says when a case applies
+("with the batch's earlier ops applied", "whatever the judges said") is
+content. A reason says why, and only a reason moves.
+
+A case table moves into a contract once a model encodes it. Until then it
+stays in `<doc>.md` under the rest of this skill.
+
+A behaviour change in a mechanism that has a contract is one commit with
+three parts:
+
+1. the contract row, added or changed;
+2. the model that cites that section, and the model's own tests (find them
+   with `git grep '<doc>.md § <Section>' -- server/tests/props web/src/props`);
+3. the sentence in `<doc>.md`, if the rule or its reason changed.
+
 ## A doc states what the code cannot
 
 A doc holds what the code and its checks cannot tell a reader: orientation
@@ -213,8 +247,8 @@ long sentence your edit introduced is marked `NEW` and always listed, wherever
 it ranks.
 
 Before cutting a row or section, `git grep` its doc name outside `docs/`. Code
-comments cite rows by name (`props/model.py` cites `write-path.md` sections), and
-check-docs cannot see them.
+comments cite rows by name (`props/model.py` cites `contracts/write-path.md`
+sections), and check-docs cannot see them.
 
 Docs-only commits need no test run. The commit message should say what was
 **corrected** (a claim that was wrong) versus **restructured** (no claim
@@ -235,3 +269,5 @@ changed).
 | Trusting the bean or plan | doc describes intended behaviour | verify against the code; it is what shipped |
 | Copying what the code holds | a module inventory, a lint rule catalogue, a constant's value written out | name the code; it is the list |
 | Writing up the fix instead of the rule | each fix adds a paragraph walking the race it closed | change the rule's sentence; the walk lives in the test |
+| Tightening a contract like any other doc | rows with one outcome merged, a "tautological" row dropped, judging symbols and bound arithmetic cut | [Contract files](#contract-files): change the shape, keep every case |
+| A contract row without its model | the row changes and `props/` still encodes the old case | the row, the model and its tests in one commit |

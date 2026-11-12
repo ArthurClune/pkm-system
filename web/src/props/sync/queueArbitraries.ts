@@ -64,8 +64,9 @@ const fixedEdit = (persist: Persist, bad: boolean): fc.Arbitrary<QueueCmd> =>
 // when the drain never posted that entry: it needs a bad lane-only edit, a
 // durable edit behind it, and a recovery, all before the drain runs. The mix
 // above draws that a few times in ten thousand, so some examples start
-// offline and draw from this mix instead. Its bad durable edits and repairs
-// keep the poison labels near the rates the mix above alone gives them.
+// offline and draw from this mix instead. It adds little to the other
+// labels: their shares fall to about the six in seven examples the mix
+// above still draws, which is why that weight is no lower.
 const recoveryCommand: fc.Arbitrary<QueueCmd> = fc.oneof(
   { weight: 2, arbitrary: edit },
   { weight: 2, arbitrary: fixedEdit("ok", false) },

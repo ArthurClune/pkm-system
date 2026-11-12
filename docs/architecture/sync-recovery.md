@@ -211,9 +211,9 @@ and `pause(owner)` and `resume(owner)` take one:
 | Owner | Claimed by | Released by |
 |---|---|---|
 | `startup` | `clientRuntime.startup()` | `continueStartup`, once discovery answers; on poisoned rows, after `repair()` has claimed `poison` |
-| `poison` | before any durable row is marked poisoned, and while retained mark intents or rows startup found await a repair (`rejectDurableBatch`, `markRetainedPoison`, `runRepair`) | a repair that succeeds (`runRepair`), or nothing left to repair, with no repair running (`continueStartup`, `discardPoisonIntents`) |
+| `poison` | before any durable row is marked poisoned, and while retained mark intents or rows startup found await a repair (`rejectDurableBatch`, `deliverLeased`, `markRetainedPoison`, `runRepair`) | a repair that succeeds (`runRepair`), or nothing left to repair, with no repair running (`continueStartup`, `discardPoisonIntents`) |
 | `recovery` | `runRecovery`, before its lease | the end of that run, whatever its outcome |
-| `lane` | a lane entry's 4xx (`deliverLaneHead`) | the first outline repair to become stable after it (`laneOwed` in `outlineRepair.ts`) |
+| `lane` | a lane entry's 4xx (`deliverLaneHead`, `deliverLaneAhead`) | the first outline repair to become stable after it (`laneOwed` in `outlineRepair.ts`) |
 
 A recovery's leased flush (`OpQueue.deliverLeased`, lane entries ahead of the
 batch included) posts while `lane` holds. The claim only orders the ordinary
@@ -260,8 +260,9 @@ over an armed retry.
 
 ## A batch the server rejects
 
-`isTerminalRejection` (`sync/rejection.ts`) decides, at both delivery sites in
-`opQueue.ts`, whether a failure means the batch itself is bad:
+`isTerminalRejection` (`sync/rejection.ts`) decides, at each delivery site in
+`opQueue.ts` (the drain's durable and lane deliveries, and a recovery's leased
+POST in `deliverLeased`, lane entries ahead included), whether a failure means the batch itself is bad:
 
 | Answer | Terminal? | Outcome |
 |---|---|---|
@@ -285,8 +286,14 @@ rebase would replay those rows over their commits:
 
 | Guard | Where |
 |---|---|
-| `rejectDurableBatch` pauses `poison` before the durable mark. The flush's `beforePost` reads `holdsPoison()` before every leased batch, and `deliverLeased` reads it again after the lane ahead | `opQueue.ts`, `replicaSync.ts` |
+| `rejectDurableBatch`, and `deliverLeased` on a leased 4xx, pause `poison` before the durable mark. The flush's `beforePost` reads `holdsPoison()` before every leased batch, and `deliverLeased` reads it again after the lane ahead | `opQueue.ts`, `replicaSync.ts` |
 | Startup repairs poisoned rows left by an earlier page load before `replicaSync.start()` | `clientRuntime.ts` |
+
+`deliverLeased` claims `poison` synchronously, fails its ticket, starts
+`markRetainedPoison` without awaiting it, and throws. It cannot await the
+mark: `markPoisoned` passes the worker gate, which the run's own recovery lease
+holds, so the mark lands once the run aborts. A lane entry ahead that the
+server rejects is discarded as in the drain, and the flush goes on.
 
 A failed repair keeps the barrier and a Retry banner. It usually failed
 offline, so every socket connect retries it too:
@@ -361,7 +368,7 @@ flowchart TD
 
 | `RecoveryOptions` | schema / feed recovery | poison repair | manual reset |
 |---|---|---|---|
-| `flush` | `"preemptible"`: abandon if a poison mark claims recovery | `"skip"`: never post valid rows ahead of a refused batch | `"blocking"`: a failed flush raises `ResetBlockedError`, unless the lease was lost, since discarding the queue would not win it back; `"skip"` if the user discards pending changes |
+| `flush` | `"preemptible"`: abandon if a poison mark claims recovery | `"skip"`: never post valid rows ahead of a refused batch | `"blocking"`: a failed flush raises `ResetBlockedError`, unless the lease was lost, since discarding the queue would not win it back, or a poison claim landed, which refuses as "rejected-batch repair in progress"; `"skip"` if the user discards pending changes |
 | `reportReplicaFailure` | yes, mode `recovery-failed` | no | no |
 | `awaitInFlightPull` | no | yes | yes |
 | `forceReadyOnSuccess` | no | no | yes |

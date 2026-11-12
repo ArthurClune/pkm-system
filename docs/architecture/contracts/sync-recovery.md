@@ -139,6 +139,7 @@ POST (`deliverLeased`, lane entries ahead of its batch included):
 | `markPoisoned` succeeds | fires `onPoison`, which starts the repair |
 | a recovery's leased batch is rejected | `deliverLeased` claims `poison`, starts the mark without awaiting it (the run's own lease holds the worker gate the mark passes, so it lands once the run aborts), and throws: the row's ack never reaches `heldAcks`. A preemptible recovery reports no failure; a blocking reset refuses as "rejected-batch repair in progress", never `ResetBlockedError` |
 | the mark RPC fails | the `poison` claim stays, because the row is still unmarked |
+| two `markRetainedPoison` calls overlap (a leased rejection's unawaited mark, Retry beside the drain's) | each removes only the intents it took, by `id` and `batch_id` (`withoutIntents`): an intent added while it awaited is unmarked, and Retry needs it |
 | `retryPoisonMarks()` fails | the barrier stays, with Retry and "Discard rejected change" (`Sync.discardProblem()`) |
 | a pull pass needs a recovery while the claim is held | it leaves the recovery to the repair, and one more pull is owed for the claim's release (`owePoisonPull` in `replicaSync.ts`) |
 

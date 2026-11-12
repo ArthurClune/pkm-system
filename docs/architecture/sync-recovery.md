@@ -36,9 +36,7 @@ repair (`outline/repairEpochs.ts`) wipes the active outline back to the
 server's edit-less state. A full disk arrives the same way: the opfs-sahpool
 VFS reports `QuotaExceededError` as a bare `SQLITE_IOERR`.
 
-Kept ops join an ordered in-memory fallback lane. Once `noteReplicaFailure`
-latches, the drain delivers only the lane, and durable rows from before the
-latch wait for a later session.
+Kept ops join an ordered in-memory fallback lane.
 
 ### The in-memory fallback lane
 
@@ -313,16 +311,14 @@ after a reload the rows replay once and the stored ack deletes them.
 The lease bounds the gate span in the diagram above
 ([contract](contracts/sync-recovery.md#the-recovery-lease)).
 
-**The lease is renewed on progress (a flush ack, snapshot bytes), never on a
-timer.** A flush POST that hangs is never aborted, and a page that stops
-running sends nothing. Either stops renewing, and the worker frees the gate a
-lease-length later. A heartbeat would hold the gate for as long as a hung
-POST lasts.
+**The lease is renewed on progress, never on a timer.** A flush POST that
+hangs is never aborted, so a heartbeat would hold the gate for as long as the
+hung POST lasts.
 
-A client abandons a silent snapshot download itself, and the stall limit
-plus one renewal interval stays under the lease, so a live client gives the
-gate back before the worker has to. `replicaSync.test.ts` pins the
-inequality, and `recoveryLease.props.test.ts` holds the lease call cases.
+A client abandons a stalled snapshot download within the lease, so a live
+client gives the gate back before the worker has to. `replicaSync.test.ts`
+pins that inequality, and `recoveryLease.props.test.ts` holds the lease call
+cases.
 
 An edit made during the gate span waits behind it. Its enqueue times out into
 the [in-memory lane](#the-in-memory-fallback-lane), which the `recovery`
@@ -343,16 +339,15 @@ rows, because a carry kept past a failed snapshot would later bring back
 batches acked since. `rebaseOrReplaceFile`'s docstring walks where the rows
 are at each step.
 
-Every queue handler adopts a leftover carry first. Otherwise an edit
-reaching a restarted worker would take the carried ids, and the by-id import
-would drop those rows. The recovery internals skip that adoption, because
-mid-replacement the carry is the rows' only copy. `adoptLeftoverCarry`'s
-docstring covers adoption's failure cases.
+Adoption of a leftover carry comes first in every queue handler, because
+otherwise an edit reaching a restarted worker would take the carried ids, and
+the by-id import would drop those rows. The recovery internals skip it,
+because mid-replacement the carry is the rows' only copy.
+`adoptLeftoverCarry`'s docstring covers adoption's failure cases.
 
-A queue that cannot be read takes the same escape, carrying the rows that
-can still be read. Without it init, `prepareRecovery` and the drain's
-`nextBatch` fail on every page load, so neither Reset local data nor the
-lane gets past them.
+An unreadable queue takes the same escape, because without it init,
+`prepareRecovery` and the drain's `nextBatch` fail on every page load, and
+neither Reset local data nor the lane gets past them.
 
 Corruption must reach `isCorruptionError` with its own message, so
 `wrapSqlite`'s `transaction` and `rollbackToSavepoint` (`replica/db.ts`) raise

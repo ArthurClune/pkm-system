@@ -248,7 +248,10 @@ The pump is the only sender of an interrupt (`_stop_turn`, the one caller of
 `_interrupt`). A Stop or a dropped consumer is a request it hears in its
 read wait (`_request_stop`). The stall watchdog fires when the pump's own
 read times out. `test_assistant_turn_phase.py` pins the orders a Stop, a
-stall and a disconnect can meet in.
+stall and a disconnect can meet in. A stop heard while the prompt is still
+being written waits on `query()`, which has no bound, so only the web's stop
+fallback ([contracts/frontend.md § The chat machine](contracts/frontend.md#the-chat-machine))
+bounds the panel.
 
 What counts as `lost`, the moves the diagram leaves out, and each rule a
 turn keeps, with its reason, are rows in the

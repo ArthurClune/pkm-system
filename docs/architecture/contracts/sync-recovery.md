@@ -1,14 +1,14 @@
 # Contract: sync recovery
 
 What each guard on the web sync path does when a hop fails, case by case.
-`web/src/props/sync/queueModel.ts`, `web/src/props/sync/bannerModel.ts`,
-the sync oracle's order, mode and lease checks (`oracle.ts`,
-`conflictNoise.ts`, `settle.ts`),
-`web/src/replica/recoveryLease.props.test.ts` and
+`web/src/props/sync/queueModel.ts`, `web/src/props/sync/bannerModel.ts`, the
+sync oracle's order, mode and lease checks (`oracle.ts`, `conflictNoise.ts`,
+`settle.ts`), `web/src/replica/recoveryLease.props.test.ts` and
 `web/src/replica/queueUnreadable.props.test.ts` are written from this file
 and never from the code, so a change in behaviour edits the row here and the
-model together. Why each rule holds is in
-[sync-recovery.md](../sync-recovery.md), under the same section names.
+model together. Each section's principle, and why it holds, is in
+[sync-recovery.md](../sync-recovery.md) under the same section name; a
+reason that belongs to one row sits in that row.
 
 ## A local write fails
 

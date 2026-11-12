@@ -2,12 +2,12 @@
 
 How the web client applies the changes feed and stamps its conflict hashes,
 case by case. The sync property (`web/src/props/sync/`) is written from this
-file and never from the code: `conflictNoise.ts` from
-[Conflicts at push time](#conflicts-at-push-time), and `sync.prop.ts` draws
-feed windows small enough to reach [Block tombstones](#block-tombstones). A
-change in behaviour edits the row here and the model together. Why each rule
-holds is in [sync-and-offline.md](../sync-and-offline.md), under the same
-section names.
+file and never from the code: `conflictNoise.ts` from [Conflicts at push
+time](#conflicts-at-push-time), and `sync.prop.ts` draws feed windows small
+enough to reach [Block tombstones](#block-tombstones). A change in behaviour
+edits the row here and the model together. Each section's principle, and why
+it holds, is in [sync-and-offline.md](../sync-and-offline.md) under the same
+section name; a reason that belongs to one row sits in that row.
 
 ## Block tombstones
 

@@ -1,11 +1,11 @@
 ---
 # pkm-9hki
 title: markRetainedPoison clears every retained intent, not only the ones it marked
-status: in-progress
+status: completed
 type: bug
 priority: low
 created_at: 2026-11-12T17:04:41Z
-updated_at: 2026-11-12T19:36:21Z
+updated_at: 2026-11-12T20:59:31Z
 ---
 
 markRetainedPoison (web/src/sync/opQueue.ts) iterates a snapshot of poisonMarkIntents, then clears the whole list (poisonMarkIntents = [] and poisonStore.write([])). Two overlapping calls over different batches let the first to finish erase the second's intent from memory and localStorage. If the second then fails to mark that intent, onPoisonMarkFailed raises a Retry that re-marks nothing, and the poison claim stays until Discard or a reload.
@@ -18,3 +18,11 @@ Remove only the snapshot's intents by key (id + batch_id), and write the remaind
 - [x] Unit test: two overlapping markRetainedPoison calls over different batches keep the later intent
 - [x] Remove by key
 - [x] sync-recovery.md § A batch the server rejects if the rule changes
+
+## Summary of Changes
+
+Symptom it would have shown: the rejected-batch banner's Retry re-marks nothing and the poison claim stays until Discard or a reload, after two overlapping poison marks over different batches.
+
+Cause: markRetainedPoison cleared the whole intent list (memory and localStorage) after marking its snapshot, erasing an intent another rejection added while it awaited.
+
+Fix: withoutIntents (web/src/sync/poisonIntents.ts) removes only the snapshot's intents by id and batch_id. Unit tests for withoutIntents and a queue test of two overlapping marks (opQueue.replica.test.ts, deliverLeased's rejection). The rule is a row in docs/architecture/contracts/sync-recovery.md § A batch the server rejects; the property models do not encode intents, so none changed.

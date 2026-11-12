@@ -32,10 +32,12 @@ const REACH: Reach = {
   // 2026-11-10, the mark, discard and leased-flush labels 2026-11-11. On
   // 2026-11-12, once one example in seven drew from the recovery mix
   // (queueArbitraries.ts), 30 runs of it set the floors of the rejected
-  // lane entry ahead of a leased batch, and re-derived those the mix
-  // brought under twice their lowest count: "discard", "discard skipped",
-  // "retryMarks skipped", "poison released, others held" and "outline
-  // stable: nothing owed, poison repair failed"; and "discard of a failed
+  // lane entry ahead of a leased batch, and re-derived the floors of the
+  // labels whose lowest count the mix took under twice their floor
+  // ("discard", "discard skipped", "retryMarks skipped"); of two whose
+  // lowest count was already under twice their floor and that the mix
+  // lowered further ("poison released, others held", "outline stable:
+  // nothing owed, poison repair failed"); and of "discard of a failed
   // mark, no repair running" once the mix's failing marks restored it.
   // "lane rejected after an outline repair's onStable" counts leased lane
   // rejections too since 2026-11-12, a few per ten thousand.

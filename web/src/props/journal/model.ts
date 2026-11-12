@@ -1,9 +1,10 @@
 // pattern: Functional Core
-// The Journal paging model, written from docs/architecture/frontend.md
-// § The Journal and never from journalPaging.ts: how many of the server's
-// days one Journal shows, whether the past is exhausted, whether the error
-// shows, and which load is in flight. Loads are named by the handle the
-// reducer gave them, so the model can tell a current answer from a stale one.
+// The Journal paging model, written from
+// docs/architecture/contracts/frontend.md § The Journal and never from
+// journalPaging.ts: how many of the server's days one Journal shows, whether
+// the past is exhausted, whether the error shows, and which load is in flight.
+// Loads are named by the handle the reducer gave them, so the model can tell a
+// current answer from a stale one.
 
 /** Days per batch, and the server's clamp on `days`: both stated in the doc. */
 export const BATCH = 5;

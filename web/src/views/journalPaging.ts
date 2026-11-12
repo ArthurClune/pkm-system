@@ -2,7 +2,7 @@
 // The Journal's paging state: which days are on screen, the one load in
 // flight, and the error. Journal.tsx runs the fetches this state asks for and
 // feeds their outcomes back in. The rules are in
-// docs/architecture/frontend.md § The Journal.
+// docs/architecture/contracts/frontend.md § The Journal.
 
 export const BATCH = 5;
 /** get_journal clamps `days` to this; asking for more is moot. */

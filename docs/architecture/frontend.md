@@ -9,7 +9,10 @@ This doc covers the app shell. The outline editor is in
 [frontend-editor.md](frontend-editor.md), block text to DOM in
 [frontend-rendering.md](frontend-rendering.md), CSS in
 [styling.md](styling.md), and the sync engine and replica in
-[sync-and-offline.md](sync-and-offline.md).
+[sync-and-offline.md](sync-and-offline.md). The cases the paged lists and
+the chat machine meet sit under the same section names in
+[contracts/frontend.md](contracts/frontend.md), which their property models
+are written from.
 
 ## Module map
 
@@ -204,12 +207,11 @@ running app.
 
 ### Paged lists
 
-The Journal and `/files` have sections of their own below.
-
-| List | State lives in | The rule |
-|---|---|---|
-| Linked references | `components/backlinksPaging.ts` | Show more and load-all overlap, so the section is loading until every walk settles; no walk starts while a sync refresh is in flight |
-| Unlinked references | `components/UnlinkedSection.tsx`, `components/unlinkedStatus.ts` | A delivered Link leaves the loaded list and `total`, because the server's list has shifted left. Show more asks from the count of loaded blocks still listed (`nextOffset` says why) |
+The Journal and `/files` have sections of their own below. Linked references
+keep their paging state in `components/backlinksPaging.ts`, and Unlinked
+references in `components/UnlinkedSection.tsx` and
+`components/unlinkedStatus.ts`
+([contract](contracts/frontend.md#paged-lists)).
 
 #### The Journal
 
@@ -220,33 +222,17 @@ into state, and a resync replaces day objects in place under stable keys.
 Nothing unmounts a loaded day, so each mounted outline and its `useDismiss`
 listener last for the session (the perf gate's journal scenarios).
 
-The days on screen are a contiguous, newest-first run of the non-empty days
-`/api/journal` serves, starting at today. `views/journalPaging.ts` keeps one
-load in flight at a time:
-
-| Event | Load it starts | When it lands |
-|---|---|---|
-| mount, or "Load older days" with nothing on screen | head: `BATCH` days | replaces the days |
-| the sentinel or "Load older days" | older: `BATCH` days `before` the oldest shown; ignored while a load is in flight or the past is exhausted | appends |
-| resync | head: as many days as are on screen, at least `BATCH`, at most `SERVER_MAX_DAYS`; supersedes the load in flight | replaces the days |
-
-A failed load leaves the days and their cursor as they were, so "Load older
-days" after a failed resync continues from the oldest day shown. The error
-shows only while the latest completed load failed. A result for a superseded
-load changes nothing. A batch shorter than asked for means the past is
-exhausted. The server clamps `days` to `SERVER_MAX_DAYS`, so a resync over
-more days drops the oldest; scrolling loads them back.
+`views/journalPaging.ts` pages the days, newest first, with one load in
+flight at a time ([contract](contracts/frontend.md#the-journal)).
 
 #### The `/files` browser
 
 `/files` is a table over `/api/assets/search`; the store is in
 [files-and-assets.md](files-and-assets.md). `AssetRefGroup` has no `page_id`,
-which keeps asset refs out of `mergeGroups`. A filter change clears the
-selection and bumps the generation at the keystroke, not when the debounced
-reload fires (`views/filesPaging.ts`). Until the reload lands, `items` and
-`total` belong to the old filter, and a Select all or Load more started from
-them could let a Delete remove files outside the new one. Select all and
-Load more exclude each other, in the buttons and in `filesPaging`.
+which keeps asset refs out of `mergeGroups`. A filter change takes effect at
+the keystroke (`views/filesPaging.ts`). A Select all or Load more started
+from the old filter's `items` and `total` could otherwise let a Delete remove
+files outside the new one ([contract](contracts/frontend.md#the-files-browser)).
 
 ### Popovers and menus
 
@@ -361,26 +347,14 @@ stateDiagram-v2
 ```
 
 Stop is allowed from every busy phase, and after it no output of that turn
-reaches the panel. A create cannot be called back, so Stop in `creating` keeps
-the conversation the create returns but starts no stream from it. Stop in
-`streaming` posts a stop (`postStop`), and the panel stays busy until the
-server's turn is over ([turn phase](assistant.md#the-turn-phase)). After an
-aborted stream the server may still be draining, so `streamWithBusyRetry`
-retries the 409 a send meets then.
+reaches the panel. The panel stays busy after Stop until the server's turn is
+over ([turn phase](assistant.md#the-turn-phase)). Each rule the machine and
+the driver keep, with its reason, is a row in the
+[contract](contracts/frontend.md#the-chat-machine).
 
-| Rule | Reason |
-|---|---|
-| Every request's result names its turn, and changes nothing on screen unless that turn is busy and not stopping. That includes a failed confirm POST | New chat clears the transcript at once, so a superseded turn's events must not fold into the new one. After Stop no card is left to answer again |
-| A stream's 404 re-creates the conversation once, with the same model, in the same turn. A second 404 fails the turn | The server answers 404 for a conversation it has reaped, evicted or retired as dead, including one whose harness was lost (`HARNESS_LOST`) |
-| While a conversation is creating or open, the picker shows its model as the create returned it, and is locked. Otherwise the models list's default applies until the user picks | A conversation keeps the model it was created with |
-| The driver posts the stop only once the stream's response has opened, and retries no 409 after Stop. A stream that settles first posts nothing | `POST …/stop` names no turn. An opened response means the server has reserved this turn, so the stop cannot reach another |
-| A stopped turn ends only once its stop POST has settled (`stopSettled`) | The server acts on a stop before it answers, so a settled POST cannot stop a later turn |
-| If the POST fails, or the turn has not ended within `STOP_ACK_TIMEOUT_MS` (`chatDriver.ts`), the driver aborts the stream and the POST | The server's stop is unbounded while the prompt is still being written ([turn phase](assistant.md#the-turn-phase)), and the panel must still be freed. An aborted POST can still reach the server later and stop the next turn |
-| A `turn_stopped` for a turn that did not stop ends it with `UNASKED_STOP_MESSAGE` | The stop was meant for an earlier turn; the user is told the reply was cut short |
-| New chat aborts the stream, a stopping turn's included, and sends the DELETE only after that stream settles. A conversation created for a superseded turn is deleted | The server sees the dropped connection and ends the turn before it closes the conversation |
-
-`web/src/props/assistant` checks these rules against a model written from
-this section ([checks.md § Property gate](checks.md#property-gate)).
+`web/src/props/assistant` checks the reducer and the driver against a model
+written from that contract
+([checks.md § Property gate](checks.md#property-gate)).
 
 ## Testing and quality gates
 

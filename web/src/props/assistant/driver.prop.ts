@@ -1,11 +1,11 @@
 // pattern: Imperative Shell
-// The chat driver property: drawn action lists (the user's actions, each
-// step of every request the driver sends, and the clock, freely
-// interleaved) run through the real createChatDriver with a fake client,
-// and what it publishes and sends is judged against the pure machine and
-// the I/O rules of frontend.md § The chat machine (driverRun.ts names the
-// invariants). The driver's timers and Date.now are vitest's fakes, so a
-// run replays from its seed.
+// The chat driver property: drawn action lists (the user's actions, each step
+// of every request the driver sends, and the clock, freely interleaved) run
+// through the real createChatDriver with a fake client, and what it publishes
+// and sends is judged against the pure machine and the I/O rules of
+// contracts/frontend.md § The chat machine (driverRun.ts names the invariants).
+// The driver's timers and Date.now are vitest's fakes, so a run replays from
+// its seed.
 //
 // A failure prints the seed, the path, the shrunk action list, the
 // machine's trace of it, the problems and a replay line. The tally of what

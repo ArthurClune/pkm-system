@@ -78,12 +78,20 @@ Which children are rows, judged top-down:
 | a structural edit, blur, undo, tab hide, or in-editor navigation (`onFlushDraft`) | flushes first |
 | the caret inside a half-typed `[[ref` or `#tag` | is held |
 
+| Case | Rule | Reason |
+|---|---|---|
+| the draft's `base` | the text the textarea showed before the clean draft's first edit (`onDirty`). It is not the tree's text when the tree changed and the textarea has not adopted it yet | |
+| a flush's `base_text_hash` | hashes `base`, never the tree's text | |
+| the textarea, a draft pending | shows the draft; text that lands on the tree is not adopted | |
+| the textarea, no draft pending | adopts the tree's text each time it changes | |
+| the textarea, an IME composition in progress | adopts nothing; at `compositionend` it adopts the tree's text if no draft is pending | replacing the value mid-composition disturbs the native composition UI |
+
 ## When a draft flushes
 
 | When | Rule |
 |---|---|
 | A clean draft's first edit | `onDraftStart` opens the draft on the shown text, its `base`. `onDraftChange` only changes `text` |
-| Undo, redo, or an upload that fills the focused (empty) block | the textarea adopts the tree's new text whenever no draft is pending. When one was, its end (`subscribeDraftEnd`) re-runs adoption even if the tree's text ends where it started |
+| Undo, redo, or an upload that fills the focused (empty) block | the textarea adopts the tree's new text as [above](#drafts-and-commit-points). When a draft was pending, its end (`subscribeDraftEnd`) re-runs adoption even if the tree's text ends where it started |
 | Focus or a new draft moves to another block | the old draft flushes first. A block a remote batch removes unmounts with no blur, so nothing else would flush it |
 | A remote batch reparents the block or an ancestor | the textarea remounts with no blur. `BlockInput` reads `handlers.pendingDraft(uid)` at mount and resumes it dirty with its base, and restores the selection the old textarea reported (`onInputUnmount`) |
 | A parent passes a new `initial` | the draft flushes first, so the parent tree waits for that write |

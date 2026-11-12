@@ -229,9 +229,11 @@ server keep both texts when another device edited from the same base.
 The pending draft is the only record of a dirty textarea. `useBlockDraft`
 asks `handlers.pendingDraft(uid)` and keeps no flag of its own, so a draft a
 command flushed cannot leave the textarea dirty over the text the command
-spliced in. It adopts the tree's text whenever no draft is pending.
-`handlers.subscribeDraftEnd` tells it when one ends, because a flush that
-sends nothing leaves the tree's text unchanged and gives it no other cue.
+spliced in. When it adopts the tree's text is a row in the
+[contract](contracts/frontend-editor.md#drafts-and-commit-points).
+`handlers.subscribeDraftEnd` tells it when a draft ends, because a flush
+that sends nothing leaves the tree's text unchanged and gives it no other
+cue.
 
 #### Refused drafts
 

@@ -1,19 +1,17 @@
 // pattern: Functional Core
 // The model of one block's draft, written from contracts/frontend-editor.md
-// § Drafts and commit points and § When a draft flushes, and from
-// frontend-editor.md § Drafts and commit points for the draft's base and what
-// the textarea shows: typing debounces into a pending draft whose base is the
-// text the textarea showed; blur, a command, undo and the debounce flush it;
-// the flush sends nothing when the text is its base or the tree already holds
-// it, and otherwise sends update_text hashing the base. While a draft is
-// pending the textarea keeps it; with none the textarea shows the tree.
+// § Drafts and commit points and § When a draft flushes: typing debounces
+// into a pending draft whose base is the text the textarea showed; blur, a
+// command, undo and the debounce flush it; the flush sends nothing when the
+// text is its base or the tree already holds it, and otherwise sends
+// update_text hashing the base. While a draft is pending the textarea keeps
+// it; with none the textarea shows the tree. While a composition is in
+// progress the textarea adopts nothing, and catches up when it ends.
 //
-// And from contracts/frontend-editor.md § Keyboard policy, IME composition:
-// while a composition is in progress the textarea adopts nothing, and catches
-// up when it ends. A keydown the IME owns decides nothing: one sent
-// mid-composition, or the first keydown after a compositionend when it carries
-// keyCode 229 and comes within IME_COMMIT_WINDOW_MS. Every other Enter splits
-// and Escape blurs.
+// And from contracts/frontend-editor.md § Keyboard policy: a keydown the IME
+// owns decides nothing: one sent mid-composition, or the first keydown after
+// a compositionend when it carries keyCode 229 and comes within
+// IME_COMMIT_WINDOW_MS. Every other Enter splits and Escape blurs.
 //
 // The server here is the one block's text, applying what the editor sends in
 // order. A send whose base hash is not the server's text is a conflict.

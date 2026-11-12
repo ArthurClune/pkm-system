@@ -2,7 +2,9 @@
 
 This doc covers the outline engine: the per-title sessions that own a block
 tree, and the editor that mutates one. [frontend.md](frontend.md) holds the
-app shell around it.
+app shell around it. The cases a block's draft meets sit under the same
+section names in [contracts/frontend-editor.md](contracts/frontend-editor.md),
+which the draft property model is written from.
 
 ## Module map
 
@@ -213,11 +215,10 @@ their depth.
 
 ### Drafts and commit points
 
-Plain typing debounces into a draft (`TEXT_DEBOUNCE_MS` in `useOutline.ts`).
-Structural edits, blur, undo, tab-hide and in-editor navigation
-(`onFlushDraft`) flush it first. A draft is held while the caret sits inside a
-half-typed `[[ref` or `#tag`, so autosave cannot create a page from a partial
-title.
+Plain typing debounces into a draft, which every commit point flushes
+([contract](contracts/frontend-editor.md#drafts-and-commit-points)). A draft
+is held inside a half-typed `[[ref` or `#tag`, so autosave cannot create a
+page from a partial title.
 
 **A draft's `base` is the text the textarea showed, and a flush hashes `base`,
 never the tree.** A `PendingDraft` (`outline/draft.ts`) is
@@ -259,21 +260,9 @@ before a reload; iPad Safari does not.
 
 #### When a draft flushes
 
-| When | Rule |
-|---|---|
-| A clean draft's first edit | `onDraftStart` opens the draft on the shown text, its `base`. `onDraftChange` only changes `text` |
-| Undo, redo, or an upload that fills the focused (empty) block | the textarea adopts the tree's new text whenever no draft is pending. When one was, its end (`subscribeDraftEnd`) re-runs adoption even if the tree's text ends where it started |
-| Focus or a new draft moves to another block | the old draft flushes first. A block a remote batch removes unmounts with no blur, so nothing else would flush it |
-| A remote batch reparents the block or an ancestor | the textarea remounts with no blur. `BlockInput` reads `handlers.pendingDraft(uid)` at mount and resumes it dirty with its base, and restores the selection the old textarea reported (`onInputUnmount`) |
-| A parent passes a new `initial` | the draft flushes first, so the parent tree waits for that write |
-
-`pendingTextOps` decides what the flush sends:
-
-| Draft at flush | Flush sends |
-|---|---|
-| `text === base`, or the tree already holds `text` | nothing |
-| block in the tree, text changed | `update_text` with `base_text_hash` of `base`, plus `page_title` |
-| block gone (remote delete, cross-page move) | the same op. The server applies it on the block's new page, or lands an edit to a deleted block on today's daily note |
+When a draft opens, flushes and yields to the tree's text, and what
+`pendingTextOps` sends for it, are rows in the
+[contract](contracts/frontend-editor.md#when-a-draft-flushes).
 
 A held draft has no armed timer, and React delivers no blur for a node it
 removes. So `useOutline` flushes on unmount, for navigation the editor never
@@ -299,14 +288,8 @@ New shortcuts go into one of the two functions, and Cmd-letter wraps into
 owns the list, and a new key must not collide with an app-global chord.
 
 A keydown the IME owns decides `none`, whatever the key, so committing a
-conversion with Enter never splits. `useBlockDraft.imeOwns` answers for it:
-
-| Keydown | Owned by the IME |
-|---|---|
-| `isComposing`, or between `compositionstart` and `compositionend` | yes (Chromium sends the committing Enter this way) |
-| the first after a `compositionend`, with keyCode 229, within `IME_COMMIT_WINDOW_MS` | yes (WebKit ends the composition before sending its committing keydown) |
-| any other, keyCode 229 included | no |
-
+conversion with Enter never splits. `useBlockDraft.imeOwns` answers for it
+([contract](contracts/frontend-editor.md#keyboard-policy)).
 `useBlockDraft.ts` says why keyCode 229 alone is not enough, and why the
 window is read on `imeClock`, never an event's `timeStamp`.
 

@@ -147,6 +147,8 @@ export async function runQueueExample(
   /** This recovery's acked leased rows, and whether its flush failed. */
   const leaseAcked = new Set<BatchId>();
   let flushFailed = false;
+  /** The running leased flush discarded a rejected lane entry ahead. */
+  let laneAheadRejected = false;
 
   const replica: Replica = {
     ...memReplica(),
@@ -220,12 +222,18 @@ export async function runQueueExample(
   const inFlight: InFlight[] = [];
   const post = (body: OpBatch): Promise<OpsAck> => {
     const leased = leasing !== null;
-    const copy = body.batch_id === lastHanded || body.batch_id === leasing ? "durable" : "lane";
+    // A leased POST is the leased row or a lane entry ahead of it, whatever
+    // row the drain last read.
+    const copy = (leased ? body.batch_id === leasing : body.batch_id === lastHanded)
+      ? "durable" : "lane";
     if (!leased) lastHanded = null;
     if (!leased && inFlight.some((p) => !p.leased)) {
       model.violations.push(`two POSTs at once: ${body.batch_id}`);
     }
     if (leased && inFlight.length > 0) count("leased POST beside another");
+    if (leased && body.batch_id === leasing && laneAheadRejected) {
+      count("leased batch posted after a rejected lane entry");
+    }
     notePost(model, body.batch_id, copy, leased);
     return new Promise<OpsAck>((resolve, reject) => {
       inFlight.push({ batchId: body.batch_id, copy, leased, resolve, reject });
@@ -329,6 +337,7 @@ export async function runQueueExample(
             if (reads.some((r) => r.stable)) {
               count("lane rejected after an outline repair's onStable");
             }
+            if (p.leased) laneAheadRejected = true;
             laneWaiting.delete(p.batchId);
             model.lane = true;
           }
@@ -401,6 +410,7 @@ export async function runQueueExample(
           count("leased flush with a lane entry ahead");
         }
         leasing = row.batch_id;
+        laneAheadRejected = false;
         void queue.deliverLeased({ ...row }, beforePost).then(() => {
           leaseAcked.add(row.batch_id);
         }, (error: unknown) => {

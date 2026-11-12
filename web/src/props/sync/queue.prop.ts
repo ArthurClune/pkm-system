@@ -29,10 +29,14 @@ const REACH: Reach = {
   per: EXAMPLES,
   // Floors: half the lowest share over 30 unseeded gate runs, 2026-11-10;
   // for the mark, discard and leased-flush labels, 2026-11-11, to four
-  // places where three would round to nothing.
-  // No floor, under ten in some run of 30 on 2026-11-12, once a leased
-  // flush went on past a rejected lane entry: the leased lane copy's answers
-  // ("respond ... (leased lane)", "leased lane batch rejected").
+  // places where three would round to nothing; for the rejected lane entry
+  // ahead of a leased batch, 2026-11-12, once some examples drew from the
+  // recovery mix (queueArbitraries.ts). That mix lowered the poison labels'
+  // shares; every floor below held in all 30 runs then.
+  // "lane rejected after an outline repair's onStable" counts leased lane
+  // rejections too since 2026-11-12, a few per ten thousand.
+  // No floor, under ten in some run of those 30: the leased lane copy's
+  // answers ("respond ... (leased lane)").
   // Never reached: a mark during a repair, so no unmatched round or failed
   // mark meets a running repair here; a repair holds poison, so no
   // rejection, and so no mark, comes while it runs.
@@ -52,11 +56,13 @@ const REACH: Reach = {
     "lane batch rejected": 0.031,
     "lane rejected after an outline repair's onStable": 0.003,
     "lane released, others held": 0.003,
+    "leased batch posted after a rejected lane entry": 0.001,
     "leased POST beside another": 0.003,
     "leased durable batch rejected": 0.001,
     "leased flush failed": 0.005,
     "leased flush preempted before its batch": 0.002,
     "leased flush with a lane entry ahead": 0.001,
+    "leased lane batch rejected": 0.001,
     "mark fails, no repair running": 0.003,
     "mark finds no row, no repair running": 0.003,
     "outline repair fails": 0.044,

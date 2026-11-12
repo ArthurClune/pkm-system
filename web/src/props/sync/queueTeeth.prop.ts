@@ -29,6 +29,9 @@
 //                        ahead stays (claim, or barrier when the rejection
 //                        lands while the run quiesces, where no claim is
 //                        checked, and a drain then posts)
+//   lane not terminal    a leased flush reads a lane entry ahead's rejection
+//                        as a failure to retry: the entry stays and the flush
+//                        throws before its batch (claim, or barrier as above)
 import { afterEach, beforeEach, vi } from "vitest";
 import type { ClientRuntimeDeps } from "../../sync/clientRuntime";
 import type { BarrierOwner } from "../../sync/queueState";
@@ -51,10 +54,13 @@ const mutants = vi.hoisted(() => ({
   unmatchedKeeps: false,
   skipLaneAhead: false,
   leasedNotTerminal: false,
+  laneAheadNotTerminal: false,
   inLeased: false,
-  /** Errors from POSTs a leased flush made, so the mutant spares a drain
-   * POST that was in flight when the flush began. */
-  leasedErrors: new WeakSet<object>(),
+  /** The batch the running leased flush delivers. */
+  leasedBatch: null as string | null,
+  /** Errors from the leased POSTs an armed mutant misjudges, so it spares a
+   * drain POST that was in flight when the flush began. */
+  notTerminal: new WeakSet<object>(),
   isLost: (_id: string): boolean => false,
 }));
 
@@ -87,8 +93,7 @@ vi.mock("../../sync/rejection", async (importOriginal) => {
   return {
     ...real,
     isTerminalRejection: (error: unknown): boolean =>
-      !(mutants.leasedNotTerminal && error instanceof Error && mutants.leasedErrors.has(error)) &&
-      real.isTerminalRejection(error),
+      !(error instanceof Error && mutants.notTerminal.has(error)) && real.isTerminalRejection(error),
   };
 });
 
@@ -102,9 +107,11 @@ vi.mock("../../sync/opQueue", async (importOriginal) => {
         ...deps,
         post: (body) => {
           const sent = post(body);
-          if (!mutants.inLeased) return sent;
+          const misjudged = mutants.inLeased && (mutants.leasedNotTerminal ||
+            (mutants.laneAheadNotTerminal && body.batch_id !== mutants.leasedBatch));
+          if (!misjudged) return sent;
           return sent.catch((error: unknown) => {
-            if (error instanceof Error) mutants.leasedErrors.add(error);
+            if (error instanceof Error) mutants.notTerminal.add(error);
             throw error;
           });
         },
@@ -114,10 +121,12 @@ vi.mock("../../sync/opQueue", async (importOriginal) => {
         holds: (o: BarrierOwner) => !mutants.holdsNothing && queue.holds(o),
         deliverLeased: async (...[batch, beforePost]: Parameters<typeof queue.deliverLeased>) => {
           mutants.inLeased = true;
+          mutants.leasedBatch = batch.batch_id;
           try {
             return await queue.deliverLeased(batch, beforePost);
           } finally {
             mutants.inLeased = false;
+            mutants.leasedBatch = null;
           }
         },
       };
@@ -178,6 +187,8 @@ const disarm = (): void => {
   mutants.unmatchedKeeps = false;
   mutants.skipLaneAhead = false;
   mutants.leasedNotTerminal = false;
+  mutants.laneAheadNotTerminal = false;
+  mutants.notTerminal = new WeakSet();
 };
 
 expectMutantsCaught({
@@ -229,6 +240,10 @@ expectMutantsCaught({
     "a leased flush that ignores a rejection breaks the claim": {
       catches: ["claim", "barrier"], disarm,
       arm: () => { mutants.leasedNotTerminal = true; },
+    },
+    "a leased flush that ignores a lane entry's rejection breaks the claim": {
+      catches: ["claim", "barrier"], disarm,
+      arm: () => { mutants.laneAheadNotTerminal = true; },
     },
   },
   arbs: [queueCommands],

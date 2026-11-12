@@ -170,6 +170,14 @@ sized to the quiet-machine time and the limit sits at about three times it,
 because other suites sharing the machine stretch a run several times over.
 An overrun reports as a budget problem, never as a finding.
 
+Web suite files run one at a time, each in a fresh process
+(`vitest.props.config.ts`). In one shared process, a file's leftovers broke
+the files after it. A poll still running put its timers on a later file's
+fake clock. vitest's end-of-file restore of every spy put back a fake
+`setTimeout` whose clock was gone, and then no timer fired again. A run that
+stalls anyway is killed at `WEB_DEADLINE_S` (`proptest/run.py`) and fails
+the gate instead of holding its port.
+
 Each suite states its invariants in its module docstring or file header.
 
 | Suite | Checks against |

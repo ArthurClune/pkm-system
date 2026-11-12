@@ -1,5 +1,5 @@
 {
-  "commit": "3f3c9fa2",
+  "commit": "d863287",
   "env": {
     "chromium": "149.0.7827.55"
   },
@@ -65,7 +65,7 @@
     "H/cold": {
       "api_bytes": {
         "class": "exact",
-        "value": 1773029
+        "value": 1773032
       },
       "changes_requests": {
         "class": "exact",
@@ -73,7 +73,7 @@
       },
       "replica_ready_ms": {
         "class": "timing",
-        "value": 3497
+        "value": 3572
       },
       "requests": {
         "class": "exact",
@@ -110,7 +110,7 @@
       },
       "rendered_fibers": {
         "class": "band",
-        "max": 176,
+        "max": 172,
         "min": 172
       }
     },
@@ -122,7 +122,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 57.9
+        "value": 56.4
       },
       "not_prevented": {
         "class": "exact",
@@ -142,7 +142,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 18.1
+        "value": 17.3
       },
       "not_prevented": {
         "class": "exact",
@@ -222,11 +222,11 @@
       "react_commits": {
         "class": "band",
         "max": 23,
-        "min": 22
+        "min": 23
       },
       "results_ms": {
         "class": "timing",
-        "value": 248
+        "value": 258
       },
       "search_requests": {
         "class": "exact",
@@ -241,7 +241,7 @@
       "react_commits": {
         "class": "band",
         "max": 25,
-        "min": 24
+        "min": 25
       },
       "results_ms": {
         "class": "timing",
@@ -259,7 +259,7 @@
       },
       "first_outline_ms": {
         "class": "timing",
-        "value": 215
+        "value": 214
       },
       "requests": {
         "class": "exact",

@@ -7,16 +7,22 @@ import { BadBatch, Discard, Fault, Pull, RotateGeneration, SyncCommand,
          type World } from "./commands";
 import type { HarnessClient } from "./harnessClient";
 import type { SyncModel } from "./model";
-import { TIMED_OUT, within } from "./quiesce";
+import { TIMED_OUT } from "./quiesce";
 
 /** How long a step waits for the state it is after. */
 const STEP_WAIT_MS = 5_000;
 
-/** Resolves once `ready()` holds, polling; TIMED_OUT after `ms`. */
-export const waitUntil = (ready: () => boolean, ms: number): Promise<void | typeof TIMED_OUT> =>
-  within((async () => {
-    while (!ready()) await new Promise((resolve) => setTimeout(resolve, 5));
-  })(), ms);
+/** Resolves once `ready()` holds, polling every `pollMs`; TIMED_OUT once
+ * `ms` has passed. It stops polling then: a poll left running goes on for
+ * the rest of the process, and a later fake clock counts its timers. */
+export async function waitUntil(ready: () => boolean, ms: number,
+                                pollMs = 5): Promise<void | typeof TIMED_OUT> {
+  const end = Date.now() + ms;
+  while (!ready()) {
+    if (Date.now() >= end) return TIMED_OUT;
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}
 
 export const clientIn = (w: World<HarnessClient>, name: string): HarnessClient => {
   const c = w.clients.get(name);

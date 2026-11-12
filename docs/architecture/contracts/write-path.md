@@ -65,8 +65,8 @@ already stored is not written again (`ops_apply.BatchReplay.recorded`).
 | `base_subtree_hash` differs | the subtree goes, but first every descendant's text, blank ones included, lands under the conflict header, nested, with fresh uids (`ops_core.descendant_copy_effects`) |
 
 `base_subtree_hash` covers the uid and text of the block and every
-descendant ([canonical form](../sync-and-offline.md#conflicts-at-push-time)),
-not order or nesting.
+descendant, not order or nesting (`pkm.contracts.ops.subtree_hash`, with
+its web twin in `replica/subtreeHash.ts`).
 
 ## Missing targets
 

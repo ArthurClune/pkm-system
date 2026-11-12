@@ -160,9 +160,9 @@ export interface OpQueue {
    * lane entries it follows, as the drain orders its own. Runs under the
    * caller's "recovery" claim, so the barrier is not consulted; `beforePost`
    * is, between the lane ahead and the POST, since a poison claim can land
-   * while the lane goes out. Returns the ack's reading. Settles no ticket
-   * and no lane mark: the recovery commit deletes the row, and the drain or
-   * settleCommitted settles it as for any row deleted out of band. A
+   * while the lane goes out. Returns the ack's reading. On success it settles
+   * no ticket and no lane mark: the recovery commit deletes the row, and the
+   * drain or settleCommitted settles it as for any row deleted out of band. A
    * lane entry ahead that the server rejects outright is discarded, as the
    * drain discards one, and delivery goes on; one that fails otherwise stays
    * retained and this throws. A terminal rejection of the batch itself

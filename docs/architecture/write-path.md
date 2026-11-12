@@ -5,7 +5,10 @@ after it. It covers the ops a batch carries, the lock every write route takes,
 how an op is planned, and what a batch meets when the tree changed after the
 client planned it. The routes, the schema, the ref grammar, titles and auth
 are in [backend.md](backend.md); how a client queues, pushes and pulls is in
-[sync-and-offline.md](sync-and-offline.md).
+[sync-and-offline.md](sync-and-offline.md). Every case, outcome and exact
+string sits under the same section names in
+[contracts/write-path.md](contracts/write-path.md), which the ops property
+model is written from.
 
 `POST /api/ops` applies an `OpBatch`. `OpBatch.expect`, which only the
 assistant's approval card sets
@@ -93,10 +96,9 @@ hashed edit's `TextEditOutcome`, off the same context. A context that does
 not fit its op is an `AssertionError`, a 500 the client retries, never a 400
 that would poison the client's queue over a server bug.
 
-- **Ordering.** An insert or move emits `ShiftSiblings`, bumping every
-  sibling at or above the target `order_idx`. Nothing renumbers the gaps this
-  leaves. A move onto its own slot still bumps every later sibling, because
-  `ShiftSiblings` cannot tell staying put from moving there.
+- **Ordering.** An insert or move emits `ShiftSiblings`, which makes room
+  at the target `order_idx` and never closes gaps
+  ([contract](contracts/write-path.md#ordering)).
 - **Refs.** Every text change emits `ReindexRefs`
   (`store.reindex_refs_for_text`, the only way a server write path changes
   `refs`). The schema's
@@ -139,130 +141,60 @@ Conflicts, missing targets, stale batches and concurrent structure edits are
 what a batch meets when the tree changed after it was planned. None rejects
 the batch.
 
-`update_text` may carry `base_text_hash`, the sha256 of the text it was based
-on; a hash, unlike a version counter, ignores structural change. On a
-mismatch, or an edit to a gone block, the incoming edit wins and the losing
-text, blank or not, lands under a `[[conflict]]` header on the daily page of
-the batch's `now_ms`. A second conflict on a block the same day appends under
-the same header.
-
-| Case | Header text |
-|---|---|
-| Block exists, hash mismatch | `` [[conflict]] [[Page]] — overwritten by ((uid)) `` |
-| Block gone, hint names an existing page | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
-| Block gone, hint names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
-| Block gone, hint missing, blank or [refused](titles-and-refs.md#refused-titles) | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
-| Block exists, move target gone or inside it, or a replayed edit over a text limit | `` [[conflict]] [[Page]] — ((uid)) `` |
-| Guarded `delete` whose subtree changed | `` [[conflict]] [[Page]] — deleted while edited elsewhere `` |
-| Any of these, when the page's name would put the header past a [text limit](#work-bounds-under-the-write-lock) | the name replaced by `(page title too long)` (`LONG_TITLE_LABEL`) |
+`update_text` may carry `base_text_hash`, the sha256 of the text it was
+based on. A hash, unlike a version counter, ignores structural change. When
+the hash no longer matches, or the block is gone, the incoming edit wins and
+the losing text lands under a `[[conflict]]` header on the day's daily page
+([contract](contracts/write-path.md#conflicts)).
 
 The `page_title` hint never changes whether or where an op applies, and
 `find_op_title_violation` never reads it. A header never links a page that
 does not exist, or the ref indexer would create it (`conflict_notes.py`).
-A page that exists is named by its stored title, never the hint's
-spelling (`conflict_notes.existing_page_label`).
 
-`replay_core.classify_text_edit` sorts a hashed `update_text` on a live block,
-checking in this order:
+A hashed edit made before a rename or page delete replays the server's
+`block_rewrites` rows over its text. So a stale edit cannot re-create a
+renamed-away page, a link to a deleted page, or a `((ref))` to a gone block.
+The client hashes its next edit from the text it sent, not the text the
+server wrote. So whenever the two differ the server records a rewrite chain
+from one to the other, and the next edit replays all of it.
 
-| Situation | Outcome |
-|---|---|
-| `base_text_hash` matches a pre-rewrite snapshot of this block | The `block_rewrites` rows replay over the incoming text (`replay_core.replay`), which then meets the rows below |
-| The replay would be over a text limit | The block keeps its text; the edit as sent lands under a conflict header, and the ack lists the op as skipped (`text_limit`) |
-| Incoming text equals current | No-op, even with a stale hash |
-| `hash(current) == base_text_hash` | Clean apply |
-| Hashes differ | Incoming wins; the overwritten text lands under a conflict header |
-
-The replay covers renames and, through `unlink.apply_delete_rewrite`, page
-deletes. So a stale edit cannot re-create a renamed-away page, a link to a
-deleted page, or a `((ref))` to a gone block. A hashless edit to a live block
-is last-write-wins.
-
-A replay or stale unlink makes the written text differ from the sent text,
-and the client hashes its next edit from what it sent. So
-`ops_core.rewrite_effects` plans a `block_rewrites` chain (`RecordRewrite`)
-from the sent text's hash to the written one. Each replayed step is recorded
-whole, so that next edit replays all of it (`replay_core.rewrite_chain`).
-The rows a stale unlink records come from `replay_core.stale_titles_linked`,
-and a row already stored is not written again
-(`ops_apply.BatchReplay.recorded`).
-
-`delete` may carry `base_subtree_hash` over the uid and text of the block
-and every descendant ([canonical form](sync-and-offline.md#conflicts-at-push-time)).
-Order and nesting are not hashed, so a reorder does not diverge it. On a
-mismatch the delete still wins, but first every descendant's text, blank
-ones included, lands under the conflict header, nested, with fresh uids
-(`ops_core.descendant_copy_effects`).
+`delete` may carry `base_subtree_hash`. Order and nesting are not hashed,
+so a reorder does not diverge it. On a mismatch the delete still wins, after
+copying the subtree's text into a conflict entry.
 
 ## Missing targets
 
-An op whose block, or create or move parent, is gone is skipped. A batch is
+An op whose block, or create or move parent, is gone is skipped and reported
+in the ack ([contract](contracts/write-path.md#missing-targets)). A batch is
 atomic, so a 400 for one such op would take every valid op down and wedge the
-client's queue. `ops_core.classify_skip` sorts it before
-its context is read. Every row is reported in the ack's `skipped`
-(`ops_core.skip_report`), with `note_page` null where nothing landed.
-
-| Op, situation | Outcome | `reason` | Journalled |
-|---|---|---|---|
-| `set_collapsed` / `delete`, block gone | no-op | `block_not_found` | `set_collapsed`'s uid, since a replica holds a ghost |
-| `move` / `set_heading` / `set_view_type`, block gone | child `move skipped: block <uid> not found` (or `heading change` / `view type change`) under `(page unknown)` | `block_not_found` | the uid; a move also its destination siblings |
-| `update_text`, block gone | text lands | `block_not_found` | the uid |
-| `create`, parent gone | not created; text lands | `parent_not_found` | created uid with its page, and parent uid |
-| `move`, parent gone | block stays; `move skipped: target parent <uid> not found` | `parent_not_found` | the parent uid, then the moved subtree |
-| top-level `create` into a page deleted since `seen_seq` | not created; text lands under the deleted page's name | `page_deleted` | the created uid |
-| top-level `move` onto such a page | block stays; a note naming the page | `page_deleted` | the moved subtree |
-
-Where a row lands text, a blank text lands nothing; a conflict, by contrast,
-keeps a blank losing text. A skipped op resolves no `page_title`, which
-would create a page for an op that never applied. A later op in the batch
-sees a diverted create's block as missing too, and a diverted subtree lands
-flat.
+client's queue. `ops_core.classify_skip` sorts it before its context is read.
+A skipped op resolves no `page_title`, which would create a page for an op
+that never applied. `UID_RE` still refuses a skipped op's malformed uid,
+which keeps arbitrary strings out of the journal.
 
 `JournalBlock` writes the row a trigger would, straight into `changes`, so
 FTS and refs stay untouched. It marks a uid with no block row `deleted`,
 because the feed ships a block tombstone only from a delete row.
 
 A skipped `create` or `move` shifted its destination siblings in the
-client's optimistic apply but not on the server. Where nothing else re-ships
-them, `ops_apply._destination_siblings` journals them.
-
-Other planning errors are still a 400:
-
-| Error | Judged by |
-|---|---|
-| a create's invalid or taken uid; a taken uid outranks a gone parent | `ops_core.plan_op` |
-| title syntax in a `create`, `create_page` or `move` `page_title`, or in any ref a text holds | `find_op_title_violation`, before any op applies |
-| a skipped op whose own uid, or whose gone parent (a diverted create's, or a move's whose block exists), fails `UID_RE`, which keeps arbitrary strings out of the journal | `ops_core.impossible_uid_reason` |
-| a `create` or `move` that would put a block past `MAX_OUTLINE_DEPTH` | `ops_core._check_depth`; server-made landings are never refused for depth ([Work bounds](#work-bounds-under-the-write-lock)) |
+client's optimistic apply but not on the server, so the server journals them
+to bring the client back.
 
 ## Stale batches
 
 An offline device that never pulled a page delete still holds edits against
-the page. `apply_batch` asks `store.stale_titles` for `page_deletions` titles
-with a `seq` above the batch's `seen_seq`; a batch without `seen_seq` pays no
-query, and one beyond the journal head (a replaced database) treats every
-deletion as newer.
-
-| Op in a stale batch | Outcome |
-|---|---|
-| `create_page` for a stale title | dropped, not reported; the replica removes its page (`dropStrandedLocalPages`) |
-| top-level `create` / `move` with a stale `page_title` | skipped as `stale_page` (a `SkipKind`), reported `page_deleted` (a `SkipReason`) ([above](#missing-targets)) |
-| text linking a stale title | the links become plain text (`replay_core.unlink_stale_text`) |
-| a leading `Title::` naming a stale title | fenced in place, `` `X`:: v `` (`unlink.defuse_attribute`), so it indexes no ref; the unlink replay defuses too |
-
-`unlink_stale_refs` fences a link the unlink's passes leave, its title in
-backticks inside its brackets (``[[`a[`]]``, `` #`T` ``). The link stops
+the page. `apply_batch` asks `store.stale_titles` for the titles deleted
+after the batch's `seen_seq`; a batch without `seen_seq` pays no query.
+Those edits apply with their links to the deleted titles made plain or
+fenced, never resolved
+([contract](contracts/write-path.md#stale-batches)). A fenced link stops
 resolving, and every character the user wrote stays.
-
-A page re-created after its delete still matches until its row is pruned.
 
 ## Concurrent structure edits
 
-| Op, situation | Outcome | Journalled |
-|---|---|---|
-| `create` under a live parent on another page than its `page_title` | created on the parent's page | the block |
-| `move` under a parent no longer on the page `page_title` names | moved onto the parent's page | the subtree |
-| `move` whose target is the block or its descendant | skipped as `move_cycle`, reported `cycle`; child `move skipped: would create a cycle` under the block's header | the moved subtree, root first |
+A create or move under a live parent follows the parent's page, whatever
+its `page_title` says. A move into its own subtree is skipped as a cycle
+([contract](contracts/write-path.md#concurrent-structure-edits)).
 
 ## Page mutations and the sidebar
 
@@ -270,23 +202,12 @@ A page re-created after its delete still matches until its row is pruned.
 rewrites every referencing block through `rename.py` and, with `allow_merge`,
 merges by concatenating blocks. `DELETE /api/page/{title}` runs
 `store.delete_page_unlinking`, which plans with `unlink.plan_page_delete`
-before any write:
-
-| Inbound reference | Delete does |
-|---|---|
-| `[[Title]]`, `#Title`, `#[[Title]]` | becomes plain text |
-| `((uid))` to a block of the page | replaced by a copy of that block's text, without its task marker or leading attribute, newlines folded |
-| a query macro naming the page | refused: 409 with `blockers` (`DeleteBlockerModel`), `reason` `query`; nothing changes |
-| a leading `Title:: v` | refused, `used_as_attribute`: the block's next edit would recreate the page |
-| the inlined copies would carry the block past a text limit | refused, `limit` |
-| unlinking would change the leading attribute name (`[[Title]]:: v`) | refused, `attribute` |
-| rewritten text still references the page | refused, `residual` |
-
-`unlink_title_refs` repeats until the text is stable, at most the text's
-`[[` depth plus `PASSES_PAST_DEPTH` passes, since a nested legacy link loses
-one layer per pass. A link the passes leave makes the source `residual`
-(`unlink.unlink_settled`). Rewritten blocks get `unlink` and `inline` rows
-and a reindex, and the title goes into `page_deletions`.
+before any write. Links to the page become plain text and `((uid))` refs to
+its blocks become copies. A reference the delete cannot remove refuses it
+whole, with `blockers` ([contract](contracts/write-path.md#page-delete)).
+A leading `Title:: v` refuses, because the block's next edit would recreate
+the page. `unlink_title_refs` runs several passes, since a nested legacy
+link loses one layer per pass.
 
 A server rewrite can grow stored text: a longer title per link, a copy per
 `((uid))`, a stripped asset token that joins `[` to `[`.
@@ -302,20 +223,8 @@ journal day cannot dangle.
 commit, so its work stalls every other request. That work is linear in the
 request and in the rows and subtrees of the blocks the batch touches. What it
 derives from the server's history is charged to the batch's replay budget.
-
-| Bound | Constant | Judged in | Past it |
-|---|---|---|---|
-| a request body | `PRIVATE_BODY_MAX_BYTES` (`auth_gate_core.py`) | `auth_gate_core.private_body_cap`, in `AuthGateMiddleware` | 413 ([request-boundary.md § Auth](request-boundary.md#auth)) |
-| ops in a batch | `MAX_OPS_PER_BATCH` (`contracts/ops.py`) | `OpBatch.ops`, as FastAPI validates the body | 422 |
-| a client's block text | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` (`contracts/ops.py`) | `ops_core.find_op_text_limit_violation` over `text_limits.text_limit_violation`, from `judge_batch` ([Planning](#planning), Text limits) | the whole batch is a 400, unless already applied |
-| a page title a `create`, `create_page` or `move` names, or a ref title in a text | `MAX_PAGE_TITLE_CHARS` (`contracts/titles.py`) | `refs.title_length_over`, from `ops_core.find_op_title_violation` in `judge_batch` | as for a block's text |
-| where a client's create or move puts a block | `MAX_OUTLINE_DEPTH` (`contracts/ops.py`) | `ops_core._check_depth`, from `plan_op` | the whole batch is a 400 |
-| where a conflict entry or a diverged delete's copy lands | `MAX_OUTLINE_DEPTH` | `ops_apply._conflict_landing`, `ops_core.descendant_copy_effects` | never refused; placed no deeper than the cap |
-| a conflict header or skip note naming a page | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` | `conflict_notes._fitted` | the name becomes `LONG_TITLE_LABEL` |
-| one replay step | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING`, `MAX_UNLINK_WORK` (`text_limits.py`) | `replay_core._replay_step`, before it splices (`spans.spliced_length`, `text_limits.unlink_refused`); then `classify_text_edit` judges the result | the edit lands `over_limit` |
-| a batch's replays | `MAX_BATCH_REPLAY_WORK`, `ROW_CHARS` (`replay_core.py`) | `ops_apply.BatchReplay._spend`, from `BatchReplay._read` and `BatchReplay.charge` | the edit lands `over_limit`; its step spends what is left, so every later step stops before splicing |
-| a route's rewrite of stored text: rename, merge, title migration, asset strip | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` | `text_limits.rewrite_text_limit_violation`, from `store.rewrite_snapshotted_blocks` (`RewriteTextLimitError`) and `routes_assets._strip_references` | refused before any block is written: a rename or merge 422, the migration 409, the strip 409 with `blockers` ([files-and-assets.md](files-and-assets.md#assets-and-the-file-browser)) |
-| a page delete's copies: per page block, per source, and in total | `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING`, `MAX_UNLINK_WORK`; the total, `MAX_DELETE_COPY_CHARS` (`unlink.py`) | `unlink._copy_length`, from `unlink.plan_page_delete` in source order | the source is refused, blocker `limit`, on the delete and its preview alike |
+Each bound, its constant, where it is judged and what happens past it is a
+row in [contracts/write-path.md § Work bounds](contracts/write-path.md#work-bounds).
 
 The text limits exist because export holds a whole block in memory and the
 web tokenizer recurses once per nested run. The depth cap exists because the
@@ -332,15 +241,8 @@ the limits, or by the two backticks of an unlink's fence
 ([Stale batches](#stale-batches)).
 
 An op may leave an over-limit stored row at its length or shorten it, never
-lengthen it. Only the text an op sends is judged, so a move, `set_*` op or
-delete of such a row goes through. A server rewrite
-(`rewrite_text_limit_violation(before, after)`) and an unlink
-(`unlink_refused`) both allow level, so the page a legacy row links stays
-renamable and deletable. Depth is stricter: a move that leaves a legacy
-subtree past the cap is refused.
-
-An `over_limit` edit lands as sent, with every title its replay deleted or
-renamed away made plain (`replay_core.over_limit_landing_text`).
+lengthen it. Level is allowed so that the page a legacy row links stays
+renamable and deletable.
 
 The replay budget is counted in characters. A block can hold millions of
 rows, and without the budget a batch of tiny edits could hold the write lock
@@ -361,13 +263,9 @@ Beyond its charge, no op's work may grow with the block's rows or a step's
 titles. The docstrings of `replay_core._spent`, `replay_core._cached_step`
 and `ops_apply.BatchReplay.walk` say how each step is charged once.
 
-A page delete judges each copy at its projected length before building any
-(`unlink._copy_length`, `unlink._Copies`), so it can refuse a delete whose
-final text would fit. A projected `limit` is reported ahead of `attribute`
-and `residual`, so the delete dialog names the length first.
+A page delete reports a projected `limit` ahead of `attribute` and
+`residual`, so the delete dialog names the length first.
 
-`plan_op` judges a create or move by the level of the deepest block it
-places, with the batch's earlier ops applied; a skipped op is not judged.
 A depth violation is a 400 for the whole batch, not a skip like
 `move_cycle` (`ops_core._check_depth` says why). The
 [design](../superpowers/specs/2026-10-24-outline-depth-cap-design.md)
@@ -375,8 +273,6 @@ accepts the cost: a web offline batch is
 [discarded](sync-recovery.md#a-batch-the-server-rejects) when two devices'
 edits, each legal alone, stack past the cap. The web refuses what it can see
 first ([frontend-editor.md](frontend-editor.md#rules-an-edit-must-not-break)).
-A server-made landing keeps all its text at the cap and loses only the
-nesting below it (`ops_core.descendant_copy_effects`).
 
 ## Post-commit nudges
 

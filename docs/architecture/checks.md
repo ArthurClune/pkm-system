@@ -190,8 +190,10 @@ Each suite states its invariants in its module docstring or file header.
 Rules a change to the gate must keep:
 
 - **A model is written from the docs, not from the code**, so it can
-  disagree with the code where the code is wrong. `props/model.py` encodes
-  write-path.md, backend.md and sync-and-offline.md and never imports
+  disagree with the code where the code is wrong. Its cases come from
+  [`contracts/`](contracts/), and a case it needs that no contract holds
+  becomes a contract row before the model encodes it. `props/model.py`
+  encodes [contracts/write-path.md](contracts/write-path.md) and never imports
   `pkm.server`, `pkm.planning` or `pkm.batch`
   (`test_model_imports_no_server_code`). The outline model imports outline
   code as types only.

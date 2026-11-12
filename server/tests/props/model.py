@@ -6,11 +6,10 @@ real server against. It must never import `pkm.server.*` or
 `pkm.planning` (a test pins that), or it would agree with the server by
 construction.
 
-The rules come from write-path.md § Planning (Ordering), § Work bounds
-under the write lock, § Conflicts, § Missing targets, § Stale batches,
-§ Concurrent structure edits and § Page mutations and the sidebar. Each rule
-below names the row it encodes. Where the docs are silent the rule follows
-the code, and says so.
+The rules come from contracts/write-path.md, whose case tables exist for
+this model; the op table and batch atomicity come from write-path.md. Each
+rule below names the row it encodes. Where the docs are silent the rule
+follows the code, and says so.
 
 Ops are plain dicts in the wire shape of `pkm.contracts.ops`. The model
 tracks only the blocks the ops address; the conflict headers and copies
@@ -92,7 +91,8 @@ def _valid_uid(uid: BlockUid) -> bool:
 
 
 def _title_violation(ops: Sequence[Op]) -> bool:
-    """write-path.md § Missing targets: "title syntax" is still a 400. Checked
+    """contracts/write-path.md § Missing targets: "title syntax" is still a
+    400. Checked
     over the whole batch before any op applies: a create's, create_page's or
     move's page_title (even one a live parent makes the server ignore), and
     every `[[ref]]`/`#tag` title in a create's or edit's text. An edit's
@@ -111,8 +111,8 @@ def _title_violation(ops: Sequence[Op]) -> bool:
 
 
 def _limit_violation(ops: Sequence[Op]) -> bool:
-    """write-path.md § Work bounds under the write lock, and § Planning
-    (text limits) for the order: a create's or edit's text longer than
+    """contracts/write-path.md § Work bounds, the bounds and their order:
+    a create's or edit's text longer than
     1,000,000 code points, or with `[[` runs nested deeper than 32 outside
     code, is a 400 for the whole batch. Judged over the whole batch before
     titles, an op the server would skip included; no other op's text is
@@ -146,8 +146,8 @@ _BLOCK_REF = re.compile(r"\(\(([^()\s]+)\)\)")
 
 
 def unlink_titles(text: str, titles: Collection[str]) -> str:
-    """write-path.md § Page mutations and the sidebar: every `[[Title]]`
-    and `#Title` naming one of `titles` becomes plain `Title`. A leading
+    """contracts/write-path.md § Page delete: every `[[Title]]` and
+    `#Title` naming one of `titles` becomes plain `Title`. A leading
     `Title::` is not a link and is left alone."""
     def plain(m: re.Match[str]) -> str:
         return m.group(1) if m.group(1) in titles else m.group(0)
@@ -161,8 +161,8 @@ def attribute_name(text: str) -> str | None:
 
 
 def fence_attribute(text: str, titles: Collection[str]) -> str:
-    """write-path.md § Stale batches: a leading attribute naming one of
-    `titles` gets its name code-fenced in place (`` `X`:: v ``). A name
+    """contracts/write-path.md § Stale batches: a leading attribute naming
+    one of `titles` gets its name code-fenced in place (`` `X`:: v ``). A name
     holding a backtick is no attribute, so it is left alone."""
     span = attribute_title_span(strip_code(text), text)
     if span is None or span.raw_title not in titles:
@@ -193,8 +193,8 @@ _NEWLINES = re.compile(r"\s*\n\s*")
 
 
 def _plain_copy(text: str) -> str:
-    """write-path.md § Page mutations and the sidebar: a block's copy drops
-    its leading attribute, and its newlines are folded to one space each
+    """contracts/write-path.md § Page delete: a block's copy drops its
+    leading attribute, and its newlines are folded to one space each
     run (generated texts carry no task marker)."""
     span = attribute_title_span(strip_code(text), text)
     text = text if span is None else text[span.end:].lstrip()
@@ -268,8 +268,8 @@ class PageDelete:
                for r in extract(text).refs):
             return "used_as_attribute"
         new, _, applied = self.rewrite(text)
-        # write-path.md § Work bounds under the write lock: the copies inlined
-        # may not carry a text past the length cap, nor further past it, judged
+        # contracts/write-path.md § Work bounds: the copies inlined may not
+        # carry a text past the length cap, nor further past it, judged
         # on the inlined text before unlinking and ahead of the rewrite's own
         # blockers. Unlinking only shortens, so the unlinked text needs no
         # second length judgement. The code judges the nesting there too, since
@@ -349,8 +349,8 @@ class Model:
         return dict(self.blocks)
 
     def stale_titles(self, seen_seq: SyncSeq | None) -> frozenset[str]:
-        """write-path.md § Stale batches: the titles deleted after `seen_seq`;
-        none without one. A `seen_seq` past the journal head is not
+        """contracts/write-path.md § Stale batches: the titles deleted after
+        `seen_seq`; none without one. A `seen_seq` past the journal head is not
         modelled: the state machine never draws one."""
         if seen_seq is None:
             return frozenset()
@@ -384,8 +384,8 @@ class Model:
 
     def delete_page(self, title: RawTitle, others: Mapping[BlockUid, str],
                     seq: SyncSeq) -> PageDelete:
-        """`DELETE /api/page/{title}` (write-path.md § Page mutations and the
-        sidebar). `others` is the text of every block the model does not
+        """`DELETE /api/page/{title}` (contracts/write-path.md § Page
+        delete). `others` is the text of every block the model does not
         track that is off the page (conflict entries, seed rows), since
         they can refuse the delete too. A 200 removes the page and its
         blocks, rewrites each referencing pool block and records its
@@ -450,8 +450,8 @@ class Model:
     def _record_written(self, uid: BlockUid, sent: str, written: str,
                         stale: Collection[str],
                         replayed: Sequence[Rewrite]) -> None:
-        """write-path.md § Conflicts: text written to `uid` that differs
-        from the text the client sent, because of a stale unlink or a
+        """contracts/write-path.md § Conflicts: text written to `uid` that
+        differs from the text the client sent, because of a stale unlink or a
         replay, records how the one became the other, so the client's next
         hashed edit replays onto the written text. One rewrite per pass
         that changed the text, chained by hash: the unlink of the stale
@@ -507,7 +507,7 @@ class Model:
 
     def _shift(self, page: str, parent: BlockUid | None, key: int,
                moving: BlockUid | None = None) -> None:
-        """write-path.md § Planning, Ordering: landing at `key` first
+        """contracts/write-path.md § Ordering: landing at `key` first
         bumps every sibling (same page, same parent) whose key is >= `key`
         by one. A moving block is left out of its own shift: its key is
         overwritten when it lands, so only its siblings move."""
@@ -523,8 +523,8 @@ class Model:
         kind = op["op"]
         if kind == "create_page":
             title = _page_name(op["page_title"])
-            # write-path.md § Stale batches: a stale batch's create_page for a
-            # deleted title is dropped, and not reported.
+            # contracts/write-path.md § Stale batches: a stale batch's
+            # create_page for a deleted title is dropped, and not reported.
             if title in stale:
                 return
             # write-path.md: create_page idempotently ensures
@@ -547,8 +547,8 @@ class Model:
             return
         block = self.blocks.get(uid)
         if block is None:
-            # write-path.md § Missing targets: a skipped op whose uid fails
-            # UID_RE is still a 400.
+            # contracts/write-path.md § Missing targets: a skipped op whose
+            # uid fails UID_RE is still a 400.
             if not _valid_uid(uid):
                 raise _Rejected
             # § Missing targets, every block-gone row reports
@@ -580,8 +580,8 @@ class Model:
 
     def _create(self, op: Op, uid: BlockUid, text: str, skip: SkipFn,
                 kept: list[str], stale: frozenset[str]) -> None:
-        # write-path.md § Missing targets: an invalid uid is a 400 -- for a
-        # create, checked before anything else.
+        # contracts/write-path.md § Missing targets: an invalid uid is a
+        # 400 -- for a create, checked before anything else.
         if not _valid_uid(uid):
             raise _Rejected
         parent = op.get("parent_uid")
@@ -635,16 +635,16 @@ class Model:
         sent = op["text"]
         base = op.get("base_text_hash")
         if base is None:
-            # write-path.md § Conflicts: a hashless edit to a live block is
-            # unconditional last-write-wins.
+            # contracts/write-path.md § Conflicts: a hashless edit to a live
+            # block is unconditional last-write-wins.
             self._write(block, text)
             self._record_written(block.uid, sent, text, stale, ())
             return
         unreplayed = text
         steps = self.rewrites.get(block.uid, ())
         if replay_peak(steps, unreplayed, base) > TEXT_CAP:
-            # write-path.md § Conflicts: a replay may not store text past a
-            # limit. The edit lands, the block keeps its text. Every
+            # contracts/write-path.md § Conflicts: a replay may not store
+            # text past a limit. The edit lands, the block keeps its text. Every
             # drawn text closes the runs it opens, so its copies cannot
             # join into a deeper link and only the length cap can be
             # reached (code: replay_core._replay_step judges each step's
@@ -685,8 +685,8 @@ class Model:
             self._record_written(block.uid, sent, text, stale, replayed)
             return
         if text_hash(block.text) != base:
-            # write-path.md § Conflicts, rows "Hashes differ" and "Block
-            # exists, hash mismatch": incoming wins, the overwritten text
+            # contracts/write-path.md § Conflicts, rows "Hashes differ" and
+            # "Block exists, hash mismatch": incoming wins, the overwritten text
             # is kept.
             kept.append(block.text)
         # Row "hash(current) == base_text_hash": clean apply.
@@ -745,9 +745,9 @@ class Model:
         base = op.get("base_subtree_hash")
         if base is not None and subtree_hash(
                 (u, self.blocks[u].text) for u in subtree) != base:
-            # write-path.md § Conflicts, row "Guarded `delete` whose subtree
-            # changed": the delete wins, but every text of the subtree is
-            # kept first. A matching or hashless delete keeps nothing.
+            # contracts/write-path.md § Conflicts, row "Guarded `delete` whose
+            # subtree changed": the delete wins, but every text of the subtree
+            # is kept first. A matching or hashless delete keeps nothing.
             kept.extend(self.blocks[u].text for u in subtree)
         # § The write path: delete removes a block and its subtree.
         for u in subtree:
@@ -783,8 +783,8 @@ def positions_after(groups: Mapping[BlockUid | None, Sequence[BlockUid]],
 
     A command whose block or parent is not in `groups` changes nothing (a
     create still spends its uid), and a move into the block itself or its
-    own subtree is left undone: write-path.md § Missing targets and
-    § Concurrent structure edits, which the server reports as skips. Parent
+    own subtree is left undone: contracts/write-path.md § Missing targets
+    and § Concurrent structure edits, which the server reports as skips. Parent
     specs are `((uid))` or `{{alias}}`; a `## Heading` spec, which the
     planner would create, and `outline` are not modelled and raise.
     The input is not mutated."""

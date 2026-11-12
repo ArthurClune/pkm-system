@@ -55,9 +55,9 @@ def existing_page_label(title: RawTitle) -> str:
 def conflict_label(page_title: RawTitle | None,
                    hint_page: CanonicalTitle | None) -> str:
     """Label for an orphan edit's client page-title hint
-    (docs/architecture/write-path.md § Conflicts). It never fails the op,
-    and it must not produce a `[[link]]` to a page that does not exist, or
-    the ref indexer creates one:
+    (docs/architecture/contracts/write-path.md § Conflicts). It never
+    fails the op, and it must not produce a `[[link]]` to a page that does
+    not exist, or the ref indexer creates one:
 
     - unusable (missing, blank, or syntactically invalid): the generic label
     - names a page (`hint_page`, its stored title): `existing_page_label`
@@ -93,11 +93,10 @@ def overwritten_header_text(page_title: CanonicalTitle, uid: BlockUid) -> str:
 
 def deleted_header_text(page_title: CanonicalTitle) -> str:
     """Header for a subtree whose delete diverged (docs/architecture/
-    write-path.md § Conflicts): names the block's own page, read from its
-    row before the delete. It
-    cannot embed `((uid))` like `live_block_header_text` -- by the time this
-    lands the block is gone, so there is nothing left for the ref to point
-    at."""
+    contracts/write-path.md § Conflicts): names the block's own page, read from
+    its row before the delete. It cannot embed `((uid))` like
+    `live_block_header_text` -- by the time this lands the block is gone, so
+    there is nothing left for the ref to point at."""
     return _fitted(existing_page_label(page_title),
                    lambda label: f"[[conflict]] {label}"
                                  " — deleted while edited elsewhere")

@@ -225,15 +225,14 @@ class DeleteOp(WellFormedModel):
     op: Literal["delete"]
     uid: BlockUid
     # sha256 of the subtree this delete was based on (docs/architecture/
-    # write-path.md § Conflicts): the (uid, text) pairs of the block and its
-    # descendants, as of the tree the deleting device last saw. Absent => a
-    # legacy client, or a uid the editor's tree did not know (the batch
-    # creates it, or it is on another page): a plain delete, no conflict
-    # copy. Present => the server hashes its own current subtree; on a
-    # mismatch the delete still wins, but first every descendant's text
-    # lands, nested with fresh uids, under a conflict header on the daily
-    # page of the batch's day, so text another device wrote is never
-    # silently destroyed.
+    # contracts/write-path.md § Conflicts): the (uid, text) pairs of the block
+    # and its descendants, as of the tree the deleting device last saw. Absent
+    # => a legacy client, or a uid the editor's tree did not know (the batch
+    # creates it, or it is on another page): a plain delete, no conflict copy.
+    # Present => the server hashes its own current subtree; on a mismatch the
+    # delete still wins, but first every descendant's text lands, nested with
+    # fresh uids, under a conflict header on the daily page of the batch's day,
+    # so text another device wrote is never silently destroyed.
     base_subtree_hash: Sha256Hex | None = Field(default=None, min_length=64,
                                                  max_length=64)
 

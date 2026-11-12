@@ -1,6 +1,6 @@
 # pattern: Functional Core
 """The block texts at and past the write-time limits that the ops property
-draws (write-path.md § Work bounds under the write lock): a text may hold at
+draws (contracts/write-path.md § Work bounds): a text may hold at
 most 1,000,000 code points, and its `[[` runs may nest at most 32 deep
 outside code. Every other text the strategies draw is a few short tokens, so
 these are the only texts a limit can reach. The model decides a batch's fate

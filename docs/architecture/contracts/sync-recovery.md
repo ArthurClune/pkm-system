@@ -48,9 +48,10 @@ policy as durable rows. `headPrecedes` (`sync/outbox.ts`) orders the two:
 
 ## What the UI shows
 
-| Problems at once, replica present | Shown |
-|---|---|
-| a poison problem without its repair, and an outline problem | the poison problem; the outline problem waits in `outlineBehind` |
+| Problems at once, replica present | Shown | Reason |
+|---|---|---|
+| a poison problem without its repair, and an outline problem | the poison problem; the outline problem waits in `outlineBehind` | |
+| a poison problem in any phase, `repaired` included, and a stalled replica, in either order | the poison problem. A poison event replaces `replica-stalled` (`poisonProblem`; `poisonEnded` for `repaired`), and a stall report leaves any other problem shown (`replicaStalled`) | the stall report is a background one, made again at each failed retry while online (`noteFailure` in `replicaSync.ts`) |
 
 With the replica gone, `transitionSync` ranks the banners by whether their
 action still works:

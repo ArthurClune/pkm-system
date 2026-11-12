@@ -31,4 +31,4 @@ the server resolves the conflict ([write-path.md § Conflicts](../write-path.md#
 |---|---|
 | an editor batch | stamped while the editor builds it (`outline/baseTextHash.ts`, whose header says what the worker fills), against the tree it was planned from, so op N leaves the text op N+1's hash matches |
 | an undo history entry | recorded unstamped; `undoManager.dispatch` stamps at replay. An entry-time hash is stale and lands a spurious conflict |
-| an editor flush | taken over the text the user typed over ([frontend-editor.md § Drafts and commit points](../frontend-editor.md#drafts-and-commit-points)), so of two concurrent edits from one base the later wins and the earlier becomes the conflict copy |
+| an editor flush | taken over the text the user typed over ([contracts/frontend-editor.md § Drafts and commit points](frontend-editor.md#drafts-and-commit-points)), so of two concurrent edits from one base the later wins and the earlier becomes the conflict copy |

@@ -15,10 +15,11 @@
 //             back when a kept problem ends
 //   paused    the online-only banner carries paused exactly while the queue
 //             holds a poison or startup claim
-// What the docs leave to the code is not modelled: an outline repair, a
-// reset, a dismiss, and a stall report in a life that also has a poison
-// problem while the replica is still there. A life with any of those is
-// reported unmodelled, with the reason, for the tally.
+// Not modelled: what the docs leave to the code (an outline repair, a
+// reset, a dismiss), and a stall report in a life that also has a poison
+// problem while the replica is still there, which has a contract row but no
+// model yet. A life with any of those is reported unmodelled, with the
+// reason, for the tally.
 import type { SyncEvent, SyncProblem } from "../../sync/syncState";
 
 /** A problem as the banner rule sees it: its kind, the repair phase of a

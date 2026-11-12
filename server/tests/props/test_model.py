@@ -56,6 +56,23 @@ def move(uid: BlockUid, parent, idx, page=None):
     return op
 
 
+# --- Limits the model writes out --------------------------------------------
+
+def test_written_out_limits_match_the_server():
+    """The limits are written out in the model, not imported, so a server
+    change disagrees with the model instead of being followed; this file
+    imports the server's limits and catches that."""
+    from pkm.contracts.ops import MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING
+    from pkm.contracts.titles import UNTITLED_PAGE_TITLE
+    from pkm.server.replay_core import MAX_REPLAYED_REWRITES
+    from props.limit_texts import NESTING_CAP
+    from props.model import MAX_REPLAY_STEPS, UNTITLED
+    assert MAX_REPLAY_STEPS == MAX_REPLAYED_REWRITES
+    assert UNTITLED == UNTITLED_PAGE_TITLE
+    assert TEXT_CAP == MAX_BLOCK_TEXT_CHARS
+    assert NESTING_CAP == MAX_LINK_NESTING
+
+
 # --- contracts/write-path.md § Planning, Ordering ---------------------------
 
 def test_create_shifts_siblings_at_and_after_key():
@@ -167,7 +184,8 @@ def test_delete_missing_is_noop():
     m = model(blk(A))
     before = m.snapshot()
     out = m.apply([{"op": "delete", "uid": X}])
-    # code, not docs: a no-op delete is still listed in the ack's skipped
+    # contracts/write-path.md § Missing targets: every row, a no-op delete
+    # included, is listed in the ack's skipped
     assert out == Outcome(200, ((0, "delete", X, "block_not_found"),), ())
     assert m.snapshot() == before
 
@@ -632,7 +650,7 @@ def test_text_model_matches_the_unlinker_on_generated_texts(data):
                 if out.rewrite(t)[0] != t} == plan.rewrites
 
 
-# --- cli-and-mcp.md § Pure planners: batch `index` is a position -------
+# --- contracts/cli-and-mcp.md § Pure planners: `index` is a position --------
 
 def cr(index=None, parent=None, alias=None, command="create"):
     params = {"page": "Alpha", "text": "t", "parent": parent, "index": index}

@@ -1,5 +1,6 @@
 // validateOutlineFocus over generated trees, focuses and texts: the focus it
 // hands back is always one the editor can show, with a caret inside the text.
+// Written from contracts/frontend-editor.md § Rules an edit must not break.
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 import type { BlockUid } from "../api/brands";
@@ -52,7 +53,7 @@ describe("validateOutlineFocus", () => {
       expect(result.cursor).toBeLessThanOrEqual(text(result.uid).length);
 
       // The block that stays on screen is the outermost ancestor that hides
-      // its children, found here from the render rule (a collapsed block
+      // its children, found here from the contract's rows (a collapsed block
       // with children, valid tables excepted), top-down.
       const path = pathTo(tree, target);
       const byUid = new Map(nodes.map((n) => [n.uid, n]));

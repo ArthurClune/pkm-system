@@ -1,9 +1,9 @@
 // pattern: Functional Core
 // Generators and an independent model for the properties over which block
 // rows the editor shows: trees with collapsed blocks, valid and invalid Roam
-// {{table}} macros, headings and view modes. The model is written from the
-// render rules in "Rules an edit must not break" in
-// docs/architecture/frontend-editor.md, not from tree.ts.
+// {{table}} macros, headings and view modes. The model is written from
+// contracts/frontend-editor.md § Rules an edit must not break, not from
+// tree.ts.
 import fc from "fast-check";
 import type { BlockUid } from "../../api/brands";
 import type { BlockNode } from "../../api/payloads";

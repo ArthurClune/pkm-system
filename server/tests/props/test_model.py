@@ -167,7 +167,8 @@ def test_delete_missing_is_noop():
     m = model(blk(A))
     before = m.snapshot()
     out = m.apply([{"op": "delete", "uid": X}])
-    # code, not docs: a no-op delete is still listed in the ack's skipped
+    # contracts/write-path.md § Missing targets: every row, a no-op delete
+    # included, is listed in the ack's skipped
     assert out == Outcome(200, ((0, "delete", X, "block_not_found"),), ())
     assert m.snapshot() == before
 

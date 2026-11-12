@@ -18,15 +18,6 @@ whole batch with 412. The dedupe comes first so that a retried batch that
 already applied replays its ack, instead of failing a check its own apply made
 false.
 
-| Op | Does |
-|---|---|
-| `create` | insert a block, uncollapsed. `page_title` places a top-level create; a child lands on its parent's page |
-| `update_text` | replace a block's text. `page_title` only labels a missing block's conflict header |
-| `move` | reposition or reparent; a cross-page move re-pages the subtree. `page_title` places a top-level move |
-| `delete` | remove a block and its subtree |
-| `set_heading`, `set_view_type`, `set_collapsed` | set a block attribute; collapse is view state only |
-| `create_page` | idempotently ensure a page exists |
-
 ```mermaid
 flowchart LR
     C[Client batch] --> JB["ops_core.judge_batch (Core, threadpool)<br/>text limits, then titles → 400"]
@@ -40,6 +31,24 @@ flowchart LR
     X --> J["change journal<br/>(triggers, plus JournalBlock)"]
     X --> B["WS broadcast + seq nudge<br/>(after commit)"]
 ```
+
+## Ops
+
+| Op | Does |
+|---|---|
+| `create` | insert a block |
+| `update_text` | replace a block's text. `page_title` only labels a missing block's conflict header |
+| `move` | reposition or reparent |
+| `delete` | remove a block and its subtree |
+| `set_heading`, `set_view_type`, `set_collapsed` | set a block attribute; collapse is view state only |
+| `create_page` | ensure a page exists, so that an empty page made offline reaches the server |
+
+A batch applies whole or not at all, because a client keeps or discards it
+whole. `page_title` names the page of a top-level `create` or `move`. A
+blank one is filed under `UNTITLED_PAGE_TITLE` rather than refused, since a
+400 would wedge an offline client's queue.
+[contracts/write-path.md § Ops](contracts/write-path.md#ops) has each op's
+cases.
 
 ## The write lock
 

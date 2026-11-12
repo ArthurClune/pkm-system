@@ -1767,6 +1767,110 @@ describe("deliverLeased's lane ahead", () => {
   });
 });
 
+describe("deliverLeased's rejection", () => {
+  /** An offline queue holding one durable row, whose POST fails with
+   * `postError` and whose marks go through `markPoisoned`. */
+  async function leasedRow(postError: () => Error,
+                           markPoisoned: Replica["markPoisoned"]) {
+    const post = vi.fn(async (): Promise<OpsAck> => { throw postError(); });
+    const replica = memReplica({ markPoisoned });
+    const q = createOpQueue(replica, { post, clientId: clientIdOf("c-rej") });
+    q.setOnline(false);
+    const durable = q.enqueue([op("tuid-bad")]);
+    await q.settled();
+    return { q, replica, durable, row: replica.rows[0] };
+  }
+
+  const pendingOrSettled = (delivered: Promise<unknown>) => Promise.race([
+    delivered.then(() => "settled"), Promise.resolve("pending"),
+  ]);
+
+  test("a leased batch the server rejects claims poison, keeps its mark " +
+       "intent, fails its ticket and throws, without awaiting the mark",
+  async () => {
+    const markGate = deferred<void>();
+    const markStarted = deferred<void>();
+    const { q, replica, durable, row } = await leasedRow(
+      () => new ApiError(400, "/api/ops", "bad op"),
+      async (id) => {
+        markStarted.resolve();
+        await markGate.promise;
+        replica.rows.find((r) => r.id === id)!.poisoned = true;
+        return { pending: 0, matched: true };
+      });
+    const poisoned: PoisonEvent[] = [];
+    q.onPoison((event) => poisoned.push(event));
+
+    await expect(q.deliverLeased(row, () => undefined))
+      .rejects.toMatchObject({ status: 400 });
+
+    expect(q.holds("poison")).toBe(true);
+    expect(q.poisonMarkIntents().map((e) => e.batch_id))
+      .toEqual([row.batch_id]);
+    await expect(durable.delivered).resolves
+      .toMatchObject({ status: "failed" });
+    await markStarted.promise;
+    expect(poisoned).toEqual([]);
+
+    markGate.resolve();
+    await vi.waitFor(() => expect(poisoned).toHaveLength(1));
+    expect(poisoned[0].batch_id).toBe(row.batch_id);
+    expect(q.holds("poison")).toBe(true);
+    q.dispose();
+  });
+
+  test("a leased batch's mark that fails is reported through " +
+       "onPoisonMarkFailed, not thrown", async () => {
+    // The first mark fails at once; the second waits on `secondGate` and
+    // fails after the queue is disposed, as a replica torn down with it does.
+    const secondGate = deferred<void>();
+    const secondStarted = deferred<void>();
+    let marks = 0;
+    const { q, row } = await leasedRow(
+      () => new ApiError(400, "/api/ops", "bad op"),
+      async () => {
+        marks += 1;
+        if (marks === 1) throw new Error("SQLITE_BUSY");
+        secondStarted.resolve();
+        await secondGate.promise;
+        throw new Error("replica disposed");
+      });
+    const markFailed: string[] = [];
+    q.onPoisonMarkFailed(({ error }) => markFailed.push(String(error)));
+
+    await expect(q.deliverLeased(row, () => undefined))
+      .rejects.toMatchObject({ status: 400 });
+    await vi.waitFor(() =>
+      expect(markFailed).toEqual(["Error: SQLITE_BUSY"]));
+    expect(q.holds("poison")).toBe(true);
+
+    await expect(q.deliverLeased(row, () => undefined))
+      .rejects.toMatchObject({ status: 400 });
+    await secondStarted.promise;
+    q.dispose();
+    secondGate.resolve();
+    await vi.waitFor(() => expect(markFailed).toEqual(
+      ["Error: SQLITE_BUSY", "Error: replica disposed"]));
+    await new Promise((done) => setTimeout(done, 0));
+    expect(q.holds("poison")).toBe(true);
+  });
+
+  test("a leased batch's 503 claims nothing and keeps its ticket pending",
+  async () => {
+    const { q, durable, row } = await leasedRow(
+      () => new ApiError(503, "/api/ops"),
+      async () => ({ pending: 0, matched: true }));
+
+    await expect(q.deliverLeased(row, () => undefined))
+      .rejects.toMatchObject({ status: 503 });
+
+    expect(q.holds("poison")).toBe(false);
+    expect(q.poisonMarkIntents()).toEqual([]);
+    await expect(pendingOrSettled(durable.delivered)).resolves.toBe("pending");
+    q.dispose();
+  });
+});
+
 describe("out-of-band flushes", () => {
   test("a successful out-of-band flush settles an orphaned durable ticket",
   async () => {

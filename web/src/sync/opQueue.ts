@@ -162,8 +162,10 @@ export interface OpQueue {
    * is, between the lane ahead and the POST, since a poison claim can land
    * while the lane goes out. Returns the ack's reading. Settles no ticket
    * and no lane mark: the recovery commit deletes the row, and the drain or
-   * settleCommitted settles it as for any row deleted out of band. Throws,
-   * leaving a lane entry retained, on a POST failure, and throws once the
+   * settleCommitted settles it as for any row deleted out of band. A
+   * terminal rejection of the batch claims `poison`, keeps the mark intent,
+   * fails its ticket, starts the mark without awaiting it, and throws. Any
+   * other POST failure throws, leaving a lane entry retained. Throws once the
    * queue is disposed. */
   deliverLeased(batch: PendingBatch, beforePost: () => void):
     Promise<OpsAckReading>;
@@ -505,12 +507,9 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
     return null;
   };
 
-  /** The server rejected a durable batch outright. Terminal for that batch:
-   * it is poisoned rather than retried, and the recovery barrier holds until
-   * an outside repair lifts it. */
-  const rejectDurableBatch = async (
-    batch: PendingBatch, error: ApiError,
-  ): Promise<DrainOutcome> => {
+  /** The synchronous half of a durable batch's rejection, shared by the
+   * drain and a recovery's leased POST: everything but the mark itself. */
+  const claimRejectedBatch = (batch: PendingBatch, error: ApiError): void => {
     const event: PoisonEvent = {
       id: batch.id,
       batch_id: batch.batch_id,
@@ -530,6 +529,15 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
     // `follows` mark — if it had one at all — is removed here rather than
     // waiting for a deleteBatch that will never arrive.
     outbox = forget(outbox, batch.batch_id);
+  };
+
+  /** The server rejected a durable batch outright. Terminal for that batch:
+   * it is poisoned rather than retried, and the recovery barrier holds until
+   * an outside repair lifts it. */
+  const rejectDurableBatch = async (
+    batch: PendingBatch, error: ApiError,
+  ): Promise<DrainOutcome> => {
+    claimRejectedBatch(batch, error);
     try {
       await markRetainedPoison();
     } catch (rpcError: unknown) {
@@ -901,8 +909,20 @@ export function createOpQueue(replica: Replica, deps: OpQueueDeps = {}): OpQueue
       await deliverLaneAhead(batch.batch_id);
       beforePost();
       if (qstate.disposed) throw new Error("op queue disposed");
-      return noteCommitted(
-        await postOps(batch.ops, batch.batch_id, batch.seen_seq));
+      let ack: OpsAck;
+      try {
+        ack = await postOps(batch.ops, batch.batch_id, batch.seen_seq);
+      } catch (error: unknown) {
+        if (isTerminalRejection(error)) {
+          claimRejectedBatch(batch, error);
+          // Not awaited: markPoisoned passes the replica's worker gate, which
+          // the recovery's own lease holds, so the mark lands after the run
+          // aborts. A mark failure is already reported by onPoisonMarkFailed.
+          void markRetainedPoison().catch(() => undefined);
+        }
+        throw error;
+      }
+      return noteCommitted(ack);
     },
   };
 }

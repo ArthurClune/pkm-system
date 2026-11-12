@@ -1,11 +1,11 @@
 ---
 # pkm-3kwx
 title: Stalled replica loses its banner when a poison problem ends
-status: todo
+status: in-progress
 type: bug
 priority: normal
 created_at: 2026-11-12T15:48:43Z
-updated_at: 2026-11-12T15:48:43Z
+updated_at: 2026-11-12T16:11:49Z
 ---
 
 Symptom: while the local replica is stalled, a poison problem (a rejected batch) takes the banner. When that problem ends (the failed mark is discarded, discovery clears, or Dismiss on the `repaired` notice), no banner shows at all, although the replica is still stalled. The `replica-stalled` banner only returns at the next stall report: `noteFailure` re-reports on each failed retry (backoff capped at `RETRY_MAX_MS`, 60 s), and arms no timer while offline, so offline it stays bannerless until a reconnect fails.
@@ -16,7 +16,9 @@ Ruling (Arthur, 2026-11-12): a stalled replica should never be bannerless. A poi
 
 Found while writing pkm-k2lf's banner row. When fixed, give `sync/bannerModel.ts` the case too (see the follow-up bean that models poison beside a stall).
 
-- [ ] Failing unit test in syncState.test.ts: stall, then poison, then poison ends -> replica-stalled shown
-- [ ] Fix: remember the stall behind a poison problem and restore it when the poison ends
-- [ ] Row in contracts/sync-recovery.md § What the UI shows
+- [x] Failing unit test in syncState.test.ts: stall, then poison, then poison ends -> replica-stalled shown
+- [x] Fix: remember the stall behind a poison problem and restore it when the poison ends
+- [x] Row in contracts/sync-recovery.md § What the UI shows
 - [ ] pnpm verify; proptest/check.sh web
+
+- [x] `pnpm verify` passed (proptest/check.sh web still open, above)

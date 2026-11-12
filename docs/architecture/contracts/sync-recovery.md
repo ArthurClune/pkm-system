@@ -52,6 +52,8 @@ policy as durable rows. `headPrecedes` (`sync/outbox.ts`) orders the two:
 |---|---|---|
 | a poison problem without its repair, and an outline problem | the poison problem; the outline problem waits in `outlineBehind` | |
 | a poison problem in any phase, `repaired` included, and a stalled replica, in either order | the poison problem. A poison event replaces `replica-stalled` (`poisonProblem`; `poisonEnded` for `repaired`), and a stall report leaves any other problem shown (`replicaStalled`) | the stall report is a background one, made again at each failed retry while online (`noteFailure` in `replicaSync.ts`) |
+| an outline problem and a stalled replica | the outline problem (`outline` replaces `replica-stalled`) | the same background stall report |
+| a poison or outline problem ends to nothing, or its `repaired` notice is dismissed, while the replica is still stalled | `replica-stalled`, idle, with the error in `SyncState.stalled` (`poisonEnded`, `dismiss`) | a stalled replica is never bannerless. `stalled` is the latest stall report whichever problem shows, cleared by a ready or no-replica report and by `reset-succeeded`. Dismissing a failed or blocked reset outcome still clears to nothing until the next report |
 
 With the replica gone, `transitionSync` ranks the banners by whether their
 action still works:

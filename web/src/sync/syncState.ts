@@ -43,6 +43,10 @@ export interface SyncState {
    * online-only banner it raises is shown whenever no other problem is, or
    * the one shown needs the worker (needsWorker). */
   replicaGone?: string;
+  /** The error of the latest stall report while the replica is stalled,
+   * kept whichever problem is shown. A poison or outline problem outranks the
+   * stall banner, so this is what brings it back when that problem ends. */
+  stalled?: string;
   /** The queue's barrier has a holder in heldForPoison. */
   deliveryHeld?: true;
 }
@@ -120,6 +124,14 @@ const poisonUnresolved = (current: SyncProblem | undefined): boolean =>
   (current?.kind === "rejected-batch" && current.repair !== "repaired")
   || current?.kind === "poison-discovery";
 
+/** The stalled banner a problem that ended to nothing falls back to while
+ * the replica is still stalled. */
+const idleStall = (error: string): StalledProblem =>
+  ({ kind: "replica-stalled", error, reset: "idle" });
+
+const stalledFallback = (state: SyncState): StalledProblem | undefined =>
+  state.stalled === undefined ? undefined : idleStall(state.stalled);
+
 /** Show a poison-side problem, keeping an unrepaired outline one it replaces
  * behind it. */
 const poisonProblem = (
@@ -143,7 +155,9 @@ const poisonEnded = (
   const behind = state.outlineBehind;
   const shown = behind !== undefined && (next === undefined || behind.repair !== "repaired")
     ? behind : next;
-  return { state: { problem: shown }, effects };
+  return {
+    state: { problem: shown ?? stalledFallback(state) }, effects,
+  };
 };
 
 /** An outline repair's phase: shown, or held behind an unresolved poison
@@ -164,7 +178,7 @@ function stalledBaseOrDeferred(state: SyncState): StalledProblem | undefined {
   const current = state.problem;
   if (current && current.kind !== "replica-stalled") return undefined;
   return current?.kind === "replica-stalled"
-    ? current : { kind: "replica-stalled", error: "", reset: "idle" };
+    ? current : idleStall("");
 }
 
 const unchanged = (state: SyncState): SyncTransition => ({ state, effects: [] });
@@ -191,7 +205,7 @@ function replicaStalled(state: SyncState, error: string): SyncTransition {
   // an in-flight reset the user is already watching.
   return problem(state, current?.kind === "replica-stalled"
     ? { ...current, error }
-    : { kind: "replica-stalled", error, reset: "idle" });
+    : idleStall(error));
 }
 
 function replicaUnstalled(state: SyncState): SyncTransition {
@@ -239,16 +253,34 @@ const onlineOnly = (
     && (prev.paused === true) === held
     ? prev : { kind: "replica-unusable", error, ...(held ? { paused: true } : {}) };
 
+/** What the latest stall report leaves: the cases bannerForMode raises the
+ * stalled banner for set it, a mode that ends the stall clears it, and a
+ * report that says nothing about the stall leaves it. */
+function stalledAfter(state: SyncState, event: SyncEvent): string | undefined {
+  if (event.type === "reset-succeeded") return undefined;
+  if (event.type !== "replica-state") return state.stalled;
+  const next = event.state;
+  if (next.mode === "stalled"
+      || (next.mode === "recovery-failed" && event.status === "connected")) {
+    return next.error;
+  }
+  return next.mode === "ready" || next.mode === "no-replica"
+    ? undefined : state.stalled;
+}
+
 export function transitionSync(state: SyncState, event: SyncEvent): SyncTransition {
   const t = transitionProblem(state, event);
   const gone = event.type === "replica-state" && event.state.mode === "no-replica"
     ? event.state.error : state.replicaGone;
   const held = event.type === "delivery-held"
     ? event.held : state.deliveryHeld === true;
+  // A gone replica latches: no stalled banner may return beside online-only.
+  const stalled = gone === undefined ? stalledAfter(state, event) : undefined;
   const carried: SyncState = gone === t.state.replicaGone
-      && held === (t.state.deliveryHeld === true)
+      && held === (t.state.deliveryHeld === true) && stalled === t.state.stalled
     ? t.state
-    : { ...t.state, replicaGone: gone, deliveryHeld: held ? true : undefined };
+    : { ...t.state, replicaGone: gone, deliveryHeld: held ? true : undefined,
+        stalled };
   const next = carried.problem;
   if (gone === undefined || (next !== undefined
       && next.kind !== "replica-unusable" && !needsWorker(next))) {
@@ -360,7 +392,8 @@ function transitionProblem(state: SyncState, event: SyncEvent): SyncTransition {
       // banner as a fresh idle problem (see replicaStalled).
       const acknowledgedReset = current?.kind === "replica-stalled"
         && (current.reset === "blocked" || current.reset === "failed");
-      return repaired || acknowledgedReset
+      if (repaired) return problem(state, stalledFallback(state));
+      return acknowledgedReset
         ? problem(state, undefined) : { state, effects: [] };
     }
     case "ops-skipped":

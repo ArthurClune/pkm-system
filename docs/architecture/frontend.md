@@ -197,9 +197,11 @@ ignores modified clicks, so a nav link is never a bare `NavLink`:
 | `NavPageLink` | destinations that are pages (pinned entries, TODO) | opens the page in the sidebar |
 | `NavRouteLink` | routes with no page behind them | swallowed, leaving `onNavigate` unfired so a phone drawer stays open |
 
-The global chords ([keyboard.md](../keyboard.md#anywhere-in-the-app)) share one
-`window` keydown listener in `App.tsx`. They fire while a block is edited
-only because `BlockInput` never calls `stopPropagation` on keydown. The
+The global chords ([keyboard.md](../keyboard.md#anywhere-in-the-app)) are
+`window` keydown listeners: `App.tsx`'s effect, `UndoRedoKeys`, `SearchBar`
+and `FindBar`. `FindBar` listens in the capture phase, so it acts before the
+editor's own key handling. The others fire while a block is edited only
+because `BlockInput` never calls `stopPropagation` on keydown. The
 `Ctrl+Shift` forms exist because the page gets no keydown for the Cmd forms
 (macOS reserves `Ctrl+Cmd+D`, the browser owns `Cmd+T`). jsdom and Playwright
 deliver keydowns the real OS would swallow, so confirm a new chord in the

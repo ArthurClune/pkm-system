@@ -51,6 +51,10 @@ test("Cmd-F finds and steps through matches", async ({ page, ownPage }) => {
   await expect(bar).toContainText("2 of 2");
   await page.keyboard.press("Meta+Shift+g");
   await expect(bar).toContainText("1 of 2");
+  await page.getByRole("button", { name: "Next match" }).click();
+  await expect(bar).toContainText("2 of 2");
+  await page.keyboard.press("Escape");
+  await expect(bar).toHaveCount(0);
 });
 
 test("searches a block that was being edited and Escape re-enters it",
@@ -67,6 +71,14 @@ test("searches a block that was being edited and Escape re-enters it",
   const input = page.locator("textarea.block-input");
   await expect(input).toBeFocused();
   await expect(input).toHaveValue("alpha one");
+  // A draft still being typed is saved when find takes focus, and found.
+  await page.keyboard.type(" xyz");
+  await page.keyboard.press("Meta+f");
+  await page.getByRole("textbox", { name: "Find on page" }).fill("xyz");
+  await expect(page.getByRole("search")).toContainText("1 of 1");
+  await page.keyboard.press("Escape");
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue("alpha one xyz");
 });
 
 test("leaves Cmd-F to the browser outside the installed app",

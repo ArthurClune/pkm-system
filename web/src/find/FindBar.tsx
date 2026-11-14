@@ -2,17 +2,20 @@
 // Cmd-F / Cmd-G for the installed app, which has no browser find. Matches
 // are painted with the CSS Custom Highlight API, so the DOM React owns is
 // never wrapped or reselected.
-import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect,
-         useRef, useState } from "react";
+import { type KeyboardEvent as ReactKeyboardEvent,
+         type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef,
+         useState } from "react";
 import type { BlockUid } from "../api/brands";
 import { parseBlockUid } from "../ids";
 import { isModalOpen } from "../useModal";
-import { clampIndex, findCommand, findMatches, stepIndex } from "./findMatches";
+import { clampIndex, findCommand, findMatches, firstAtOrBelow, revealDelta,
+         stepIndex } from "./findMatches";
 import { collectPageText, FIND_ROOTS_SELECTOR, matchRange } from "./pageText";
 
 const STANDALONE = "(display-mode: standalone)";
 const ALL = "pkm-find";
 const CURRENT = "pkm-find-current";
+const SCROLL_MARGIN = 16;
 
 type Hits = { ranges: Range[]; index: number | null; scroll: boolean };
 const NO_HITS: Hits = { ranges: [], index: null, scroll: false };
@@ -38,6 +41,41 @@ function touchesRoots(record: MutationRecord): boolean {
       || node.querySelector(FIND_ROOTS_SELECTOR) !== null));
 }
 
+function returnTargetFor(el: HTMLElement | null): ReturnTarget {
+  const block = el instanceof HTMLTextAreaElement
+    && el.matches(".block-input") ? el : null;
+  return {
+    el,
+    uid: parseBlockUid(
+      block?.closest("[data-uid]")?.getAttribute("data-uid") ?? ""),
+    root: block?.closest(FIND_ROOTS_SELECTOR) ?? null,
+  };
+}
+
+function scrollerOf(el: Element | null): Element | null {
+  for (let n = el; n; n = n.parentElement) {
+    const { overflowY } = getComputedStyle(n);
+    if ((overflowY === "auto" || overflowY === "scroll")
+        && n.scrollHeight > n.clientHeight) return n;
+  }
+  return null;
+}
+
+function reveal(range: Range, bar: HTMLElement | null): void {
+  const scroller = scrollerOf(range.startContainer.parentElement);
+  const view = scroller?.getBoundingClientRect()
+    ?? { top: 0, bottom: window.innerHeight };
+  const delta = revealDelta(range.getBoundingClientRect(), view,
+    bar?.getBoundingClientRect() ?? null, SCROLL_MARGIN);
+  if (delta === 0) return;
+  (scroller ?? document.scrollingElement ?? document.documentElement)
+    .scrollBy({ top: delta });
+}
+
+function* rangeTops(ranges: readonly Range[]): Generator<number> {
+  for (const range of ranges) yield range.getBoundingClientRect().top;
+}
+
 function selectedText(el: HTMLElement | null): string {
   if (el instanceof HTMLTextAreaElement) {
     return el.value.slice(el.selectionStart, el.selectionEnd);
@@ -60,6 +98,7 @@ export function FindBar(): JSX.Element | null {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<Hits>(NO_HITS);
   const inputRef = useRef<HTMLInputElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const openRef = useRef(false);
   const returnTo = useRef<ReturnTarget | null>(null);
   // A Cmd-G that opens the bar steps once the matches exist.
@@ -68,14 +107,7 @@ export function FindBar(): JSX.Element | null {
   const begin = useCallback(() => {
     const active = document.activeElement;
     const el = active instanceof HTMLElement ? active : null;
-    const block = el instanceof HTMLTextAreaElement
-      && el.matches(".block-input") ? el : null;
-    returnTo.current = {
-      el,
-      uid: parseBlockUid(
-        block?.closest("[data-uid]")?.getAttribute("data-uid") ?? ""),
-      root: block?.closest(FIND_ROOTS_SELECTOR) ?? null,
-    };
+    returnTo.current = returnTargetFor(el);
     const picked = selectedText(el);
     if (picked !== "" && !picked.includes("\n")) setQuery(picked);
     openRef.current = true;
@@ -123,6 +155,20 @@ export function FindBar(): JSX.Element | null {
     inputRef.current?.select();
   }, [open]);
 
+  // Escape returns to where the user last was outside the bar, which may be
+  // a block they went on to edit after opening it.
+  useEffect(() => {
+    if (!open) return;
+    const onFocusIn = (e: FocusEvent) => {
+      const { target } = e;
+      if (!openRef.current || !(target instanceof HTMLElement)
+          || target.closest(".find-bar")) return;
+      returnTo.current = returnTargetFor(target);
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const recount = (fresh: boolean) => {
@@ -131,11 +177,12 @@ export function FindBar(): JSX.Element | null {
         .map((m) => matchRange(text, m));
       const dir = pendingStep.current;
       pendingStep.current = null;
+      const start = !fresh ? null
+        : dir !== null ? stepIndex(null, ranges.length, dir)
+        : firstAtOrBelow(rangeTops(ranges), 0);
       setHits((h) => ({
         ranges,
-        index: !fresh ? clampIndex(h.index, ranges.length)
-          : dir !== null ? stepIndex(null, ranges.length, dir)
-          : clampIndex(null, ranges.length),
+        index: fresh ? start : clampIndex(h.index, ranges.length),
         scroll: fresh,
       }));
     };
@@ -165,11 +212,11 @@ export function FindBar(): JSX.Element | null {
     CSS.highlights.set(ALL, all);
     const current = hits.index === null ? null : hits.ranges[hits.index];
     if (current) {
-      CSS.highlights.set(CURRENT, new Highlight().add(current));
-      if (hits.scroll) {
-        current.startContainer.parentElement
-          ?.scrollIntoView({ block: "nearest" });
-      }
+      const mark = new Highlight();
+      mark.add(current);
+      mark.priority = 1;
+      CSS.highlights.set(CURRENT, mark);
+      if (hits.scroll) reveal(current, barRef.current);
     }
     return () => {
       CSS.highlights.delete(ALL);
@@ -179,16 +226,22 @@ export function FindBar(): JSX.Element | null {
 
   if (!open) return null;
 
-  const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      step(e.shiftKey ? -1 : 1);
-    } else if (e.key === "Escape") {
+  // On the bar, not the input, so Escape still closes once a button has
+  // focus. Enter on a button is left to the button's own click.
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
       close();
+    } else if (e.key === "Enter" && e.target === inputRef.current) {
+      e.preventDefault();
+      step(e.shiftKey ? -1 : 1);
     }
   };
+  // Safari blurs the input on a button press and focuses nothing, which
+  // would leave Escape and Enter without a handler.
+  const keepFocus = (e: ReactMouseEvent) => e.preventDefault();
 
   const total = hits.ranges.length;
   const status = total > 0 && hits.index !== null
@@ -196,19 +249,22 @@ export function FindBar(): JSX.Element | null {
     : query === "" ? "" : "No matches";
 
   return (
-    <div className="find-bar" role="search">
+    <div ref={barRef} className="find-bar" role="search"
+         onKeyDown={onKeyDown}>
       <input ref={inputRef} className="input-control find-bar-input"
              type="text" aria-label="Find on page" value={query}
              autoComplete="off" spellCheck={false}
-             onChange={(e) => setQuery(e.target.value)}
-             onKeyDown={onKeyDown} />
+             onChange={(e) => setQuery(e.target.value)} />
       <span className="find-bar-count" aria-live="polite">{status}</span>
       <button type="button" className="btn-secondary btn-compact"
-              aria-label="Previous match" onClick={() => step(-1)}>↑</button>
+              aria-label="Previous match" onMouseDown={keepFocus}
+              onClick={() => step(-1)}>↑</button>
       <button type="button" className="btn-secondary btn-compact"
-              aria-label="Next match" onClick={() => step(1)}>↓</button>
+              aria-label="Next match" onMouseDown={keepFocus}
+              onClick={() => step(1)}>↓</button>
       <button type="button" className="btn-secondary btn-compact"
-              aria-label="Close find" onClick={close}>✕</button>
+              aria-label="Close find" onMouseDown={keepFocus}
+              onClick={close}>✕</button>
     </div>
   );
 }

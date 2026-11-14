@@ -67,3 +67,32 @@ export function findCommand(e: {
   if (key === "g") return e.shiftKey ? "prev" : "next";
   return null;
 }
+
+// The match a new query starts on: the first at or below `floor` (the
+// viewport's top), as browsers do, else the first. Tops are read lazily
+// because each one costs a layout read.
+export function firstAtOrBelow(
+  tops: Iterable<number>, floor: number): number | null {
+  let i = 0;
+  for (const top of tops) {
+    if (top >= floor) return i;
+    i++;
+  }
+  return i === 0 ? null : 0;
+}
+
+type Edges = { top: number; bottom: number };
+type Box = Edges & { left: number; right: number };
+
+// How far to scroll so `match` sits inside `view` with `margin` to spare,
+// below `bar` when the bar is over it; 0 when it is already clear.
+export function revealDelta(
+  match: Box, view: Edges, bar: Box | null, margin: number): number {
+  const covered = bar !== null && match.left < bar.right
+    && match.right > bar.left && match.top < bar.bottom
+    && match.bottom > bar.top;
+  const top = covered ? Math.max(view.top, bar.bottom) : view.top;
+  if (match.top < top) return match.top - top - margin;
+  if (match.bottom > view.bottom) return match.bottom - view.bottom + margin;
+  return 0;
+}

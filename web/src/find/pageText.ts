@@ -7,6 +7,23 @@ export type PageText = { groups: string[][]; nodes: Text[][] };
 
 const SKIPPED = "textarea, input, script, style, noscript";
 
+// One group is the text a reader sees as one run, so a phrase across a link
+// or other inline markup is found. A block's text and a reference's text are
+// a group each; other text joins its nearest block-level element. A row's
+// chrome (list number, reference badge, stamp) stays out of the block's
+// text and apart from each other.
+const TEXT_UNIT = ".block-text, .backlink-text";
+const BLOCK_LEVEL =
+  "p, li, h1, h2, h3, h4, h5, h6, td, th, pre, blockquote, div";
+
+function groupKey(parent: Element, root: Element): Element {
+  const unit = parent.closest(TEXT_UNIT);
+  if (unit) return unit;
+  if (parent.closest(".block-row")) return parent;
+  const block = parent.closest(BLOCK_LEVEL);
+  return block && root.contains(block) ? block : parent;
+}
+
 type MaybeVisible = Element & { checkVisibility?: () => boolean };
 
 function searchable(node: Text): boolean {
@@ -26,7 +43,7 @@ export function collectPageText(roots: readonly Element[]): PageText {
       const text = n as Text;
       if (!searchable(text)) continue;
       const parent = text.parentElement!;
-      const key = parent.closest(".block-row") ?? parent;
+      const key = groupKey(parent, root);
       if (key !== lastKey) {
         groups.push([]);
         nodes.push([]);

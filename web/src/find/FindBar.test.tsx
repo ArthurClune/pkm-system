@@ -12,23 +12,33 @@ function standalone(on: boolean) {
 }
 
 class FakeHighlight {
+  priority = 0;
   ranges: Range[];
   constructor(...ranges: Range[]) { this.ranges = ranges; }
   add(range: Range) { this.ranges.push(range); return this; }
 }
 
 let highlights: Map<string, FakeHighlight>;
-let scrolled: Element[];
-const realScrollIntoView = Element.prototype.scrollIntoView;
+// jsdom has no layout: a match's viewport top is looked up by the text of
+// the node it starts in (0 when unlisted), and scrolls are recorded.
+let tops: Map<string, number>;
+let scrolls: number[];
+const realRangeRect = Range.prototype.getBoundingClientRect;
+const realScrollBy = Element.prototype.scrollBy;
 
 beforeEach(() => {
   highlights = new Map();
   vi.stubGlobal("CSS", { highlights });
   vi.stubGlobal("Highlight", FakeHighlight);
-  scrolled = [];
-  Element.prototype.scrollIntoView = function (this: Element) {
-    scrolled.push(this);
+  tops = new Map();
+  scrolls = [];
+  Range.prototype.getBoundingClientRect = function (this: Range) {
+    const top = tops.get(this.startContainer.textContent ?? "") ?? 0;
+    return { top, bottom: top + 16, left: 0, right: 40 } as DOMRect;
   };
+  Element.prototype.scrollBy = function (options?: ScrollToOptions | number) {
+    if (typeof options === "object") scrolls.push(options.top ?? 0);
+  } as Element["scrollBy"];
   standalone(true);
 });
 
@@ -37,7 +47,9 @@ afterEach(() => {
   // highlights.
   cleanup();
   vi.unstubAllGlobals();
-  Element.prototype.scrollIntoView = realScrollIntoView;
+  vi.restoreAllMocks();
+  Range.prototype.getBoundingClientRect = realRangeRect;
+  Element.prototype.scrollBy = realScrollBy;
   window.getSelection()?.removeAllRanges();
 });
 
@@ -187,12 +199,36 @@ describe("FindBar", () => {
     expect(count()).toHaveTextContent("1 of 2");
   });
 
-  it("scrolls the current match into view when stepping", () => {
+  it("scrolls a stepped-to match below the view into it", () => {
+    tops.set("apple tart", 2000);
     render(<Page />);
     search("apple");
-    scrolled = [];
+    expect(scrolls).toEqual([]);
     fireEvent.keyDown(input(), { key: "Enter" });
-    expect(scrolled).toEqual([screen.getByText("apple tart")]);
+    expect(scrolls).toEqual([2000 + 16 - window.innerHeight + 16]);
+  });
+
+  it("does not scroll to a match already in view", () => {
+    render(<Page />);
+    search("apple");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(count()).toHaveTextContent("2 of 2");
+    expect(scrolls).toEqual([]);
+  });
+
+  it("starts a new query at the first match in view", () => {
+    tops.set("apple pie", -500);
+    render(<Page />);
+    search("apple");
+    expect(count()).toHaveTextContent("2 of 2");
+  });
+
+  it("starts at the first match when every match is above the view", () => {
+    tops.set("apple pie", -500);
+    tops.set("apple tart", -400);
+    render(<Page />);
+    search("apple");
+    expect(count()).toHaveTextContent("1 of 2");
   });
 
   it("shows No matches", () => {
@@ -276,6 +312,47 @@ describe("FindBar", () => {
     expect(click).toHaveBeenCalledTimes(1);
   });
 
+  it("Escape returns to the block focused while the bar was open", () => {
+    render(<Page />);
+    const textOf = (row: string) =>
+      document.querySelector(`[data-uid="${row}"] > .block-text`)!;
+    const clicks = { b1: vi.fn(), b2: vi.fn() };
+    textOf("uid-b1").addEventListener("click", clicks.b1);
+    textOf("uid-b2").addEventListener("click", clicks.b2);
+    search("apple");
+    const area = document.createElement("textarea");
+    area.className = "block-input";
+    document.querySelector('[data-uid="uid-b2"]')!.append(area);
+    area.focus();
+    press("f");
+    expect(input()).toHaveValue("apple");
+    act(() => area.remove());
+    fireEvent.keyDown(input(), { key: "Escape" });
+    expect(clicks.b2).toHaveBeenCalledTimes(1);
+    expect(clicks.b1).not.toHaveBeenCalled();
+  });
+
+  it("Escape and Enter work after a bar button took focus", () => {
+    render(<Page />);
+    search("apple");
+    const next = screen.getByRole("button", { name: "Next match" });
+    expect(fireEvent.mouseDown(next)).toBe(false);
+    next.focus();
+    fireEvent.keyDown(next, { key: "Enter" });
+    expect(count()).toHaveTextContent("1 of 2");
+    fireEvent.keyDown(next, { key: "Escape" });
+    expect(screen.queryByRole("search")).toBeNull();
+  });
+
+  it("leaves Enter and Escape to an input method mid-composition", () => {
+    render(<Page />);
+    search("apple");
+    fireEvent.keyDown(input(), { key: "Enter", isComposing: true });
+    expect(count()).toHaveTextContent("1 of 2");
+    fireEvent.keyDown(input(), { key: "Escape", keyCode: 229 });
+    expect(screen.getByRole("search")).toBeInTheDocument();
+  });
+
   it("Escape in the bar does not reach document listeners", () => {
     const seen = vi.fn();
     document.addEventListener("keydown", seen);
@@ -295,6 +372,8 @@ describe("FindBar", () => {
     search("apple");
     expect(highlights.get("pkm-find")?.ranges).toHaveLength(2);
     expect(highlights.get("pkm-find-current")?.ranges).toHaveLength(1);
+    expect(highlights.get("pkm-find")?.priority).toBe(0);
+    expect(highlights.get("pkm-find-current")?.priority).toBe(1);
     fireEvent.keyDown(input(), { key: "Escape" });
     expect(highlights.has("pkm-find")).toBe(false);
     expect(highlights.has("pkm-find-current")).toBe(false);

@@ -12,16 +12,38 @@ afterEach(() => {
 });
 
 describe("collectPageText", () => {
-  it("groups text by block row", () => {
+  it("groups text by block text, leaving the row's chrome apart", () => {
     const r = root(
-      `<div class="block-row">foo <strong>bar</strong></div>` +
-        `<div class="block-row">baz</div>`);
-    expect(collectPageText([r]).groups).toEqual([["foo ", "bar"], ["baz"]]);
+      `<div class="block-row"><span class="bullet">1.</span>` +
+        `<div class="block-text">foo <strong>bar</strong></div>` +
+        `<button class="block-ref-badge">2</button>` +
+        `<span class="block-stamp">12:30</span></div>` +
+        `<div class="block-row"><div class="block-text">baz</div></div>`);
+    expect(collectPageText([r]).groups)
+      .toEqual([["1."], ["foo ", "bar"], ["2"], ["12:30"], ["baz"]]);
   });
 
-  it("groups text outside a block row by its parent element", () => {
-    const r = root(`<h1>Title</h1><p>Body</p>`);
-    expect(collectPageText([r]).groups).toEqual([["Title"], ["Body"]]);
+  it("groups a reference's text across its links", () => {
+    const r = root(
+      `<div class="backlink-text">met with <a class="page-link">Alice</a>` +
+        ` today</div>`);
+    expect(collectPageText([r]).groups)
+      .toEqual([["met with ", "Alice", " today"]]);
+  });
+
+  it("groups other text by its nearest block-level element", () => {
+    const r = root(
+      `<h1>Title <em>here</em></h1><p>Body <a>link</a></p>` +
+        `<ul><li>one <b>a</b></li><li>two</li></ul>`);
+    expect(collectPageText([r]).groups).toEqual(
+      [["Title ", "here"], ["Body ", "link"], ["one ", "a"], ["two"]]);
+  });
+
+  it("never groups by an element outside the root", () => {
+    document.body.innerHTML =
+      `<div><main id="m"><span>one</span><b>two</b></main></div>`;
+    const m = document.getElementById("m")!;
+    expect(collectPageText([m]).groups).toEqual([["one"], ["two"]]);
   });
 
   it("skips form controls, scripts and styles", () => {
@@ -56,7 +78,8 @@ describe("collectPageText", () => {
 
 describe("matchRange", () => {
   it("spans the matched nodes", () => {
-    const r = root(`<div class="block-row">foo ba<b>r</b></div>`);
+    const r = root(
+      `<div class="block-row"><div class="block-text">foo ba<b>r</b></div></div>`);
     const text = collectPageText([r]);
     const [m] = findMatches(text.groups, "bar");
     expect(matchRange(text, m).toString()).toBe("bar");

@@ -6,6 +6,7 @@ import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect,
          useRef, useState } from "react";
 import type { BlockUid } from "../api/brands";
 import { parseBlockUid } from "../ids";
+import { isModalOpen } from "../useModal";
 import { clampIndex, findCommand, findMatches, stepIndex } from "./findMatches";
 import { collectPageText, FIND_ROOTS_SELECTOR, matchRange } from "./pageText";
 
@@ -98,7 +99,8 @@ export function FindBar(): JSX.Element | null {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const command = findCommand(e);
-      if (command === null || !window.matchMedia(STANDALONE).matches) return;
+      if (command === null || isModalOpen()
+          || !window.matchMedia(STANDALONE).matches) return;
       e.preventDefault();
       const dir = command === "next" ? 1 : command === "prev" ? -1 : null;
       if (!openRef.current) {
@@ -156,10 +158,14 @@ export function FindBar(): JSX.Element | null {
 
   useEffect(() => {
     if (!open) return;
-    CSS.highlights.set(ALL, new Highlight(...hits.ranges));
+    // Spreading the ranges into the constructor throws in Safari past about
+    // 64k matches, so they are added one at a time.
+    const all = new Highlight();
+    for (const range of hits.ranges) all.add(range);
+    CSS.highlights.set(ALL, all);
     const current = hits.index === null ? null : hits.ranges[hits.index];
     if (current) {
-      CSS.highlights.set(CURRENT, new Highlight(current));
+      CSS.highlights.set(CURRENT, new Highlight().add(current));
       if (hits.scroll) {
         current.startContainer.parentElement
           ?.scrollIntoView({ block: "nearest" });

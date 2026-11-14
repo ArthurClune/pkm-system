@@ -1,7 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor }
   from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useRef } from "react";
 import { FakeMediaQueryList } from "../test-helpers";
+import { useModal } from "../useModal";
 import { FindBar } from "./FindBar";
 
 function standalone(on: boolean) {
@@ -12,6 +14,7 @@ function standalone(on: boolean) {
 class FakeHighlight {
   ranges: Range[];
   constructor(...ranges: Range[]) { this.ranges = ranges; }
+  add(range: Range) { this.ranges.push(range); return this; }
 }
 
 let highlights: Map<string, FakeHighlight>;
@@ -37,6 +40,17 @@ afterEach(() => {
   Element.prototype.scrollIntoView = realScrollIntoView;
   window.getSelection()?.removeAllRanges();
 });
+
+function Modal({ onClose = () => {} }: { onClose?: () => void }) {
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const initialFocusRef = useRef<HTMLButtonElement>(null);
+  useModal({ surfaceRef, initialFocusRef, onClose });
+  return (
+    <div ref={surfaceRef}>
+      <button type="button" ref={initialFocusRef}>in modal</button>
+    </div>
+  );
+}
 
 function Page() {
   return (
@@ -291,5 +305,39 @@ describe("FindBar", () => {
     search("apple");
     unmount();
     expect(highlights.size).toBe(0);
+  });
+
+  it("ignores the chords while a modal is open", () => {
+    render(<><Page /><Modal /></>);
+    expect(press("f")).toBe(true);
+    expect(press("g")).toBe(true);
+    expect(screen.queryByRole("search")).toBeNull();
+  });
+
+  it("leaves an open bar alone while a modal is up", () => {
+    const { rerender } = render(<Page />);
+    search("apple");
+    const onClose = vi.fn();
+    rerender(<><Page /><Modal onClose={onClose} /></>);
+    expect(press("g")).toBe(true);
+    expect(count()).toHaveTextContent("1 of 2");
+    press("Escape", { metaKey: false });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("search")).toBeInTheDocument();
+  });
+
+  it("paints any number of matches without spreading them", () => {
+    // JavaScriptCore throws a RangeError past about 64k spread arguments.
+    class StrictHighlight extends FakeHighlight {
+      constructor(...ranges: Range[]) {
+        if (ranges.length > 0) throw new RangeError("too many arguments");
+        super();
+      }
+    }
+    vi.stubGlobal("Highlight", StrictHighlight);
+    render(<Page />);
+    search("p");
+    expect(highlights.get("pkm-find")?.ranges).toHaveLength(6);
+    expect(highlights.get("pkm-find-current")?.ranges).toHaveLength(1);
   });
 });

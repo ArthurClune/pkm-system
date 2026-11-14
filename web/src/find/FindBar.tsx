@@ -25,6 +25,18 @@ function searchRoots(): Element[] {
   return [...document.querySelectorAll(FIND_ROOTS_SELECTOR)];
 }
 
+// Body is watched so that a region mounting while the bar is open (the
+// right sidebar) is searched. Changes elsewhere, the bar's own count among
+// them, must not recount, or every recount would schedule the next.
+function touchesRoots(record: MutationRecord): boolean {
+  const { target } = record;
+  const el = target instanceof Element ? target : target.parentElement;
+  if (el?.closest(FIND_ROOTS_SELECTOR)) return true;
+  return [...record.addedNodes, ...record.removedNodes].some((node) =>
+    node instanceof Element && (node.matches(FIND_ROOTS_SELECTOR)
+      || node.querySelector(FIND_ROOTS_SELECTOR) !== null));
+}
+
 function selectedText(el: HTMLElement | null): string {
   if (el instanceof HTMLTextAreaElement) {
     return el.value.slice(el.selectionStart, el.selectionEnd);
@@ -127,17 +139,15 @@ export function FindBar(): JSX.Element | null {
     };
     recount(true);
     let frame = 0;
-    const observer = new MutationObserver(() => {
-      if (frame !== 0) return;
+    const observer = new MutationObserver((records) => {
+      if (frame !== 0 || !records.some(touchesRoots)) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
         recount(false);
       });
     });
-    for (const root of searchRoots()) {
-      observer.observe(root,
-        { subtree: true, childList: true, characterData: true });
-    }
+    observer.observe(document.body,
+      { subtree: true, childList: true, characterData: true });
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);

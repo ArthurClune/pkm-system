@@ -927,7 +927,8 @@ describe("the z-index scale", () => {
   test("the layers stack in this order", () => {
     const layers = ["--z-drop-indicator", "--z-sidebar-overlay",
       "--z-dropdown", "--z-phone-nav", "--z-hamburger", "--z-keyboard-bar",
-      "--z-editor-popup", "--z-popover", "--z-assistant", "--z-modal"];
+      "--z-editor-popup", "--z-popover", "--z-assistant", "--z-find-bar",
+      "--z-modal"];
     const values = layers.map(tokenValue);
     for (let i = 1; i < values.length; i++) {
       expect(values[i], `${layers[i]} above ${layers[i - 1]}`)
@@ -986,6 +987,10 @@ describe("in-app find", () => {
           new RegExp(`${token}: #[0-9a-fA-F]{8};`));
       }
     }
+  });
+
+  test("the bar sits on its own layer, above the assistant panel", () => {
+    expect(ruleFor(".find-bar")).toContain("z-index: var(--z-find-bar);");
   });
 
   test("each find highlight paints with its own token", () => {

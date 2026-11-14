@@ -196,6 +196,36 @@ describe("FindBar", () => {
     await waitFor(() => expect(count()).toHaveTextContent("1 of 1"));
   });
 
+  it("recounts when a searched region appears while open", async () => {
+    render(<Page />);
+    search("apple");
+    expect(count()).toHaveTextContent("1 of 2");
+    const sidebar = document.createElement("aside");
+    sidebar.className = "sidebar";
+    sidebar.innerHTML = '<div class="block-row" data-uid="uid-s1">'
+      + '<div class="block-text">apple sauce</div></div>';
+    try {
+      act(() => document.body.append(sidebar));
+      await waitFor(() => expect(count()).toHaveTextContent("1 of 3"));
+    } finally {
+      sidebar.remove();
+    }
+  });
+
+  it("the bar's own updates and unsearched regions schedule no recount",
+    async () => {
+      render(<Page />);
+      const raf = vi.spyOn(window, "requestAnimationFrame");
+      search("apple");
+      fireEvent.keyDown(input(), { key: "Enter" });
+      expect(count()).toHaveTextContent("2 of 2");
+      act(() => {
+        screen.getByRole("button", { name: "elsewhere" }).textContent = "x";
+      });
+      await act(() => Promise.resolve());
+      expect(raf).not.toHaveBeenCalled();
+    });
+
   it("Escape closes and restores focus to the previous element", () => {
     render(<Page />);
     const before = screen.getByRole("button", { name: "elsewhere" });

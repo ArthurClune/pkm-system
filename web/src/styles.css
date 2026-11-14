@@ -98,6 +98,7 @@
   --z-editor-popup: 50;     /* autocomplete, date picker */
   --z-popover: 60;          /* block menu, references popover */
   --z-assistant: 61;        /* above the block menu, below modals */
+  --z-find-bar: 62;         /* stays visible over the assistant panel */
   --z-modal: 1000;
 
   /* the monospace font, and the size code renders at */
@@ -1324,7 +1325,7 @@ button.file-badge.status-failed:hover { color: var(--color-error); }
 /* rendered only in the installed app; matches are CSS highlights, not
  * elements, so ::highlight is their only hook */
 .find-bar { position: fixed; top: calc(var(--app-banner-height, 0px) + 8px);
-  right: 16px; z-index: var(--z-popover); display: flex; align-items: center;
+  right: 16px; z-index: var(--z-find-bar); display: flex; align-items: center;
   gap: 4px; max-width: calc(100vw - 32px); box-sizing: border-box;
   padding: 6px; background: var(--color-bg-surface);
   border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);

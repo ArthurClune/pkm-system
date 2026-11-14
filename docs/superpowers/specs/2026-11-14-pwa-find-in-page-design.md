@@ -39,6 +39,9 @@ finds text on the current page, Cmd-G goes to the next match.
 
 ## Decided
 
+- Safari older than 17.2 is out of scope (Arthur): `CSS.highlights` is
+  assumed present, with no fallback path.
+
 - Opening the bar moves focus into its input, which blurs an editing
   block's textarea; the block then renders as text and is searchable like
   any other.
@@ -56,5 +59,3 @@ finds text on the current page, Cmd-G goes to the next match.
   caret lands at the end of the block rather than where it was.
 - Pressing Cmd-F with the bar already open re-selects the query, as
   browsers do.
-- Where `CSS.highlights` is missing the bar still opens and counts, and
-  scrolls to matches without painting them.

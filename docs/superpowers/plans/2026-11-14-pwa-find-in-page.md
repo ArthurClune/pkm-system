@@ -30,6 +30,8 @@ never touch `/Users/arthur/code/llm/pkm` directly.
   variant: Ctrl-F/Ctrl-G are emacs bindings inside block textareas.
 - Searched regions: `.main-pane` and `.sidebar` (`<aside>` in `App.tsx`).
 - Case-insensitive; the query is literal text, never a regex.
+- `CSS.highlights` is assumed present (Safari 17.2+, Chrome 105+); no
+  fallback for browsers without it.
 - Highlight registry names: `pkm-find` (all matches) and `pkm-find-current`.
 - Count copy: `"{n} of {m}"`; `"No matches"` when the query is non-empty and
   nothing matches; empty when the query is empty.
@@ -279,9 +281,11 @@ Behaviour the tests pin (spec § Goals, § Decided, § Builder's calls):
   under the roots, coalesced to one recompute per animation frame; the
   index is `clampIndex`ed on recompute and reset to `null`→first match on
   a query change.
-- When `globalThis.CSS?.highlights` and `Highlight` exist: set `pkm-find`
-  to all match ranges and `pkm-find-current` to the current one; delete
-  both on close and unmount. Without them, count and scroll still work.
+- Set `CSS.highlights` `pkm-find` to all match ranges and
+  `pkm-find-current` to the current one; delete both on close and
+  unmount. The API is assumed present (no old-Safari fallback); jsdom
+  lacks it, so the test file installs a stub `CSS.highlights` Map and
+  `Highlight` class in `beforeEach`.
 - Stepping scrolls the current match's
   `startContainer.parentElement` into view with `{ block: "nearest" }`.
 - Markup: `<div className="find-bar" role="search">` holding an
@@ -317,9 +321,9 @@ Behaviour the tests pin (spec § Goals, § Decided, § Builder's calls):
     `.block-text` was called once.
   - `Escape in the bar does not reach document listeners`: a `keydown`
     listener on `document` added before the test sees no Escape.
-  - `paints highlights when the API exists`: stub `globalThis.CSS` with
-    `{ highlights: new Map() }` and a `Highlight` class recording its
-    ranges; after typing `apple`, `pkm-find` holds 2 ranges and
+  - `paints highlights`: with the `beforeEach` stub (`globalThis.CSS =
+    { highlights: new Map() }` and a `Highlight` class recording its
+    ranges), after typing `apple`, `pkm-find` holds 2 ranges and
     `pkm-find-current` 1; after Escape both keys are gone.
 
 - [ ] **Step 2: Run, expect FAIL**:

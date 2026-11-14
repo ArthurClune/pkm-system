@@ -46,7 +46,7 @@ test("Cmd-F finds and steps through matches", async ({ page, ownPage }) => {
   const bar = page.getByRole("search");
   await page.getByRole("textbox", { name: "Find on page" }).fill("alpha");
   await expect(bar).toContainText("1 of 2");
-  expect(await highlightCount(page)).toBe(2);
+  await expect.poll(() => highlightCount(page)).toBe(2);
   await page.keyboard.press("Meta+g");
   await expect(bar).toContainText("2 of 2");
   await page.keyboard.press("Meta+Shift+g");
@@ -70,7 +70,19 @@ test("searches a block that was being edited and Escape re-enters it",
 });
 
 test("leaves Cmd-F to the browser outside the installed app",
-     async ({ page }) => {
+     async ({ page, ownPage }) => {
+  await seed(page, ownPage.title, ["alpha one"]);
+  // Registered after load so it runs after FindBar's capture-phase handler.
+  await page.evaluate(() => {
+    const w = window as unknown as { findPrevented: boolean[] };
+    w.findPrevented = [];
+    window.addEventListener("keydown", (e) => {
+      if (e.metaKey && e.key === "f") w.findPrevented.push(e.defaultPrevented);
+    });
+  });
   await page.keyboard.press("Meta+f");
+  await expect.poll(() => page.evaluate(
+    () => (window as unknown as { findPrevented: boolean[] }).findPrevented))
+    .toEqual([false]);
   await expect(page.getByRole("search")).toHaveCount(0);
 });

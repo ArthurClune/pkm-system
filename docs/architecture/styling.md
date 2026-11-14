@@ -14,7 +14,7 @@ before removing one, grep the "Known selectors" table in
 ## Tokens and theming
 
 Design tokens are custom properties on `:root`: a color system
-(`--color-bg/-surface/-text*/-accent/-link/-tag/…`), a radius scale,
+(`--color-bg/-surface/-text*/-accent/-link/-tag/-find-*/…`), a radius scale,
 `--hljs-*` code tokens, and the code font (`--font-mono`, `--font-size-code`).
 
 Theming is three-way: light by default, OS dark via

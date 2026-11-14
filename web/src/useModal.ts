@@ -35,6 +35,12 @@ function focusedOutside(surface: HTMLElement | null): HTMLElement | null {
   return surface?.contains(active) ? null : active;
 }
 
+/** True while any modal is mounted; window-level shortcuts that would act
+ * behind the overlay stand down. */
+export function isModalOpen(): boolean {
+  return open.length > 0;
+}
+
 /** Modal behaviour for as long as the calling component is mounted. */
 export function useModal({
   surfaceRef, initialFocusRef, onClose, triggerRef, trap = "cycle", onKey,

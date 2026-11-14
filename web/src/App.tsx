@@ -18,6 +18,7 @@ import { ThemeToggle } from "./components/ThemeToggle";
 import { TopBar } from "./components/TopBar";
 import { BlockStampsContext, SidebarContext } from "./contexts";
 import { DndProvider } from "./dnd/DndContext";
+import { FindBar } from "./find/FindBar";
 import { normalizeRefTitle } from "./grammar/scan";
 import { pagePath, titleFromPathname } from "./paths";
 import { BLOCK_STAMPS_STORAGE_KEY, BLOCK_STAMPS_VALUES, SIDEBAR_STORAGE_KEY,
@@ -205,6 +206,7 @@ export function App() {
               + (sidebarCollapsed ? " nav-collapsed" : "")
               + (rightSidebarOpen ? "" : " no-sidebar")}>
               <UndoRedoKeys />
+              <FindBar />
               <ExternalLinkInterceptor />
               <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} />
               <button className="hamburger" aria-label="menu"

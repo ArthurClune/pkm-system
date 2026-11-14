@@ -69,6 +69,9 @@
    * reads as bright coral, which the pill shape amplifies. */
   --color-error-fill: #c23030;
   --color-highlight-bg: #fcc1786d;
+  /* in-app find (installed app only): every match, and the one Cmd-G is on */
+  --color-find-match: #ffe0669e;
+  --color-find-current: #ff9d2ec7;
   --color-selection-bg: #fcc1786d;
   --color-selected-bg: #ebf1f5;
   --color-focus-bg: #faf3ec;
@@ -95,6 +98,7 @@
   --z-editor-popup: 50;     /* autocomplete, date picker */
   --z-popover: 60;          /* block menu, references popover */
   --z-assistant: 61;        /* above the block menu, below modals */
+  --z-find-bar: 62;         /* stays visible over the assistant panel */
   --z-modal: 1000;
 
   /* the monospace font, and the size code renders at */
@@ -153,6 +157,8 @@
     --color-error: #ff6b6b;
     --color-error-fill: #a83a3a;
     --color-highlight-bg: #ff913c48;
+    --color-find-match: #c9a2275c;
+    --color-find-current: #e8781fad;
     --color-selection-bg: #ff913c55;
     --color-selected-bg: #29323b;
     --color-focus-bg: #2a251f;
@@ -210,6 +216,8 @@
   --color-error: #ff6b6b;
   --color-error-fill: #a83a3a;
   --color-highlight-bg: #ff913c48;
+  --color-find-match: #c9a2275c;
+  --color-find-current: #e8781fad;
   --color-selection-bg: #ff913c55;
   --color-selected-bg: #29323b;
   --color-focus-bg: #2a251f;
@@ -1313,3 +1321,18 @@ button.file-badge.status-failed:hover { color: var(--color-error); }
   .local-picker-row { padding: 12px 8px; min-height: 44px; box-sizing: border-box; justify-content: center; }
   .local-picker-header .btn-secondary { min-height: 44px; }
 }
+/* == Find bar == */
+/* rendered only in the installed app; matches are CSS highlights, not
+ * elements, so ::highlight is their only hook */
+.find-bar { position: fixed; top: calc(var(--app-banner-height, 0px) + 8px);
+  right: 16px; z-index: var(--z-find-bar); display: flex; align-items: center;
+  gap: 4px; max-width: calc(100vw - 32px); box-sizing: border-box;
+  padding: 6px; background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
+  box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); }
+.find-bar-input { width: 180px; min-width: 0; flex: 1 1 auto; }
+.find-bar-count { min-width: 5.5em; padding: 0 4px; text-align: right;
+  white-space: nowrap; font-size: 13px; font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary); }
+::highlight(pkm-find) { background-color: var(--color-find-match); }
+::highlight(pkm-find-current) { background-color: var(--color-find-current); }

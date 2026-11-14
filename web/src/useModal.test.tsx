@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { StrictMode, useRef, type RefObject } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { useModal } from "./useModal";
+import { isModalOpen, useModal } from "./useModal";
 
 const outside: HTMLElement[] = [];
 
@@ -280,4 +280,12 @@ it("under StrictMode the stack, the overflow and the focus balance after mount a
   expect(document.body.style.overflow).toBe("hidden");
   next.unmount();
   expect(document.body.style.overflow).toBe("auto");
+});
+
+it("reports whether any modal is open", () => {
+  expect(isModalOpen()).toBe(false);
+  const view = render(<Modal id="m" />);
+  expect(isModalOpen()).toBe(true);
+  view.unmount();
+  expect(isModalOpen()).toBe(false);
 });

@@ -927,7 +927,8 @@ describe("the z-index scale", () => {
   test("the layers stack in this order", () => {
     const layers = ["--z-drop-indicator", "--z-sidebar-overlay",
       "--z-dropdown", "--z-phone-nav", "--z-hamburger", "--z-keyboard-bar",
-      "--z-editor-popup", "--z-popover", "--z-assistant", "--z-modal"];
+      "--z-editor-popup", "--z-popover", "--z-assistant", "--z-find-bar",
+      "--z-modal"];
     const values = layers.map(tokenValue);
     for (let i = 1; i < values.length; i++) {
       expect(values[i], `${layers[i]} above ${layers[i - 1]}`)
@@ -972,5 +973,30 @@ describe("compact buttons", () => {
 
   test("no rule styles the unused .empty-day", () => {
     expect(styles).not.toContain("empty-day");
+  });
+});
+
+describe("in-app find", () => {
+  const TOKENS = ["--color-find-match", "--color-find-current"];
+
+  test("the find tokens are defined in light and both dark blocks", () => {
+    for (const selector of [":root", ':root:not([data-theme="light"])',
+      ':root[data-theme="dark"]']) {
+      for (const token of TOKENS) {
+        expect(ruleFor(selector)).toMatch(
+          new RegExp(`${token}: #[0-9a-fA-F]{8};`));
+      }
+    }
+  });
+
+  test("the bar sits on its own layer, above the assistant panel", () => {
+    expect(ruleFor(".find-bar")).toContain("z-index: var(--z-find-bar);");
+  });
+
+  test("each find highlight paints with its own token", () => {
+    expect(ruleFor("::highlight(pkm-find)"))
+      .toContain("background-color: var(--color-find-match);");
+    expect(ruleFor("::highlight(pkm-find-current)"))
+      .toContain("background-color: var(--color-find-current);");
   });
 });

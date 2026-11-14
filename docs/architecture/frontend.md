@@ -197,9 +197,11 @@ ignores modified clicks, so a nav link is never a bare `NavLink`:
 | `NavPageLink` | destinations that are pages (pinned entries, TODO) | opens the page in the sidebar |
 | `NavRouteLink` | routes with no page behind them | swallowed, leaving `onNavigate` unfired so a phone drawer stays open |
 
-The global chords ([keyboard.md](../keyboard.md#anywhere-in-the-app)) share one
-`window` keydown listener in `App.tsx`. They fire while a block is edited
-only because `BlockInput` never calls `stopPropagation` on keydown. The
+The global chords ([keyboard.md](../keyboard.md#anywhere-in-the-app)) are
+`window` keydown listeners: `App.tsx`'s effect, `UndoRedoKeys`, `SearchBar`
+and `FindBar`. `FindBar` listens in the capture phase, so it acts before the
+editor's own key handling. The others fire while a block is edited only
+because `BlockInput` never calls `stopPropagation` on keydown. The
 `Ctrl+Shift` forms exist because the page gets no keydown for the Cmd forms
 (macOS reserves `Ctrl+Cmd+D`, the browser owns `Cmd+T`). jsdom and Playwright
 deliver keydowns the real OS would swallow, so confirm a new chord in the
@@ -284,6 +286,7 @@ as fresh as the page payload.
 | A tap inside a cross-origin iframe never reaches that listener | in standalone, `BlueskyEmbed` lays a `.bluesky-embed-tap` anchor to the post over its iframe | `BlueskyEmbed.tsx` |
 | Standalone suppresses `window.confirm`, returning `false` | every confirmation uses `useConfirm` | `ConfirmDialog.tsx` |
 | Standalone ignores `beforeunload` | the in-memory lane's unload guard cannot hold ([sync-recovery.md](sync-recovery.md#the-in-memory-fallback-lane)) | `sync/unloadGuard.ts` |
+| The installed app has no browser find | `FindBar` binds Cmd-F/Cmd-G only under `display-mode: standalone`, painting with the CSS Custom Highlight API so the DOM React owns is never wrapped | `find/FindBar.tsx` |
 | The iPhone keyboard has no Tab key | `BlockInput` renders `KeyboardBar`. `isPhoneUserAgent` decides, not width, so an iPad or narrow desktop never gets it | `outline/keyboardBar.ts` |
 | iOS Safari does not shrink the layout viewport for the keyboard | the bar sits `keyboardInset` above its bottom, tracked from `visualViewport` | `KeyboardBar.tsx` |
 | Safari zooms into a focused field under 16px; `.block-input` is 15px | on an iPhone `main.tsx` adds `maximum-scale=1`, or the zoom pans the bar off screen | `phoneViewportContent` |

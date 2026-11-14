@@ -16,6 +16,15 @@ bindings.
 | Cmd+Z / Shift+Cmd+Z (or Ctrl variants) | Undo / redo the last outline edit, whether or not a block is being edited. Undoing an edit on a page that isn't open takes you there |
 | Cmd+J (or Ctrl+J) | Show / hide the Assistant panel |
 | Ctrl+Shift+T | Show / hide timestamps |
+| Cmd+F (installed app only) | Find on this page |
+| Cmd+G / Shift+Cmd+G (installed app only) | Next / previous match |
+
+## Find on page
+
+| Shortcut | Action |
+|---|---|
+| Enter / Shift+Enter | Next / previous match |
+| Escape | Close find and return to where you were |
 
 ## Search
 

@@ -344,6 +344,34 @@ describe("FindBar", () => {
     expect(screen.queryByRole("search")).toBeNull();
   });
 
+  it("Escape closes the bar while focus is on the page", () => {
+    render(<Page />);
+    search("apple");
+    const elsewhere = screen.getByRole("button", { name: "elsewhere" });
+    elsewhere.focus();
+    fireEvent.keyDown(elsewhere, { key: "Escape", keyCode: 229 });
+    expect(screen.getByRole("search")).toBeInTheDocument();
+    fireEvent.keyDown(elsewhere, { key: "Escape" });
+    expect(screen.queryByRole("search")).toBeNull();
+    expect(highlights.has("pkm-find")).toBe(false);
+    expect(elsewhere).toHaveFocus();
+  });
+
+  it("Escape in a block being edited closes the bar, not the edit", () => {
+    render(<Page />);
+    search("apple");
+    const area = document.createElement("textarea");
+    area.className = "block-input";
+    document.querySelector('[data-uid="uid-b2"]')!.append(area);
+    area.focus();
+    const blockKey = vi.fn();
+    area.addEventListener("keydown", blockKey);
+    fireEvent.keyDown(area, { key: "Escape" });
+    expect(screen.queryByRole("search")).toBeNull();
+    expect(blockKey).not.toHaveBeenCalled();
+    expect(area).toHaveFocus();
+  });
+
   it("leaves Enter and Escape to an input method mid-composition", () => {
     render(<Page />);
     search("apple");

@@ -200,7 +200,9 @@ ignores modified clicks, so a nav link is never a bare `NavLink`:
 The global chords ([keyboard.md](../keyboard.md#anywhere-in-the-app)) are
 `window` keydown listeners: `App.tsx`'s effect, `UndoRedoKeys`, `SearchBar`
 and `FindBar`. `FindBar` listens in the capture phase, so it acts before the
-editor's own key handling. The others fire while a block is edited only
+editor's own key handling. While its bar is open it also takes Escape there,
+so Escape closes the bar from anywhere, as it closes a modal, and a block
+being edited keeps its edit until the next Escape. The others fire while a block is edited only
 because `BlockInput` never calls `stopPropagation` on keydown. The
 `Ctrl+Shift` forms exist because the page gets no keydown for the Cmd forms
 (macOS reserves `Ctrl+Cmd+D`, the browser owns `Cmd+T`). jsdom and Playwright

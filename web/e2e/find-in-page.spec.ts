@@ -81,6 +81,23 @@ test("searches a block that was being edited and Escape re-enters it",
   await expect(input).toHaveValue("alpha one xyz");
 });
 
+test("Escape closes the bar after a click into the page",
+     async ({ page, ownPage }) => {
+  await forceStandalone(page);
+  await seed(page, ownPage.title, ["alpha one", "beta"]);
+  await page.keyboard.press("Meta+f");
+  await page.getByRole("textbox", { name: "Find on page" }).fill("alpha");
+  await expect(page.getByRole("search")).toContainText("1 of 1");
+  await page.locator(".block-text", { hasText: "beta" }).click();
+  const input = page.locator("textarea.block-input");
+  await expect(input).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("search")).toHaveCount(0);
+  await expect(input).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(input).toHaveCount(0);
+});
+
 test("leaves Cmd-F to the browser outside the installed app",
      async ({ page, ownPage }) => {
   await seed(page, ownPage.title, ["alpha one"]);

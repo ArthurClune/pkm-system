@@ -128,8 +128,18 @@ export function FindBar(): JSX.Element | null {
     if (target) restoreFocus(target);
   }, []);
 
+  // Escape is caught here, ahead of the page, so that it closes the bar
+  // wherever focus is, as it closes the viewers. A block being edited
+  // keeps its edit until the next Escape.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && openRef.current && !isModalOpen()
+          && !e.isComposing && e.keyCode !== 229) {
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+        return;
+      }
       const command = findCommand(e);
       if (command === null || isModalOpen()
           || !window.matchMedia(STANDALONE).matches) return;
@@ -147,7 +157,7 @@ export function FindBar(): JSX.Element | null {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [begin, step]);
+  }, [begin, step, close]);
 
   useEffect(() => {
     if (!open) return;
@@ -226,21 +236,16 @@ export function FindBar(): JSX.Element | null {
 
   if (!open) return null;
 
-  // On the bar, not the input, so Escape still closes once a button has
-  // focus. Enter on a button is left to the button's own click.
-  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+  // Enter on a button is left to the button's own click.
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      close();
-    } else if (e.key === "Enter" && e.target === inputRef.current) {
+    if (e.key === "Enter") {
       e.preventDefault();
       step(e.shiftKey ? -1 : 1);
     }
   };
   // Safari blurs the input on a button press and focuses nothing, which
-  // would leave Escape and Enter without a handler.
+  // would leave Enter without a handler.
   const keepFocus = (e: ReactMouseEvent) => e.preventDefault();
 
   const total = hits.ranges.length;
@@ -249,11 +254,10 @@ export function FindBar(): JSX.Element | null {
     : query === "" ? "" : "No matches";
 
   return (
-    <div ref={barRef} className="find-bar" role="search"
-         onKeyDown={onKeyDown}>
+    <div ref={barRef} className="find-bar" role="search">
       <input ref={inputRef} className="input-control find-bar-input"
              type="text" aria-label="Find on page" value={query}
-             autoComplete="off" spellCheck={false}
+             autoComplete="off" spellCheck={false} onKeyDown={onKeyDown}
              onChange={(e) => setQuery(e.target.value)} />
       <span className="find-bar-count" aria-live="polite">{status}</span>
       <button type="button" className="btn-secondary btn-compact"

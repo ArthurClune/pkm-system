@@ -24,7 +24,7 @@ bindings.
 | Shortcut | Action |
 |---|---|
 | Enter / Shift+Enter | Next / previous match |
-| Escape | Close find and return to where you were |
+| Escape | Close find, wherever the cursor is, and return to where you were |
 
 ## Search
 

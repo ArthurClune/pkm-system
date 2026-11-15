@@ -185,9 +185,9 @@ export function optionsRefusal(o: MacroOptions): string | null {
   return null;
 }
 
-/** The opener inside a query macro's `{{ }}`, the tokenizer's QUERY_PREFIX
- * without the braces. A table macro has none: its head is the bare name. */
-const QUERY_OPENER = /^(?:\[\[)?query(?:\]\])?:\s*/;
+/** The opener inside a query macro's `{{ }}`; the tokenizer's QUERY_PREFIX
+ * is built from it. A table macro has none: its head is the bare name. */
+export const QUERY_OPENER = /^(?:\[\[)?query(?:\]\])?:\s*/;
 
 /** `text` with the macro at `span` (its whole `{{...}}`, as the tokenizer
  * reports it) carrying `o` as its options in place of its own. The opener
@@ -207,10 +207,25 @@ const TABLE_OPENER = /^\{\{(?:table|\[\[table\]\])/i;
 const TABLE_HEAD = /^(?:table|\[\[table\]\])$/i;
 
 /** The options of a block whose whole text is a {{table}} macro, either
- * spelling, any case, or null when it is not one. */
+ * spelling, any case, or null when it is not one. The macro's `{{` must
+ * close at the end of the text, as the tokenizer's brace scan closes a
+ * macro: otherwise `{{table | a}} x {{y}}` would read ` x {{y` as an option
+ * and a rewrite of the options would drop it. */
 export function tableMacroOptions(text: string): MacroOptions | null {
   const t = text.trim();
-  if (!TABLE_OPENER.test(t) || !t.endsWith("}}")) return null;
+  if (!TABLE_OPENER.test(t) || closeOfFirstBrace(t) !== t.length - 1) {
+    return null;
+  }
   const { head, options } = splitMacroOptions(t.slice(2, -2));
   return TABLE_HEAD.test(head) ? options : null;
+}
+
+/** Index of the `}` matching `t[0]`'s `{`, or -1. */
+function closeOfFirstBrace(t: string): number {
+  let depth = 0;
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === "{") depth += 1;
+    else if (t[i] === "}" && --depth === 0) return i;
+  }
+  return -1;
 }

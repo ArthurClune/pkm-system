@@ -49,6 +49,10 @@ describe("roamTableRows", () => {
     expect(roamTable(block("tuid-empty", "{{table | sort: A asc}}")))
       .toBeNull();
     expect(roamTableRows(validTable("{{table|sort: A asc}}"))).toBeNull();
+    expect(roamTableRows(validTable("{{table | view: cards}} notes {{toc}}")))
+      .toBeNull();
+    expect(roamTableRows(validTable("{{table | a}} {{query: {and: [[B]]}}}")))
+      .toBeNull();
   });
 
   test("pads ragged rows to the widest row", () => {

@@ -35,6 +35,7 @@ spellings, optionally carrying a saved view's options:
 | either, followed by options before its `}}` (`{{table \| sort: Lab desc}}`, `{{[[table]] \| filter: x \| view: cards}}`) | yes | a saved view; the options never change which children are rows |
 | either, followed by spaces and then options (`{{table  \| sort: A asc}}`) | yes | the options start at the first ` \| ` |
 | either, with other text beside it (`{{table}} x`) | no | |
+| either, with options and then other text (`{{table \| view: cards}} notes {{toc}}`, `{{table \| a}} {{query: {and: [[B]]}}}`, `{{table \| filter: a}} b}}`) | no | the text's opening `{{` must close, braces counted, on its last character; else the trailing text would read as option text, and a rewrite of the options would drop it |
 | either, with a `\|` not spaced as ` \| ` (`{{table\|sort: A asc}}`) | no | only ` \| ` starts an option |
 | either, with other text before the first ` \| ` (`{{table [[a \| b]]}}`) | no | the head must be the bare name |
 | a near spelling: `{{tables}}`, an unclosed `{{[[table]]`, a bare `table` | no | |

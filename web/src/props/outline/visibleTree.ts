@@ -21,7 +21,8 @@ interface Shape {
 const PLAIN = fc.constantFrom(
   "a", "text", "x y", "", "\u{1F600} hi", "é\u{1D11E}", "{{table}} x",
   "{{tables}}", "{{[[table]]", "table", "{{table|sort: A asc}}",
-  "{{table [[a | b]]}}",
+  "{{table [[a | b]]}}", "{{table | view: cards}} notes {{toc}}",
+  "{{table | a}} {{query: {and: [[B]]}}}", "{{table | filter: a}} b}}",
 );
 const MACRO = fc.constantFrom(
   "{{table}}", "{{[[table]]}}", " {{TABLE}} ", "{{[[Table]]}}\n",
@@ -109,9 +110,27 @@ export function pathTo(blocks: readonly BlockNode[], uid: BlockUid): BlockUid[] 
 }
 
 /** Either spelling, any case, optionally followed by ` | name: value`
- * options, which start at the first ` | ` after the name. */
-export const isMacro = (text: string): boolean =>
-  /^\{\{(?:table|\[\[table\]\])\s*(?: \| [\s\S]*)?\}\}$/i.test(text.trim());
+ * options, which start at the first ` | ` after the name, with the text's
+ * opening `{{` closed by the `}}` that ends it. */
+export const isMacro = (text: string): boolean => {
+  const t = text.trim();
+  return /^\{\{(?:table|\[\[table\]\])\s*(?: \| [\s\S]*)?\}\}$/i.test(t)
+    && opensCloseAtEnd(t);
+};
+
+/** Counting `{` up and `}` down from the start, the count first returns to
+ * zero on the last character. */
+function opensCloseAtEnd(t: string): boolean {
+  let open = 0;
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === "{") open += 1;
+    else if (t[i] === "}") {
+      open -= 1;
+      if (open === 0) return i === t.length - 1;
+    }
+  }
+  return false;
+}
 
 const chainOk = (cell: BlockNode): boolean =>
   cell.children.length <= 1

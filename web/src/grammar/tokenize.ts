@@ -11,7 +11,9 @@
 
 import type { BlockUid, NormalizedTitle, Sha256Hex } from "../api/brands";
 import { parseSha256Hex } from "../replica/sha256";
-import { splitMacroOptions, type MacroOptions } from "./macroOptions";
+import {
+  QUERY_OPENER, splitMacroOptions, type MacroOptions,
+} from "./macroOptions";
 import { markdownLinkScanner, type MarkdownSpan } from "./markdown";
 import { isRefTitle, normalizeRefTitle, scanGrammar, type GrammarToken } from "./scan";
 
@@ -40,7 +42,7 @@ export type BlockSegment =
       span: [number, number] }
   | { kind: "pdf-embed"; href: string };
 
-const QUERY_PREFIX = /^\{\{(?:\[\[)?query(?:\]\])?:\s*/;
+const QUERY_PREFIX = new RegExp(String.raw`^\{\{` + QUERY_OPENER.source.slice(1));
 const PDF_PREFIX = /^\{\{(?:\[\[)?pdf(?:\]\])?:\s*/;
 // A block whose ENTIRE trimmed text is one $$...$$ (no inner $$) renders in
 // KaTeX display mode. Checked against raw text before any other grammar, so

@@ -139,10 +139,18 @@ describe("tableMacroOptions", () => {
       .toStrictEqual({ filter: "x" });
   });
 
+  it("reads options whose braces balance inside the macro", () => {
+    expect(tableMacroOptions("{{table | filter: {x}}}"))
+      .toStrictEqual({ filter: "{x}" });
+  });
+
   it("rejects anything else", () => {
     for (const t of ["{{tables}}", "{{table}} x", "x {{table}}", "{{[[table]]",
                      "{{table|sort: A asc}}", "{{table [[a | b]]}}",
-                     "{{ table}}", "table", "{{query: {and: [[A]]}}}"]) {
+                     "{{ table}}", "table", "{{query: {and: [[A]]}}}",
+                     "{{table | view: cards}} notes {{toc}}",
+                     "{{table | a}} {{query: {and: [[B]]}}}",
+                     "{{table | a}} x {{y}}", "{{table | filter: a}} b}}"]) {
       expect(tableMacroOptions(t)).toBeNull();
     }
   });

@@ -38,7 +38,9 @@ function StaticTable({ rows }: { rows: RoamTableRows }) {
           <tr key={row.find((cell) => cell)?.uid ?? `empty-row-${rowIndex}`}>
             {row.map((cell, cellIndex) => (
               <td key={cell?.uid ?? `empty-${rowIndex}-${cellIndex}`}>
-                {cell ? content(cell.text) : null}
+                <div className="table-cell">
+                  {cell ? content(cell.text) : null}
+                </div>
               </td>
             ))}
           </tr>

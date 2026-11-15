@@ -43,7 +43,7 @@ export function QueryTable({ rows, columns, keys, records, sort, onSortClick,
       columns={tableColumns} rows={rows} rowId={(r) => r.record.key}
       renderCell={(r, c) => {
         if (c.key === RESULT) {
-          return <><RecordLink record={r.record} /><RecordSource record={r.record} /></>;
+          return <><RecordLink record={r.record} depth={depth} /><RecordSource record={r.record} /></>;
         }
         const cell = cellOf(r, c);
         return cell ? <CellValue cell={cell} depth={depth} /> : null;

@@ -216,6 +216,30 @@ Tables:
 - For wide tables, offer the alternative too: one block per row with
   "Attribute:: value" children.
 
+Query tables:
+- A {{query: {and: [[A]] [[B]]}}} block (also {or: ...}, {not: ...})
+  shows the blocks referencing those pages as a table whose columns are
+  "Key:: value" lines, sortable, filterable and editable in place.
+- Each result maps to a row. A top-level Key:: line on a page (Tags::
+  #Paper #LLM) stands for the page, with a column per top-level Key:: line
+  of that page. A nested Key:: line stands for its parent line, with a
+  column per Key:: child of that parent. Any other block is its own row,
+  with columns from its Key:: children: a line tagged inline ("[Title](url)
+  #Paper") has none.
+- So to make records show up with columns, write their details as Key::
+  lines (Author::, URL::, Date::) and put the tags the query matches in a
+  Key:: line too (Tags:: #Paper #LLM), not loose in the text.
+- By default the table shows the keys at least half the rows hold. Options
+  after the expression, each " | name: value", fix the view:
+    {{query: {and: [[Paper]] [[LLM]]} | view: table | sort: Date desc | columns: Author, URL}}
+  view is table, cards or blocks; sort is a column then asc or desc;
+  columns are names in order; filter is filter-box text: word prefixes,
+  col:value, -term to exclude (filter: -status:read), "a phrase". col is
+  the start of any word of a column name, so status:read searches Reading
+  Status. No option value may hold |, braces, [[, ]], ((, )) or #, and no
+  column name a comma. {{table}} takes the filter and sort options too:
+  {{table | sort: Name asc}}.
+
 Style: answer in plain markdown (no pipe tables), be brief, never invent page titles or
 uids — always look them up first.
 """

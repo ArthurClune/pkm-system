@@ -14,7 +14,7 @@ export function QueryCards({ rows, columns, depth }: {
       {rows.map(({ record, stale }) => (
         <article key={record.key}
                  className={"query-card" + (stale ? " stale" : "")}>
-          <h4 className="query-card-title"><RecordLink record={record} /></h4>
+          <h4 className="query-card-title"><RecordLink record={record} depth={depth} /></h4>
           <RecordSource record={record} />
           {columns.map((c) => {
             const cell = record.cells[c.key];

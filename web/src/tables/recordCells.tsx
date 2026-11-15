@@ -7,26 +7,42 @@ import { useNavigate } from "react-router";
 import type { QueryRecordModel, RecordCell } from "../api/payloads";
 import { InlineSegments } from "../components/InlineSegments";
 import { PageLink } from "../components/PageLink";
-import { SidebarContext } from "../contexts";
+import { InertMediaContext, SidebarContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { pagePath } from "../paths";
 
-export function RecordLink({ record }: { record: QueryRecordModel }) {
+/** A line's text renders as the outline shows it; a click on it, outside
+ * the links it holds, opens the line on its page. */
+export function RecordLink({ record, depth }:
+    { record: QueryRecordModel; depth: number }) {
   const navigate = useNavigate();
   const { openInSidebar } = useContext(SidebarContext);
   if (record.kind === "page" || record.uid === null) {
     return <PageLink title={record.page_title} tag={false} />;
   }
   const uid = record.uid;
-  const href = `${pagePath(record.page_title)}#${uid}`;
+  const go = (sidebar: boolean) => {
+    if (sidebar) openInSidebar(record.page_title, uid);
+    else void navigate(`${pagePath(record.page_title)}#${uid}`);
+  };
   return (
-    <a className="query-crumb" href={href}
-       onClick={(e) => {
-         e.preventDefault();
-         e.stopPropagation();
-         if (e.shiftKey) openInSidebar(record.page_title, uid);
-         else void navigate(href);
-       }}>{record.row_title}</a>
+    <span className="query-line" role="link" tabIndex={0}
+          onClick={(e) => {
+            if ((e.target as Element).closest("a, .block-ref")) return;
+            e.stopPropagation();
+            go(e.shiftKey);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && e.target === e.currentTarget) {
+              e.preventDefault();
+              go(e.shiftKey);
+            }
+          }}>
+      <InertMediaContext.Provider value={true}>
+        <InlineSegments segments={tokenizeBlock(record.row_title)}
+                        depth={depth} />
+      </InertMediaContext.Provider>
+    </span>
   );
 }
 

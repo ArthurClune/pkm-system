@@ -143,6 +143,42 @@ Replace the `A` and `B` placeholders with `[[Page]]` links to run the query.
 Type `[[` to search for a page. The query shows an error until you fill them
 in.
 
+## Query tables
+
+A query shows what it finds as a table, as cards or as blocks; the buttons at
+its top right switch between them. Each row is a page or a line, and each
+column is a `Key::` line, such as `Author:: Jane Smith`. Which row a result
+gives, and where its columns come from:
+
+| Result | Row | Columns |
+|---|---|---|
+| A `Key::` line at the top level of a page, such as `Tags:: #Paper #LLM` | The page | The page's top-level `Key::` lines |
+| A `Key::` line nested under another line | The line above it | That line's `Key::` children |
+| Any other line, such as `[Title](url) #Paper` | The line itself | Its `Key::` children; none if it has none |
+
+So for a query table to show a page's details, give the page `Key::` lines at
+its top level (`URL::`, `Author::`, `Date::`), and put the tags the query
+looks for in one of them, `Tags:: #Paper #LLM`, not loose in a line of text.
+For a line, put `Key:: value` lines under it.
+
+A table starts with the columns that at least half its rows have. A column
+header's ▾ menu hides, moves and adds columns.
+
+The Filter box keeps the rows that match every term. A word matches the start
+of a word in any column: `kind` finds Kindle. `author:smith` looks only in
+columns with a word starting `author`, so `status:read` searches Reading
+Status. `source:` looks in the page a line is on. A `-` in front leaves
+matches out: `-status:read`. `status:` with nothing after it finds rows with
+an empty Status. Quotes keep a phrase together: `"machine learning"`.
+
+Save this view writes the view, filter, sort and columns into the query's own
+text, so they come back next time; Reset goes back to what was saved. Saved,
+a query reads like `{{query: {and: [[Paper]] [[LLM]]} | view: table | sort:
+Date desc | columns: Author, Date, URL}}`. You can type these options by hand
+too: `view:` is table, cards or blocks, `sort:` is a column then asc or desc,
+`columns:` lists columns in order, and `filter:` is the Filter box's text. A
+saved filter, sort or column cannot hold `|`, braces, `[[`, `((` or `#`.
+
 ## While blocks are selected
 
 The selection takes over the keyboard until it's cleared.

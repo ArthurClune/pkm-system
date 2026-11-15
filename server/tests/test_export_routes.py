@@ -194,6 +194,26 @@ def test_export_page_markdown_resolves_query_block(tmp_path):
     assert "the matched block text" in r.text
 
 
+def test_export_page_markdown_resolves_query_block_with_options(tmp_path):
+    tc = seeded_client(
+        tmp_path,
+        pages=[(1, "Source", None, None), (2, "Tag", None, None),
+              (3, "Matched Page", None, None)],
+        blocks=[
+            ("uid_q1", 1, None, 0,
+             "notes {{query: {and: [[Tag]]} | view: table | sort: A desc}}",
+             None, 0, None, None),
+            ("uid_m1", 3, None, 0, "the matched block text",
+             None, 0, None, None),
+        ],
+        refs=[("uid_m1", 2, "tag")])
+    r = tc.get("/api/export/page/Source")
+    assert r.status_code == 200
+    assert "{{query:" not in r.text
+    assert "1 result" in r.text
+    assert "the matched block text" in r.text
+
+
 def test_export_page_markdown_query_operand_is_canonicalised(tmp_path):
     """[[ Tag ]] in an exported {{query}} macro resolves against the
     canonical "Tag" once the plain-space flag is on, the same as the live

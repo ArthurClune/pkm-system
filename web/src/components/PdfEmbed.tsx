@@ -12,23 +12,14 @@
 // fetch and parse every one of them on render, and each evicted file would
 // kick off an iCloud download on the host.
 import { type ComponentType, type MouseEvent, useEffect, useRef, useState } from "react";
+import { lazyLoader } from "./lazyComponent";
 import { PdfFallbackLink } from "./PdfFallbackLink";
 import { hostFailureNote } from "./pdfViewerCore";
 
 type ViewerProps = { href: string; label: string; onClose?: () => void };
 type EmbedProps = ViewerProps & { deferred?: boolean };
 
-let viewerPromise: Promise<ComponentType<ViewerProps>> | null = null;
-
-function loadViewer(): Promise<ComponentType<ViewerProps>> {
-  if (!viewerPromise) {
-    viewerPromise = import("./PdfViewer").then((m) => m.PdfViewer);
-    viewerPromise.catch(() => {
-      viewerPromise = null;
-    });
-  }
-  return viewerPromise;
-}
+const loadViewer = lazyLoader(() => import("./PdfViewer").then((m) => m.PdfViewer));
 
 type ViewerState =
   | { status: "loading" }

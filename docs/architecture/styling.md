@@ -69,6 +69,19 @@ Buttons and fields are styled by named class, and there is no bare
   resting fill is `--color-bg-subtle`, lifting to `--color-bg-surface` on
   focus; call sites add geometry only. `.nav-sidebar-add input` sits on
   `.left-nav`'s own `--color-bg-subtle`, so it takes the surface fill at rest.
+- **Tables.** `DataTable` (`web/src/tables/`) renders `.data-table` inside
+  `.data-table-scroll`, with `.roam-table`'s cell look, so a plain table
+  does not change when its chunk loads. Its header is a
+  `.data-table-sort` button filling the `th`. The open cell is
+  `.cell-editor`, a `<textarea>` and never an `<input>`
+  ([why](frontend-editor.md#the-cell-editor)).
+  Its popup, `.cell-editor-popup`, is portalled and `position: fixed`, since
+  the scroll box would clip an absolute one. It holds the outline's
+  `.ac-popup` with the frame removed. `.table-toolbar` holds the filter, an
+  `.input-control`. A header with a column menu wraps the sort button and
+  `.data-table-menu` in `.data-table-head`. A query block adds `.query-views`
+  (the view switch, `aria-pressed` on the shown view), `.query-cards` and
+  `.query-cell-badge`.
 - **Anchors among buttons.** The global `a` rule sets `font-weight: 600`, so
   an anchor placed among buttons pins its weight in its own component rule.
 
@@ -107,6 +120,10 @@ clear a rounded image corner. The exceptions, each commented in `styles.css`:
 - `DatePickerPopup`'s buttons get no ring. The popup is mouse-only, and every
   element `preventDefault`s on mousedown so the textarea keeps focus.
   `styles.test.ts` asserts the absence.
+- `.data-table-sort` takes `outline-offset: -2px`, because the table's
+  scroll box clips a ring drawn outside an edge column's header.
+- `.cell-editor` sets `outline: none`. It exists only while focused, so its
+  border is the focus signal.
 - `.bullet` uses the standard ring inside a `4px solid transparent` border
   that `.bullet.closed` colours, so any restyle must stay distinguishable from
   `.closed`.

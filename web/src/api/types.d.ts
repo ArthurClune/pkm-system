@@ -386,6 +386,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/query/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Query Records */
+        get: operations["query_records_api_query_records_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/titles": {
         parameters: {
             query?: never;
@@ -1663,6 +1680,19 @@ export interface components {
             };
         };
         /**
+         * KeyStat
+         * @description A column candidate: an attribute page, how many records hold it, and
+         *     `label`, its first spelling in record order.
+         */
+        KeyStat: {
+            /** Key */
+            key: Brands.CanonicalTitle;
+            /** Label */
+            label: string;
+            /** Count */
+            count: number;
+        };
+        /**
          * LocalCheckPayload
          * @description GET /api/local-check: every /api/local/ href found in block text,
          *     classified against the disk. `enabled` is False when no
@@ -1840,6 +1870,90 @@ export interface components {
             ref_counts: {
                 [key: string]: number;
             };
+        };
+        /**
+         * QueryRecordModel
+         * @description A query table row: a page (`kind` "page", `uid` None) or a line,
+         *     with the uids of the query results that map to it. `row_title` is the
+         *     page title or the line's text as written; it is not named `title`, a
+         *     name that must carry a title brand. `cells` are keyed by
+         *     attribute page title. A new `::` line goes under `insert_parent_uid`
+         *     (None: top level of the page), before the sibling at
+         *     `insert_before_order_idx`; with no such sibling, after the record's
+         *     last `::` line at `last_attr_order_idx`, or first when it has none.
+         */
+        QueryRecordModel: {
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "page" | "line";
+            /** Page Id */
+            page_id: Brands.PageId;
+            /** Page Title */
+            page_title: Brands.CanonicalTitle;
+            /** Uid */
+            uid: Brands.BlockUid | null;
+            /** Row Title */
+            row_title: string;
+            /** Result Uids */
+            result_uids: Brands.BlockUid[];
+            /** Cells */
+            cells: {
+                [key: string]: components["schemas"]["RecordCell"];
+            };
+            /** Insert Parent Uid */
+            insert_parent_uid: Brands.BlockUid | null;
+            /** Insert Before Order Idx */
+            insert_before_order_idx: Brands.OrderIdx | null;
+            /** Last Attr Order Idx */
+            last_attr_order_idx: Brands.OrderIdx | null;
+        };
+        /**
+         * QueryRecordsPayload
+         * @description GET /api/query/records: one record per row, in the order of each
+         *     one's first result, and the column candidates ranked by how many
+         *     records hold them. `total` counts records, not results.
+         */
+        QueryRecordsPayload: {
+            /** Records */
+            records: components["schemas"]["QueryRecordModel"][];
+            /** Keys */
+            keys: components["schemas"]["KeyStat"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * RecordCell
+         * @description One record's `::` line for one column. `text` is the block as
+         *     written, `key_raw` its key as spelled there, and `value` the text after
+         *     `::`, leading whitespace trimmed and line breaks kept. `value_start`
+         *     is where the value would begin in `text`, just past the `::`, so
+         *     `text[:value_start]` is the key part a commit rewrites the value after.
+         *     `extra_uids` are the record's later lines for the same key, and
+         *     `child_count` the first line's children; neither is shown in the cell,
+         *     and both are left out when empty.
+         */
+        RecordCell: {
+            /** Uid */
+            uid: Brands.BlockUid;
+            /** Key Raw */
+            key_raw: string;
+            /** Text */
+            text: string;
+            /** Value */
+            value: string;
+            /** Value Start */
+            value_start: number;
+            /** Extra Uids */
+            extra_uids?: Brands.BlockUid[];
+            /**
+             * Child Count
+             * @default 0
+             */
+            child_count: number;
         };
         /** RenamePageRequest */
         RenamePageRequest: {
@@ -2711,6 +2825,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QueryPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    query_records_api_query_records_get: {
+        parameters: {
+            query: {
+                expr: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryRecordsPayload"];
                 };
             };
             /** @description Validation Error */

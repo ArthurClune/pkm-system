@@ -126,6 +126,6 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
       if (seg.lang === "mermaid") return <MermaidDiagram code={seg.code} />;
       return <CodeBlock lang={seg.lang} code={seg.code} />;
     case "query":
-      return <QueryBlock expr={seg.expr} depth={depth} />;
+      return <QueryBlock expr={seg.expr} options={seg.options} depth={depth} />;
   }
 }

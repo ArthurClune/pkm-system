@@ -302,6 +302,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | **Search & queries** | | |
 | GET | `/api/search?q&limit&exact` | FTS5 search over pages and blocks; `exact` drops the prefix match on the last term |
 | GET | `/api/query?expr&expand` | `{{[[query]]}}` evaluation; items carry their parent line (`ancestors`, plus `ancestor_texts` and `ancestor_uids` on the group: the direct parent only, never the whole trail); `expand` adds one hop through pages that reference the operand; 400 past `query.MAX_QUERY_DEPTH` nesting or `MAX_QUERY_OPERANDS` page operands |
+| GET | `/api/query/records?expr` | `/api/query`'s results as table records (`query_records.record_key`), each with its `::` cells keyed by attribute page title, and the keys ranked by how many records hold them; `total` counts records. Same plan, source-block exclusion and 400s as `/api/query`, no `expand`. One [`read_txn`](write-path.md#the-write-lock) snapshot, since a delete between its reads would leave a result with no record (a 500 in `build_records`) |
 | GET | `/api/titles?q&limit` | Title completion for `[[` and `#` |
 | GET | `/api/todos?page` | `{{TODO}}` blocks grouped by page |
 | GET | `/api/changed?since&until&page&limit` | Blocks changed in `[since, until)`, each `new` or `edited`; 400 on an empty window |
@@ -371,6 +372,7 @@ failing step. Add a new dump to that table; `test_regen.py` enforces it.
 | `shared/fixtures/title_parity.json` | `test_title_parity_fixture.py` | `normalize_title`, `target_canonical_title`, `title_syntax_reason`, `is_blank_title`, `extract` |
 | `shared/fixtures/text_limits_parity.json` | `test_text_limits_parity_fixture.py` | `text_limit_violation`, `link_nesting_depth`, `describe_text_limit`, `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` |
 | `shared/fixtures/mime_parity.json` | `test_mime_parity_fixture.py`; `filesCore.test.ts` replays it | `assets_core.mime_category` over every `MIME_POLICY` type, to the web Files view's `mimeCategory` and its own `DOCUMENT_MIME` list |
+| `shared/fixtures/macro_options_parity.json` | `test_macro_options_parity_fixture.py`; `macroOptions.test.ts` replays it | `macro_options.split_macro_options`, `format_macro_options`, to the web's `splitMacroOptions`, `formatMacroOptions` |
 | `shared/fixtures/shim_parity.json` | `test_shim_parity_fixture.py` | the offline shim (`replica/localApi/`) to the read routes' JSON |
 | `shared/fixtures/text_hash_parity.json` | `textHashParity.test.ts` | `text_hash`, `subtree_hash`, `well_formed` |
 | `shared/fixtures/local_links_parity.json` | `localLinksParity.test.ts` | `local_docs.extract_local_hrefs` |

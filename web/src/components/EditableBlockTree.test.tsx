@@ -1,7 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { expect, test, vi } from "vitest";
-import { block, orderIdxOf, uidOf } from "../test-helpers";
+import {
+  block, canonicalTitleOf, makeSync, orderIdxOf, stubFetch, uidOf,
+} from "../test-helpers";
+import { BlockRefContext } from "../contexts";
+import { SyncContext } from "../sync/SyncProvider";
 import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { OutlineHandlers } from "../outline/handlers";
@@ -19,7 +23,8 @@ function handlers(): OutlineHandlers {
     onBackspaceAtStart: vi.fn(),
     onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
     onSetViewType: vi.fn(),
-    onToggleTodo: vi.fn(), onFiles: vi.fn(() => Promise.resolve(false)),
+    onToggleTodo: vi.fn(), onSetText: vi.fn(), onEditInBlock: vi.fn(() => false),
+    onFiles: vi.fn(() => Promise.resolve(false)),
     onGoodlinks: vi.fn(), onCopyNotice: vi.fn(), onLinkLocalFile: vi.fn(), onPasteOutline: vi.fn(),
     onStartBlockSelection: vi.fn(), onSelectBlock: vi.fn(),
     onExtendBlockSelection: vi.fn(),
@@ -407,6 +412,31 @@ test("Shift+Cmd+Arrow moves a selection before plain Shift handling", () => {
   expect(h.onExtendBlockSelection).not.toHaveBeenCalled();
 });
 
+// A table renders its cell editor and filter inside a block row, and a
+// click there stops propagating, so the block selection stays standing.
+test("keys typed into a field inside a block leave a selection alone", () => {
+  const writeText = vi.fn();
+  Object.defineProperty(navigator, "clipboard", {
+    value: { writeText }, configurable: true,
+  });
+  const h = handlers();
+  const { container } = mountSelected(h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") });
+  const row = container.querySelector('.block-row[data-uid="tuid-u1"]')!;
+  const cell = row.appendChild(document.createElement("textarea"));
+  const filter = row.appendChild(document.createElement("input"));
+
+  for (const field of [cell, filter]) {
+    expect(fireEvent.keyDown(field, {
+      key: "ArrowUp", shiftKey: true, metaKey: true,
+    })).toBe(true);
+    expect(fireEvent.keyDown(field, { key: "c", metaKey: true })).toBe(true);
+    expect(fireEvent.keyDown(field, { key: "Backspace" })).toBe(true);
+  }
+  expect(h.onMoveSelectionUp).not.toHaveBeenCalled();
+  expect(h.onDeleteBlockSelection).not.toHaveBeenCalled();
+  expect(writeText).not.toHaveBeenCalled();
+});
+
 test("selected Option+Arrow remains unhandled", () => {
   const h = handlers();
   const { container } = mountSelected(h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") });
@@ -681,7 +711,7 @@ test("editable rendering numbers direct children only", () => {
     .toEqual(["", "1.", "2.", "", "1."]);
 });
 
-test("a rendered Roam table focuses its macro and reveals raw editable blocks", () => {
+test("a rendered Roam table opens its macro from Edit as text and reveals raw editable blocks", async () => {
   const h = handlers();
   const macro = block("tuid-table", "{{[[table]]}}", { collapsed: true, children: [
     block("header", "Model", { children: [block("header-2", "Price")] }),
@@ -693,7 +723,11 @@ test("a rendered Roam table focuses its macro and reveals raw editable blocks", 
     </MemoryRouter>,
   );
 
-  fireEvent.click(screen.getByRole("table"));
+  await screen.findByText("1 of 1 rows");
+  fireEvent.click(screen.getByText("Claude"));
+  fireEvent.click(screen.getByRole("button", { name: "Model" }));
+  expect(h.onFocusBlock).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Edit as text" }));
   expect(h.onFocusBlock).toHaveBeenCalledWith("tuid-table", "{{[[table]]}}".length);
 
   view.rerender(
@@ -1014,4 +1048,52 @@ test("ArrowDown in the block menu over a selection moves through the menu",
   expect(screen.getByRole("menuitemradio", { name: "Plain text" }))
     .toHaveFocus();
   expect(screen.getByRole("menu")).toBeInTheDocument();
+});
+
+test("a query's Save rewrites its block's own text, quote prefix and all", async () => {
+  const expr = "{and: [[Book]]}";
+  const text = `> books {{query: ${expr}}}`;
+  stubFetch([[`/api/query/records?${new URLSearchParams({ expr })}`, {
+    records: [], keys: [], total: 0 }]]);
+  const h = handlers();
+  render(
+    <SyncContext.Provider value={makeSync()}>
+      <MemoryRouter>
+        <EditableBlockTree blocks={[block("tuid-q1", text)]} focus={null}
+                           handlers={h} readOnly={false} />
+      </MemoryRouter>
+    </SyncContext.Provider>);
+  fireEvent.change(await screen.findByRole("searchbox", { name: "Filter" }),
+                   { target: { value: "kind" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save this view" }));
+  expect(h.onSetText).toHaveBeenCalledWith(
+    "tuid-q1", `> books {{query: ${expr} | filter: kind}}`);
+  expect(h.onFocusBlock).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Edit as text" }));
+  expect(h.onFocusBlock).toHaveBeenCalledWith("tuid-q1", text.length);
+  vi.unstubAllGlobals();
+});
+
+test("a TODO or query inside a block ref cannot act on the host block", async () => {
+  const expr = "{and: [[Book]]}";
+  stubFetch([[`/api/query/records?${new URLSearchParams({ expr })}`, {
+    records: [], keys: [], total: 0 }]]);
+  const h = handlers();
+  render(
+    <SyncContext.Provider value={makeSync()}>
+      <MemoryRouter>
+        <BlockRefContext.Provider value={{
+          ref_aa1: { text: `{{[[TODO]]}} task {{query: ${expr}}}`,
+                     page_title: canonicalTitleOf("Elsewhere") } }}>
+          <EditableBlockTree blocks={[block("tuid-h1", "see ((ref_aa1))")]}
+                             focus={null} handlers={h} readOnly={false} />
+        </BlockRefContext.Provider>
+      </MemoryRouter>
+    </SyncContext.Provider>);
+  expect(screen.getByRole("checkbox", { name: "TODO" })).toBeDisabled();
+  fireEvent.change(await screen.findByRole("searchbox", { name: "Filter" }),
+                   { target: { value: "kind" } });
+  expect(screen.queryByRole("button", { name: "Save this view" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Edit as text" })).toBeNull();
+  vi.unstubAllGlobals();
 });

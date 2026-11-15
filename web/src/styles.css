@@ -927,8 +927,91 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 /* == Query blocks == */
 .query-block { border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: 8px 12px;
   margin: 4px 0; }
-.query-header { display: flex; justify-content: space-between; font-size: 12px;
+.query-header { display: flex; flex-wrap: wrap; justify-content: space-between;
+  align-items: center; gap: 8px; font-size: 12px;
   color: var(--color-text-muted); margin-bottom: 4px; }
+/* the view switch; the shown view takes the selected look */
+.query-views { display: inline-flex; gap: 4px; }
+.query-views [aria-pressed="true"] { background: var(--color-selected-bg);
+  border-color: var(--color-border-strong); color: var(--color-text); }
+/* a record's page under a line record's text */
+.query-source { font-size: 12px; color: var(--color-text-muted); }
+/* what a cell leaves out: a key's later lines, a value's children */
+.query-cell-badge { margin-left: 6px; padding: 0 6px; font-size: 11px;
+  white-space: nowrap; color: var(--color-text-secondary);
+  background: var(--color-bg-subtle); border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill); }
+.query-cards { display: grid; gap: 10px; margin: 4px 0;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+.query-card { padding: 8px 10px; border: 1px solid var(--color-border);
+  border-radius: var(--radius-card); background: var(--color-bg-subtle); }
+.query-card.stale { opacity: 0.6; }
+.query-card-title { margin: 0 0 2px; font-size: 15px; }
+.query-card-row { margin-top: 4px; font-size: 13px; }
+.query-card-key { margin-right: 6px; color: var(--color-text-secondary); }
+
+/* == Tables == */
+/* DataTable, shared by query tables and {{table}} blocks; the cell look
+ * matches .roam-table so the two read as one object */
+.data-table-scroll { display: block; width: 100%; overflow-x: auto; margin: 4px 0; }
+.data-table { width: 100%; min-width: max-content; border-collapse: collapse; }
+.data-table th, .data-table td { border: 1px solid var(--color-border);
+  padding: 6px 8px; vertical-align: top; text-align: left; }
+.data-table th { background: var(--color-bg-subtle); padding: 0; }
+.data-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.data-table td.editable { cursor: text; }
+/* the header is a button for keyboard access; it fills the th. The ring
+ * sits inside, or the scroll box clips it on the edge columns */
+.data-table-sort { display: flex; align-items: center; gap: 4px; width: 100%;
+  padding: 6px 8px; font: inherit; font-weight: 600; color: inherit;
+  text-align: left; background: none; border: none; cursor: pointer; }
+.data-table th.numeric .data-table-sort { justify-content: flex-end; }
+.data-table-sort:focus-visible { outline: 2px solid var(--color-link);
+  outline-offset: -2px; }
+.data-table-arrow { font-size: 10px; color: var(--color-text-muted); }
+/* a header with a column menu: the sort button keeps the rest of the th */
+.data-table-head { display: flex; align-items: stretch; }
+.data-table-head .data-table-sort { flex: 1; min-width: 0; }
+.data-table-menu { padding: 0 6px; font: inherit; color: var(--color-text-muted);
+  background: none; border: none; cursor: pointer; }
+.data-table-menu:hover { color: var(--color-text); }
+.data-table-menu:focus-visible { outline: 2px solid var(--color-link);
+  outline-offset: -2px; }
+.data-table tr.stale { opacity: 0.6; }
+.data-table-stale-label { margin-left: 6px; font-size: 12px; font-style: italic;
+  color: var(--color-text-muted); white-space: nowrap; }
+/* the open cell: a bordered field that covers the cell's padding, so the
+ * text does not move when the editor opens. Always focused while it
+ * exists, so the border is its focus signal and it takes no ring */
+.cell-editor { display: block; box-sizing: border-box; width: calc(100% + 10px);
+  margin: -3px -5px; padding: 2px 4px; font: inherit; line-height: inherit;
+  color: var(--color-text); background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-input); border-radius: var(--radius-field);
+  resize: none; overflow: hidden; outline: none; }
+@supports (field-sizing: content) {
+  .cell-editor { field-sizing: content; }
+}
+/* portalled and fixed: an absolute popup would be clipped by the table's
+ * scroll box. Its list is the outline's .ac-popup, unframed in here */
+.cell-editor-popup { position: fixed; z-index: var(--z-editor-popup);
+  min-width: 200px; max-width: min(420px, calc(100vw - 24px));
+  background: var(--color-bg-surface); border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-panel); box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15);
+  overflow: hidden; }
+.cell-editor-popup .ac-popup { position: static; min-width: 0; border: none;
+  border-radius: 0; box-shadow: none; }
+.cell-editor-popup .ac-row { display: flex; justify-content: space-between; gap: 12px; }
+.cell-editor-hint { padding: 6px 10px; font-size: 13px;
+  color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); }
+.cell-editor-hint:last-child { border-bottom: none; }
+.cell-editor-count { font-size: 12px; color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums; }
+.table-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 4px 0; font-size: 14px; }
+.table-filter { flex: 1 1 200px; min-width: 0; max-width: 360px; }
+.table-count, .table-saved, .table-refusal { color: var(--color-text-secondary);
+  white-space: nowrap; }
+.table-edit-text { margin-left: auto; }
 
 /* == Right sidebar == */
 .sidebar { width: 33.333%; flex-shrink: 0; border-left: 1px solid var(--color-border);

@@ -57,6 +57,7 @@ export interface Columns {
   src_page_id: PageId;
   src_page_title: CanonicalTitle;
   next_order_idx: OrderIdx;
+  attribute_title: CanonicalTitle | null;
   next_sidebar_order_idx: SidebarOrderIdx;
   latest_seq: SyncSeq;
   applied_rowid: number;
@@ -149,6 +150,7 @@ export const COLUMN_META: { readonly [K in keyof Columns]: ColumnMeta } = {
   src_page_id: { brand: "PageId", base: "int", nullable: false, literals: null },
   src_page_title: { brand: "CanonicalTitle", base: "text", nullable: false, literals: null },
   next_order_idx: { brand: "OrderIdx", base: "int", nullable: false, literals: null },
+  attribute_title: { brand: "CanonicalTitle", base: "text", nullable: true, literals: null },
   next_sidebar_order_idx: { brand: "SidebarOrderIdx", base: "int", nullable: false, literals: null },
   latest_seq: { brand: "SyncSeq", base: "int", nullable: false, literals: null },
   applied_rowid: { brand: null, base: "int", nullable: false, literals: null },

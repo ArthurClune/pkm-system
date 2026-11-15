@@ -174,16 +174,33 @@ describe("tokenizeBlock", () => {
 
   it("grabs query expressions with a balanced-brace scan", () => {
     expect(tokenizeBlock("{{[[query]]: {and: [[Paper]] [[Link]]}}}")).toEqual([
-      { kind: "query", expr: "{and: [[Paper]] [[Link]]}" },
+      { kind: "query", expr: "{and: [[Paper]] [[Link]]}", options: {},
+        span: [0, 40] },
     ]);
     expect(tokenizeBlock("{{query: {and: [[A]] {or: [[B]] [[C]]}}}}")).toEqual([
-      { kind: "query", expr: "{and: [[A]] {or: [[B]] [[C]]}}" },
+      { kind: "query", expr: "{and: [[A]] {or: [[B]] [[C]]}}", options: {},
+        span: [0, 41] },
     ]);
     expect(tokenizeBlock("before {{[[query]]: {and: [[A]]}}} after")).toEqual([
       { kind: "text", text: "before " },
-      { kind: "query", expr: "{and: [[A]]}" },
+      { kind: "query", expr: "{and: [[A]]}", options: {}, span: [7, 34] },
       { kind: "text", text: " after" },
     ]);
+  });
+
+  it("splits a query's options off its expression", () => {
+    const text = "{{query: {and: [[A]]} | sort: X asc}}";
+    expect(tokenizeBlock(text)).toStrictEqual([
+      { kind: "query", expr: "{and: [[A]]}",
+        options: { sort: { col: "X", dir: "asc" } }, span: [0, text.length] },
+    ]);
+  });
+
+  it("keeps a ` | ` inside a ref in the expression", () => {
+    const text = "{{[[query]]: {and: [[A | B]]} | view: cards}} x";
+    expect(tokenizeBlock(text)[0]).toStrictEqual(
+      { kind: "query", expr: "{and: [[A | B]]}", options: { view: "cards" },
+        span: [0, text.length - 2] });
   });
 
   it("preserves newlines as line breaks outside code fences", () => {
@@ -542,7 +559,7 @@ describe("tokenizeBlock on long runs of math and macro openers", () => {
 
   it("closes a query at the brace matching its opener", () => {
     expect(tokenizeBlock("{{query: {and: [[a]] {x}}}} tail")).toEqual([
-      { kind: "query", expr: "{and: [[a]] {x}}" },
+      { kind: "query", expr: "{and: [[a]] {x}}", options: {}, span: [0, 27] },
       { kind: "text", text: " tail" },
     ]);
   });

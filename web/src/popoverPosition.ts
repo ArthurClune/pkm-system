@@ -16,3 +16,22 @@ export function clampPopoverPosition({ x, y, width, height,
     y: Math.max(margin, Math.min(y, viewportHeight - height - margin)),
   };
 }
+
+/** Under `anchor` when the popover fits there, above it when only that
+ * fits, then clamped. Clamping alone would push a popover under a field
+ * near the viewport's bottom (an iPad with its keyboard up) back over the
+ * field it serves. */
+export function placeUnderAnchor({ anchor, width, height, viewportWidth,
+                                   viewportHeight, margin, gap }: {
+  anchor: { left: number; top: number; bottom: number };
+  width: number; height: number;
+  viewportWidth: number; viewportHeight: number; margin: number; gap: number;
+}): { x: number; y: number } {
+  const below = anchor.bottom + gap;
+  const above = anchor.top - gap - height;
+  const flip = below + height + margin > viewportHeight && above >= margin;
+  return clampPopoverPosition({
+    x: anchor.left, y: flip ? above : below, width, height,
+    viewportWidth, viewportHeight, margin,
+  });
+}

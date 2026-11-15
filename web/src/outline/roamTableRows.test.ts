@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { block } from "../test-helpers";
-import { roamTableRows } from "./roamTableRows";
+import { roamTable, roamTableRows } from "./roamTableRows";
 
 const texts = (rows: ReturnType<typeof roamTableRows>) =>
   rows?.map((row) => row.map((cell) => cell?.text ?? null));
@@ -29,9 +29,30 @@ describe("roamTableRows", () => {
     expect(roamTableRows(validTable("{{[[TaBlE]]}}"))).not.toBeNull();
   });
 
+  test("a table macro with options still yields rows", () => {
+    const table = validTable("{{table | sort: Lab desc}}");
+    expect(texts(roamTableRows(table))).toEqual([
+      ["**Model**", "Price", "Plan"],
+      ["[[Claude]]", "$5", "Pro"],
+    ]);
+    expect(roamTable(table)?.options)
+      .toStrictEqual({ sort: { col: "Lab", dir: "desc" } });
+  });
+
+  test("a bare table macro has no options", () => {
+    expect(roamTable(validTable("{{table}}"))?.options).toStrictEqual({});
+  });
+
   test("rejects non-table and empty table blocks", () => {
     expect(roamTableRows(validTable("before {{table}}"))).toBeNull();
     expect(roamTableRows(block("tuid-empty", "{{table}}"))).toBeNull();
+    expect(roamTable(block("tuid-empty", "{{table | sort: A asc}}")))
+      .toBeNull();
+    expect(roamTableRows(validTable("{{table|sort: A asc}}"))).toBeNull();
+    expect(roamTableRows(validTable("{{table | view: cards}} notes {{toc}}")))
+      .toBeNull();
+    expect(roamTableRows(validTable("{{table | a}} {{query: {and: [[B]]}}}")))
+      .toBeNull();
   });
 
   test("pads ragged rows to the widest row", () => {

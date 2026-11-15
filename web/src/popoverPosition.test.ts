@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { clampPopoverPosition } from "./popoverPosition";
+import { clampPopoverPosition, placeUnderAnchor } from "./popoverPosition";
 
 it("leaves a position alone when the popover already fits", () => {
   expect(clampPopoverPosition({
@@ -28,4 +28,24 @@ it("never goes past the top-left margin, even for oversized popovers", () => {
     x: 500, y: 500, width: 2000, height: 2000,
     viewportWidth: 1024, viewportHeight: 768, margin: 12,
   })).toEqual({ x: 12, y: 12 });
+});
+
+const VIEW = { viewportWidth: 1024, viewportHeight: 768, margin: 12, gap: 2 };
+
+it("places a popover under its anchor when it fits there", () => {
+  expect(placeUnderAnchor({
+    anchor: { left: 100, top: 200, bottom: 220 }, width: 240, height: 100, ...VIEW,
+  })).toEqual({ x: 100, y: 222 });
+});
+
+it("flips a popover above its anchor when only that fits", () => {
+  expect(placeUnderAnchor({
+    anchor: { left: 100, top: 700, bottom: 720 }, width: 240, height: 100, ...VIEW,
+  })).toEqual({ x: 100, y: 598 });
+});
+
+it("clamps a popover that fits neither under nor above its anchor", () => {
+  expect(placeUnderAnchor({
+    anchor: { left: 100, top: 50, bottom: 70 }, width: 240, height: 720, ...VIEW,
+  })).toEqual({ x: 100, y: 768 - 720 - 12 });
 });

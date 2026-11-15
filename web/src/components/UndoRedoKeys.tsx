@@ -8,15 +8,10 @@
 // can bring the user to it.
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
+import { isEditableTarget } from "../editableTarget";
 import { performRedo, performUndo,
          setHistoryNavigator } from "../outline/undoManager";
 import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLInputElement
-    || target instanceof HTMLTextAreaElement
-    || (target instanceof HTMLElement && target.isContentEditable);
-}
 
 export function UndoRedoKeys() {
   const sync = useSyncActions();

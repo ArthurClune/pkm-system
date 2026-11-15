@@ -117,6 +117,16 @@ def test_blockers_query_and_attribute_position():
     assert plan.rewrites == {"tuid-ok": "fine AI"}
 
 
+def test_query_with_options_still_blocks_on_its_operand():
+    plan = plan_page_delete(is_ai, {}, [
+        SourceBlock(uid_of("tuid-q1"), canonical_title_of("Q"),
+                    "{{query: {and: [[AI]]} | view: table | sort: A desc}}"),
+        SourceBlock(uid_of("tuid-q2"), canonical_title_of("Q"),
+                    "{{query: {and: [[Other]]} | filter: x}}")])
+    assert [(b.uid, b.reason) for b in plan.blockers] == [
+        ("tuid-q1", "query")]
+
+
 def test_blockers_ignore_code():
     plan = plan_page_delete(is_ai, {}, [
         SourceBlock(uid_of("tuid-c1"), canonical_title_of("C"), "`{{query: {and: [[AI]]}}}` [[AI]]")])

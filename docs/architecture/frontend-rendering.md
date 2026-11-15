@@ -83,15 +83,34 @@ and the only place a segment becomes a component.
 A `depth` prop rides the recursive cases: `BlockRef` renders the raw `((uid))`
 at its own `MAX_DEPTH`, and `QueryBlock` stops at its own. `EditableBlockTree`
 resolves two block-level shapes before this dispatch, `{{toc}}` (`TocBlock`,
-`tocEntries.ts`, `isTocMacro`) and a table macro (`roamTableRows`), both only
-while the row is unfocused.
+`tocEntries.ts`, `isTocMacro`) and a table macro (`roamTable`, rendered by
+`RoamTable`), both only while the row is unfocused.
+
+`TodoCheckbox`, a query's cell editor and its "Save this view" act on the host
+block through `BlockEditContext`. Only an editable row provides it, so a
+backlink, a sidebar panel or a read-only outline renders them inert.
+`QueryResults` and `BlockRef` provide null beneath themselves: what they
+render is other blocks' text, and a TODO or query in it must never act on
+the host.
 
 ## Lazy renderers and their caches
 
-KaTeX, beautiful-mermaid, stock mermaid, pdf.js, highlight.js and the
-`/link-local-file` picker each load behind a cached module-level `import()`
-promise, so Vite emits each as its own chunk. A rejected promise is cleared, so
-one failed fetch cannot wedge every later render.
+KaTeX, beautiful-mermaid, stock mermaid, pdf.js, highlight.js, the
+`/link-local-file` picker and the tables chunk each load behind a cached
+module-level `import()` promise, so Vite emits each as its own chunk. A
+rejected promise is cleared, so one failed fetch cannot wedge every later
+render. For a component, `lazyLoader` (`components/lazyComponent.ts`) is
+that cache and `useLazy` renders from it. Its `peek()` gives a mount after
+the load the component on its first render, not a placeholder for a frame.
+
+A block-level feature that only some pages use stays out of the entry
+chunk, whose size `budgets.json` caps (`initialEntryBytes`). An eager shell
+renders at once and the loaded component replaces it. `QueryBlock` shows
+its expression line, and `RoamTable` a static table with the loaded
+table's look, so nothing moves while the chunk loads. Query results and
+plain tables share `DataTable`, the toolbar and the view state, so they
+load as one chunk (`tablesChunk.ts`). Two chunks and a shared third would
+add files to every install's precache.
 
 | Cache | Keyed on | Module | Limit |
 |---|---|---|---|
@@ -123,6 +142,70 @@ refs. Requests from one render pass batch into one call, chunked at the
 server's per-request cap (`CHUNK` in `BlockRefProvider.tsx`). `claimRequest` is
 the fetch-once guard, and keeps claims only for uids the server could not
 resolve.
+
+## Query and table macros
+
+### Macro options
+
+A `{{query}}` or `{{table}}` macro saves a view as options after its head,
+each one ` | name: value`:
+`{{query: {and: [[Book]]} | view: cards | sort: Published desc}}`,
+`{{table | filter: apache}}`.
+
+| Option | Value | Read by |
+|---|---|---|
+| `view` | `table`, `cards` or `blocks` | queries |
+| `filter` | the filter box's text | both |
+| `sort` | a column name, then `asc` or `desc` | both |
+| `columns` | column names, comma-separated, in order | queries |
+
+`grammar/macroOptions.ts` reads options and sits in the entry chunk with
+the tokenizer. Reading drops what it cannot use: an unknown name, a bad
+value, a segment with no colon. A ` | ` splits only outside braces and
+`[[ ]]`, so a ref title holding ` | ` stays whole. `macroOptionsWrite.ts`
+writes them and loads with the tables chunk. `server/src/pkm/macro_options.py`
+mirrors both halves, and `macro_options_parity.json` holds the two sides
+together ([backend.md](backend.md#generated-artifacts-and-parity-fixtures)).
+The markdown export strips options before it runs a query
+(`find_query_macros`).
+
+**An option never holds ref syntax.** Ref extraction (`refs.extract`,
+`extractRefs`) scans the whole macro, options included, so ref syntax in an
+option would become a ref. Save refuses such a value (`optionsRefusal`,
+`options_refusal`) rather than teaching both extractors about options.
+Padding and empty values are normalised, not refused. Save also reads the
+rewritten text back, and refuses when it would not give the same options.
+
+A table macro's opening `{{` must close, braces counted, on the trimmed
+text's last character (`tableMacroOptions`). Otherwise
+`{{table | a}} x {{y}}` would read ` x {{y` as option text, and a rewrite of
+the options would drop it. The cases are in the
+[contract](contracts/frontend-editor.md#rules-an-edit-must-not-break).
+
+### Query blocks
+
+A `query` segment carries `expr` (the head, without options), `options`,
+and `span`, the whole `{{...}}` in the text the tokenizer was given.
+`QueryBlock` is the eager shell. `QueryResults` reads
+`GET /api/query/records` first, since the records decide the default view,
+and reads `/api/query`'s groups only once the blocks view shows.
+
+| View | Shows |
+|---|---|
+| `table` | `QueryTable`: a Result column, then one column per `::` key, editable ([frontend-editor.md § Tables](frontend-editor.md#tables)) |
+| `cards` | `QueryCards`: one card per record, with the same columns; read-only |
+| `blocks` | the grouped results, each nested one under a link to its parent line (`.query-crumb`); a filter keeps the results of the records it matches |
+
+With nothing saved, the view is `table` when any record has a `::` cell,
+else `blocks`. The default columns are the keys at least half the records
+hold, in the order they first appear (`queryDefaults`, `defaultColumns`).
+
+Save finds its macro again in the host block's own text
+(`BlockEditApi.text`, `planQuerySave`), by expression and current options,
+and refuses unless exactly one macro matches. The segment's `span` is
+relative to the text the tokenizer was given, which a `> ` quote prefix
+makes a different text. A query shown through a block ref is not in the
+host's text at all.
 
 ## Mermaid
 

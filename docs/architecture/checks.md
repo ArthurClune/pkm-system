@@ -194,6 +194,7 @@ Each suite states its invariants in its module docstring or file header.
 | `journal/` | [the Journal's paging](contracts/frontend.md#the-journal) (`journalPaging`) |
 | `files/` | [the `/files` browser](contracts/frontend.md#the-files-browser)'s generation rules (`filesPaging`) |
 | `backlinks/` | `backlinksPaging`'s epoch and walk rules (`backlinks.prop.ts`); `withStatus` against the Link lifecycle table in `unlinkedStatus.ts` (`unlinked.prop.ts`) |
+| `tables/` | [the table view](contracts/frontend-editor.md#the-table-view) (`viewState.prop.ts`, `stepView`) and [the cell editor](contracts/frontend-editor.md#the-cell-editor) (`cellEditor.prop.ts`, `stepEditor`); pure, with no server or DOM |
 
 Rules a change to the gate must keep:
 
@@ -218,8 +219,9 @@ Rules a change to the gate must keep:
   code as types only.
 - A new property shows it fails. Server: `tests/props/test_teeth.py` runs
   each gate suite's property against a mutant and expects the invariant that
-  mutant breaks to fail. Web: each suite's `teeth.prop.ts` breaks a rule (a
-  mutant, a broken transport mode, a `/__proptest/*/teeth` route) through
+  mutant breaks to fail. Web: a suite's teeth files (`teeth.prop.ts`, and
+  `*Teeth.prop.ts` such as `tables/cellTeeth.prop.ts`) each break a rule
+  (a mutant, a broken transport mode, a `/__proptest/*/teeth` route) through
   `expectMutantsCaught` (`props/gate.ts`), which must see a problem line
   naming one of the mutant's `catches`. A clean run must pass. A mutant names
   every invariant its bug breaks, since which one fires first depends on the

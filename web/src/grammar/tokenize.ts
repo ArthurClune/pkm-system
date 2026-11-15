@@ -11,6 +11,9 @@
 
 import type { BlockUid, NormalizedTitle, Sha256Hex } from "../api/brands";
 import { parseSha256Hex } from "../replica/sha256";
+import {
+  QUERY_OPENER, splitMacroOptions, type MacroOptions,
+} from "./macroOptions";
 import { markdownLinkScanner, type MarkdownSpan } from "./markdown";
 import { isRefTitle, normalizeRefTitle, scanGrammar, type GrammarToken } from "./scan";
 
@@ -33,10 +36,13 @@ export type BlockSegment =
   | InlineSegment
   | { kind: "todo"; done: boolean }
   | { kind: "code-block"; lang: string | null; code: string }
-  | { kind: "query"; expr: string }
+  // `expr` is the query without its options; `span` is the whole
+  // `{{...}}` in the block text, for rewriteMacroOptions.
+  | { kind: "query"; expr: string; options: MacroOptions;
+      span: [number, number] }
   | { kind: "pdf-embed"; href: string };
 
-const QUERY_PREFIX = /^\{\{(?:\[\[)?query(?:\]\])?:\s*/;
+const QUERY_PREFIX = new RegExp(String.raw`^\{\{` + QUERY_OPENER.source.slice(1));
 const PDF_PREFIX = /^\{\{(?:\[\[)?pdf(?:\]\])?:\s*/;
 // A block whose ENTIRE trimmed text is one $$...$$ (no inner $$) renders in
 // KaTeX display mode. Checked against raw text before any other grammar, so
@@ -80,8 +86,9 @@ function braceCloses(text: string): Int32Array {
 
 /** From i pointing at a "{{[[name]]:" / "{{name:" macro opener: [body, end]
  * where end is just past the `}` matching the opener's first `{` (a
- * query's body itself contains braces), or null. Shared by {{query}} and
- * {{pdf}} (Roam's PDF-embed spelling). */
+ * query's body itself contains braces), or null. The body is untrimmed: a
+ * query's goes to splitMacroOptions untrimmed, as the server's export does.
+ * Shared by {{query}} and {{pdf}} (Roam's PDF-embed spelling). */
 function scanMacro(
   text: string, i: number, prefix: RegExp, closeOf: (i: number) => number,
 ): [string, number] | null {
@@ -89,7 +96,7 @@ function scanMacro(
   if (!m) return null;
   const close = closeOf(i);
   if (close === -1) return null;
-  return [text.slice(i + m[0].length, close - 1).trim(), close + 1];
+  return [text.slice(i + m[0].length, close - 1), close + 1];
 }
 
 function parseFence(body: string): BlockSegment {
@@ -403,7 +410,8 @@ function tokenizeBlockUncached(text: string): BlockSegment[] {
       const q = scanMacro(text, i, QUERY_PREFIX, closeOf);
       if (q) {
         flush(i);
-        out.push({ kind: "query", expr: q[0] });
+        const { head, options } = splitMacroOptions(q[0]);
+        out.push({ kind: "query", expr: head, options, span: [i, q[1]] });
         i = q[1];
         chunkStart = i;
         continue;
@@ -411,7 +419,7 @@ function tokenizeBlockUncached(text: string): BlockSegment[] {
       const p = scanMacro(text, i, PDF_PREFIX, closeOf);
       if (p) {
         flush(i);
-        out.push({ kind: "pdf-embed", href: p[0] });
+        out.push({ kind: "pdf-embed", href: p[0].trim() });
         i = p[1];
         chunkStart = i;
         continue;

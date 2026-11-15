@@ -16,8 +16,9 @@ export interface BlockMenuItem {
   group?: string;
 }
 
-export function BlockMenu({ x, y, items, onClose }: {
+export function BlockMenu({ x, y, items, onClose, label = "Block actions" }: {
   x: number; y: number; items: BlockMenuItem[]; onClose: () => void;
+  label?: string;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   useDismiss(ref, onClose, { preventDefaultOnEscape: true });
@@ -58,7 +59,7 @@ export function BlockMenu({ x, y, items, onClose }: {
   // `ref` itself, and its React parentage (hence event bubbling) is
   // unchanged by the portal.
   return createPortal(
-    <div className="block-menu" role="menu" aria-label="Block actions" ref={ref}
+    <div className="block-menu" role="menu" aria-label={label} ref={ref}
          style={{ left: x, top: y }}>
       {items.map((it, index) => {
         const showGroup = it.group !== undefined && it.group !== items[index - 1]?.group;

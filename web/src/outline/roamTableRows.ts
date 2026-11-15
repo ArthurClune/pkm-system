@@ -2,13 +2,21 @@
 // Normalize Roam table macro trees into rectangular row data for later
 // renderers.
 import type { BlockNode } from "../api/payloads";
+import { tableMacroOptions, type MacroOptions } from "../grammar/macroOptions";
 
 export type RoamTableRows = (BlockNode | null)[][];
 
-const TABLE_MACRO = /^(?:\{\{table\}\}|\{\{\[\[table\]\]\}\})$/i;
-
 export function roamTableRows(node: BlockNode): RoamTableRows | null {
-  if (!TABLE_MACRO.test(node.text.trim()) || node.children.length === 0) return null;
+  return roamTable(node)?.rows ?? null;
+}
+
+/** The table's rows and the options its macro carries
+ * (`{{table | sort: Lab desc}}`), or null when the block is not a table. */
+export function roamTable(
+  node: BlockNode,
+): { rows: RoamTableRows; options: MacroOptions } | null {
+  const options = tableMacroOptions(node.text);
+  if (options === null || node.children.length === 0) return null;
 
   const rows: BlockNode[][] = [];
   for (const first of node.children) {
@@ -23,8 +31,11 @@ export function roamTableRows(node: BlockNode): RoamTableRows | null {
   }
 
   const width = Math.max(...rows.map((row) => row.length));
-  return rows.map((row) => [
-    ...row,
-    ...Array.from({ length: width - row.length }, () => null),
-  ]);
+  return {
+    rows: rows.map((row) => [
+      ...row,
+      ...Array.from({ length: width - row.length }, () => null),
+    ]),
+    options,
+  };
 }

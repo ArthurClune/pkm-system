@@ -59,6 +59,7 @@ from typing import TYPE_CHECKING
 from pkm.contracts.ops import BlockUid
 from pkm.contracts.titles import CanonicalTitle
 from pkm.export.markdown import rewrite_asset_links
+from pkm.macro_options import split_macro_options
 from pkm.refs import BLOCK_REF_TOKEN
 
 if TYPE_CHECKING:
@@ -203,7 +204,8 @@ class QueryResult:
 
 def find_query_macros(text: str) -> list[tuple[int, int, str]]:
     """Positions of {{query: ...}} / {{[[query]]: ...}} macros: a list of
-    (start, end, expr) covering the whole "{{...}}" span. A balanced-brace
+    (start, end, expr) covering the whole "{{...}}" span, `expr` without the
+    macro's ` | name: value` options. A balanced-brace
     scan (the query body itself contains braces), mirroring
     web/src/grammar/tokenize.ts's scanMacro.
 
@@ -240,7 +242,8 @@ def find_query_macros(text: str) -> list[tuple[int, int, str]]:
     after = 0
     for start, body, end in zip(starts, bodies, ends):
         if end != -1 and start >= after:
-            out.append((start, end, text[body:end - 2].strip()))
+            out.append((start, end,
+                        split_macro_options(text[body:end - 2])[0]))
             after = end
     return out
 

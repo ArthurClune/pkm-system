@@ -38,10 +38,19 @@ export const BlockRefStoreContext = createContext(createBlockRefStore());
 export const BlockRefRequestContext =
   createContext<(uid: BlockUid) => void>(() => undefined);
 
-/** Present only inside the editable outline: lets deep segment renders
- * (TODO checkboxes) reach the block's edit handlers. */
+/** Present only inside the editable outline, while editing is allowed: lets
+ * deep segment renders (TODO checkboxes, a query's Save) reach the block's
+ * edit handlers. A surface that renders other blocks' text inside a block
+ * (query results) provides null below itself, so their segments never act
+ * on the host. */
 export interface BlockEditApi {
   toggleTodo: () => void;
+  /** The host block's text as stored, quote prefix included. */
+  text: string;
+  /** False when nothing was written (see OutlineHandlers.onSetText). */
+  setText: (next: string) => boolean;
+  /** Open the host block's own text editor. */
+  editAsText: () => void;
 }
 
 export const BlockEditContext = createContext<BlockEditApi | null>(null);

@@ -31,7 +31,7 @@ import { heightChanged, mayHaveShrunk } from "./textareaHeight";
 // iPadOS) as of this writing -- the fallback below exists for
 // older engines. jsdom has a `CSS` global but no `CSS.supports`, hence the
 // extra function check (a bare call would throw in every unit test).
-const supportsFieldSizing =
+export const supportsFieldSizing =
   typeof CSS !== "undefined" && typeof CSS.supports === "function" &&
   CSS.supports("field-sizing", "content");
 

@@ -228,6 +228,64 @@
       "formatted": ""
     },
     {
+      "body": "[[A | B]] | view: cards",
+      "head": "[[A | B]]",
+      "options": {
+        "view": "cards",
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": " | view: cards"
+    },
+    {
+      "body": "[[A | B]] | view: cards | sort: T asc",
+      "head": "[[A | B]]",
+      "options": {
+        "view": "cards",
+        "filter": null,
+        "sort": [
+          "T",
+          "asc"
+        ],
+        "columns": null
+      },
+      "formatted": " | view: cards | sort: T asc"
+    },
+    {
+      "body": "]] | view: cards",
+      "head": "]]",
+      "options": {
+        "view": "cards",
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": " | view: cards"
+    },
+    {
+      "body": "a ]] b | view: cards",
+      "head": "a ]] b",
+      "options": {
+        "view": "cards",
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": " | view: cards"
+    },
+    {
+      "body": "{and: [[A | B}} | view: cards",
+      "head": "{and: [[A | B}} | view: cards",
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": ""
+    },
+    {
       "body": "",
       "head": "",
       "options": {
@@ -237,6 +295,128 @@
         "columns": null
       },
       "formatted": ""
+    }
+  ],
+  "format_cases": [
+    {
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": ""
+    },
+    {
+      "options": {
+        "view": "table",
+        "filter": "-status:read",
+        "sort": [
+          "Published",
+          "desc"
+        ],
+        "columns": [
+          "Author",
+          "Status"
+        ]
+      },
+      "formatted": " | view: table | filter: -status:read | sort: Published desc | columns: Author, Status"
+    },
+    {
+      "options": {
+        "view": null,
+        "filter": "",
+        "sort": null,
+        "columns": null
+      },
+      "formatted": ""
+    },
+    {
+      "options": {
+        "view": null,
+        "filter": "   ",
+        "sort": null,
+        "columns": null
+      },
+      "formatted": ""
+    },
+    {
+      "options": {
+        "view": null,
+        "filter": "  padded  ",
+        "sort": null,
+        "columns": null
+      },
+      "formatted": " | filter: padded"
+    },
+    {
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": [
+          "",
+          "asc"
+        ],
+        "columns": null
+      },
+      "formatted": ""
+    },
+    {
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": [
+          "  A  ",
+          "desc"
+        ],
+        "columns": null
+      },
+      "formatted": " | sort: A desc"
+    },
+    {
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": null,
+        "columns": []
+      },
+      "formatted": ""
+    },
+    {
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": null,
+        "columns": [
+          "",
+          "  "
+        ]
+      },
+      "formatted": ""
+    },
+    {
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": null,
+        "columns": [
+          " a",
+          "",
+          "b "
+        ]
+      },
+      "formatted": " | columns: a, b"
+    },
+    {
+      "options": {
+        "view": "blocks",
+        "filter": null,
+        "sort": null,
+        "columns": [
+          "Reading Status"
+        ]
+      },
+      "formatted": " | view: blocks | columns: Reading Status"
     }
   ]
 }

@@ -1,7 +1,8 @@
 import pytest
+from hypothesis import assume, given, strategies as st
 from pkm.macro_options import (
-    MacroOptions, format_macro_options, options_refusal,
-    split_macro_options)
+    MacroOptions, format_macro_options, normalise_macro_options,
+    options_refusal, split_macro_options)
 
 
 def test_split_query_body():
@@ -100,3 +101,45 @@ def test_clean_options_have_no_refusal():
     assert options_refusal(MacroOptions(
         view="table", filter="-status:read", sort=("A B", "desc"),
         columns=("A", "B"))) is None
+
+
+def test_link_at_depth_zero_never_splits():
+    assert split_macro_options("[[A | B]] | view: cards") == (
+        "[[A | B]]", MacroOptions(view="cards"))
+
+
+def test_stray_close_brackets_do_not_unbalance_the_split():
+    assert split_macro_options("]] | view: cards") == (
+        "]]", MacroOptions(view="cards"))
+    assert split_macro_options("a ]] b | view: cards")[1].view == "cards"
+
+
+def test_unclosed_link_swallows_the_options():
+    assert split_macro_options("{and: [[A | B}} | view: cards") == (
+        "{and: [[A | B}} | view: cards", MacroOptions())
+
+
+def test_normalise_trims_and_drops_empties():
+    opts = MacroOptions(filter="  ", sort=(" ", "asc"), columns=(" ", ""))
+    assert normalise_macro_options(opts) == MacroOptions()
+    assert normalise_macro_options(MacroOptions(
+        filter=" f ", sort=(" S ", "desc"), columns=(" a", "", "b ")
+    )) == MacroOptions(filter="f", sort=("S", "desc"), columns=("a", "b"))
+
+
+_TEXT = st.text(alphabet=st.sampled_from(list("ab -:,\t#{}|[]")),
+                max_size=8)
+_OPTIONS = st.builds(
+    MacroOptions,
+    view=st.none() | st.sampled_from(["table", "cards", "blocks"]),
+    filter=st.none() | _TEXT,
+    sort=st.none() | st.tuples(_TEXT, st.sampled_from(["asc", "desc"])),
+    columns=st.none() | st.lists(_TEXT, max_size=4).map(tuple))
+
+
+@given(_OPTIONS)
+def test_accepted_options_round_trip_to_their_normal_form(opts):
+    assume(options_refusal(opts) is None)
+    head = "{and: [[A]]}"
+    assert split_macro_options(head + format_macro_options(opts)) == (
+        head, normalise_macro_options(opts))

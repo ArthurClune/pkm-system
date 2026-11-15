@@ -14,3 +14,10 @@ def test_committed_macro_options_fixture_is_current():
     assert FIXTURE.exists(), f"missing fixture: {FIXTURE}"
     assert json.loads(FIXTURE.read_text()) == fixture(), (
         "stale fixture: run `uv run python -m pkm.regen`")
+
+
+def test_the_fixture_pins_the_link_depth_rule_and_padded_formats():
+    data = json.loads(FIXTURE.read_text())
+    assert any(c["head"] == "[[A | B]]" for c in data["cases"])
+    assert any(c["formatted"] == "" and c["options"]["filter"] == "   "
+               for c in data["format_cases"])

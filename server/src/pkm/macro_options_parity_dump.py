@@ -34,8 +34,38 @@ BODIES = (
     "{and: [[A | B]]} | sort: Title asc",
     "{and: [[Book]]}|view: table",
     "{and: [[Book]]} | view: table |",
+    "[[A | B]] | view: cards",
+    "[[A | B]] | view: cards | sort: T asc",
+    "]] | view: cards",
+    "a ]] b | view: cards",
+    "{and: [[A | B}} | view: cards",
     "",
 )
+
+
+FORMAT_OPTIONS = (
+    MacroOptions(),
+    MacroOptions(view="table", filter="-status:read",
+                 sort=("Published", "desc"), columns=("Author", "Status")),
+    MacroOptions(filter=""),
+    MacroOptions(filter="   "),
+    MacroOptions(filter="  padded  "),
+    MacroOptions(sort=("", "asc")),
+    MacroOptions(sort=("  A  ", "desc")),
+    MacroOptions(columns=()),
+    MacroOptions(columns=("", "  ")),
+    MacroOptions(columns=(" a", "", "b ")),
+    MacroOptions(view="blocks", columns=("Reading Status",)),
+)
+
+
+def _options_json(opts: MacroOptions) -> dict[str, Any]:
+    return {
+        "view": opts.view,
+        "filter": opts.filter,
+        "sort": list(opts.sort) if opts.sort else None,
+        "columns": list(opts.columns) if opts.columns is not None else None,
+    }
 
 
 def _case(body: str) -> dict[str, Any]:
@@ -43,19 +73,19 @@ def _case(body: str) -> dict[str, Any]:
     return {
         "body": body,
         "head": head,
-        "options": {
-            "view": opts.view,
-            "filter": opts.filter,
-            "sort": list(opts.sort) if opts.sort else None,
-            "columns": list(opts.columns) if opts.columns is not None else None,
-        },
+        "options": _options_json(opts),
         "formatted": format_macro_options(opts),
     }
 
 
 def fixture() -> dict[str, list[dict[str, Any]]]:
     assert MacroOptions() == split_macro_options("x")[1]
-    return {"cases": [_case(b) for b in BODIES]}
+    return {
+        "cases": [_case(b) for b in BODIES],
+        "format_cases": [
+            {"options": _options_json(o), "formatted": format_macro_options(o)}
+            for o in FORMAT_OPTIONS],
+    }
 
 
 def main() -> int:

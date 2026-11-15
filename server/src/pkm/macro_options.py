@@ -88,7 +88,20 @@ def split_macro_options(body: str) -> tuple[str, MacroOptions]:
     return head.strip(), MacroOptions(view, filt, sort, columns)
 
 
+def normalise_macro_options(opts: MacroOptions) -> MacroOptions:
+    """What `opts` reads back as after a save: every value trimmed, empty
+    column names dropped, and a filter, sort or column list left with
+    nothing omitted."""
+    filt = opts.filter.strip() if opts.filter is not None else ""
+    sort = None
+    if opts.sort is not None and opts.sort[0].strip():
+        sort = (opts.sort[0].strip(), opts.sort[1])
+    names = tuple(c.strip() for c in opts.columns or () if c.strip())
+    return MacroOptions(opts.view, filt or None, sort, names or None)
+
+
 def format_macro_options(opts: MacroOptions) -> str:
+    opts = normalise_macro_options(opts)
     parts: list[str] = []
     if opts.view is not None:
         parts.append(f"view: {opts.view}")
@@ -103,7 +116,8 @@ def format_macro_options(opts: MacroOptions) -> str:
 
 def options_refusal(opts: MacroOptions) -> str | None:
     """Why `opts` cannot be saved into a macro, or None. Names the first
-    offending character so the message can say what to remove."""
+    offending character so the message can say what to remove. Padding and
+    empty values are not refused: `normalise_macro_options` absorbs them."""
     values: list[str] = []
     if opts.filter is not None:
         values.append(opts.filter)

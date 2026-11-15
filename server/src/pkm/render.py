@@ -209,7 +209,7 @@ def render_search(payload: SearchPayload, compact: bool = False) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_groups(payload: GroupsPayload, include_uids: bool = True) -> str:
+def render_groups(payload: GroupsPayload | QueryPayload, include_uids: bool = True) -> str:
     lines: list[str] = []
     for g in payload.groups:
         lines.append(f"## {g.page_title}")
@@ -270,7 +270,7 @@ def _bounded_list(head: Sequence[str],
     return build(shown, body)
 
 
-def render_groups_bounded(payload: GroupsPayload, max_chars: int,
+def render_groups_bounded(payload: GroupsPayload | QueryPayload, max_chars: int,
                           hint: str) -> str:
     """`render_groups` with uids when it fits `max_chars`, else the leading
     whole blocks, each clipped to its first line, under a partial-list

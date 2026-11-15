@@ -1,6 +1,6 @@
 # pattern: Imperative Shell
-"""Read the ancestor chains of a set of blocks: shared by every route that
-shows a block's parent line (page backlinks, query results)."""
+"""Read the ancestors of a set of blocks: whole chains for page backlinks,
+the direct parent alone for query results."""
 from __future__ import annotations
 
 from pkm.contracts.ops import BlockUid
@@ -35,3 +35,24 @@ def fetch_ancestors(db: Db, uids: list[BlockUid]) -> Ancestors:
                       FROM anc JOIN blocks b ON b.uid = anc.uid""", chunk):
             blocks[r["uid"]] = (r["parent_uid"], r["text"])
     return ancestors_of(starts, blocks)
+
+
+def fetch_parents(db: Db, uids: list[BlockUid]) -> Ancestors:
+    """Each uid's direct parent as a one-entry trail, and the parent's
+    text. One join per chunk and no tree walk: a query result shows its
+    parent line only, and whole trails made deep-chain pages cost
+    kilobytes per result."""
+    trails: dict[BlockUid, list[BlockUid]] = {}
+    texts: dict[BlockUid, str] = {}
+    for chunk in chunk_ids(list(dict.fromkeys(uids))):
+        marks = ",".join("?" * len(chunk))
+        for r in db.select(
+                f"""SELECT c.uid, p.uid AS parent_uid, p.text
+                      FROM blocks c JOIN blocks p ON p.uid = c.parent_uid
+                     WHERE c.uid IN ({marks})""", chunk):
+            parent = r["parent_uid"]
+            if parent is None:
+                continue
+            trails[r["uid"]] = [parent]
+            texts[parent] = r["text"]
+    return Ancestors(trails, texts)

@@ -261,3 +261,17 @@ def test_top_level_result_has_no_ancestor_fields(client):
     assert "ancestors" not in item
     assert "ancestor_texts" not in group
     assert "ancestor_uids" not in group
+
+
+def test_deeply_nested_result_carries_only_its_parent(client):
+    grand, parent = uid_of("qa_grand"), uid_of("qa_mid")
+    page = raw_title_of("Reading")
+    _create(client, grand, page, None, "Grandparent", 10)
+    _create(client, parent, page, grand, "Parent", 10)
+    _create(client, uid_of("qa_leaf"), page, parent, "Tags:: #Paper", 10)
+    body = client.get("/api/query", params={"expr": "{and: [[Paper]]}"}).json()
+    [group] = [g for g in body["groups"] if g["page_title"] == "Reading"]
+    [item] = group["items"]
+    assert item["ancestors"] == [0]
+    assert group["ancestor_texts"] == ["Parent"]
+    assert group["ancestor_uids"] == [parent]

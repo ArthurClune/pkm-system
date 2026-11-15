@@ -13,7 +13,7 @@ from pkm.contracts.responses import (
     SearchPageHit, SearchPayload, TitlesPayload)
 from pkm.contracts.int64 import Int64
 from pkm.database import Db
-from pkm.server.ancestors_db import fetch_ancestors
+from pkm.server.ancestors_db import fetch_parents
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.fts import escape_fts_query, like_escape
@@ -74,7 +74,7 @@ def run_query(expr: str, expand: bool = False,
         for title, operand in page_queries(node).items()
     }
     matches = execute_plan(db, sql, params)
-    ancestors = fetch_ancestors(db, [r["uid"] for r in matches.rows])
+    ancestors = fetch_parents(db, [r["uid"] for r in matches.rows])
     return QueryPayload(
         groups=group_query_results(matches.rows, ancestors), total=matches.total,
         ref_counts=ref_counts)

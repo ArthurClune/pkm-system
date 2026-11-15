@@ -3,8 +3,9 @@
 title: perf check crashes re-measuring a branch-new scenario at the merge base
 status: todo
 type: bug
+priority: normal
 created_at: 2026-11-15T18:18:18Z
-updated_at: 2026-11-15T18:18:18Z
+updated_at: 2026-11-15T22:02:08Z
 ---
 
 Symptom: `perf/check.sh backend` exits 2 with

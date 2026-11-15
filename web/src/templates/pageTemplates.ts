@@ -3,6 +3,7 @@
 // page whose title sits under a template's namespace. Each markdown file in
 // this directory is one template, named for its namespace (`Paper.md` for
 // `Paper/…` titles), with one `- text` line per top-level block.
+import type { CanonicalTitle } from "../api/brands";
 
 /** Namespace -> the block texts its template seeds, in order. */
 export type PageTemplates = ReadonlyMap<string, readonly string[]>;
@@ -43,7 +44,7 @@ export function templatesFromFiles(
 /** The texts of the blocks a fresh page starts with: its namespace's
  * template, else one empty block. Matching is exact and case-sensitive. */
 export function firstBlockTexts(
-  title: string, templates: PageTemplates,
+  title: CanonicalTitle, templates: PageTemplates,
 ): readonly string[] {
   const slash = title.indexOf("/");
   const texts = slash > 0 ? templates.get(title.slice(0, slash)) : undefined;

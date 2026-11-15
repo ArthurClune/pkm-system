@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { canonicalTitleOf } from "../test-mint";
 import { firstBlockTexts, parseTemplate,
          templatesFromFiles } from "./pageTemplates";
 import { PAGE_TEMPLATES } from "./load";
@@ -31,9 +32,9 @@ it.each([
   ["Paper/a/b", ["Tags:: #Paper", "URL:: "]],
   ["Papers/x", [""]], ["paper/x", [""]], ["Paperback", [""]],
   ["Paper", [""]], ["Page", [""]],
-])("picks the template for %j", (title, texts) => {
+])("picks the template for %j", (titleText, texts) => {
   const t = new Map([["Paper", ["Tags:: #Paper", "URL:: "]]]);
-  expect(firstBlockTexts(title, t)).toEqual(texts);
+  expect(firstBlockTexts(canonicalTitleOf(titleText), t)).toEqual(texts);
 });
 
 it("ships the Paper and Book templates as specified", () => {

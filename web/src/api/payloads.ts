@@ -22,6 +22,11 @@ export type BlockGroup = Schemas["BlockGroup"];
 export type QueryGroup = Schemas["QueryGroup"];
 export type GroupsPayload = Schemas["GroupsPayload"];
 
+export type QueryRecordsPayload = Schemas["QueryRecordsPayload"];
+export type QueryRecordModel = Schemas["QueryRecordModel"];
+export type RecordCell = Schemas["RecordCell"];
+export type KeyStat = Schemas["KeyStat"];
+
 export type JournalDay = Schemas["JournalDay"];
 export type JournalPayload = Schemas["JournalPayload"];
 

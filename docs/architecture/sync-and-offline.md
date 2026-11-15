@@ -374,6 +374,12 @@ edits elsewhere on a page survive a bump.
 | A repair or reset succeeds | always | `syncState.ts` |
 | The replica turns ready while disconnected | always, at the mode report, reading the socket status then | `syncState.ts` (`replica-state`) |
 
+A view's resync handler must clear the error its first read left. On an
+offline cold start that read can fail with `OfflineError` before the replica
+opens. The turned-ready bump is then the only later read: a first connect with
+nothing queued bumps nothing. An error that survives the bump hides cached data
+for the rest of the session.
+
 A skip bumps whatever the replica state, because a replica tombstone raises
 no resync (`noteCommitted` in `opQueue.ts`). Without the bump the ghost block
 stays on screen, and each flush into it lands another daily-note entry.

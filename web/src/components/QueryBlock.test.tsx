@@ -500,6 +500,26 @@ describe("column menu", () => {
     expect(within(menu).getByRole("menuitem", { name: "Hide column" }))
       .toBeDisabled();
   });
+
+  it("closes on Escape pressed inside it", async () => {
+    stubBooks();
+    renderBlock(`{{query: ${BOOK}}}`);
+    await openMenu("Author");
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("menu", { name: "Column actions" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("moves focus on ArrowDown pressed inside it", async () => {
+    stubBooks();
+    renderBlock(`{{query: ${BOOK}}}`);
+    const menu = await openMenu("Author");
+    const items = within(menu).getAllByRole("menuitem")
+      .filter((b) => !(b as HTMLButtonElement).disabled);
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(items[0]!, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(items[1]);
+  });
 });
 
 describe("saving the view", () => {

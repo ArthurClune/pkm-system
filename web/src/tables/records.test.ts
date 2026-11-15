@@ -7,7 +7,8 @@ import {
   canonicalTitleOf, orderIdxOf, pageIdOf, uidOf,
 } from "../test-helpers";
 import {
-  defaultColumns, planCellWrite, recordRow, similarKey, suggestions,
+  columnName, defaultColumns, planCellWrite, recordRow, similarKey,
+  suggestions,
 } from "./records";
 
 function cell(id: string, text: string, extra: Partial<RecordCell> = {}):
@@ -39,12 +40,25 @@ const u = (id: string) => uidOf(`block-${id}`);
 const mint = () => u("new1");
 
 describe("defaultColumns", () => {
-  it("keeps keys at least half the records hold, in payload order", () => {
+  it("keeps keys at least half the records hold, in page order", () => {
     const p: QueryRecordsPayload = {
-      records: [], total: 4,
-      keys: [stat("author", 4), stat("status", 2), stat("isbn", 1)],
+      records: [
+        record({ type: cell("t1", "Type:: Book"),
+                 isbn: cell("i1", "ISBN:: 1"),
+                 author: cell("a1", "Author:: X") }),
+        record({ author: cell("a2", "Author:: Y"),
+                 status: cell("s2", "Status:: Read") }),
+        record({ status: cell("s3", "Status:: Read"),
+                 author: cell("a3", "Author:: Z") }),
+        record({ author: cell("a4", "Author:: W") }),
+      ],
+      total: 4,
+      keys: [stat("author", 4), stat("status", 2), stat("type", 1),
+             stat("isbn", 1)],
     };
     expect(defaultColumns(p)).toEqual(["author", "status"]);
+    const lead = { ...p, total: 2 };
+    expect(defaultColumns(lead)).toEqual(["type", "isbn", "author", "status"]);
   });
 });
 
@@ -64,6 +78,21 @@ describe("recordRow", () => {
     });
     expect(recordRow(r, new Map())).toEqual({
       Result: "a line", Source: "Reading List",
+    });
+  });
+});
+
+describe("columnName", () => {
+  it("renames an attribute that would shadow a fixed field", () => {
+    expect(columnName("Source")).toBe("Source::");
+    expect(columnName("result")).toBe("result::");
+    expect(columnName("Sources")).toBe("Sources");
+  });
+
+  it("keeps the fixed fields over a same-named attribute", () => {
+    const r = record({ source: cell("c1", "Source:: Wikipedia") });
+    expect(recordRow(r, new Map([["source", "Source"]]))).toEqual({
+      Result: "Book", Source: "page", "Source::": "Wikipedia",
     });
   });
 });
@@ -109,6 +138,14 @@ describe("planCellWrite on an existing cell", () => {
     expect(planCellWrite(record({ status: c }), "status", "Reading Status",
                          "Read", mint)).toEqual([]);
   });
+
+  it.each(["Key::Read", "Key::  Read", "Key::\nRead"])(
+    "plans nothing when the shown value of %j is committed", (text) => {
+      const c = cell("c1", text);
+      expect(c.value).toBe("Read");
+      expect(planCellWrite(record({ key: c }), "key", "Key", "Read", mint))
+        .toEqual([]);
+    });
 
   it("never touches the key's later lines or children", () => {
     const c = cell("c1", "Tag:: a", {
@@ -174,6 +211,12 @@ describe("suggestions", () => {
     ]);
   });
 
+  it("still offers the canonical spelling of a case variant typed", () => {
+    expect(suggestions(records, "status", "read")).toEqual([
+      { value: "Read", count: 2 },
+    ]);
+  });
+
   it("leaves out the value typed exactly", () => {
     expect(suggestions(records, "status", "Read")).toEqual([]);
   });
@@ -199,11 +242,13 @@ describe("suggestions", () => {
     const tied = [
       record({ t: cell("a", "T:: Paper") }),
       record({ t: cell("b", "T:: Paper") }),
-      record({ t: cell("c", "T:: Book") }),
-      record({ t: cell("d", "T:: Book") }),
+      record({ t: cell("c", "T:: book") }),
+      record({ t: cell("d", "T:: book") }),
+      record({ t: cell("e", "T:: Zine") }),
+      record({ t: cell("f", "T:: Zine") }),
     ];
     expect(suggestions(tied, "t", "").map((s) => s.value))
-      .toEqual(["Book", "Paper"]);
+      .toEqual(["book", "Paper", "Zine"]);
   });
 });
 
@@ -216,20 +261,28 @@ describe("similarKey", () => {
   });
 
   it("finds a key sharing a stem with the label", () => {
-    expect(similarKey(typical, "Published")).toBe("Publication");
+    expect(similarKey(typical, "published", "Published")).toBe("Publication");
   });
 
   it("finds a key within two edits", () => {
     const r = record({ grey: cell("c", "Grey:: 50%") });
-    expect(similarKey(r, "Gray")).toBe("Grey");
+    expect(similarKey(r, "gray", "Gray")).toBe("Grey");
   });
 
   it("returns null when nothing is similar", () => {
-    expect(similarKey(typical, "Format")).toBeNull();
+    expect(similarKey(typical, "format", "Format")).toBeNull();
   });
 
   it("returns null when the record has the column", () => {
-    expect(similarKey(typical, "publication")).toBeNull();
+    expect(similarKey(typical, "publication", "Publication")).toBeNull();
+  });
+
+  it("warns on a key that differs from the column only in case", () => {
+    const r = record({
+      "Reading status": cell("s", "Reading status:: Read"),
+    });
+    expect(similarKey(r, "Reading Status", "Reading Status"))
+      .toBe("Reading status");
   });
 
   it("prefers the closest of several", () => {
@@ -237,6 +290,6 @@ describe("similarKey", () => {
       published: cell("a", "Publisher:: X"),
       publishedon: cell("b", "Published on:: 2020"),
     });
-    expect(similarKey(r, "Publishes")).toBe("Publisher");
+    expect(similarKey(r, "publishes", "Publishes")).toBe("Publisher");
   });
 });

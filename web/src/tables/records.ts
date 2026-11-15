@@ -8,8 +8,27 @@ import { FIRST_ORDER_IDX, orderIdxAfter } from "../outline/orderIdx";
 import { sha256Hex } from "../replica/sha256";
 import type { FilterRow } from "./filter";
 
+/** Keys at least half the records hold, in the order they first appear:
+ * records in payload order, and each one's `cells` in the server's order,
+ * which is the order of its lines on the page. */
 export function defaultColumns(p: QueryRecordsPayload): string[] {
-  return p.keys.filter((k) => k.count * 2 >= p.total).map((k) => k.key);
+  const shared = new Set(
+    p.keys.filter((k) => k.count * 2 >= p.total).map((k) => k.key as string));
+  const order: string[] = [];
+  for (const r of p.records) {
+    for (const key of Object.keys(r.cells)) {
+      if (shared.delete(key)) order.push(key);
+    }
+  }
+  return order;
+}
+
+const FIXED_COLUMNS = new Set(["result", "source"]);
+
+/** The FilterRow name of an attribute column: its label, unless that
+ * would shadow the fixed Result or Source field. */
+export function columnName(label: string): string {
+  return FIXED_COLUMNS.has(fold(label)) ? `${label}::` : label;
 }
 
 /** `labels` maps a column key to its header; Source reads `page` for a
@@ -24,7 +43,7 @@ export function recordRow(
   };
   for (const [key, label] of labels) {
     const cell = r.cells[key];
-    if (cell) row[label] = cell.value;
+    if (cell) row[columnName(label)] = cell.value;
   }
   return row;
 }
@@ -38,6 +57,10 @@ function startsAWord(value: string, typed: string): boolean {
   return false;
 }
 
+function byText(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { sensitivity: "base" });
+}
+
 function isCapitalised(s: string): boolean {
   const first = s[0] ?? "";
   return first !== first.toLowerCase();
@@ -48,7 +71,7 @@ function isCapitalised(s: string): boolean {
 function displaySpelling(spellings: Map<string, number>): string {
   return [...spellings].sort(([a, na], [b, nb]) =>
     Number(isCapitalised(b)) - Number(isCapitalised(a)) || nb - na ||
-    (a < b ? -1 : a > b ? 1 : 0))[0]![0];
+    byText(a, b))[0]![0];
 }
 
 export function suggestions(
@@ -73,8 +96,7 @@ export function suggestions(
   const want = typed.trim().toLowerCase();
   return merged
     .filter((m) => m.value !== typed.trim() && startsAWord(m.value, want))
-    .sort((a, b) => b.count - a.count ||
-      (a.value < b.value ? -1 : a.value > b.value ? 1 : 0));
+    .sort((a, b) => b.count - a.count || byText(a.value, b.value));
 }
 
 function fold(s: string): string {
@@ -102,16 +124,17 @@ function levenshtein(a: string, b: string): number {
 
 /** The raw spelling of a key on `r` that looks like a misspelt `label`
  * (a shared prefix of four or more, or two edits apart when both have four
- * or more letters), so the editor can warn before writing a second key.
- * Null when `r` already holds the label's column. */
-export function similarKey(r: QueryRecordModel, label: string): string | null {
+ * or more letters, ignoring case), so the editor can warn before writing a
+ * second key. Null when `r` holds column `key`. Columns are case-sensitive
+ * page titles, so `Reading status::` is another column from `Reading
+ * Status`, and the closest match of all. */
+export function similarKey(
+  r: QueryRecordModel, key: string, label: string,
+): string | null {
+  if (Object.hasOwn(r.cells, key)) return null;
   const want = fold(label);
-  const cells = Object.entries(r.cells);
-  if (cells.some(([key, c]) => fold(key) === want || fold(c.key_raw) === want)) {
-    return null;
-  }
   let best: { raw: string; distance: number; prefix: number } | null = null;
-  for (const [, c] of cells) {
+  for (const c of Object.values(r.cells)) {
     const have = fold(c.key_raw);
     const prefix = sharedPrefix(have, want);
     const distance = levenshtein(have, want);
@@ -128,6 +151,7 @@ export function similarKey(r: QueryRecordModel, label: string): string | null {
 function writeExisting(
   r: QueryRecordModel, cell: RecordCell, value: string,
 ): BlockOp[] {
+  if (value === cell.value) return [];
   const head = cell.text.slice(0, cell.value_start);
   const text = value.trim() === "" ? head : `${head} ${value}`;
   if (text === cell.text) return [];

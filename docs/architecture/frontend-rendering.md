@@ -89,8 +89,11 @@ while the row is unfocused.
 `TodoCheckbox`, a query's cell editor and its "Save this view" act on the host
 block through `BlockEditContext`. Only an editable row provides it, so a
 backlink, a sidebar panel or a read-only outline renders them inert.
-`QueryResults` provides null beneath itself: its results are other blocks'
-text, and a TODO or nested query in them must never act on the host. Save
+`QueryResults` and `BlockRef` provide null beneath themselves: what they
+render is other blocks' text, and a TODO or query in it must never act on
+the host. Losing edit access (a connection blip) never closes an open cell:
+`DataTable`'s `canEdit` gates opening only, and a commit the reader then
+makes still goes to the durable queue with its `base_text_hash`. Save
 finds its macro again in `BlockEditApi.text` (`planQuerySave`), because the
 tokenizer's `span` is relative to the text it was given, which a `> ` quote
 prefix or a block ref makes a different text.

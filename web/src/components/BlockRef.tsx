@@ -6,7 +6,8 @@
 import { useContext, useEffect } from "react";
 import { useNavigate } from "react-router";
 import type { BlockUid } from "../api/brands";
-import { BlockRefRequestContext, SidebarContext } from "../contexts";
+import { BlockEditContext, BlockRefRequestContext,
+         SidebarContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { pagePath } from "../paths";
 import { InlineSegments } from "./InlineSegments";
@@ -52,7 +53,10 @@ export function BlockRef({ uid, depth }: { uid: BlockUid; depth: number }) {
               go(e);
             }
           }}>
-      <InlineSegments segments={tokenizeBlock(resolved.text)} depth={depth + 1} />
+      {/* Another block's text: its TODOs and queries never act on the host. */}
+      <BlockEditContext.Provider value={null}>
+        <InlineSegments segments={tokenizeBlock(resolved.text)} depth={depth + 1} />
+      </BlockEditContext.Provider>
     </span>
   );
 }

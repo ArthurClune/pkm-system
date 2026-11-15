@@ -144,7 +144,21 @@ export function inverseCellWrite(r: QueryRecordModel, key: string,
 const valueOf = (text: string, start: number): string =>
   text.slice(start).replace(/^\s+/, "");
 
-/** `r` as `ops` (a cell write or its inverse) leave it. A line created
+/** `cur` with column `key` and the insert slot as they were in `before`, the
+ * record captured before a write: what an undo or a failed write shows.
+ * Other cells keep what has happened to them since. */
+export function restoreCell(cur: QueryRecordModel, before: QueryRecordModel,
+                            key: string): QueryRecordModel {
+  const cells = { ...cur.cells };
+  const was = before.cells[key];
+  if (was === undefined) delete cells[key];
+  else cells[key] = was;
+  return { ...cur, cells,
+           insert_before_order_idx: before.insert_before_order_idx,
+           last_attr_order_idx: before.last_attr_order_idx };
+}
+
+/** `r` as a cell write's `ops` leave it. A line created
  * where the server said to insert takes that slot and shifts the sibling
  * there down one, so the next insert goes one further. */
 export function patchRecord(r: QueryRecordModel, key: string,
@@ -169,9 +183,6 @@ export function patchRecord(r: QueryRecordModel, key: string,
           ? { insert_before_order_idx: orderIdxAfter(next.insert_before_order_idx) }
           : { last_attr_order_idx: op.order_idx }),
       };
-    } else if (op.op === "delete") {
-      next = { ...next, cells: Object.fromEntries(
-        Object.entries(next.cells).filter(([, c]) => c.uid !== op.uid)) };
     }
   }
   return next;

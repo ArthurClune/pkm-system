@@ -24,6 +24,7 @@ import { QueryCards } from "../tables/QueryCards";
 import { QueryTable } from "../tables/QueryTable";
 import { planQuerySave, queryColumns, queryDefaults, shownRows,
          type QueryColumn } from "../tables/queryView";
+import { island } from "../tables/island";
 import { TableToolbar } from "../tables/TableToolbar";
 import { useCellWrites } from "../tables/useCellWrites";
 import { initialView, isDirty, optionsFromView, stepView,
@@ -32,6 +33,10 @@ import { initialView, isDirty, optionsFromView, stepView,
 import { WriteNotice } from "../tables/WriteNotice";
 import { MISSING_ANCESTOR_TEXT } from "./groups";
 import { PageLink } from "./PageLink";
+
+// query blocks are online-only
+const errorText = (e: unknown): string =>
+  e instanceof OfflineError ? "query unavailable offline" : String(e);
 
 const VIEWS: { view: MacroView; label: string }[] = [
   { view: "blocks", label: "Blocks" },
@@ -59,6 +64,7 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
   const [records, setRecords] = useState<QueryRecordModel[]>([]);
   const [groups, setGroups] = useState<QueryGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [groupsError, setGroupsError] = useState<string | null>(null);
   const [view, setView] = useState<ViewState | null>(null);
   const [saveRefusal, setSaveRefusal] =
     useState<{ live: ViewState["live"]; text: string } | null>(null);
@@ -72,9 +78,6 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
   const groupsGuard = useStaleGuard();
   const groupsFor = useRef<string | null>(null);
 
-  const failed = (e: unknown) => setError(
-    // query blocks are online-only
-    e instanceof OfflineError ? "query unavailable offline" : String(e));
 
   useEffect(() => {
     const token = recordsGuard.begin();
@@ -86,7 +89,7 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
         setLoaded({ keys: p.keys, total: p.total, defaults: queryDefaults(p) });
         setError(null);
       } catch (e: unknown) {
-        if (!recordsGuard.isStale(token)) failed(e);
+        if (!recordsGuard.isStale(token)) setError(errorText(e));
       }
     })();
   }, [expr, generation, recordsGuard]);
@@ -111,8 +114,9 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
         if (groupsGuard.isStale(token)) return;
         groupsFor.current = want;
         setGroups(p.groups);
+        setGroupsError(null);
       } catch (e: unknown) {
-        if (!groupsGuard.isStale(token)) failed(e);
+        if (!groupsGuard.isStale(token)) setGroupsError(errorText(e));
       }
     })();
   }, [showsBlocks, expr, generation, groupsGuard]);
@@ -129,14 +133,11 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
     <div className="query-header">
       <span className="query-expr">query: {expr}</span>
       {view !== null && (
-        <span className="query-views" role="group" aria-label="View">
+        <span className="query-views" role="group" aria-label="View" {...island}>
           {VIEWS.map(({ view: v, label }) => (
             <button key={v} type="button" aria-pressed={view.live.view === v}
                     className="btn-secondary btn-compact"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      step({ kind: "view", view: v });
-                    }}>{label}</button>
+                    onClick={() => step({ kind: "view", view: v })}>{label}</button>
           ))}
         </span>
       )}
@@ -171,14 +172,17 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
   };
 
   const onWrite = (r: QueryRecordModel, c: QueryColumn, value: string) => {
-    step({ kind: "edited", visibleIds: rows.map((row) => row.record.key) });
-    writes.write(r, c, value);
+    if (writes.write(r, c, value)) {
+      step({ kind: "edited", visibleIds: rows.map((row) => row.record.key) });
+    }
   };
 
   return (
     <div className="query-block">
       {header}
       {error && <p className="error">{error}</p>}
+      {groupsError && live.view === "blocks"
+        && <p className="error">{groupsError}</p>}
       <TableToolbar filter={live.filter}
                     onFilter={(text) => step({ kind: "filter", text })}
                     count={`${matching} of ${loaded.total} results`}

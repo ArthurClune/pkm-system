@@ -5,7 +5,7 @@ status: completed
 type: task
 priority: normal
 created_at: 2026-11-15T16:08:09Z
-updated_at: 2026-11-15T19:40:06Z
+updated_at: 2026-11-15T19:57:28Z
 parent: pkm-l79g
 ---
 
@@ -25,3 +25,19 @@ A {{query}} block now shows its records as a table (the default when any record 
 Cmd-Z is not wired. pkm-nny4 says why: undoManager navigates to the record's page, and the notice's Undo cannot take its history entry off the stack.
 
 Rules are in docs/architecture/frontend-rendering.md § Segment dispatch and § Lazy renderers and their caches.
+
+
+## Fix round 1
+
+- **Symptom:** a socket blip, or the "connecting" state on an iPad wake, closed an open query cell and queued its half-typed draft.
+  - **Cause:** DataTable committed an open cell when `canEdit` dropped.
+  - **Now:** `canEdit` gates opening a cell only. An open cell keeps its draft, and the reader's own commit still queues.
+- Writes now patch the record at enqueue time, and a failed persist reverts it.
+- Undo, and a failed write, restore the cell and its insert slot as they were before the write (`restoreCell`).
+- A `((ref))`'s content gets a null `BlockEditContext`.
+- Write notices name the key as the page spells it.
+- Rows freeze only once a write has been sent.
+- A blocks-view fetch error clears on the next success.
+- The e2e cleanup deletes the query block first and checks each delete. Before this, the tag page leaked, because the server refuses (409) to delete a page that a query macro names.
+
+Rules are in docs/architecture/frontend-rendering.md § Segment dispatch.

@@ -137,6 +137,29 @@ describe("DataTable editing", () => {
     expect(onWrite).toHaveBeenCalledWith(ROWS[0], COLUMNS[1], "Unread");
   });
 
+  it("losing canEdit keeps an open cell and its draft, and it still commits", () => {
+    const { onWrite, rerender } = mount();
+    fireEvent.click(cell(0, "status"));
+    fireEvent.change(editor(), { target: { value: "Unr" } });
+    const props = {
+      columns: COLUMNS, rows: ROWS, rowId: (r: Row) => r.id,
+      renderCell: (r: Row, c: Column) => r[c.key as keyof Row],
+      rawValue: (r: Row, c: Column) => r[c.key as keyof Row],
+      sort: null, onSortClick: vi.fn(), onWrite,
+    };
+    rerender(<DataTable {...props} canEdit={false} />);
+    expect(editor().value).toBe("Unr");
+    expect(onWrite).not.toHaveBeenCalled();
+    fireEvent.click(cell(1, "status"));
+    expect(editor().value).toBe("Unr");
+    fireEvent.change(editor(), { target: { value: "Unread" } });
+    fireEvent.keyDown(editor(), { key: "Enter" });
+    expect(onWrite).toHaveBeenCalledTimes(1);
+    expect(onWrite).toHaveBeenCalledWith(ROWS[0], COLUMNS[1], "Unread");
+    fireEvent.click(cell(0, "status"));
+    expect(editor()).toBeNull();
+  });
+
   it("a mousedown in the open cell's own padding keeps it open", () => {
     const { onWrite } = mount();
     fireEvent.click(cell(0, "status"));

@@ -1,6 +1,11 @@
 // A {{query}} block shows its records as a table whose cells write back to
 // the record's page, and "Save this view" keeps the filter in the macro's
 // own text across a reload.
+//
+// The seeded `::` lines also make the attribute pages Type, Author and
+// Reading Status. They stay in the shared DB by design: other runs and
+// specs use the same fixed names, so they never pile up, and deleting one
+// another spec's lines still use would be refused.
 import type { Locator } from "@playwright/test";
 import type { RawTitle } from "../src/api/brands";
 import { rawTitleOf } from "../src/test-mint";
@@ -8,10 +13,21 @@ import { expect, test } from "./ownPage";
 import { waitForServerText } from "./server-state";
 
 const seeded: RawTitle[] = [];
+// The server refuses to delete a page a query macro names, so the query
+// block goes before the tag page does.
+const queryBlocks: string[] = [];
 
 test.afterEach(async ({ page }) => {
+  for (const uid of queryBlocks.splice(0)) {
+    const ops = await page.request.post("/api/ops", { data: {
+      client_id: "e2e-query-table", batch_id: `e2e-query-table-rm-${uid}`,
+      ops: [{ op: "delete", uid }],
+    } });
+    expect(ops.ok(), `delete block ${uid}: ${ops.status()}`).toBeTruthy();
+  }
   for (const title of seeded.splice(0)) {
-    await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
+    const gone = await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
+    expect(gone.ok(), `delete ${title}: ${gone.status()}`).toBeTruthy();
   }
 });
 
@@ -37,6 +53,8 @@ test("a query table writes a cell to its page, and Save keeps the filter",
   // The tag page comes into being with the first ref to it.
   seeded.push(rawTitleOf(tag));
   const expr = `{and: [[${tag}]]}`;
+  const queryUid = `e2eqt${stamp}q`;
+  queryBlocks.push(queryUid);
   const lines = (title: RawTitle, author: string, n: number) =>
     [`Type:: [[${tag}]]`, `Author:: ${author}`, "Reading Status:: Unread"]
       .map((text, i) => ({
@@ -48,7 +66,7 @@ test("a query table writes a cell to its page, and Save keeps the filter",
     batch_id: `e2e-query-table-${stamp}`,
     ops: [
       ...lines(alpha, "Xavier", 1), ...lines(beta, "Yolanda", 2),
-      { op: "create", uid: `e2eqt${stamp}q`, page_title: ownPage.title,
+      { op: "create", uid: queryUid, page_title: ownPage.title,
         parent_uid: null, order_idx: 0, text: `{{query: ${expr}}}` },
     ],
   } });

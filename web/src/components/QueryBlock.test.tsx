@@ -268,7 +268,7 @@ const ALPHA_BOOK = bookRecord("p:alpha", "Book/Alpha", {
   Published: bookCell("apub01", "Published:: 2020"),
 });
 const BETA_BOOK = bookRecord("p:beta", "Book/Beta", {
-  Author: bookCell("bauthor1", "Author:: Yolanda", { child_count: 3 }),
+  Author: bookCell("bauthor1", "author:: Yolanda", { child_count: 3 }),
   Publication: bookCell("bpub01", "Publication:: 2017"),
 });
 const stat = (name: string, count: number): KeyStat =>
@@ -295,16 +295,17 @@ function editApi(text: string): BlockEditApi {
 
 /** The query as a block's text renders it, inside an editable block unless
  * `edit` is null. */
+function Probe() {
+  const l = useLocation();
+  return <div data-testid="loc">{l.pathname + l.hash}</div>;
+}
+
 function renderBlock(text: string,
                      { edit = editApi(text), sync = makeSync(), onHostClick }:
     { edit?: BlockEditApi | null; sync?: SyncFake;
       onHostClick?: () => void } = {}) {
-  function Probe() {
-    const l = useLocation();
-    return <div data-testid="loc">{l.pathname + l.hash}</div>;
-  }
-  const view = render(
-    <SyncContext.Provider value={sync}>
+  const tree = (s: SyncFake) => (
+    <SyncContext.Provider value={s}>
       <MemoryRouter>
         <BlockEditContext.Provider value={edit}>
           <div onClick={onHostClick}>
@@ -314,7 +315,11 @@ function renderBlock(text: string,
         <Probe />
       </MemoryRouter>
     </SyncContext.Provider>);
-  return { ...view, edit, sync };
+  const view = render(tree(sync));
+  /** The same block under another sync status, as a connection change
+   * re-renders it. */
+  const setSync = (next: SyncFake) => view.rerender(tree(next));
+  return { ...view, edit, sync, setSync };
 }
 
 function headerIndex(label: string): number {
@@ -398,6 +403,22 @@ describe("query views", () => {
     expect(editor()).toBeNull();
     expect(host).not.toHaveBeenCalled();
     expect(screen.getByText("1 of 2 results")).toBeInTheDocument();
+  });
+
+  it("clears a failed blocks fetch once one succeeds", async () => {
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith(recordsUrl(BOOK_ENC))) return Promise.resolve(jsonResponse(BOOKS));
+      calls += 1;
+      return Promise.resolve(calls === 1 ? jsonResponse({ detail: "boom" }, 500)
+        : jsonResponse({ groups: BOOK_GROUPS, total: 2 }));
+    }));
+    const { setSync } = renderBlock(`{{query: ${BOOK} | view: blocks}}`);
+    expect(await screen.findByText(/500/)).toBeInTheDocument();
+    setSync(makeSync("connected", { resyncGeneration: 1 }));
+    expect(await screen.findByText("Book/Beta")).toBeInTheDocument();
+    expect(screen.queryByText(/500/)).toBeNull();
   });
 
   it("filters the blocks view through each result's record", async () => {
@@ -597,6 +618,9 @@ describe("cell writes", () => {
       base_subtree_hash: subtreeHash([[
         create.op === "create" ? create.uid : "", "Reading Status:: Read"]]),
     }]);
+    expect(cellOf("Book/Beta", "Reading Status")).toHaveTextContent(/^$/);
+    await write("Book/Beta", "Reading Status", "Unread");
+    expect(sync.sent[2]![0]).toMatchObject({ op: "create", order_idx: 3 });
   });
 
   it("warns before writing a column the record spells otherwise", async () => {
@@ -638,6 +662,67 @@ describe("cell writes", () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     expect(screen.getByText(/Reading Status:: Read written to Book\/Beta/))
       .toBeInTheDocument();
+  });
+
+  it("a connection blip keeps an open cell, and its commit still queues", async () => {
+    stubBooks();
+    const sync = makeSync();
+    const { setSync } = renderBlock(`{{query: ${BOOK}}}`, { sync });
+    await screen.findByRole("table");
+    fireEvent.click(cellOf("Book/Alpha", "Reading Status"));
+    fireEvent.change(editor(), { target: { value: "Unr" } });
+    const offline = makeSync("reconnecting");
+    offline.enqueue = sync.enqueue;
+    setSync(offline);
+    expect(editor().value).toBe("Unr");
+    expect(sync.sent).toEqual([]);
+    fireEvent.change(editor(), { target: { value: "Unread" } });
+    fireEvent.keyDown(editor(), { key: "Enter" });
+    await act(async () => { await Promise.resolve(); });
+    expect(sync.sent).toEqual([[expect.objectContaining({
+      op: "update_text", text: "Reading Status:: Unread" })]]);
+    fireEvent.click(cellOf("Book/Beta", "Reading Status"));
+    expect(editor()).toBeNull();
+  });
+
+  it("shows a write from its enqueue, so a re-edit builds on it", async () => {
+    stubBooks();
+    const sync = makeSync();
+    const enqueue = sync.enqueue;
+    sync.enqueue = (ops, scope) => ({ ...enqueue(ops, scope),
+                                      settled: new Promise(() => {}) });
+    renderBlock(`{{query: ${BOOK}}}`, { sync });
+    await screen.findByRole("table");
+    await write("Book/Alpha", "Reading Status", "Unread");
+    expect(cellOf("Book/Alpha", "Reading Status")).toHaveTextContent("Unread");
+    await write("Book/Alpha", "Reading Status", "Read again");
+    expect(sync.sent[1]).toEqual([expect.objectContaining({
+      base_text_hash: sha256Hex("Reading Status:: Unread") })]);
+    await write("Book/Beta", "Reading Status", "Read");
+    await write("Book/Beta", "Reading Status", "Unread");
+    expect(sync.sent[3]![0]!.op).toBe("update_text");
+  });
+
+  it("names the key as the page spells it", async () => {
+    stubBooks();
+    renderBlock(`{{query: ${BOOK}}}`);
+    await screen.findByRole("table");
+    await write("Book/Beta", "Author", "Zed");
+    expect(screen.getByText("author:: Zed written to Book/Beta")).toBeInTheDocument();
+  });
+
+  it("a refused write holds no rows in place", async () => {
+    stubBooks();
+    const sync = makeSync();
+    const { setSync } = renderBlock(`{{query: ${BOOK}}}`, { sync });
+    await screen.findByRole("table");
+    await write("Book/Alpha", "Reading Status", "x".repeat(MAX_BLOCK_TEXT_CHARS));
+    const gamma = bookRecord("p:gamma", "Book/Gamma", {});
+    stubBooks({ ...BOOKS, records: [ALPHA_BOOK, BETA_BOOK, gamma], total: 3 });
+    const later = makeSync("connected", { resyncGeneration: 1 });
+    later.enqueue = sync.enqueue;
+    setSync(later);
+    expect(await screen.findByText("Book/Gamma")).toBeInTheDocument();
   });
 
   it("names a write the queue refuses, and sends nothing", async () => {

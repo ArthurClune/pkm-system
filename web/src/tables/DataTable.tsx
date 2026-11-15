@@ -28,6 +28,9 @@ export interface DataTableProps<R> {
   sort: ViewFields["sort"];
   onSortClick: (col: string) => void;
   staleIds?: ReadonlySet<string>;
+  /** Whether a cell may open. Losing it never closes or commits an open
+   * cell: a connection blip must not write a half-typed draft, and a
+   * commit the reader then makes still goes to onWrite. */
   canEdit: boolean;
   onWrite: (r: R, c: Column, value: string) => void;
   /** Shown with the open editor: a warning before the write. */
@@ -98,13 +101,13 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
     }
   };
 
-  // An open cell that stops rendering (a refetch dropped its row, its column
-  // went, editing was switched off) commits, as a click elsewhere does.
+  // An open cell that stops rendering (a refetch dropped its row, or its
+  // column went) commits, as a click elsewhere does.
   useEffect(() => {
     const cur = editorRef.current;
     if (cur.kind !== "editing") return;
     const c = byKey.get(cur.cell.col);
-    if (!byId.has(cur.cell.row) || c === undefined || !editable(c)) {
+    if (!byId.has(cur.cell.row) || c === undefined || !c.editable) {
       dispatch({ kind: "outside" });
     }
   });
@@ -186,7 +189,7 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
                     <td key={c.key} className={classes || undefined}
                         onClick={editable(c) ? (e) => onCellClick(e, r, c)
                           : undefined}>
-                      {editable(c) && isOpen(id, c) && editor.kind === "editing"
+                      {c.editable && isOpen(id, c) && editor.kind === "editing"
                         ? <CellTextarea
                             key={`${id}\u0000${c.key}`}
                             label={c.label} draft={editor.draft}

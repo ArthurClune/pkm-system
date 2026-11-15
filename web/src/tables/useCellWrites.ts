@@ -1,8 +1,8 @@
 // pattern: Imperative Shell
 // A query table's cell writes: each goes through the op queue scoped to the
-// record's page, shows at once in an open copy of that page, patches the
-// record once the queue has it, and leaves a notice whose Undo sends the
-// inverse captured when the write was made.
+// record's page, shows at once in the record and in an open copy of that
+// page, and leaves a notice whose Undo sends the inverse captured when the
+// write was made.
 //
 // A press on a notice's Undo commits an open cell first (the editor's
 // capture mousedown), which makes a new write and a new notice. Swapping the
@@ -21,7 +21,7 @@ import type { WriteTicket } from "../sync/opQueue";
 import { useSyncActions } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import {
-  inverseCellWrite, patchRecord, writeMessage, type QueryColumn,
+  inverseCellWrite, patchRecord, restoreCell, writeMessage, type QueryColumn,
 } from "./queryView";
 import { planCellWrite } from "./records";
 
@@ -31,8 +31,8 @@ export interface CellNotice {
   undo?: () => void;
 }
 
-type Patch = (recordKey: string,
-              fn: (r: QueryRecordModel) => QueryRecordModel) => void;
+type Fix = (r: QueryRecordModel) => QueryRecordModel;
+type Patch = (recordKey: string, fn: Fix) => void;
 
 export function useCellWrites(patch: Patch) {
   const sync = useSyncActions();
@@ -70,8 +70,11 @@ export function useCellWrites(patch: Patch) {
     else setNotice(n);
   }, []);
 
-  const send = useCallback((r: QueryRecordModel, key: string,
-                            ops: BlockOp[]): boolean => {
+  // `shown` is the record as the sent ops leave it, shown from the enqueue
+  // on, so a re-edit plans against the new text; `unsent` replaces it if
+  // the queue fails to persist them.
+  const send = useCallback((r: QueryRecordModel, ops: BlockOp[],
+                            shown: Fix, unsent: Fix): boolean => {
     for (const op of ops) {
       if (op.op !== "update_text" && op.op !== "create") continue;
       const over = textLimitViolation(op.text);
@@ -95,31 +98,37 @@ export function useCellWrites(patch: Patch) {
         handle.release();
       }
     }
+    patch(r.key, shown);
     void ticket.settled.then((outcome) => {
-      if (outcome.status === "persisted") {
-        patch(r.key, (cur) => patchRecord(cur, key, ops));
-      } else {
-        show({ id: ++ids.current,
-               message: `The write to ${r.page_title} failed: ${String(outcome.error)}` });
-      }
+      if (outcome.status === "persisted") return;
+      patch(r.key, unsent);
+      show({ id: ++ids.current,
+             message: `The write to ${r.page_title} failed: ${String(outcome.error)}` });
     });
     return true;
   }, [sync, patch, show]);
 
+  /** False when nothing was sent: no change, or a refused write. */
   const write = useCallback((r: QueryRecordModel, column: QueryColumn,
-                             value: string) => {
-    const ops = planCellWrite(r, column.key, column.label, value, newUid);
-    if (ops.length === 0) return;
-    const inverse = inverseCellWrite(r, column.key, ops);
-    if (!send(r, column.key, ops)) return;
+                             value: string): boolean => {
+    const { key } = column;
+    const ops = planCellWrite(r, key, column.label, value, newUid);
+    if (ops.length === 0) return false;
+    const inverse = inverseCellWrite(r, key, ops);
+    const written: Fix = (cur) => patchRecord(cur, key, ops);
+    const undone: Fix = (cur) => restoreCell(cur, r, key);
+    if (!send(r, ops, written, undone)) return false;
     const id = ++ids.current;
     show({
-      id, message: writeMessage(column.label, value, r.page_title),
+      id,
+      message: writeMessage(r.cells[key]?.key_raw ?? column.label, value,
+                            r.page_title),
       undo: () => {
         setNotice((cur) => (cur?.id === id ? null : cur));
-        send(r, column.key, inverse);
+        send(r, inverse, undone, written);
       },
     });
+    return true;
   }, [send, show]);
 
   const dismiss = useCallback(() => setNotice(null), []);

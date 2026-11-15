@@ -1,7 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { expect, test, vi } from "vitest";
-import { block, makeSync, orderIdxOf, stubFetch, uidOf } from "../test-helpers";
+import {
+  block, canonicalTitleOf, makeSync, orderIdxOf, stubFetch, uidOf,
+} from "../test-helpers";
+import { BlockRefContext } from "../contexts";
 import { SyncContext } from "../sync/SyncProvider";
 import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
@@ -1063,5 +1066,29 @@ test("a query's Save rewrites its block's own text, quote prefix and all", async
   expect(h.onFocusBlock).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Edit as text" }));
   expect(h.onFocusBlock).toHaveBeenCalledWith("tuid-q1", text.length);
+  vi.unstubAllGlobals();
+});
+
+test("a TODO or query inside a block ref cannot act on the host block", async () => {
+  const expr = "{and: [[Book]]}";
+  stubFetch([[`/api/query/records?${new URLSearchParams({ expr })}`, {
+    records: [], keys: [], total: 0 }]]);
+  const h = handlers();
+  render(
+    <SyncContext.Provider value={makeSync()}>
+      <MemoryRouter>
+        <BlockRefContext.Provider value={{
+          ref_aa1: { text: `{{[[TODO]]}} task {{query: ${expr}}}`,
+                     page_title: canonicalTitleOf("Elsewhere") } }}>
+          <EditableBlockTree blocks={[block("tuid-h1", "see ((ref_aa1))")]}
+                             focus={null} handlers={h} readOnly={false} />
+        </BlockRefContext.Provider>
+      </MemoryRouter>
+    </SyncContext.Provider>);
+  expect(screen.getByRole("checkbox", { name: "TODO" })).toBeDisabled();
+  fireEvent.change(await screen.findByRole("searchbox", { name: "Filter" }),
+                   { target: { value: "kind" } });
+  expect(screen.queryByRole("button", { name: "Save this view" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Edit as text" })).toBeNull();
   vi.unstubAllGlobals();
 });

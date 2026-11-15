@@ -10,7 +10,7 @@ import {
 } from "../test-helpers";
 import {
   inverseCellWrite, patchRecord, planQuerySave, queryColumns, queryDefaults,
-  shownRows, writeMessage,
+  restoreCell, shownRows, writeMessage,
 } from "./queryView";
 import type { ViewFields } from "./viewState";
 
@@ -218,9 +218,22 @@ describe("cell write bookkeeping", () => {
     expect(tail.last_attr_order_idx).toBe(0);
   });
 
-  it("patches a deleted cell out", () => {
-    const next = patchRecord(A, "Reading Status", [{ op: "delete", uid: u("s1") }]);
-    expect(Object.keys(next.cells)).toEqual(["Author"]);
+  it("restores one cell and the insert slot from before a write", () => {
+    const before = record("p:c", "C", { Author: cell("ca", "Author:: Z") },
+                          { insert_before_order_idx: orderIdxOf(4) });
+    const created = patchRecord(before, "Format", [{
+      op: "create", uid: u("n4"), page_title: canonicalTitleOf("C"),
+      parent_uid: null, order_idx: orderIdxOf(4), text: "Format:: Kindle",
+    }]);
+    const meanwhile = patchRecord(created, "Author", [{
+      op: "update_text", uid: u("ca"), text: "Author:: Y" }]);
+    const back = restoreCell(meanwhile, before, "Format");
+    expect(Object.keys(back.cells)).toEqual(["Author"]);
+    expect(back.cells.Author!.value).toBe("Y");
+    expect(back.insert_before_order_idx).toBe(4);
+    expect(restoreCell(patchRecord(A, "Reading Status", [{
+      op: "update_text", uid: u("s1"), text: "Reading Status:: x" }]),
+      A, "Reading Status")).toEqual(A);
   });
 
   it("names the key, value and page", () => {

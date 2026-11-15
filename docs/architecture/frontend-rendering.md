@@ -86,10 +86,19 @@ resolves two block-level shapes before this dispatch, `{{toc}}` (`TocBlock`,
 `tocEntries.ts`, `isTocMacro`) and a table macro (`roamTableRows`), both only
 while the row is unfocused.
 
+`TodoCheckbox`, a query's cell editor and its "Save this view" act on the host
+block through `BlockEditContext`. Only an editable row provides it, so a
+backlink, a sidebar panel or a read-only outline renders them inert.
+`QueryResults` provides null beneath itself: its results are other blocks'
+text, and a TODO or nested query in them must never act on the host. Save
+finds its macro again in `BlockEditApi.text` (`planQuerySave`), because the
+tokenizer's `span` is relative to the text it was given, which a `> ` quote
+prefix or a block ref makes a different text.
+
 ## Lazy renderers and their caches
 
-KaTeX, beautiful-mermaid, stock mermaid, pdf.js, highlight.js and the
-`/link-local-file` picker each load behind a cached module-level `import()`
+KaTeX, beautiful-mermaid, stock mermaid, pdf.js, highlight.js, the
+`/link-local-file` picker and a query's results UI (`QueryResults`) each load behind a cached module-level `import()`
 promise, so Vite emits each as its own chunk. A rejected promise is cleared, so
 one failed fetch cannot wedge every later render.
 

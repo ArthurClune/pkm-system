@@ -1,9 +1,9 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import { splitMacroOptions, type MacroOptions } from "./macroOptions";
 import {
   formatMacroOptions, normaliseMacroOptions, optionsRefusal,
-  splitMacroOptions, type MacroOptions,
-} from "./macroOptions";
+} from "./macroOptionsWrite";
 
 // The server property's alphabet (test_macro_options.py _TEXT): the
 // refused characters are drawn so the refusal is exercised, not dodged.

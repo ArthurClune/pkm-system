@@ -393,3 +393,24 @@ it("a batch carrying a draft for a remotely deleted block stays undoable", () =>
     { op: "move", uid: "tuid-c", parent_uid: null, order_idx: 2 },
   ]);
 });
+
+it("onSetText replaces a block's text as one undo step", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, ab());
+  act(() => outline().handlers.onSetText(uidOf("tuid-a"), "alpha | x"));
+  expect(outline().blocks[0].text).toBe("alpha | x");
+  expect(sync.sent.at(-1)).toEqual([{
+    op: "update_text", uid: "tuid-a", text: "alpha | x",
+    base_text_hash: sha256Hex("alpha"), page_title: PAGE,
+  }]);
+  act(() => { outline().handlers.onUndo(); });
+  expect(outline().blocks[0].text).toBe("alpha");
+});
+
+it("onSetText with the text a block already holds sends nothing", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, ab());
+  act(() => outline().handlers.onSetText(uidOf("tuid-a"), "alpha"));
+  act(() => outline().handlers.onSetText(uidOf("tuid-gone"), "x"));
+  expect(sync.sent).toHaveLength(0);
+});

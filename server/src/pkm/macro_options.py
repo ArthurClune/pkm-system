@@ -1,7 +1,8 @@
 # pattern: Functional Core
 """The ` | name: value` options after a {{query: ...}} or {{table ...}}
-macro's head. web/src/grammar/macroOptions.ts mirrors this module; both are
-held to shared/fixtures/macro_options_parity.json.
+macro's head. web/src/grammar/macroOptions.ts (reading) and
+macroOptionsWrite.ts (writing) mirror this module; both sides are held to
+shared/fixtures/macro_options_parity.json.
 
 An option adds no refs: `refs.extract` scans the whole macro, so ref syntax
 in an option value would become a ref. `options_refusal` keeps it out at

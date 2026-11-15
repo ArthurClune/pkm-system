@@ -15,7 +15,9 @@ export function TableToolbar({ filter, onFilter, count, dirty, saved, canSave,
   /** Why this view cannot be saved; shown in Save's place. */
   refusal: string | null;
   onReset: () => void;
-  onSave: () => void;
+  /** Absent where the view cannot be saved at all (no edit access): Save
+   * and the refusal are not shown. */
+  onSave?: () => void;
   onEditAsText?: () => void;
 }) {
   return (
@@ -29,10 +31,10 @@ export function TableToolbar({ filter, onFilter, count, dirty, saved, canSave,
         <>
           <button type="button" className="btn-secondary btn-compact"
                   onClick={onReset}>Reset</button>
-          {refusal !== null
+          {onSave && (refusal !== null
             ? <span className="table-refusal">{refusal}</span>
             : <button type="button" className="btn-secondary btn-compact"
-                      disabled={!canSave} onClick={onSave}>Save this view</button>}
+                      disabled={!canSave} onClick={onSave}>Save this view</button>)}
         </>
       )}
       {onEditAsText && (

@@ -206,6 +206,7 @@ describe("ghost icon button focus ring", () => {
       ".page-title-edit",
       ".section-toggle",
       ".data-table-sort",
+      ".data-table-menu",
     ]) {
       expect(ruleFor(`${selector}:focus-visible`))
         .toContain("outline: 2px solid var(--color-link);");

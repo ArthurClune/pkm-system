@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { expect, test, vi } from "vitest";
-import { block, orderIdxOf, uidOf } from "../test-helpers";
+import { block, makeSync, orderIdxOf, stubFetch, uidOf } from "../test-helpers";
+import { SyncContext } from "../sync/SyncProvider";
 import type { BlockUid } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import type { OutlineHandlers } from "../outline/handlers";
@@ -19,7 +20,7 @@ function handlers(): OutlineHandlers {
     onBackspaceAtStart: vi.fn(),
     onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
     onSetViewType: vi.fn(),
-    onToggleTodo: vi.fn(), onFiles: vi.fn(() => Promise.resolve(false)),
+    onToggleTodo: vi.fn(), onSetText: vi.fn(), onFiles: vi.fn(() => Promise.resolve(false)),
     onGoodlinks: vi.fn(), onCopyNotice: vi.fn(), onLinkLocalFile: vi.fn(), onPasteOutline: vi.fn(),
     onStartBlockSelection: vi.fn(), onSelectBlock: vi.fn(),
     onExtendBlockSelection: vi.fn(),
@@ -1039,4 +1040,28 @@ test("ArrowDown in the block menu over a selection moves through the menu",
   expect(screen.getByRole("menuitemradio", { name: "Plain text" }))
     .toHaveFocus();
   expect(screen.getByRole("menu")).toBeInTheDocument();
+});
+
+test("a query's Save rewrites its block's own text, quote prefix and all", async () => {
+  const expr = "{and: [[Book]]}";
+  const text = `> books {{query: ${expr}}}`;
+  stubFetch([[`/api/query/records?${new URLSearchParams({ expr })}`, {
+    records: [], keys: [], total: 0 }]]);
+  const h = handlers();
+  render(
+    <SyncContext.Provider value={makeSync()}>
+      <MemoryRouter>
+        <EditableBlockTree blocks={[block("tuid-q1", text)]} focus={null}
+                           handlers={h} readOnly={false} />
+      </MemoryRouter>
+    </SyncContext.Provider>);
+  fireEvent.change(await screen.findByRole("searchbox", { name: "Filter" }),
+                   { target: { value: "kind" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save this view" }));
+  expect(h.onSetText).toHaveBeenCalledWith(
+    "tuid-q1", `> books {{query: ${expr} | filter: kind}}`);
+  expect(h.onFocusBlock).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Edit as text" }));
+  expect(h.onFocusBlock).toHaveBeenCalledWith("tuid-q1", text.length);
+  vi.unstubAllGlobals();
 });

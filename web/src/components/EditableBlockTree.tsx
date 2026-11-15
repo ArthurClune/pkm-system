@@ -533,8 +533,13 @@ const EditableBlock = memo(function EditableBlock(
               : showToc
               ? <TocBlock selfUid={node.uid} />
               : <BlockEditContext.Provider
-                  value={readOnly || fallback
-                    ? null : { toggleTodo: () => handlers.onToggleTodo(node.uid) }}>
+                  value={readOnly || fallback ? null : {
+                    toggleTodo: () => handlers.onToggleTodo(node.uid),
+                    text: node.text,
+                    setText: (next) => handlers.onSetText(node.uid, next),
+                    editAsText: () =>
+                      handlers.onFocusBlock(node.uid, node.text.length),
+                  }}>
                   <InlineSegments segments={tokenizeBlock(quoted ?? node.text)} />
                 </BlockEditContext.Provider>}
           </WrapperTag>

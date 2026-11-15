@@ -927,8 +927,28 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 /* == Query blocks == */
 .query-block { border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: 8px 12px;
   margin: 4px 0; }
-.query-header { display: flex; justify-content: space-between; font-size: 12px;
+.query-header { display: flex; flex-wrap: wrap; justify-content: space-between;
+  align-items: center; gap: 8px; font-size: 12px;
   color: var(--color-text-muted); margin-bottom: 4px; }
+/* the view switch; the shown view takes the selected look */
+.query-views { display: inline-flex; gap: 4px; }
+.query-views [aria-pressed="true"] { background: var(--color-selected-bg);
+  border-color: var(--color-border-strong); color: var(--color-text); }
+/* a record's page under a line record's text */
+.query-source { font-size: 12px; color: var(--color-text-muted); }
+/* what a cell leaves out: a key's later lines, a value's children */
+.query-cell-badge { margin-left: 6px; padding: 0 6px; font-size: 11px;
+  white-space: nowrap; color: var(--color-text-secondary);
+  background: var(--color-bg-subtle); border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill); }
+.query-cards { display: grid; gap: 10px; margin: 4px 0;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+.query-card { padding: 8px 10px; border: 1px solid var(--color-border);
+  border-radius: var(--radius-card); background: var(--color-bg-subtle); }
+.query-card.stale { opacity: 0.6; }
+.query-card-title { margin: 0 0 2px; font-size: 15px; }
+.query-card-row { margin-top: 4px; font-size: 13px; }
+.query-card-key { margin-right: 6px; color: var(--color-text-secondary); }
 
 /* == Tables == */
 /* DataTable, shared by query tables and {{table}} blocks; the cell look
@@ -949,6 +969,14 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .data-table-sort:focus-visible { outline: 2px solid var(--color-link);
   outline-offset: -2px; }
 .data-table-arrow { font-size: 10px; color: var(--color-text-muted); }
+/* a header with a column menu: the sort button keeps the rest of the th */
+.data-table-head { display: flex; align-items: stretch; }
+.data-table-head .data-table-sort { flex: 1; min-width: 0; }
+.data-table-menu { padding: 0 6px; font: inherit; color: var(--color-text-muted);
+  background: none; border: none; cursor: pointer; }
+.data-table-menu:hover { color: var(--color-text); }
+.data-table-menu:focus-visible { outline: 2px solid var(--color-link);
+  outline-offset: -2px; }
 .data-table tr.stale { opacity: 0.6; }
 .data-table-stale-label { margin-left: 6px; font-size: 12px; font-style: italic;
   color: var(--color-text-muted); white-space: nowrap; }

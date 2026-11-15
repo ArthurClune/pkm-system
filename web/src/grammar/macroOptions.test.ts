@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  formatMacroOptions, normaliseMacroOptions, optionsRefusal,
-  rewriteMacroOptions, splitMacroOptions, tableMacroOptions,
-  type MacroOptions,
+  splitMacroOptions, tableMacroOptions, type MacroOptions,
 } from "./macroOptions";
+import {
+  formatMacroOptions, normaliseMacroOptions, optionsRefusal,
+  rewriteMacroOptions,
+} from "./macroOptionsWrite";
 
 // The server writes it (pkm.macro_options_parity_dump) from
 // pkm.macro_options, which this module mirrors.

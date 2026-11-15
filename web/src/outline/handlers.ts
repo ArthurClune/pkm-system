@@ -64,6 +64,9 @@ export interface OutlineHandlers {
   onSetHeading(uid: BlockUid, heading: HeadingLevel | null): void;
   onSetViewType(uid: BlockUid, viewType: "numbered" | "document"): void;
   onToggleTodo(uid: BlockUid): void;
+  /** Replace the block's whole text, as one undo step: what a surface
+   * rendered inside the block (a query's Save, a table cell) writes. */
+  onSetText(uid: BlockUid, text: string): void;
   /** Resolves once the uploads have finished: true when something landed
    * (each upload as its own block after `uid`, or in `uid` when it was
    * empty), false when nothing did (every upload failed, or the command was

@@ -534,6 +534,13 @@ export function useOutline(
       const ops: BlockOp[] = [{ op: "update_text", uid, text: flipped }];
       return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
     }),
+    onSetText: (uid, text) => run((b) => {
+      if ((findNode(b, uid)?.text ?? text) === text) {
+        return { blocks: b, ops: [], focus: null };
+      }
+      const ops: BlockOp[] = [{ op: "update_text", uid, text }];
+      return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
+    }),
     onFiles: (uid, files) => uploadAndPlace(files, [],
       (b, texts, uids) => planUploadBlocks(b, pageTitle, uid, texts, uids,
                                            focusRef.current?.uid ?? null)),

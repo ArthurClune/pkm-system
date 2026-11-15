@@ -1,8 +1,9 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
-  formatMacroOptions, splitMacroOptions,
+  splitMacroOptions,
 } from "../grammar/macroOptions";
+import { formatMacroOptions } from "../grammar/macroOptionsWrite";
 import {
   initialView, isDirty, optionsFromView, stepView, viewFromOptions,
   type ViewDefaults, type ViewEvent, type ViewFields, type ViewState,

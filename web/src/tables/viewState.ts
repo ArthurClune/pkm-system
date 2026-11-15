@@ -5,8 +5,9 @@
 // is lost when the block unmounts, so this state belongs to the mounted
 // block, never to the cache.
 import {
-  type MacroOptions, type MacroView, normaliseMacroOptions, type SortDir,
+  type MacroOptions, type MacroView, type SortDir,
 } from "../grammar/macroOptions";
+import { normaliseMacroOptions } from "../grammar/macroOptionsWrite";
 
 export interface ViewFields {
   filter: string;

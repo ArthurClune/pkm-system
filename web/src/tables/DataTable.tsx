@@ -33,13 +33,15 @@ export interface DataTableProps<R> {
   /** Shown with the open editor: a warning before the write. */
   cellHint?: (r: R, c: Column) => ReactNode;
   suggest?: (r: R, c: Column, typed: string) => Suggestion[];
+  /** Rendered in each header after its sort button: a column menu. */
+  headerMenu?: (c: Column) => ReactNode;
 }
 
 const IDLE: EditorState = { kind: "idle" };
 
 export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
                                sort, onSortClick, staleIds, canEdit, onWrite,
-                               cellHint, suggest }: DataTableProps<R>) {
+                               cellHint, suggest, headerMenu }: DataTableProps<R>) {
   const [editor, setEditor] = useState<EditorState>(IDLE);
   // Read by dispatch, which can run twice before a re-render (the capture
   // mousedown commits, then the click opens another cell).
@@ -147,19 +149,24 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
           <tr>
             {columns.map((c) => {
               const dir = sort?.col === c.key ? sort.dir : null;
+              const button = (
+                <button type="button" className="data-table-sort"
+                        onClick={() => onSortClick(c.key)}>
+                  {c.label}
+                  {dir !== null && (
+                    <span className="data-table-arrow" aria-hidden="true">
+                      {dir === "asc" ? "▲" : "▼"}
+                    </span>
+                  )}
+                </button>
+              );
               return (
                 <th key={c.key} className={c.numeric ? "numeric" : undefined}
                     aria-sort={dir === null ? undefined
                       : dir === "asc" ? "ascending" : "descending"}>
-                  <button type="button" className="data-table-sort"
-                          onClick={() => onSortClick(c.key)}>
-                    {c.label}
-                    {dir !== null && (
-                      <span className="data-table-arrow" aria-hidden="true">
-                        {dir === "asc" ? "▲" : "▼"}
-                      </span>
-                    )}
-                  </button>
+                  {headerMenu
+                    ? <div className="data-table-head">{button}{headerMenu(c)}</div>
+                    : button}
                 </th>
               );
             })}

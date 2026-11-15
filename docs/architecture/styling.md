@@ -77,7 +77,10 @@ Buttons and fields are styled by named class, and there is no bare
   Its popup, `.cell-editor-popup`, is portalled and `position: fixed`, since
   the scroll box would clip an absolute one. It holds the outline's
   `.ac-popup` with the frame removed. `.table-toolbar` holds the filter, an
-  `.input-control`.
+  `.input-control`. A header with a column menu wraps the sort button and
+  `.data-table-menu` in `.data-table-head`. A query block adds `.query-views`
+  (the view switch, `aria-pressed` on the shown view), `.query-cards` and
+  `.query-cell-badge`.
 - **Anchors among buttons.** The global `a` rule sets `font-weight: 600`, so
   an anchor placed among buttons pins its weight in its own component rule.
 

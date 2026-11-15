@@ -13,7 +13,7 @@
 //   filter, sort, view or columns change, Reset, or the block unmounts.
 // The held rows are not state here: the run derives them from the steps
 // since the last of those (`heldRows`).
-import { formatMacroOptions } from "../../grammar/macroOptions";
+import { formatMacroOptions } from "../../grammar/macroOptionsWrite";
 import type { ViewFields } from "../../tables/viewState";
 import type { ViewStep } from "./arbitraries";
 

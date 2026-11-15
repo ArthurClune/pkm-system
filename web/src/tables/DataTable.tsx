@@ -3,9 +3,10 @@
 // headers, one cell editor at a time driven by stepEditor, and the rows
 // marked stale after an edit. What a write does is the caller's: onWrite
 // gets the row, the column and the trimmed value.
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { neighbourCell, stepEditor, type CellRef, type EditorEvent,
-         type EditorState } from "./cellEditor";
+import { useEffect, useLayoutEffect, useRef, useState,
+         type ReactNode } from "react";
+import { neighbourCell, stepEditor, type CellRef, type EditorEffect,
+         type EditorEvent, type EditorState } from "./cellEditor";
 import { CellTextarea, type Suggestion } from "./CellTextarea";
 import { island } from "./island";
 import type { ViewFields } from "./viewState";
@@ -53,15 +54,19 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
   const order: CellRef[] = rows.flatMap((r) => columns.filter(editable)
     .map((c) => ({ row: rowId(r), col: c.key })));
 
-  const dispatch = (event: EditorEvent) => {
-    const { state, effects } = stepEditor(editorRef.current, event);
-    editorRef.current = state;
-    setEditor(state);
+  const runWrites = (effects: EditorEffect[]) => {
     for (const w of effects) {
       const r = byId.get(w.cell.row) ?? openRows.current.get(w.cell.row);
       const c = byKey.get(w.cell.col);
       if (r !== undefined && c !== undefined) onWrite(r, c, w.value);
     }
+  };
+
+  const dispatch = (event: EditorEvent) => {
+    const { state, effects } = stepEditor(editorRef.current, event);
+    editorRef.current = state;
+    setEditor(state);
+    runWrites(effects);
     const keep = state.kind === "editing"
       ? openRows.current.get(state.cell.row) : undefined;
     openRows.current.clear();
@@ -101,6 +106,31 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
       dispatch({ kind: "outside" });
     }
   });
+
+  // A table unmounted with a cell open (keyboard navigation away) commits
+  // it. React runs the host's effect cleanups before this one, so onWrite
+  // may be called after the host's own cleanup, in the same commit.
+  const commitOnUnmount = useRef(() => {});
+  useLayoutEffect(() => {
+    commitOnUnmount.current = () => {
+      const { effects } = stepEditor(editorRef.current, { kind: "outside" });
+      editorRef.current = IDLE;
+      runWrites(effects);
+    };
+  });
+  useEffect(() => {
+    const commit = commitOnUnmount;
+    return () => commit.current();
+  }, []);
+
+  // The capture mousedown and the blur both report leaving, and the second
+  // must not close a cell opened since: Tab's next cell, or a clicked one.
+  const leave = (id: string, col: string) => () => {
+    const cur = editorRef.current;
+    if (cur.kind === "editing" && cur.cell.row === id && cur.cell.col === col) {
+      dispatch({ kind: "outside" });
+    }
+  };
 
   const onCellClick = (e: React.MouseEvent, r: R, c: Column) => {
     if ((e.target as Element).closest("a")) return;
@@ -156,7 +186,7 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
                             onDraft={(draft) => dispatch({ kind: "input", draft })}
                             onCommit={() => dispatch({ kind: "commit" })}
                             onCancel={() => dispatch({ kind: "cancel" })}
-                            onOutside={() => dispatch({ kind: "outside" })}
+                            onOutside={leave(id, c.key)}
                             onTab={tab}
                             hint={cellHint?.(r, c)}
                             suggest={suggest

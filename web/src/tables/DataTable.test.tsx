@@ -42,6 +42,7 @@ function editor(): HTMLTextAreaElement {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -134,6 +135,61 @@ describe("DataTable editing", () => {
     fireEvent.change(editor(), { target: { value: "Unread" } });
     fireEvent.mouseDown(screen.getByRole("button", { name: "other" }));
     expect(onWrite).toHaveBeenCalledWith(ROWS[0], COLUMNS[1], "Unread");
+  });
+
+  it("a mousedown in the open cell's own padding keeps it open", () => {
+    const { onWrite } = mount();
+    fireEvent.click(cell(0, "status"));
+    fireEvent.change(editor(), { target: { value: "Unread" } });
+    expect(fireEvent.mouseDown(cell(0, "status"))).toBe(false);
+    fireEvent.click(cell(0, "status"));
+    expect(onWrite).not.toHaveBeenCalled();
+    expect(editor().value).toBe("Unread");
+    fireEvent.keyDown(editor(), { key: "Enter" });
+    expect(onWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("focus moving elsewhere by keyboard commits", () => {
+    const onWrite = vi.fn();
+    render(<>
+      <input aria-label="search" />
+      <DataTable columns={COLUMNS} rows={ROWS} rowId={(r) => r.id}
+                 renderCell={(r, c) => r[c.key as keyof Row]}
+                 rawValue={(r, c) => r[c.key as keyof Row]}
+                 sort={null} onSortClick={vi.fn()} canEdit onWrite={onWrite} />
+    </>);
+    fireEvent.click(cell(0, "status"));
+    fireEvent.change(editor(), { target: { value: "Unread" } });
+    act(() => { screen.getByRole("textbox", { name: "search" }).focus(); });
+    expect(onWrite).toHaveBeenCalledWith(ROWS[0], COLUMNS[1], "Unread");
+    expect(onWrite).toHaveBeenCalledTimes(1);
+    expect(editor()).toBeNull();
+  });
+
+  it("the window losing focus leaves the cell open", () => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    const { onWrite } = mount();
+    fireEvent.click(cell(0, "status"));
+    fireEvent.change(editor(), { target: { value: "Unread" } });
+    fireEvent.blur(editor(), { relatedTarget: null });
+    expect(onWrite).not.toHaveBeenCalled();
+    expect(editor().value).toBe("Unread");
+  });
+
+  it("a table unmounted with a changed cell open commits it", () => {
+    const { onWrite, unmount } = mount();
+    fireEvent.click(cell(0, "status"));
+    fireEvent.change(editor(), { target: { value: "Unread" } });
+    unmount();
+    expect(onWrite).toHaveBeenCalledWith(ROWS[0], COLUMNS[1], "Unread");
+    expect(onWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("a table unmounted with an unchanged cell open writes nothing", () => {
+    const { onWrite, unmount } = mount();
+    fireEvent.click(cell(0, "status"));
+    unmount();
+    expect(onWrite).not.toHaveBeenCalled();
   });
 
   it("clicking another cell commits the open one and opens that one", () => {
@@ -301,6 +357,18 @@ describe("DataTable suggestions and hints", () => {
     mount({ cellHint: (r) => r.id === "b" ? "No Status:: here" : null });
     fireEvent.click(cell(1, "status"));
     expect(screen.getByText("No Status:: here")).toBeInTheDocument();
+  });
+
+  it("listens for scrolls only while the popup shows", () => {
+    const listen = vi.spyOn(window, "addEventListener");
+    const scrollListeners = () =>
+      listen.mock.calls.filter((call) => String(call[0]) === "scroll").length;
+    mount({ suggest });
+    fireEvent.click(cell(0, "year"));
+    fireEvent.change(editor(), { target: { value: "zzz" } });
+    expect(scrollListeners()).toBe(0);
+    fireEvent.change(editor(), { target: { value: "R" } });
+    expect(scrollListeners()).toBe(1);
   });
 
   it("shows no popup when there is nothing to suggest or say", () => {

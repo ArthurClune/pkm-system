@@ -85,22 +85,39 @@ export function CellTextarea({ label, draft, onDraft, onCommit, onCancel, onTab,
   }, [draft]);
 
   // Capture phase: a mousedown on a surface that stops its propagation
-  // (a popover, a link island) must still commit the cell.
+  // (a popover, a link island) must still commit the cell. The open cell's
+  // own padding is inside: committing there and letting the click reopen
+  // the cell would show the value from before the write.
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
       const target = e.target as Node;
-      if (ref.current?.contains(target)
-          || popupRef.current?.contains(target)) return;
+      const el = ref.current;
+      if (el?.contains(target) || popupRef.current?.contains(target)) return;
+      if (el?.closest("td")?.contains(target)) {
+        e.preventDefault();
+        return;
+      }
       onOutsideRef.current();
     };
-    const onScroll = () => setScrolls((n) => n + 1);
     document.addEventListener("mousedown", onDown, true);
-    window.addEventListener("scroll", onScroll, true);
-    return () => {
-      document.removeEventListener("mousedown", onDown, true);
-      window.removeEventListener("scroll", onScroll, true);
-    };
+    return () => document.removeEventListener("mousedown", onDown, true);
   }, []);
+
+  useEffect(() => {
+    if (!showPopup) return;
+    const onScroll = () => setScrolls((n) => n + 1);
+    window.addEventListener("scroll", onScroll, true);
+    return () => window.removeEventListener("scroll", onScroll, true);
+  }, [showPopup]);
+
+  // Focus leaving by keyboard (Cmd-U to search) commits, as a click
+  // elsewhere does. The window losing focus is not the reader leaving.
+  const onBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    const to = e.relatedTarget;
+    if (to !== null && popupRef.current?.contains(to)) return;
+    if (to === null && !document.hasFocus()) return;
+    onOutsideRef.current();
+  };
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -180,6 +197,7 @@ export function CellTextarea({ label, draft, onDraft, onCommit, onCancel, onTab,
     <>
       <textarea ref={ref} className="cell-editor" rows={1} aria-label={label}
                 value={draft} onChange={onChange} onKeyDown={onKeyDown}
+                onBlur={onBlur}
                 onClick={(e) => ac.resolve(e.currentTarget)} />
       {showPopup && createPortal(
         <div ref={popupRef} className="cell-editor-popup"

@@ -407,6 +407,31 @@ test("Shift+Cmd+Arrow moves a selection before plain Shift handling", () => {
   expect(h.onExtendBlockSelection).not.toHaveBeenCalled();
 });
 
+// A table renders its cell editor and filter inside a block row, and a
+// click there stops propagating, so the block selection stays standing.
+test("keys typed into a field inside a block leave a selection alone", () => {
+  const writeText = vi.fn();
+  Object.defineProperty(navigator, "clipboard", {
+    value: { writeText }, configurable: true,
+  });
+  const h = handlers();
+  const { container } = mountSelected(h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") });
+  const row = container.querySelector('.block-row[data-uid="tuid-u1"]')!;
+  const cell = row.appendChild(document.createElement("textarea"));
+  const filter = row.appendChild(document.createElement("input"));
+
+  for (const field of [cell, filter]) {
+    expect(fireEvent.keyDown(field, {
+      key: "ArrowUp", shiftKey: true, metaKey: true,
+    })).toBe(true);
+    expect(fireEvent.keyDown(field, { key: "c", metaKey: true })).toBe(true);
+    expect(fireEvent.keyDown(field, { key: "Backspace" })).toBe(true);
+  }
+  expect(h.onMoveSelectionUp).not.toHaveBeenCalled();
+  expect(h.onDeleteBlockSelection).not.toHaveBeenCalled();
+  expect(writeText).not.toHaveBeenCalled();
+});
+
 test("selected Option+Arrow remains unhandled", () => {
   const h = handlers();
   const { container } = mountSelected(h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") });

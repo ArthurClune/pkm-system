@@ -5,7 +5,7 @@ status: completed
 type: task
 priority: normal
 created_at: 2026-11-15T16:08:09Z
-updated_at: 2026-11-15T18:57:09Z
+updated_at: 2026-11-15T19:08:13Z
 parent: pkm-l79g
 ---
 
@@ -20,3 +20,11 @@ Task 11 of docs/superpowers/plans/2026-11-15-tables-and-queries.md.
 - `web/src/tables/island.ts`: stops clicks and plain keys at a table surface's root so the host block never sees them; Cmd/Ctrl chords go on to the app's window shortcuts.
 - `TableToolbar.tsx`, `WriteNotice.tsx`; `placeUnderAnchor` in `popoverPosition.ts`; `supportsFieldSizing` exported from `useBlockDraft.ts`.
 - Styles in `styles.css` § Tables; documented in `docs/architecture/styling.md` § Controls and § Focus.
+
+
+Review fixes:
+- With a block selection active, Shift-Cmd-ArrowUp or Cmd-C in a table's cell or filter used to act on the selected outline blocks. Cause: the click into the table stops propagating, so the selection survives, and `EditableBlockTree`'s keydown read the chords. Fix: that keydown now ignores editable targets (`isEditableTarget`, shared with `UndoRedoKeys` in `web/src/editableTarget.ts`).
+- The cell editor no longer commits on a mousedown in the open cell's own padding.
+- It commits when focus leaves by keyboard. It does not commit when the window loses focus.
+- An open cell that has changed commits when the table unmounts.
+- The scroll listener runs only while the popup shows.

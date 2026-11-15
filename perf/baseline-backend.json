@@ -1,5 +1,5 @@
 {
-  "commit": "ca3cc74d",
+  "commit": "4db3b6eb+dirty",
   "env": {
     "python": "3.12.10",
     "sqlite": "3.47.1"
@@ -628,6 +628,32 @@
       "vm_steps_k": {
         "class": "exact",
         "value": 35
+      }
+    },
+    "query/records": {
+      "bytes": {
+        "class": "exact",
+        "value": 114314
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 8.95
+      },
+      "statements": {
+        "class": "exact",
+        "value": 6
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 77
       }
     },
     "rename/hub": {

@@ -116,6 +116,7 @@ def scenarios(lm: Landmarks, max_seq: int) -> list[Scenario]:
         g("todos/all", "/api/todos"),
         g("changed/week", "/api/changed", since="2026-06-08"),
         g("query/and-not", "/api/query", expr=f"{{and: [[{lm.hub}]] {{not: [[Hub Beta]]}}}}"),
+        g("query/records", "/api/query/records", expr=f"{{and: [[{lm.hub}]] {{not: [[Hub Beta]]}}}}"),
         g("sidebar", "/api/sidebar"),
         g("sync/snapshot", "/api/sync/snapshot"),
         g("sync/changes-mid", "/api/sync/changes", since=max_seq // 2),

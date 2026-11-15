@@ -96,6 +96,8 @@ class Row(TypedDict, total=False):
     src_page_id: PageId
     src_page_title: CanonicalTitle
     next_order_idx: OrderIdx
+    # A block's attribute page title, NULL when it has none
+    attribute_title: CanonicalTitle | None
     next_sidebar_order_idx: SidebarOrderIdx
     latest_seq: SyncSeq
     # The proptest sync server's own logs (tooling/proptest/sync_server.py)

@@ -73,11 +73,13 @@ def walk_blocks(nodes: Sequence[BlockNode]) -> Iterator[BlockNode]:
 
 
 def _omit_empty(model: BaseModel, handler: SerializerFunctionWrapHandler,
-                field: str) -> object:
-    """Serialize `model`, leaving `field` out when it is empty."""
+                *fields: str) -> object:
+    """Serialize `model`, leaving out each of `fields` that is empty."""
     data = handler(model)
-    if isinstance(data, dict) and not data.get(field):
-        data.pop(field, None)
+    if isinstance(data, dict):
+        for field in fields:
+            if not data.get(field):
+                data.pop(field, None)
     return data
 
 
@@ -278,12 +280,7 @@ class RecordCell(StrictModel):
     @model_serializer(mode="wrap")
     def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
         # No return annotation: pydantic reads it into the OpenAPI schema.
-        data = handler(self)
-        if isinstance(data, dict):
-            for field in ("extra_uids", "child_count"):
-                if not data.get(field):
-                    data.pop(field, None)
-        return data
+        return _omit_empty(self, handler, "extra_uids", "child_count")
 
 
 class QueryRecordModel(StrictModel):
@@ -314,6 +311,15 @@ class KeyStat(StrictModel):
     key: CanonicalTitle
     label: str
     count: int
+
+
+class QueryRecordsPayload(StrictModel):
+    """GET /api/query/records: one record per row, in the order of each
+    one's first result, and the column candidates ranked by how many
+    records hold them. `total` counts records, not results."""
+    records: list[QueryRecordModel]
+    keys: list[KeyStat]
+    total: int
 
 
 class ChangedItem(StrictModel):

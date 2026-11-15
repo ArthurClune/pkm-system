@@ -69,13 +69,21 @@ class RecordsResult:
     keys: list[KeyStat]
 
 
+def page_record_key(page_id: PageId) -> str:
+    return f"page:{page_id}"
+
+
+def line_record_key(uid: BlockUid) -> str:
+    return f"block:{uid}"
+
+
 def record_key(r: ResultBlock) -> tuple[str, RecordKind, BlockUid | None]:
     """The record `r` belongs to: its key, kind and line uid."""
     if r.attribute is not None:
         if r.parent_uid is None:
-            return f"page:{r.page_id}", "page", None
-        return f"block:{r.parent_uid}", "line", r.parent_uid
-    return f"block:{r.uid}", "line", r.uid
+            return page_record_key(r.page_id), "page", None
+        return line_record_key(r.parent_uid), "line", r.parent_uid
+    return line_record_key(r.uid), "line", r.uid
 
 
 def _cell(first: AttrBlock, extra_uids: list[BlockUid]) -> RecordCell | None:

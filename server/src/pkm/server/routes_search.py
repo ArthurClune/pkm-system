@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from pkm.changed import ChangedWindowError, classify, local_tz, parse_window
 from pkm.contracts.responses import (
-    ChangedPayload, GroupsPayload, QueryPayload, SearchBlockHit,
-    SearchPageHit, SearchPayload, TitlesPayload)
+    ChangedPayload, GroupsPayload, QueryPayload, QueryRecordsPayload,
+    SearchBlockHit, SearchPageHit, SearchPayload, TitlesPayload)
 from pkm.contracts.int64 import Int64
 from pkm.database import Db
 from pkm.server.ancestors_db import fetch_parents
@@ -24,6 +24,7 @@ from pkm.server.query import (
     plan_sql, QueryParseError)
 from pkm.server.query_exec import (
     count_matches, execute_plan, page_queries, parse_canonical_query)
+from pkm.server.query_records_db import fetch_records
 from pkm.server.sync_meta import read_title
 from pkm.todo import is_todo
 
@@ -78,6 +79,19 @@ def run_query(expr: str, expand: bool = False,
     return QueryPayload(
         groups=group_query_results(matches.rows, ancestors), total=matches.total,
         ref_counts=ref_counts)
+
+
+@router.get("/api/query/records", response_model=QueryRecordsPayload)
+def query_records(expr: str,
+                  db: Db = Depends(get_db)) -> QueryRecordsPayload:
+    try:
+        node = parse_canonical_query(db, expr)
+        sql, params = plan_sql(node)
+    except QueryParseError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    found = fetch_records(db, sql, params)
+    return QueryRecordsPayload(records=found.records, keys=found.keys,
+                               total=len(found.records))
 
 
 @router.get("/api/titles", response_model=TitlesPayload)

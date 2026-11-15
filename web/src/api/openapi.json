@@ -743,6 +743,45 @@
         }
       }
     },
+    "/api/query/records": {
+      "get": {
+        "summary": "Query Records",
+        "operationId": "query_records_api_query_records_get",
+        "parameters": [
+          {
+            "name": "expr",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Expr"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryRecordsPayload"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/titles": {
       "get": {
         "summary": "Titles",
@@ -3739,6 +3778,31 @@
         ],
         "title": "JournalPayload"
       },
+      "KeyStat": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key",
+            "x-brand": "CanonicalTitle"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "count"
+        ],
+        "title": "KeyStat",
+        "description": "A column candidate: an attribute page, how many records hold it, and\n`label`, its first spelling in record order."
+      },
       "LocalCheckPayload": {
         "properties": {
           "enabled": {
@@ -4253,6 +4317,196 @@
         ],
         "title": "QueryPayload",
         "description": "GET /api/query: groups plus per-operand match counts so an empty\nresult is steerable (bad query shape vs genuinely nothing)."
+      },
+      "QueryRecordModel": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "page",
+              "line"
+            ],
+            "title": "Kind"
+          },
+          "page_id": {
+            "type": "integer",
+            "title": "Page Id",
+            "x-brand": "PageId"
+          },
+          "page_title": {
+            "type": "string",
+            "title": "Page Title",
+            "x-brand": "CanonicalTitle"
+          },
+          "uid": {
+            "anyOf": [
+              {
+                "type": "string",
+                "x-brand": "BlockUid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uid"
+          },
+          "row_title": {
+            "type": "string",
+            "title": "Row Title"
+          },
+          "result_uids": {
+            "items": {
+              "type": "string",
+              "x-brand": "BlockUid"
+            },
+            "type": "array",
+            "title": "Result Uids"
+          },
+          "cells": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RecordCell"
+            },
+            "propertyNames": {
+              "x-brand": "CanonicalTitle"
+            },
+            "type": "object",
+            "title": "Cells"
+          },
+          "insert_parent_uid": {
+            "anyOf": [
+              {
+                "type": "string",
+                "x-brand": "BlockUid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insert Parent Uid"
+          },
+          "insert_before_order_idx": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "x-brand": "OrderIdx"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insert Before Order Idx"
+          },
+          "last_attr_order_idx": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "x-brand": "OrderIdx"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attr Order Idx"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "kind",
+          "page_id",
+          "page_title",
+          "uid",
+          "row_title",
+          "result_uids",
+          "cells",
+          "insert_parent_uid",
+          "insert_before_order_idx",
+          "last_attr_order_idx"
+        ],
+        "title": "QueryRecordModel",
+        "description": "A query table row: a page (`kind` \"page\", `uid` None) or a line,\nwith the uids of the query results that map to it. `row_title` is the\npage title or the line's text as written; it is not named `title`, a\nname that must carry a title brand. `cells` are keyed by\nattribute page title. A new `::` line goes under `insert_parent_uid`\n(None: top level of the page), before the sibling at\n`insert_before_order_idx`; with no such sibling, after the record's\nlast `::` line at `last_attr_order_idx`, or first when it has none."
+      },
+      "QueryRecordsPayload": {
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/QueryRecordModel"
+            },
+            "type": "array",
+            "title": "Records"
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/KeyStat"
+            },
+            "type": "array",
+            "title": "Keys"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "records",
+          "keys",
+          "total"
+        ],
+        "title": "QueryRecordsPayload",
+        "description": "GET /api/query/records: one record per row, in the order of each\none's first result, and the column candidates ranked by how many\nrecords hold them. `total` counts records, not results."
+      },
+      "RecordCell": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "title": "Uid",
+            "x-brand": "BlockUid"
+          },
+          "key_raw": {
+            "type": "string",
+            "title": "Key Raw"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "value_start": {
+            "type": "integer",
+            "title": "Value Start"
+          },
+          "extra_uids": {
+            "items": {
+              "type": "string",
+              "x-brand": "BlockUid"
+            },
+            "type": "array",
+            "title": "Extra Uids"
+          },
+          "child_count": {
+            "type": "integer",
+            "title": "Child Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "key_raw",
+          "text",
+          "value",
+          "value_start"
+        ],
+        "title": "RecordCell",
+        "description": "One record's `::` line for one column. `text` is the block as\nwritten, `key_raw` its key as spelled there, and `value` the text after\n`::`, leading whitespace trimmed and line breaks kept. `value_start`\nis where the value would begin in `text`, just past the `::`, so\n`text[:value_start]` is the key part a commit rewrites the value after.\n`extra_uids` are the record's later lines for the same key, and\n`child_count` the first line's children; neither is shown in the cell,\nand both are left out when empty."
       },
       "RenamePageRequest": {
         "properties": {

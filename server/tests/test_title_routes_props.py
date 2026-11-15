@@ -394,6 +394,8 @@ READS: dict[tuple[str, str, str], Request] = {
         lambda x: ("GET", f"/api/changed?since=2000-01-01&page={quote(x, safe='')}", None),
     ("GET", "/api/query", "expr"):
         lambda x: ("GET", f"/api/query?expr={quote(f'{{and: [[{x}]]}}', safe='')}", None),
+    ("GET", "/api/query/records", "expr"):
+        lambda x: ("GET", f"/api/query/records?expr={quote(f'{{and: [[{x}]]}}', safe='')}", None),
 }
 
 WRITES: dict[tuple[str, str, str], Request] = {
